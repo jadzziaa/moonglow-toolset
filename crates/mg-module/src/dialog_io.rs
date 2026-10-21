@@ -159,24 +159,12 @@ type Params = Vec<(String, String)>;
 
 /// The parameters in a list.
 fn params(s: &Struct, label: &str) -> Params {
-    let list = s.list(label).unwrap_or(&[]);
-    list.iter().map(|p| (string(p, "Key"), string(p, "Value"))).collect()
+    crate::dialog::params_in(s, label, CODEPAGE)
 }
 
 /// A parameter list, as Aurora writes it.
 fn params_list(params: &Params) -> Value {
-    Value::List(
-        params
-            .iter()
-            .enumerate()
-            .map(|(i, (k, v))| {
-                let mut s = Struct::new(i as u32);
-                s.set("Key", string_value(k));
-                s.set("Value", string_value(v));
-                s
-            })
-            .collect(),
-    )
+    crate::dialog::params_value_in(params, CODEPAGE)
 }
 
 /// What a parameter's name or value has percent-escaped (`%22`), in Ink

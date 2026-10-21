@@ -201,18 +201,15 @@ fn replace(key: ResKey, what: &str, g: &Gff) -> Action {
     Action::Apply(Command::new(what, vec![Edit::SetResource { key, data: g.to_bytes().ok() }]))
 }
 
-/// The key/value pairs of a parameter list.
+/// The key/value pairs of a parameter list, in the game's codepage (as
+/// [`params_value`] writes them).
 fn params(s: &Struct, label: &str) -> Vec<(String, String)> {
-    s.list(label)
-        .unwrap_or(&[])
-        .iter()
-        .map(|p| {
-            (
-                decode(p.string("Key").unwrap_or_default()),
-                decode(p.string("Value").unwrap_or_default()),
-            )
-        })
-        .collect()
+    mg_module::dialog::params_in(s, label, crate::text::game_codepage())
+}
+
+/// A parameter list, in the game's codepage (as [`params`] reads it).
+fn params_value(pairs: &[(String, String)]) -> Value {
+    mg_module::dialog::params_value_in(pairs, crate::text::game_codepage())
 }
 
 /// The conversation editor, over its OK and Cancel
@@ -1228,13 +1225,7 @@ fn script_with_params(
     if commit {
         ui.ctx().data_mut(|d| d.remove_temp::<Vec<(String, String)>>(buf_id));
         if pairs != stored {
-            actions.push(set(
-                key,
-                "Script parameters",
-                path.clone(),
-                list,
-                mg_module::dialog::params_value(&pairs),
-            ));
+            actions.push(set(key, "Script parameters", path.clone(), list, params_value(&pairs)));
         }
     } else if focused {
         ui.ctx().data_mut(|d| d.insert_temp(buf_id, pairs));

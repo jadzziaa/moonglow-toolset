@@ -2880,6 +2880,67 @@ fn the_conversation_editor_s_lower_pane_keeps_its_size() {
     assert!(shorter > taller + 240.0, "dragged shorter: {taller} → {shorter}");
 }
 
+/// A script parameter typed in the conversation editor is saved in the
+/// game's codepage, the one it is shown in: "é" as the byte 0xE9, shown
+/// back as "é" (it was saved as UTF-8, two bytes shown back as "Ã©").
+#[test]
+fn conversation_script_parameters_are_saved_in_the_game_s_codepage() {
+    use mg_module::dialog::{Kind, Parent, add_node, new_dialog, node};
+    let dir = mg_testkit::scratch_dir("ui-dialog-params");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("talk", ResType::DLG).unwrap();
+    let mut g = new_dialog();
+    add_node(&mut g, Parent::Root, "Hello there.");
+    let mut m = Module::open(&path).unwrap();
+    m.set_gff(key, &g).unwrap();
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Dialog(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 900.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.get_by_label_contains("Hello there.").click();
+    h.run_steps(3);
+    h.get_by_label("Actions Taken").click();
+    h.run_steps(3);
+    h.get_by_label("+").click();
+    h.run_steps(3);
+    let fields = |h: &Harness<'_, Moonglow>| -> Vec<egui::Rect> {
+        h.get_all_by_role(egui::accesskit::Role::TextInput).map(|n| n.rect()).collect()
+    };
+    // The new parameter's name and value: the last two fields.
+    let at = fields(&h);
+    let (name, value) = (at[at.len() - 2], at[at.len() - 1]);
+    for (rect, text) in [(name, "who"), (value, "café")] {
+        h.get_all_by_role(egui::accesskit::Role::TextInput)
+            .find(|n| n.rect() == rect)
+            .unwrap()
+            .click();
+        h.run();
+        h.get_all_by_role(egui::accesskit::Role::TextInput)
+            .find(|n| n.rect() == rect)
+            .unwrap()
+            .type_text(text);
+        h.run();
+    }
+    h.key_press(egui::Key::Tab);
+    h.run_steps(3);
+    let g = h.state_mut().ws.as_mut().unwrap().doc(&key).unwrap().clone();
+    let line = node(&g, Kind::Entry, 0).unwrap();
+    let p = &line.list("ActionParams").unwrap()[0];
+    assert_eq!(p.string("Key"), Some(&b"who"[..]));
+    assert_eq!(p.string("Value"), Some(&b"caf\xe9"[..]));
+    // Shown back as typed.
+    let shown: Vec<String> = h
+        .get_all_by_role(egui::accesskit::Role::TextInput)
+        .filter_map(|n| n.accesskit_node().value())
+        .collect();
+    assert!(shown.iter().any(|v| v == "café"), "{shown:?}");
+    assert!(!shown.iter().any(|v| v.contains('Ã')), "{shown:?}");
+}
+
 /// The conversation editor's text has a size of its own (Options ›
 /// Conversation Editor): its lines and the fields under them, and nothing
 /// outside it.

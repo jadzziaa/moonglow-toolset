@@ -13,7 +13,6 @@ use std::collections::{HashMap, HashSet};
 
 use mg_core::{Gender, Language, LocString, ResRef};
 use mg_gff::{Gff, Struct, Value};
-use mg_schema::ExoString;
 
 /// The end-of-conversation script Aurora sets on a new conversation.
 pub const END_SCRIPT: &str = "nw_walk_wp";
@@ -648,20 +647,36 @@ pub fn outline(g: &Gff) -> Vec<String> {
     out
 }
 
-/// A key/value parameter list (`ConditionParams`, `ActionParams`).
+/// A key/value parameter list (`ConditionParams`, `ActionParams`), in
+/// Windows-1252 ([`params_value_in`]).
 pub fn params_value(pairs: &[(String, String)]) -> Value {
+    params_value_in(pairs, mg_core::Codepage::WINDOWS_1252)
+}
+
+/// A key/value parameter list (`ConditionParams`, `ActionParams`), its
+/// names and values in a codepage (the game's: a character it lacks is a
+/// "?"), as Aurora writes it.
+pub fn params_value_in(pairs: &[(String, String)], codepage: mg_core::Codepage) -> Value {
     Value::List(
         pairs
             .iter()
             .enumerate()
             .map(|(i, (k, v))| {
                 let mut s = Struct::new(i as u32);
-                s.set("Key", Value::String(ExoString::from(k.as_str()).0));
-                s.set("Value", Value::String(ExoString::from(v.as_str()).0));
+                s.set("Key", Value::String(codepage.encode_lossy(k)));
+                s.set("Value", Value::String(codepage.encode_lossy(v)));
                 s
             })
             .collect(),
     )
+}
+
+/// The key/value pairs of a parameter list (`ConditionParams`,
+/// `ActionParams`) under a link or line, read in a codepage (the game's).
+pub fn params_in(s: &Struct, label: &str, codepage: mg_core::Codepage) -> Vec<(String, String)> {
+    let text =
+        |p: &Struct, label: &str| codepage.decode(p.string(label).unwrap_or_default()).into_owned();
+    s.list(label).unwrap_or(&[]).iter().map(|p| (text(p, "Key"), text(p, "Value"))).collect()
 }
 
 #[cfg(test)]
