@@ -9,8 +9,12 @@
 //!    uniforms of GLSL 330 gathered into one block);
 //! 3. combined image samplers are split and inputs and outputs given
 //!    locations, on the SPIR-V words;
-//! 4. naga reads it, every resource is bound in group 0 (uniform blocks,
+//! 4. naga reads it, the position's depth is taken from OpenGL's clip
+//!    space to wgpu's, every resource is bound in group 0 (uniform blocks,
 //!    then each texture with its sampler) and the module is validated.
+//!
+//! A renderer then fits a program to its pipeline ([`Program::link_inputs`],
+//! [`Program::read_input_as_uint`], [`Program::set_group`]).
 //!
 //! The [`Program`] carries the module and its [`Reflection`]: the uniform
 //! block's members with their offsets and types, the textures and their
@@ -23,6 +27,7 @@
 
 pub mod assemble;
 mod glsl;
+mod link;
 mod reflect;
 mod spirv;
 
@@ -88,7 +93,7 @@ impl ShaderError {
 }
 
 /// A compiled program.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Program {
     pub name: String,
     pub stage: Stage,
@@ -132,14 +137,15 @@ pub fn compile_assembled(a: &Assembled) -> Result<Program, ShaderError> {
     let (words, io) = spirv::assign_locations(&words)?;
     let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
     let options = naga::front::spv::Options {
-        // Flips the position's y as wgpu wants; the rest of the clip space
-        // (the engine's depth range) is M1's.
-        adjust_coordinate_space: true,
+        // (No y flip: the game's shaders are OpenGL's, whose clip space has
+        // y up as wgpu's has; only the depth range differs, below.)
+        adjust_coordinate_space: false,
         strict_capabilities: false,
         block_ctx_dump_prefix: None,
     };
     let mut module = naga::front::spv::parse_u8_slice(&bytes, &options)
         .map_err(|e| ShaderError::Naga(chain(&e)))?;
+    link::gl_depth_to_wgpu(&mut module).map_err(ShaderError::Naga)?;
     let reflection = reflect::bind(&mut module, &io);
     let info = naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),

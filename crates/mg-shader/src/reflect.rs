@@ -84,9 +84,11 @@ pub struct Varying {
     pub ty: ValueType,
 }
 
-/// What a program reads and writes, by name. Everything is in bind group 0.
+/// What a program reads and writes, by name.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Reflection {
+    /// The bind group of every resource (0, unless [`crate::Program::set_group`]).
+    pub group: u32,
     pub uniforms: Vec<UniformBlock>,
     pub textures: Vec<Texture>,
     /// Vertex attributes for a vertex shader, varyings for a fragment one.
