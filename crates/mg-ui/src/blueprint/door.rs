@@ -105,6 +105,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         });
         f.gallery_button(ui, crate::appearance_gallery::Kind::Door);
         ui.end_row();
+        f.model_warning(ui, mg_rules::ObjectKind::Door);
         crate::widgets::field_label(ui, "Category");
         f.category(ui, BlueprintKind::Door);
         ui.end_row();

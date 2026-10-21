@@ -191,6 +191,7 @@ fn general(f: &mut Form<'_>, ui: &mut Ui) {
                     crate::widgets::field_label(ui, "Base Type Name");
                     ui.label(&base_name);
                     ui.end_row();
+                    f.model_warning(ui, mg_rules::ObjectKind::Item);
                     crate::widgets::field_label(ui, "Category");
                     f.category(ui, BlueprintKind::Item);
                     ui.end_row();

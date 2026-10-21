@@ -507,6 +507,24 @@ impl Form<'_> {
         }
     }
 
+    /// A row of the grid under the object's appearance, there only when
+    /// the appearance has no model to draw, in the error color: why
+    /// ([`mg_rules::appearance`], as the preview and Verify judge it): a
+    /// row the table lacks, one that names no model or is reserved
+    /// (`USER`), or a model the module, its haks and the game lack, which
+    /// Aurora's area view often crashes on.
+    pub(crate) fn model_warning(&self, ui: &mut Ui, kind: mg_rules::ObjectKind) {
+        let Some(game) = self.app.game.as_deref() else { return };
+        let Some(problem) = game.appearance_problem(kind, &self.root) else { return };
+        crate::widgets::field_label(ui, "");
+        let text = egui::RichText::new(problem.to_string()).color(ui.visuals().error_fg_color);
+        ui.add(egui::Label::new(text).wrap()).on_hover_text(
+            "The game draws nothing for it, and Aurora's area view may crash on it: choose \
+             another appearance, or add the model to a hak",
+        );
+        ui.end_row();
+    }
+
     fn id(&self, name: &str) -> egui::Id {
         egui::Id::new(("blueprint", self.key, &self.path, name))
     }

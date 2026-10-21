@@ -350,7 +350,17 @@ impl ModelView {
         if let Some(ws) = app.ws.as_mut() {
             let _ = ws.flush();
         }
-        let Ok(preview) = preview_of(app, source) else { return };
+        // Nothing to show now (an appearance with no model): why, in place
+        // of the picture, rather than what it showed before.
+        let preview = match preview_of(app, source) {
+            Ok(p) => p,
+            Err(e) => {
+                self.model = Err(e);
+                (self.composed, self.preview) = (None, None);
+                (self.particles, self.dangly) = (None, None);
+                return;
+            }
+        };
         if self.preview.as_ref() == Some(&preview) {
             return;
         }

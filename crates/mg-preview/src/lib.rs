@@ -36,6 +36,26 @@ pub enum PreviewError {
     NoRow { table: &'static str, row: i64 },
     #[error("no model {0}")]
     NoModel(String),
+    /// The object's appearance names no usable model
+    /// ([`mg_rules::appearance`], as Verify and the Properties judge it).
+    #[error("{0}")]
+    Appearance(#[from] mg_rules::appearance::ModelProblem),
+}
+
+/// The model an object's appearance names, by [`mg_rules::appearance`]
+/// (`None`: a body of parts, or an item, which name none of their own),
+/// and the row it is read from.
+fn appearance(
+    game: &GameData,
+    kind: mg_rules::ObjectKind,
+    object: &Struct,
+) -> Result<(usize, Option<String>), PreviewError> {
+    let at = mg_rules::appearance::AppearanceRow::of(kind, object)
+        .ok_or_else(|| PreviewError::NoModel(format!("{kind:?}")))?;
+    let table = game.table(at.table)?;
+    let model = at.model(Some(&table), &game.resman)?;
+    // (A row that is there is no less than 0.)
+    Ok((at.row as usize, model))
 }
 
 /// A model in a preview.

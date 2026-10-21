@@ -16,6 +16,9 @@ pub fn item(game: &GameData, uti: &Struct) -> Result<Preview, PreviewError> {
 /// [`item`], armour and cloaks as a woman wears them where `female` (the
 /// game has a model of each armour part and cloak for either).
 pub fn item_on(game: &GameData, uti: &Struct, female: bool) -> Result<Preview, PreviewError> {
+    if uti.get("BaseItem").is_some() {
+        crate::appearance(game, mg_rules::ObjectKind::Item, uti)?;
+    }
     let baseitems = game.table("baseitems")?;
     let base = uti.integer("BaseItem").unwrap_or(0);
     let row =

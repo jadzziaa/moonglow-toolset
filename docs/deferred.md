@@ -396,6 +396,18 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   creature's Appearance page stacks them instead). The viewer frames an
   item as any model: a sword lying flat is small in it until turned. (S)
   (a senior builder's review, October 2026)
+- **An appearance with no model, what the warning leaves out:** the rule
+  (`mg_rules::appearance`) checks a placeable's, a door's and a
+  single-model creature's row and model by name, and an item's base item
+  row. Not checked by it: an item's own models (its parts, `ModelPart1`…
+  and an armor's), which the preview alone says are missing; a body of
+  parts' skeleton and parts; a waypoint's flag (waypoint.2da), which the
+  preview checks on its own; a model that is there but cannot be read (a
+  broken file is found when it is drawn). The Appearance lists in the
+  Properties don't mark the rows with no model (the Appearance Gallery
+  does, for those in sight), and the palette's own Gallery doesn't mark
+  blueprints whose appearance has none. (S) (dansen9191's report,
+  October 2026)
 - **Aurora's faults Moonglow was checked for:** an epic creature of
   several classes had Aurora's wrong saves (nwn-issues 816) and has the
   game's now, measured in the server ([findings](findings.md)); the

@@ -195,6 +195,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
             f.gallery_button(ui, crate::appearance_gallery::Kind::Creature);
         });
         ui.end_row();
+        f.model_warning(ui, mg_rules::ObjectKind::Creature);
         crate::widgets::field_label(ui, "Phenotype");
         f.choice(ui, "Phenotype", "Phenotype", &phenotypes, FieldType::Int);
         ui.end_row();

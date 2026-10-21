@@ -2,26 +2,21 @@
 
 use glam::Vec3;
 use mg_gff::Struct;
-use mg_rules::GameData;
+use mg_rules::{GameData, ObjectKind};
 
-use crate::{Lookup, Part, Preview, PreviewError, PreviewLight, cell, cell_f32, cell_int, env_map};
+use crate::{
+    Lookup, Part, Preview, PreviewError, PreviewLight, appearance, cell, cell_f32, cell_int,
+    env_map,
+};
 
 /// A placeable blueprint (UTP fields): placeables.2da `ModelName`, its
 /// `Reflection` environment map, its light (lightcolor.2da row at the light
 /// offset, as `fx_placeable01`: radius 10) and the animation of its
 /// `AnimationState`.
 pub fn placeable(game: &GameData, utp: &Struct) -> Result<Preview, PreviewError> {
-    let lk = Lookup { game };
     let table = game.table("placeables")?;
-    let row = utp.integer("Appearance").unwrap_or(0);
-    let r = usize::try_from(row).map_err(|_| PreviewError::NoRow { table: "placeables", row })?;
-    let model = cell(&table, r, "ModelName")
-        .map(str::to_ascii_lowercase)
-        .ok_or(PreviewError::NoRow { table: "placeables", row })?;
-    if !lk.has_model(&model) {
-        return Err(PreviewError::NoModel(model));
-    }
-    let mut base = Part::new(model);
+    let (r, model) = appearance(game, ObjectKind::Placeable, utp)?;
+    let mut base = Part::new(model.unwrap_or_default());
     base.env_map = env_map(cell(&table, r, "Reflection"));
     let mut lights = Vec::new();
     if let Some(c) = cell_int(&table, r, "LightColor").filter(|&c| c > 0) {
@@ -97,23 +92,8 @@ pub fn sound(game: &GameData, uts: &Struct) -> Result<Preview, PreviewError> {
 /// (`Appearance` ≠ 0), else genericdoors.2da `ModelName` of its
 /// `GenericType_New` (or the older `GenericType`).
 pub fn door(game: &GameData, utd: &Struct) -> Result<Preview, PreviewError> {
-    let lk = Lookup { game };
-    let appearance = utd.integer("Appearance").unwrap_or(0);
-    let model = if appearance > 0 {
-        let t = game.table("doortypes")?;
-        cell(&t, appearance as usize, "Model")
-            .ok_or(PreviewError::NoRow { table: "doortypes", row: appearance })?
-            .to_ascii_lowercase()
-    } else {
-        let t = game.table("genericdoors")?;
-        let row = utd.integer(mg_rules::rows::generic_door_field(utd)).unwrap_or(0);
-        cell(&t, row.max(0) as usize, "ModelName")
-            .ok_or(PreviewError::NoRow { table: "genericdoors", row })?
-            .to_ascii_lowercase()
-    };
-    if !lk.has_model(&model) {
-        return Err(PreviewError::NoModel(model));
-    }
+    let (_, model) = appearance(game, ObjectKind::Door, utd)?;
+    let model = model.unwrap_or_default();
     // A placed door's initial state (`AnimationState`).
     let idle = match utd.integer("AnimationState").unwrap_or(0) {
         1 => "opened1",
