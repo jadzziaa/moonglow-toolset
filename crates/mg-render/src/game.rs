@@ -2141,6 +2141,10 @@ mod tests {
         assert_eq!(program_pair(None, hinted), ("vslit_nm".into(), "fslit_nm".into(), false));
     }
 
+    /// A card read: what it is, its traits, its pair, `NO_DISCARD`'s
+    /// inputs (textured, cut, alpha, MTR transparency) and `NO_DISCARD`.
+    type Seen = (&'static str, Traits, (&'static str, &'static str), (bool, bool, f32, bool), bool);
+
     /// The engine's choice, as the client showed it
     /// (`program_choice_in_the_client` in `client_render.rs`, 89.8193.37-17;
     /// `docs/research/notes_shaders.md` §A.4): each card's traits, the
@@ -2149,7 +2153,7 @@ mod tests {
     fn the_engine_s_choice_of_program_and_no_discard() {
         let t = |uvs, reflects, hint, decal| Traits { uvs, reflects, hint, decal };
         // (What, traits, pair, `NO_DISCARD`'s inputs, `NO_DISCARD`.)
-        let seen: [(&str, Traits, (&str, &str), (bool, bool, f32, bool), bool); 17] = [
+        let seen: [Seen; 17] = [
             (
                 "plain",
                 t(true, false, false, false),

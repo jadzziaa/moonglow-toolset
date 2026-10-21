@@ -7427,15 +7427,17 @@ fn tdod_s_inc_lighting_changes_the_area_view_through_the_load_order() {
         }
         let mut steps = 20;
         let start = std::time::Instant::now();
-        while on {
-            h.run_steps(1);
-            steps += 1;
-            let d = h.state().viewport.as_ref().unwrap().renderer.drawn;
-            if d.game > 0 && d.game_pending == 0 {
-                break;
+        if on {
+            loop {
+                h.run_steps(1);
+                steps += 1;
+                let d = h.state().viewport.as_ref().unwrap().renderer.drawn;
+                if d.game > 0 && d.game_pending == 0 {
+                    break;
+                }
+                assert!(start.elapsed().as_secs() < 60, "the game's programs never drew: {d:?}");
+                std::thread::sleep(std::time::Duration::from_millis(5));
             }
-            assert!(start.elapsed().as_secs() < 60, "the game's programs never drew: {d:?}");
-            std::thread::sleep(std::time::Duration::from_millis(5));
         }
         assert!(steps < 300, "{steps} frames to draw");
         h.run_steps(300 - steps);

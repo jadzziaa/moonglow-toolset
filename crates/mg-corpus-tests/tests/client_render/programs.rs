@@ -223,7 +223,7 @@ fn tga(alpha: bool, f: impl Fn(u32, u32) -> [u8; 4]) -> Vec<u8> {
 
 /// A checker of greys, opaque.
 fn checker(x: u32, y: u32) -> [u8; 4] {
-    if ((x / 8) + (y / 8)) % 2 == 0 { [200, 190, 170, 255] } else { [90, 100, 110, 255] }
+    if ((x / 8) + (y / 8)).is_multiple_of(2) { [200, 190, 170, 255] } else { [90, 100, 110, 255] }
 }
 
 /// A standard DDS of 64 by 64 texels with all its levels (the client reads

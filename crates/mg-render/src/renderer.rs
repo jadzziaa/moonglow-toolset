@@ -235,7 +235,9 @@ fn alpha_in(t: &mg_image::Texture) -> bool {
         return mean < 1.0;
     }
     match (t.format, t.mips.first()) {
-        (mg_image::Format::Rgba8, Some(level)) => level.chunks_exact(4).any(|p| p[3] < 255),
+        (mg_image::Format::Rgba8, Some(level)) => {
+            level.as_chunks::<4>().0.iter().any(|p| p[3] < 255)
+        }
         _ => true,
     }
 }
