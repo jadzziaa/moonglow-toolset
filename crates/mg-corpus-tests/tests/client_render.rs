@@ -31,6 +31,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use glam::{Mat4, Quat, Vec3};
 use mg_core::{ResRef, ResType};
@@ -376,6 +377,15 @@ float MgValue(int k)
     if (k == 13) return fogParams.w;
     if (k >= 14 && k < 17) return fogColor[k - 14];
 #endif
+    // The time uniforms' bytes, and the module's clock.
+    if (k >= 17 && k < 21) return (float((worldtimerTimeOfDay >> (8 * (k - 17))) & 255) + 0.5) / 256.0;
+    if (k >= 21 && k < 25) return (float((sceneCurrentFrame >> (8 * (k - 21))) & 255) + 0.5) / 256.0;
+    if (k == 25) return (float(moduleHour) + 0.5) / 256.0;
+    if (k == 26) return (float(moduleMinutesPerHour) + 0.5) / 256.0;
+    if (k == 27) return (float(moduleDawnHour) + 0.5) / 256.0;
+    if (k == 28) return (float(moduleDuskHour) + 0.5) / 256.0;
+    if (k == 29) return (float(moduleDay) + 0.5) / 256.0;
+    if (k == 30) return (float(moduleMonth) + 0.5) / 256.0;
     if (k >= 32 && k < 32 + 8 * 8)
     {
         int i = (k - 32) / 8;
@@ -424,6 +434,131 @@ fn debug_value(img: &Rgba, k: usize, scale: f32) -> f32 {
     let y = img.height as usize - 1 - ((row + 6) * 32 + 16);
     let i = (y * img.width as usize + col * 32 + 16) * 4;
     (img.data[i] as f32 / 255.0 + img.data[i + 1] as f32 / 65025.0) * scale
+}
+
+/// An int the debug shader shows in four blocks from `k`, a byte each.
+fn debug_int(img: &Rgba, k: usize) -> i64 {
+    let byte = |j: usize| (debug_value(img, k + j, 256.0) - 0.5).round() as i64;
+    let v = byte(0) | byte(1) << 8 | byte(2) << 16 | byte(3) << 24;
+    // (Two's complement.)
+    if v >= 1 << 31 { v - (1 << 32) } else { v }
+}
+
+/// A byte the debug shader shows in block `k`.
+fn debug_byte(img: &Rgba, k: usize) -> i64 {
+    (debug_value(img, k, 256.0) - 0.5).round() as i64
+}
+
+/// The entry script with the module's clock written to the log at the
+/// start and every five seconds after.
+const TIME_ENTER: &str = r#"
+void Log(string s) { WriteTimestampedLogEntry(s); }
+void Tick()
+{
+    Log("MG_TIME " + IntToString(GetTimeHour()) + ":" + IntToString(GetTimeMinute()) + ":"
+        + IntToString(GetTimeSecond()) + "." + IntToString(GetTimeMillisecond()));
+    DelayCommand(5.0, Tick());
+}
+void main()
+{
+    object pc = GetEnteringObject();
+    if (!GetIsPC(pc)) return;
+    location start = GetStartingLocation();
+    ApplyEffectToObject(DURATION_TYPE_PERMANENT, EffectVisualEffect(VFX_DUR_CUTSCENE_INVISIBILITY), pc);
+    AssignCommand(pc, SetCameraFacing(90.0, 12.0, 45.0, CAMERA_TRANSITION_TYPE_SNAP));
+    LockCameraDirection(pc, TRUE);
+    LockCameraPitch(pc, TRUE);
+    LockCameraDistance(pc, TRUE);
+    Tick();
+    DelayCommand(4.0, Log("MG_READY"));
+}
+"#;
+
+/// The time uniforms' units (`docs/research/notes_shaders.md` §B.4):
+/// `worldtimerTimeOfDay` and `sceneCurrentFrame` read back through the
+/// debug shader in five screenshots 3 seconds apart (each screenshot's
+/// time measured), beside the module's clock, which the entry script logs,
+/// in modules starting at other hours and days and with other minutes an
+/// hour. Seen on 2026-10-21 (89.8193.37-17): the timer counts real
+/// milliseconds (999-1000 a second, at 2 and at 10 minutes an hour), the
+/// frame counter the client's frames (54-55 a second here, about 370 some
+/// 7 seconds after entering the area). The timer's value follows neither
+/// the module's hour nor its day: about 424,800 there at 2 minutes an
+/// hour, 3,304,900 at 10 (six game hours' worth more), its origin unknown. Needs the game, a GPU and the off-screen display;
+/// run by hand (`--ignored`).
+#[test]
+#[ignore]
+fn time_uniforms_in_the_client() {
+    let root = corpus!();
+    let _ = oracle_tool!("nwn_script_comp");
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let shader = debug_shader(&game);
+    // (Modules starting at other hours and days, with another number of
+    // minutes an hour: what the timer depends on.) (start hour, minutes an
+    // hour, start day)
+    for (hour, minutes, day) in [(13u8, 2u8, 1u8), (6, 2, 1), (13, 10, 1), (13, 2, 15)] {
+        let dir = scratch_dir(&format!("client_time_{hour}_{minutes}_{day}"));
+        let light =
+            Lighting { ambient: 0x404040, diffuse: 0x808080, main_light: 0, only_tile: None };
+        let (mut m, _) = build_module(&game, &dir, light);
+        m.set(
+            ResKey::parse("mg_enter", ResType::NCS).unwrap(),
+            compile(&dir, "mg_enter", TIME_ENTER),
+        );
+        let mut info = m.info().unwrap();
+        info.root.write(&ifo::MOD_START_HOUR, hour);
+        info.root.write(&ifo::MOD_MIN_PER_HOUR, minutes);
+        info.root.write(&ifo::MOD_START_DAY, day);
+        m.set_info(&info).unwrap();
+        std::fs::create_dir_all(dir.join("user/override")).unwrap();
+        std::fs::write(dir.join("user/settings.tml"), SETTINGS).unwrap();
+        std::fs::write(dir.join("user/override/inc_standard.shd"), &shader).unwrap();
+        m.save_as(&ModuleLocation::Archive(dir.join("user/modules/MgScene.mod"))).unwrap();
+        let shots = common::client_screenshots(&dir, "MgScene", 5, Duration::from_secs(3))
+            .unwrap_or_else(|| {
+                panic!("the client did not reach the scene (see {})", dir.display())
+            });
+        let log =
+            std::fs::read_to_string(dir.join("user/logs/nwclientLog1.txt")).unwrap_or_default();
+        for line in log.lines().filter(|l| l.contains("MG_TIME")) {
+            eprintln!("{hour}h {minutes}min/h day {day}: {line}");
+        }
+        let mut rows: Vec<(f64, i64, i64)> = Vec::new();
+        for (i, (at, img)) in shots.iter().enumerate() {
+            save_png(img, &dir.join(format!("shot_{i}.png")));
+            let (timer, frame) = (debug_int(img, 17), debug_int(img, 21));
+            eprintln!(
+                "{hour}h {minutes}min/h day {day}, shot {i} at {at:6.3} s: worldtimerTimeOfDay {timer}, \
+                 sceneCurrentFrame {frame}, moduleHour {}, moduleMinutesPerHour {}, dawn {}, \
+                 dusk {}, day {}, month {}",
+                debug_byte(img, 25),
+                debug_byte(img, 26),
+                debug_byte(img, 27),
+                debug_byte(img, 28),
+                debug_byte(img, 29),
+                debug_byte(img, 30),
+            );
+            // (A screenshot of a window the client hadn't drawn anew since
+            // the last is the last one again: left out.)
+            if rows.last().is_none_or(|r| r.2 != frame) {
+                rows.push((*at, timer, frame));
+            }
+        }
+        let (first, last) = (rows[0], rows[rows.len() - 1]);
+        let dt = last.0 - first.0;
+        let (timer_rate, frame_rate) =
+            ((last.1 - first.1) as f64 / dt, (last.2 - first.2) as f64 / dt);
+        eprintln!(
+            "{hour}h {minutes}min/h day {day}: over {dt:.3} s worldtimerTimeOfDay {timer_rate:.1} a second, \
+             sceneCurrentFrame {frame_rate:.1} a second ({} shots)",
+            rows.len()
+        );
+        assert!(rows.len() >= 2 && dt > 5.0, "{rows:?}");
+        // Milliseconds of real time, whatever the module's minutes per hour.
+        assert!((timer_rate - 1000.0).abs() < 50.0, "{timer_rate}");
+        // A frame count (as fast as the client draws).
+        assert!(frame_rate > 10.0, "{frame_rate}");
+    }
 }
 
 /// L5: the client's light uniforms (read back through a debug shader) match

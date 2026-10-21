@@ -300,6 +300,68 @@ pub(crate) fn client_screenshot(dir: &Path, module: &str) -> Option<Rgba> {
 }
 
 #[allow(dead_code)]
+/// Runs the client until the scene is ready and screenshots its window
+/// `shots` times, `gap` apart: each picture with the seconds since the
+/// first was taken (the middle of each screenshot's own time, which is
+/// measured, not assumed).
+pub(crate) fn client_screenshots(
+    dir: &Path,
+    module: &str,
+    shots: usize,
+    gap: Duration,
+) -> Option<Vec<(f64, Rgba)>> {
+    static ONE_CLIENT: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _only = ONE_CLIENT.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let log = dir.join("user/logs/nwclientLog1.txt");
+    let _ = std::fs::remove_file(&log);
+    let mut child = Command::new(repo().join("tools/nwclient/run-client.sh"))
+        .arg(dir)
+        .args(["+TestNewModule", module])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let start = Instant::now();
+    let mut ready = false;
+    while start.elapsed() < Duration::from_secs(180) {
+        if std::fs::read_to_string(&log).is_ok_and(|l| l.contains("MG_READY")) {
+            ready = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    std::thread::sleep(Duration::from_secs(3));
+    let mut out = Vec::new();
+    let mut first = None;
+    for i in 0..shots {
+        if !ready {
+            break;
+        }
+        if i > 0 {
+            std::thread::sleep(gap);
+        }
+        let shot = dir.join(format!("client_{i}.png"));
+        let before = Instant::now();
+        let ok = Command::new("python3")
+            .arg(repo().join("tools/aurora/xdrive.py"))
+            .args(["winshot", "Neverwinter Nights: Enhanced Edition"])
+            .arg(&shot)
+            .status()
+            .is_ok_and(|s| s.success());
+        let after = Instant::now();
+        if !ok {
+            break;
+        }
+        let at = before + (after - before) / 2;
+        let first = *first.get_or_insert(at);
+        out.push(((at - first).as_secs_f64(), read_png(&shot)));
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    (out.len() == shots).then_some(out)
+}
+
+#[allow(dead_code)]
 pub(crate) fn read_png(path: &Path) -> Rgba {
     let decoder = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(path).unwrap()));
     let mut reader = decoder.read_info().unwrap();

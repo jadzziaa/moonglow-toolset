@@ -356,7 +356,7 @@ fn value<'a>(key: &Key, f: &FrameValues, d: &DrawValues<'a>) -> Val<'a> {
         LightFalloffFactor => Val::F(f.falloff),
         FogParams => Val::V(f.fog),
         FogColor => Val::V(f.fog_color),
-        // The client's units (measured: `docs/research/notes_shaders.md`
+        // The client's units (measured, `docs/research/notes_shaders.md`
         // §B.4): see `time_values`.
         SceneCurrentFrame => Val::I(time_values(f.seconds).0),
         WorldTimer => Val::I(time_values(f.seconds).1),
@@ -389,9 +389,15 @@ pub(crate) fn time_values(seconds: f32) -> (i32, i32) {
     ((s * TIME_FRAMES_PER_SECOND) as i32, (s * TIME_TIMER_PER_SECOND) as i32)
 }
 
-/// `sceneCurrentFrame` counts this many a second (see [`time_values`]).
+/// `sceneCurrentFrame` counts the client's frames (54-55 a second on the
+/// off-screen display, measured: `time_uniforms_in_the_client` in
+/// `client_render.rs`); Moonglow draws when something changes, so its
+/// clock counts 60 a second.
 pub(crate) const TIME_FRAMES_PER_SECOND: f64 = 60.0;
-/// `worldtimerTimeOfDay` counts this many a second.
+/// `worldtimerTimeOfDay` counts real milliseconds (measured likewise;
+/// whatever the module's minutes an hour). Its origin in the client
+/// follows neither the module's hour nor its day and is not known: the
+/// stock and TDoD shaders use it as a phase or as seconds.
 pub(crate) const TIME_TIMER_PER_SECOND: f64 = 1000.0;
 
 fn put(out: &mut [u8], at: u32, bytes: [u8; 4]) {
