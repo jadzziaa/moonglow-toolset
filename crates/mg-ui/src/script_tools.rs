@@ -61,6 +61,27 @@ pub struct Message {
     /// Script name (an include when the error is in one) and 1-based line.
     pub location: Option<(String, usize)>,
     pub error: bool,
+    /// When it was said, the local time of day (`14:03:27`): two
+    /// compiles in a row read as two (Jasperre's report).
+    pub at: String,
+}
+
+impl Message {
+    /// A message said now.
+    pub fn new(
+        script: ResKey,
+        text: String,
+        location: Option<(String, usize)>,
+        error: bool,
+    ) -> Self {
+        Message { script, text, location, error, at: clock() }
+    }
+}
+
+/// The local time of day, `HH:MM:SS` (UTC where the system's time zone
+/// can't be read).
+pub fn clock() -> String {
+    jiff::Zoned::now().strftime("%H:%M:%S").to_string()
 }
 
 /// Find / Replace options.

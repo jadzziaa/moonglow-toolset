@@ -55,6 +55,9 @@ glam = { version = "0.30", features = ["bytemuck"] }
 # (The NUI preview's JPEG and BMP pictures, which nothing else here reads.)
 image = { version = "0.25", default-features = false, features = ["jpeg", "bmp"] }
 indexmap = "2"
+# (The local time of day the script editor's compiler messages show: the
+# system's time zone, which std cannot read.)
+jiff = "0.2"
 memmap2 = "0.9"
 mlua = { version = "0.12", features = ["luau", "serde"] }
 png = "0.18"

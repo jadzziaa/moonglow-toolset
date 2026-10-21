@@ -9553,6 +9553,48 @@ fn a_crlf_script_has_no_carriage_returns_in_its_editor() {
     assert_eq!(saved, b"void main()x\r\n// a\r\n// b\r\n{\r\n    int n;\r\n}\r\n");
 }
 
+/// Save with compiling on save off says so in the Compiler tab, once, at
+/// the time it was said (Jasperre's report: the last compile's "compiled"
+/// read as the saved text's, and two compiles in a row looked alike).
+#[test]
+fn a_save_that_does_not_compile_says_so() {
+    let dir = mg_testkit::scratch_dir("ui-script-save-note");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, b"void main()\n{\n}\n".to_vec());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    assert!(!h.state().settings.auto_compile);
+    for letter in ["a", "b"] {
+        h.state_mut().script_tools.jump = Some((key, 0));
+        h.run();
+        h.event(egui::Event::Text(letter.into()));
+        h.run();
+        h.get_by_label("Save").click();
+        h.run();
+    }
+    let said: Vec<_> = h.state().script_tools.messages.iter().filter(|m| m.script == key).collect();
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(said[0].text.contains("saved, not compiled"), "{}", said[0].text);
+    assert!(said[0].text.contains("Automatically Compile Scripts on Save"));
+    let at = said[0].at.as_bytes();
+    assert!(
+        at.len() == 8
+            && at[2] == b':'
+            && at[5] == b':'
+            && at.iter().filter(|b| b.is_ascii_digit()).count() == 6,
+        "HH:MM:SS: {:?}",
+        said[0].at
+    );
+    h.get_by_label_contains("saved, not compiled");
+    assert_eq!(h.state().script_tools.info, mg_ui::script_tools::InfoTab::Compiler);
+}
+
 #[test]
 fn page_keys_move_through_the_script_editor() {
     // Sacha's report: Page Up and Page Down did nothing in the script editor.

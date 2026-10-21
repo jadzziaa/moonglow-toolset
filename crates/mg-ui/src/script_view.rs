@@ -857,13 +857,20 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                             } else {
                                 ui.visuals().text_color()
                             };
+                            // (When it was said, before it: two compiles
+                            // in a row read as two.)
+                            let text = format!("{} {}", m.at, m.text);
                             let r = ui.add(
                                 egui::Label::new(
-                                    egui::RichText::new(&m.text).monospace().color(color),
+                                    egui::RichText::new(text).monospace().color(color),
                                 )
                                 .sense(egui::Sense::click()),
                             );
-                            if r.on_hover_text("Click to go to the line").clicked()
+                            let r = match m.location {
+                                Some(_) => r.on_hover_text("Click to go to the line"),
+                                None => r,
+                            };
+                            if r.clicked()
                                 && let Some((file, line)) = &m.location
                             {
                                 open_other = Some((file.clone(), *line));
@@ -1217,6 +1224,23 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     if save || compile || to_scratch {
         let buf = app.scripts.get_mut(&key).expect("open");
         let text = buf.text.clone();
+        // Saved alone (compiling on save is off): the Compiler tab says
+        // so, in place of what it said before, or a builder takes the last
+        // compile's "compiled" for this text's (Jasperre's report).
+        if save && !compile && !to_scratch && !app.settings.auto_compile && buf.is_dirty() {
+            let tools = &mut app.script_tools;
+            tools.messages.retain(|m| m.script != key);
+            tools.messages.push(Message::new(
+                key,
+                format!(
+                    "{key}: saved, not compiled (Options › Script Editor › Automatically \
+                     Compile Scripts on Save is off)"
+                ),
+                None,
+                false,
+            ));
+            tools.info = InfoTab::Compiler;
+        }
         if buf.is_dirty() {
             let (data, warning) = (buf.mark_saved(), buf.unwritable(key));
             app.actions.push(Action::Apply(Command::new(
@@ -1589,12 +1613,7 @@ fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) -> bool {
     if !mg_script::outline::has_entry_point(&encode(text)) {
         let said = format!("{key}: an include file (no main or StartingConditional), not compiled");
         app.log.info(said.clone());
-        app.script_tools.messages.push(Message {
-            script: key,
-            text: said,
-            location: None,
-            error: false,
-        });
+        app.script_tools.messages.push(Message::new(key, said, None, false));
         return false;
     }
     let external = app.external_compiler();
@@ -1611,23 +1630,14 @@ fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) -> bool {
             }
             app.actions.push(Action::Apply(Command::new(format!("Compile {key}"), edits)));
             app.log.info(format!("{key}: compiled"));
-            app.script_tools.messages.push(Message {
-                script: key,
-                text: format!("{key}: compiled"),
-                location: None,
-                error: false,
-            });
+            let said = format!("{key}: compiled");
+            app.script_tools.messages.push(Message::new(key, said, None, false));
             true
         }
         Err(e) => {
             app.log.error(e.message.clone());
             let location = e.location();
-            app.script_tools.messages.push(Message {
-                script: key,
-                text: e.message,
-                location,
-                error: true,
-            });
+            app.script_tools.messages.push(Message::new(key, e.message, location, true));
             false
         }
     }
