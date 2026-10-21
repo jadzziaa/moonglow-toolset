@@ -504,18 +504,6 @@ pub(super) fn item_list(
                             asked = Some((i, Ask::Equip));
                             ui.close();
                         }
-                        if ui
-                            .button("Properties")
-                            .on_hover_text(
-                                "The item's properties: a placed object's item is its own; a \
-                                 blueprint's is its blueprint (the module's to edit, the \
-                                 game's to look at)",
-                            )
-                            .clicked()
-                        {
-                            asked = Some((i, Ask::Open));
-                            ui.close();
-                        }
                         if ui.button("Copy").clicked() {
                             asked = Some((i, Ask::Copy));
                             ui.close();
@@ -529,6 +517,20 @@ pub(super) fn item_list(
                                 "Remove item",
                                 Edit::remove_item(key, path.clone(), "ItemList", i),
                             ));
+                            ui.close();
+                        }
+                        // Properties last, as in Aurora's menus.
+                        ui.separator();
+                        if ui
+                            .button("Properties")
+                            .on_hover_text(
+                                "The item's properties: a placed object's item is its own; a \
+                                 blueprint's is its blueprint (the module's to edit, the \
+                                 game's to look at)",
+                            )
+                            .clicked()
+                        {
+                            asked = Some((i, Ask::Open));
                             ui.close();
                         }
                     });

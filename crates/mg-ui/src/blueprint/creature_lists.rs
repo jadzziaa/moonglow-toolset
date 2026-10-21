@@ -968,16 +968,18 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                                     stow = Some((i, resref));
                                     ui.close();
                                 }
-                                if ui.button("Properties").clicked() {
-                                    open = Some(("Equip_ItemList", i));
-                                    ui.close();
-                                }
                                 if ui.button("Copy").clicked() {
                                     copy = Some(resref);
                                     ui.close();
                                 }
                                 if ui.button("Remove").clicked() {
                                     unequip = Some(i);
+                                    ui.close();
+                                }
+                                // Properties last, as in Aurora's menus.
+                                ui.separator();
+                                if ui.button("Properties").clicked() {
+                                    open = Some(("Equip_ItemList", i));
                                     ui.close();
                                 }
                             });

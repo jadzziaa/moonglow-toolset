@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T10:08:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T21:52:42Z }
 ---
 
 # Areas
@@ -249,14 +249,9 @@ of the button that holds it. **Escape** drops the drag: nothing moves.
 With several selected, the first selected snaps and the others keep their
 places and turns around it.
 
-**Right-click** the selection for its menu:
+**Right-click** the selection for its menu (Properties last, as in
+Aurora):
 
-- **Properties**: the object's properties as placed in the area (an
-  instance can differ from its blueprint). With several objects of one
-  kind selected, one window edits them together: a field changed there
-  changes in all of them. It shows the first one's values, with **≠**
-  before a field where the others have another (so too for blueprints
-  edited together from the palette).
 - **Adjust Location…**: an exact position and bearing, and the visual
   transform that EE added (scale, rotation about each axis and offset)
   for creatures, doors, items and placeables that aren't Static (a static
@@ -292,7 +287,7 @@ places and turns around it.
   **Turn On**. Triggers and encounters: **Redraw Polygon**; encounters:
   **Add Spawn Point** (at the point you right-clicked).
 - **Conversation**, **Inventory** (creatures, placeables with an
-  inventory, stores), **Variables…**.
+  inventory, stores).
 - **Add to Palette**: the instance as a new custom blueprint.
 - **Test From Here**: starts the game at the point you right-clicked,
   facing the way the camera looks, with the module as it is now (see
@@ -305,6 +300,13 @@ places and turns around it.
   placeable as a shopkeeper: its conversation, a store and the script that
   opens it), **Add Popup Text…** (a placeable that speaks a line when
   clicked).
+- **Variables…**: the object's local variables.
+- **Properties**, the last item: the object's properties as placed in
+  the area (an instance can differ from its blueprint). With several
+  objects of one kind selected, one window edits them together: a field
+  changed there changes in all of them. It shows the first one's values,
+  with **≠** before a field where the others have another (so too for
+  blueprints edited together from the palette).
 
 ## Placing objects
 
@@ -515,7 +517,8 @@ crossers away. **Shift + right click** steps the tile under the pointer
 through the tiles that fit, as **Next Variant** on the tile menu does;
 **Previous Variant** there steps back. Ctrl+C and Ctrl+V copy and paste tiles.
 
-A right click opens the tile menu with **Tile Properties**. With one
+A right click opens the tile menu (**Next Variant**, **Previous
+Variant**, **Delete**), which ends with **Tile Properties**. With one
 tile chosen it shows the **variants**: every tile that fits there, as
 pictures, the one there now framed. Click another and it is put there
 at once (one step to undo), the window staying open on it. Tile

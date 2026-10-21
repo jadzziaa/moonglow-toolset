@@ -401,16 +401,20 @@ fn contents_ui(
                         *clicked = Some(TreeAt::Object(area, *kind, index));
                     }
                     r.context_menu(|ui| {
+                        // Variables and Properties last, as in Aurora.
                         for (label, asked) in [
                             ("Go To", Asked::Go),
-                            ("Properties", Asked::Properties),
-                            ("Variables…", Asked::Variables),
                             ("Preview", Asked::Preview),
                             ("Copy", Asked::Copy),
                             ("Delete", Asked::Delete),
+                            ("Variables…", Asked::Variables),
+                            ("Properties", Asked::Properties),
                         ] {
                             if asked == Asked::Preview && !previewable(*kind) {
                                 continue;
+                            }
+                            if asked == Asked::Variables {
+                                ui.separator();
                             }
                             if ui.button(label).clicked() {
                                 *go = Some((area, *kind, index, asked));
@@ -951,9 +955,6 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                             if ui.button("View Area").clicked() {
                                 app.actions.push(Action::OpenTab(Tab::Area(k.resref)));
                             }
-                            if ui.button("Properties").clicked() {
-                                app.actions.push(Action::OpenTab(Tab::AreaProperties(k.resref)));
-                            }
                             if ui
                                 .button("Export Minimap…")
                                 .on_hover_text("The area's map as the game shows it, as a PNG")
@@ -1039,6 +1040,13 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                                 dependencies: false,
                                 scratch: true,
                             });
+                        }
+                        // An area's Properties last, as in Aurora.
+                        if k.restype == ResType::ARE {
+                            ui.separator();
+                            if ui.button("Properties").clicked() {
+                                app.actions.push(Action::OpenTab(Tab::AreaProperties(k.resref)));
+                            }
                         }
                     });
                 }

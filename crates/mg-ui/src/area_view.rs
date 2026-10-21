@@ -4593,8 +4593,10 @@ fn set_locked(
     }
 }
 
-/// The context menu of the selection: Properties, Adjust Location, what
-/// the object's type offers (Aurora's `pmViewerArea`), Variables, Delete.
+/// The context menu of the selection: Preview, Adjust Location, what the
+/// object's type offers (Aurora's `pmViewerArea`), Delete, the start
+/// location and tests from here; last, as in Aurora, Variables and
+/// Properties.
 fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
     let single = match view.selection.as_slice() {
         [one] => Some(*one),
@@ -4602,20 +4604,6 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
     };
     let same_kind =
         view.selection.len() > 1 && view.selection.iter().all(|(k, _)| *k == view.selection[0].0);
-    if ui.add_enabled(single.is_some() || same_kind, egui::Button::new("Properties")).clicked() {
-        match single {
-            Some((kind, index)) => open_properties(app, view, kind, index),
-            None => {
-                let paths = view
-                    .selection
-                    .iter()
-                    .map(|(k, i)| mg_edit::GffPath::root().item(k.list(), *i))
-                    .collect();
-                app.actions.push(Action::OpenTab(crate::Tab::Instances { area: view.area, paths }));
-            }
-        }
-        ui.close();
-    }
     // The object in the model viewer, as it is placed (as its Properties'
     // Preview shows it).
     let preview = single.filter(|(kind, _)| crate::tree::previewable(*kind));
@@ -4950,6 +4938,54 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
         view.set_name = Some(String::new());
         ui.close();
     }
+    ui.separator();
+    if ui.add_enabled(any, egui::Button::new("Delete")).clicked() {
+        delete(app, view);
+        ui.close();
+    }
+    // Where the menu was opened (not when it is opened from the keys).
+    if let Some(at) = view.menu_at {
+        ui.separator();
+        // The module's start location, here, facing the way the camera
+        // looks (Aurora places it from the palette).
+        if ui
+            .button("Set Start Location Here")
+            .on_hover_text(
+                "Where a player's character enters the module, facing the way the view looks \
+                 (the blue ring with the red arrow)",
+            )
+            .clicked()
+        {
+            let facing = view.orbit.as_ref().map_or(0.0, |o| o.yaw + std::f32::consts::PI);
+            set_start_location(app, view, at, facing);
+            ui.close();
+        }
+        // Test the module as it is now, starting here, facing the way the
+        // camera looks: with the first local character, or one chosen in
+        // the game's character selection.
+        let tests = [
+            (
+                "Test From Here",
+                "Start the game here, with the module as it is now (not saved)",
+                false,
+            ),
+            (
+                "Test From Here, Choose Character",
+                "As Test From Here, with the character chosen in the game's character selection",
+                true,
+            ),
+        ];
+        for (label, tip, choose) in tests {
+            if ui.button(label).on_hover_text(tip).clicked() {
+                let facing = view.orbit.as_ref().map_or(0.0, |o| o.yaw + std::f32::consts::PI);
+                let area = view.area;
+                app.actions.push(Action::TestFromHere { area, at: at.to_array(), facing, choose });
+                ui.close();
+            }
+        }
+    }
+    // Variables, then Properties: the menu's last, as in Aurora.
+    ui.separator();
     if let Some((kind, index)) = single
         && ui.button("Variables…").clicked()
     {
@@ -4957,46 +4993,19 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
         crate::widgets::open_variables(app, view.git(), path);
         ui.close();
     }
-    ui.separator();
-    if ui.add_enabled(any, egui::Button::new("Delete")).clicked() {
-        delete(app, view);
-        ui.close();
-    }
-    ui.separator();
-    // The module's start location, here, facing the way the camera looks
-    // (Aurora places it from the palette).
-    if let Some(at) = view.menu_at
-        && ui
-            .button("Set Start Location Here")
-            .on_hover_text(
-                "Where a player's character enters the module, facing the way the view looks \
-                 (the blue ring with the red arrow)",
-            )
-            .clicked()
-    {
-        let facing = view.orbit.as_ref().map_or(0.0, |o| o.yaw + std::f32::consts::PI);
-        set_start_location(app, view, at, facing);
-        ui.close();
-    }
-    // Test the module as it is now, starting here, facing the way the
-    // camera looks: with the first local character, or one chosen in the
-    // game's character selection.
-    let Some(at) = view.menu_at else { return };
-    let tests = [
-        ("Test From Here", "Start the game here, with the module as it is now (not saved)", false),
-        (
-            "Test From Here, Choose Character",
-            "As Test From Here, with the character chosen in the game's character selection",
-            true,
-        ),
-    ];
-    for (label, tip, choose) in tests {
-        if ui.button(label).on_hover_text(tip).clicked() {
-            let facing = view.orbit.as_ref().map_or(0.0, |o| o.yaw + std::f32::consts::PI);
-            let area = view.area;
-            app.actions.push(Action::TestFromHere { area, at: at.to_array(), facing, choose });
-            ui.close();
+    if ui.add_enabled(single.is_some() || same_kind, egui::Button::new("Properties")).clicked() {
+        match single {
+            Some((kind, index)) => open_properties(app, view, kind, index),
+            None => {
+                let paths = view
+                    .selection
+                    .iter()
+                    .map(|(k, i)| mg_edit::GffPath::root().item(k.list(), *i))
+                    .collect();
+                app.actions.push(Action::OpenTab(crate::Tab::Instances { area: view.area, paths }));
+            }
         }
+        ui.close();
     }
 }
 
