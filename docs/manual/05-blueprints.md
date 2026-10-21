@@ -152,10 +152,16 @@ The palette's buttons:
   Copy…**.
 - **Export…** (a custom blueprint, or the several selected): the Export
   window with them chosen, as File › Export.
-- **Lists of choices** (an appearance, a race, a part) take the arrow
-  keys once clicked or reached with Tab: Up and Down choose the one
-  before and after, Page Up and Page Down ten away, Home and End the
-  first and last. A creature's and a placeable's Appearance list shows
+- **Lists of choices** (an appearance, a race, a part, a palette
+  category, an item property's spell) work alike everywhere, the 2DA
+  editor's and Advanced Search's too. One of more than 12 rows is in its
+  names' order (parts and costs keep their numbers' order, categories
+  the palette's unless Options › General sorts them); one of
+  more than 30 has a **Filter** field above its rows, which narrows them
+  by name or to a row's number, and opens at the row chosen. They take
+  the arrow keys once clicked or reached with Tab: Up and Down choose
+  the one before and after, Page Up and Page Down ten away, Home and End
+  the first and last. A creature's and a placeable's Appearance list shows
   each appearance's picture beside the row the pointer rests on, and the
   chosen one's with the pointer resting on the list's box: leave it there
   and the picture follows the arrow keys. A body or armor part's list

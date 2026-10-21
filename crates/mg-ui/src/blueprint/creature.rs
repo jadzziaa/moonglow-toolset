@@ -696,25 +696,8 @@ fn optional_pick(
     choices: &[Choice],
     current: Option<i64>,
 ) -> Option<i64> {
-    let shown = match current {
-        None => "Not set".to_string(),
-        Some(v) => choices
-            .iter()
-            .find(|c| c.row as i64 == v)
-            .map_or_else(|| format!("({v})"), |c| c.text.clone()),
-    };
-    let mut pick = None;
-    egui::ComboBox::from_id_salt(("pick", key, name)).selected_text(shown).width(100.0).show_ui(
-        ui,
-        |ui| {
-            for c in choices {
-                if ui.selectable_label(Some(c.row as i64) == current, &c.text).clicked() {
-                    pick = Some(c.row as i64);
-                }
-            }
-        },
-    );
-    pick.filter(|&v| Some(v) != current)
+    let id = egui::Id::new(("pick", key, name));
+    crate::widgets::row_choice(id, choices, current).unset("Not set").width(100.0).show(ui)
 }
 
 /// The familiar and animal companion (`FamiliarType`, `FamiliarName`,
@@ -870,21 +853,10 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
                                 ui.selectable_value(&mut gender, Some(0), "Male");
                                 ui.selectable_value(&mut gender, Some(1), "Female");
                             });
-                        let type_name = |t: i64| {
-                            types
-                                .iter()
-                                .find(|c| c.row as i64 == t)
-                                .map_or(t.to_string(), |c| c.text.clone())
-                        };
-                        egui::ComboBox::from_id_salt(id.with("type"))
-                            .selected_text(name(kind, "All", &type_name))
-                            .width(90.0)
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut kind, None, "All");
-                                for c in &types {
-                                    ui.selectable_value(&mut kind, Some(c.row as i64), &c.text);
-                                }
-                            });
+                        let list = crate::widgets::row_choice(id.with("type"), &types, kind);
+                        if let Some(k) = list.none("All").width(90.0).show_optional(ui) {
+                            kind = k;
+                        }
                         ui.data_mut(|d| d.insert_temp(id, (gender, kind)));
                         let current = f.root.integer("SoundSetFile").unwrap_or(-1);
                         let table = f.app.game.as_deref().and_then(|g| g.table("soundset").ok());

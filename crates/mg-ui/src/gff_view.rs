@@ -205,24 +205,15 @@ fn row_ui(
     table: &RowTable,
     row: i64,
 ) {
-    let mut picked = None;
-    egui::ComboBox::from_id_salt((id, "row"))
-        .selected_text(row_text(game, table, row))
+    let columns = ChoiceColumns { name: table.name, label: table.label };
+    let choices = game.choice_list(table.table, columns).unwrap_or_default();
+    let picked = crate::widgets::row_choice(id.with("row"), &choices, row)
         .width(220.0)
-        .show_ui(ui, |ui| {
-            // (Read only while the list is open.)
-            let columns = ChoiceColumns { name: table.name, label: table.label };
-            let choices = game.choices(table.table, columns).unwrap_or_default();
-            for c in mg_rules::by_name(choices) {
-                let text = format!("{}  ({})", c.text, c.row);
-                if ui.selectable_label(c.row as i64 == row, text).clicked() {
-                    picked = Some(c.row as i64);
-                }
-            }
-        })
-        .response
-        .on_hover_text(format!("Row {row} of {}.2da", table.table));
-    if let Some(value) = picked.filter(|p| *p != row).and_then(|p| of_type(v, p)) {
+        .numbered()
+        .shown(row_text(game, table, row))
+        .hover_text(format!("Row {row} of {}.2da", table.table))
+        .show(ui);
+    if let Some(value) = picked.and_then(|p| of_type(v, p)) {
         ctx.set(path, label, value);
     }
 }

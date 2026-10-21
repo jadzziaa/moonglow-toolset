@@ -1815,28 +1815,25 @@ fn row_choice(
     };
     ui.weak(format!("a row of {target}.2da:"));
     let Some(t) = other else { return };
-    egui::ComboBox::from_id_salt(("table-row-choice", id))
-        .selected_text(shown)
+    // (Every row's name only while the list is open or has the keys: a
+    // table may have thousands.)
+    let id = egui::Id::new(("table-row-choice", id));
+    let rows = if crate::widgets::RowChoice::in_use(ui, id) {
+        0..t.len()
+    } else {
+        named.filter(|&n| n < t.len()).map_or(0..0, |n| n..n + 1)
+    };
+    let choices: Vec<mg_rules::Choice> =
+        rows.map(|row| mg_rules::Choice { row, text: row_label(t, row) }).collect();
+    let picked = crate::widgets::row_choice(id, &choices, named.map(|n| n as i64))
         .width(260.0)
-        .show_ui(ui, |ui| {
-            if ui.selectable_label(named.is_none(), "none (****)").clicked() {
-                *set = Some(None);
-            }
-            let height = ui.text_style_height(&egui::TextStyle::Body) + 2.0;
-            egui::ScrollArea::vertical().max_height(260.0).show_rows(
-                ui,
-                height,
-                t.len(),
-                |ui, range| {
-                    for r in range {
-                        let label = row_label(t, r);
-                        if ui.selectable_label(named == Some(r), label).clicked() {
-                            *set = Some(Some(r.to_string()));
-                        }
-                    }
-                },
-            );
-        });
+        .ordered()
+        .none("none (****)")
+        .shown(shown)
+        .show_optional(ui);
+    if let Some(picked) = picked {
+        *set = Some(picked.map(|r| r.to_string()));
+    }
 }
 
 /// Add Column…: its name.

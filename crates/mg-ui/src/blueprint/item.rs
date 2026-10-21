@@ -972,9 +972,13 @@ fn property_editor(
             let costs = game.property_costs(p.cost_table, base);
             if !costs.is_empty() {
                 crate::widgets::field_label(ui, "Cost Parameter");
-                if let Some(v) =
-                    super::situated::pick(ui, f.key, "prop-cost", &costs, i64::from(p.cost_value))
-                {
+                if let Some(v) = super::situated::pick_ordered(
+                    ui,
+                    f.key,
+                    "prop-cost",
+                    &costs,
+                    i64::from(p.cost_value),
+                ) {
                     changes.push(("CostValue", Value::Word(v as u16)));
                 }
                 ui.end_row();

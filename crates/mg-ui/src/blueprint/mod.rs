@@ -996,93 +996,14 @@ impl Form<'_> {
         about: Option<Shown>,
     ) {
         let current = self.int(label);
-        let shown = choices
-            .iter()
-            .find(|c| c.row as i64 == current)
-            .map_or_else(|| format!("({current})"), |c| c.text.clone());
-        let filter_id = self.id(&format!("{label}#filter"));
-        let mut pick = None;
-        // (Open until a choice is made or a click lands outside: a click in
-        // its Filter field must not close it.)
-        let combo = egui::ComboBox::from_id_salt(self.id(label))
-            .selected_text(shown)
-            .width(220.0)
-            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
-        // A long list by name; a short one as the table orders it.
-        let sorted;
-        let choices = if choices.len() > mg_rules::ORDERED_CHOICES {
-            sorted = mg_rules::by_name(choices.to_vec());
-            sorted.as_slice()
-        } else {
-            choices
-        };
-        // Just opened: the list is whole and begins at the one chosen, not
-        // at its top (a long list was searched for it every time).
-        let open_id = filter_id.with("open");
-        let opened = !ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
-        let list = combo.show_ui(ui, |ui| {
-            if opened {
-                ui.data_mut(|d| {
-                    d.remove_temp::<String>(filter_id);
-                    d.insert_temp(open_id.with("go"), true);
-                });
-            }
-            // (A popup's first pass only measures it: the list is brought
-            // to the chosen row in the first pass that draws it.)
-            let go = !ui.is_sizing_pass()
-                && ui.data_mut(|d| d.remove_temp::<bool>(open_id.with("go"))).is_some();
-            let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
-            // (What is typed narrows the list from its top, wherever it
-            // had been scrolled to.)
-            let mut narrowed = false;
-            if choices.len() > 30 {
-                narrowed =
-                    ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Filter")).changed();
-                ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
-            }
-            let filter = filter.to_lowercase();
-            // (The rows scroll under the Filter field, which stays.)
-            let mut rows = |ui: &mut Ui| {
-                for c in choices
-                    .iter()
-                    .filter(|c| filter.is_empty() || c.text.to_lowercase().contains(&filter))
-                {
-                    let mut r = ui.selectable_label(c.row as i64 == current, &c.text);
-                    if go && c.row as i64 == current {
-                        r.scroll_to_me(Some(egui::Align::Center));
-                    }
-                    if let Some(about) = about {
-                        let app = &mut *self.app;
-                        r = r.on_hover_ui_at_pointer(|ui| about(app, ui, c.row));
-                    }
-                    if r.clicked() {
-                        pick = Some(c.row as i64);
-                        ui.close();
-                    }
-                }
-            };
-            if choices.len() > 30 {
-                let mut area = egui::ScrollArea::vertical().max_height(170.0);
-                if narrowed {
-                    area = area.vertical_scroll_offset(0.0);
-                }
-                area.show(ui, rows);
-            } else {
-                rows(ui);
-            }
-        });
-        ui.data_mut(|d| d.insert_temp(open_id, list.inner.is_some()));
-        // The arrow keys step through it, as in Aurora (in the order
-        // shown).
-        let rows: Vec<i64> = choices.iter().map(|c| c.row as i64).collect();
-        let pick = pick.or_else(|| crate::widgets::arrow_pick(ui, &list.response, &rows, current));
-        // The chosen one's picture with the pointer on the list's box: it
-        // follows the arrow keys.
-        if let (Some(about), Ok(row)) = (about, usize::try_from(current)) {
-            let app = &mut *self.app;
-            list.response.on_hover_ui(|ui| about(app, ui, row));
+        let id = self.id(label);
+        let app = &mut *self.app;
+        let mut shown = about.map(|about| move |ui: &mut Ui, row| about(app, ui, row));
+        let mut list = crate::widgets::row_choice(id, choices, current).width(220.0);
+        if let Some(shown) = shown.as_mut() {
+            list = list.about(shown);
         }
-        if let Some(v) = pick.filter(|&v| v != current) {
+        if let Some(v) = list.show(ui) {
             self.set_int(what, label, v, default);
         }
     }
@@ -1227,33 +1148,26 @@ impl Form<'_> {
             let data = game.resman.get(&kind.skeleton_key()).ok()?;
             mg_gff::Gff::read(&data).ok()
         });
-        let mut categories =
-            skeleton.map(|g| Palette::read(&g).categories(game)).unwrap_or_default();
+        let categories: Vec<Choice> = skeleton
+            .map(|g| Palette::read(&g).categories(game))
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(id, text)| Choice { row: usize::from(id), text })
+            .collect();
         // In the palette's order (its tree's, as Palette › Categories…
         // sets it), or alphabetical (Options › General).
-        if self.app.settings.categories_by_name {
-            categories.sort_by_cached_key(|(id, name)| (name.to_lowercase(), *id));
-        }
+        let categories = if self.app.settings.categories_by_name {
+            mg_rules::by_name(categories)
+        } else {
+            categories
+        };
         let label = kind.palette_field();
+        self.mark_mixed(ui, label);
         let current = self.int(label);
-        let shown = categories
-            .iter()
-            .find(|(id, _)| i64::from(*id) == current)
-            .map_or_else(|| format!("({current})"), |(_, name)| name.clone());
-        let mut pick = None;
         let width = ui.available_width().clamp(120.0, 260.0);
-        egui::ComboBox::from_id_salt(self.id(label)).selected_text(shown).width(width).show_ui(
-            ui,
-            |ui| {
-                for (id, name) in &categories {
-                    if ui.selectable_label(i64::from(*id) == current, name).clicked() {
-                        pick = Some(*id);
-                    }
-                }
-            },
-        );
-        if let Some(id) = pick.filter(|&id| i64::from(id) != current) {
-            self.set_int("Palette category", label, i64::from(id), FieldType::Byte);
+        let list = crate::widgets::row_choice(self.id(label), &categories, current);
+        if let Some(id) = list.width(width).ordered().show(ui) {
+            self.set_int("Palette category", label, id, FieldType::Byte);
         }
     }
 

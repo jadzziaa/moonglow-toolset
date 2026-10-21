@@ -8,6 +8,7 @@ use mg_core::ResRef;
 use mg_edit::{Command, Edit};
 use mg_gff::{FieldType, Struct, Value};
 use mg_module::palette::BlueprintKind;
+use mg_rules::Choice;
 
 use super::{Form, inventory, situated};
 use crate::Action;
@@ -240,25 +241,15 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     ui.data_mut(|d| d.insert_temp(shown_id, shown));
 }
 
-/// The base items a store can list (those with a store panel): (row, name),
-/// by name.
-fn base_items(f: &Form<'_>) -> Vec<(i64, String)> {
+/// The base items a store can list (those with a store panel), by name.
+fn base_items(f: &Form<'_>) -> Vec<Choice> {
     let Some(game) = f.app.game.as_deref() else { return Vec::new() };
     let Ok(table) = game.table("baseitems") else { return Vec::new() };
-    let mut out: Vec<(i64, String)> = (0..table.len())
+    let named = f.choices("baseitems", Some("Name"), Some("label"));
+    let items = (0..table.len())
         .filter(|&row| table.get_int(row, "StorePanel").is_some())
-        .map(|row| {
-            let name = table
-                .get_int(row, "Name")
-                .and_then(|s| game.string(mg_core::StrRef(s as u32)))
-                .filter(|s| !s.is_empty())
-                .or_else(|| table.get(row, "label").map(str::to_string))
-                .unwrap_or_else(|| format!("({row})"));
-            (row as i64, name)
-        })
-        .collect();
-    out.sort_by_key(|(_, name)| name.to_lowercase());
-    out
+        .map(|row| Choice { row, text: mg_rules::choice_text(&named, row as i64) });
+    mg_rules::by_name(items.collect())
 }
 
 fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
@@ -310,9 +301,7 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
     }
     ui.separator();
     let items = base_items(f);
-    let name = |row: i64| {
-        items.iter().find(|(r, _)| *r == row).map_or_else(|| format!("({row})"), |(_, n)| n.clone())
-    };
+    let name = |row: i64| mg_rules::choice_text(&items, row);
     let mut add = None;
     let mut remove = None;
     ui.horizontal_top(|ui| {
@@ -324,16 +313,17 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
             egui::ScrollArea::vertical().id_salt(("utm-bases", key)).max_height(360.0).show(
                 ui,
                 |ui| {
-                    for (row, text) in &items {
-                        if current.contains(row) || !text.to_lowercase().contains(&needle) {
+                    for c in &items {
+                        let row = c.row as i64;
+                        if current.contains(&row) || !c.text.to_lowercase().contains(&needle) {
                             continue;
                         }
-                        let r = ui.selectable_label(left == Some(*row), text);
+                        let r = ui.selectable_label(left == Some(row), &c.text);
                         if r.clicked() {
-                            left = Some(*row);
+                            left = Some(row);
                         }
                         if r.double_clicked() {
-                            add = Some(*row);
+                            add = Some(row);
                         }
                     }
                 },

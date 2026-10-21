@@ -270,6 +270,55 @@ fn described_table() {
     shoot(&mut h, &dir, "described-table");
 }
 
+/// A 2DA cell that names a row of spells.2da, far down: its list opened,
+/// at that row, with a Filter field above.
+#[test]
+#[ignore]
+fn table_row_list_opened() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-table-row");
+    let install = GameInstall::new(&root, None, "en");
+    std::fs::write(dir.join("nasher.cfg"), "").unwrap();
+    let file = dir.join("my_scrolls.2da");
+    std::fs::write(&file, "2DA V2.0\r\n\r\n  Label Spell\r\n0 Scroll_A 300\r\n1 Scroll_B 2\r\n")
+        .unwrap();
+    std::fs::write(
+        dir.join("my_scrolls.2da.toml"),
+        "[columns.Spell]\nkind = \"row\"\ntable = \"spells\"\n",
+    )
+    .unwrap();
+    let app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(6);
+    h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(0, 1);
+    h.run_steps(4);
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let at = h
+        .query_all(combo)
+        .find(|n| n.accesskit_node().value().is_some_and(|v| v.starts_with("300")))
+        .map(|n| n.rect().center())
+        .expect("the rows' list");
+    // (The pointer comes to the box before it clicks.)
+    h.hover_at(at);
+    h.run_steps(1);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(4);
+    shoot(&mut h, &dir, "table-row-list-opened");
+}
+
 /// The conversation editor's Text Appears When page, with a script that
 /// has parameters.
 #[test]
@@ -729,6 +778,55 @@ fn appearance_list_opened() {
     });
     h.run_steps(4);
     shoot(&mut h, &dir, "appearance-list-opened");
+}
+
+/// A potion's Cast Spell property, its Sub-Property list opened: the
+/// hundreds of spells of iprp_spells, by name, with a Filter field above.
+#[test]
+#[ignore]
+fn cast_spell_subtypes_opened() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let (name, t) = ("nw_it_mpotion001", ResType::UTI);
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    let game = app.game.as_deref().unwrap();
+    let data = game.resman.get_named(name, t).unwrap().into_owned();
+    let mut m = mg_module::Module::new();
+    m.set(ResKey::parse(name, t).unwrap(), data);
+    let path = dir.join(format!("{name}.mod"));
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    app.open_module(&path);
+    app.open_palette = false;
+    let key = ResKey::parse(name, t).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 760.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(4);
+    h.get_by_label("Properties").click();
+    h.run_steps(3);
+    // The assigned property, chosen: its parameters show under it.
+    h.get_all_by_label_contains("Cure Light Wounds").last().unwrap().click();
+    h.run_steps(3);
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let at = h
+        .query_all(combo)
+        .find(|n| n.accesskit_node().value().is_some_and(|v| v.contains("Cure Light Wounds")))
+        .map(|n| n.rect().center())
+        .expect("the Sub-Property dropdown");
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(4);
+    shoot(&mut h, &dir, "cast-spell-subtypes-opened");
 }
 
 /// The model beside the fields, in a window wide enough for both.
