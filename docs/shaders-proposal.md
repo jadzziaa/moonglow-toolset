@@ -1,9 +1,9 @@
 ---
 type: Proposal
 title: 'The game''s own shaders in the area view: a proposal for 2.0'
-description: Drawing areas, blueprints and models with NWN:EE's own GLSL shaders (the stock ones from the install, a hak's overrides of them, and the custom shaders MTRs name) as the centerpiece of Moonglow 2.0 - what the tabled shaders branch held, what the renderer is today, the corpus now on hand, a spike in which all 102 programs reached valid wgpu shader modules, the route (glslang, SPIRV-Tools, naga with two fixups), the uniform contract, costs, milestones with their tests, and the owner's decisions (accepted 2026-10-21 - the game's shaders throughout, native glslang, on by default, a failed program falls back and is reported); M0 built - the mg-shader crate (glslang-rs, the sampler split in Rust), its corpus test (102 of 102) and Verify's shader-compile check.
+description: Drawing areas, blueprints and models with NWN:EE's own GLSL shaders (the stock ones from the install, a hak's overrides of them, and the custom shaders MTRs name) as the centerpiece of Moonglow 2.0 - what the tabled shaders branch held, what the renderer is today, the corpus now on hand, a spike in which all 102 programs reached valid wgpu shader modules, the route (glslang, SPIRV-Tools, naga with two fixups), the uniform contract, costs, milestones with their tests, and the owner's decisions (accepted 2026-10-21 - the game's shaders throughout, native glslang, on by default, a failed program falls back and is reported); M0 built - the mg-shader crate (glslang-rs, the sampler split in Rust), its corpus test (102 of 102) and Verify's shader-compile check; M1 built - the stock lit pair and its variants drawn by mg-render beside its WGSL shader (opt-in), matching it within 1 in 255 on plain lit meshes, the WGSL port's first oracle, and the time uniforms' units measured in the client.
 tags: [proposal, rendering, shaders, custom-content, renderer, release-2]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T13:44:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T14:43:02Z }
 stale_after: 2027-04-01T00:00:00Z
 sources:
   - id: request
@@ -33,13 +33,18 @@ sources:
   - id: m0
     resource: crates/mg-shader, crates/mg-corpus-tests/tests/shaders.rs, crates/mg-module/src/doctor.rs (shader-compile)
     title: M0, the compiler
+  - id: m1
+    resource: crates/mg-shader/src/link.rs, crates/mg-render/src/game.rs, crates/mg-render/tests/render.rs (the_game_path_draws_opengl_s_clip_space_right, the_game_s_lit_shaders_match_moonglow_s), crates/mg-corpus-tests/tests/client_render.rs (time_uniforms_in_the_client), run 2026-10-21
+    title: M1, one stock pair drawn
 ---
 
 # The game's own shaders in the area view: a proposal for 2.0
 
 Status: accepted on 2026-10-21 (see [the owner's decisions](#the-owners-decisions)).
-M0, the compiler, is built ([M0: the compiler](#m0-the-compiler-2026-10-21)); nothing
-is drawn with it yet.
+M0, the compiler, is built ([M0: the compiler](#m0-the-compiler-2026-10-21)), and
+M1, the stock lit programs drawn beside Moonglow's shader
+([M1: one stock pair drawn](#m1-one-stock-pair-drawn-2026-10-21)); nothing turns
+them on in the program yet.
 
 Moonglow draws with one WGSL shader of its own that approximates EE's
 lighting ([the plan](PLAN.md) §5.5). This proposes that 2.0 draws with
@@ -156,8 +161,9 @@ What it shows:
   for `m_bones` (64 bones), because `skinmesh` is a run-time branch, and
   the fragment programs carry the light and wind-source arrays.
 
-What it doesn't show: **nothing has been drawn yet.** These are the parts
-still to be proved:
+What it didn't show: nothing had been drawn. These were the parts still to
+be proved (all but the last two settled in
+[M1](#m1-one-stock-pair-drawn-2026-10-21)):
 
 - vertex input locations (M0 numbers them in glslang's order of declaration);
 - matching varyings between the stages;
@@ -287,6 +293,128 @@ wgpu.
   haks attached to a scratch copy: none; with a line of `inc_lighting`
   broken, one finding at its line, 58 programs.
 
+## M1: one stock pair drawn (2026-10-21)
+
+`Renderer::game_shaders` (off by default; nothing in the UI turns it on
+yet) draws a lit, solid mesh with the stock pair the engine would choose:
+`vslit`/`fslit`, `_nm` with material maps, `_sm` reflecting an
+environment map, `_sm_nm` with both; skinned meshes through the same
+programs (`skinmesh`, `m_bones`). The rest draws with Moonglow's WGSL
+shader as before, and so does any mesh whose pair fails to compile or
+build (reported once: `Renderer::game_shader_failures`, and stderr).[^m1]
+
+**Decided:**
+
+- **Clip space: the engine's matrices, the depth remapped in IR.** The
+  uniforms are OpenGL's, as the engine uploads them (`m_proj` with depth
+  from -1 to 1, `Camera::projection_gl`), and `mg-shader` gives every
+  vertex program's position `z = (z + w) / 2` as it leaves, which is what
+  `glDepthRange(0, 1)` makes of it (`gl_FragCoord.z` is the same in
+  both). Nothing is flipped: OpenGL's clip space has y up, as wgpu's has,
+  so naga's `adjust_coordinate_space` (for SPIR-V written for Vulkan) is
+  off. Uploading wgpu's projection instead would have needed no IR, but a
+  shader that works with `m_proj`, `m_proj_inv` or `clipParams` (water,
+  depth reconstruction) would then compute with the wrong depth range.
+  The triangle test draws a mesh at OpenGL depth -0.9 (clipped without the
+  remap), the right way up, the nearer of two in front.
+- **Vertex inputs: the buffer layout from the reflection, by name.**
+  glslang numbers a stage's inputs and outputs in the order the stage
+  first uses them (in `vslit`: `vWeight` 0, `vIndex` 1, `vPos` 2…), so
+  each reflected input is given an attribute at its own location from
+  Moonglow's `Vertex` by the engine's name (notes §B.1): `vPos` (w filled
+  as 1), `vNormal`, `vTcIn`, `vTangent` and `fHandedness` (the tangent's
+  fourth component, an attribute of its own), `vCustomColor` (the model's
+  `colors`), `vTcIn1` (the second UV set's name in the engine's bind
+  list); `vIndex` and `vWeight` from `SkinVertex`. wgpu checks only the
+  scalar kind of a vertex input, but `vIndex` is a float `vec4` and no
+  vertex format reads `u32`s as floats: `Program::read_input_as_uint`
+  changes that argument's type and converts it in the entry point. What
+  Moonglow has no data for (`vColor`, the engine's baked static light,
+  with `staticLighting` 0; `vStaticLightDir`; the bones of an unskinned
+  mesh) reads zeros from a buffer of its own (one instance).
+- **Varyings matched by name** (`Program::link_inputs`): the fragment
+  program's inputs take the locations of the vertex program's outputs of
+  the same names and types. Unmatched, a same-typed pair swaps silently;
+  the test has one (white and black: wgpu sees nothing wrong).
+- **Two bind groups:** each program binds its own uniform block at
+  binding 0, so the fragment program's resources move to group 1
+  (`Program::set_group`). Each group is its block at a dynamic offset into
+  one buffer of the frame's blocks, then its textures and samplers by
+  name (the vertex programs declare `texUnit0` and the environment maps
+  too). Bind groups are kept per pipeline and material.
+- **The uniform contract** (`game.rs`, [the table](#the-uniform-contract)):
+  transforms (`m_texture` the identity, not zero: `mat2(m_texture)` is
+  applied to every UV), material colors linearized, `texture*Bound`,
+  `fAlphaDiscardValue` 0.2, the lights as `LightGrid::reaching` chooses
+  them (view-space positions, ±cutoff² as alpha), the area light, the
+  attenuation constants, fog, camera and the player at its focus, the
+  time. An MTR's `parameter`s fill members of their names; any name the
+  contract doesn't know is zero. Samplers: `texUnit0..7` from the
+  material's slots, `texUnitEnv`/`texUnitEnvCube` from its environment
+  map (white where none), `texUnitNoise` from `solid_noise`, the rest
+  white.
+- **The preamble:** the game at its highest settings, keyholing compiled
+  out (the editor has no player), `NO_DISCARD 0`.
+- **Faithful to the engine where the proposal didn't say:** a skinned
+  mesh draws through the same programs (the engine's skinning is a
+  uniform, not a permutation); a mesh of more than 64 bones falls back
+  (the engine's limit).
+
+**Measured** (`the_game_s_lit_shaders_match_moonglow_s`, the WGSL port's
+first oracle; 320², per channel of 255, over the pixels either draws;
+pixels at 255 left out, which the game's post pass would tone down and
+Moonglow's shader clamps as it does):
+
+| Scene | Game draws | Mean | 99% within | Most |
+|---|---|---|---|---|
+| textured sphere and ground, area light, point light, fog (`vslit`/`fslit`) | 2 of 2 | 0.05 | 1 | 1 |
+| tile `tcn01_a01_01` | 17 of 25 | 0.12 | 1 | 1 |
+| placeable `plc_a01` | 12 of 12 | 0.11 | 1 | 1 |
+| creature `c_wolf`, skinned | 24 of 24 | 0.01 | 0 | 49 (one pixel: a depth tie) |
+| sphere reflecting an environment map (`_sm`) | 1 of 1 | 0.73 | 15 | 23 |
+| sphere with normal and specular maps and tangents (`_nm`) | 1 of 1 | 1.11 | 11 | 31 |
+
+The plain lit path matches the stock shaders within rounding. The two
+variants differ where the environment map shows, and the oracle says why:
+`inc_envmap` samples it with `texture2D(texUnitEnv, uv, bias)`, the
+roughness's `clamp(r·30 − 1, 0, 10)` added to the level the derivatives
+give, where Moonglow's shader samples at that level outright. With the
+bias applied as GLSL applies it, `_sm` came to 0.02 and 1 (and the plain
+scenes to 0.00). The port's fix is in [the deferred list](deferred.md);
+the test holds the two variants to a looser tolerance until then. A
+uniform zeroed in the game path (the fog color) moves the plain scenes'
+mean to 9–15: the comparison sees the stock path, not a copy of
+Moonglow's.
+
+**The time uniforms** (`time_uniforms_in_the_client`, `client_render.rs`,
+by hand): `worldtimerTimeOfDay` counts real milliseconds (999–1000 a
+second in modules at 2 and 10 minutes an hour) and `sceneCurrentFrame` the
+client's frames (54–55 a second on the off-screen display). Moonglow's
+clock fills them at 1000 and 60 a second from the scene's time. The
+timer's origin follows the module's minutes an hour, not its hour or day
+(notes §B.4), and is open; the stock and TDoD shaders use the timer as a
+phase or as seconds.
+
+**Tests:** `mg-shader`'s on authored shaders (the depth remap's
+expressions, varyings used in another order and matched, the bone
+indices' type, the group); `mg-render`'s name mapping and block filling on
+authored GLSL (matrices by column, arrays at their stride, ints, an MTR's
+float and vector parameters by name in any case, an unknown name zero); on
+the GPU, authored stand-ins for `vslit`/`fslit` (clip space, depth order,
+the varying swap, the texture by name, and the same coverage as the WGSL
+shader) and a program that doesn't compile (drawn as without the game's
+shaders, reported once over two frames); the comparison above with the
+install. The corpus still compiles 65 of 65 stock programs and TDoD's 102
+of 102 with the depth remap.
+
+What M1 leaves for later is in [the deferred list](deferred.md) ("The
+game's lit shaders drawn"): see-through, additive, sky, decal and water
+meshes stay WGSL; no instancing and blocks rewritten every frame (M3);
+`NO_DISCARD` per material and `gl_FragCoord.y`'s direction; values the
+editor has no source for; Windows and macOS not run.
+
+[^m1]: M1: `crates/mg-shader/src/link.rs`, `crates/mg-render/src/game.rs`, the tests in `crates/mg-render/tests/render.rs` and `client_render.rs`, run 2026-10-21.
+
 ## Two tiers
 
 - **Tier A, custom shaders.** A mesh whose MTR names
@@ -319,7 +447,7 @@ starting point. By group:
 | Material: `materialFront*`, `Specularity`, `Roughness`, `Metallicness`, `CustomSpecularColor`, `fAlphaDiscardValue`, `texture*Bound`, `envMapCube` | what `Renderer::slots` resolves now | colors linearized as notes §M.3 found |
 | Lights: `lightPosition`, `lightColor`, `numLights`, `lightArea*`, `lightMaxIntensityInv`, `lightFalloffFactor`, `staticLighting` | `LightGrid::reaching`, the frame uniform | as read back from the client (notes §E.6) |
 | Fog: `fogParams`, `fogColor` | the frame uniform | `fogColor` in gamma space |
-| Time: `worldtimerTimeOfDay`, `sceneCurrentFrame`, `module*` | a clock of the view's | **units unknown**: measured in M1 |
+| Time: `worldtimerTimeOfDay`, `sceneCurrentFrame`, `module*` | a clock of the view's | real milliseconds and frames (measured in M1, notes §B.4) |
 | Area: `areaFlags`, `areaGlobalWind`, `areaWeather*`, `bboxMin/Max` | the ARE | wind drives the sway shaders |
 | Camera and player: `camera*`, `player*`, `keyhole*` | the editor camera; the player at its focus, keyholing off | the editor has no player |
 | Wind sources, targeting, `scriptable*` | zero | no in-editor source |
@@ -384,7 +512,9 @@ Decided on 2026-10-21:[^decisions]
 
 ## Open
 
-- The time uniforms' units and what drives them (M1).
+- What the client's `worldtimerTimeOfDay` counts from (its rate is real
+  milliseconds; its value follows the module's minutes an hour, not its
+  hour or day: notes §B.4).
 - How the engine chooses `_sm` and plain programs, and when it uses
   `fswater` (notes §M.12; needed for M4).
 - How the engine sets `NO_DISCARD` per material (notes §M.10).

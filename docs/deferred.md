@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T13:45:02Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T14:41:50Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1174,14 +1174,75 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     client: an indented `#include` is spliced (14 of the stock ones
     are), a missing include fails the program, and splicing stops 16
     deep. (S)
-  - Locations follow glslang's order of declaration (glslang-rs runs no
-    I/O mapping) and the bindings are Moonglow's (group 0, blocks, then
-    texture and sampler pairs): M1 gives vertex inputs Moonglow's vertex
-    layout and matches the varyings by name. A uniform that is a struct
-    is described as `Other`, without its members (none in the stock
-    blocks). (M1)
+  - A uniform that is a struct is described as `Other`, without its
+    members (none in the stock blocks). (Locations, which glslang numbers
+    in the order a stage first uses them, are settled in M1: vertex
+    inputs bound by name, varyings matched by name.) (S)
   - The C++ build: glslang is in every program and test binary that
     links `mg-module` (about 40 s of C++ on a cold build, once).
+- **The game's lit shaders drawn (M1 of [the shaders
+  proposal](shaders-proposal.md)):** what `Renderer::game_shaders` leaves
+  out. It is off, and nothing turns it on yet: no switch in the UI, the
+  area view, the previews or `mgv` (M2). (from M1, 2026-10-21)
+  - **The WGSL port samples the environment map at the wrong level**,
+    found by the comparison with the stock shaders
+    (`the_game_s_lit_shaders_match_moonglow_s`): `inc_envmap`'s
+    `texture2D(texUnitEnv, uv, bias)` adds the roughness's
+    `clamp(r·30 − 1, 0, 10)` to the level the derivatives give, where
+    `shader.wgsl` samples at that level (`textureSampleLevel`). A
+    magnified map (most: 64² and smaller over a whole mesh) stays sharp in
+    the game and is blurred in Moonglow. Measured: `_sm` differs by 0.73
+    in 255 on average, 15 at the 99th percentile; with the bias applied
+    as GLSL applies it (derivatives taken at the start of `fs_main`, as
+    an experiment), 0.02 and 1. For `_nm` the game takes the derivatives
+    of the coordinates from the normal-mapped normal (1.11 and 11 now):
+    the normal map would have to be read before the shader's first
+    `discard`. Fixing it changes every reflecting mesh's look, so it
+    waits for a verdict; the test's tolerance for those two scenes says
+    why it is looser. (S)
+  - Only solid (opaque-pass) lit meshes go through the game's programs:
+    see-through ones (Moonglow's two-part blend, its fringe pass),
+    additive ones, the sky and its fade, decals, unlit markers, water,
+    meshes with a known custom shader's effect (`vertexalpha`, `mzlm`)
+    and skins of more than 64 bones stay with the WGSL shader. The
+    material's own custom shaders (tier A) are M2. (M2)
+  - Each game draw is a draw of its own (no instancing: GLSL has no
+    instance index for the batcher's order buffer), its two blocks
+    (4.6 and 8.7 KB for `fslit`/`vslit`) written anew every frame into
+    one buffer; programs are compiled on the UI thread on first use
+    (5–30 ms each) and pipelines built then. (M3)
+  - `NO_DISCARD` is 0 for every material (alpha-tested, as Moonglow's
+    shader draws them); the engine's choice per material is not known
+    (notes §M.10). Keyholing is compiled out (`KEYHOLING_ENABLED 0`):
+    the editor has no player. (M4)
+  - `gl_FragCoord.y` counts from the top in wgpu and from the bottom in
+    OpenGL: not flipped. No stock lit program reads it but keyholing
+    (off); `fs_cg_btn_col` and screen-space custom shaders would see it
+    upside down. (S)
+  - `m_texture` is the identity: a mesh's `rotatetexture` (tiles' UV
+    compensation) is applied by neither path. (S)
+  - Values the editor has no source for are the game's defaults or
+    zero: `vColor`, `vStaticLightDir` (`staticLighting` 0), the module's
+    clock (12:00, 2 minutes an hour, dawn 6, dusk 18, not the module's
+    IFO), the area's flags, wind and weather (zero: the sway shaders
+    stand still until M2 reads the ARE), wind sources, targeting,
+    `scriptable*`. The camera's `cameraPitch` and `cameraYaw` are taken
+    as degrees from straight down and from east, not checked in the
+    client. (M2)
+  - `worldtimerTimeOfDay` counts real milliseconds and
+    `sceneCurrentFrame` frames (measured, notes §B.4); Moonglow's clock
+    starts both at 0 when the scene's time does. The client's timer has
+    an origin that follows the module's minutes an hour (about 424,800
+    a few seconds in at 2 minutes an hour, 3,304,900 at 10) and neither
+    its hour nor its day: not worked out. (S)
+  - One uniform block per stage; a program with more, storage buffers,
+    3D or array textures, or more than 16 textures a stage (wgpu's
+    default limit) falls back. A failure is reported once on stderr and
+    by `Renderer::game_shader_failures`, not in the UI. (M2)
+  - Not run on Windows or macOS (the renderer's CI branch): naga's
+    `discard` from the game's `discard` on Metal, where a discarded
+    fragment that runs on writes its depth (`a_shader_returns_where_it_discards`
+    holds Moonglow's own shader to returning), is unchecked. (S)
 - **A tileset's custom shader:** Moonglow runs none (see Custom shader
   effects above, and [the shaders proposal](shaders-proposal.md) for
   running them). Two it knows by name are drawn by its own shader instead.

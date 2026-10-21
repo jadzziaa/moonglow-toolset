@@ -3,7 +3,11 @@ type: Research Note
 title: 'NWN:EE rendering and lighting pipeline: research notes (game 89.8193.37-17)'
 description: The NWN:EE rendering and lighting pipeline read from the stock shaders - shader selection, vertex attributes and uniforms, texture slots, lighting equations, light sources, fog, shadows, gamma and tonemapping, keyholing - every claim tagged with its evidence.
 tags: [rendering, shaders, lighting, renderer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T04:32:36Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T14:41:50Z }
+sources:
+  - id: time-uniforms
+    resource: crates/mg-corpus-tests/tests/client_render.rs (time_uniforms_in_the_client), run 2026-10-21 on 89.8193.37-17
+    title: The time uniforms read back from the client
 ---
 
 # NWN:EE rendering and lighting pipeline: research notes (game 89.8193.37-17)
@@ -50,7 +54,7 @@ Working copies (scratch, all read-only extracts):
 #define varying out|in ; #define attribute in ; #define texture2D texture ; #define textureCube texture
 FS only: #define gl_FragColor compat_glFragColor / out vec4 compat_glFragColor;
 ```
-- `#include "name"` is a verbatim text splice ([WIKI], [ENG] `#include "%16[^"]"%n`). The stock includes use `#ifndef INC_X` guards.
+- `#include "name"` is a verbatim text splice ([WIKI], [ENG]: the engine scans `#include` with a 16-character `%16[…]` conversion for the name). The stock includes use `#ifndef INC_X` guards.
 - Compile error → the object renders with `vs_invalid`/`fs_invalid`, which is solid magenta `vec4(1,0,1,1)` ([SRC], [WIKI]).
 - Shader types: `SHADER_TYPE 1` = vertex, `2` = fragment. Each `.shd` sets it; the default is 2 in `inc_common`.
 
@@ -235,9 +239,9 @@ Player and camera:
 - `playerPosition`, `playerCameraDist`, `playerInCutscene`, `playerOrientation`
 - `cameraPosition`, `cameraFocus`, `cameraPitch`, `cameraYaw`, `cameraViewAngle`, `cameraDialogState`
 
-Time:
-- `sceneCurrentFrame`
-- `worldtimerTimeOfDay` (ms-ish client ticks)
+Time (both `int`; measured in the client, `client_render.rs` `time_uniforms_in_the_client`: read back through a patched `inc_standard` in five screenshots 3 s apart, each one's time measured, 89.8193.37-17, 2026-10-21):
+- `sceneCurrentFrame`: **the client's frame count**, 54–55 a second on the off-screen display (it follows the frame rate); about 370 some 7 s after the area was entered. Stock use: `fstc_sm`, `fs_cg_btn_col` (`/2048.0`, `/991.0` wobbles).
+- `worldtimerTimeOfDay`: **real milliseconds**, 999–1000 a second whatever the module's minutes an hour (2 or 10) — not game time. Its value follows neither the module's hour (13:00 and 06:00 gave the same) nor its day (1 and 15): about 424,800 a few seconds in at 2 minutes an hour and 3,304,900 at 10 (2,880,000 more: six game hours' worth at 8 more minutes an hour). The origin is not worked out [INF: a world timer started some game hours back]. Stock use: `vswater` (`× 0.001`: seconds), `inc_target` (throb); TDoD's wind shaders as a phase (`sin(y · t / fSwaySpeedMult)`) and as seconds (`/1000.0`), `shd_tooltip` (`> 0`).
 - `moduleYear/Month/Day/Hour`, `moduleDawnHour`, `moduleDuskHour`, `moduleMinutesPerHour`
 - `moduleTimeIntoTransition`, `moduleTransitionTime`
 
