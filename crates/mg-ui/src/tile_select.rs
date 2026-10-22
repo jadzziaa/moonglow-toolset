@@ -3,8 +3,8 @@
 //!
 //! - In tile mode a click selects the tile under the pointer (Ctrl + click
 //!   adds or removes it) and a drag selects a box of tiles.
-//! - Delete takes the selected tiles' crossers away (and a group's tile out
-//!   of its group); Shift + right click steps the tile under the pointer
+//! - Delete takes the selected tiles' crossers away (and a group or a
+//!   feature whole); Shift + right click steps the tile under the pointer
 //!   through the tiles that fit (Aurora's order: each tile's turns, then
 //!   the next tile's).
 //! - A right click opens the tile menu: Next and Previous Tile Appearance
@@ -13,9 +13,16 @@
 //!   opens it too, on the tile clicked; out of tile mode the area's menu
 //!   starts with the tile's items (`ground_items`) where no object is.
 //! - Tile Properties sets the selected tiles' main and source light colours
-//!   and animation loops (ARE `Tile_*`), each control only where the tile's
-//!   model has that light or loop (its SET entry), as Aurora shows them.
+//!   and animation loops (ARE `Tile_*`), each control enabled only where a
+//!   tile's model has that light or loop (`mg_area::TileFeatures`; with
+//!   several tiles, where any has it), the others greyed out, as Aurora
+//!   shows them. Each tile is written only what its own model has.
 //!   Defaults puts back the lighting scheme's first colours and the loops.
+//!   Closed with changes not applied (its X, Escape), it asks: Save, Don't
+//!   Save or Cancel; its Cancel button discards them.
+//! - A tile of a group or a feature changes only with its group (the
+//!   steps, the variants, Delete takes the whole group), unless Options ›
+//!   Area allows editing them (`Grid::free_groups`).
 
 use egui::{Color32, Pos2, Rect};
 use mg_core::{ResRef, ResType};
@@ -40,11 +47,22 @@ pub struct TileProps {
     pub main: [u8; 2],
     pub source: [u8; 2],
     pub loops: [bool; 3],
-    /// Which controls the tiles' models have: main lights, source lights,
-    /// loops.
+    /// Which controls any of the tiles' models has (Aurora enables those):
+    /// main lights, source lights, loops.
     pub has_main: [bool; 2],
     pub has_source: [bool; 2],
     pub has_loops: [bool; 3],
+    /// What each tile's own model has, by `tiles`' order: what is written
+    /// into that tile (the rest of its fields are kept as they are).
+    pub has_each: Vec<mg_area::TileFeatures>,
+    /// The values the window opened with: closed with others not applied,
+    /// it asks first.
+    pub opened: ([u8; 2], [u8; 2], [bool; 3]),
+    /// Closed with changes: Save, Don't Save or Cancel is asked.
+    pub closing: bool,
+    /// With one tile chosen, a group's or a feature's, which changes only
+    /// with its group: its variants aren't offered.
+    pub grouped: bool,
     /// The light whose colour is being chosen: 0, 1 main, 2, 3 source.
     pub picking: Option<usize>,
     /// With one tile chosen: its cell and the tiles that fit there, in
@@ -55,6 +73,17 @@ pub struct TileProps {
     /// A variant just chosen: the window takes the new tile's lights and
     /// loops once the area shows it.
     pub chosen: bool,
+}
+
+impl TileProps {
+    /// Whether a value the tiles have a control for differs from what the
+    /// window opened with (not yet applied).
+    pub fn changed(&self) -> bool {
+        let (main, source, loops) = self.opened;
+        (0..2).any(|k| self.has_main[k] && self.main[k] != main[k])
+            || (0..2).any(|k| self.has_source[k] && self.source[k] != source[k])
+            || (0..3).any(|k| self.has_loops[k] && self.loops[k] != loops[k])
+    }
 }
 
 /// Copied tiles: each at its offset from the block's south-west corner,
@@ -250,7 +279,13 @@ pub(crate) fn paste_input(
                 );
                 view.tile_pasting = false;
             }
-            None => view.notice = Some("Paste: the tiles do not fit there".into()),
+            None => {
+                let blocked = g.blocked();
+                let tools = view.terrain.as_ref().expect("checked");
+                view.notice =
+                    Some(crate::terrain_mode::refusal(tools, &g, "Paste", &blocked, None));
+                view.refused = Some((blocked, std::time::Instant::now()));
+            }
         }
     }
     true
@@ -290,7 +325,10 @@ pub(crate) fn context_menu(
     }
     tile_items(app, view, ui, &cells);
     if view.tile_mode
-        && ui.button("Delete").on_hover_text("Delete: crossers and group tiles go").clicked()
+        && ui
+            .button("Delete")
+            .on_hover_text("Delete: crossers go, and a group or a feature goes whole")
+            .clicked()
     {
         delete(app, view);
         ui.close();
@@ -390,8 +428,8 @@ impl TileStep {
     }
 
     /// What the step makes of the tile in cell `(x, y)`; `None` where it
-    /// can't (a group's tile, no other tile fits there, or turned it no
-    /// longer fits).
+    /// can't (a group's tile, unless they are free to edit; no other tile
+    /// fits there, or turned it no longer fits).
     pub(crate) fn of(
         self,
         tools: &crate::terrain_mode::Tools,
@@ -399,7 +437,7 @@ impl TileStep {
         (x, y): (u32, u32),
     ) -> Option<mg_tiles::Placement> {
         let now = g.tile(x, y);
-        if tools.index.is_grouped(now.tile) {
+        if g.locked(&tools.index, x, y) {
             return None;
         }
         let cell = g.lattice.cell(x, y);
@@ -412,15 +450,34 @@ impl TileStep {
     }
 
     /// Why nothing changed, for the status line.
-    fn refused(self, grouped: bool) -> &'static str {
+    fn refused(self, grouped: bool) -> String {
         match (self, grouped) {
-            (_, true) => "A group's tile: it changes only with its group",
-            (TileStep::Appearance { .. }, false) => "No other tile fits there",
+            (_, true) => format!("{}: {}", self.label(), crate::terrain_mode::GROUP_LOCKED),
+            (TileStep::Appearance { .. }, false) => "No other tile fits there".into(),
             (TileStep::Rotate { .. }, false) => {
                 "This tile fits here only as it lies: turned, it would not match its neighbors"
+                    .into()
             }
         }
     }
+}
+
+/// The cells of the groups of the tiles in `cells` that are locked (a
+/// group's, not free to edit): what flashes red when they refuse a step.
+fn locked_groups(
+    tools: &crate::terrain_mode::Tools,
+    g: &mg_tiles::paint::Grid,
+    cells: &[(u32, u32)],
+) -> Vec<(u32, u32)> {
+    let mut out: Vec<(u32, u32)> = Vec::new();
+    for &(x, y) in cells.iter().filter(|&&(x, y)| g.locked(&tools.index, x, y)) {
+        for c in g.group_cells(&tools.index, x, y).unwrap_or_else(|| vec![(x, y)]) {
+            if !out.contains(&c) {
+                out.push(c);
+            }
+        }
+    }
+    out
 }
 
 /// Steps the tiles in `cells` (each on its own: what fits there), as one
@@ -436,9 +493,10 @@ pub(crate) fn step_tiles(
     let Some(tools) = view.terrain.as_ref() else { return };
     let changes: Vec<_> = cells.iter().filter_map(|&c| Some((c, step.of(tools, &g, c)?))).collect();
     if changes.is_empty() {
-        let grouped = cells.iter().all(|&(x, y)| tools.index.is_grouped(g.tile(x, y).tile));
-        view.notice = Some(step.refused(grouped).into());
-        view.refused = Some((cells.to_vec(), std::time::Instant::now()));
+        let grouped = cells.iter().all(|&(x, y)| g.locked(&tools.index, x, y));
+        let shown = if grouped { locked_groups(tools, &g, cells) } else { cells.to_vec() };
+        view.notice = Some(step.refused(grouped));
+        view.refused = Some((shown, std::time::Instant::now()));
         return;
     }
     let kept: Vec<_> = match step {
@@ -454,23 +512,32 @@ pub(crate) fn step_tiles(
         }
         TileStep::Appearance { .. } => Vec::new(),
     };
-    crate::terrain_mode::tile_command_keeping(app, view, &g, &changes, step.label(), &kept);
     view.notice = None;
+    crate::terrain_mode::tile_command_keeping(app, view, &g, &changes, step.label(), &kept);
 }
 
 /// The tile's next variant among those that fit, in Aurora's order; with
-/// `back`, the one before.
+/// `back`, the one before. Not a group's tile (unless they are free to
+/// edit).
 fn next_variant(app: &mut Moonglow, view: &mut AreaView, (x, y): (u32, u32), back: bool) {
     let Some(g) = current_grid(app, view) else { return };
     let Some(tools) = view.terrain.as_ref() else { return };
+    if g.locked(&tools.index, x, y) {
+        let shown = locked_groups(tools, &g, &[(x, y)]);
+        view.notice = Some(format!("Next tile: {}", crate::terrain_mode::GROUP_LOCKED));
+        view.refused = Some((shown, std::time::Instant::now()));
+        return;
+    }
     let Some(next) = step_fit(&tools.index, &g.lattice.cell(x, y), g.tile(x, y), back) else {
         view.notice = Some("No other tile fits there".into());
         return;
     };
+    view.notice = None;
     crate::terrain_mode::tile_command(app, view, &g, &[((x, y), next)], "Next tile");
 }
 
-/// Delete on the selected tiles.
+/// Delete on the selected tiles (a group's tile: the whole group, unless
+/// their tiles are free to edit).
 fn delete(app: &mut Moonglow, view: &mut AreaView) {
     let Some(mut g) = current_grid(app, view) else { return };
     let Some(tools) = view.terrain.as_ref() else { return };
@@ -479,12 +546,40 @@ fn delete(app: &mut Moonglow, view: &mut AreaView) {
     match g.delete(&tools.index, &cells) {
         Some(stroke) => {
             let changes = g.apply(&tools.index, stroke, &mut fastrand::Rng::new());
+            view.notice = None;
             crate::terrain_mode::tile_command(app, view, &before, &changes, "Delete tiles");
         }
         None => {
             view.notice = Some("Delete: no tile fits there".into());
             view.refused = Some((g.blocked(), std::time::Instant::now()));
         }
+    }
+}
+
+/// What tile `id` of the area's tileset has of lights and loops: its
+/// model's (the module's copy first, then the game's), as Aurora reads
+/// them; for a model not found or not readable, what its SET entry says.
+fn tile_features(
+    app: &Moonglow,
+    tools: &crate::terrain_mode::Tools,
+    id: i64,
+) -> mg_area::TileFeatures {
+    let Some(entry) = usize::try_from(id).ok().and_then(|id| tools.set.tiles.get(id)) else {
+        return mg_area::TileFeatures::default();
+    };
+    let name = entry.model.to_ascii_lowercase();
+    let model = ResKey::parse(&name, ResType::MDL).and_then(|k| {
+        let data = (app.ws.as_ref().and_then(|w| w.module.get(&k).map(<[u8]>::to_vec)))
+            .or_else(|| app.game.as_deref()?.resman.get(&k).ok().map(|d| d.into_owned()))?;
+        mg_mdl::Model::read(&data).ok()
+    });
+    match model {
+        Some(m) => mg_area::TileFeatures::of(&m, &name),
+        None => mg_area::TileFeatures {
+            main: entry.main_lights,
+            source: entry.source_lights,
+            loops: entry.anim_loops,
+        },
     }
 }
 
@@ -495,33 +590,35 @@ fn open_properties(app: &mut Moonglow, view: &AreaView) {
     let tiles: Vec<usize> =
         view.tile_selection.iter().map(|&(x, y)| (y * model.width + x) as usize).collect();
     let Some(first) = tiles.first().and_then(|&i| model.tiles.get(i)) else { return };
-    let mut has_main = [false; 2];
-    let mut has_source = [false; 2];
-    let mut has_loops = [false; 3];
-    for t in tiles.iter().filter_map(|&i| model.tiles.get(i)) {
-        if let Some(s) = usize::try_from(t.id).ok().and_then(|id| tools.set.tiles.get(id)) {
-            for k in 0..2 {
-                has_main[k] |= s.main_lights[k];
-                has_source[k] |= s.source_lights[k];
-            }
-            for (has, on) in has_loops.iter_mut().zip(s.anim_loops) {
-                *has |= on;
-            }
-        }
-    }
-    // One tile: the others that fit there, to choose among by picture.
-    let variants = match view.tile_selection.as_slice() {
-        &[(x, y)] => current_grid(app, view).map(|g| {
-            let fits = mg_tiles::paint::fits_in_order(&tools.index, &g.lattice.cell(x, y));
-            let named = fits
-                .into_iter()
-                .filter_map(|p| Some((p, tools.set.tiles.get(p.tile as usize)?.model.clone())))
-                .collect();
-            (((x, y), named), g.tile(x, y))
-        }),
+    // What each tile's model has (a model read once however many tiles
+    // have it); the window enables what any of them has, as Aurora does.
+    let mut read: std::collections::HashMap<i64, mg_area::TileFeatures> = Default::default();
+    let has_each: Vec<mg_area::TileFeatures> = tiles
+        .iter()
+        .map(|&i| {
+            let id = model.tiles.get(i).map_or(-1, |t| t.id);
+            *read.entry(id).or_insert_with(|| tile_features(app, tools, id))
+        })
+        .collect();
+    let has = mg_area::TileFeatures::union(has_each.iter().copied());
+    // One tile: the others that fit there, to choose among by picture
+    // (not for a group's tile, which changes only with its group).
+    let one = match view.tile_selection.as_slice() {
+        &[(x, y)] => current_grid(app, view).map(|g| ((x, y), g)),
         _ => None,
     };
+    let grouped = one.as_ref().is_some_and(|((x, y), g)| g.locked(&tools.index, *x, *y));
+    let variants = one.filter(|_| !grouped).map(|((x, y), g)| {
+        let fits = mg_tiles::paint::fits_in_order(&tools.index, &g.lattice.cell(x, y));
+        let named = fits
+            .into_iter()
+            .filter_map(|p| Some((p, tools.set.tiles.get(p.tile as usize)?.model.clone())))
+            .collect();
+        (((x, y), named), g.tile(x, y))
+    });
     let (variants, variant) = variants.unzip();
+    // (A loop the tiles don't have shows unchecked, as Aurora shows it.)
+    let loops = [0, 1, 2].map(|k| first.anim_loops[k] && has.loops[k]);
     app.tile_props = Some(TileProps {
         area: view.area,
         variants,
@@ -530,10 +627,14 @@ fn open_properties(app: &mut Moonglow, view: &AreaView) {
         tiles,
         main: first.main_lights,
         source: first.source_lights,
-        loops: first.anim_loops,
-        has_main,
-        has_source,
-        has_loops,
+        loops,
+        has_main: has.main,
+        has_source: has.source,
+        has_loops: has.loops,
+        has_each,
+        opened: (first.main_lights, first.source_lights, loops),
+        closing: false,
+        grouped,
         picking: None,
     });
 }
@@ -569,8 +670,8 @@ fn swatch(ui: &mut egui::Ui, color: Color32, enabled: bool, selected: bool) -> e
 }
 
 /// A swatch's name, for the screen reader (and the tests).
-fn named(r: &egui::Response, name: &str) {
-    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, r.enabled(), name));
+fn named(r: &egui::Response, name: &str, enabled: bool) {
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name));
 }
 
 /// Tile Properties, in its tab, and its colour picker.
@@ -596,6 +697,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let colors = light_colors(app);
     let color = |i: usize| colors.get(i).copied().unwrap_or(Color32::BLACK);
     let mut cancel = false;
+    let mut escape = false;
     let mut done = None;
     {
         {
@@ -607,16 +709,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                     );
                     let main =
                         swatch(ui, color(usize::from(props.main[k])), props.has_main[k], false);
-                    named(&main, &format!("Main Light {} Color", k + 1));
+                    named(&main, &format!("Main Light {} Color", k + 1), props.has_main[k]);
                     if main.on_hover_text("Click here to select a color").clicked() {
                         props.picking = Some(k);
                     }
+                    // (One the tiles don't have shows unchecked, as Aurora's.)
+                    let mut none = false;
+                    let on = if props.has_loops[k] { &mut props.loops[k] } else { &mut none };
                     ui.add_enabled(
                         props.has_loops[k],
-                        egui::Checkbox::new(
-                            &mut props.loops[k],
-                            format!("Animation Loop {}", k + 1),
-                        ),
+                        egui::Checkbox::new(on, format!("Animation Loop {}", k + 1)),
                     )
                     .on_hover_text("Check to play this tile animation");
                     ui.end_row();
@@ -633,14 +735,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                         props.has_source[k],
                         false,
                     );
-                    named(&source, &format!("Source Light {} Color", k + 1));
+                    named(&source, &format!("Source Light {} Color", k + 1), props.has_source[k]);
                     if source.on_hover_text("Click here to select a color").clicked() {
                         props.picking = Some(2 + k);
                     }
                     if k == 0 {
+                        let mut none = false;
+                        let on = if props.has_loops[2] { &mut props.loops[2] } else { &mut none };
                         ui.add_enabled(
                             props.has_loops[2],
-                            egui::Checkbox::new(&mut props.loops[2], "Animation Loop 3"),
+                            egui::Checkbox::new(on, "Animation Loop 3"),
                         )
                         .on_hover_text("Check to play this tile animation");
                     }
@@ -661,10 +765,23 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 {
                     done = Some(true);
                 }
-                if crate::widgets::cancel_discard(ui) {
+                // (Its Cancel discards what changed; Escape, as its X
+                // does, asks first: `may_close`.)
+                if ui.button("Cancel").on_hover_text("Discard changes").clicked() {
                     cancel = true;
                 }
             });
+            if crate::widgets::escape_here(ui) {
+                escape = true;
+            }
+            if props.grouped {
+                ui.separator();
+                ui.weak(
+                    "A tile of a group or a feature: it changes only with its group, so other \
+                     tiles aren't offered here (Options › Area › Allow editing tiles of groups \
+                     and features offers them).",
+                );
+            }
             // The tile's variants: as many across as the tab is wide, the
             // rest of its height theirs.
             if let Some((_, variants)) = props.variants.clone().filter(|(_, v)| v.len() > 1) {
@@ -751,7 +868,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     {
         if let Some(g) = current_grid(app, &view) {
             view.tile_selection = vec![(*x, *y)];
-            crate::terrain_mode::tile_command(app, &view, &g, &[((*x, *y), p)], "Tile variant");
+            crate::terrain_mode::tile_command(app, &mut view, &g, &[((*x, *y), p)], "Tile variant");
             props.variant = Some(p);
             props.chosen = true;
         }
@@ -765,8 +882,62 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         Some(false) => defaults(app, &mut props),
         None => {}
     }
+    if escape {
+        // (Not while the question is asked: its own Cancel takes Escape.)
+        if props.changed() {
+            props.closing = true;
+        } else {
+            cancel = true;
+        }
+    }
     if !cancel {
         app.tile_props = Some(props);
+    }
+}
+
+/// Tile Properties closed (its X, Escape) with changes not applied: the
+/// question a side editor's tab asks, Save, Don't Save or Cancel. Save
+/// applies them as OK does; Cancel keeps the window open.
+pub(crate) fn closing_window(app: &mut Moonglow, ctx: &egui::Context) {
+    if !app.tile_props.as_ref().is_some_and(|p| p.closing) {
+        return;
+    }
+    enum Answer {
+        Save,
+        DontSave,
+        Cancel,
+    }
+    let mut answer = None;
+    crate::widgets::window("Unsaved Changes").id(egui::Id::new("tile-props-closing")).show(
+        ctx,
+        |ui| {
+            ui.label("Save changes to Tile Properties?");
+            ui.horizontal(|ui| {
+                if ui.button("Save").clicked() {
+                    answer = Some(Answer::Save);
+                }
+                if ui.button("Don't Save").clicked() {
+                    answer = Some(Answer::DontSave);
+                }
+                if crate::widgets::cancel(ui) {
+                    answer = Some(Answer::Cancel);
+                }
+            });
+        },
+    );
+    match answer {
+        None => {}
+        Some(Answer::Save) => {
+            if let Some(props) = app.tile_props.take() {
+                apply(app, &props);
+            }
+        }
+        Some(Answer::DontSave) => app.tile_props = None,
+        Some(Answer::Cancel) => {
+            if let Some(p) = app.tile_props.as_mut() {
+                p.closing = false;
+            }
+        }
     }
 }
 
@@ -852,8 +1023,10 @@ fn apply(app: &mut Moonglow, props: &TileProps) {
     let Ok(are) = ws.doc(&key) else { return };
     let list = are.root.list("Tile_List").unwrap_or(&[]);
     let mut edits = Vec::new();
-    for &i in &props.tiles {
+    for (n, &i) in props.tiles.iter().enumerate() {
         let Some(current) = list.get(i) else { continue };
+        // (Each tile gets what its own model has; its other fields stay.)
+        let has = props.has_each.get(n).copied().unwrap_or_default();
         let path = GffPath::root().item("Tile_List", i);
         let mut set = |label: &str, value: Value, on: bool| {
             if on && current.get(label) != Some(&value) {
@@ -865,16 +1038,13 @@ fn apply(app: &mut Moonglow, props: &TileProps) {
                 });
             }
         };
-        set("Tile_MainLight1", Value::Byte(props.main[0]), props.has_main[0]);
-        set("Tile_MainLight2", Value::Byte(props.main[1]), props.has_main[1]);
-        set("Tile_SrcLight1", Value::Byte(props.source[0]), props.has_source[0]);
-        set("Tile_SrcLight2", Value::Byte(props.source[1]), props.has_source[1]);
+        set("Tile_MainLight1", Value::Byte(props.main[0]), has.main[0]);
+        set("Tile_MainLight2", Value::Byte(props.main[1]), has.main[1]);
+        set("Tile_SrcLight1", Value::Byte(props.source[0]), has.source[0]);
+        set("Tile_SrcLight2", Value::Byte(props.source[1]), has.source[1]);
         for k in 0..3 {
-            set(
-                &format!("Tile_AnimLoop{}", k + 1),
-                Value::Byte(u8::from(props.loops[k])),
-                props.has_loops[k],
-            );
+            let on = Value::Byte(u8::from(props.loops[k]));
+            set(&format!("Tile_AnimLoop{}", k + 1), on, has.loops[k]);
         }
     }
     if !edits.is_empty() {

@@ -355,6 +355,10 @@ pub struct Settings {
     /// model, as Aurora shows them) rather than as Moonglow's arrow.
     /// (Named for Aurora's merchants: kept, so saved settings load.)
     pub merchant_signs: bool,
+    /// Options > Area: Allow editing tiles of groups and features (off: a
+    /// group or feature is one thing, its tiles changed only with it, and
+    /// no group goes over another; Jasperre's ask).
+    pub edit_group_tiles: bool,
     /// Options > Area: Show the turning and tilt rings around selected
     /// objects is off.
     pub no_turn_ring: bool,

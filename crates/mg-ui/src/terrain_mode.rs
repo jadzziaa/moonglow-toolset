@@ -38,6 +38,13 @@
 //!   Down, lets it go). Raise/Lower, a crosser, a group and a tile keep
 //!   their own right click.
 //!
+//! - A group or a feature is one thing: none of the above changes a tile
+//!   of one, no group goes over another (the tiles in the way flash red),
+//!   and the Eraser takes the whole of it away; the status line says how.
+//!   Options › Area › Allow editing tiles of groups and features
+//!   (`Grid::free_groups`) lets each tile of one change alone, with a
+//!   warning on the status line when a group is left part changed.
+//!
 //! Every stroke is one undoable command on the ARE (`mg_tiles::paint`,
 //! `mg_area::terrain`).
 
@@ -82,6 +89,9 @@ fn fit_of(tools: &Tools, grid: &Grid, (x, y): (u32, u32), tile: u32) -> Option<P
 /// What Refine Tile makes of the tile in `cell`: the brush's target tile
 /// where it fits, else the next tile that fits there.
 fn refined(tools: &Tools, grid: &Grid, brush: &TileBrush, (x, y): (u32, u32)) -> Option<Placement> {
+    if grid.locked(&tools.index, x, y) {
+        return None;
+    }
     match brush.target {
         Some(t) => fit_of(tools, grid, (x, y), t),
         None => next_fit(&tools.index, &grid.lattice.cell(x, y), grid.tile(x, y)),
@@ -243,9 +253,58 @@ pub(crate) fn active(app: &Moonglow, view: &AreaView) -> Option<TileBrush> {
 /// The area's grid as the workspace has it.
 pub(crate) fn current_grid(app: &mut Moonglow, view: &AreaView) -> Option<Grid> {
     let tools = view.terrain.as_ref()?;
+    let free = app.settings.edit_group_tiles;
     let ws = app.ws.as_mut()?;
     let are = ws.doc(&ResKey::new(view.area, ResType::ARE)).ok()?;
-    grid(&are.root, &tools.index)
+    let mut g = grid(&are.root, &tools.index)?;
+    g.free_groups = free;
+    Some(g)
+}
+
+/// Why a stroke of a group's tiles is refused, after its label.
+pub(crate) const GROUP_LOCKED: &str = "tiles of a group or feature (in red) change only with \
+     it whole: the Eraser takes all of it away, or Options › Area › Allow editing tiles of groups \
+     and features";
+
+/// The status line for a stroke `label` refused at `blocked` (the tiles
+/// in the way, flashing red; `at`, the tile clicked, when none is).
+pub(crate) fn refusal(
+    tools: &Tools,
+    grid: &Grid,
+    label: &str,
+    blocked: &[(u32, u32)],
+    at: Option<(u32, u32)>,
+) -> String {
+    let locked = |&(x, y): &(u32, u32)| grid.locked(&tools.index, x, y);
+    if blocked.iter().any(locked) || (blocked.is_empty() && at.as_ref().is_some_and(locked)) {
+        format!("{label}: {GROUP_LOCKED}")
+    } else if blocked.is_empty() {
+        format!("{label}: no tile fits there")
+    } else {
+        format!("{label}: no tile fits the tiles shown in red")
+    }
+}
+
+/// The tiles to flash red for a refused stroke: those in its way, or
+/// where none is, the group of the tile clicked (`at`), if it is one's.
+fn refused_cells(tools: &Tools, grid: &Grid, at: Option<(u32, u32)>) -> Vec<(u32, u32)> {
+    let blocked = grid.blocked();
+    match at {
+        Some((x, y)) if blocked.is_empty() && grid.locked(&tools.index, x, y) => {
+            grid.group_cells(&tools.index, x, y).unwrap_or_else(|| vec![(x, y)])
+        }
+        _ => blocked,
+    }
+}
+
+/// The warning after a change with tiles of groups free to edit, where it
+/// left `n` groups part changed.
+fn broken_warning(label: &str, n: usize) -> String {
+    let groups = if n == 1 { "a group or feature".to_string() } else { format!("{n} groups") };
+    format!(
+        "⚠ {label}: {groups} left part changed (Allow editing tiles of groups and features is on; \
+         Undo puts it back)"
+    )
 }
 
 /// The stroke `brush` makes at `spot`, and a label for it.
@@ -272,7 +331,7 @@ fn stroke(
                     continue;
                 }
                 let (cx, cy) = (cx as u32, cy as u32);
-                if tools.index.is_grouped(grid.tile(cx, cy).tile) {
+                if grid.locked(&tools.index, cx, cy) {
                     continue;
                 }
                 if let Some(p) =
@@ -323,15 +382,23 @@ fn stroke(
 }
 
 /// The stroke choosing the tile under `spot` again (the next that fits
-/// there, which the commit picks); `None` when no other fits.
+/// there, which the commit picks); `None` when no other fits, or it is a
+/// group's.
 fn next_tile(tools: &Tools, grid: &Grid, spot: Spot) -> Option<Stroke> {
-    let (cx, cy) = spot.cell;
-    let cell = grid.lattice.cell(cx, cy);
-    next_fit(&tools.index, &cell, grid.tile(cx, cy)).map(|_| Stroke {
+    next_of(tools, grid, spot.cell).map(|_| Stroke {
         lattice: grid.lattice.clone(),
         cells: vec![spot.cell],
         fixed: Vec::new(),
     })
+}
+
+/// The next tile that fits cell `(x, y)` in Aurora's order (Shift + right
+/// click's), unless the tile there is a group's.
+pub(crate) fn next_of(tools: &Tools, grid: &Grid, (x, y): (u32, u32)) -> Option<Placement> {
+    if grid.locked(&tools.index, x, y) {
+        return None;
+    }
+    next_fit(&tools.index, &grid.lattice.cell(x, y), grid.tile(x, y))
 }
 
 /// Cells a stroke changed, and their new tiles.
@@ -347,24 +414,21 @@ fn commit(
     label: &str,
     pick: Option<Placement>,
 ) {
+    let Some(tools) = view.terrain.as_ref() else { return };
     let Some(stroke) = stroke else {
-        // The tiles in the way flash red, as in Aurora.
-        let blocked = grid.blocked();
-        view.notice = Some(if blocked.is_empty() {
-            format!("{label}: no tile fits there")
-        } else {
-            format!("{label}: no tile fits the tiles shown in red")
-        });
-        view.refused = Some((blocked, std::time::Instant::now()));
+        // The tiles in the way flash red, as in Aurora (a group's tile
+        // clicked, its group).
+        let at = view.spot.map(|s| s.cell);
+        view.notice = Some(refusal(tools, &grid, label, &grid.blocked(), at));
+        view.refused = Some((refused_cells(tools, &grid, at), std::time::Instant::now()));
         return;
     };
-    let Some(tools) = view.terrain.as_ref() else { return };
     let before = grid.clone();
     // The tiles the preview showed; the next preview chooses anew.
     let changes = changes(tools, &mut grid, stroke, pick, view.preview_seed);
     view.preview_seed = fastrand::u64(..);
-    tile_command(app, view, &before, &changes, label);
     view.notice = None;
+    tile_command(app, view, &before, &changes, label);
 }
 
 /// What `stroke` (or `pick`, the tile chosen for its one cell) makes of
@@ -412,8 +476,7 @@ fn click(
     } else if let Some(step) = tile_step(brush, cycle) {
         step.of(tools, g, s.cell)
     } else if cycle && brush.brush == Brush::Eraser {
-        let (cx, cy) = s.cell;
-        next_fit(&tools.index, &g.lattice.cell(cx, cy), g.tile(cx, cy))
+        next_of(tools, g, s.cell)
     } else {
         None
     };
@@ -454,6 +517,7 @@ fn preview_key(app: &Moonglow, view: &AreaView, shift: bool) -> PreviewKey {
         revision: app.ws.as_ref().map(|ws| ws.revision()),
         marked: view.terrain_drag.as_ref().map(TerrainDrag::marked),
         crossing: crossing_shown(view),
+        free_groups: app.settings.edit_group_tiles,
     }
 }
 
@@ -468,6 +532,8 @@ pub(crate) struct PreviewKey {
     revision: Option<u64>,
     marked: Option<Vec<(u32, u32)>>,
     crossing: Vec<((u32, u32), usize)>,
+    /// Options › Area › Allow editing tiles of groups and features.
+    free_groups: bool,
 }
 
 fn work_out_preview(app: &mut Moonglow, view: &AreaView, shift: bool) -> Option<Preview> {
@@ -504,10 +570,12 @@ fn work_out_preview(app: &mut Moonglow, view: &AreaView, shift: bool) -> Option<
 }
 
 /// One command putting `changes` (cells and their new tiles) into the
-/// area, with fresh lights, and the doors the tiles bring and take.
+/// area, with fresh lights, and the doors the tiles bring and take. Where
+/// it leaves a group part changed (tiles of groups free to edit), the
+/// status line warns.
 pub(crate) fn tile_command(
     app: &mut Moonglow,
-    view: &AreaView,
+    view: &mut AreaView,
     before: &Grid,
     changes: &[((u32, u32), Placement)],
     label: &str,
@@ -519,12 +587,16 @@ pub(crate) fn tile_command(
 /// lights and animation loops (pasted tiles).
 pub(crate) fn tile_command_keeping(
     app: &mut Moonglow,
-    view: &AreaView,
+    view: &mut AreaView,
     before: &Grid,
     changes: &[((u32, u32), Placement)],
     label: &str,
     kept: &[((u32, u32), mg_gff::Struct)],
 ) {
+    let broken = view.terrain.as_ref().map_or(0, |t| before.groups_broken(&t.index, changes).len());
+    if broken > 0 {
+        view.notice = Some(broken_warning(label, broken));
+    }
     let (Some(ws), Some(game), Some(tools)) =
         (app.ws.as_mut(), app.game.as_deref(), view.terrain.as_ref())
     else {
@@ -765,12 +837,30 @@ fn terrain_drag(
     let (changes, label, refused) =
         paint_corners(tools, &mut g, brush, &drag, (w, h), view.preview_seed, turns);
     view.preview_seed = fastrand::u64(..);
+    // (A group's tiles among those marked, or around a corner marked.)
+    let locked = |&(x, y): &(u32, u32)| {
+        let cells = if drag.tiles {
+            vec![(x, y)]
+        } else {
+            [(0, 0), (1, 0), (0, 1), (1, 1)]
+                .iter()
+                .filter(|&&(dx, dy)| x >= dx && y >= dy && x - dx < w && y - dy < h)
+                .map(|&(dx, dy)| (x - dx, y - dy))
+                .collect()
+        };
+        cells.iter().any(|&(cx, cy)| before.locked(&tools.index, cx, cy))
+    };
+    let grouped = brush.brush != Brush::Eraser && drag.marked().iter().any(locked);
+    view.notice = None;
     tile_command(app, view, &before, &changes, &label);
     let what = if drag.tiles { "tiles" } else { "corners" };
-    view.notice = (refused > 0).then(|| match brush.brush {
-        Brush::Refine => format!("{label}: {refused} {what} of another kind left as they were"),
-        _ => format!("{label}: no tile fits at {refused} {what}"),
-    });
+    if refused > 0 {
+        view.notice = Some(match brush.brush {
+            _ if grouped => format!("{label}: {refused} {what} left as they were: {GROUP_LOCKED}"),
+            Brush::Refine => format!("{label}: {refused} {what} of another kind left as they were"),
+            _ => format!("{label}: no tile fits at {refused} {what}"),
+        });
+    }
     true
 }
 
@@ -860,7 +950,7 @@ fn refine_cells(
     for &(x, y) in cells {
         let made = if (x, y) == first {
             first_made
-        } else if tools.index.is_grouped(g.tile(x, y).tile) {
+        } else if g.locked(&tools.index, x, y) {
             None
         } else {
             fit_of(tools, g, (x, y), tile)

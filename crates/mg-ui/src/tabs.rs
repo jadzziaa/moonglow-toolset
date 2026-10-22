@@ -272,7 +272,13 @@ impl Viewer<'_> {
         let recording = *tab == Tab::Options
             && self.app.options.as_ref().is_some_and(|o| o.recording.is_some());
         if escape && !recording && (model || (front && !tool)) {
-            self.app.actions.push(crate::Action::CloseTab(tab.clone()));
+            // (Tile Properties with changes not applied asks first, as
+            // its X does: `may_close`.)
+            self.app.actions.push(if *tab == Tab::TileProperties {
+                crate::Action::CloseTabs(vec![tab.clone()])
+            } else {
+                crate::Action::CloseTab(tab.clone())
+            });
         }
         // (A side editor's Undo and Redo are its own with the pointer over
         // it.)

@@ -1965,6 +1965,14 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         "A static placeable takes no scale: clear Static in its properties first. (Ctrl + \
          wheel zooms slowly meanwhile.)"
             .to_string()
+    } else if view.tile_mode {
+        // (And why a step was refused, as a brush's line says it.)
+        let how = "Select Tiles: click a tile (Ctrl + click: add one), drag a box; Shift + right \
+                   click: its next tile; right click: the tile menu";
+        match &view.notice {
+            Some(n) => format!("{how} · {n}"),
+            None => how.to_string(),
+        }
     } else if let ([(kind, index)], Some(m)) = (view.selection.as_slice(), &view.model)
         && let Some(o) = m.object(*kind, *index)
     {

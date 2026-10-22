@@ -87,6 +87,7 @@ pub struct OptionsDraft {
     /// Verify: the groups left out of its report, by id.
     pub verify_skip: Vec<String>,
     pub merchant_signs: bool,
+    pub edit_group_tiles: bool,
     pub turn_ring: bool,
     pub dialog_npc_color: Option<[u8; 3]>,
     pub dialog_pc_color: Option<[u8; 3]>,
@@ -179,6 +180,7 @@ impl OptionsDraft {
             door_arrows: !s.no_door_arrows,
             verify_skip: s.verify_skip.clone(),
             merchant_signs: s.merchant_signs,
+            edit_group_tiles: s.edit_group_tiles,
             turn_ring: !s.no_turn_ring,
             dialog_npc_color: s.dialog_npc_color,
             dialog_pc_color: s.dialog_pc_color,
@@ -251,6 +253,7 @@ impl OptionsDraft {
             no_door_arrows: !self.door_arrows,
             verify_skip: self.verify_skip.clone(),
             merchant_signs: self.merchant_signs,
+            edit_group_tiles: self.edit_group_tiles,
             no_turn_ring: !self.turn_ring,
             dialog_npc_color: self.dialog_npc_color,
             dialog_pc_color: self.dialog_pc_color,
@@ -688,6 +691,26 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                     "The game's marker for a store, as Aurora shows them, \
                                  rather than an arrow along the store's facing",
                                 );
+                            ui.checkbox(
+                                &mut draft.edit_group_tiles,
+                                "Allow editing tiles of groups and features",
+                            )
+                            .on_hover_text(
+                                "Off, a group or feature is one thing: its tiles don't turn, \
+                                 change appearance or take terrain, no group goes over another, \
+                                 and the Eraser or Delete takes it away whole. On, each tile of \
+                                 one can be changed alone, which leaves the rest of it standing: \
+                                 hard to see and to put right later (Undo does)",
+                            );
+                            if draft.edit_group_tiles {
+                                ui.label(
+                                    egui::RichText::new(
+                                        "⚠ Tiles of groups and features can be changed one by \
+                                         one: a group half changed stays so.",
+                                    )
+                                    .color(ui.visuals().warn_fg_color),
+                                );
+                            }
                         }
                         OptionsPage::Verify => verify(ui, draft),
                         OptionsPage::Language => {
@@ -1314,11 +1337,14 @@ mod tests {
         let mut d = OptionsDraft::from_settings(&s);
         assert!(d.spawn_markers && d.door_arrows, "on by default, as in Aurora");
         assert!(!d.merchant_signs, "stores are arrows unless asked");
+        assert!(!d.edit_group_tiles, "groups are one thing unless asked");
         assert!(d.turn_ring, "the turning ring shows unless switched off");
         assert_eq!(d.area_background, None, "the fog color by default");
         (d.spawn_markers, d.area_background) = (false, Some([192, 192, 192]));
+        d.edit_group_tiles = true;
         let t = d.apply(&s);
         assert!(t.no_spawn_markers && !t.no_door_arrows);
+        assert!(t.edit_group_tiles && OptionsDraft::from_settings(&t).edit_group_tiles);
         assert_eq!(d.spawn_marker_size, (12, 4), "Aurora's Height and Width");
         let mut d = OptionsDraft::from_settings(&t);
         d.spawn_marker_size = (20, 6);

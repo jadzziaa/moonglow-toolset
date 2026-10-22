@@ -395,10 +395,10 @@ fn group_doors_match_aurora() {
 
 /// A group is one thing: the Eraser on any of its tiles takes all of it
 /// away (as in Aurora, driven by hand on the oracle), and a group placed
-/// over part of another takes the other away whole (no half a barn left
-/// beside the new one). Aurora refuses that placement instead (the
-/// outline turns red, the click places nothing): replacing in place was
-/// chosen over it.
+/// over part of another is refused, as Aurora refuses it (the outline
+/// turns red, the click places nothing). With the tiles of groups free to
+/// edit (Options › Area), it takes the other away whole (no half a barn
+/// left beside the new one).
 #[test]
 fn groups_go_whole() {
     let root = corpus!();
@@ -421,10 +421,15 @@ fn groups_go_whole() {
     g.apply(&index, stroke, &mut rng);
     assert_eq!(grouped(&g), [(2, 2), (3, 2), (2, 3), (3, 3)]);
     assert_eq!(g.group_cells(&index, 3, 3).map(|c| c.len()), Some(4));
-    // Another over its east half: the first goes, all of it.
+    // Another over its east half: refused, the first in the way.
+    assert!(g.place_group(&index, &set.groups[barn], 3, 2, 0).is_none());
+    assert_eq!(g.blocked(), [(2, 2), (3, 2), (2, 3), (3, 3)]);
+    // Allowed: the first goes, all of it.
+    g.free_groups = true;
     let stroke = g.place_group(&index, &set.groups[barn], 3, 2, 0).unwrap();
     g.apply(&index, stroke, &mut rng);
     assert_eq!(grouped(&g), [(3, 2), (4, 2), (3, 3), (4, 3)]);
+    g.free_groups = false;
     // The Eraser on one of its tiles: none of it is left.
     let stroke = g.erase(&index, 4, 3).unwrap();
     g.apply(&index, stroke, &mut rng);

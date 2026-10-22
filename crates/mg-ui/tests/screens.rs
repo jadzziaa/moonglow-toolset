@@ -522,6 +522,10 @@ fn options_window() {
     shoot(&mut h, &dir, "options-folders");
     h.get_by_label("General").click();
     shoot(&mut h, &dir, "options-general");
+    // The Area page, tiles of groups free to edit: its warning.
+    h.state_mut().options.as_mut().unwrap().edit_group_tiles = true;
+    h.get_by_label("Area").click();
+    shoot(&mut h, &dir, "options-area");
     h.get_by_label("Script Editor").click();
     shoot(&mut h, &dir, "options-script-editor");
     // Further down: the colors, the background and the preview.

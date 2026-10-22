@@ -101,6 +101,58 @@ impl AreaTile {
     }
 }
 
+/// Which of a tile's lights and animation loops its model has: what
+/// Aurora's Tile Properties enables (the others are greyed out). The
+/// tileset's `MainLight1`..`AnimLoop3` flags don't tell (the game's sets
+/// have 1 for every tile); the model does: a light node `<model>ml1` or
+/// `ml2` for a main light, a node (a dummy) `<model>sl1` or `sl2` where a
+/// source light's flame goes, and an animation `animloop01`..`03` for a
+/// loop.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TileFeatures {
+    pub main: [bool; 2],
+    pub source: [bool; 2],
+    pub loops: [bool; 3],
+}
+
+impl TileFeatures {
+    /// Every light and loop (what a model not found is taken to have).
+    pub const ALL: TileFeatures =
+        TileFeatures { main: [true; 2], source: [true; 2], loops: [true; 3] };
+
+    /// What tile model `model`, read from resource `resref`, has. A node
+    /// counts named after the model's own name or the resource's (they
+    /// are the same in the game's tilesets), case aside.
+    pub fn of(model: &mg_mdl::Model, resref: &str) -> TileFeatures {
+        // (A main light is a light node; a source light's place any node.)
+        let has = |suffix: &str, light: bool| {
+            model.nodes.iter().any(|n| {
+                let named = [model.name.as_str(), resref].iter().any(|base| {
+                    n.name.len() == base.len() + suffix.len()
+                        && n.name.get(..base.len()).is_some_and(|b| b.eq_ignore_ascii_case(base))
+                        && n.name.get(base.len()..).is_some_and(|s| s.eq_ignore_ascii_case(suffix))
+                });
+                named && (!light || matches!(n.kind, mg_mdl::NodeKind::Light(_)))
+            })
+        };
+        TileFeatures {
+            main: [has("ml1", true), has("ml2", true)],
+            source: [has("sl1", false), has("sl2", false)],
+            loops: ["animloop01", "animloop02", "animloop03"].map(|a| model.animation(a).is_some()),
+        }
+    }
+
+    /// What any of `all` has (Aurora's Tile Properties of several tiles
+    /// enables what any of them has).
+    pub fn union(all: impl IntoIterator<Item = TileFeatures>) -> TileFeatures {
+        all.into_iter().fold(TileFeatures::default(), |a, b| TileFeatures {
+            main: [a.main[0] | b.main[0], a.main[1] | b.main[1]],
+            source: [a.source[0] | b.source[0], a.source[1] | b.source[1]],
+            loops: [a.loops[0] | b.loops[0], a.loops[1] | b.loops[1], a.loops[2] | b.loops[2]],
+        })
+    }
+}
+
 /// A place a door can stand: a tile's door hook (the tileset's
 /// `[TILEnDOORm]`), where Aurora puts a door placed near it.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -631,6 +683,34 @@ impl AreaModel {
 mod tests {
     use super::*;
     use mg_gff::Value;
+
+    /// A tile model with main light 1, source light 2's place (named in
+    /// another case) and animation loop 2; a light named ml2 of another
+    /// model's name is not this tile's.
+    #[test]
+    fn a_tiles_lights_and_loops_are_its_models() {
+        let text = "newmodel tst01_a01_01\nsetsupermodel tst01_a01_01 NULL\n\
+classification tile\nbeginmodelgeom tst01_a01_01\n\
+node dummy tst01_a01_01\n  parent NULL\nendnode\n\
+node light tst01_a01_01ml1\n  parent tst01_a01_01\n  radius 10\nendnode\n\
+node light other_ml2\n  parent tst01_a01_01\n  radius 5\nendnode\n\
+node dummy TST01_A01_01SL2\n  parent tst01_a01_01\nendnode\n\
+endmodelgeom tst01_a01_01\n\
+newanim animloop02 tst01_a01_01\n  length 1\n  transtime 0\n  animroot tst01_a01_01\n\
+  node dummy tst01_a01_01\n    parent NULL\n  endnode\n\
+doneanim animloop02 tst01_a01_01\ndonemodel tst01_a01_01\n";
+        let model = mg_mdl::Model::read(text.as_bytes()).unwrap();
+        let has = TileFeatures::of(&model, "tst01_a01_01");
+        assert_eq!(has.main, [true, false]);
+        assert_eq!(has.source, [false, true]);
+        assert_eq!(has.loops, [false, true, false]);
+        // (Named after the resource, where the model's own name differs.)
+        assert_eq!(TileFeatures::of(&model, "renamed"), has);
+        let none = TileFeatures::default();
+        assert_eq!(TileFeatures::union([has, none]), has);
+        let other = TileFeatures { loops: [true, false, false], ..none };
+        assert_eq!(TileFeatures::union([has, other]).loops, [true, true, false]);
+    }
 
     fn object(fields: &[(&str, f32)]) -> Struct {
         let mut s = Struct::new(0);

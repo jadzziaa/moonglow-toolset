@@ -1292,6 +1292,7 @@ impl Moonglow {
         bulk::update_window(self, ui.ctx());
         area_props::chooser_window(self, ui.ctx());
         side_doc::closing_window(self, ui.ctx());
+        tile_select::closing_window(self, ui.ctx());
         table_view::open_table_ui(self, ui.ctx());
         hak_view::adding_window(self, ui.ctx());
         model_view::export_window(self, ui.ctx());
@@ -1617,8 +1618,16 @@ impl Moonglow {
         if *tab == Tab::Options {
             self.options = None;
         }
+        // (Tile Properties with changes not applied asks first, and stays
+        // for the answer: `tile_select::closing_window`.)
         if *tab == Tab::TileProperties {
-            self.tile_props = None;
+            match self.tile_props.as_mut() {
+                Some(p) if p.changed() => {
+                    p.closing = true;
+                    return false;
+                }
+                _ => self.tile_props = None,
+            }
         }
         self.may_close_side(tab)
     }
