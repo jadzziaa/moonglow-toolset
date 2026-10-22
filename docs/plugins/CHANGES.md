@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T11:37:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T12:25:22Z }
 ---
 
 # Plugin API changes
@@ -16,7 +16,7 @@ to change.
 
 ## 0.4
 
-Not yet in a release. In short: a plugin learns what the user is
+In Moonglow 2.1.0. In short: a plugin learns what the user is
 working on (the selection, what is open) and is offered in the menus of
 what it is for; it comes with a project; it keeps settings; a check
 offers fixes; a plugin has tests of its own; and it acts on what the
