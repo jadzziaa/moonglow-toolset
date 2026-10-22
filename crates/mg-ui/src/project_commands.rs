@@ -135,6 +135,11 @@ enum Ended {
 /// Runs a command as a job (the window takes nothing else meanwhile),
 /// the module's files let go, and reads them again after.
 fn start(app: &mut Moonglow, label: &str, text: &str, root: &Path) {
+    // (Another job under way: nothing is let go for one that can't start.)
+    if let Some(job) = &app.job {
+        app.log.warn(format!("{label}: waiting for {} to finish", job.title));
+        return;
+    }
     app.log.info(format!("{label}: {text} (in {})", root.display()));
     app.pause_outside();
     let released = app.release_haks();

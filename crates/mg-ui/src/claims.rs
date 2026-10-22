@@ -222,10 +222,18 @@ pub(crate) fn hold_save(app: &mut Moonglow, then: Action) -> bool {
         .collect();
     areas.sort();
     areas.dedup();
+    // (The module's bytes and the file's as read are usually the same
+    // shared bytes: compared at once, not byte by byte, for every area a
+    // large world's builder hasn't claimed.)
+    let same = |a: Option<&[u8]>, b: Option<&[u8]>| match (a, b) {
+        (Some(a), Some(b)) => std::ptr::eq(a, b) || a == b,
+        (None, None) => true,
+        _ => false,
+    };
     let changed = |area: ResRef| {
         [ResType::ARE, ResType::GIT, ResType::GIC].iter().any(|t| {
             let k = ResKey::new(area, *t);
-            m.get(&k) != m.as_read(&k)
+            !same(m.get(&k), m.as_read(&k))
         })
     };
     let asked: Vec<(ResRef, String)> = areas
