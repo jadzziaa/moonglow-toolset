@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Modules
-description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
+description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T08:31:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:21:49Z }
 ---
 
 # Modules
@@ -389,6 +389,16 @@ keeper_variable = "tdod_store"      # the shopkeeper's variable: the store's tag
 
 [resrefs]
 pattern = "{code}_{name}"           # a new ResRef, by each builder's code
+
+[claims]
+file = "builders/claims.2da"        # who is building which area
+others = "warn"                     # another builder's area: "warn" before a save, or "read-only"
+unclaimed = "edit"                  # an area no one claimed: "edit", or "warn"
+protected = ["kz_*"]                # areas whose Tag and ResRef are kept, besides those merged
+
+[commands]                          # File › Project
+update = "bin/update"
+submit = { run = "bin/submit", windows = "bin\\submit.cmd", label = "Submit for Review" }
 ```
 
 Names are matched by globs, whatever their case: `*` any characters,
@@ -406,10 +416,16 @@ Names are matched by globs, whatever their case: `*` any characters,
 | `[store] blueprint` | the store blueprint chosen at first | none chosen |
 | `[store] keeper_variable` | a String variable set on the shopkeeper to the store's tag | none |
 | `[resrefs] pattern` | how a builder's code goes into the ResRefs Moonglow proposes: `{code}` and `{name}` once each, the rest letters, digits and `_` (`"{name}_{code}"`, `"t{code}{name}"`) | `"{code}_{name}"`, where a builder has a code |
+| `[claims] file` | the team's [claims table](#claimed-areas), from the project's root | no claims |
+| `[claims] others` | an area another builder claimed: `"warn"` (it says so, and a save asks before it writes a change to it) or `"read-only"` (no change to it is taken) | `"warn"` |
+| `[claims] unclaimed` | an area no one claimed: `"edit"` (as without a table) or `"warn"` (as another's) | `"edit"` |
+| `[claims] protected` | areas (ResRefs, globs) whose Tag and ResRef are [kept](#protected-areas), besides those the table says are merged | none |
+| `[commands]` | the project's [commands](#the-projects-commands), each by its name (letters, digits, `_`, `-`): its text, or `{ run = "…", windows = "…", unix = "…", label = "…" }` (`windows` and `unix` in place of `run` on those systems; `label` its name in the menu) | none |
 
 See [Make Placeables Static](04-areas.md#static-placeables-many-at-once),
-[Duplicate tags](04-areas.md#duplicate-tags) and [Setup
-Store](04-areas.md#setup-store).
+[Duplicate tags](04-areas.md#duplicate-tags), [Setup
+Store](04-areas.md#setup-store), [claimed areas](#claimed-areas) and
+[the project's commands](#the-projects-commands).
 
 **What the file doesn't understand** is said in the log (and by `mg`) by
 file and line, and the rest is read: a key or a section it doesn't know,
@@ -422,8 +438,10 @@ folder, never in the file the team shares. Moonglow makes the folder
 with a `.gitignore` in it holding `*`, so that it stays out of version
 control without a line in the project's own (the log warns of a
 `.moonglow` made by hand without one). It holds `[builder] code`, your
-builder code (below). A team's section put there, or `[builder]` put in
-the team's file, is said and left out.
+builder code (below), and `[allowed_commands]`, the project's commands
+you allowed to run ([below](#the-projects-commands)). A team's section
+put there, or one of these put in the team's file, is said and left
+out.
 
 ### Your builder code
 
@@ -569,6 +587,131 @@ to the descriptions:
 constants and a table's rows give (`--on placeable`: those that go on
 one); `mg areas --var NAME=VALUE` gives a described variable its
 described type ([Command-line tools](11-command-line.md)).
+
+### Claimed areas
+
+Two builders who change one area at once make the one conflict version
+control can't merge for them. A team that keeps its module in git can
+keep a **claims table**, a file of the checkout that says who is building
+which area, and name it in `moonglow.toml` (`[claims] file`). It is a
+2DA, so the team's checks can read it too:
+
+```text
+2DA V2.0
+
+    Area             Builder  Status   Date        Tag
+0   kz_square        ab       claimed  2026-10-22  ****
+1   kz_abbey_gate    ****     merged   2026-10-01  KZ_ABBEY_GATE
+2   kz_bridge        cd       merged   2026-10-20  KZ_BRIDGE
+```
+
+| Column | What it says |
+| --- | --- |
+| `Area` | the area's ResRef |
+| `Builder` | the [builder code](#your-builder-code) of the one who claimed it; `****`: no one |
+| `Status` | `merged` once the area is in the game (its Tag and ResRef are then [kept](#protected-areas)); `claimed` or `free` otherwise |
+| `Date` | when it was last claimed or released |
+| `Tag` | the Tag it was merged with ([Verify](#protected-areas) holds it to it) |
+
+`Area` and `Builder` are needed; the others are read where the table has
+them, and a column of the team's own (a `World` marking the areas of the
+game world) is kept as it is. A row the table can't read is said in the
+log by line, as the project file's are.
+
+**In the window**, with your code set (**Edit › Builder Code…**):
+
+- the module tree marks each claimed area: ✔ and your code for yours,
+  🔒 and the other's code for another's (in the warning color), 📌 for a
+  merged one; on hover, who claimed it and since when;
+- an area another builder claimed says so above its view and its
+  Properties, as does an unclaimed one in a project that warns of those
+  (`unclaimed = "warn"`), with **Claim This Area** beside it;
+- where the project keeps others' areas read-only (`others =
+  "read-only"`), no change to one is taken (from any window, a rename
+  elsewhere that would change it, or a plugin): the log says why;
+- where it warns (the default), you may change it, and a save that
+  would write a change to it asks first (**Areas Not Yours**: **Save
+  Anyway**, or Cancel to leave it unsaved), as does one of an unclaimed
+  area in a project that warns of those.
+
+**Claim This Area** and **Release Claim**, in the area's menu in the
+module tree and on its tab, write your row into the table (made, with
+its folder, if it isn't there yet): one line changed or added at the
+end, every other line as it was, so that two builders claiming two
+areas at once make changes git merges by itself. Commit the table with
+your work so that the others see it. An area another builder claimed is
+theirs to release. Without a builder code, Claim is there and off.
+
+`mg claims PROJECT` lists every area of the table and the module and
+whose each is; `mg claims PROJECT claim AREA…` and `release AREA…` do
+what the menus do (`--force` takes or releases another's claim, for the
+one who keeps the table), and `merged AREA…` marks areas merged, with
+their Tags as the module has them ([Command-line tools](11-command-line.md)).
+
+### Protected areas
+
+The game keeps a character's position by its area's Tag, and its first
+visits by the area's ResRef. Once an area is in the game, a new Tag or
+ResRef loses both for everyone who has been there. An area the claims
+table says is merged, or one `[claims] protected` names, is protected:
+before its Tag changes (Area Properties, or any other window), before it
+is renamed (**Rename…**) or deleted, Moonglow asks (**Protected Area**),
+and offers **Make a Copy Instead…**: a copy under a new ResRef and Tag is
+a new area, and loses nothing. **Change It Anyway** (or Rename, or
+Delete) goes ahead.
+
+**Verify Module** (and `mg verify`) holds the merged areas to the table:
+
+| Check | Finds | |
+| --- | --- | --- |
+| `claims-merged` | an area the table says is merged that the module doesn't have (renamed or deleted) | an error: Verify fails |
+| `claims-tag` | a merged area whose Tag is not the one the table records | an error: Verify fails |
+
+### The project's commands
+
+A team whose module is a git checkout keeps its own scripts for bringing
+in the others' work and handing its own back (an update and a submit,
+which commit, pull, merge and push). `moonglow.toml` names them in
+`[commands]`, and **File › Project** runs them, in place of closing
+Moonglow to run them in a terminal:
+
+```toml
+[commands]
+update = "bin/update"
+submit = { run = "bin/submit", windows = "bin\\submit.cmd", label = "Submit for Review" }
+```
+
+Choosing one:
+
+1. **Saves the module first**, asking as on closing (Save, Don't Save,
+   Cancel), and about [areas not yours](#claimed-areas) as any save does.
+2. **Asks you to allow it**, the first time and whenever its text
+   changes: **Run a Project Command?** shows what it runs and where. A
+   project's files can name any program, and it runs as you, with
+   everything you may do: allow it only if you trust where the project
+   came from. What you allowed is kept in your own `.moonglow/user.toml`
+   (`[allowed_commands]`, each command by its name and text). A command
+   never runs when a module opens.
+3. **Lets the project's files go**: it stops looking at them for changes
+   made outside, and closes the module's haks, so that the command may
+   write over any of them (Windows refuses to replace a file another
+   program has open). Moonglow keeps no other file of the project open.
+4. **Runs it** in the project's folder, by the system's shell (`sh -c` on
+   Linux and macOS, `cmd /C` on Windows), with `MOONGLOW_PROJECT` (the
+   folder) and `MOONGLOW_BUILDER` (your code, where you have one) set.
+   Its output comes into the log as it is written (its errors in the
+   warning color), its last line in the window that shows while it
+   runs; **Cancel** stops it. The log says how it ended: done, or its
+   exit code.
+5. **Reads the project's files again**: the haks are opened again, and
+   what the command changed is read as any [change made
+   outside](#nasher-projects-version-control) is (a file you had changed too waits in
+   **Changed Outside Moonglow**), with the project file and the claims
+   table.
+
+The menu is there and off for a module without commands (a `.mod`, or a
+project whose `moonglow.toml` names none); a command without a text for
+this system is there and off.
 
 ## Recovering unsaved work
 

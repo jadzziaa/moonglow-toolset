@@ -261,7 +261,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         .show(ctx, |ui| {
             ui.set_max_width(480.0);
             ui.label(format!(
-                "The project's moonglow.toml names {} as this command, to run in {}:",
+                "The project's moonglow.toml asks to run {}, in {}:",
                 ask.label,
                 ask.root.display()
             ));

@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:24:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:21:30Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2935,9 +2935,6 @@ and duplicate tags on paste. What is left:
 - **The project file is read again only with reloading on** (Options ›
   General), when the folder's watch sees a change; a window open then
   (Setup Store) keeps the rules it opened with. (S)
-- **Setup Store by a command the project names** (the proposal's "or
-  the store is set up by a command the project names"): waits for the
-  project's commands (C8). (M)
 - **Setup Store's blueprint list** doesn't scroll to the project's
   blueprint, chosen at first, when it is far down the list. (S)
 - **Duplicate tags are said after a paste and an area's Copy… only:**
@@ -2958,6 +2955,62 @@ and duplicate tags on paste. What is left:
 - **Which object `GetObjectByTag` takes of several** was measured for
   two in one area (the second placed); across areas, and for more,
   not. (S)
+
+## Claims, protected areas and the project's commands (the builders' proposal, C6 to C8)
+
+The Domains of Dread's builder proposal (its section 3, and the hand-back
+proposal's section 8.2 to 8.4): the claims table, claimed areas read-only
+or asked about before a save, Claim This Area and Release Claim, merged
+areas' Tag and ResRef asked about before they change, `mg claims`, and
+File › Project. What is left:
+
+- **A read-only area still takes the pointer:** its objects can be
+  selected and dragged, its Properties typed in; each change is then
+  refused with a line in the log (the area view doesn't turn its tools
+  off, nor does a form go gray). (S)
+- **The claims table is a 2DA only** (the hand-back proposal's own
+  choice): a TOML or CSV table isn't read; a codepage other than UTF-8
+  isn't considered (the table is ASCII in practice). (S)
+- **The window can't take another builder's claim** (only `mg claims
+  --force` does), nor hand one to another builder, nor show the table
+  whole (`mg claims` lists it). (S)
+- **A claims table changed by git while a save waits** is read again by
+  the folder's watch (with reloading on); the Areas Not Yours window
+  keeps the list it opened with. (S)
+- **Claims are not checked against who commits:** the hand-back's CI
+  check (a pull request touching areas its author didn't claim) is the
+  team's script's; Moonglow knows the builder by the code they set, not
+  by their git identity. Builder codes aren't checked to be unique. (S)
+- **The protected-name question is asked per change:** "Change It
+  Anyway" lets one change of that area through; a Rename window opened
+  by "Rename It Anyway" and then closed leaves that one pass for the
+  area's next change. (S)
+- **Verify's merged-area checks read the table only:** an area merged
+  with no Tag recorded is held to its ResRef alone; the hand-back's
+  check against the merge base (a Tag changed since `main`) is the
+  team's CI's, as git is not Moonglow's. (S)
+- **A project's command closes and opens the haks every time,** even
+  for one that writes nothing (a submit): the open areas are drawn
+  again after. No per-command setting says it needn't. (S)
+- **Cancel stops the shell, not what it started:** on Linux and macOS a
+  `git` the script started may run on (no process group is killed); on
+  Windows `cmd`'s children likewise. (S)
+- **A project's command's output is in the log only:** no window of its
+  own to read a long output in, and no input (a command that asks for
+  a password waits until canceled; its stdin is closed). (S)
+- **The project's commands are not in the Command Palette** nor given
+  keys (Options › Keyboard): only File › Project. (S)
+- **What was allowed rests on `.moonglow`'s own `.gitignore`:** a
+  checkout that committed a `.moonglow/user.toml` by force would carry
+  commands allowed for everyone who opens it. A seal kept outside the
+  checkout (Moonglow's settings) would close that. (S)
+- **The project's commands on Windows** (`cmd /C` with the command's
+  text as written, no console window) are tested by CI's runs of the
+  UI tests, not on a builder's machine with a real update script. (S,
+  needs Windows)
+- **Setup Store by a command the project names** (C4's "or the store is
+  set up by a command the project names") still waits: the project's
+  commands run in a shell, not as a step of a wizard. (M)
 
 ## Release and packaging
 

@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Areas
-description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
+description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T08:31:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:21:56Z }
 ---
 
 # Areas
@@ -635,6 +635,20 @@ south and west, west and north): what is in the area keeps its place
 against the two edges that stay; **Edit › Rotate Area…** turns it by 90° steps, objects and all.
 **Build › Area Statistics** counts the area's tiles and objects and the
 memory its models take.
+
+## Claimed and protected areas
+
+In a project that keeps a [claims table](03-modules.md#claimed-areas),
+an area another builder claimed says so above its view (and its
+Properties), with who and since when: its changes are either refused
+(the project keeps others' areas read-only) or asked about before a save
+writes them. An unclaimed one says so too where the project warns of
+those, with **Claim This Area** beside it. The area's tab menu and its
+menu in the module tree have **Claim This Area** or **Release Claim**,
+which write the table. A merged (or protected) area says its Tag and
+ResRef are kept; changing either, or deleting it, is
+[asked about first](03-modules.md#protected-areas), with a copy offered
+instead.
 
 ## Area Properties
 

@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:24:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:21:29Z }
 ---
 
 # The main window
@@ -19,7 +19,7 @@ close it, **Palettes** on the toolbar brings it back.
 
 | Menu | Commands |
 | --- | --- |
-| File | New Module…, Open Module…, Open Folder…, Recent Modules, Save, Save As…, Save As nasher Project…, Import…, Export…, Import Conversation…, Close, Exit |
+| File | New Module…, Open Module…, Open Folder…, Recent Modules, Save, Save As…, Save As nasher Project…, Project ([the project's commands](03-modules.md#the-projects-commands): its update and submit), Import…, Export…, Import Conversation…, Close, Exit |
 | Edit | Undo, Redo (each names what it undoes), Module Properties, Builder Code… ([your code](03-modules.md#your-builder-code), for a module folder or a nasher project), Resize Area…, Rotate Area…, Find Instance…, Prefabs, Edit Areas Together…, Find and Replace Text…, Find References… |
 | View | Module Tree, Palettes Panel, Log (each ticked while shown), Clear Log, Hide All Panels, Reset Layout |
 | Wizards | Area Wizard…, Creature Wizard…, and a wizard for each other blueprint type (Door, Encounter, Item, Placeable, Sound, Store, Trigger, Waypoint) |

@@ -354,7 +354,7 @@ pub(crate) fn tree_mark(p: Option<&ProjectFile>, ui: &mut egui::Ui, area: ResRef
         Standing::Others(_) => ui.visuals().warn_fg_color,
         _ => ui.visuals().weak_text_color(),
     };
-    ui.label(egui::RichText::new(text.trim()).color(color).small()).on_hover_text(tip);
+    ui.label(egui::RichText::new(text.trim()).color(color)).on_hover_text(tip);
 }
 
 /// Above an area's view (and its Properties): whose it is, where it
