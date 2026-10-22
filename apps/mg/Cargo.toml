@@ -27,6 +27,7 @@ mg-module.workspace = true
 mg-nui.workspace = true
 mg-plugin.workspace = true
 mg-preview.workspace = true
+mg-render.workspace = true
 mg-resman.workspace = true
 mg-serve.workspace = true
 mg-set.workspace = true
@@ -34,6 +35,7 @@ mg-rules.workspace = true
 mg-schema.workspace = true
 mg-script.workspace = true
 mg-tlk.workspace = true
+mg-ui.workspace = true
 serde_json.workspace = true
 toml.workspace = true
 

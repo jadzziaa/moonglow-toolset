@@ -125,6 +125,50 @@ pub(in crate::nui_view) fn canvas(
     state.runtime = runtime;
 }
 
+/// The window alone, as the canvas draws it with nothing selected and no
+/// guides, its top left at the top left of `ui`, at `state`'s UI scale
+/// (`mg nui render` and `layout`): no toolbar, no zoom, no input taken.
+/// Returns the kinds of control it could not draw.
+pub(in crate::nui_view) fn still(
+    ui: &mut Ui,
+    v: &mut Value,
+    s: &Settings,
+    state: &mut State,
+    assets: &skin::Assets,
+) -> BTreeSet<String> {
+    if assets.recording() {
+        // (A pass egui discards draws the window again: one frame's worth.)
+        assets.start_record();
+    }
+    let size = window_size(v, s);
+    let scale = state.preview_scale;
+    let space = Rect::from_min_size(ui.max_rect().min, size * scale);
+    let empty_rows = Default::default();
+    let mut stage = Stage {
+        authored: v,
+        shown: None,
+        s,
+        assets,
+        state,
+        closed: false,
+        row_values: &empty_rows,
+        context_prefix: None,
+        size,
+        extent: size,
+        scale,
+        available: size * scale,
+        changes: Vec::new(),
+        selected_bounds: None,
+        dropped: None,
+        unsupported: BTreeSet::new(),
+        close_requested: false,
+        collapse_requested: None,
+    };
+    let p = ui.painter().with_clip_rect(space.intersect(ui.clip_rect()));
+    stage.window(ui, &p, space, space);
+    stage.unsupported
+}
+
 /// A resize or a move of the window under way: dropped when the window
 /// changed under it or on Esc, and following the pointer otherwise.
 fn track_gestures(ui: &Ui, v: &Value, state: &mut State) {
@@ -439,6 +483,7 @@ impl Stage<'_> {
             header.left_bottom() + vec2(8.0, 8.0) * scale,
             rect.right_bottom() - vec2(8.0, 8.0) * scale,
         );
+        assets.record_window(rect, inner);
         self.body(ui, inner, &font);
         if !collapsed && resizable {
             let corner = rect.right_bottom();

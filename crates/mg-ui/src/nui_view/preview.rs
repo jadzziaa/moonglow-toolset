@@ -28,7 +28,7 @@ use node::{Control, Renderer};
 #[cfg(test)]
 use picture::image_rect;
 pub(super) use picture::{Props, draw_image};
-pub(super) use stage::canvas;
+pub(super) use stage::{canvas, still};
 use typeset::*;
 pub(super) use typeset::{TextStyle, text};
 

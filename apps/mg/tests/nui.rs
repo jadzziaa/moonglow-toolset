@@ -299,3 +299,117 @@ fn compile_passes_over_what_generate_compiled() {
         "{compiled}"
     );
 }
+
+/// The town crier's window (`crates/mg-nui/tests/data`), as files in a
+/// scratch folder of its own: `crier.jui` and `crier.txt`.
+fn crier_files(test: &str) -> PathBuf {
+    let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/mg-nui/tests/data");
+    let dir = mg_testkit::scratch_dir(test);
+    for file in ["crier.jui", "crier.txt"] {
+        std::fs::copy(from.join(file), dir.join(file)).unwrap();
+    }
+    dir.join("crier.jui")
+}
+
+#[test]
+fn layout_gives_each_control_s_place_in_the_window() {
+    let path = module("mg-nui-layout");
+    let p = path.to_str().unwrap();
+    assert!(mg(None, &["new", p, "shop"]).0);
+    let (ok, layout) = mg(None, &["layout", p, "shop"]);
+    assert!(ok, "{layout}");
+    assert_eq!((&layout["width"], &layout["height"]), (&json!(420.0), &json!(240.0)));
+    let elements = layout["elements"].as_array().unwrap();
+    let close = elements.iter().find(|e| e["id"] == "mg_close").unwrap();
+    assert_eq!(close["kind"], "button");
+    assert_eq!(close["text"], "Close");
+    // Below the title bar (33) and the 8-point inset, a label's height on.
+    assert!(close["y"].as_f64().unwrap() > 41.0 + 30.0, "{close}");
+    assert_eq!((&close["w"], &close["h"]), (&json!(150.0), &json!(30.0)));
+    for flag in ["zero_sized", "clipped", "out_of_view", "hidden"] {
+        assert_eq!(close[flag], false, "{flag}");
+    }
+    // At 150% the places are the same points.
+    let (_, scaled) = mg(None, &["layout", p, "shop", "--scale", "1.5"]);
+    assert_eq!(scaled["scale"], 1.5);
+    assert_eq!(scaled["elements"], layout["elements"]);
+    // For people: a line a control.
+    let out = output(None, &["nui", "layout", p, "shop", "--size", "300x200"]);
+    assert!(out.status.success());
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.starts_with("shop: 300 × 200 points at 100%"), "{text}");
+    assert!(text.lines().any(|l| l.starts_with("/root/children/1\tbutton #mg_close\t")), "{text}");
+}
+
+#[test]
+fn a_window_s_file_is_laid_out_with_its_settings() {
+    let jui = crier_files("mg-nui-layout-file");
+    let file = jui.to_str().unwrap();
+    let (ok, layout) = mg(None, &["layout", file]);
+    assert!(ok, "{layout}");
+    assert_eq!(layout["window"], "crier");
+    let elements = layout["elements"].as_array().unwrap();
+    // The fee's text is its bind's first value, from crier.txt.
+    let fee = elements.iter().find(|e| e["path"] == "/root/children/2").unwrap();
+    assert_eq!(fee["text"], "The fee is 5 silver pieces.");
+    assert_eq!(fee["binds"], json!(["fee_text"]));
+    let spacer = elements.iter().find(|e| e["kind"] == "spacer").unwrap();
+    assert_eq!(spacer["zero_sized"], true);
+    // A smaller window cuts off its buttons.
+    let (_, small) = mg(None, &["layout", file, "--size", "200x150"]);
+    let cancel = small["elements"].as_array().unwrap().iter().find(|e| e["id"] == "cancel");
+    assert_eq!(cancel.unwrap()["out_of_view"], true, "{small}");
+
+    // A file with a window's name after it, a module without one, a size
+    // that isn't one: said, not guessed.
+    let (ok, both) = mg(None, &["layout", file, "crier"]);
+    assert!(!ok && both["error"].as_str().unwrap().contains("a .jui file is a window"), "{both}");
+    let path = module("mg-nui-layout-no-name");
+    let (ok, which) = mg(None, &["layout", path.to_str().unwrap()]);
+    assert!(!ok && which["error"].as_str().unwrap().contains("which window?"), "{which}");
+    let out = output(None, &["nui", "layout", file, "--size", "wide"]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("WIDTHxHEIGHT"));
+}
+
+/// `mg nui render`'s answer, or `None` where there is no GPU to draw with.
+fn render(args: &[&str]) -> Option<Value> {
+    let args: Vec<&str> = ["--json", "nui", "render"].iter().chain(args).copied().collect();
+    let out = output(None, &args);
+    // (A driver may say things of its own on standard error.)
+    let json: Value = serde_json::from_slice(&out.stdout).unwrap();
+    if json["error"].as_str().is_some_and(|e| e.contains("no GPU adapter")) {
+        eprintln!("skipped: no GPU adapter");
+        return None;
+    }
+    assert!(out.status.success(), "{json}");
+    Some(json)
+}
+
+/// A PNG's width and height.
+fn png_size(path: &Path) -> (u32, u32) {
+    let png = std::fs::read(path).unwrap();
+    assert_eq!(&png[1..4], b"PNG");
+    let word = |at: usize| u32::from_be_bytes(png[at..at + 4].try_into().unwrap());
+    (word(16), word(20))
+}
+
+#[test]
+fn render_draws_a_window_into_a_png_at_its_scale() {
+    mg_testkit::gpu::hold();
+    let path = module("mg-nui-render");
+    let p = path.to_str().unwrap();
+    assert!(mg(None, &["new", p, "shop"]).0);
+    let png = path.with_file_name("shop.png");
+    let Some(drawn) = render(&[p, "shop", "-o", png.to_str().unwrap(), "--scale", "2"]) else {
+        return;
+    };
+    assert_eq!((&drawn["width"], &drawn["height"]), (&json!(840), &json!(480)));
+    assert_eq!(png_size(&png), (840, 480));
+    // A window's file, at the size asked for.
+    let jui = crier_files("mg-nui-render-file");
+    let out = jui.with_file_name("crier.png");
+    let drawn = render(&[jui.to_str().unwrap(), "--size", "500x320", "-o", out.to_str().unwrap()]);
+    assert_eq!(drawn.unwrap()["window"], "crier");
+    assert_eq!(png_size(&out), (500, 320));
+}

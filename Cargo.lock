@@ -2020,6 +2020,7 @@ dependencies = [
  "mg-nui",
  "mg-plugin",
  "mg-preview",
+ "mg-render",
  "mg-resman",
  "mg-rules",
  "mg-schema",
@@ -2028,6 +2029,7 @@ dependencies = [
  "mg-set",
  "mg-testkit",
  "mg-tlk",
+ "mg-ui",
  "serde_json",
  "toml",
 ]

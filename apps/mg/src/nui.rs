@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use clap::Subcommand;
 use mg_core::ResType;
 use mg_edit::{Command, Workspace};
@@ -59,6 +59,63 @@ pub(crate) enum NuiCmd {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Draw a NUI window into a PNG as the NUI Creator's preview draws it:
+    /// the game's skin, pictures and fonts (from the install and the
+    /// module's haks), nothing selected. It is not the game: verify spacing
+    /// and events there. Needs a GPU; changes nothing.
+    Render {
+        /// A module archive, folder or nasher project; or a window's
+        /// NAME.jui file, with its NAME.txt and the pictures it names
+        /// beside it.
+        module: PathBuf,
+        /// The window's name: the ResRef of its layout (not given with a
+        /// .jui file).
+        name: Option<String>,
+        /// The PNG to write (default: NAME.png in the current folder).
+        #[arg(long, short)]
+        out: Option<PathBuf>,
+        /// The window's size in points, WIDTHxHEIGHT, in place of its
+        /// geometry's.
+        #[arg(long, value_parser = parse_size)]
+        size: Option<[f32; 2]>,
+        /// The UI scale, as the game's option: 1 is 100%, 1.5 is 150%
+        /// (0.25 to 4). The picture is this many pixels a point.
+        #[arg(long, default_value_t = 1.0)]
+        scale: f32,
+    },
+    /// Where the NUI Creator's preview puts each control of a NUI window:
+    /// its rectangle in the window's points (the window's top left at 0,
+    /// 0), and whether it is clipped, overlaps a neighbor, has no room or
+    /// cuts its text. The same layout `render` draws. Changes nothing.
+    Layout {
+        /// A module archive, folder or nasher project; or a window's
+        /// NAME.jui file, with its NAME.txt beside it.
+        module: PathBuf,
+        /// The window's name (not given with a .jui file).
+        name: Option<String>,
+        /// The window's size in points, WIDTHxHEIGHT, in place of its
+        /// geometry's.
+        #[arg(long, value_parser = parse_size)]
+        size: Option<[f32; 2]>,
+        /// The UI scale it is laid out at (0.25 to 4).
+        #[arg(long, default_value_t = 1.0)]
+        scale: f32,
+    },
+}
+
+/// A size given as WIDTHxHEIGHT (or WIDTH,HEIGHT), in points.
+fn parse_size(text: &str) -> std::result::Result<[f32; 2], String> {
+    let (w, h) = text
+        .split_once(['x', 'X', ','])
+        .ok_or_else(|| format!("{text:?}: give the size as WIDTHxHEIGHT, such as 420x240"))?;
+    let number = |t: &str| {
+        t.trim()
+            .parse::<f32>()
+            .ok()
+            .filter(|n| n.is_finite() && (1.0..=4096.0).contains(n))
+            .ok_or_else(|| format!("{t:?}: a size is 1 to 4096 points"))
+    };
+    Ok([number(w)?, number(h)?])
 }
 
 pub(crate) fn run(cli: &Cli, cmd: &NuiCmd) -> Result<Output> {
@@ -97,7 +154,218 @@ pub(crate) fn run(cli: &Cli, cmd: &NuiCmd) -> Result<Output> {
             Ok(out)
         }
         NuiCmd::Validate { module, name } => validate(module, name),
+        NuiCmd::Render { module, name, out, size, scale } => {
+            render(cli, module, name.as_deref(), out.as_deref(), *size, *scale)
+        }
+        NuiCmd::Layout { module, name, size, scale } => {
+            let mut out = Output::default();
+            let shown = Shown::open(cli, module, name.as_deref(), &mut out)?;
+            let options = mg_ui::nui_render::Options { scale: *scale, size: *size };
+            let layout = mg_ui::nui_render::layout(&shown.window(), &options)
+                .with_context(|| window_text(module, &shown.name))?;
+            layout_output(module, &layout, out)
+        }
     }
+}
+
+/// A window to draw, with what it is drawn with: the module (or one made
+/// of a .jui file and what is beside it), the game's resources with the
+/// module's haks, and the talk tables.
+struct Shown {
+    module: Module,
+    name: String,
+    resman: Option<mg_resman::ResMan>,
+    game: Option<mg_rules::GameData>,
+}
+
+impl Shown {
+    fn open(cli: &Cli, path: &Path, name: Option<&str>, out: &mut Output) -> Result<Shown> {
+        let file = crate::extension(path) == "jui";
+        let (module, name) = match (file, name) {
+            (true, None) => from_file(path)?,
+            (true, Some(_)) => bail!(
+                "{}: a .jui file is a window of its own; give a module and a window's name, \
+                 or the file alone",
+                path_text(path)
+            ),
+            (false, Some(name)) => (Module::open(path)?, name.to_owned()),
+            (false, None) => {
+                bail!("{}: which window? Give its name after the module", path_text(path))
+            }
+        };
+        // Without the game the window is drawn as it is, without its skin:
+        // said, not refused.
+        let (resman, game) = match install(cli) {
+            Ok(gi) => {
+                // (A window's file, or a folder of windows, has no haks.)
+                let rm = if module.contains(&Module::info_key()) {
+                    module_resman(&gi, &module, out)?
+                } else {
+                    mg_resman::ResMan::for_game(&gi)?
+                };
+                let tlk = std::fs::read(gi.talk_table(false))
+                    .ok()
+                    .and_then(|b| mg_tlk::Tlk::read(&b).ok());
+                match tlk {
+                    Some(tlk) => {
+                        let mut game = mg_rules::GameData::new(rm, tlk);
+                        if let Some(custom) = module.custom_tlk().ok().flatten()
+                            && let Some(f) =
+                                mg_module::talk::find(&game.resman, &gi.tlk_dirs(), &custom)
+                        {
+                            game.set_custom_tlk(mg_tlk::Tlk::read(&f.data).ok());
+                        }
+                        (None, Some(game))
+                    }
+                    None => (Some(rm), None),
+                }
+            }
+            Err(e) => {
+                out.note(format!(
+                    "warning: {e:#}: the window is drawn without the game's skin, pictures and fonts"
+                ));
+                (None, None)
+            }
+        };
+        Ok(Shown { module, name, resman, game })
+    }
+
+    fn window(&self) -> mg_ui::nui_render::Window<'_> {
+        mg_ui::nui_render::Window {
+            module: &self.module,
+            resman: self.resman.as_ref().or(self.game.as_ref().map(|g| &g.resman)),
+            game: self.game.as_ref(),
+            name: &self.name,
+        }
+    }
+}
+
+/// A module of a window's file: NAME.jui, the NAME.txt beside it, and the
+/// pictures it names that are beside it too.
+fn from_file(path: &Path) -> Result<(Module, String)> {
+    let stem =
+        path.file_stem().map(|s| s.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    let jui = ResKey::parse(&stem, ResType::JUI)
+        .ok_or_else(|| anyhow!("{}: {stem:?} is not a resource's name", path_text(path)))?;
+    let data = std::fs::read(path).with_context(|| path_text(path))?;
+    let window = mg_nui::parse(&data).with_context(|| path_text(path))?;
+    let mut m = Module::new();
+    m.set(jui, data);
+    let mut settings = mg_nui::Settings::default();
+    let txt = path.with_extension("txt");
+    if txt.is_file() {
+        let bytes = std::fs::read(&txt).with_context(|| path_text(&txt))?;
+        settings = mg_nui::Settings::parse(&bytes).with_context(|| path_text(&txt))?;
+        m.set(ResKey::new(jui.resref, ResType::TXT), bytes);
+    }
+    let dir = path.parent().unwrap_or(Path::new("."));
+    for picture in mg_nui::image_names(&window, &settings) {
+        for ty in [ResType::TGA, ResType::PNG, ResType::DDS, ResType::JPG, ResType::BMP] {
+            let Some(key) = ResKey::parse(&picture, ty) else { continue };
+            if let Ok(bytes) = std::fs::read(dir.join(key.to_string())) {
+                m.set(key, bytes);
+            }
+        }
+    }
+    Ok((m, stem))
+}
+
+/// `mg nui render`.
+fn render(
+    cli: &Cli,
+    module: &Path,
+    name: Option<&str>,
+    png: Option<&Path>,
+    size: Option<[f32; 2]>,
+    scale: f32,
+) -> Result<Output> {
+    let mut out = Output::default();
+    let shown = Shown::open(cli, module, name, &mut out)?;
+    let gpu = mg_render::Gpu::headless().ok_or_else(|| {
+        anyhow!("no GPU adapter to draw with (a Vulkan, Metal, DirectX 12 or OpenGL driver)")
+    })?;
+    let options = mg_ui::nui_render::Options { scale, size };
+    let picture = mg_ui::nui_render::render(&gpu, &shown.window(), &options)
+        .with_context(|| window_text(module, &shown.name))?;
+    let file = png.map_or_else(|| PathBuf::from(format!("{}.png", shown.name)), Path::to_path_buf);
+    std::fs::write(&file, picture.png()).with_context(|| path_text(&file))?;
+    let layout = &picture.layout;
+    out.json = json!({
+        "module": path_text(module),
+        "window": shown.name,
+        "png": path_text(&file),
+        "width": picture.width,
+        "height": picture.height,
+        "scale": layout.scale,
+        "issues": layout.issues,
+        "not_drawn": layout.not_drawn,
+    });
+    for issue in &layout.issues {
+        out.note(format!("warning: {issue}"));
+    }
+    if !layout.not_drawn.is_empty() {
+        out.note(format!(
+            "warning: not drawn (see them in the game): {}",
+            layout.not_drawn.join(", ")
+        ));
+    }
+    out.line(format!("{}: {} × {} pixels", path_text(&file), picture.width, picture.height));
+    Ok(out)
+}
+
+/// `mg nui layout`'s answer: the layout as JSON, or a line a control.
+fn layout_output(module: &Path, l: &mg_ui::nui_render::Layout, mut out: Output) -> Result<Output> {
+    let mut json = serde_json::to_value(l)?;
+    json["module"] = path_text(module).into();
+    out.json = json;
+    let b = &l.body;
+    out.line(format!(
+        "{}: {} × {} points at {}%, body at {} {}, {} × {}",
+        l.window,
+        l.width,
+        l.height,
+        (l.scale * 100.0).round(),
+        b.x,
+        b.y,
+        b.w,
+        b.h
+    ));
+    for e in &l.elements {
+        let a = &e.area;
+        let mut line = format!("{}\t{}", e.path, e.kind);
+        if let Some(row) = e.row {
+            line += &format!(" (row {row})");
+        }
+        if let Some(id) = &e.id {
+            line += &format!(" #{id}");
+        }
+        line += &format!("\t{} {} {} × {}", a.x, a.y, a.w, a.h);
+        let mut notes: Vec<String> = Vec::new();
+        for (on, what) in [
+            (e.hidden, "hidden"),
+            (e.zero_sized, "zero-sized"),
+            (e.out_of_view && !e.zero_sized, "out of view"),
+            (e.clipped && !e.out_of_view, "clipped"),
+        ] {
+            if on {
+                notes.push(what.into());
+            }
+        }
+        if !e.overlaps.is_empty() {
+            notes.push(format!("overlaps {}", e.overlaps.join(", ")));
+        }
+        for cut in &e.cut_text {
+            notes.push(format!("cuts {cut:?}"));
+        }
+        if !notes.is_empty() {
+            line += &format!("\t{}", notes.join("; "));
+        }
+        out.line(line);
+    }
+    for issue in &l.issues {
+        out.note(format!("warning: {issue}"));
+    }
+    Ok(out)
 }
 
 /// The window an error is about: `MODULE: window NAME`.

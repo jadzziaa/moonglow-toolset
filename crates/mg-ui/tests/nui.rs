@@ -1627,3 +1627,146 @@ fn a_module_s_windows_are_laid_out_as_json() {
     }
     std::fs::write(output, serde_json::to_string_pretty(&all).unwrap()).unwrap();
 }
+
+/// The town crier's window (`crates/mg-nui/tests/data`): a label, a text
+/// box, a label from a bind and a row of two buttons, one off by a bind.
+fn crier() -> mg_module::Module {
+    let data = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../mg-nui/tests/data");
+    let mut m = mg_module::Module::new();
+    for ty in [ResType::JUI, ResType::TXT] {
+        let key = ResKey::parse("crier", ty).unwrap();
+        m.set(key, std::fs::read(data.join(key.to_string())).unwrap());
+    }
+    m
+}
+
+fn crier_window(m: &mg_module::Module) -> mg_ui::nui_render::Window<'_> {
+    mg_ui::nui_render::Window { module: m, resman: None, game: None, name: "crier" }
+}
+
+/// `mg nui layout` is the editor's canvas: each control it reports is where
+/// the canvas, at 100%, puts it, measured from the window's corner.
+#[test]
+fn the_layout_off_the_screen_is_the_canvas_s() {
+    let m = crier();
+    let layout =
+        mg_ui::nui_render::layout(&crier_window(&m), &mg_ui::nui_render::Options::default())
+            .unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.ws = Some(mg_edit::Workspace::new(m.clone()));
+    app.actions.push(Action::OpenTab(Tab::Nui(ResKey::parse("crier", ResType::JUI).unwrap())));
+    let mut h = creator(app, [1300, 900]);
+    h.run_steps(3);
+    h.get_by_value("Editor").click();
+    h.run();
+    h.get_by_label("Preview only").click();
+    h.run();
+    h.get_by_label("100%").click();
+    h.run_steps(3);
+    let window = h.get_by_label("Canvas window").rect().min;
+    let round = |v: [f32; 4]| v.map(|n| (n * 2.0).round() / 2.0);
+    let mut canvas: Vec<[f32; 4]> = h
+        .query_all_by_label_contains("Canvas ")
+        .filter(|n| n.accesskit_node().label().is_some_and(|l| l != "Canvas window"))
+        .map(|n| {
+            let r = n.rect();
+            round([r.min.x - window.x, r.min.y - window.y, r.width(), r.height()])
+        })
+        .collect();
+    let mut reported: Vec<[f32; 4]> = layout
+        .elements
+        .iter()
+        .filter(|e| !e.zero_sized && !e.out_of_view)
+        .map(|e| round([e.area.x, e.area.y, e.area.w, e.area.h]))
+        .collect();
+    let order = |a: &[f32; 4], b: &[f32; 4]| a.partial_cmp(b).unwrap();
+    canvas.sort_by(order);
+    reported.sort_by(order);
+    assert_eq!(reported.len(), 7, "{layout:#?}");
+    assert_eq!(canvas, reported);
+    assert_eq!((layout.width, layout.height), (420.0, 300.0));
+}
+
+/// What `mg nui layout` says of a window: a spacer with no room, the binds
+/// a control reads and the text it shows, and controls a smaller window
+/// cuts off.
+#[test]
+fn the_layout_says_what_does_not_fit() {
+    let mut m = crier();
+    let options = mg_ui::nui_render::Options::default();
+    let layout = mg_ui::nui_render::layout(&crier_window(&m), &options).unwrap();
+    let at = |path: &str| layout.elements.iter().find(|e| e.path == path).unwrap();
+    let spacer = at("/root/children/3/children/0");
+    assert!(spacer.zero_sized && spacer.out_of_view, "{spacer:?}");
+    let message = at("/root/children/1");
+    assert_eq!(
+        (message.binds.as_slice(), message.id.as_deref()),
+        (["message".to_owned()].as_slice(), Some("message"))
+    );
+    let fee = at("/root/children/2");
+    assert_eq!(fee.text.as_deref(), Some("The fee is 5 silver pieces."));
+    let send = at("/root/children/3/children/1");
+    assert_eq!((send.area.w, send.area.h), (100.0, 34.0));
+    assert_eq!(send.binds, ["can_send"]);
+    assert!(send.overlaps.is_empty() && !send.clipped && !send.hidden);
+    // A window made smaller: Cancel runs past it and is cut off.
+    let small = mg_ui::nui_render::Options { size: Some([200.0, 150.0]), ..Default::default() };
+    let small = mg_ui::nui_render::layout(&crier_window(&m), &small).unwrap();
+    assert_eq!((small.width, small.height), (200.0, 150.0));
+    let cancel = small.elements.iter().find(|e| e.id.as_deref() == Some("cancel")).unwrap();
+    assert!(cancel.clipped || cancel.out_of_view, "{cancel:?}");
+    // A window that isn't there, or isn't JSON, is an error, not a panic.
+    let missing = mg_ui::nui_render::Window { name: "nowhere", ..crier_window(&m) };
+    let said = mg_ui::nui_render::layout(&missing, &options).unwrap_err();
+    assert_eq!(said.to_string(), "nowhere.jui is not in the module");
+    m.set(ResKey::parse("crier", ResType::JUI).unwrap(), b"{\"version\": 1, \"root\":".to_vec());
+    assert!(mg_ui::nui_render::layout(&crier_window(&m), &options).is_err());
+}
+
+/// The picture is the window at its scale, drawn in the frame the layout
+/// comes from: a button's place has its frame, the body beside the column
+/// is the window's background, and twice the scale is twice the pixels.
+#[test]
+fn a_window_drawn_off_the_screen_is_where_its_layout_says() {
+    mg_testkit::gpu::hold();
+    let Some(gpu) = mg_render::Gpu::headless() else {
+        eprintln!("skipped: no GPU adapter");
+        return;
+    };
+    // With the game's skin and fonts when it is installed.
+    let game = mg_testkit::nwn_root().and_then(|root| {
+        mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).ok()
+    });
+    let m = crier();
+    let window = mg_ui::nui_render::Window { resman: game.as_ref(), ..crier_window(&m) };
+    for scale in [1.0, 2.0] {
+        let options = mg_ui::nui_render::Options { scale, ..Default::default() };
+        let picture = mg_ui::nui_render::render(&gpu, &window, &options).unwrap();
+        let layout = mg_ui::nui_render::layout(&window, &options).unwrap();
+        assert_eq!(picture.layout, layout);
+        let size = ((420.0 * scale) as u32, (300.0 * scale) as u32);
+        assert_eq!((picture.width, picture.height), size);
+        assert_eq!(picture.rgba.len(), (picture.width * picture.height * 4) as usize);
+        let pixel = |x: f32, y: f32| {
+            let (x, y) = ((x * scale) as u32, (y * scale) as u32);
+            let i = ((y * picture.width + x) * 4) as usize;
+            [picture.rgba[i], picture.rgba[i + 1], picture.rgba[i + 2], picture.rgba[i + 3]]
+        };
+        // The body right of the column has nothing in it: one color.
+        let empty = pixel(330.0, 150.0);
+        for (x, y) in [(300.0, 100.0), (380.0, 200.0), (260.0, 260.0)] {
+            assert_eq!(pixel(x, y), empty, "{x}, {y} at {scale}");
+        }
+        // Cancel's button is drawn where the layout puts it.
+        let cancel = layout.elements.iter().find(|e| e.id.as_deref() == Some("cancel")).unwrap();
+        let a = cancel.area;
+        let drawn = (0..a.w as u32)
+            .flat_map(|x| (0..a.h as u32).map(move |y| (x, y)))
+            .filter(|&(x, y)| pixel(a.x + x as f32, a.y + y as f32) != empty)
+            .count();
+        assert!(drawn as f32 > a.w * a.h * 0.1, "{drawn} pixels of Cancel drawn at {scale}");
+        let png = picture.png();
+        assert_eq!(&png[1..4], b"PNG");
+        assert_eq!(u32::from_be_bytes(png[16..20].try_into().unwrap()), picture.width);
+    }
+}
