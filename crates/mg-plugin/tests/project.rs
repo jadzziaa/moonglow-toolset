@@ -179,7 +179,14 @@ fn the_builder_s_answer_holds_for_the_plugin_as_it_was() {
     // Kept by the project's canonical path, the plugin and its digest.
     let text = std::fs::read_to_string(&kept).unwrap();
     let canonical = root.canonicalize().unwrap();
-    assert!(text.contains(&format!("project = {:?}", canonical.display().to_string())), "{text}");
+    // (TOML quotes a Windows path as a literal string: the value is compared.)
+    let table: toml::Table = text.parse().unwrap();
+    let answer = &table["answer"].as_array().unwrap()[0];
+    assert_eq!(
+        answer["project"].as_str(),
+        Some(canonical.display().to_string().as_str()),
+        "{text}"
+    );
     assert!(text.contains("plugin = \"team.rules\"") && text.contains("digest = \"sha256:"));
     assert!(!root.join(".moonglow").exists(), "nothing written into the project");
     // Another project with the same plugin: not allowed by this answer.
