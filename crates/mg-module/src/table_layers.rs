@@ -72,8 +72,23 @@ impl Layered {
 /// Reads every copy of a 2DA in the load order. `None` when the game has
 /// none, or the one it reads doesn't parse.
 pub fn layered(rm: &ResMan, key: &ResKey, codepage: Codepage) -> Option<Layered> {
+    layered_from(rm, key, codepage, rm.find(key)?)
+}
+
+/// [`layered`] from the layer `start` down (an index in the resman's
+/// layers): a copy that a higher layer overrides, as it stands on those
+/// below it. `None` when that layer has no copy, or it doesn't parse.
+pub fn layered_from(
+    rm: &ResMan,
+    key: &ResKey,
+    codepage: Codepage,
+    start: usize,
+) -> Option<Layered> {
+    if !rm.layers().get(start)?.container.contains(key) {
+        return None;
+    }
     let mut copies = Vec::new();
-    for layer in rm.layers() {
+    for layer in &rm.layers()[start..] {
         if !layer.container.contains(key) {
             continue;
         }
@@ -159,6 +174,20 @@ mod tests {
         assert_eq!((l.row_origin(2), l.row_origin(3)), (1, 0));
         assert_eq!(l.before(3, 0), Some(("low.hak", None)));
         assert_eq!(l.summary(), [("top.hak", 1, 1), ("low.hak", 1, 0), ("game", 1, 0)]);
+
+        // The copy top.hak overrides, as it stands on the game's.
+        let low = rm.copies(&key)[1];
+        let l = layered_from(&rm, &key, Codepage::default(), low).unwrap();
+        let labels: Vec<&str> = l.copies.iter().map(|(l, _)| l.as_str()).collect();
+        assert_eq!(labels, ["low.hak", "game"]);
+        assert_eq!(l.table().len(), 3);
+        assert_eq!(l.before(1, 0), Some(("game", Some("Tree"))));
+        assert_eq!(l.summary(), [("low.hak", 1, 1), ("game", 1, 0)]);
+        // (A layer without it: none.)
+        let mut empty = ResMan::new();
+        empty.add(priority::KEY, "nothing", LayerClass::Key, MemContainer::new());
+        assert!(layered_from(&empty, &key, Codepage::default(), 0).is_none());
+        assert!(layered(&empty, &key, Codepage::default()).is_none());
     }
 
     #[test]

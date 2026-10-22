@@ -15,7 +15,7 @@ mod container;
 mod install;
 
 use std::borrow::Cow;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -308,6 +308,42 @@ impl ResMan {
         out
     }
 
+    /// The layers that have a resource, highest first: the first has the
+    /// copy the game reads, the others the copies it overrides.
+    pub fn copies(&self, key: &ResKey) -> Vec<usize> {
+        let has = |(_, l): &(usize, &Layer)| l.container.contains(key);
+        self.layers.iter().enumerate().filter(has).map(|(i, _)| i).collect()
+    }
+
+    /// The bytes of a resource as one layer has it (whether or not a
+    /// higher one overrides it).
+    pub fn get_in(&self, layer: usize, key: &ResKey) -> Result<Cow<'_, [u8]>, ResError> {
+        match self.layers.get(layer) {
+            Some(l) if l.container.contains(key) => l.container.read(key),
+            _ => Err(ResError::NotFound(*key)),
+        }
+    }
+
+    /// Every resource with every layer that has it, highest first (the
+    /// first is the copy the game reads), sorted by name and type: what
+    /// [`entries`](Self::entries) gives, and the copies it overrides.
+    pub fn every_copy(&self) -> Vec<(ResKey, Vec<usize>)> {
+        let mut at: HashMap<ResKey, Vec<usize>> = HashMap::new();
+        for (i, l) in self.layers.iter().enumerate() {
+            for k in l.container.keys() {
+                let layers = at.entry(k).or_default();
+                // (A layer lists a key once; a container that lists it
+                // twice still has one copy of it.)
+                if layers.last() != Some(&i) {
+                    layers.push(i);
+                }
+            }
+        }
+        let mut out: Vec<(ResKey, Vec<usize>)> = at.into_iter().collect();
+        out.sort_by_key(|(k, _)| (k.resref, k.restype.extension().unwrap_or_default()));
+        out
+    }
+
     /// Every distinct resource of a type across all layers, sorted by name.
     pub fn list(&self, restype: ResType) -> Vec<ResRef> {
         let mut seen = HashSet::new();
@@ -347,6 +383,51 @@ mod tests {
             .map(|(k, i)| (k.to_string(), rm.layers()[*i].label.as_str()))
             .collect();
         assert_eq!(entries, [("a.nss".to_string(), "high"), ("b.nss".to_string(), "low")]);
+    }
+
+    /// Two haks with the same table (a builder's report: the resource
+    /// browser found only the one the game reads): every copy, highest
+    /// first, each readable from its own layer.
+    #[test]
+    fn every_copy_of_a_resource_is_found() {
+        let (mut game, mut lower, mut upper) =
+            (MemContainer::new(), MemContainer::new(), MemContainer::new());
+        let portraits = key("portraits", ResType::TWODA);
+        game.insert(portraits, b"game".to_vec());
+        game.insert(key("classes", ResType::TWODA), b"game".to_vec());
+        lower.insert(portraits, b"lower".to_vec());
+        upper.insert(portraits, b"upper".to_vec());
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "key:nwn_base", LayerClass::Key, game);
+        // (Haks of equal priority rank in the order added, first highest.)
+        rm.add(priority::HAK, "hak:upper", LayerClass::Erf, upper);
+        rm.add(priority::HAK, "hak:lower", LayerClass::Erf, lower);
+        let labels = |layers: &[usize]| -> Vec<String> {
+            layers.iter().map(|&i| rm.layers()[i].label.clone()).collect()
+        };
+        assert_eq!(labels(&rm.copies(&portraits)), ["hak:upper", "hak:lower", "key:nwn_base"]);
+        let every = rm.every_copy();
+        let found: Vec<(String, Vec<String>)> =
+            every.iter().map(|(k, l)| (k.to_string(), labels(l))).collect();
+        assert_eq!(
+            found,
+            [
+                ("classes.2da".to_string(), vec!["key:nwn_base".to_string()]),
+                (
+                    "portraits.2da".to_string(),
+                    vec!["hak:upper".into(), "hak:lower".into(), "key:nwn_base".into()]
+                ),
+            ]
+        );
+        let copies = rm.copies(&portraits);
+        let data: Vec<Vec<u8>> =
+            copies.iter().map(|&i| rm.get_in(i, &portraits).unwrap().into_owned()).collect();
+        assert_eq!(data, [b"upper".to_vec(), b"lower".to_vec(), b"game".to_vec()]);
+        assert_eq!(&*rm.get(&portraits).unwrap(), b"upper", "the game reads the highest");
+        // A layer without it, and one past the last.
+        let classes = key("classes", ResType::TWODA);
+        assert!(matches!(rm.get_in(copies[0], &classes), Err(ResError::NotFound(_))));
+        assert!(rm.get_in(99, &portraits).is_err());
     }
 
     #[test]

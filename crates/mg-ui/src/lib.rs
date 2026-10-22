@@ -211,13 +211,14 @@ pub enum Action {
     OpenResource(ResKey),
     /// The talk table's lines to a CSV file, or (true) read from one.
     TalkCsv(bool),
-    /// The resource browser's Save As: a resource of the load order to a
-    /// file.
     /// Find References for a talk-table line, by its StrRef.
     FindStrRef(u32),
-    SaveResource(ResKey),
+    /// The resource browser's Save As: a resource of the load order to a
+    /// file (the copy the game reads, or the one a layer has, by its
+    /// label).
+    SaveResource(ResKey, Option<String>),
     /// A model of the load order saved as text (decompiled).
-    SaveModelText(ResKey),
+    SaveModelText(ResKey, Option<String>),
     /// The resource browser's Export as Files: those listed, into a folder.
     SaveResources(Vec<ResKey>),
     /// The same, as JSON (`nwn_tlk`'s).
@@ -666,7 +667,7 @@ pub struct Moonglow {
     /// Resources chosen in the picker, by the field that asked.
     pub(crate) picked: HashMap<egui::Id, mg_core::ResRef>,
     /// Resources open in read-only viewers, parsed once.
-    pub(crate) viewed: HashMap<ResKey, std::sync::Arc<browser::Viewed>>,
+    pub(crate) viewed: HashMap<(ResKey, Option<String>), std::sync::Arc<browser::Viewed>>,
     /// The pass in which an area view last had something in hand (a
     /// brush, a paste, a drag, a terrain tool): Escape is its then.
     pub(crate) area_tool_at: u64,
@@ -2961,8 +2962,12 @@ impl Moonglow {
             Action::TalkCsv(import) => talk_view::transfer(self, import, false),
             Action::TalkJson(import) => talk_view::transfer(self, import, true),
             Action::TalkFile(new) => talk_view::file(self, new),
-            Action::SaveResource(key) => browser::save_as(self, key, false),
-            Action::SaveModelText(key) => browser::save_as(self, key, true),
+            Action::SaveResource(key, layer) => {
+                browser::save_as(self, key, layer.as_deref(), false)
+            }
+            Action::SaveModelText(key, layer) => {
+                browser::save_as(self, key, layer.as_deref(), true)
+            }
             Action::SaveResources(keys) => browser::export(self, &keys),
             Action::OpenResource(key) => {
                 let Some(tab) = Tab::for_resource(key) else { return };

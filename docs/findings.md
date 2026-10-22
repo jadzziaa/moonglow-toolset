@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T06:58:25Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T12:04:35Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -667,6 +667,27 @@ a part-based appearance (`blueprint::with_a_body`).
   one with them. The head showed though `Appearance_Head` was gone too;
   why was not looked into. The step, in
   `a_part_based_appearance_brings_a_body`.
+
+### An armor's part 0 leaves its wearer's own part
+
+An armor part 0 is no part: there is no `p<g><r><p>_<part>000` model.
+Worn, the client draws the wearer's own body part where the armor's is 0
+(a human with body parts 1, under armor whose left bicep, forearm, hand,
+shoulder, thigh, shin and foot, neck and belt are 0: a bare left arm and
+leg beside the armor's right ones). So 0 is "not visible" only where the
+wearer's own part is 0 too. nwn.wiki's Phenotype Quick Overview calls
+part 000 "invalid (nothing)", which holds for the model, not for what is
+drawn over a body. Most of the game's parts_*.2da leave row 0's
+`ACBONUS` blank (all but the belt, shoulder and robe tables), so lists
+made of the rows with an `ACBONUS` lacked 0. Moonglow offers 0 for every
+armor part (since a builder's report on 2.0.0), and its previews draw
+the wearer's part there, as they did.
+
+- **Checked:** by eye, in the client's picture beside Moonglow's
+  (2026-10-22; `client_render.rs`'s `creatures_look` with `MG_WORN=1
+  MG_PARTS=LBicep=0,LFArm=0,LHand=0,LShoul=0,LThigh=0,LShin=0,LFoot=0,Neck=0,Belt=0`,
+  which sets each `ArmorPart_*` and its EE twin). The previews, in
+  `an_armor_s_part_0_leaves_its_wearer_s_own`.
 
 ### A worn part moves at its wearer's animation scale
 

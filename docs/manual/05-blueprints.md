@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T08:31:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T12:04:35Z }
 ---
 
 # Blueprints
@@ -428,6 +428,14 @@ Description, Comments. Moonglow recomputes the item's cost with every
 change, as the game computes it. A stack can exceed its base item's
 limit (Aurora stops there; the game keeps the stack whole). Charges go up
 to 250, the most the game reads.
+
+An armor's part lists offer the rows of its parts_*.2da that have an
+`ACBONUS` (as Aurora's do), and **0 (none)** first for every part, which
+the game's tables mostly leave out: an armor with no part there. As in
+the game, the wearer's own body part then shows there (the preview's
+man or woman shows bare skin); a creature whose own part is 0 as well
+shows nothing there. A creature's body parts offer 0 (none) the same
+way, on its Appearance page.
 
 An armor's **Part Colors** (under its colors on the Appearance page) give
 one part a color of its own: choose the part, then a color for any of its

@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:41:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T12:04:35Z }
 ---
 
 # Command-line tools
@@ -42,7 +42,7 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 
 | Command | Does |
 | --- | --- |
-| `mg which NAME.EXT` | where a resource comes from in the game's load order |
+| `mg which NAME.EXT` | where a resource comes from in the game's load order: the layer the game reads it from, then each layer whose copy that one overrides ("hak:low (overridden by hak:top)"); `--module MODULE` puts the module's haks and the module in the load order too |
 | `mg cat NAME.EXT` | print a resource to standard output; `--text` prints a compiled model (`.mdl`) as the text it compiles from |
 | `mg layers` | the load order's layers and their sizes |
 | `mg tlk STRREF…` | talk-table strings by number |

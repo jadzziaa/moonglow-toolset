@@ -3812,3 +3812,63 @@ fn armor_part_none() {
     h.run_steps(6);
     shoot(&mut h, &dir, &format!("{shot}-model"));
 }
+
+/// The resource browser searching for portraits.2da, which two haks of
+/// the module have, the first over the second (a builder's report: only
+/// the higher one was listed); and the lower hak's copy opened from its
+/// row. `MG_SHOT` names the pictures (`before`, `after`).
+#[test]
+#[ignore]
+fn browser_overridden_copies() {
+    use mg_schema::{ExoString, StructExt, ifo};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-browser-copies");
+    let out = mg_testkit::output_dir("screens-browser-copies-shots");
+    let shot = std::env::var("MG_SHOT").unwrap_or_else(|_| "after".into());
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    for name in ["mg_top", "mg_low"] {
+        let mut w = mg_erf::ErfWriter::new(*b"HAK ");
+        let table = format!("2DA V2.0\n\n LABEL BaseResRef\n0 {name} po_{name}\n").into_bytes();
+        w.add(mg_core::ResRef::from_str("portraits").unwrap(), ResType::TWODA, table).unwrap();
+        std::fs::write(user.join(format!("hak/{name}.hak")), w.to_bytes().unwrap()).unwrap();
+    }
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.write(&ifo::MOD_TAG, ExoString::from("COPIES"));
+    for h in ["mg_top", "mg_low"] {
+        let mut s = ifo::MOD_HAK_LIST.new_item();
+        s.write(&ifo::mod_hak_list::MOD_HAK, ExoString::from(h));
+        info.root.items_mut(&ifo::MOD_HAK_LIST).push(s);
+    }
+    m.set_info(&info).unwrap();
+    let path = dir.join("copies.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(
+        Some(GameInstall::new(&root, Some(user), "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    app.open_palette = false;
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Resources));
+    app.browser.filter = "portraits".into();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 700.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(4);
+    shoot(&mut h, &out, &format!("{shot}-search"));
+    // The lower hak's row, where there is one, opened.
+    let Some(row) = h.query_by_label_contains("hak:mg_low") else { return };
+    let at = h
+        .get_all_by_label("portraits.2da")
+        .map(|n| n.rect())
+        .find(|r| (r.center().y - row.rect().center().y).abs() < 6.0)
+        .expect("its name");
+    h.get_all_by_label("portraits.2da").find(|n| n.rect() == at).unwrap().click_secondary();
+    h.run_steps(2);
+    h.get_by_label("Open").click();
+    h.run_steps(4);
+    shoot(&mut h, &out, &format!("{shot}-copy"));
+}
