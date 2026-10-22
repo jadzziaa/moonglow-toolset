@@ -114,12 +114,18 @@ fn doctor_fix_with(module: &Module, f: &Finding, tags: &mut Option<TagIndex>) ->
 
 /// `tag-unique`: the places of the tag the finding is about (found as the
 /// doctor found them: its first place is the finding's resource, and `at`
-/// lists them all), each but one given a tag of its own.
+/// lists them all: the module's, or of one area where the project wants
+/// the tag unique in each), each but one given a tag of its own.
 fn retag_fix(index: &TagIndex, f: &Finding) -> Option<Fix> {
-    let (tag, places) = index.duplicates().into_iter().find(|(_, places)| {
+    let said = |places: &[Tagged]| {
         places[0].key() == f.resource
             && places.iter().map(|p| p.describe()).collect::<Vec<_>>().join(", ") == f.at
-    })?;
+    };
+    let whole = index.duplicates().into_iter().find(|(_, places)| said(places));
+    let (tag, places): (&[u8], Vec<Tagged>) = match whole {
+        Some((tag, places)) => (tag, places.to_vec()),
+        None => index.duplicates_in_areas().into_iter().find(|(_, places)| said(places))?,
+    };
     // (Tags are written as bytes: one that is not plain text is left to
     // the builder.)
     let tag = std::str::from_utf8(tag).ok().filter(|t| t.is_ascii())?.to_string();
@@ -319,6 +325,29 @@ mod tests {
         // A finding the doctor did not make this way: none.
         assert_eq!(doctor_fix(&m, &finding("tag-unique", "inn.git", "store 0 in inn")), None);
         assert_eq!(doctor_fix(&m, &finding("pc-faction", "inn.git", at)), None);
+    }
+
+    /// A tag the project wants unique in each area, twice in one: the
+    /// finding lists that area's places, and the fix retags there alone.
+    #[test]
+    fn a_tag_twice_in_one_area_is_retagged_there() {
+        let mut m = module();
+        let git = key("mill.git");
+        let mut g = m.gff(&git).unwrap().unwrap();
+        g.root.set("StoreList", Value::List(vec![tagged("SHOP"), tagged("SHOP")]));
+        m.set_gff(git, &g).unwrap();
+        let at = "store 0 in mill, store 1 in mill";
+        let fix = doctor_fix(&m, &finding("tag-unique", "mill.git", at)).unwrap();
+        assert_eq!(fix.label, "Retag the other as SHOP_3");
+        assert_eq!(
+            fix.edits,
+            [Edit::SetField {
+                key: git,
+                path: GffPath::root().item("StoreList", 1),
+                label: "Tag".into(),
+                value: Some(Value::String(b"SHOP_3".to_vec())),
+            }]
+        );
     }
 
     #[test]

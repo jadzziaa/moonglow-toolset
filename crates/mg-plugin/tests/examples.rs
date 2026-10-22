@@ -165,7 +165,7 @@ fn tag_conventions_fixes_what_its_check_finds() {
 #[test]
 fn tag_conventions_passes_its_own_tests() {
     let plugin = example("tag-conventions");
-    let results = mg_plugin::run_tests(&plugin, None, &|_| None);
+    let results = mg_plugin::run_tests(&plugin, None, &|_, _| Ok(None));
     assert_eq!(results.len(), 3, "{results:#?}");
     assert!(results.iter().all(|r| r.passed()), "{results:#?}");
 
@@ -188,7 +188,7 @@ fn house_rules_acts_on_its_events() {
     let on: Vec<mg_plugin::EventKind> = plugin.manifest.events.iter().map(|e| e.on).collect();
     use mg_plugin::EventKind as K;
     assert_eq!(on, [K::ResourceSaving, K::ObjectPasted, K::ResourceCreated]);
-    let results = mg_plugin::run_tests(&plugin, None, &|_| None);
+    let results = mg_plugin::run_tests(&plugin, None, &|_, _| Ok(None));
     assert_eq!(results.len(), 6, "{results:#?}");
     assert!(results.iter().all(|r| r.passed()), "{results:#?}");
 
@@ -207,7 +207,7 @@ fn house_rules_acts_on_its_events() {
 #[test]
 fn builder_tags_keeps_its_settings() {
     let plugin = example("builder-tags");
-    let results = mg_plugin::run_tests(&plugin, None, &|_| None);
+    let results = mg_plugin::run_tests(&plugin, None, &|_, _| Ok(None));
     assert_eq!(results.len(), 6, "{results:#?}");
     assert!(results.iter().all(|r| r.passed()), "{results:#?}");
     let scopes: Vec<(&str, mg_plugin::Scope)> =

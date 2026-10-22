@@ -16,7 +16,7 @@ use mg_resman::ResKey;
 use mg_rules::ObjectKind;
 
 use crate::Module;
-use crate::project_file::{PasteWarning, TagRules};
+use crate::project_file::{PasteWarning, Scope, TagRules};
 
 /// The longest tag Aurora takes.
 pub const MAX_TAG: usize = 32;
@@ -34,6 +34,13 @@ impl Tagged {
         match self {
             Tagged::Area(area) => ResKey::new(area, ResType::ARE),
             Tagged::Object { area, .. } => ResKey::new(area, ResType::GIT),
+        }
+    }
+
+    /// The area it is (an area's own tag) or is placed in.
+    pub fn area(self) -> ResRef {
+        match self {
+            Tagged::Area(area) | Tagged::Object { area, .. } => area,
         }
     }
 
@@ -103,6 +110,11 @@ impl TagIndex {
         self.places(tag).len()
     }
 
+    /// The objects with the tag in one area (the area itself among them).
+    pub fn count_in(&self, tag: &[u8], area: ResRef) -> usize {
+        self.places(tag).iter().filter(|p| p.area() == area).count()
+    }
+
     /// The tags on more than one object, in order.
     pub fn duplicates(&self) -> Vec<(&[u8], &[Tagged])> {
         let mut out: Vec<(&[u8], &[Tagged])> = self
@@ -114,16 +126,75 @@ impl TagIndex {
         out.sort();
         out
     }
+
+    /// The tags on more than one object of one area, by area, in order:
+    /// each tag's places in that area.
+    pub fn duplicates_in_areas(&self) -> Vec<(&[u8], Vec<Tagged>)> {
+        let mut out = Vec::new();
+        for (tag, places) in self.duplicates() {
+            let mut areas: Vec<ResRef> = places.iter().map(|p| p.area()).collect();
+            areas.sort();
+            areas.dedup();
+            for area in areas {
+                let here: Vec<Tagged> =
+                    places.iter().copied().filter(|p| p.area() == area).collect();
+                if here.len() > 1 {
+                    out.push((tag, here));
+                }
+            }
+        }
+        out
+    }
+
+    /// The tags the project wants unique that are not (`[tags] unique`:
+    /// on more than one object of the module; `unique_in_area`: of one
+    /// area, each area's said apart), in order.
+    pub fn breaches<'a>(&'a self, rules: &'a TagRules) -> Vec<Breach<'a>> {
+        if !rules.any_unique() {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        for (tag, places) in self.duplicates() {
+            let text = String::from_utf8_lossy(tag);
+            if let Some((pattern, Scope::Module)) = rules.unique_for(&text) {
+                out.push(Breach { tag, pattern, scope: Scope::Module, places: places.to_vec() });
+            }
+        }
+        for (tag, places) in self.duplicates_in_areas() {
+            let text = String::from_utf8_lossy(tag);
+            if let Some((pattern, Scope::Area)) = rules.unique_for(&text) {
+                out.push(Breach { tag, pattern, scope: Scope::Area, places });
+            }
+        }
+        out.sort_by(|a, b| (a.tag, &a.places).cmp(&(b.tag, &b.places)));
+        out
+    }
+}
+
+/// A tag the project wants unique on more than one object (of the
+/// module, or of one area): [`TagIndex::breaches`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Breach<'a> {
+    pub tag: &'a [u8],
+    /// The project's pattern that wants it unique.
+    pub pattern: &'a str,
+    pub scope: Scope,
+    /// Its places (of the area, for [`Scope::Area`]), in order.
+    pub places: Vec<Tagged>,
 }
 
 /// A tag a paste or a copy put on more than one object.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Clash {
     pub tag: String,
-    /// How many objects of the module have it now.
+    /// How many objects of the module have it now (of `area`, where the
+    /// project wants it unique in each area).
     pub count: usize,
     /// The project's pattern it matches, of those that must be unique.
     pub unique: Option<String>,
+    /// The area it is twice in, where the project wants it unique in each
+    /// area (`unique_in_area`) and counts it there.
+    pub area: Option<ResRef>,
 }
 
 impl Clash {
@@ -134,9 +205,15 @@ impl Clash {
             3 => "three".to_string(),
             n => n.to_string(),
         };
-        match &self.unique {
-            Some(p) => format!("{} is now on {n} objects (the project wants {p} unique)", self.tag),
-            None => format!("{} is now on {n} objects", self.tag),
+        match (&self.unique, self.area) {
+            (Some(p), Some(area)) => format!(
+                "{} is now on {n} objects in {area} (the project wants {p} unique in each area)",
+                self.tag
+            ),
+            (Some(p), None) => {
+                format!("{} is now on {n} objects (the project wants {p} unique)", self.tag)
+            }
+            (None, _) => format!("{} is now on {n} objects", self.tag),
         }
     }
 }
@@ -145,6 +222,8 @@ impl Clash {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MadeTag<'a> {
     pub tag: &'a [u8],
+    /// The area it is (an area copied) or was made in.
+    pub area: ResRef,
     /// A builder set the tag ([`is_custom_tag`]).
     pub custom: bool,
     /// A static placeable: scenery, never warned of.
@@ -164,20 +243,30 @@ pub fn is_custom_tag(object: &Struct, blueprint: Option<&Struct>) -> bool {
 /// The tags of `made` (those just pasted or copied) that are now on more
 /// than one object of `index` (which has them), as the project's rules
 /// say to warn of them (`custom`, the default: tags a builder set and
-/// those that must be unique). A static placeable's never.
+/// those that must be unique). A static placeable's never. A tag the
+/// project wants unique in each area (`unique_in_area`) is counted in the
+/// area it was made in, whatever the rule: other areas' are as meant.
 pub fn clashes(index: &TagIndex, made: &[MadeTag], rules: &TagRules) -> Vec<Clash> {
     if rules.paste_warning == PasteWarning::Off {
         return Vec::new();
     }
-    let mut seen = HashSet::new();
+    let mut seen: HashSet<(&[u8], Option<ResRef>)> = HashSet::new();
     let mut out = Vec::new();
     for m in made {
         let tag = m.tag;
-        if tag.is_empty() || m.is_static || seen.contains(tag) || index.count(tag) < 2 {
+        if tag.is_empty() || m.is_static || index.count(tag) < 2 {
             continue;
         }
         let text = String::from_utf8_lossy(tag).into_owned();
-        let unique = rules.unique.matching(&text).map(str::to_string);
+        let rule = rules.unique_for(&text);
+        let (count, area) = match rule {
+            Some((_, Scope::Area)) => (index.count_in(tag, m.area), Some(m.area)),
+            _ => (index.count(tag), None),
+        };
+        if count < 2 || seen.contains(&(tag, area)) {
+            continue;
+        }
+        let unique = rule.map(|(p, _)| p.to_string());
         let warned = match rules.paste_warning {
             PasteWarning::Any => true,
             PasteWarning::Custom => m.custom || unique.is_some(),
@@ -185,8 +274,8 @@ pub fn clashes(index: &TagIndex, made: &[MadeTag], rules: &TagRules) -> Vec<Clas
             PasteWarning::Off => false,
         };
         if warned {
-            seen.insert(tag);
-            out.push(Clash { tag: text, count: index.count(tag), unique });
+            seen.insert((tag, area));
+            out.push(Clash { tag: text, count, unique, area });
         }
     }
     out
@@ -292,7 +381,7 @@ mod tests {
     }
 
     fn made(tag: &[u8], custom: bool, is_static: bool) -> MadeTag<'_> {
-        MadeTag { tag, custom, is_static }
+        MadeTag { tag, area: r("inn"), custom, is_static }
     }
 
     #[test]
@@ -304,7 +393,7 @@ mod tests {
         assert!(clashes(&i, &quiet, &rules).is_empty(), "LAMP is its blueprint's, CHEST once");
         let made_custom = [made(b"LAMP", false, false), made(b"LAMP", true, false)];
         let got = clashes(&i, &made_custom, &rules);
-        assert_eq!(got, [Clash { tag: "LAMP".into(), count: 2, unique: None }]);
+        assert_eq!(got, [Clash { tag: "LAMP".into(), count: 2, unique: None, area: None }]);
         assert_eq!(got[0].sentence(), "LAMP is now on two objects");
         // A static placeable never.
         assert!(clashes(&i, &[made(b"LAMP", true, true)], &rules).is_empty());
@@ -336,6 +425,64 @@ mod tests {
         );
         rules.paste_warning = PasteWarning::Off;
         assert!(clashes(&more, &made, &rules).is_empty());
+    }
+
+    /// The Domains of Dread's notes on their setup, 5: a store's tag is
+    /// looked for in its own area, so another area may have one too.
+    #[test]
+    fn a_tag_unique_in_each_area_is_counted_in_its_own() {
+        let store = |tag: &str| {
+            let mut g = Struct::new(0);
+            g.set("StoreList", Value::List(vec![tagged(tag)]));
+            g
+        };
+        let mut i = index();
+        i.add_git(r("cave"), &store("KZ_STORE_1"));
+        i.add_git(r("mill"), &store("KZ_STORE_1"));
+        let mut rules = TagRules {
+            unique: Patterns::new(&["KZ_*"]).unwrap(),
+            unique_in_area: Patterns::new(&["*_STORE_*"]).unwrap(),
+            paste_warning: PasteWarning::Unique,
+        };
+        assert_eq!(i.count_in(b"KZ_STORE_1", r("cave")), 1);
+        // Two areas, one each: as meant, though KZ_* takes the tag in too.
+        assert_eq!(rules.unique_for("KZ_STORE_1"), Some(("*_STORE_*", Scope::Area)));
+        assert!(i.breaches(&rules).is_empty());
+        let in_mill =
+            MadeTag { tag: b"KZ_STORE_1", area: r("mill"), custom: true, is_static: false };
+        assert!(clashes(&i, &[in_mill], &rules).is_empty());
+        rules.paste_warning = PasteWarning::Any;
+        assert!(clashes(&i, &[in_mill], &rules).is_empty(), "other areas' are as meant");
+        // A second in the mill: said, with the area.
+        i.add_git(r("mill"), &store("KZ_STORE_1"));
+        let got = clashes(&i, &[in_mill, in_mill], &rules);
+        assert_eq!(
+            got,
+            [Clash {
+                tag: "KZ_STORE_1".into(),
+                count: 2,
+                unique: Some("*_STORE_*".into()),
+                area: Some(r("mill"))
+            }]
+        );
+        assert_eq!(
+            got[0].sentence(),
+            "KZ_STORE_1 is now on two objects in mill (the project wants *_STORE_* unique in each \
+             area)"
+        );
+        let b = i.breaches(&rules);
+        assert_eq!(b.len(), 1, "{b:?}");
+        assert_eq!((b[0].pattern, b[0].scope), ("*_STORE_*", Scope::Area));
+        let at: Vec<String> = b[0].places.iter().map(|p| p.describe()).collect();
+        assert_eq!(at, ["store 0 in mill", "store 0 in mill"]);
+        // Module-wide, a pattern of `unique` alone: every area's together.
+        rules.unique_in_area = Patterns::default();
+        let b = i.breaches(&rules);
+        assert_eq!(b.len(), 1);
+        assert_eq!((b[0].scope, b[0].places.len()), (Scope::Module, 3));
+        let got = clashes(&i, &[in_mill], &rules);
+        assert_eq!((got[0].count, got[0].area), (3, None));
+        assert!(TagIndex::default().breaches(&TagRules::default()).is_empty());
     }
 
     #[test]

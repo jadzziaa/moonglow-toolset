@@ -11,6 +11,7 @@
 //!
 //! [tags]
 //! unique = ["TDOD_START_*"]           # on one object only (Verify says where not)
+//! unique_in_area = ["*_STORE_*"]      # on one object of each area (wins over unique)
 //! paste_warning = "custom"            # builders' tags and unique ones; "any", "unique", "off"
 //!
 //! [store]                             # Setup Store
@@ -144,7 +145,36 @@ pub enum PasteWarning {
 pub struct TagRules {
     /// Tags that must be on one object of the module only.
     pub unique: Patterns,
+    /// Tags that must be on one object of each area only (a store's, which
+    /// a script looks for in its own area): another area may have one too.
+    /// A tag these name is held to them, though `unique` names it too.
+    pub unique_in_area: Patterns,
     pub paste_warning: PasteWarning,
+}
+
+/// Where the project wants a tag on one object only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+    /// In the whole module (`unique`).
+    Module,
+    /// In each area (`unique_in_area`).
+    Area,
+}
+
+impl TagRules {
+    /// The pattern that wants `tag` unique, and where: in each area if
+    /// `unique_in_area` names it (the narrower rule, which a team writes
+    /// for the tags a broader `unique` glob takes in too), else in the
+    /// module if `unique` does.
+    pub fn unique_for(&self, tag: &str) -> Option<(&str, Scope)> {
+        (self.unique_in_area.matching(tag).map(|p| (p, Scope::Area)))
+            .or_else(|| self.unique.matching(tag).map(|p| (p, Scope::Module)))
+    }
+
+    /// Whether the project wants any tag unique.
+    pub fn any_unique(&self) -> bool {
+        !self.unique.is_empty() || !self.unique_in_area.is_empty()
+    }
 }
 
 /// Setup Store's settings (`[store]`); each left out is as Aurora does it.
@@ -677,6 +707,11 @@ impl ProjectFile {
                                     self.tags.unique = p;
                                 }
                             }
+                            "unique_in_area" => {
+                                if let Some(p) = r.patterns(e) {
+                                    self.tags.unique_in_area = p;
+                                }
+                            }
                             "paste_warning" => match r.text(e).as_deref() {
                                 Some("custom") => self.tags.paste_warning = PasteWarning::Custom,
                                 Some("any") => self.tags.paste_warning = PasteWarning::Any,
@@ -1034,7 +1069,8 @@ keep_tags = ["LAMP_*", "TORCH"]
 keep_resrefs = ["tdod_*"]
 
 [tags]
-unique = ["TDOD_START_*", "*_STORE_*"]
+unique = ["TDOD_START_*", "KZ_*"]
+unique_in_area = ["*_STORE_*"]
 paste_warning = "unique"
 
 [store]
@@ -1061,7 +1097,12 @@ keeper_variable = "tdod_store"
         assert!(
             p.make_static.keep_tags.matches("torch") && !p.make_static.keep_tags.matches("TORCH2")
         );
-        assert!(p.tags.unique.matches("KREZK_STORE_1"));
+        assert!(p.tags.unique.matches("KZ_SQUARE_STORE_1"));
+        assert!(p.tags.unique_in_area.matches("KZ_SQUARE_STORE_1"));
+        // The narrower rule: unique in each area, though KZ_* takes it in.
+        assert_eq!(p.tags.unique_for("KZ_SQUARE_STORE_1"), Some(("*_STORE_*", Scope::Area)));
+        assert_eq!(p.tags.unique_for("KZ_SQUARE"), Some(("KZ_*", Scope::Module)));
+        assert_eq!(p.tags.unique_for("LAMP"), None);
         assert_eq!(p.tags.paste_warning, PasteWarning::Unique);
         let store = p.store.unwrap();
         assert_eq!(store.open_script, ResRef::from_str("tdod_vendor_open").ok());
@@ -1082,6 +1123,7 @@ keeper_variable = "tdod_store"
         let p = read(example);
         assert_eq!((p.warnings.len(), p.errors.len()), (0, 0), "{:?} {:?}", p.warnings, p.errors);
         assert!(p.store.is_some() && !p.tags.unique.is_empty());
+        assert!(!p.tags.unique_in_area.is_empty());
     }
 
     #[test]

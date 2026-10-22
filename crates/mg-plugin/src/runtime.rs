@@ -172,10 +172,16 @@ impl Shared {
             if let Some(bytes) = self.in_haks(key) {
                 return Ok(bytes);
             }
-            let Some(data) = &self.game else { return fail("there is no game data") };
+            let Some(data) = &self.game else {
+                self.host.not_in_game(&key.to_string());
+                return fail(format!("{key}: there is no game data (no game install)"));
+            };
             return match data.resman.get(key) {
                 Ok(bytes) => Ok(bytes.into_owned()),
-                Err(_) => fail(format!("{key} is not in the game's resources")),
+                Err(_) => {
+                    self.host.not_in_game(&key.to_string());
+                    fail(format!("{key} is not in the game's resources"))
+                }
             };
         }
         let mut ws = self.ws.borrow_mut();
@@ -494,7 +500,15 @@ fn reader(lua: &Lua, sh: &Rc<Shared>, game: bool) -> mlua::Result<Table> {
         t.set(
             "table",
             lua.create_function(move |lua, (_, name): (This, String)| {
-                let Some(data) = &s.game else { return fail("there is no game data") };
+                let file = format!("{}.2da", name.trim_end_matches(".2da"));
+                let Some(data) = &s.game else {
+                    s.host.not_in_game(&file);
+                    return fail(format!("{file}: there is no game data (no game install)"));
+                };
+                let had = ResKey::from_filename(&file).is_some_and(|k| data.resman.contains(&k));
+                if !had {
+                    s.host.not_in_game(&file);
+                }
                 let table = data.table(&name).or_else(fail)?;
                 crate::tables::twoda(lua, table.clone())
             })?,
@@ -1055,6 +1069,25 @@ fn api(lua: &Lua) -> mlua::Result<Table> {
         lua.create_function(|_, t: Table| match t.metatable() {
             Some(meta) => meta.raw_get::<Option<String>>("path"),
             None => Ok(None),
+        })?,
+    )?;
+    // A struct's id: kept beside a `gff` table (in its metatable, as its
+    // path is), never in it, so that no field's label can be taken for it
+    // and the table's fields are its fields alone; a `raw` struct's
+    // `__struct_id`.
+    mg.set(
+        "struct_id",
+        lua.create_function(|_, t: Table| {
+            if let Some(meta) = t.metatable()
+                && let Some(id) = meta.raw_get::<Option<f64>>("struct_id")?
+            {
+                return Ok(Some(id));
+            }
+            match t.raw_get::<LuaValue>("__struct_id")? {
+                LuaValue::Integer(i) => Ok(Some(i as f64)),
+                LuaValue::Number(n) => Ok(Some(n)),
+                _ => Ok(None),
+            }
         })?,
     )?;
     Ok(mg)

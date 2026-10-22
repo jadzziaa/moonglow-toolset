@@ -465,6 +465,65 @@ fn values_written_by_hand_are_read_as_meant() {
     assert_eq!(guard.root.get("Tag"), Some(&Value::String(b"ROOT".to_vec())));
 }
 
+/// A struct read with `gff` has its id beside it (`mg.struct_id`), not
+/// among its fields: a field may have any label, `__struct_id` too, and
+/// a table built from one goes into an edit with the fields it has.
+#[test]
+fn a_struct_s_id_is_read_beside_its_fields() {
+    let dir = mg_testkit::scratch_dir("plugin-struct-id");
+    std::fs::write(
+        dir.join("plugin.cfg"),
+        "[plugin]\nid = \"test.ids\"\nname = \"Ids\"\nversion = \"1\"\napi = \"0.4\"\n\
+         license = \"GPL-3.0-or-later\"\n[command]\nid = \"ids\"\ntitle = \"Ids\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("main.luau"),
+        r#"
+        local mg = require("@moonglow")
+        mg.command("ids", function(ctx)
+            local guard = ctx.module:gff("guard.utc")
+            local class = guard.ClassList[1]
+            assert(mg.struct_id(class) == 2, "a list's item")
+            assert(mg.struct_id(guard) == 4294967295, "the root")
+            local labels = {}
+            for label in class do
+                table.insert(labels, label)
+            end
+            table.sort(labels)
+            assert(table.concat(labels, ",") == "Class,ClassLevel", table.concat(labels, ","))
+            assert(mg.struct_id(ctx.module:raw("guard.utc", "/ClassList[0]")) == 2, "raw")
+            assert(mg.struct_id({}) == nil and mg.struct_id({ Class = 4 }) == nil)
+            -- A field so labeled is a field, and the id still the struct's.
+            ctx.edit:set("guard.utc", mg.path(class) .. "/__struct_id", mg.int(7))
+            local again = ctx.module:gff("guard.utc").ClassList[1]
+            assert(again.__struct_id == 7 and mg.struct_id(again) == 2)
+            -- A copy of it, as an item of its id with its fields.
+            ctx.edit:insert("guard.utc", "/ClassList", {
+                __struct_id = mg.struct_id(class),
+                Class = mg.int(class.Class + 1),
+                ClassLevel = mg.short(class.ClassLevel),
+            })
+            ctx.edit:set("guard.utc", mg.path(class) .. "/ClassLevel", class.ClassLevel + 1)
+        end)
+        "#,
+    )
+    .unwrap();
+    let host = Rc::new(TestHost::default());
+    let outcome = run(&Plugin::load(&dir).unwrap(), "ids", &host).unwrap();
+    let mut ws = applied(outcome.edits);
+    ws.flush().unwrap();
+    let guard = ws.module.gff(&key("guard.utc")).unwrap().unwrap();
+    let classes = guard.root.list("ClassList").unwrap();
+    assert_eq!(classes.len(), 2);
+    assert_eq!(classes[0].get("ClassLevel"), Some(&Value::Short(4)));
+    let copy = &classes[1];
+    assert_eq!(copy.id, 2);
+    let labels: Vec<String> = copy.fields.iter().map(|f| f.label.to_string_lossy()).collect();
+    assert_eq!(labels, ["Class", "ClassLevel"], "no field for the id");
+    assert_eq!(copy.get("Class"), Some(&Value::Int(5)));
+}
+
 /// The game's own data, where there is an install: a 2DA's cells by row
 /// and column, a talk-table string, a resource the game would load.
 #[test]
@@ -755,6 +814,32 @@ fn a_plugin_s_own_tests_say_what_is_not_as_wanted() {
         resource = "guard.utc"
         field = "Tag"
         value = "GATE_GUARD"
+        [[test.field]]
+        resource = "guard.utc"
+        field = "ClassList[0]"
+        [[test.field]]
+        resource = "guard.utc"
+        field = "/ClassList[1]"
+        absent = true
+        [[test.field]]
+        resource = "guard.utc"
+        field = "/Equip_ItemList[0]"
+        absent = true
+
+        [[test]]
+        name = "list items there and gone"
+        command = "fix-tags"
+        [[test.field]]
+        resource = "guard.utc"
+        field = "/ClassList[0]"
+        absent = true
+        [[test.field]]
+        resource = "guard.utc"
+        field = "ClassList[3]"
+        [[test.field]]
+        resource = "guard.utc"
+        field = "ClassList[0]"
+        value = 1
 
         [[test]]
         name = "wrong finding"
@@ -798,7 +883,7 @@ fn a_plugin_s_own_tests_say_what_is_not_as_wanted() {
         .unwrap();
     std::fs::write(source.join("tests/c.toml"), "[[test]]\nname = \"x\"\nwhat = 1\n").unwrap();
     let plugin = Plugin::load(&source).unwrap();
-    let results = mg_plugin::run_tests(&plugin, None, &|_| None);
+    let results = mg_plugin::run_tests(&plugin, None, &|_, _| Ok(None));
     let of = |name: &str| -> Vec<String> {
         results.iter().find(|r| r.name == name).unwrap_or_else(|| panic!("{name}")).problems.clone()
     };
@@ -817,6 +902,15 @@ fn a_plugin_s_own_tests_say_what_is_not_as_wanted() {
         assert!(field.contains(says), "{says}: {field}");
     }
     assert!(!field.contains("Comment") && !field.contains("Wis"), "{field}");
+    // A list's item, as a field of the test: there or gone, never a value.
+    assert_eq!(
+        of("list items there and gone"),
+        [
+            "guard.utc /ClassList[0] is there, and was to be gone",
+            "guard.utc ClassList[3] is not there",
+            "guard.utc ClassList[0]: a list's item has no value: name a field of it",
+        ]
+    );
     assert_eq!(of("it was to fail"), ["it was to fail, saying \"nope\", and did not"]);
     assert!(of("both")[0].contains("one thing"));
     let b = results.iter().find(|r| r.file == "b.toml").unwrap();
@@ -831,8 +925,134 @@ fn a_plugin_s_own_tests_say_what_is_not_as_wanted() {
     fixed.set_gff(key("guard.utc"), &guard).unwrap();
     let other = dir.join("other.mod");
     fixed.save_as(&ModuleLocation::Archive(other.clone())).unwrap();
-    let results = mg_plugin::run_tests(&plugin, Some(&other), &|_| None);
+    let results = mg_plugin::run_tests(&plugin, Some(&other), &|_, _| Ok(None));
     let passes = results.iter().find(|r| r.name == "passes").unwrap();
     assert!(passes.problems[0].starts_with("0 findings, not 1"), "{passes:?}");
     assert!(results.iter().any(|r| r.file == "b.toml" && r.passed()), "{results:?}");
+}
+
+/// The Domains of Dread's notes on their setup, 3: a test brings its own
+/// game data (a folder of 2DAs beside it, over the game's), so that it
+/// runs the same with any game or none; a test may name a game's root;
+/// and one that read what its game data lacks says so.
+#[test]
+fn a_plugin_s_tests_bring_their_own_game_data() {
+    use mg_module::ModuleLocation;
+    let dir = mg_testkit::scratch_dir("plugin-tests-game");
+    let source = dir.join("armor");
+    for folder in ["tests/game", "tests/empty"] {
+        std::fs::create_dir_all(source.join(folder)).unwrap();
+    }
+    std::fs::write(
+        source.join("plugin.cfg"),
+        "[plugin]\nid = \"test.armor\"\nname = \"Armor\"\nversion = \"1\"\napi = \"0.4\"\n\
+         license = \"GPL-3.0-or-later\"\n[check]\nid = \"chest\"\ntitle = \"Chest\"\n\
+         [check]\nid = \"quiet\"\ntitle = \"Quiet\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        source.join("main.luau"),
+        r#"
+        local mg = require("@moonglow")
+        -- A table the game has: read whole, or the job fails.
+        mg.check("chest", function(ctx)
+            local chest = ctx.game:table("parts_chest")
+            return { { resource = "guard.utc", message = `AC {chest:get(1, "ACBONUS")}` } }
+        end)
+        -- The same, quiet without it (as many a plugin is).
+        mg.check("quiet", function(ctx)
+            local ok, chest = pcall(function()
+                return ctx.game:table("parts_chest")
+            end)
+            if not ok then
+                return {}
+            end
+            return { { resource = "guard.utc", message = `AC {chest:get(1, "ACBONUS")}` } }
+        end)
+        "#,
+    )
+    .unwrap();
+    std::fs::write(
+        source.join("tests/game/parts_chest.2da"),
+        "2DA V2.0\n\n   ACBONUS\n0  0.00\n1  3.00\n",
+    )
+    .unwrap();
+    module().save_as(&ModuleLocation::Folder(source.join("tests/fixture"))).unwrap();
+    let tests = r#"
+        module = "fixture"
+
+        [[test]]
+        name = "the folder's table"
+        check = "chest"
+        [[test.finding]]
+        resource = "guard.utc"
+        message = "AC 3.00"
+
+        [[test]]
+        name = "another folder, without it"
+        check = "chest"
+        game = "empty"
+        findings = 1
+
+        [[test]]
+        name = "quiet without it"
+        check = "quiet"
+        game = "empty"
+        findings = 1
+
+        [[test]]
+        name = "a folder not there"
+        check = "chest"
+        game = "nowhere"
+
+        [[test]]
+        name = "a root of its own"
+        check = "chest"
+        root = "elsewhere"
+    "#;
+    std::fs::write(source.join("tests/a.toml"), tests).unwrap();
+    let plugin = Plugin::load(&source).unwrap();
+    // No game: the folder's table, and only it.
+    let roots = RefCell::new(Vec::new());
+    let no_game = |_: &Module, root: Option<&std::path::Path>| {
+        roots.borrow_mut().push(root.map(std::path::Path::to_path_buf));
+        match root {
+            Some(_) => Err("no game install there".to_string()),
+            None => Ok(None),
+        }
+    };
+    let results = mg_plugin::run_tests(&plugin, None, &no_game);
+    let of = |results: &[mg_plugin::TestResult], name: &str| -> Vec<String> {
+        results.iter().find(|r| r.name == name).unwrap_or_else(|| panic!("{name}")).problems.clone()
+    };
+    assert_eq!(of(&results, "the folder's table"), Vec::<String>::new());
+    let lacked = "the game's data has no parts_chest.2da, which it read (there is no game \
+                  install, nor the test's game folder, empty): put it in empty, or name a game \
+                  with root = \"…\"";
+    let without = of(&results, "another folder, without it");
+    assert_eq!(without.len(), 2, "{without:?}");
+    assert!(without[0].contains("parts_chest.2da not found"), "{without:?}");
+    assert_eq!(without[1], lacked);
+    assert_eq!(of(&results, "quiet without it"), ["0 findings, not 1: []", lacked]);
+    let nowhere = of(&results, "a folder not there");
+    assert!(nowhere[0].starts_with("game: ") && nowhere[0].ends_with("nowhere is not a folder"));
+    let root = source.join("tests/elsewhere");
+    assert_eq!(
+        of(&results, "a root of its own"),
+        [format!("root {}: no game install there", root.display())]
+    );
+    assert!(roots.borrow().contains(&Some(root)), "{:?}", roots.borrow());
+    // A game whose parts_chest says otherwise: the folder's is over it,
+    // and another folder reads the game's.
+    let game = |m: &Module, _: Option<&std::path::Path>| {
+        let mut rm = mg_resman::ResMan::new();
+        let mut base = mg_resman::MemContainer::new();
+        base.insert(key("parts_chest.2da"), b"2DA V2.0\n\n   ACBONUS\n0  0.00\n1  9.00\n".to_vec());
+        rm.add(mg_resman::priority::KEY, "base", mg_resman::LayerClass::Key, base);
+        rm.add(mg_resman::priority::MODULE, "module", mg_resman::LayerClass::Erf, m.container());
+        Ok(Some(mg_rules::GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH))))
+    };
+    let results = mg_plugin::run_tests(&plugin, None, &game);
+    assert_eq!(of(&results, "the folder's table"), Vec::<String>::new(), "3, not the game's 9");
+    assert_eq!(of(&results, "another folder, without it"), Vec::<String>::new());
 }

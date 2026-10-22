@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T13:37:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:06:27Z }
 ---
 
 # Areas
@@ -454,9 +454,18 @@ The [project file](03-modules.md#the-project-file-moonglowtoml) says
 which to warn of (`[tags] paste_warning`: `"custom"`, as above and by
 default; `"any"` for every tag but a static placeable's, an area copy's
 then listing only its own tag and the unique ones and counting the
-rest; `"unique"` for only the tags it names in `unique`; or `"off"`),
-and Verify Module warns of a tag it wants unique that is on two
-objects.
+rest; `"unique"` for only the tags it names in `unique` and
+`unique_in_area`; or `"off"`), and Verify Module warns of a tag it wants
+unique that is on two objects.
+
+A tag a script looks for in its own area only (a store's, which a
+vendor's script finds as the nearest of that tag) may be on one object
+of each area: the project names those in `[tags] unique_in_area` (since
+Moonglow 2.1.1). A paste then counts such a tag in the area it was
+pasted into, whatever `paste_warning` says ("KZ_SQUARE_STORE_1 is now on
+two objects in kz_square (the project wants \*_STORE_\* unique in each
+area)"), a copy of a whole area is quiet about them, and Verify Module
+warns of one that is twice in one area.
 
 ## Painting placeables
 

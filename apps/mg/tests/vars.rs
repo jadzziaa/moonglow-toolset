@@ -12,7 +12,8 @@ const DESCRIBED: &str = "undescribed = [\"tdod_*\"]\n\n\
     [tdod_kind]\ntype = \"string\"\non = [\"creature\"]\nconstants = \"tdod_kind_inc\"\n\
     prefix = \"TDOD_KIND_\"\nhelp = \"What the creature is, where its race misleads\"\n\n\
     [tdod_settlement]\ntype = \"string\"\non = [\"area\"]\n\n\
-    [tdod_lit]\ntype = \"int\"\non = [\"placeable\"]\nvalues = { 1 = \"lit\" }\n";
+    [tdod_lit]\ntype = \"int\"\non = [\"placeable\"]\nvalues = { 1 = \"lit\" }\n\n\
+    [tdod_trodden]\nruntime = true\n";
 
 /// A module folder of the module's own (no game data), with its
 /// variables described.
@@ -40,7 +41,8 @@ fn vars_lists_the_project_s_described_variables() {
     let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(json["undescribed"], serde_json::json!(["tdod_*"]));
     let vars = json["variables"].as_array().unwrap();
-    assert_eq!(vars.len(), 3, "{json}");
+    assert_eq!(vars.len(), 4, "{json}");
+    assert_eq!((&vars[0]["runtime"], &vars[3]["runtime"]), (&false.into(), &true.into()));
     assert_eq!(vars[0]["name"], "tdod_kind");
     assert_eq!(vars[0]["type"], "String");
     assert_eq!(vars[0]["on"], serde_json::json!(["creature"]));
@@ -66,6 +68,14 @@ fn vars_lists_the_project_s_described_variables() {
         crate::mg().args(["--no-user-dir", "vars"]).arg(&dir).arg("tdod_lit").output().unwrap();
     let text = String::from_utf8_lossy(&out.stdout);
     assert_eq!(text.trim(), "tdod_lit\tan Int, on a placeable\t1 (lit)");
+    let out =
+        crate::mg().args(["--no-user-dir", "vars"]).arg(&dir).arg("tdod_trodden").output().unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(
+        text.trim(),
+        "tdod_trodden\ta variable of any type, set by the scripts while the server runs, never in \
+         a file"
+    );
 }
 
 #[test]
@@ -117,6 +127,7 @@ fn verify_holds_variables_to_their_descriptions() {
         Value::List(vec![
             var("tdod_settlement", 1, Value::Int(1)),
             var("tdod_lt", 1, Value::Int(1)),
+            var("tdod_trodden", 1, Value::Int(1)),
         ]),
     );
     m.set_gff(git, &g).unwrap();
@@ -152,6 +163,13 @@ fn verify_holds_variables_to_their_descriptions() {
                  scripts read \"\""
             ),
             (
+                "var-runtime",
+                "error",
+                "tdod_trodden is set by the scripts while the server runs (variables.toml:19 says \
+                 runtime = true), and is never to be kept in a file: one kept here is there from \
+                 the start, on every server"
+            ),
+            (
                 "var-name",
                 "warning",
                 "tdod_lt is named as the project's variables are (tdod_*), and variables.toml \
@@ -161,7 +179,7 @@ fn verify_holds_variables_to_their_descriptions() {
     );
     let checks = crate::mg().args(["--json", "checks"]).output().unwrap();
     let checks: serde_json::Value = serde_json::from_slice(&checks.stdout).unwrap();
-    for id in ["var-type", "var-value", "var-object", "var-name"] {
+    for id in ["var-type", "var-value", "var-object", "var-name", "var-runtime"] {
         let check = checks["checks"].as_array().unwrap().iter().find(|c| c["id"] == id);
         assert!(check.is_some_and(|c| c["group"] == "objects"), "{id}: {checks}");
     }

@@ -314,6 +314,11 @@ end
 -- the root).
 function mg.path(struct: Struct): string? return nil end
 
+-- A struct's id (a list item's: an equipped item's slot, `Equip_ItemList`),
+-- kept beside a table read with `gff`, never among its fields; a `raw`
+-- struct's `__struct_id`. Nil for a table that is neither.
+function mg.struct_id(struct: Struct | { [string]: any }): number? return nil end
+
 -- A table's description (the text of its `name.2da.toml`): what each
 -- column holds ("text", "int", "float", "list", "flags", "strref", or
 -- "row:" and a table), a value's name, and what is wrong in a table.

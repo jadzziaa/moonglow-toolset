@@ -67,12 +67,13 @@ pub enum Check {
     VarValue,
     VarObject,
     VarName,
+    VarRuntime,
     ClaimsMerged,
     ClaimsTag,
 }
 
 impl Check {
-    pub const ALL: [Check; 33] = [
+    pub const ALL: [Check; 34] = [
         Check::CustomTlk,
         Check::ErfSize,
         Check::SetRead,
@@ -104,6 +105,7 @@ impl Check {
         Check::VarValue,
         Check::VarObject,
         Check::VarName,
+        Check::VarRuntime,
         Check::ClaimsMerged,
         Check::ClaimsTag,
     ];
@@ -141,6 +143,7 @@ impl Check {
             Check::VarValue => "var-value",
             Check::VarObject => "var-object",
             Check::VarName => "var-name",
+            Check::VarRuntime => "var-runtime",
             Check::ClaimsMerged => "claims-merged",
             Check::ClaimsTag => "claims-tag",
         }
@@ -190,7 +193,7 @@ impl Check {
             Check::AreaVariables => "an area's variables are in its GIT, where the game reads them",
             Check::TagUnique => {
                 "a tag the project says must be unique (moonglow.toml's [tags] unique) is on one \
-                 object only"
+                 object only, or on one of each area (unique_in_area)"
             }
             Check::NuiSources => {
                 "a nasher project's sources take in its NUI windows' files (.jui and .txt), which \
@@ -207,6 +210,11 @@ impl Check {
             Check::VarName => {
                 "a variable named as the project's are (variables.toml's undescribed) is \
                  described, and a described one is named in the case it is described in"
+            }
+            Check::VarRuntime => {
+                "a variable the project describes as the scripts' alone (variables.toml's \
+                 runtime = true: state or a test's hook, set while the server runs) is kept in no \
+                 file of the module"
             }
             Check::ClaimsMerged => {
                 "an area the project's claims table says is merged (in the game) is in the module \
@@ -248,7 +256,8 @@ impl Check {
             | Check::VarType
             | Check::VarValue
             | Check::VarObject
-            | Check::VarName => Group::Objects,
+            | Check::VarName
+            | Check::VarRuntime => Group::Objects,
             Check::CustomTlk
             | Check::ErfSize
             | Check::NuiSources
@@ -1706,25 +1715,31 @@ fn area_variables(d: &mut Doctor, module: &Module) {
 /// gives a script only one of them (the one placed later, of two in an
 /// area: `engine_static_placeables`).
 fn unique_tags(d: &mut Doctor, module: &Module) {
-    let unique = &module.project_file.tags.unique;
-    if unique.is_empty() {
+    let rules = &module.project_file.tags;
+    if !rules.any_unique() {
         return;
     }
     let index = crate::tags::TagIndex::of_module(module);
-    for (tag, places) in index.duplicates() {
-        let tag = String::from_utf8_lossy(tag);
-        let Some(pattern) = unique.matching(&tag) else { continue };
-        let at: Vec<String> = places.iter().map(|p| p.describe()).collect();
-        let message = format!(
-            "{tag} is on {} objects, and the project's moonglow.toml wants {pattern} unique: a \
-             script finds only one of them by its tag",
-            places.len()
-        );
+    for b in index.breaches(rules) {
+        let tag = String::from_utf8_lossy(b.tag);
+        let (n, pattern) = (b.places.len(), b.pattern);
+        let message = match b.scope {
+            crate::project_file::Scope::Module => format!(
+                "{tag} is on {n} objects, and the project's moonglow.toml wants {pattern} \
+                 unique: a script finds only one of them by its tag"
+            ),
+            crate::project_file::Scope::Area => format!(
+                "{tag} is on {n} objects in {}, and the project's moonglow.toml wants {pattern} \
+                 unique in each area: a script that looks for it there finds only one of them",
+                b.places[0].area()
+            ),
+        };
+        let at: Vec<String> = b.places.iter().map(|p| p.describe()).collect();
         d.push(
             Severity::Warning,
             Check::TagUnique,
             "module",
-            places[0].key(),
+            b.places[0].key(),
             at.join(", "),
             message,
         );
@@ -1830,6 +1845,20 @@ fn described_variables(d: &mut Doctor, module: &Module) {
                 d.push(Severity::Warning, Check::VarName, "module", key, at, message);
                 continue;
             };
+            // One the scripts alone set, kept here: it is there from the
+            // start, on every server (a test's hook fixing every roll).
+            if desc.runtime {
+                let how =
+                    if desc.is_pattern() { format!(" ({})", desc.name) } else { String::new() };
+                let message = format!(
+                    "{}{how} is set by the scripts while the server runs ({file}:{} says runtime \
+                     = true), and is never to be kept in a file: one kept here is there from the \
+                     start, on every server",
+                    f.name, desc.line
+                );
+                d.push(Severity::Error, Check::VarRuntime, "module", key, at, message);
+                continue;
+            }
             if let (Some(want), Some(have)) = (desc.var_type, f.var_type)
                 && want != have
             {
@@ -2334,6 +2363,8 @@ endmodelgeom fx\ndonemodel fx\n";
                 var("tdod_craft", Value::Int(1)),
                 var("tdod_craft2", Value::Int(7)),
                 var("someone_elses", s("x")),
+                var("tdod_trodden", Value::Int(1)),
+                var("tdod_save_d20", Value::Int(20)),
             ],
         );
         let mut good = object(9, "GOOD", vec![var("tdod_workbench", s("forge"))]);
@@ -2373,7 +2404,9 @@ endmodelgeom fx\ndonemodel fx\n";
              [tdod_harvest_dc]\ntype = \"int\"\nmin = 1\nmax = 60\n\n\
              [tdod_lamplit]\ntype = \"int\"\non = [\"area\"]\n\n\
              [tdod_kind]\ntype = \"string\"\nconstants = \"tdod_kind_inc\"\nprefix = \"TDOD_KIND_\"\n\n\
-             [\"tdod_craft*\"]\ntype = \"int\"\ntable = \"crafts\"\n",
+             [\"tdod_craft*\"]\ntype = \"int\"\ntable = \"crafts\"\n\n\
+             [tdod_trodden]\nruntime = true\nhelp = \"The scripts' own\"\n\n\
+             [\"tdod_*_d20\"]\ntype = \"int\"\nruntime = true\n",
         )
         .unwrap();
         let m = Module::open(&dir).unwrap();
@@ -2430,16 +2463,34 @@ endmodelgeom fx\ndonemodel fx\n";
             "Module › VarTable › tdod_lamplit",
             "tdod_lamplit is on a module, and variables.toml:20 says it goes on area",
         );
+        // The scripts' own, kept in a file: an error, whatever its type.
+        has(
+            "var-runtime",
+            "tdod_trodden",
+            "tdod_trodden is set by the scripts while the server runs (variables.toml:33 says \
+             runtime = true), and is never to be kept in a file: one kept here is there from the \
+             start, on every server",
+        );
+        has(
+            "var-runtime",
+            "tdod_save_d20",
+            "tdod_save_d20 (tdod_*_d20) is set by the scripts while the server runs \
+             (variables.toml:37 says runtime = true), and is never to be kept in a file: one kept \
+             here is there from the start, on every server",
+        );
         // Those that are right, and the others' variables, are not said.
-        assert_eq!(found.len(), 8, "{found:#?}");
+        assert_eq!(found.len(), 10, "{found:#?}");
         let severity = examine(&m, &rm, TalkTables::default())
             .into_iter()
             .filter(|f| f.check.starts_with("var-"))
             .map(|f| (f.check.to_string(), f.severity))
             .collect::<Vec<_>>();
         assert!(severity.contains(&("var-type".into(), Severity::Error)));
+        assert!(severity.contains(&("var-runtime".into(), Severity::Error)));
         assert!(
-            severity.iter().filter(|(c, _)| c != "var-type").all(|(_, s)| *s == Severity::Warning)
+            (severity.iter())
+                .filter(|(c, _)| c != "var-type" && c != "var-runtime")
+                .all(|(_, s)| *s == Severity::Warning)
         );
     }
 
@@ -2479,6 +2530,38 @@ endmodelgeom fx\ndonemodel fx\n";
             found[0].message
         );
         assert_eq!(Group::of(found[0]), Group::Objects);
+        // Unique in each area: two areas with one each are as meant, and
+        // a second in one area is said, with that area's places alone.
+        std::fs::write(
+            dir.join("moonglow.toml"),
+            "[tags]\nunique = [\"TDOD_START_*\", \"*\"]\nunique_in_area = [\"LAMP\"]\n",
+        )
+        .unwrap();
+        let m = Module::open(&dir).unwrap();
+        let f = examine(&m, &resman(&[]), TalkTables::default());
+        let found: Vec<&Finding> = f.iter().filter(|x| x.check == "tag-unique").collect();
+        assert_eq!(found.len(), 1, "LAMP once in each area: {found:?}");
+        let mut m = Module::open(&dir).unwrap();
+        let git = key("krezk", ResType::GIT);
+        let mut g = m.gff(&git).unwrap().unwrap();
+        g.root.set(
+            "WaypointList",
+            Value::List(["TDOD_START_KREZK", "LAMP", "LAMP"].iter().map(|t| waypoint(t)).collect()),
+        );
+        m.set_gff(git, &g).unwrap();
+        m.save().unwrap();
+        let m = Module::open(&dir).unwrap();
+        let f = examine(&m, &resman(&[]), TalkTables::default());
+        let found: Vec<&Finding> = f.iter().filter(|x| x.check == "tag-unique").collect();
+        assert_eq!(found.len(), 2, "{found:?}");
+        let lamp = found.iter().find(|x| x.message.starts_with("LAMP")).unwrap();
+        assert_eq!(lamp.at, "waypoint 1 in krezk, waypoint 2 in krezk");
+        assert_eq!(lamp.resource, git);
+        assert_eq!(
+            lamp.message,
+            "LAMP is on 2 objects in krezk, and the project's moonglow.toml wants LAMP unique in \
+             each area: a script that looks for it there finds only one of them"
+        );
     }
 
     /// The Domains of Dread's builder proposal, C7: a merged area keeps its

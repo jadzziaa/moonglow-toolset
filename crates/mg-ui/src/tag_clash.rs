@@ -119,7 +119,12 @@ pub(crate) fn check(app: &mut Moonglow, what: &str, made: Vec<Made>, whole_area:
     let index = index(ws);
     let tags: Vec<MadeTag> = weighed
         .iter()
-        .map(|(_, w)| MadeTag { tag: &w.tag, custom: w.custom, is_static: w.is_static })
+        .map(|(m, w)| MadeTag {
+            tag: &w.tag,
+            area: m.key.resref,
+            custom: w.custom,
+            is_static: w.is_static,
+        })
         .collect();
     let mut found = clashes(&index, &tags, &rules);
     let tagged: Vec<(Made, Vec<u8>)> = weighed

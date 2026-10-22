@@ -3482,6 +3482,7 @@ fn store_wizard_by_the_project_and_duplicate_tags() {
                 tag: tag.into(),
                 count,
                 unique: unique.map(str::to_string),
+                area: None,
             };
             h.state_mut().tag_clash = Some(mg_ui::tag_clash::TagClash {
                 what: "The paste".into(),

@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:06:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:25:26Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -3190,6 +3190,39 @@ File › Project. What is left:
 - **Setup Store by a command the project names** (C4's "or the store is
   set up by a command the project names") still waits: the project's
   commands run in a shell, not as a step of a wizard. (M)
+
+## From the Domains of Dread's setup on 2.1.0
+
+The builders' notes on setting up their project (`moonglow.toml`,
+`variables.toml`, a project plugin with tests) on Moonglow 2.1.0, five
+gaps filled in 2.1.1; what they left:
+
+- **A variable kept against `runtime = true` has no fix:** Verify's
+  `var-runtime` names it, and taking it out is the builder's (a Remove
+  fix, as `area-variables` has its Move, would serve; two in one
+  `VarTable` would need the second fix to follow the first's indices).
+  (S)
+- **A runtime variable's `on` says, and isn't held:** `on` with
+  `runtime = true` is shown (`mg vars`) as what the scripts set it on;
+  nothing checks the scripts set only described names. (S)
+- **`unique_in_area` is quiet about other areas whatever
+  `paste_warning` says:** with `"any"`, a store's tag pasted into
+  another area isn't said, as the project says it may be there; and
+  Setup Store's `{n}` still takes the first number free in the module,
+  not in the area. (S)
+- **A test's game folder has no talk table:** without a game,
+  `ctx.game:string` is nil, and a test can't bring a `dialog.tlk` (or the
+  module's custom one) of its own; nor haks of its own (the fixture's
+  haks are the machine's user folder's). (S)
+- **A test is told what it lacked of the game only when it fails:** a
+  passing test whose plugin made do without a resource (in a `pcall`)
+  isn't; nor one that listed the game's resources
+  (`ctx.game:resources()`) with no game, which fails as before. And a
+  fixture module that is a folder named `game` beside its test file is
+  read as the test's game folder too, unless `game = "…"` names
+  another. (S)
+- **`mg.struct_id` reads an id; no edit sets one:** an equipped item
+  moved to another slot is removed and inserted again. (S)
 
 ## Release and packaging
 

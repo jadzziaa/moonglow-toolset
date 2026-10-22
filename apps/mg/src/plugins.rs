@@ -40,13 +40,18 @@ pub(crate) fn game_for(
         out.note("no game install found: a plugin's game data is empty (--root, or NWN_ROOT)");
         return None;
     };
-    let mut game = match GameData::open(gi) {
-        Ok(g) => g,
+    match GameData::open(gi) {
+        Ok(game) => Some(Arc::new(layered(game, gi, m, out))),
         Err(e) => {
             out.note(format!("the game data could not be read: {e}"));
-            return None;
+            None
         }
-    };
+    }
+}
+
+/// The game's data with the module's haks and the module layered in, and
+/// its custom talk table.
+fn layered(mut game: GameData, gi: &GameInstall, m: &Module, out: &mut Output) -> GameData {
     let (missing, wrong) = m.stack_onto(&mut game.resman, gi);
     missing.iter().for_each(|h| out.note(format!("warning: hak {h} not found")));
     if let Some(e) = wrong {
@@ -58,7 +63,7 @@ pub(crate) fn game_for(
     {
         game.set_custom_tlk(Some(tlk));
     }
-    Some(Arc::new(game))
+    game
 }
 
 /// The command line as a plugin's host: the log kept for the output, a
@@ -467,16 +472,35 @@ pub(crate) fn test(gi: Option<&GameInstall>, dir: &Path, module: Option<&Path>) 
     let plugin = Plugin::load(dir).map_err(|e| anyhow!("{e}"))?;
     let mut out = Output::default();
     let notes = RefCell::new(Output::default());
-    let game = |m: &Module| {
+    let game = |m: &Module, root: Option<&Path>| -> Result<Option<GameData>, String> {
         let mut said = notes.borrow_mut();
-        // (Said once: without a game, a plugin's ctx.game is empty.)
-        match gi {
-            None if said.notes.is_empty() => {
-                game_for(None, m, &mut said);
-                None
+        // A test's own root (`root =`), with this machine's user folder
+        // for the module's haks.
+        if let Some(root) = root {
+            if !GameInstall::is_install(root) {
+                return Err("no game install there (no data/nwn_base.key)".into());
             }
-            None => None,
-            Some(gi) => game_for(Some(gi), m, &mut said),
+            let gi = GameInstall::new(root, gi.and_then(|g| g.user_dir.clone()), "en");
+            let game = GameData::open(&gi).map_err(|e| e.to_string())?;
+            return Ok(Some(layered(game, &gi, m, &mut said)));
+        }
+        let Some(gi) = gi else {
+            // (Said once: without a game, a plugin's ctx.game is empty, but
+            // for a test's own game folder.)
+            if !said.notes.iter().any(|n| n.starts_with("no game install")) {
+                said.note(
+                    "no game install found: a test's game data is only its own game folder (game/ \
+                     beside it), or the game at its root = (--root, or NWN_ROOT, for all)",
+                );
+            }
+            return Ok(None);
+        };
+        match GameData::open(gi) {
+            Ok(game) => Ok(Some(layered(game, gi, m, &mut said))),
+            Err(e) => {
+                said.note(format!("the game data could not be read: {e}"));
+                Ok(None)
+            }
         }
     };
     let results = mg_plugin::run_tests(&plugin, module, &game);

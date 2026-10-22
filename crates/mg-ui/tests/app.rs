@@ -11132,6 +11132,44 @@ fn an_area_copied_with_its_tags_offers_retag() {
     assert_eq!(w, [format!("{waypoint_tag}_2"), format!("{waypoint_tag}_3")]);
 }
 
+/// An area copied whose tags the project wants unique in each area
+/// (`unique_in_area`): the copy's own tag is in another area, as meant,
+/// and not listed; its two waypoints of one tag are, in the copy.
+#[test]
+fn an_area_copied_counts_tags_unique_in_each_area_in_the_copy() {
+    let Some((mut h, area)) = area_harness("copy-area-tags-in-area") else { return };
+    let key = ResKey::new(area, ResType::ARE);
+    let tag = |h: &mut Harness<'_, Moonglow>, k: ResKey, path: mg_edit::GffPath| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let doc = ws.doc(&k).unwrap();
+        String::from_utf8_lossy(path.get(&doc.root).unwrap().string("Tag").unwrap()).into_owned()
+    };
+    let area_tag = tag(&mut h, key, mg_edit::GffPath::root());
+    let waypoint_tag = tag(
+        &mut h,
+        ResKey::new(area, ResType::GIT),
+        mg_edit::GffPath::root().item("WaypointList", 0),
+    );
+    h.state_mut().ws.as_mut().unwrap().module.project_file.tags.unique_in_area =
+        mg_module::project_file::Patterns::new(&[area_tag.as_str(), "NW_*"]).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::CopyDialog(key));
+    h.run_steps(3);
+    h.state_mut().copy_as.as_mut().unwrap().resref = "field_two".into();
+    h.run_steps(2);
+    h.get_by_label("Create Copy").click();
+    h.run_steps(3);
+    let clash = h.state().tag_clash.clone().expect("the Duplicate Tags window");
+    let said: Vec<String> = clash.clashes.iter().map(|c| c.sentence()).collect();
+    assert_eq!(
+        said,
+        [format!(
+            "{waypoint_tag} is now on two objects in field_two (the project wants NW_* unique in \
+             each area)"
+        )]
+    );
+    assert_eq!(clash.objects.len(), 2, "the copy's two waypoints, not its area");
+}
+
 #[test]
 fn add_popup_text_gives_a_placeable_a_one_line_conversation() {
     use mg_module::instances::{Placement, Placing, instance};
@@ -22999,7 +23037,8 @@ const DESCRIBED: &str = "undescribed = [\"tdod_*\"]\n\n\
     values = { forge = \"Smithing\", tanner = \"Leatherworking\" }\n\
     help = \"The craft the bench serves, within 5 m\"\n\n\
     [tdod_lit]\ntype = \"int\"\nvalues = { 1 = \"lit\" }\nhelp = \"A fire: 1, lit\"\n\n\
-    [tdod_banker]\ntype = \"int\"\non = [\"creature\"]\n";
+    [tdod_banker]\ntype = \"int\"\non = [\"creature\"]\n\n\
+    [tdod_trodden]\ntype = \"int\"\nruntime = true\n";
 
 /// The Variables window offers the project's described variables
 /// (`variables.toml`) as a name is typed, sets the type of the one
@@ -23020,7 +23059,7 @@ fn the_variables_window_offers_the_project_s_described_variables() {
     let mut app = app_with(Vec::new());
     app.open_module(&dir);
     assert!(
-        app.log.entries.iter().any(|e| e.1.contains("3 variables described in variables.toml"))
+        app.log.entries.iter().any(|e| e.1.contains("4 variables described in variables.toml"))
     );
     let path = mg_edit::GffPath::root().item("Placeable List", 0);
     app.var_edit = Some(VarTableEdit::new(FieldTarget::new(git, path, "VarTable"), &[]));
@@ -23036,6 +23075,7 @@ fn the_variables_window_offers_the_project_s_described_variables() {
     // What goes on a placeable is offered, as it is typed.
     assert!(h.query_by_label("tdod_workbench").is_some() && h.query_by_label("tdod_lit").is_some());
     assert!(h.query_by_label("tdod_banker").is_none(), "a creature's");
+    assert!(h.query_by_label("tdod_trodden").is_none(), "the scripts' own: never offered");
     h.get(egui_kittest::kittest::by().predicate(hint)).type_text("tdod_w");
     h.run();
     assert!(h.query_by_label("tdod_lit").is_none());
@@ -23063,6 +23103,17 @@ fn the_variables_window_offers_the_project_s_described_variables() {
     assert!(
         h.query_by_label(
             "tdod_lit is to be an Int (variables.toml:9): as String the scripts read nothing"
+        )
+        .is_some()
+    );
+    // One the scripts alone set, typed whole: said, its type not taken.
+    h.state_mut().var_edit.as_mut().unwrap().rows[1].name = "tdod_trodden".into();
+    h.run();
+    assert_eq!(row(&h, 1).kind, 3, "as it was");
+    assert!(
+        h.query_by_label(
+            "tdod_trodden is set by the scripts while the server runs (variables.toml:18): it is \
+             never to be kept in a file"
         )
         .is_some()
     );

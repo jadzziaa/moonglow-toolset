@@ -49,7 +49,7 @@ pub use package::{
 };
 pub use runtime::EVENT_NAMES;
 pub use settings::{SettingWrite, Settings};
-pub use testing::{TestResult, run_tests, test_files};
+pub use testing::{GAME_FOLDER, GameFor, TestResult, run_tests, test_files};
 use thiserror::Error;
 
 /// What can go wrong with a plugin.
@@ -285,6 +285,11 @@ pub trait Host {
     /// Asks the user; `None` when there is nobody to ask, or they closed
     /// the question unanswered.
     fn ask(&self, question: &Question) -> Option<Answer>;
+
+    /// A resource the plugin read from the game's data (`ctx.game`) that
+    /// is not there (`parts_chest.2da`), or there is no game data at all:
+    /// a plugin's test says which it lacked when it fails.
+    fn not_in_game(&self, _resource: &str) {}
 }
 
 /// What a job reads.
