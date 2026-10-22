@@ -1004,7 +1004,8 @@ on = ["creature", "placeable"]
     #[test]
     fn the_manual_s_example_reads_whole() {
         let manual = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/manual/03-modules.md");
-        let text = std::fs::read_to_string(manual).unwrap();
+        // (A Windows checkout may give the manual CRLF line ends.)
+        let text = std::fs::read_to_string(manual).unwrap().replace("\r\n", "\n");
         let section = &text[text.find("### Described variables").expect("the section")..];
         let start = section.find("```toml\n").expect("its example") + 8;
         let example = &section[start..start + section[start..].find("```").unwrap()];
