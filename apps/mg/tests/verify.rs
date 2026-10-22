@@ -41,18 +41,33 @@ fn verify_fails_on_errors_and_names_them_in_json() {
     assert!(
         f["at"].as_str().unwrap().eq_ignore_ascii_case("chess › placeable BROKEN › Appearance")
     );
-    // Its group left out (`--skip`): it passes, and says how many it left
-    // out.
+    // Its group left out (`--skip`, repeated or separated by commas): it
+    // isn't checked, so it passes, and says which groups it left out.
+    for skip in [&["--skip", "objects", "--skip", "tilesets"][..], &["--skip", "objects,tilesets"]]
+    {
+        let out = crate::mg()
+            .args(["--root", root.to_str().unwrap(), "--no-user-dir", "verify", "--json"])
+            .args(skip)
+            .arg(&broken)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(json["errors"], 0);
+        assert_eq!(json["skipped"], serde_json::json!({ "objects": null, "tilesets": null }));
+    }
+    // `--timings` says how long each part took, on stderr; the report is
+    // the same.
     let out = crate::mg()
         .args(["--root", root.to_str().unwrap(), "--no-user-dir", "verify", "--json"])
-        .args(["--skip", "objects", "--skip", "tilesets"])
+        .arg("--timings")
         .arg(&broken)
         .output()
         .unwrap();
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(json["errors"], 0);
-    assert_eq!(json["skipped"], serde_json::json!({ "objects": 1, "tilesets": 0 }));
+    let timed: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(timed["findings"], json["findings"]);
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert!(said.contains(" s  open the module") && said.contains(" s  in all"), "{said}");
     let wrong = crate::mg().args(["verify", "--skip", "tiles"]).arg(&broken).output().unwrap();
     assert!(String::from_utf8_lossy(&wrong.stderr).contains("one of references, tilesets"));
 }

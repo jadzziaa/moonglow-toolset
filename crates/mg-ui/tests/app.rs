@@ -17511,8 +17511,9 @@ fn a_plugin_s_checks_run_with_verify() {
     h.get_by_label("Clear Log").click();
     h.run();
     assert!(h.state().log.entries.is_empty());
-    // The plugins' checks left out (Options › Verify): neither what they
-    // found nor what they said is reported, and the summary counts them.
+    // The plugins' checks left out (Options › Verify): the plugins aren't
+    // run, so neither what they would find nor what they would say is
+    // reported, and the summary names them as not checked.
     h.state_mut().settings.verify_skip = vec!["plugins".into()];
     h.state_mut().actions.push(mg_ui::Action::Verify);
     h.run();
@@ -17523,7 +17524,7 @@ fn a_plugin_s_checks_run_with_verify() {
     );
     assert!(
         log.iter().any(|(_, m)| m.starts_with("Verify: ")
-            && m.contains("; left out (Options › Verify): Plugins' checks ")),
+            && m.ends_with("; left out, not checked (Options › Verify): Plugins' checks")),
         "{log:#?}"
     );
 }

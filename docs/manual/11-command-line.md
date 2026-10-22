@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:05:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:06:22Z }
 ---
 
 # Command-line tools
@@ -68,7 +68,8 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | `mg claims PROJECT [list\|claim\|release\|merged] [AREA…]` | the project's [claims table](03-modules.md#claimed-areas) (`[claims] file` in its `moonglow.toml`): every area of the table and of the module, whose each is (`--json` too); or the areas named claimed or released by your builder code, as Claim This Area and Release Claim do (`--force`: another builder's claim), or marked merged with their Tags as the module has them. It writes the table, a file of the checkout: commit it |
 | `mg builder-code PROJECT [CODE]` | your builder code in a module folder or nasher project (its `.moonglow/user.toml`, which version control leaves out): shown, set, or taken out with `--clear`; the ResRefs the window proposes begin with it ([Modules](03-modules.md#your-builder-code)) |
 | `mg checks` | the checks `mg verify` makes of custom content: each one's id (a finding's `check` in the JSON), its group and what it holds to be true |
-| `mg verify MODULE --skip GROUP` | leave a group out of the report (repeatable): `references` (missing resources), `tilesets`, `models`, `2das`, `objects`, `module` or `plugins`; the JSON's `skipped` says how many problems each had, and only the rest count toward failing |
+| `mg verify MODULE --skip GROUP` | leave a group out (repeatable, or several separated by commas: `--skip tilesets,models,2das`): `references` (missing resources), `tilesets`, `models`, `2das`, `objects`, `module` or `plugins`. Its checks aren't run (the tilesets and models of a hundred haks are most of the time a Verify takes); the JSON's `skipped` names each group left out, as `null` (not checked), and only the rest count toward failing |
+| `mg verify MODULE --timings` | also print how long each part of the check took, to stderr (the report is unchanged): opening the module, the haks, each group's checks, the tilesets', 2DAs', materials' and models' time added up with the longest of each |
 | `mg verify MODULE --plugins DIR` | also run the checks of the plugins in `DIR` (a plugin's folder, or a folder of plugins); their problems count with the rest. A project's own plugins (its `plugins/`) run as you allowed them in Moonglow, and each that did not is said in a note |
 | `mg verify MODULE --allow-project-plugins` | run the checks of every plugin the project comes with, allowed or not: for a build pipeline, where nobody is asked ([A project's own plugins](15-plugins.md#a-projects-own-plugins)) |
 | `mg verify MODULE --fix CHECK` | make the fixes the findings of a check offer (repeatable; a check's id, as a finding's `check` says: `tag-unique`, `example.tag-conventions/tag-case`) and save: each as Verify Module's button makes it, refused (and named) where an earlier fix changed what it would change. The report is of the module as it was found, with a `fixed` line a fix; only errors not fixed fail. `--dry-run` says which it would make and changes nothing. Without `--fix`, nothing is changed |

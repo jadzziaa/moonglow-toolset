@@ -4149,9 +4149,15 @@ impl Moonglow {
         self.start_job(
             "Verify Module",
             move |job| {
+                use mg_module::doctor::Group;
                 let game = job.game.as_deref()?;
-                job.progress.say("Looking for what is missing");
-                let missing = mg_module::verify::missing(&job.module, &game.resman);
+                // (A group left out isn't checked.)
+                let missing = if skip.contains(&Group::References) {
+                    Vec::new()
+                } else {
+                    job.progress.say("Looking for what is missing");
+                    mg_module::verify::missing(&job.module, &game.resman)
+                };
                 if job.progress.cancelled() {
                     return None;
                 }
@@ -4162,13 +4168,21 @@ impl Moonglow {
                     base: game.tlk().entries.len(),
                     custom: game.custom_tlk().map(|t| t.entries.len()),
                 };
-                let mut findings = mg_module::doctor::examine(&job.module, &game.resman, tlk);
-                let (theirs, mut said) = plugins::check_findings(&plugins, job);
+                let mut times = mg_module::doctor::Timings::default();
+                let mut findings = mg_module::doctor::examine_groups(
+                    &job.module,
+                    &game.resman,
+                    tlk,
+                    &skip,
+                    &mut times,
+                );
+                // (What the plugins would say of themselves goes with them.)
+                let (theirs, said) = if skip.contains(&Group::Plugins) {
+                    (Vec::new(), Vec::new())
+                } else {
+                    plugins::check_findings(&plugins, job)
+                };
                 findings.extend(theirs.iter().map(|f| f.finding.clone()));
-                // (What the plugins said of themselves goes with them.)
-                if skip.contains(&mg_module::doctor::Group::Plugins) {
-                    said.clear();
-                }
                 let mut missing = missing;
                 let left = mg_module::doctor::leave_out(&mut missing, &mut findings, &skip);
                 // Each finding with its fix, if it has one; and what the
@@ -4355,12 +4369,12 @@ pub(crate) fn exclusive(game: &mut Option<Arc<GameData>>) -> Option<&mut GameDat
 
 /// What Verify's summary says it left out: each group and how many it
 /// had, and where to have them back.
-fn left_out(left: &[(mg_module::doctor::Group, usize)]) -> String {
+fn left_out(left: &[mg_module::doctor::Group]) -> String {
     if left.is_empty() {
         return String::new();
     }
-    let groups: Vec<String> = left.iter().map(|(g, n)| format!("{} {n}", g.title())).collect();
-    format!("; left out (Options › Verify): {}", groups.join(", "))
+    let groups: Vec<&str> = left.iter().map(|g| g.title()).collect();
+    format!("; left out, not checked (Options › Verify): {}", groups.join(", "))
 }
 
 /// How a line of Verify's report is said.

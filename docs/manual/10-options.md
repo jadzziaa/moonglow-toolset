@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, verify, language, keyboard) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T13:30:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:06:21Z }
 ---
 
 # Options
@@ -230,10 +230,11 @@ tileset errors you are not going to fix, say, that hide the rest):
 **Missing references**, **Tilesets**, **Models and materials**,
 **2DAs**, **Objects' and areas' 2DA rows and variables**, **Talk table
 and archives** and **Plugins' checks**. Hover over one for the checks it
-holds. The log's summary line after a Verify names what it left out and
-how many problems each group had, so a module isn't taken to be clean
-for what wasn't reported. `mg verify --skip` does the same from a
-terminal.
+holds. A group left out isn't checked at all, so leaving out the
+tilesets and models of a module with many haks makes Verify much
+quicker. The log's summary line after a Verify names what it left out,
+not checked, so a module isn't taken to be clean for what wasn't
+looked at. `mg verify --skip` does the same from a terminal.
 
 ## Language
 

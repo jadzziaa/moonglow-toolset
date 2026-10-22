@@ -107,10 +107,11 @@ enum Cmd {
         /// of plugins.
         #[arg(long)]
         plugins: Vec<PathBuf>,
-        /// Leave a group out of the report (repeatable): references,
-        /// tilesets, models, 2das, objects, module or plugins (`mg checks`
-        /// names each check's group).
-        #[arg(long, value_name = "GROUP", value_parser = verify_group)]
+        /// Leave a group out: its checks aren't run (repeatable, or
+        /// several separated by commas): references, tilesets, models,
+        /// 2das, objects, module or plugins (`mg checks` names each
+        /// check's group).
+        #[arg(long, value_name = "GROUP", value_parser = verify_group, value_delimiter = ',')]
         skip: Vec<mg_module::doctor::Group>,
         /// Make the fixes of this check's findings and save (repeatable):
         /// a check's id, as a finding's "check" with --json says it
@@ -128,6 +129,9 @@ enum Cmd {
         /// one not allowed is said.
         #[arg(long)]
         allow_project_plugins: bool,
+        /// Print how long each part of the check took, to stderr.
+        #[arg(long)]
+        timings: bool,
     },
     /// Plugins: list them, check them, run one's command on a module.
     Plugin {
@@ -1574,10 +1578,28 @@ fn run(cli: &Cli) -> Result<Output> {
             }
             out
         }
-        Cmd::Verify { module, unused, plugins, skip, fix, dry_run, allow_project_plugins } => {
+        Cmd::Verify {
+            module,
+            unused,
+            plugins,
+            skip,
+            fix,
+            dry_run,
+            allow_project_plugins,
+            timings,
+        } => {
             let fixes = Fixes { checks: fix, dry_run: *dry_run };
             let plugins = plugins::Chosen { dirs: plugins, project: *allow_project_plugins };
-            verify(&install(cli)?, module, *unused, &plugins, skip, &fixes)?
+            let mut times = mg_module::doctor::Timings::default();
+            let started = std::time::Instant::now();
+            let out = verify(&install(cli)?, module, *unused, &plugins, skip, &fixes, &mut times);
+            if *timings {
+                times.add("in all", started.elapsed());
+                for (part, took) in &times.parts {
+                    eprintln!("{:>9.3} s  {part}", took.as_secs_f64());
+                }
+            }
+            out?
         }
         Cmd::Plugin { cmd } => match cmd {
             PluginCmd::List { folders, project } => plugins::list(folders, project.as_deref())?,
@@ -3296,25 +3318,43 @@ fn verify(
     plugins: &plugins::Chosen<'_>,
     skip: &[mg_module::doctor::Group],
     asked: &Fixes<'_>,
+    times: &mut mg_module::doctor::Timings,
 ) -> Result<Output> {
-    let m = Module::open(path)?;
+    use mg_module::doctor::Group;
+    let m = times.time("open the module", || Module::open(path))?;
     let mut out = Output::default();
     project_file_notes(&m, &mut out);
-    let rm = module_resman(gi, &m, &mut out)?;
+    let rm = times.time("the game and the haks", || module_resman(gi, &m, &mut out))?;
     // (Every GFF of the module read once for both.)
-    let references = mg_module::verify::module_references(&m);
+    let references = if show_unused || !skip.contains(&Group::References) {
+        times.time("the module's references", || mg_module::verify::module_references(&m))
+    } else {
+        Vec::new()
+    };
     let unused =
         if show_unused { mg_module::verify::unused_of(&m, &references) } else { Vec::new() };
-    let mut missing = mg_module::verify::missing_of(&m, &rm, references);
+    let mut missing = if skip.contains(&Group::References) {
+        Vec::new()
+    } else {
+        times.time("missing references", || mg_module::verify::missing_of(&m, &rm, references))
+    };
     let count = |data: Vec<u8>| mg_tlk::Tlk::read(&data).map(|t| t.entries.len()).ok();
-    let base = std::fs::read(gi.talk_table(false)).ok().and_then(count).unwrap_or(0);
-    let custom = m.custom_tlk().ok().flatten().and_then(|name| {
-        mg_module::talk::find(&rm, &gi.tlk_dirs(), &name).and_then(|f| count(f.data))
+    let (base, custom) = times.time("the talk tables", || {
+        let base = std::fs::read(gi.talk_table(false)).ok().and_then(count).unwrap_or(0);
+        let custom = m.custom_tlk().ok().flatten().and_then(|name| {
+            mg_module::talk::find(&rm, &gi.tlk_dirs(), &name).and_then(|f| count(f.data))
+        });
+        (base, custom)
     });
-    let mut findings =
-        mg_module::doctor::examine(&m, &rm, mg_module::doctor::TalkTables { base, custom });
-    // The plugins' checks, beside the doctor's.
-    let theirs = plugins::findings(gi, &m, plugins, &mut out)?;
+    let tlk = mg_module::doctor::TalkTables { base, custom };
+    let mut findings = mg_module::doctor::examine_groups(&m, &rm, tlk, skip, times);
+    // The plugins' checks, beside the doctor's (none run when they are
+    // left out).
+    let theirs = if skip.contains(&Group::Plugins) {
+        Vec::new()
+    } else {
+        times.time("plugins", || plugins::findings(gi, &m, plugins, &mut out))?
+    };
     findings.extend(theirs.iter().map(|f| f.finding.clone()));
     let left = mg_module::doctor::leave_out(&mut missing, &mut findings, skip);
     // Each finding with its fix, if it has one.
@@ -3365,7 +3405,8 @@ fn verify(
             "fix": x.fix.as_ref().map(|fix| fix_json(fix, codepage)),
         })}).collect::<Vec<_>>(),
         "unused": unused.iter().map(|k| k.to_string()).collect::<Vec<_>>(),
-        "skipped": left.iter().map(|(g, n)| (g.id().to_string(), serde_json::json!(n))).collect::<serde_json::Map<_, _>>(),
+        // (A group left out isn't checked: null, nothing is counted of it.)
+        "skipped": left.iter().map(|g| (g.id().to_string(), serde_json::Value::Null)).collect::<serde_json::Map<_, _>>(),
     });
     if !made.is_null()
         && let serde_json::Value::Object(o) = &mut out.json
@@ -3402,8 +3443,8 @@ fn verify(
     }
     out.line(format!("{} content problems", findings.len()));
     fix_lines.into_iter().for_each(|l| out.line(l));
-    for (g, n) in &left {
-        out.line(format!("left out\t{}: {n}", g.id()));
+    for g in &left {
+        out.line(format!("left out\t{}: not checked", g.id()));
     }
     if show_unused {
         for k in &unused {

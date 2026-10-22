@@ -2572,6 +2572,7 @@ dependencies = [
  "mg-tiles",
  "mg-tlk",
  "png",
+ "rayon",
  "regex-lite",
  "serde_json",
  "thiserror 2.0.21",
