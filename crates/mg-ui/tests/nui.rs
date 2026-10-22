@@ -1628,6 +1628,23 @@ fn a_module_s_windows_are_laid_out_as_json() {
     std::fs::write(output, serde_json::to_string_pretty(&all).unwrap()).unwrap();
 }
 
+/// Bindings › Client delivery turns the event function on: the settings
+/// say so, as one Undo step.
+#[test]
+fn the_event_function_is_chosen_under_client_delivery() {
+    let mut h = harness();
+    h.get_by_label("Bindings").click();
+    h.run();
+    h.get_by_label("Client delivery").click();
+    h.run();
+    assert!(!settings(&h).event_function);
+    h.get_by_label("Events go to the module's event script (a function to call)").click();
+    h.run();
+    assert!(settings(&h).event_function);
+    undo(&mut h);
+    assert!(!settings(&h).event_function);
+}
+
 /// New NUI Window in a nasher project whose include takes in scripts and
 /// JSON only: the log says the window's files would be left out, with the
 /// line to add; in one that takes them in, nothing is said.

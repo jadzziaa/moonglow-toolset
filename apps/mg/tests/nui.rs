@@ -300,6 +300,39 @@ fn compile_passes_over_what_generate_compiled() {
     );
 }
 
+/// A window whose events go to the module's own event script: generate
+/// writes its event script as an include (nothing compiled of its own),
+/// compiles it through a caller and compiles the module's dispatcher that
+/// includes it; a second generate changes nothing.
+#[test]
+fn generate_makes_an_event_function_the_module_s_script_compiles_with() {
+    let root = mg_testkit::corpus!();
+    let path = module("mg-nui-event-function");
+    let p = path.to_str().unwrap();
+    assert!(mg(None, &["new", p, "shop"]).0);
+    let mut m = Module::open(&path).unwrap();
+    let mut s = mg_nui::Settings::parse(m.get(&key("shop.txt")).unwrap()).unwrap();
+    s.event_function = true;
+    m.set(key("shop.txt"), s.bytes());
+    m.set(
+        key("mod_nui.nss"),
+        b"#include \"shop_e\"\nvoid main()\n{\n    if (shop_OnEvent()) return;\n}\n".to_vec(),
+    );
+    m.save().unwrap();
+    let (ok, made) = mg(Some(&root), &["generate", p, "shop"]);
+    assert!(ok, "{made}");
+    let m = Module::open(&path).unwrap();
+    let events = String::from_utf8(m.get(&key("shop_e.nss")).unwrap().to_vec()).unwrap();
+    assert!(events.contains("int shop_OnEvent()"), "{events}");
+    assert!(!m.contains(&key("shop_e.ncs")) && m.contains(&key("mod_nui.ncs")));
+    let opener = String::from_utf8(m.get(&key("shop_o.nss")).unwrap().to_vec()).unwrap();
+    assert!(opener.contains("NuiCreate(oPlayer, JsonParse(sLayout), \"shop\");"), "{opener}");
+    let before = std::fs::read(&path).unwrap();
+    let (ok, again) = mg(Some(&root), &["generate", p, "shop"]);
+    assert!(ok && again["resources"] == json!([]), "{again}");
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
 /// A nasher project whose sources are scripts and JSON, as `nasher init`
 /// writes them (and The Domains of Dread's were): a window made in it is
 /// said to be left out, with the line to add, before validate can only

@@ -378,11 +378,25 @@ fn build(app: &mut Moonglow, name: &str, export: bool) {
                     true => "File › Save writes them into the nasher project's sources",
                     false => "File › Save writes them into the module",
                 };
-                app.log.info(format!(
-                    "Built {name}: {name}_o.nss made, {name}_e.nss made and compiled ({saved}). \
-                     To open the window, include {name}_o in a script of yours and call \
-                     Open_{name}(oPlayer)."
-                ));
+                let function = (app.ws.as_ref())
+                    .and_then(|ws| ws.module.get(&ResKey::parse(name, ResType::TXT)?))
+                    .and_then(|b| Settings::parse(b).ok())
+                    .is_some_and(|s| s.event_function);
+                app.log.info(if function {
+                    format!(
+                        "Built {name}: {name}_o.nss and {name}_e.nss made ({saved}). To open the \
+                         window, include {name}_o in a script of yours and call \
+                         Open_{name}(oPlayer); its events go to the module's OnNuiEvent script: \
+                         include {name}_e there and call {}().",
+                        mg_nui::event_function(name)
+                    )
+                } else {
+                    format!(
+                        "Built {name}: {name}_o.nss made, {name}_e.nss made and compiled \
+                         ({saved}). To open the window, include {name}_o in a script of yours \
+                         and call Open_{name}(oPlayer)."
+                    )
+                });
                 if export {
                     let mut resources: Vec<ResKey> = [
                         ResKey::parse(name, ResType::JUI),

@@ -17,7 +17,8 @@ use mg_resman::ResKey;
 use mg_script::lex::{TokenKind, tokenize};
 
 use crate::actions::{
-    BEGIN, END, edited_outside, initial_function, merge_events, variant_function,
+    BEGIN, END, edited_outside, event_function, initial_function, merge_events, variant_function,
+    window_id_function,
 };
 use crate::script::{bytes_text, fingerprint, sectioned, swap_groups, text_bytes};
 use crate::{NuiError, Resources, Settings, key, opener_source, parse};
@@ -226,6 +227,15 @@ fn move_scripts(
     // The event script: rebuilt for the new name around its sections, or
     // (written by hand) moved as the include lines left it.
     let events = staged.get(&old.events(nss)).map(<[u8]>::to_vec);
+    // One the module's own event script includes (`NAME_OnEvent`): its
+    // `#include` lines follow it, as the opener's do.
+    if settings.event_function && events.is_some() {
+        let to_events =
+            ResRef::from_str(&new.events).map_err(|_| NuiError::Name { name: to.into() })?;
+        let report = mg_module::rename::rename(staged, old.events(nss), to_events, false)
+            .map_err(|e| NuiError::Rename(e.to_string()))?;
+        places += report.in_scripts;
+    }
     for k in [old.events(nss)].into_iter().chain(compiled(old.events(nss))) {
         staged.remove(&k);
     }
@@ -344,6 +354,10 @@ fn function_names(from: &str, to: &str, settings: &Settings) -> BTreeMap<String,
     for group in swap_groups(settings) {
         names.insert(initial_function(from, &group), initial_function(to, &group));
     }
+    if settings.event_function {
+        names.insert(event_function(from), event_function(to));
+        names.insert(window_id_function(from), window_id_function(to));
+    }
     names
 }
 
@@ -459,6 +473,35 @@ mod tests {
         assert!(!after.contains(&k("store_e", ResType::NDB)));
         assert!(!crate::is_current(&after, "store", &w, &s));
         assert!(made.build);
+    }
+
+    /// A window whose event function the module's own event script calls:
+    /// renamed, the script includes and calls it by the new name.
+    #[test]
+    fn the_module_s_event_script_follows_a_renamed_event_function() {
+        let mut module = built();
+        let mut s = Settings::parse(module.get(&k("shop", ResType::TXT)).unwrap()).unwrap();
+        s.event_function = true;
+        let w = parse(module.get(&k("shop", ResType::JUI)).unwrap()).unwrap();
+        let opener = opener_source("shop", &w, &s).unwrap();
+        let events = merge_events("shop", &s, None).unwrap();
+        s.opener_hash = Some(fingerprint(opener.as_bytes()));
+        module.set(k("shop", ResType::TXT), s.bytes());
+        module.set(k("shop_o", ResType::NSS), opener.into_bytes());
+        module.set(k("shop_e", ResType::NSS), events.into_bytes());
+        module.remove(&k("shop_e", ResType::NCS));
+        let dispatcher =
+            "#include \"shop_e\"\nvoid main()\n{\n    if (shop_OnEvent()) return;\n}\n";
+        module.set(k("mod_nui", ResType::NSS), dispatcher.as_bytes().to_vec());
+        let made = rename(&module, "shop", "store", false).unwrap();
+        let after = applied(&module, &made.command);
+        assert_eq!(
+            text(&after, "mod_nui", ResType::NSS),
+            "#include \"store_e\"\nvoid main()\n{\n    if (store_OnEvent()) return;\n}\n"
+        );
+        let events = text(&after, "store_e", ResType::NSS);
+        assert!(events.contains("int store_OnEvent()") && events.contains("WindowId_store()"));
+        assert!(text(&after, "store_o", ResType::NSS).contains("string WindowId_store()"));
     }
 
     #[test]

@@ -378,6 +378,18 @@ pub fn initial_function(name: &str, group: &str) -> String {
     format!("Initial_{name}_{}", identifier(group))
 }
 
+/// The function `NAME_e` is, for a window whose events go to the module's
+/// own event script ([`Settings::event_function`]): `NAME_OnEvent`.
+pub fn event_function(name: &str) -> String {
+    format!("{name}_OnEvent")
+}
+
+/// The function in `<name>_o` that returns the window's ID in the game,
+/// which [`event_function`] knows its window's events by.
+pub fn window_id_function(name: &str) -> String {
+    format!("WindowId_{name}")
+}
+
 /// The line of the event script that brings in the layout functions.
 fn include_line(name: &str) -> String {
     format!("#include \"{name}_o\"\n")
@@ -394,8 +406,32 @@ pub fn merge_events(
     let (mut kept, removed) = existing.map(sections).unwrap_or_default();
     let top = kept.remove("top").unwrap_or_else(|| "// Includes and helper functions.\n".into());
     let include = include_line(name);
+    // A script of its own (`main`), or a function the module's own event
+    // script calls (`NAME_OnEvent`), which answers whether the event was
+    // this window's.
+    let function = settings.event_function;
+    let (head, start, done) = if function {
+        (
+            format!(
+                "// NUI events of the window {name}, for the module's own event script\n// (OnNuiEvent): include {name}_e there and call {name}_OnEvent(), which\n// handles this window's events and returns TRUE for them, FALSE for\n// another window's. Build & compile rebuilds this file: write your code\n// between the mg:begin and mg:end lines, where it is kept; return TRUE\n// from a handler, not return.\n"
+            ),
+            format!(
+                "{}()\n{{\n    object oPlayer = NuiGetEventPlayer();\n    int nToken = NuiGetEventWindow();\n    if (NuiGetWindowId(oPlayer, nToken) != {}()) return FALSE;\n",
+                event_function(name),
+                window_id_function(name)
+            ),
+            "return TRUE;",
+        )
+    } else {
+        (
+            "// NUI events. Build & compile rebuilds this script: write your code\n// between the mg:begin and mg:end lines, where it is kept.\n".to_owned(),
+            "void main()\n{\n    object oPlayer = NuiGetEventPlayer();\n    int nToken = NuiGetEventWindow();\n".to_owned(),
+            "return;",
+        )
+    };
     let mut out = format!(
-        "// NUI events. Build & compile rebuilds this script: write your code\n// between the mg:begin and mg:end lines, where it is kept.\n{include}{BEGIN}top\n{top}{END}\nvoid main()\n{{\n    object oPlayer = NuiGetEventPlayer();\n    int nToken = NuiGetEventWindow();\n    string sType = NuiGetEventType();\n    string sElement = NuiGetEventElement();\n    int nRow = NuiGetEventArrayIndex();\n"
+        "{head}{include}{BEGIN}top\n{top}{END}\n{}{start}    string sType = NuiGetEventType();\n    string sElement = NuiGetEventElement();\n    int nRow = NuiGetEventArrayIndex();\n",
+        if function { "int " } else { "" }
     );
     let mut seen = BTreeSet::new();
     for handler in &settings.actions {
@@ -423,9 +459,13 @@ pub fn merge_events(
         }
         write!(
             out,
-            "\n    if ({guard})\n    {{\n        {BEGIN}{key}\n{body}        {END}\n        return;\n    }}\n"
+            "\n    if ({guard})\n    {{\n        {BEGIN}{key}\n{body}        {END}\n        {done}\n    }}\n"
         )
         .unwrap();
+    }
+    if function {
+        // (An event of this window no handler takes is still its own.)
+        out.push_str("    return TRUE;\n");
     }
     out.push_str("}\n");
     let gone = kept.into_iter().chain(removed.into_iter().filter(|(k, _)| !seen.contains(k)));
@@ -506,7 +546,10 @@ pub fn edited_outside(name: &str, script: &str) -> bool {
             Route::new(key_name(event), key_name(element), Action::Code)
         })
         .collect();
-    let settings = Settings { actions, ..Default::default() };
+    // (A function for the module's event script, or a script of its own:
+    // as it was written.)
+    let event_function = script.contains(&format!("int {}()\n", event_function(name)));
+    let settings = Settings { actions, event_function, ..Default::default() };
     merge_events(name, &settings, Some(script)).is_ok_and(|s| s != script)
 }
 

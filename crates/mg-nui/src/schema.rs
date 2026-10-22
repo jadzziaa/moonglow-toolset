@@ -64,6 +64,8 @@ pub fn settings_schema() -> Value {
                 "The binds by name: every bind the layout reads needs one"),
             "from_resref": key(json!({"type": "boolean", "default": false}),
                 "The opener loads the JUI on the player's client by its name (NuiCreateFromResRef) rather than sending the layout: the JUI must reach every client, in a hak"),
+            "event_function": key(json!({"type": "boolean", "default": false}),
+                "The window's events go to the module's own event script (OnNuiEvent): Build writes NAME_e.nss as an include whose NAME_OnEvent() handles them and returns whether the event was this window's, for that script to call; the window is created without an event script of its own"),
             "opener_hash": key(json!({"type": ["string", "null"], "default": null}),
                 "Written by Build: NAME_o.nss as it last wrote it, to tell an opener changed by hand. Leave it out of a new file"),
             "event_hash": key(json!({"type": ["string", "null"], "default": null}),
@@ -116,6 +118,7 @@ mod tests {
     fn full() -> Settings {
         let mut s = Settings {
             from_resref: true,
+            event_function: true,
             opener_hash: Some("0".into()),
             event_hash: Some("1".into()),
             window_id: Some("id".into()),
@@ -153,9 +156,11 @@ mod tests {
         let schema = settings_schema();
         for (k, p) in schema["properties"].as_object().unwrap() {
             let Some(default) = p.get("default") else { continue };
-            // (Empty lists and maps aren't written: they read as empty.)
+            // (Empty lists and maps, and switches off, aren't written: they read
+            // as the default.)
             let had = written.get(k).cloned().unwrap_or_else(|| match default {
                 Value::Array(_) => json!([]),
+                Value::Bool(_) => json!(false),
                 _ => json!({}),
             });
             assert_eq!(&had, default, "{k}");

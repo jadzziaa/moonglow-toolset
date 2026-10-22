@@ -316,6 +316,35 @@ script, commented out after `main`, and comes back if you add the handler again.
 Code at the top section (between `// mg:begin top` and its `// mg:end`) is the
 place for `#include` lines and helper functions.
 
+### One event script for several windows
+
+A module that sends every window's events to one script of its own (its
+OnNuiEvent script, a dispatcher handing each event on by window) can
+keep doing so. **Bindings › Client delivery › Events go to the module's
+event script** makes the window's `NAME_e.nss` an include rather than a
+script: its handlers' sections are the same, inside a function
+`NAME_OnEvent()` that handles the window's events and returns `TRUE` for
+them (`FALSE` for another window's, known by the window's ID). The opener
+creates the window with no event script of its own, so its events reach
+the module's. Include it there and call it:
+
+```c
+#include "crier_e"
+#include "shop_e"
+void main()
+{
+    if (crier_OnEvent()) return;
+    if (shop_OnEvent()) return;
+    // The module's other windows.
+}
+```
+
+In such a handler, end early with `return TRUE;`, not `return;`. Build
+compiles the include through a caller of its own, and compiles again the
+module's scripts that include it; switching the option keeps the code in
+the sections. Renaming the window renames the function and the
+`#include` lines.
+
 Choosing **Initial contents** in Layers returns from a variant to the
 original. Switching the edited variant does not change the initial in-game
 content or trigger an event. Use **Interact** on the main window to try it
@@ -341,6 +370,7 @@ A key left out takes its default.
 | `swap_hosts` | none | The IDs of the groups made as swap layouts |
 | `window_id` | the window's name | Its ID in the game (`NuiFindWindow`) |
 | `from_resref` | `false` | The opener loads the JUI on the client by name (`NuiCreateFromResRef`): the JUI has to be in a hak |
+| `event_function` | `false` | The window's events go to the module's own event script: Build writes `NAME_e.nss` as an include with `NAME_OnEvent()` ([below](#one-event-script-for-several-windows)) |
 | `opener_hash`, `event_hash` | none | Written by Build, to tell a script changed by hand from its own: leave them out of a file you write |
 
 The town crier's window, a text box whose watch turns Send on, Send and

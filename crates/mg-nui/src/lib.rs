@@ -32,9 +32,9 @@ mod script;
 mod validate;
 
 pub use actions::{
-    Action, BEGIN, END, EVENT_TYPES, Route, edited_outside, event_source, handler_code,
-    handler_key, handler_offset, initial_function, insert_code, merge_events, rename_in_code,
-    string_expr, variant_function,
+    Action, BEGIN, END, EVENT_TYPES, Route, edited_outside, event_function, event_source,
+    handler_code, handler_key, handler_offset, initial_function, insert_code, merge_events,
+    rename_in_code, string_expr, variant_function, window_id_function,
 };
 pub use error::NuiError;
 pub use rename::{Renamed, can_rename, rename};
@@ -70,6 +70,13 @@ pub struct Settings {
     /// (`NuiCreateFromResRef`) rather than sending the layout.
     #[serde(default)]
     pub from_resref: bool,
+    /// The window's events go to the module's own event script (its
+    /// OnNuiEvent, a dispatcher of the builder's) rather than to one of
+    /// the window's: Build writes `NAME_e` as an include whose
+    /// `NAME_OnEvent()` handles them, for that script to call. Not written
+    /// while off, so settings from before it read and write as they did.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub event_function: bool,
     /// The opener as Build last wrote it, as a number ([`generate`]): one
     /// that differs was changed by hand, and is not written over.
     #[serde(default)]
@@ -107,6 +114,7 @@ impl Default for Settings {
             format: FORMAT.into(),
             bindings: BTreeMap::new(),
             from_resref: false,
+            event_function: false,
             opener_hash: None,
             event_hash: None,
             views: BTreeMap::new(),
@@ -117,6 +125,10 @@ impl Default for Settings {
             extra: BTreeMap::new(),
         }
     }
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 impl Settings {
