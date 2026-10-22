@@ -191,7 +191,7 @@ impl Check {
             Check::AreaVariables => "an area's variables are in its GIT, where the game reads them",
             Check::TagUnique => {
                 "a tag the project says must be unique (moonglow.toml's [tags] unique) is on one \
-                 object only"
+                 object only, or on one of each area (unique_in_area)"
             }
             Check::NuiSources => {
                 "a nasher project's sources take in its NUI windows' files (.jui and .txt), which \
@@ -1592,25 +1592,31 @@ fn area_variables(d: &mut Doctor, module: &Module) {
 /// gives a script only one of them (the one placed later, of two in an
 /// area: `engine_static_placeables`).
 fn unique_tags(d: &mut Doctor, module: &Module) {
-    let unique = &module.project_file.tags.unique;
-    if unique.is_empty() {
+    let rules = &module.project_file.tags;
+    if !rules.any_unique() {
         return;
     }
     let index = crate::tags::TagIndex::of_module(module);
-    for (tag, places) in index.duplicates() {
-        let tag = String::from_utf8_lossy(tag);
-        let Some(pattern) = unique.matching(&tag) else { continue };
-        let at: Vec<String> = places.iter().map(|p| p.describe()).collect();
-        let message = format!(
-            "{tag} is on {} objects, and the project's moonglow.toml wants {pattern} unique: a \
-             script finds only one of them by its tag",
-            places.len()
-        );
+    for b in index.breaches(rules) {
+        let tag = String::from_utf8_lossy(b.tag);
+        let (n, pattern) = (b.places.len(), b.pattern);
+        let message = match b.scope {
+            crate::project_file::Scope::Module => format!(
+                "{tag} is on {n} objects, and the project's moonglow.toml wants {pattern} \
+                 unique: a script finds only one of them by its tag"
+            ),
+            crate::project_file::Scope::Area => format!(
+                "{tag} is on {n} objects in {}, and the project's moonglow.toml wants {pattern} \
+                 unique in each area: a script that looks for it there finds only one of them",
+                b.places[0].area()
+            ),
+        };
+        let at: Vec<String> = b.places.iter().map(|p| p.describe()).collect();
         d.push(
             Severity::Warning,
             Check::TagUnique,
             "module",
-            places[0].key(),
+            b.places[0].key(),
             at.join(", "),
             message,
         );
@@ -2288,6 +2294,38 @@ mod tests {
             found[0].message
         );
         assert_eq!(Group::of(found[0]), Group::Objects);
+        // Unique in each area: two areas with one each are as meant, and
+        // a second in one area is said, with that area's places alone.
+        std::fs::write(
+            dir.join("moonglow.toml"),
+            "[tags]\nunique = [\"TDOD_START_*\", \"*\"]\nunique_in_area = [\"LAMP\"]\n",
+        )
+        .unwrap();
+        let m = Module::open(&dir).unwrap();
+        let f = examine(&m, &resman(&[]), TalkTables::default());
+        let found: Vec<&Finding> = f.iter().filter(|x| x.check == "tag-unique").collect();
+        assert_eq!(found.len(), 1, "LAMP once in each area: {found:?}");
+        let mut m = Module::open(&dir).unwrap();
+        let git = key("krezk", ResType::GIT);
+        let mut g = m.gff(&git).unwrap().unwrap();
+        g.root.set(
+            "WaypointList",
+            Value::List(["TDOD_START_KREZK", "LAMP", "LAMP"].iter().map(|t| waypoint(t)).collect()),
+        );
+        m.set_gff(git, &g).unwrap();
+        m.save().unwrap();
+        let m = Module::open(&dir).unwrap();
+        let f = examine(&m, &resman(&[]), TalkTables::default());
+        let found: Vec<&Finding> = f.iter().filter(|x| x.check == "tag-unique").collect();
+        assert_eq!(found.len(), 2, "{found:?}");
+        let lamp = found.iter().find(|x| x.message.starts_with("LAMP")).unwrap();
+        assert_eq!(lamp.at, "waypoint 1 in krezk, waypoint 2 in krezk");
+        assert_eq!(lamp.resource, git);
+        assert_eq!(
+            lamp.message,
+            "LAMP is on 2 objects in krezk, and the project's moonglow.toml wants LAMP unique in \
+             each area: a script that looks for it there finds only one of them"
+        );
     }
 
     /// The Domains of Dread's builder proposal, C7: a merged area keeps its
