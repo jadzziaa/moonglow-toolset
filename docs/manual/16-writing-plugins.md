@@ -3,7 +3,7 @@ type: Manual Page
 title: Writing plugins
 description: Writing plugins - a first plugin, how a plugin runs (events too, a resource's own around a save and the after-create hook), the manifest, reading and editing the module, commands on what is selected, the game's data, talking to the user, settings (ctx.settings, their scopes and where each is kept), files and haks outside the module, areas and terrain, checks and the fixes of their findings, several files, trying and testing (a plugin's own tests, mg plugin test), editor types, versions, sharing, and a project's own plugins.
 tags: [manual, plugins, luau]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:17:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:30:53Z }
 ---
 
 # Writing plugins
@@ -315,7 +315,7 @@ guard.Nothing                  -- nil: no such field
 - The table is a copy: changing it changes nothing. Edits are made with
   `ctx.edit`.
 - A struct's id is kept beside its table, not in it: `mg.struct_id(s)`
-  (since Moonglow 2.1.1). An equipped item's is its slot (`for _, e in
+  (since Moonglow 2.2.0). An equipped item's is its slot (`for _, e in
   guard.Equip_ItemList do local slot = mg.struct_id(e) … end`), so its
   fields are all the table holds, whatever they are labeled, and a copy
   of it for `ctx.edit:insert` gets the id as `__struct_id =
@@ -902,7 +902,7 @@ it is on disk.
 finds a game (as `mg plugin run` does), with the fixture's haks and the
 fixture layered in, and over it the test's **own game folder**: the
 files of a folder `game/` beside the test file, where there is one (2DAs,
-blueprints, scripts; since Moonglow 2.1.1). They are read as the game's
+blueprints, scripts; since Moonglow 2.2.0). They are read as the game's
 development folder is, over the game, the haks and the module, so a test
 gets the same `parts_chest.2da` on every machine, and one that reads
 only what is there runs with no game at all, in a build pipeline say.
@@ -940,7 +940,7 @@ A test (`[[test]]`) has a `name` and runs one thing:
 | `was` | For a resource saving or saved: the module as it was before, a fixture from the test file's folder. Its resources are the old ones (`ctx.event.old`), and the save writes those that differ. Left out: each resource as it is. |
 | `by` | What made the objects or resources (`ctx.event.by`). |
 | `settings` | The plugin's settings for the run (`settings = { code = "ab" }`), over what the fixture's project files hold and the defaults. |
-| `game`, `root` | The test's own folder of game resources and the game it reads, as the file's `game` and `root` (above) say them, for this test alone (since Moonglow 2.1.1). |
+| `game`, `root` | The test's own folder of game resources and the game it reads, as the file's `game` and `root` (above) say them, for this test alone (since Moonglow 2.2.0). |
 
 and says what is to come of it (each key may be left out):
 
@@ -950,7 +950,7 @@ and says what is to come of it (each key may be left out):
 | `findings` | How many findings, where their list is not given. |
 | `fix` | Make the fixes of this label (as Verify's buttons would), then hold the module to the keys below. |
 | `left` | How many findings the check makes once the fixes are made. |
-| `[[test.field]]` | A field after the edits: `resource`, `field` (its path, as `ctx.edit` takes it) and `value` (text, a number, a localized string's English text), or `absent = true`. `field` may be a list's item (`Equip_ItemList[2]`, `/VarTable[0]`; since Moonglow 2.1.1): it is there, or with `absent = true` it is not; an item has no `value`. |
+| `[[test.field]]` | A field after the edits: `resource`, `field` (its path, as `ctx.edit` takes it) and `value` (text, a number, a localized string's English text), or `absent = true`. `field` may be a list's item (`Equip_ItemList[2]`, `/VarTable[0]`; since Moonglow 2.2.0): it is there, or with `absent = true` it is not; an item has no `value`. |
 | `edits`, `resources` | How many edits there were, and which resources they change. |
 | `log` | Lines the log must have: each is part of one. |
 | `error` | The job fails, saying this (part of what it says). |

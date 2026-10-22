@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:17:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:30:53Z }
 ---
 
 # Plugin API changes
@@ -118,7 +118,7 @@ events, and says an earlier API is refused, with the reason.
   says what each event does. The `house-rules` example has all three.
 - From the Domains of Dread's builder proposal (A1 to A6, and A8).
 
-Since Moonglow 2.1.1, still as API 0.4 (only additions: a plugin that
+Since Moonglow 2.2.0, still as API 0.4 (only additions: a plugin that
 says `api = "0.4"` runs as it did):
 
 - `mg.struct_id(struct)`: a struct's id, of a table read with `gff`

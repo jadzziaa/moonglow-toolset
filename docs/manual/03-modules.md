@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:06:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:30:53Z }
 ---
 
 # Modules
@@ -417,7 +417,7 @@ Names are matched by globs, whatever their case: `*` any characters,
 | `[make_static] keep_tags` | a placeable whose tag these name stays dynamic | none |
 | `[make_static] keep_resrefs` | a placeable placed from a blueprint these name (its `TemplateResRef`) stays dynamic | none |
 | `[tags] unique` | tags that must be on one area or placed object only: Verify Module warns of two (`tag-unique`) | none |
-| `[tags] unique_in_area` | tags that must be on one object of each area only (an area's own tag counts as in it), as a store's tag is when a script looks for the nearest of it: another area may have one too. Verify Module warns of two in one area (`tag-unique`), and a paste counts them in the area it pasted into. A tag these name is held to them alone, though a glob of `unique` names it too (`unique = ["KZ_*"]` with `unique_in_area = ["*_STORE_*"]`: `KZ_SQUARE_STORE_1` once in each area). Since Moonglow 2.1.1 | none |
+| `[tags] unique_in_area` | tags that must be on one object of each area only (an area's own tag counts as in it), as a store's tag is when a script looks for the nearest of it: another area may have one too. Verify Module warns of two in one area (`tag-unique`), and a paste counts them in the area it pasted into. A tag these name is held to them alone, though a glob of `unique` names it too (`unique = ["KZ_*"]` with `unique_in_area = ["*_STORE_*"]`: `KZ_SQUARE_STORE_1` once in each area). Since Moonglow 2.2.0 | none |
 | `[tags] paste_warning` | which tags a paste or a copy says it put on more than one object: `"custom"` (those a builder set, not the object's blueprint's own tag, and those of `unique` and `unique_in_area`), `"any"`, `"unique"` (those of `unique` and `unique_in_area` only) or `"off"`; never a static placeable's, and one of `unique_in_area` only when it is twice in one area | `"custom"` |
 | `[store] open_script` | the script the shopkeeper's reply runs to open the store; none is written | an `openstoreNNN` that calls `OpenStore` |
 | `[store] tag` | the store's tag: `{area}` the area's tag, `{n}` the first number no object has | the blueprint's tag, with a number where another object has it (with a `[store]` section; Aurora's, the blueprint's, without one) |
@@ -588,7 +588,7 @@ help = "A test's hook: the next d20 rolled (the tests set it on the module)"
 | `other = true` | a value not listed is right too (the list is a help) | only those listed |
 | `min`, `max` | an Int's or a Float's range | any |
 | `help` | a line of help, shown with it | |
-| `runtime = true` | the scripts set it while the server runs (their state, a test's hook), and it is never kept in a file: no `undescribed` says it, the Variables window doesn't offer it, and Verify says where one is kept (since Moonglow 2.1.1) | kept in the module's files |
+| `runtime = true` | the scripts set it while the server runs (their state, a test's hook), and it is never kept in a file: no `undescribed` says it, the Variables window doesn't offer it, and Verify says where one is kept (since Moonglow 2.2.0) | kept in the module's files |
 | `undescribed` (at the top) | names (globs) that are the project's: a variable so named and described nowhere is said, with the described name nearest it (a typo) | not said |
 
 What the file doesn't understand is said in the log by line, as for

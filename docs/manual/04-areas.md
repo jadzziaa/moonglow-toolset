@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:06:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:30:53Z }
 ---
 
 # Areas
@@ -461,7 +461,7 @@ unique that is on two objects.
 A tag a script looks for in its own area only (a store's, which a
 vendor's script finds as the nearest of that tag) may be on one object
 of each area: the project names those in `[tags] unique_in_area` (since
-Moonglow 2.1.1). A paste then counts such a tag in the area it was
+Moonglow 2.2.0). A paste then counts such a tag in the area it was
 pasted into, whatever `paste_warning` says ("KZ_SQUARE_STORE_1 is now on
 two objects in kz_square (the project wants \*_STORE_\* unique in each
 area)"), a copy of a whole area is quiet about them, and Verify Module

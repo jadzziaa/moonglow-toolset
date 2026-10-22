@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:25:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:30:53Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -3195,7 +3195,7 @@ File › Project. What is left:
 
 The builders' notes on setting up their project (`moonglow.toml`,
 `variables.toml`, a project plugin with tests) on Moonglow 2.1.0, five
-gaps filled in 2.1.1; what they left:
+gaps filled in 2.2.0; what they left:
 
 - **A variable kept against `runtime = true` has no fix:** Verify's
   `var-runtime` names it, and taking it out is the builder's (a Remove

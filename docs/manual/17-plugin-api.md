@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugin API reference
 description: Reference of the plugin API - mg, findings and their fixes (ctx.fix), ctx.selection and ctx.open, ctx.event (the events, a resource's own around a save, objects placed or pasted, resources made, and what a handler may edit), ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, ctx.settings, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T19:51:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:30:53Z }
 ---
 
 # Plugin API reference
@@ -37,7 +37,7 @@ nothing, and a check is reported as failed.
 | `mg.twoda` | 2DAs made, read and written: `parse(bytes)`, `new(columns)` and `kinds(name)` (below). |
 | `mg.tlk` | Talk tables made, read and written: `parse(bytes)` and `new()` (below). |
 | `mg.path(struct)` | Where a struct read with `gff` is, as a path for `ctx.edit`: `""` for the root, `"/ClassList[0]"`. Nil for a table that is no such struct. |
-| `mg.struct_id(struct)` | A struct's id (since Moonglow 2.1.1): of one read with `gff`, kept beside its table as its path is, never among its fields (an equipped item's is its slot, `Equip_ItemList`); of one read with `raw`, its `__struct_id`. Nil for a table that is neither. |
+| `mg.struct_id(struct)` | A struct's id (since Moonglow 2.2.0): of one read with `gff`, kept beside its table as its path is, never among its fields (an equipped item's is its slot, `Equip_ItemList`); of one read with `raw`, its `__struct_id`. Nil for a table that is neither. |
 
 An id is registered once; registering one the manifest doesn't declare,
 or not registering one it does, is a fault `mg plugin check` reports.
