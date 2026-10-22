@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:14:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:21:55Z }
 ---
 
 # Plugin API changes
@@ -17,8 +17,9 @@ to change.
 ## 0.4
 
 Not yet in a release. Only additions: a
-plugin written for 0.1, 0.2 or 0.3 runs as it is (its `ctx` has the two
-new fields too, and nothing it had changed). A plugin that uses what is
+plugin written for 0.1, 0.2 or 0.3 runs as it is (its `ctx` has the new
+fields too, `selection` and `open`, and a check's `fix`; nothing it had
+changed, but for a finding's `fix`, below). A plugin that uses what is
 new says `api = "0.4"`; a manifest that gives a command a `for` and says
 an earlier API is refused, with the reason.
 

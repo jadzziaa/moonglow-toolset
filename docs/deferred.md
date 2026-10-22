@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:14:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:21:55Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2385,7 +2385,11 @@ contribution itself states as not done or not checked.
     the tag not followed) and `area-variables` (moved to the GIT) only:
     `pc-faction` has none (the builder chooses the faction), nor do the
     references, models, 2DAs and tilesets; the fixes of different
-    plugins' findings are made one at a time in the window. Driven
+    plugins' findings are made one at a time in the window; `mg verify
+    --fix` with a check's id that no finding with a fix has (mistyped,
+    or a plugin's not given) only warns, since a plugin's ids are known
+    only once its checks ran, so a pipeline reads "nothing to fix" (fail
+    instead?). Driven
     through the UI harness, with one rendered picture of the log's
     buttons; not used on a desktop. (S each)
   - **A plugin's own tests** (API 0.4, A8: `tests/*.toml`, `mg plugin
