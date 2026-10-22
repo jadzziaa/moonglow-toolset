@@ -3,7 +3,7 @@ type: Manual Page
 title: Conversations
 description: Conversations - the conversation tree, a line's tabs, writing conversations elsewhere, the Script Wizard and backups.
 tags: [manual, conversations]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T11:21:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T19:04:06Z }
 ---
 
 # Conversations
@@ -65,7 +65,8 @@ more than that.
 **Search** finds text in this conversation or every conversation in the
 module (match case, whole words, replace); **Bookmarks** remember lines to
 go back to. With the pointer over the editor, Ctrl+F (or Ctrl+R) opens
-Search and F3 finds again, as in Aurora.
+Search and F3 finds again, as in Aurora, from the conversation or from
+the Search pane's Find What field.
 
 **Test** plays the conversation as the game does: the NPC says the first
 of its lines whose condition passes, and the player is offered the

@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T01:22:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T19:04:06Z }
 ---
 
 # Scripts
@@ -50,7 +50,7 @@ ones take the kind most of the file's lines have.
 | --- | --- |
 | Ctrl+S | **Save** the script into the module (not the module to its file), while the editor has the keyboard; anywhere else Ctrl+S saves the module |
 | Ctrl+F | Find |
-| F3 | find the next |
+| F3 | find the next (from the script, or from the Find Text window's field, as in Aurora) |
 | Ctrl+R | Replace |
 | F2, Ctrl+Space | complete the word at the cursor (functions, constants, variables) |
 | Enter | a new line, begun as far in as the line it is started from |

@@ -2781,6 +2781,31 @@ fn script_editor_completion_find_bookmarks() {
     let start = edited.find("main").unwrap();
     assert_eq!((a.min(b), a.max(b)), (start, start + 4));
 
+    // F3 from the Find Text window's field, which keeps the keyboard
+    // after a search (Sacha's report): the next match, as in Aurora.
+    h.state_mut().script_tools.jump = Some((key, 0));
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::F);
+    h.run();
+    h.get_by_label("Find What");
+    h.state_mut().script_tools.search.find = "My".into();
+    h.run();
+    // F3 straight from the field, the text just typed (no Enter).
+    h.key_press(egui::Key::F3);
+    h.run();
+    let first = edited.find("My").unwrap();
+    let (a, b) = script_cursor(&h, key).unwrap();
+    assert_eq!((a.min(b), a.max(b)), (first, first + 2), "F3 from the field finds the first");
+    h.key_press(egui::Key::F3);
+    h.run();
+    let second = first + 2 + edited[first + 2..].find("My").unwrap();
+    let (a, b) = script_cursor(&h, key).unwrap();
+    assert_eq!((a.min(b), a.max(b)), (second, second + 2), "F3 finds the next");
+    h.state_mut().script_tools.search.open = false;
+    h.run();
+    h.state_mut().script_tools.jump = Some((key, start));
+    h.run();
+
     // Bookmark (F5) on that line.
     h.key_press(egui::Key::F5);
     h.run();
@@ -3169,10 +3194,8 @@ fn conversation_search_bookmarks_and_test() {
     h.get_by_label("Find What");
     h.state_mut().dialog_views.get_mut(&key).unwrap().search.find = "traveller".into();
     h.run();
-    // (The Find What field has the keyboard: let it go, for F3.)
-    h.key_press(egui::Key::Escape);
-    h.run();
-    h.hover_at(over);
+    // F3 with the Find What field still having the keyboard, as in
+    // Aurora (Sacha's report: it took a click back into the editor).
     h.key_press(egui::Key::F3);
     h.run();
     let results = h.state().dialog_views[&key].search.results.clone();
