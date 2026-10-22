@@ -1708,6 +1708,24 @@ fn cries_window(m: &mg_module::Module) -> mg_ui::nui_render::Window<'_> {
     mg_ui::nui_render::Window { name: "cries", ..crier_window(m) }
 }
 
+/// A text field's text in the layout is what it shows: its value, or its
+/// placeholder (its label) while that is empty (the Design session's
+/// question: the placeholder was given though the binds filled it).
+#[test]
+fn a_text_field_s_text_is_its_value_or_else_its_placeholder() {
+    use mg_ui::nui_render::{Options, layout};
+    let m = crier();
+    let w = crier_window(&m);
+    let message = |o: &Options| {
+        let l = layout(&w, o).unwrap();
+        l.elements.iter().find(|e| e.id.as_deref() == Some("message")).unwrap().text.clone()
+    };
+    let empty = Options { binds: [("message".to_owned(), json!(""))].into(), ..Default::default() };
+    assert_eq!(message(&empty).as_deref(), Some("Write your message..."));
+    let o = Options { binds: fixture_binds("crier"), ..Default::default() };
+    assert_eq!(message(&o).as_deref(), Some("Hear ye: the market opens at dawn on the morrow."));
+}
+
 /// Off the screen a window can be drawn otherwise than as it opens: a
 /// control in a state of its own, or every one; binds set as a script sets
 /// them, a list's rows from their arrays; a swap layout variant in place

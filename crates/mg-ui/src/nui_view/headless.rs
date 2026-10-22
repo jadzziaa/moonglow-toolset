@@ -227,7 +227,8 @@ pub struct Element {
     /// The binds its properties read.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub binds: Vec<String>,
-    /// Its label or value, when that is text given in the layout.
+    /// The text it shows: its label or value; a text field's value, or
+    /// its placeholder (its label) while the value is empty, as drawn.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
     /// Inside its margin.
@@ -252,6 +253,21 @@ pub struct Element {
     /// Text of it that did not fit and was cut.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub cut_text: Vec<String>,
+}
+
+/// The text a control shows (see [`Element::text`]).
+fn shown_text(
+    node: &serde_json::Value,
+    s: &mg_nui::Settings,
+    row: Option<usize>,
+) -> Option<String> {
+    let text = |k: &str| {
+        preview::val(&node[k], s, row).is_string().then(|| preview::string(&node[k], s, row))
+    };
+    if node["type"] == "textedit" {
+        return text("value").filter(|v| !v.is_empty()).or_else(|| text("label"));
+    }
+    text("label").or_else(|| text("value"))
 }
 
 /// A window drawn: RGBA pixels, the top row first, and its layout.
@@ -518,10 +534,7 @@ fn laid_out(name: &str, r: &skin::Record, scale: f32, s: &Settings) -> Layout {
                 kind: p.node["type"].as_str().unwrap_or("unknown").into(),
                 id: p.node["id"].as_str().map(str::to_owned),
                 binds: own_binds(&p.node),
-                text: ["label", "value"]
-                    .into_iter()
-                    .find(|k| preview::val(&p.node[*k], s, p.row).is_string())
-                    .map(|k| preview::string(&p.node[k], s, p.row)),
+                text: shown_text(&p.node, s, p.row),
                 area: area(p.rect),
                 hidden: !preview::flag(&p.node["visible"], s, p.row, true),
                 state: p.look.filter(|l| *l != "normal"),
