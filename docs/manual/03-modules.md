@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Modules
-description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
+description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T11:30:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T06:38:53Z }
 ---
 
 # Modules
@@ -222,6 +222,119 @@ resources as JSON, nasher's default; NWNT format isn't supported yet.
 
 `mg init` and `mg build` do the same from a terminal or a build pipeline
 (see [Command-line tools](11-command-line.md)).
+
+## Merging in git
+
+Git merges text line by line, and that goes wrong for a module's files.
+Two builders who each place an object in one area, or each add an area,
+change the same lines of the area's `.git.json` or of
+`module.ifo.json`, and git calls that a conflict. A `.mod`'s own GFF
+files (`.are`, `.git`, `.utc`…) are binary, and git can't merge them at
+all. `mg merge-gff` merges these files by what is in them: object by
+object, area by area, field by field. Git can run it as a *merge
+driver*: in every merge, on every file you assign it to.
+
+**Set it up once per clone.** Put this in the repository's
+`.gitattributes` (it is committed, so every builder has it):
+
+```
+# nasher projects: GFF kept as JSON
+*.are.json merge=mg-gff
+*.git.json merge=mg-gff
+*.gic.json merge=mg-gff
+*.ifo.json merge=mg-gff
+*.ut?.json merge=mg-gff
+*.dlg.json merge=mg-gff
+*.jrl.json merge=mg-gff
+*.fac.json merge=mg-gff
+*.itp.json merge=mg-gff
+# a module kept as a folder of GFF files
+*.are -text merge=mg-gff
+*.git -text merge=mg-gff
+*.gic -text merge=mg-gff
+*.ifo -text merge=mg-gff
+*.ut? -text merge=mg-gff
+*.dlg -text merge=mg-gff
+*.jrl -text merge=mg-gff
+*.fac -text merge=mg-gff
+*.itp -text merge=mg-gff
+```
+
+The driver itself is named in each clone's own settings (git doesn't
+take commands from a repository it clones), once:
+
+```sh
+git config merge.mg-gff.name "Moonglow GFF merge"
+git config merge.mg-gff.driver "mg merge-gff %O %A %B --path %P"
+```
+
+(`mg` must be on the PATH, or named with its whole path. `git config
+--global` sets it up for all your repositories at once.) Then `git
+merge`, `git pull`, `git rebase` and `git cherry-pick` merge these files
+with it.
+
+**What it does with each kind of change:**
+
+- A value one side changed is taken. Both changed it the same way: fine.
+  Both changed it, each to something else: a **conflict**.
+- **An area's placed objects** (creatures, doors, placeables, waypoints,
+  triggers, encounters, sounds, stores, items on the ground) are merged
+  object by object. Objects added by both sides are all kept. An object
+  one side removed and the other left alone is removed. One side removed
+  and the other changed it: a conflict. Both edited one object: merged
+  field by field. GFF gives an object no id, so an object is recognized
+  by these, in order:
+  1. it is the same in every field;
+  2. the same `ObjectId`, where both have one;
+  3. the same blueprint (`TemplateResRef`), tag and position;
+  4. the only object left with its blueprint and tag (so a moved object is
+     still that object);
+  5. the only object left with its blueprint and position (so a retagged
+     object is too).
+
+  An object that was moved *and* retagged on one side is taken as
+  removed and another added. If the other side changed it, that is a
+  conflict, not a lost edit.
+- **The module's area list** is a union: the areas the base had, in its
+  order, without those a side removed, then ours' new ones, then theirs'.
+- **Variables** merge by name, **haks** and cached scripts by name, a
+  creature's feats, classes and spells by what they are, equipped items
+  by slot, a journal's quests by tag and their entries by number, a
+  faction file's standings by the pair of factions.
+- **Every other list** (tiles, skills, inventories, conversation nodes,
+  item properties) is merged by place: an item is its number in the list,
+  and two items added at one place are a conflict.
+- A list only one side changed is that side's list as it is, order and
+  all. Where both changed one, the base's order holds; one side's moving
+  of an item is not kept.
+
+**The merge is written over your file (`%A`) in its own form.** A GFF is
+written as a GFF and JSON as `nasher unpack` writes it: keys sorted,
+floats rounded to the project's places, text in its codepage (read from
+the nasher project the file is in). A merge that equals your file leaves
+it untouched, byte for byte; one that equals theirs is their file.
+
+**On a conflict** the command exits with an error and writes nothing.
+It prints each conflict with its path, for example `CONFLICT
+/Placeable List[plc_chest "CHEST" at 10, 4.5]/Tag: "CHEST" -> ours
+"RED", theirs "BLUE"`. Git then marks the file as unmerged and leaves
+your version in it. To settle it, take one side's for every conflict in
+that file from git's three copies:
+
+```sh
+git show :1:src/area1.git.json > base.json
+git show :2:src/area1.git.json > ours.json
+git show :3:src/area1.git.json > theirs.json
+mg merge-gff base.json ours.json theirs.json --prefer theirs -o src/area1.git.json
+git add src/area1.git.json
+```
+
+or take one side's file whole (`git checkout --ours FILE` or `--theirs`),
+or open the module in Moonglow and make the change there.
+
+The command needs no game install, and `--json` prints the conflicts for
+a script or a bot. NWNT files (nasher's other text form) aren't merged
+yet.
 
 ## Recovering unsaved work
 

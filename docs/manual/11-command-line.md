@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T01:09:03Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T06:38:53Z }
 ---
 
 # Command-line tools
@@ -416,6 +416,7 @@ mg --json verify mymodule.mod | jq '.findings[] | select(.severity == "error")'
 | --- | --- |
 | `mg init MODULE DIR` | put a module into a nasher project in `DIR`: its resources as source files, with a `nasher.cfg` like `nasher init` writes |
 | `mg build DIR` | compile the project's scripts and pack the module, as `nasher pack` does (`--target`, `-o OUT`); `--ndb` makes each script's debug file (`.ndb`) too, packed with it |
+| `mg merge-gff BASE OURS THEIRS` | merge two copies of a GFF resource (an area, `module.ifo`, a blueprint), both made from BASE, as a GFF or as nasher's JSON of one, and write the merge over OURS (`-o FILE` elsewhere). Placed objects merge by object, the area list as a union, variables by name. Two different changes to one value are a conflict: it fails, names each by its path and writes nothing, unless `--prefer ours` or `--prefer theirs`. Git runs it as its merge driver: see [Merging in git](03-modules.md#merging-in-git) |
 
 `mg build` fails if a script doesn't compile, which suits a build pipeline:
 - `--keep-going` packs the module anyway.
