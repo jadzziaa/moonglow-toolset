@@ -8,6 +8,7 @@ use std::process::ExitCode;
 mod diff;
 mod edits;
 mod lsp;
+mod merge;
 mod nui;
 mod plugins;
 mod search;
@@ -338,6 +339,42 @@ enum Cmd {
         /// Whose line a conflict takes: a or b.
         #[arg(long)]
         prefer: Option<String>,
+    },
+    /// Merge two copies of a GFF resource (an area's .git and .are,
+    /// module.ifo, a blueprint, a conversation), both made from BASE: a
+    /// value one side changed is taken, the same change on both is one,
+    /// and two different changes are a conflict, each named by its path
+    /// (the merge fails and nothing is written, unless --prefer takes a
+    /// side). Lists merge by item: an area's placed objects by object
+    /// (added by both: both kept), the area list as a union, variables by
+    /// name, feats, classes, spells, haks and journal entries by what they
+    /// are; other lists by place. Each file is a GFF or nasher's JSON of
+    /// one, told by its contents. The merge is written over OURS (or -o),
+    /// in OURS's form, and a merge that is OURS leaves the file as it was:
+    /// git's merge driver (`mg merge-gff %O %A %B --path %P`; the manual's
+    /// Modules chapter, "Merging in git", has the lines for .gitattributes
+    /// and .git/config)
+    #[command(name = "merge-gff")]
+    MergeGff {
+        /// The file both were made from (git's %O).
+        base: PathBuf,
+        /// Ours (git's %A): the merge is written here.
+        ours: PathBuf,
+        /// Theirs (git's %B).
+        theirs: PathBuf,
+        /// Whose value a conflict takes: ours or theirs (then the merge
+        /// is written, and succeeds).
+        #[arg(long)]
+        prefer: Option<String>,
+        /// Write the merge here instead of over OURS.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// The file's path in the repository (git's %P): its name in the
+        /// report, and where its nasher project is looked for (the float
+        /// places and codepage JSON is written with; default: OURS's
+        /// folder).
+        #[arg(long)]
+        path: Option<PathBuf>,
     },
     /// Write a custom talk table from strings kept by name (a .toml or
     /// .json file: `key = "text"`, in groups if you like), each on a line
@@ -1654,6 +1691,16 @@ fn run(cli: &Cli) -> Result<Output> {
             },
             Codepage::default(),
         )?,
+        Cmd::MergeGff { base, ours, theirs, prefer, output, path } => {
+            merge::merge_gff(&merge::Args {
+                base,
+                ours,
+                theirs,
+                prefer: prefer.as_deref(),
+                output: output.as_deref(),
+                path: path.as_deref(),
+            })?
+        }
         Cmd::TlkAlloc { table, from, map, constants, prefix, start, check, against } => {
             tlk_alloc::run(&tlk_alloc::Args {
                 table,

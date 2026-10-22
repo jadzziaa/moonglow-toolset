@@ -22,6 +22,8 @@ mod export_files;
 mod json;
 #[path = "../lsp.rs"]
 mod lsp;
+#[path = "../merge_gff.rs"]
+mod merge_gff;
 #[path = "../minimap.rs"]
 mod minimap;
 #[path = "../models.rs"]

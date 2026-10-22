@@ -19,6 +19,7 @@
 
 mod diff;
 mod json;
+pub mod merge;
 mod read;
 mod value;
 mod write;

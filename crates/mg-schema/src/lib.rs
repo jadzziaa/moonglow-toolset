@@ -24,6 +24,7 @@
 // Nested list modules can share their parent's name (e.g. `ItemList`).
 #[allow(clippy::module_inception)]
 mod generated;
+pub mod merge;
 
 use std::fmt;
 
