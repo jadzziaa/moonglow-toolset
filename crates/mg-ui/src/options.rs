@@ -1100,7 +1100,7 @@ fn verify(ui: &mut Ui, draft: &mut OptionsDraft) {
             }
         }
     }
-    ui.weak("What is left out is counted in the log's summary line.");
+    ui.weak("What is left out isn't checked, which is quicker; the log's summary line names it.");
 }
 
 /// Options › Keyboard: each command's keys, to add to (the next key

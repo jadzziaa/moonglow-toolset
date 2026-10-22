@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync, long work, Verify Module and the fixes beside its findings, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:21:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:06:21Z }
 ---
 
 # Build, verify and test
@@ -146,7 +146,11 @@ tools](11-command-line.md)). There each problem carries the id of the
 check that found it (`set-model`, `2da-row`…); `mg checks` lists the
 checks and the group each is in, and `mg verify --skip GROUP` leaves a
 group out (`references`, `tilesets`, `models`, `2das`, `objects`,
-`module`, `plugins`; the JSON's `skipped` counts what it left out).
+`module`, `plugins`; several separated by commas): its checks aren't
+run, which makes a Verify of a module with many haks much quicker, and
+the JSON's `skipped` names the groups (`"tilesets": null`: not
+checked). `mg verify --timings` says how long each part of the check
+took.
 A finding's `fix` in the JSON is the fix it offers, as an edit file `mg
 apply` takes; `mg verify --fix CHECK` makes the fixes of a check's
 findings and saves (`--dry-run`: only says which it would make).

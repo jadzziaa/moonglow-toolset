@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T13:37:41Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:06:22Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -335,9 +335,24 @@ Size: S (an hour or two), M (a day or so), L (several days).
   --skip` leave out a group (seven: missing references, tilesets, models
   and materials, 2DAs, objects' rows and variables, talk table and
   archives, plugins), not one check, one hak or one tileset; a group
-  left out is still looked for (its problems counted in the summary),
-  and Build Module's Missing Resources has its own categories, apart
-  from these. (S) (Taro49's report, October 2026)
+  left out isn't checked since 22 October (so nothing is counted of
+  it: the summary and the JSON's `skipped` only name it), and Build
+  Module's Missing Resources has its own categories, apart from these.
+  (S) (Taro49's report, October 2026)
+- **A whole Verify of a module with many ASCII haks is still 9 s:** the
+  Domains of Dread with its 144 haks (28 GB) went from 70 s to 9 s on
+  16 threads (and 73 s to 0.5 s with `--skip tilesets,models,2das`),
+  and what is left is reading models kept as text: `mg_mdl::lint` reads
+  them at about 4 MB/s (a 6 MB tile, `twcy1_s02_93`, takes 1.5 s alone),
+  95,810 models add up to 61 s of the workers' time, and the tilesets'
+  `tile-faces` reads each ASCII tile model a second time, in full, to
+  count its faces (41 s). The workers' time added up is about one and a
+  half times what one thread took (8 cores, 16 threads), so the gain is
+  sevenfold, not sixteen. A quicker text reader, one read of a tile
+  model shared by the two checks, the faces counted without building
+  the mesh, or a compiled model told by its first bytes instead of read
+  whole would each take some of it. (M) (the Domains of Dread builders' report, October
+  2026)
 
 ## Test loop
 

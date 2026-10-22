@@ -11,6 +11,7 @@
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::time::{Duration, Instant};
 
 use mg_2da::{TwoDa, overlong_rows};
 use mg_core::{Codepage, ResRef, ResType};
@@ -18,6 +19,7 @@ use mg_gff::{Struct, Value};
 use mg_resman::{Layer, LayerClass, ResKey, ResMan, priority};
 use mg_set::Tileset;
 use mg_shader::{Preamble, Stage, assemble, compile, compile_assembled, program_stage};
+use rayon::prelude::*;
 
 use crate::Module;
 
@@ -319,26 +321,44 @@ impl Group {
     }
 }
 
-/// Takes what the groups in `skip` found out of Verify's report: each of
-/// those groups, in [`Group::ALL`]'s order, with how many it had (none
-/// too), for the report to say what it leaves out.
+/// Takes what the groups in `skip` found out of Verify's report, and says
+/// which they are, in [`Group::ALL`]'s order, for the report to name what
+/// it left out. A group left out is not checked at all
+/// ([`examine_groups`] skips its checks, Verify its missing references
+/// and plugins), so nothing is counted of it: this only takes out what
+/// was found of it anyway.
 pub fn leave_out(
     missing: &mut Vec<crate::verify::Missing>,
     findings: &mut Vec<Finding>,
     skip: &[Group],
-) -> Vec<(Group, usize)> {
-    let mut left: BTreeMap<Group, usize> = skip.iter().map(|g| (*g, 0)).collect();
-    if let Some(n) = left.get_mut(&Group::References) {
-        *n = std::mem::take(missing).len();
+) -> Vec<Group> {
+    let left: std::collections::BTreeSet<Group> = skip.iter().copied().collect();
+    if left.contains(&Group::References) {
+        missing.clear();
     }
-    findings.retain(|f| match left.get_mut(&Group::of(f)) {
-        Some(n) => {
-            *n += 1;
-            false
-        }
-        None => true,
-    });
+    findings.retain(|f| !left.contains(&Group::of(f)));
     left.into_iter().collect()
+}
+
+/// How long the parts of a Verify took (`mg verify --timings`): each
+/// part's name and its time, in the order they ran.
+#[derive(Debug, Clone, Default)]
+pub struct Timings {
+    pub parts: Vec<(String, Duration)>,
+}
+
+impl Timings {
+    pub fn add(&mut self, name: impl Into<String>, took: Duration) {
+        self.parts.push((name.into(), took));
+    }
+
+    /// Runs `f`, timed as `name`.
+    pub fn time<T>(&mut self, name: impl Into<String>, f: impl FnOnce() -> T) -> T {
+        let started = Instant::now();
+        let made = f();
+        self.add(name, started.elapsed());
+        made
+    }
 }
 
 /// One problem, where it is.
@@ -407,10 +427,6 @@ impl<'a> Doctor<'a> {
         });
     }
 
-    fn model_exists(&self, name: &str) -> bool {
-        ResRef::from_str(name).is_ok_and(|r| self.rm.contains(&ResKey::new(r, ResType::MDL)))
-    }
-
     /// A 2DA as the game resolves it.
     fn table(&mut self, name: &str) -> Option<&TwoDa> {
         if !self.tables.contains_key(name) {
@@ -434,43 +450,119 @@ impl<'a> Doctor<'a> {
 /// Examines the module's custom content. `resman` has the module and its
 /// haks layered in, as Verify and the game see them.
 pub fn examine(module: &Module, resman: &ResMan, tlk: TalkTables) -> Vec<Finding> {
+    examine_groups(module, resman, tlk, &[], &mut Timings::default())
+}
+
+/// [`examine`], leaving out the checks of the groups in `skip` (they are
+/// not run: a builder's skipped tilesets and models are most of the time
+/// a Verify of a module with many haks takes), and timing its parts.
+///
+/// The checks of each custom tileset, 2DA, material and model run in
+/// parallel; the findings are in the order one after another would make.
+pub fn examine_groups(
+    module: &Module,
+    resman: &ResMan,
+    tlk: TalkTables,
+    skip: &[Group],
+    timings: &mut Timings,
+) -> Vec<Finding> {
+    let runs = |g: Group| !skip.contains(&g);
     let mut d = Doctor { rm: resman, tlk, out: Vec::new(), tables: HashMap::new() };
     // The winning copy of every custom resource, by type.
     let layers = resman.layers();
-    let mut custom: BTreeMap<ResKey, usize> = BTreeMap::new();
-    for (i, layer) in layers.iter().enumerate() {
-        if !is_custom(layer) {
-            continue;
+    // (Looked up in parallel: a module with a hundred haks has hundreds of
+    // thousands, each looked for in the layers above its own.)
+    let custom = timings.time("the custom resources", || {
+        let mut custom: BTreeMap<ResKey, usize> = BTreeMap::new();
+        for (i, layer) in layers.iter().enumerate() {
+            if !is_custom(layer) {
+                continue;
+            }
+            let keys: Vec<ResKey> = layer.container.keys().collect();
+            let won: Vec<ResKey> =
+                keys.into_par_iter().filter(|key| resman.find(key) == Some(i)).collect();
+            custom.extend(won.into_iter().map(|key| (key, i)));
         }
-        for key in layer.container.keys() {
-            if resman.find(&key) == Some(i) {
-                custom.insert(key, i);
+        custom
+    });
+    if runs(Group::Module) {
+        timings.time("archives' sizes", || {
+            for layer in layers.iter().filter(|l| is_custom(l)) {
+                past_read_limit(&mut d, layer);
+            }
+        });
+    }
+    // Each resource's own checks, by its type's group.
+    let kind = |t: ResType| match t {
+        ResType::SET => Some(("tilesets", Group::Tilesets)),
+        ResType::TWODA => Some(("2das", Group::Tables)),
+        ResType::MTR => Some(("materials", Group::Models)),
+        ResType::MDL => Some(("models", Group::Models)),
+        _ => None,
+    };
+    let each: Vec<(&ResKey, usize)> = (custom.iter())
+        .filter(|(k, _)| kind(k.restype).is_some_and(|(_, g)| runs(g)))
+        .map(|(k, l)| (k, *l))
+        .collect();
+    let started = Instant::now();
+    // (A worker's 2DAs are read once for the resources it takes.)
+    let found: Vec<(ResKey, Vec<Finding>, Duration)> = each
+        .par_iter()
+        .map_init(HashMap::new, |tables, &(key, layer)| {
+            let started = Instant::now();
+            let mut d = Doctor { rm: resman, tlk, out: Vec::new(), tables: std::mem::take(tables) };
+            let source = &layers[layer].label;
+            match key.restype {
+                ResType::SET => tileset(&mut d, source, *key),
+                ResType::TWODA => two_da(&mut d, source, *key, layer),
+                ResType::MTR => material(&mut d, source, *key),
+                ResType::MDL => model_text(&mut d, source, *key),
+                _ => {}
+            }
+            *tables = d.tables;
+            (*key, d.out, started.elapsed())
+        })
+        .collect();
+    timings.add("each tileset, 2DA, material and model (in parallel)", started.elapsed());
+    // Of each type: how many, their time added up, the longest.
+    let mut work: BTreeMap<&str, (usize, Duration, Duration, ResKey)> = BTreeMap::new();
+    for (key, out, took) in found {
+        d.out.extend(out);
+        if let Some((name, _)) = kind(key.restype) {
+            let w = work.entry(name).or_insert((0, Duration::ZERO, Duration::ZERO, key));
+            w.0 += 1;
+            w.1 += took;
+            if took > w.2 {
+                (w.2, w.3) = (took, key);
             }
         }
     }
-    for layer in layers.iter().filter(|l| is_custom(l)) {
-        past_read_limit(&mut d, layer);
+    for (name, (n, took, longest, key)) in work {
+        let longest = longest.as_secs_f64();
+        timings.add(format!("  {name}: {n}, added up (the longest {key}, {longest:.3} s)"), took);
     }
-    for (key, &layer) in &custom {
-        let source = layers[layer].label.clone();
-        match key.restype {
-            ResType::SET => tileset(&mut d, &source, *key),
-            ResType::TWODA => two_da(&mut d, &source, *key, layer),
-            ResType::MTR => material(&mut d, &source, *key),
-            ResType::MDL => model_text(&mut d, &source, *key),
-            _ => {}
-        }
+    if runs(Group::Models) {
+        timings.time("shaders", || shaders(&mut d, &custom));
     }
-    shaders(&mut d, &custom);
-    objects(&mut d, module);
-    pc_faction(&mut d, module);
-    area_variables(&mut d, module);
-    unique_tags(&mut d, module);
-    merged_areas(&mut d, module);
-    described_variables(&mut d, module);
-    described_tables(&mut d, module);
-    custom_tlk(&mut d, module);
-    nui_sources(&mut d, module);
+    if runs(Group::Objects) {
+        timings.time("objects' rows", || objects(&mut d, module));
+        timings.time("the PC faction", || pc_faction(&mut d, module));
+        timings.time("areas' variables", || area_variables(&mut d, module));
+        timings.time("unique tags", || unique_tags(&mut d, module));
+    }
+    if runs(Group::Module) {
+        timings.time("merged areas", || merged_areas(&mut d, module));
+    }
+    if runs(Group::Objects) {
+        timings.time("described variables", || described_variables(&mut d, module));
+    }
+    if runs(Group::Tables) {
+        timings.time("described 2DAs", || described_tables(&mut d, module));
+    }
+    if runs(Group::Module) {
+        custom_tlk(&mut d, module);
+        timings.time("NUI sources", || nui_sources(&mut d, module));
+    }
     d.out.sort_by(|a, b| {
         (a.severity, &a.source, a.resource).cmp(&(b.severity, &b.source, b.resource))
     });
@@ -626,10 +718,32 @@ fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
             );
         }
     }
+    // Each tile's model: none, or one to examine at its first tile. (The
+    // models are looked for and examined in parallel, a tileset may have
+    // thousands; their findings are in the order of the tiles.)
+    let rm = d.rm;
+    let exists: Vec<bool> = set.tiles.par_iter().map(|t| model_exists(rm, &t.model)).collect();
     let mut checked_models = HashSet::new();
-    let mut door_tiles: BTreeMap<i32, Vec<usize>> = BTreeMap::new();
-    for (i, tile) in set.tiles.iter().enumerate() {
-        if !d.model_exists(&tile.model) {
+    let firsts: Vec<(usize, bool)> = (set.tiles.iter().zip(&exists).enumerate())
+        .filter(|(_, (tile, exists))| {
+            !**exists || checked_models.insert(tile.model.to_ascii_lowercase())
+        })
+        .map(|(i, (_, exists))| (i, *exists))
+        .collect();
+    let examined: Vec<Vec<Finding>> = firsts
+        .par_iter()
+        .map(|&(i, exists)| {
+            let mut m = Doctor { rm, tlk: d.tlk, out: Vec::new(), tables: HashMap::new() };
+            if exists {
+                tile_model(&mut m, &set.tiles[i].model);
+            }
+            m.out
+        })
+        .collect();
+    for (&(i, exists), found) in firsts.iter().zip(examined) {
+        if exists {
+            d.out.extend(found);
+        } else {
             d.push(
                 Error,
                 Check::SetModel,
@@ -638,12 +752,13 @@ fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
                 format!("[TILE{i}] Model"),
                 format!(
                     "model {} isn't in the haks or the game; painting the tile crashes Aurora",
-                    tile.model
+                    set.tiles[i].model
                 ),
             );
-        } else if checked_models.insert(tile.model.to_ascii_lowercase()) {
-            tile_model(d, &tile.model);
         }
+    }
+    let mut door_tiles: BTreeMap<i32, Vec<usize>> = BTreeMap::new();
+    for (i, tile) in set.tiles.iter().enumerate() {
         for door in &tile.doors {
             if door.door_type > 0 {
                 let tiles = door_tiles.entry(door.door_type).or_default();
@@ -751,6 +866,10 @@ fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
     {
         d.push(Warning, Check::SetData, source, key, "", w.clone());
     }
+}
+
+fn model_exists(rm: &ResMan, name: &str) -> bool {
+    ResRef::from_str(name).is_ok_and(|r| rm.contains(&ResKey::new(r, ResType::MDL)))
 }
 
 /// A custom tile model: its size.
@@ -866,7 +985,11 @@ fn shaders(d: &mut Doctor, custom: &BTreeMap<ResKey, usize>) {
     let mut replaces_stock = false;
     // Materials that name one program alone, by source: the field and name.
     let mut lone: BTreeMap<String, Vec<(ResKey, &str, String)>> = BTreeMap::new();
-    for (key, &layer) in custom {
+    // (Materials and shader files alone are read: the haks' textures and
+    // models are most of their size.)
+    for (key, &layer) in
+        custom.iter().filter(|(k, _)| matches!(k.restype, ResType::MTR | ResType::SHD))
+    {
         let source = &layers[layer].label;
         let Ok(data) = d.rm.get(key) else { continue };
         match key.restype {
@@ -2017,12 +2140,125 @@ mod tests {
         // Every check is in one of the doctor's groups.
         let theirs = [Group::References, Group::Plugins];
         assert!(Check::ALL.iter().all(|c| !theirs.contains(&c.group())));
-        // Left out: counted, the rest kept in order.
+        // Left out: named, in their order, the rest kept in order.
         let mut findings = vec![finding("set-model"), finding("2da-row"), finding("set-door")];
         let mut missing = Vec::new();
-        let left = leave_out(&mut missing, &mut findings, &[Group::Tilesets, Group::Models]);
-        assert_eq!(left, [(Group::Tilesets, 2), (Group::Models, 0)]);
+        let left = leave_out(&mut missing, &mut findings, &[Group::Models, Group::Tilesets]);
+        assert_eq!(left, [Group::Tilesets, Group::Models]);
         assert_eq!(checks(&findings), [("2da-row", String::new())]);
+    }
+
+    /// A hak that says what was read of it.
+    #[derive(Debug)]
+    struct Watched(MemContainer, std::sync::Arc<std::sync::Mutex<Vec<ResKey>>>);
+
+    impl mg_resman::Container for Watched {
+        fn contains(&self, key: &ResKey) -> bool {
+            self.0.contains(key)
+        }
+        fn read(&self, key: &ResKey) -> Result<std::borrow::Cow<'_, [u8]>, mg_resman::ResError> {
+            self.1.lock().unwrap().push(*key);
+            self.0.read(key)
+        }
+        fn keys(&self) -> Box<dyn Iterator<Item = ResKey> + '_> {
+            self.0.keys()
+        }
+        fn len(&self) -> usize {
+            self.0.len()
+        }
+    }
+
+    /// A group left out isn't checked: nothing it would examine is read
+    /// (the skipped tilesets and models were a minute of the Domains of
+    /// Dread's Verify, with 144 haks), and the other groups find what they
+    /// would. A texture is never read.
+    #[test]
+    fn a_group_left_out_is_not_checked() {
+        let set = b"[GENERAL]\nName=TST\nTransition=1\n[TILES]\nCount=1\n[TILE0]\nModel=tst_a01\n\
+[GROUPS]\nCount=0\n";
+        let mut hak = MemContainer::new();
+        hak.insert(key("tst", ResType::SET), set.to_vec());
+        hak.insert(key("tst_a01", ResType::MDL), b"not a model".to_vec());
+        let emitter = "newmodel fx\nsetsupermodel fx NULL\nbeginmodelgeom fx\n\
+node dummy fx\n  parent NULL\nendnode\nnode emitter spark\n  parent fx\n  p2p 1\nendnode\n\
+endmodelgeom fx\ndonemodel fx\n";
+        hak.insert(key("fx", ResType::MDL), emitter.as_bytes().to_vec());
+        hak.insert(key("my_mat", ResType::MTR), b"texture0 a_texture_name_too_long\n".to_vec());
+        hak.insert(key("my_tex", ResType::TGA), vec![0; 64]);
+        hak.insert(key("placeables", ResType::TWODA), b"2DA V2.0\n\n   Label\n".to_vec());
+        let read = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut rm = resman(&[]);
+        rm.add(priority::HAK_USER, "watched.hak", LayerClass::Erf, Watched(hak, read.clone()));
+        let run = |skip: &[Group]| {
+            read.lock().unwrap().clear();
+            let f = examine_groups(
+                &Module::new(),
+                &rm,
+                TalkTables::default(),
+                skip,
+                &mut Timings::default(),
+            );
+            let mut types: Vec<ResType> = read.lock().unwrap().iter().map(|k| k.restype).collect();
+            types.sort();
+            types.dedup();
+            (f.iter().map(|f| f.check.to_string()).collect::<Vec<_>>(), types)
+        };
+        let (all, read_all) = run(&[]);
+        assert!(
+            ["mdl-read", "mtr-name", "mdl-text"].iter().all(|c| all.contains(&c.to_string())),
+            "{all:?}"
+        );
+        assert!(!read_all.contains(&ResType::TGA), "{read_all:?}");
+        let (left, read_left) = run(&[Group::Tilesets, Group::Models]);
+        assert!(left.iter().all(|c| !c.starts_with("set-") && !c.starts_with("mdl-")));
+        assert!(!left.contains(&"mtr-name".to_string()), "{left:?}");
+        assert_eq!(read_left, [ResType::TWODA], "only the 2DA is read");
+        // The 2DAs' group left out too: nothing of the hak is read.
+        let (_, read_none) = run(&[Group::Tilesets, Group::Models, Group::Tables]);
+        assert!(read_none.is_empty(), "{read_none:?}");
+    }
+
+    /// The resources are examined in parallel, and the findings are as one
+    /// after another make them: a tileset's tiles' in the order of its
+    /// tiles, its tile models' at the first tile of each, the same each
+    /// time.
+    #[test]
+    fn findings_examined_in_parallel_keep_their_order() {
+        let mut hak: Vec<(String, ResType, Vec<u8>)> = Vec::new();
+        for s in 0..40 {
+            let mut set = format!("[GENERAL]\nName=T{s}\nTransition=1\n[TILES]\nCount=60\n");
+            for t in 0..60 {
+                // Every third tile's model is nowhere; the others share
+                // five models, unreadable, of the tileset's own.
+                let model =
+                    if t % 3 == 0 { format!("gone{s}_{t}") } else { format!("m{s}_{}", t % 5) };
+                set.push_str(&format!("[TILE{t}]\nModel={model}\n"));
+            }
+            set.push_str("[GROUPS]\nCount=0\n");
+            hak.push((format!("set{s:02}"), ResType::SET, set.into_bytes()));
+            for m in 0..5 {
+                hak.push((format!("m{s}_{m}"), ResType::MDL, b"not a model".to_vec()));
+            }
+        }
+        let hak: Vec<(&str, ResType, &[u8])> =
+            hak.iter().map(|(n, t, d)| (n.as_str(), *t, d.as_slice())).collect();
+        let rm = resman(&hak);
+        let f = examine(&Module::new(), &rm, TalkTables::default());
+        let models: Vec<&Finding> = f.iter().filter(|f| f.check == "set-model").collect();
+        assert_eq!(models.len(), 40 * 20);
+        for s in 0..40 {
+            let at: Vec<&str> = (models.iter())
+                .filter(|f| f.resource == key(&format!("set{s:02}"), ResType::SET))
+                .map(|f| f.at.as_str())
+                .collect();
+            let tiles: Vec<String> =
+                (0..60).step_by(3).map(|t| format!("[TILE{t}] Model")).collect();
+            assert_eq!(at, tiles, "tileset {s}");
+        }
+        assert_eq!(f.iter().filter(|f| f.check == "mdl-read").count(), 40 * 5);
+        for _ in 0..3 {
+            assert_eq!(examine(&Module::new(), &rm, TalkTables::default()), f);
+        }
     }
 
     /// A module kept as a folder: its table with a description beside it
