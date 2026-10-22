@@ -54,11 +54,12 @@ pub enum Check {
     TwoDaRef,
     TwoDaDescribed,
     ObjectRow,
+    PcFaction,
     AreaVariables,
 }
 
 impl Check {
-    pub const ALL: [Check; 22] = [
+    pub const ALL: [Check; 23] = [
         Check::CustomTlk,
         Check::ErfSize,
         Check::SetRead,
@@ -80,6 +81,7 @@ impl Check {
         Check::TwoDaRef,
         Check::TwoDaDescribed,
         Check::ObjectRow,
+        Check::PcFaction,
         Check::AreaVariables,
     ];
 
@@ -106,6 +108,7 @@ impl Check {
             Check::TwoDaRef => "2da-ref",
             Check::TwoDaDescribed => "2da-described",
             Check::ObjectRow => "object-row",
+            Check::PcFaction => "pc-faction",
             Check::AreaVariables => "area-variables",
         }
     }
@@ -142,6 +145,7 @@ impl Check {
                 "a table of the module's that has a description (name.2da.toml) holds what it says"
             }
             Check::ObjectRow => "objects use 2DA rows that exist and have what they need",
+            Check::PcFaction => "no object belongs to the PC faction, the players' alone",
             Check::AreaVariables => "an area's variables are in its GIT, where the game reads them",
         }
     }
@@ -166,7 +170,7 @@ impl Check {
             | Check::TwoDaStrRef
             | Check::TwoDaRef
             | Check::TwoDaDescribed => Group::Tables,
-            Check::ObjectRow | Check::AreaVariables => Group::Objects,
+            Check::ObjectRow | Check::PcFaction | Check::AreaVariables => Group::Objects,
             Check::CustomTlk | Check::ErfSize => Group::Module,
         }
     }
@@ -378,6 +382,7 @@ pub fn examine(module: &Module, resman: &ResMan, tlk: TalkTables) -> Vec<Finding
         }
     }
     objects(&mut d, module);
+    pc_faction(&mut d, module);
     area_variables(&mut d, module);
     described_tables(&mut d, module);
     custom_tlk(&mut d, module);
@@ -1202,6 +1207,71 @@ fn objects(d: &mut Doctor, module: &Module) {
     }
 }
 
+/// Creatures, placeables, doors and encounters (blueprints and placed) of
+/// faction 0, the PC faction: the players' alone (Jasperre's report). The
+/// game puts a creature of it in Hostile as it loads; a placeable or door
+/// keeps it, and creatures regard it as they regard players
+/// (`engine_factions.rs`). Triggers are left out (the owner's decision):
+/// Aurora writes 0 for a trigger whose blueprint has no faction, so the
+/// warning would fall on ordinary triggers. A field the object lacks is
+/// not reported.
+fn pc_faction(d: &mut Doctor, module: &Module) {
+    use mg_rules::ObjectKind;
+    let of_pc = |kind: ObjectKind, s: &Struct| -> Option<&'static str> {
+        if kind == ObjectKind::Trigger {
+            return None;
+        }
+        let field = kind.faction_field()?;
+        (s.integer(field) == Some(mg_rules::objects::PC_FACTION)).then_some(field)
+    };
+    let mut keys: Vec<ResKey> = module
+        .keys()
+        .filter(|k| {
+            matches!(
+                k.restype,
+                ResType::UTC | ResType::UTP | ResType::UTD | ResType::UTE | ResType::GIT
+            )
+        })
+        .copied()
+        .collect();
+    keys.sort();
+    for key in keys {
+        let Some(Ok(gff)) = module.gff(&key) else { continue };
+        let mut found = Vec::new();
+        if key.restype == ResType::GIT {
+            for f in &gff.root.fields {
+                let label = f.label.to_string_lossy();
+                let (Value::List(objects), Some(kind)) = (&f.value, ObjectKind::from_list(&label))
+                else {
+                    continue;
+                };
+                for (i, s) in objects.iter().enumerate() {
+                    if let Some(field) = of_pc(kind, s) {
+                        found.push((kind, format!("/{label}[{i}]/{field}")));
+                    }
+                }
+            }
+        } else if let Some(kind) = ObjectKind::from_restype(key.restype)
+            && let Some(field) = of_pc(kind, &gff.root)
+        {
+            found.push((kind, format!("/{field}")));
+        }
+        for (kind, path) in found {
+            let place = crate::rename::describe(key, Some(&gff), &path);
+            let what = match kind {
+                ObjectKind::Creature => "the game puts a creature of it in Hostile",
+                ObjectKind::Encounter => "an encounter's own faction",
+                _ => "creatures regard it as they regard players",
+            };
+            let message = format!(
+                "of the PC faction (0), which is the players' alone ({what}): give it another \
+                 faction"
+            );
+            d.push(Severity::Warning, Check::PcFaction, "module", key, place, message);
+        }
+    }
+}
+
 /// Areas with variables in their ARE: the game reads an area's from its
 /// GIT's root and none from the ARE (`engine_area_variables`), where
 /// Moonglow wrote them before 1.34.3, so a script read 0 for them.
@@ -1675,5 +1745,42 @@ endmodelgeom fx\ndonemodel fx\n";
             checks(&f),
             [("mtr-name", "texture0".into()), ("object-row", "box.utp › Appearance".into())]
         );
+    }
+
+    /// An object of the PC faction is warned of, blueprint or placed; one
+    /// of another faction, with no faction field, or a trigger (Aurora
+    /// writes 0 for one whose blueprint has none), is not.
+    #[test]
+    fn objects_of_the_pc_faction_are_warned_of() {
+        let mut m = Module::new();
+        let mut utc = Gff::new(*b"UTC ");
+        utc.root.set("FactionID", Value::Word(0));
+        m.set_gff(key("guard", ResType::UTC), &utc).unwrap();
+        let mut utt = Gff::new(*b"UTT ");
+        utt.root.set("Faction", Value::Dword(0));
+        m.set_gff(key("trap", ResType::UTT), &utt).unwrap();
+        let mut git = Gff::new(*b"GIT ");
+        let placed = |field: &str, v: Value, tag: &str| {
+            let mut s = Struct::new(0);
+            s.set(field, v);
+            s.set("Tag", Value::String(tag.as_bytes().to_vec()));
+            s
+        };
+        git.root
+            .set("Placeable List", Value::List(vec![placed("Faction", Value::Dword(0), "BOX")]));
+        git.root.set(
+            "Door List",
+            Value::List(vec![placed("Faction", Value::Dword(2), "DOOR"), Struct::new(8)]),
+        );
+        git.root.set("TriggerList", Value::List(vec![placed("Faction", Value::Dword(0), "TRAP")]));
+        m.set_gff(key("area", ResType::GIT), &git).unwrap();
+        let f = examine(&m, &resman(&[]), TalkTables::default());
+        let found: Vec<_> = f.iter().filter(|f| f.check == "pc-faction").collect();
+        let at: Vec<&str> = found.iter().map(|f| f.at.as_str()).collect();
+        assert_eq!(at, ["area › placeable BOX › Faction", "guard.utc › FactionID"]);
+        assert!(found.iter().all(|f| f.severity == Severity::Warning));
+        assert!(found[0].message.contains("regard players"), "{found:?}");
+        assert!(found[1].message.contains("puts a creature of it in Hostile"), "{found:?}");
+        assert_eq!(Check::PcFaction.group(), Group::Objects);
     }
 }

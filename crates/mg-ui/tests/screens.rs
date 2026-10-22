@@ -724,6 +724,50 @@ fn blueprint_editors() {
     }
 }
 
+/// A placeable's Illuminated box (a brazier's, and a chest's, which has no
+/// light), and a creature's faction: of the PC faction, kept and named so,
+/// and the list opened without it.
+#[test]
+#[ignore]
+fn illumination_and_pc_faction() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    for (name, t, pc) in [
+        ("plc_brazier", ResType::UTP, false),
+        ("plc_chest1", ResType::UTP, false),
+        ("nw_bandit001", ResType::UTC, true),
+    ] {
+        let mut app = Moonglow::new(
+            Some(GameInstall::new(&root, None, "en")),
+            Box::new(NoDialogs::default()),
+        );
+        let game = app.game.as_deref().unwrap();
+        let mut data = game.resman.get_named(name, t).unwrap().into_owned();
+        if pc {
+            let mut g = mg_gff::Gff::read(&data).unwrap();
+            g.root.set("FactionID", mg_gff::Value::Word(0));
+            data = g.to_bytes().unwrap();
+        }
+        let mut m = mg_module::Module::new();
+        m.set(ResKey::parse(name, t).unwrap(), data);
+        let path = dir.join(format!("{name}-light.mod"));
+        m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+        app.open_module(&path);
+        let key = ResKey::parse(name, t).unwrap();
+        app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1000.0, 760.0))
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.state_mut().blueprint_pages.insert((key, GffPath::root()), "Advanced");
+        shoot(&mut h, &dir, &format!("{name}-advanced-light-faction"));
+        if pc {
+            h.get_by_value("PC (not for objects)").click();
+            shoot(&mut h, &dir, &format!("{name}-faction-list"));
+        }
+    }
+}
+
 /// An item's General page at several widths: its two columns side by
 /// side only where the first one's fields fit beside the second.
 #[test]

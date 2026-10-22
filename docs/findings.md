@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T20:39:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T00:47:21Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -848,6 +848,27 @@ Aurora has no page for them.
   item editor's Part Colors; `crates/mg-preview/src/creature.rs`.
 - **Wiki:** missing.
 
+### A placeable's illumination (`LightState`)
+
+`GetPlaceableIllumination` and `SetPlaceableIllumination` keep a placeable's
+light in a BYTE field, `LightState`, which the game reads when it loads the
+placeable: from a placed placeable's GIT entry and from a blueprint
+created by script. 0 is off, any other value on, and without the field
+(as every Aurora file is: Aurora neither shows nor writes it) the light is
+on. A placeable whose appearance has no light (placeables.2da `LightColor`
+empty) is never lit: the engine reports it off whatever the field says,
+and setting it on does nothing. No base-game blueprint has the field.
+
+- **Checked:** engine, `engine_light_state.rs` (a brazier, row 57, and a
+  chest, placed and created, with 0, 1, 2 and no field; the field's name
+  and type from `ObjectToJson`). Whether the client draws a placeable
+  loaded with 0 without its light was not looked at.
+- **Moonglow:** `crates/mg-rules/src/placeables.rs`; a placeable's
+  Advanced page, **Illuminated**. Source: Jasperre's report (October
+  2026).
+- **Wiki:** placeables.2da and Area Lighting say the light is controlled
+  with `SetPlaceableIllumination`; the field is missing.
+
 ### Conversation script parameters
 
 Entries and replies have `ActionParams`; links (and `StartingList` entries)
@@ -871,6 +892,30 @@ down.
 - **Checked:** engine, `engine_factions.rs`; Aurora, `aurora_factions.rs`.
 - **Moonglow:** `crates/mg-module/src/factions.rs`.
 - **Wiki:** missing (only BioWare's Faction PDF is linked).
+
+### Objects of the PC faction
+
+Faction 0, PC, is the players' (Jasperre: "an invalid faction ID" for
+anything else). A creature of it, placed or created by script, is put in
+faction 1, Hostile, as it loads: it is of one faction with a hostile
+creature (`GetFactionEqual`), a commoner regards it at 0, and it is
+saved with `FactionID` 1. A placeable, door or trigger keeps faction 0,
+belongs to no creature's faction, and creatures regard it as
+`repute.fac` has them regard the PC faction (a commoner at 50, a hostile
+creature at 0). No base-game blueprint and no object of the shipped
+modules has faction 0; Aurora writes it for a trigger whose blueprint has
+no `Faction`.
+
+- **Checked:** engine, `engine_factions.rs`
+  (`objects_of_the_pc_faction_in_the_engine`). How a player regards such
+  an object was not measured: no player joins a headless server.
+- **Moonglow:** the faction lists leave it out
+  (`blueprint/situated.rs`, the Store Wizard), and Verify warns of it
+  (`pc-faction`, `crates/mg-module/src/doctor.rs`), but not of a
+  trigger's: Aurora writes 0 for a trigger whose blueprint has none (the
+  owner's decision, 2026-10-21).
+- **Wiki:** missing ("repadjust.2da (and Reputation in general)" says a
+  PC is not in an NPC faction).
 
 ### Smaller layout facts
 

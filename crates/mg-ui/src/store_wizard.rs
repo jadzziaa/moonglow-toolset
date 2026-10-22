@@ -73,7 +73,10 @@ pub fn open(app: &mut Moonglow, area: ResRef, list: &'static str, creature: usiz
     let Ok(doc) = ws.doc(&git) else { return };
     let Some(c) = doc.root.list(list).and_then(|l| l.get(creature)) else { return };
     let faction = c.integer(faction_field(list)).unwrap_or(0).max(0) as u32;
-    let hostile = store_setup::hostile(factions.as_ref(), faction);
+    // (A creature of the PC faction is put in Hostile by the game:
+    // `engine_factions.rs`.)
+    let pc = list == "Creature List" && i64::from(faction) == mg_rules::objects::PC_FACTION;
+    let hostile = pc || store_setup::hostile(factions.as_ref(), faction);
     let module = &ws.module;
     app.store_wizard = Some(StoreWizard {
         area,
@@ -204,7 +207,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                         egui::ComboBox::from_id_salt("store-faction")
                             .selected_text(current)
                             .show_ui(ui, |ui| {
-                                for (i, name) in faction_names.iter().enumerate() {
+                                // (Not the PC faction: the players' alone.)
+                                for (i, name) in faction_names.iter().enumerate().skip(1) {
                                     ui.selectable_value(&mut w.faction, i as u32, name);
                                 }
                             });

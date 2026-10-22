@@ -98,13 +98,42 @@ pub(super) fn factions(f: &mut Form<'_>) -> Vec<Choice> {
             .collect(),
         _ => mg_module::factions::STANDARD.iter().map(|n| n.to_string()).collect(),
     };
-    names.into_iter().enumerate().map(|(row, text)| Choice { row, text }).collect()
+    object_factions(names)
 }
 
-/// A faction field.
+/// The factions an object may belong to, of the module's factions by row:
+/// all but the PC faction, the players' alone (Jasperre's report; the
+/// game puts a creature of it in Hostile: `mg_rules::objects::PC_FACTION`).
+pub(crate) fn object_factions(names: Vec<String>) -> Vec<Choice> {
+    let pc = mg_rules::objects::PC_FACTION as usize;
+    names
+        .into_iter()
+        .enumerate()
+        .filter(|(row, _)| *row != pc)
+        .map(|(row, text)| Choice { row, text })
+        .collect()
+}
+
+/// What a faction field shows for an object of the PC faction, which its
+/// file keeps until the builder picks another.
+pub(crate) const PC_FACTION_SHOWN: &str = "PC (not for objects)";
+
+/// A faction field: the module's factions but the PC faction.
 pub(super) fn faction(f: &mut Form<'_>, ui: &mut Ui, what: &str, label: &str) {
     let choices = factions(f);
-    f.choice(ui, what, label, &choices, FieldType::Dword);
+    f.mark_mixed(ui, label);
+    let current = f.int(label);
+    let mut list = crate::widgets::row_choice(f.id(label), &choices, current).width(220.0);
+    if current == mg_rules::objects::PC_FACTION {
+        list = list.shown(PC_FACTION_SHOWN).hover_text(
+            "Faction 0 is the players' own: the game puts a creature of it in Hostile, and \
+             creatures regard a placeable, door or trigger of it as they regard players. Pick \
+             another.",
+        );
+    }
+    if let Some(v) = list.show(ui) {
+        f.set_int(what, label, v, FieldType::Dword);
+    }
 }
 
 /// The Select Portrait window's state (Aurora's `TdlgPortrait`).
