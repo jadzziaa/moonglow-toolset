@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:24:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:26:30Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2365,8 +2365,8 @@ contribution itself states as not done or not checked.
   0.3 files written into a chosen folder, 2DAs and talk tables as
   values, and events, whose own gaps are below, under "Plugins writing
   into a folder" and "Tables for plugins"; 0.4 what is selected and
-  open, commands in right-click menus, fixes for findings, and a
-  plugin's own tests):
+  open, commands in right-click menus, fixes for findings, a plugin's
+  own tests, settings, and a project's own plugins):
   - **A builder's terrain tool (NWN Mapper) as the measure:** it sculpts
     a free height field, paints texture layers and a walkmesh, bakes
     placeables and a lightmap in, and writes a tileset's group (a model
@@ -2394,12 +2394,46 @@ contribution itself states as not done or not checked.
     File installed; a folder copied in by hand is deleted by hand. (M)
   - **Archives of several plugins** are refused: one plugin to an
     archive. (S)
-  - **A project's plugins:** `plugins/` beside a nasher project's
-    `nasher.cfg`, with a prompt before they run, so that a team shares
-    its checks through git. `mg verify --plugins DIR` covers a build
-    pipeline meanwhile. (M)
+  - **A project's own plugins** (API 0.4, the Domains of Dread's
+    builder proposal A2: `plugins/` of a project, or `[plugins] folder`,
+    run once the builder allows each, asked when the project is opened,
+    the answer kept in `.moonglow/user.toml` by a SHA-256 digest of the
+    plugin's files, which it runs from; `mg verify` as allowed or with
+    `--allow-project-plugins`; `mg plugin list --project`). Not done:
+    the question comes when the project is opened (and at Reload), not
+    when its plugins' folder changes while it is open (the folder is not
+    watched; until then the plugins run as they were read, which is what
+    was allowed); a digest says a plugin is the one allowed, not who
+    wrote it (no signatures); a no holds for the plugin's id whatever it
+    becomes, and there is no Allow All; `mg` has no command to allow one
+    (the window, or the user's file by hand), and `mg plugin run` runs a
+    plugin's folder it is given whether allowed or not (it is named on
+    purpose); a project's plugin and one installed of its id share their
+    settings of scope `user`; what a project's plugin's events were
+    allowed (a folder, a yes) is kept by its digest, so a changed one
+    asks again; a module kept in one file has no project, so none. The
+    question and the Plugins window were driven through the UI harness
+    and looked at as rendered pictures (one plugin asked about), not
+    used on a desktop. (S each)
+  - **A plugin's settings** (API 0.4, A5: `[setting]`, `ctx.settings`,
+    `ctx.settings:set`, the settings' form, scopes `user`, `project`
+    and `user-project`). Not done: five kinds only (no number with a
+    fraction, list, color or pattern a text is held to); a `path` is
+    text, the plugin reads no file by it (it still asks with
+    `ctx.ui:open_file`), and the form's Choose… picks a file, not a
+    folder (typed); what the form saves and what a job sets is not part
+    of Undo (files outside the module), and a team value saved writes
+    the project's `moonglow.toml`, committed with it, without asking;
+    what a job set is kept when the job did not fail, even if its edits
+    then do not apply; `mg` keeps no settings of scope `user` and reads
+    none of Moonglow's (`mg plugin run --setting` for one run; `mg
+    verify` takes the project's files and the defaults); a value kept of
+    the wrong kind, or of a setting no plugin declares, is said when the
+    project is opened and left there, and nothing tidies it. Driven
+    through the UI harness, with a rendered picture of the form; not
+    used on a desktop. (S each)
   - **More kinds of things to add:** exporters and importers, wizards,
-    settings a plugin keeps, panels. (L)
+    panels. (L)
   - **Commands on what is selected** (API 0.4, the Domains of Dread's
     builder proposal A1: `ctx.selection`, `ctx.open`, a command's
     `for`). Not done: `for` names a kind for its placed objects and its
@@ -2480,11 +2514,11 @@ contribution itself states as not done or not checked.
   replaced file is kept; there is one event for a save, with the
   resources changed since the last, not one for each resource, and none
   for a script's own Save; what an event was allowed is kept between
-  runs by plugin and version (the settings' `plugin_grants`), but a
-  plugin still keeps no settings of its own; `mg plugin run --event`
-  runs an event by hand, and `mg watch` and `mg build` fire none; an
-  event's handler that asks a form asks it at every save. (S each;
-  settings M)
+  runs by plugin and version (the settings' `plugin_grants`; a
+  plugin's own settings came with API 0.4, above); `mg plugin run
+  --event` runs an event by hand, and `mg watch` and `mg build` fire
+  none; an event's handler that asks a form asks it at every save. (S
+  each)
 - **Tables for plugins** (`mg.twoda`, `mg.tlk`, plugin API 0.3): a 2DA
   and a talk table as values to change and write; `mg.twoda.kinds`
   says what Verify Module's tables say (ten columns that hold a

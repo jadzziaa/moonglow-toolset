@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T08:31:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:26:30Z }
 ---
 
 # Modules
@@ -389,6 +389,12 @@ keeper_variable = "tdod_store"      # the shopkeeper's variable: the store's tag
 
 [resrefs]
 pattern = "{code}_{name}"           # a new ResRef, by each builder's code
+
+[plugins]
+folder = "plugins"                  # the project's own plugins (as without it)
+
+[plugins."tdod.rules"]              # a plugin's settings the team shares
+claims = "data/claims.toml"
 ```
 
 Names are matched by globs, whatever their case: `*` any characters,
@@ -406,6 +412,8 @@ Names are matched by globs, whatever their case: `*` any characters,
 | `[store] blueprint` | the store blueprint chosen at first | none chosen |
 | `[store] keeper_variable` | a String variable set on the shopkeeper to the store's tag | none |
 | `[resrefs] pattern` | how a builder's code goes into the ResRefs Moonglow proposes: `{code}` and `{name}` once each, the rest letters, digits and `_` (`"{name}_{code}"`, `"t{code}{name}"`) | `"{code}_{name}"`, where a builder has a code |
+| `[plugins] folder` | the folder of the project's own plugins, from the project's root, inside it ([A project's own plugins](15-plugins.md#a-projects-own-plugins)) | `plugins` |
+| `[plugins."<plugin id>"]` | the values of a plugin's settings of scope `project`, by setting (the id in quotes: it has dots in it). The Plugins window's Settings… and the plugin itself write them here, the rest of the file as written | the settings' defaults |
 
 See [Make Placeables Static](04-areas.md#static-placeables-many-at-once),
 [Duplicate tags](04-areas.md#duplicate-tags) and [Setup
@@ -422,8 +430,23 @@ folder, never in the file the team shares. Moonglow makes the folder
 with a `.gitignore` in it holding `*`, so that it stays out of version
 control without a line in the project's own (the log warns of a
 `.moonglow` made by hand without one). It holds `[builder] code`, your
-builder code (below). A team's section put there, or `[builder]` put in
-the team's file, is said and left out.
+builder code (below), the values of plugins' settings of scope
+`user-project` (`[plugins."<plugin id>"]`, as in the team's file), and
+what you answered when asked to let the project's plugins run
+(`[project_plugins]`, which Moonglow writes: each plugin with its
+version and a digest of its files). A team's section put there, or
+`[builder]` or `[project_plugins]` put in the team's file, is said and
+left out.
+
+```toml
+# .moonglow/user.toml
+[plugins."tdod.rules"]
+code = "ab"
+
+[project_plugins]
+"tdod.rules" = { allow = true, version = "1.2.0", digest = "sha256:9f2c…" }
+"x.other" = { allow = false }
+```
 
 ### Your builder code
 

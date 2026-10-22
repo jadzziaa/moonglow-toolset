@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Plugin API reference
-description: Reference of the plugin API - mg, findings and their fixes (ctx.fix), ctx.selection and ctx.open, ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, Luau, limits and what the API doesn't have yet.
+description: Reference of the plugin API - mg, findings and their fixes (ctx.fix), ctx.selection and ctx.open, ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, ctx.settings, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:14:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:26:29Z }
 ---
 
 # Plugin API reference
@@ -395,6 +395,23 @@ given (the haks go to `--hak-dir`, or the user folder's `hak`). With
 | `ctx.plugin.name` | Its name. |
 | `ctx.plugin.version` | Its version. |
 
+## `ctx.settings`
+
+The plugin's settings, as its manifest declares them (`[setting]`; since
+API 0.4): their values as Moonglow keeps them, by each one's scope, or
+their defaults ([Writing plugins](16-writing-plugins.md#settings)).
+
+| | |
+| --- | --- |
+| `ctx.settings.<id>` | A setting's value: text (a `string`, a `choice`, a `path`), a whole number (an `int`) or true or false (a `bool`). An id the manifest doesn't declare is an error. |
+| `for id, value in ctx.settings` | Each setting and its value, in the manifest's order. |
+| `ctx.settings:set(id, value)` | Sets one: `value` of its kind, within its limits or among its choices (else an error), or nil for its default. The job reads it back at once; Moonglow keeps it where its scope says when the job is done, and not if the job fails. A setting of scope `project` or `user-project` can't be set without a project (a module kept in one file has none). Not in a check, nor in the console. |
+
+`ctx.settings.x = …` is an error: a setting is set with `set`. With `mg
+plugin run`, a setting of scope `user` has its default (or `--setting
+ID=VALUE`), and what the plugin sets of that scope is not kept; those of
+the project's scopes are read from, and kept in, the project's files.
+
 ## Luau
 
 | | |
@@ -414,9 +431,10 @@ reached only through what the user chooses (`ctx.ui:open_file`,
 
 - A job has 256 MB of memory; past that it fails.
 - A job is stopped when the user cancels; no `pcall` catches that.
-- Nothing is kept between jobs. A plugin runs when its command is
-  chosen, when its check runs with Verify Module, and by itself only on
-  the events its manifest declares (`mg.on`).
+- Nothing is kept between jobs but the plugin's settings
+  (`ctx.settings:set`). A plugin runs when its command is chosen, when
+  its check runs with Verify Module, and by itself only on the events its
+  manifest declares (`mg.on`).
 - Text must fit the module's codepage (Windows-1252, unless a hak of the
   module has an `encoding.2da`).
 
@@ -426,6 +444,6 @@ Plugins can't yet react to other events than a module opened or saved
 (a single resource saved, the selection changed, an area opened), add
 panels or their own editors, draw in the area view, change what is
 selected, write files other than haks and those of a folder the user
-chose, or keep settings. These are planned for later versions of the API; what
+chose, or read a file a setting's path names. These are planned for later versions of the API; what
 you'd use them for is welcome on the
 [issue tracker](https://github.com/jadzziaa/moonglow-toolset/issues).

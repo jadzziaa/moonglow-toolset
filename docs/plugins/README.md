@@ -3,7 +3,7 @@ type: Guide
 title: 'Plugins: for authors'
 description: Starting point for plugin authors - the example plugins, the editor type file, the API changes, where the manual covers plugins, and the mg plugin commands for checking, testing, running and packing one.
 tags: [plugins, authors, examples]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:14:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:26:30Z }
 ---
 
 # Plugins: for authors
@@ -24,6 +24,12 @@ What a plugin author needs besides the manual:
     a command that applies it, sharing the rule from a second file; and
     tests of its own (`tests/tags.toml` on a fixture module, run by `mg
     plugin test`).
+  - [`builder-tags`](examples/builder-tags): settings (API 0.4): a
+    team's prefix kept in the project's `moonglow.toml`, the builder's
+    code in their own part of the project, and one setting of the
+    user's, read by a check (with a fix for each finding) and two
+    commands, one of which sets the builder's code; tests of its own on
+    a fixture project whose `moonglow.toml` gives the prefix.
   - [`store-markup`](examples/store-markup): a batch edit with a
     form and progress.
   - [`set-local`](examples/set-local): commands in the right-click
@@ -56,6 +62,7 @@ File… takes:
 ```sh
 mg plugin check docs/plugins/examples
 mg plugin test docs/plugins/examples/tag-conventions
+mg plugin test docs/plugins/examples/builder-tags
 mg plugin run mymodule.mod docs/plugins/examples/tag-conventions fix-tags --dry-run
 mg plugin pack docs/plugins/examples/tag-conventions
 ```
