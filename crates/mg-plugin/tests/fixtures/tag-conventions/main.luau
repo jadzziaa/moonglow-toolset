@@ -45,10 +45,14 @@ mg.check("tag-case", function(ctx)
     for _, name in ctx.module:resources("utc") do
         local tag = ctx.module:gff(name).Tag
         if tag ~= rules.wanted(tag) then
+            -- Its fix: recorded here, made when the user asks.
+            local fix = ctx.fix(`Upper-case this tag`)
+            fix:set(name, "Tag", rules.wanted(tag))
             table.insert(findings, {
                 resource = name,
                 at = "Tag",
                 message = `tag "{tag}" is not upper case`,
+                fix = fix,
             })
         end
     end

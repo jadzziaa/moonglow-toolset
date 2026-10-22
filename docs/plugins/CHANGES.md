@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T08:05:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:21:55Z }
 ---
 
 # Plugin API changes
@@ -17,8 +17,9 @@ to change.
 ## 0.4
 
 Not yet in a release. Only additions: a
-plugin written for 0.1, 0.2 or 0.3 runs as it is (its `ctx` has the two
-new fields too, and nothing it had changed). A plugin that uses what is
+plugin written for 0.1, 0.2 or 0.3 runs as it is (its `ctx` has the new
+fields too, `selection` and `open`, and a check's `fix`; nothing it had
+changed, but for a finding's `fix`, below). A plugin that uses what is
 new says `api = "0.4"`; a manifest that gives a command a `for` and says
 an earlier API is refused, with the reason.
 
@@ -38,7 +39,20 @@ an earlier API is refused, with the reason.
 - `mg plugin run` takes `--select` (as often as needed: `guard.utc`,
   `tavern.are`, `tavern.git/Placeable List[3]`) and `--open`, and
   `mg plugin list` says what each command is for.
-- From the Domains of Dread's builder proposal (A1).
+- Quick fixes: a finding's `fix`, made in a check with
+  `ctx.fix(label)`, whose methods are `ctx.edit`'s and record edits
+  without making them. Verify Module shows a button with the label
+  beside the finding, and makes the edits only when it is clicked, as
+  one step of Undo; `mg verify --fix CHECK` makes a check's fixes, and
+  `mg verify --json` gives each finding's fix as an edit file. A
+  finding's `fix` that is not one made with `ctx.fix` is now an error
+  (before, a key the finding did not have was passed over).
+- A plugin's own tests: files `tests/*.toml` in its folder, each naming
+  a fixture module and the checks, commands and events to run on it,
+  with what is to come of each; `mg plugin test DIR` runs them, with an
+  exit and a summary for a build pipeline. `mg plugin pack` leaves
+  `tests/` out of the archive. The `tag-conventions` example has both.
+- From the Domains of Dread's builder proposal (A1, A3, A8).
 
 ## 0.3
 

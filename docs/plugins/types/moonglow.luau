@@ -22,6 +22,8 @@ export type Finding = {
     at: string?,
     message: string,
     severity: ("warning" | "error")?,
+    -- Its fix, made with ctx.fix (API 0.4).
+    fix: Fix?,
 }
 
 export type FormField = {
@@ -81,6 +83,20 @@ export type Edit = {
     write_bytes: (self: Edit, name: string, bytes: string) -> (),
     write_gff: (self: Edit, name: string, document: Struct) -> (),
     delete: (self: Edit, name: string) -> (),
+}
+
+-- A finding's fix (ctx.fix, in a check; API 0.4): ctx.edit's methods,
+-- which record its edits and make none. The user makes them.
+export type Fix = {
+    label: string,
+    set: (self: Fix, name: string, field: string, value: any, type: string?) -> (),
+    remove: (self: Fix, name: string, field: string) -> (),
+    insert: (self: Fix, name: string, list: string, item: Struct, index: number?) -> number,
+    remove_item: (self: Fix, name: string, item: string) -> (),
+    write: (self: Fix, name: string, text: string) -> (),
+    write_bytes: (self: Fix, name: string, bytes: string) -> (),
+    write_gff: (self: Fix, name: string, document: Struct) -> (),
+    delete: (self: Fix, name: string) -> (),
 }
 
 export type Log = {
@@ -197,6 +213,8 @@ export type Context = {
     plugin: { id: string, name: string, version: string },
     -- In an event's handler (mg.on): what happened.
     event: { name: string, resources: { string } }?,
+    -- In a check's handler: a fix to give a finding (API 0.4).
+    fix: ((label: string) -> Fix)?,
 }
 
 local mg = {}

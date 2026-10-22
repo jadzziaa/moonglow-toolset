@@ -137,8 +137,15 @@ fn tag_conventions_fixes_what_its_check_finds() {
     let host = Rc::new(TestHost::default());
     let found = run_check(&plugin, "tag-case", input(&module()), host.clone()).unwrap();
     assert_eq!(found.len(), 1);
-    assert_eq!(found[0].resource, key("guard.utc"));
-    assert_eq!(found[0].message, "tag \"gate_guard\" is not upper case");
+    assert_eq!(found[0].finding.resource, key("guard.utc"));
+    assert_eq!(found[0].finding.message, "tag \"gate_guard\" is not upper case");
+    // Its fix: that tag alone, as one step.
+    let fix = found[0].fix.as_ref().unwrap();
+    let mut ws = Workspace::new(module());
+    ws.apply(fix.command()).unwrap();
+    let guard = ws.doc(&key("guard.utc")).unwrap();
+    assert_eq!(guard.root.get("Tag"), Some(&Value::String(b"GATE_GUARD".to_vec())));
+    assert_eq!(ws.can_undo(), Some("Upper-case this tag"));
 
     let outcome = run_command(&plugin, "fix-tags", input(&module()), host.clone()).unwrap();
     assert_eq!(outcome.label, "Upper-case creature tags");
@@ -149,6 +156,25 @@ fn tag_conventions_fixes_what_its_check_finds() {
     let fixed = ws.module.gff(&key("guard.utc")).unwrap().unwrap();
     assert_eq!(fixed.root.get("Tag"), Some(&Value::String(b"GATE_GUARD".to_vec())));
     assert!(run_check(&plugin, "tag-case", input(&ws.module), host).unwrap().is_empty());
+}
+
+/// The example's own tests (`mg plugin test`) pass on its fixture, and the
+/// manual shows their file and the check's fix as they are.
+#[test]
+fn tag_conventions_passes_its_own_tests() {
+    let plugin = example("tag-conventions");
+    let results = mg_plugin::run_tests(&plugin, None, &|_| None);
+    assert_eq!(results.len(), 3, "{results:#?}");
+    assert!(results.iter().all(|r| r.passed()), "{results:#?}");
+
+    let guide = std::fs::read_to_string(docs().join("manual/16-writing-plugins.md")).unwrap();
+    let tests = std::fs::read_to_string(plugin.dir.join("tests/tags.toml")).unwrap();
+    for line in tests.lines().filter(|l| !l.trim().is_empty() && !l.starts_with('#')) {
+        assert!(guide.contains(line), "the manual lacks tests/tags.toml's line {line:?}");
+    }
+    for line in ["local fix = ctx.fix(\"Upper-case this tag\")", "fix = fix,"] {
+        assert!(guide.contains(line), "the manual lacks main.luau's line {line:?}");
+    }
 }
 
 #[test]
@@ -374,6 +400,7 @@ fn the_type_file_has_the_whole_api() {
                     "folder" => "Folder",
                     "image" => "Image",
                     "selected" => "Selected",
+                    "fix" => "Fix",
                     "ctx" | "ctx.plugin" => "Context",
                     other => panic!("no type for {other}"),
                 };

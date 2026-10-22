@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Writing plugins
-description: Writing plugins - a first plugin, how a plugin runs, the manifest, reading and editing the module, commands on what is selected, the game's data, talking to the user, files and haks outside the module, areas and terrain, checks, several files, trying and testing, editor types and versions.
+description: Writing plugins - a first plugin, how a plugin runs, the manifest, reading and editing the module, commands on what is selected, the game's data, talking to the user, files and haks outside the module, areas and terrain, checks and the fixes of their findings, several files, trying and testing (a plugin's own tests, mg plugin test), editor types and versions.
 tags: [manual, plugins, luau]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T08:05:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:14:30Z }
 ---
 
 # Writing plugins
@@ -532,6 +532,53 @@ A rule that both a check and a command need (the check finds, the command
 fixes) belongs in a function both call: the `tag-conventions` example
 does that.
 
+### A fix for a finding
+
+A finding may carry a **fix**: edits that put it right, offered beside
+the finding in Verify Module's report as a button, and made only when
+the user clicks it (since API 0.4). `ctx.fix(label)` makes one: its
+`label` is what the button says, and it has `ctx.edit`'s methods
+(`set`, `remove`, `insert`, `remove_item`, `write`…), which record the
+edits and make none. The `tag-conventions` example gives each finding
+the fix of its own tag:
+
+```lua
+mg.check("tag-case", function(ctx)
+    local findings = {}
+    for _, name in ctx.module:resources("utc") do
+        local tag = ctx.module:gff(name).Tag
+        if tag ~= rules.wanted(tag) then
+            local fix = ctx.fix("Upper-case this tag")
+            fix:set(name, "Tag", rules.wanted(tag))
+            table.insert(findings, {
+                resource = name,
+                at = "Tag",
+                message = `tag "{tag}" is not upper case`,
+                fix = fix,
+            })
+        end
+    end
+    return findings
+end)
+```
+
+- A fix starts from the module as the check reads it, and the check goes
+  on reading it so: what one fix records, neither the check nor another
+  fix sees. Within a fix, an edit sees the ones before it (an item
+  inserted, then a field of it set).
+- A fix that records no edits is none: the finding has no button.
+- The fix is made as one step of Undo, named by its label, and only
+  while what it changes is as Verify found it: after other changes to
+  those resources, the user is told to verify again. Fixes of one Verify
+  that only set fields can be made one after another in one resource.
+- Give the label words that say what it does to this finding ("Retag
+  this store", "Set tdod_lit"). For a fix that needs a choice, offer a
+  command instead: a fix asks nothing.
+- On the command line, `mg verify --fix CHECK` makes a check's fixes
+  (`--dry-run` says what it would make), and `mg verify --json` gives
+  each finding's fix as an edit file
+  ([Command-line tools](11-command-line.md)).
+
 ## More than one file
 
 `require("rules")` runs `rules.luau` of the plugin's folder, once, and
@@ -567,10 +614,107 @@ return rules
   command would make, as an edit file
   ([Command-line tools](11-command-line.md)), and changes nothing: run it
   on a copy of a module and compare with what you expect.
+- **`mg plugin test DIR`** runs the plugin's own tests, below.
 - While you work on a plugin in the plugins folder, Install from File
   leaves its folder alone: it only ever replaces what it installed.
 
 Try a new plugin on a copy of your module first.
+
+### A plugin's own tests
+
+A plugin's tests are files `tests/*.toml` in its folder (plugin API
+0.4). Each names a **fixture**, a small module made for the tests, and
+lists what to run on it and what is to come of it.
+`mg plugin test DIR` runs them all: a line a test (`ok`, or `FAIL` and
+what was not as wanted), a summary, and an exit that fails if one test
+does (or there are none), so that a build pipeline can run it. The
+`tag-conventions` example has one file, `tests/tags.toml`:
+
+```toml
+module = "module"
+
+[[test]]
+name = "a lower-case tag is found, with its fix"
+check = "tag-case"
+[[test.finding]]
+resource = "guard.utc"
+at = "Tag"
+message = 'tag "gate_guard" is not upper case'
+severity = "warning"
+fix = "Upper-case this tag"
+
+[[test]]
+name = "the fix upper-cases that tag, and the check finds no more"
+check = "tag-case"
+fix = "Upper-case this tag"
+edits = 1
+left = 0
+[[test.field]]
+resource = "guard.utc"
+field = "Tag"
+value = "GATE_GUARD"
+
+[[test]]
+name = "the command upper-cases every tag, in one step"
+command = "fix-tags"
+log = ["1 creature tags changed"]
+resources = ["guard.utc"]
+[[test.field]]
+resource = "guard.utc"
+field = "Tag"
+value = "GATE_GUARD"
+[[test.field]]
+resource = "captain.utc"
+field = "Tag"
+value = "CAPTAIN"
+```
+
+```text
+$ mg plugin test docs/plugins/examples/tag-conventions
+ok	tags.toml › a lower-case tag is found, with its fix
+ok	tags.toml › the fix upper-cases that tag, and the check finds no more
+ok	tags.toml › the command upper-cases every tag, in one step
+example.tag-conventions: 3 tests, 3 passed, 0 failed
+```
+
+`module` is the fixture, from the test file's folder: a module folder, a
+`.mod`, or a nasher project. The example's is a nasher project
+(`tests/module/`, its resources as JSON in `src/`), which reads well in
+a review; `mg init` makes one from a module. A test may name its own
+`module`, and `mg plugin test DIR --module FIXTURE` runs every test on
+another. The fixture is read, never written: each test starts from it as
+it is on disk.
+
+A test (`[[test]]`) has a `name` and runs one thing:
+
+| Key | |
+| --- | --- |
+| `check`, `command` or `event` | The id of what is run, as the manifest declares it. |
+| `select`, `open` | What a command is run on and what is open (`ctx.selection`, `ctx.open`), named as `mg plugin run --select` names them: `guard.utc`, `tavern.are`, `tavern.git/Placeable List[0]`. |
+| `answers` | A form's values by field id (`answers = { sell = 200 }`); the other fields take their defaults. |
+| `yes` | The answer to `ctx.ui:confirm` (else no). |
+| `files` | The files and folders the plugin gets where it asks for one, in order, from the test file's folder. |
+| `changed` | An event's resources changed (a module saved); none: all of the fixture's. |
+
+and says what is to come of it (each key may be left out):
+
+| Key | |
+| --- | --- |
+| `[[test.finding]]` | The check's findings, all of them, in order: each with `resource`, and as wanted `message` (the whole of it), `at`, `severity` and `fix` (its fix's label; `""` for none). |
+| `findings` | How many findings, where their list is not given. |
+| `fix` | Make the fixes of this label (as Verify's buttons would), then hold the module to the keys below. |
+| `left` | How many findings the check makes once the fixes are made. |
+| `[[test.field]]` | A field after the edits: `resource`, `field` (its path, as `ctx.edit` takes it) and `value` (text, a number, a localized string's English text), or `absent = true`. |
+| `edits`, `resources` | How many edits there were, and which resources they change. |
+| `log` | Lines the log must have: each is part of one. |
+| `error` | The job fails, saying this (part of what it says). |
+
+The plugin runs with the game's data where `mg` finds a game (as `mg
+plugin run` does) and without it elsewhere (`ctx.game` is then empty):
+a pipeline with no game runs the tests of a plugin that reads only the
+module. Haks and folders the plugin writes are not written, nor held to
+anything yet. `mg plugin pack` leaves the `tests` folder out of the
+archive: the tests and their fixtures are the author's.
 
 ## Types in your editor
 

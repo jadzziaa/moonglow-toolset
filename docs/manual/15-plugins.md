@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Plugins
-description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, commands, checks, the console, the command line and when something goes wrong.
+description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, commands, checks and the fixes beside their findings, the console, the command line and when something goes wrong.
 tags: [manual, plugins]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T08:05:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:14:30Z }
 ---
 
 # Plugins
@@ -157,6 +157,16 @@ Moonglow's own. Their findings are in the log with the rest, as warnings
 or errors, each naming the resource and the field. A check that fails is
 reported as an error too, and the other checks still run.
 
+A finding may come with a **fix**: a button beside it in the log, which
+says what it does ("Upper-case this tag"). Nothing changes until you
+click it; then its edits go in as one step, which **Undo** takes back,
+and the button says **Fixed**. A fix is worked out when Verify runs: if
+what it would change has changed since (by hand, or by another fix that
+did more than set fields), it is refused, and the log says to verify
+again. Moonglow's own checks have fixes where the right change is plain
+(a tag that is to be unique: the others retagged; an area's variables
+in its ARE: moved to its GIT).
+
 ## The console
 
 Manage Plugins has a **Console**: a place to try the plugin API on the
@@ -189,12 +199,17 @@ mg plugin run mymodule.mod plugins/tag-conventions fix-tags --dry-run
 mg plugin run mymodule.mod plugins/my-plugin on-save --event --changed guard.utc
 mg plugin run mymodule.mod plugins/set-local set-local --select "tavern.git/Placeable List[3]" --answer name=role --answer value=workbench
 mg verify mymodule.mod --plugins plugins/tag-conventions
+mg verify mymodule.mod --plugins plugins/tag-conventions --fix example.tag-conventions/tag-case
+mg plugin test plugins/tag-conventions
 mg plugin install tag-conventions-1.0.0.zip plugins
 mg plugin remove example.tag-conventions plugins
 ```
 
 `mg` has no list of enabled plugins: it runs the plugin you name. It
 applies a command's edits as given (an item's cost is not recomputed).
+`mg verify` makes a finding's fix only when `--fix` names its check, and
+`mg plugin test` runs a plugin's own tests
+([Writing plugins](16-writing-plugins.md#a-plugins-own-tests)).
 
 ## When something goes wrong
 

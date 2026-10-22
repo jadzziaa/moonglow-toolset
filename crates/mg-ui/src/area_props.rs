@@ -751,20 +751,11 @@ fn area_variables(f: &mut Form<'_>, ui: &mut Ui) {
         };
         lists.push((area, read(ResType::GIT, ws), read(ResType::ARE, ws)));
     }
-    let name = |s: &mg_gff::Struct| s.string("Name").map(<[u8]>::to_vec);
     // Each area's variables as they are once moved: the GIT's, then the
-    // ARE's it lacks.
+    // ARE's it lacks (as Verify's fix moves them).
     let moved: Vec<(ResRef, Vec<mg_gff::Struct>, bool)> = lists
         .into_iter()
-        .map(|(area, mut git, are)| {
-            let had = !are.is_empty();
-            for v in are {
-                if !git.iter().any(|g| name(g) == name(&v)) {
-                    git.push(v);
-                }
-            }
-            (area, git, had)
-        })
+        .map(|(area, git, are)| (area, mg_edit::fix::variables_moved(&git, &are), !are.is_empty()))
         .collect();
     let shown = &moved[0].1;
     let label = format!("Variables ({})…", shown.len());

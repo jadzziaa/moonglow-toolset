@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Build, verify and test
-description: Build Module, publishing to NWSync, long work, Verify Module, Test Module, reloading haks and 2DAs, and Area Statistics.
+description: Build Module, publishing to NWSync, long work, Verify Module and the fixes beside its findings, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T06:58:25Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:14:30Z }
 ---
 
 # Build, verify and test
@@ -73,6 +73,18 @@ untick its group in **Options › Verify**; the summary line says what
 was left out and how many problems it had. **Clear**, in the log's
 corner, empties the log before a second run.
 
+**Fixes.** A problem whose right change is plain has a button beside it
+in the log that says what it does: **Retag the other as …** for a tag
+the project wants unique, **Move the variables to the GIT** for an
+area's variables in its ARE, and whatever a plugin's check offers.
+Nothing changes until you click it; then the change goes in as one step,
+which **Undo** takes back, and the button says **Fixed**. A fix is
+worked out when Verify runs, on the module as it was then: if what it
+would change has changed since (by hand, or by another fix that did more
+than set fields), the log says so, and Verify run again offers it anew.
+Only the last Verify's fixes are offered, and Clear takes them away with
+the lines.
+
 **Missing resources** are things something names that exist nowhere.
 - **Errors:** scripts, conversations and areas named by areas, placed
   objects, conversations or the module, and scripts that were never
@@ -109,8 +121,8 @@ crash Aurora with an access violation that names nothing:
 | A hak's 2DA hiding another hak's longer copy | the rows past it are lost (an older copy?) |
 | A creature, placeable, door or item naming a 2DA row that doesn't exist or whose model is missing | Aurora's area view crashes on it; in the game it has no appearance, or the game crashes (a creature with a class that doesn't exist) |
 | A creature, placeable, door or encounter of the PC faction (a warning; not a trigger, which Aurora gives faction 0 when its blueprint has none) | the PC faction is the players' alone: the game puts such a creature in Hostile, and creatures regard the others as they regard players |
-| An area with variables in its ARE (as Moonglow wrote them before 1.34.3) | the game reads an area's variables from its GIT, so a script reads 0 for them; opening the area's Variables moves them |
-| A tag the [project file](03-modules.md#the-project-file-moonglowtoml) says must be unique (`[tags] unique`) on more than one area or placed object (a warning, `tag-unique`) | `GetObjectByTag` finds only one of them: a start waypoint copied and left behind keeps new characters there |
+| An area with variables in its ARE (as Moonglow wrote them before 1.34.3) | the game reads an area's variables from its GIT, so a script reads 0 for them; opening the area's Variables moves them, as does its fix |
+| A tag the [project file](03-modules.md#the-project-file-moonglowtoml) says must be unique (`[tags] unique`) on more than one area or placed object (a warning, `tag-unique`) | `GetObjectByTag` finds only one of them: a start waypoint copied and left behind keeps new characters there. Its fix gives the others tags of their own (`TAG_2`, `TAG_3`…; an area keeps its tag); what the scripts look for is yours to check |
 | A tile model with over 10,000 faces | can crash Aurora when painting |
 | A hak over 2 GiB with files starting past that mark | the game can't read those files and doesn't look for them in lower haks (a 2DA reads as empty, a script doesn't run); nor do Aurora and nwsync |
 
@@ -125,7 +137,7 @@ reported instead.
 
 The checks of enabled [plugins](15-plugins.md) run with these, and their
 findings are listed with the rest: a team's own rules (naming, required
-scripts) become part of Verify Module.
+scripts) become part of Verify Module, with the fixes they offer.
 
 `mg verify` does the same from a terminal, and can write its results as
 JSON for a build pipeline (`mg --json verify`; see [Command-line
@@ -134,6 +146,9 @@ check that found it (`set-model`, `2da-row`…); `mg checks` lists the
 checks and the group each is in, and `mg verify --skip GROUP` leaves a
 group out (`references`, `tilesets`, `models`, `2das`, `objects`,
 `module`, `plugins`; the JSON's `skipped` counts what it left out).
+A finding's `fix` in the JSON is the fix it offers, as an edit file `mg
+apply` takes; `mg verify --fix CHECK` makes the fixes of a check's
+findings and saves (`--dry-run`: only says which it would make).
 
 **Models kept as text.** A model in a hak, the override or the module
 that is text (ASCII, not compiled) is read as the game would read it

@@ -194,6 +194,9 @@ pub enum Action {
         command: String,
         selected: Vec<mg_plugin::Selected>,
     },
+    /// Makes the fix offered beside this line of the log (a finding of
+    /// Verify Module's), as one undoable command.
+    ApplyFix(usize),
     /// Opens a resource's editor, as a double click in the module tree
     /// does: a script in the external editor too, if Options say so.
     OpenResource(ResKey),
@@ -345,9 +348,38 @@ impl Level {
 #[derive(Debug, Clone, Default)]
 pub struct Log {
     pub entries: Vec<(Level, String)>,
+    /// The fixes the last Verify's findings offer, each beside its line.
+    pub fixes: Vec<OfferedFix>,
+    /// What those fixes were worked out on.
+    pub(crate) fix_guard: mg_edit::fix::Guard,
+}
+
+/// A fix offered beside a line of the log (a finding of Verify Module's):
+/// made only when its button is clicked, as one undoable command.
+#[derive(Debug, Clone)]
+pub struct OfferedFix {
+    /// The line's place in the log, and its text (a line that is not the
+    /// one it was offered beside has no button).
+    pub line: usize,
+    pub text: String,
+    pub fix: mg_edit::fix::Fix,
+    /// Made already.
+    pub made: bool,
 }
 
 impl Log {
+    /// Empties the log, and the fixes beside its lines go with them.
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.fixes.clear();
+    }
+
+    /// The fix offered beside line `line`, if one is.
+    pub fn fix_at(&self, line: usize) -> Option<&OfferedFix> {
+        let text = &self.entries.get(line)?.1;
+        self.fixes.iter().find(|f| f.line == line && f.text == *text)
+    }
+
     pub fn info(&mut self, s: impl Into<String>) {
         self.said(Level::Info, s.into());
     }
@@ -2093,8 +2125,33 @@ impl Moonglow {
             .auto_shrink([false, false])
             .min_scrolled_height(0.0)
             .show(ui, |ui| {
-                for (level, msg) in &self.log.entries {
-                    ui.label(egui::RichText::new(msg).color(level.color(ui)).monospace());
+                let mut clicked = None;
+                for (i, (level, msg)) in self.log.entries.iter().enumerate() {
+                    let text = egui::RichText::new(msg).color(level.color(ui)).monospace();
+                    // A finding's fix: a button beside it, made when
+                    // clicked (Verify Module).
+                    let Some(offer) = self.log.fix_at(i) else {
+                        ui.label(text);
+                        continue;
+                    };
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(text);
+                        if offer.made {
+                            ui.add_enabled(false, egui::Button::new("✔ Fixed").small())
+                                .on_disabled_hover_text(&offer.fix.label);
+                            return;
+                        }
+                        let button = ui.add(egui::Button::new(&offer.fix.label).small());
+                        let resources: Vec<String> =
+                            offer.fix.resources().iter().map(ToString::to_string).collect();
+                        let hint = format!("Changes {} (one step to undo)", resources.join(", "));
+                        if button.on_hover_text(hint).clicked() {
+                            clicked = Some(i);
+                        }
+                    });
+                }
+                if let Some(line) = clicked {
+                    self.actions.push(Action::ApplyFix(line));
                 }
             });
         // Its own button to fold it away, in its corner (GitHub issue 10:
@@ -2114,7 +2171,7 @@ impl Moonglow {
         clear
             .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Clear Log"));
         if clear.on_hover_text("Empty the log (View › Clear Log)").clicked() {
-            self.log.entries.clear();
+            self.log.clear();
         }
     }
 
@@ -2633,6 +2690,7 @@ impl Moonglow {
                     self.log.error(e.to_string());
                 }
             }
+            Action::ApplyFix(line) => self.apply_fix(line),
             Action::CheckTags { what, made } => tag_clash::check(self, &what, made, false),
             Action::NewNui(name) => nui_view::create(self, &name),
             Action::GenerateNui { name, export } => nui_view::generate(self, &name, export),
@@ -3916,6 +3974,30 @@ impl Moonglow {
         }
     }
 
+    /// Makes the fix offered beside line `line` of the log, as one undoable
+    /// command: only while what it changes is as Verify found it
+    /// ([`mg_edit::fix::Guard`]); else the log says to verify again.
+    fn apply_fix(&mut self, line: usize) {
+        let Some(offer) = self.log.fix_at(line).filter(|o| !o.made).cloned() else { return };
+        let Some(ws) = self.ws.as_mut() else { return };
+        if let Err(why) = self.log.fix_guard.check(ws, &offer.fix) {
+            self.log.error(format!("{}: {why}", offer.fix.label));
+            return;
+        }
+        if let Err(e) = self.apply(offer.fix.command()) {
+            self.log.error(format!("{}: {e}", offer.fix.label));
+            return;
+        }
+        if let Some(ws) = self.ws.as_mut() {
+            self.log.fix_guard.made(ws, &offer.fix);
+        }
+        if let Some(o) = self.log.fixes.iter_mut().find(|o| o.line == line) {
+            o.made = true;
+        }
+        let resources: Vec<String> = offer.fix.resources().iter().map(|k| k.to_string()).collect();
+        self.log.info(format!("Fixed: {} ({})", offer.fix.label, resources.join(", ")));
+    }
+
     /// Verify Module, as a job: what is missing, and what is wrong with the
     /// custom content, into the log.
     fn verify(&mut self) {
@@ -3953,26 +4035,41 @@ impl Moonglow {
                     custom: game.custom_tlk().map(|t| t.entries.len()),
                 };
                 let mut findings = mg_module::doctor::examine(&job.module, &game.resman, tlk);
-                let (found, mut said) = plugins::check_findings(&plugins, job);
-                findings.extend(found);
+                let (theirs, mut said) = plugins::check_findings(&plugins, job);
+                findings.extend(theirs.iter().map(|f| f.finding.clone()));
                 // (What the plugins said of themselves goes with them.)
                 if skip.contains(&mg_module::doctor::Group::Plugins) {
                     said.clear();
                 }
                 let mut missing = missing;
                 let left = mg_module::doctor::leave_out(&mut missing, &mut findings, &skip);
-                Some((missing, findings, said, left))
+                // Each finding with its fix, if it has one; and what the
+                // fixes were worked out on.
+                let found = mg_edit::fix::attach(&job.module, findings, &theirs);
+                let fixes = found.iter().filter_map(|f| f.fix.as_ref());
+                let guard = mg_edit::fix::Guard::new(&job.module, fixes);
+                Some((missing, found, said, left, guard))
             },
             |app, made| {
-                let Some((missing, findings, said, left)) = made else { return };
+                let Some((missing, found, said, left, guard)) = made else { return };
                 app.log.entries.extend(said);
-                for (level, text) in verify_report(&missing, &findings) {
+                // (The last Verify's fixes alone are offered.)
+                app.log.fixes.clear();
+                app.log.fix_guard = guard;
+                for (level, text, fix) in verify_report_fixes(&missing, &found) {
+                    if let Some(fix) = fix {
+                        let line = app.log.entries.len();
+                        let offer = OfferedFix { line, text: text.clone(), fix, made: false };
+                        app.log.fixes.push(offer);
+                    }
                     match level {
                         LogLevel::Error => app.log.error(text),
                         LogLevel::Warn => app.log.warn(text),
                         LogLevel::Info => app.log.info(text),
                     }
                 }
+                let findings: Vec<&mg_module::doctor::Finding> =
+                    found.iter().map(|f| &f.finding).collect();
                 let errors = missing.iter().filter(|m| m.is_error()).count()
                     + findings
                         .iter()
@@ -4155,6 +4252,15 @@ pub fn verify_report(
     missing: &[mg_module::verify::Missing],
     findings: &[mg_module::doctor::Finding],
 ) -> Vec<(LogLevel, String)> {
+    let found: Vec<mg_edit::fix::Found> = findings.iter().cloned().map(Into::into).collect();
+    verify_report_fixes(missing, &found).into_iter().map(|(l, t, _)| (l, t)).collect()
+}
+
+/// [`verify_report`], each finding's line with the fix it offers.
+pub fn verify_report_fixes(
+    missing: &[mg_module::verify::Missing],
+    found: &[mg_edit::fix::Found],
+) -> Vec<(LogLevel, String, Option<mg_edit::fix::Fix>)> {
     use mg_module::doctor::Severity;
     let reference = |m: &mg_module::verify::Missing| {
         let what = format!("is {}", m.what());
@@ -4167,23 +4273,26 @@ pub fn verify_report(
             m.reference.target
         )
     };
-    let finding = |f: &mg_module::doctor::Finding| {
+    let finding = |x: &mg_edit::fix::Found| {
+        let f = &x.finding;
         let at = if f.at.is_empty() { String::new() } else { format!(" › {}", f.at) };
         format!("{} › {}{at}: {}", f.source, f.resource, f.message)
     };
     let (gone, missing): (Vec<_>, Vec<_>) =
         missing.iter().partition(|m| m.placed_from_gone_blueprint());
     let mut out = Vec::new();
-    out.extend(missing.iter().filter(|m| m.is_error()).map(|m| (LogLevel::Error, reference(m))));
+    let of = |severity: Severity, level: LogLevel| {
+        (found.iter().filter(move |x| x.finding.severity == severity))
+            .map(move |x| (level, finding(x), x.fix.clone()))
+    };
     out.extend(
-        (findings.iter().filter(|f| f.severity == Severity::Error))
-            .map(|f| (LogLevel::Error, finding(f))),
+        missing.iter().filter(|m| m.is_error()).map(|m| (LogLevel::Error, reference(m), None)),
     );
-    out.extend(missing.iter().filter(|m| !m.is_error()).map(|m| (LogLevel::Warn, reference(m))));
+    out.extend(of(Severity::Error, LogLevel::Error));
     out.extend(
-        (findings.iter().filter(|f| f.severity == Severity::Warning))
-            .map(|f| (LogLevel::Warn, finding(f))),
+        missing.iter().filter(|m| !m.is_error()).map(|m| (LogLevel::Warn, reference(m), None)),
     );
+    out.extend(of(Severity::Warning, LogLevel::Warn));
     // By blueprint: how many are placed from it, and in which areas.
     let mut by_blueprint: std::collections::BTreeMap<String, (usize, Vec<String>)> =
         Default::default();
@@ -4212,11 +4321,13 @@ pub fn verify_report(
                 gone.len(),
                 by_blueprint.len()
             ),
+            None,
         ));
         for (blueprint, (count, areas)) in by_blueprint {
             out.push((
                 LogLevel::Info,
                 format!("  {blueprint}: {count} placed, in {}", areas.join(", ")),
+                None,
             ));
         }
     }

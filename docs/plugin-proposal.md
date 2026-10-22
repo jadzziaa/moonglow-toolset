@@ -3,7 +3,7 @@ type: Proposal
 title: 'Plugins: a proposal'
 description: The decision record of Moonglow's plugins, proposed and accepted 2026-10-03 - what plugins are for, the principles, safety, the runtimes compared and why sandboxed Luau, the decisions and what was not proposed - with what shipped noted beside it. The API as it is now is in the manual and the API change list.
 tags: [plugins, proposal, luau, api, decision]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T08:05:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:15:03Z }
 ---
 
 # Plugins: a proposal
@@ -150,6 +150,10 @@ that carried enabled plugins installed a trojan (April 2026).
   the enabled plugins.
 - **Edits are untrusted input.** They are checked like a file from
   disk: bounds, types, sizes, never a panic.
+- **A check's edits on the user's word.** A check never edits; the fix
+  it offers a finding (0.4) is edits recorded, made only when the user
+  clicks its button (or names its check to `mg verify --fix`), as one
+  step of Undo, and only on what Verify read.
 
 External programs (the later tier, not started) cannot be sandboxed on
 every system. They would be marked as running with the user's rights,
@@ -201,8 +205,8 @@ is not read as a description:
 - **The second API version.** The proposal's 0.2 was exporters,
   importers, wizards, quick fixes, events, storage and a project's
   plugins. The 0.2 and 0.3 that shipped were something else (files,
-  haks, terrain, pictures, tables); of the proposed list only events
-  exist.
+  haks, terrain, pictures, tables); of the proposed list, events came
+  with 0.3 and quick fixes with 0.4.
 - **Where commands show.** Proposed: Tools › Plugins, context menus, and
   `menu` and `when` keys in the manifest. Built: a **Plugins** menu
   (with Manage Plugins… and Install Plugin from File…), the Command

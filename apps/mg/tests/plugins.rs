@@ -277,9 +277,15 @@ fn a_plugin_s_checks_count_in_verify() {
     let args = ["--root", root.to_str().unwrap(), "verify", path.to_str().unwrap()];
     let (_, plain) = mg(&args);
     assert_eq!(plain["findings"], json!([]));
-    let (ok, with) = mg(&[&args[..], &["--plugins", plugins.to_str().unwrap()]].concat());
+    let with_plugins = [&args[..], &["--plugins", plugins.to_str().unwrap()]].concat();
+    let (ok, with) = mg(&with_plugins);
     assert!(ok, "a warning is no failure: {with}");
     assert_eq!(with["warnings"], plain["warnings"].as_u64().unwrap() + 1);
+    // The finding offers its fix, the edits as `mg apply` takes them.
+    let set = json!({
+        "op": "set_field", "resource": "guard.utc", "field": "/Tag",
+        "value": { "type": "cexostring", "value": "GATE_GUARD" },
+    });
     assert_eq!(
         with["findings"],
         json!([{
@@ -289,6 +295,65 @@ fn a_plugin_s_checks_count_in_verify() {
             "resource": "guard.utc",
             "at": "Tag",
             "message": "tag \"gate_guard\" is not upper case",
+            "fix": {
+                "label": "Upper-case this tag",
+                "command": { "version": 1, "label": "Upper-case this tag", "edits": [set] },
+            },
         }])
     );
+    // Nothing is changed unless asked; asked, the check's fixes are made.
+    assert_eq!(tag(&path), "gate_guard");
+    let fix = ["--fix", "example.tag-conventions/tag-case"];
+    let (ok, fixed) = mg(&[&with_plugins[..], &fix].concat());
+    assert!(ok, "{fixed}");
+    assert_eq!(fixed["fixes"]["made"][0]["label"], "Upper-case this tag");
+    assert_eq!(tag(&path), "GATE_GUARD");
+}
+
+/// `mg plugin test`: the example's own tests pass, as a build pipeline
+/// would run them (an exit, a line a test, a summary); on a fixture where
+/// they do not hold, or for a plugin with none, it fails.
+#[test]
+fn a_plugin_s_own_tests_run_as_in_a_pipeline() {
+    let example = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../docs/plugins/examples/tag-conventions")
+        .canonicalize()
+        .unwrap();
+    let run = |more: &[&str]| {
+        crate::mg()
+            .args(["--no-user-dir", "plugin", "test"])
+            .arg(&example)
+            .args(more)
+            .output()
+            .unwrap()
+    };
+    let out = run(&[]);
+    let text = String::from_utf8_lossy(&out.stdout);
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "{text}{said}");
+    assert!(text.lines().all(|l| l.starts_with("ok\ttags.toml › ")), "{text}");
+    assert!(said.contains("example.tag-conventions: 3 tests, 3 passed, 0 failed"), "{said}");
+    let (ok, json) = mg(&["plugin", "test", example.to_str().unwrap()]);
+    assert!(ok);
+    assert_eq!((json["passed"].as_u64(), json["failed"].as_u64()), (Some(3), Some(0)));
+
+    // The module of `module()`, which has no captain: the command's test
+    // finds no such resource, and the others pass.
+    let dir = mg_testkit::scratch_dir("mg-plugin-test");
+    let other = module(&dir);
+    let out = run(&["--module", other.to_str().unwrap()]);
+    assert!(!out.status.success());
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        text.contains("FAIL\ttags.toml › the command upper-cases every tag, in one step: "),
+        "{text}"
+    );
+    assert!(String::from_utf8_lossy(&out.stderr).contains("2 passed, 1 failed"));
+    let none = crate::mg()
+        .args(["--no-user-dir", "plugin", "test"])
+        .arg(fixtures().join("hostile"))
+        .output()
+        .unwrap();
+    assert!(!none.status.success());
+    assert!(String::from_utf8_lossy(&none.stderr).contains("has no tests"));
 }

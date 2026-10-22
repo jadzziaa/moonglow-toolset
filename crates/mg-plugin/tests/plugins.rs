@@ -181,16 +181,70 @@ fn a_check_finds_and_does_not_edit() {
     let input = || Input::new(module(), None);
     let found = run_check(&p, "tag-case", input(), host.clone()).unwrap();
     assert_eq!(found.len(), 1);
-    let f = &found[0];
+    let f = &found[0].finding;
     assert_eq!(f.check, "example.tag-conventions/tag-case");
     assert_eq!(
         (f.severity, f.resource, f.at.as_str()),
         (Severity::Warning, key("guard.utc"), "Tag")
     );
     assert_eq!(f.message, "tag \"gate_guard\" is not upper case");
+    // Its fix: the edit recorded, none made.
+    let fix = found[0].fix.as_ref().unwrap();
+    assert_eq!(fix.label, "Upper-case this tag");
+    let mut ws = Workspace::new(module());
+    ws.apply(fix.command()).unwrap();
+    let guard = ws.doc(&key("guard.utc")).unwrap();
+    assert_eq!(guard.root.get("Tag"), Some(&Value::String(b"GATE_GUARD".to_vec())));
     // A check that edits is refused.
     let e = run_check(&plugin("hostile"), "edits", input(), host).unwrap_err().to_string();
     assert!(e.contains("a check only reads"), "{e}");
+}
+
+/// A fix records edits as `ctx.edit` makes them, each fix from the module
+/// as the check reads it, which its fixes leave as it is; a fix that edits
+/// nothing is none, and a fix is one made with `ctx.fix`.
+#[test]
+fn a_check_s_fixes_are_recorded_apart() {
+    let dir = mg_testkit::scratch_dir("plugin-fixes");
+    let manifest = "[plugin]\nid = \"test.fixes\"\nname = \"Fixes\"\nversion = \"1.0.0\"\napi = \"0.4\"\nlicense = \"MIT\"\ndescription = \"d\"\n\n[check]\nid = \"many\"\ntitle = \"Many\"\n\n[check]\nid = \"bad\"\ntitle = \"Bad\"\n";
+    std::fs::write(dir.join("plugin.cfg"), manifest).unwrap();
+    let code = r#"
+        local mg = require("@moonglow")
+        mg.check("many", function(ctx)
+            local one = ctx.fix("Rename")
+            one:set("guard.utc", "Comment", "Bob")
+            local at = one:insert("guard.utc", "/ClassList", { __struct_id = 2, Class = mg.int(1) })
+            one:set("guard.utc", `/ClassList[{at}]/ClassLevel`, mg.short(2))
+            -- The check reads the module as it is.
+            assert(ctx.module:gff("guard.utc").Comment == "draft")
+            local two = ctx.fix("Another")
+            two:set("guard.utc", "Tag", "TWO")
+            assert(two.label == "Another")
+            local nothing = ctx.fix("Nothing")
+            return {
+                { resource = "guard.utc", message = "one", fix = one },
+                { resource = "guard.utc", message = "two", fix = two },
+                { resource = "guard.utc", message = "none", fix = nothing },
+            }
+        end)
+        mg.check("bad", function(ctx)
+            return { { resource = "guard.utc", message = "x", fix = { label = "Mine" } } }
+        end)
+    "#;
+    std::fs::write(dir.join("main.luau"), code).unwrap();
+    let p = Plugin::load(&dir).unwrap();
+    let host = Rc::new(TestHost::default());
+    let found = run_check(&p, "many", Input::new(module(), None), host.clone()).unwrap();
+    let one = found[0].fix.as_ref().unwrap();
+    assert_eq!((one.label.as_str(), one.edits.len()), ("Rename", 3));
+    let two = found[1].fix.as_ref().unwrap();
+    assert_eq!(two.edits.len(), 1, "each fix from the module as it is: {two:?}");
+    assert_eq!(found[2].fix, None);
+    let mut ws = Workspace::new(module());
+    ws.apply(one.command()).unwrap();
+    assert_eq!(ws.can_undo(), Some("Rename"));
+    let e = run_check(&p, "bad", Input::new(module(), None), host).unwrap_err().to_string();
+    assert!(e.contains("made with ctx.fix(label)"), "{e}");
 }
 
 #[test]
@@ -669,4 +723,116 @@ fn a_selection_is_named_as_a_resource_and_a_path() {
         let e = Selected::parse(bad).unwrap_err();
         assert!(e.contains(says), "{bad}: {e}");
     }
+}
+
+/// A plugin's own tests (`mg plugin test`): each says what was not as its
+/// file wants, and a file that does not read, or names no fixture, is a
+/// test that failed.
+#[test]
+fn a_plugin_s_own_tests_say_what_is_not_as_wanted() {
+    use mg_module::ModuleLocation;
+    let dir = mg_testkit::scratch_dir("plugin-own-tests");
+    let source = dir.join("tags");
+    std::fs::create_dir_all(source.join("tests")).unwrap();
+    for file in ["plugin.cfg", "main.luau", "rules.luau"] {
+        std::fs::copy(fixtures().join("tag-conventions").join(file), source.join(file)).unwrap();
+    }
+    let mut m = module();
+    m.save_as(&ModuleLocation::Folder(source.join("tests/fixture"))).unwrap();
+    let tests = r#"
+        module = "fixture"
+
+        [[test]]
+        name = "passes"
+        check = "tag-case"
+        fix = "Upper-case this tag"
+        left = 0
+        [[test.finding]]
+        resource = "guard.utc"
+        message = 'tag "gate_guard" is not upper case'
+        fix = "Upper-case this tag"
+        [[test.field]]
+        resource = "guard.utc"
+        field = "Tag"
+        value = "GATE_GUARD"
+
+        [[test]]
+        name = "wrong finding"
+        check = "tag-case"
+        [[test.finding]]
+        resource = "captain.utc"
+        message = "no"
+        severity = "error"
+        fix = ""
+
+        [[test]]
+        name = "wrong field and log"
+        command = "promote"
+        edits = 3
+        log = ["promoted"]
+        [[test.field]]
+        resource = "guard.utc"
+        field = "/ClassList[0]/ClassLevel"
+        value = 9
+        [[test.field]]
+        resource = "guard.utc"
+        field = "Comment"
+        absent = true
+        [[test.field]]
+        resource = "guard.utc"
+        field = "Wis"
+        value = 14
+
+        [[test]]
+        name = "it was to fail"
+        command = "fix-tags"
+        error = "nope"
+
+        [[test]]
+        name = "both"
+        check = "tag-case"
+        command = "fix-tags"
+    "#;
+    std::fs::write(source.join("tests/a.toml"), tests).unwrap();
+    std::fs::write(source.join("tests/b.toml"), "[[test]]\nname = \"x\"\ncheck = \"tag-case\"\n")
+        .unwrap();
+    std::fs::write(source.join("tests/c.toml"), "[[test]]\nname = \"x\"\nwhat = 1\n").unwrap();
+    let plugin = Plugin::load(&source).unwrap();
+    let results = mg_plugin::run_tests(&plugin, None, &|_| None);
+    let of = |name: &str| -> Vec<String> {
+        results.iter().find(|r| r.name == name).unwrap_or_else(|| panic!("{name}")).problems.clone()
+    };
+    assert_eq!(of("passes"), Vec::<String>::new());
+    let wrong = of("wrong finding").join("\n");
+    for says in [
+        "is of guard.utc, not captain.utc",
+        "says \"tag \\\"gate_guard\\\"",
+        "is a warning, not a error",
+        "has the fix \"Upper-case this tag\", not none",
+    ] {
+        assert!(wrong.contains(says), "{says}: {wrong}");
+    }
+    let field = of("wrong field and log").join("\n");
+    for says in ["ClassLevel is 1, not 9", "no line with \"promoted\"", "18 edits, not 3"] {
+        assert!(field.contains(says), "{says}: {field}");
+    }
+    assert!(!field.contains("Comment") && !field.contains("Wis"), "{field}");
+    assert_eq!(of("it was to fail"), ["it was to fail, saying \"nope\", and did not"]);
+    assert!(of("both")[0].contains("one thing"));
+    let b = results.iter().find(|r| r.file == "b.toml").unwrap();
+    assert!(b.problems[0].contains("no fixture"), "{b:?}");
+    let c = results.iter().find(|r| r.file == "c.toml").unwrap();
+    assert!(c.problems[0].contains("does not read") && c.problems[0].contains("what"), "{c:?}");
+    // Another fixture for every test (`--module`): there the guard's tag
+    // is upper case, so the finding is not there.
+    let mut fixed = module();
+    let mut guard = fixed.gff(&key("guard.utc")).unwrap().unwrap();
+    guard.root.set("Tag", Value::String(b"GATE_GUARD".to_vec()));
+    fixed.set_gff(key("guard.utc"), &guard).unwrap();
+    let other = dir.join("other.mod");
+    fixed.save_as(&ModuleLocation::Archive(other.clone())).unwrap();
+    let results = mg_plugin::run_tests(&plugin, Some(&other), &|_| None);
+    let passes = results.iter().find(|r| r.name == "passes").unwrap();
+    assert!(passes.problems[0].starts_with("0 findings, not 1"), "{passes:?}");
+    assert!(results.iter().any(|r| r.file == "b.toml" && r.passed()), "{results:?}");
 }

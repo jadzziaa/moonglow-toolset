@@ -12,7 +12,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result, anyhow, bail};
 use mg_edit::{Command, Workspace};
 use mg_module::Module;
-use mg_module::doctor::{Finding, Severity};
+use mg_module::doctor::Severity;
 use mg_plugin::{Answer, FieldKind, Host, Input, Level, Plugin, PluginError, Question};
 use mg_resman::GameInstall;
 use mg_rules::GameData;
@@ -314,6 +314,59 @@ pub(crate) fn check(dirs: &[PathBuf]) -> Result<Output> {
     Ok(out)
 }
 
+/// `mg plugin test`: a plugin's own tests (`tests/*.toml`), each on its
+/// fixture module (or `module`), with the game's data where there is a
+/// game. A line a test, a summary; failing if a test fails or there are
+/// none.
+pub(crate) fn test(gi: Option<&GameInstall>, dir: &Path, module: Option<&Path>) -> Result<Output> {
+    let plugin = Plugin::load(dir).map_err(|e| anyhow!("{e}"))?;
+    let mut out = Output::default();
+    let notes = RefCell::new(Output::default());
+    let game = |m: &Module| {
+        let mut said = notes.borrow_mut();
+        // (Said once: without a game, a plugin's ctx.game is empty.)
+        match gi {
+            None if said.notes.is_empty() => {
+                game_for(None, m, &mut said);
+                None
+            }
+            None => None,
+            Some(gi) => game_for(Some(gi), m, &mut said),
+        }
+    };
+    let results = mg_plugin::run_tests(&plugin, module, &game);
+    out.notes.extend(notes.into_inner().notes);
+    let id = &plugin.manifest.id;
+    for r in &results {
+        match r.problems.as_slice() {
+            [] => out.line(format!("ok\t{} › {}", r.file, r.name)),
+            problems => {
+                for p in problems {
+                    out.line(format!("FAIL\t{} › {}: {p}", r.file, r.name));
+                }
+            }
+        }
+    }
+    let failed = results.iter().filter(|r| !r.passed()).count();
+    let passed = results.len() - failed;
+    if results.is_empty() {
+        out.note(format!("mg: {id} has no tests (tests/*.toml in {})", plugin.dir.display()));
+        out.failed = true;
+    } else {
+        out.note(format!("{id}: {} tests, {passed} passed, {failed} failed", results.len()));
+        out.failed = failed > 0;
+    }
+    out.json = json!({
+        "plugin": id,
+        "passed": passed,
+        "failed": failed,
+        "tests": results.iter().map(|r| json!({
+            "file": r.file, "name": r.name, "passed": r.passed(), "problems": r.problems,
+        })).collect::<Vec<_>>(),
+    });
+    Ok(out)
+}
+
 /// `mg plugin pack`: a plugin's folder as an archive to hand around, which
 /// Install Plugin from File and `mg plugin install` take. Checked first,
 /// as `mg plugin check` does: an archive of a plugin that does not load is
@@ -514,14 +567,15 @@ pub(crate) fn run(
     Ok(out)
 }
 
-/// The findings of every check of the plugins in `dirs`, for `mg verify`.
+/// The findings of every check of the plugins in `dirs`, for `mg verify`,
+/// each with its fix if the check gave it one.
 /// A check that fails is itself a finding, an error.
 pub(crate) fn findings(
     gi: &GameInstall,
     m: &Module,
     dirs: &[PathBuf],
     out: &mut Output,
-) -> Result<Vec<Finding>> {
+) -> Result<Vec<mg_plugin::Found>> {
     let mut all = Vec::new();
     if dirs.is_empty() {
         return Ok(all);
@@ -539,7 +593,7 @@ pub(crate) fn findings(
                 let input = Input::new(m.clone(), game.clone());
                 match mg_plugin::run_check(&plugin, &check.id, input, host.clone()) {
                     Ok(found) => all.extend(found),
-                    Err(e) => all.push(plugin.check_failed(&check.id, &e)),
+                    Err(e) => all.push(plugin.check_failed(&check.id, &e).into()),
                 }
                 for (_, text) in host.log.borrow().iter() {
                     out.note(format!("{}: {text}", plugin.manifest.name));

@@ -382,16 +382,21 @@ pub fn remove(dir: &Path) -> Result<(), PluginError> {
         .map_err(|e| io(&format!("deleting {} (the plugin is removed)", gone.display()), e))
 }
 
-/// A plugin's folder as an archive to hand around: its files (hidden ones
-/// and links left out) in a folder named by its id. What it makes,
-/// [`Package::read`] reads: a file the reader would refuse is an error
-/// here, where the author sees it.
+/// A plugin's folder as an archive to hand around: its files (hidden ones,
+/// links and its own `tests/` left out) in a folder named by its id. What
+/// it makes, [`Package::read`] reads: a file the reader would refuse is an
+/// error here, where the author sees it.
 pub fn pack(plugin: &Plugin) -> Result<Vec<u8>, PluginError> {
     fn walk(dir: &Path, base: &Path, out: &mut Vec<(String, PathBuf)>) -> std::io::Result<()> {
         for entry in std::fs::read_dir(dir)? {
             let entry = entry?;
             let (path, kind) = (entry.path(), entry.file_type()?);
             if entry.file_name().to_string_lossy().starts_with('.') || kind.is_symlink() {
+                continue;
+            }
+            // (Its own tests, and their fixtures, are its author's: `mg
+            // plugin test` runs them from the folder.)
+            if kind.is_dir() && dir == base && entry.file_name() == "tests" {
                 continue;
             }
             if kind.is_dir() {

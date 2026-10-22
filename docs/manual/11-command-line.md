@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T07:08:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:14:30Z }
 ---
 
 # Command-line tools
@@ -67,10 +67,12 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | `mg checks` | the checks `mg verify` makes of custom content: each one's id (a finding's `check` in the JSON), its group and what it holds to be true |
 | `mg verify MODULE --skip GROUP` | leave a group out of the report (repeatable): `references` (missing resources), `tilesets`, `models`, `2das`, `objects`, `module` or `plugins`; the JSON's `skipped` says how many problems each had, and only the rest count toward failing |
 | `mg verify MODULE --plugins DIR` | also run the checks of the plugins in `DIR` (a plugin's folder, or a folder of plugins); their problems count with the rest |
+| `mg verify MODULE --fix CHECK` | make the fixes the findings of a check offer (repeatable; a check's id, as a finding's `check` says: `tag-unique`, `example.tag-conventions/tag-case`) and save: each as Verify Module's button makes it, refused (and named) where an earlier fix changed what it would change. The report is of the module as it was found, with a `fixed` line a fix; only errors not fixed fail. `--dry-run` says which it would make and changes nothing. Without `--fix`, nothing is changed |
 | `mg plugin list DIR…` | the plugins in the folders and what each adds: its commands and checks |
 | `mg plugin check DIR…` | check plugins: the manifest reads, and the code registers what it declares; fails if not. A file is a plugin's archive: checked as the installer checks it, and its code as it is in the archive |
+| `mg plugin test PLUGIN` | run a plugin's own tests (`tests/*.toml` in its folder: a fixture module and what its checks, commands and events are to make of it; [Writing plugins](16-writing-plugins.md#a-plugins-own-tests)): a line a test, `ok` or `FAIL` with what was not as wanted, and a summary; fails if a test fails or there are none. `--module FIXTURE` runs every test on another module. The fixture is never written |
 | `mg plugin run MODULE PLUGIN COMMAND` | run a plugin's command on a module and save: its edits as one command, all or none. `--answer ID=VALUE` fills a form's field (the others take their defaults), `--file PATH` is the file or folder it gets where it asks for one (in the order it asks), `--yes` agrees where it asks, and to the haks it writes (into `--hak-dir DIR`, else the user folder's `hak`); `--dry-run` prints the edits (a file `mg apply` reads) and changes nothing. With `--event`, COMMAND is the id of what the plugin does by itself when a module is opened or saved, run as the window would run it then; `--changed NAME` names a resource the save changed (as often as needed; none named: all of the module's) |
-| `mg plugin pack PLUGIN` | pack a plugin's folder into an archive to hand around (`ID-VERSION.zip`, or `-o FILE`): checked first, hidden files left out |
+| `mg plugin pack PLUGIN` | pack a plugin's folder into an archive to hand around (`ID-VERSION.zip`, or `-o FILE`): checked first, hidden files and its `tests` folder left out |
 | `mg plugin install FILE FOLDER` | install a plugin from its archive into a folder of plugins, as Plugins › Install Plugin from File… does: the archive is checked and nothing of it runs. `--replace` installs over the same plugin installed from an archive before |
 | `mg plugin remove ID FOLDER` | remove a plugin that was installed from an archive from a folder of plugins, by its id; one put there by hand is left alone |
 | `mg nui new MODULE NAME` | add a NUI window to the module and save: its layout (`NAME.jui`, a window with a Close button) and what the [NUI Creator](18-nui-creator.md) keeps about it (`NAME.txt`). NAME is 1 to 14 lower-case letters, digits or underscores (the scripts add `_o` and `_e`); a name whose resources the module has is refused; `--dry-run` lists the resources and adds none |
@@ -397,7 +399,11 @@ and nothing on standard error, for scripts, build pipelines and tools
 - **The result:** a command's result as fields: `mg find` a `found` list
   (each with `kind`, `type`, `resref`, `tag`, `name`, and for placed
   objects `area`, `index` and `position`); `mg verify` its `errors`,
-  `warnings`, `missing`, `findings` and `unused`; `mg refs` its `uses`
+  `warnings`, `missing`, `findings` and `unused` (a finding's `fix` is
+  null, or the fix it offers: its `label` and its `command`, an edit
+  file `mg apply` takes; with `--fix`, `fixes` lists those `made` and
+  those `refused`); `mg plugin test` its `tests` (each `file`, `name`,
+  `passed` and `problems`), `passed` and `failed`; `mg refs` its `uses`
   and `script_strings`; `mg compile` its `scripts` (how many were compiled), `unchanged` (how many were passed
   over), `failed` and `errors` (each with `script`, `line` and `message`); and so on.
 - **Notes:** warnings and summaries, otherwise sent to standard error,

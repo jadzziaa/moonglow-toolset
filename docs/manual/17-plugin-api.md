@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Plugin API reference
-description: Reference of the plugin API - mg, ctx.selection and ctx.open, ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, Luau, limits and what the API doesn't have yet.
+description: Reference of the plugin API - mg, findings and their fixes (ctx.fix), ctx.selection and ctx.open, ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T08:05:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:14:30Z }
 ---
 
 # Plugin API reference
@@ -49,6 +49,26 @@ A **finding** is a table:
 | `message` | What is wrong. Needed. |
 | `at` | Where in the resource: a field, a row. |
 | `severity` | `"warning"` or `"error"`; else the check's, from the manifest. |
+| `fix` | Its fix, made with `ctx.fix` (below; since API 0.4): offered beside the finding in Verify Module's report, made only when the user asks. |
+
+### `ctx.fix`
+
+A check's handler gets `ctx.fix` too (since API 0.4; a command's and an
+event's do not):
+
+| | |
+| --- | --- |
+| `ctx.fix(label)` | A fix to give a finding (`fix = …`): `label` is what its button says ("Upper-case this tag"). Called with a dot. |
+| `fix.label` | Its label. |
+| `fix:set`, `fix:remove`, `fix:insert`, `fix:remove_item`, `fix:write`, `fix:write_bytes`, `fix:write_gff`, `fix:delete` | As `ctx.edit`'s (below), with the same arguments: each records an edit of the fix. Nothing is changed: the user makes the fix (Verify's button, `mg verify --fix`), as one step of Undo named by its label. |
+
+Each fix starts from the module as the check reads it, and its edits
+apply to it alone: the check's reads (`ctx.module`) and the other fixes
+do not see them; a fix's later edits see its earlier ones. A fix with no
+edits is none. A fix is made only while the resources it changes are as
+the check read them (else the user is told to verify again), or changed
+since only by fixes of the same Verify that set fields. A fix asks the
+user nothing.
 
 ### Typed values
 
