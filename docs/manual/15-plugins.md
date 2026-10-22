@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugins
 description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, a project's own plugins (asked about when the project is opened), a plugin's settings, commands, checks and the fixes beside their findings, the console, the command line and when something goes wrong.
 tags: [manual, plugins]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:26:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:41:09Z }
 ---
 
 # Plugins
@@ -144,8 +144,14 @@ again at the next opening.
   folder is not part of it.
 - **Don't Allow** keeps it off, however it changes, and it is not asked
   about again; tick it in Manage Plugins to allow it later.
-- Your answers are **yours alone**: kept in the project's
-  `.moonglow/user.toml`, which version control leaves out.
+- Your answers are **yours alone**, and never in the project: Moonglow
+  keeps them in its own folder (`project-plugins.toml` beside the plugins
+  folder), by the project's place on your disk, the plugin and the
+  digest of its files. A project's files can't answer for you: a
+  checkout that comes with answers of its own (a `[project_plugins]`
+  section in a committed `.moonglow/user.toml`, say) allows nothing, and
+  the log says so. `mg` reads the same answers, and `mg plugin allow`
+  gives them from a terminal.
 - Manage Plugins lists them under **This project's plugins**, each
   marked as the project's, with what you answered. Its box allows it (as
   it is now) or turns it off. They have no Remove: they are the
@@ -262,6 +268,7 @@ mg verify mymodule.mod --plugins plugins/tag-conventions
 mg verify mymodule.mod --plugins plugins/tag-conventions --fix example.tag-conventions/tag-case
 mg verify myproject --allow-project-plugins
 mg plugin list --project myproject
+mg plugin allow myproject example.builder-tags
 mg plugin run myproject myproject/plugins/builder-tags prefix-tags --select guard.utc --setting code=ab
 mg plugin test plugins/tag-conventions
 mg plugin install tag-conventions-1.0.0.zip plugins

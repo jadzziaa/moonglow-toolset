@@ -22313,6 +22313,8 @@ fn verify_holds_variables_to_their_descriptions() {
 /// in its `plugins/` folder.
 fn plugin_project(name: &str) -> std::path::PathBuf {
     let dir = mg_testkit::scratch_dir(name);
+    // (Its answers, beside it: none from an earlier run.)
+    let _ = std::fs::remove_file(dir.with_extension("answers.toml"));
     let mut m = Module::new();
     m.set_info(&Gff::new(*b"IFO ")).unwrap();
     let mut captain = Gff::new(*b"UTC ");
@@ -22347,6 +22349,9 @@ fn project_harness(dir: &std::path::Path, game: bool) -> Option<Harness<'static,
         app_with(Vec::new())
     };
     app.plugin_dir = Some(plugin_fixtures());
+    // (Moonglow's own folder, for the answers: a scratch one beside the
+    // project, never in it.)
+    app.plugin_answers = Some(dir.with_extension("answers.toml"));
     app.load_plugins();
     app.open_module(dir);
     app.open_palette = false;
@@ -22396,9 +22401,12 @@ fn a_project_s_plugins_are_asked_about_when_it_is_opened() {
     h.run();
     assert!(runs(&h, id));
     assert!(h.state().plugin_commands().iter().any(|c| c.plugin == id && c.title == "Prefix Tags"));
-    let own = std::fs::read_to_string(dir.join(".moonglow/user.toml")).unwrap();
-    assert!(own.contains("[project_plugins]\n\"example.builder-tags\" = { allow = true, version = \"1.0.0\", digest = \"sha256:"), "{own}");
-    assert!(dir.join(".moonglow/.gitignore").is_file(), "never committed");
+    // Kept in Moonglow's own folder, by the project and the plugin's
+    // content; nothing written into the project.
+    let kept = std::fs::read_to_string(dir.with_extension("answers.toml")).unwrap();
+    assert!(kept.contains("plugin = \"example.builder-tags\""), "{kept}");
+    assert!(kept.contains("allow = true") && kept.contains("digest = \"sha256:"), "{kept}");
+    assert!(!dir.join(".moonglow").exists(), "nothing in the project");
     assert!(
         h.state()
             .log
@@ -22438,6 +22446,32 @@ fn a_project_s_plugins_are_asked_about_when_it_is_opened() {
     h.state_mut().close();
     h.run();
     assert!(!h.state().plugins.installed.iter().any(|i| i.project));
+}
+
+/// A project that comes with answers of its own (a committed
+/// `.moonglow/user.toml` with its plugin "allowed", digest and all) allows
+/// nothing: the section is said in the log, and the plugin is asked about.
+#[test]
+fn answers_a_project_carries_are_not_taken() {
+    let dir = plugin_project("ui-project-plugins-carried");
+    let example = dir.join("plugins/builder-tags");
+    let digest = mg_plugin::Plugin::load_project(&example).unwrap().digest().unwrap().to_string();
+    let claim = format!(
+        "[project_plugins]\n\"example.builder-tags\" = {{ allow = true, version = \"1.0.0\", \
+         digest = {digest:?} }}\n"
+    );
+    mg_module::project_file::ProjectFile::write_user(&dir, &claim).unwrap();
+    let mut h = project_harness(&dir, false).unwrap();
+    h.run();
+    assert_eq!(h.state().plugins.project_asking, ["example.builder-tags"]);
+    assert!(!runs(&h, "example.builder-tags"));
+    h.get_by_label("This project comes with plugins");
+    let log = &h.state().log.entries;
+    assert!(
+        log.iter().any(|(l, m)| *l == mg_ui::Level::Warning
+            && m.starts_with(".moonglow/user.toml:1: [project_plugins] is not read")),
+        "{log:#?}"
+    );
 }
 
 /// A project's plugin and an installed one of the same id: while the
@@ -22517,7 +22551,6 @@ fn a_plugin_s_settings_are_edited_in_their_form() {
     );
     let own = std::fs::read_to_string(dir.join(".moonglow/user.toml")).unwrap();
     assert!(own.contains("[plugins.\"example.builder-tags\"]\ncode = \"ab\"\n"), "{own}");
-    assert!(own.contains("[project_plugins]"), "the answer kept: {own}");
     assert_eq!(h.state().settings.plugin_settings[id]["strict"], serde_json::json!(true));
     let s = h.state().plugin_settings(h.state().project_plugins()[0]);
     assert_eq!(s.values["code"], mg_plugin::SettingValue::Text("ab".into()));

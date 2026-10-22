@@ -1,7 +1,12 @@
 //! A project's plugins as its files say them: where the plugins that come
-//! with the checkout are, the values of their settings the team shares and
-//! each builder's own, and what the builder answered when asked to let
-//! each run.
+//! with the checkout are, and the values of their settings the team shares
+//! and each builder's own.
+//!
+//! Which of them may run is never read from here: a project's files come
+//! with its checkout, and a repository could carry answers of its own
+//! (a `.moonglow/user.toml` committed with its plugins "allowed"). The
+//! answers are kept in Moonglow's own folder (mg-plugin's `project`);
+//! a `[project_plugins]` section in either file is said, and not read.
 //!
 //! In the team's file (`moonglow.toml`):
 //!
@@ -18,10 +23,6 @@
 //! ```toml
 //! [plugins."tdod.rules"]              # its settings of scope "user-project"
 //! code = "ab"
-//!
-//! [project_plugins]                   # the answers: by the plugin's content
-//! "tdod.rules" = { allow = true, version = "1.2.0", digest = "sha256:…" }
-//! "x.other" = { allow = false }
 //! ```
 //!
 //! A plugin's id has dots in it, so its table's name is quoted; one
@@ -41,7 +42,8 @@ use crate::project_file::{Entry, FILE_NAME, ProjectFile, Reader, USER_DIR, USER_
 /// Where a project's plugins are when its file doesn't say.
 pub const DEFAULT_FOLDER: &str = "plugins";
 
-/// The builder's own section of answers.
+/// A section of answers about a project's plugins, which is not read from
+/// a project's files (they could come with the checkout).
 pub const DECIDED: &str = "project_plugins";
 
 /// A setting's value as a file holds it.
@@ -79,19 +81,7 @@ pub struct Values {
     pub values: BTreeMap<String, Stored>,
 }
 
-/// What the builder answered about one of the project's plugins: let it
-/// run (for this content of it) or not.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Decision {
-    pub allow: bool,
-    /// Its version when answered, to say what was allowed.
-    pub version: String,
-    /// Its content when answered (`sha256:…`): a plugin allowed whose
-    /// content is not this any more is asked about again.
-    pub digest: String,
-}
-
-/// `[plugins]` and `[project_plugins]`, of both files.
+/// `[plugins]`, of both files.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PluginRules {
     /// `[plugins] folder` (the team's): the project's plugins' folder,
@@ -102,8 +92,6 @@ pub struct PluginRules {
     pub team: BTreeMap<String, Values>,
     /// The builder's own values for this project (scope `user-project`).
     pub own: BTreeMap<String, Values>,
-    /// The builder's answers, by plugin id.
-    pub decided: BTreeMap<String, Decision>,
 }
 
 impl PluginRules {
@@ -203,52 +191,20 @@ pub(crate) fn read_plugins(p: &mut ProjectFile, r: &mut Reader, entry: Entry, ow
     }
 }
 
-/// `[project_plugins]`: the builder's answers (in the team's file, said
-/// and left out).
-pub(crate) fn read_decided(p: &mut ProjectFile, r: &mut Reader, entry: Entry, own: bool) {
-    if !own {
-        r.warn(
-            entry.0.span().start,
-            format!(
-                "[{DECIDED}] is each builder's own (what they allowed): it goes in \
-                 {USER_DIR}/{USER_FILE}, not in the file the team shares"
-            ),
-        );
-        return;
-    }
-    for e in r.section(entry) {
-        let (key, value) = e;
-        let id = key.get_ref().to_string();
-        let DeValue::Table(t) = value.get_ref() else {
-            r.warn(
-                value.span().start,
-                format!("{id}: an answer is a table ({{ allow = true, digest = \"…\" }})"),
-            );
-            continue;
-        };
-        let mut d = Decision::default();
-        let mut allow = None;
-        for (k, v) in in_order(t) {
-            match (k.get_ref().as_ref(), v.get_ref()) {
-                ("allow", DeValue::Boolean(b)) => allow = Some(*b),
-                ("version", DeValue::String(s)) => d.version = s.to_string(),
-                ("digest", DeValue::String(s)) => d.digest = s.to_string(),
-                (other, _) => r.warn(
-                    k.span().start,
-                    format!("{id}: \"{other}\" is not a key of an answer (allow, version, digest)"),
-                ),
-            }
-        }
-        match allow {
-            Some(a) => {
-                d.allow = a;
-                p.plugins.decided.insert(id, d);
-            }
-            None => {
-                r.warn(value.span().start, format!("{id}: an answer needs allow = true or false"))
-            }
-        }
-    }
+/// `[project_plugins]`, in either file: not read. Which of a project's
+/// plugins may run is kept in Moonglow's own folder, never in the
+/// project's files, which come with its checkout: one there (a
+/// `.moonglow/user.toml` committed with answers in it, say) is said, and
+/// nothing in it allows anything.
+pub(crate) fn read_decided(_: &mut ProjectFile, r: &mut Reader, entry: Entry, _own: bool) {
+    r.warn(
+        entry.0.span().start,
+        format!(
+            "[{DECIDED}] is not read: which of a project's plugins may run is kept in \
+             Moonglow's own settings, never in the project's files (a checkout could carry \
+             answers of its own); Moonglow asks you"
+        ),
+    );
 }
 
 fn invalid(e: impl std::fmt::Display) -> std::io::Error {
@@ -376,42 +332,6 @@ pub fn set_setting(
     }
 }
 
-/// The text of the builder's file with their answer about a plugin set
-/// (or, `None`, taken out: asked again).
-pub fn with_decision(
-    doc: &mut toml_edit::DocumentMut,
-    id: &str,
-    d: Option<&Decision>,
-) -> std::io::Result<()> {
-    let decided = table(doc.as_table_mut(), DECIDED, false)?;
-    match d {
-        Some(d) => {
-            let mut t = toml_edit::InlineTable::new();
-            t.insert("allow", d.allow.into());
-            if !d.version.is_empty() {
-                t.insert("version", d.version.as_str().into());
-            }
-            if !d.digest.is_empty() {
-                t.insert("digest", d.digest.as_str().into());
-            }
-            decided.insert(id, toml_edit::value(t));
-        }
-        None => {
-            decided.remove(id);
-        }
-    }
-    Ok(())
-}
-
-/// Keeps the builder's answer about one of the project's plugins in their
-/// own file (`None`: forgets it), the rest of it as written.
-pub fn set_decision(root: &Path, id: &str, d: Option<&Decision>) -> std::io::Result<()> {
-    let path = ProjectFile::user_path(root);
-    let mut doc = document(&path, &format!("{USER_DIR}/{USER_FILE}"))?;
-    with_decision(&mut doc, id, d)?;
-    ProjectFile::write_user(root, &doc.to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -430,9 +350,7 @@ mod tests {
             "[plugins]\nfolder = \"tools/plugins\"\n\n[plugins.\"tdod.rules\"]\nclaims = \
              \"data/claims.toml\"\nmax = 3\nstrict = true\nratio = 0.5\n\n[plugins.x.y]\nz = \
              \"w\"\n",
-            "[plugins.\"tdod.rules\"]\ncode = \"ab\"\n\n[project_plugins]\n\"tdod.rules\" = { \
-             allow = true, version = \"1.2.0\", digest = \"sha256:00\" }\n\"x.y\" = { allow = \
-             false }\n",
+            "[plugins.\"tdod.rules\"]\ncode = \"ab\"\n",
         );
         assert_eq!(p.warnings, Vec::<String>::new());
         let r = &p.plugins;
@@ -448,11 +366,6 @@ mod tests {
         // (Unquoted, the id's parts nest.)
         assert_eq!(r.team["x.y"].values["z"].value, Ok(SettingValue::Text("w".into())));
         assert_eq!(r.own["tdod.rules"].values["code"].value, Ok(SettingValue::Text("ab".into())));
-        assert_eq!(
-            r.decided["tdod.rules"],
-            Decision { allow: true, version: "1.2.0".into(), digest: "sha256:00".into() }
-        );
-        assert!(!r.decided["x.y"].allow);
     }
 
     #[test]
@@ -460,8 +373,8 @@ mod tests {
         let p = read(
             "[plugins]\nfolder = \"../elsewhere\"\nloud = 3\n[project_plugins]\n\"a.b\" = { \
              allow = true }\n",
-            "[plugins]\nfolder = \"x\"\n[project_plugins]\n\"a.b\" = true\n\"c.d\" = { version \
-             = \"1\", when = 2 }\n",
+            "[plugins]\nfolder = \"x\"\n[project_plugins]\n\"a.b\" = { allow = true, digest = \
+             \"sha256:00\" }\n",
         );
         assert_eq!(
             p.warnings,
@@ -470,17 +383,16 @@ mod tests {
                  ..); the project's plugins are looked for in plugins/",
                 "moonglow.toml:3: \"loud\" is not a key of [plugins]: a plugin's settings are a \
                  table of their own ([plugins.\"loud\"])",
-                "moonglow.toml:4: [project_plugins] is each builder's own (what they allowed): \
-                 it goes in .moonglow/user.toml, not in the file the team shares",
+                "moonglow.toml:4: [project_plugins] is not read: which of a project's plugins \
+                 may run is kept in Moonglow's own settings, never in the project's files (a \
+                 checkout could carry answers of its own); Moonglow asks you",
                 ".moonglow/user.toml:2: [plugins] folder is the team's: it goes in moonglow.toml",
-                ".moonglow/user.toml:4: a.b: an answer is a table ({ allow = true, digest = \
-                 \"…\" })",
-                ".moonglow/user.toml:5: c.d: \"when\" is not a key of an answer (allow, \
-                 version, digest)",
-                ".moonglow/user.toml:5: c.d: an answer needs allow = true or false",
+                ".moonglow/user.toml:3: [project_plugins] is not read: which of a project's \
+                 plugins may run is kept in Moonglow's own settings, never in the project's \
+                 files (a checkout could carry answers of its own); Moonglow asks you",
             ]
         );
-        assert!(p.plugins.decided.is_empty() && p.plugins.folder.is_none());
+        assert!(p.plugins.folder.is_none());
         assert_eq!(
             folder_problem("/abs"),
             Some("it is to be a folder of the project, from its root".into())
@@ -525,28 +437,15 @@ mod tests {
     }
 
     #[test]
-    fn an_answer_is_kept_in_the_builder_s_file() {
-        let dir = mg_testkit::scratch_dir("project-plugins-decision");
+    fn settings_are_written_into_the_project_s_files() {
+        let dir = mg_testkit::scratch_dir("project-plugins-settings");
         ProjectFile::write_user(&dir, "[builder]\ncode = \"ab\"\n").unwrap();
-        let d = Decision { allow: true, version: "1.0".into(), digest: "sha256:ff".into() };
-        set_decision(&dir, "t.r", Some(&d)).unwrap();
-        set_decision(&dir, "x.y", Some(&Decision { allow: false, ..Default::default() })).unwrap();
-        let text = std::fs::read_to_string(ProjectFile::user_path(&dir)).unwrap();
-        assert_eq!(
-            text,
-            "[builder]\ncode = \"ab\"\n\n[project_plugins]\n\"t.r\" = { allow = true, version = \
-             \"1.0\", digest = \"sha256:ff\" }\n\"x.y\" = { allow = false }\n"
-        );
-        let p = ProjectFile::read(&dir);
-        assert_eq!(p.warnings, Vec::<String>::new());
-        assert_eq!(p.plugins.decided["t.r"], d);
-        assert_eq!(p.user.builder_code.as_deref(), Some("ab"));
-        set_decision(&dir, "t.r", None).unwrap();
-        assert!(!ProjectFile::read(&dir).plugins.decided.contains_key("t.r"));
         // A setting of the builder's own, and one of the team's.
         set_setting(&dir, true, "t.r", "code", Some(&SettingValue::Text("cd".into()))).unwrap();
         set_setting(&dir, false, "t.r", "max", Some(&SettingValue::Int(2))).unwrap();
         let p = ProjectFile::read(&dir);
+        assert_eq!(p.warnings, Vec::<String>::new());
+        assert_eq!(p.user.builder_code.as_deref(), Some("ab"), "the rest of the file kept");
         assert_eq!(p.plugins.own["t.r"].values["code"].value, Ok(SettingValue::Text("cd".into())));
         assert_eq!(p.plugins.team["t.r"].values["max"].value, Ok(SettingValue::Int(2)));
         assert!(p.found);
@@ -566,7 +465,6 @@ mod tests {
             if let Ok(mut doc) = full[..end].parse::<toml_edit::DocumentMut>() {
                 let _ = with_setting(&mut doc, "a.b", "x", Some(&SettingValue::Int(2)));
                 let _ = with_setting(&mut doc, "c.d", "y", None);
-                let _ = with_decision(&mut doc, "a.b", None);
             }
         }
     }

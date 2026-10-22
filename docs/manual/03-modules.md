@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:26:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:41:09Z }
 ---
 
 # Modules
@@ -430,23 +430,24 @@ folder, never in the file the team shares. Moonglow makes the folder
 with a `.gitignore` in it holding `*`, so that it stays out of version
 control without a line in the project's own (the log warns of a
 `.moonglow` made by hand without one). It holds `[builder] code`, your
-builder code (below), the values of plugins' settings of scope
-`user-project` (`[plugins."<plugin id>"]`, as in the team's file), and
-what you answered when asked to let the project's plugins run
-(`[project_plugins]`, which Moonglow writes: each plugin with its
-version and a digest of its files). A team's section put there, or
-`[builder]` or `[project_plugins]` put in the team's file, is said and
-left out.
+builder code (below), and the values of plugins' settings of scope
+`user-project` (`[plugins."<plugin id>"]`, as in the team's file). A
+team's section put there, or `[builder]` put in the team's file, is said
+and left out.
 
 ```toml
 # .moonglow/user.toml
 [plugins."tdod.rules"]
 code = "ab"
-
-[project_plugins]
-"tdod.rules" = { allow = true, version = "1.2.0", digest = "sha256:9f2c…" }
-"x.other" = { allow = false }
 ```
+
+**Which of the project's own plugins may run is never in its files.**
+A project's files come with its checkout, and a repository could carry
+answers of its own, its plugins "allowed" before anyone was asked. What
+you answer is kept in Moonglow's own folder
+([A project's own plugins](15-plugins.md#a-projects-own-plugins)); a
+`[project_plugins]` section in either file is said in the log, and
+nothing in it allows anything. No setting allows anything either.
 
 ### Your builder code
 

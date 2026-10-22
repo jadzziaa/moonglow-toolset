@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:26:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:41:09Z }
 ---
 
 # Plugin API changes
@@ -69,11 +69,13 @@ with the reason.
   folder its `moonglow.toml` names, `[plugins] folder`) come with its
   checkout and run once the builder allows them, asked when the project
   is opened; the answer holds for the plugin's content (a digest of its
-  files, which it runs from), so a changed one is asked about again. No
-  change to a plugin's code: one of a project is written as any other.
-  `mg verify` runs a project's plugins as the builder allowed them, or
-  every one with `--allow-project-plugins`; `mg plugin list --project`
-  lists them.
+  files, which it runs from), so a changed one is asked about again, and
+  is kept in Moonglow's own folder, never in the project (a checkout
+  can't come with its plugins allowed). No change to a plugin's code: one
+  of a project is written as any other. `mg verify` runs a project's
+  plugins as the builder allowed them, or every one with
+  `--allow-project-plugins`; `mg plugin list --project` lists them and
+  `mg plugin allow` answers for them.
 - From the Domains of Dread's builder proposal (A1, A2, A3, A5, A8).
 
 ## 0.3

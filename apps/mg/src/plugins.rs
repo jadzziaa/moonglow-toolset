@@ -214,6 +214,55 @@ pub(crate) fn project_root(path: &Path) -> Result<PathBuf> {
     Ok(root.to_path_buf())
 }
 
+/// What the user answered about projects' own plugins, as Moonglow keeps
+/// them in its own folder (never a project's): one that can't be read
+/// allows nothing, and is said.
+fn answers(out: &mut Output) -> mg_plugin::project::Answers {
+    let Some(path) = mg_plugin::project::answers_path() else {
+        return Default::default();
+    };
+    match mg_plugin::project::Answers::read(&path) {
+        Ok(a) => a,
+        Err(e) => {
+            out.note(format!(
+                "warning: {e}: none of a project's plugins is allowed until it reads"
+            ));
+            Default::default()
+        }
+    }
+}
+
+/// `mg plugin allow`: allows a project's own plugins as they are now (or,
+/// `deny`, keeps them off), as the window's question does: the answer kept
+/// in Moonglow's own folder, by the project, the plugin and its content.
+/// No ids: every one of the project's.
+pub(crate) fn allow(project: &Path, ids: &[String], deny: bool) -> Result<Output> {
+    let root = project_root(project)?;
+    let file = mg_module::project_file::ProjectFile::read(&root);
+    let found: Vec<Plugin> = mg_plugin::project::discover(&root, &file)
+        .into_iter()
+        .map(|f| f.plugin.map_err(|e| anyhow!("{e}")))
+        .collect::<Result<_>>()?;
+    if let Some(id) = ids.iter().find(|id| !found.iter().any(|p| p.manifest.id == **id)) {
+        bail!("{}: the project has no plugin {id}", root.display());
+    }
+    let path = mg_plugin::project::answers_path()
+        .context("Moonglow's data folder is not known: nowhere to keep the answer")?;
+    let mut out = Output::default();
+    let mut done = Vec::new();
+    for p in found.iter().filter(|p| ids.is_empty() || ids.contains(&p.manifest.id)) {
+        mg_plugin::project::decide(&path, &root, p, !deny).map_err(|e| anyhow!("{e}"))?;
+        let m = &p.manifest;
+        let said = if deny { "denied" } else { "allowed" };
+        out.line(format!("{}\t{} {}\t{said}", m.id, m.name, m.version));
+        done.push(
+            json!({ "id": m.id, "version": m.version, "digest": p.digest(), "allow": !deny }),
+        );
+    }
+    out.json = json!({ "project": root.display().to_string(), "plugins": done });
+    Ok(out)
+}
+
 /// A setting as `mg plugin list` says it: its id, kind, scope and value.
 fn setting_json(d: &mg_plugin::SettingDecl, value: &mg_plugin::SettingValue) -> serde_json::Value {
     let choices = match &d.kind {
@@ -246,6 +295,7 @@ pub(crate) fn list(dirs: &[PathBuf], project: Option<&Path>) -> Result<Output> {
                 out.note(line.clone());
             }
             let found = mg_plugin::project::discover(&root, &file);
+            let answers = answers(&mut out);
             if found.is_empty() {
                 out.note(format!(
                     "{}: the project comes with no plugins (none in {})",
@@ -256,7 +306,7 @@ pub(crate) fn list(dirs: &[PathBuf], project: Option<&Path>) -> Result<Output> {
             for f in found {
                 match f.plugin {
                     Ok(p) => {
-                        let t = mg_plugin::project::trust(&file, &p);
+                        let t = answers.trust(&root, &p);
                         found_all.push((Ok(p), Some(t)));
                     }
                     Err(e) => out.note(format!("warning: {e}")),
@@ -774,6 +824,7 @@ pub(crate) struct Chosen<'a> {
 fn project_plugins(m: &Module, all: bool, named: &[Plugin], out: &mut Output) -> Vec<Plugin> {
     let Some(root) = project_of(m) else { return Vec::new() };
     let file = &m.project_file;
+    let answers = answers(out);
     let mut run = Vec::new();
     for f in mg_plugin::project::discover(root, file) {
         let p = match f.plugin {
@@ -788,7 +839,7 @@ fn project_plugins(m: &Module, all: bool, named: &[Plugin], out: &mut Output) ->
             out.note(format!("{id}: the one --plugins names runs, not the project's"));
             continue;
         }
-        let t = mg_plugin::project::trust(file, &p);
+        let t = answers.trust(root, &p);
         if all || t.runs() {
             run.push(p);
             continue;
@@ -802,7 +853,8 @@ fn project_plugins(m: &Module, all: bool, named: &[Plugin], out: &mut Output) ->
         };
         out.note(format!(
             "the project's plugin {id} {} did not run: {why} (Moonglow asks when the project \
-             is opened; --allow-project-plugins runs every one, in a build pipeline)",
+             is opened, and `mg plugin allow` answers; --allow-project-plugins runs every one, \
+             in a build pipeline)",
             p.manifest.version
         ));
     }

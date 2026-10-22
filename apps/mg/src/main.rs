@@ -931,6 +931,22 @@ enum PluginCmd {
         #[arg(long)]
         project: Option<PathBuf>,
     },
+    /// Allow a project's own plugins to run, as they are now (or, with
+    /// --deny, keep them off), as Moonglow asks when the project is opened.
+    /// The answer is kept in Moonglow's own folder, by the project, the
+    /// plugin and a digest of its files (a changed plugin is asked about
+    /// again), never in the project.
+    Allow {
+        /// The project: a module folder, a nasher project's folder or its
+        /// nasher.cfg.
+        project: PathBuf,
+        /// The plugins' ids (`mg plugin list --project` shows them); none:
+        /// every one of the project's.
+        ids: Vec<String>,
+        /// Keep them off.
+        #[arg(long)]
+        deny: bool,
+    },
     /// Check plugins: the manifest reads, and the code registers what it
     /// declares. Exits with an error if one does not. A file is a
     /// plugin's archive: checked as the installer checks it, and its code
@@ -1489,6 +1505,7 @@ fn run(cli: &Cli) -> Result<Output> {
         Cmd::Plugin { cmd } => match cmd {
             PluginCmd::List { folders, project } => plugins::list(folders, project.as_deref())?,
             PluginCmd::Check { folders } => plugins::check(folders)?,
+            PluginCmd::Allow { project, ids, deny } => plugins::allow(project, ids, *deny)?,
             // (A plugin that reads no game data needs no game.)
             PluginCmd::Test { plugin, module } => {
                 plugins::test(install(cli).ok().as_ref(), plugin, module.as_deref())?

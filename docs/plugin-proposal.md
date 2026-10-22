@@ -3,7 +3,7 @@ type: Proposal
 title: 'Plugins: a proposal'
 description: The decision record of Moonglow's plugins, proposed and accepted 2026-10-03 - what plugins are for, the principles, safety, the runtimes compared and why sandboxed Luau, the decisions and what was not proposed - with what shipped noted beside it. The API as it is now is in the manual and the API change list.
 tags: [plugins, proposal, luau, api, decision]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:26:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:41:09Z }
 ---
 
 # Plugins: a proposal
@@ -148,8 +148,10 @@ that carried enabled plugins installed a trojan (April 2026).
   the builder, asked when the project is opened, allows it, the answer
   holding for the plugin's content by a digest of its files, which it
   runs from. A changed one is asked about again, and the answers are the
-  builder's own, never committed. A build pipeline runs them with `mg
-  verify --allow-project-plugins`.)
+  builder's own, kept in Moonglow's own folder and never read from the
+  project's files, so that a checkout can't come with its plugins
+  allowed. A build pipeline runs them with `mg verify
+  --allow-project-plugins`.)
 - **No automatic updates.** An update is installed by the user.
 - **A way out.** `--no-plugins` starts without them; crash reports list
   the enabled plugins.

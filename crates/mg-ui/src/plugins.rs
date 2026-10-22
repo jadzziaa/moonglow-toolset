@@ -91,6 +91,9 @@ pub struct Plugins {
     pub settings_form: Option<SettingsForm>,
     /// What the job that just ended set, until it is kept.
     last_set: Option<Vec<mg_plugin::SettingWrite>>,
+    /// What the user answered about projects' own plugins, as kept in
+    /// Moonglow's own folder ([`Moonglow::plugin_answers`]).
+    pub trust_answers: mg_plugin::project::Answers,
 }
 
 /// Answers remembered, by question.
@@ -100,7 +103,12 @@ type Granted = Arc<Mutex<std::collections::HashMap<String, Answer>>>;
 /// project's plugin, other content).
 fn grants_name(p: &Plugin) -> String {
     match p.digest() {
-        Some(digest) => format!("{} {digest}", p.manifest.id),
+        // (And by where it is: another project's of the same content is
+        // another plugin.)
+        Some(digest) => {
+            let dir = p.dir.canonicalize().unwrap_or_else(|_| p.dir.clone());
+            format!("{} {digest} {}", p.manifest.id, dir.display())
+        }
         None => format!("{} {}", p.manifest.id, p.manifest.version),
     }
 }
@@ -231,6 +239,12 @@ pub(crate) fn run_on(command: &PluginCommand, selected: Vec<mg_plugin::Selected>
         command: command.command.clone(),
         selected,
     }
+}
+
+/// Where the answers about projects' own plugins are kept: a file of
+/// Moonglow's own data folder (`mg` reads the same), never a project's.
+pub fn answers_path() -> Option<PathBuf> {
+    mg_plugin::project::answers_path()
 }
 
 /// The plugins enabled now, for a crash report (the panic hook reads it).
@@ -419,6 +433,17 @@ impl Moonglow {
         self.plugins.installed.retain(|i| !i.project);
         self.plugins.project_asking.clear();
         let Some(root) = self.project_root().filter(|_| !self.no_plugins) else { return };
+        // What the user answered, read again (another Moonglow, or `mg`,
+        // may have answered since); one that can't be read allows nothing.
+        if let Some(path) = &self.plugin_answers {
+            match mg_plugin::project::Answers::read(path) {
+                Ok(a) => self.plugins.trust_answers = a,
+                Err(e) => {
+                    self.plugins.trust_answers = Default::default();
+                    self.log.error(format!("{e}: none of a project's plugins runs until it reads"));
+                }
+            }
+        }
         let Some(ws) = &self.ws else { return };
         let found = mg_plugin::project::discover(&root, &ws.module.project_file);
         for f in found {
@@ -462,8 +487,8 @@ impl Moonglow {
     /// What the user answered for a project's plugin, as it is now (none:
     /// it is no project's plugin, or no project is open).
     pub fn project_trust(&self, p: &Plugin) -> Option<mg_plugin::project::Trust> {
-        let ws = self.ws.as_ref().filter(|_| p.is_project())?;
-        Some(mg_plugin::project::trust(&ws.module.project_file, p))
+        let root = self.project_root().filter(|_| p.is_project())?;
+        Some(self.plugins.trust_answers.trust(&root, p))
     }
 
     /// The project's plugins.
@@ -483,12 +508,16 @@ impl Moonglow {
         let found = self.project_plugins().into_iter().find(|p| p.manifest.id == id).cloned();
         let Some(p) = found else { return };
         let m = &p.manifest;
-        if let Err(e) = mg_plugin::project::decide(&root, &p, allow) {
-            self.log.error(format!("{}: your answer was not kept: {e}", m.name));
-            return;
-        }
-        if let Some(ws) = &mut self.ws {
-            ws.module.project_file = ProjectFile::read(&root);
+        // (Kept in Moonglow's own folder, never in the project.)
+        match &self.plugin_answers {
+            Some(path) => match mg_plugin::project::decide(path, &root, &p, allow) {
+                Ok(answers) => self.plugins.trust_answers = answers,
+                Err(e) => {
+                    self.log.error(format!("{}: your answer was not kept: {e}", m.name));
+                    return;
+                }
+            },
+            None => self.plugins.trust_answers.decide(&root, &p, allow),
         }
         self.plugins.project_asking.retain(|a| a != id);
         self.plugins_changed();
@@ -1407,7 +1436,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                         ui.label(
                             "They come with the project's checkout. Each runs only once you \
                              allow it, as it is then: one that changes is off until you allow it \
-                             again. Your answers are yours alone (.moonglow/user.toml).",
+                             again. Your answers are yours alone, kept in Moonglow's own \
+                             settings, never in the project.",
                         );
                         ui.add_space(4.0);
                     }
@@ -1641,7 +1671,7 @@ pub(crate) fn project_window(app: &mut Moonglow, ctx: &egui::Context) {
             "Its folder {}/ holds plugins the team shares. None of their code runs until you \
              allow it, and what you allow is each plugin as it is now: if it changes (a pull \
              brings another version), you are asked again. Your answers are yours alone, kept \
-             in the project's .moonglow/user.toml.",
+             in Moonglow's own settings, never in the project.",
             folder.unwrap_or_else(|| "plugins".into())
         ));
         ui.add_space(6.0);

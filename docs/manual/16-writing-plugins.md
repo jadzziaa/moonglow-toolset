@@ -3,7 +3,7 @@ type: Manual Page
 title: Writing plugins
 description: Writing plugins - a first plugin, how a plugin runs, the manifest, reading and editing the module, commands on what is selected, the game's data, talking to the user, settings (ctx.settings, their scopes and where each is kept), files and haks outside the module, areas and terrain, checks and the fixes of their findings, several files, trying and testing (a plugin's own tests, mg plugin test), editor types, versions, sharing, and a project's own plugins.
 tags: [manual, plugins, luau]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:26:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:41:09Z }
 ---
 
 # Writing plugins
@@ -911,8 +911,9 @@ the project's `plugins/` (beside `nasher.cfg`, or in the folder
 with the rest. Every builder who checks the project out has it, in step
 with the module, with nothing to install. Moonglow asks each builder
 before it runs (the first time, and again whenever the plugin's files
-change), and keeps the answer in their own part of the project
-([Plugins](15-plugins.md#a-projects-own-plugins)). Its `tests/` stay with
+change), and keeps the answer in Moonglow's own folder, never in the
+project ([Plugins](15-plugins.md#a-projects-own-plugins)): a plugin can't
+come pre-allowed with the checkout. Its `tests/` stay with
 it, and a change to them asks nobody again.
 
 In a build pipeline nobody is asked:

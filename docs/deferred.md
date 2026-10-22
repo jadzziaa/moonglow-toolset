@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:26:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:41:09Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2397,16 +2397,18 @@ contribution itself states as not done or not checked.
   - **A project's own plugins** (API 0.4, the Domains of Dread's
     builder proposal A2: `plugins/` of a project, or `[plugins] folder`,
     run once the builder allows each, asked when the project is opened,
-    the answer kept in `.moonglow/user.toml` by a SHA-256 digest of the
-    plugin's files, which it runs from; `mg verify` as allowed or with
-    `--allow-project-plugins`; `mg plugin list --project`). Not done:
+    the answer kept in Moonglow's own folder (`project-plugins.toml`, by
+    the project's canonical path, the plugin's id and a SHA-256 digest of
+    its files, which it runs from), never read from the project; `mg
+    verify` as allowed or with `--allow-project-plugins`; `mg plugin list
+    --project`, `mg plugin allow`). Not done: a project moved or copied
+    elsewhere on disk is asked about again (answers are by its path);
     the question comes when the project is opened (and at Reload), not
     when its plugins' folder changes while it is open (the folder is not
     watched; until then the plugins run as they were read, which is what
     was allowed); a digest says a plugin is the one allowed, not who
     wrote it (no signatures); a no holds for the plugin's id whatever it
-    becomes, and there is no Allow All; `mg` has no command to allow one
-    (the window, or the user's file by hand), and `mg plugin run` runs a
+    becomes, and there is no Allow All in the window; `mg plugin run` runs a
     plugin's folder it is given whether allowed or not (it is named on
     purpose); a project's plugin and one installed of its id share their
     settings of scope `user`; what a project's plugin's events were

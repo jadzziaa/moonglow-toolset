@@ -10,7 +10,7 @@ use std::rc::Rc;
 use mg_gff::{Gff, Value};
 use mg_module::Module;
 use mg_module::project_file::ProjectFile;
-use mg_plugin::project::{self, Trust};
+use mg_plugin::project::{self, Answers, Trust};
 use mg_plugin::{
     Answer, Host, Input, Level, Plugin, PluginError, Question, SettingValue, Settings, run_check,
     run_command, settings,
@@ -168,31 +168,42 @@ fn a_project_s_plugin_is_known_by_its_content() {
 #[test]
 fn the_builder_s_answer_holds_for_the_plugin_as_it_was() {
     let (root, dir) = project_with_plugin("project-plugin-trust");
-    let file = |root: &Path| ProjectFile::read(root);
+    // (Moonglow's own folder, here a scratch one: never the project.)
+    let kept = mg_testkit::scratch_dir("project-plugin-trust-answers").join("answers.toml");
+    let trust = |p: &Plugin| Answers::read(&kept).unwrap().trust(&root, p);
     let p = &found(&root)[0];
-    assert_eq!(project::trust(&file(&root), p), Trust::Unasked);
+    assert_eq!(trust(p), Trust::Unasked);
     assert!(Trust::Unasked.to_ask() && !Trust::Unasked.runs());
-    project::decide(&root, p, true).unwrap();
-    assert_eq!(project::trust(&file(&root), p), Trust::Allowed);
-    // (Kept in the builder's own file, which keeps itself out of git.)
-    let own = std::fs::read_to_string(ProjectFile::user_path(&root)).unwrap();
-    assert!(
-        own.contains("\"team.rules\" = { allow = true, version = \"1.0.0\", digest = \"sha256:")
-    );
-    assert!(root.join(".moonglow/.gitignore").is_file());
+    project::decide(&kept, &root, p, true).unwrap();
+    assert_eq!(trust(p), Trust::Allowed);
+    // Kept by the project's canonical path, the plugin and its digest.
+    let text = std::fs::read_to_string(&kept).unwrap();
+    let canonical = root.canonicalize().unwrap();
+    assert!(text.contains(&format!("project = {:?}", canonical.display().to_string())), "{text}");
+    assert!(text.contains("plugin = \"team.rules\"") && text.contains("digest = \"sha256:"));
+    assert!(!root.join(".moonglow").exists(), "nothing written into the project");
+    // Another project with the same plugin: not allowed by this answer.
+    let (other, _) = project_with_plugin("project-plugin-trust-other");
+    let theirs = &found(&other)[0];
+    assert_eq!(theirs.digest(), p.digest());
+    assert_eq!(Answers::read(&kept).unwrap().trust(&other, theirs), Trust::Unasked);
     // Changed: asked again.
     std::fs::write(dir.join("main.luau"), format!("{CODE}\n-- more")).unwrap();
     let changed = &found(&root)[0];
-    let t = project::trust(&file(&root), changed);
+    let t = trust(changed);
     assert_eq!(t, Trust::Changed { was: "1.0.0".into() });
     assert!(t.to_ask() && !t.runs());
     // Denied: off, whatever it becomes, and not asked again.
-    project::decide(&root, changed, false).unwrap();
-    assert_eq!(project::trust(&file(&root), changed), Trust::Denied);
+    project::decide(&kept, &root, changed, false).unwrap();
+    assert_eq!(trust(changed), Trust::Denied);
     std::fs::write(dir.join("main.luau"), CODE).unwrap();
     let back = &found(&root)[0];
-    assert_eq!(project::trust(&file(&root), back), Trust::Denied);
+    assert_eq!(trust(back), Trust::Denied);
     assert!(!Trust::Denied.to_ask());
+    assert_eq!(Answers::read(&kept).unwrap().answers.len(), 1, "one answer a plugin");
+    // A file of answers that can't be read allows nothing.
+    std::fs::write(&kept, "[[answer]\n").unwrap();
+    assert!(Answers::read(&kept).is_err());
     // The folder the team's file names, inside the project only.
     std::fs::write(root.join("moonglow.toml"), "[plugins]\nfolder = \"tools\"\n").unwrap();
     assert!(found(&root).is_empty());
@@ -203,6 +214,28 @@ fn the_builder_s_answer_holds_for_the_plugin_as_it_was() {
     let file = ProjectFile::read(&root);
     let f = project::discover(&root, &file);
     assert!(f[0].plugin.as_ref().unwrap_err().contains("needs"), "{:?}", f[0].plugin);
+}
+
+/// A project that comes with answers of its own (a `.moonglow/user.toml`
+/// committed with its plugin "allowed", digest and all) allows nothing:
+/// the section is said, and the plugin is still to be asked about.
+#[test]
+fn answers_a_project_carries_allow_nothing() {
+    let (root, _) = project_with_plugin("project-plugin-carried-answers");
+    let p = &found(&root)[0];
+    let claim = format!(
+        "[project_plugins]\n\"team.rules\" = {{ allow = true, version = \"1.0.0\", digest = {:?} }}\n",
+        p.digest().unwrap()
+    );
+    ProjectFile::write_user(&root, &claim).unwrap();
+    std::fs::write(root.join("moonglow.toml"), &claim).unwrap();
+    let file = ProjectFile::read(&root);
+    assert_eq!(file.warnings.len(), 2, "{:?}", file.warnings);
+    assert!(file.warnings.iter().all(|w| w.contains("[project_plugins] is not read")));
+    let kept = mg_testkit::scratch_dir("project-plugin-carried-answers-kept").join("answers.toml");
+    let t = Answers::read(&kept).unwrap().trust(&root, p);
+    assert_eq!(t, Trust::Unasked);
+    assert!(t.to_ask());
 }
 
 #[test]

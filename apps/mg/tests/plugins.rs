@@ -384,26 +384,32 @@ fn project_with_plugins(name: &str) -> PathBuf {
     dir
 }
 
-/// Allows a project's plugin as `mg plugin list` says it is now, in the
-/// builder's own file, as the window's question does.
-fn allow(project: &Path, listed: &Json) {
-    let p = &listed["plugins"].as_array().unwrap()[0];
-    let text = format!(
-        "[project_plugins]\n{:?} = {{ allow = true, version = {}, digest = {} }}\n",
-        p["id"].as_str().unwrap(),
-        p["version"],
-        p["project"]["digest"]
-    );
-    mg_module::project_file::ProjectFile::write_user(project, &text).unwrap();
+/// `mg` with a data folder of its own (where Moonglow keeps the answers
+/// about projects' plugins), so that tests running at once keep apart.
+fn mg_at(home: &Path, args: &[&str]) -> (bool, Json) {
+    let out = crate::mg()
+        .env("XDG_DATA_HOME", home.join("data"))
+        .env("APPDATA", home.join("data"))
+        .args(["--no-user-dir", "--json"])
+        .args(args)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.trim().is_empty(), "{args:?}: stderr {stderr}");
+    let json = serde_json::from_slice(&out.stdout)
+        .unwrap_or_else(|e| panic!("{args:?}: {e}: {}", String::from_utf8_lossy(&out.stdout)));
+    (out.status.success(), json)
 }
 
 /// A project's plugins: listed with what the builder allowed and their
-/// settings' values in the project; allowed by content.
+/// settings' values in the project; allowed by content (`mg plugin
+/// allow`), the answer kept in Moonglow's own folder, not the project.
 #[test]
 fn a_project_s_plugins_are_listed_as_allowed() {
     let dir = project_with_plugins("mg-project-plugins-list");
+    let home = mg_testkit::scratch_dir("mg-project-plugins-list-home");
     let project = dir.to_str().unwrap();
-    let (ok, listed) = mg(&["plugin", "list", "--project", project]);
+    let (ok, listed) = mg_at(&home, &["plugin", "list", "--project", project]);
     assert!(ok, "{listed}");
     let p = &listed["plugins"][0];
     assert_eq!(p["id"], "example.builder-tags");
@@ -416,27 +422,44 @@ fn a_project_s_plugins_are_listed_as_allowed() {
         (&json!("prefix"), &json!("project"), &json!("KRZ_"), &json!(""))
     );
     assert_eq!(p["settings"][2]["max"], 32);
-    allow(&dir, &listed);
-    let (_, listed) = mg(&["plugin", "list", "--project", project]);
+    let (ok, allowed) = mg_at(&home, &["plugin", "allow", project]);
+    assert!(ok, "{allowed}");
+    assert_eq!(allowed["plugins"][0]["allow"], true);
+    assert!(home.join("data/moonglow/project-plugins.toml").is_file());
+    assert!(!dir.join(".moonglow").exists(), "nothing written into the project");
+    let (_, listed) = mg_at(&home, &["plugin", "list", "--project", project]);
     assert_eq!(listed["plugins"][0]["project"]["trust"], "allowed");
     // Changed since: asked again.
     let main = dir.join("plugins/builder-tags/main.luau");
     let code = std::fs::read_to_string(&main).unwrap();
     std::fs::write(&main, format!("{code}\n-- changed\n")).unwrap();
-    let (_, listed) = mg(&["plugin", "list", "--project", project]);
+    let (_, listed) = mg_at(&home, &["plugin", "list", "--project", project]);
     assert_eq!(listed["plugins"][0]["project"]["trust"], "changed since allowed");
+    let (_, _) = mg_at(&home, &["plugin", "allow", project, "example.builder-tags", "--deny"]);
+    let (_, listed) = mg_at(&home, &["plugin", "list", "--project", project]);
+    assert_eq!(listed["plugins"][0]["project"]["trust"], "denied");
     // As text: a line for it and one for each setting.
     let out = crate::mg()
+        .env("XDG_DATA_HOME", home.join("data"))
         .args(["--no-user-dir", "plugin", "list", "--project", project])
         .output()
         .unwrap();
     let text = String::from_utf8_lossy(&out.stdout);
-    assert!(text.contains("\tthe project's: changed since allowed"), "{text}");
+    assert!(text.contains("\tthe project's: denied"), "{text}");
     assert!(text.contains("\tsetting\tprefix\tstring\tproject\t\"KRZ_\""), "{text}");
+    // A plugin the project has not.
+    let out = crate::mg()
+        .env("XDG_DATA_HOME", home.join("data"))
+        .args(["--no-user-dir", "plugin", "allow", project, "nobody.else"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("the project has no plugin nobody.else"));
 }
 
-/// `mg verify` runs a project's plugins only as the builder allowed them,
-/// or every one with `--allow-project-plugins` (a build pipeline).
+/// `mg verify` runs a project's plugins only as the builder allowed them
+/// in Moonglow's own folder, or every one with `--allow-project-plugins`
+/// (a build pipeline); answers the project carries itself allow nothing.
 #[test]
 fn verify_runs_a_project_s_plugins_as_allowed() {
     let Some(root) = mg_testkit::nwn_root() else {
@@ -444,6 +467,7 @@ fn verify_runs_a_project_s_plugins_as_allowed() {
         return;
     };
     let dir = project_with_plugins("mg-project-plugins-verify");
+    let home = mg_testkit::scratch_dir("mg-project-plugins-verify-home");
     let args = ["--root", root.to_str().unwrap(), "verify", dir.to_str().unwrap()];
     let ours = |v: &Json| -> Vec<String> {
         (v["findings"].as_array().unwrap().iter())
@@ -451,7 +475,7 @@ fn verify_runs_a_project_s_plugins_as_allowed() {
             .map(|f| f["message"].as_str().unwrap().to_string())
             .collect()
     };
-    let (_, plain) = mg(&args);
+    let (_, plain) = mg_at(&home, &args);
     assert!(ours(&plain).is_empty(), "not allowed: not run");
     let notes = plain["notes"].to_string();
     assert!(
@@ -460,18 +484,33 @@ fn verify_runs_a_project_s_plugins_as_allowed() {
         ),
         "{notes}"
     );
-    let (_, all) = mg(&[&args[..], &["--allow-project-plugins"]].concat());
+    // A project that comes with an answer of its own, digest and all:
+    // said, and nothing allowed.
+    let (_, listed) = mg_at(&home, &["plugin", "list", "--project", dir.to_str().unwrap()]);
+    let claim = format!(
+        "[project_plugins]\n\"example.builder-tags\" = {{ allow = true, version = \"1.0.0\", \
+         digest = {} }}\n",
+        listed["plugins"][0]["project"]["digest"]
+    );
+    mg_module::project_file::ProjectFile::write_user(&dir, &claim).unwrap();
+    let (_, claimed) = mg_at(&home, &args);
+    assert!(ours(&claimed).is_empty(), "a project's own answer allows nothing");
+    let notes = claimed["notes"].to_string();
+    assert!(notes.contains("[project_plugins] is not read"), "{notes}");
+    assert!(notes.contains("did not run: you have not allowed it"), "{notes}");
+    std::fs::remove_dir_all(dir.join(".moonglow")).unwrap();
+    // Every one, in a pipeline.
+    let (_, all) = mg_at(&home, &[&args[..], &["--allow-project-plugins"]].concat());
     assert_eq!(ours(&all), ["tag \"captain\" does not begin with KRZ_"], "the team's prefix");
     // Allowed by the builder: it runs without the flag.
-    let (_, listed) = mg(&["plugin", "list", "--project", dir.to_str().unwrap()]);
-    allow(&dir, &listed);
-    let (_, allowed) = mg(&args);
+    mg_at(&home, &["plugin", "allow", dir.to_str().unwrap()]);
+    let (_, allowed) = mg_at(&home, &args);
     assert_eq!(ours(&allowed).len(), 1);
     // Changed since: not run, and said.
     let main = dir.join("plugins/builder-tags/main.luau");
     let code = std::fs::read_to_string(&main).unwrap();
     std::fs::write(&main, format!("{code}\n-- changed\n")).unwrap();
-    let (_, changed) = mg(&args);
+    let (_, changed) = mg_at(&home, &args);
     assert!(ours(&changed).is_empty());
     assert!(
         changed["notes"].to_string().contains("it changed since you allowed it (version 1.0.0)")
