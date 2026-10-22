@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:15:13Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:24:18Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2258,6 +2258,13 @@ contribution itself states as not done or not checked.
   - *`mg` links `mg-ui`* for `render` and `layout`: its build takes
     longer and its binary is larger; the preview could become a crate of
     its own if that matters. (M)
+  - *AccessKit doesn't start on newer Linux desktops*: eframe 0.36's
+    `accesskit_unix` (0.21) offers the tree only when the session bus's
+    `org.a11y.Status.ScreenReaderEnabled` turns true, and at-spi2-core
+    2.62 (the development machine's) has only `IsEnabled`, so there it
+    never starts; `accesskit_unix` 0.24 watches `IsEnabled`, and comes
+    with an egui/eframe whose `accesskit_winit` uses it. Until then the
+    desktop agents here can't read the window. (S, with that upgrade)
   - *AccessKit was checked on Linux only*: the GUI checks for Windows
     (`x86_64-pc-windows-gnu`) and eframe's AccessKit for macOS
     (`aarch64-apple-darwin`); CI builds them, and no one has read the

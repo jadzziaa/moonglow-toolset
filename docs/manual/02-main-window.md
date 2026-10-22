@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:15:13Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:24:18Z }
 ---
 
 # The main window
@@ -365,8 +365,10 @@ Moonglow's controls are offered to the system's accessibility interface
 Linux), so a screen reader, or a program that drives desktop
 applications, can read them by name and press them. Moonglow builds that
 description only while such a program asks for it; otherwise it costs
-nothing. On Linux it is offered while the desktop says a screen reader
-is on: start one (Orca), or turn the setting on for the session with
-`busctl --user set-property org.a11y.Bus /org/a11y/bus org.a11y.Status
-ScreenReaderEnabled b true`. The Flatpak is allowed to ask the desktop
-for that setting.
+nothing. On Linux it is offered while the desktop's accessibility bus
+says a screen reader is on (its `ScreenReaderEnabled` setting, which a
+screen reader such as Orca turns on). Newer accessibility buses no
+longer have that setting (at-spi2-core 2.62 hasn't), and there Moonglow
+doesn't offer its controls yet: the version of the toolkit it is built
+with asks for that setting alone. The Flatpak is allowed to ask the
+desktop for it.

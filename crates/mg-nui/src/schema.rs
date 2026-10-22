@@ -48,7 +48,7 @@ pub fn settings_schema() -> Value {
     let bind = json!({"type": "string", "description": "The bind's name"});
     json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": "https://github.com/moonglow-toolset/moonglow/nui-settings",
+        "$id": "https://github.com/jadzziaa/moonglow-toolset/nui-settings.schema.json",
         "title": "Moonglow NUI window settings (NAME.txt)",
         "description": "What the NUI Creator keeps beside a window's layout (NAME.jui): the binds' first values, the handlers, the swap layout variants. Nothing of it goes into the game's document. UTF-8 JSON, no key twice in one object; keys this version does not know are kept.",
         "type": "object",
