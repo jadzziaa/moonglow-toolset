@@ -2711,11 +2711,82 @@ fn script_editor_completion_find_bookmarks() {
     let line1 = edited.find('\n').unwrap() + 1;
     assert_eq!(script_cursor(&h, key), Some((line1, line1)));
 
-    // Saving the module stores the editor's text.
-    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::S);
+    // Saving the module stores the editor's text. (File › Save: Ctrl+S
+    // with the editor's keys is the script's own Save.)
+    h.state_mut().actions.push(mg_ui::Action::Save);
     h.run();
     let saved = Module::open(&path).unwrap();
     assert!(String::from_utf8_lossy(saved.get(&key).unwrap()).contains("MyHelper("));
+}
+
+/// The Save key (Ctrl+S) while a script editor has the keyboard is that
+/// script's Save: its text into the module, which stays unsaved and its
+/// file as it was (El Grillo's request; Aurora's script editor's Ctrl+S).
+/// With the keyboard elsewhere it saves the module; a Save key chosen in
+/// Options › Keyboard does the same.
+#[test]
+fn the_save_key_in_a_script_editor_saves_the_script_not_the_module() {
+    use mg_ui::keys::Cmd;
+    let dir = mg_testkit::scratch_dir("ui-script-save-key");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let on_disk = || String::from_utf8(Module::open(&path).unwrap().get(&key).unwrap().to_vec());
+    let in_module = |h: &Harness<'_, Moonglow>| {
+        let ws = h.state().ws.as_ref().unwrap();
+        String::from_utf8_lossy(ws.module.get(&key).unwrap()).into_owned()
+    };
+    let unsaved = |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().is_modified();
+    // Typed at the top, with the editor's keys.
+    let type_in = |h: &mut Harness<'_, Moonglow>, text: &str| {
+        h.state_mut().script_tools.jump = Some((key, 0));
+        h.run();
+        h.event(egui::Event::Text(text.into()));
+        h.run();
+    };
+    let leave = |h: &mut Harness<'_, Moonglow>| {
+        h.ctx.memory_mut(|m| m.surrender_focus(egui::Id::new(("script", key))));
+        h.run();
+    };
+    type_in(&mut h, "// one\n");
+    assert!(h.state().script_text(key).unwrap().starts_with("// one\n"));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::S);
+    h.run_steps(3);
+    assert!(in_module(&h).starts_with("// one\n"), "the script saved into the module");
+    assert_eq!(h.state().script_text(key).unwrap(), in_module(&h), "the editor's text, saved");
+    assert!(unsaved(&h), "the module not saved");
+    assert_eq!(on_disk().unwrap(), "void main() { }\n", "its file as it was");
+    let said = h.state().script_tools.messages.last().unwrap().text.clone();
+    assert!(said.contains("saved, not compiled"), "{said}");
+    // The keys elsewhere: the module's Save.
+    leave(&mut h);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::S);
+    h.run_steps(3);
+    assert!(!unsaved(&h));
+    assert!(on_disk().unwrap().starts_with("// one\n"), "the module written");
+
+    // Save on F8: F8 in the editor is the script's Save, Ctrl+S nothing.
+    h.state_mut()
+        .keymap
+        .set(Cmd::Save, vec![egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::F8)]);
+    type_in(&mut h, "// two\n");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::S);
+    h.run_steps(3);
+    assert!(!in_module(&h).starts_with("// two\n"), "Ctrl+S is no Save now");
+    h.key_press(egui::Key::F8);
+    h.run_steps(3);
+    assert!(in_module(&h).starts_with("// two\n// one\n"), "{}", in_module(&h));
+    assert!(unsaved(&h));
+    assert!(on_disk().unwrap().starts_with("// one\n"));
+    leave(&mut h);
+    h.key_press(egui::Key::F8);
+    h.run_steps(3);
+    assert!(!unsaved(&h));
+    assert!(on_disk().unwrap().starts_with("// two\n// one\n"));
 }
 
 #[test]
@@ -16097,8 +16168,10 @@ fn compiled_models_are_saved_as_text() {
 }
 
 /// The script editor's To Scratch: the script saved and compiled, then it
-/// and its compiled script copied into the scratch folder; one that
-/// doesn't compile is not copied.
+/// and its compiled script copied into the scratch folder. One that
+/// doesn't compile (an include file, one with an error) goes there too,
+/// without a compiled script: not the one the module has from before (El
+/// Grillo's request).
 #[test]
 fn a_script_goes_to_the_scratch_folder_compiled() {
     let root = mg_testkit::corpus!();
@@ -16124,17 +16197,51 @@ fn a_script_goes_to_the_scratch_folder_compiled() {
     assert_eq!(std::fs::read(scratch.join("hello.nss")).unwrap(), b"void main() { }\n");
     let ncs = std::fs::read(scratch.join("hello.ncs")).unwrap();
     assert!(ncs.starts_with(b"NCS V1.0"), "a compiled script");
-    // A script that doesn't compile is not copied.
+    let texts = |h: &Harness<'_, Moonglow>| -> Vec<String> {
+        let m = &h.state().script_tools.messages;
+        m.iter().filter(|m| m.script == key).map(|m| m.text.clone()).collect()
+    };
+    let said = texts(&h);
+    assert!(said.iter().any(|t| t.contains("copied hello.nss, hello.ncs to")), "{said:?}");
+    // A script with an error: its source copied, and the compiler's error
+    // said; the compiled script the module has from before is not.
     let broken_path = sample_module(&dir.join("broken"));
     let mut m = Module::open(&broken_path).unwrap();
     m.set(key, b"void main() { x = 1; }\n".to_vec());
+    m.set(ResKey::parse("hello", ResType::NCS).unwrap(), b"NCS V1.0 old".to_vec());
     m.save().unwrap();
     let scratch = dir.join("scratch2");
     let mut h = open(&broken_path, &scratch);
     h.get_by_label("To Scratch").click();
     h.run_steps(3);
-    assert!(h.state().script_tools.messages.last().is_some_and(|m| m.error));
-    assert!(!scratch.join("hello.nss").exists());
+    assert_eq!(std::fs::read(scratch.join("hello.nss")).unwrap(), b"void main() { x = 1; }\n");
+    assert!(!scratch.join("hello.ncs").exists(), "no compiled script");
+    let messages = &h.state().script_tools.messages;
+    assert!(messages.iter().any(|m| m.error && m.location.is_some()), "the error: {messages:?}");
+    let said = texts(&h);
+    let copied = said.iter().find(|t| t.contains("copied hello.nss to")).expect("{said:?}");
+    assert!(copied.contains("not compiled"), "{copied}");
+    // A compiled script left in the folder by an earlier copy is named.
+    std::fs::write(scratch.join("hello.ncs"), b"NCS V1.0 older").unwrap();
+    h.get_by_label("To Scratch").click();
+    h.run_steps(3);
+    let said = texts(&h);
+    assert!(said.iter().any(|t| t.contains("the folder's hello.ncs is from an earlier")));
+    // An include file (no main): copied, not compiled.
+    let include_path = sample_module(&dir.join("include"));
+    let mut m = Module::open(&include_path).unwrap();
+    m.set(key, b"int Twice(int n) { return 2 * n; }\n".to_vec());
+    m.save().unwrap();
+    let scratch = dir.join("scratch3");
+    let mut h = open(&include_path, &scratch);
+    h.get_by_label("To Scratch").click();
+    h.run_steps(3);
+    let source = std::fs::read(scratch.join("hello.nss")).unwrap();
+    assert_eq!(source, b"int Twice(int n) { return 2 * n; }\n");
+    assert!(!scratch.join("hello.ncs").exists());
+    let said = texts(&h);
+    assert!(said.iter().any(|t| t.contains("an include file")), "{said:?}");
+    assert!(said.iter().any(|t| t.contains("copied hello.nss to")), "{said:?}");
 }
 
 /// A script changed since it was compiled goes out, from the module tree,
@@ -19278,7 +19385,8 @@ fn a_script_editor_opens_other_scripts() {
     assert!(h.query_by_label("2 scripts").is_none());
     h.state_mut().script_tools.open_script.as_mut().unwrap().filter = "nw_s0_firebal".into();
     h.run_steps(2);
-    h.get_by_label("nw_s0_fireball").click();
+    let at = h.get_by_label("nw_s0_fireball").rect().center();
+    double_click_now(&mut h, at);
     h.run_steps(4);
     let fireball = ResKey::parse("nw_s0_fireball", ResType::NSS).unwrap();
     assert!(h.state().dock.find_tab(&Tab::Resource(fireball)).is_some(), "read, not edited");
@@ -19292,9 +19400,99 @@ fn a_script_editor_opens_other_scripts() {
     h.run_steps(3);
     h.get_by_label("Module Resources Only").click();
     h.run_steps(2);
-    h.get_by_label("other_one").click();
+    let at = h.get_by_label("other_one").rect().center();
+    double_click_now(&mut h, at);
     h.run_steps(4);
     assert!(h.state().dock.find_tab(&Tab::Script(other)).is_some());
+}
+
+/// In Open Script a click selects a script and opens nothing; Shift+click
+/// selects those between, Ctrl+click adds one or takes it away, the
+/// arrows move the selection (Shift widens it), and Open or Enter opens
+/// every one selected, each in its tab; a double click opens that one
+/// alone (El Grillo's request).
+#[test]
+fn open_script_opens_the_scripts_selected_together() {
+    let dir = mg_testkit::scratch_dir("ui-open-several");
+    let path = sample_module(&dir);
+    let names = ["s1", "s2", "s3", "s4", "s5", "s6"];
+    let mut m = Module::open(&path).unwrap();
+    for n in names {
+        m.set(ResKey::parse(n, ResType::NSS).unwrap(), b"void main() { }\n".to_vec());
+    }
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let hello = ResKey::parse("hello", ResType::NSS).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Script(hello)));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let open_now = |h: &Harness<'_, Moonglow>| -> Vec<String> {
+        let mut open: Vec<String> = (h.state().dock.iter_all_tabs())
+            .filter_map(|(_, t)| match t {
+                Tab::Script(k) if *k != hello => Some(k.resref.to_string()),
+                _ => None,
+            })
+            .collect();
+        open.sort();
+        open
+    };
+    let selected = |h: &Harness<'_, Moonglow>| -> Vec<String> {
+        let w = h.state().script_tools.open_script.as_ref().expect("the window is open");
+        w.selected.iter().map(|k| k.resref.to_string()).collect()
+    };
+    let window = |h: &mut Harness<'_, Moonglow>| {
+        h.get_by_label("Open…").click();
+        h.run_steps(3);
+        // (Past the double-click time of the click before.)
+        h.run_steps(30);
+    };
+    window(&mut h);
+    h.get_by_label("7 scripts");
+    // Open is off with nothing selected.
+    assert!(h.get_by_label("Open").accesskit_node().is_disabled());
+    h.get_by_label("s1").click();
+    h.run_steps(2);
+    assert_eq!(selected(&h), ["s1"]);
+    assert!(open_now(&h).is_empty(), "a click opens nothing");
+    h.get_by_label("s3").click_modifiers(egui::Modifiers::SHIFT);
+    h.run_steps(2);
+    assert_eq!(selected(&h), ["s1", "s2", "s3"]);
+    h.get_by_label("s2").click_modifiers(egui::Modifiers::COMMAND);
+    h.run_steps(2);
+    assert_eq!(selected(&h), ["s1", "s3"]);
+    h.get_by_label("7 scripts, 2 selected");
+    h.get_by_label("Open 2").click();
+    h.run_steps(4);
+    assert_eq!(open_now(&h), ["s1", "s3"]);
+    assert!(h.state().script_tools.open_script.is_none(), "the window closed");
+
+    // A double click opens that one alone.
+    window(&mut h);
+    h.get_by_label("s4").click();
+    h.run_steps(2);
+    h.get_by_label("s5").click_modifiers(egui::Modifiers::COMMAND);
+    h.run_steps(30);
+    let at = h.get_by_label("s6").rect().center();
+    double_click_now(&mut h, at);
+    h.run_steps(4);
+    assert_eq!(open_now(&h), ["s1", "s3", "s6"]);
+
+    // The arrows: Down twice (from the top, hello) to s2, Shift+Down to
+    // s3 as well; Enter opens both.
+    window(&mut h);
+    for _ in 0..2 {
+        h.key_press(egui::Key::ArrowDown);
+        h.run_steps(2);
+    }
+    assert_eq!(selected(&h), ["s2"]);
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::ArrowDown);
+    h.run_steps(2);
+    assert_eq!(selected(&h), ["s2", "s3"]);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(4);
+    assert_eq!(open_now(&h), ["s1", "s2", "s3", "s6"]);
+    assert!(h.state().script_tools.open_script.is_none());
 }
 
 #[test]
@@ -20247,6 +20445,26 @@ fn a_game_table_is_edited_as_a_copy() {
 }
 
 /// A double click at `at`: two clicks, a frame each.
+/// A double click on a widget: both clicks in one frame (the harness gives
+/// each event it queues a frame of its own, a quarter of a second by
+/// default, longer than egui's double-click time), a second past any
+/// click before at 60 frames a second (else the three are a triple click).
+fn double_click_now(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {
+    h.hover_at(at);
+    h.run_steps(60);
+    let button = egui::PointerButton::Primary;
+    for pressed in [true, false, true, false] {
+        let modifiers = egui::Modifiers::NONE;
+        h.input_mut().events.push(egui::Event::PointerButton {
+            pos: at,
+            button,
+            pressed,
+            modifiers,
+        });
+    }
+    h.run_steps(2);
+}
+
 fn double_click(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {
     h.hover_at(at);
     h.run_steps(2);

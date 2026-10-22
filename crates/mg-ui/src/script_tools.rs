@@ -148,9 +148,16 @@ pub struct OpenScript {
     /// Every script there is to open, by name, read when the window
     /// opens.
     pub scripts: Vec<(ResKey, ScriptFrom)>,
-    /// The row Enter opens, among those listed: the first, until Down
-    /// and Up move it.
+    /// The row the keys are at, among those listed: the first, until Down
+    /// and Up move it (Enter opens it while nothing is selected).
     pub cursor: usize,
+    /// The scripts selected (a click, Ctrl+click, Shift+click, the
+    /// arrows): Enter and Open open them all. By name, so that they stay
+    /// selected as the list is narrowed.
+    pub selected: std::collections::BTreeSet<ResKey>,
+    /// The script a Shift+click or Shift+arrow selects from: the one
+    /// clicked or moved to last.
+    pub anchor: Option<ResKey>,
 }
 
 /// The editor tools' state (shared by the open script editors).

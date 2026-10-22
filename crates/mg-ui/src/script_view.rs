@@ -362,8 +362,14 @@ fn editor_id(key: ResKey) -> egui::Id {
 /// Whether a script's editor has the keyboard: Undo and Redo are its own
 /// then, whatever was done in it last.
 pub(crate) fn has_keys(app: &Moonglow, ctx: &egui::Context) -> bool {
-    let Some(focused) = ctx.memory(|m| m.focused()) else { return false };
-    app.scripts.keys().any(|k| editor_id(*k) == focused)
+    with_keys(app, ctx).is_some()
+}
+
+/// The script whose editor has the keyboard (its text is focused), if
+/// one's does: Undo, Redo and the Save key are that editor's.
+pub(crate) fn with_keys(app: &Moonglow, ctx: &egui::Context) -> Option<ResKey> {
+    let focused = ctx.memory(|m| m.focused())?;
+    app.scripts.keys().find(|k| editor_id(**k) == focused).copied()
 }
 
 /// Moves an editor's cursor (and selection) and focuses it.
@@ -568,7 +574,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         }
         let tip = crate::transfer::scratch_tip(
             app.settings.scratch_dir.as_deref(),
-            "the script, saved and compiled, with its compiled script",
+            "the script, saved and compiled, with its compiled script if it compiles",
         );
         to_scratch = ui.button("To Scratch").on_hover_text(tip).clicked();
         ui.separator();
@@ -1239,13 +1245,48 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     if save_as {
         app.script_save_as = Some((key, String::new()));
     }
-    if save || compile || to_scratch {
-        let buf = app.scripts.get_mut(&key).expect("open");
+    let how = if to_scratch {
+        Some(ScriptSave::ToScratch)
+    } else if compile {
+        Some(ScriptSave::Compile)
+    } else {
+        save.then_some(ScriptSave::Save)
+    };
+    if let Some(how) = how {
+        save_script(app, key, how);
+    }
+}
+
+/// What a script editor's button (or the Save key) does with the script.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ScriptSave {
+    /// Save: the text into the module, compiled with Automatically
+    /// Compile Scripts on Save.
+    Save,
+    /// Compile: saved and compiled.
+    Compile,
+    /// To Scratch: saved and compiled, then copied into the scratch
+    /// folder (the source whatever the compiler says).
+    ToScratch,
+}
+
+/// A script editor's Save, Compile or To Scratch: its text into the module
+/// (an Undo step; the module's file is written by File › Save), compiled as
+/// `how` and the options say. A Save with nothing unsaved does nothing (the
+/// toolbar's is off then).
+pub(crate) fn save_script(app: &mut Moonglow, key: ResKey, how: ScriptSave) {
+    let (save, compile, to_scratch) =
+        (how == ScriptSave::Save, how == ScriptSave::Compile, how == ScriptSave::ToScratch);
+    let Some(buf) = app.scripts.get_mut(&key) else { return };
+    if save && !buf.is_dirty() {
+        return;
+    }
+    {
         let text = buf.text.clone();
         // Saved alone (compiling on save is off): the Compiler tab says
         // so, in place of what it said before, or a builder takes the last
         // compile's "compiled" for this text's (Jasperre's report).
-        if save && !compile && !to_scratch && !app.settings.auto_compile && buf.is_dirty() {
+        if save && !app.settings.auto_compile {
             let tools = &mut app.script_tools;
             tools.messages.retain(|m| m.script != key);
             tools.messages.push(Message::new(
@@ -1276,15 +1317,58 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         if compile || app.settings.auto_compile {
             app.actions.push(Action::CompileIncluders(key));
         }
-        // To Scratch: what was just compiled (nothing, if it failed: the
-        // folder keeps what it has).
-        if to_scratch && compiled {
-            app.actions.push(Action::ExportFiles {
-                keys: vec![key],
-                dependencies: false,
-                scratch: true,
-            });
+        // To Scratch: the source whatever the compiler said (an include
+        // file, one with an error, El Grillo's request), its compiled
+        // script only if it compiled just now (after the edits above).
+        if to_scratch {
+            app.actions.push(Action::ScriptToScratch { key, compiled });
         }
+    }
+}
+
+impl Moonglow {
+    /// [`Action::ScriptToScratch`]: the script's source, as saved into the
+    /// module, copied into the scratch folder, and with it its compiled
+    /// script and debug file if it `compiled` just now; else not (a
+    /// compiled script the module has from before is older than the
+    /// source). The Compiler tab and the log say what was copied.
+    pub(crate) fn script_to_scratch(&mut self, key: ResKey, compiled: bool) {
+        let Some(ws) = &mut self.ws else { return };
+        if let Err(e) = ws.flush() {
+            self.log.error(e.to_string());
+            return;
+        }
+        let files: Vec<ResKey> =
+            if compiled { mg_module::transfer::file_set(&ws.module, &key) } else { vec![key] };
+        let Some(dir) = self.scratch_folder() else { return };
+        let Some(ws) = &self.ws else { return };
+        let (text, error) = match mg_module::transfer::export_files(&ws.module, &files, &dir) {
+            Ok(written) => {
+                let names: Vec<String> = written
+                    .iter()
+                    .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+                    .collect();
+                let names = crate::transfer::listed(&names);
+                let mut said = format!("To Scratch: copied {names} to {}", dir.display());
+                if !compiled {
+                    said.push_str(", not compiled (no compiled script copied)");
+                    let old = ResKey::new(key.resref, ResType::NCS).to_string();
+                    if dir.join(&old).exists() {
+                        said.push_str(&format!("; the folder's {old} is from an earlier compile"));
+                    }
+                }
+                (said, false)
+            }
+            Err(e) => (format!("To Scratch: could not write to {}: {e}", dir.display()), true),
+        };
+        if error {
+            self.log.error(text.clone());
+        } else {
+            self.log.info(text.clone());
+        }
+        let tools = &mut self.script_tools;
+        tools.messages.push(Message::new(key, text, None, error));
+        tools.info = InfoTab::Compiler;
     }
 }
 
@@ -1841,31 +1925,40 @@ pub(crate) fn open_script_window(app: &mut Moonglow) {
     scripts.sort_by_key(|(k, _)| k.resref.to_string());
     let shown = app.script_tools.open_script.take().map(|o| o.shown).unwrap_or_default();
     app.script_tools.open_script =
-        Some(OpenScript { filter: String::new(), shown, scripts, cursor: 0 });
+        Some(OpenScript { filter: String::new(), shown, scripts, ..Default::default() });
 }
 
 /// The Open Script window: a name to find, which scripts to show (as
-/// Aurora's Resources to Show), and the list; a click, or Enter for the
-/// first listed, opens one (the game's and a hak's to read only).
+/// Aurora's Resources to Show), and the list. A click selects a script,
+/// Ctrl+click adds one or takes it away, Shift+click selects those
+/// between, the arrows move the selection (with Shift, widen it); Enter or
+/// Open opens every one selected, each in its tab (with none selected,
+/// Enter opens the first listed), and a double click opens that one (El
+/// Grillo's request). The game's and a hak's open to be read only.
 fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
     use crate::script_tools::{ScriptFrom, ScriptsShown};
     let Some(mut w) = app.script_tools.open_script.take() else { return };
     let mut open = true;
-    let mut chosen = None;
+    let mut chosen: Vec<(ResKey, ScriptFrom)> = Vec::new();
     crate::widgets::dialog(ctx, "Open Script", &mut open)
         .default_size([420.0, 440.0])
         .collapsible(false)
         .show(ctx, |ui| {
-            // Down and Up (Page Down and Up) choose among the scripts
-            // listed while the name is typed: Enter opens the one chosen.
-            let mut moved: isize = 0;
+            // Down and Up (Page Down and Up) move the selection among the
+            // scripts listed, while the name is typed too; with Shift,
+            // they widen it.
+            let (mut moved, mut widen): (isize, bool) = (0, false);
             for (key, by) in [
                 (egui::Key::ArrowDown, 1),
                 (egui::Key::ArrowUp, -1),
                 (egui::Key::PageDown, 10),
                 (egui::Key::PageUp, -10),
             ] {
-                if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, key)) {
+                // (Shift first: a key without it matches one with it.)
+                if ui.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, key)) {
+                    moved += by;
+                    widen = true;
+                } else if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, key)) {
                     moved += by;
                 }
             }
@@ -1879,7 +1972,8 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
                 w.cursor = 0;
             }
             // (Enter opens wherever the keys are in the window: after a
-            // click on what to show they are not the name's.)
+            // click on a script or on what to show they are not the
+            // name's.)
             let entered = (field.lost_focus() || !field.has_focus())
                 && ui.input(|i| i.key_pressed(egui::Key::Enter));
             ui.horizontal_wrapped(|ui| {
@@ -1892,7 +1986,7 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
                 }
             });
             let needle = w.filter.trim().to_lowercase();
-            let listed: Vec<&(ResKey, ScriptFrom)> = w
+            let listed: Vec<(ResKey, ScriptFrom)> = w
                 .scripts
                 .iter()
                 .filter(|(_, from)| match w.shown {
@@ -1901,45 +1995,108 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
                     ScriptsShown::Haks => *from == ScriptFrom::Hak,
                 })
                 .filter(|(k, _)| needle.is_empty() || k.resref.to_string().contains(&needle))
+                .copied()
                 .collect();
-            ui.weak(format!("{} scripts", listed.len()));
+            let names: Vec<ResKey> = listed.iter().map(|(k, _)| *k).collect();
             let last = listed.len().saturating_sub(1) as isize;
             let cursor = (w.cursor as isize).saturating_add(moved).clamp(0, last) as usize;
             w.cursor = cursor;
-            if entered && let Some(at) = listed.get(cursor) {
-                chosen = Some(**at);
+            if moved != 0
+                && let Some(k) = names.get(cursor)
+            {
+                crate::widgets::select_in_list(
+                    &mut w.selected,
+                    &mut w.anchor,
+                    &names,
+                    *k,
+                    false,
+                    widen,
+                );
+            }
+            // What Enter and Open open: those selected that are listed
+            // (a narrower name hides the others), in the list's order.
+            let picked: Vec<(ResKey, ScriptFrom)> =
+                listed.iter().filter(|(k, _)| w.selected.contains(k)).copied().collect();
+            ui.weak(match picked.len() {
+                0 => format!("{} scripts", listed.len()),
+                n => format!("{} scripts, {n} selected", listed.len()),
+            });
+            if entered {
+                chosen = if picked.is_empty() {
+                    listed.get(cursor).copied().into_iter().collect()
+                } else {
+                    picked.clone()
+                };
             }
             let row = ui.spacing().interact_size.y;
-            let mut list = egui::ScrollArea::vertical().auto_shrink(false);
+            // (Room kept under the list for its button.)
+            let footer = ui.spacing().interact_size.y + 2.0 * ui.spacing().item_spacing.y + 6.0;
+            let height = (ui.available_height() - footer).max(3.0 * row);
+            let mut list = egui::ScrollArea::vertical().auto_shrink(false).max_height(height);
             if moved != 0 {
                 let pitch = row + ui.spacing().item_spacing.y;
-                let above = (ui.available_height() / 2.0 - pitch).max(0.0);
+                let above = (height / 2.0 - pitch).max(0.0);
                 list = list.vertical_scroll_offset((cursor as f32 * pitch - above).max(0.0));
             }
-            // (Shown once it has moved: the first is Enter's without it.)
-            let marked = (cursor > 0 || moved != 0).then_some(cursor);
             list.show_rows(ui, row, listed.len(), |ui, range| {
                 for (at, (key, from)) in range.clone().zip(listed[range].iter().copied()) {
                     ui.horizontal(|ui| {
-                        let r = ui.selectable_label(marked == Some(at), key.resref.to_string());
+                        let r = ui
+                            .selectable_label(w.selected.contains(&key), key.resref.to_string())
+                            .on_hover_text(
+                                "Double-click to open; Ctrl+click and Shift+click select more \
+                                 to open together",
+                            );
                         match from {
                             ScriptFrom::Module => {}
                             ScriptFrom::Hak => _ = ui.weak("hak"),
                             ScriptFrom::Game => _ = ui.weak("game"),
                         }
                         if r.clicked() {
-                            chosen = Some((*key, *from));
+                            let (command, shift) =
+                                ui.input(|i| (i.modifiers.command, i.modifiers.shift));
+                            crate::widgets::select_in_list(
+                                &mut w.selected,
+                                &mut w.anchor,
+                                &names,
+                                key,
+                                command,
+                                shift,
+                            );
+                            w.cursor = at;
+                        }
+                        if r.double_clicked() {
+                            chosen = vec![(key, from)];
                         }
                     });
                 }
             });
+            ui.separator();
+            ui.horizontal(|ui| {
+                let button = egui::Button::new(match picked.len() {
+                    n if n > 1 => format!("Open {n}"),
+                    _ => "Open".to_string(),
+                });
+                if ui
+                    .add_enabled(!picked.is_empty(), button)
+                    .on_hover_text("Open the scripts selected, each in its tab (Enter)")
+                    .on_disabled_hover_text("Select a script (Ctrl+click or Shift+click: several)")
+                    .clicked()
+                {
+                    chosen = picked.clone();
+                }
+            });
         });
-    match chosen {
-        Some((key, ScriptFrom::Module)) => app.actions.push(Action::OpenTab(Tab::Script(key))),
-        // (Not the module's to change: read as the resource browser shows it.)
-        Some((key, _)) => app.actions.push(Action::OpenTab(Tab::Resource(key))),
-        None if open => app.script_tools.open_script = Some(w),
-        None => {}
+    for (key, from) in &chosen {
+        app.actions.push(match from {
+            ScriptFrom::Module => Action::OpenTab(Tab::Script(*key)),
+            // (Not the module's to change: read as the resource browser
+            // shows it.)
+            _ => Action::OpenTab(Tab::Resource(*key)),
+        });
+    }
+    if chosen.is_empty() && open {
+        app.script_tools.open_script = Some(w);
     }
 }
 

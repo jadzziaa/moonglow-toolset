@@ -850,6 +850,17 @@ pub(crate) fn keys_pressed(app: &mut Moonglow, ui: &Ui) {
             continue;
         }
         let pressed = ui.input_mut(|i| app.keymap.consume_outside_text(i, &id.id(), typing));
+        // The Save key in a script editor that has the keyboard is that
+        // script's Save (as Aurora's script editor's Ctrl+S): its text
+        // into the module, not the module to its file (El Grillo's
+        // request). File › Save is the module's still.
+        if pressed
+            && id == Id::Save
+            && let Some(script) = crate::script_view::with_keys(app, ui.ctx())
+        {
+            app.actions.push(crate::Action::SaveScript(script));
+            continue;
+        }
         if pressed && id.enabled(app) {
             // With a text field typed in that sets its text when the
             // keyboard leaves it, the keyboard leaves it first and the
