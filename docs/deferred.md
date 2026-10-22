@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T13:30:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T13:37:41Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1320,9 +1320,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Aurora pastes over a group wasn't checked. (S) (from Jasperre's tile
   feedback, October 2026)
 - **A refused tile step out of Select Tiles and with no brush** (the
-  area's own right-click menu on the ground) flashes the tiles red but
-  says nothing on the status line, which shows the objects' line then.
-  (S) (from Jasperre's tile feedback, October 2026)
+  area's own right-click menu on the ground) flashes the tiles red and
+  says why in the log, not on the status line, which shows the objects'
+  line then (a notice there would stay after the brush or the mode that
+  set it is gone). (S) (from Jasperre's tile feedback, October 2026)
 - **Group tiles freed (the option on):** a stroke chooses terrain tiles
   for the group tiles it no longer fits; the doors such a change takes
   or leaves were not looked at in the engine. The plugin API keeps its

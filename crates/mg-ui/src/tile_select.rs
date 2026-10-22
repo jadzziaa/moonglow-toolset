@@ -495,7 +495,13 @@ pub(crate) fn step_tiles(
     if changes.is_empty() {
         let grouped = cells.iter().all(|&(x, y)| g.locked(&tools.index, x, y));
         let shown = if grouped { locked_groups(tools, &g, cells) } else { cells.to_vec() };
-        view.notice = Some(step.refused(grouped));
+        let why = step.refused(grouped);
+        // (Out of Select Tiles and with no brush, the area's own menu: the
+        // status line is the objects', so the log says why.)
+        if !view.tile_mode && crate::terrain_mode::active(app, view).is_none() {
+            app.log.info(why.clone());
+        }
+        view.notice = Some(why);
         view.refused = Some((shown, std::time::Instant::now()));
         return;
     }

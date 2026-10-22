@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T13:30:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T13:37:55Z }
 ---
 
 # Areas
@@ -559,7 +559,8 @@ as Aurora's Terrain tab does:
   and Previous Tile Appearance, Rotate Tile, Refine Tile, the Eraser's
   Shift + click, a terrain's Shift + click and Shift + right click leave
   its tiles as they are, and a terrain painted where it would change one
-  of them is refused; the status line says why and how (the Eraser takes
+  of them is refused; the status line (the log, from the area's own
+  menu) says why and how (the Eraser takes
   all of it away), and its tiles flash red. Painting beside it, where
   its tiles still meet the terrain, is as ever. With **Allow editing
   tiles of groups and features** on, each of its tiles can be changed

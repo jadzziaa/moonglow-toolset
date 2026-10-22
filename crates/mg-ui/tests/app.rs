@@ -9579,6 +9579,24 @@ fn groups_and_features_change_only_whole() {
     h.get_by_label_contains("A tile of a group or a feature");
     h.state_mut().tile_props = None;
     h.run_steps(2);
+    // Out of Select Tiles, the area's own menu on the ground: Rotate Tile
+    // refused, the log saying why (the status line is the objects').
+    h.get_by_label("⛶ Select Tiles").click();
+    h.run_steps(2);
+    assert!(!h.state().area_views[&area].tile_mode);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    h.get_by_label("Rotate Tile").click();
+    h.run_steps(3);
+    assert_eq!(grid(&mut h), placed, "the ground menu's Rotate Tile: nothing changed");
+    assert!(says(&h, "Rotate tile: tiles of a group or feature"));
 
     // Allowed: the next appearance is put there, with a warning.
     h.state_mut().settings.edit_group_tiles = true;

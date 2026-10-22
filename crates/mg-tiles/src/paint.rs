@@ -83,8 +83,9 @@ pub struct Grid {
     /// of another takes that one away whole, and Delete takes a group's
     /// tile alone (as Aurora's does). Off (the default), a group is one
     /// thing: a stroke that would change one of its tiles is refused, so
-    /// is a group placed over another (as Aurora refuses it), and Delete
-    /// takes the whole group, as the Eraser does.
+    /// is a group placed over another (as Aurora refuses it, unless
+    /// `replace_groups`), and Delete takes the whole group, as the Eraser
+    /// does.
     pub free_groups: bool,
     /// Whether a group placed over part of another takes that one away
     /// whole (as with `free_groups`), the rest of a group still one thing:
