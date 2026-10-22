@@ -547,7 +547,7 @@ mod tests {
 
     fn rules(_: &str, label: &str) -> ListRule {
         match label {
-            "VarTable" => ListRule::ByKey(&["Name"]),
+            "VarTable" => ListRule::ByKey(&["Name", "Type"]),
             "Mod_Area_list" => ListRule::ByKey(&["Area_Name"]),
             "Placeable List" => ListRule::Placed,
             "Equip_ItemList" => ListRule::ByStructId,
@@ -696,8 +696,19 @@ mod tests {
         let t = list(&[var("a", 1), var("b", 21), var("c", 3), var("x", 2)]);
         let m = run(&b, &o, &t, Prefer::Theirs);
         let paths: Vec<&str> = m.conflicts.iter().map(|c| c.path.as_str()).collect();
-        assert_eq!(paths, ["/VarTable[b]/Value", "/VarTable[x]"]);
+        assert_eq!(paths, ["/VarTable[b, 1]/Value", "/VarTable[x, 1]"]);
         assert_eq!(m.gff.root, list(&[var("a", 1), var("b", 21), var("c", 3), var("x", 2)]));
+        // An int and a string of one name are two variables, as the game
+        // keeps them: one added by each side, both kept.
+        let mut text = Struct::new(0);
+        text.set("Name", Value::String(b"x".to_vec()));
+        text.set("Type", Value::Dword(3));
+        text.set("Value", Value::String(b"hello".to_vec()));
+        let o = list(&[var("a", 1), var("b", 2), var("c", 3), var("x", 1)]);
+        let t = list(&[var("a", 1), var("b", 2), var("c", 3), text.clone()]);
+        let m = run(&b, &o, &t, Prefer::Ours);
+        assert!(m.conflicts.is_empty(), "{:?}", m.conflicts);
+        assert_eq!(m.gff.root, list(&[var("a", 1), var("b", 2), var("c", 3), var("x", 1), text]));
     }
 
     #[test]

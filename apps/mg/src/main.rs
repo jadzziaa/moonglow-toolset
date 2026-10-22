@@ -347,8 +347,8 @@ enum Cmd {
     /// (the merge fails and nothing is written, unless --prefer takes a
     /// side). Lists merge by item: an area's placed objects by object
     /// (added by both: both kept), the area list as a union, variables by
-    /// name, feats, classes, spells, haks and journal entries by what they
-    /// are; other lists by place. Each file is a GFF or nasher's JSON of
+    /// name and type, feats, classes, spells, haks and journal entries by
+    /// what they are; other lists by place. Each file is a GFF or nasher's JSON of
     /// one, told by its contents. The merge is written over OURS (or -o),
     /// in OURS's form, and a merge that is OURS leaves the file as it was:
     /// git's merge driver (`mg merge-gff %O %A %B --path %P`; the manual's

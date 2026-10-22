@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T06:38:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T06:46:50Z }
 ---
 
 # Modules
@@ -297,10 +297,11 @@ with it.
   conflict, not a lost edit.
 - **The module's area list** is a union: the areas the base had, in its
   order, without those a side removed, then ours' new ones, then theirs'.
-- **Variables** merge by name, **haks** and cached scripts by name, a
-  creature's feats, classes and spells by what they are, equipped items
-  by slot, a journal's quests by tag and their entries by number, a
-  faction file's standings by the pair of factions.
+- **Variables** merge by name and type (an int and a string of one name
+  are two variables, as the game keeps them), **haks** and cached scripts
+  by name, a creature's feats, classes and spells by what they are,
+  equipped items by slot, a journal's quests by tag and their entries by
+  number, a faction file's standings by the pair of factions.
 - **Every other list** (tiles, skills, inventories, conversation nodes,
   item properties) is merged by place: an item is its number in the list,
   and two items added at one place are a conflict.

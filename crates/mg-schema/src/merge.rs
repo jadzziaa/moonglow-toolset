@@ -5,7 +5,7 @@
 //! | List | An item is |
 //! | --- | --- |
 //! | an area's placed objects (`.git`: creatures, doors, placeables, waypoints, triggers, encounters, sounds, stores, items) | the object, matched in steps ([`ListRule::Placed`]) |
-//! | `VarTable`, anywhere | the variable's `Name` |
+//! | `VarTable`, anywhere | the variable: its `Name` and `Type` (an int and a string of one name are two) |
 //! | `Mod_Area_list` | the area (`Area_Name`) |
 //! | `Mod_HakList` | the hak (`Mod_Hak`) |
 //! | `Mod_CacheNSSList` | the script (`ResRef`) |
@@ -41,7 +41,7 @@ pub fn list_rule(file_type: &str, label: &str) -> ListRule {
     };
     match (file_type, label) {
         ("GIT", l) if PLACED.contains(&l) => ListRule::Placed,
-        (_, l) if l == git::VAR_TABLE.label => ListRule::ByKey(&["Name"]),
+        (_, l) if l == git::VAR_TABLE.label => ListRule::ByKey(&["Name", "Type"]),
         ("IFO", l) if l == ifo::MOD_AREA_LIST.label => ListRule::ByKey(&["Area_Name"]),
         ("IFO", l) if l == ifo::MOD_HAK_LIST.label => ListRule::ByKey(&["Mod_Hak"]),
         ("IFO", l) if l == ifo::MOD_CACHE_NSS_LIST.label => ListRule::ByKey(&["ResRef"]),
@@ -74,7 +74,7 @@ mod tests {
         assert_eq!(list_rule("GIT", "FeatList"), ListRule::ByKey(&["Feat"]));
         assert_eq!(list_rule("GIT", "ItemList"), ListRule::ByIndex);
         assert_eq!(list_rule("UTC", "List"), ListRule::ByIndex);
-        assert_eq!(list_rule("ARE", "VarTable"), ListRule::ByKey(&["Name"]));
+        assert_eq!(list_rule("ARE", "VarTable"), ListRule::ByKey(&["Name", "Type"]));
         assert_eq!(list_rule("IFO", "Mod_Area_list"), ListRule::ByKey(&["Area_Name"]));
         assert_eq!(list_rule("UTC", "MemorizedList3"), ListRule::ByKey(&["Spell"]));
         assert_eq!(list_rule("UTC", "KnownList10"), ListRule::ByIndex);
