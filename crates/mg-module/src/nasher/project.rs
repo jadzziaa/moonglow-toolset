@@ -589,19 +589,36 @@ impl Project {
         }
     }
 
-    /// A resource's source file contents.
+    /// A resource's source file contents. An area's objects' lock byte
+    /// is left out ([`crate::locks`]), but where `file` (the source file
+    /// as it stands) has it on the object already.
     fn source_bytes(
         &self,
         key: &ResKey,
         json: bool,
         resource: &[u8],
+        file: Option<&[u8]>,
     ) -> Result<Vec<u8>, ModuleError> {
         if !json {
             return Ok(resource.to_vec());
         }
-        let gff = Gff::read(resource)
+        let mut gff = Gff::read(resource)
             .map_err(|e| ModuleError::Source { name: key.to_string(), message: e.to_string() })?;
+        if key.restype == ResType::GIT && crate::locks::has_locks(&gff) {
+            let name = key.to_string();
+            let before = file.and_then(|f| self.conversion().from_source(&name, f).ok());
+            crate::locks::strip(&mut gff, before.as_ref());
+        }
         Ok(self.conversion().to_source(key.restype, &gff)?.into_bytes())
+    }
+
+    /// Counts `resource` as what a source file stands for: the file's own
+    /// resource with what is kept apart from it (the objects' locks, as
+    /// [`crate::Module::restore_locks`] puts them back).
+    pub(crate) fn stands_for(&mut self, key: &ResKey, resource: Arc<[u8]>) {
+        if let Some(s) = self.sources.get_mut(key) {
+            s.resource = resource;
+        }
     }
 
     /// Writes the resources that changed into their source files, new ones
@@ -628,7 +645,7 @@ impl Project {
             match self.sources.get(key) {
                 Some(src) if src.resource[..] == bytes[..] => {}
                 Some(src) => {
-                    let text = self.source_bytes(key, src.json, bytes)?;
+                    let text = self.source_bytes(key, src.json, bytes, Some(&src.file))?;
                     let current = disk(&src.path);
                     if text[..] == src.file[..] || current.as_deref() == Some(&text[..]) {
                         steps.push(Step::Adopt(*key, src.path.clone(), src.json, text));
@@ -651,7 +668,7 @@ impl Project {
                     if !self.target().covers(&root, &path) {
                         uncovered.push(path.clone());
                     }
-                    let text = self.source_bytes(key, json, bytes)?;
+                    let text = self.source_bytes(key, json, bytes, None)?;
                     match disk(&path) {
                         Some(existing) if existing == text => {
                             steps.push(Step::Adopt(*key, path, json, text))

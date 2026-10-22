@@ -265,6 +265,8 @@ fn main() -> eframe::Result<()> {
             // those a crashed session left are offered back.
             moonglow.recovery_dir = mg_ui::recovery::data_dir().map(|d| d.join("recovery"));
             moonglow.compiled_dir = mg_ui::recovery::data_dir().map(|d| d.join("compiled"));
+            // A nasher project's locked objects (kept out of its files).
+            moonglow.locks_dir = mg_ui::recovery::data_dir().map(|d| d.join("locks"));
             // The game's shaders, compiled, in the user's cache folder.
             moonglow.shader_cache_dir = mg_ui::recovery::cache_dir().map(|d| d.join("shaders"));
             // Long work runs while the window keeps drawing.

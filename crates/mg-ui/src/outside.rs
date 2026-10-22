@@ -258,6 +258,14 @@ impl Moonglow {
     /// the files as read.
     fn take_outside(&mut self, changes: &[Outside]) {
         let Some(ws) = self.ws.as_mut() else { return };
+        // An area's locks, which a project's files don't carry, are put
+        // back on its objects as they are read again.
+        let locks: Vec<mg_module::locks::Lock> = changes
+            .iter()
+            .filter(|c| c.key.restype == mg_core::ResType::GIT)
+            .filter_map(|c| ws.module.gff(&c.key)?.ok().map(|g| (c.key, g)))
+            .flat_map(|(k, g)| mg_module::locks::locks_in(k.resref, &g))
+            .collect();
         let list: Vec<_> = changes.iter().map(|c| (c.key, c.resource.clone())).collect();
         let dropped = match ws.adopt(&list) {
             Ok(d) => d,
@@ -268,6 +276,9 @@ impl Moonglow {
         };
         for c in changes {
             ws.module.took(c);
+        }
+        if !locks.is_empty() {
+            ws.module.restore_locks(&locks);
         }
         for c in changes {
             // A script's editor reads its text again.
