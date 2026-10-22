@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T00:47:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T01:22:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -77,6 +77,28 @@ Size: S (an hour or two), M (a day or so), L (several days).
   those end in "…" until the panel is widened. (S)
 - **Struct members:** go to definition, references and rename don't
   follow `p.nX` to the struct's declaration. (M)
+- **The Save key in a script editor** (El Grillo's request, October
+  2026) is the script's own Save while its text has the keyboard, as its
+  Undo and Redo are; with the pointer over the editor but the keyboard
+  elsewhere (a toolbar button just clicked, the side list's Filter) it
+  saves the module, where the side editors' Undo goes by the pointer.
+  File › Save and the toolbar's 💾 are the module's always. A Save with
+  nothing unsaved in the script does nothing, as its grayed button.
+  Aurora's script editor (a window of its own there) has its own Save on
+  Ctrl+S; it was not driven to see what it writes. (S)
+- **To Scratch for a script that doesn't compile** (El Grillo's
+  request) copies the source alone and says whether the folder has a
+  compiled script of that name from an earlier copy, which the game
+  would still run; it doesn't remove it. Copy to Scratch Folder from the
+  module tree (Export as Files) still sends a script that no longer
+  compiles with the compiled script the module has, with a warning.
+  The two could be one rule. (S)
+- **Open Script's list** takes a click, Ctrl+click, Shift+click, the
+  arrows (Shift to widen), Page Down and Up, Enter and a double click;
+  not Home and End, Ctrl+A, or a right-click menu. Typing in the name
+  clears the selection (Enter then opens the first listed, as before);
+  scripts selected and then hidden by choosing other resources to show
+  stay selected but aren't opened. (S)
 - **Incremental compiles:** Compile All Scripts passes over a script
   that, with what it includes, is as it was when this window last
   compiled it (`mg_module::build::script_stamps`), as Arelith's
@@ -2548,6 +2570,12 @@ of truth, and does each caller's difference matter.
   `tree.rs:468`, `widgets.rs:1111`, `browser.rs:112`) beside the
   keymap's `Find`; the search field with its clear button twice. One
   matcher and a `widgets::search_field`. (M)
+- **A list's click to select several, three times:**
+  `widgets::select_in_list` (Open Script, from October 2026), the hak
+  editor's list (`hak_view.rs:457`, the same rule) and Module
+  Properties' haks (`module_props.rs:427`: Ctrl wins over Shift there,
+  and Ctrl+Shift adds no range). The hak editor's could call it as it
+  is; the module's haks, once the difference is chosen. (S)
 - **Module Properties and the journal redo `Form` by hand**
   (`module_props.rs`, `journal_view.rs:296`): a tag's 32 characters held
   three ways (the module's not at all), the module's XP slider adds an

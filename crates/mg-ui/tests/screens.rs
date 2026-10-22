@@ -1281,6 +1281,47 @@ fn script_selection() {
     }
 }
 
+/// The Open Script window with several scripts selected (a click, a
+/// Shift+click and a Ctrl+click), to open together.
+#[test]
+#[ignore]
+fn open_script_several() {
+    use egui_kittest::kittest::Queryable;
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("screens-open-script");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Name", mg_gff::Value::String(b"x".to_vec()));
+    m.set_info(&info).unwrap();
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    m.set(key, b"void main()\n{\n}\n".to_vec());
+    for n in ["at_door", "at_gate", "at_inn", "inc_loot", "on_death", "on_enter", "on_spawn"] {
+        m.set(ResKey::parse(n, ResType::NSS).unwrap(), b"void main() { }\n".to_vec());
+    }
+    let path = dir.join("s.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 640.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(key)));
+    h.run();
+    h.get_by_label("Open…").click();
+    h.run_steps(3);
+    h.get_by_label("at_gate").click();
+    h.run_steps(2);
+    h.get_by_label("inc_loot").click_modifiers(egui::Modifiers::SHIFT);
+    h.run_steps(2);
+    h.get_by_label("on_enter").click_modifiers(egui::Modifiers::COMMAND);
+    h.run_steps(2);
+    h.hover_at(egui::pos2(5.0, 5.0));
+    h.run_steps(2);
+    shoot(&mut h, &dir, "open-script-several");
+}
+
 #[test]
 #[ignore]
 fn script_page_down() {

@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, verify, language, keyboard) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T22:14:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T01:16:50Z }
 ---
 
 # Options
@@ -273,6 +273,10 @@ what you type (a command's name, or its group's).
 - The commands of enabled [plugins](15-plugins.md) are listed under
   **Plugins**, with the key each plugin suggests; they take keys like
   any other.
+
+Save's key saves the module, but in a script editor that has the
+keyboard it is that script's own Save (see [Scripts](07-scripts.md)),
+whichever key Save has.
 
 Keys match exactly: Shift+Q is not Q. Text editing, Escape and Enter,
 Copy, Cut and Paste, Delete in the area view, and the script editor's

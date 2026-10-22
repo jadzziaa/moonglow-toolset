@@ -56,6 +56,8 @@ impl Group {
 pub enum Cmd {
     NewModule,
     OpenModule,
+    /// File › Save; in a script editor that has the keyboard, that
+    /// script's own Save (`commands::keys_pressed`), as in Aurora.
     Save,
     Undo,
     Redo,

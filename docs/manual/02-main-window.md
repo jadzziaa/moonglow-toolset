@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T21:52:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T01:16:50Z }
 ---
 
 # The main window
@@ -57,7 +57,7 @@ changes them; the menus show the current keys.
 | --- | --- |
 | Ctrl+N | New module |
 | Ctrl+O | Open module |
-| Ctrl+S | Save |
+| Ctrl+S | Save the module; in a script editor that has the keyboard, the script into the module (its own Save: see [Scripts](07-scripts.md)) |
 | Ctrl+Z | Undo |
 | Ctrl+Y, Ctrl+Shift+Z | Redo |
 | Ctrl+H | Find and Replace Text |

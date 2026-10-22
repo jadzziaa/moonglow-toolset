@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T22:15:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T01:22:00Z }
 ---
 
 # Scripts
@@ -48,6 +48,7 @@ ones take the kind most of the file's lines have.
 
 | Keys | Do |
 | --- | --- |
+| Ctrl+S | **Save** the script into the module (not the module to its file), while the editor has the keyboard; anywhere else Ctrl+S saves the module |
 | Ctrl+F | Find |
 | F3 | find the next |
 | Ctrl+R | Replace |
@@ -65,12 +66,17 @@ ones take the kind most of the file's lines have.
 | Ctrl+1 … 9 | go to numbered bookmark 1 to 9 |
 | F7 | compile all the module's scripts |
 
-**Open…** on a script editor's toolbar opens another script: a list of
+**Open…** on a script editor's toolbar opens other scripts: a list of
 them found by name, of the module's alone, its haks' alone or all of
-them with the game's (Aurora's Resources to Show). A click, or Enter
-for the first listed, opens one; Down and Up (Page Down, Page Up)
-choose another of those listed for Enter while the name is typed. The
-game's and a hak's open to be read. In **Find Text**, Enter finds the next match, again and again.
+them with the game's (Aurora's Resources to Show). A click selects a
+script; Ctrl+click adds one or takes it away, Shift+click selects the
+ones between it and the one clicked before, and Down and Up (Page
+Down, Page Up) move the selection, with Shift widening it, while the
+name is typed too. **Open** (or Enter) opens every script selected,
+each in its tab; with none selected, Enter opens the first listed
+(typing in the name clears the selection). A double click opens that
+script alone. The game's and a hak's open to
+be read. In **Find Text**, Enter finds the next match, again and again.
 **Find In Currently Open Scripts** lists every match in the scripts open
 now under Search Results, and **Find In Files** searches (and replaces
 in) every script in the module. A double click on a function's or a
@@ -133,9 +139,18 @@ features through `mg lsp` (see [Command-line tools](11-command-line.md)).
 
 The buttons:
 
-- **Save**: put the text into the module (File › Save writes the module
-  itself). A script tab with text not yet saved into the module says so;
-  Moonglow's recovery copies keep that text too.
+- **Save** (Ctrl+S while the script's text has the keyboard, or the key
+  given to Save in Options › Keyboard): put the text into the module,
+  and compile it with Automatically Compile Scripts on Save. It writes
+  no file: the module is written by **File › Save** (Ctrl+S with the
+  keyboard anywhere else). For a module kept as a `.mod` file, the
+  script is in that file once the module is saved; for a module kept as
+  a folder or a nasher project, the script's own `.nss` file there is
+  written by File › Save too, not by the script's Save. Until then the
+  module has unsaved changes (the `*` in the title) and Edit › Undo
+  takes the script's Save back. Aurora's script editor has its own Save
+  on Ctrl+S as well. A script tab with text not yet saved into the
+  module says so; Moonglow's recovery copies keep that text too.
 - **Compile**: save and compile this script; errors go to the Compiler
   messages and the log. With **Automatically Compile Scripts on Save**
   (Options › Script Editor), Save compiles too, and so does saving the
@@ -154,11 +169,18 @@ The buttons:
 - **Save As…**: save the script under another name.
 - **Print…**: open the script, highlighted, in your browser to print it
   from there.
-- **To Scratch**: save and compile the script, then copy it and its
-  compiled script into the scratch folder: a folder you choose the first
-  time (Tools › Options › Folders changes it), such as the game's or a
-  server's `development` folder, for a quick fix. A script that doesn't
-  compile isn't copied. (See [Modules](03-modules.md) for exporting files
+- **To Scratch**: save and compile the script, then copy it into the
+  scratch folder: a folder you choose the first time (Tools › Options ›
+  Folders changes it), such as the game's or a server's `development`
+  folder, for a quick fix. Its compiled script (and debug file) goes
+  with it when it compiled just now. A script that doesn't compile, an
+  include file (no `main` or `StartingConditional`) or one with an
+  error, is copied alone: the Compiler tab says it is an include file,
+  or gives the compiler's error, then what was copied ("not compiled"),
+  and whether the folder has a compiled script of that name from an
+  earlier copy, which the game would still run. A compiled script the
+  module has from before is not copied with a script that no longer
+  compiles. (See [Modules](03-modules.md) for exporting files
   elsewhere.)
 - **External Editor**: open the script in the editor set in Options ›
   Script Editor; what you save there comes back into Moonglow's editor.

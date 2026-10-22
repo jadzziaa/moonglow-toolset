@@ -243,6 +243,17 @@ pub enum Action {
     /// The scripts that include this one are compiled again (it was
     /// saved, with Automatically Compile Scripts on Save).
     CompileIncluders(ResKey),
+    /// A script editor's Save (its toolbar's, or the Save key while its
+    /// text has the keyboard): the text into the module, not the module
+    /// to its file.
+    SaveScript(ResKey),
+    /// A script editor's To Scratch, once the script is saved (and
+    /// compiled, if `compiled`): its source copied into the scratch
+    /// folder, and its compiled script only if it compiled just now.
+    ScriptToScratch {
+        key: ResKey,
+        compiled: bool,
+    },
     /// Edit › Prefabs › a prefab: placed with a click in the area shown.
     PlacePrefab(String),
     /// Edit › Find References: where a resource is used.
@@ -2753,6 +2764,10 @@ impl Moonglow {
             }
             Action::ReloadResources => self.reload_resources(true),
             Action::CompileIncluders(key) => self.compile_includers(key),
+            Action::SaveScript(key) => {
+                script_view::save_script(self, key, script_view::ScriptSave::Save);
+            }
+            Action::ScriptToScratch { key, compiled } => self.script_to_scratch(key, compiled),
             Action::SaveTalkTable => {
                 talk_view::save(self);
             }

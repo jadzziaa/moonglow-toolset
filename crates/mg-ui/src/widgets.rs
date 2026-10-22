@@ -1807,6 +1807,42 @@ pub(crate) fn enter(ui: &egui::Ui) -> bool {
         })
 }
 
+/// A click on a row of a list of which several can be selected (or the
+/// keys moved to it): alone, that row alone; with Ctrl, that row added or
+/// taken away; with Shift, the rows from the anchor (the one clicked last)
+/// to it, as `listed`, and with Ctrl+Shift those added. The hak editor's
+/// and the module's hak list's rule.
+pub(crate) fn select_in_list<T: Ord + Copy>(
+    selected: &mut std::collections::BTreeSet<T>,
+    anchor: &mut Option<T>,
+    listed: &[T],
+    row: T,
+    command: bool,
+    shift: bool,
+) {
+    let place = |t: T| listed.iter().position(|l| *l == t);
+    match (anchor.filter(|_| shift).and_then(place), place(row)) {
+        // From the anchor to this one, as listed (with Ctrl, added to
+        // what is selected); the anchor stays.
+        (Some(a), Some(b)) => {
+            if !command {
+                selected.clear();
+            }
+            selected.extend(listed[a.min(b)..=a.max(b)].iter().copied());
+        }
+        _ => {
+            if command {
+                if !selected.remove(&row) {
+                    selected.insert(row);
+                }
+            } else {
+                *selected = [row].into();
+            }
+            *anchor = Some(row);
+        }
+    }
+}
+
 /// Gives a dialog's main field the keyboard when it appears (the dialog
 /// opening, a wizard reaching its page): a field shown this frame but not
 /// the one before. Later clicks elsewhere keep their focus.

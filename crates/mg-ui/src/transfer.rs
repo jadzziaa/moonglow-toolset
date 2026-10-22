@@ -64,6 +64,18 @@ pub(crate) fn listed(names: &[String]) -> String {
 }
 
 impl Moonglow {
+    /// The scratch folder To Scratch copies into: chosen once, then kept
+    /// in the settings (Options › Folders); None if none is chosen when
+    /// asked.
+    pub(crate) fn scratch_folder(&mut self) -> Option<PathBuf> {
+        self.settings.scratch_dir.clone().or_else(|| {
+            let start = self.module_path().and_then(|p| p.parent().map(|d| d.to_path_buf()));
+            let picked = self.dialogs.pick_folder("Scratch folder", start.as_deref());
+            self.settings.scratch_dir.clone_from(&picked);
+            picked
+        })
+    }
+
     pub(crate) fn open_import(&mut self) {
         let Some(ws) = &mut self.ws else { return };
         let Some(path) = self.dialogs.open_file(FileKind::Erf, None) else { return };
@@ -187,13 +199,7 @@ impl Moonglow {
             .map(|k| k.resref.to_string())
             .collect();
         let dir = if scratch {
-            // The scratch folder: chosen once, then kept in the settings.
-            self.settings.scratch_dir.clone().or_else(|| {
-                let start = self.module_path().and_then(|p| p.parent().map(|d| d.to_path_buf()));
-                let picked = self.dialogs.pick_folder("Scratch folder", start.as_deref());
-                self.settings.scratch_dir.clone_from(&picked);
-                picked
-            })
+            self.scratch_folder()
         } else {
             let start = self
                 .export_dir
