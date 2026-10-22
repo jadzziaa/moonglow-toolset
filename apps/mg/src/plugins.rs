@@ -492,7 +492,8 @@ pub(crate) fn test(gi: Option<&GameInstall>, dir: &Path, module: Option<&Path>) 
             if !said.notes.iter().any(|n| n.starts_with("no game install")) {
                 said.note(
                     "no game install found: a test's game data is only its own game folder (game/ \
-                     beside it), or the game at its root = (--root, or NWN_ROOT, for all)",
+                     beside it), or the game at its root = (--root, or NWN_ROOT, for all); \
+                     root = false reads none on any machine",
                 );
             }
             return Ok(None);
