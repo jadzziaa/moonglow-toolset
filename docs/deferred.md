@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T08:20:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:14:30Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2316,7 +2316,8 @@ contribution itself states as not done or not checked.
   0.3 files written into a chosen folder, 2DAs and talk tables as
   values, and events, whose own gaps are below, under "Plugins writing
   into a folder" and "Tables for plugins"; 0.4 what is selected and
-  open, and commands in right-click menus):
+  open, commands in right-click menus, fixes for findings, and a
+  plugin's own tests):
   - **A builder's terrain tool (NWN Mapper) as the measure:** it sculpts
     a free height field, paints texture layers and a walkmesh, bakes
     placeables and a lightmap in, and writes a tileset's group (a model
@@ -2349,7 +2350,7 @@ contribution itself states as not done or not checked.
     its checks through git. `mg verify --plugins DIR` covers a build
     pipeline meanwhile. (M)
   - **More kinds of things to add:** exporters and importers, wizards,
-    quick fixes for findings, settings a plugin keeps, panels. (L)
+    settings a plugin keeps, panels. (L)
   - **Commands on what is selected** (API 0.4, the Domains of Dread's
     builder proposal A1: `ctx.selection`, `ctx.open`, a command's
     `for`). Not done: `for` names a kind for its placed objects and its
@@ -2368,9 +2369,35 @@ contribution itself states as not done or not checked.
     the tree's groups have none. Driven through the UI harness, with one
     rendered picture of the area view's menu; not used on a desktop.
     (S each)
-  - **A plugin's own tests** (`mg plugin test`, against a fixture
-    module): `mg plugin check` and `mg plugin run --dry-run` are what
-    there is. (S–M)
+  - **Fixes for findings** (API 0.4, the Domains of Dread's builder
+    proposal A3: `ctx.fix`, Verify's button beside a finding, `mg verify
+    --fix CHECK`, a finding's `fix` in `mg verify --json`). Not done: a
+    fix asks nothing (no form: "retag to what?" is a command's); it is
+    worked out when Verify runs and refused once a resource it changes is
+    not as Verify read it (compared as bytes) or was changed by another
+    fix that did more than set fields, so after Undo or a second fix
+    there, Verify runs again; Undo of a fix leaves its button saying
+    Fixed; the buttons are in Verify Module's log alone (not Build
+    Module's results, the 2DA editor's faults or the tileset editor's),
+    for the last Verify, with no "fix all of this check" in the window
+    (`mg verify --fix CHECK` is that); the doctor has fixes for
+    `tag-unique` (the others retagged `TAG_2`…, scripts that look for
+    the tag not followed) and `area-variables` (moved to the GIT) only:
+    `pc-faction` has none (the builder chooses the faction), nor do the
+    references, models, 2DAs and tilesets; the fixes of different
+    plugins' findings are made one at a time in the window. Driven
+    through the UI harness, with one rendered picture of the log's
+    buttons; not used on a desktop. (S each)
+  - **A plugin's own tests** (API 0.4, A8: `tests/*.toml`, `mg plugin
+    test`). Not done: what a plugin writes outside the module (haks, a
+    chosen folder) is not written and not held to anything; a command's
+    edits are held by the fields they leave, their count and resources,
+    not as an edit file to compare; a finding's message is matched
+    whole; `mg plugin test` runs one plugin, not a folder of them, and
+    the window does not run them; `mg plugin check` does not read the
+    test files; the plugin gets the game's data only where `mg` finds a
+    game, so a pipeline without one cannot test what reads `ctx.game`.
+    (S each)
   - **The reference is written by hand.** A test holds it to list every
     name of the API, not that each description is right. (S)
   - **The type file was not tried in an editor:** it loads as Luau and a

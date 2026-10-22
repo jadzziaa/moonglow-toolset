@@ -3477,9 +3477,8 @@ fn verify_fixes() {
     let mut app =
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
     app.open_module(&work);
-    app.plugin_dir = Some(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../mg-plugin/tests/fixtures"),
-    );
+    app.plugin_dir =
+        Some(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../mg-plugin/tests/fixtures"));
     app.load_plugins();
     app.enable_plugin("example.tag-conventions", true);
     let mut h = Harness::builder()

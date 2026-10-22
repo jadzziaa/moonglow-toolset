@@ -211,7 +211,7 @@ fn what_is_no_plugin_or_not_safe_is_refused() {
         refusal(&zipped(&two)),
         "it holds several plugins (one, two): install each from an archive of its own"
     );
-    let other = String::from_utf8(fixture("plugin.cfg")).unwrap().replace("\"0.1\"", "\"7.0\"");
+    let other = String::from_utf8(fixture("plugin.cfg")).unwrap().replace("\"0.4\"", "\"7.0\"");
     let e = refusal(&zipped(&plugin_under("", other.as_bytes())));
     assert!(e.contains("it was written for plugin API 7.0"), "{e}");
     assert_eq!(

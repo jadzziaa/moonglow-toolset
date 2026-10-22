@@ -8,4 +8,4 @@ For plugin authors: the starting page, the API's changes, the example plugins (`
 
 # Guide
 
-* [Plugins: for authors](README.md) - Starting point for plugin authors - the example plugins, the editor type file, the API changes, where the manual covers plugins, and the mg plugin commands for checking, running and packing one.
+* [Plugins: for authors](README.md) - Starting point for plugin authors - the example plugins, the editor type file, the API changes, where the manual covers plugins, and the mg plugin commands for checking, testing, running and packing one.

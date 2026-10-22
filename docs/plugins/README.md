@@ -1,9 +1,9 @@
 ---
 type: Guide
 title: 'Plugins: for authors'
-description: Starting point for plugin authors - the example plugins, the editor type file, the API changes, where the manual covers plugins, and the mg plugin commands for checking, running and packing one.
+description: Starting point for plugin authors - the example plugins, the editor type file, the API changes, where the manual covers plugins, and the mg plugin commands for checking, testing, running and packing one.
 tags: [plugins, authors, examples]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T08:05:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:14:30Z }
 ---
 
 # Plugins: for authors
@@ -20,8 +20,10 @@ What a plugin author needs besides the manual:
   - [`hello`](examples/hello): the plugin of the manual's "Writing
     plugins". A command that reads, and one that asks and edits.
   - [`tag-conventions`](examples/tag-conventions): a team's rule as a
-    check for Verify Module and a command that applies it, sharing the
-    rule from a second file.
+    check for Verify Module, with a fix for each finding (API 0.4), and
+    a command that applies it, sharing the rule from a second file; and
+    tests of its own (`tests/tags.toml` on a fixture module, run by `mg
+    plugin test`).
   - [`store-markup`](examples/store-markup): a batch edit with a
     form and progress.
   - [`set-local`](examples/set-local): commands in the right-click
@@ -47,11 +49,13 @@ and its reasons are in the [proposal](../plugin-proposal.md); what is
 planned beyond API 0.4 is in the [deferred list](../deferred.md)
 (Automation).
 
-To check a plugin, try a command without the window, and pack a plugin
-into the archive that Plugins › Install Plugin from File… takes:
+To check a plugin, run its own tests, try a command without the window,
+and pack a plugin into the archive that Plugins › Install Plugin from
+File… takes:
 
 ```sh
 mg plugin check docs/plugins/examples
+mg plugin test docs/plugins/examples/tag-conventions
 mg plugin run mymodule.mod docs/plugins/examples/tag-conventions fix-tags --dry-run
 mg plugin pack docs/plugins/examples/tag-conventions
 ```

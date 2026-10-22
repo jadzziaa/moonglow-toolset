@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T08:05:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:14:30Z }
 ---
 
 # Plugin API changes
@@ -38,7 +38,20 @@ an earlier API is refused, with the reason.
 - `mg plugin run` takes `--select` (as often as needed: `guard.utc`,
   `tavern.are`, `tavern.git/Placeable List[3]`) and `--open`, and
   `mg plugin list` says what each command is for.
-- From the Domains of Dread's builder proposal (A1).
+- Quick fixes: a finding's `fix`, made in a check with
+  `ctx.fix(label)`, whose methods are `ctx.edit`'s and record edits
+  without making them. Verify Module shows a button with the label
+  beside the finding, and makes the edits only when it is clicked, as
+  one step of Undo; `mg verify --fix CHECK` makes a check's fixes, and
+  `mg verify --json` gives each finding's fix as an edit file. A
+  finding's `fix` that is not one made with `ctx.fix` is now an error
+  (before, a key the finding did not have was passed over).
+- A plugin's own tests: files `tests/*.toml` in its folder, each naming
+  a fixture module and the checks, commands and events to run on it,
+  with what is to come of each; `mg plugin test DIR` runs them, with an
+  exit and a summary for a build pipeline. `mg plugin pack` leaves
+  `tests/` out of the archive. The `tag-conventions` example has both.
+- From the Domains of Dread's builder proposal (A1, A3, A8).
 
 ## 0.3
 
