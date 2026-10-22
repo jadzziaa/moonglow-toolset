@@ -255,6 +255,23 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
 
 pub(crate) fn create(app: &mut Moonglow, name: &str) {
     let Some(ws) = &app.ws else { return };
+    // A nasher project whose include takes in scripts and JSON only would
+    // neither pack the window nor read it back: said now, with the line.
+    let files = [ResType::JUI, ResType::TXT].map(|ty| ResKey::parse(name, ty));
+    if let Some(p) = ws.module.project.as_deref()
+        && let [Some(jui), Some(txt)] = files
+    {
+        let left = p.uncovered(&[jui, txt]);
+        if let Some(line) = p.include_for(&left) {
+            app.log.warn(format!(
+                "{name}: nasher.cfg's include ({}) leaves out the window's files ({jui}, {txt}): \
+                 nasher won't pack them, and the project won't read them back. Add the line \
+                 {line} to the target's sources, or save and use Build › Add Left-Out Files to \
+                 nasher.cfg.",
+                p.target().includes.join(", ")
+            ));
+        }
+    }
     match mg_nui::create(&ws.module, name) {
         Ok(cmd) => match app.apply(cmd) {
             Ok(()) => app.actions.extend(

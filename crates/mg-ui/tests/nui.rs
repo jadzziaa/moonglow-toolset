@@ -1628,6 +1628,37 @@ fn a_module_s_windows_are_laid_out_as_json() {
     std::fs::write(output, serde_json::to_string_pretty(&all).unwrap()).unwrap();
 }
 
+/// New NUI Window in a nasher project whose include takes in scripts and
+/// JSON only: the log says the window's files would be left out, with the
+/// line to add; in one that takes them in, nothing is said.
+#[test]
+fn a_new_window_in_a_project_that_leaves_it_out_says_the_line() {
+    let cfg = "[package]\n  [package.sources]\n  include = \"src/**/*.{nss,json}\"\n  \
+               [package.rules]\n  \"*\" = \"src\"\n[target]\nname = \"m\"\nfile = \"m.mod\"\n";
+    for (include, said) in [("{nss,json}", true), ("{nss,json,jui,txt}", false)] {
+        let root = mg_testkit::scratch_dir(&format!("nui-nasher-new-{said}"));
+        std::fs::write(root.join("nasher.cfg"), cfg.replace("{nss,json}", include)).unwrap();
+        let mut m = mg_module::Module::new();
+        m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+        let location =
+            mg_module::ModuleLocation::Project { root: root.clone(), target: "m".into() };
+        m.save_as(&location).unwrap();
+        let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+        app.ws = Some(mg_edit::Workspace::new(mg_module::Module::open(&root).unwrap()));
+        app.run(Action::NewNui("crier".into()));
+        let line = "include = \"src/**/*.{jui,txt}\"";
+        let warned = app.log.entries.iter().any(|(_, s)| s.contains(line));
+        assert_eq!(warned, said, "{include}: {:?}", app.log.entries);
+        assert!(
+            app.ws
+                .as_ref()
+                .unwrap()
+                .module
+                .contains(&ResKey::parse("crier", ResType::JUI).unwrap())
+        );
+    }
+}
+
 /// The town crier's window (`crates/mg-nui/tests/data`): a label, a text
 /// box, a label from a bind and a row of two buttons, one off by a bind.
 fn crier() -> mg_module::Module {

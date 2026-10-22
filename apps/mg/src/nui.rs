@@ -389,6 +389,8 @@ fn write(
             resources.push(*e.key());
         }
     }
+    // (Said before it is written, a dry run too.)
+    let left = left_out(&ws.module, &resources);
     ws.apply(made).with_context(|| window_text(module, name))?;
     let saved = !dry_run && !resources.is_empty();
     if saved {
@@ -401,6 +403,11 @@ fn write(
         "saved": saved,
         "dry_run": dry_run,
     });
+    if let Some(left) = left {
+        out.note(format!("warning: {}", left.said(&ws.module)));
+        out.json["left_out"] = left.files(&ws.module).into();
+        out.json["include"] = left.line.into();
+    }
     for r in &resources {
         out.line(r.to_string());
     }
@@ -408,6 +415,56 @@ fn write(
     let plural = if resources.len() == 1 { "" } else { "s" };
     out.line(format!("{name}: {what} {} resource{plural}", resources.len()));
     Ok(out)
+}
+
+/// A window's files a nasher project's include leaves out: on disk where
+/// it doesn't look, or to be written there.
+struct LeftOut {
+    files: Vec<PathBuf>,
+    /// The `include` line that takes them in.
+    line: String,
+}
+
+impl LeftOut {
+    /// The files, as nasher.cfg's patterns name them: from the project's
+    /// folder, with `/`.
+    fn files(&self, m: &Module) -> Vec<String> {
+        let root = m.project.as_deref().map(|p| p.root().to_path_buf()).unwrap_or_default();
+        (self.files.iter())
+            .map(|f| f.strip_prefix(&root).unwrap_or(f).display().to_string().replace('\\', "/"))
+            .collect()
+    }
+
+    fn said(&self, m: &Module) -> String {
+        let includes = m.project.as_deref().map(|p| p.target().includes.join(", "));
+        format!(
+            "{}: nasher.cfg's include ({}) leaves {} out: nasher won't pack {} and it won't be \
+             read back. Add this line to the target's sources in nasher.cfg: {}",
+            self.files(m).join(", "),
+            includes.unwrap_or_default(),
+            if self.files.len() == 1 { "it" } else { "them" },
+            if self.files.len() == 1 { "it" } else { "them" },
+            self.line
+        )
+    }
+}
+
+/// Which of `keys` the module's nasher project leaves out, if it is in one.
+fn left_out(m: &Module, keys: &[ResKey]) -> Option<LeftOut> {
+    let p = m.project.as_deref()?;
+    let names: Vec<String> = keys.iter().map(|k| k.to_string().to_ascii_lowercase()).collect();
+    let mut files: Vec<PathBuf> = (p.left_out.iter())
+        .filter(|f| {
+            let name = f.file_name().unwrap_or_default().to_string_lossy().to_ascii_lowercase();
+            names.contains(&name)
+        })
+        .cloned()
+        .collect();
+    files.extend(p.uncovered(keys));
+    files.sort();
+    files.dedup();
+    let line = p.include_for(&files)?;
+    Some(LeftOut { files, line })
 }
 
 /// `mg nui validate`: the NUI Creator's checks of one window, reported as
@@ -419,16 +476,31 @@ fn validate(module: &Path, name: &str) -> Result<Output> {
         ResKey::parse(name, ty).ok_or_else(|| anyhow!("{name:?} is not a resource's name"))
     };
     let jui = key(ResType::JUI)?;
-    let data = m.get(&jui).with_context(|| format!("{jui} is not in the module"))?;
-    let window = mg_nui::parse(data).with_context(|| format!("{}: {jui}", path_text(module)))?;
     let txt = key(ResType::TXT)?;
+    // In a nasher project whose include leaves the window out, that is
+    // why it isn't in the module.
+    let left = left_out(&m, &[jui, txt]);
+    let Some(data) = m.get(&jui) else {
+        match left {
+            Some(left) => bail!("{jui} is not in the module: {}", left.said(&m)),
+            None => bail!("{jui} is not in the module"),
+        }
+    };
+    let window = mg_nui::parse(data).with_context(|| format!("{}: {jui}", path_text(module)))?;
     let settings = m
         .get(&txt)
         .map(mg_nui::Settings::parse)
         .transpose()
         .with_context(|| format!("{}: {txt}", path_text(module)))?
         .unwrap_or_default();
-    let findings = mg_nui::validate(&window, &settings);
+    let mut findings = mg_nui::validate(&window, &settings);
+    if let Some(left) = left {
+        findings.push(mg_nui::Diagnostic {
+            severity: Severity::Warning,
+            path: "nasher.cfg".into(),
+            message: left.said(&m),
+        });
+    }
     let errors = findings.iter().filter(|d| d.severity == Severity::Error).count();
     let severity = |s: Severity| match s {
         Severity::Error => "error",

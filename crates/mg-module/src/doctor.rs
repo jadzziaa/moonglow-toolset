@@ -59,10 +59,11 @@ pub enum Check {
     ObjectRow,
     PcFaction,
     AreaVariables,
+    NuiSources,
 }
 
 impl Check {
-    pub const ALL: [Check; 25] = [
+    pub const ALL: [Check; 26] = [
         Check::CustomTlk,
         Check::ErfSize,
         Check::SetRead,
@@ -88,6 +89,7 @@ impl Check {
         Check::ObjectRow,
         Check::PcFaction,
         Check::AreaVariables,
+        Check::NuiSources,
     ];
 
     pub fn id(self) -> &'static str {
@@ -117,6 +119,7 @@ impl Check {
             Check::ObjectRow => "object-row",
             Check::PcFaction => "pc-faction",
             Check::AreaVariables => "area-variables",
+            Check::NuiSources => "nui-sources",
         }
     }
 
@@ -162,6 +165,10 @@ impl Check {
             Check::ObjectRow => "objects use 2DA rows that exist and have what they need",
             Check::PcFaction => "no object belongs to the PC faction, the players' alone",
             Check::AreaVariables => "an area's variables are in its GIT, where the game reads them",
+            Check::NuiSources => {
+                "a nasher project's sources take in its NUI windows' files (.jui and .txt), which \
+                 nasher otherwise doesn't pack and Moonglow doesn't read back"
+            }
         }
     }
 
@@ -188,7 +195,7 @@ impl Check {
             | Check::TwoDaRef
             | Check::TwoDaDescribed => Group::Tables,
             Check::ObjectRow | Check::PcFaction | Check::AreaVariables => Group::Objects,
-            Check::CustomTlk | Check::ErfSize => Group::Module,
+            Check::CustomTlk | Check::ErfSize | Check::NuiSources => Group::Module,
         }
     }
 }
@@ -404,6 +411,7 @@ pub fn examine(module: &Module, resman: &ResMan, tlk: TalkTables) -> Vec<Finding
     area_variables(&mut d, module);
     described_tables(&mut d, module);
     custom_tlk(&mut d, module);
+    nui_sources(&mut d, module);
     d.out.sort_by(|a, b| {
         (a.severity, &a.source, a.resource).cmp(&(b.severity, &b.source, b.resource))
     });
@@ -431,6 +439,52 @@ fn custom_tlk(d: &mut Doctor, module: &Module) {
              the game won't load the module"
         ),
     );
+}
+
+/// A NUI window's files that a nasher project's include leaves out (one
+/// made with `src/**/*.{nss,json}`): on disk where nasher won't pack them
+/// and Moonglow doesn't read them, or the module's, to be written there on
+/// the next save. Each is said with the line that takes them in.
+fn nui_sources(d: &mut Doctor, module: &Module) {
+    let Some(p) = module.project.as_deref() else { return };
+    let window = |k: &ResKey| {
+        k.restype == ResType::JUI
+            || (k.restype == ResType::TXT && module.contains(&ResKey::new(k.resref, ResType::JUI)))
+    };
+    let held: Vec<ResKey> = module.keys().filter(|k| window(k)).copied().collect();
+    let mut files: Vec<std::path::PathBuf> = (p.left_out.iter())
+        .filter(|f| {
+            let name = f.file_name().unwrap_or_default().to_string_lossy();
+            ResKey::from_filename(&name).is_some_and(|k| {
+                k.restype == ResType::JUI
+                    || (k.restype == ResType::TXT && f.with_extension("jui").is_file())
+            })
+        })
+        .cloned()
+        .collect();
+    files.extend(p.uncovered(&held));
+    files.sort();
+    files.dedup();
+    let Some(line) = p.include_for(&files) else { return };
+    let root = p.root();
+    for f in &files {
+        let name = f.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let Some(key) = ResKey::from_filename(&name) else { continue };
+        let shown = f.strip_prefix(root).unwrap_or(f).display().to_string().replace('\\', "/");
+        d.push(
+            Severity::Warning,
+            Check::NuiSources,
+            "nasher.cfg",
+            key,
+            shown,
+            format!(
+                "nasher.cfg's include ({}) leaves this NUI window's file out: nasher won't pack \
+                 it and Moonglow doesn't read it back. Add the line {line} to the target's \
+                 sources (Build › Add Left-Out Files to nasher.cfg does)",
+                p.target().includes.join(", ")
+            ),
+        );
+    }
 }
 
 /// An archive's resources that start past 2 GiB: the game finds them and
@@ -1633,6 +1687,57 @@ mod tests {
         assert_eq!(checks(&f), [("shader-pair", "customshaderVS".to_string())]);
         assert!(f[0].message.contains("fslit_nm alone (and 2 more materials)"), "{}", f[0].message);
         assert_eq!(f[0].severity, Severity::Warning);
+    }
+
+    /// A nasher project made with `src/**/*.{nss,json}` (The Domains of
+    /// Dread's was): a NUI window's files there are left out, and one the
+    /// module holds would be written where they are; each is a warning with
+    /// the line that takes them in. Once the line is there, nothing.
+    #[test]
+    fn a_window_s_files_a_nasher_include_leaves_out() {
+        let root = std::env::temp_dir().join(format!("mg-doctor-nui-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        let cfg = "[package]\n  [package.sources]\n  include = \"src/**/*.{nss,json}\"\n  \
+                   [package.rules]\n  \"*\" = \"src\"\n[target]\nname = \"m\"\nfile = \"m.mod\"\n";
+        std::fs::write(root.join("nasher.cfg"), cfg).unwrap();
+        let mut m = Module::new();
+        m.set_info(&Gff::new(*b"IFO ")).unwrap();
+        m.save_as(&crate::ModuleLocation::Project { root: root.clone(), target: "m".into() })
+            .unwrap();
+        std::fs::write(root.join("src/crier.jui"), b"{}").unwrap();
+        std::fs::write(root.join("src/crier.txt"), b"{}").unwrap();
+        std::fs::write(root.join("src/notes.txt"), b"mine").unwrap();
+        let mut m = Module::open(&root).unwrap();
+        m.set(key("shop", ResType::JUI), b"{}".to_vec());
+        let found: Vec<(String, String)> = examine(&m, &ResMan::new(), TalkTables::default())
+            .into_iter()
+            .filter(|f| f.check == "nui-sources")
+            .map(|f| (f.at, f.message))
+            .collect();
+        let mut at: Vec<&str> = found.iter().map(|(at, _)| at.as_str()).collect();
+        at.sort();
+        assert_eq!(at, ["src/crier.jui", "src/crier.txt", "src/shop.jui"]);
+        assert!(found[0].1.contains("include = \"src/**/*.{jui,txt}\""), "{}", found[0].1);
+        // Taken in: nothing to say.
+        std::fs::write(root.join("nasher.cfg"), cfg.replace("{nss,json}", "{nss,json,jui,txt}"))
+            .unwrap();
+        let m = Module::open(&root).unwrap();
+        let f = examine(&m, &ResMan::new(), TalkTables::default());
+        assert!(f.iter().all(|f| f.check != "nui-sources"), "{f:?}");
+        assert_eq!(Group::of(&found_finding()), Group::Module);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    fn found_finding() -> Finding {
+        Finding {
+            severity: Severity::Warning,
+            check: Cow::Borrowed(Check::NuiSources.id()),
+            source: "nasher.cfg".into(),
+            resource: key("crier", ResType::JUI),
+            at: String::new(),
+            message: String::new(),
+        }
     }
 
     #[test]

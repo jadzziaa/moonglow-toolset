@@ -300,6 +300,48 @@ fn compile_passes_over_what_generate_compiled() {
     );
 }
 
+/// A nasher project whose sources are scripts and JSON, as `nasher init`
+/// writes them (and The Domains of Dread's were): a window made in it is
+/// said to be left out, with the line to add, before validate can only
+/// say it is not in the module; validate then says why. `mg checks` lists
+/// the check Verify makes of it.
+#[test]
+fn a_nasher_project_that_leaves_windows_out_is_told_the_line() {
+    let root = mg_testkit::scratch_dir("mg-nui-nasher");
+    let cfg = "[package]\n  [package.sources]\n  include = \"src/**/*.{nss,json}\"\n  \
+               [package.rules]\n  \"*\" = \"src\"\n[target]\nname = \"m\"\nfile = \"m.mod\"\n";
+    std::fs::write(root.join("nasher.cfg"), cfg).unwrap();
+    let mut m = Module::new();
+    m.set_info(&Gff::new(*b"IFO ")).unwrap();
+    m.save_as(&ModuleLocation::Project { root: root.clone(), target: "m".into() }).unwrap();
+    let p = root.to_str().unwrap();
+    let line = "include = \"src/**/*.{jui,txt}\"";
+
+    let out = output(None, &["--json", "nui", "new", p, "crier"]);
+    assert!(out.status.success());
+    let made: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(made["include"], line, "{made}");
+    assert_eq!(made["left_out"], json!(["src/crier.jui", "src/crier.txt"]));
+    assert!(made["notes"][0].as_str().unwrap().contains(line), "{made}");
+    assert!(root.join("src/crier.jui").is_file());
+
+    let (ok, checked) = mg(None, &["validate", p, "crier"]);
+    let error = checked["error"].as_str().unwrap();
+    assert!(!ok && error.contains("crier.jui is not in the module: src/crier.jui"), "{error}");
+    assert!(error.contains(line), "{error}");
+
+    // With the line added, the window is read and passes.
+    std::fs::write(root.join("nasher.cfg"), cfg.replace("{nss,json}", "{nss,json,jui,txt}"))
+        .unwrap();
+    let (ok, checked) = mg(None, &["validate", p, "crier"]);
+    assert!(ok && checked["warnings"] == 0, "{checked}");
+
+    let out = output(None, &["--json", "checks"]);
+    let checks: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let nui = checks["checks"].as_array().unwrap().iter().find(|c| c["id"] == "nui-sources");
+    assert_eq!(nui.unwrap()["group"], "module");
+}
+
 /// The town crier's window (`crates/mg-nui/tests/data`), as files in a
 /// scratch folder of its own: `crier.jui` and `crier.txt`.
 fn crier_files(test: &str) -> PathBuf {
