@@ -2483,6 +2483,24 @@ impl Moonglow {
         self.properties_changed.clear();
         self.talk = None;
         self.talk_view = Default::default();
+        // (Its views, kept by name: another module's area, conversation or
+        // window of the same name is its own; Jasperre's report.)
+        self.area_views.clear();
+        self.area_contents.clear();
+        self.dialog_views.clear();
+        self.nui_views.clear();
+        self.laid_out.clear();
+        self.tile_props = None;
+        self.area_stats = None;
+        self.resize_area = None;
+        self.rotate_area = None;
+        self.adjust = None;
+        self.find_instance = None;
+        self.area_focus = None;
+        self.start_focus = None;
+        self.heard = None;
+        self.tree_area = None;
+        self.tree_object = None;
         self.dock = DockState::new(vec![Tab::Welcome]);
         self.load_order_changed();
         // (Another module's haks may have other tilesets of these names.)

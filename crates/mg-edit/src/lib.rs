@@ -184,8 +184,16 @@ pub struct Workspace {
     redo: Vec<Command>,
     /// Commands applied since the last save (undo past it counts down).
     changes_since_save: isize,
-    /// Counts every change (apply, undo, redo), for views that cache.
+    /// Moves on every change (apply, undo, redo), for views that cache.
     revision: u64,
+}
+
+/// Where a new workspace's revisions start: each its own range (a change
+/// moves it by one), so a view kept from another module never takes this
+/// one's area of the same name for its own (Jasperre's report).
+fn first_revision() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) << 32
 }
 
 impl Workspace {
@@ -197,11 +205,12 @@ impl Workspace {
             undo: Vec::new(),
             redo: Vec::new(),
             changes_since_save: 0,
-            revision: 0,
+            revision: first_revision(),
         }
     }
 
-    /// A number that changes whenever the module does (through commands).
+    /// A number that changes whenever the module does (through commands),
+    /// and that no other workspace has had.
     pub fn revision(&self) -> u64 {
         self.revision
     }

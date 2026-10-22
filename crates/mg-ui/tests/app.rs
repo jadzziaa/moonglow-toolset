@@ -7433,6 +7433,42 @@ fn area_harness_on(
     Some((h, area))
 }
 
+/// Another module with an area of the same name shows its own area, not
+/// the one of the module open before (Jasperre's report: both modules'
+/// `area001`, the first's shown and edited in the second, until Moonglow
+/// was closed). The first module's area has two waypoints, the second's
+/// none; neither module is changed by opening the other.
+#[test]
+fn another_module_shows_its_own_area_of_the_same_name() {
+    let Some((mut h, area)) = area_harness("modules-apart") else { return };
+    let waypoints = |h: &Harness<'_, Moonglow>| {
+        let view = &h.state().area_views[&area];
+        view.model.as_ref().unwrap().objects.len()
+    };
+    assert_eq!(waypoints(&h), 2);
+    let ws = h.state().ws.as_ref().unwrap();
+    let first = ws.module.location.as_ref().unwrap().path().to_path_buf();
+    let mut m = mg_module::Module::open(&first).unwrap();
+    let git_key = ResKey::new(area, ResType::GIT);
+    let mut git = m.gff(&git_key).unwrap().unwrap();
+    git.root.set("WaypointList", mg_gff::Value::List(Vec::new()));
+    m.set_gff(git_key, &git).unwrap();
+    let second = mg_testkit::scratch_dir("ui-area-modules-apart-2").join("area.mod");
+    m.save_as(&ModuleLocation::Archive(second.clone())).unwrap();
+    let before = std::fs::read(&first).unwrap();
+
+    h.state_mut().open_module(&second);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+    h.run_steps(3);
+    assert_eq!(waypoints(&h), 0, "the first module's area shown in the second");
+    // And back: the first's own again.
+    h.state_mut().open_module(&first);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+    h.run_steps(3);
+    assert_eq!(waypoints(&h), 2);
+    assert_eq!(std::fs::read(&first).unwrap(), before);
+}
+
 /// Frames until the game's programs, made while the frames go on, draw
 /// (at most a minute).
 fn until_the_game_draws(h: &mut Harness<'_, Moonglow>) {
