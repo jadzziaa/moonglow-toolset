@@ -27,6 +27,7 @@ use serde_json::{Value, json};
 mod actions;
 mod error;
 mod rename;
+mod schema;
 mod script;
 mod validate;
 
@@ -37,6 +38,7 @@ pub use actions::{
 };
 pub use error::NuiError;
 pub use rename::{Renamed, can_rename, rename};
+pub use schema::{controls, settings_schema};
 pub use script::{Build, Generated, generate, is_current, opener_source, rebuild_events};
 pub use validate::{Diagnostic, Severity, plain_name, validate};
 

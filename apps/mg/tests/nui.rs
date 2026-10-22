@@ -342,6 +342,24 @@ fn a_nasher_project_that_leaves_windows_out_is_told_the_line() {
     assert_eq!(nui.unwrap()["group"], "module");
 }
 
+/// `mg nui schema`: the settings' form as JSON Schema, the same as text and
+/// with --json; with --layout, the controls as the Creator makes them.
+#[test]
+fn schema_prints_the_settings_form_and_the_controls() {
+    let (ok, schema) = mg(None, &["schema"]);
+    assert!(ok, "{schema}");
+    assert_eq!(schema["properties"]["format"]["const"], "moonglow.nui/1");
+    assert_eq!(schema, mg_nui::settings_schema());
+    let out = output(None, &["nui", "schema"]);
+    assert!(out.status.success());
+    let text: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(text, schema);
+    let (ok, layout) = mg(None, &["schema", "--layout"]);
+    assert!(ok);
+    assert_eq!(layout["controls"]["textedit"]["max"], 255);
+    assert_eq!(layout["window"]["version"], 1);
+}
+
 /// The town crier's window (`crates/mg-nui/tests/data`), as files in a
 /// scratch folder of its own: `crier.jui` and `crier.txt`.
 fn crier_files(test: &str) -> PathBuf {

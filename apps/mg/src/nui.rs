@@ -83,6 +83,15 @@ pub(crate) enum NuiCmd {
         #[arg(long, default_value_t = 1.0)]
         scale: f32,
     },
+    /// Print the form of a window's settings file (NAME.txt, the format
+    /// moonglow.nui/1) as a JSON Schema: every key, its type, its default
+    /// and what it does, and each handler's form. With --layout: a new
+    /// window's layout, and each control as the NUI Creator adds it.
+    Schema {
+        /// The layout's controls (NAME.jui) instead of the settings.
+        #[arg(long)]
+        layout: bool,
+    },
     /// Where the NUI Creator's preview puts each control of a NUI window:
     /// its rectangle in the window's points (the window's top left at 0,
     /// 0), and whether it is clipped, overlaps a neighbor, has no room or
@@ -156,6 +165,15 @@ pub(crate) fn run(cli: &Cli, cmd: &NuiCmd) -> Result<Output> {
         NuiCmd::Validate { module, name } => validate(module, name),
         NuiCmd::Render { module, name, out, size, scale } => {
             render(cli, module, name.as_deref(), out.as_deref(), *size, *scale)
+        }
+        NuiCmd::Schema { layout } => {
+            let schema = if *layout { mg_nui::controls() } else { mg_nui::settings_schema() };
+            let mut out = Output::default();
+            for line in serde_json::to_string_pretty(&schema)?.lines() {
+                out.line(line);
+            }
+            out.json = schema;
+            Ok(out)
         }
         NuiCmd::Layout { module, name, size, scale } => {
             let mut out = Output::default();

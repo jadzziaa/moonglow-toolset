@@ -322,6 +322,51 @@ content or trigger an event. Use **Interact** on the main window to try it
 locally, then Build and try it in the game with
 [Test Module](09-build-and-test.md).
 
+## The settings file
+
+What the Creator keeps of a window beside its layout is the TXT resource
+of its name, `NAME.txt`: UTF-8 JSON, no key twice in one object. A
+program or an agent can write it as the Creator does; `mg nui schema`
+prints its form as a JSON Schema, made from the same definitions
+Moonglow reads it with. Keys it does not know are kept, at every level.
+A key left out takes its default.
+
+| Key | Default | What it holds |
+| --- | --- | --- |
+| `format` | (required) | `"moonglow.nui/1"`: a TXT with another is not a window's settings |
+| `bindings` | none | The binds by name, each `{"value": …, "watch": false}`. `value` is what the opener sets first: a string, number, boolean, color (`{"r","g","b","a"}`), rectangle (`{"x","y","w","h"}`), or for a list's row template an array, a value a row. Every bind the layout reads needs one. `watch`: a change is a `watch` event (a `watch` handler watches it as well) |
+| `actions` | none | The handlers, in the event script's order: `{"event", "element", "action"}`. `event` is one the game sends (`click`, `watch`, `open`, `close`, `mousedown`, `mouseup`, `mousescroll`, `focus`, `blur`, `range`); `element` the control's ID, the bind's name for `watch`, empty for the window's `open` and `close`. `action` is what its section starts with: `code` (a note for your code), `close`, `toggle` (with `bind`), `set` (with `bind` and `value`) or `view` (with `group`, `_window_` for the whole window, and `view`) |
+| `views` | none | The swap layout variants by name, each a layout (an element, as the JUI's `root` is) |
+| `view_targets` | none | The group each variant was made for, by the variant's name |
+| `swap_hosts` | none | The IDs of the groups made as swap layouts |
+| `window_id` | the window's name | Its ID in the game (`NuiFindWindow`) |
+| `from_resref` | `false` | The opener loads the JUI on the client by name (`NuiCreateFromResRef`): the JUI has to be in a hak |
+| `opener_hash`, `event_hash` | none | Written by Build, to tell a script changed by hand from its own: leave them out of a file you write |
+
+The town crier's window, a text box whose watch turns Send on, Send and
+Cancel:
+
+```json
+{
+  "format": "moonglow.nui/1",
+  "bindings": {
+    "can_send": {"value": false},
+    "fee_text": {"value": "The fee is 5 silver pieces."},
+    "message": {"value": "", "watch": true}
+  },
+  "actions": [
+    {"event": "watch", "element": "message", "action": "code"},
+    {"event": "click", "element": "send", "action": "code"},
+    {"event": "click", "element": "cancel", "action": "close"}
+  ],
+  "window_id": "tdod_crier"
+}
+```
+
+`mg nui schema --layout` prints a new window and each control as the
+Creator adds it, with the fields the game's `nw_inc_nui` functions write;
+the game's `nw_inc_nui.nss` says what they mean.
+
 ## Build and export
 
 **Build & compile** prepares `<name>_o.nss` (an include with `Open_<name>`),
