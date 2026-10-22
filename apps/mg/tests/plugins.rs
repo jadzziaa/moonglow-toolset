@@ -360,7 +360,9 @@ fn a_plugin_s_own_tests_run_as_in_a_pipeline() {
 
 /// `mg plugin test` with no game: a test whose game data is its own (a
 /// `game/` folder beside the test file) passes; one that names a root
-/// that is no game says so; with a game, a test's `root` reads that one.
+/// that is no game says so, and how to say none; with a game, a test's
+/// `root` reads that one, and `root = false` none (a test that passes
+/// without what it read is told so, in a note).
 #[test]
 fn a_plugin_s_tests_run_on_their_own_game_data() {
     let dir = mg_testkit::scratch_dir("mg-plugin-test-game");
@@ -369,7 +371,8 @@ fn a_plugin_s_tests_run_on_their_own_game_data() {
     std::fs::write(
         source.join("plugin.cfg"),
         "[plugin]\nid = \"test.skills\"\nname = \"Skills\"\nversion = \"1\"\napi = \"0.4\"\n\
-         license = \"GPL-3.0-or-later\"\n[check]\nid = \"skills\"\ntitle = \"Skills\"\n",
+         license = \"GPL-3.0-or-later\"\n[check]\nid = \"skills\"\ntitle = \"Skills\"\n\
+         [check]\nid = \"quiet\"\ntitle = \"Quiet\"\n",
     )
     .unwrap();
     std::fs::write(
@@ -378,22 +381,29 @@ fn a_plugin_s_tests_run_on_their_own_game_data() {
          mg.check(\"skills\", function(ctx)\n\
              local skills = ctx.game:table(\"skills\")\n\
              return { { resource = \"guard.utc\", message = skills:get(0, \"Label\") } }\n\
+         end)\n\
+         mg.check(\"quiet\", function(ctx)\n\
+             local ok, skills = pcall(function() return ctx.game:table(\"skills\") end)\n\
+             if not ok then return {} end\n\
+             return { { resource = \"guard.utc\", message = skills:get(0, \"Label\") } }\n\
          end)\n",
     )
     .unwrap();
     std::fs::write(source.join("tests/game/skills.2da"), "2DA V2.0\n\n   Label\n0  Lore\n")
         .unwrap();
+    std::fs::create_dir_all(source.join("tests/bare")).unwrap();
     module(&source.join("tests"));
     let mut tests = String::from(
         "module = \"keep.mod\"\n\
          [[test]]\nname = \"its own\"\ncheck = \"skills\"\n\
          [[test.finding]]\nresource = \"guard.utc\"\nmessage = \"Lore\"\n\
-         [[test]]\nname = \"a root that is no game\"\ncheck = \"skills\"\nroot = \"nowhere\"\n",
+         [[test]]\nname = \"a root that is no game\"\ncheck = \"skills\"\nroot = \"nowhere\"\n\
+         [[test]]\nname = \"no game\"\ncheck = \"quiet\"\nroot = false\ngame = \"bare\"\n\
+         findings = 0\n",
     );
     let game = mg_testkit::nwn_root();
     if let Some(root) = &game {
         // (The game's own first skill, over which the folder is not read.)
-        std::fs::create_dir_all(source.join("tests/bare")).unwrap();
         tests.push_str(&format!(
             "[[test]]\nname = \"the game at a root\"\ncheck = \"skills\"\nroot = {:?}\n\
              game = \"bare\"\n[[test.finding]]\nresource = \"guard.utc\"\nmessage = \"AnimalEmpathy\"\n",
@@ -410,19 +420,42 @@ fn a_plugin_s_tests_run_on_their_own_game_data() {
         .unwrap();
     let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert!(!out.status.success(), "{json}");
-    let test = |name: &str| {
+    let test = |json: &serde_json::Value, name: &str| {
         json["tests"].as_array().unwrap().iter().find(|t| t["name"] == name).cloned().unwrap()
     };
-    assert_eq!(test("its own")["passed"], true, "{json}");
-    let nowhere = test("a root that is no game");
+    assert_eq!(test(&json, "its own")["passed"], true, "{json}");
+    assert_eq!(test(&json, "its own")["notes"], serde_json::json!([]), "{json}");
+    let nowhere = test(&json, "a root that is no game");
     let said = nowhere["problems"][0].as_str().unwrap();
     assert!(
         said.starts_with("root ")
-            && said.ends_with("nowhere: no game install there (no data/nwn_base.key)"),
+            && said.ends_with(
+                "nowhere: no game install there (no data/nwn_base.key): for a test with no game, \
+                 its own game folder and the module alone, root = false"
+            ),
         "{said}"
     );
+    // Passed, without the table it read: said in a note, and counted.
+    let without = "it passed without skills.2da, which it read and the game's data has not (the \
+                   test reads no game, root = false, nor the test's game folder, bare): to test it \
+                   with it, put it in bare, or name a game with root = \"…\"";
+    let none = test(&json, "no game");
+    assert_eq!(none["passed"], true, "{json}");
+    assert_eq!(none["notes"], serde_json::json!([without]), "{json}");
+    assert_eq!(json["noted"], 1, "{json}");
+    // With the machine's game too, `root = false` reads none of it.
+    let out = crate::mg()
+        .args(["--no-user-dir", "plugin", "test"])
+        .arg(&source)
+        .env("NWN_ROOT", game.clone().unwrap_or_else(|| dir.join("no-game")))
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("ok\tgame.toml › no game\n"), "{text}");
+    assert!(text.contains(&format!("note\tgame.toml › no game: {without}\n")), "{text}");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("passed (1 with notes)"), "{text}");
     if game.is_some() {
-        assert_eq!(test("the game at a root")["passed"], true, "{json}");
+        assert!(text.contains("ok\tgame.toml › the game at a root\n"), "{text}");
     }
 }
 

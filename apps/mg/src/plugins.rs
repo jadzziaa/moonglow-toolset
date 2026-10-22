@@ -478,7 +478,9 @@ pub(crate) fn test(gi: Option<&GameInstall>, dir: &Path, module: Option<&Path>) 
         // for the module's haks.
         if let Some(root) = root {
             if !GameInstall::is_install(root) {
-                return Err("no game install there (no data/nwn_base.key)".into());
+                return Err("no game install there (no data/nwn_base.key): for a test with no \
+                            game, its own game folder and the module alone, root = false"
+                    .into());
             }
             let gi = GameInstall::new(root, gi.and_then(|g| g.user_dir.clone()), "en");
             let game = GameData::open(&gi).map_err(|e| e.to_string())?;
@@ -515,22 +517,31 @@ pub(crate) fn test(gi: Option<&GameInstall>, dir: &Path, module: Option<&Path>) 
                 }
             }
         }
+        // What a test is told all the same (it passed without a resource
+        // it read): under its line, never a failure.
+        for n in &r.notes {
+            out.line(format!("note\t{} › {}: {n}", r.file, r.name));
+        }
     }
     let failed = results.iter().filter(|r| !r.passed()).count();
     let passed = results.len() - failed;
+    let noted = results.iter().filter(|r| r.passed() && !r.notes.is_empty()).count();
     if results.is_empty() {
         out.note(format!("mg: {id} has no tests (tests/*.toml in {})", plugin.dir.display()));
         out.failed = true;
     } else {
-        out.note(format!("{id}: {} tests, {passed} passed, {failed} failed", results.len()));
+        let with = if noted > 0 { format!(" ({noted} with notes)") } else { String::new() };
+        out.note(format!("{id}: {} tests, {passed} passed{with}, {failed} failed", results.len()));
         out.failed = failed > 0;
     }
     out.json = json!({
         "plugin": id,
         "passed": passed,
         "failed": failed,
+        "noted": noted,
         "tests": results.iter().map(|r| json!({
             "file": r.file, "name": r.name, "passed": r.passed(), "problems": r.problems,
+            "notes": r.notes,
         })).collect::<Vec<_>>(),
     });
     Ok(out)

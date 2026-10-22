@@ -288,8 +288,13 @@ pub trait Host {
 
     /// A resource the plugin read from the game's data (`ctx.game`) that
     /// is not there (`parts_chest.2da`), or there is no game data at all:
-    /// a plugin's test says which it lacked when it fails.
+    /// a plugin's test says which it lacked (a note, when it passes).
     fn not_in_game(&self, _resource: &str) {}
+
+    /// The plugin listed the game's resources (`ctx.game:resources()`):
+    /// a plugin's test with no game says that the list is only of the
+    /// module and the test's game folder (or that there is none).
+    fn game_listed(&self) {}
 }
 
 /// What a job reads.
