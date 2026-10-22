@@ -426,10 +426,10 @@ impl<'a> Walk<'a> {
         }
     }
 
-    /// Items held (inventories, what is worn) as the objects they are, as
-    /// a placed object keeps them.
+    /// Items held (inventories, what is worn, a store's goods by its
+    /// categories) as the objects they are, as a placed object keeps them.
     fn items_in(&mut self, s: &Struct) {
-        for list in ["ItemList", "Equip_ItemList"] {
+        for list in ["ItemList", "Equip_ItemList", "StoreList"] {
             for i in s.list(list).unwrap_or_default() {
                 if i.get("BaseItem").is_some() {
                     self.item(i, false);

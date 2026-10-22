@@ -132,4 +132,5 @@ fn usage_says_what_the_module_reaches_in_each_hak() {
     assert!(text.contains("mg_usage\t4 of 7 used"), "{text}");
     assert!(text.contains("1 unused, 1 shadowed, 1 not judged"), "{text}");
     assert!(text.contains("All\t5 of 8 used"), "{text}");
+    assert!(text.contains("nothing reaches 0 of 2 haks"), "{text}");
 }

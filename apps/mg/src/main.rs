@@ -1358,11 +1358,15 @@ fn run(cli: &Cli) -> Result<Output> {
                     haks.iter().fold((0, 0), |(a, b), u| (a + u.used.len(), b + u.total()));
                 let (used_bytes, bytes) =
                     haks.iter().fold((0, 0), |(a, b), u| (a + u.used_bytes(), b + u.bytes()));
-                let unused = haks.iter().filter(|u| u.path.is_some() && u.used.is_empty()).count();
+                let none: Vec<&usage::HakUsage> =
+                    haks.iter().filter(|u| u.path.is_some() && u.used.is_empty()).collect();
+                let kept = none.iter().filter(|u| !u.not_judged.is_empty()).count();
                 out.line(format!(
-                    "All\t{used} of {all} used ({} of {}); {unused} of {} haks use nothing",
+                    "All\t{used} of {all} used ({} of {}); nothing reaches {} of {} haks ({kept} \
+                     of them hold what isn't judged, which the game may read itself)",
                     usage::size(used_bytes),
                     usage::size(bytes),
+                    none.len(),
                     haks.len()
                 ));
                 out.json["usage"] = usage::json(&haks);
