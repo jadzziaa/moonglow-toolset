@@ -3,7 +3,7 @@ type: Manual Page
 title: Journal and factions
 description: The Journal Editor and the Faction Editor.
 tags: [manual, journal, factions]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T22:41:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T00:47:20Z }
 ---
 
 # Journal and factions
@@ -48,4 +48,6 @@ Creatures, doors, placeables, triggers and encounters belong to a faction
 players' alone, and the game puts a creature of it in Hostile as it
 loads (a placeable, door or trigger keeps it, and is regarded as players
 are). An object whose file has it keeps it, shown as "PC (not for
-objects)", until another is picked, and Verify Module warns of it.
+objects)", until another is picked, and Verify Module warns of it
+(except on a trigger: Aurora writes faction 0 for one whose blueprint
+has none, so ordinary triggers have it).

@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T22:41:15Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T00:47:21Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -911,7 +911,9 @@ no `Faction`.
   an object was not measured: no player joins a headless server.
 - **Moonglow:** the faction lists leave it out
   (`blueprint/situated.rs`, the Store Wizard), and Verify warns of it
-  (`pc-faction`, `crates/mg-module/src/doctor.rs`).
+  (`pc-faction`, `crates/mg-module/src/doctor.rs`), but not of a
+  trigger's: Aurora writes 0 for a trigger whose blueprint has none (the
+  owner's decision, 2026-10-21).
 - **Wiki:** missing ("repadjust.2da (and Reputation in general)" says a
   PC is not in an NPC faction).
 

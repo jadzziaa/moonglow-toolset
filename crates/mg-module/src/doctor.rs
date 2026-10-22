@@ -1207,16 +1207,20 @@ fn objects(d: &mut Doctor, module: &Module) {
     }
 }
 
-/// Creatures, placeables, doors, triggers and encounters (blueprints and
-/// placed) of faction 0, the PC faction: the players' alone (Jasperre's
-/// report). The game puts a creature of it in Hostile as it loads; a
-/// placeable, door or trigger keeps it, and creatures regard it as they
-/// regard players (`engine_factions.rs`). Aurora writes it for a trigger
-/// whose blueprint has no faction. A field the object lacks is not
-/// reported.
+/// Creatures, placeables, doors and encounters (blueprints and placed) of
+/// faction 0, the PC faction: the players' alone (Jasperre's report). The
+/// game puts a creature of it in Hostile as it loads; a placeable or door
+/// keeps it, and creatures regard it as they regard players
+/// (`engine_factions.rs`). Triggers are left out (the owner's decision):
+/// Aurora writes 0 for a trigger whose blueprint has no faction, so the
+/// warning would fall on ordinary triggers. A field the object lacks is
+/// not reported.
 fn pc_faction(d: &mut Doctor, module: &Module) {
     use mg_rules::ObjectKind;
     let of_pc = |kind: ObjectKind, s: &Struct| -> Option<&'static str> {
+        if kind == ObjectKind::Trigger {
+            return None;
+        }
         let field = kind.faction_field()?;
         (s.integer(field) == Some(mg_rules::objects::PC_FACTION)).then_some(field)
     };
@@ -1225,12 +1229,7 @@ fn pc_faction(d: &mut Doctor, module: &Module) {
         .filter(|k| {
             matches!(
                 k.restype,
-                ResType::UTC
-                    | ResType::UTP
-                    | ResType::UTD
-                    | ResType::UTT
-                    | ResType::UTE
-                    | ResType::GIT
+                ResType::UTC | ResType::UTP | ResType::UTD | ResType::UTE | ResType::GIT
             )
         })
         .copied()
@@ -1749,7 +1748,8 @@ endmodelgeom fx\ndonemodel fx\n";
     }
 
     /// An object of the PC faction is warned of, blueprint or placed; one
-    /// of another faction, or with no faction field, is not.
+    /// of another faction, with no faction field, or a trigger (Aurora
+    /// writes 0 for one whose blueprint has none), is not.
     #[test]
     fn objects_of_the_pc_faction_are_warned_of() {
         let mut m = Module::new();
@@ -1757,7 +1757,7 @@ endmodelgeom fx\ndonemodel fx\n";
         utc.root.set("FactionID", Value::Word(0));
         m.set_gff(key("guard", ResType::UTC), &utc).unwrap();
         let mut utt = Gff::new(*b"UTT ");
-        utt.root.set("Faction", Value::Dword(1));
+        utt.root.set("Faction", Value::Dword(0));
         m.set_gff(key("trap", ResType::UTT), &utt).unwrap();
         let mut git = Gff::new(*b"GIT ");
         let placed = |field: &str, v: Value, tag: &str| {
@@ -1777,17 +1777,10 @@ endmodelgeom fx\ndonemodel fx\n";
         let f = examine(&m, &resman(&[]), TalkTables::default());
         let found: Vec<_> = f.iter().filter(|f| f.check == "pc-faction").collect();
         let at: Vec<&str> = found.iter().map(|f| f.at.as_str()).collect();
-        assert_eq!(
-            at,
-            [
-                "area › placeable BOX › Faction",
-                "area › trigger TRAP › Faction",
-                "guard.utc › FactionID"
-            ]
-        );
+        assert_eq!(at, ["area › placeable BOX › Faction", "guard.utc › FactionID"]);
         assert!(found.iter().all(|f| f.severity == Severity::Warning));
-        assert!(found[..2].iter().all(|f| f.message.contains("regard players")), "{found:?}");
-        assert!(found[2].message.contains("puts a creature of it in Hostile"), "{found:?}");
+        assert!(found[0].message.contains("regard players"), "{found:?}");
+        assert!(found[1].message.contains("puts a creature of it in Hostile"), "{found:?}");
         assert_eq!(Check::PcFaction.group(), Group::Objects);
     }
 }

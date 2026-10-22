@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T22:41:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T00:47:20Z }
 ---
 
 # Blueprints
@@ -453,7 +453,8 @@ The faction lists (a creature's, a placeable's, a door's, a trigger's and
 an encounter's Advanced page) leave out the PC faction: it is the
 players' alone, and the game puts a creature of it in Hostile. An object
 that already has it keeps it, shown as "PC (not for objects)", until
-another is picked; Verify Module warns of it.
+another is picked; Verify Module warns of it (of a trigger's, no:
+Aurora writes faction 0 for a trigger whose blueprint has none).
 
 ### Triggers and encounters
 
