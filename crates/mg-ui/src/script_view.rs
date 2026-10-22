@@ -2115,6 +2115,8 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
         let mut replace_all = false;
         let mut find_all = false;
         let mut entered = false;
+        let mut f3 = false;
+        let keys = &app.keymap;
         let title = if s.replace_mode { "Replace Text" } else { "Find Text" };
         egui::Window::new(title)
             .pivot(egui::Align2::CENTER_CENTER)
@@ -2127,6 +2129,13 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
                     crate::widgets::field_label(ui, "Find What");
                     let field = ui.text_edit_singleline(&mut s.find);
                     crate::widgets::autofocus(ui, &field);
+                    // Find Next (F3) from the field too, as in Aurora
+                    // (Sacha's report): it types nothing.
+                    if field.has_focus()
+                        && ui.input_mut(|i| keys.consume(i, crate::keys::Cmd::FindNext))
+                    {
+                        f3 = true;
+                    }
                     // Enter finds (the next, or all), and the field keeps
                     // the keys for the next Enter.
                     if field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -2165,7 +2174,7 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
                     if all {
                         find_all = ui.button("Find All").clicked() || entered;
                     } else {
-                        find_next = ui.button("Find Next").clicked() || entered;
+                        find_next = ui.button("Find Next").clicked() || entered || f3;
                     }
                     if s.replace_mode {
                         replace = ui.button("Replace").clicked();

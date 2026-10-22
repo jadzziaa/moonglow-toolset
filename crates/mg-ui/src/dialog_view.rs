@@ -1467,6 +1467,13 @@ fn search_pane(
         if std::mem::take(&mut s.focus) {
             field.request_focus();
         }
+        // Find Next (F3) from the field too, as in Aurora (Sacha's report):
+        // it types nothing, so the field gives it up.
+        let keys = &app.keymap;
+        if field.has_focus() && ui.input_mut(|i| keys.consume(i, crate::keys::Cmd::DialogFindNext))
+        {
+            s.again = true;
+        }
         ui.end_row();
         crate::widgets::field_label(ui, "Replace With");
         ui.text_edit_singleline(&mut s.replace);
