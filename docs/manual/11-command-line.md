@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T01:09:03Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T07:08:57Z }
 ---
 
 # Command-line tools
@@ -77,6 +77,7 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | `mg nui validate MODULE NAME` | check a NUI window as the NUI Creator does (the layout is what the game's NUI functions take, every bind has a value) and print each problem; fails if there are errors, and changes nothing. With `--json`: `errors`, `warnings` and `findings` (each with `severity`, `path` and `message`) |
 | `mg nui generate MODULE NAME` | write the window's scripts and save, as Build does in the NUI Creator: the include that opens it (`NAME_o.nss`) and its event script (`NAME_e.nss`, compiled; the code you wrote in it is kept), and the scripts that include the opener compiled again, as `mg compile` compiles them (what was compiled is remembered in the same place). The window's scripts are all or none: a window with errors, an opener or event script edited by hand, or one that does not compile, changes nothing. A script of yours that includes the opener and does not compile is printed and keeps the compiled script it had (with `--json`: `failed` and `errors`, as `mg compile` gives them); `--dry-run` checks and compiles, lists the resources and writes none. To see the window in the game, use Build › Test Module |
 | `mg haks MODULE` | what the module's haks provide, where they conflict and which game resources they override |
+| `mg haks MODULE --usage` | which of each hak's resources the module reaches (areas' tilesets and tiles, objects' and blueprints' looks and sounds, scripts and what their strings name, every model's textures and materials) and which nothing does: a line a hak (used of all, bytes used of all; unused, shadowed, not judged); with `--json` each resource used with what reached it first ([Modules](03-modules.md#what-the-module-uses-of-its-haks)) |
 | `mg minimap MODULE AREA OUT.png [--size PX]` | an area's minimap as a PNG, laid out as the game's map draws it (`PX` pixels a tile) |
 | `mg nwsync MODULE REPOSITORY` | publish the module's haks and talk table for NWSync into a repository folder, as `nwn_nwsync_write` does: `--with-module` (with `--name`, `--description`, `--uuid`), `--group-id`, `--no-latest`, `--limit-file-size MB`, `--force`, `--dry-run`; prints the manifest's hash |
 | `mg attach MODULE FILE…` | copy haks and a talk table (from anywhere) into the user folder's `hak` and `tlk`, list the haks at the top of the module's hak list in the order given, name the talk table, and save (`--replace` replaces different files of the same names there) |
@@ -84,9 +85,9 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | `mg test MODULE [--filter TEXT]` | run the module's `test_*` scripts in the server and report what they assert: see [Testing scripts in the server](#testing-scripts-in-the-server) |
 | `mg watch PROJECT --dev-dir FOLDER` | follow a module kept as files while you edit it, putting changed scripts (compiled) and blueprints into a development folder: see [Following a project as you edit](#following-a-project-as-you-edit) |
 | `mg compile MODULE [--uncompiled] [--all] [--ndb]` | compile the module's scripts and save it: those changed since they were last compiled, by `mg compile` or by Compile All Scripts in the window (both remember it in Moonglow's data folder, not in the module); `--all` compiles every script, `--uncompiled` only those without a compiled version; `--ndb` makes each one's debug file (`.ndb`) too, and compiles again a script that has none |
-| `mg export MODULE NAME.EXT… -o OUT.erf` | export resources with what they use (`--keep-factions`, `--comment`) |
+| `mg export MODULE NAME.EXT… -o OUT.erf` | export resources with what they use (`--keep-factions`, `--comment`); the archive's description says what it was made from (git commit, Moonglow's version, the module) |
 | `mg export MODULE NAME.EXT… --files -o FOLDER` | write the resources named as loose files in FOLDER (a script with its compiled `.ncs` and `.ndb`, an area with its `.git` and `.gic`): for the game's `development` or `override`, or a server's |
-| `mg import MODULE ERF [--overwrite]` | import an archive into the module and save it |
+| `mg import MODULE ERF [--overwrite]` | import an archive into the module and save it; says what a Moonglow export was made from, and warns when the module's git checkout is at another commit now |
 | `mg refs MODULE NAME.EXT` | where a resource is used, and script strings that spell it (`--tag` for a tag) |
 | `mg rename MODULE NAME.EXT NEW` | rename a script, area, conversation or blueprint everywhere and save (`--strings` changes script strings too) |
 | `mg update-instances MODULE [NAME.EXT…]` | remake placed objects from their blueprints (all of the module's if none are named) and save (`--area AREA` for one area) |
