@@ -277,6 +277,21 @@ impl ResMan {
         None
     }
 
+    /// The type [`ResMan::texture`] finds for a texture (DDS or TGA),
+    /// without reading it.
+    pub fn texture_type(&self, resref: ResRef) -> Option<ResType> {
+        let classes = [LayerClass::Directory, LayerClass::NwSync, LayerClass::Erf, LayerClass::Key];
+        for class in classes {
+            for restype in [ResType::DDS, ResType::TGA] {
+                let key = ResKey::new(resref, restype);
+                if self.layers.iter().any(|l| l.class == class && l.container.contains(&key)) {
+                    return Some(restype);
+                }
+            }
+        }
+        None
+    }
+
     /// Every distinct resource with the index of the layer that provides it
     /// (the highest that has it), sorted by name and type.
     pub fn entries(&self) -> Vec<(ResKey, usize)> {

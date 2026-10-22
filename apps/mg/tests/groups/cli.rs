@@ -18,6 +18,8 @@ mod edits;
 mod encoding;
 #[path = "../export_files.rs"]
 mod export_files;
+#[path = "../haks.rs"]
+mod haks;
 #[path = "../json.rs"]
 mod json;
 #[path = "../lsp.rs"]

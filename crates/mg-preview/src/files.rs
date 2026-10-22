@@ -25,13 +25,58 @@ pub struct ContentFile {
     pub stock: bool,
 }
 
-struct Gathered<'a> {
+/// The files the game loads to draw things, gathered over many models and
+/// textures, each once (what [`files`] gathers for one preview): for
+/// walking a whole module's models without reading one twice.
+#[derive(Debug)]
+pub struct Gatherer<'a> {
     rm: &'a ResMan,
     out: Vec<ContentFile>,
     seen: BTreeSet<ResKey>,
 }
 
-impl Gathered<'_> {
+impl<'a> Gatherer<'a> {
+    pub fn new(rm: &'a ResMan) -> Gatherer<'a> {
+        Gatherer { rm, out: Vec::new(), seen: BTreeSet::new() }
+    }
+
+    /// What is gathered so far, in the order it was found.
+    pub fn files(&self) -> &[ContentFile] {
+        &self.out
+    }
+
+    pub fn into_files(self) -> Vec<ContentFile> {
+        self.out
+    }
+
+    /// A preview's models and textures, as [`files`] gathers them.
+    pub fn preview(&mut self, preview: &Preview) {
+        for part in std::iter::once(&preview.base).chain(&preview.parts) {
+            self.model(&part.model, 0);
+            // (Textures put in place of the model's own, and what it
+            // mirrors.)
+            for t in part.textures.values().chain(&part.env_map) {
+                self.texture(mg_render::assets::split_colors(t).0, 0);
+            }
+        }
+    }
+
+    /// A model by name and what it names.
+    pub fn add_model(&mut self, name: &str) {
+        self.model(name, 0);
+    }
+
+    /// A texture by the name something gives it, and what it names.
+    pub fn add_texture(&mut self, name: &str) {
+        self.texture(name, 0);
+    }
+
+    /// One resource the load order has (a tile's walkmesh, say); whether
+    /// it has it.
+    pub fn add_file(&mut self, resref: ResRef, restype: ResType) -> bool {
+        self.add(resref, restype)
+    }
+
     /// Adds a resource the load order has; whether it has it.
     fn add(&mut self, resref: ResRef, restype: ResType) -> bool {
         let key = ResKey::new(resref, restype);
@@ -71,7 +116,7 @@ impl Gathered<'_> {
                 }
             }
         }
-        if let Some((t, _)) = self.rm.texture(resref) {
+        if let Some(t) = self.rm.texture_type(resref) {
             self.add(resref, t);
         }
         self.add(resref, ResType::PLT);
@@ -138,14 +183,8 @@ impl Gathered<'_> {
 /// and what it names after it: those the load order has (a texture named
 /// and found nowhere is not listed).
 pub fn files(game: &GameData, preview: &Preview) -> Vec<ContentFile> {
-    let mut g = Gathered { rm: &game.resman, out: Vec::new(), seen: BTreeSet::new() };
-    for part in std::iter::once(&preview.base).chain(&preview.parts) {
-        g.model(&part.model, 0);
-        // (Textures put in place of the model's own, and what it mirrors.)
-        for t in part.textures.values().chain(&part.env_map) {
-            g.texture(mg_render::assets::split_colors(t).0, 0);
-        }
-    }
+    let mut g = Gatherer::new(&game.resman);
+    g.preview(preview);
     g.out
 }
 

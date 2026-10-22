@@ -14,6 +14,7 @@ mod search;
 mod serve;
 mod test;
 mod tlk_alloc;
+mod usage;
 mod watch;
 
 use anyhow::{Context, Result, bail};
@@ -120,7 +121,19 @@ enum Cmd {
     Checks,
     /// Report the resources a module's haks provide, their conflicts and the
     /// base-game resources they override.
-    Haks { module: PathBuf },
+    Haks {
+        module: PathBuf,
+        /// Which of each hak's resources the module reaches (its areas'
+        /// tilesets and tiles, its objects' and blueprints' models, parts,
+        /// portraits and sounds, its scripts and what they name, and the
+        /// textures, materials and supermodels of every model), and which
+        /// nothing reaches: a line a hak, used of all and bytes used of
+        /// all. With --json, each resource used with the module resource
+        /// that reached it first, and those unused. The manual's Modules
+        /// chapter says what is followed and what is not.
+        #[arg(long)]
+        usage: bool,
+    },
     /// Export resources and their dependencies from a module to an ERF; or,
     /// with --files, the resources named as loose files in a folder (for
     /// the game's `development` or `override`, or to hand on).
@@ -1322,9 +1335,10 @@ fn run(cli: &Cli) -> Result<Output> {
             }
             out
         }
-        Cmd::Haks { module } => {
+        Cmd::Haks { module, usage } => {
             let m = Module::open(module)?;
-            let report = mg_module::haks::hak_report(&install(cli)?, &m.haks()?)?;
+            let gi = install(cli)?;
+            let report = mg_module::haks::hak_report(&gi, &m.haks()?)?;
             let rows = |it: &mut dyn Iterator<Item = (&ResKey, &Vec<String>)>| {
                 it.map(|(k, h)| json!({ "resource": k.to_string(), "haks": h })).collect::<Vec<_>>()
             };
@@ -1334,7 +1348,34 @@ fn run(cli: &Cli) -> Result<Output> {
                 "overrides": rows(&mut report.overrides.iter()),
                 "resources": report.resources.len(),
             }));
-            out.line(report.to_text().trim_end());
+            if *usage {
+                let started = std::time::Instant::now();
+                let (haks, reached) = usage::hak_usage(&gi, &m, &report)?;
+                for u in &haks {
+                    out.line(usage::line(u));
+                }
+                let (used, all): (usize, usize) =
+                    haks.iter().fold((0, 0), |(a, b), u| (a + u.used.len(), b + u.total()));
+                let (used_bytes, bytes) =
+                    haks.iter().fold((0, 0), |(a, b), u| (a + u.used_bytes(), b + u.bytes()));
+                let unused = haks.iter().filter(|u| u.path.is_some() && u.used.is_empty()).count();
+                out.line(format!(
+                    "All\t{used} of {all} used ({} of {}); {unused} of {} haks use nothing",
+                    usage::size(used_bytes),
+                    usage::size(bytes),
+                    haks.len()
+                ));
+                out.json["usage"] = usage::json(&haks);
+                out.json["reached"] = json!(reached);
+                out.note(format!(
+                    "the walk reached {reached} resources in {:.1} s; not followed: what scripts \
+                     reach by number (effects, spells, appearances), what players choose, and \
+                     what the game reads itself (\"not judged\")",
+                    started.elapsed().as_secs_f64()
+                ));
+            } else {
+                out.line(report.to_text().trim_end());
+            }
             out
         }
         Cmd::Export { module, resources, output, files, comment, keep_factions } => {
