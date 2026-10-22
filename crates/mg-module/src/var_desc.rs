@@ -56,6 +56,12 @@ use crate::vars::VarType;
 /// The team's file of described variables, in the project's root.
 pub const FILE_NAME: &str = "variables.toml";
 
+/// The longest name a variable is described by: what Aurora's Variables
+/// window takes (its Name field's MaxLength). The game reads longer ones
+/// (`engine_local_variables`: 4000 characters, from a file and set by a
+/// script); a pattern is not held to it, as its `*` takes any length.
+pub const NAME_MAX: usize = 1024;
+
 /// What a variable is on: the module, an area, or an object (placed, or a
 /// blueprint, or an item held).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -486,15 +492,33 @@ impl Variables {
             return Some(Unknown::OtherCase(d));
         }
         let at = self.undescribed_rx.iter().position(|r| r.0.is_match(name))?;
-        let nearest = self
-            .described
-            .iter()
-            .filter(|d| !d.is_pattern())
-            .map(|d| (distance(&d.name, name), d.name.as_str()))
-            .filter(|(n, _)| *n <= 2.max(name.len() / 5))
-            .min()
-            .map(|(_, n)| n);
+        let nearest = self.nearest(name, |_| true).map(|d| d.name.as_str());
         Some(Unknown::Undescribed { pattern: &self.undescribed[at], nearest })
+    }
+
+    /// The described name (not a pattern) nearest to `name`, of those
+    /// `keep` takes, where it is near enough to be a typo of it (a letter
+    /// or two added, dropped, changed or swapped), and not `name` itself.
+    pub fn nearest(&self, name: &str, keep: impl Fn(&Described) -> bool) -> Option<&Described> {
+        self.described
+            .iter()
+            .filter(|d| !d.is_pattern() && d.name != name && keep(d))
+            .map(|d| (distance(&d.name, name), d))
+            .filter(|(n, _)| *n <= 2.max(name.len() / 5))
+            .min_by_key(|(n, d)| (*n, d.name.as_str()))
+            .map(|(_, d)| d)
+    }
+
+    /// For a variable a `runtime = true` pattern takes (one the scripts
+    /// set), a name of its own entry that it is near: a typo of that one,
+    /// most likely a builder's (`tdod_lore_txt` for `tdod_lore_text`,
+    /// which `tdod_lore_*` takes).
+    pub fn runtime_typo(&self, name: &str) -> Option<&Described> {
+        let desc = self.describe(name)?;
+        if !desc.runtime || !desc.is_pattern() {
+            return None;
+        }
+        self.nearest(name, |_| true)
     }
 
     /// Reads a file's text into these (`name`: as messages give it):
@@ -607,8 +631,20 @@ fn described(r: &mut Reader, name: &str, at: usize, t: &DeTable) -> Option<Descr
     } else {
         None
     };
-    if name.is_empty() || name.len() > 64 {
-        r.warn(at, format!("\"{name}\": a variable's name is 1 to 64 characters"));
+    // (A pattern's own length says nothing of the names it takes: `*`
+    // takes any. A name is held to what a builder can type.)
+    if name.is_empty() {
+        r.warn(at, "[\"\"]: a variable's name is never empty");
+        return None;
+    }
+    if matcher.is_none() && name.chars().count() > NAME_MAX {
+        r.warn(
+            at,
+            format!(
+                "\"{name}\": a variable's name is at most {NAME_MAX} characters (Aurora's \
+                 Variables window takes no more)"
+            ),
+        );
         return None;
     }
     let mut d = Described {
@@ -1136,6 +1172,56 @@ on = ["creature", "placeable"]
         let on_module: Vec<&str> =
             v.names_for(Some(Owner::Module)).map(|d| d.name.as_str()).collect();
         assert_eq!(on_module, ["tdod_lit", "tdod_x"]);
+    }
+
+    /// The Domains of Dread's notes on 2.2.0, 1: a pattern is not held to
+    /// a name's length (their brace globs of the scripts' own were split
+    /// into 58 entries of 64 characters or fewer); a name is, to what
+    /// Aurora takes; and a typo of a builder's name that one of the
+    /// scripts' patterns takes is said near it.
+    #[test]
+    fn a_pattern_is_as_long_as_it_needs_and_a_name_is_held_to_aurora_s() {
+        let family = "tdod_{aberrant,ablative_stored,afflict_onset,amalgam,aoo_made,armor,\
+                      ascetic_state,ascetic_unable,attacks_miss,attitude_ours,auric,\
+                      backfire_chance,bag_on,balanced,bane,barter_gold,bastions,beat,\
+                      bg_sees_all,bodied,bridge_why,bulk_size,butcher,charge,circle,\
+                      claw_blows,cloaked,cm,companion,companion_of,conc_aoo,\
+                      confused_turned_on,controlled_hd,conviction_less,countered,\
+                      cutbeyond_left,cvc_with,lore_*}";
+        assert!(family.len() > 300, "{}", family.len());
+        let long = format!("tdod_{}", "x".repeat(NAME_MAX - 5));
+        let too_long = format!("{long}x");
+        let (v, w) = read(&format!(
+            "[tdod_lore_text]\ntype = \"string\"\n\n\
+             [\"{family}\"]\nruntime = true\n\n\
+             [{long}]\ntype = \"int\"\n\n\
+             [{too_long}]\ntype = \"int\"\n\n\
+             [\"\"]\ntype = \"int\"\n"
+        ));
+        assert_eq!(
+            w,
+            [
+                format!(
+                    "variables.toml:10: \"{too_long}\": a variable's name is at most 1024 \
+                     characters (Aurora's Variables window takes no more)"
+                ),
+                "variables.toml:13: [\"\"]: a variable's name is never empty".to_string(),
+            ]
+        );
+        for name in ["tdod_aberrant", "tdod_confused_turned_on", "tdod_cvc_with", "tdod_lore_seen"]
+        {
+            let d = v.describe(name).unwrap_or_else(|| panic!("{name}"));
+            assert!(d.runtime && d.is_pattern(), "{name}");
+        }
+        assert!(!v.describe("tdod_lore_text").unwrap().runtime, "its own entry wins");
+        assert_eq!(v.describe(&long).map(|d| d.name.len()), Some(NAME_MAX));
+        assert!(v.describe(&too_long).is_none());
+        assert_eq!(
+            v.runtime_typo("tdod_lore_txt").map(|d| d.name.as_str()),
+            Some("tdod_lore_text")
+        );
+        assert_eq!(v.runtime_typo("tdod_lore_seen"), None, "near no name");
+        assert_eq!(v.runtime_typo("tdod_lore_text"), None, "its own entry");
     }
 
     #[test]

@@ -1850,10 +1850,17 @@ fn described_variables(d: &mut Doctor, module: &Module) {
             if desc.runtime {
                 let how =
                     if desc.is_pattern() { format!(" ({})", desc.name) } else { String::new() };
+                // (A typo of a name of its own entry, a builder's, that
+                // one of the scripts' patterns takes: said as var-name
+                // says one.)
+                let near = vars
+                    .runtime_typo(&f.name)
+                    .map(|n| format!(": {}? ({file}:{})", n.name, n.line))
+                    .unwrap_or_default();
                 let message = format!(
                     "{}{how} is set by the scripts while the server runs ({file}:{} says runtime \
                      = true), and is never to be kept in a file: one kept here is there from the \
-                     start, on every server",
+                     start, on every server{near}",
                     f.name, desc.line
                 );
                 d.push(Severity::Error, Check::VarRuntime, "module", key, at, message);
@@ -2365,6 +2372,8 @@ endmodelgeom fx\ndonemodel fx\n";
                 var("someone_elses", s("x")),
                 var("tdod_trodden", Value::Int(1)),
                 var("tdod_save_d20", Value::Int(20)),
+                var("tdod_lore_txt", s("A worn plaque")),
+                var("tdod_lore_seen", Value::Int(1)),
             ],
         );
         let mut good = object(9, "GOOD", vec![var("tdod_workbench", s("forge"))]);
@@ -2406,7 +2415,9 @@ endmodelgeom fx\ndonemodel fx\n";
              [tdod_kind]\ntype = \"string\"\nconstants = \"tdod_kind_inc\"\nprefix = \"TDOD_KIND_\"\n\n\
              [\"tdod_craft*\"]\ntype = \"int\"\ntable = \"crafts\"\n\n\
              [tdod_trodden]\nruntime = true\nhelp = \"The scripts' own\"\n\n\
-             [\"tdod_*_d20\"]\ntype = \"int\"\nruntime = true\n",
+             [\"tdod_*_d20\"]\ntype = \"int\"\nruntime = true\n\n\
+             [tdod_lore_text]\ntype = \"string\"\n\n\
+             [\"tdod_lore_*\"]\nruntime = true\n",
         )
         .unwrap();
         let m = Module::open(&dir).unwrap();
@@ -2478,8 +2489,25 @@ endmodelgeom fx\ndonemodel fx\n";
              (variables.toml:37 says runtime = true), and is never to be kept in a file: one kept \
              here is there from the start, on every server",
         );
+        // A typo of a builder's name that the scripts' own pattern takes
+        // (The Domains of Dread's tdod_lore_txt): said with the name it
+        // is near, as var-name says one; one near none, without.
+        has(
+            "var-runtime",
+            "tdod_lore_txt",
+            "tdod_lore_txt (tdod_lore_*) is set by the scripts while the server runs \
+             (variables.toml:44 says runtime = true), and is never to be kept in a file: one kept \
+             here is there from the start, on every server: tdod_lore_text? (variables.toml:41)",
+        );
+        has(
+            "var-runtime",
+            "tdod_lore_seen",
+            "tdod_lore_seen (tdod_lore_*) is set by the scripts while the server runs \
+             (variables.toml:44 says runtime = true), and is never to be kept in a file: one kept \
+             here is there from the start, on every server",
+        );
         // Those that are right, and the others' variables, are not said.
-        assert_eq!(found.len(), 10, "{found:#?}");
+        assert_eq!(found.len(), 12, "{found:#?}");
         let severity = examine(&m, &rm, TalkTables::default())
             .into_iter()
             .filter(|f| f.check.starts_with("var-"))

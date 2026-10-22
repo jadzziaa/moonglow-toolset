@@ -947,7 +947,8 @@ fn a_plugin_s_tests_bring_their_own_game_data() {
         source.join("plugin.cfg"),
         "[plugin]\nid = \"test.armor\"\nname = \"Armor\"\nversion = \"1\"\napi = \"0.4\"\n\
          license = \"GPL-3.0-or-later\"\n[check]\nid = \"chest\"\ntitle = \"Chest\"\n\
-         [check]\nid = \"quiet\"\ntitle = \"Quiet\"\n",
+         [check]\nid = \"quiet\"\ntitle = \"Quiet\"\n\
+         [check]\nid = \"listed\"\ntitle = \"Listed\"\n",
     )
     .unwrap();
     std::fs::write(
@@ -968,6 +969,14 @@ fn a_plugin_s_tests_bring_their_own_game_data() {
                 return {}
             end
             return { { resource = "guard.utc", message = `AC {chest:get(1, "ACBONUS")}` } }
+        end)
+        -- The game's tables, by name.
+        mg.check("listed", function(ctx)
+            local found = {}
+            for _, name in ipairs(ctx.game:resources("2da")) do
+                table.insert(found, { resource = "guard.utc", message = name })
+            end
+            return found
         end)
         "#,
     )
@@ -1009,8 +1018,44 @@ fn a_plugin_s_tests_bring_their_own_game_data() {
         name = "a root of its own"
         check = "chest"
         root = "elsewhere"
+
+        [[test]]
+        name = "no game, the folder"
+        check = "chest"
+        root = false
+        [[test.finding]]
+        resource = "guard.utc"
+        message = "AC 3.00"
+
+        [[test]]
+        name = "no game, quiet"
+        check = "quiet"
+        root = false
+        game = "empty"
+        findings = 0
+
+        [[test]]
+        name = "no game, listed"
+        check = "listed"
+        root = false
+        [[test.finding]]
+        resource = "guard.utc"
+        message = "parts_chest.2da"
     "#;
     std::fs::write(source.join("tests/a.toml"), tests).unwrap();
+    // A file with no game, but for a test that reads the machine's.
+    let tests = r#"
+        module = "fixture"
+        root = false
+
+        [[test]]
+        name = "the machine's game after all"
+        check = "chest"
+        root = true
+        game = "empty"
+        findings = 1
+    "#;
+    std::fs::write(source.join("tests/b.toml"), tests).unwrap();
     let plugin = Plugin::load(&source).unwrap();
     // No game: the folder's table, and only it.
     let roots = RefCell::new(Vec::new());
@@ -1034,6 +1079,32 @@ fn a_plugin_s_tests_bring_their_own_game_data() {
     assert!(without[0].contains("parts_chest.2da not found"), "{without:?}");
     assert_eq!(without[1], lacked);
     assert_eq!(of(&results, "quiet without it"), ["0 findings, not 1: []", lacked]);
+    // Passed without it: told so, in a note (The Domains of Dread's notes
+    // on 2.2.0, 3: their armor test passed silently without
+    // parts_chest.2da).
+    let notes = |results: &[mg_plugin::TestResult], name: &str| -> Vec<String> {
+        results.iter().find(|r| r.name == name).unwrap().notes.clone()
+    };
+    assert_eq!(of(&results, "no game, quiet"), Vec::<String>::new());
+    assert_eq!(
+        notes(&results, "no game, quiet"),
+        ["it passed without parts_chest.2da, which it read and the game's data has not (the \
+             test reads no game, root = false, nor the test's game folder, empty): to test it \
+             with it, put it in empty, or name a game with root = \"…\""]
+    );
+    assert_eq!(notes(&results, "the folder's table"), Vec::<String>::new(), "it had it");
+    assert_eq!(notes(&results, "quiet without it"), Vec::<String>::new(), "a problem, not a note");
+    // A list of the game's resources with no game: of the folder alone.
+    assert_eq!(of(&results, "no game, listed"), Vec::<String>::new());
+    assert_eq!(
+        notes(&results, "no game, listed"),
+        ["it listed the game's resources (ctx.game:resources()), and the test reads no game, \
+             root = false: the list is only the module's and those of the test's game folder, game"]
+    );
+    assert_eq!(of(&results, "no game, the folder"), Vec::<String>::new());
+    // (`root = true`: the machine's, and here there is none.)
+    let after_all = of(&results, "the machine's game after all");
+    assert!(after_all.last().unwrap().contains("(there is no game install, nor"), "{after_all:?}");
     let nowhere = of(&results, "a folder not there");
     assert!(nowhere[0].starts_with("game: ") && nowhere[0].ends_with("nowhere is not a folder"));
     let root = source.join("tests").join("elsewhere");
@@ -1055,4 +1126,157 @@ fn a_plugin_s_tests_bring_their_own_game_data() {
     let results = mg_plugin::run_tests(&plugin, None, &game);
     assert_eq!(of(&results, "the folder's table"), Vec::<String>::new(), "3, not the game's 9");
     assert_eq!(of(&results, "another folder, without it"), Vec::<String>::new());
+    // With a game, root = false reads none of it: the folder's 3, and
+    // nothing without the folder; root = true reads it again.
+    assert_eq!(of(&results, "no game, the folder"), Vec::<String>::new());
+    assert_eq!(of(&results, "no game, quiet"), Vec::<String>::new());
+    assert_eq!(of(&results, "no game, listed"), Vec::<String>::new(), "not the game's");
+    assert_eq!(of(&results, "the machine's game after all"), Vec::<String>::new());
+}
+
+/// The Domains of Dread's notes on 2.2.0, 4: a plugin's test runs one of
+/// Moonglow's own checks (`builtin`) on its fixture, by the fixture's
+/// project file (moonglow.toml, variables.toml), its findings and fixes
+/// held as a plugin's are; what of the project file is not understood is
+/// a note. And, 3: listing the game's resources with no game and no game
+/// folder fails, and says why.
+#[test]
+fn a_plugin_s_tests_run_moonglow_s_own_checks() {
+    use mg_module::ModuleLocation;
+    let dir = mg_testkit::scratch_dir("plugin-tests-builtin");
+    let source = dir.join("rules");
+    std::fs::create_dir_all(source.join("tests")).unwrap();
+    std::fs::write(
+        source.join("plugin.cfg"),
+        "[plugin]\nid = \"test.rules\"\nname = \"Rules\"\nversion = \"1\"\napi = \"0.4\"\n\
+         license = \"GPL-3.0-or-later\"\n[check]\nid = \"listed\"\ntitle = \"Listed\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        source.join("main.luau"),
+        r#"
+        local mg = require("@moonglow")
+        mg.check("listed", function(ctx)
+            return { { resource = "module.ifo", message = `{#ctx.game:resources()}` } }
+        end)
+        "#,
+    )
+    .unwrap();
+    // The fixture: a module folder that is a project, whose module keeps a
+    // test's hook and a typo of a builder's variable, and has a start
+    // waypoint twice.
+    let fixture = source.join("tests").join("project");
+    let mut m = Module::new();
+    let var = |name: &str, value: Value| {
+        let mut v = Struct::new(0);
+        v.set("Name", Value::String(name.as_bytes().to_vec()));
+        v.set("Type", Value::Dword(if matches!(value, Value::Int(_)) { 1 } else { 3 }));
+        v.set("Value", value);
+        v
+    };
+    let mut ifo = Gff::new(*b"IFO ");
+    ifo.root.set(
+        "VarTable",
+        Value::List(vec![
+            var("tdod_skill_d20", Value::Int(20)),
+            var("tdod_lore_txt", Value::String(b"A plaque".to_vec())),
+        ]),
+    );
+    m.set_info(&ifo).unwrap();
+    let waypoint = |tag: &str| {
+        let mut w = Struct::new(5);
+        w.set("Tag", Value::String(tag.as_bytes().to_vec()));
+        w
+    };
+    let mut git = Gff::new(*b"GIT ");
+    git.root.set(
+        "WaypointList",
+        Value::List(vec![waypoint("TDOD_START_KREZK"), waypoint("TDOD_START_KREZK")]),
+    );
+    m.set_gff(key("krezk.git"), &git).unwrap();
+    m.save_as(&ModuleLocation::Folder(fixture.clone())).unwrap();
+    std::fs::write(fixture.join("moonglow.toml"), "[tags]\nunique = [\"TDOD_START_*\"]\n").unwrap();
+    std::fs::write(
+        fixture.join("variables.toml"),
+        "colour = 3\n\
+         [tdod_lore_text]\ntype = \"string\"\n\
+         [\"tdod_*_d20\"]\ntype = \"int\"\nruntime = true\n\
+         [\"tdod_lore_*\"]\nruntime = true\n",
+    )
+    .unwrap();
+    let tests = r#"
+        module = "project"
+
+        [[test]]
+        name = "the scripts' own, kept in the module"
+        builtin = "var-runtime"
+        [[test.finding]]
+        resource = "module.ifo"
+        at = "Module › VarTable › tdod_skill_d20"
+        severity = "error"
+        fix = ""
+        [[test.finding]]
+        resource = "module.ifo"
+        at = "Module › VarTable › tdod_lore_txt"
+        message = "tdod_lore_txt (tdod_lore_*) is set by the scripts while the server runs (variables.toml:7 says runtime = true), and is never to be kept in a file: one kept here is there from the start, on every server: tdod_lore_text? (variables.toml:2)"
+
+        [[test]]
+        name = "a start waypoint twice, retagged"
+        builtin = "tag-unique"
+        fix = "Retag the other as TDOD_START_KREZK_2"
+        left = 0
+        [[test.field]]
+        resource = "krezk.git"
+        field = "/WaypointList[1]/Tag"
+        value = "TDOD_START_KREZK_2"
+
+        [[test]]
+        name = "a check Moonglow has not"
+        builtin = "tag-uniq"
+
+        [[test]]
+        name = "a builtin check runs on the module alone"
+        builtin = "tag-unique"
+        select = ["krezk.git"]
+        settings = { x = 1 }
+
+        [[test]]
+        name = "two things"
+        builtin = "tag-unique"
+        check = "listed"
+
+        [[test]]
+        name = "the game's resources, with nothing"
+        check = "listed"
+        root = false
+    "#;
+    std::fs::write(source.join("tests").join("own.toml"), tests).unwrap();
+    let plugin = Plugin::load(&source).unwrap();
+    let results = mg_plugin::run_tests(&plugin, None, &|_, _| Ok(None));
+    let result = |name: &str| results.iter().find(|r| r.name == name).unwrap().clone();
+    let runtime = result("the scripts' own, kept in the module");
+    assert_eq!(runtime.problems, Vec::<String>::new());
+    // The project file's line it did not understand: a note.
+    assert_eq!(
+        runtime.notes,
+        ["the fixture's project file: variables.toml:1: \"colour\" is neither a variable \
+             ([colour]) nor undescribed = [...]"]
+    );
+    assert_eq!(result("a start waypoint twice, retagged").problems, Vec::<String>::new());
+    let unknown = result("a check Moonglow has not").problems;
+    assert!(unknown[0].starts_with("builtin: Moonglow has no check \"tag-uniq\" (its checks: "));
+    assert!(unknown[0].contains("tag-unique, ") && unknown[0].contains("var-runtime"));
+    assert_eq!(
+        result("a builtin check runs on the module alone").problems,
+        ["select, settings are for a plugin's own check, command or event, not a builtin check"]
+    );
+    assert!(result("two things").problems[0].contains("one thing"));
+    let nothing = result("the game's resources, with nothing").problems;
+    assert!(nothing[0].starts_with("it failed: ") && nothing[0].contains("there is no game data"));
+    assert_eq!(
+        nothing[1..],
+        ["it listed the game's resources (ctx.game:resources()), and the test reads no game, \
+             root = false, nor a game folder: there are none to list (put those it looks for in \
+             a folder game/ beside the test file, or name a game with root = \"…\")"]
+    );
 }

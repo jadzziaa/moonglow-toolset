@@ -425,6 +425,7 @@ fn reader(lua: &Lua, sh: &Rc<Shared>, game: bool) -> mlua::Result<Table> {
                 kind.as_deref().is_none_or(|k| key.restype.to_string().eq_ignore_ascii_case(k))
             };
             let mut names: Vec<String> = if game {
+                s.host.game_listed();
                 let Some(data) = &s.game else { return fail("there is no game data") };
                 data.resman
                     .entries()

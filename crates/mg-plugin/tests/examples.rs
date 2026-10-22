@@ -160,19 +160,30 @@ fn tag_conventions_fixes_what_its_check_finds() {
     assert!(run_check(&plugin, "tag-case", input(&ws.module), host).unwrap().is_empty());
 }
 
-/// The example's own tests (`mg plugin test`) pass on its fixture, and the
-/// manual shows their file and the check's fix as they are.
+/// The example's own tests (`mg plugin test`) pass on its fixtures (one
+/// of them a project, on which Moonglow's own `tag-unique` runs with no
+/// game), and the manual shows their files and the check's fix as they
+/// are.
 #[test]
 fn tag_conventions_passes_its_own_tests() {
     let plugin = example("tag-conventions");
+    // (A game that is there is not read: builtin.toml says root = false.)
+    let results =
+        mg_plugin::run_tests(&plugin, None, &|_, _| Err("no game is to be read".to_string()));
+    let builtin: Vec<&mg_plugin::TestResult> =
+        results.iter().filter(|r| r.file == "builtin.toml").collect();
+    assert_eq!(builtin.len(), 2, "{results:#?}");
+    assert!(builtin.iter().all(|r| r.passed() && r.notes.is_empty()), "{results:#?}");
     let results = mg_plugin::run_tests(&plugin, None, &|_, _| Ok(None));
-    assert_eq!(results.len(), 3, "{results:#?}");
+    assert_eq!(results.len(), 5, "{results:#?}");
     assert!(results.iter().all(|r| r.passed()), "{results:#?}");
 
     let guide = std::fs::read_to_string(docs().join("manual/16-writing-plugins.md")).unwrap();
-    let tests = std::fs::read_to_string(plugin.dir.join("tests/tags.toml")).unwrap();
-    for line in tests.lines().filter(|l| !l.trim().is_empty() && !l.starts_with('#')) {
-        assert!(guide.contains(line), "the manual lacks tests/tags.toml's line {line:?}");
+    for file in ["tags.toml", "builtin.toml"] {
+        let tests = std::fs::read_to_string(plugin.dir.join("tests").join(file)).unwrap();
+        for line in tests.lines().filter(|l| !l.trim().is_empty() && !l.starts_with('#')) {
+            assert!(guide.contains(line), "the manual lacks tests/{file}'s line {line:?}");
+        }
     }
     for line in ["local fix = ctx.fix(\"Upper-case this tag\")", "fix = fix,"] {
         assert!(guide.contains(line), "the manual lacks main.luau's line {line:?}");

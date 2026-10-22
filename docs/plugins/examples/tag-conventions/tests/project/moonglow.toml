@@ -1,0 +1,3 @@
+# The team's rules: the gate's waypoints are each found by their tag.
+[tags]
+unique = ["GATE_*"]
