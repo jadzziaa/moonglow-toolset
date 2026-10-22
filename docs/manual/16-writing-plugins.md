@@ -188,10 +188,11 @@ mg.on("area-tags", function(ctx)
         return -- (an area deleted)
     end
     local tag = e.new.Tag or ""
-    if e.old and e.old.Tag ~= tag then
-        local back = ctx.fix(`Put back {e.old.Tag}`)
-        back:set(e.resource, "Tag", e.old.Tag)
-        local why = `its tag was {e.old.Tag}, now {tag}: players' places are kept by it`
+    local was = if e.old then e.old.Tag or "" else nil
+    if was and was ~= tag then
+        local back = ctx.fix(`Put back {was}`)
+        back:set(e.resource, "Tag", was)
+        local why = `its tag was {was}, now {tag}: players' places are kept by it`
         if ctx.settings.keep_tags then
             e:refuse(why, back)
         else

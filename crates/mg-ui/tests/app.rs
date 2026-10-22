@@ -23298,3 +23298,43 @@ fn a_plugin_edits_what_is_pasted_in_the_same_undo() {
     h.run_steps(2);
     assert_eq!(tags(&mut h), before, "one Undo: the paste and the plugin's edit");
 }
+
+/// A save that both the claims and a plugin ask about: each is asked once,
+/// the claims first; Save Anyway in each, and it is saved.
+#[test]
+fn a_save_the_claims_and_a_plugin_ask_about_is_asked_once_each() {
+    let (_dir, mut app) = claimed_project(
+        "ui-claims-and-plugin",
+        "[claims]\nfile = \"claims.2da\"\n",
+        &claims_table("cd", "claimed"),
+    );
+    app.plugin_dir = Some(example_plugins());
+    app.load_plugins();
+    app.enable_plugin("example.house-rules", true);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 700.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    // Another builder's area changed, and a new area whose tag the plugin
+    // warns of.
+    h.state_mut().actions.push(rename_start("Market"));
+    let mut are = Gff::new(*b"ARE ");
+    are.root.set("Tag", mg_gff::Value::String(b"Cellar".to_vec()));
+    let key = ResKey::parse("cellar", ResType::ARE).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A cellar",
+        vec![mg_edit::Edit::SetResource { key, data: Some(are.to_bytes().unwrap()) }],
+    )));
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run_steps(3);
+    h.get_by_label("Areas Not Yours");
+    h.get_by_label("Save Anyway").click();
+    h.run_steps(3);
+    h.get_by_label("Before saving");
+    h.get_by_label("tag Cellar is not upper case");
+    h.get_by_label("Save Anyway").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("Areas Not Yours").is_none(), "the claims are not asked again");
+    assert!(!h.state().has_unsaved_work(), "saved");
+}
