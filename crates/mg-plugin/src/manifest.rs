@@ -5,6 +5,7 @@
 
 use mg_module::doctor::Severity;
 use mg_module::nasher::{Section, sections};
+pub use mg_module::project_plugins::SettingValue;
 use mg_rules::ObjectKind;
 
 /// The plugin API this Moonglow serves (a manifest's `api`).
@@ -32,6 +33,247 @@ pub struct Manifest {
     pub checks: Vec<CheckDecl>,
     /// What it does by itself, when something happens.
     pub events: Vec<EventDecl>,
+    /// The values it keeps (API 0.4), which the user can set in the
+    /// Plugins window and it reads as `ctx.settings`.
+    pub settings: Vec<SettingDecl>,
+}
+
+/// A setting a plugin keeps: a value of one kind, kept where its scope
+/// says, read by the plugin as `ctx.settings.<id>`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SettingDecl {
+    /// Its name, as the plugin reads it (`ctx.settings.code`): lower-case
+    /// letters, digits and `_`, from a letter.
+    pub id: String,
+    pub kind: SettingKind,
+    /// Its value until one is set.
+    pub default: SettingValue,
+    /// What the settings' form calls it (else its id).
+    pub label: String,
+    /// What the form's tip says of it.
+    pub help: String,
+    pub scope: Scope,
+}
+
+/// What a setting holds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SettingKind {
+    /// Text.
+    Text,
+    /// A whole number, within its limits if it has them.
+    Int { min: Option<i64>, max: Option<i64> },
+    /// True or false.
+    Bool,
+    /// One of these texts.
+    Choice(Vec<String>),
+    /// A file's or a folder's path, as text: the form has a button to
+    /// choose it. The plugin reads no file by it (the sandbox).
+    Path,
+}
+
+impl SettingKind {
+    /// Its name in a manifest (`type = "int"`).
+    pub fn name(&self) -> &'static str {
+        match self {
+            SettingKind::Text => "string",
+            SettingKind::Int { .. } => "int",
+            SettingKind::Bool => "bool",
+            SettingKind::Choice(_) => "choice",
+            SettingKind::Path => "path",
+        }
+    }
+}
+
+/// Where a setting's value is kept, and who shares it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Scope {
+    /// The user's, for every module: in Moonglow's settings.
+    User,
+    /// The team's, for the project: in its `moonglow.toml`
+    /// (`[plugins."<id>"]`), which is committed with it.
+    Project,
+    /// The user's own, for the project: in its `.moonglow/user.toml`
+    /// (`[plugins."<id>"]`), which is never committed.
+    UserProject,
+}
+
+impl Scope {
+    pub const ALL: [Scope; 3] = [Scope::User, Scope::Project, Scope::UserProject];
+
+    /// Its name in a manifest (`scope = "user-project"`).
+    pub fn name(self) -> &'static str {
+        match self {
+            Scope::User => "user",
+            Scope::Project => "project",
+            Scope::UserProject => "user-project",
+        }
+    }
+
+    pub fn named(name: &str) -> Option<Scope> {
+        Scope::ALL.into_iter().find(|s| s.name() == name)
+    }
+
+    /// Whether its value is kept in the project's files.
+    pub fn in_project(self) -> bool {
+        self != Scope::User
+    }
+}
+
+impl SettingDecl {
+    /// What its form calls it.
+    pub fn shown(&self) -> &str {
+        if self.label.is_empty() { &self.id } else { &self.label }
+    }
+
+    /// A value held to its kind: why it is not one, if it is not.
+    pub fn check(&self, value: &SettingValue) -> Result<(), String> {
+        match (&self.kind, value) {
+            (SettingKind::Text | SettingKind::Path, SettingValue::Text(_)) => Ok(()),
+            (SettingKind::Bool, SettingValue::Bool(_)) => Ok(()),
+            (SettingKind::Int { min, max }, SettingValue::Int(n)) => {
+                if let Some(m) = min.filter(|m| n < m) {
+                    return Err(format!("{n} is less than {m}, the least it takes"));
+                }
+                if let Some(m) = max.filter(|m| n > m) {
+                    return Err(format!("{n} is more than {m}, the most it takes"));
+                }
+                Ok(())
+            }
+            (SettingKind::Choice(choices), SettingValue::Text(t)) => {
+                if choices.contains(t) {
+                    Ok(())
+                } else {
+                    Err(format!("{t:?} is not one of {}", choices.join(", ")))
+                }
+            }
+            (kind, v) => Err(format!("{v} is not {}", kind_words(kind))),
+        }
+    }
+}
+
+/// A kind as a value of it is said to be (`a whole number`).
+fn kind_words(kind: &SettingKind) -> &'static str {
+    match kind {
+        SettingKind::Text => "text",
+        SettingKind::Path => "a path (text)",
+        SettingKind::Int { .. } => "a whole number",
+        SettingKind::Bool => "true or false",
+        SettingKind::Choice(_) => "one of its choices (text)",
+    }
+}
+
+/// Whether text is a setting's id: what `ctx.settings.<id>` can name.
+fn is_setting_id(text: &str) -> bool {
+    (1..=64).contains(&text.len())
+        && text.starts_with(|c: char| c.is_ascii_lowercase())
+        && text.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+}
+
+/// A `[setting]` section read.
+fn setting_of(s: &Section) -> Result<SettingDecl, String> {
+    let get =
+        keys(s, &["id", "type", "default", "label", "help", "scope", "choices", "min", "max"])?;
+    let id = required(s, "id", get("id"))?;
+    if !is_setting_id(id) {
+        return Err(format!(
+            "line {}: a setting's id {id:?} is lower-case letters, digits and '_', from a letter \
+             (the plugin reads it as ctx.settings.{id})",
+            s.line
+        ));
+    }
+    if id == "set" {
+        return Err(format!(
+            "line {}: a setting can't be called \"set\" (ctx.settings:set sets one)",
+            s.line
+        ));
+    }
+    let int = |key: &str| -> Result<Option<i64>, String> {
+        match get(key) {
+            "" => Ok(None),
+            n => n.parse().map(Some).map_err(|_| {
+                format!("line {}: the setting {id:?}: {key} is a whole number, not {n:?}", s.line)
+            }),
+        }
+    };
+    let kind = match get("type") {
+        "" | "string" => SettingKind::Text,
+        "int" => SettingKind::Int { min: int("min")?, max: int("max")? },
+        "bool" => SettingKind::Bool,
+        "path" => SettingKind::Path,
+        "choice" => {
+            let choices: Vec<String> = (get("choices").split(','))
+                .map(|c| c.trim().to_string())
+                .filter(|c| !c.is_empty())
+                .collect();
+            if choices.is_empty() {
+                return Err(format!(
+                    "line {}: the setting {id:?} is a choice: it needs choices = \"a, b\"",
+                    s.line
+                ));
+            }
+            SettingKind::Choice(choices)
+        }
+        other => {
+            return Err(format!(
+                "line {}: the setting {id:?}: type is string, int, bool, choice or path, not \
+                 {other:?}",
+                s.line
+            ));
+        }
+    };
+    for key in ["choices", "min", "max"] {
+        let fits = match key {
+            "choices" => matches!(kind, SettingKind::Choice(_)),
+            _ => matches!(kind, SettingKind::Int { .. }),
+        };
+        if !get(key).is_empty() && !fits {
+            return Err(format!(
+                "line {}: the setting {id:?} is {}: it has no {key}",
+                s.line,
+                kind.name()
+            ));
+        }
+    }
+    let given = get("default");
+    let default = match (&kind, given) {
+        (SettingKind::Text | SettingKind::Path, g) => SettingValue::Text(g.to_string()),
+        (SettingKind::Bool, "" | "false") => SettingValue::Bool(false),
+        (SettingKind::Bool, "true") => SettingValue::Bool(true),
+        (SettingKind::Bool, other) => {
+            return Err(format!(
+                "line {}: the setting {id:?}: its default is true or false, not {other:?}",
+                s.line
+            ));
+        }
+        (SettingKind::Int { min, .. }, "") => SettingValue::Int(min.unwrap_or(0).max(0)),
+        (SettingKind::Int { .. }, n) => SettingValue::Int(n.parse().map_err(|_| {
+            format!("line {}: the setting {id:?}: its default is a whole number, not {n:?}", s.line)
+        })?),
+        (SettingKind::Choice(c), "") => SettingValue::Text(c[0].clone()),
+        (SettingKind::Choice(_), g) => SettingValue::Text(g.to_string()),
+    };
+    let scope = match get("scope") {
+        "" => Scope::User,
+        name => Scope::named(name).ok_or_else(|| {
+            format!(
+                "line {}: the setting {id:?}: scope is \"user\", \"project\" or \
+                 \"user-project\", not {name:?}",
+                s.line
+            )
+        })?,
+    };
+    let decl = SettingDecl {
+        id: id.to_string(),
+        kind,
+        default,
+        label: get("label").to_string(),
+        help: get("help").to_string(),
+        scope,
+    };
+    if let Err(why) = decl.check(&decl.default) {
+        return Err(format!("line {}: the setting {id:?}: its default: {why}", s.line));
+    }
+    Ok(decl)
 }
 
 /// A command a plugin adds.
@@ -195,6 +437,7 @@ impl Manifest {
         let mut plugin: Option<Manifest> = None;
         let (mut commands, mut checks) = (Vec::<CommandDecl>::new(), Vec::<CheckDecl>::new());
         let mut events = Vec::<EventDecl>::new();
+        let mut settings = Vec::<SettingDecl>::new();
         for s in &all {
             match s.name.as_str() {
                 "plugin" => {
@@ -251,6 +494,7 @@ impl Manifest {
                         commands: Vec::new(),
                         checks: Vec::new(),
                         events: Vec::new(),
+                        settings: Vec::new(),
                     });
                 }
                 "command" => {
@@ -305,9 +549,17 @@ impl Manifest {
                     };
                     events.push(EventDecl { id, on });
                 }
+                "setting" => {
+                    let decl = setting_of(s)?;
+                    if settings.iter().any(|d| d.id == decl.id) {
+                        return Err(format!("line {}: a second setting {:?}", s.line, decl.id));
+                    }
+                    settings.push(decl);
+                }
                 other => {
                     return Err(format!(
-                        "line {}: no section [{other}] (there are [plugin], [command], [check] and [event])",
+                        "line {}: no section [{other}] (there are [plugin], [command], [check], \
+                         [event] and [setting])",
                         s.line
                     ));
                 }
@@ -325,9 +577,18 @@ impl Manifest {
                 c.id, plugin.api
             ));
         }
+        if let Some(d) = settings.first()
+            && api_before(&plugin.api, "0.4")
+        {
+            return Err(format!(
+                "the setting {:?} ([setting]) is plugin API 0.4; the manifest says api = {:?}",
+                d.id, plugin.api
+            ));
+        }
         plugin.commands = commands;
         plugin.checks = checks;
         plugin.events = events;
+        plugin.settings = settings;
         Ok(plugin)
     }
 }
@@ -418,6 +679,99 @@ severity = "error"
         assert!(with("for = \"creature\"").contains("for creature twice"));
         let e = Manifest::parse(&text.replace("api = \"0.4\"", "api = \"0.3\"")).unwrap_err();
         assert!(e.contains("plugin API 0.4") && e.contains("\"fix-tags\""), "{e}");
+    }
+
+    /// API 0.4: settings, each of a kind, with a default and a scope.
+    #[test]
+    fn a_plugin_declares_its_settings() {
+        let text = SAMPLE.replace("api = \"0.1\"", "api = \"0.4\"")
+            + r#"
+[setting]
+id = "prefix"
+label = "Team prefix"
+scope = "project"
+default = "TDOD_"
+help = "What tags begin with"
+
+[setting]
+id = "max_length"
+type = "int"
+min = 1
+max = 32
+default = 32
+
+[setting]
+id = "strict"
+type = "bool"
+
+[setting]
+id = "kinds"
+type = "choice"
+choices = "both, creatures , placeables"
+scope = "user-project"
+
+[setting]
+id = "claims"
+type = "path"
+"#;
+        let m = Manifest::parse(&text).unwrap();
+        let s = &m.settings;
+        assert_eq!(s.len(), 5);
+        assert_eq!(
+            s[0],
+            SettingDecl {
+                id: "prefix".into(),
+                kind: SettingKind::Text,
+                default: SettingValue::Text("TDOD_".into()),
+                label: "Team prefix".into(),
+                help: "What tags begin with".into(),
+                scope: Scope::Project,
+            }
+        );
+        assert_eq!(s[1].kind, SettingKind::Int { min: Some(1), max: Some(32) });
+        assert_eq!(
+            (&s[1].default, s[1].scope, s[1].shown()),
+            (&SettingValue::Int(32), Scope::User, "max_length")
+        );
+        assert_eq!(s[2].default, SettingValue::Bool(false));
+        let choices = vec!["both".to_string(), "creatures".into(), "placeables".into()];
+        assert_eq!(s[3].kind, SettingKind::Choice(choices));
+        assert_eq!(
+            (&s[3].default, s[3].scope),
+            (&SettingValue::Text("both".into()), Scope::UserProject)
+        );
+        assert_eq!((s[4].kind.name(), &s[4].default), ("path", &SettingValue::Text(String::new())));
+        // Values held to their kinds.
+        assert!(s[1].check(&SettingValue::Int(33)).unwrap_err().contains("most it takes"));
+        assert!(s[1].check(&SettingValue::Int(0)).unwrap_err().contains("least it takes"));
+        assert_eq!(
+            s[1].check(&SettingValue::Text("3".into())).unwrap_err(),
+            "\"3\" is not a whole number"
+        );
+        assert!(
+            s[3].check(&SettingValue::Text("doors".into()))
+                .unwrap_err()
+                .contains("not one of both,")
+        );
+        assert!(s[2].check(&SettingValue::Bool(true)).is_ok());
+        // Faults, each by its line.
+        let with = |from: &str, to: &str| Manifest::parse(&text.replace(from, to)).unwrap_err();
+        assert!(with("id = \"strict\"", "id = \"Strict\"").contains("lower-case letters"));
+        assert!(with("id = \"strict\"", "id = \"set\"").contains("can't be called \"set\""));
+        assert!(with("id = \"strict\"", "id = \"prefix\"").contains("a second setting \"prefix\""));
+        assert!(with("type = \"bool\"", "type = \"float\"").contains("not \"float\""));
+        assert!(with("default = 32", "default = 40").contains("its default: 40 is more"));
+        assert!(with("default = 32", "default = many").contains("a whole number, not \"many\""));
+        assert!(
+            with("type = \"bool\"", "type = \"bool\"\nmin = 1").contains("is bool: it has no min")
+        );
+        assert!(with("choices = \"both, creatures , placeables\"\n", "").contains("needs choices"));
+        assert!(with("scope = \"project\"", "scope = \"team\"").contains("not \"team\""));
+        assert!(
+            with("type = \"bool\"", "type = \"bool\"\ncolour = 1").contains("no key \"colour\"")
+        );
+        let e = Manifest::parse(&text.replace("api = \"0.4\"", "api = \"0.3\"")).unwrap_err();
+        assert!(e.contains("plugin API 0.4") && e.contains("\"prefix\""), "{e}");
     }
 
     #[test]

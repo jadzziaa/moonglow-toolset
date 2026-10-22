@@ -24,6 +24,13 @@
 //! resource = "guard.utc"
 //! field = "Tag"
 //! value = "GATE_GUARD"
+//!
+//! [[test]]
+//! name = "a builder's code is remembered"
+//! command = "remember-code"
+//! settings = { prefix = "KRZ_" }   # the plugin's settings for the run
+//! answers = { code = "ab" }
+//! set = { code = "ab" }            # what the job sets (ctx.settings:set)
 //! ```
 
 use std::cell::RefCell;
@@ -108,6 +115,44 @@ struct Test {
     log: Vec<String>,
     /// The job fails, saying this (part of what it says).
     error: Option<String>,
+    /// The plugin's settings for the run, by id, over what the fixture's
+    /// project files hold (and the defaults).
+    #[serde(default)]
+    settings: BTreeMap<String, toml::Value>,
+    /// The settings the job is to set (`ctx.settings:set`), by id, with
+    /// the value each ends with.
+    #[serde(default)]
+    set: BTreeMap<String, toml::Value>,
+}
+
+/// A setting's value as a test file writes it.
+fn setting_of(v: &toml::Value) -> Option<crate::SettingValue> {
+    match v {
+        toml::Value::String(t) => Some(crate::SettingValue::Text(t.clone())),
+        toml::Value::Integer(n) => Some(crate::SettingValue::Int(*n)),
+        toml::Value::Boolean(b) => Some(crate::SettingValue::Bool(*b)),
+        _ => None,
+    }
+}
+
+/// The plugin's settings for a test: the fixture's project's values (and
+/// the defaults), and the test's own.
+fn settings_for(plugin: &Plugin, t: &Test, module: &Module) -> Result<crate::Settings, String> {
+    let project = (module.location.as_ref())
+        .and_then(mg_module::project_file::ProjectFile::root_of)
+        .map(|_| &module.project_file);
+    let (mut s, _) = crate::settings::resolve(&plugin.manifest, &BTreeMap::new(), project);
+    for (name, v) in &t.settings {
+        let Some(d) = plugin.setting(name) else {
+            return Err(format!("settings: the plugin declares no setting {name:?}"));
+        };
+        let Some(v) = setting_of(v) else {
+            return Err(format!("settings: {name}: text, a whole number, true or false"));
+        };
+        d.check(&v).map_err(|why| format!("settings: {name}: {why}"))?;
+        s.values.insert(name.clone(), v);
+    }
+    Ok(s)
 }
 
 /// A finding a check is to make.
@@ -313,7 +358,12 @@ fn run_one(
         files: RefCell::new(t.files.iter().map(|f| dir.join(f)).collect()),
         yes: t.yes,
     });
-    let input = Input { selection, ..Input::new(module.clone(), game.clone()) };
+    let settings = match settings_for(plugin, t, module) {
+        Ok(s) => s,
+        Err(e) => return vec![e],
+    };
+    let input =
+        Input { selection, settings: Some(settings), ..Input::new(module.clone(), game.clone()) };
     let codepage = game
         .as_deref()
         .map_or(Codepage::WINDOWS_1252, |g| g.codepage().for_language(Language::ENGLISH));
@@ -372,8 +422,14 @@ fn run_one(
             }
             Vec::new()
         }
-        Err(outcome) => vec![Command::new(outcome.label.clone(), outcome.edits.clone())],
+        Err(outcome) => {
+            settings_as_wanted(t, &outcome.settings, &mut problems);
+            vec![Command::new(outcome.label.clone(), outcome.edits.clone())]
+        }
     };
+    if made.is_ok() && !t.set.is_empty() {
+        problems.push("a check sets no settings: set is for a command or an event".into());
+    }
     let mut count = 0;
     let mut changed: Vec<String> = Vec::new();
     for cmd in commands {
@@ -436,6 +492,21 @@ fn run_one(
         }
     }
     problems
+}
+
+/// What the job set against `set`: each setting named ends with its value.
+fn settings_as_wanted(t: &Test, set: &[crate::SettingWrite], problems: &mut Vec<String>) {
+    for (name, wanted) in &t.set {
+        let last = set.iter().rev().find(|(n, _)| n == name).map(|(_, v)| v);
+        match (last, setting_of(wanted)) {
+            (None, _) => problems.push(format!("it did not set {name}")),
+            (Some(got), w) if got.as_ref() != w.as_ref() => problems.push(format!(
+                "it set {name} to {}, not {wanted}",
+                got.as_ref().map_or("its default".to_string(), |v| v.to_string())
+            )),
+            _ => {}
+        }
+    }
 }
 
 /// The findings against `[[test.finding]]` (all of them, in order) or

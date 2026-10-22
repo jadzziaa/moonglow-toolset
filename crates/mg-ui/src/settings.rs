@@ -187,6 +187,11 @@ pub struct Settings {
     /// and its text as allowed (another text asks again). Kept here, not
     /// in the project's files, which a repository could carry.
     pub allowed_commands: Vec<(String, String, String)>,
+    /// The values of plugins' settings of scope `user` (theirs for every
+    /// module), by plugin id and setting: text, a whole number, true or
+    /// false. Those of a project's scopes are in its files.
+    pub plugin_settings:
+        std::collections::BTreeMap<String, std::collections::BTreeMap<String, serde_json::Value>>,
     /// The game install, when not the detected one.
     pub game_root: Option<PathBuf>,
     /// The NWN user folder (haks, override, modules), when not the detected

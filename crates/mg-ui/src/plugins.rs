@@ -6,6 +6,12 @@
 //! (`mg_plugin`): what it can do is read the open module and the game
 //! data, hand back edits, write to the log and ask the user something,
 //! which the job's window shows.
+//!
+//! A project's own plugins (`plugins/` of its checkout) are listed beside
+//! those installed, and run only once the user allows them: when the
+//! project is opened, Moonglow asks about each it has no answer for, or
+//! that changed since it was allowed. A plugin's settings are edited in a
+//! form of their own, and kept where each one's scope says.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -15,6 +21,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use mg_edit::Command;
+use mg_module::project_file::ProjectFile;
 use mg_plugin::Found;
 use mg_plugin::{
     Answer, Existing, FieldKind, Host, Input, Outcome, Package, Plugin, PluginError, Question,
@@ -31,6 +38,16 @@ pub struct Installed {
     /// Installed from an archive (Install from File): Moonglow's to
     /// replace and remove. Else it was put there by hand, and is not.
     pub from_archive: bool,
+    /// One of the open project's own plugins (its `plugins/`): it runs
+    /// only as the user allowed it, and is not Moonglow's to remove.
+    pub project: bool,
+}
+
+/// A plugin's settings in their form: whose, and the values in it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SettingsForm {
+    pub plugin: String,
+    pub values: std::collections::BTreeMap<String, mg_plugin::SettingValue>,
 }
 
 /// The plugins as the window has them.
@@ -66,14 +83,34 @@ pub struct Plugins {
     /// writing into it), by plugin id: an event that comes again does not
     /// ask again. Kept between runs in the settings (`plugin_grants`).
     granted: std::collections::HashMap<String, Granted>,
+    /// The project's plugins the user is being asked about (their ids),
+    /// in the question that comes when the project is opened. Emptied
+    /// when each is answered, or all are put off (Decide Later).
+    pub project_asking: Vec<String>,
+    /// A plugin's settings being edited.
+    pub settings_form: Option<SettingsForm>,
+    /// What the job that just ended set, until it is kept.
+    last_set: Option<Vec<mg_plugin::SettingWrite>>,
+    /// What the user answered about projects' own plugins, as kept in
+    /// Moonglow's own folder ([`Moonglow::plugin_answers`]).
+    pub trust_answers: mg_plugin::project::Answers,
 }
 
 /// Answers remembered, by question.
 type Granted = Arc<Mutex<std::collections::HashMap<String, Answer>>>;
 
-/// A plugin as its grants are kept under: another version asks again.
-fn grants_name(m: &mg_plugin::Manifest) -> String {
-    format!("{} {}", m.id, m.version)
+/// A plugin as its grants are kept under: another version asks again (a
+/// project's plugin, other content).
+fn grants_name(p: &Plugin) -> String {
+    match p.digest() {
+        // (And by where it is: another project's of the same content is
+        // another plugin.)
+        Some(digest) => {
+            let dir = p.dir.canonicalize().unwrap_or_else(|_| p.dir.clone());
+            format!("{} {digest} {}", p.manifest.id, dir.display())
+        }
+        None => format!("{} {}", p.manifest.id, p.manifest.version),
+    }
 }
 
 /// What the settings keep of what `plugin` ([`grants_name`]) was allowed.
@@ -204,6 +241,12 @@ pub(crate) fn run_on(command: &PluginCommand, selected: Vec<mg_plugin::Selected>
     }
 }
 
+/// Where the answers about projects' own plugins are kept: a file of
+/// Moonglow's own data folder (`mg` reads the same), never a project's.
+pub fn answers_path() -> Option<PathBuf> {
+    mg_plugin::project::answers_path()
+}
+
 /// The plugins enabled now, for a crash report (the panic hook reads it).
 static ENABLED: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
@@ -310,14 +353,14 @@ fn level(l: mg_plugin::Level) -> Level {
 }
 
 /// The findings of the enabled plugins' checks (each with its fix, if it
-/// has one), on a job's snapshot, and what the checks logged. A check that
-/// fails is itself a finding.
+/// has one), on a job's snapshot, with each plugin's settings, and what the
+/// checks logged. A check that fails is itself a finding.
 pub(crate) fn check_findings(
-    plugins: &[Plugin],
+    plugins: &[(Plugin, mg_plugin::Settings)],
     job: &Context,
 ) -> (Vec<Found>, Vec<(Level, String)>) {
     let (mut findings, mut said) = (Vec::new(), Vec::new());
-    for plugin in plugins {
+    for (plugin, settings) in plugins {
         for check in &plugin.manifest.checks {
             if job.progress.cancelled() {
                 return (findings, said);
@@ -331,7 +374,10 @@ pub(crate) fn check_findings(
                 answers: RefCell::default(),
                 granted: None,
             });
-            let input = Input::new(job.module.clone(), job.game.clone());
+            let input = Input {
+                settings: Some(settings.clone()),
+                ..Input::new(job.module.clone(), job.game.clone())
+            };
             match mg_plugin::run_check(plugin, &check.id, input, host) {
                 Ok(found) => findings.extend(found),
                 Err(PluginError::Canceled(_)) => return (findings, said),
@@ -356,10 +402,245 @@ impl Moonglow {
             for dir in mg_plugin::folders(dir) {
                 let plugin = Plugin::load(&dir).map_err(|e| e.to_string());
                 let from_archive = mg_plugin::from_archive(&dir);
-                self.plugins.installed.push(Installed { dir, plugin, from_archive });
+                self.plugins.installed.push(Installed {
+                    dir,
+                    plugin,
+                    from_archive,
+                    project: false,
+                });
             }
         }
+        self.read_project_plugins();
         self.plugins_changed();
+    }
+
+    /// The open project's root (a module folder, or a nasher project's):
+    /// none for a module kept in one file.
+    pub fn project_root(&self) -> Option<PathBuf> {
+        let ws = self.ws.as_ref()?;
+        let root = ws.module.location.as_ref().and_then(ProjectFile::root_of)?;
+        Some(root.to_path_buf())
+    }
+
+    /// Reads the open project's plugins again (none of their code runs),
+    /// and asks about those it has no answer for.
+    pub fn load_project_plugins(&mut self) {
+        self.read_project_plugins();
+        self.plugins_changed();
+    }
+
+    fn read_project_plugins(&mut self) {
+        self.plugins.installed.retain(|i| !i.project);
+        self.plugins.project_asking.clear();
+        let Some(root) = self.project_root().filter(|_| !self.no_plugins) else { return };
+        // What the user answered, read again (another Moonglow, or `mg`,
+        // may have answered since); one that can't be read allows nothing.
+        if let Some(path) = &self.plugin_answers {
+            match mg_plugin::project::Answers::read(path) {
+                Ok(a) => self.plugins.trust_answers = a,
+                Err(e) => {
+                    self.plugins.trust_answers = Default::default();
+                    self.log.error(format!("{e}: none of a project's plugins runs until it reads"));
+                }
+            }
+        }
+        let Some(ws) = &self.ws else { return };
+        let found = mg_plugin::project::discover(&root, &ws.module.project_file);
+        for f in found {
+            if let Err(e) = &f.plugin {
+                self.log.warn(format!("The project's plugin in {}: {e}", f.dir.display()));
+            }
+            let plugin = f.plugin;
+            self.plugins.installed.push(Installed {
+                dir: f.dir,
+                plugin,
+                from_archive: false,
+                project: true,
+            });
+        }
+        let asking: Vec<String> = (self.plugins.installed.iter())
+            .filter(|i| i.project)
+            .filter_map(|i| i.plugin.as_ref().ok())
+            .filter(|p| self.project_trust(p).is_some_and(|t| t.to_ask()))
+            .map(|p| p.manifest.id.clone())
+            .collect();
+        self.plugins.project_asking = asking;
+        // What the project's files hold of plugins' settings that is not
+        // as their manifests say.
+        let Some(ws) = &self.ws else { return };
+        let file = &ws.module.project_file;
+        let plugins: Vec<&Plugin> =
+            self.plugins.installed.iter().filter_map(|i| i.plugin.as_ref().ok()).collect();
+        let mut said = Vec::new();
+        for p in &plugins {
+            let user = self.user_settings(&p.manifest.id);
+            said.extend(mg_plugin::settings::resolve(&p.manifest, &user, Some(file)).1);
+        }
+        let known: Vec<&str> = plugins.iter().map(|p| p.manifest.id.as_str()).collect();
+        said.extend(mg_plugin::settings::unclaimed(file, &known));
+        said.dedup();
+        for s in said {
+            self.log.warn(s);
+        }
+    }
+
+    /// What the user answered for a project's plugin, as it is now (none:
+    /// it is no project's plugin, or no project is open).
+    pub fn project_trust(&self, p: &Plugin) -> Option<mg_plugin::project::Trust> {
+        let root = self.project_root().filter(|_| p.is_project())?;
+        Some(self.plugins.trust_answers.trust(&root, p))
+    }
+
+    /// The project's plugins.
+    pub fn project_plugins(&self) -> Vec<&Plugin> {
+        (self.plugins.installed.iter())
+            .filter(|i| i.project)
+            .filter_map(|i| i.plugin.as_ref().ok())
+            .collect()
+    }
+
+    /// Allows one of the project's plugins as it is now, or keeps it off
+    /// (`allow` false): the answer kept in the user's own part of the
+    /// project, and asked again only if it was a yes and the plugin
+    /// changes.
+    pub fn allow_project_plugin(&mut self, id: &str, allow: bool) {
+        let Some(root) = self.project_root() else { return };
+        let found = self.project_plugins().into_iter().find(|p| p.manifest.id == id).cloned();
+        let Some(p) = found else { return };
+        let m = &p.manifest;
+        // (Kept in Moonglow's own folder, never in the project.)
+        match &self.plugin_answers {
+            Some(path) => match mg_plugin::project::decide(path, &root, &p, allow) {
+                Ok(answers) => self.plugins.trust_answers = answers,
+                Err(e) => {
+                    self.log.error(format!("{}: your answer was not kept: {e}", m.name));
+                    return;
+                }
+            },
+            None => self.plugins.trust_answers.decide(&root, &p, allow),
+        }
+        self.plugins.project_asking.retain(|a| a != id);
+        self.plugins_changed();
+        if !allow {
+            self.log.info(format!(
+                "The project's plugin {} {} stays off (Plugins › Manage Plugins… enables it)",
+                m.name, m.version
+            ));
+            return;
+        }
+        self.log.info(format!(
+            "The project's plugin {} {} is allowed: it runs as it is now (if it changes, you \
+             are asked again)",
+            m.name, m.version
+        ));
+        // What it does when a module is opened, as if it had been on then.
+        let event =
+            mg_plugin::Event { kind: mg_plugin::EventKind::ModuleOpened, resources: vec![] };
+        for e in m.events.iter().filter(|e| e.on == event.kind) {
+            self.plugins.events.push_back((m.id.clone(), e.id.clone(), event.clone()));
+        }
+    }
+
+    /// The values a plugin's settings of scope `user` have in Moonglow's
+    /// settings.
+    fn user_settings(
+        &self,
+        id: &str,
+    ) -> std::collections::BTreeMap<String, mg_plugin::SettingValue> {
+        (self.settings.plugin_settings.get(id).into_iter().flatten())
+            .filter_map(|(k, v)| Some((k.clone(), mg_plugin::settings::from_json(v)?)))
+            .collect()
+    }
+
+    /// A plugin's settings for a job: those kept (Moonglow's settings, the
+    /// project's files) where they are good, else the defaults.
+    pub fn plugin_settings(&self, p: &Plugin) -> mg_plugin::Settings {
+        let user = self.user_settings(&p.manifest.id);
+        let project = self.project_root().and(self.ws.as_ref()).map(|ws| &ws.module.project_file);
+        mg_plugin::settings::resolve(&p.manifest, &user, project).0
+    }
+
+    /// Keeps a plugin's settings where each one's scope says: Moonglow's
+    /// settings, or the project's files (`None`: back to its default, the
+    /// value kept taken out). What was kept goes to the log.
+    pub fn keep_plugin_settings(&mut self, p: &Plugin, set: &[mg_plugin::SettingWrite]) {
+        let root = self.project_root();
+        let mut wrote = false;
+        for (id, value) in set {
+            let Some(d) = p.setting(id) else { continue };
+            let shown = value
+                .as_ref()
+                .map_or_else(|| format!("its default ({})", d.default), |v| v.to_string());
+            let kept = match (d.scope, &root) {
+                (mg_plugin::Scope::User, _) => {
+                    let all =
+                        self.settings.plugin_settings.entry(p.manifest.id.clone()).or_default();
+                    match value {
+                        Some(v) => all.insert(id.clone(), mg_plugin::settings::to_json(v)),
+                        None => all.remove(id),
+                    };
+                    if all.is_empty() {
+                        self.settings.plugin_settings.remove(&p.manifest.id);
+                    }
+                    Ok(())
+                }
+                (_, Some(root)) => {
+                    wrote = true;
+                    mg_plugin::settings::keep_in_project(root, &p.manifest.id, d, value.as_ref())
+                }
+                (_, None) => Err("no project is open".to_string()),
+            };
+            let place = mg_plugin::settings::scope_words(d.scope);
+            match kept {
+                Ok(()) => self.log.info(format!(
+                    "{}: {} is {shown} ({place})",
+                    p.manifest.name,
+                    d.shown()
+                )),
+                Err(e) => {
+                    self.log.error(format!("{}: {} was not kept: {e}", p.manifest.name, d.shown()))
+                }
+            }
+        }
+        if wrote && let (Some(root), Some(ws)) = (&root, &mut self.ws) {
+            ws.module.project_file = ProjectFile::read(root);
+        }
+    }
+
+    /// Opens a plugin's settings in their form, with the values they have.
+    pub fn open_plugin_settings(&mut self, id: &str) {
+        let found = (self.plugins.installed.iter())
+            .filter_map(|i| i.plugin.as_ref().ok())
+            .find(|p| p.manifest.id == id)
+            .cloned();
+        let Some(p) = found else { return };
+        let values = self.plugin_settings(&p).values;
+        self.plugins.settings_form = Some(SettingsForm { plugin: id.to_string(), values });
+    }
+
+    /// Keeps what the settings' form holds: each value that is not what
+    /// the setting has now (one back at its default is taken out).
+    pub fn save_plugin_settings(&mut self) {
+        let Some(form) = self.plugins.settings_form.take() else { return };
+        let found = (self.plugins.installed.iter())
+            .filter_map(|i| i.plugin.as_ref().ok())
+            .find(|p| p.manifest.id == form.plugin)
+            .cloned();
+        let Some(p) = found else { return };
+        let now = self.plugin_settings(&p).values;
+        let set: Vec<mg_plugin::SettingWrite> = (p.manifest.settings.iter())
+            .filter_map(|d| {
+                let v = form.values.get(&d.id)?;
+                if now.get(&d.id) == Some(v) || d.check(v).is_err() {
+                    return None;
+                }
+                Some((d.id.clone(), (*v != d.default).then(|| v.clone())))
+            })
+            .collect();
+        if set.is_empty() {
+            return;
+        }
+        self.keep_plugin_settings(&p, &set);
     }
 
     /// After the installed or enabled plugins changed: their keys, and
@@ -409,14 +690,18 @@ impl Moonglow {
         self.settings.plugin_grants.iter().filter(|(p, _, _)| of(p)).count()
     }
 
-    /// The installed plugins that are enabled.
+    /// The plugins that run: those installed that are enabled, and the
+    /// project's that the user allowed (over one installed of the same id).
     pub fn enabled_plugins(&self) -> Vec<&Plugin> {
-        self.plugins
-            .installed
-            .iter()
+        let project: Vec<&Plugin> = (self.project_plugins().into_iter())
+            .filter(|p| self.project_trust(p).is_some_and(|t| t.runs()))
+            .collect();
+        let installed = (self.plugins.installed.iter())
+            .filter(|i| !i.project)
             .filter_map(|i| i.plugin.as_ref().ok())
             .filter(|p| self.plugin_enabled(&p.manifest.id))
-            .collect()
+            .filter(|p| !project.iter().any(|q| q.manifest.id == p.manifest.id));
+        installed.chain(project.iter().copied()).collect()
     }
 
     /// The commands of the enabled plugins, in their plugins' order.
@@ -516,10 +801,13 @@ impl Moonglow {
         };
         let (name, title) = (plugin.manifest.name.clone(), decl.title.clone());
         let command = command.to_string();
+        let settings = Some(self.plugin_settings(&plugin));
+        let keeper = plugin.clone();
         let run = move |input: Input, host: Rc<dyn Host>| {
-            mg_plugin::run_command(&plugin, &command, Input { selection, ..input }, host)
+            let input = Input { selection, settings, ..input };
+            mg_plugin::run_command(&plugin, &command, input, host)
         };
-        self.run_plugin(name, title, false, None, run);
+        self.run_plugin(name, title, false, None, Some(keeper), run);
     }
 
     /// Notes that a module was opened, for the plugins that act on it.
@@ -566,9 +854,8 @@ impl Moonglow {
             return;
         }
         // What the last event's job was allowed is kept for the next run.
-        let names: Vec<(String, String)> = (self.plugins.installed.iter())
-            .filter_map(|i| i.plugin.as_ref().ok())
-            .map(|p| (p.manifest.id.clone(), grants_name(&p.manifest)))
+        let names: Vec<(String, String)> = (self.enabled_plugins().into_iter())
+            .map(|p| (p.manifest.id.clone(), grants_name(p)))
             .collect();
         for (id, name) in &names {
             if let Some(granted) = self.plugins.granted.get(id) {
@@ -582,14 +869,14 @@ impl Moonglow {
         let (name, title) = (plugin.manifest.name.clone(), event.kind.name().to_string());
         let kept = &self.settings.plugin_grants;
         let granted = (self.plugins.granted.entry(id))
-            .or_insert_with(|| {
-                Arc::new(Mutex::new(kept_grants(kept, &grants_name(&plugin.manifest))))
-            })
+            .or_insert_with(|| Arc::new(Mutex::new(kept_grants(kept, &grants_name(&plugin)))))
             .clone();
+        let settings = Some(self.plugin_settings(&plugin));
+        let keeper = plugin.clone();
         let run = move |input: Input, host: Rc<dyn Host>| {
-            mg_plugin::run_event(&plugin, &event_id, &event, input, host)
+            mg_plugin::run_event(&plugin, &event_id, &event, Input { settings, ..input }, host)
         };
-        self.run_plugin(name, title, false, Some(granted), run);
+        self.run_plugin(name, title, false, Some(granted), Some(keeper), run);
     }
 
     /// Plugins › Install Plugin from File…: asks for a plugin's archive
@@ -686,17 +973,19 @@ impl Moonglow {
             mg_plugin::run_console(&code, Input { selection, ..input }, host)
         };
         self.plugins.console_output.clear();
-        self.run_plugin("Console".into(), "Console".into(), true, None, run);
+        self.run_plugin("Console".into(), "Console".into(), true, None, None, run);
     }
 
     /// A job running a plugin's code (`run`), with the window as its host.
-    /// `console`: the plugin console's, whose output shows under it too.
+    /// `console`: the plugin console's, whose output shows under it too;
+    /// `plugin`: whose settings what it sets are.
     fn run_plugin(
         &mut self,
         name: String,
         title: String,
         console: bool,
         granted: Option<Granted>,
+        plugin: Option<Plugin>,
         run: impl FnOnce(Input, Rc<dyn Host>) -> Result<Outcome, PluginError> + Send + 'static,
     ) {
         // (An event's job that changes nothing says nothing.)
@@ -723,7 +1012,13 @@ impl Moonglow {
                 let input = Input::new(job.module.clone(), job.game.clone());
                 run(input, host)
             },
-            move |app, result| app.plugin_finished(&job_name, &title, console, quiet, result, &log),
+            move |app, result| {
+                app.plugin_finished(&job_name, &title, console, quiet, result, &log);
+                // What it set (`ctx.settings:set`), kept once it is done.
+                if let (Some(p), Some(set)) = (&plugin, app.plugins.last_set.take()) {
+                    app.keep_plugin_settings(p, &set);
+                }
+            },
         );
         if !self.busy() {
             self.plugins.ask = None;
@@ -819,6 +1114,9 @@ impl Moonglow {
             // (A hak the module has already is read again.)
             self.reload_resources(false);
         }
+        // What it set, for the caller to keep: of a job that did not fail.
+        self.plugins.last_set =
+            result.as_ref().ok().map(|o| o.settings.clone()).filter(|s| !s.is_empty());
         match result {
             Ok(outcome) if outcome.edits.is_empty() => {
                 if !console && !wrote && !wrote_files && !quiet {
@@ -1018,10 +1316,19 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let (mut reload, mut toggle, mut run_console, mut install) = (false, None, false, false);
     let mut remove = None;
     let mut forgotten = None;
+    let (mut toggle_project, mut open_settings) = (None, None);
     let allowed: std::collections::HashMap<String, usize> = (app.plugins.installed.iter())
         .filter_map(|i| i.plugin.as_ref().ok())
         .map(|p| (p.manifest.id.clone(), app.plugin_grants(&p.manifest.id)))
         .collect();
+    // The project's plugins: what the user answered for each, and the
+    // installed ones they stand in for.
+    let trusts: std::collections::HashMap<String, mg_plugin::project::Trust> =
+        (app.project_plugins().into_iter())
+            .filter_map(|p| Some((p.manifest.id.clone(), app.project_trust(p)?)))
+            .collect();
+    let shadowed: Vec<String> =
+        (trusts.iter()).filter(|(_, t)| t.runs()).map(|(id, _)| id.clone()).collect();
     egui::Window::new("Plugins")
         .open(crate::widgets::open_unless_escape(ctx, "Plugins", &mut open))
         .default_pos([180.0, 90.0])
@@ -1086,7 +1393,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             ui.separator();
             egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
                 // (Started without plugins, none are listed: said above.)
-                if app.plugins.installed.is_empty() && !app.no_plugins {
+                if !app.plugins.installed.iter().any(|i| !i.project) && !app.no_plugins {
                     ui.weak(
                         "No plugins are installed. Install one from its archive (Install from \
                          File…), or copy a plugin's folder into the folder above.",
@@ -1110,23 +1417,76 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                         remove = Some(Remove { dir: installed.dir.clone(), name, id });
                     }
                 };
+                // Those installed, then the open project's own.
+                let ours = app.project_root();
+                let mut project_heading = false;
                 for installed in &app.plugins.installed {
+                    if installed.project && !std::mem::replace(&mut project_heading, true) {
+                        ui.separator();
+                        crate::widgets::section_heading(ui, "This project's plugins");
+                        let folder = ours
+                            .as_ref()
+                            .zip(app.ws.as_ref())
+                            .map(|(r, ws)| mg_plugin::project::folder(r, &ws.module.project_file));
+                        if let Some(folder) = folder {
+                            let path = folder.display().to_string();
+                            ui.add(egui::Label::new(egui::RichText::new(&path).weak()).truncate())
+                                .on_hover_text(&path);
+                        }
+                        ui.label(
+                            "They come with the project's checkout. Each runs only once you \
+                             allow it, as it is then: one that changes is off until you allow it \
+                             again. Your answers are yours alone, kept in Moonglow's own \
+                             settings, never in the project.",
+                        );
+                        ui.add_space(4.0);
+                    }
                     match &installed.plugin {
                         Ok(p) => {
                             let m = &p.manifest;
-                            let mut on = app.plugin_enabled(&m.id);
+                            let trust = trusts.get(&m.id).filter(|_| installed.project);
+                            let mut on = match trust {
+                                Some(t) => t.runs(),
+                                None => app.plugin_enabled(&m.id),
+                            };
                             ui.horizontal(|ui| {
                                 let label = format!("{} {}", m.name, m.version);
                                 if ui
                                     .checkbox(&mut on, egui::RichText::new(&label).strong())
                                     .changed()
                                 {
-                                    toggle = Some((m.id.clone(), on));
+                                    match trust {
+                                        Some(_) => toggle_project = Some((m.id.clone(), on)),
+                                        None => toggle = Some((m.id.clone(), on)),
+                                    }
                                 }
                                 ui.weak(&m.id);
-                                remove_button(ui, installed, label);
+                                if installed.project {
+                                    ui.weak("· the project's").on_hover_text(
+                                        "It comes with the project's checkout (its plugins \
+                                         folder): to remove it, the project removes it",
+                                    );
+                                } else {
+                                    remove_button(ui, installed, label);
+                                }
+                                if !m.settings.is_empty()
+                                    && ui
+                                        .small_button("Settings…")
+                                        .on_hover_text("The values this plugin keeps")
+                                        .clicked()
+                                {
+                                    open_settings = Some(m.id.clone());
+                                }
                             });
-                            ui.indent(("plugin", &m.id), |ui| {
+                            ui.indent(("plugin", &m.id, installed.project), |ui| {
+                                if let Some(t) = trust {
+                                    trust_line(ui, t);
+                                } else if shadowed.contains(&m.id) {
+                                    ui.weak(
+                                        "The project has a plugin of this id, which runs in \
+                                         its stead while the project is open.",
+                                    );
+                                }
                                 if !m.description.is_empty() {
                                     ui.label(&m.description);
                                 }
@@ -1135,30 +1495,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                                     authors => format!("By {}. ", authors.join(", ")),
                                 };
                                 ui.weak(format!("{by}License: {}.", m.license));
-                                for c in &m.commands {
-                                    // (And the right-click menus it is in.)
-                                    let menus = match c.targets.as_slice() {
-                                        [] => String::new(),
-                                        t => {
-                                            let names: Vec<&str> =
-                                                t.iter().map(|t| t.name()).collect();
-                                            format!(" (right-click: {})", names.join(", "))
-                                        }
-                                    };
-                                    let title = c.title.trim_end_matches('…');
-                                    ui.label(format!("Command: {title}{menus}"))
-                                        .on_hover_text(&c.hint);
-                                }
-                                for c in &m.checks {
-                                    ui.label(format!("Check: {}", c.title));
-                                }
-                                for e in &m.events {
-                                    let when = match e.on {
-                                        mg_plugin::EventKind::ModuleOpened => "a module is opened",
-                                        mg_plugin::EventKind::ModuleSaved => "the module is saved",
-                                    };
-                                    ui.label(format!("By itself, when {when}: {}", e.id));
-                                }
+                                adds(ui, m);
                                 let allowed = allowed.get(&m.id).copied().unwrap_or(0);
                                 if allowed > 0 {
                                     ui.horizontal(|ui| {
@@ -1179,9 +1516,11 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                         Err(e) => {
                             ui.horizontal_wrapped(|ui| {
                                 ui.colored_label(ui.visuals().error_fg_color, e);
-                                let folder = installed.dir.file_name().unwrap_or_default();
-                                let name = folder.to_string_lossy().into_owned();
-                                remove_button(ui, installed, name);
+                                if !installed.project {
+                                    let folder = installed.dir.file_name().unwrap_or_default();
+                                    let name = folder.to_string_lossy().into_owned();
+                                    remove_button(ui, installed, name);
+                                }
                             });
                         }
                     }
@@ -1210,6 +1549,12 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     if let Some((id, on)) = toggle {
         app.enable_plugin(&id, on);
     }
+    if let Some((id, on)) = toggle_project {
+        app.allow_project_plugin(&id, on);
+    }
+    if let Some(id) = open_settings {
+        app.open_plugin_settings(&id);
+    }
     if let Some(id) = forgotten {
         app.forget_plugin_grants(&id);
     }
@@ -1229,6 +1574,287 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     if !open {
         app.plugins.window = false;
         app.plugins.install_note = None;
+    }
+}
+
+/// What a plugin adds, as the Plugins window and the project's question
+/// list it: its commands (and the menus they are in), checks, what it does
+/// by itself, and its settings (and where each is kept).
+fn adds(ui: &mut egui::Ui, m: &mg_plugin::Manifest) {
+    for c in &m.commands {
+        // (And the right-click menus it is in.)
+        let menus = match c.targets.as_slice() {
+            [] => String::new(),
+            t => {
+                let names: Vec<&str> = t.iter().map(|t| t.name()).collect();
+                format!(" (right-click: {})", names.join(", "))
+            }
+        };
+        let title = c.title.trim_end_matches('…');
+        ui.label(format!("Command: {title}{menus}")).on_hover_text(&c.hint);
+    }
+    for c in &m.checks {
+        ui.label(format!("Check: {}", c.title));
+    }
+    for e in &m.events {
+        let when = match e.on {
+            mg_plugin::EventKind::ModuleOpened => "a module is opened",
+            mg_plugin::EventKind::ModuleSaved => "the module is saved",
+        };
+        ui.label(format!("By itself, when {when}: {}", e.id));
+    }
+    // Its settings, by where they are kept (the team's are written into
+    // the project's moonglow.toml).
+    for (scope, words) in [
+        (mg_plugin::Scope::Project, "Settings the team shares (the project's moonglow.toml)"),
+        (mg_plugin::Scope::UserProject, "Settings of yours for this project"),
+        (mg_plugin::Scope::User, "Settings of yours"),
+    ] {
+        let each: Vec<&str> =
+            m.settings.iter().filter(|d| d.scope == scope).map(|d| d.shown()).collect();
+        if !each.is_empty() {
+            ui.label(format!("{words}: {}", each.join(", ")));
+        }
+    }
+}
+
+/// Where a setting is kept, in a word or two.
+fn scope_short(scope: mg_plugin::Scope) -> &'static str {
+    match scope {
+        mg_plugin::Scope::User => "yours",
+        mg_plugin::Scope::Project => "the team's",
+        mg_plugin::Scope::UserProject => "yours, for this project",
+    }
+}
+
+/// What the user answered for a project's plugin, under its name.
+fn trust_line(ui: &mut egui::Ui, t: &mg_plugin::project::Trust) {
+    use mg_plugin::project::Trust;
+    match t {
+        Trust::Allowed => ui.label("Allowed, as it is now: it runs."),
+        Trust::Unasked => ui.weak("Not allowed yet: it is off until you allow it."),
+        Trust::Changed { was } => ui.colored_label(
+            ui.visuals().warn_fg_color,
+            format!("Changed since you allowed {was}: it is off until you allow it again."),
+        ),
+        Trust::Denied => ui.weak("You said no: it is off."),
+    };
+}
+
+/// The question when a project is opened whose plugins the user has not
+/// answered for (or that changed since they allowed them): each plugin with
+/// what it adds and keeps, to allow or not. Put off, they stay off, and
+/// are asked about at the next opening.
+pub(crate) fn project_window(app: &mut Moonglow, ctx: &egui::Context) {
+    if app.plugins.project_asking.is_empty() || app.ws.is_none() {
+        return;
+    }
+    let asked: Vec<Plugin> = (app.project_plugins().into_iter())
+        .filter(|p| app.plugins.project_asking.contains(&p.manifest.id))
+        .cloned()
+        .collect();
+    if asked.is_empty() {
+        app.plugins.project_asking.clear();
+        return;
+    }
+    let folder = app.project_root().zip(app.ws.as_ref()).map(|(r, ws)| {
+        let f = mg_plugin::project::folder(&r, &ws.module.project_file);
+        f.strip_prefix(&r).map(|p| p.display().to_string()).unwrap_or_default()
+    });
+    let mut answers: Vec<(String, bool)> = Vec::new();
+    let mut later = false;
+    let modal = egui::Modal::new(egui::Id::new("plugin-project")).show(ctx, |ui| {
+        ui.set_width(520.0);
+        ui.heading("This project comes with plugins");
+        ui.add_space(4.0);
+        ui.label(format!(
+            "Its folder {}/ holds plugins the team shares. None of their code runs until you \
+             allow it, and what you allow is each plugin as it is now: if it changes (a pull \
+             brings another version), you are asked again. Your answers are yours alone, kept \
+             in Moonglow's own settings, never in the project.",
+            folder.unwrap_or_else(|| "plugins".into())
+        ));
+        ui.add_space(6.0);
+        egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+            for p in &asked {
+                let m = &p.manifest;
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(format!("{} {}", m.name, m.version)).strong());
+                    ui.weak(&m.id);
+                });
+                if let Some(t @ mg_plugin::project::Trust::Changed { .. }) = app.project_trust(p) {
+                    trust_line(ui, &t);
+                }
+                if !m.description.is_empty() {
+                    ui.label(&m.description);
+                }
+                let by = match m.authors.as_slice() {
+                    [] => String::new(),
+                    authors => format!("By {}. ", authors.join(", ")),
+                };
+                ui.weak(format!("{by}License: {}.", m.license));
+                adds(ui, m);
+                ui.horizontal(|ui| {
+                    if ui.button("Allow").on_hover_text("Its code runs: as it is now").clicked() {
+                        answers.push((m.id.clone(), true));
+                    }
+                    if ui
+                        .button("Don't Allow")
+                        .on_hover_text("It stays off; Manage Plugins enables it later")
+                        .clicked()
+                    {
+                        answers.push((m.id.clone(), false));
+                    }
+                });
+            }
+        });
+        ui.separator();
+        ui.weak(
+            "Like any plugin, an allowed one runs sandboxed: it reads the module and the game's \
+             data and hands back changes that Undo takes back, and it reads or writes a file of \
+             yours only when you choose it or allow it.",
+        );
+        ui.add_space(6.0);
+        later = ui
+            .button("Decide Later")
+            .on_hover_text("They stay off now, and you are asked when the project is next opened")
+            .clicked();
+    });
+    for (id, allow) in answers {
+        app.allow_project_plugin(&id, allow);
+    }
+    if later || modal.should_close() {
+        app.plugins.project_asking.clear();
+    }
+}
+
+/// A plugin's settings, to edit: each by its kind, where it is kept said
+/// beside it. Saved, each value is kept where its scope says.
+pub(crate) fn settings_window(app: &mut Moonglow, ctx: &egui::Context) {
+    let Some(form) = &app.plugins.settings_form else { return };
+    let found = (app.plugins.installed.iter())
+        .filter_map(|i| i.plugin.as_ref().ok())
+        .find(|p| p.manifest.id == form.plugin)
+        .cloned();
+    let Some(p) = found else {
+        app.plugins.settings_form = None;
+        return;
+    };
+    let project = app.project_root();
+    let mut form = form.clone();
+    let (mut save, mut cancel, mut defaults) = (false, false, false);
+    let mut open = true;
+    let title = format!("Settings: {}", p.manifest.name);
+    egui::Window::new(&title)
+        .id(egui::Id::new("plugin-settings"))
+        .open(crate::widgets::open_unless_escape(ctx, &title, &mut open))
+        .default_pos([260.0, 140.0])
+        .default_width(460.0)
+        .collapsible(false)
+        .show(ctx, |ui| {
+            ui.weak(
+                "Each is kept where it says: yours (Moonglow's settings, for every module), the \
+                 team's (the project's moonglow.toml, shared with the checkout), or yours for \
+                 this project (its .moonglow/user.toml, never shared).",
+            );
+            ui.add_space(6.0);
+            egui::Grid::new("plugin-settings-grid").num_columns(3).spacing([12.0, 6.0]).show(
+                ui,
+                |ui| {
+                    for d in &p.manifest.settings {
+                        let usable = !d.scope.in_project() || project.is_some();
+                        let label = crate::widgets::field_label(ui, d.shown());
+                        if !d.help.is_empty() {
+                            label.on_hover_text(&d.help);
+                        }
+                        let value = form.values.entry(d.id.clone()).or_insert(d.default.clone());
+                        ui.add_enabled_ui(usable, |ui| setting_field(app, ui, d, value, &project));
+                        let note = ui.weak(scope_short(d.scope));
+                        if usable {
+                            note.on_hover_text(mg_plugin::settings::scope_words(d.scope));
+                        } else {
+                            note.on_hover_text(
+                                "No project is open (a module kept in one file has none): this \
+                                 is kept in a project's files",
+                            );
+                        }
+                        ui.end_row();
+                    }
+                },
+            );
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                save = ui.button("Save").on_hover_text("Keep these values").clicked();
+                cancel = crate::widgets::cancel(ui);
+                defaults = ui
+                    .button("Defaults")
+                    .on_hover_text("Put each back to the plugin's own value (Save keeps it)")
+                    .clicked();
+            });
+        });
+    if defaults {
+        for d in &p.manifest.settings {
+            if !d.scope.in_project() || project.is_some() {
+                form.values.insert(d.id.clone(), d.default.clone());
+            }
+        }
+    }
+    app.plugins.settings_form = Some(form);
+    if save {
+        app.save_plugin_settings();
+    } else if cancel || !open {
+        app.plugins.settings_form = None;
+    }
+}
+
+/// One setting's field in the settings' form.
+fn setting_field(
+    app: &mut Moonglow,
+    ui: &mut egui::Ui,
+    d: &mg_plugin::SettingDecl,
+    value: &mut mg_plugin::SettingValue,
+    project: &Option<PathBuf>,
+) {
+    use mg_plugin::{SettingKind, SettingValue};
+    match (&d.kind, value) {
+        (SettingKind::Bool, SettingValue::Bool(on)) => {
+            ui.checkbox(on, "");
+        }
+        (SettingKind::Int { min, max }, SettingValue::Int(n)) => {
+            let range = min.unwrap_or(i64::MIN)..=max.unwrap_or(i64::MAX);
+            ui.add(egui::DragValue::new(n).range(range));
+        }
+        (SettingKind::Choice(choices), SettingValue::Text(chosen)) => {
+            egui::ComboBox::from_id_salt(("plugin-setting", &d.id))
+                .selected_text(chosen.clone())
+                .show_ui(ui, |ui| {
+                    for c in choices {
+                        ui.selectable_value(chosen, c.clone(), c);
+                    }
+                });
+        }
+        (SettingKind::Path, SettingValue::Text(path)) => {
+            ui.horizontal(|ui| {
+                ui.add(egui::TextEdit::singleline(path).desired_width(200.0));
+                if ui.small_button("Choose…").clicked()
+                    && let Some(chosen) = app.dialogs.open_file_of(d.shown(), &[])
+                {
+                    // (Of the project, from its root: the same on every
+                    // builder's machine.)
+                    let inside = project
+                        .as_ref()
+                        .filter(|_| d.scope.in_project())
+                        .and_then(|r| chosen.strip_prefix(r).ok());
+                    *path = inside.unwrap_or(&chosen).to_string_lossy().replace('\\', "/");
+                }
+            });
+        }
+        (_, SettingValue::Text(text)) => {
+            ui.add(egui::TextEdit::singleline(text).desired_width(220.0));
+        }
+        // (A value not of its kind: back to the default.)
+        (_, v) => *v = d.default.clone(),
     }
 }
 

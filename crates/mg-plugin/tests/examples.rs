@@ -88,6 +88,7 @@ fn every_example_registers_what_it_declares() {
     assert_eq!(
         ids,
         [
+            "example.builder-tags",
             "example.creature-report",
             "example.hello",
             "example.set-local",
@@ -173,6 +174,40 @@ fn tag_conventions_passes_its_own_tests() {
         assert!(guide.contains(line), "the manual lacks tests/tags.toml's line {line:?}");
     }
     for line in ["local fix = ctx.fix(\"Upper-case this tag\")", "fix = fix,"] {
+        assert!(guide.contains(line), "the manual lacks main.luau's line {line:?}");
+    }
+}
+
+/// Settings (API 0.4): the example's own tests pass, its team's prefix
+/// read from its fixture's moonglow.toml; and the manual shows its
+/// settings as the manifest declares them.
+#[test]
+fn builder_tags_keeps_its_settings() {
+    let plugin = example("builder-tags");
+    let results = mg_plugin::run_tests(&plugin, None, &|_| None);
+    assert_eq!(results.len(), 6, "{results:#?}");
+    assert!(results.iter().all(|r| r.passed()), "{results:#?}");
+    let scopes: Vec<(&str, mg_plugin::Scope)> =
+        plugin.manifest.settings.iter().map(|s| (s.id.as_str(), s.scope)).collect();
+    use mg_plugin::Scope::{Project, User, UserProject};
+    assert_eq!(
+        scopes,
+        [
+            ("prefix", Project),
+            ("kinds", Project),
+            ("max_length", Project),
+            ("code", UserProject),
+            ("strict", User)
+        ]
+    );
+    // Its settings, and what sets one, are as the manual shows them.
+    let guide = std::fs::read_to_string(docs().join("manual/16-writing-plugins.md")).unwrap();
+    let cfg = std::fs::read_to_string(plugin.dir.join("plugin.cfg")).unwrap();
+    let settings = &cfg[cfg.find("[setting]").unwrap()..];
+    for line in settings.lines().filter(|l| !l.trim().is_empty()).take(12) {
+        assert!(guide.contains(line), "the manual lacks plugin.cfg's line {line:?}");
+    }
+    for line in ["ctx.settings:set(\"code\", answer.code)", "local s = ctx.settings"] {
         assert!(guide.contains(line), "the manual lacks main.luau's line {line:?}");
     }
 }
@@ -401,6 +436,7 @@ fn the_type_file_has_the_whole_api() {
                     "image" => "Image",
                     "selected" => "Selected",
                     "fix" => "Fix",
+                    "ctx.settings" => "Settings",
                     "ctx" | "ctx.plugin" => "Context",
                     other => panic!("no type for {other}"),
                 };

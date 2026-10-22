@@ -33,6 +33,7 @@ pub mod outside;
 pub mod palette;
 pub mod palette_add;
 pub mod project_file;
+pub mod project_plugins;
 pub mod query;
 pub mod refs;
 pub mod rename;

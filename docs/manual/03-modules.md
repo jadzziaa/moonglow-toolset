@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:32:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:41:09Z }
 ---
 
 # Modules
@@ -399,6 +399,12 @@ protected = ["kz_*"]                # areas whose Tag and ResRef are kept, besid
 [commands]                          # File › Project
 update = "bin/update"
 submit = { run = "bin/submit", windows = "bin\\submit.cmd", label = "Submit for Review" }
+
+[plugins]
+folder = "plugins"                  # the project's own plugins (as without it)
+
+[plugins."tdod.rules"]              # a plugin's settings the team shares
+claims = "data/claims.toml"
 ```
 
 Names are matched by globs, whatever their case: `*` any characters,
@@ -421,6 +427,8 @@ Names are matched by globs, whatever their case: `*` any characters,
 | `[claims] unclaimed` | an area no one claimed: `"edit"` (as without a table) or `"warn"` (as another's) | `"edit"` |
 | `[claims] protected` | areas (ResRefs, globs) whose Tag and ResRef are [kept](#protected-areas), besides those the table says are merged | none |
 | `[commands]` | the project's [commands](#the-projects-commands), each by its name (letters, digits, `_`, `-`): its text, or `{ run = "…", windows = "…", unix = "…", label = "…" }` (`windows` and `unix` in place of `run` on those systems; `label` its name in the menu) | none |
+| `[plugins] folder` | the folder of the project's own plugins, from the project's root, inside it ([A project's own plugins](15-plugins.md#a-projects-own-plugins)) | `plugins` |
+| `[plugins."<plugin id>"]` | the values of a plugin's settings of scope `project`, by setting (the id in quotes: it has dots in it). The Plugins window's Settings… and the plugin itself write them here, the rest of the file as written | the settings' defaults |
 
 See [Make Placeables Static](04-areas.md#static-placeables-many-at-once),
 [Duplicate tags](04-areas.md#duplicate-tags), [Setup
@@ -438,10 +446,25 @@ folder, never in the file the team shares. Moonglow makes the folder
 with a `.gitignore` in it holding `*`, so that it stays out of version
 control without a line in the project's own (the log warns of a
 `.moonglow` made by hand without one). It holds `[builder] code`, your
-builder code (below). A team's section put there, or `[builder]` put in
-the team's file, is said and left out. Which of the project's commands
-you allowed to run is never kept in the project's files
-([below](#the-projects-commands)).
+builder code (below), and the values of plugins' settings of scope
+`user-project` (`[plugins."<plugin id>"]`, as in the team's file). A
+team's section put there, or `[builder]` put in the team's file, is said
+and left out. Which of the project's commands you allowed to run is
+never kept in the project's files ([below](#the-projects-commands)).
+
+```toml
+# .moonglow/user.toml
+[plugins."tdod.rules"]
+code = "ab"
+```
+
+**Which of the project's own plugins may run is never in its files.**
+A project's files come with its checkout, and a repository could carry
+answers of its own, its plugins "allowed" before anyone was asked. What
+you answer is kept in Moonglow's own folder
+([A project's own plugins](15-plugins.md#a-projects-own-plugins)); a
+`[project_plugins]` section in either file is said in the log, and
+nothing in it allows anything. No setting allows anything either.
 
 ### Your builder code
 

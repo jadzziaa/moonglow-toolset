@@ -3,7 +3,7 @@ type: Proposal
 title: 'Plugins: a proposal'
 description: The decision record of Moonglow's plugins, proposed and accepted 2026-10-03 - what plugins are for, the principles, safety, the runtimes compared and why sandboxed Luau, the decisions and what was not proposed - with what shipped noted beside it. The API as it is now is in the manual and the API change list.
 tags: [plugins, proposal, luau, api, decision]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:15:03Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:41:09Z }
 ---
 
 # Plugins: a proposal
@@ -18,8 +18,9 @@ not the description of the API and not the list of what is planned:
   (1.16.0) added files and folders the user chooses, haks, areas and
   terrain, and pictures; API 0.3 (1.21.0) added 2DAs and talk tables,
   files written into a chosen folder, and events; API 0.4 (not yet in a
-  release) what is selected and open, and commands in right-click
-  menus. For users:
+  release) what is selected and open, commands in right-click menus,
+  fixes for findings, a plugin's own tests, settings, and a project's
+  own plugins. For users:
   [Plugins](manual/15-plugins.md). For authors:
   [Writing plugins](manual/16-writing-plugins.md), the
   [Plugin API reference](manual/17-plugin-api.md), the
@@ -142,9 +143,15 @@ that carried enabled plugins installed a trojan (April 2026).
   budget. A plugin's error is caught and logged with its name; it does
   not take the application down.
 - **Off until enabled.** Each plugin is enabled by the user, who sees
-  what it adds. Content (a module, a hak) never carries plugins. (A
-  project's own plugins, allowed per project, were proposed and are not
-  built.)
+  what it adds. Content (a module, a hak) never carries plugins. (Since
+  API 0.4 a project's checkout may: its `plugins/`, each run only after
+  the builder, asked when the project is opened, allows it, the answer
+  holding for the plugin's content by a digest of its files, which it
+  runs from. A changed one is asked about again, and the answers are the
+  builder's own, kept in Moonglow's own folder and never read from the
+  project's files, so that a checkout can't come with its plugins
+  allowed. A build pipeline runs them with `mg verify
+  --allow-project-plugins`.)
 - **No automatic updates.** An update is installed by the user.
 - **A way out.** `--no-plugins` starts without them; crash reports list
   the enabled plugins.
@@ -206,7 +213,8 @@ is not read as a description:
   importers, wizards, quick fixes, events, storage and a project's
   plugins. The 0.2 and 0.3 that shipped were something else (files,
   haks, terrain, pictures, tables); of the proposed list, events came
-  with 0.3 and quick fixes with 0.4.
+  with 0.3, and quick fixes, storage (a plugin's settings) and a
+  project's plugins with 0.4.
 - **Where commands show.** Proposed: Tools › Plugins, context menus, and
   `menu` and `when` keys in the manifest. Built: a **Plugins** menu
   (with Manage Plugins… and Install Plugin from File…), the Command

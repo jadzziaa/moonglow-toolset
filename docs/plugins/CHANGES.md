@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:21:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:41:09Z }
 ---
 
 # Plugin API changes
@@ -18,10 +18,11 @@ to change.
 
 Not yet in a release. Only additions: a
 plugin written for 0.1, 0.2 or 0.3 runs as it is (its `ctx` has the new
-fields too, `selection` and `open`, and a check's `fix`; nothing it had
-changed, but for a finding's `fix`, below). A plugin that uses what is
-new says `api = "0.4"`; a manifest that gives a command a `for` and says
-an earlier API is refused, with the reason.
+fields too, `selection`, `open` and `settings`, and a check's `fix`;
+nothing it had changed, but for a finding's `fix`, below). A plugin that
+uses what is new says `api = "0.4"`; a manifest that gives a command a
+`for`, or declares a `[setting]`, and says an earlier API is refused,
+with the reason.
 
 - `ctx.selection`: what a command is run on, a list of entries that each
   say what it is (`kind`: `"placeable"`, `"area"`…; `blueprint`;
@@ -52,7 +53,30 @@ an earlier API is refused, with the reason.
   with what is to come of each; `mg plugin test DIR` runs them, with an
   exit and a summary for a build pipeline. `mg plugin pack` leaves
   `tests/` out of the archive. The `tag-conventions` example has both.
-- From the Domains of Dread's builder proposal (A1, A3, A8).
+- Settings: a `[setting]` section in the manifest for each value the
+  plugin keeps (`id`, `type`: `string`, `int`, `bool`, `choice` or
+  `path`; `default`, `label`, `help`, `choices`, `min`, `max`; `scope`:
+  `user`, kept in Moonglow's settings, `project`, in the project's
+  `moonglow.toml` under `[plugins."<id>"]`, or `user-project`, in its
+  `.moonglow/user.toml`). The plugin reads them as `ctx.settings.<id>`
+  (and `for id, value in ctx.settings`) and sets one with
+  `ctx.settings:set(id, value)` (nil: its default), which Moonglow keeps
+  when the job is done; a check only reads them. Manage Plugins has a
+  form for them (Settings…). `mg plugin run --setting ID=VALUE`, and a
+  test's `settings` and `set` (`mg plugin test`). The `builder-tags`
+  example uses them.
+- A project's own plugins: plugins in a project's `plugins/` (or the
+  folder its `moonglow.toml` names, `[plugins] folder`) come with its
+  checkout and run once the builder allows them, asked when the project
+  is opened; the answer holds for the plugin's content (a digest of its
+  files, which it runs from), so a changed one is asked about again, and
+  is kept in Moonglow's own folder, never in the project (a checkout
+  can't come with its plugins allowed). No change to a plugin's code: one
+  of a project is written as any other. `mg verify` runs a project's
+  plugins as the builder allowed them, or every one with
+  `--allow-project-plugins`; `mg plugin list --project` lists them and
+  `mg plugin allow` answers for them.
+- From the Domains of Dread's builder proposal (A1, A2, A3, A5, A8).
 
 ## 0.3
 

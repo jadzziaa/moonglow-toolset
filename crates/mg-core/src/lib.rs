@@ -9,6 +9,7 @@ pub mod locstring;
 pub mod resref;
 pub mod restype;
 pub mod sha1;
+pub mod sha256;
 pub mod strref;
 
 pub use lang::{Codepage, Gender, Language};

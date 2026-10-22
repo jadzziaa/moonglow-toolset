@@ -248,7 +248,7 @@ impl Package {
     /// the faults, as [`crate::inspect`] gives them for a folder.
     pub fn inspect(&self, host: std::rc::Rc<dyn Host>) -> Result<Vec<String>, PluginError> {
         let files = self.files.iter().cloned().collect();
-        runtime::inspect(Source::Memory(files), &self.manifest, host)
+        runtime::inspect(Source::Memory(std::sync::Arc::new(files)), &self.manifest, host)
     }
 
     /// Its files' paths in the plugin's folder, sorted.
@@ -387,6 +387,25 @@ pub fn remove(dir: &Path) -> Result<(), PluginError> {
 /// it makes, [`Package::read`] reads: a file the reader would refuse is an
 /// error here, where the author sees it.
 pub fn pack(plugin: &Plugin) -> Result<Vec<u8>, PluginError> {
+    let files = files_of(&plugin.dir)?;
+    let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    let written = |e: zip::result::ZipError| PluginError::Package(format!("writing it: {e}"));
+    for (name, data) in &files {
+        zip.start_file(format!("{}/{name}", plugin.manifest.id), options).map_err(written)?;
+        zip.write_all(data).map_err(|e| PluginError::Package(format!("writing it: {e}")))?;
+    }
+    let bytes = zip.finish().map_err(written)?.into_inner();
+    // (It reads back, or it is no archive to give anyone.)
+    Package::read(&bytes)?;
+    Ok(bytes)
+}
+
+/// A plugin's folder's files as its archive holds them, sorted by path
+/// (with `/`): not hidden ones or links, nor its own `tests/` (its
+/// author's: `mg plugin test` runs them from the folder); within the
+/// limits of an archive.
+pub(crate) fn files_of(dir: &Path) -> Result<Vec<(String, Vec<u8>)>, PluginError> {
     fn walk(dir: &Path, base: &Path, out: &mut Vec<(String, PathBuf)>) -> std::io::Result<()> {
         for entry in std::fs::read_dir(dir)? {
             let entry = entry?;
@@ -412,27 +431,21 @@ pub fn pack(plugin: &Plugin) -> Result<Vec<u8>, PluginError> {
     let io =
         |what: &Path, e: std::io::Error| PluginError::Package(format!("{}: {e}", what.display()));
     let mut files = Vec::new();
-    walk(&plugin.dir, &plugin.dir, &mut files).map_err(|e| io(&plugin.dir, e))?;
+    walk(dir, dir, &mut files).map_err(|e| io(dir, e))?;
     files.sort();
     if files.len() > MAX_FILES {
         return fault(format!("the plugin has over {MAX_FILES} files"));
     }
-    let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
-    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
-    let written = |e: zip::result::ZipError| PluginError::Package(format!("writing it: {e}"));
+    let mut out = Vec::new();
     let mut total = 0;
-    for (name, path) in &files {
-        parts(name).map_err(PluginError::Package)?;
-        let data = std::fs::read(path).map_err(|e| io(path, e))?;
+    for (name, path) in files {
+        parts(&name).map_err(PluginError::Package)?;
+        let data = std::fs::read(&path).map_err(|e| io(&path, e))?;
         total += data.len() as u64;
         if total > MAX_BYTES {
             return fault(format!("the plugin is over {} MB", MAX_BYTES >> 20));
         }
-        zip.start_file(format!("{}/{name}", plugin.manifest.id), options).map_err(written)?;
-        zip.write_all(&data).map_err(|e| PluginError::Package(format!("writing it: {e}")))?;
+        out.push((name, data));
     }
-    let bytes = zip.finish().map_err(written)?.into_inner();
-    // (It reads back, or it is no archive to give anyone.)
-    Package::read(&bytes)?;
-    Ok(bytes)
+    Ok(out)
 }

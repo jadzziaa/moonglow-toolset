@@ -364,6 +364,10 @@ pub struct ProjectFile {
     pub variables: crate::var_desc::Variables,
     /// Whether `variables.toml` is there and was read.
     pub variables_found: bool,
+    /// `[plugins]` and the builder's `[project_plugins]`: the project's
+    /// plugins, their settings' values and what the builder allowed
+    /// ([`crate::project_plugins`]).
+    pub plugins: crate::project_plugins::PluginRules,
     /// What was not understood, which leaves the rest as it reads:
     /// `moonglow.toml:12: "colour" is not a key of [store]`.
     pub warnings: Vec<String>,
@@ -771,6 +775,10 @@ impl ProjectFile {
                          not in the file the team shares"
                     ),
                 ),
+                ("plugins", _) => crate::project_plugins::read_plugins(self, &mut r, entry, own),
+                (crate::project_plugins::DECIDED, _) => {
+                    crate::project_plugins::read_decided(self, &mut r, entry, own)
+                }
                 ("make_static" | "tags" | "store" | "resrefs" | "claims" | "commands", true) => r
                     .warn(
                         key.span().start,

@@ -195,6 +195,17 @@ export type Selected = {
     resref: string?,
 }
 
+-- The plugin's settings (API 0.4), as its manifest declares them
+-- ([setting]): each read by its id (ctx.settings.code), and gone through
+-- with `for id, value in ctx.settings`. A value is text (a string, a
+-- choice, a path), a whole number (an int) or true or false (a bool).
+export type Settings = {
+    -- Sets one, for Moonglow to keep where its scope says when the job is
+    -- done (nil: back to its default). Not in a check.
+    set: (self: Settings, id: string, value: (string | number | boolean)?) -> (),
+    [string]: string | number | boolean,
+}
+
 export type Context = {
     -- What a command was run on (the objects selected in the area view,
     -- the blueprints in a palette, what was right-clicked); empty in a
@@ -211,6 +222,8 @@ export type Context = {
     ui: Ui,
     progress: (done: number, total: number, note: string?) -> (),
     plugin: { id: string, name: string, version: string },
+    -- The plugin's settings (API 0.4).
+    settings: Settings,
     -- In an event's handler (mg.on): what happened.
     event: { name: string, resources: { string } }?,
     -- In a check's handler: a fix to give a finding (API 0.4).

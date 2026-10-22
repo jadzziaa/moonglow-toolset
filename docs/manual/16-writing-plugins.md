@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Writing plugins
-description: Writing plugins - a first plugin, how a plugin runs, the manifest, reading and editing the module, commands on what is selected, the game's data, talking to the user, files and haks outside the module, areas and terrain, checks and the fixes of their findings, several files, trying and testing (a plugin's own tests, mg plugin test), editor types and versions.
+description: Writing plugins - a first plugin, how a plugin runs, the manifest, reading and editing the module, commands on what is selected, the game's data, talking to the user, settings (ctx.settings, their scopes and where each is kept), files and haks outside the module, areas and terrain, checks and the fixes of their findings, several files, trying and testing (a plugin's own tests, mg plugin test), editor types, versions, sharing, and a project's own plugins.
 tags: [manual, plugins, luau]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:14:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:41:09Z }
 ---
 
 # Writing plugins
@@ -202,6 +202,20 @@ running the plugin, to list what it adds.
 | --- | --- |
 | `id` | Needed. The id the code registers it under (`mg.on`). |
 | `on` | Needed. What it waits for: `"module-opened"` or `"module-saved"`. |
+
+`[setting]`, once for each value the plugin keeps (since API 0.4;
+[Settings](#settings)):
+
+| Key | |
+| --- | --- |
+| `id` | Needed. Its name as the plugin reads it, `ctx.settings.<id>`: lower-case letters, digits and `_`, from a letter (not `set`). |
+| `type` | `"string"` (as when left out), `"int"` (a whole number), `"bool"`, `"choice"` or `"path"` (a file's or a folder's path, as text). |
+| `default` | Its value until one is set: text, a whole number, `true` or `false`, or one of the choices. Left out: empty text, 0 (or `min`), false, the first choice. |
+| `label` | What the settings' form calls it; else its id. |
+| `help` | What the form's tip says of it. |
+| `scope` | Where its value is kept, and who shares it: `"user"` (as when left out), `"project"` or `"user-project"` (below). |
+| `choices` | A choice's options, as a list: `"creatures, placeables"`. Needed for one. |
+| `min`, `max` | An int's limits. |
 
 A key or a section Moonglow doesn't know is an error (a misspelled one,
 most likely), and so is a command declared but not registered, or
@@ -427,6 +441,110 @@ into `--hak-dir`, or the user folder's `hak`.
 A command's handler may return what Undo calls its change,
 `return { label = "Upper-case creature tags" }`; without one, Undo names
 the command's title.
+
+## Settings
+
+A plugin keeps values of its own as **settings** (plugin API 0.4): a
+team's prefix, the builder's code, how strict a check is. The manifest
+declares each (`[setting]`), and Moonglow keeps their values, shows them
+in a form (Manage Plugins › **Settings…**) and hands them to every job.
+The `builder-tags` example has five:
+
+```ini
+[setting]
+id = "prefix"
+label = "Team prefix"
+help = "What the tag of each of the module's own creatures and placeables begins with (none: not checked)"
+scope = "project"
+
+[setting]
+id = "kinds"
+type = "choice"
+label = "Checked"
+help = "Which blueprints the check holds to the prefix"
+choices = "creatures and placeables, creatures, placeables"
+scope = "project"
+
+[setting]
+id = "max_length"
+type = "int"
+label = "Longest tag"
+help = "A prefixed tag is cut to this many characters"
+min = 1
+max = 32
+default = 32
+scope = "project"
+
+[setting]
+id = "code"
+label = "Your code"
+help = "Your builder code, which comes after the team's prefix in the tags you make (yours alone, for this project)"
+scope = "user-project"
+
+[setting]
+id = "strict"
+type = "bool"
+label = "Report as errors"
+help = "A tag without the prefix is an error, not a warning (yours, in every module)"
+```
+
+Each setting's **scope** says where its value is kept, and who shares it:
+
+| Scope | Whose | Kept in |
+| --- | --- | --- |
+| `user` | The user's, for every module | Moonglow's settings (`mg` keeps none: a run takes the default, or `--setting`) |
+| `project` | The team's, for the project | The project's `moonglow.toml`, `[plugins."<plugin id>"]`: committed with the project, so every builder has it |
+| `user-project` | The user's own, for the project | The project's `.moonglow/user.toml`, `[plugins."<plugin id>"]`: never committed |
+
+The two project scopes need a project: a module folder or a nasher
+project, whose files they are kept in. With a module kept in one file
+(`.mod`) they read their defaults, and can't be set. A team can write its
+values into `moonglow.toml` by hand, as
+[the project file](03-modules.md#the-project-file) shows.
+
+The plugin reads them as `ctx.settings`, each by its id; `for id, value
+in ctx.settings` goes through them in the manifest's order. A value is
+text (a string, a choice, a path), a whole number or true or false:
+
+```lua
+local function wanted(ctx): string
+    local s = ctx.settings
+    if s.code ~= "" then
+        return `{s.prefix}{s.code}_`
+    end
+    return s.prefix
+end
+```
+
+A command or an event may set one, `ctx.settings:set(id, value)` (nil:
+back to its default). The value is held to the setting's kind and limits
+at once, and the job reads it back; Moonglow keeps it, where its scope
+says, when the job is done (not if it fails). A check only reads them.
+
+```lua
+mg.command("remember-code", function(ctx)
+    local answer = ctx.ui:form({
+        title = "Your builder code",
+        fields = { { id = "code", label = "Code", default = ctx.settings.code } },
+    })
+    if answer == nil then
+        return
+    end
+    ctx.settings:set("code", answer.code)
+    ctx.log:info(`Your builder code is {answer.code}`)
+end)
+```
+
+A value kept that is not of its setting's kind (`max_length = "long"`),
+or kept in the other file, is said in the log when the project is
+opened, and the setting has its default; one for a setting the plugin
+doesn't declare (an older version's) is said and left where it is.
+Moonglow writes only the values it sets, and keeps the rest of each file
+as it is written.
+
+A `path` is text to the plugin: the form has a button to choose it, but
+the plugin reads no file by it (the sandbox). It still asks for a file
+with `ctx.ui:open_file`.
 
 ## Outside the module
 
@@ -695,6 +813,7 @@ A test (`[[test]]`) has a `name` and runs one thing:
 | `yes` | The answer to `ctx.ui:confirm` (else no). |
 | `files` | The files and folders the plugin gets where it asks for one, in order, from the test file's folder. |
 | `changed` | An event's resources changed (a module saved); none: all of the fixture's. |
+| `settings` | The plugin's settings for the run (`settings = { code = "ab" }`), over what the fixture's project files hold and the defaults. |
 
 and says what is to come of it (each key may be left out):
 
@@ -708,6 +827,7 @@ and says what is to come of it (each key may be left out):
 | `edits`, `resources` | How many edits there were, and which resources they change. |
 | `log` | Lines the log must have: each is part of one. |
 | `error` | The job fails, saying this (part of what it says). |
+| `set` | The settings the command or event sets (`ctx.settings:set`), each with the value it ends with: `set = { code = "cd" }`. |
 
 The plugin runs with the game's data where `mg` finds a game (as `mg
 plugin run` does) and without it elsewhere (`ctx.game` is then empty):
@@ -782,3 +902,22 @@ The plugin is installed into a folder named by its `id`, so keep `id`
 the same in every version (a new version then replaces the old) and
 raise `version`. Say in the plugin's notes which Moonglow it needs, and
 choose a license others can use it under.
+
+### With a project
+
+A team's plugin can come with the team's project instead: its folder in
+the project's `plugins/` (beside `nasher.cfg`, or in the folder
+`moonglow.toml` names: `[plugins] folder = "tools/plugins"`), committed
+with the rest. Every builder who checks the project out has it, in step
+with the module, with nothing to install. Moonglow asks each builder
+before it runs (the first time, and again whenever the plugin's files
+change), and keeps the answer in Moonglow's own folder, never in the
+project ([Plugins](15-plugins.md#a-projects-own-plugins)): a plugin can't
+come pre-allowed with the checkout. Its `tests/` stay with
+it, and a change to them asks nobody again.
+
+In a build pipeline nobody is asked:
+`mg verify PROJECT --allow-project-plugins` runs the checks of every
+plugin of the project, and `mg plugin test plugins/NAME` its tests. Keep
+the plugin's `id` the same, and give a version you want builders to see
+when they are asked.

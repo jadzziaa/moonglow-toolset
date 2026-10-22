@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Plugins
-description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, commands, checks and the fixes beside their findings, the console, the command line and when something goes wrong.
+description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, a project's own plugins (asked about when the project is opened), a plugin's settings, commands, checks and the fixes beside their findings, the console, the command line and when something goes wrong.
 tags: [manual, plugins]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:14:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:41:09Z }
 ---
 
 # Plugins
@@ -119,6 +119,72 @@ Remove is there for plugins installed from an archive. A plugin whose
 folder you copied in yourself has none (Moonglow deletes only what it
 installed): delete its folder, and press **Reload**.
 
+## A project's own plugins
+
+A team can keep its plugins with its project: in a folder `plugins/`
+beside `nasher.cfg` (or a module folder's own), or the folder the
+project's `moonglow.toml` names
+([The project file](03-modules.md#the-project-file)). Every builder who
+checks the project out has them, in step with the module, with nothing
+to install.
+
+**None of them runs until you allow it.** When you open the project,
+Moonglow lists each of its plugins you have not answered for, with what
+it adds: its commands (and the right-click menus they are in), its
+checks, what it does by itself, and the settings it keeps (those the
+team shares are written into `moonglow.toml`). For each, **Allow** or
+**Don't Allow**; **Decide Later** leaves them all off now and asks
+again at the next opening.
+
+- What you allow is the plugin **as it is now**: Moonglow reads its
+  files when the project is opened, runs it from what it read, and
+  keeps your answer with a digest of them. When the plugin changes (a
+  pull brings another version, or other code under the same one), it is
+  off again, and you are asked again, told what it was. Its `tests`
+  folder is not part of it.
+- **Don't Allow** keeps it off, however it changes, and it is not asked
+  about again; tick it in Manage Plugins to allow it later.
+- Your answers are **yours alone**, and never in the project: Moonglow
+  keeps them in its own folder (`project-plugins.toml` beside the plugins
+  folder), by the project's place on your disk, the plugin and the
+  digest of its files. A project's files can't answer for you: a
+  checkout that comes with answers of its own (a `[project_plugins]`
+  section in a committed `.moonglow/user.toml`, say) allows nothing, and
+  the log says so. `mg` reads the same answers, and `mg plugin allow`
+  gives them from a terminal.
+- Manage Plugins lists them under **This project's plugins**, each
+  marked as the project's, with what you answered. Its box allows it (as
+  it is now) or turns it off. They have no Remove: they are the
+  project's files.
+- A project's plugin of the same id as one you installed runs in its
+  stead while the project is open, once allowed.
+- An allowed project's plugin runs as any plugin does: sandboxed, and
+  asking before it reads or writes a file of yours.
+
+A module kept in one file (`.mod`) has no project, and no plugins of its
+own.
+
+## Settings
+
+A plugin may keep settings: a team's prefix, your builder code, how
+strict a check is. **Settings…** beside it in Manage Plugins opens them
+in a form, each with what it is (a tip says more) and where it is kept:
+
+- **yours**: in Moonglow's settings, for every module;
+- **the team's**: in the project's `moonglow.toml`, which goes with the
+  project to every builder (Save writes it there, the rest of the file as
+  it was);
+- **yours, for this project**: in the project's `.moonglow/user.toml`,
+  never shared.
+
+**Save** keeps what changed; **Defaults** puts each back to the plugin's
+own value (a value back at its default is taken out of where it was
+kept). Without a project open, the team's and the project's settings
+can't be changed. A plugin's command may set one itself (your builder
+code, asked for once); the log says what it set, and where. What a
+project's files hold that a plugin doesn't know, or of the wrong kind, is
+said in the log when the project is opened, and left as it is.
+
 ## Commands
 
 An enabled plugin's commands are in the **Plugins** menu and in the
@@ -200,13 +266,24 @@ mg plugin run mymodule.mod plugins/my-plugin on-save --event --changed guard.utc
 mg plugin run mymodule.mod plugins/set-local set-local --select "tavern.git/Placeable List[3]" --answer name=role --answer value=workbench
 mg verify mymodule.mod --plugins plugins/tag-conventions
 mg verify mymodule.mod --plugins plugins/tag-conventions --fix example.tag-conventions/tag-case
+mg verify myproject --allow-project-plugins
+mg plugin list --project myproject
+mg plugin allow myproject example.builder-tags
+mg plugin run myproject myproject/plugins/builder-tags prefix-tags --select guard.utc --setting code=ab
 mg plugin test plugins/tag-conventions
 mg plugin install tag-conventions-1.0.0.zip plugins
 mg plugin remove example.tag-conventions plugins
 ```
 
-`mg` has no list of enabled plugins: it runs the plugin you name. It
-applies a command's edits as given (an item's cost is not recomputed).
+`mg` has no list of enabled plugins: it runs the plugin you name, and
+a project's own plugins as you allowed them in Moonglow (`mg verify`
+says each that did not run, and why); `--allow-project-plugins` runs
+every one of them, for a build pipeline, where nobody is asked. `mg
+plugin list --project` lists them with what you answered and their
+settings. A plugin's settings with `mg` are those the project's files
+hold, else the defaults, and `--setting ID=VALUE` for one run: `mg`
+keeps none of yours (those of scope "user"). It applies a command's
+edits as given (an item's cost is not recomputed).
 `mg verify` makes a finding's fix only when `--fix` names its check, and
 `mg plugin test` runs a plugin's own tests
 ([Writing plugins](16-writing-plugins.md#a-plugins-own-tests)).

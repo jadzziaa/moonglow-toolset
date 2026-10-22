@@ -774,6 +774,10 @@ pub struct Moonglow {
     /// Where plugins are installed (the application gives Moonglow's data
     /// folder's `plugins`).
     pub plugin_dir: Option<PathBuf>,
+    /// Where the answers about projects' own plugins are kept (which may
+    /// run): a file of Moonglow's own folder, never a project's
+    /// (`mg_plugin::project::answers_path`). None: kept for this run only.
+    pub plugin_answers: Option<PathBuf>,
     /// Started without plugins (`--no-plugins`): none are read.
     pub no_plugins: bool,
     /// The keys are to be worked out again (the plugins changed).
@@ -974,6 +978,7 @@ impl Moonglow {
             open_palette: false,
             plugins: Default::default(),
             plugin_dir: None,
+            plugin_answers: None,
             no_plugins: false,
             keymap_stale: false,
             command_palette: None,
@@ -1308,6 +1313,8 @@ impl Moonglow {
         }
         plugins::window(self, ui.ctx());
         plugins::replace_window(self, ui.ctx());
+        plugins::project_window(self, ui.ctx());
+        plugins::settings_window(self, ui.ctx());
         plugins::remove_window(self, ui.ctx());
         commands::palette_window(self, ui.ctx());
         jobs::window(self, ui.ctx());
@@ -2293,6 +2300,8 @@ impl Moonglow {
         let mut m = m;
         self.restore_locks(&mut m);
         self.ws = Some(Workspace::new(m));
+        // (The project's plugins first: those allowed act on its opening.)
+        self.load_project_plugins();
         self.plugins_module_opened();
         self.outside = Default::default();
         self.area_names = Default::default();
@@ -2441,6 +2450,9 @@ impl Moonglow {
         // Closed (saved, or its changes discarded): no recovery copy.
         self.forget_recovery();
         self.ws = None;
+        // (The project's plugins were its own.)
+        self.plugins.settings_form = None;
+        self.load_project_plugins();
         // (Another module's blueprints of these names look different.)
         self.thumbnails.forget(self.viewport.as_ref());
         self.scripts.clear();
@@ -4085,12 +4097,13 @@ impl Moonglow {
         if self.ws.is_none() || self.game.is_none() {
             return;
         }
-        // The enabled plugins' checks run with the doctor's.
-        let plugins: Vec<mg_plugin::Plugin> = self
+        // The enabled plugins' checks run with the doctor's, each with its
+        // settings.
+        let plugins: Vec<(mg_plugin::Plugin, mg_plugin::Settings)> = self
             .enabled_plugins()
             .into_iter()
             .filter(|p| !p.manifest.checks.is_empty())
-            .cloned()
+            .map(|p| (p.clone(), self.plugin_settings(p)))
             .collect();
         // The groups left out (Options › Verify).
         let skip: Vec<mg_module::doctor::Group> = self

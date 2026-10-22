@@ -1,0 +1,4 @@
+# The team's settings of the plugin (scope "project"); a builder's own
+# (its code) would be in .moonglow/user.toml, which is never committed.
+[plugins."example.builder-tags"]
+prefix = "KRZ_"

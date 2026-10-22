@@ -115,6 +115,13 @@ enum Cmd {
         /// With --fix, print the fixes it would make; change nothing.
         #[arg(long, requires = "fix")]
         dry_run: bool,
+        /// Run the checks of every plugin the project comes with (its
+        /// `plugins/`), not only those you allowed in Moonglow: for a
+        /// build pipeline, where nobody is asked. Without it, a project's
+        /// plugin runs only as you allowed it (`.moonglow/user.toml`), and
+        /// one not allowed is said.
+        #[arg(long)]
+        allow_project_plugins: bool,
     },
     /// Plugins: list them, check them, run one's command on a module.
     Plugin {
@@ -933,9 +940,33 @@ enum Cmd {
 /// `mg plugin`'s commands.
 #[derive(Subcommand)]
 enum PluginCmd {
-    /// List plugins and what each adds: its commands and checks. A folder
-    /// is a plugin's own, or one that holds plugins' folders.
-    List { folders: Vec<PathBuf> },
+    /// List plugins and what each adds: its commands, checks, events and
+    /// settings. A folder is a plugin's own, or one that holds plugins'
+    /// folders.
+    List {
+        folders: Vec<PathBuf>,
+        /// Also the plugins this project comes with (a module folder, a
+        /// nasher project's folder or its nasher.cfg): each with whether
+        /// you allowed it, and its settings' values in the project.
+        #[arg(long)]
+        project: Option<PathBuf>,
+    },
+    /// Allow a project's own plugins to run, as they are now (or, with
+    /// --deny, keep them off), as Moonglow asks when the project is opened.
+    /// The answer is kept in Moonglow's own folder, by the project, the
+    /// plugin and a digest of its files (a changed plugin is asked about
+    /// again), never in the project.
+    Allow {
+        /// The project: a module folder, a nasher project's folder or its
+        /// nasher.cfg.
+        project: PathBuf,
+        /// The plugins' ids (`mg plugin list --project` shows them); none:
+        /// every one of the project's.
+        ids: Vec<String>,
+        /// Keep them off.
+        #[arg(long)]
+        deny: bool,
+    },
     /// Check plugins: the manifest reads, and the code registers what it
     /// declares. Exits with an error if one does not. A file is a
     /// plugin's archive: checked as the installer checks it, and its code
@@ -983,6 +1014,12 @@ enum PluginCmd {
         /// (else: no).
         #[arg(long)]
         yes: bool,
+        /// A setting of the plugin for this run, `ID=VALUE` (repeatable),
+        /// over what the project's files hold and the defaults. What the
+        /// plugin sets itself is kept in the project's files (but for a
+        /// setting of scope "user": mg keeps none).
+        #[arg(long, value_name = "ID=VALUE")]
+        setting: Vec<String>,
         /// Print the edits it would make; change nothing.
         #[arg(long)]
         dry_run: bool,
@@ -1480,13 +1517,15 @@ fn run(cli: &Cli) -> Result<Output> {
             }
             out
         }
-        Cmd::Verify { module, unused, plugins, skip, fix, dry_run } => {
+        Cmd::Verify { module, unused, plugins, skip, fix, dry_run, allow_project_plugins } => {
             let fixes = Fixes { checks: fix, dry_run: *dry_run };
-            verify(&install(cli)?, module, *unused, plugins, skip, &fixes)?
+            let plugins = plugins::Chosen { dirs: plugins, project: *allow_project_plugins };
+            verify(&install(cli)?, module, *unused, &plugins, skip, &fixes)?
         }
         Cmd::Plugin { cmd } => match cmd {
-            PluginCmd::List { folders } => plugins::list(folders)?,
+            PluginCmd::List { folders, project } => plugins::list(folders, project.as_deref())?,
             PluginCmd::Check { folders } => plugins::check(folders)?,
+            PluginCmd::Allow { project, ids, deny } => plugins::allow(project, ids, *deny)?,
             // (A plugin that reads no game data needs no game.)
             PluginCmd::Test { plugin, module } => {
                 plugins::test(install(cli).ok().as_ref(), plugin, module.as_deref())?
@@ -1503,6 +1542,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 file,
                 hak_dir,
                 yes,
+                setting,
                 dry_run,
             } => {
                 let host = plugins::CliHost::new(answer, file, *yes)?;
@@ -1529,7 +1569,7 @@ fn run(cli: &Cli) -> Result<Output> {
                     selected: select.iter().map(selected).collect::<Result<_>>()?,
                     open: open.as_ref().map(selected).transpose()?,
                 };
-                let what = plugins::What { id: command, changed, selection };
+                let what = plugins::What { id: command, changed, selection, settings: setting };
                 plugins::run(gi.as_ref(), module, plugin, &what, host, hak_dir, *dry_run)?
             }
             PluginCmd::Pack { plugin, output } => plugins::pack(plugin, output.as_deref())?,
@@ -3169,7 +3209,7 @@ fn verify(
     gi: &GameInstall,
     path: &Path,
     show_unused: bool,
-    plugins: &[PathBuf],
+    plugins: &plugins::Chosen<'_>,
     skip: &[mg_module::doctor::Group],
     asked: &Fixes<'_>,
 ) -> Result<Output> {
