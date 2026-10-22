@@ -342,6 +342,67 @@ fn a_nasher_project_that_leaves_windows_out_is_told_the_line() {
     assert_eq!(nui.unwrap()["group"], "module");
 }
 
+/// `mg nui import` from a window's file, a folder, an ERF and a zip: the
+/// layout, the settings and the event script's source come into the
+/// module, nothing else; one the module has differently is refused but
+/// with --replace; a dry run changes nothing.
+#[test]
+fn import_brings_windows_from_files_folders_erfs_and_zips() {
+    let jui = crier_files("mg-nui-import-files");
+    let dir = jui.parent().unwrap().to_path_buf();
+    std::fs::write(dir.join("crier_e.nss"), b"// mine\nvoid main() {}\n").unwrap();
+    std::fs::write(dir.join("crier_o.nss"), b"// generated elsewhere\n").unwrap();
+    let path = module("mg-nui-import");
+    let p = path.to_str().unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let (ok, dry) = mg(None, &["import", p, jui.to_str().unwrap(), "--dry-run"]);
+    assert!(ok, "{dry}");
+    assert_eq!(dry["resources"], json!(["crier.jui", "crier.txt", "crier_e.nss"]));
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+
+    let (ok, made) = mg(None, &["import", p, jui.to_str().unwrap()]);
+    assert!(ok, "{made}");
+    assert_eq!((&made["saved"], &made["windows"][0]["errors"]), (&json!(true), &json!(0)));
+    let m = Module::open(&path).unwrap();
+    assert_eq!(m.get(&key("crier.jui")).unwrap(), std::fs::read(&jui).unwrap());
+    assert!(m.contains(&key("crier_e.nss")) && !m.contains(&key("crier_o.nss")));
+    assert!(mg(None, &["validate", p, "crier"]).0);
+    // The same again changes nothing; another copy is refused, then replaces.
+    let (ok, again) = mg(None, &["import", p, dir.to_str().unwrap()]);
+    assert!(ok && again["resources"] == json!([]), "{again}");
+    std::fs::write(&jui, std::fs::read_to_string(&jui).unwrap().replace("Town Crier", "Crier"))
+        .unwrap();
+    let (ok, refused) = mg(None, &["import", p, jui.to_str().unwrap()]);
+    let error = refused["error"].as_str().unwrap();
+    assert!(!ok && error.contains("crier.jui") && error.contains("--replace"), "{error}");
+    let (ok, replaced) = mg(None, &["import", p, jui.to_str().unwrap(), "--replace"]);
+    assert!(ok && replaced["resources"] == json!(["crier.jui"]), "{replaced}");
+
+    // From an ERF (a module archive of windows) and a zip, into others.
+    let archive = dir.join("windows.mod");
+    let mut windows = Module::new();
+    windows.set(key("crier.jui"), std::fs::read(&jui).unwrap());
+    windows.set(key("crier.txt"), std::fs::read(dir.join("crier.txt")).unwrap());
+    windows.save_as(&ModuleLocation::Archive(archive.clone())).unwrap();
+    let into = module("mg-nui-import-erf");
+    let (ok, from_erf) = mg(None, &["import", into.to_str().unwrap(), archive.to_str().unwrap()]);
+    assert!(ok && from_erf["resources"] == json!(["crier.jui", "crier.txt"]), "{from_erf}");
+    let zipped = dir.join("windows.zip");
+    let mut zip = zip::ZipWriter::new(std::fs::File::create(&zipped).unwrap());
+    for (name, file) in [("ui/crier.jui", "crier.jui"), ("ui/crier.txt", "crier.txt")] {
+        zip.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+        std::io::Write::write_all(&mut zip, &std::fs::read(dir.join(file)).unwrap()).unwrap();
+    }
+    zip.finish().unwrap();
+    let into = module("mg-nui-import-zip");
+    let (ok, from_zip) = mg(None, &["import", into.to_str().unwrap(), zipped.to_str().unwrap()]);
+    assert!(ok && from_zip["resources"] == json!(["crier.jui", "crier.txt"]), "{from_zip}");
+    // Nothing that is a window: said.
+    let empty = module("mg-nui-import-none");
+    let (ok, none) = mg(None, &["import", p, empty.to_str().unwrap()]);
+    assert!(!ok && none["error"].as_str().unwrap().contains("no NUI window"), "{none}");
+}
+
 /// `mg nui schema`: the settings' form as JSON Schema, the same as text and
 /// with --json; with --layout, the controls as the Creator makes them.
 #[test]

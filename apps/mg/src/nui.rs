@@ -14,6 +14,9 @@ use serde_json::json;
 
 use crate::{Cli, Output, compiled, install, module_resman, path_text};
 
+mod import;
+use import::import;
+
 /// `mg nui`'s commands.
 #[derive(Subcommand)]
 pub(crate) enum NuiCmd {
@@ -82,6 +85,27 @@ pub(crate) enum NuiCmd {
         /// (0.25 to 4). The picture is this many pixels a point.
         #[arg(long, default_value_t = 1.0)]
         scale: f32,
+    },
+    /// Bring NUI windows into a module and save: each window's layout
+    /// (NAME.jui), its settings (NAME.txt) and its event script's source
+    /// (NAME_e.nss, the code written in its handlers), from .jui files (with
+    /// what is beside them), folders, ERF archives (.erf, .hak, .mod, .nwm)
+    /// or zip files. The opener is not brought: `mg nui generate` writes the
+    /// scripts for the module. A window the module has is refused unless
+    /// --replace; all or nothing. Each window is checked as `validate`
+    /// checks it.
+    Import {
+        /// A module archive, folder or nasher project.
+        module: PathBuf,
+        /// What to bring in: .jui files, folders, ERF archives or zip files.
+        #[arg(required = true)]
+        sources: Vec<PathBuf>,
+        /// Replace the module's resources of a window of the same name.
+        #[arg(long)]
+        replace: bool,
+        /// List the resources it would add; change nothing.
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Print the form of a window's settings file (NAME.txt, the format
     /// moonglow.nui/1) as a JSON Schema: every key, its type, its default
@@ -165,6 +189,9 @@ pub(crate) fn run(cli: &Cli, cmd: &NuiCmd) -> Result<Output> {
         NuiCmd::Validate { module, name } => validate(module, name),
         NuiCmd::Render { module, name, out, size, scale } => {
             render(cli, module, name.as_deref(), out.as_deref(), *size, *scale)
+        }
+        NuiCmd::Import { module, sources, replace, dry_run } => {
+            import(module, sources, *replace, *dry_run)
         }
         NuiCmd::Schema { layout } => {
             let schema = if *layout { mg_nui::controls() } else { mg_nui::settings_schema() };

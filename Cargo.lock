@@ -2032,6 +2032,7 @@ dependencies = [
  "mg-ui",
  "serde_json",
  "toml",
+ "zip",
 ]
 
 [[package]]
