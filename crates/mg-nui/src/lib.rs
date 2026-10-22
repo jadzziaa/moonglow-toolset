@@ -32,9 +32,9 @@ mod script;
 mod validate;
 
 pub use actions::{
-    Action, BEGIN, END, EVENT_TYPES, Route, edited_outside, event_function, event_source,
-    handler_code, handler_key, handler_offset, initial_function, insert_code, merge_events,
-    rename_in_code, string_expr, variant_function, window_id_function,
+    Action, BEGIN, END, EVENT_TYPES, Refit, Route, edited_outside, event_function, event_source,
+    fit_returns, handler_code, handler_key, handler_offset, initial_function, insert_code,
+    merge_events, rename_in_code, string_expr, variant_function, window_id_function,
 };
 pub use error::NuiError;
 pub use rename::{Renamed, can_rename, rename};

@@ -175,9 +175,25 @@ pub(crate) fn run(cli: &Cli, cmd: &NuiCmd) -> Result<Output> {
             // (A script of the module's that includes the opener and does
             // not compile: said as `mg compile` says it.)
             let failed = compiled(&mut out, &made.failed);
+            // (Code of the builder's changed: said, a dry run too.)
+            for r in &made.refits {
+                out.note(format!(
+                    "note: {name}_e.nss:{}: in the section {:?}, {} is now {}, as {}",
+                    r.line,
+                    r.section,
+                    r.was,
+                    r.now,
+                    if r.now == "return;" {
+                        "the event script is a script of its own (void main)".to_owned()
+                    } else {
+                        format!("{} returns whether the event was the window's", event_fn(name))
+                    }
+                ));
+            }
             let mut out = write(ws, made.command, module, name, *dry_run, out)?;
             out.json["failed"] = failed["failed"].clone();
             out.json["errors"] = failed["errors"].clone();
+            out.json["returns"] = serde_json::to_value(&made.refits)?;
             if out.json["saved"] == true
                 && let Some(dir) = &dir
                 && let Err(e) = made.remembered.write(&build::Remembered::file(dir, module))
@@ -411,6 +427,12 @@ fn layout_output(module: &Path, l: &mg_ui::nui_render::Layout, mut out: Output) 
         out.note(format!("warning: {issue}"));
     }
     Ok(out)
+}
+
+/// `NAME_OnEvent()`, the function a window's event script is when its
+/// events go to the module's own event script.
+fn event_fn(name: &str) -> String {
+    format!("{}()", mg_nui::event_function(name))
 }
 
 /// The window an error is about: `MODULE: window NAME`.

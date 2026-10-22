@@ -342,8 +342,17 @@ void main()
 In such a handler, end early with `return TRUE;`, not `return;`. Build
 compiles the include through a caller of its own, and compiles again the
 module's scripts that include it; switching the option keeps the code in
-the sections. Renaming the window renames the function and the
-`#include` lines.
+the sections. Code written while the window had a script of its own
+often ends a handler with `return;`, which the function can't compile
+(the compiler's *RETURN TYPE AND FUNCTION TYPE MISMATCHED*): Build makes
+each bare `return;` in a handler's section `return TRUE;`, and switched
+back, `return TRUE;` and `return FALSE;` `return;` again, and says which
+section and line it changed (in the log; `mg nui generate` prints them,
+and with `--json` lists them in `returns`). Only the handlers' sections
+are changed: the top section's helper functions, strings, comments and a
+return of anything else (`return Foo();`) stay as you wrote them, and a
+return the compiler still refuses is said with what the function returns.
+Renaming the window renames the function and the `#include` lines.
 
 Choosing **Initial contents** in Layers returns from a variant to the
 original. Switching the edited variant does not change the initial in-game

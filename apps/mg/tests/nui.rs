@@ -333,6 +333,56 @@ fn generate_makes_an_event_function_the_module_s_script_compiles_with() {
     assert_eq!(std::fs::read(&path).unwrap(), before);
 }
 
+/// A handler that ends early with `return;`, written while the window had
+/// a script of its own, compiles once the window's events go to the
+/// module's own event script: generate makes it `return TRUE;` (what
+/// `NAME_OnEvent()` returns) and says where; switched back, `return;`
+/// again. The Domains of Dread's trial failed here on the compiler's
+/// "RETURN TYPE AND FUNCTION TYPE MISMATCHED".
+#[test]
+fn generate_fits_a_handler_s_return_to_the_event_script_s_function() {
+    let root = mg_testkit::corpus!();
+    let path = module("mg-nui-event-function-return");
+    let p = path.to_str().unwrap();
+    assert!(mg(None, &["new", p, "shop"]).0);
+    assert!(mg(Some(&root), &["generate", p, "shop"]).0);
+    let mut m = Module::open(&path).unwrap();
+    let mut s = mg_nui::Settings::parse(m.get(&key("shop.txt")).unwrap()).unwrap();
+    let script = String::from_utf8(m.get(&key("shop_e.nss")).unwrap().to_vec()).unwrap();
+    let early =
+        "        if (!GetIsPC(oPlayer)) return;\n        SendMessageToPC(oPlayer, \"Bought.\");\n";
+    let mine = mg_nui::insert_code(&script, "click mg_close", early).unwrap();
+    m.set(key("shop_e.nss"), mine.clone().into_bytes());
+    s.event_function = true;
+    m.set(key("shop.txt"), s.bytes());
+    m.save().unwrap();
+    let (ok, made) = mg(Some(&root), &["generate", p, "shop"]);
+    assert!(ok, "{made}");
+    let m = Module::open(&path).unwrap();
+    let events = String::from_utf8(m.get(&key("shop_e.nss")).unwrap().to_vec()).unwrap();
+    let line = events.lines().position(|l| l.contains("GetIsPC(oPlayer)) return TRUE;")).unwrap();
+    assert_eq!(
+        made["returns"],
+        json!([{"section": "click mg_close", "line": line + 1, "was": "return;", "now": "return TRUE;"}])
+    );
+    let note = made["notes"][0].as_str().unwrap();
+    assert!(note.starts_with(&format!("note: shop_e.nss:{}: ", line + 1)), "{note}");
+    assert!(note.contains("\"click mg_close\"") && note.contains("shop_OnEvent()"), "{note}");
+    // And back to a script of its own: the code as it was written.
+    let mut s = mg_nui::Settings::parse(m.get(&key("shop.txt")).unwrap()).unwrap();
+    s.event_function = false;
+    let mut m = m;
+    m.set(key("shop.txt"), s.bytes());
+    m.save().unwrap();
+    let out = output(Some(&root), &["nui", "generate", p, "shop"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert!(said.contains("is now return;") && said.contains("void main"), "{said}");
+    let m = Module::open(&path).unwrap();
+    assert_eq!(m.get(&key("shop_e.nss")).unwrap(), mine.as_bytes());
+    assert!(m.contains(&key("shop_e.ncs")));
+}
+
 /// A nasher project whose sources are scripts and JSON, as `nasher init`
 /// writes them (and The Domains of Dread's were): a window made in it is
 /// said to be left out, with the line to add, before validate can only

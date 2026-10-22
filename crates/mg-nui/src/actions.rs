@@ -600,6 +600,87 @@ fn handler_body_start(script: &str, key: &str) -> Option<usize> {
     None
 }
 
+/// A `return` in a handler's section that Build changed to fit the
+/// function the section is in ([`fit_returns`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Refit {
+    /// The section's key (`click send`).
+    pub section: String,
+    /// Its line in the event script as written, from 1.
+    pub line: usize,
+    /// The statement as it was (`return;`) and as it is (`return TRUE;`).
+    pub was: String,
+    pub now: String,
+}
+
+/// The event script with each `return` in its handlers' sections made to
+/// fit the function they are in: a bare `return;` becomes `return TRUE;`
+/// in `NAME_OnEvent()` (`function`), which returns whether the event was
+/// the window's, and `return TRUE;` or `return FALSE;` becomes `return;`
+/// in a script's own `void main()`. A window switched from one to the
+/// other keeps code that ended a handler early, which would otherwise not
+/// compile ("RETURN TYPE AND FUNCTION TYPE MISMATCHED"). Only the
+/// handlers' sections are read: the top one's helper functions return
+/// what they return, and so does any other return (`return Foo();`), as
+/// written. In a string or a comment, `return;` is text.
+pub fn fit_returns(script: &str, function: bool) -> (String, Vec<Refit>) {
+    use mg_script::lex::tokenize;
+    // The handlers' sections: where their code is, and their keys.
+    let mut sections: Vec<(usize, usize, String)> = Vec::new();
+    let (mut at, mut open) = (0, None::<(usize, String)>);
+    for l in script.split_inclusive('\n') {
+        let trimmed = l.trim();
+        match &open {
+            Some((start, key)) if trimmed == END => {
+                sections.push((*start, at, key.clone()));
+                open = None;
+            }
+            Some(_) => {}
+            None => {
+                if let Some(key) = l.trim_start().strip_prefix(BEGIN) {
+                    let key = key.trim_end_matches(['\n', '\r']);
+                    if key != "top" {
+                        open = Some((at + l.len(), key.to_owned()));
+                    }
+                }
+            }
+        }
+        at += l.len();
+    }
+    let tokens: Vec<_> =
+        tokenize(script.as_bytes()).into_iter().filter(|t| t.kind.is_significant()).collect();
+    let text = |i: usize| tokens.get(i).and_then(|t| script.get(t.span.clone())).unwrap_or("");
+    let (mut out, mut from, mut refits) = (String::with_capacity(script.len()), 0, Vec::new());
+    for (i, t) in tokens.iter().enumerate() {
+        let Some((_, _, key)) =
+            sections.iter().find(|(start, end, _)| (*start..*end).contains(&t.span.start))
+        else {
+            continue;
+        };
+        if text(i) != "return" {
+            continue;
+        }
+        // The statement's last token, and what it becomes.
+        let (last, now) = match (function, text(i + 1), text(i + 2)) {
+            (true, ";", _) => (i + 1, "return TRUE;"),
+            (false, "TRUE" | "FALSE", ";") => (i + 2, "return;"),
+            _ => continue,
+        };
+        let end = tokens[last].span.end;
+        out.push_str(&script[from..t.span.start]);
+        out.push_str(now);
+        refits.push(Refit {
+            section: key.clone(),
+            line: script[..t.span.start].matches('\n').count() + 1,
+            was: script[t.span.start..end].to_owned(),
+            now: now.to_owned(),
+        });
+        from = end;
+    }
+    out.push_str(&script[from..]);
+    (out, refits)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
