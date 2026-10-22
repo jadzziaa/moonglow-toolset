@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T12:04:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T13:30:33Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -393,6 +393,28 @@ group out.
   used in practice… set Count=0": 23 base tilesets use them, up to 192
   rules. BioWare's ITP document says the Eraser paints the Default
   terrain; it doesn't.
+
+### Aurora's Tile Properties: the model's lights and loops
+
+Tile Properties always shows its seven controls, and enables those the
+tile's model has: Main Light 1 and 2 where it has a light node
+`<model>ml1`/`ml2`, Source Light 1 and 2 where it has a node
+`<model>sl1`/`sl2`, Animation Loop 1 to 3 where it has an animation
+`animloop01` to `03`. The others are greyed out: a swatch drawn blank,
+not in its stored color, and a checkbox unchecked even where the file has
+1. The tileset's `MainLight1`..`AnimLoop3` flags can't be what it reads:
+the game's sets flag all seven on every tile. With several tiles selected
+(a dragged box), a control is enabled where any of them has it. Its
+title bar's ✕ discards a change without asking; OK applies it.
+
+- **Checked:** Aurora on the oracle, by hand: a tin01 area with tiles 18
+  (`tin01_d11_01`: ml1 only), 0 (ml1, ml2, sl1, sl2), 134 (ml1, ml2,
+  loops 1 to 3) and 45 (ml1, ml2, loops 1 and 2), each tile's Tile
+  Properties, then 18 with 0 and 0 with 134 together (October 2026).
+- **Moonglow:** `mg_area::TileFeatures`, `crates/mg-ui/src/tile_select.rs`
+  (which asks before its ✕ discards, a builder's ask).
+- **Wiki:** "Model Special Nodes" names the `ml`/`sl` nodes; that the
+  toolset greys out the controls follows BioWare's ARE document.
 
 ### Resize Area and Rotate Area
 

@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T12:04:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T13:37:41Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1304,6 +1304,38 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   no object there starts the area's menu with the tile's items, whatever
   objects are selected; Delete there is still the selection's. (S)
   (from a builder's tile feedback, October 2026)
+- **Which tiles are a group's is worked out, not recorded:** the area's
+  file doesn't say what a group placed, so a tile is a group's when the
+  tileset lists it in a group (`TileIndex::is_grouped`), and the group is
+  whole where its tiles stand at their places, turned and raised alike
+  (`TileIndex::group_at`). What is left of a group cut by an earlier
+  edit (or by Aurora's Delete) is still locked tile by tile: only the
+  Eraser (which takes such a tile alone) or the option changes it. A
+  tile listed in two groups is taken for the first that stands whole
+  there. Groups placed with Aurora's Delete applied to them were not
+  surveyed. (S) (from Jasperre's tile feedback, October 2026)
+- **Delete takes a whole group by default,** where Aurora's Delete takes
+  the tile alone and leaves the rest standing (the option gives
+  Aurora's). Pasted tiles over a group are refused as a group is; how
+  Aurora pastes over a group wasn't checked. (S) (from Jasperre's tile
+  feedback, October 2026)
+- **A refused tile step out of Select Tiles and with no brush** (the
+  area's own right-click menu on the ground) flashes the tiles red and
+  says why in the log, not on the status line, which shows the objects'
+  line then (a notice there would stay after the brush or the mode that
+  set it is gone). (S) (from Jasperre's tile feedback, October 2026)
+- **Group tiles freed (the option on):** a stroke chooses terrain tiles
+  for the group tiles it no longer fits; the doors such a change takes
+  or leaves were not looked at in the engine. The plugin API keeps its
+  documented `place_group` (over part of another group, that one goes
+  whole) and doesn't follow the option; its strokes keep groups whole as
+  before. (S) (from Jasperre's tile feedback, October 2026)
+- **Tile Properties' lights and loops from the model:** a model not
+  found (or not readable) falls back on the tileset's flags, which say
+  every light and loop; a tile model's `animloop` animations from a
+  supermodel are not looked for (the game's tile models have none).
+  Aurora's ✕ discards without asking (seen on the oracle); Moonglow asks,
+  as the builder asked. (S) (from Jasperre's tile feedback, October 2026)
 
 ## The turning ring
 

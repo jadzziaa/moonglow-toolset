@@ -9272,6 +9272,379 @@ fn area_viewer_selects_tiles_and_sets_their_properties() {
     assert_eq!(tile(&mut h, 5), original);
 }
 
+/// Sets the tile at `index` of `area`'s `Tile_List` to tile `id`, as it
+/// lies, through the workspace.
+fn set_tile_id(h: &mut Harness<'_, Moonglow>, area: ResRef, index: usize, id: i32) {
+    let set = mg_edit::Edit::SetField {
+        key: ResKey::new(area, ResType::ARE),
+        path: mg_edit::GffPath::root().item("Tile_List", index),
+        label: "Tile_ID".into(),
+        value: Some(mg_gff::Value::Int(id)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Tile", vec![set])));
+    h.run_steps(3);
+}
+
+/// In Select Tiles, clicks the tiles at `points` (Ctrl + click after the
+/// first) and opens Tile Properties from the tile menu.
+fn tile_properties_of(h: &mut Harness<'_, Moonglow>, area: ResRef, points: &[glam::Vec3]) {
+    if !h.state().area_views[&area].tile_mode {
+        h.get_by_label("⛶ Select Tiles").click();
+        h.run_steps(2);
+    }
+    for (i, p) in points.iter().enumerate() {
+        let at = screen(h, area, *p);
+        let m = if i == 0 { egui::Modifiers::NONE } else { egui::Modifiers::COMMAND };
+        h.hover_at(at);
+        press(h, at, true, m);
+        press(h, at, false, m);
+        h.run_steps(2);
+    }
+    let at = screen(h, area, points[0]);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: Default::default(),
+        });
+    }
+    h.run_steps(2);
+    h.get_by_label("Tile Properties…").click();
+    h.run_steps(3);
+}
+
+/// Tile Properties enables only the lights and loops the tile's model has
+/// (its `…ml1`/`ml2` light nodes, `…sl1`/`sl2` nodes and `animloop01..03`
+/// animations), the others greyed out and a loop not had unchecked, as
+/// Aurora shows them (seen on the oracle: tin01 tiles 18, 0, 134; the
+/// game's tilesets say every tile has all seven). Several tiles: what any
+/// has; each tile is written only what it has, the rest of its fields
+/// kept. (Jasperre's tile feedback.)
+#[test]
+fn tile_properties_enable_only_the_tile_s_lights_and_loops() {
+    use glam::Vec3;
+    // tin01 tile 18 (tin01_d11_01): main light 1 alone, no loops.
+    let Some((mut h, area)) = area_harness_on("tile-lights", "tin01", Some(18)) else { return };
+    let tile = |h: &mut Harness<'_, Moonglow>, i: usize| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        are.root.list("Tile_List").unwrap()[i].clone()
+    };
+    let (one, two) = (Vec3::new(15.0, 15.0, 0.0), Vec3::new(25.0, 15.0, 0.0));
+    tile_properties_of(&mut h, area, &[one]);
+    let props = h.state().tile_props.clone().expect("the window is open");
+    assert_eq!(props.tiles, [5]);
+    assert_eq!((props.has_main, props.has_source), ([true, false], [false, false]));
+    assert_eq!(props.has_loops, [false; 3]);
+    let disabled = |h: &Harness<'_, Moonglow>, label: &str| {
+        h.get_by_label(label).accesskit_node().is_disabled()
+    };
+    assert!(!disabled(&h, "Main Light 1 Color"));
+    for label in ["Main Light 2 Color", "Source Light 1 Color", "Source Light 2 Color"] {
+        assert!(disabled(&h, label), "{label}");
+    }
+    for k in 1..=3 {
+        let label = format!("Animation Loop {k}");
+        let node = h.get_by_label(&label);
+
+        assert!(node.accesskit_node().is_disabled());
+        assert_eq!(node.accesskit_node().toggled(), Some(egui::accesskit::Toggled::False));
+    }
+    let dir = mg_testkit::scratch_dir("ui-tile-lights");
+    h.render().unwrap().save(dir.join("one-light.png")).unwrap();
+    h.state_mut().tile_props = None;
+    h.run_steps(2);
+
+    // tin01 tile 134 (tin01_f01_02): both main lights and the three loops.
+    set_tile_id(&mut h, area, 5, 134);
+    tile_properties_of(&mut h, area, &[one]);
+    let props = h.state().tile_props.clone().expect("the window is open");
+    assert_eq!((props.has_main, props.has_source), ([true, true], [false, false]));
+    assert_eq!(props.has_loops, [true; 3]);
+    assert!(!h.get_by_label("Animation Loop 3").accesskit_node().is_disabled());
+    h.render().unwrap().save(dir.join("lights-and-loops.png")).unwrap();
+    h.state_mut().tile_props = None;
+    h.run_steps(2);
+
+    // Tile 18 and, beside it, tile 0 (all four lights, no loops): the
+    // lights any of them has.
+    set_tile_id(&mut h, area, 5, 18);
+    set_tile_id(&mut h, area, 6, 0);
+    let (was5, was6) = (tile(&mut h, 5), tile(&mut h, 6));
+    tile_properties_of(&mut h, area, &[one, two]);
+    let props = h.state().tile_props.clone().expect("the window is open");
+    assert_eq!(props.tiles, [5, 6]);
+    assert_eq!((props.has_main, props.has_source), ([true, true], [true, true]));
+    assert_eq!(props.has_loops, [false; 3]);
+    {
+        let p = h.state_mut().tile_props.as_mut().unwrap();
+        (p.main, p.source) = ([7, 9], [3, 4]);
+    }
+    h.run_steps(1);
+    h.get_by_label("OK").click();
+    h.run_steps(2);
+    let (t5, t6) = (tile(&mut h, 5), tile(&mut h, 6));
+    assert_eq!(t5.integer("Tile_MainLight1"), Some(7));
+    for label in ["Tile_MainLight2", "Tile_SrcLight1", "Tile_SrcLight2", "Tile_AnimLoop1"] {
+        assert_eq!(t5.get(label), was5.get(label), "tile 18 has no {label}: kept");
+    }
+    assert_eq!(
+        ["Tile_MainLight1", "Tile_MainLight2", "Tile_SrcLight1", "Tile_SrcLight2"]
+            .map(|l| t6.integer(l)),
+        [Some(7), Some(9), Some(3), Some(4)]
+    );
+    assert_eq!(t6.get("Tile_AnimLoop1"), was6.get("Tile_AnimLoop1"), "no loops: kept");
+}
+
+/// Tile Properties closed with changes not applied (Escape, its tab's X)
+/// asks Save, Don't Save or Cancel, as a side editor's tab does; with
+/// none, it closes; its Cancel button discards. (Jasperre's tile
+/// feedback: Aurora's X discards without asking.)
+#[test]
+fn tile_properties_ask_before_closing_with_changes() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("tile-props-close") else { return };
+    let tile = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        are.root.list("Tile_List").unwrap()[5].clone()
+    };
+    let undo_label =
+        |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(str::to_string);
+    let at = Vec3::new(15.0, 15.0, 0.0);
+    let was = tile(&mut h);
+    let before = undo_label(&h);
+    let change = |h: &mut Harness<'_, Moonglow>| {
+        let p = h.state_mut().tile_props.as_mut().expect("the window is open");
+        assert!(p.has_main[0], "ttr01's tiles have main light 1");
+        p.main[0] = (p.main[0] + 5) % 32;
+        h.run_steps(1);
+    };
+    // Unchanged: Escape closes it at once.
+    tile_properties_of(&mut h, area, &[at]);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert!(h.state().tile_props.is_none(), "closed: nothing to ask");
+    // Changed: Escape asks; Cancel keeps the window and its change.
+    tile_properties_of(&mut h, area, &[at]);
+    change(&mut h);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    h.get_by_label("Save changes to Tile Properties?");
+    h.render()
+        .unwrap()
+        .save(mg_testkit::scratch_dir("ui-tile-props-close").join("ask.png"))
+        .unwrap();
+    let cancel = h.get_all_by_label("Cancel").last().unwrap().rect().center();
+    h.hover_at(cancel);
+    press(&h, cancel, true, egui::Modifiers::NONE);
+    press(&h, cancel, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let p = h.state().tile_props.clone().expect("Cancel: the window stays");
+    assert!(!p.closing && p.changed());
+    assert!(h.query_by_label("Save changes to Tile Properties?").is_none());
+    // Closed as its tab's X closes it: asked; Don't Save discards.
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::TileProperties]));
+    h.run_steps(3);
+    h.get_by_label("Don't Save").click();
+    h.run_steps(3);
+    assert!(h.state().tile_props.is_none());
+    assert!(h.state().dock.find_tab(&Tab::TileProperties).is_none(), "its tab goes");
+    assert_eq!(tile(&mut h), was);
+    assert_eq!(undo_label(&h), before, "nothing applied");
+    // Again, and Save: applied, as OK does.
+    tile_properties_of(&mut h, area, &[at]);
+    change(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::TileProperties]));
+    h.run_steps(3);
+    h.get_by_label("Save").click();
+    h.run_steps(3);
+    assert!(h.state().tile_props.is_none());
+    assert_ne!(tile(&mut h).integer("Tile_MainLight1"), was.integer("Tile_MainLight1"));
+    assert_eq!(undo_label(&h).as_deref(), Some("Tile Properties"));
+    // Its Cancel button: discarded without asking.
+    tile_properties_of(&mut h, area, &[at]);
+    change(&mut h);
+    let cancel = h.get_all_by_label("Cancel").last().unwrap().rect().center();
+    h.hover_at(cancel);
+    press(&h, cancel, true, egui::Modifiers::NONE);
+    press(&h, cancel, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    assert!(h.state().tile_props.is_none());
+    assert!(h.query_by_label("Save changes to Tile Properties?").is_none());
+}
+
+/// A group or feature is one thing (Jasperre's tile feedback): Next Tile
+/// Appearance, Rotate Tile, Refine Tile and Shift + right click leave its
+/// tiles as they are, with the status line saying why and how, its tiles
+/// flashing red; Tile Properties offers it no variants; a group placed
+/// over part of it is refused, as Aurora refuses it; Delete takes it whole.
+/// Options › Area › Allow editing tiles of groups and features lets each
+/// change, with a warning.
+#[test]
+fn groups_and_features_change_only_whole() {
+    use glam::Vec3;
+    use mg_tiles::TileIndex;
+    let Some((mut h, area)) = area_harness("group-locked") else { return };
+    let index = {
+        let game = h.state().game.as_deref().unwrap();
+        TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
+    };
+    let grid = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        mg_area::terrain::grid(&are.root, &index).unwrap()
+    };
+    let grouped = |h: &mut Harness<'_, Moonglow>| -> Vec<(u32, u32)> {
+        let g = grid(h);
+        let cells = (0..4).flat_map(|y| (0..4).map(move |x| (x, y)));
+        cells.filter(|&(x, y)| index.is_grouped(g.tile(x, y).tile)).collect()
+    };
+    let click = |h: &mut Harness<'_, Moonglow>, p: Vec3, m: egui::Modifiers| {
+        let at = screen(h, area, p);
+        h.hover_at(at);
+        h.run_steps(2);
+        press(h, at, true, m);
+        press(h, at, false, m);
+        h.run_steps(3);
+    };
+    // (The status line's text.)
+    let says = |h: &Harness<'_, Moonglow>, text: &str| h.query_by_label_contains(text).is_some();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    palette_type(&mut h, "🗻", "Tiles");
+    h.run_steps(2);
+    // A barn, its first tile in (1, 1).
+    h.get_by_label("Groups").click();
+    h.run_steps(2);
+    h.get_by_label("Barn 1 2x2").click();
+    h.run_steps(2);
+    click(&mut h, Vec3::new(15.0, 15.0, 0.0), egui::Modifiers::NONE);
+    let barn = vec![(1, 1), (2, 1), (1, 2), (2, 2)];
+    assert_eq!(grouped(&mut h), [(1, 1), (2, 1), (1, 2), (2, 2)]);
+    let placed = grid(&mut h);
+    // Another over its east half: refused, the first in red.
+    click(&mut h, Vec3::new(25.0, 15.0, 0.0), egui::Modifiers::NONE);
+    assert_eq!(grid(&mut h), placed, "nothing placed");
+    assert!(says(&h, "Place Barn 1 2x2: tiles of a group or feature (in red) change only"));
+    let mut red = h.state().area_views[&area].refused.clone().expect("in red").0;
+    red.sort();
+    let mut whole = barn.clone();
+    whole.sort();
+    assert_eq!(red, whole);
+    // (The cursor over it is red, as Aurora's outline turns.)
+    h.render().unwrap().save(mg_testkit::scratch_dir("ui-group-locked").join("over.png")).unwrap();
+    // (The groups closed: the tools above in view.)
+    h.get_by_label("Groups").click();
+    h.run_steps(2);
+    // The tile tools on one of its tiles: refused, saying why.
+    let east = Vec3::new(25.0, 15.0, 0.0);
+    for (tool, label) in [
+        ("⏭ Next Tile Appearance", "Next tile appearance"),
+        ("↺ Rotate Tile", "Rotate tile"),
+        ("🔁 Refine Tile", "Refine tile"),
+    ] {
+        h.get_by_label(tool).click();
+        h.run_steps(2);
+        click(&mut h, east, egui::Modifiers::NONE);
+        assert_eq!(grid(&mut h), placed, "{tool}: nothing changed");
+        assert!(says(&h, &format!("{label}: tiles of a group or feature")), "{tool}");
+    }
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    // Shift + right click in Select Tiles; and Tile Properties offers no
+    // variants.
+    h.get_by_label("⛶ Select Tiles (F10)").click();
+    h.run_steps(2);
+    let at = screen(&h, area, east);
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event_modifiers(
+            egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::SHIFT,
+            },
+            egui::Modifiers::SHIFT,
+        );
+    }
+    h.run_steps(3);
+    assert_eq!(grid(&mut h), placed, "Shift + right click: nothing changed");
+    assert!(says(&h, "Next tile: tiles of a group or feature"));
+    tile_properties_of(&mut h, area, &[east]);
+    let props = h.state().tile_props.clone().expect("the window is open");
+    assert!(props.grouped && props.variants.is_none(), "no variants for a group's tile");
+    h.get_by_label_contains("A tile of a group or a feature");
+    h.state_mut().tile_props = None;
+    h.run_steps(2);
+    // Out of Select Tiles, the area's own menu on the ground: Rotate Tile
+    // refused, the log saying why (the status line is the objects').
+    h.get_by_label("⛶ Select Tiles").click();
+    h.run_steps(2);
+    assert!(!h.state().area_views[&area].tile_mode);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    h.get_by_label("Rotate Tile").click();
+    h.run_steps(3);
+    assert_eq!(grid(&mut h), placed, "the ground menu's Rotate Tile: nothing changed");
+    assert!(says(&h, "Rotate tile: tiles of a group or feature"));
+
+    // Allowed: the next appearance is put there, with a warning.
+    h.state_mut().settings.edit_group_tiles = true;
+    h.get_by_label("⏭ Next Tile Appearance").click();
+    h.run_steps(2);
+    click(&mut h, east, egui::Modifiers::NONE);
+    assert_ne!(grid(&mut h).tile(2, 1), placed.tile(2, 1), "allowed: changed");
+    assert!(says(&h, "⚠ Next tile appearance: a group or feature left part changed"));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(3);
+    assert_eq!(grid(&mut h), placed, "undone");
+    // A barn over its east half: the first goes whole.
+    h.get_by_label("Groups").click();
+    h.run_steps(2);
+    h.get_by_label("Barn 1 2x2").click();
+
+    h.run_steps(2);
+    click(&mut h, east, egui::Modifiers::NONE);
+    assert_eq!(grouped(&mut h), [(2, 1), (3, 1), (2, 2), (3, 2)]);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(3);
+    assert_eq!(grid(&mut h), placed, "undone");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+
+    // Not allowed: Delete on one of its tiles takes the whole barn.
+    h.state_mut().settings.edit_group_tiles = false;
+    if !h.state().area_views[&area].tile_mode {
+        h.get_by_label("⛶ Select Tiles").click();
+        h.run_steps(2);
+    }
+    click(&mut h, east, egui::Modifiers::NONE);
+    assert_eq!(h.state().area_views[&area].tile_selection, [(2, 1)]);
+    let at = screen(&h, area, east);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: Default::default(),
+        });
+    }
+    h.run_steps(3);
+    h.get_by_label("Delete").click();
+    h.run_steps(3);
+    assert_eq!(grouped(&mut h), [], "the whole barn deleted");
+}
+
 #[test]
 fn resize_and_rotate_area_from_the_edit_menu() {
     let Some((mut h, area)) = area_harness("reshape") else { return };

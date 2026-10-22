@@ -89,7 +89,12 @@ impl Area {
         let mut ws = sh.ws.borrow_mut();
         let doc = ws.doc(&self.are).or_else(fail)?;
         match grid(&doc.root, &self.index) {
-            Some(grid) => Ok(grid),
+            // (`place_group` over part of another takes that one away
+            // whole, as documented; strokes still keep groups whole.)
+            Some(mut grid) => {
+                grid.replace_groups = true;
+                Ok(grid)
+            }
             None => fail(format!(
                 "{}: its tiles are not all in the tileset, or its size is missing",
                 self.are

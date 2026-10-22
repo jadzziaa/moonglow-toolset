@@ -1544,6 +1544,14 @@ fn escape_on(ctx: &egui::Context, layer: egui::LayerId) -> bool {
     })
 }
 
+/// Escape for the window `ui` is in, when it is one of its own (not a
+/// docked tab) and the dialog opened last: as a Cancel button reads it,
+/// for a window that asks before it closes.
+pub(crate) fn escape_here(ui: &Ui) -> bool {
+    let layer = ui.layer_id();
+    layer.order == egui::Order::Middle && escape_on(ui.ctx(), layer)
+}
+
 /// Escape closes the window titled `title` (as its close button does):
 /// true when to close it.
 pub(crate) fn escape_closes(ctx: &egui::Context, title: &str) -> bool {

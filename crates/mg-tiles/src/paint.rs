@@ -15,6 +15,12 @@
 //!   the others keep theirs. When one of those cells has no tile that fits,
 //!   Aurora changes nothing: the stroke is refused.
 //!
+//! - A group (a building of several tiles, a feature of one) is one
+//!   thing: no stroke changes a tile of one, no group goes over another,
+//!   and the Eraser and Delete take it away whole, unless
+//!   [`Grid::free_groups`] (Options › Area, "Allow editing tiles of groups
+//!   and features") lets its tiles be edited one by one.
+//!
 //! Rules are written in relative heights (0 and 1): a rule for `Placed@1`
 //! next to `Adjacent@0` applies where the painted corner is a step above
 //! its neighbour, and `Changed@1` puts the neighbour a step above the lower
@@ -72,6 +78,19 @@ pub struct Grid {
     pub tiles: Vec<Placement>,
     /// The cells that refused the stroke asked for last ([`Grid::blocked`]).
     blocked: std::cell::RefCell<Vec<(u32, u32)>>,
+    /// Whether a group's tiles may be edited one by one: a stroke that
+    /// changes one chooses a terrain tile there, a group placed over part
+    /// of another takes that one away whole, and Delete takes a group's
+    /// tile alone (as Aurora's does). Off (the default), a group is one
+    /// thing: a stroke that would change one of its tiles is refused, so
+    /// is a group placed over another (as Aurora refuses it, unless
+    /// `replace_groups`), and Delete takes the whole group, as the Eraser
+    /// does.
+    pub free_groups: bool,
+    /// Whether a group placed over part of another takes that one away
+    /// whole (as with `free_groups`), the rest of a group still one thing:
+    /// the plugin API's `place_group`, documented so.
+    pub replace_groups: bool,
 }
 
 impl PartialEq for Grid {
@@ -95,11 +114,42 @@ impl Grid {
     /// not in the tileset or the list is short.
     pub fn new(index: &TileIndex, width: u32, height: u32, tiles: Vec<Placement>) -> Option<Grid> {
         let (lattice, _) = Lattice::from_tiles(index, width, height, &tiles)?;
-        Some(Grid { lattice, tiles, blocked: Default::default() })
+        let blocked = Default::default();
+        Some(Grid { lattice, tiles, blocked, free_groups: false, replace_groups: false })
     }
 
     pub fn tile(&self, x: u32, y: u32) -> Placement {
         self.tiles[(y * self.lattice.width() + x) as usize]
+    }
+
+    /// Whether the tile in cell (x, y) is a group's, which changes only
+    /// with its group (never, with [`Grid::free_groups`] on).
+    pub fn locked(&self, index: &TileIndex, x: u32, y: u32) -> bool {
+        !self.free_groups && index.is_grouped(self.tile(x, y).tile)
+    }
+
+    /// The groups that `changes` (cells and their new tiles) would leave
+    /// part of: each as the cells it has, where it is whole now. A group
+    /// they take away whole, or don't touch, is not one of them.
+    pub fn groups_broken(
+        &self,
+        index: &TileIndex,
+        changes: &[((u32, u32), Placement)],
+    ) -> Vec<Vec<(u32, u32)>> {
+        let changed =
+            |c: (u32, u32)| changes.iter().any(|&(at, p)| at == c && p != self.tile(c.0, c.1));
+        let mut out: Vec<Vec<(u32, u32)>> = Vec::new();
+        for &((x, y), _) in changes {
+            if !changed((x, y)) || out.iter().any(|g| g.contains(&(x, y))) {
+                continue;
+            }
+            if let Some(cells) = self.group_cells(index, x, y)
+                && !cells.iter().all(|&c| changed(c))
+            {
+                out.push(cells);
+            }
+        }
+        out
     }
 
     /// Painting corner (x, y) with `terrain`; `None` when refused.
@@ -264,13 +314,25 @@ impl Grid {
     }
 
     /// Delete on selected tiles: each loses its crossers as the Eraser takes
-    /// them, and a group's tile is replaced by a tile that fits its place
-    /// (the rest of the group stays). `None` when one has nothing to fit.
+    /// them, and a group's tile is replaced by a tile that fits its place,
+    /// the rest of its group too (as the Eraser takes a group), or with
+    /// [`Grid::free_groups`] on, alone (the rest of the group stays, as
+    /// Aurora's Delete leaves it). `None` when one has nothing to fit.
     pub fn delete(&self, index: &TileIndex, cells: &[(u32, u32)]) -> Option<Stroke> {
         let mut grid = self.clone();
         let mut chosen: Vec<(u32, u32)> = Vec::new();
         let mut unlocked = Vec::new();
+        // (A group's tile: the whole group, where it is whole.)
+        let mut all: Vec<(u32, u32)> = Vec::new();
         for &(x, y) in cells {
+            let group = if self.free_groups { None } else { self.group_cells(index, x, y) };
+            for c in group.unwrap_or_else(|| vec![(x, y)]) {
+                if !all.contains(&c) {
+                    all.push(c);
+                }
+            }
+        }
+        for &(x, y) in &all {
             let stroke = if index.is_grouped(grid.tile(x, y).tile) {
                 unlocked.push((x, y));
                 let mut lattice = grid.lattice.clone();
@@ -306,9 +368,9 @@ impl Grid {
     /// within a step), and the tiles around choose again; a cell the group
     /// leaves empty (`-1`) is matched like terrain. `None` when the group
     /// does not fit inside the area or a tile around it has nothing to fit.
-    /// Over part of another group it takes that one away whole (Aurora
-    /// refuses the placement there; replacing in place, undoable, was
-    /// chosen over that).
+    /// Over a tile of another group it is refused, as Aurora refuses it
+    /// (that group is then [`Grid::blocked`]); with [`Grid::free_groups`]
+    /// on, it takes the other away whole.
     pub fn place_group(
         &self,
         index: &TileIndex,
@@ -362,7 +424,25 @@ impl Grid {
             }
         }
         let placed: Vec<(u32, u32)> = fixed.iter().map(|(c, _)| *c).collect();
-        // A group under what is placed goes whole, as in Aurora: its tiles
+        // Over a group's tiles: refused, those groups in the way.
+        if !self.free_groups && !self.replace_groups {
+            let mut covered: Vec<(u32, u32)> = Vec::new();
+            for &(cx, cy) in placed.iter().chain(&empty) {
+                if index.is_grouped(self.tile(cx, cy).tile) {
+                    let group = self.group_cells(index, cx, cy).unwrap_or_else(|| vec![(cx, cy)]);
+                    for c in group {
+                        if !covered.contains(&c) {
+                            covered.push(c);
+                        }
+                    }
+                }
+            }
+            if !covered.is_empty() {
+                *self.blocked.borrow_mut() = covered;
+                return None;
+            }
+        }
+        // (Allowed:) a group under what is placed goes whole: its tiles
         // outside the new ones' cells are chosen again to fit the ground
         // (half a building isn't left standing beside the new one).
         let mut evicted: Vec<(u32, u32)> = Vec::new();
@@ -432,7 +512,8 @@ impl Grid {
         self.stroke_unlocking(index, lattice, changed, also, &[])
     }
 
-    /// [`Grid::stroke`], choosing again the group tiles of `unlocked` too.
+    /// [`Grid::stroke`], choosing again the group tiles of `unlocked` too
+    /// (and with [`Grid::free_groups`] on, those the change doesn't keep).
     fn stroke_unlocking(
         &self,
         index: &TileIndex,
@@ -457,8 +538,11 @@ impl Grid {
         for &(x, y) in &cells {
             let cell = lattice.cell(x, y);
             let tile = self.tile(x, y);
-            let refuses = if index.is_grouped(tile.tile) && !unlocked.contains(&(x, y)) {
-                index.cell(tile) != Some(cell)
+            let grouped = index.is_grouped(tile.tile) && !unlocked.contains(&(x, y));
+            let refuses = if grouped && index.cell(tile) == Some(cell) {
+                false
+            } else if grouped && !self.free_groups {
+                true
             } else {
                 index.fits(&cell).is_empty()
             };
@@ -473,7 +557,10 @@ impl Grid {
         }
         // Group tiles that still fit stay.
         cells.retain(|&(x, y)| {
-            !index.is_grouped(self.tile(x, y).tile) || unlocked.contains(&(x, y))
+            let tile = self.tile(x, y);
+            !index.is_grouped(tile.tile)
+                || unlocked.contains(&(x, y))
+                || index.cell(tile) != Some(lattice.cell(x, y))
         });
         Some(Stroke { lattice, cells, fixed: Vec::new() })
     }
@@ -685,13 +772,22 @@ pub fn step_appearance(
 /// where it still fits the cell, else the turn after that does (a half
 /// turn, for a tile two of whose sides match); the same tile, never
 /// another. `None` when it fits there only as it lies: turned, its
-/// corners and edges would no longer match its neighbours'.
+/// corners and edges would no longer match its neighbours'. (A group's
+/// tile, which fits no cell as terrain, turns where it still matches its
+/// cell, at its height.)
 pub fn turn_fit(
     index: &TileIndex,
     cell: &Cell,
     current: Placement,
     back: bool,
 ) -> Option<Placement> {
+    if index.is_grouped(current.tile) {
+        return (1..4u8).find_map(|k| {
+            let turns = if back { 4 - k } else { k };
+            let p = Placement { orientation: (current.orientation % 4 + turns) % 4, ..current };
+            (index.cell(p).as_ref() == Some(cell)).then_some(p)
+        });
+    }
     let fits = index.fits(cell);
     (1..4u8).find_map(|k| {
         let turns = if back { 4 - k } else { k };
@@ -861,6 +957,69 @@ Top={}\nRight={}\nBottom={}\nLeft={}\n",
         let placed = group_placed(&index, &set, 0).expect("placed");
         assert_eq!(placed.iter().map(|&(c, _)| c).collect::<Vec<_>>(), [(m, m)]);
         assert!(group_placed(&index, &set, 5).is_none());
+    }
+
+    /// A group is one thing: nothing changes a tile of it, no group goes
+    /// over it, Delete takes it whole; with `free_groups`, each of these
+    /// may break it, and `groups_broken` says which.
+    #[test]
+    fn groups_are_one_thing_unless_freed() {
+        let mut set = set();
+        // (A pond two tiles long, of open ground's terrain, A: tiles of
+        // its own, so that open ground has others when it goes.)
+        let n = set.tiles.len() as u32;
+        let mut pond = set.tiles[0].clone();
+        pond.model = "pond".into();
+        set.tiles.extend([pond.clone(), pond]);
+        set.groups.push(mg_set::Group {
+            name: "Pond".into(),
+            strref: Default::default(),
+            rows: 1,
+            columns: 2,
+            tiles: vec![Some(n), Some(n + 1)],
+        });
+        let index = TileIndex::new(&set);
+        let rules = Rules::new(&index, &set);
+        let pond = set.groups[0].clone();
+        let mut g = grid(&index, 6);
+        apply(&mut g, &index, |g| g.place_group(&index, &pond, 1, 1, 0));
+        assert_eq!(g.group_cells(&index, 2, 1), Some(vec![(1, 1), (2, 1)]));
+        assert!(g.locked(&index, 1, 1) && !g.locked(&index, 3, 1));
+        // Another over its east half: refused, the pond in the way.
+        assert!(g.place_group(&index, &pond, 2, 1, 0).is_none());
+        assert_eq!(g.blocked(), [(1, 1), (2, 1)]);
+        // B painted at a corner of it would make its W into A: refused.
+        let b = index.terrain("B").unwrap();
+        assert!(g.paint(&index, &rules, 2, 1, b).is_none());
+        assert!(g.blocked().contains(&(1, 1)), "{:?}", g.blocked());
+        // Painted beside it, where its tiles still fit: they stay.
+        let beside = g.paint(&index, &rules, 4, 4, b).expect("beside the pond");
+        assert!(!beside.cells.contains(&(1, 1)) && !beside.cells.contains(&(2, 1)));
+        // Delete on one of its tiles: all of it.
+        let deleted = g.delete(&index, &[(2, 1)]).unwrap();
+        assert!(deleted.cells.contains(&(1, 1)) && deleted.cells.contains(&(2, 1)));
+        // A pond tile turns where it still matches its cell (all W: any way).
+        let p = g.tile(1, 1);
+        let turned = turn_fit(&index, &g.lattice.cell(1, 1), p, false);
+        assert_eq!(turned, Some(Placement { orientation: (p.orientation + 1) % 4, ..p }));
+
+        // Freed: a tile of it deleted alone, and the change breaks it.
+        let mut free = g.clone();
+        free.free_groups = true;
+        assert!(!free.locked(&index, 1, 1));
+        let deleted = free.delete(&index, &[(2, 1)]).unwrap();
+        assert!(!deleted.cells.contains(&(1, 1)) && deleted.cells.contains(&(2, 1)));
+        let changes = vec![((2, 1), Placement { tile: 0, orientation: 0, height: 0 })];
+        assert_eq!(free.groups_broken(&index, &changes), [vec![(1, 1), (2, 1)]]);
+        // Both its tiles changed (the Eraser's way): not broken, gone.
+        let both = vec![changes[0], ((1, 1), Placement { tile: 0, orientation: 0, height: 0 })];
+        assert!(free.groups_broken(&index, &both).is_empty());
+        // Painting at its corner chooses terrain tiles in its place.
+        assert!(free.paint(&index, &rules, 2, 1, b).is_some());
+        // A pond over its east half takes the first away whole.
+        apply(&mut free, &index, |g| g.place_group(&index, &pond, 2, 1, 0));
+        assert_eq!(free.group_cells(&index, 3, 1), Some(vec![(2, 1), (3, 1)]));
+        assert!(!index.is_grouped(free.tile(1, 1).tile));
     }
 
     #[test]

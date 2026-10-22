@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T11:57:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T13:37:55Z }
 ---
 
 # Areas
@@ -546,9 +546,26 @@ as Aurora's Terrain tab does:
   would, leaving other crossers (a road goes, the stream it crosses
   stays) and the brush chosen.
 - **Groups** (buildings, big features) are placed whole; right-click to
-  turn one before placing it. It stays chosen, to place another. A group
-  placed over part of another takes the other away whole (Aurora refuses
-  to place it there; Undo brings the other back).
+  turn one before placing it. It stays chosen, to place another. Over
+  part of another group or feature it is refused, as Aurora refuses it:
+  the cursor is red there, and a click flashes the other's tiles red and
+  says so on the status line (erase that one first). With **Allow
+  editing tiles of groups and features** on (Tools › Options › Area), it
+  takes the other away whole instead.
+- **A group or a feature is one thing.** Its tiles are the tileset's
+  group's, as the area holds them (the area's file doesn't say which
+  tiles a group placed: Moonglow knows them as the tileset's group
+  standing whole, each tile at its place, turned and raised alike). Next
+  and Previous Tile Appearance, Rotate Tile, Refine Tile, the Eraser's
+  Shift + click, a terrain's Shift + click and Shift + right click leave
+  its tiles as they are, and a terrain painted where it would change one
+  of them is refused; the status line (the log, from the area's own
+  menu) says why and how (the Eraser takes
+  all of it away), and its tiles flash red. Painting beside it, where
+  its tiles still meet the terrain, is as ever. With **Allow editing
+  tiles of groups and features** on, each of its tiles can be changed
+  alone; the status line warns (⚠) when a change leaves a group part
+  changed (Undo puts it back).
 - The **Eraser** takes the crossers off a tile, and on a tile of a group
   or a feature takes the whole of it away (its tiles become ground that
   fits there); Shift + click steps the
@@ -604,7 +621,8 @@ as Aurora's Terrain tab does:
   a crosser at one side fits only as it lies (turned, it would no longer
   meet its neighbors' terrain), so the area's line says so and the tile
   flashes red; a tile whose opposite sides match turns a half. To turn the
-  terrain itself, paint it.
+  terrain itself, paint it. A group's or a feature's tile turns only with
+  that option on (above), where it still meets its neighbors.
 - Select Tiles, the Eraser, Refine Tile, the three tools above and
   Raise/Lower head the Terrain list, whatever the tileset's order. A
   right click with the Eraser, Refine Tile or the three opens the tile
@@ -634,7 +652,10 @@ same strokes give the same tiles, heights and crossers.
 
 With **Select Tiles** on, a click selects a tile, Ctrl + click adds one,
 and a drag selects a box of them. **Delete** takes the selected tiles'
-crossers away. **Shift + right click** steps the tile under the pointer
+crossers away, and a group or a feature with a tile among them whole, as
+the Eraser does (Aurora's Delete takes the tile alone, leaving the rest
+of the group: Moonglow does so with **Allow editing tiles of groups and
+features** on). **Shift + right click** steps the tile under the pointer
 through every tile that fits, each of its turns and then the next tile's
 (Aurora's order, as Refine Tile steps). Ctrl+C and Ctrl+V copy and paste
 tiles.
@@ -649,8 +670,13 @@ where no object is starts the area's menu with the tile's items (Tile
 (x, y), the three, Tile Properties), as Aurora's menu has Tile
 Properties for a tile; on an object, the object's menu.
 
+The status line says why a step was refused, in Select Tiles as with a
+brush.
+
 With one tile chosen, Tile Properties shows the **variants**: every tile
-that fits there, as pictures, the one there now framed. Click another and
+that fits there, as pictures, the one there now framed (not for a
+group's or a feature's tile, which changes only with its group, unless
+the option above is on). Click another and
 it is put there at once (one step to undo), the window staying open on
 it. Tile Properties is a window like the editors': resize it, maximize it
 or dock it beside the area, and the pictures fill it. The **Size** slider
@@ -658,9 +684,24 @@ beside the variants makes the pictures larger (up to 224 points), to tell
 tiles much alike apart; it is remembered. Under the pointer, a picture
 shown smaller shows at its largest beside it. The same model turned
 another way is listed again, its picture turned so (seen from the
-south-west) and the turn written under it. And the tiles' main and
-source light colors and their animation loops, as the tile's model has
-them (**Defaults** puts back the lighting scheme's).
+south-west) and the turn written under it.
+
+Above them are the tiles' **Main Light 1** and **2** and **Source Light
+1** and **2** colors and their **Animation Loops 1** to **3**, as Aurora
+shows them: a control is there for what the tile's model has (a light
+node named `<model>ml1` or `ml2`, a node `<model>sl1` or `sl2` where a
+source light's flame burns, an animation `animloop01` to `03`), and
+greyed out, a loop unchecked, for what it hasn't. The tileset's own
+`MainLight1`…`AnimLoop3` flags don't tell (the game's tilesets have them
+for every tile). With several tiles chosen, a control is there for what
+any of them has, and each tile is given only what its own model has: a
+value already in the area for a light the model hasn't is kept as it
+is. **Defaults** puts back the lighting scheme's colors and the loops.
+**OK** applies the changes (one step to undo) and **Cancel** discards
+them. Closed any other way with changes not applied (its tab's or
+window's ✕, Escape), it asks, as a side editor's tab does: **Save**,
+**Don't Save** or **Cancel** (Aurora's ✕ discards them without asking).
+
 
 A tile's replacement texture (`Tile_ReplaceTex`, a `replacetexture.2da`
 row for a texture named `replace_tex` in the tile's model) isn't in the
