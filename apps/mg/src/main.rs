@@ -138,7 +138,10 @@ enum Cmd {
         /// not what they depend on.
         #[arg(long)]
         files: bool,
-        /// Description stored in the ERF.
+        /// Description stored in the ERF. What the export was made from
+        /// follows it there: the module's git commit (and whether files
+        /// had changes not committed), Moonglow's version and the module's
+        /// name, which `mg import` reads back.
         #[arg(long, default_value = "")]
         comment: String,
         /// Keep custom factions instead of resetting them to their parents.
@@ -778,7 +781,10 @@ enum Cmd {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Import an ERF into a module and save it.
+    /// Import an ERF into a module and save it. What the ERF was made
+    /// from (stamped by Moonglow's export) is said, with a warning when
+    /// the module's git checkout is at another commit now: the ERF was
+    /// made from older work, and copying it in undoes what changed since.
     Import {
         module: PathBuf,
         erf: PathBuf,
@@ -1375,14 +1381,23 @@ fn run(cli: &Cli) -> Result<Output> {
                     r.from, r.path, r.kind, r.target
                 ));
             }
+            // (Where it came from, after the description: Import says
+            // when the module has moved on since.)
+            let stamp = mg_module::stamp::Stamp::of(&m);
+            let description = mg_module::stamp::describe(comment, &stamp);
             let erf =
-                mg_module::transfer::export_erf(&m, &plan.resources, comment, !keep_factions)?;
+                mg_module::transfer::export_erf(&m, &plan.resources, &description, !keep_factions)?;
             std::fs::write(output, erf)?;
             out.json = json!({
                 "erf": path_text(output),
                 "resources": plan.resources.iter().map(ToString::to_string).collect::<Vec<_>>(),
+                "stamp": stamp_json(&stamp),
             });
-            out.note(format!("exported {} resources", plan.resources.len()));
+            out.note(format!(
+                "exported {} resources, stamped with {}",
+                plan.resources.len(),
+                stamp.summary()
+            ));
             out
         }
         Cmd::Compile { module, uncompiled, all, ndb } => {
@@ -2338,6 +2353,17 @@ fn run(cli: &Cli) -> Result<Output> {
                     r.from, r.kind, r.target
                 ));
             }
+            // Where the archive came from, and whether the module has moved
+            // on since (said before anything is imported).
+            let stamp = mg_module::transfer::archive_stamp(&data);
+            let base_warning = stamp.as_ref().and_then(|s| mg_module::stamp::compare(s, &m));
+            match &stamp {
+                Some(s) => out.note(format!("made from {}", s.summary())),
+                None => out.note("the archive doesn't say what it was made from (no stamp)"),
+            }
+            if let Some(w) = &base_warning {
+                out.note(format!("warning: {w}"));
+            }
             let s = mg_module::transfer::import_erf(&mut m, &data, |_| *overwrite)?;
             m.save()?;
             let names = |v: &[ResKey]| v.iter().map(ToString::to_string).collect::<Vec<_>>();
@@ -2346,6 +2372,8 @@ fn run(cli: &Cli) -> Result<Output> {
                 "replaced": names(&s.replaced),
                 "skipped": names(&s.skipped),
                 "new_areas": s.new_areas.iter().map(ToString::to_string).collect::<Vec<_>>(),
+                "stamp": stamp.as_ref().map(stamp_json),
+                "base_warning": base_warning,
             });
             out.note(format!(
                 "imported {} new, replaced {}, skipped {} existing; new areas: {:?}",
@@ -2661,6 +2689,17 @@ fn module_codepage(cli: &Cli, m: &Module) -> Codepage {
     let Ok(mut rm) = ResMan::for_game(&gi) else { return own };
     let _ = rm.add_haks(&gi, &haks);
     mg_rules::encoding_of(&rm, own)
+}
+
+/// An export's stamp ([`mg_module::stamp`]) as JSON.
+fn stamp_json(s: &mg_module::stamp::Stamp) -> serde_json::Value {
+    serde_json::json!({
+        "moonglow": s.version,
+        "commit": s.commit.as_ref().map(|c| c.hash.clone()),
+        "dirty": s.commit.as_ref().map(|c| c.dirty),
+        "module": s.module,
+        "tag": s.tag,
+    })
 }
 
 /// The resman for a module: the game, the module's haks and the module.

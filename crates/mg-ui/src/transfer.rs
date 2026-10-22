@@ -37,6 +37,11 @@ pub struct ImportDraft {
     pub overwrites: Vec<(ResKey, bool)>,
     /// References nothing satisfies, as text.
     pub missing: Vec<String>,
+    /// What the archive was made from, as Moonglow's export stamps it
+    /// (`None`: no stamp, as from Aurora).
+    pub stamp: Option<String>,
+    /// Why the module may have moved on since (another commit now).
+    pub base_warning: Option<String>,
 }
 
 /// What To Scratch's hover says: where it copies `what`, or that it asks.
@@ -94,6 +99,9 @@ impl Moonglow {
         let resman = self.game.as_deref().map_or(&empty, |g| &g.resman);
         match plan_import(&ws.module, &data, resman) {
             Ok(ImportPlan { resources, overwrites, missing }) => {
+                let stamp = mg_module::transfer::archive_stamp(&data);
+                let base_warning =
+                    stamp.as_ref().and_then(|s| mg_module::stamp::compare(s, &ws.module));
                 self.import = Some(ImportDraft {
                     path,
                     data,
@@ -103,6 +111,8 @@ impl Moonglow {
                         .iter()
                         .map(|r| format!("{} → {:?} {}", r.from, r.kind, r.target))
                         .collect(),
+                    stamp: stamp.map(|s| s.summary()),
+                    base_warning,
                 })
             }
             Err(e) => self.log.error(format!("Could not read {}: {e}", path.display())),
@@ -130,6 +140,9 @@ impl Moonglow {
         let edits = ws.edits_to(&staged);
         let name =
             draft.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        if let Some(w) = &draft.base_warning {
+            self.log.warn(format!("{name}: {w}"));
+        }
         if !edits.is_empty()
             && let Err(e) = self.apply(mg_edit::Command::new(format!("Import {name}"), edits))
         {
@@ -279,7 +292,10 @@ impl Moonglow {
         // Add to Existing File: what the archive holds stays, but for
         // resources of the same names.
         let existing = if draft.add { std::fs::read(&path).ok() } else { None };
-        let (comments, reset) = (draft.comments.as_str(), draft.reset_factions);
+        // What it was made from follows the description (Import reads it).
+        let stamp = mg_module::stamp::Stamp::of(&ws.module);
+        let comments = mg_module::stamp::describe(&draft.comments, &stamp);
+        let (comments, reset) = (comments.as_str(), draft.reset_factions);
         let result = match &existing {
             Some(old) => {
                 mg_module::transfer::export_into_erf(old, &ws.module, &resources, comments, reset)
@@ -290,10 +306,11 @@ impl Moonglow {
         .and_then(|bytes| std::fs::write(&path, bytes).map_err(|e| e.to_string()));
         match result {
             Ok(()) => self.log.info(format!(
-                "{} {} resources to {}",
+                "{} {} resources to {}, stamped with {}",
                 if existing.is_some() { "Added" } else { "Exported" },
                 resources.len(),
-                path.display()
+                path.display(),
+                stamp.summary()
             )),
             Err(e) => self.log.error(format!("Export failed: {e}")),
         }
@@ -426,7 +443,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             );
             ui.horizontal(|ui| {
                 crate::widgets::field_label(ui, "Description");
-                ui.text_edit_singleline(&mut draft.comments);
+                ui.text_edit_singleline(&mut draft.comments).on_hover_text(
+                    "What the export is made from follows it in the archive: the module's git \
+                     commit, Moonglow's version and the module's name (Import shows it)",
+                );
             });
             ui.horizontal(|ui| {
                 let label = format!("Export {}…", draft.selected.len());
@@ -466,6 +486,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             draft.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         crate::widgets::window("Import Resources").show(&ctx, |ui| {
             ui.label(format!("{name}: {} resources", draft.resources.len()));
+            match &draft.stamp {
+                Some(s) => ui.label(format!("Made from {s}")),
+                None => ui.weak("It doesn't say what it was made from."),
+            };
+            if let Some(w) = &draft.base_warning {
+                ui.colored_label(ui.visuals().warn_fg_color, format!("Careful: {w}."));
+            }
             if !draft.overwrites.is_empty() {
                 ui.add_space(6.0);
                 ui.label("The module already has these; overwrite:");
