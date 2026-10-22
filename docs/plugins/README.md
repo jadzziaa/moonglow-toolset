@@ -3,7 +3,7 @@ type: Guide
 title: 'Plugins: for authors'
 description: Starting point for plugin authors - the example plugins, the editor type file, the API changes, where the manual covers plugins, and the mg plugin commands for checking, testing, running and packing one.
 tags: [plugins, authors, examples]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T11:37:43Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T22:23:18Z }
 ---
 
 # Plugins: for authors
@@ -22,8 +22,9 @@ What a plugin author needs besides the manual:
   - [`tag-conventions`](examples/tag-conventions): a team's rule as a
     check for Verify Module, with a fix for each finding (API 0.4), and
     a command that applies it, sharing the rule from a second file; and
-    tests of its own (`tests/tags.toml` on a fixture module, run by `mg
-    plugin test`).
+    tests of its own (`tests/tags.toml` on a fixture module, and
+    `tests/builtin.toml`, Moonglow's own `tag-unique` on a small
+    project, run by `mg plugin test`).
   - [`builder-tags`](examples/builder-tags): settings (API 0.4): a
     team's prefix kept in the project's `moonglow.toml`, the builder's
     code in their own part of the project, and one setting of the
