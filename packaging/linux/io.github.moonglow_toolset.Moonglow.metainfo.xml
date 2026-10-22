@@ -45,6 +45,14 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="2.3.0" date="2026-10-22">
+      <description>
+        <p>Described variables' patterns of any length, plugin tests that
+        run with no game and run Moonglow's own checks, notes on passing
+        tests, and a nearest-name hint for variables the scripts alone
+        set.</p>
+      </description>
+    </release>
     <release version="2.2.0" date="2026-10-22">
       <description>
         <p>Verify Module much faster: a skipped group is not checked at all,
