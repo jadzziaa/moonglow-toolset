@@ -22,11 +22,21 @@
 //!   Gallery) is placed as it is, turned as a group is (a right click turns
 //!   it), the tiles around fitted to it; dragged, it goes in every tile
 //!   the pointer passes.
-//! - Refine Tile steps a tile to the next that fits there, or with a tile
-//!   chosen in the Gallery makes it that one where it fits. Dragged, it
-//!   does so to the first tile, and every tile passed where that tile fits
-//!   (the same kind: its terrain and crossers) becomes it too; others are
-//!   left.
+//! - Refine Tile steps a tile to the next that fits there (in Aurora's
+//!   order, Shift + right click's: each tile's turns, then the next tile's),
+//!   or with a tile chosen in the Gallery makes it that one where it fits.
+//!   Dragged, it does so to the first tile, and every tile passed where
+//!   that tile fits (the same kind: its terrain and crossers) becomes it
+//!   too; others are left.
+//! - Next and Previous Tile Appearance give the tile clicked another tile
+//!   of its kind, turned as it was where that fits; Rotate Tile turns it a
+//!   quarter (Shift: the other way) where it still fits its neighbours,
+//!   keeping its lights. The tile menu has the same three.
+//! - A right click with a terrain, the Eraser, Refine Tile or the tools
+//!   above opens the tile menu (`tile_select::context_menu`) for the tile
+//!   under the pointer; the brush stays chosen (Escape, or the menu's Put
+//!   Down, lets it go). Raise/Lower, a crosser, a group and a tile keep
+//!   their own right click.
 //!
 //! Every stroke is one undoable command on the ARE (`mg_tiles::paint`,
 //! `mg_area::terrain`).
@@ -45,6 +55,7 @@ use mg_tiles::{Placement, TileIndex};
 
 use crate::Moonglow;
 use crate::area_view::AreaView;
+use crate::tile_select::TileStep;
 
 /// The tileset brush chosen in the palette.
 #[derive(Debug, Clone, PartialEq)]
@@ -115,8 +126,41 @@ pub struct Spot {
 /// off its middle would otherwise clip a side one.
 const SIDE_REACH: f32 = 0.25;
 
-/// Refine Tile's name in the palette.
-const REFINE: &str = "Refine Tile";
+/// Moonglow's own tools in the tiles palette, beside the Eraser: their
+/// names and brushes.
+const TOOLS: [(&str, Brush); 4] = [
+    ("Refine Tile", Brush::Refine),
+    ("Next Tile Appearance", Brush::Appearance { back: false }),
+    ("Previous Tile Appearance", Brush::Appearance { back: true }),
+    ("Rotate Tile", Brush::Rotate),
+];
+
+/// The tiles palette's Select Tiles row's name.
+const SELECT_TILES: &str = "Select Tiles";
+
+/// What a tile tool's click does (`shift`: held, Rotate Tile turning the
+/// other way); `None` for other brushes.
+fn tile_step(brush: &TileBrush, shift: bool) -> Option<TileStep> {
+    match brush.brush {
+        Brush::Appearance { back } => Some(TileStep::Appearance { back }),
+        Brush::Rotate => Some(TileStep::Rotate { back: shift }),
+        _ => None,
+    }
+}
+
+/// Whether a right click with `brush` opens the tile menu: those with no
+/// right click of their own (Raise/Lower lowers, a crosser is taken off,
+/// a group or a tile is turned).
+pub(crate) fn menu_on_right_click(brush: &TileBrush) -> bool {
+    matches!(
+        brush.brush,
+        Brush::Terrain(_)
+            | Brush::Eraser
+            | Brush::Refine
+            | Brush::Appearance { .. }
+            | Brush::Rotate
+    )
+}
 
 /// A terrain brush (or Raise/Lower, or the Eraser) dragged across the
 /// area: the corners (the Eraser's tiles) it has marked, in order, to paint
@@ -254,6 +298,15 @@ fn stroke(
             });
             (st, "Refine tile".into())
         }
+        Brush::Appearance { .. } | Brush::Rotate => {
+            let step = tile_step(brush, cycle);
+            let st = step.and_then(|step| step.of(tools, grid, spot.cell)).map(|_| Stroke {
+                lattice: grid.lattice.clone(),
+                cells: vec![spot.cell],
+                fixed: Vec::new(),
+            });
+            (st, step.map_or("", TileStep::label).into())
+        }
         Brush::Tile(t) => {
             let p = Placement { tile: t, orientation: turns % 4, height: 0 };
             let (cx, cy) = spot.cell;
@@ -351,9 +404,13 @@ fn click(
     // `turns`.)
     let refine = brush.brush == Brush::Refine;
     let cycle = refine || shift && matches!(brush.brush, Brush::Eraser | Brush::Terrain(_));
+    // (Rotate Tile's Shift: the other way round.)
+    let cycle = cycle || shift && brush.brush == Brush::Rotate;
     let (st, label) = stroke(tools, g, brush, s, lower, cycle, turns);
     let pick = if refine {
         refined(tools, g, brush, s.cell)
+    } else if let Some(step) = tile_step(brush, cycle) {
+        step.of(tools, g, s.cell)
     } else if cycle && brush.brush == Brush::Eraser {
         let (cx, cy) = s.cell;
         next_fit(&tools.index, &g.lattice.cell(cx, cy), g.tile(cx, cy))
@@ -631,6 +688,16 @@ pub(crate) fn input(
         }
         Brush::Terrain(_) | Brush::RaiseLower | Brush::Eraser | Brush::Refine | Brush::Tile(_)
             if terrain_drag(app, view, response, &brush) => {}
+        // The tile tools: a click steps the tile under the pointer, as the
+        // tile menu's items do.
+        Brush::Appearance { .. } | Brush::Rotate => {
+            if response.clicked()
+                && let Some(s) = view.spot
+                && let Some(step) = tile_step(&brush, shift)
+            {
+                crate::tile_select::step_tiles(app, view, &[s.cell], step);
+            }
+        }
         _ => {
             let lower = response.secondary_clicked() && brush.brush == Brush::RaiseLower;
             if (response.clicked() || lower)
@@ -641,14 +708,12 @@ pub(crate) fn input(
                 let turns = view.group_turns;
                 let (st, label, pick) = click(tools, &g, &brush, s, shift, lower, turns);
                 commit(app, view, g, st, &label, pick);
-            } else if response.secondary_clicked() && brush.brush != Brush::RaiseLower {
-                // (Raise/Lower's right click lowers: where it finds no
-                // ground to lower, a cliff face or past the area's edge,
-                // it does nothing. Dropped there, the next click was the
-                // object's under the pointer: its menu, or selected.)
-                crate::trace::note(format!("tile brush {} dropped by a right click", brush.label));
-                app.palette.tile_brush = None;
             }
+            // (Other brushes' right click: the tile menu, which the area
+            // view opens. Raise/Lower's lowers: where it finds no ground to
+            // lower, a cliff face or past the area's edge, it does nothing.
+            // Dropped there, the next click was the object's under the
+            // pointer: its menu, or selected.)
         }
     }
     true
@@ -1005,6 +1070,13 @@ fn cursor_shapes(
                 polygon(&square, color);
             }
         }
+        Brush::Appearance { .. } | Brush::Rotate => {
+            let (x, y) = (s.cell.0 as f32, s.cell.1 as f32);
+            let h = z(s.cell.0, s.cell.1) + 0.05;
+            let square = crate::area_view::tile_square(x, y, h);
+            let (st, _) = stroke(tools, &g, &brush, s, false, shift, 0);
+            polygon(&square, if st.is_some() { CYCLE } else { refused });
+        }
         Brush::Eraser | Brush::Refine => {
             let (x, y) = (s.cell.0 as f32, s.cell.1 as f32);
             let h = z(s.cell.0, s.cell.1) + 0.05;
@@ -1147,12 +1219,22 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let mut choice = app.palette.tile_choice;
     let side = crate::appearance_gallery::tile_side(app);
     let ready = if gallery { app.thumbnails.every() } else { Default::default() };
-    let Some(tools) = app.area_views.get(&area).and_then(|v| v.terrain.as_ref()) else { return };
+    let Some(view) = app.area_views.get(&area) else { return };
+    let was_tile_mode = view.tile_mode;
+    let mut tile_mode = was_tile_mode;
+    let Some(tools) = view.terrain.as_ref() else { return };
     let mut at = Place {
         tileset,
         tools,
         chosen: &mut chosen,
         choice: &mut choice,
+        tile_mode: &mut tile_mode,
+        // (With its key, as the toolbar's tip has it; its name then is
+        // the palette's own.)
+        select_tiles: crate::icons::labelled(
+            crate::icons::SELECT_TILES,
+            &app.keymap.titled(SELECT_TILES, crate::keys::Cmd::SelectTiles, ui.ctx()),
+        ),
         fold: fold.or(app.palette.fold),
         filter: &filter,
         gallery: gallery.then_some(Pictures { side, ready: &ready }),
@@ -1173,8 +1255,39 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     if chosen != app.palette.tile_brush {
         if chosen.is_some() {
             app.palette.selected = None;
+            // (A brush chosen: out of tile mode, which it would sit on
+            // top of.)
+            tile_mode = false;
         }
         app.palette.tile_brush = chosen;
+    }
+    if tile_mode != was_tile_mode
+        && let Some(view) = app.area_views.get_mut(&area)
+    {
+        // As the view's own Select Tiles: what was selected lets go.
+        view.tile_mode = tile_mode;
+        view.selection.clear();
+        view.tile_selection.clear();
+        if tile_mode {
+            app.palette.tile_brush = None;
+            app.palette.selected = None;
+            app.paint = false;
+        }
+    }
+}
+
+/// The tiles palette's Select Tiles: the area view's tile mode (its
+/// toolbar's Select Tiles, F10), on or off, beside the tools.
+fn select_tiles_row(ui: &mut egui::Ui, at: &mut Place) {
+    let r = ui.selectable_label(*at.tile_mode, at.select_tiles.as_str()).on_hover_text(
+        "Select tiles rather than objects (the area view's Select Tiles): a click selects \
+         a tile, a drag a box of them; a right click opens the tile menu",
+    );
+    if r.clicked() {
+        *at.tile_mode = !*at.tile_mode;
+        if *at.tile_mode {
+            *at.chosen = None;
+        }
     }
 }
 
@@ -1285,6 +1398,10 @@ struct Place<'a> {
     tools: &'a Tools,
     chosen: &'a mut Option<TileBrush>,
     choice: &'a mut Option<u32>,
+    /// The area view's tile mode (the palette's Select Tiles).
+    tile_mode: &'a mut bool,
+    /// The Select Tiles row's name.
+    select_tiles: String,
     fold: Option<bool>,
     filter: &'a str,
     gallery: Option<Pictures<'a>>,
@@ -1325,19 +1442,27 @@ fn show_item(ui: &mut egui::Ui, item: &PaletteItem, at: &mut Place, depth: usize
                     // The tools first (where tilesets list them varies),
                     // with Moonglow's Refine Tile beside the Eraser, then
                     // the rest in the palette's order.
-                    let refine = PaletteItem::Brush { label: REFINE.into(), brush: Brush::Refine };
+                    let tools = TOOLS
+                        .map(|(label, brush)| PaletteItem::Brush { label: label.into(), brush });
                     let mut items: Vec<&PaletteItem> = items.iter().collect();
-                    if items
+                    let has_tools = items
                         .iter()
-                        .any(|i| matches!(i, PaletteItem::Brush { brush: Brush::Eraser, .. }))
-                    {
-                        items.push(&refine);
+                        .any(|i| matches!(i, PaletteItem::Brush { brush: Brush::Eraser, .. }));
+                    if has_tools {
+                        // Select Tiles first: not a brush, the view's mode.
+                        if !searching || matches(SELECT_TILES, at.filter) {
+                            select_tiles_row(ui, at);
+                        }
+                        items.extend(tools.iter());
                     }
                     items.sort_by_key(|i| match i {
                         PaletteItem::Brush { brush: Brush::Eraser, .. } => 0,
                         PaletteItem::Brush { brush: Brush::Refine, .. } => 1,
-                        PaletteItem::Brush { brush: Brush::RaiseLower, .. } => 2,
-                        _ => 3,
+                        PaletteItem::Brush { brush: Brush::Appearance { back: false }, .. } => 2,
+                        PaletteItem::Brush { brush: Brush::Appearance { back: true }, .. } => 3,
+                        PaletteItem::Brush { brush: Brush::Rotate, .. } => 4,
+                        PaletteItem::Brush { brush: Brush::RaiseLower, .. } => 5,
+                        _ => 6,
                     });
                     // In the Gallery, a folder's groups (its features, its
                     // buildings) are pictures, as many across as fit, as a
@@ -1407,9 +1532,37 @@ fn brush_row(ui: &mut egui::Ui, label: &str, brush: Brush, at: &mut Place) {
             let to = model.map(|t| format!(" → {}", t.model)).unwrap_or_default();
             crate::icons::labelled(crate::icons::REFINE, &format!("{label}{to}"))
         }
+        Brush::Appearance { back: false } => {
+            crate::icons::labelled(crate::icons::NEXT_APPEARANCE, label)
+        }
+        Brush::Appearance { back: true } => {
+            crate::icons::labelled(crate::icons::PREVIOUS_APPEARANCE, label)
+        }
+        Brush::Rotate => crate::icons::labelled(crate::icons::ROTATE, label),
         _ => label.to_string(),
     };
-    if ui.selectable_label(on, shown).clicked() {
+    let tip = match brush {
+        Brush::Refine => Some(
+            "Click a tile: the next tile that fits there, in Aurora's order (each tile's turns, \
+             then the next tile's: its appearance and its rotation change together, as Shift + \
+             right click steps them). With a tile chosen in the Gallery: that tile, where it fits",
+        ),
+        Brush::Appearance { back: false } => Some(
+            "Click a tile: another tile of its kind (its terrain and crossers), turned as it was \
+             where that fits",
+        ),
+        Brush::Appearance { back: true } => Some("Click a tile: a step back through them"),
+        Brush::Rotate => Some(
+            "Click a tile: a quarter turn counter-clockwise (Shift: clockwise), where it still \
+             fits its neighbors; its lights stay",
+        ),
+        _ => None,
+    };
+    let mut r = ui.selectable_label(on, shown);
+    if let Some(tip) = tip {
+        r = r.on_hover_text(tip);
+    }
+    if r.clicked() {
         *at.chosen = if on {
             None
         } else {

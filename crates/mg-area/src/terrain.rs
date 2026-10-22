@@ -28,6 +28,16 @@ pub enum Brush {
     /// (the Eraser with Shift), whatever it holds; paints nothing.
     /// Moonglow's own: no tileset's palette has it.
     Refine,
+    /// Gives the tile under the pointer its next appearance (with `back`,
+    /// its previous): another tile of the same kind (its terrain and
+    /// crossers), turned as it was where that fits
+    /// (`mg_tiles::paint::step_appearance`). Moonglow's own.
+    Appearance {
+        back: bool,
+    },
+    /// Turns the tile under the pointer a quarter where it still fits its
+    /// neighbours (`mg_tiles::paint::turn_fit`). Moonglow's own.
+    Rotate,
     /// The tileset's group of this index.
     Group(usize),
     /// One tile of the tileset (its index), chosen from a terrain's or a

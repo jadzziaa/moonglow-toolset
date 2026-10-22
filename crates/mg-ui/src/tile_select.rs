@@ -41,9 +41,6 @@ pub struct TileProps {
     pub has_loops: [bool; 3],
     /// The light whose colour is being chosen: 0, 1 main, 2, 3 source.
     pub picking: Option<usize>,
-    /// `Tile_ReplaceTex`: the `replacetexture.2da` row the model's
-    /// `replace_tex` is drawn with (`None`: the field is left out).
-    pub replace: Option<u8>,
     /// With one tile chosen: its cell and the tiles that fit there, in
     /// the order Next Variant steps through them, each with its model.
     pub variants: Option<Variants>,
@@ -253,7 +250,10 @@ pub(crate) fn paste_input(
     true
 }
 
-/// The tile menu (right click in tile mode).
+/// The tile menu: a right click on a tile in tile mode, or with a tile
+/// brush that has no right click of its own (a terrain, the Eraser, the
+/// tile tools). In tile mode it acts on the selected tiles (the tile
+/// clicked, if it isn't among them); with a brush, on the tile clicked.
 pub(crate) fn context_menu(
     app: &mut Moonglow,
     view: &mut AreaView,
@@ -264,27 +264,192 @@ pub(crate) fn context_menu(
         ui.label("No tile here");
         return;
     };
-    if !view.tile_selection.contains(&t) {
+    // In tile mode, the selection (made the tile clicked, if it isn't
+    // in it); with a brush, the tile clicked.
+    if view.tile_mode && !view.tile_selection.contains(&t) {
         view.tile_selection = vec![t];
     }
-    if ui.button("Next Variant").on_hover_text("Shift + right click").clicked() {
-        next_variant(app, view, t, false);
+    let cells = if view.tile_mode { view.tile_selection.clone() } else { vec![t] };
+    // (A brush's right click no longer puts it down, as Aurora's does:
+    // here, and Escape.)
+    if let Some(b) = crate::terrain_mode::active(app, view)
+        && ui
+            .button(format!("Put Down {}", b.label))
+            .on_hover_text("Stop painting with it (Escape)")
+            .clicked()
+    {
+        app.palette.tile_brush = None;
         ui.close();
+        return;
     }
-    if ui.button("Previous Variant").on_hover_text("A step back through them").clicked() {
-        next_variant(app, view, t, true);
-        ui.close();
-    }
-    if ui.button("Delete").on_hover_text("Delete: crossers and group tiles go").clicked() {
+    tile_items(app, view, ui, &cells);
+    if view.tile_mode
+        && ui.button("Delete").on_hover_text("Delete: crossers and group tiles go").clicked()
+    {
         delete(app, view);
         ui.close();
     }
     // Properties last, as in Aurora's menus.
     ui.separator();
     if ui.button("Tile Properties…").clicked() {
-        open_properties(app, view);
+        properties_of(app, view, &cells);
         ui.close();
     }
+}
+
+/// Opens Tile Properties for `cells`: out of tile mode, the tile selection
+/// (which the window is opened on) is left as it was, so that the view
+/// doesn't show a tile selected that nothing selects.
+fn properties_of(app: &mut Moonglow, view: &mut AreaView, cells: &[(u32, u32)]) {
+    let kept = std::mem::replace(&mut view.tile_selection, cells.to_vec());
+    open_properties(app, view);
+    if !view.tile_mode {
+        view.tile_selection = kept;
+    }
+}
+
+/// The tile menu's steps, on the tiles in `cells`: as the tiles
+/// palette's tools of those names.
+pub(crate) fn tile_items(
+    app: &mut Moonglow,
+    view: &mut AreaView,
+    ui: &mut egui::Ui,
+    cells: &[(u32, u32)],
+) {
+    let items = [
+        (
+            "Next Tile Appearance",
+            "Another tile of the same kind here (its terrain and crossers), turned as this one \
+             where it fits so",
+            TileStep::Appearance { back: false },
+        ),
+        (
+            "Previous Tile Appearance",
+            "A step back through them",
+            TileStep::Appearance { back: true },
+        ),
+        (
+            "Rotate Tile",
+            "A quarter turn counter-clockwise, where the tile still fits its neighbors (a half \
+             turn where only that does); its lights stay",
+            TileStep::Rotate { back: false },
+        ),
+    ];
+    for (label, tip, step) in items {
+        if ui.button(label).on_hover_text(tip).clicked() {
+            step_tiles(app, view, cells, step);
+            ui.close();
+        }
+    }
+}
+
+/// The tile items of the area's own menu (a right click on the ground
+/// with no object there, out of tile mode): the steps and Tile
+/// Properties, on the tile clicked, as Aurora's menu has Tile Properties
+/// for a tile.
+pub(crate) fn ground_items(
+    app: &mut Moonglow,
+    view: &mut AreaView,
+    ui: &mut egui::Ui,
+    t: (u32, u32),
+) {
+    ui.label(egui::RichText::new(format!("Tile ({}, {})", t.0, t.1)).weak());
+    tile_items(app, view, ui, &[t]);
+    if ui.button("Tile Properties…").clicked() {
+        properties_of(app, view, &[t]);
+        ui.close();
+    }
+    ui.separator();
+}
+
+/// A step of a tile's look that keeps its terrain and crossers: the tiles
+/// palette's Next and Previous Tile Appearance and Rotate Tile, and the
+/// tile menu's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TileStep {
+    /// Another tile of the same kind (with `back`, the one before).
+    Appearance { back: bool },
+    /// The same tile a quarter turned (with `back`, clockwise).
+    Rotate { back: bool },
+}
+
+impl TileStep {
+    /// The step's command's name.
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            TileStep::Appearance { back: false } => "Next tile appearance",
+            TileStep::Appearance { back: true } => "Previous tile appearance",
+            TileStep::Rotate { .. } => "Rotate tile",
+        }
+    }
+
+    /// What the step makes of the tile in cell `(x, y)`; `None` where it
+    /// can't (a group's tile, no other tile fits there, or turned it no
+    /// longer fits).
+    pub(crate) fn of(
+        self,
+        tools: &crate::terrain_mode::Tools,
+        g: &mg_tiles::paint::Grid,
+        (x, y): (u32, u32),
+    ) -> Option<mg_tiles::Placement> {
+        let now = g.tile(x, y);
+        if tools.index.is_grouped(now.tile) {
+            return None;
+        }
+        let cell = g.lattice.cell(x, y);
+        match self {
+            TileStep::Appearance { back } => {
+                mg_tiles::paint::step_appearance(&tools.index, &cell, now, back)
+            }
+            TileStep::Rotate { back } => mg_tiles::paint::turn_fit(&tools.index, &cell, now, back),
+        }
+    }
+
+    /// Why nothing changed, for the status line.
+    fn refused(self, grouped: bool) -> &'static str {
+        match (self, grouped) {
+            (_, true) => "A group's tile: it changes only with its group",
+            (TileStep::Appearance { .. }, false) => "No other tile fits there",
+            (TileStep::Rotate { .. }, false) => {
+                "This tile fits here only as it lies: turned, it would not match its neighbors"
+            }
+        }
+    }
+}
+
+/// Steps the tiles in `cells` (each on its own: what fits there), as one
+/// command. A turned tile keeps its lights and animation loops (it is the
+/// same tile); another tile gets fresh lights, as a painted one does.
+pub(crate) fn step_tiles(
+    app: &mut Moonglow,
+    view: &mut AreaView,
+    cells: &[(u32, u32)],
+    step: TileStep,
+) {
+    let Some(g) = current_grid(app, view) else { return };
+    let Some(tools) = view.terrain.as_ref() else { return };
+    let changes: Vec<_> = cells.iter().filter_map(|&c| Some((c, step.of(tools, &g, c)?))).collect();
+    if changes.is_empty() {
+        let grouped = cells.iter().all(|&(x, y)| tools.index.is_grouped(g.tile(x, y).tile));
+        view.notice = Some(step.refused(grouped).into());
+        view.refused = Some((cells.to_vec(), std::time::Instant::now()));
+        return;
+    }
+    let kept: Vec<_> = match step {
+        TileStep::Rotate { .. } => {
+            let are =
+                app.ws.as_mut().and_then(|ws| ws.doc(&ResKey::new(view.area, ResType::ARE)).ok());
+            let list = are.and_then(|a| a.root.list("Tile_List")).unwrap_or(&[]);
+            let w = g.lattice.width();
+            changes
+                .iter()
+                .filter_map(|&((x, y), _)| Some(((x, y), list.get((y * w + x) as usize)?.clone())))
+                .collect()
+        }
+        TileStep::Appearance { .. } => Vec::new(),
+    };
+    crate::terrain_mode::tile_command_keeping(app, view, &g, &changes, step.label(), &kept);
+    view.notice = None;
 }
 
 /// The tile's next variant among those that fit, in Aurora's order; with
@@ -338,11 +503,6 @@ fn open_properties(app: &mut Moonglow, view: &AreaView) {
             }
         }
     }
-    let replace = app.ws.as_mut().and_then(|ws| {
-        let are = ws.doc(&ResKey::new(view.area, ResType::ARE)).ok()?;
-        let t = are.root.list("Tile_List")?.get(*tiles.first()?)?;
-        t.integer("Tile_ReplaceTex").and_then(|v| u8::try_from(v).ok())
-    });
     // One tile: the others that fit there, to choose among by picture.
     let variants = match view.tile_selection.as_slice() {
         &[(x, y)] => current_grid(app, view).map(|g| {
@@ -361,7 +521,6 @@ fn open_properties(app: &mut Moonglow, view: &AreaView) {
         variants,
         variant,
         chosen: false,
-        replace,
         tiles,
         main: first.main_lights,
         source: first.source_lights,
@@ -430,12 +589,6 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let mut picked = None;
     let colors = light_colors(app);
     let color = |i: usize| colors.get(i).copied().unwrap_or(Color32::BLACK);
-    let replacements: Vec<String> = app
-        .game
-        .as_ref()
-        .and_then(|g| g.table("replacetexture").ok())
-        .map(|t| (0..t.len()).map(|r| t.get(r, "TEXTURENAME").unwrap_or("").to_string()).collect())
-        .unwrap_or_default();
     let mut cancel = false;
     let mut done = None;
     {
@@ -488,28 +641,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                     ui.end_row();
                 }
             });
-            // The tile's replacement texture (EE keeps it; Aurora has no
-            // field): for tile models with a texture named replace_tex.
-            ui.horizontal(|ui| {
-                ui.label("Replacement Texture").on_hover_text(
-                    "What a texture named replace_tex in the tile's model is drawn with \
-                     (replacetexture.2da)",
-                );
-                let name = |r: u8| {
-                    let t = replacements.get(usize::from(r)).map_or("?", String::as_str);
-                    format!("{r}: {t}")
-                };
-                let shown = props.replace.map_or_else(|| "None".to_string(), name);
-                egui::ComboBox::from_id_salt("tile_replace").selected_text(shown).show_ui(
-                    ui,
-                    |ui| {
-                        ui.selectable_value(&mut props.replace, None, "None");
-                        for r in 0..replacements.len().min(256) {
-                            ui.selectable_value(&mut props.replace, Some(r as u8), name(r as u8));
-                        }
-                    },
-                );
-            });
+            // (No Replacement Texture: `Tile_ReplaceTex` is BioWare's
+            // unused field, which no tile of the game's tilesets has a
+            // texture for, and the client wasn't seen drawing it. One in a
+            // file is kept, among the raw fields: docs/deferred.md.)
             ui.separator();
             ui.horizontal(|ui| {
                 if ui.button("Defaults").clicked() {
@@ -528,11 +663,25 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             // rest of its height theirs.
             if let Some((_, variants)) = props.variants.clone().filter(|(_, v)| v.len() > 1) {
                 ui.separator();
-                ui.label(format!("Variant ({} fit here)", variants.len())).on_hover_text(
-                    "The tiles that fit here, in the order Next Variant steps through them. \
-                     Click one to put it here",
-                );
-                let across = ((ui.available_width() - 16.0) / (VARIANT + 6.0)).floor().max(1.0);
+                let side = variant_side(app);
+                ui.horizontal(|ui| {
+                    ui.label(format!("Variant ({} fit here)", variants.len())).on_hover_text(
+                        "The tiles that fit here, each turn of each, in the order Shift + right \
+                         click steps through them. Click one to put it here",
+                    );
+                    // Their size: tiles much alike are told apart larger.
+                    let mut size = side;
+                    let slider = egui::Slider::new(&mut size, VARIANT_MIN..=VARIANT_MAX)
+                        .show_value(false)
+                        .text("Size");
+                    if ui.add(slider).on_hover_text("How large the pictures are").changed() {
+                        app.settings.tile_variant_side = Some(size.round() as u16);
+                    }
+                });
+                // (A picture's column: its side, the grid's gap and the
+                // spacing after it; the scroll bar's room off the width.)
+                let stride = side + 6.0 + ui.spacing().item_spacing.x;
+                let across = ((ui.available_width() - 16.0 + 6.0) / stride).floor().max(1.0);
                 egui::ScrollArea::vertical()
                     .id_salt("tile-variants")
                     .auto_shrink([false, false])
@@ -540,7 +689,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                         egui::Grid::new("tile-variants").spacing([6.0, 6.0]).show(ui, |ui| {
                             for (i, (p, model)) in variants.into_iter().enumerate() {
                                 let current = props.variant == Some(p);
-                                if variant_picture(app, ui, p, &model, current) {
+                                if variant_picture(app, ui, p, &model, current, side) {
                                     picked = Some(p);
                                 }
                                 if i % across as usize == across as usize - 1 {
@@ -615,18 +764,28 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     }
 }
 
-/// A variant's picture's side, in points.
+/// A variant's picture's side, in points: the usual, and the slider's
+/// least and most (the most is the pictures' own size, in pixels).
 const VARIANT: f32 = 84.0;
+const VARIANT_MIN: f32 = 64.0;
+const VARIANT_MAX: f32 = crate::model_view::THUMBNAIL as f32;
+
+/// The variants' pictures' side, as their slider was last left.
+pub(crate) fn variant_side(app: &Moonglow) -> f32 {
+    app.settings.tile_variant_side.map_or(VARIANT, f32::from).clamp(VARIANT_MIN, VARIANT_MAX)
+}
 
 /// One variant in Tile Properties: its model's picture, turned as the
 /// tile would lie (the quarter turns written under it too), framed if it
-/// is the one there now. Whether it was clicked.
+/// is the one there now, `side` points across; under the pointer, at its
+/// largest. Whether it was clicked.
 fn variant_picture(
     app: &mut Moonglow,
     ui: &mut egui::Ui,
     p: mg_tiles::Placement,
     model: &str,
     current: bool,
+    side: f32,
 ) -> bool {
     let key = ResKey::parse(&model.to_ascii_lowercase(), ResType::MDL);
     let pictured = key.map(|k| crate::model_view::Pictured::Tile(k, p.orientation));
@@ -635,8 +794,8 @@ fn variant_picture(
     let name = format!("{model}{turn}");
     let r = ui
         .vertical(|ui| {
-            ui.set_width(VARIANT);
-            let size = egui::vec2(VARIANT, VARIANT);
+            ui.set_width(side);
+            let size = egui::vec2(side, side);
             let r = match made {
                 Some(id) => ui.add(
                     egui::Button::image(egui::Image::new((id, size)))
@@ -653,7 +812,16 @@ fn variant_picture(
             r
         })
         .inner;
-    r.on_hover_text(format!("Tile {}: {name}", p.tile)).clicked()
+    let title = format!("Tile {}: {name}", p.tile);
+    let r = match made {
+        // (Larger, where the picture is shown smaller than it was made.)
+        Some(id) if side < VARIANT_MAX => r.on_hover_ui(|ui| {
+            ui.label(&title);
+            ui.add(egui::Image::new((id, egui::vec2(VARIANT_MAX, VARIANT_MAX))));
+        }),
+        _ => r.on_hover_text(title),
+    };
+    r.clicked()
 }
 
 /// Defaults: the lighting scheme's first colours and every loop on (where
@@ -701,15 +869,6 @@ fn apply(app: &mut Moonglow, props: &TileProps) {
                 Value::Byte(u8::from(props.loops[k])),
                 props.has_loops[k],
             );
-        }
-        let replace = props.replace.map(Value::Byte);
-        if current.get("Tile_ReplaceTex") != replace.as_ref() {
-            edits.push(Edit::SetField {
-                key,
-                path: path.clone(),
-                label: "Tile_ReplaceTex".into(),
-                value: replace,
-            });
         }
     }
     if !edits.is_empty() {

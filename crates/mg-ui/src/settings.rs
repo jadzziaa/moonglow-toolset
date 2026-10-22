@@ -226,6 +226,9 @@ pub struct Settings {
     /// How large the galleries' pictures are, points (their slider's;
     /// `None`: the usual size).
     pub gallery_tile: Option<u16>,
+    /// How large Tile Properties' variants' pictures are, points (their
+    /// slider's; `None`: the usual size).
+    pub tile_variant_side: Option<u16>,
     /// Options > General: Show ResRefs beside names: `Name (resref)` in
     /// the module tree (where it lists by name) and the palettes.
     pub name_resrefs: bool,

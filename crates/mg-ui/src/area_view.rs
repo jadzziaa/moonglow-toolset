@@ -416,6 +416,8 @@ pub struct AreaView {
     ghost_turn: f32,
     /// Where the context menu was opened (on the ground).
     menu_at: Option<Vec3>,
+    /// The tile the area's menu was opened on, with no object there.
+    menu_tile: Option<(u32, u32)>,
     /// Snapping (the settings', copied each frame): grid in meters, angle in
     /// degrees.
     snap: (Option<f32>, Option<f32>),
@@ -562,6 +564,7 @@ impl AreaView {
             ghost_shown: None,
             ghost_turn: 0.0,
             menu_at: None,
+            menu_tile: None,
             snap: (None, None),
             turn_together: false,
             pointer: None,
@@ -1825,6 +1828,10 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         {
             view.selection.clear();
             view.tile_selection.clear();
+            // (A tile brush would sit on top of tile mode.)
+            if view.tile_mode {
+                app.palette.tile_brush = None;
+            }
         }
         if ui
             .toggle_value(&mut app.paint, labelled(icons::PAINT, "Paint"))
@@ -1907,7 +1914,18 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         let how = match b.brush {
             mg_area::terrain::Brush::Crosser(_) => "drag across tiles",
             mg_area::terrain::Brush::RaiseLower => "click to raise, right click to lower",
-            mg_area::terrain::Brush::Eraser => "click a tile (Shift + click: its next variant)",
+            mg_area::terrain::Brush::Eraser => {
+                "click a tile (Shift + click: its next variant); right click: the tile menu"
+            }
+            mg_area::terrain::Brush::Appearance { back: false } => {
+                "click a tile for another of its kind; right click: the tile menu"
+            }
+            mg_area::terrain::Brush::Appearance { back: true } => {
+                "click a tile for the one before of its kind; right click: the tile menu"
+            }
+            mg_area::terrain::Brush::Rotate => {
+                "click a tile to turn it a quarter (Shift: clockwise); right click: the tile menu"
+            }
             mg_area::terrain::Brush::Refine if b.target.is_some() => {
                 "click a tile, or drag, to make those it fits the tile chosen"
             }
@@ -1919,7 +1937,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             mg_area::terrain::Brush::Tile(_) => {
                 "click or drag to place this tile, right click to turn it"
             }
-            _ => "click a corner",
+            _ => "click a corner; right click: the tile menu",
         };
         let at = crate::terrain_mode::status(view).unwrap_or_default();
         format!("{}: {how}; Escape: stop. {at}", b.label)
@@ -3069,7 +3087,12 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     // (Shift + wheel sizes the placeable brush, rather than zooming.)
     let scaling = crate::paint_mode::wheel(app, ui, response) || scaling;
     app.area_hovered |= response.hovered();
+    let was_tile_mode = view.tile_mode;
     camera_input(ui, view, response, (alt, shift), command, &app.keymap, scaling);
+    // F10 into tile mode: the tile brush is put down (it would sit on top).
+    if view.tile_mode && !was_tile_mode {
+        app.palette.tile_brush = None;
+    }
     // (Asked of each kind only when that is what is dragged: asking takes
     // the payload, whatever it is.)
     type Blueprint = crate::palette_view::Dragged;
@@ -3118,6 +3141,19 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         }
     }
     if crate::terrain_mode::input(app, ui, view, response) {
+        // A right click with a brush that has none of its own: the tile
+        // menu, the brush kept (Aurora's right click puts it down; here
+        // the menu's first item and Escape do).
+        if crate::terrain_mode::active(app, view)
+            .is_some_and(|b| crate::terrain_mode::menu_on_right_click(&b))
+            && !view.camera_press
+        {
+            if response.secondary_clicked() {
+                view.tile_menu_at = response.interact_pointer_pos();
+            }
+            let at = view.tile_menu_at;
+            response.context_menu(|ui| crate::tile_select::context_menu(app, view, ui, at));
+        }
         return;
     }
     if crate::paint_mode::input(app, ui, view, response) {
@@ -3340,6 +3376,13 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     }
     if response.secondary_clicked() {
         view.menu_at = response.interact_pointer_pos().and_then(|p| view.ground_at(p, 0.0));
+        // On the ground with no object there: the tile's items too (as
+        // Aurora's menu has Tile Properties for a tile).
+        view.menu_tile = response
+            .interact_pointer_pos()
+            .filter(|p| view.pick(*p).is_none())
+            .and_then(|p| crate::tile_select::tile_at(view, p))
+            .filter(|_| view.terrain.is_some());
     }
     response.context_menu(|ui| context_menu(app, view, ui));
 
@@ -4648,6 +4691,10 @@ fn set_locked(
 /// location and tests from here; last, as in Aurora, Variables and
 /// Properties.
 fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
+    // Opened on a tile, no object there: the tile's items first.
+    if let Some(t) = view.menu_tile {
+        crate::tile_select::ground_items(app, view, ui, t);
+    }
     let single = match view.selection.as_slice() {
         [one] => Some(*one),
         _ => None,
