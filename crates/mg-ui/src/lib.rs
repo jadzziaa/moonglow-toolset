@@ -2137,7 +2137,7 @@ impl Moonglow {
                     ui.horizontal_wrapped(|ui| {
                         ui.label(text);
                         if offer.made {
-                            ui.add_enabled(false, egui::Button::new("✓ Fixed").small())
+                            ui.add_enabled(false, egui::Button::new("✔ Fixed").small())
                                 .on_disabled_hover_text(&offer.fix.label);
                             return;
                         }

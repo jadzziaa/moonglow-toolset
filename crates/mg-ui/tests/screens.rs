@@ -3440,3 +3440,58 @@ fn store_wizard_by_the_project_and_duplicate_tags() {
         }
     }
 }
+
+/// Verify Module's report with a fix beside its findings: a plugin's
+/// (the tag-conventions fixture's) and the doctor's (a unique tag on two
+/// waypoints); then one made.
+#[test]
+#[ignore]
+fn verify_fixes() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let work = mg_testkit::scratch_dir("screens-verify-fixes").join("chess");
+    let mut m = mg_module::Module::open(&root.join("data/mod/Neverwinter Chess.mod")).unwrap();
+    let area = ResKey::parse("chess", ResType::GIT).unwrap();
+    let mut g = m.gff(&area).unwrap().unwrap();
+    let mut w = mg_gff::Struct::new(5);
+    w.set("Tag", mg_gff::Value::String(b"TDOD_START_KREZK".to_vec()));
+    w.set("XPosition", mg_gff::Value::Float(1.0));
+    w.set("YPosition", mg_gff::Value::Float(1.0));
+    g.root.set("WaypointList", mg_gff::Value::List(vec![w.clone(), w]));
+    m.set_gff(area, &g).unwrap();
+    // (The chess pieces' tags upper case: one finding of the plugin's.)
+    let pieces: Vec<ResKey> = m.keys().filter(|k| k.restype == ResType::UTC).copied().collect();
+    for key in pieces {
+        let mut piece = m.gff(&key).unwrap().unwrap();
+        let tag = piece.root.string("Tag").unwrap_or_default().to_ascii_uppercase();
+        piece.root.set("Tag", mg_gff::Value::String(tag));
+        m.set_gff(key, &piece).unwrap();
+    }
+    let mut guard = mg_gff::Gff::new(*b"UTC ");
+    guard.root.set("Tag", mg_gff::Value::String(b"gate_guard".to_vec()));
+    m.set_gff(ResKey::parse("guard", ResType::UTC).unwrap(), &guard).unwrap();
+    m.save_as(&mg_module::ModuleLocation::Folder(work.clone())).unwrap();
+    std::fs::write(work.join("moonglow.toml"), "[tags]\nunique = [\"TDOD_START_*\"]\n").unwrap();
+
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.open_module(&work);
+    app.plugin_dir = Some(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../mg-plugin/tests/fixtures"),
+    );
+    app.load_plugins();
+    app.enable_plugin("example.tag-conventions", true);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.state_mut().log.clear();
+    h.state_mut().actions.push(mg_ui::Action::Verify);
+    h.run();
+    shoot(&mut h, &dir, "verify-fixes");
+    h.get_all_by_label("Upper-case this tag").next().unwrap().click();
+    h.run();
+    shoot(&mut h, &dir, "verify-fixed");
+}

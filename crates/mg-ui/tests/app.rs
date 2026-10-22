@@ -16749,7 +16749,7 @@ fn a_finding_s_fix_is_made_when_its_button_is_clicked() {
     assert_eq!(tag(&mut h), "GATE_GUARD");
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Upper-case this tag"));
     assert!(h.state().log.fix_at(line).unwrap().made);
-    h.get_by_label("✓ Fixed");
+    h.get_by_label("✔ Fixed");
     // Undone, and verified again: then changed by hand, its fix is
     // refused, and says why.
     h.state_mut().actions.push(mg_ui::Action::Undo);
