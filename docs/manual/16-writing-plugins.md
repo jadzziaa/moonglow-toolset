@@ -3,7 +3,7 @@ type: Manual Page
 title: Writing plugins
 description: Writing plugins - a first plugin, how a plugin runs (events too, a resource's own around a save and the after-create hook), the manifest, reading and editing the module, commands on what is selected, the game's data, talking to the user, settings (ctx.settings, their scopes and where each is kept), files and haks outside the module, areas and terrain, checks and the fixes of their findings, several files, trying and testing (a plugin's own tests, mg plugin test), editor types, versions, sharing, and a project's own plugins.
 tags: [manual, plugins, luau]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T11:37:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T19:51:35Z }
 ---
 
 # Writing plugins
@@ -314,6 +314,12 @@ guard.Nothing                  -- nil: no such field
   `strref` if it has a talk-table reference.
 - The table is a copy: changing it changes nothing. Edits are made with
   `ctx.edit`.
+- A struct's id is kept beside its table, not in it: `mg.struct_id(s)`
+  (since Moonglow 2.1.1). An equipped item's is its slot (`for _, e in
+  guard.Equip_ItemList do local slot = mg.struct_id(e) … end`), so its
+  fields are all the table holds, whatever they are labeled, and a copy
+  of it for `ctx.edit:insert` gets the id as `__struct_id =
+  mg.struct_id(e)`.
 - Field names are the file format's (`Tag`, `ClassList`, `ScriptSpawn`),
   as `mg gff` prints them. The console shows a resource's fields:
   `return ctx.module:gff("guard.utc")`.

@@ -1057,6 +1057,25 @@ fn api(lua: &Lua) -> mlua::Result<Table> {
             None => Ok(None),
         })?,
     )?;
+    // A struct's id: kept beside a `gff` table (in its metatable, as its
+    // path is), never in it, so that no field's label can be taken for it
+    // and the table's fields are its fields alone; a `raw` struct's
+    // `__struct_id`.
+    mg.set(
+        "struct_id",
+        lua.create_function(|_, t: Table| {
+            if let Some(meta) = t.metatable()
+                && let Some(id) = meta.raw_get::<Option<f64>>("struct_id")?
+            {
+                return Ok(Some(id));
+            }
+            match t.raw_get::<LuaValue>("__struct_id")? {
+                LuaValue::Integer(i) => Ok(Some(i as f64)),
+                LuaValue::Number(n) => Ok(Some(n)),
+                _ => Ok(None),
+            }
+        })?,
+    )?;
     Ok(mg)
 }
 

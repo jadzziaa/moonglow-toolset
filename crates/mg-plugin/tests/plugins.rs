@@ -465,6 +465,65 @@ fn values_written_by_hand_are_read_as_meant() {
     assert_eq!(guard.root.get("Tag"), Some(&Value::String(b"ROOT".to_vec())));
 }
 
+/// A struct read with `gff` has its id beside it (`mg.struct_id`), not
+/// among its fields: a field may have any label, `__struct_id` too, and
+/// a table built from one goes into an edit with the fields it has.
+#[test]
+fn a_struct_s_id_is_read_beside_its_fields() {
+    let dir = mg_testkit::scratch_dir("plugin-struct-id");
+    std::fs::write(
+        dir.join("plugin.cfg"),
+        "[plugin]\nid = \"test.ids\"\nname = \"Ids\"\nversion = \"1\"\napi = \"0.4\"\n\
+         license = \"GPL-3.0-or-later\"\n[command]\nid = \"ids\"\ntitle = \"Ids\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("main.luau"),
+        r#"
+        local mg = require("@moonglow")
+        mg.command("ids", function(ctx)
+            local guard = ctx.module:gff("guard.utc")
+            local class = guard.ClassList[1]
+            assert(mg.struct_id(class) == 2, "a list's item")
+            assert(mg.struct_id(guard) == 4294967295, "the root")
+            local labels = {}
+            for label in class do
+                table.insert(labels, label)
+            end
+            table.sort(labels)
+            assert(table.concat(labels, ",") == "Class,ClassLevel", table.concat(labels, ","))
+            assert(mg.struct_id(ctx.module:raw("guard.utc", "/ClassList[0]")) == 2, "raw")
+            assert(mg.struct_id({}) == nil and mg.struct_id({ Class = 4 }) == nil)
+            -- A field so labeled is a field, and the id still the struct's.
+            ctx.edit:set("guard.utc", mg.path(class) .. "/__struct_id", mg.int(7))
+            local again = ctx.module:gff("guard.utc").ClassList[1]
+            assert(again.__struct_id == 7 and mg.struct_id(again) == 2)
+            -- A copy of it, as an item of its id with its fields.
+            ctx.edit:insert("guard.utc", "/ClassList", {
+                __struct_id = mg.struct_id(class),
+                Class = mg.int(class.Class + 1),
+                ClassLevel = mg.short(class.ClassLevel),
+            })
+            ctx.edit:set("guard.utc", mg.path(class) .. "/ClassLevel", class.ClassLevel + 1)
+        end)
+        "#,
+    )
+    .unwrap();
+    let host = Rc::new(TestHost::default());
+    let outcome = run(&Plugin::load(&dir).unwrap(), "ids", &host).unwrap();
+    let mut ws = applied(outcome.edits);
+    ws.flush().unwrap();
+    let guard = ws.module.gff(&key("guard.utc")).unwrap().unwrap();
+    let classes = guard.root.list("ClassList").unwrap();
+    assert_eq!(classes.len(), 2);
+    assert_eq!(classes[0].get("ClassLevel"), Some(&Value::Short(4)));
+    let copy = &classes[1];
+    assert_eq!(copy.id, 2);
+    let labels: Vec<String> = copy.fields.iter().map(|f| f.label.to_string_lossy()).collect();
+    assert_eq!(labels, ["Class", "ClassLevel"], "no field for the id");
+    assert_eq!(copy.get("Class"), Some(&Value::Int(5)));
+}
+
 /// The game's own data, where there is an install: a 2DA's cells by row
 /// and column, a talk-table string, a resource the game would load.
 #[test]

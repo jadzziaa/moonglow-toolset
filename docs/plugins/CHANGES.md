@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T12:25:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T19:51:35Z }
 ---
 
 # Plugin API changes
@@ -117,6 +117,17 @@ events, and says an earlier API is refused, with the reason.
   save's handler to what it says (`warned`, `refused`); `mg plugin list`
   says what each event does. The `house-rules` example has all three.
 - From the Domains of Dread's builder proposal (A1 to A6, and A8).
+
+Since Moonglow 2.1.1, still as API 0.4 (only additions: a plugin that
+says `api = "0.4"` runs as it did):
+
+- `mg.struct_id(struct)`: a struct's id, of a table read with `gff`
+  (where it is kept beside the table, as its path is, so that its
+  fields are all the table holds) or with `raw` (its `__struct_id`). An
+  equipped item's is its slot, which needed `raw` before.
+- A test's `[[test.field]]` may name a list's item (`Equip_ItemList[2]`):
+  there, or gone with `absent = true`.
+- From the Domains of Dread's notes on setting up their project.
 
 ## 0.3
 
