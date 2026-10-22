@@ -3,7 +3,7 @@ type: Proposal
 title: 'Plugins: a proposal'
 description: The decision record of Moonglow's plugins, proposed and accepted 2026-10-03 - what plugins are for, the principles, safety, the runtimes compared and why sandboxed Luau, the decisions and what was not proposed - with what shipped noted beside it. The API as it is now is in the manual and the API change list.
 tags: [plugins, proposal, luau, api, decision]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:41:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T11:37:43Z }
 ---
 
 # Plugins: a proposal
@@ -19,8 +19,9 @@ not the description of the API and not the list of what is planned:
   terrain, and pictures; API 0.3 (1.21.0) added 2DAs and talk tables,
   files written into a chosen folder, and events; API 0.4 (not yet in a
   release) what is selected and open, commands in right-click menus,
-  fixes for findings, a plugin's own tests, settings, and a project's
-  own plugins. For users:
+  fixes for findings, a plugin's own tests, settings, a project's own
+  plugins, a resource's own events around a save, and events on objects
+  placed or pasted and on what a wizard makes. For users:
   [Plugins](manual/15-plugins.md). For authors:
   [Writing plugins](manual/16-writing-plugins.md), the
   [Plugin API reference](manual/17-plugin-api.md), the
@@ -139,8 +140,10 @@ that carried enabled plugins installed a trojan (April 2026).
   folder or into a folder the user chose, by name, after the user allows
   each. It still never gets a path to roam from.
 - **Limits.** Proposed: a memory cap and a time budget per job, with
-  Cancel. Shipped: a memory cap (256 MB) and Cancel; there is no time
-  budget. A plugin's error is caught and logged with its name; it does
+  Cancel. Shipped: a memory cap (256 MB) and Cancel; and (API 0.4) a
+  time budget, 5 seconds, for the events that run within what the user
+  does (a save waits for them), none for a command, which the user
+  starts and can cancel. A plugin's error is caught and logged with its name; it does
   not take the application down.
 - **Off until enabled.** Each plugin is enabled by the user, who sees
   what it adds. Content (a module, a hak) never carries plugins. (Since
@@ -161,6 +164,16 @@ that carried enabled plugins installed a trojan (April 2026).
   it offers a finding (0.4) is edits recorded, made only when the user
   clicks its button (or names its check to `mg verify --fix`), as one
   step of Undo, and only on what Verify read.
+- **An event's edits on the user's word** (0.4). A paste, a placing or
+  a wizard's Finish is the user's own action: a plugin's handler may
+  edit what it made, and its edits go into that action's command, said
+  in the log and taken back with it by one Undo. A save is not an edit:
+  it writes what the user sees, so around a save a plugin only reads.
+  It may warn (the user is asked before anything is written), refuse
+  (the save stops, saying why) and offer a fix the user makes; a plugin
+  that fails or runs out of time is a warning, never a refusal, so a
+  broken plugin can't keep a module from being saved. What a plugin
+  makes itself fires no event.
 
 External programs (the later tier, not started) cannot be sandboxed on
 every system. They would be marked as running with the user's rights,

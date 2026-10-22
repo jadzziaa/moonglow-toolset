@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Plugins
-description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, a project's own plugins (asked about when the project is opened), a plugin's settings, commands, checks and the fixes beside their findings, the console, the command line and when something goes wrong.
+description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, a project's own plugins (asked about when the project is opened), a plugin's settings, commands, checks and the fixes beside their findings, what plugins do by themselves (before a save, on a paste, on what a wizard makes), the console, the command line and when something goes wrong.
 tags: [manual, plugins]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:41:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T11:37:42Z }
 ---
 
 # Plugins
@@ -45,9 +45,12 @@ A plugin's code runs in a sandbox. It can:
   it asks the first time it writes into each folder. Files of the same
   names there are replaced, and no copy of them is kept. It writes into
   that folder only, never into a folder inside it or above it;
-- act by itself when a module is opened or saved, if it says so (the
-  Plugins window lists what each plugin does by itself). What it does
-  then is a change like a command's, which Undo takes back; where it
+- act by itself, if it says so (the Plugins window lists what each
+  plugin does by itself): when a module is opened or saved; before a
+  save, to warn of what it would write or stop it; and when you place
+  or paste objects, or a wizard makes something
+  ([below](#what-plugins-do-by-themselves)). What it changes then is a
+  change like a command's, which Undo takes back; where it
   asks for a folder or for leave to write, it asks once, not at every
   save: what you allowed is kept between runs (for that version of the
   plugin), the Plugins window says how much, and **Forget** there makes
@@ -233,6 +236,41 @@ again. Moonglow's own checks have fixes where the right change is plain
 (a tag that is to be unique: the others retagged; an area's variables
 in its ARE: moved to its GIT).
 
+## What plugins do by themselves
+
+A plugin may act on what you do, as its manifest says (Manage Plugins
+lists it: "By itself, before a save, reads each resource it writes
+(are): may warn of one, or stop the save").
+
+**Before a save.** A plugin may read what the save would write, each
+resource as it was and as it will be, and hold it to a team's rules (an
+area's tag that players' places are kept by, say). If it has something
+to say, nothing is written yet: a window lists it. A **warning** is
+yours to weigh: **Save Anyway** writes the module as it is, **Cancel**
+writes nothing. A **refusal** stops the save: the window says why, and
+**Close** leaves the module unsaved. Beside either, a plugin may offer a
+fix (Put back TAVERN); clicking it makes the change, as a step Edit ›
+Undo takes back, and saves again, the plugins reading the module as it
+now is. Before a save a plugin never changes the module itself: you
+save what you see. A plugin that fails, or takes longer than it may (5
+seconds), is a warning in that window ("could not check the save"),
+never a refusal, so a broken plugin never keeps you from saving
+(disable it in Manage Plugins). After a save, a plugin may read what
+was written (to copy it somewhere you chose, say).
+
+**On a paste, and on what a wizard makes.** When you place or paste
+objects in an area, or a wizard (area, creature, item, placeable,
+door…), Add to Palette, Setup Store or Copy makes something, a plugin
+may change what was made at once: give a pasted waypoint a tag of its
+own, put the team's variable on a new area. Moonglow's own work comes
+first (your builder code in the ResRef, the project's store script),
+the plugin's after, and both are **one step of Undo**: one Edit › Undo
+takes back the paste and what the plugin did to it. The log says what
+each plugin changed. Moonglow's warning of a tag a paste doubled comes
+after the plugins, so a tag a plugin made the copy's own is not
+reported. A plugin that fails there is said in the log, and what you
+made is as Moonglow made it.
+
 ## The console
 
 Manage Plugins has a **Console**: a place to try the plugin API on the
@@ -262,7 +300,8 @@ resource's fields are called (`return ctx.module:gff("guard.utc")`).
 ```text
 mg plugin list ~/.local/share/moonglow/plugins
 mg plugin run mymodule.mod plugins/tag-conventions fix-tags --dry-run
-mg plugin run mymodule.mod plugins/my-plugin on-save --event --changed guard.utc
+mg plugin run mymodule.mod plugins/house-rules area-tags --event --was last-release.mod
+mg set mymodule.mod tavern.are Tag=INN --plugins plugins/house-rules
 mg plugin run mymodule.mod plugins/set-local set-local --select "tavern.git/Placeable List[3]" --answer name=role --answer value=workbench
 mg verify mymodule.mod --plugins plugins/tag-conventions
 mg verify mymodule.mod --plugins plugins/tag-conventions --fix example.tag-conventions/tag-case
@@ -286,7 +325,12 @@ keeps none of yours (those of scope "user"). It applies a command's
 edits as given (an item's cost is not recomputed).
 `mg verify` makes a finding's fix only when `--fix` names its check, and
 `mg plugin test` runs a plugin's own tests
-([Writing plugins](16-writing-plugins.md#a-plugins-own-tests)).
+([Writing plugins](16-writing-plugins.md#a-plugins-own-tests)). `mg
+set` and `mg apply` ask the plugins `--plugins` names, and the
+project's as you allowed them, before they save: a refusal is an error
+and nothing is written, a warning is said and the save goes on. `mg`
+has no wizards and no paste, so a plugin's handler of those runs only
+by hand (`mg plugin run --event`).
 
 ## When something goes wrong
 

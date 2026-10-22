@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Plugin API reference
-description: Reference of the plugin API - mg, findings and their fixes (ctx.fix), ctx.selection and ctx.open, ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, ctx.settings, Luau, limits and what the API doesn't have yet.
+description: Reference of the plugin API - mg, findings and their fixes (ctx.fix), ctx.selection and ctx.open, ctx.event (the events, a resource's own around a save, objects placed or pasted, resources made, and what a handler may edit), ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, ctx.settings, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:26:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T11:37:42Z }
 ---
 
 # Plugin API reference
@@ -32,7 +32,7 @@ nothing, and a check is reported as failed.
 | `mg.api` | The plugin API of the Moonglow running, as text: `"0.4"`. |
 | `mg.command(id, handler)` | Registers the function for the command the manifest declares as `id`. `handler(ctx)` makes its edits with `ctx.edit`. It may return what Undo calls the change, as `{ label = "…" }` or the text alone; else that is the command's title. |
 | `mg.check(id, handler)` | Registers the function for the check the manifest declares as `id`. `handler(ctx)` returns a list of findings (below), or nothing for none. A check that edits fails. |
-| `mg.on(id, handler)` | Registers the function for the event the manifest declares as `id` (`[event]`, with `on = "module-opened"` or `"module-saved"`). `handler(ctx)` is called when it happens, as a command's is; `ctx.event` says what happened: `ctx.event.name`, and for a save `ctx.event.resources`, the names of the resources changed since the last save. It may return what Undo calls its change. |
+| `mg.on(id, handler)` | Registers the function for the event the manifest declares as `id` (`[event]`, its `on` one of the events of [`ctx.event`](#ctxevent)). `handler(ctx)` is called when it happens, as a command's is, with what happened as `ctx.event`: `ctx.event.name`, and what the event is of. It may return what Undo calls its change. |
 | `mg.image(bytes, kind?)` | A picture decoded, as an `image` (below): a PNG, a TGA or a DDS, told apart by how the bytes start, or by `kind` (`"png"`, `"tga"`, `"dds"`). |
 | `mg.twoda` | 2DAs made, read and written: `parse(bytes)`, `new(columns)` and `kinds(name)` (below). |
 | `mg.tlk` | Talk tables made, read and written: `parse(bytes)` and `new()` (below). |
@@ -53,12 +53,13 @@ A **finding** is a table:
 
 ### `ctx.fix`
 
-A check's handler gets `ctx.fix` too (since API 0.4; a command's and an
-event's do not):
+A check's handler gets `ctx.fix` too, and so does a `resource-saving`
+handler, whose warnings and refusals may carry one (since API 0.4; a
+command's and other events' do not):
 
 | | |
 | --- | --- |
-| `ctx.fix(label)` | A fix to give a finding (`fix = …`): `label` is what its button says ("Upper-case this tag"). Called with a dot. |
+| `ctx.fix(label)` | A fix to give a finding (`fix = …`), or a warning or a refusal of a save (`ctx.event:warn(text, fix)`): `label` is what its button says ("Upper-case this tag"). Called with a dot. |
 | `fix.label` | Its label. |
 | `fix:set`, `fix:remove`, `fix:insert`, `fix:remove_item`, `fix:write`, `fix:write_bytes`, `fix:write_gff`, `fix:delete` | As `ctx.edit`'s (below), with the same arguments: each records an edit of the fix. Nothing is changed: the user makes the fix (Verify's button, `mg verify --fix`), as one step of Undo named by its label. |
 
@@ -130,6 +131,92 @@ An entry:
 The entries are what was selected when the job began; its own edits
 don't change them (a placed object deleted by `ctx.edit:remove_item`
 leaves those after it a place lower in their list).
+
+## `ctx.event`
+
+What happened, in an event's handler (`mg.on`). The manifest's
+`[event]` names the event (`on`), and may narrow it: `types`, for a
+save's events, the types of resource (`"are, git"`), and `for`, for
+objects placed or pasted and resources made, kinds of object or `area`
+(as a command's `for`). A handler is not called for what it is not for,
+and none of the plugin's code runs when nothing is.
+
+| Event | When | Called | Its edits |
+| --- | --- | --- | --- |
+| `module-opened` | a module is opened | once | one step of Undo, after |
+| `module-saved` | the module was saved | once | one step of Undo, after the save (the module has unsaved changes again) |
+| `resource-saving` (0.4) | a save is about to write | for each resource it writes | none: it warns, refuses, offers fixes |
+| `resource-saved` (0.4) | a save wrote | for each resource it wrote | none |
+| `object-placed` (0.4) | objects are placed in an area: from a palette, the Placeable Gallery, a light, Create Waypoint, Setup Store's store | once | in the placing's own step of Undo |
+| `object-pasted` (0.4) | objects are pasted into an area (a prefab too) | once | in the paste's own step of Undo |
+| `resource-created` (0.4) | a wizard (area, creature, item, placeable, door…), Add to Palette, Setup Store or a copy (Copy As) makes resources | for each resource made | in the making's own step of Undo |
+
+| | |
+| --- | --- |
+| `ctx.event.name` | The event's name (`"resource-saving"`). |
+| `ctx.event.resources` | `module-saved`: the names of the resources not as they were at the last save (or when the module was opened). `resource-saving`, `resource-saved`: every resource the save writes. |
+| `ctx.event.resource` | The resource the handler is called for (`"tavern.are"`): of a save, or made. |
+| `ctx.event.kind` | What that resource is: `"area"`, `"creature"`… (as a selection's `kind`), else its type (`"nss"`, `"dlg"`). |
+| `ctx.event.old` | Of a save: the resource as it was, a GFF as plain values (as `ctx.module:gff` reads one) and another as text; nil for one the save writes for the first time. As it was is as its file was last read or saved; for a module kept in one file, as it was when last saved or opened. Read when first used. |
+| `ctx.event.new` | Of a save: the resource as the save writes it (the script editors' unsaved text too), in the same forms; nil for one it deletes. `ctx.module` reads the whole module so. |
+| `ctx.event.changed` | Of a save: for a GFF that was there and still is, what differs, as lines (`/Tag: cexostring "TAVERN" != cexostring "INN"`, at most 100); else nil. |
+| `ctx.event.made` | `resource-created`: every resource the user's action made (an area by its ARE, a script by its source). |
+| `ctx.event.objects` | `object-placed`, `object-pasted`: the objects (of the kinds `for` names), each an entry as `ctx.selection`'s (`resource`, `path`, `kind`, `index`, `tag`, `resref`…). |
+| `ctx.event.area` | Their area's resref. |
+| `ctx.event.by` | What made the objects or the resources: `"wizard"`, `"add-to-palette"`, `"setup-store"`, `"copy"`, `"palette"`, `"gallery"`, `"light"`, `"create-waypoint"` or `"paste"`. |
+| `ctx.event:warn(text, fix?)` | `resource-saving`: a warning of the resource. Before anything is written the user sees it, with its fix (made with `ctx.fix`) as a button, and chooses Save Anyway or Cancel. |
+| `ctx.event:refuse(text, fix?)` | `resource-saving`: the save stops before anything is written, and the user is told why, with the fix if there is one. |
+
+**Edits: on the user's word.** A plugin changes the module only on the
+user's word, and that decides what an event's handler may do. A paste,
+or a wizard's Finish, is the user's own action: what a plugin's handler
+adds to it is part of that action, said in the log ("House rules:
+object-pasted changed 1 resource with Paste (one Undo takes both
+back)") and undone with it, as one step. A save is not an edit: it
+writes what the user sees, and a plugin changing the module under it
+would write what nobody saw. So around a save a plugin only reads: a
+`resource-saving` or `resource-saved` handler that edits fails (as one
+that sets a setting before a save does), and what it would change it
+offers as a fix, made only if the user clicks it. A fix made from the
+Before saving window is a step of Undo of its own, and the save is then
+asked again: the plugins read the module as it now is.
+
+**In what order.** Moonglow's own work comes first: the builder code in
+a new ResRef, the project's script and tag for Setup Store (the
+project's `moonglow.toml`). The plugins' handlers then see what Moonglow
+made, each in the order of the Plugins window and seeing the edits of
+those before it. The warning of a tag a paste doubled comes last, and
+sees what the plugins did: a tag a plugin made the copy's own is not
+doubled.
+
+**At once.** `resource-saving`, `object-placed`, `object-pasted` and
+`resource-created` run at once, within what the user does: a save waits
+for them, a paste goes in with their edits. Each plugin's handlers of
+one event have 5 seconds (all of a save's resources together); past
+that, the handler is stopped. Nobody is asked anything
+(`ctx.ui:confirm` is false, a form nil, no file or folder is given),
+and nothing is written outside the module (a hak, a folder: the
+handler fails). A handler that fails, or runs out of time, is said in
+the log; its edits are left out, and the paste or the making goes on as
+Moonglow made it. Before a save it is a warning ("could not check the
+save"), never a refusal: a broken plugin can't keep a module from being
+saved (Manage Plugins disables it). `module-opened`, `module-saved` and
+`resource-saved` run afterwards, as jobs, as a command does.
+
+**What fires none:** what a plugin makes itself (its command's
+`ctx.terrain:new_area`, `ctx.edit:write_gff`), Save As (to another
+place), an import, the Script Wizard and New Script, a NUI window, and
+`mg`'s own work but for a save.
+
+**With `mg`.** `mg set` and `mg apply` run the `resource-saving` and
+`resource-saved` handlers of the plugins `--plugins` names and of the
+project's own plugins as the builder allowed them: a refusal is an error
+and nothing is written; a warning is said, and the save goes on (the
+JSON's `said` has each). `mg` makes nothing by a wizard or a paste, so
+the other events fire there only by hand: `mg plugin run --event` runs
+any event's handler, with `--changed` naming the resources (of a save,
+or made), `--was MODULE` the module as it was before a save, `--select`
+the objects placed or pasted, and `--by` what made them.
 
 ## `ctx.module`
 
@@ -430,6 +517,9 @@ reached only through what the user chooses (`ctx.ui:open_file`,
 ## Limits
 
 - A job has 256 MB of memory; past that it fails.
+- The handlers of an event that runs at once, within what the user
+  does (a save, a paste, a wizard's Finish), have 5 seconds; past that
+  they are stopped ([`ctx.event`](#ctxevent)).
 - A job is stopped when the user cancels; no `pcall` catches that.
 - Nothing is kept between jobs but the plugin's settings
   (`ctx.settings:set`). A plugin runs when its command is chosen, when
@@ -440,8 +530,8 @@ reached only through what the user chooses (`ctx.ui:open_file`,
 
 ## What the API doesn't have yet
 
-Plugins can't yet react to other events than a module opened or saved
-(a single resource saved, the selection changed, an area opened), add
+Plugins can't yet react to the selection changed, an area opened or a
+field typed into, warn of a paste or refuse one, add
 panels or their own editors, draw in the area view, change what is
 selected, write files other than haks and those of a folder the user
 chose, or read a file a setting's path names. These are planned for later versions of the API; what

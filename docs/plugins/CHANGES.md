@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:41:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T11:37:42Z }
 ---
 
 # Plugin API changes
@@ -16,13 +16,21 @@ to change.
 
 ## 0.4
 
-Not yet in a release. Only additions: a
+Not yet in a release. In short: a plugin learns what the user is
+working on (the selection, what is open) and is offered in the menus of
+what it is for; it comes with a project; it keeps settings; a check
+offers fixes; a plugin has tests of its own; and it acts on what the
+user does: before a save (warning of it or refusing it), and on what a
+paste, a placing or a wizard makes (editing it within the same step of
+Undo).
+
+Only additions: a
 plugin written for 0.1, 0.2 or 0.3 runs as it is (its `ctx` has the new
 fields too, `selection`, `open` and `settings`, and a check's `fix`;
 nothing it had changed, but for a finding's `fix`, below). A plugin that
 uses what is new says `api = "0.4"`; a manifest that gives a command a
-`for`, or declares a `[setting]`, and says an earlier API is refused,
-with the reason.
+`for`, declares a `[setting]`, or an `[event]` on one of the new
+events, and says an earlier API is refused, with the reason.
 
 - `ctx.selection`: what a command is run on, a list of entries that each
   say what it is (`kind`: `"placeable"`, `"area"`…; `blueprint`;
@@ -76,7 +84,39 @@ with the reason.
   plugins as the builder allowed them, or every one with
   `--allow-project-plugins`; `mg plugin list --project` lists them and
   `mg plugin allow` answers for them.
-- From the Domains of Dread's builder proposal (A1, A2, A3, A5, A8).
+- A resource's own events: `on = "resource-saving"` (before a save,
+  for each resource it would write: `ctx.event.resource`, its `kind`,
+  `old` and `new` as plain values or text, `changed` as lines; the
+  handler warns, `ctx.event:warn(text, fix?)`, which the user is asked
+  about before anything is written, or refuses, `ctx.event:refuse(text,
+  fix?)`, which stops the save; a fix is one made with `ctx.fix`) and
+  `"resource-saved"` (after, for each resource written). Around a save
+  a plugin only reads: a handler of either that edits fails. A manifest
+  narrows them to types of resource with `types = "are, git"`.
+- Objects placed or pasted: `on = "object-placed"` and
+  `"object-pasted"` (`ctx.event.objects`, entries as a selection's;
+  `ctx.event.area`, `ctx.event.by`), narrowed with `for` as a command
+  is. Their edits are part of the placing's or the paste's own step of
+  Undo.
+- The after-create hook: `on = "resource-created"`, for each resource a
+  wizard (area, creature, item, placeable, door…), Add to Palette, Setup
+  Store or a copy makes (`ctx.event.resource`, `kind`, `made`, `by`),
+  narrowed with `for`; it may edit what was made at once, in the same
+  step of Undo, after Moonglow's own work (the builder code, the
+  project's store rules).
+- The events that run within what the user does (all but those after a
+  save, and `module-opened`) have a time budget of 5 seconds a plugin,
+  nobody to ask and nothing written outside the module; one that fails
+  is said and left out (before a save, a warning: never a refusal).
+- `ctx.event.resources` is also every resource a save writes, for a
+  resource saving or saved.
+- With `mg`: `mg set` and `mg apply` take `--plugins` and run the save's
+  events (a refusal is an error, nothing written); `mg plugin run
+  --event` runs the new events' handlers (`--was`, `--select`, `--by`);
+  a plugin's tests take `was`, `by`, `select` for an event, and hold a
+  save's handler to what it says (`warned`, `refused`); `mg plugin list`
+  says what each event does. The `house-rules` example has all three.
+- From the Domains of Dread's builder proposal (A1 to A6, and A8).
 
 ## 0.3
 
