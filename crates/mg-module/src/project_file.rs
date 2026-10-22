@@ -331,6 +331,11 @@ pub struct ProjectFile {
     /// code (none: [`DEFAULT_PATTERN`]).
     pub resref_pattern: Option<String>,
     pub user: UserSettings,
+    /// The team's described variables (`variables.toml` beside the
+    /// team's file): none without it.
+    pub variables: crate::var_desc::Variables,
+    /// Whether `variables.toml` is there and was read.
+    pub variables_found: bool,
     /// What was not understood, which leaves the rest as it reads:
     /// `moonglow.toml:12: "colour" is not a key of [store]`.
     pub warnings: Vec<String>,
@@ -346,33 +351,33 @@ fn stamp(path: &Path) -> Option<(SystemTime, u64)> {
 }
 
 /// The line (from 1) a byte of `source` is on.
-fn line_of(source: &str, at: usize) -> usize {
+pub(crate) fn line_of(source: &str, at: usize) -> usize {
     source.as_bytes()[..at.min(source.len())].iter().filter(|b| **b == b'\n').count() + 1
 }
 
 /// What reads one file: its name, as messages give it, and its text.
-struct Reader<'a> {
-    name: &'a str,
-    source: &'a str,
-    warnings: Vec<String>,
+pub(crate) struct Reader<'a> {
+    pub(crate) name: &'a str,
+    pub(crate) source: &'a str,
+    pub(crate) warnings: Vec<String>,
 }
 
-type Entry<'i> = (&'i Spanned<Cow<'i, str>>, &'i Spanned<DeValue<'i>>);
+pub(crate) type Entry<'i> = (&'i Spanned<Cow<'i, str>>, &'i Spanned<DeValue<'i>>);
 
 /// A table's entries in the order the file has them.
-fn in_order<'i>(t: &'i DeTable<'i>) -> Vec<Entry<'i>> {
+pub(crate) fn in_order<'i>(t: &'i DeTable<'i>) -> Vec<Entry<'i>> {
     let mut entries: Vec<Entry<'i>> = t.iter().collect();
     entries.sort_by_key(|(k, _)| k.span().start);
     entries
 }
 
 impl<'a> Reader<'a> {
-    fn warn(&mut self, at: usize, message: impl std::fmt::Display) {
+    pub(crate) fn warn(&mut self, at: usize, message: impl std::fmt::Display) {
         self.warnings.push(format!("{}:{}: {message}", self.name, line_of(self.source, at)));
     }
 
     /// A section's entries (`[name]`), or none where it is not a table.
-    fn section<'i>(&mut self, (key, value): Entry<'i>) -> Vec<Entry<'i>> {
+    pub(crate) fn section<'i>(&mut self, (key, value): Entry<'i>) -> Vec<Entry<'i>> {
         match value.get_ref() {
             DeValue::Table(t) => in_order(t),
             _ => {
@@ -385,12 +390,12 @@ impl<'a> Reader<'a> {
         }
     }
 
-    fn unknown(&mut self, section: &str, (key, _): Entry) {
+    pub(crate) fn unknown(&mut self, section: &str, (key, _): Entry) {
         let message = format!("\"{}\" is not a key of [{section}]", key.get_ref());
         self.warn(key.span().start, message);
     }
 
-    fn text(&mut self, (key, value): Entry) -> Option<String> {
+    pub(crate) fn text(&mut self, (key, value): Entry) -> Option<String> {
         match value.get_ref() {
             DeValue::String(s) => Some(s.to_string()),
             _ => {
@@ -459,9 +464,10 @@ impl ProjectFile {
     pub fn read(root: &Path) -> ProjectFile {
         let path = root.join(FILE_NAME);
         let user = Self::user_path(root);
+        let described = crate::var_desc::path_in(root);
         let mut p = ProjectFile {
             path: Some(path.clone()),
-            stamps: vec![stamp(&path), stamp(&user)],
+            stamps: vec![stamp(&path), stamp(&user), stamp(&described)],
             ..Default::default()
         };
         for (file, own) in [(&path, false), (&user, true)] {
@@ -484,7 +490,30 @@ impl ProjectFile {
             p.found |= !own;
             p.apply(&name, &source, own);
         }
+        // The team's described variables, a file of their own.
+        match std::fs::read(&described) {
+            Ok(bytes) => {
+                let source = String::from_utf8_lossy(&bytes);
+                p.read_variables(crate::var_desc::FILE_NAME, &source);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => p.errors.push(format!("{}: {e}", described.display())),
+        }
         p
+    }
+
+    /// Reads the described variables' file's text (`variables.toml`):
+    /// what it doesn't understand is a warning, a file that is no TOML an
+    /// error (and none are described).
+    pub fn read_variables(&mut self, name: &str, source: &str) {
+        let mut v = crate::var_desc::Variables::default();
+        match v.apply(name, source, &mut self.warnings) {
+            Ok(()) => {
+                self.variables = v;
+                self.variables_found = true;
+            }
+            Err(e) => self.errors.push(e),
+        }
     }
 
     /// Reads one file's text into these rules (`own`: the builder's file).
@@ -643,7 +672,11 @@ impl ProjectFile {
     pub fn changed(&self) -> bool {
         let Some(path) = &self.path else { return false };
         let root = path.parent().unwrap_or(Path::new("."));
-        let now = vec![stamp(path), stamp(&Self::user_path(root))];
+        let now = vec![
+            stamp(path),
+            stamp(&Self::user_path(root)),
+            stamp(&crate::var_desc::path_in(root)),
+        ];
         now != self.stamps
     }
 

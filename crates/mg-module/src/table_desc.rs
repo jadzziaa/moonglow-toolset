@@ -232,6 +232,49 @@ impl Beside {
     }
 }
 
+/// A script's constants whose names begin with `prefix`, each with its
+/// value: a number as written, or what an expression of whole numbers and
+/// the script's other constants comes to (`A | B`, `1 << 3`); with `text`,
+/// a string constant's text too. And how many could not be worked out (a
+/// function's result).
+pub(crate) fn constants(source: &[u8], prefix: &str, text: bool) -> (Vec<Entry>, usize) {
+    let outline = mg_script::outline::outline(source);
+    // (A constant may be made of others of its script: `A | B`.)
+    let given = |g: &&mg_script::outline::Global| g.is_const || g.value.is_some();
+    let mut known: Vec<(&str, i64)> = Vec::new();
+    for g in outline.globals.iter().filter(given) {
+        if let Some(v) = g.value.as_deref().and_then(|v| evaluate(v, &known)) {
+            known.push((g.name.as_str(), v));
+        }
+    }
+    let (mut entries, mut unread) = (Vec::new(), 0);
+    // (Constants, and the globals given a value: the game's own
+    // `nwscript` declares its constants so, `int DAMAGE_TYPE_ACID =
+    // 16;`.)
+    for g in outline.globals.iter().filter(given).filter(|g| g.name.starts_with(prefix)) {
+        // A number as written, a text or a fraction as it is, or what an
+        // expression of whole numbers comes to.
+        let written = g.value.as_deref().map(str::trim);
+        let quoted = written
+            .filter(|v| text && g.ty == "string" && v.len() >= 2)
+            .and_then(|v| v.strip_prefix('"')?.strip_suffix('"'))
+            .map(str::to_string);
+        let written = written.map(|v| v.trim_matches('"').to_string());
+        let plain = written.filter(|v| whole(v).is_some() || v.parse::<f64>().is_ok());
+        let value = quoted
+            .or(plain)
+            .or_else(|| known.iter().find(|(n, _)| *n == g.name).map(|(_, v)| v.to_string()));
+        match value {
+            Some(value) if !entries.iter().any(|e: &Entry| e.name == g.name) => {
+                entries.push(Entry { name: g.name.clone(), value });
+            }
+            Some(_) => {}
+            None => unread += 1,
+        }
+    }
+    (entries, unread)
+}
+
 /// A cell's or a value's number: an integer as the game reads one (a
 /// sign, decimal or `0x`), with nothing after it. (Wider than the game's
 /// own 32 bits, so that a flag of the highest bit, `0x80000000`, is the
@@ -604,33 +647,10 @@ impl Description {
             let Some(source) = script(from) else {
                 return Err(format!("column {name}: the script {from} was not found"));
             };
-            let outline = mg_script::outline::outline(&source);
-            // (A constant may be made of others of its script: `A | B`.)
-            let given = |g: &&mg_script::outline::Global| g.is_const || g.value.is_some();
-            let mut known: Vec<(&str, i64)> = Vec::new();
-            for g in outline.globals.iter().filter(given) {
-                if let Some(v) = g.value.as_deref().and_then(|v| evaluate(v, &known)) {
-                    known.push((g.name.as_str(), v));
-                }
-            }
-            let mut unread = 0;
-            // (Constants, and the globals given a value: the game's own
-            // `nwscript` declares its constants so, `int DAMAGE_TYPE_ACID =
-            // 16;`.)
-            for g in outline.globals.iter().filter(given).filter(|g| g.name.starts_with(&prefix)) {
-                // A number as written, a text or a fraction as it is, or
-                // what an expression of whole numbers comes to.
-                let written = g.value.as_deref().map(|v| v.trim().trim_matches('"').to_string());
-                let plain = written.filter(|v| whole(v).is_some() || v.parse::<f64>().is_ok());
-                let value = plain.or_else(|| {
-                    known.iter().find(|(n, _)| *n == g.name).map(|(_, v)| v.to_string())
-                });
-                match value {
-                    Some(value) if !entries.iter().any(|e| e.name == g.name) => {
-                        entries.push(Entry { name: g.name.clone(), value });
-                    }
-                    Some(_) => {}
-                    None => unread += 1,
+            let (found, unread) = constants(&source, &prefix, false);
+            for e in found {
+                if !entries.iter().any(|x| x.name == e.name) {
+                    entries.push(e);
                 }
             }
             if unread > 0 {

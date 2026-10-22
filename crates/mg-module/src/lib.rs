@@ -49,6 +49,7 @@ pub mod text;
 pub mod tileset;
 pub mod tlk_alloc;
 pub mod transfer;
+pub mod var_desc;
 pub mod vars;
 pub mod verify;
 
