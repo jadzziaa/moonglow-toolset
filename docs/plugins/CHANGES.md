@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T04:32:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T08:05:23Z }
 ---
 
 # Plugin API changes
@@ -13,6 +13,32 @@ Moonglow runs a plugin only if it has that API; while the API is at 0.x,
 each version may change what the one before had. This file lists each
 version's changes and what a plugin written for the version before has
 to change.
+
+## 0.4
+
+Not yet in a release. Only additions: a
+plugin written for 0.1, 0.2 or 0.3 runs as it is (its `ctx` has the two
+new fields too, and nothing it had changed). A plugin that uses what is
+new says `api = "0.4"`; a manifest that gives a command a `for` and says
+an earlier API is refused, with the reason.
+
+- `ctx.selection`: what a command is run on, a list of entries that each
+  say what it is (`kind`: `"placeable"`, `"area"`…; `blueprint`;
+  `module`), where it is (`resource` and `path`, as `ctx.edit` takes
+  them; `area`, `index`) and its `tag` and `resref`. From a right-click
+  menu, what was clicked; from the Plugins menu, the Command Palette or
+  a key, the objects selected in the area view in front or else the
+  blueprints selected in the palette. Empty in checks and events.
+- `ctx.open`: the area or editor in front, as such an entry, or nil.
+- A command's `for` in the manifest (`for = "placeable, creature"`, or
+  `"area"`): the command is in the right-click menus of those kinds, in
+  the area view, the module tree and the palettes, above the
+  Variables and Properties that end a menu. A command with no `for` is
+  in the Plugins menu alone, as before; one with it is there too.
+- `mg plugin run` takes `--select` (as often as needed: `guard.utc`,
+  `tavern.are`, `tavern.git/Placeable List[3]`) and `--open`, and
+  `mg plugin list` says what each command is for.
+- From the Domains of Dread's builder proposal (A1).
 
 ## 0.3
 

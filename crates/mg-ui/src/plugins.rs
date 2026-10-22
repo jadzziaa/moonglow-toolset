@@ -21,7 +21,7 @@ use mg_plugin::{
 };
 
 use crate::jobs::{Context, Progress};
-use crate::{Level, Moonglow};
+use crate::{Action, Level, Moonglow};
 
 /// A plugin found in the plugins folder: read, or why it could not be.
 #[derive(Debug, Clone)]
@@ -155,6 +155,53 @@ pub struct PluginCommand {
     pub key_id: String,
     /// The key its manifest asks for.
     pub key: Option<String>,
+    /// What it is for: the right-click menus it is in (none: the Plugins
+    /// menu alone).
+    pub targets: Vec<mg_plugin::Target>,
+}
+
+impl PluginCommand {
+    /// Whether it is for every one of `kinds` (and there are some): a
+    /// right-click menu on them has it.
+    pub fn fits(&self, kinds: &[mg_plugin::Target]) -> bool {
+        !kinds.is_empty() && kinds.iter().all(|k| self.targets.contains(k))
+    }
+}
+
+/// The plugins' commands for what a right-click menu is on (`kinds`),
+/// after a separator, as the menu's last group before Variables and
+/// Properties: the one chosen, by its place in `commands`.
+pub(crate) fn menu_commands(
+    ui: &mut egui::Ui,
+    commands: &[PluginCommand],
+    kinds: &[mg_plugin::Target],
+) -> Option<usize> {
+    let mut chosen = None;
+    let mut first = true;
+    for (i, c) in commands.iter().enumerate().filter(|(_, c)| c.fits(kinds)) {
+        if std::mem::take(&mut first) {
+            ui.separator();
+        }
+        let tip = match c.hint.as_str() {
+            "" => format!("A command of the plugin {}", c.plugin_name),
+            hint => format!("{hint}\nA command of the plugin {}", c.plugin_name),
+        };
+        if ui.button(&c.title).on_hover_text(tip).clicked() {
+            chosen = Some(i);
+            ui.close();
+        }
+    }
+    chosen
+}
+
+/// The action that runs `command` on `selected` (what its menu was opened
+/// on).
+pub(crate) fn run_on(command: &PluginCommand, selected: Vec<mg_plugin::Selected>) -> Action {
+    Action::RunPluginCommand {
+        plugin: command.plugin.clone(),
+        command: command.command.clone(),
+        selected,
+    }
 }
 
 /// The plugins enabled now, for a crash report (the panic hook reads it).
@@ -283,7 +330,7 @@ pub(crate) fn check_findings(
                 answers: RefCell::default(),
                 granted: None,
             });
-            let input = Input { module: job.module.clone(), game: job.game.clone() };
+            let input = Input::new(job.module.clone(), job.game.clone());
             match mg_plugin::run_check(plugin, &check.id, input, host) {
                 Ok(found) => findings.extend(found),
                 Err(PluginError::Canceled(_)) => return (findings, said),
@@ -384,14 +431,79 @@ impl Moonglow {
                     hint: c.hint.clone(),
                     key_id: format!("{}/{}", p.manifest.id, c.id),
                     key: c.key.clone(),
+                    targets: c.targets.clone(),
                 })
             })
             .collect()
     }
 
-    /// Runs a plugin's command as a job: its edits go in as one undoable
-    /// command when it is done.
+    /// The enabled plugins' commands that are in right-click menus.
+    pub(crate) fn plugin_menu_commands(&self) -> Vec<PluginCommand> {
+        let mut all = self.plugin_commands();
+        all.retain(|c| !c.targets.is_empty());
+        all
+    }
+
+    /// What is selected in the window, for a command chosen from the
+    /// Plugins menu, the Command Palette or a key: the objects selected in
+    /// the area view shown last, else the blueprints selected in the
+    /// palette.
+    pub fn plugin_selection(&self) -> Vec<mg_plugin::Selected> {
+        let area = self.palette.area.and_then(|a| Some((a, self.area_views.get(&a)?)));
+        if let Some((area, view)) = area.filter(|(_, v)| !v.selection.is_empty()) {
+            let object = |&(kind, index): &(mg_area::ObjectKind, usize)| {
+                mg_plugin::Selected::Object { area, kind, index }
+            };
+            return view.selection.iter().map(object).collect();
+        }
+        let p = &self.palette;
+        let mut keys: Vec<mg_resman::ResKey> = p.selected.into_iter().collect();
+        keys.extend(p.chosen.iter().filter(|k| p.selected != Some(**k)));
+        keys.into_iter().map(mg_plugin::Selected::Blueprint).collect()
+    }
+
+    /// The area or editor in front, for `ctx.open`.
+    pub fn plugin_open(&self) -> Option<mg_plugin::Selected> {
+        use crate::Tab;
+        use mg_plugin::Selected;
+        Some(match self.front_tab()? {
+            Tab::Area(area) | Tab::AreaProperties(area) => Selected::Area(area),
+            Tab::Instance { area, path } => match path.0.as_slice() {
+                [mg_edit::Step::Item(list, index)] => Selected::Object {
+                    area,
+                    kind: mg_area::ObjectKind::from_list(list)?,
+                    index: *index,
+                },
+                _ => return None,
+            },
+            Tab::Blueprint(key) => Selected::Blueprint(key),
+            Tab::Script(key)
+            | Tab::Nui(key)
+            | Tab::Gff(key)
+            | Tab::Dialog(key)
+            | Tab::Resource(key) => Selected::Resource(key),
+            _ => return None,
+        })
+    }
+
+    /// Runs a plugin's command as a job, on what is selected in the
+    /// window ([`Moonglow::plugin_selection`]): its edits go in as one
+    /// undoable command when it is done.
     pub fn run_plugin_command(&mut self, plugin: &str, command: &str) {
+        let selected = self.plugin_selection();
+        self.run_plugin_command_on(plugin, command, selected);
+    }
+
+    /// Runs a plugin's command as a job on `selected` (what a right-click
+    /// menu was opened on), with what is open in front: its edits go in
+    /// as one undoable command when it is done.
+    pub fn run_plugin_command_on(
+        &mut self,
+        plugin: &str,
+        command: &str,
+        selected: Vec<mg_plugin::Selected>,
+    ) {
+        let selection = mg_plugin::Selection { selected, open: self.plugin_open() };
         let found = self.enabled_plugins().into_iter().find(|p| p.manifest.id == plugin).cloned();
         let Some(plugin) = found else {
             self.log.error(format!("The plugin {plugin} is not enabled"));
@@ -404,7 +516,7 @@ impl Moonglow {
         let (name, title) = (plugin.manifest.name.clone(), decl.title.clone());
         let command = command.to_string();
         let run = move |input: Input, host: Rc<dyn Host>| {
-            mg_plugin::run_command(&plugin, &command, input, host)
+            mg_plugin::run_command(&plugin, &command, Input { selection, ..input }, host)
         };
         self.run_plugin(name, title, false, None, run);
     }
@@ -565,8 +677,13 @@ impl Moonglow {
     /// runs; what it logs and returns shows under the console.
     pub fn run_console(&mut self) {
         let code = self.plugins.console.clone();
-        let run =
-            move |input: Input, host: Rc<dyn Host>| mg_plugin::run_console(&code, input, host);
+        // (With what is selected and open, as a command from the Plugins
+        // menu has them: to try `ctx.selection` on.)
+        let selection =
+            mg_plugin::Selection { selected: self.plugin_selection(), open: self.plugin_open() };
+        let run = move |input: Input, host: Rc<dyn Host>| {
+            mg_plugin::run_console(&code, Input { selection, ..input }, host)
+        };
         self.plugins.console_output.clear();
         self.run_plugin("Console".into(), "Console".into(), true, None, run);
     }
@@ -602,7 +719,7 @@ impl Moonglow {
                     answers: RefCell::new(answers),
                     granted,
                 });
-                let input = Input { module: job.module.clone(), game: job.game.clone() };
+                let input = Input::new(job.module.clone(), job.game.clone());
                 run(input, host)
             },
             move |app, result| app.plugin_finished(&job_name, &title, console, quiet, result, &log),
@@ -1018,7 +1135,17 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                                 };
                                 ui.weak(format!("{by}License: {}.", m.license));
                                 for c in &m.commands {
-                                    ui.label(format!("Command: {}", c.title.trim_end_matches('…')))
+                                    // (And the right-click menus it is in.)
+                                    let menus = match c.targets.as_slice() {
+                                        [] => String::new(),
+                                        t => {
+                                            let names: Vec<&str> =
+                                                t.iter().map(|t| t.name()).collect();
+                                            format!(" (right-click: {})", names.join(", "))
+                                        }
+                                    };
+                                    let title = c.title.trim_end_matches('…');
+                                    ui.label(format!("Command: {title}{menus}"))
                                         .on_hover_text(&c.hint);
                                 }
                                 for c in &m.checks {

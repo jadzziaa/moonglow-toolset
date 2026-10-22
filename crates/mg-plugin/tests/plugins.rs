@@ -86,7 +86,7 @@ fn run(
     command: &str,
     host: &Rc<TestHost>,
 ) -> Result<mg_plugin::Outcome, PluginError> {
-    run_command(plugin, command, Input { module: module(), game: None }, host.clone())
+    run_command(plugin, command, Input::new(module(), None), host.clone())
 }
 
 /// The module with a command's edits applied, as the host applies them.
@@ -178,7 +178,7 @@ fn every_kind_of_edit_is_one_the_editors_make() {
 fn a_check_finds_and_does_not_edit() {
     let host = Rc::new(TestHost::default());
     let p = plugin("tag-conventions");
-    let input = || Input { module: module(), game: None };
+    let input = || Input::new(module(), None);
     let found = run_check(&p, "tag-case", input(), host.clone()).unwrap();
     assert_eq!(found.len(), 1);
     let f = &found[0];
@@ -327,7 +327,7 @@ fn code_and_manifest_must_agree() {
 fn the_console_runs_what_is_typed() {
     use mg_plugin::run_console;
     let host = Rc::new(TestHost::default());
-    let input = || Input { module: module(), game: None };
+    let input = || Input::new(module(), None);
     // What it returns is shown; its edits are a command's.
     let code = r#"
         ctx.edit:set("guard.utc", "Tag", "FROM_CONSOLE")
@@ -449,7 +449,7 @@ fn the_game_s_data_is_read() {
     )
     .unwrap();
     let host = Rc::new(TestHost::default());
-    let input = Input { module: module(), game: Some(game) };
+    let input = Input::new(module(), Some(game));
     let outcome = run_command(&Plugin::load(&dir).unwrap(), "look", input, host).unwrap();
     assert_eq!(outcome.label, "Paladin|true|Paladin|true|false|NW_IT_TORCH001|true");
 }
@@ -460,7 +460,7 @@ fn the_game_s_data_is_read() {
 fn tables_are_made_and_written() {
     use mg_plugin::run_console;
     let host = Rc::new(TestHost::default());
-    let input = || Input { module: module(), game: None };
+    let input = || Input::new(module(), None);
     let code = r#"
         local mg = require("@moonglow")
         local t = mg.twoda.parse("2DA V2.0\r\n\r\n   Label  Name\r\n0  a      10\r\n1  \"b c\"  ****\r\n")
@@ -523,7 +523,7 @@ fn tables_are_made_and_written() {
 fn a_plugin_reads_a_table_s_description() {
     use mg_plugin::run_console;
     let host = Rc::new(TestHost::default());
-    let input = || Input { module: module(), game: None };
+    let input = || Input::new(module(), None);
     let code = r#"
         local mg = require("@moonglow")
         local d = mg.twoda.describe([[
@@ -567,4 +567,106 @@ table = "places"
             "true",
         ]
     );
+}
+
+/// API 0.4: what is selected and open, as a plugin reads it. Each entry
+/// says what it is and where (the resource and path `ctx.edit` takes),
+/// with its tag and resref from the job's copy of the module.
+#[test]
+fn a_plugin_reads_what_is_selected_and_open() {
+    use mg_core::ResRef;
+    use mg_plugin::{Selected, Selection};
+    use mg_rules::ObjectKind;
+    let mut m = module();
+    let mut git = Gff::new(*b"GIT ");
+    let mut chest = Struct::new(9);
+    chest.set("Tag", Value::String(b"OLD_CHEST".to_vec()));
+    chest.set("TemplateResRef", Value::resref(ResRef::from_str("plc_chest1").unwrap()));
+    let mut barrel = chest.clone();
+    barrel.set("Tag", Value::String(b"BARREL".to_vec()));
+    git.root.set("Placeable List", Value::List(vec![barrel, chest]));
+    m.set_gff(key("tavern.git"), &git).unwrap();
+    let mut are = Gff::new(*b"ARE ");
+    are.root.set("Tag", Value::String(b"TAVERN".to_vec()));
+    m.set_gff(key("tavern.are"), &are).unwrap();
+    let area = ResRef::from_str("tavern").unwrap();
+    let selection = Selection {
+        selected: vec![
+            Selected::Object { area, kind: ObjectKind::Placeable, index: 1 },
+            Selected::Blueprint(key("guard.utc")),
+            // (One of the game's, which the module lacks; no game here.)
+            Selected::Blueprint(key("nw_chest.utp")),
+            Selected::Area(area),
+        ],
+        open: Some(Selected::Resource(key("old.nss"))),
+    };
+    let code = r#"
+        local function line(s)
+            return table.concat({ s.kind, s.resource, s.path, tostring(s.blueprint),
+                tostring(s.module), tostring(s.area), tostring(s.index), tostring(s.tag),
+                tostring(s.resref) }, " | ")
+        end
+        local out = {}
+        for _, s in ipairs(ctx.selection) do
+            table.insert(out, line(s))
+        end
+        table.insert(out, "open: " .. line(ctx.open))
+        -- The first is renamed where it stands: its resource and path.
+        local first = ctx.selection[1]
+        ctx.edit:set(first.resource, first.path .. "/Tag", "NEW_CHEST")
+        return table.concat(out, "\n")
+    "#;
+    let host = Rc::new(TestHost::default());
+    let input = Input { selection, ..Input::new(m.clone(), None) };
+    let outcome = mg_plugin::run_console(code, input, host.clone()).unwrap();
+    let lines = [
+        "placeable | tavern.git | /Placeable List[1] | false | true | tavern | 1 | OLD_CHEST | plc_chest1",
+        "creature | guard.utc |  | true | true | nil | nil | gate_guard | guard",
+        "placeable | nw_chest.utp |  | true | false | nil | nil | nil | nw_chest",
+        "area | tavern.are |  | false | true | tavern | nil | TAVERN | tavern",
+        "open: nss | old.nss |  | false | true | nil | nil | nil | old",
+    ];
+    let said: Vec<String> = host.log.borrow().iter().map(|(_, t)| t.clone()).collect();
+    assert_eq!(said, [format!("{:?}", lines.join("\n"))]);
+    let mut ws = Workspace::new(m);
+    ws.apply(Command::new("plugin", outcome.edits)).unwrap();
+    let git = ws.doc(&key("tavern.git")).unwrap();
+    let tags: Vec<&[u8]> =
+        git.root.list("Placeable List").unwrap().iter().map(|s| s.string("Tag").unwrap()).collect();
+    assert_eq!(tags, [&b"BARREL"[..], b"NEW_CHEST"]);
+
+    // Nothing selected (a check, or `mg` without --select): an empty
+    // list, and nothing open.
+    let code = "return #ctx.selection, ctx.open == nil";
+    let host = Rc::new(TestHost::default());
+    mg_plugin::run_console(code, Input::new(module(), None), host.clone()).unwrap();
+    let said: Vec<String> = host.log.borrow().iter().map(|(_, t)| t.clone()).collect();
+    assert_eq!(said, ["0", "true"]);
+}
+
+/// What `mg plugin run --select` takes: a resource's name, and for an
+/// object placed in an area its place in the GIT's list.
+#[test]
+fn a_selection_is_named_as_a_resource_and_a_path() {
+    use mg_core::ResRef;
+    use mg_plugin::{Selected, Target};
+    use mg_rules::ObjectKind;
+    let tavern = ResRef::from_str("tavern").unwrap();
+    let chest = Selected::parse("tavern.git/Placeable List[3]").unwrap();
+    assert_eq!(chest, Selected::Object { area: tavern, kind: ObjectKind::Placeable, index: 3 });
+    assert_eq!(chest.target(), Some(Target::Object(ObjectKind::Placeable)));
+    assert_eq!(chest.place().1.to_string(), "/Placeable List[3]");
+    assert_eq!(Selected::parse("tavern.are").unwrap(), Selected::Area(tavern));
+    assert_eq!(Selected::parse("guard.utc").unwrap(), Selected::Blueprint(key("guard.utc")));
+    assert_eq!(Selected::parse("old.nss").unwrap(), Selected::Resource(key("old.nss")));
+    assert_eq!(Selected::parse("old.nss").unwrap().target(), None);
+    for (bad, says) in [
+        ("tavern", "is not a resource's name"),
+        ("tavern.git", "its place in a list"),
+        ("tavern.git/Tile_List[0]", "not a list of an area's objects"),
+        ("guard.utc/ClassList[0]", "only an object placed in an area"),
+    ] {
+        let e = Selected::parse(bad).unwrap_err();
+        assert!(e.contains(says), "{bad}: {e}");
+    }
 }

@@ -187,6 +187,13 @@ pub enum Action {
     ExportMinimap(mg_core::ResRef),
     /// Makes these areas' placeables static, where nothing is lost by it.
     StaticPlaceables(Vec<mg_core::ResRef>),
+    /// Runs a plugin's command on what a right-click menu was opened on
+    /// (its `ctx.selection`).
+    RunPluginCommand {
+        plugin: String,
+        command: String,
+        selected: Vec<mg_plugin::Selected>,
+    },
     /// Opens a resource's editor, as a double click in the module tree
     /// does: a script in the external editor too, if Options say so.
     OpenResource(ResKey),
@@ -2794,6 +2801,9 @@ impl Moonglow {
             }
             Action::ExportMinimap(area) => self.export_minimap(area),
             Action::StaticPlaceables(areas) => self.static_placeables(&areas),
+            Action::RunPluginCommand { plugin, command, selected } => {
+                self.run_plugin_command_on(&plugin, &command, selected);
+            }
             Action::DynamicPlaceables(areas) => self.dynamic_placeables(&areas),
             Action::TalkCsv(import) => talk_view::transfer(self, import, false),
             Action::TalkJson(import) => talk_view::transfer(self, import, true),

@@ -55,7 +55,7 @@ fn plugins_are_listed_and_checked() {
         tags["commands"][0],
         json!({
             "id": "fix-tags", "title": "Fix Creature Tags",
-            "hint": "Upper-case every creature's tag", "key": null,
+            "hint": "Upper-case every creature's tag", "key": null, "for": [],
         })
     );
     assert_eq!(tags["checks"][0]["severity"], "warning");
@@ -140,6 +140,48 @@ fn a_plugin_s_command_runs_on_a_module() {
     let error = failed["error"].as_str().unwrap();
     assert!(error.contains("something went wrong") && error.contains("main.luau"), "{error}");
     assert_eq!(tag(&path), "SGT_GATE_GUARD");
+}
+
+/// API 0.4: a command is run on what `--select` names, as if selected in
+/// the window; `mg plugin list` says what each command is for.
+#[test]
+fn a_plugin_s_command_runs_on_what_is_selected() {
+    let dir = mg_testkit::scratch_dir("mg-plugin-select");
+    let path = module(&dir);
+    let m = path.to_str().unwrap();
+    let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/plugins/examples");
+    let plugin = examples.join("set-local");
+    let plugin = plugin.to_str().unwrap();
+    let (ok, listed) = mg(&["plugin", "list", plugin]);
+    assert!(ok, "{listed}");
+    assert_eq!(listed["plugins"][0]["commands"][1]["for"], json!(["area"]));
+
+    let answers = ["--answer", "name=role", "--answer", "value=workbench"];
+    let (ok, done) =
+        mg(&[&["plugin", "run", m, plugin, "set-local", "--select", "guard.utc"][..], &answers]
+            .concat());
+    assert!(ok, "{done}");
+    assert_eq!(done["log"], json!([{ "level": "info", "text": "gate_guard: role = workbench" }]));
+    let g = Module::open(&path).unwrap().gff(&key("guard.utc")).unwrap().unwrap();
+    let var = &g.root.list("VarTable").unwrap()[0];
+    assert_eq!(var.string("Value"), Some(&b"workbench"[..]));
+
+    // Nothing selected: the plugin says so, and nothing changes.
+    let (ok, none) = mg(&["plugin", "run", m, plugin, "set-local"]);
+    assert!(ok, "{none}");
+    assert_eq!(none["edits"], json!(0), "{none}");
+    let said = none["log"][0]["text"].as_str().unwrap_or_default();
+    assert!(said.contains("Select objects, or blueprints of the module, first"), "{none}");
+    // Named wrong, or not in the module: an error.
+    let fails = |select: &str| {
+        let args = ["plugin", "run", m, plugin, "set-local", "--select", select];
+        let (ok, json) = mg(&[&args[..], &answers].concat());
+        assert!(!ok, "{select}: {json}");
+        json["error"].as_str().unwrap().to_string()
+    };
+    assert!(fails("guard").contains("not a resource's name"));
+    assert!(fails("start.git/Tile_List[0]").contains("not a list of an area's objects"));
+    assert!(fails("captain.utc").contains("captain.utc is not in the module"));
 }
 
 /// A plugin's folder is packed into an archive, and the archive installed

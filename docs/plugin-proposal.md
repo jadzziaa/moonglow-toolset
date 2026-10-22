@@ -3,7 +3,7 @@ type: Proposal
 title: 'Plugins: a proposal'
 description: The decision record of Moonglow's plugins, proposed and accepted 2026-10-03 - what plugins are for, the principles, safety, the runtimes compared and why sandboxed Luau, the decisions and what was not proposed - with what shipped noted beside it. The API as it is now is in the manual and the API change list.
 tags: [plugins, proposal, luau, api, decision]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T05:30:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T08:05:22Z }
 ---
 
 # Plugins: a proposal
@@ -17,14 +17,16 @@ not the description of the API and not the list of what is planned:
   and checks in sandboxed Luau) and are marked experimental. API 0.2
   (1.16.0) added files and folders the user chooses, haks, areas and
   terrain, and pictures; API 0.3 (1.21.0) added 2DAs and talk tables,
-  files written into a chosen folder, and events. For users:
+  files written into a chosen folder, and events; API 0.4 (not yet in a
+  release) what is selected and open, and commands in right-click
+  menus. For users:
   [Plugins](manual/15-plugins.md). For authors:
   [Writing plugins](manual/16-writing-plugins.md), the
   [Plugin API reference](manual/17-plugin-api.md), the
   [API change list](plugins/CHANGES.md) and the
   [examples](plugins/README.md). The host is `crates/mg-plugin`.
 - **What is planned or left:** the [deferred list](deferred.md), under
-  "Automation" ("Plugins, beyond API 0.3").
+  "Automation" ("Plugins, beyond API 0.4").
 
 ## Summary
 
@@ -205,9 +207,11 @@ is not read as a description:
   `menu` and `when` keys in the manifest. Built: a **Plugins** menu
   (with Manage Plugins… and Install Plugin from File…), the Command
   Palette and Options › Keyboard; a command's manifest keys are `id`,
-  `title`, `hint` and `key`.
+  `title`, `hint` and `key`. API 0.4 added context menus: a command's
+  `for` (kinds of object, or `area`) puts it in their right-click
+  menus, run on what was clicked; there is no `menu` or `when` key.
 - **Examples.** The proposal's cookbook had six; `docs/plugins/examples/`
-  has five (four at 1.0.0).
+  has six (four at 1.0.0).
 
 ## Decisions
 

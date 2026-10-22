@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Writing plugins
-description: Writing plugins - a first plugin, how a plugin runs, the manifest, reading and editing the module, the game's data, talking to the user, files and haks outside the module, areas and terrain, checks, several files, trying and testing, editor types and versions.
+description: Writing plugins - a first plugin, how a plugin runs, the manifest, reading and editing the module, commands on what is selected, the game's data, talking to the user, files and haks outside the module, areas and terrain, checks, several files, trying and testing, editor types and versions.
 tags: [manual, plugins, luau]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T04:32:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T08:05:22Z }
 ---
 
 # Writing plugins
@@ -17,7 +17,7 @@ plugin can call. What plugins are to the people who use them is in
 
 You need a text editor and Moonglow. Nothing is compiled or built.
 
-The plugin API is **experimental** (version 0.3): it may change in a
+The plugin API is **experimental** (version 0.4): it may change in a
 later release, and Versions, below, says what that means for a plugin.
 
 ## A first plugin
@@ -172,7 +172,7 @@ running the plugin, to list what it adds.
 | `id` | Needed. The plugin's name for programs, the same wherever it is installed: `author.plugin-name`, in lower-case letters, digits, `.`, `-` and `_`. Settings and keys are kept under it, so don't change it between versions. |
 | `name` | Needed. Its name for people. |
 | `version` | Needed. The plugin's own version, as you number it. |
-| `api` | Needed. The plugin API it was written for: `"0.3"`, or an earlier one (`"0.2"`, `"0.1"`) for a plugin that uses nothing added since (it then runs in older versions of Moonglow too). |
+| `api` | Needed. The plugin API it was written for: `"0.4"`, or an earlier one (`"0.3"`, `"0.2"`, `"0.1"`) for a plugin that uses nothing added since (it then runs in older versions of Moonglow too). |
 | `license` | Needed. Its license, as an [SPDX](https://spdx.org/licenses/) name. Moonglow is GPL-3.0, and a plugin runs inside it: choose a license compatible with the GPL (`GPL-3.0-or-later`, `MIT`, `Apache-2.0`…). |
 | `description` | One or two sentences on what it does, shown in Manage Plugins. |
 | `author` | Who wrote it. Repeat the line for each author. |
@@ -186,6 +186,7 @@ running the plugin, to list what it adds.
 | `title` | Needed. Its name in the Plugins menu, written as menu commands are (`Fix Creature Tags`; with `…` at the end if it asks before it acts). |
 | `hint` | What its tip says. |
 | `key` | A key it has until the user chooses another: `Ctrl+Alt+T` (`Ctrl`, `Alt`, `Shift` and a key's name; Ctrl is Cmd on macOS). A key something else has already is reported as a conflict in Options › Keyboard, so choose an unusual one, or none. |
+| `for` | What it is for (since API 0.4): kinds of object, `creature`, `door`, `encounter`, `item`, `placeable`, `sound`, `store`, `trigger`, `waypoint`, and `area`, as a list (`"placeable, creature"`) or one to a line. It is then in their right-click menus too, and runs on what was clicked ([Commands on what is selected](#commands-on-what-is-selected)). |
 
 `[check]`, once for each check:
 
@@ -244,6 +245,62 @@ guard.Nothing                  -- nil: no such field
 as `mg gff` prints it (`{ type = "cexostring", value = "GATE_GUARD" }`),
 for when the type matters. `ctx.module:text(name)` reads a script or any
 other text; `ctx.module:bytes(name)` reads anything as it is.
+
+## Commands on what is selected
+
+Since API 0.4 a command can act on what the user points at. Say in its
+manifest what it is for, and it is in the right-click menus of those
+kinds as well as the Plugins menu:
+
+```ini
+[command]
+id = "set-local"
+title = "Set Local Variable…"
+for = "creature, door, encounter, item, placeable, sound, store, trigger, waypoint"
+```
+
+- A kind of object (`placeable`) is the objects of that kind placed in
+  an area and their blueprints: the area view's menu on them (all the
+  objects selected must be of the kinds the command is for), the module
+  tree's rows of an area's objects and of blueprints, and a palette's
+  rows. `area` is an area: the module tree's row of it, and the area
+  view's menu when nothing is selected.
+- In each menu the plugins' commands come together, after the menu's
+  own, above Variables and Properties (which end a menu, as in Aurora).
+- The handler gets what the menu was opened on as `ctx.selection`: every
+  object selected in the area view, every blueprint chosen in a palette
+  (Ctrl+click chooses several), or the one row. Chosen from the Plugins
+  menu, the Command Palette or a key, it gets the objects selected in
+  the area view, else the blueprints selected in the palette; it should
+  say so when that is nothing.
+
+Each entry of `ctx.selection` says what it is and where, as `ctx.edit`
+takes it: `resource` is the area's GIT for a placed object (and `path`
+its place in it, `/Placeable List[3]`), or the blueprint or the area
+itself (`path` is then `""`). So one handler serves a placed object and
+a blueprint alike:
+
+```lua
+mg.command("upper-tags", function(ctx)
+    for _, s in ctx.selection do
+        if s.module and s.tag then   -- (not one of the game's blueprints)
+            ctx.edit:set(s.resource, s.path .. "/Tag", string.upper(s.tag))
+            ctx.log:info(`{s.kind} {s.tag}: upper case`)
+        end
+    end
+end)
+```
+
+`ctx.open` is the area or editor in front, an entry of the same shape
+(or nil): a command for the area in view can use it. The
+[reference](17-plugin-api.md#ctxselection-ctxopen) lists every field;
+the example plugin `set-local` (in `docs/plugins/examples`) sets a local
+variable on what was clicked and counts an area's objects. With `mg
+plugin run`, `--select guard.utc --select "tavern.git/Placeable List[3]"`
+gives the selection and `--open tavern.are` what is open.
+
+A plugin reads the selection as it reads the module: no question is
+asked. Its edits are one undoable step, as any command's.
 
 ## Editing
 

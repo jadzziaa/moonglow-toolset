@@ -24,7 +24,7 @@ use mlua::{Function, Lua, LuaSerdeExt, Table, Value as LuaValue, Variadic, VmSta
 
 use crate::{
     Answer, CheckDecl, CommandDecl, FieldKind, FormField, HakWrite, Host, Input, Level,
-    MEMORY_LIMIT, Manifest, Outcome, Plugin, PluginError, Question,
+    MEMORY_LIMIT, Manifest, Outcome, Plugin, PluginError, Question, Selected, Selection,
 };
 
 /// The codepage of a module's text where its game is not known.
@@ -84,6 +84,8 @@ pub(crate) struct Shared {
     pub(crate) who: String,
     /// Chooses among the tiles that fit.
     pub(crate) rng: RefCell<fastrand::Rng>,
+    /// What is selected and open in the window.
+    selection: Selection,
 }
 
 pub(crate) fn fail<T>(message: impl std::fmt::Display) -> mlua::Result<T> {
@@ -672,6 +674,66 @@ fn form_fields(fields: Table) -> mlua::Result<Vec<FormField>> {
     Ok(out)
 }
 
+/// The fields of an entry of `ctx.selection` (and of `ctx.open`), as the
+/// reference names them.
+pub(crate) const SELECTED: [&str; 9] = [
+    "selected.kind",
+    "selected.resource",
+    "selected.path",
+    "selected.blueprint",
+    "selected.module",
+    "selected.area",
+    "selected.index",
+    "selected.tag",
+    "selected.resref",
+];
+
+/// An entry of `ctx.selection`, or `ctx.open`: what it is, where it is
+/// (the resource and path `ctx.edit` takes), and its tag and resref as
+/// the job's copy has them. A blueprint the module lacks is the game's.
+fn selected(lua: &Lua, sh: &Shared, s: &Selected) -> mlua::Result<Table> {
+    let t = lua.create_table()?;
+    let (key, path) = s.place();
+    t.set("kind", s.kind())?;
+    t.set("resource", key.to_string())?;
+    // (The root's is empty, as `mg.path` has it: a field is this and
+    // "/Label".)
+    t.set("path", if path.0.is_empty() { String::new() } else { path.to_string() })?;
+    t.set("blueprint", matches!(s, Selected::Blueprint(_)))?;
+    match s {
+        Selected::Object { area, index, .. } => {
+            t.set("area", area.to_string())?;
+            t.set("index", *index)?;
+        }
+        Selected::Area(area) => t.set("area", area.to_string())?,
+        Selected::Blueprint(_) | Selected::Resource(_) => {}
+    }
+    let in_module = sh.ws.borrow().module.contains(&key);
+    t.set("module", in_module)?;
+    let read = match s {
+        Selected::Resource(_) => None,
+        Selected::Blueprint(_) if !in_module => sh.gff(&key, true).ok(),
+        _ => sh.gff(&key, false).ok(),
+    };
+    let text = |b: &[u8]| lua.create_string(codepage().decode(b).as_bytes());
+    if let Some(at) = read.as_ref().and_then(|g| path.get(&g.root)) {
+        if let Some(tag) = at.string("Tag") {
+            t.set("tag", text(tag)?)?;
+        }
+        // (What a placed object was made from; else its own name.)
+        let resref = match s {
+            Selected::Object { .. } => at.resref("TemplateResRef"),
+            _ => Some(key.resref),
+        };
+        if let Some(r) = resref {
+            t.set("resref", r.to_string())?;
+        }
+    } else if !matches!(s, Selected::Object { .. }) {
+        t.set("resref", key.resref.to_string())?;
+    }
+    Ok(t)
+}
+
 /// What a job's handler gets (`about`: the plugin's id, name and version).
 fn context(lua: &Lua, sh: &Rc<Shared>, about: [&str; 3]) -> mlua::Result<Table> {
     let ctx = lua.create_table()?;
@@ -685,6 +747,14 @@ fn context(lua: &Lua, sh: &Rc<Shared>, about: [&str; 3]) -> mlua::Result<Table> 
     plugin.set("name", about[1])?;
     plugin.set("version", about[2])?;
     ctx.set("plugin", plugin)?;
+    let chosen = lua.create_table()?;
+    for (i, s) in sh.selection.selected.iter().enumerate() {
+        chosen.raw_seti(i + 1, selected(lua, sh, s)?)?;
+    }
+    ctx.set("selection", chosen)?;
+    if let Some(open) = &sh.selection.open {
+        ctx.set("open", selected(lua, sh, open)?)?;
+    }
 
     let log = lua.create_table()?;
     for (name, level) in [("info", Level::Info), ("warn", Level::Warning), ("error", Level::Error)]
@@ -959,6 +1029,7 @@ fn shared_in(files: Source, who: &str, input: Input, host: &Rc<dyn Host>) -> Rc<
         host: host.clone(),
         who: who.to_string(),
         rng: RefCell::new(fastrand::Rng::new()),
+        selection: input.selection,
     })
 }
 
@@ -1089,7 +1160,7 @@ pub(crate) fn inspect(
     manifest: &Manifest,
     host: Rc<dyn Host>,
 ) -> Result<Vec<String>, PluginError> {
-    let input = Input { module: mg_module::Module::new(), game: None };
+    let input = Input::new(mg_module::Module::new(), None);
     let sh = shared_in(files, &manifest.name, input, &host);
     let run = || -> mlua::Result<Vec<String>> {
         let lua = start(Some(&manifest.entry), &sh)?;
@@ -1206,7 +1277,7 @@ pub(crate) fn api_names() -> Vec<String> {
         }
     }
     let host: Rc<dyn Host> = Rc::new(Nobody);
-    let input = Input { module: mg_module::Module::new(), game: None };
+    let input = Input::new(mg_module::Module::new(), None);
     let sh = shared_in(Source::Nothing, "", input, &host);
     let names = || -> mlua::Result<Vec<String>> {
         let lua = start(None, &sh)?;
@@ -1229,6 +1300,10 @@ pub(crate) fn api_names() -> Vec<String> {
                 _ => out.push(format!("ctx.{name}")),
             }
         }
+        // What is selected and open (an empty list here, and nothing
+        // open), and the fields of each.
+        out.extend(["ctx.selection", "ctx.open"].map(String::from));
+        out.extend(SELECTED.map(String::from));
         // What `ctx.game:table` returns, and the other things handed out.
         out.extend(["twoda.rows", "twoda.columns", "twoda:get"].map(String::from));
         out.extend(crate::files::NAMES.map(String::from));
