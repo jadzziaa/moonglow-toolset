@@ -78,7 +78,9 @@ pub struct Plugins {
     events: VecDeque<(String, String, mg_plugin::Event)>,
     /// The module as it was last saved or opened, to tell what a save
     /// changed.
-    saved: Option<mg_module::Module>,
+    pub(crate) saved: Option<mg_module::Module>,
+    /// A save held for what the plugins said of it (`resource-saving`).
+    pub save: crate::plugin_events::SaveState,
     /// What each plugin's events were allowed (a folder chosen, a yes to
     /// writing into it), by plugin id: an event that comes again does not
     /// ask again. Kept between runs in the settings (`plugin_grants`).
@@ -534,8 +536,7 @@ impl Moonglow {
             m.name, m.version
         ));
         // What it does when a module is opened, as if it had been on then.
-        let event =
-            mg_plugin::Event { kind: mg_plugin::EventKind::ModuleOpened, resources: vec![] };
+        let event = mg_plugin::Event::new(mg_plugin::EventKind::ModuleOpened, vec![]);
         for e in m.events.iter().filter(|e| e.on == event.kind) {
             self.plugins.events.push_back((m.id.clone(), e.id.clone(), event.clone()));
         }
@@ -814,8 +815,7 @@ impl Moonglow {
     pub(crate) fn plugins_module_opened(&mut self) {
         self.plugins.saved = self.ws.as_ref().map(|ws| ws.module.clone());
         self.plugins.events.clear();
-        let event =
-            mg_plugin::Event { kind: mg_plugin::EventKind::ModuleOpened, resources: vec![] };
+        let event = mg_plugin::Event::new(mg_plugin::EventKind::ModuleOpened, vec![]);
         self.queue_plugin_event(&event);
     }
 
@@ -831,8 +831,16 @@ impl Moonglow {
             })
             .copied()
             .collect();
-        let event = mg_plugin::Event { kind: mg_plugin::EventKind::ModuleSaved, resources };
+        let event = mg_plugin::Event::new(mg_plugin::EventKind::ModuleSaved, resources);
         self.queue_plugin_event(&event);
+        // And each resource written, for those that act on one.
+        crate::plugin_events::queue_saved(self, was.as_ref());
+    }
+
+    /// Queues one plugin's event's handler, to run as a job when no other
+    /// is running.
+    pub(crate) fn queue_event_of(&mut self, plugin: &str, id: &str, event: mg_plugin::Event) {
+        self.plugins.events.push_back((plugin.to_string(), id.to_string(), event));
     }
 
     fn queue_plugin_event(&mut self, event: &mg_plugin::Event) {
@@ -1597,11 +1605,7 @@ fn adds(ui: &mut egui::Ui, m: &mg_plugin::Manifest) {
         ui.label(format!("Check: {}", c.title));
     }
     for e in &m.events {
-        let when = match e.on {
-            mg_plugin::EventKind::ModuleOpened => "a module is opened",
-            mg_plugin::EventKind::ModuleSaved => "the module is saved",
-        };
-        ui.label(format!("By itself, when {when}: {}", e.id));
+        ui.label(format!("By itself, {}: {}", e.said(), e.id));
     }
     // Its settings, by where they are kept (the team's are written into
     // the project's moonglow.toml).

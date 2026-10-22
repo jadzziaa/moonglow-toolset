@@ -14,6 +14,7 @@ use mg_module::Module;
 use mg_resman::ResKey;
 use serde_json::json;
 
+use super::plugins::SaveGuard;
 use super::{Output, resource_key};
 
 /// `mg apply`: the edits of a file (`-`: standard input), all or none.
@@ -24,6 +25,7 @@ pub(crate) fn apply(
     edits: &Path,
     dry_run: bool,
     codepage: Codepage,
+    guard: Option<&SaveGuard>,
 ) -> Result<Output> {
     let text = if edits == Path::new("-") {
         let mut text = String::new();
@@ -36,7 +38,7 @@ pub(crate) fn apply(
         serde_json::from_str(&text).with_context(|| format!("{} is not JSON", edits.display()))?;
     let cmd =
         command_from_json(&json, codepage).map_err(|e| anyhow!("{}: {e}", edits.display()))?;
-    run(Workspace::new(module), cmd, dry_run, None, false, codepage)
+    run(Workspace::new(module), cmd, dry_run, None, false, codepage, guard)
 }
 
 /// `mg set`: fields of one resource, each `FIELD=VALUE` (or
@@ -48,6 +50,7 @@ pub(crate) fn set(
     remove: &[String],
     dry_run: bool,
     codepage: Codepage,
+    guard: Option<&SaveGuard>,
 ) -> Result<Output> {
     let key = resource_key(resource)?;
     let mut ws = Workspace::new(module);
@@ -112,13 +115,14 @@ pub(crate) fn set(
         [Edit::SetField { label, .. }] => format!("Remove {label}"),
         _ => format!("Set {} fields of {key}", edits.len()),
     };
-    run(ws, Command::new(label, edits), dry_run, Some(lines), true, codepage)
+    run(ws, Command::new(label, edits), dry_run, Some(lines), true, codepage, guard)
 }
 
 /// Applies a command (all of it or none) and saves, or with `dry_run`
 /// only checks that it applies. `lines`: what to print for people in
 /// place of the resources changed; `show`: the command is in the JSON, as
-/// `mg apply` reads it.
+/// `mg apply` reads it; `guard`: the plugins that look at what is saved
+/// (before: a refusal is an error, and nothing is written; after).
 pub(crate) fn run(
     mut ws: Workspace,
     cmd: Command,
@@ -126,6 +130,7 @@ pub(crate) fn run(
     lines: Option<Vec<String>>,
     show: bool,
     codepage: Codepage,
+    guard: Option<&SaveGuard>,
 ) -> Result<Output> {
     let mut resources: Vec<ResKey> = Vec::new();
     for e in &cmd.edits {
@@ -135,9 +140,21 @@ pub(crate) fn run(
     }
     let written = command_to_json(&cmd, codepage).map_err(|e| anyhow!("{e}"))?;
     let (label, count) = (cmd.label.clone(), cmd.edits.len());
+    let was = guard.map(|_| ws.module.clone());
     ws.apply(cmd)?;
+    let mut notes = Output::default();
+    let mut said = Vec::new();
+    if let (Some(g), Some(was)) = (guard, &was)
+        && count > 0
+    {
+        ws.flush()?;
+        said = g.before(was, &ws.module, &mut notes)?;
+    }
     if !dry_run && count > 0 {
         ws.save()?;
+        if let (Some(g), Some(was)) = (guard, &was) {
+            g.after(was, &ws.module, &mut notes);
+        }
     }
     let mut out = Output::new(json!({
         "label": label,
@@ -148,6 +165,12 @@ pub(crate) fn run(
     if show && let serde_json::Value::Object(o) = &mut out.json {
         o.insert("command".into(), written);
     }
+    if !said.is_empty()
+        && let serde_json::Value::Object(o) = &mut out.json
+    {
+        o.insert("said".into(), said.into());
+    }
+    out.notes.extend(notes.notes);
     match lines {
         Some(lines) => lines.into_iter().for_each(|l| out.line(l)),
         None => resources.iter().for_each(|r| out.line(r.to_string())),

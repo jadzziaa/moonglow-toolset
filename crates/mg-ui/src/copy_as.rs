@@ -125,7 +125,11 @@ impl Moonglow {
                 item,
             ));
         }
-        match self.apply(Command::new(format!("Copy {} as {new}", draft.from), edits)) {
+        // (With what the plugins do on what is made, in the same command.)
+        let made = crate::plugin_events::Made::resources("copy", vec![new]);
+        let cmd = Command::new(format!("Copy {} as {new}", draft.from), edits);
+        let cmd = crate::plugin_events::with_plugins(self, cmd, &made);
+        match self.apply(cmd) {
             Ok(()) => {
                 self.log.info(format!("Copied {} as {new}", draft.from));
                 // An area's copy has its objects' tags, and perhaps its own.

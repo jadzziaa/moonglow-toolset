@@ -464,10 +464,8 @@ fn an_event_s_handler_gets_what_happened() {
         "#,
     );
     assert_eq!(plugin.manifest.events[0].on, EventKind::ModuleSaved);
-    let happened = Event {
-        kind: EventKind::ModuleSaved,
-        resources: vec![ResKey::from_filename("guard.utc").unwrap()],
-    };
+    let happened =
+        Event::new(EventKind::ModuleSaved, vec![ResKey::from_filename("guard.utc").unwrap()]);
     let input = || Input::new(bare(), None);
     let h = host([Some(Answer::Path(dir.clone())), Some(Answer::Yes)]);
     let outcome = run_event(&plugin, "emit", &happened, input(), h.clone()).unwrap();

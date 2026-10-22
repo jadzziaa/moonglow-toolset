@@ -1,0 +1,61 @@
+# The plugin's own tests: `mg plugin test docs/plugins/examples/house-rules`.
+# The fixture (`module`) is a nasher project with the team's land in its
+# moonglow.toml; `was` is the same module as it was before (its cellar had
+# another tag), what a save is told the old values from.
+module = "module"
+
+[[test]]
+name = "a save that changes an area's tag is refused, with a fix that puts it back"
+event = "area-tags"
+was = "was"
+refused = ["cellar.are: its tag was OLD_CELLAR, now CELLAR"]
+warned = []
+
+[[test]]
+name = "with the team's setting off, it is a warning"
+event = "area-tags"
+was = "was"
+settings = { keep_tags = false }
+refused = []
+warned = ["cellar.are: its tag was OLD_CELLAR"]
+
+[[test]]
+name = "a tag that is not upper case is warned of"
+event = "area-tags"
+changed = ["tavern.are", "cellar.are"]
+refused = []
+warned = ["tavern.are: tag Tavern is not upper case"]
+
+[[test]]
+name = "a pasted waypoint gets a tag of its own, with the paste"
+event = "pasted-waypoints"
+select = ["tavern.git/WaypointList[1]"]
+by = "paste"
+log = ["1 pasted waypoints have tags of their own"]
+edits = 1
+[[test.field]]
+resource = "tavern.git"
+field = "/WaypointList[1]/Tag"
+value = "WP_DOOR_2"
+[[test.field]]
+resource = "tavern.git"
+field = "/WaypointList[0]/Tag"
+value = "WP_DOOR"
+
+[[test]]
+name = "a new area gets the team's land"
+event = "new-area"
+changed = ["cellar.are"]
+by = "wizard"
+resources = ["cellar.git"]
+[[test.field]]
+resource = "cellar.git"
+field = "/VarTable[0]/Value"
+value = "barovia"
+
+[[test]]
+name = "no land set: a new area is left as it is"
+event = "new-area"
+changed = ["cellar.are"]
+settings = { land = "" }
+edits = 0

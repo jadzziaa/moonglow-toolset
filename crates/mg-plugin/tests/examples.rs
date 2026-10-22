@@ -91,6 +91,7 @@ fn every_example_registers_what_it_declares() {
             "example.builder-tags",
             "example.creature-report",
             "example.hello",
+            "example.house-rules",
             "example.set-local",
             "example.store-markup",
             "example.tag-conventions",
@@ -174,6 +175,28 @@ fn tag_conventions_passes_its_own_tests() {
         assert!(guide.contains(line), "the manual lacks tests/tags.toml's line {line:?}");
     }
     for line in ["local fix = ctx.fix(\"Upper-case this tag\")", "fix = fix,"] {
+        assert!(guide.contains(line), "the manual lacks main.luau's line {line:?}");
+    }
+}
+
+/// A resource's own events and the after-create hook (API 0.4): the
+/// example's own tests pass (a save refused and warned of, a paste and a
+/// new area edited), and the manual shows its save's handler as it is.
+#[test]
+fn house_rules_acts_on_its_events() {
+    let plugin = example("house-rules");
+    let on: Vec<mg_plugin::EventKind> = plugin.manifest.events.iter().map(|e| e.on).collect();
+    use mg_plugin::EventKind as K;
+    assert_eq!(on, [K::ResourceSaving, K::ObjectPasted, K::ResourceCreated]);
+    let results = mg_plugin::run_tests(&plugin, None, &|_| None);
+    assert_eq!(results.len(), 6, "{results:#?}");
+    assert!(results.iter().all(|r| r.passed()), "{results:#?}");
+
+    let guide = std::fs::read_to_string(docs().join("manual/16-writing-plugins.md")).unwrap();
+    let code = std::fs::read_to_string(plugin.dir.join("main.luau")).unwrap();
+    let start = code.find("mg.on(\"area-tags\"").unwrap();
+    let end = start + code[start..].find("\nend)").unwrap();
+    for line in code[start..end].lines().filter(|l| !l.trim().is_empty()) {
         assert!(guide.contains(line), "the manual lacks main.luau's line {line:?}");
     }
 }
@@ -437,6 +460,7 @@ fn the_type_file_has_the_whole_api() {
                     "selected" => "Selected",
                     "fix" => "Fix",
                     "ctx.settings" => "Settings",
+                    "ctx.event" => "Event",
                     "ctx" | "ctx.plugin" => "Context",
                     other => panic!("no type for {other}"),
                 };

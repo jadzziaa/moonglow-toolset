@@ -85,7 +85,8 @@ export type Edit = {
     delete: (self: Edit, name: string) -> (),
 }
 
--- A finding's fix (ctx.fix, in a check; API 0.4): ctx.edit's methods,
+-- A finding's fix, or a warning's (ctx.fix, in a check or a
+-- resource-saving handler; API 0.4): ctx.edit's methods,
 -- which record its edits and make none. The user makes them.
 export type Fix = {
     label: string,
@@ -206,6 +207,43 @@ export type Settings = {
     [string]: string | number | boolean,
 }
 
+-- What happened, for an event's handler (mg.on): its name, and what it is
+-- of. Which fields there are depends on the event (API 0.4 for all but
+-- module-opened's and module-saved's).
+export type Event = {
+    -- "module-opened", "module-saved", "resource-saving", "resource-saved",
+    -- "object-placed", "object-pasted" or "resource-created".
+    name: string,
+    -- module-saved: the resources changed since the last save;
+    -- resource-saving and resource-saved: all that the save writes.
+    resources: { string }?,
+    -- resource-saving, resource-saved, resource-created: the resource the
+    -- handler is called for ("tavern.are"), and what it is ("area",
+    -- "creature"..., else its type, "nss").
+    resource: string?,
+    kind: string?,
+    -- resource-saving, resource-saved: the resource as it was and as it
+    -- is (a GFF as ctx.module:gff reads one, another as text; nil: none),
+    -- and for a GFF its differences, as lines ("/Tag: ... != ...").
+    old: any,
+    new: any,
+    changed: { string }?,
+    -- resource-created: every resource the user's action made.
+    made: { string }?,
+    -- object-placed, object-pasted: the objects (of the kinds the
+    -- manifest's `for` names), and their area's resref.
+    objects: { Selected }?,
+    area: string?,
+    -- What made them: "wizard", "add-to-palette", "setup-store", "copy",
+    -- "palette", "gallery", "light", "create-waypoint", "paste".
+    by: string?,
+    -- resource-saving: a warning of the resource (the user is asked
+    -- before the save goes on), or a refusal (the save stops), each with
+    -- a fix made with ctx.fix that the user may make.
+    warn: ((self: Event, text: string, fix: Fix?) -> ())?,
+    refuse: ((self: Event, text: string, fix: Fix?) -> ())?,
+}
+
 export type Context = {
     -- What a command was run on (the objects selected in the area view,
     -- the blueprints in a palette, what was right-clicked); empty in a
@@ -225,8 +263,9 @@ export type Context = {
     -- The plugin's settings (API 0.4).
     settings: Settings,
     -- In an event's handler (mg.on): what happened.
-    event: { name: string, resources: { string } }?,
-    -- In a check's handler: a fix to give a finding (API 0.4).
+    event: Event?,
+    -- In a check's handler, and a resource-saving one's: a fix to give a
+    -- finding or a warning (API 0.4).
     fix: ((label: string) -> Fix)?,
 }
 
@@ -241,8 +280,9 @@ function mg.command(id: string, handler: (ctx: Context) -> ...any) end
 function mg.check(id: string, handler: (ctx: Context) -> { Finding }?) end
 
 -- What the plugin does by itself on an event its manifest declares
--- ([event], on = "module-opened" or "module-saved"): ctx.event says what
--- happened.
+-- ([event], on = "module-opened", "module-saved" and, since API 0.4,
+-- "resource-saving", "resource-saved", "object-placed", "object-pasted"
+-- or "resource-created"): ctx.event says what happened.
 function mg.on(id: string, handler: (ctx: Context) -> ...any) end
 
 local function typed(type: string, value: any): Value

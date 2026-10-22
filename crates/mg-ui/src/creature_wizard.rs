@@ -702,10 +702,10 @@ fn make(app: &mut Moonglow, w: &CreatureWizard) {
     };
     match bytes {
         Ok(data) => {
-            app.actions.push(Action::Apply(Command::new(
-                "New creature",
-                vec![Edit::SetResource { key, data: Some(data) }],
-            )));
+            app.actions.push(Action::ApplyMade(
+                Command::new("New creature", vec![Edit::SetResource { key, data: Some(data) }]),
+                crate::plugin_events::Made::resources("wizard", vec![key]),
+            ));
             if w.launch {
                 app.actions.push(Action::OpenTab(Tab::Blueprint(key)));
             }

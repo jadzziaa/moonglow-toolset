@@ -1,0 +1,3 @@
+# The team's settings of the plugin (scope "project").
+[plugins."example.house-rules"]
+land = "barovia"

@@ -50,6 +50,7 @@ mod outside;
 pub mod paint_mode;
 pub mod palette_categories;
 pub mod palette_view;
+pub mod plugin_events;
 pub mod plugins;
 pub mod prefabs;
 mod project_commands;
@@ -228,6 +229,10 @@ pub enum Action {
     /// Makes every static placeable of these areas dynamic.
     DynamicPlaceables(Vec<mg_core::ResRef>),
     Apply(Command),
+    /// Applies a command that makes something (a wizard's, a paste's),
+    /// with the edits the plugins' handlers of what it makes add to it
+    /// (`plugin_events`): one command.
+    ApplyMade(Command, plugin_events::Made),
     /// After a paste (`what`): whether the objects made put tags on more
     /// than one object, said in the Duplicate Tags window.
     CheckTags {
@@ -1277,6 +1282,7 @@ impl Moonglow {
         tag_clash::window(self, ui.ctx());
         builder_code::window(self, ui.ctx());
         claims::windows(self, ui.ctx());
+        plugin_events::window(self, ui.ctx());
         project_commands::window(self, ui.ctx());
         outside::window(self, ui.ctx());
         script_nav::rename_window(self, ui.ctx());
@@ -2425,7 +2431,14 @@ impl Moonglow {
                 }
             };
         let edits = ws.edits_to(&staged);
-        match self.apply(Command::new(format!("New area {area}"), edits)) {
+        // (With what the plugins do on a new area, in the same command.)
+        let made = plugin_events::Made::resources("wizard", vec![ResKey::new(area, ResType::ARE)]);
+        let cmd = plugin_events::with_plugins(
+            self,
+            Command::new(format!("New area {area}"), edits),
+            &made,
+        );
+        match self.apply(cmd) {
             Ok(()) => {
                 self.log.info(format!(
                     "Created area {area} ({}, {}×{})",
@@ -2607,6 +2620,10 @@ impl Moonglow {
                 if claims::hold_save(self, Action::SaveThen(next.clone())) {
                     return;
                 }
+                // (And what the plugins say of what it writes.)
+                if plugin_events::hold_save(self, Action::SaveThen(next.clone())) {
+                    return;
+                }
                 self.save(None);
                 if !self.has_unsaved_work() {
                     self.run_now(*next);
@@ -2682,7 +2699,9 @@ impl Moonglow {
             }
             Action::ApplyOptions(draft) => self.apply_options(*draft),
             Action::Save => {
-                if !claims::hold_save(self, Action::Save) {
+                if !claims::hold_save(self, Action::Save)
+                    && !plugin_events::hold_save(self, Action::Save)
+                {
                     self.save(None)
                 }
             }
@@ -2752,6 +2771,7 @@ impl Moonglow {
                     self.log.error(e.to_string());
                 }
             }
+            Action::ApplyMade(cmd, made) => plugin_events::apply_made(self, cmd, &made),
             Action::ApplyFix(line) => self.apply_fix(line),
             Action::CheckTags { what, made } => tag_clash::check(self, &what, made, false),
             Action::NewNui(name) => nui_view::create(self, &name),

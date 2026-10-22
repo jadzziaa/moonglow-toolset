@@ -23031,3 +23031,270 @@ fn a_plugin_reads_and_sets_its_settings_in_the_window() {
         "{log:#?}"
     );
 }
+
+/// A module (kept in one file) with an area tagged TAVERN, opened with the
+/// example plugins installed and House rules enabled.
+fn house_rules_harness(name: &str) -> Harness<'static, Moonglow> {
+    let dir = mg_testkit::scratch_dir(name);
+    let mut m = Module::new();
+    let mut info = Gff::new(*b"IFO ");
+    let mut a = ifo::MOD_AREA_LIST.new_item();
+    a.write(&ifo::mod_area_list::AREA_NAME, ResRef::from_str("tavern").unwrap());
+    info.root.items_mut(&ifo::MOD_AREA_LIST).push(a);
+    m.set_info(&info).unwrap();
+    let mut are = Gff::new(*b"ARE ");
+    are.root.set("Tag", mg_gff::Value::String(b"TAVERN".to_vec()));
+    m.set(ResKey::parse("tavern", ResType::ARE).unwrap(), are.to_bytes().unwrap());
+    let path = dir.join("rules.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.open_palette = false;
+    app.plugin_dir = Some(example_plugins());
+    app.load_plugins();
+    app.enable_plugin("example.house-rules", true);
+    Harness::builder()
+        .with_size(egui::vec2(1200.0, 900.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app)
+}
+
+/// An area's tag, as the module has it now.
+fn area_tag(h: &mut Harness<'_, Moonglow>, area: &str) -> String {
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let doc = ws.doc(&ResKey::parse(area, ResType::ARE).unwrap()).unwrap();
+    String::from_utf8_lossy(doc.root.string("Tag").unwrap_or_default()).into_owned()
+}
+
+fn set_area_tag(h: &mut Harness<'_, Moonglow>, area: &str, tag: &str) {
+    let edit = mg_edit::Edit::SetField {
+        key: ResKey::parse(area, ResType::ARE).unwrap(),
+        path: mg_edit::GffPath::root(),
+        label: "Tag".into(),
+        value: Some(mg_gff::Value::String(tag.as_bytes().to_vec())),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Tag", vec![edit])));
+    h.run_steps(2);
+}
+
+/// A plugin that refuses what a save would write stops it before anything
+/// is written, says why, and offers its fix; made, the save is asked
+/// again, and goes on.
+#[test]
+fn a_plugin_refuses_a_save_and_says_why() {
+    let mut h = house_rules_harness("ui-plugin-save-refused");
+    h.run();
+    let saved = |h: &Harness<'_, Moonglow>| !h.state().ws.as_ref().unwrap().is_modified();
+    set_area_tag(&mut h, "tavern", "INN");
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run_steps(3);
+    assert!(!saved(&h), "nothing written");
+    h.get_by_label("Not saved");
+    h.get_by_label("Refused");
+    h.get_by_label_contains("its tag was TAVERN, now INN: players' places are kept by it");
+    assert!(h.query_by_label("Save Anyway").is_none(), "a refusal is not saved anyway");
+    // Its fix: made (a step of Undo), and the save asked again: it goes on.
+    h.get_by_label("Put back TAVERN").click();
+    h.run_steps(4);
+    assert_eq!(area_tag(&mut h, "tavern"), "TAVERN");
+    assert!(h.state().plugins.save.held.is_none());
+    assert!(saved(&h), "saved once the fix was made");
+    assert!(h.state().log.entries.iter().any(|(_, m)| m == "House rules: fixed: Put back TAVERN"));
+    // Close, without the fix: not saved, and the log says why.
+    set_area_tag(&mut h, "tavern", "INN");
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run_steps(3);
+    h.get_by_label("Close").click();
+    h.run_steps(2);
+    assert!(!saved(&h));
+    let log = &h.state().log.entries;
+    assert!(
+        log.iter().any(|(l, m)| *l == mg_ui::Level::Error
+            && m == "House rules: tavern.are: its tag was TAVERN, now INN: players' places are kept by it"),
+        "{log:#?}"
+    );
+}
+
+/// A plugin's warning about what a save would write is asked about before
+/// the save: Cancel writes nothing, Save Anyway writes it; a save it says
+/// nothing of is not held.
+#[test]
+fn a_plugin_warns_before_a_save() {
+    let mut h = house_rules_harness("ui-plugin-save-warned");
+    h.run();
+    let saved = |h: &Harness<'_, Moonglow>| !h.state().ws.as_ref().unwrap().is_modified();
+    // A new area, its tag not upper case.
+    let mut are = Gff::new(*b"ARE ");
+    are.root.set("Tag", mg_gff::Value::String(b"Cellar".to_vec()));
+    let key = ResKey::parse("cellar", ResType::ARE).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A cellar",
+        vec![mg_edit::Edit::SetResource { key, data: Some(are.to_bytes().unwrap()) }],
+    )));
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run_steps(3);
+    h.get_by_label("Before saving");
+    h.get_by_label("Warning");
+    h.get_by_label("tag Cellar is not upper case");
+    h.get_by_label("Make it CELLAR");
+    h.get_by_label("Cancel").click();
+    h.run_steps(2);
+    assert!(!saved(&h), "canceled");
+    assert!(h.state().plugins.save.held.is_none());
+    // Asked again; Save Anyway writes it as it is.
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run_steps(3);
+    h.get_by_label("Save Anyway").click();
+    h.run_steps(3);
+    assert!(saved(&h), "saved anyway");
+    assert_eq!(area_tag(&mut h, "cellar"), "Cellar");
+    // Nothing more to say: the next save is not held.
+    set_area_tag(&mut h, "tavern", "TAVERN");
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run_steps(3);
+    assert!(h.state().plugins.save.held.is_none());
+    // And the Plugins window says what the plugin does by itself.
+    h.state_mut().plugins.window = true;
+    h.run();
+    h.get_by_label_contains("before a save, reads each resource it writes (are)");
+    h.get_by_label_contains("when objects (waypoint) are pasted: may change them");
+}
+
+/// What a plugin does on a resource made (a copy here; a wizard's alike):
+/// its edits are part of the making's command, and one Undo takes both
+/// back. A plugin that fails leaves the making as core made it.
+#[test]
+fn a_plugin_edits_what_is_made_in_the_same_undo() {
+    let plugins = mg_testkit::scratch_dir("ui-plugin-made-plugins");
+    let dir = plugins.join("made");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("plugin.cfg"),
+        "[plugin]\nid = \"test.made\"\nname = \"Made\"\nversion = \"1\"\napi = \"0.4\"\n\
+         license = \"MIT\"\n[event]\nid = \"made\"\non = \"resource-created\"\nfor = \"creature\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("main.luau"),
+        r#"
+        local mg = require("@moonglow")
+        mg.on("made", function(ctx)
+            local e = ctx.event
+            local tag = ctx.module:gff(e.resource).Tag
+            if tag == "BROKEN" then error("this one breaks") end
+            ctx.edit:set(e.resource, "Tag", `{tag}_{e.by}`)
+        end)
+        "#,
+    )
+    .unwrap();
+    let Some((mut h, key)) = plugin_harness("ui-plugin-made", false) else { return };
+    h.state_mut().plugin_dir = Some(plugins);
+    h.state_mut().load_plugins();
+    h.state_mut().enable_plugin("test.made", true);
+    h.run();
+    let copy = |h: &mut Harness<'_, Moonglow>, name: &str| {
+        h.state_mut().actions.push(mg_ui::Action::CopyDialog(key));
+        h.run_steps(3);
+        h.state_mut().copy_as.as_mut().unwrap().resref = name.into();
+        h.run_steps(2);
+        h.get_by_label("Create Copy").click();
+        h.run_steps(3);
+        ResKey::parse(name, ResType::UTC).unwrap()
+    };
+    let new = copy(&mut h, "guard_two");
+    let tag = |h: &mut Harness<'_, Moonglow>, k: &ResKey| -> Option<String> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let doc = ws.doc(k).ok()?;
+        Some(String::from_utf8_lossy(doc.root.string("Tag")?).into_owned())
+    };
+    assert_eq!(tag(&mut h, &new).as_deref(), Some("gate_guard_copy"));
+    let undo = h.state().ws.as_ref().unwrap().can_undo().map(String::from);
+    assert_eq!(undo.as_deref(), Some("Copy guard.utc as guard_two.utc"));
+    assert!(h.state().log.entries.iter().any(|(_, m)| m
+        == "Made: resource-created changed 1 resource with Copy guard.utc as guard_two.utc (one \
+            Undo takes both back)"));
+    // One Undo: the copy and the plugin's edit of it, both gone.
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(2);
+    assert!(!h.state().ws.as_ref().unwrap().module.contains(&new));
+    assert_eq!(tag(&mut h, &key).as_deref(), Some("gate_guard"), "the original as it was");
+    // A plugin that fails: the copy is made as core makes it, and said.
+    let mut guard = Gff::new(*b"UTC ");
+    guard.root.set("Tag", mg_gff::Value::String(b"BROKEN".to_vec()));
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "Broken",
+        vec![mg_edit::Edit::SetResource { key, data: Some(guard.to_bytes().unwrap()) }],
+    )));
+    h.run_steps(2);
+    let other = copy(&mut h, "guard_three");
+    assert_eq!(tag(&mut h, &other).as_deref(), Some("BROKEN"));
+    let log = &h.state().log.entries;
+    assert!(
+        log.iter().any(|(l, m)| *l == mg_ui::Level::Error
+            && m.contains("this one breaks")
+            && m.ends_with("Copy guard.utc as guard_three.utc is made without it")),
+        "{log:#?}"
+    );
+}
+
+/// What a plugin does on objects pasted: its edits are part of the paste,
+/// one Undo takes both back, and the core's check of doubled tags comes
+/// after it (a tag it made the copy's own is not one).
+#[test]
+fn a_plugin_edits_what_is_pasted_in_the_same_undo() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("ui-plugin-pasted") else { return };
+    h.state_mut().plugin_dir = Some(example_plugins());
+    h.state_mut().load_plugins();
+    h.state_mut().enable_plugin("example.house-rules", true);
+    h.run_steps(2);
+    let git = ResKey::new(area, ResType::GIT);
+    let tags = |h: &mut Harness<'_, Moonglow>| -> Vec<String> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let g = ws.doc(&git).unwrap();
+        let list = g.root.list("WaypointList").unwrap();
+        list.iter()
+            .map(|w| String::from_utf8_lossy(w.string("Tag").unwrap()).into_owned())
+            .collect()
+    };
+    // The second waypoint, with a tag of its own, copied and pasted.
+    let edit = mg_edit::Edit::SetField {
+        key: git,
+        path: mg_edit::GffPath::root().item("WaypointList", 1),
+        label: "Tag".into(),
+        value: Some(mg_gff::Value::String(b"WP_DOOR".to_vec())),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Tag", vec![edit])));
+    h.run_steps(2);
+    let before = tags(&mut h);
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 1)];
+    let at = Vec3::new(15.0, 30.0, 0.0);
+    let over = screen(&h, area, at);
+    h.hover_at(over);
+    h.run_steps(1);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::C);
+    h.run_steps(1);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::V);
+    h.run_steps(2);
+    let over = screen(&h, area, at);
+    h.hover_at(over);
+    press(&h, over, true, egui::Modifiers::NONE);
+    press(&h, over, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let after = tags(&mut h);
+    assert_eq!(after.len(), before.len() + 1);
+    assert_eq!(after.last().map(String::as_str), Some("WP_DOOR_2"), "the plugin's tag");
+    assert!(h.state().tag_clash.is_none(), "no tag doubled: the plugin made it the copy's own");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Paste"));
+    assert!(
+        h.state()
+            .log
+            .entries
+            .iter()
+            .any(|(_, m)| m == "House rules: 1 pasted waypoints have tags of their own")
+    );
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(tags(&mut h), before, "one Undo: the paste and the plugin's edit");
+}

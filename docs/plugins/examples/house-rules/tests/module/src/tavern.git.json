@@ -1,0 +1,54 @@
+{
+  "__data_type": "GIT ",
+  "WaypointList": {
+    "type": "list",
+    "value": [
+      {
+        "__struct_id": 5,
+        "Tag": {
+          "type": "cexostring",
+          "value": "WP_DOOR"
+        },
+        "TemplateResRef": {
+          "type": "resref",
+          "value": "nw_waypoint001"
+        },
+        "XPosition": {
+          "type": "float",
+          "value": 2.0
+        },
+        "YPosition": {
+          "type": "float",
+          "value": 4.0
+        },
+        "ZPosition": {
+          "type": "float",
+          "value": 0.0
+        }
+      },
+      {
+        "__struct_id": 5,
+        "Tag": {
+          "type": "cexostring",
+          "value": "WP_DOOR"
+        },
+        "TemplateResRef": {
+          "type": "resref",
+          "value": "nw_waypoint001"
+        },
+        "XPosition": {
+          "type": "float",
+          "value": 6.0
+        },
+        "YPosition": {
+          "type": "float",
+          "value": 4.0
+        },
+        "ZPosition": {
+          "type": "float",
+          "value": 0.0
+        }
+      }
+    ]
+  }
+}

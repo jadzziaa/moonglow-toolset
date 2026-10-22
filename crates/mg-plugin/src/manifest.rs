@@ -335,17 +335,45 @@ fn targets_of(s: &Section) -> Result<Vec<Target>, String> {
         let Some(t) = Target::named(name) else {
             let names: Vec<&str> = Target::all().map(Target::name).collect();
             return Err(format!(
-                "line {}: a command is for {}, not {name:?}",
+                "line {}: {} is for {}, not {name:?}",
                 s.line,
+                if s.name == "event" { "an event" } else { "a command" },
                 names.join(", ")
             ));
         };
         if targets.contains(&t) {
-            return Err(format!("line {}: the command is for {name} twice", s.line));
+            return Err(format!("line {}: [{}] is for {name} twice", s.line, s.name));
         }
         targets.push(t);
     }
     Ok(targets)
+}
+
+/// An event's `types`: the types of resource it is for, by their
+/// extensions (`"are, git"`), for a resource saving or saved.
+fn types_of(s: &Section, on: EventKind) -> Result<Vec<mg_core::ResType>, String> {
+    let mut types = Vec::new();
+    let given = s.pairs.iter().filter(|(k, _)| k == "types");
+    for name in given.flat_map(|(_, v)| v.split(',')).map(str::trim).filter(|n| !n.is_empty()) {
+        if !on.takes_types() {
+            return Err(format!(
+                "line {}: {} is for no type of resource (`types` is for resource-saving and \
+                 resource-saved)",
+                s.line,
+                on.name()
+            ));
+        }
+        let Some(t) = mg_core::ResType::from_extension(&name.to_ascii_lowercase()) else {
+            return Err(format!(
+                "line {}: {name:?} is no type of resource (are, git, utc…)",
+                s.line
+            ));
+        };
+        if !types.contains(&t) {
+            types.push(t);
+        }
+    }
+    Ok(types)
 }
 
 /// A check a plugin adds to Verify Module.
@@ -366,18 +394,102 @@ pub enum EventKind {
     /// The module was saved: with the resources that are not as they
     /// were when it was last saved, or opened.
     ModuleSaved,
+    /// A resource is about to be written by a save (API 0.4): the handler,
+    /// called for each, reads it as it was and as it will be, and may warn
+    /// (the user is asked before the save goes on) or refuse (the save
+    /// stops). It never edits.
+    ResourceSaving,
+    /// A resource was written by a save (API 0.4): called for each, after.
+    ResourceSaved,
+    /// Objects were placed in an area (API 0.4): from a palette, the
+    /// Placeable Gallery, Setup Store. The handler's edits are part of the
+    /// placing's step of Undo.
+    ObjectPlaced,
+    /// Objects were pasted into an area (API 0.4), a prefab's too; the
+    /// handler's edits are part of the paste's step of Undo.
+    ObjectPasted,
+    /// A resource was made (API 0.4): by a wizard, Add to Palette, Setup
+    /// Store or a copy. The handler, called for each, may edit it at once,
+    /// as part of the same step of Undo.
+    ResourceCreated,
 }
 
 impl EventKind {
+    /// Every one, in the order the manual lists them.
+    pub const ALL: [EventKind; 7] = [
+        EventKind::ModuleOpened,
+        EventKind::ModuleSaved,
+        EventKind::ResourceSaving,
+        EventKind::ResourceSaved,
+        EventKind::ObjectPlaced,
+        EventKind::ObjectPasted,
+        EventKind::ResourceCreated,
+    ];
+
     pub fn name(self) -> &'static str {
         match self {
             EventKind::ModuleOpened => "module-opened",
             EventKind::ModuleSaved => "module-saved",
+            EventKind::ResourceSaving => "resource-saving",
+            EventKind::ResourceSaved => "resource-saved",
+            EventKind::ObjectPlaced => "object-placed",
+            EventKind::ObjectPasted => "object-pasted",
+            EventKind::ResourceCreated => "resource-created",
         }
     }
 
     pub fn named(name: &str) -> Option<EventKind> {
-        [EventKind::ModuleOpened, EventKind::ModuleSaved].into_iter().find(|k| k.name() == name)
+        EventKind::ALL.into_iter().find(|k| k.name() == name)
+    }
+
+    /// The plugin API that has it.
+    pub fn api(self) -> &'static str {
+        match self {
+            EventKind::ModuleOpened | EventKind::ModuleSaved => "0.3",
+            _ => "0.4",
+        }
+    }
+
+    /// Whether its handler is called once for each resource (`ctx.event
+    /// .resource`), rather than once.
+    pub fn per_resource(self) -> bool {
+        matches!(
+            self,
+            EventKind::ResourceSaving | EventKind::ResourceSaved | EventKind::ResourceCreated
+        )
+    }
+
+    /// Whether it runs at once, within what the user is doing (a save
+    /// waits for it, a paste's step of Undo takes its edits): with a time
+    /// budget, and nobody to ask.
+    pub fn at_once(self) -> bool {
+        matches!(
+            self,
+            EventKind::ResourceSaving
+                | EventKind::ObjectPlaced
+                | EventKind::ObjectPasted
+                | EventKind::ResourceCreated
+        )
+    }
+
+    /// Whether its handler may edit the module: not around a save (the
+    /// user saves what they see), which `module-saved` alone, from API
+    /// 0.3, still may.
+    pub fn edits(self) -> bool {
+        !matches!(self, EventKind::ResourceSaving | EventKind::ResourceSaved)
+    }
+
+    /// Whether a manifest may narrow it to types of resource (`types`).
+    pub fn takes_types(self) -> bool {
+        matches!(self, EventKind::ResourceSaving | EventKind::ResourceSaved)
+    }
+
+    /// Whether a manifest may narrow it to kinds of object (`for`).
+    pub fn takes_for(self) -> bool {
+        matches!(
+            self,
+            EventKind::ObjectPlaced | EventKind::ObjectPasted | EventKind::ResourceCreated
+        )
     }
 }
 
@@ -386,6 +498,69 @@ impl EventKind {
 pub struct EventDecl {
     pub id: String,
     pub on: EventKind,
+    /// The types of resource it is for (`types = "are, git"`), for a
+    /// resource saving or saved: none, every one.
+    pub types: Vec<mg_core::ResType>,
+    /// The kinds of object (or `area`) it is for (`for`), for objects
+    /// placed or pasted and resources made: none, every one.
+    pub targets: Vec<Target>,
+}
+
+impl EventDecl {
+    /// Whether it is for this resource (its `types`, its `for`).
+    pub fn is_for(&self, key: &mg_resman::ResKey) -> bool {
+        let types = self.types.is_empty() || self.types.contains(&key.restype);
+        let kind = match key.restype {
+            mg_core::ResType::ARE => Some(Target::Area),
+            t => ObjectKind::from_restype(t).map(Target::Object),
+        };
+        let targets = self.targets.is_empty() || kind.is_some_and(|k| self.targets.contains(&k));
+        types && targets
+    }
+
+    /// Whether it is for an object of this kind (its `for`).
+    pub fn is_for_kind(&self, kind: ObjectKind) -> bool {
+        self.targets.is_empty() || self.targets.contains(&Target::Object(kind))
+    }
+
+    /// When it acts, and what it may do, for people (the Plugins window,
+    /// `mg plugin list`): "before a save, reads each area it writes: may
+    /// warn of it, or stop the save".
+    pub fn said(&self) -> String {
+        let types: Vec<&str> = self.types.iter().filter_map(|t| t.extension()).collect();
+        let types = match types.as_slice() {
+            [] => String::new(),
+            t => format!(" ({})", t.join(", ")),
+        };
+        let what = |none: &str| match self.targets.as_slice() {
+            [] => none.to_string(),
+            t => t.iter().map(|t| t.name()).collect::<Vec<_>>().join(", "),
+        };
+        match self.on {
+            EventKind::ModuleOpened => "when a module is opened".into(),
+            EventKind::ModuleSaved => "when the module is saved".into(),
+            EventKind::ResourceSaving => format!(
+                "before a save, reads each resource it writes{types}: may warn of one, or stop \
+                 the save"
+            ),
+            EventKind::ResourceSaved => {
+                format!("after a save, reads each resource it wrote{types}")
+            }
+            EventKind::ObjectPlaced => format!(
+                "when objects ({}) are placed: may change them, in the placing's Undo",
+                what("any")
+            ),
+            EventKind::ObjectPasted => format!(
+                "when objects ({}) are pasted: may change them, in the paste's Undo",
+                what("any")
+            ),
+            EventKind::ResourceCreated => format!(
+                "when a wizard, Add to Palette, Setup Store or a copy makes one ({}): may \
+                 change it, in the same Undo",
+                what("anything")
+            ),
+        }
+    }
 }
 
 /// Whether text is an id: lower-case letters, digits, `.`, `-` and `_`,
@@ -535,19 +710,32 @@ impl Manifest {
                     });
                 }
                 "event" => {
-                    let get = keys(s, &["id", "on"])?;
+                    let get = keys(s, &["id", "on", "types", "for"])?;
                     let id = id_of(s, get("id"))?;
                     if events.iter().any(|e: &EventDecl| e.id == id) {
                         return Err(format!("line {}: a second event {id:?}", s.line));
                     }
                     let Some(on) = EventKind::named(required(s, "on", get("on"))?) else {
+                        let names: Vec<String> =
+                            EventKind::ALL.iter().map(|k| format!("{:?}", k.name())).collect();
                         return Err(format!(
-                            "line {}: on is \"module-opened\" or \"module-saved\", not {:?}",
+                            "line {}: on is one of {}, not {:?}",
                             s.line,
+                            names.join(", "),
                             get("on")
                         ));
                     };
-                    events.push(EventDecl { id, on });
+                    let types = types_of(s, on)?;
+                    let targets = targets_of(s)?;
+                    if !targets.is_empty() && !on.takes_for() {
+                        return Err(format!(
+                            "line {}: {} is for no kind of object (`for` is for object-placed, \
+                             object-pasted and resource-created)",
+                            s.line,
+                            on.name()
+                        ));
+                    }
+                    events.push(EventDecl { id, on, types, targets });
                 }
                 "setting" => {
                     let decl = setting_of(s)?;
@@ -575,6 +763,18 @@ impl Manifest {
                 "the command {:?} says what it is for (`for`), which is plugin API 0.4; \
                  the manifest says api = {:?}",
                 c.id, plugin.api
+            ));
+        }
+        // (Only what 0.4 added: the events of 0.3 were never held to the
+        // API a manifest names.)
+        let added = |e: &&EventDecl| e.on.api() == "0.4" && api_before(&plugin.api, "0.4");
+        if let Some(e) = events.iter().find(added) {
+            return Err(format!(
+                "the event {:?} is on {}, which is plugin API {}; the manifest says api = {:?}",
+                e.id,
+                e.on.name(),
+                e.on.api(),
+                plugin.api
             ));
         }
         if let Some(d) = settings.first()

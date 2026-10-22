@@ -3872,23 +3872,29 @@ fn drop_appearance(
     let at = view.snapped(at);
     let placement = Placement { position: at.to_array(), rotation: view.ghost_turn };
     let Some(item) = appearance_item(app, dragged, placement) else { return };
-    append_object(app, view, ObjectKind::Placeable, item, format!("Place {}", dragged.name));
+    let what = format!("Place {}", dragged.name);
+    append_object(app, view, ObjectKind::Placeable, item, what, "gallery");
 }
 
 /// Adds `item` at the end of the area's objects of `kind`, as one command
-/// named `what`, and selects it. Whether there was a module to add it to.
+/// named `what` (with the edits of the plugins' handlers of objects
+/// placed: `by` says what placed it), and selects it. Whether there was a
+/// module to add it to.
 fn append_object(
     app: &mut Moonglow,
     view: &mut AreaView,
     kind: ObjectKind,
     item: mg_gff::Struct,
     what: String,
+    by: &'static str,
 ) -> bool {
     let Some(ws) = app.ws.as_mut() else { return false };
     let git = view.git();
     let index = ws.doc(&git).ok().and_then(|g| g.root.list(kind.list())).map_or(0, <[_]>::len);
     let edit = mg_edit::Edit::insert_item(git, mg_edit::GffPath::root(), kind.list(), index, item);
-    app.actions.push(Action::Apply(Command::new(what, vec![edit])));
+    let placed = mg_plugin::Selected::Object { area: git.resref, kind, index };
+    let made = crate::plugin_events::Made::objects(by, vec![placed], false);
+    app.actions.push(Action::ApplyMade(Command::new(what, vec![edit]), made));
     view.selection = vec![(kind, index)];
     true
 }
@@ -3930,7 +3936,7 @@ fn place(
             return;
         }
     };
-    if !append_object(app, view, kind, item, format!("Place {}", key.resref)) {
+    if !append_object(app, view, kind, item, format!("Place {}", key.resref), "palette") {
         return;
     }
     // Remembered in the palette's Recent, the last first.
@@ -4405,7 +4411,13 @@ fn paste_at(app: &mut Moonglow, view: &mut AreaView, at: Vec3) {
         *count += 1;
     }
     if !edits.is_empty() {
-        app.actions.push(Action::Apply(Command::new("Paste", edits)));
+        // (The plugins' handlers of objects pasted first, in the same
+        // command: one Undo takes both back.)
+        let pasted = (selection.iter())
+            .map(|&(kind, index)| mg_plugin::Selected::Object { area: git.resref, kind, index })
+            .collect();
+        let pasted = crate::plugin_events::Made::objects("paste", pasted, true);
+        app.actions.push(Action::ApplyMade(Command::new("Paste", edits), pasted));
         // (Then, the tags it put on a second object.)
         app.actions.push(Action::CheckTags { what: "The paste".into(), made });
         view.selection = selection;
@@ -5198,7 +5210,8 @@ fn add_light(app: &mut Moonglow, view: &mut AreaView, light: &StockLight, at: Ve
     };
     let placement = Placement { position: at.to_array(), rotation: 0.0 };
     let Some(item) = appearance_item(app, &dragged, placement) else { return };
-    append_object(app, view, ObjectKind::Placeable, item, format!("Add {}", dragged.name));
+    let what = format!("Add {}", dragged.name);
+    append_object(app, view, ObjectKind::Placeable, item, what, "light");
 }
 
 /// Sets a field on every selected object (one command).
@@ -5326,7 +5339,10 @@ fn create_waypoint(app: &mut Moonglow, view: &mut AreaView, creature: usize, at:
         index,
         item,
     );
-    app.actions.push(Action::Apply(Command::new("Create waypoint", vec![edit])));
+    let placed =
+        mg_plugin::Selected::Object { area: git.resref, kind: ObjectKind::Waypoint, index };
+    let made = crate::plugin_events::Made::objects("create-waypoint", vec![placed], false);
+    app.actions.push(Action::ApplyMade(Command::new("Create waypoint", vec![edit]), made));
     view.selection = vec![(ObjectKind::Waypoint, index)];
 }
 
@@ -5424,7 +5440,9 @@ fn add_to_palette(app: &mut Moonglow, view: &AreaView, kind: ObjectKind, index: 
     edits.push(mg_edit::Edit::insert_item(git, path, kind.list(), index, added.instance));
     let first = added.blueprints[0].0;
     let held = added.blueprints.len() - 1;
-    app.actions.push(Action::Apply(Command::new("Add to palette", edits)));
+    let keys = added.blueprints.iter().map(|(k, _)| *k).collect();
+    let made = crate::plugin_events::Made::resources("add-to-palette", keys);
+    app.actions.push(Action::ApplyMade(Command::new("Add to palette", edits), made));
     app.actions.push(Action::OpenTab(crate::Tab::Blueprint(first)));
     app.log.info(if held > 0 {
         format!("Added {first} to the palette, and the {held} items it holds")
