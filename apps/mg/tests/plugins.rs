@@ -277,9 +277,15 @@ fn a_plugin_s_checks_count_in_verify() {
     let args = ["--root", root.to_str().unwrap(), "verify", path.to_str().unwrap()];
     let (_, plain) = mg(&args);
     assert_eq!(plain["findings"], json!([]));
-    let (ok, with) = mg(&[&args[..], &["--plugins", plugins.to_str().unwrap()]].concat());
+    let with_plugins = [&args[..], &["--plugins", plugins.to_str().unwrap()]].concat();
+    let (ok, with) = mg(&with_plugins);
     assert!(ok, "a warning is no failure: {with}");
     assert_eq!(with["warnings"], plain["warnings"].as_u64().unwrap() + 1);
+    // The finding offers its fix, the edits as `mg apply` takes them.
+    let set = json!({
+        "op": "set_field", "resource": "guard.utc", "field": "/Tag",
+        "value": { "type": "cexostring", "value": "GATE_GUARD" },
+    });
     assert_eq!(
         with["findings"],
         json!([{
@@ -289,6 +295,17 @@ fn a_plugin_s_checks_count_in_verify() {
             "resource": "guard.utc",
             "at": "Tag",
             "message": "tag \"gate_guard\" is not upper case",
+            "fix": {
+                "label": "Upper-case this tag",
+                "command": { "version": 1, "label": "Upper-case this tag", "edits": [set] },
+            },
         }])
     );
+    // Nothing is changed unless asked; asked, the check's fixes are made.
+    assert_eq!(tag(&path), "gate_guard");
+    let fix = ["--fix", "example.tag-conventions/tag-case"];
+    let (ok, fixed) = mg(&[&with_plugins[..], &fix].concat());
+    assert!(ok, "{fixed}");
+    assert_eq!(fixed["fixes"]["made"][0]["label"], "Upper-case this tag");
+    assert_eq!(tag(&path), "GATE_GUARD");
 }

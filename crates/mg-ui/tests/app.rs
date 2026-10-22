@@ -16723,6 +16723,62 @@ fn a_plugin_s_checks_run_with_verify() {
     );
 }
 
+/// A finding's fix is a button beside its line in Verify's report: made
+/// only when clicked, one step to undo; refused once what it changes is
+/// not as Verify found it.
+#[test]
+fn a_finding_s_fix_is_made_when_its_button_is_clicked() {
+    let Some((mut h, key)) = plugin_harness("ui-plugin-fix", true) else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let tag = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let tag = ws.doc(&key).unwrap().root.string("Tag").unwrap().to_vec();
+        String::from_utf8(tag).unwrap()
+    };
+    h.state_mut().enable_plugin("example.tag-conventions", true);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::Verify);
+    h.run();
+    assert_eq!(tag(&mut h), "gate_guard", "nothing is changed unasked");
+    let line = h.state().log.entries.iter().position(|(_, m)| m.contains("gate_guard")).unwrap();
+    assert_eq!(h.state().log.fix_at(line).unwrap().fix.label, "Upper-case this tag");
+    h.get_by_label("Upper-case this tag").click();
+    h.run();
+    assert_eq!(tag(&mut h), "GATE_GUARD");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Upper-case this tag"));
+    assert!(h.state().log.fix_at(line).unwrap().made);
+    h.get_by_label("✓ Fixed");
+    // Undone, and verified again: then changed by hand, its fix is
+    // refused, and says why.
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert_eq!(tag(&mut h), "gate_guard");
+    h.get_by_label("Clear Log").click();
+    h.run();
+    assert!(h.state().log.fixes.is_empty(), "the log's fixes go with it");
+    h.state_mut().actions.push(mg_ui::Action::Verify);
+    h.run();
+    let mut guard = Gff::new(*b"UTC ");
+    guard.root.set("Tag", mg_gff::Value::String(b"gate_guard".to_vec()));
+    guard.root.set("Comment", mg_gff::Value::String(b"changed".to_vec()));
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "By hand",
+        vec![mg_edit::Edit::SetResource { key, data: Some(guard.to_bytes().unwrap()) }],
+    )));
+    h.run();
+    h.get_by_label("Upper-case this tag").click();
+    h.run();
+    let log = &h.state().log.entries;
+    assert!(
+        log.iter()
+            .any(|(l, m)| *l == mg_ui::Level::Error && m.contains("has changed since Verify")),
+        "{log:#?}"
+    );
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("By hand"));
+}
+
 /// Plugins › Install Plugin from File…: a plugin's archive goes into the
 /// plugins folder, off; installing it again asks before it replaces; what
 /// is no plugin's archive changes nothing.

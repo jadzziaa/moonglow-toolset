@@ -12,7 +12,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result, anyhow, bail};
 use mg_edit::{Command, Workspace};
 use mg_module::Module;
-use mg_module::doctor::{Finding, Severity};
+use mg_module::doctor::Severity;
 use mg_plugin::{Answer, FieldKind, Host, Input, Level, Plugin, PluginError, Question};
 use mg_resman::GameInstall;
 use mg_rules::GameData;
@@ -514,14 +514,15 @@ pub(crate) fn run(
     Ok(out)
 }
 
-/// The findings of every check of the plugins in `dirs`, for `mg verify`.
+/// The findings of every check of the plugins in `dirs`, for `mg verify`,
+/// each with its fix if the check gave it one.
 /// A check that fails is itself a finding, an error.
 pub(crate) fn findings(
     gi: &GameInstall,
     m: &Module,
     dirs: &[PathBuf],
     out: &mut Output,
-) -> Result<Vec<Finding>> {
+) -> Result<Vec<mg_plugin::Found>> {
     let mut all = Vec::new();
     if dirs.is_empty() {
         return Ok(all);
@@ -539,7 +540,7 @@ pub(crate) fn findings(
                 let input = Input::new(m.clone(), game.clone());
                 match mg_plugin::run_check(&plugin, &check.id, input, host.clone()) {
                     Ok(found) => all.extend(found),
-                    Err(e) => all.push(plugin.check_failed(&check.id, &e)),
+                    Err(e) => all.push(plugin.check_failed(&check.id, &e).into()),
                 }
                 for (_, text) in host.log.borrow().iter() {
                     out.note(format!("{}: {text}", plugin.manifest.name));

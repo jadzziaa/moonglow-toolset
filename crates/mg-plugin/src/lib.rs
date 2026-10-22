@@ -28,6 +28,7 @@ use std::sync::Arc;
 
 pub use manifest::{API, APIS, CheckDecl, CommandDecl, EventDecl, EventKind, Manifest, Target};
 use mg_core::{ResRef, ResType};
+pub use mg_edit::fix::{Fix, Found};
 use mg_edit::{Edit, GffPath};
 use mg_module::Module;
 use mg_module::doctor::Finding;
@@ -463,13 +464,15 @@ pub fn run_event(
 }
 
 /// Runs a check of a plugin on a module: its findings, each carrying the
-/// check's id ([`Plugin::check_id`]).
+/// check's id ([`Plugin::check_id`]), and the fix the check gave it if it
+/// gave one (`ctx.fix`: edits worked out on the module as it was read,
+/// none of them made).
 pub fn run_check(
     plugin: &Plugin,
     check: &str,
     input: Input,
     host: Rc<dyn Host>,
-) -> Result<Vec<Finding>, PluginError> {
+) -> Result<Vec<Found>, PluginError> {
     let decl = plugin.manifest.checks.iter().find(|c| c.id == check).ok_or_else(|| {
         PluginError::Unknown {
             plugin: plugin.manifest.id.clone(),

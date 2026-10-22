@@ -86,6 +86,23 @@ fn verify_finds_area_variables_the_game_does_not_read() {
     let f = &json["findings"][0];
     assert_eq!(f["check"], "area-variables");
     assert!(f["message"].as_str().unwrap().contains("iNoMap"), "{f}");
+    // Its fix, as `mg apply` takes it, and made when asked: the error is
+    // gone, so Verify passes; the variables are in the GIT.
+    assert_eq!(f["fix"]["label"], "Move the variables to the GIT");
+    assert_eq!(f["fix"]["command"]["edits"].as_array().unwrap().len(), 2, "{f}");
+    let out = crate::mg()
+        .args(["--root", root.to_str().unwrap(), "--no-user-dir", "verify"])
+        .args(["--fix", "area-variables"])
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("fixed\tarea-variables › chess.are: Move the variables"), "{text}");
+    let m = Module::open(&path).unwrap();
+    assert!(m.gff(&are).unwrap().unwrap().root.get("VarTable").is_none());
+    let git = m.gff(&ResKey::new(are.resref, ResType::GIT)).unwrap().unwrap();
+    assert_eq!(git.root.list("VarTable").unwrap()[0].string("Name"), Some(&b"iNoMap"[..]));
 }
 
 /// A placed creature of faction 0, the PC faction (Jasperre's report: the
@@ -165,10 +182,46 @@ fn verify_warns_of_a_unique_tag_on_two_objects() {
     assert_eq!(found.len(), 1, "{json}");
     assert_eq!(found[0]["severity"], "warning");
     assert_eq!(found[0]["at"], "waypoint 0 in chess, waypoint 1 in chess");
+    assert_eq!(found[0]["fix"]["label"], "Retag the other as TDOD_START_KREZK_2");
     let checks = crate::mg().args(["--json", "checks"]).output().unwrap();
     let checks: serde_json::Value = serde_json::from_slice(&checks.stdout).unwrap();
     let check = checks["checks"].as_array().unwrap().iter().find(|c| c["id"] == "tag-unique");
     assert!(check.is_some_and(|c| c["group"] == "objects"), "{checks}");
+
+    // The fix, said and not made (--dry-run), then made: the second
+    // waypoint has a tag of its own, and Verify finds nothing.
+    let fix = |more: &[&str]| {
+        crate::mg()
+            .args(["--root", root.to_str().unwrap(), "--no-user-dir", "--json", "verify"])
+            .args(["--fix", "tag-unique"])
+            .args(more)
+            .arg(&dir)
+            .output()
+            .unwrap()
+    };
+    let tags = || -> Vec<Vec<u8>> {
+        let m = Module::open(&dir).unwrap();
+        let g = m.gff(&git).unwrap().unwrap();
+        let points = g.root.list("WaypointList").unwrap();
+        points.iter().map(|w| w.string("Tag").unwrap().to_vec()).collect()
+    };
+    let out = fix(&["--dry-run"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["fixes"]["made"][0]["label"], "Retag the other as TDOD_START_KREZK_2");
+    assert_eq!(json["fixes"]["dry_run"], true);
+    assert_eq!(tags(), [b"TDOD_START_KREZK".to_vec(), b"TDOD_START_KREZK".to_vec()]);
+    let out = fix(&[]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(tags(), [b"TDOD_START_KREZK".to_vec(), b"TDOD_START_KREZK_2".to_vec()]);
+    let out = fix(&[]);
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(!json["findings"].as_array().unwrap().iter().any(|f| f["check"] == "tag-unique"));
+    let said = json["notes"].to_string();
+    assert!(said.contains("--fix tag-unique: no finding of that check has a fix"), "{said}");
+    // Only with a check named.
+    let none = crate::mg().args(["verify", "--dry-run"]).arg(&dir).output().unwrap();
+    assert!(!none.status.success());
 }
 
 /// A module naming a talk table the game can't find doesn't load: Verify

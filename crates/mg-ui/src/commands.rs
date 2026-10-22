@@ -784,7 +784,7 @@ impl Id {
                 return;
             }
             Id::ResetLayout => return app.reset_layout(ctx),
-            Id::ClearLog => return app.log.entries.clear(),
+            Id::ClearLog => return app.log.clear(),
         };
         app.actions.push(action);
     }

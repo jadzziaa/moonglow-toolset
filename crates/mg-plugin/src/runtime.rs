@@ -14,6 +14,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use mg_core::{Codepage, Gender, Language, LocString, LocStringKey, ResRef, StrRef};
+use mg_edit::fix::{Fix, Found};
 use mg_edit::wire::field_from_str;
 use mg_edit::{Command, Edit, GffPath, Step, Workspace};
 use mg_gff::{FieldType, Gff, Struct, Value};
@@ -1102,17 +1103,92 @@ pub(crate) fn run_event(
     Ok(Outcome { label, edits: sh.edits.take(), haks: sh.haks.take(), folders: sh.folders.take() })
 }
 
+/// A fix a check records (`ctx.fix`): what its button says, and the job
+/// its edits go into, made at its first edit on a copy of the module as
+/// the check reads it (so that the check goes on reading the module as it
+/// is, and each fix starts from it).
+struct FixRecord {
+    label: String,
+    job: Option<Rc<Shared>>,
+}
+
+/// The methods of a fix: those of `ctx.edit`, as the reference writes them.
+pub(crate) const FIX_NAMES: [&str; 10] = [
+    "ctx.fix",
+    "fix.label",
+    "fix:set",
+    "fix:remove",
+    "fix:insert",
+    "fix:remove_item",
+    "fix:write",
+    "fix:write_bytes",
+    "fix:write_gff",
+    "fix:delete",
+];
+
+/// `ctx.fix(label)`: a fix to give a finding, which records the edits made
+/// through it (its methods are `ctx.edit`'s) and makes none.
+fn fix_maker(
+    lua: &Lua,
+    sh: &Rc<Shared>,
+    records: &Rc<RefCell<Vec<FixRecord>>>,
+) -> mlua::Result<Function> {
+    let (sh, records) = (sh.clone(), records.clone());
+    lua.create_function(move |lua, label: String| {
+        if label.trim().is_empty() {
+            return fail("ctx.fix(label): the label is what its button says, and needs words");
+        }
+        let n = records.borrow().len();
+        records.borrow_mut().push(FixRecord { label: label.clone(), job: None });
+        let fix = lua.create_table()?;
+        fix.set("label", label)?;
+        let meta = lua.create_table()?;
+        meta.set("__fix", n)?;
+        // Its methods are made at the first one used (a copy of the module
+        // for each fix that edits).
+        let (sh, records) = (sh.clone(), records.clone());
+        meta.set(
+            "__index",
+            lua.create_function(move |lua, (fix, name): (Table, LuaValue)| {
+                let job = {
+                    let mut all = records.borrow_mut();
+                    let record = &mut all[n];
+                    record
+                        .job
+                        .get_or_insert_with(|| {
+                            let module = sh.ws.borrow().module.clone();
+                            let input = Input::new(module, sh.game.clone());
+                            shared_in(Source::Nothing, &sh.who, input, &sh.host)
+                        })
+                        .clone()
+                };
+                let methods = editor(lua, &job)?;
+                for pair in methods.pairs::<String, Function>() {
+                    let (k, f) = pair?;
+                    fix.raw_set(k, f)?;
+                }
+                fix.raw_get::<LuaValue>(name)
+            })?,
+        )?;
+        fix.set_metatable(Some(meta))?;
+        Ok(fix)
+    })
+}
+
 pub(crate) fn run_check(
     plugin: &Plugin,
     decl: &CheckDecl,
     input: Input,
     host: Rc<dyn Host>,
-) -> Result<Vec<Finding>, PluginError> {
+) -> Result<Vec<Found>, PluginError> {
     let sh = shared(plugin, input, &host);
-    let run = || -> mlua::Result<Vec<Finding>> {
+    let records: Rc<RefCell<Vec<FixRecord>>> = Rc::default();
+    let run = || -> mlua::Result<Vec<Found>> {
         let lua = start(Some(&plugin.manifest.entry), &sh)?;
         let f = handler(&lua, "mg.checks", "check", &decl.id)?;
-        let made: LuaValue = f.call(context(&lua, &sh, about(plugin))?)?;
+        let ctx = context(&lua, &sh, about(plugin))?;
+        ctx.set("fix", fix_maker(&lua, &sh, &records)?)?;
+        let made: LuaValue = f.call(ctx)?;
         let list = match made {
             LuaValue::Nil => return Ok(Vec::new()),
             LuaValue::Table(t) => t,
@@ -1131,14 +1207,34 @@ pub(crate) fn run_check(
                     ));
                 }
             };
-            out.push(Finding {
+            // Its fix: one made with ctx.fix, and only if it edits.
+            let fix = match f.get::<LuaValue>("fix")? {
+                LuaValue::Nil => None,
+                LuaValue::Table(t) => {
+                    let n = match t.metatable() {
+                        Some(meta) => meta.raw_get::<Option<usize>>("__fix")?,
+                        None => None,
+                    };
+                    let all = records.borrow();
+                    let Some(record) = n.and_then(|n| all.get(n)) else {
+                        return fail("a finding's fix is one made with ctx.fix(label)");
+                    };
+                    let edits = record.job.as_ref().map(|j| j.edits.borrow().clone());
+                    edits
+                        .filter(|e| !e.is_empty())
+                        .map(|edits| Fix { label: record.label.clone(), edits })
+                }
+                _ => return fail("a finding's fix is one made with ctx.fix(label)"),
+            };
+            let finding = Finding {
                 severity,
                 check: plugin.check_id(&decl.id).into(),
                 source: "module".into(),
                 resource: key_of(&f.get::<String>("resource")?)?,
                 at: f.get::<Option<String>>("at")?.unwrap_or_default(),
                 message: f.get("message")?,
-            });
+            };
+            out.push(Found { finding, fix });
         }
         Ok(out)
     };
@@ -1304,6 +1400,8 @@ pub(crate) fn api_names() -> Vec<String> {
         // open), and the fields of each.
         out.extend(["ctx.selection", "ctx.open"].map(String::from));
         out.extend(SELECTED.map(String::from));
+        // A check's fixes (`ctx.fix`, a check's alone) and theirs.
+        out.extend(FIX_NAMES.map(String::from));
         // What `ctx.game:table` returns, and the other things handed out.
         out.extend(["twoda.rows", "twoda.columns", "twoda:get"].map(String::from));
         out.extend(crate::files::NAMES.map(String::from));

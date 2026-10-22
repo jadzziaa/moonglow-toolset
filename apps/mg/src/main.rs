@@ -105,6 +105,15 @@ enum Cmd {
         /// names each check's group).
         #[arg(long, value_name = "GROUP", value_parser = verify_group)]
         skip: Vec<mg_module::doctor::Group>,
+        /// Make the fixes of this check's findings and save (repeatable):
+        /// a check's id, as a finding's "check" with --json says it
+        /// (`tag-unique`, `example.tag-conventions/tag-case`). Only the
+        /// findings that offer a fix (with --json, a finding's "fix").
+        #[arg(long, value_name = "CHECK")]
+        fix: Vec<String>,
+        /// With --fix, print the fixes it would make; change nothing.
+        #[arg(long, requires = "fix")]
+        dry_run: bool,
     },
     /// Plugins: list them, check them, run one's command on a module.
     Plugin {
@@ -1333,8 +1342,9 @@ fn run(cli: &Cli) -> Result<Output> {
             }
             out
         }
-        Cmd::Verify { module, unused, plugins, skip } => {
-            verify(&install(cli)?, module, *unused, plugins, skip)?
+        Cmd::Verify { module, unused, plugins, skip, fix, dry_run } => {
+            let fixes = Fixes { checks: fix, dry_run: *dry_run };
+            verify(&install(cli)?, module, *unused, plugins, skip, &fixes)?
         }
         Cmd::Plugin { cmd } => match cmd {
             PluginCmd::List { folders } => plugins::list(folders)?,
@@ -2873,12 +2883,88 @@ fn verify_group(id: &str) -> std::result::Result<mg_module::doctor::Group, Strin
     })
 }
 
+/// `mg verify --fix`: the checks whose findings' fixes to make, and
+/// whether only to say so.
+struct Fixes<'a> {
+    checks: &'a [String],
+    dry_run: bool,
+}
+
+/// Makes the fixes of the findings of the checks asked for (each on the
+/// module as it was found, a command each, held to what Verify read:
+/// [`mg_edit::fix::Guard`]) and saves. The findings fixed, by place in
+/// `found`, and the report's lines and JSON.
+fn make_fixes(
+    m: &Module,
+    found: &[mg_edit::fix::Found],
+    asked: &Fixes<'_>,
+    out: &mut Output,
+) -> Result<(Vec<usize>, serde_json::Value, Vec<String>)> {
+    use mg_edit::fix::Guard;
+    let chosen: Vec<(usize, &mg_edit::fix::Fix)> = found
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| asked.checks.iter().any(|c| *c == f.finding.check))
+        .filter_map(|(i, f)| Some((i, f.fix.as_ref()?)))
+        .collect();
+    for check in asked.checks {
+        if !chosen.iter().any(|(i, _)| found[*i].finding.check == *check) {
+            out.note(format!("warning: --fix {check}: no finding of that check has a fix"));
+        }
+    }
+    let mut guard = Guard::new(m, chosen.iter().map(|(_, f)| *f));
+    let mut ws = mg_edit::Workspace::new(m.clone());
+    let (mut fixed, mut made, mut refused) = (Vec::new(), Vec::new(), Vec::new());
+    let mut lines = Vec::new();
+    for (i, fix) in chosen {
+        let f = &found[i].finding;
+        let about = serde_json::json!({
+            "check": f.check, "resource": f.resource.to_string(), "at": f.at,
+            "label": fix.label,
+        });
+        let why = match guard.check(&mut ws, fix) {
+            Ok(()) => ws.apply(fix.command()).map_err(|e| e.to_string()),
+            Err(why) => Err(why),
+        };
+        match why {
+            Ok(()) => {
+                guard.made(&mut ws, fix);
+                let verb = if asked.dry_run { "would fix" } else { "fixed" };
+                lines.push(format!("{verb}\t{} › {}: {}", f.check, f.resource, fix.label));
+                fixed.push(i);
+                made.push(about);
+            }
+            Err(why) => {
+                out.note(format!("warning: not fixed: {} › {}: {why}", f.check, f.resource));
+                let mut about = about;
+                about["why"] = serde_json::json!(why);
+                refused.push(about);
+            }
+        }
+    }
+    if !fixed.is_empty() && !asked.dry_run {
+        ws.save()?;
+    }
+    let made = serde_json::json!({ "made": made, "refused": refused, "dry_run": asked.dry_run });
+    Ok((fixed, made, lines))
+}
+
+/// A fix as `mg verify --json` says it: what its button says, and its
+/// edits as `mg apply` takes them.
+fn fix_json(fix: &mg_edit::fix::Fix, codepage: Codepage) -> serde_json::Value {
+    match mg_edit::wire::command_to_json(&fix.command(), codepage) {
+        Ok(command) => serde_json::json!({ "label": fix.label, "command": command }),
+        Err(e) => serde_json::json!({ "label": fix.label, "error": e.to_string() }),
+    }
+}
+
 fn verify(
     gi: &GameInstall,
     path: &Path,
     show_unused: bool,
     plugins: &[PathBuf],
     skip: &[mg_module::doctor::Group],
+    asked: &Fixes<'_>,
 ) -> Result<Output> {
     let m = Module::open(path)?;
     let mut out = Output::default();
@@ -2897,11 +2983,29 @@ fn verify(
     let mut findings =
         mg_module::doctor::examine(&m, &rm, mg_module::doctor::TalkTables { base, custom });
     // The plugins' checks, beside the doctor's.
-    findings.extend(plugins::findings(gi, &m, plugins, &mut out)?);
+    let theirs = plugins::findings(gi, &m, plugins, &mut out)?;
+    findings.extend(theirs.iter().map(|f| f.finding.clone()));
     let left = mg_module::doctor::leave_out(&mut missing, &mut findings, skip);
+    // Each finding with its fix, if it has one.
+    let found = mg_edit::fix::attach(&m, findings, &theirs);
+    let codepage = mg_rules::encoding_of(&rm, Codepage::WINDOWS_1252);
+    let (fixed, made, fix_lines) = if asked.checks.is_empty() {
+        (Vec::new(), serde_json::Value::Null, Vec::new())
+    } else {
+        make_fixes(&m, &found, asked, &mut out)?
+    };
+    let findings: Vec<&mg_module::doctor::Finding> = found.iter().map(|f| &f.finding).collect();
     let errors = missing.iter().filter(|x| x.is_error()).count()
         + findings.iter().filter(|f| f.severity == mg_module::doctor::Severity::Error).count();
     let warnings = findings.len() + missing.len() - errors;
+    // (An error fixed is not one left: the exit says what is.)
+    let errors_left = errors
+        - fixed
+            .iter()
+            .filter(|i| {
+                !asked.dry_run && found[**i].finding.severity == mg_module::doctor::Severity::Error
+            })
+            .count();
     let severity = |s: mg_module::doctor::Severity| match s {
         mg_module::doctor::Severity::Error => "error",
         mg_module::doctor::Severity::Warning => "warning",
@@ -2920,17 +3024,23 @@ fn verify(
             "uncompiled": x.uncompiled,
             "only_userpatch": x.only_userpatch,
         })).collect::<Vec<_>>(),
-        "findings": findings.iter().map(|f| serde_json::json!({
+        "findings": found.iter().map(|x| { let f = &x.finding; serde_json::json!({
             "severity": severity(f.severity),
             "check": f.check,
             "source": f.source,
             "resource": f.resource.to_string(),
             "at": f.at,
             "message": f.message,
-        })).collect::<Vec<_>>(),
+            "fix": x.fix.as_ref().map(|fix| fix_json(fix, codepage)),
+        })}).collect::<Vec<_>>(),
         "unused": unused.iter().map(|k| k.to_string()).collect::<Vec<_>>(),
         "skipped": left.iter().map(|(g, n)| (g.id().to_string(), serde_json::json!(n))).collect::<serde_json::Map<_, _>>(),
     });
+    if !made.is_null()
+        && let serde_json::Value::Object(o) = &mut out.json
+    {
+        o.insert("fixes".into(), made);
+    }
     for x in &missing {
         let what = x.what();
         let sev = if x.is_error() { "error" } else { "warning" };
@@ -2944,10 +3054,15 @@ fn verify(
         ));
     }
     out.line(format!("{} missing references", missing.len()));
-    for f in &findings {
+    for x in &found {
+        let f = &x.finding;
         let at = if f.at.is_empty() { String::new() } else { format!(" {}", f.at) };
+        let fix = match &x.fix {
+            Some(fix) => format!(" [fix: {}; --fix {}]", fix.label, f.check),
+            None => String::new(),
+        };
         out.line(format!(
-            "{}\t{} › {}{at}: {}",
+            "{}\t{} › {}{at}: {}{fix}",
             severity(f.severity),
             f.source,
             f.resource,
@@ -2955,6 +3070,7 @@ fn verify(
         ));
     }
     out.line(format!("{} content problems", findings.len()));
+    fix_lines.into_iter().for_each(|l| out.line(l));
     for (g, n) in &left {
         out.line(format!("left out\t{}: {n}", g.id()));
     }
@@ -2964,7 +3080,7 @@ fn verify(
         }
         out.line(format!("{} unused resources", unused.len()));
     }
-    if errors > 0 {
+    if errors_left > 0 {
         out.failed = true;
         out.note(format!("mg: {} has errors", path.display()));
     }

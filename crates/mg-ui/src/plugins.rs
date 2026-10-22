@@ -15,7 +15,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use mg_edit::Command;
-use mg_module::doctor::Finding;
+use mg_plugin::Found;
 use mg_plugin::{
     Answer, Existing, FieldKind, Host, Input, Outcome, Package, Plugin, PluginError, Question,
 };
@@ -309,12 +309,13 @@ fn level(l: mg_plugin::Level) -> Level {
     }
 }
 
-/// The findings of the enabled plugins' checks, on a job's snapshot, and
-/// what the checks logged. A check that fails is itself a finding.
+/// The findings of the enabled plugins' checks (each with its fix, if it
+/// has one), on a job's snapshot, and what the checks logged. A check that
+/// fails is itself a finding.
 pub(crate) fn check_findings(
     plugins: &[Plugin],
     job: &Context,
-) -> (Vec<Finding>, Vec<(Level, String)>) {
+) -> (Vec<Found>, Vec<(Level, String)>) {
     let (mut findings, mut said) = (Vec::new(), Vec::new());
     for plugin in plugins {
         for check in &plugin.manifest.checks {
@@ -334,7 +335,7 @@ pub(crate) fn check_findings(
             match mg_plugin::run_check(plugin, &check.id, input, host) {
                 Ok(found) => findings.extend(found),
                 Err(PluginError::Canceled(_)) => return (findings, said),
-                Err(e) => findings.push(plugin.check_failed(&check.id, &e)),
+                Err(e) => findings.push(plugin.check_failed(&check.id, &e).into()),
             }
             let logged = std::mem::take(&mut *log.lock().unwrap_or_else(|e| e.into_inner()));
             let name = &plugin.manifest.name;

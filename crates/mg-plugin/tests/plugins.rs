@@ -181,16 +181,70 @@ fn a_check_finds_and_does_not_edit() {
     let input = || Input::new(module(), None);
     let found = run_check(&p, "tag-case", input(), host.clone()).unwrap();
     assert_eq!(found.len(), 1);
-    let f = &found[0];
+    let f = &found[0].finding;
     assert_eq!(f.check, "example.tag-conventions/tag-case");
     assert_eq!(
         (f.severity, f.resource, f.at.as_str()),
         (Severity::Warning, key("guard.utc"), "Tag")
     );
     assert_eq!(f.message, "tag \"gate_guard\" is not upper case");
+    // Its fix: the edit recorded, none made.
+    let fix = found[0].fix.as_ref().unwrap();
+    assert_eq!(fix.label, "Upper-case this tag");
+    let mut ws = Workspace::new(module());
+    ws.apply(fix.command()).unwrap();
+    let guard = ws.doc(&key("guard.utc")).unwrap();
+    assert_eq!(guard.root.get("Tag"), Some(&Value::String(b"GATE_GUARD".to_vec())));
     // A check that edits is refused.
     let e = run_check(&plugin("hostile"), "edits", input(), host).unwrap_err().to_string();
     assert!(e.contains("a check only reads"), "{e}");
+}
+
+/// A fix records edits as `ctx.edit` makes them, each fix from the module
+/// as the check reads it, which its fixes leave as it is; a fix that edits
+/// nothing is none, and a fix is one made with `ctx.fix`.
+#[test]
+fn a_check_s_fixes_are_recorded_apart() {
+    let dir = mg_testkit::scratch_dir("plugin-fixes");
+    let manifest = "[plugin]\nid = \"test.fixes\"\nname = \"Fixes\"\nversion = \"1.0.0\"\napi = \"0.4\"\nlicense = \"MIT\"\ndescription = \"d\"\n\n[check]\nid = \"many\"\ntitle = \"Many\"\n\n[check]\nid = \"bad\"\ntitle = \"Bad\"\n";
+    std::fs::write(dir.join("plugin.cfg"), manifest).unwrap();
+    let code = r#"
+        local mg = require("@moonglow")
+        mg.check("many", function(ctx)
+            local one = ctx.fix("Rename")
+            one:set("guard.utc", "Comment", "Bob")
+            local at = one:insert("guard.utc", "/ClassList", { __struct_id = 2, Class = mg.int(1) })
+            one:set("guard.utc", `/ClassList[{at}]/ClassLevel`, mg.short(2))
+            -- The check reads the module as it is.
+            assert(ctx.module:gff("guard.utc").Comment == "draft")
+            local two = ctx.fix("Another")
+            two:set("guard.utc", "Tag", "TWO")
+            assert(two.label == "Another")
+            local nothing = ctx.fix("Nothing")
+            return {
+                { resource = "guard.utc", message = "one", fix = one },
+                { resource = "guard.utc", message = "two", fix = two },
+                { resource = "guard.utc", message = "none", fix = nothing },
+            }
+        end)
+        mg.check("bad", function(ctx)
+            return { { resource = "guard.utc", message = "x", fix = { label = "Mine" } } }
+        end)
+    "#;
+    std::fs::write(dir.join("main.luau"), code).unwrap();
+    let p = Plugin::load(&dir).unwrap();
+    let host = Rc::new(TestHost::default());
+    let found = run_check(&p, "many", Input::new(module(), None), host.clone()).unwrap();
+    let one = found[0].fix.as_ref().unwrap();
+    assert_eq!((one.label.as_str(), one.edits.len()), ("Rename", 3));
+    let two = found[1].fix.as_ref().unwrap();
+    assert_eq!(two.edits.len(), 1, "each fix from the module as it is: {two:?}");
+    assert_eq!(found[2].fix, None);
+    let mut ws = Workspace::new(module());
+    ws.apply(one.command()).unwrap();
+    assert_eq!(ws.can_undo(), Some("Rename"));
+    let e = run_check(&p, "bad", Input::new(module(), None), host).unwrap_err().to_string();
+    assert!(e.contains("made with ctx.fix(label)"), "{e}");
 }
 
 #[test]

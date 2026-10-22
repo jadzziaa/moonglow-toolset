@@ -137,8 +137,8 @@ fn tag_conventions_fixes_what_its_check_finds() {
     let host = Rc::new(TestHost::default());
     let found = run_check(&plugin, "tag-case", input(&module()), host.clone()).unwrap();
     assert_eq!(found.len(), 1);
-    assert_eq!(found[0].resource, key("guard.utc"));
-    assert_eq!(found[0].message, "tag \"gate_guard\" is not upper case");
+    assert_eq!(found[0].finding.resource, key("guard.utc"));
+    assert_eq!(found[0].finding.message, "tag \"gate_guard\" is not upper case");
 
     let outcome = run_command(&plugin, "fix-tags", input(&module()), host.clone()).unwrap();
     assert_eq!(outcome.label, "Upper-case creature tags");
@@ -374,6 +374,7 @@ fn the_type_file_has_the_whole_api() {
                     "folder" => "Folder",
                     "image" => "Image",
                     "selected" => "Selected",
+                    "fix" => "Fix",
                     "ctx" | "ctx.plugin" => "Context",
                     other => panic!("no type for {other}"),
                 };
