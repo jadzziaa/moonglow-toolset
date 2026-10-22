@@ -345,7 +345,11 @@ the module tree, a blueprint's window; a placed object, as it is placed,
 from its right-click menu in the area or the module tree, or its
 Properties. Drag to turn
 the model (right or middle button to move it), use the wheel to zoom, and
-play its animations, including those from its supermodels.
+play its animations, including those from its supermodels. **Lights**
+lights it with its own light nodes. **Shaders** draws it with the game's
+own shaders, a material's custom ones among them (wind-swayed leaves move
+while the viewer plays): the same switch as the area view's toolbar
+(Areas › The toolbar).
 
 ## The log
 

@@ -349,6 +349,10 @@ pub struct Moonglow {
     pub ws: Option<Workspace>,
     pub dock: DockState<Tab>,
     pub log: Log,
+    /// The game's shader programs the log was told couldn't be drawn
+    /// (the renderer's [`mg_render::Renderer::game_shader_failures`]): told
+    /// once each.
+    shader_failures_told: Vec<String>,
     pub actions: Vec<Action>,
     pub dialogs: Box<dyn Dialogs>,
     /// Where sounds play: [`audio::Silence`] until the desktop app gives
@@ -523,6 +527,9 @@ pub struct Moonglow {
     /// Where what Compile All remembers is kept from one session to the
     /// next (a file a module, in Moonglow's own folder); `None`: not kept.
     pub compiled_dir: Option<PathBuf>,
+    /// Where the game's shaders, compiled, are kept from one session to the
+    /// next (in the user's cache folder); `None`: compiled each session.
+    pub shader_cache_dir: Option<PathBuf>,
     /// The Rename window, while open.
     pub rename: Option<references::RenameDraft>,
     /// The Placeable Gallery, while it is open.
@@ -714,6 +721,7 @@ impl Moonglow {
             ws: None,
             dock: DockState::new(vec![Tab::Welcome]),
             log,
+            shader_failures_told: Vec::new(),
             actions: Vec::new(),
             dialogs,
             speaker: Box::new(audio::Silence::default()),
@@ -785,6 +793,7 @@ impl Moonglow {
             command_after_text: None,
             script_stamps: Default::default(),
             compiled_dir: None,
+            shader_cache_dir: None,
             rename: None,
             copy_as: None,
             placeable_gallery: None,
@@ -940,6 +949,33 @@ impl Moonglow {
                  a report was written for the report of the problem (Help › User Manual, \
                  Troubleshooting)"
             ));
+        }
+        // The Shaders switch, for every 3D view (they share one renderer),
+        // and the game's programs that couldn't be drawn, said once each.
+        if let Some(vp) = self.viewport.as_mut() {
+            vp.renderer.game_shaders = self.settings.game_shaders();
+            // (Once: the programs' cache folder, and a frame asked for when
+            // the worker has made a pipeline.)
+            if !vp.configured {
+                vp.configured = true;
+                vp.renderer.set_shader_cache(self.shader_cache_dir.clone());
+                let ctx = ui.ctx().clone();
+                vp.renderer.set_game_waker(move || ctx.request_repaint());
+            }
+            // (Forgotten with the programs, when the resources are read
+            // again: told again if they still fail.)
+            if vp.renderer.game_shader_failures().is_empty() {
+                self.shader_failures_told.clear();
+            }
+            for (what, why) in vp.renderer.game_shader_failures() {
+                if !self.shader_failures_told.contains(what) {
+                    self.shader_failures_told.push(what.clone());
+                    self.log.warn(format!(
+                        "The game's shader {what} is drawn with Moonglow's own shader instead: \
+                         {why}"
+                    ));
+                }
+            }
         }
         // Options › General › Light theme (dark unless chosen).
         let theme = if self.settings.light_theme { egui::Theme::Light } else { egui::Theme::Dark };

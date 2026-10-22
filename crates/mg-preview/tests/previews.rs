@@ -279,6 +279,83 @@ fn previews_render() {
     assert!(differ > 300 && differ < 256 * 256 / 8, "{differ} pixels differ");
 }
 
+/// With the game's shaders on (the Shaders switch), blueprint previews are
+/// drawn by the stock lit programs: a creature in its robe and cloak
+/// (skinned, PLT colors), a weapon, a placeable; each as Moonglow's own
+/// shader draws it, within a few levels of 255 on average.
+#[test]
+fn previews_draw_with_the_game_s_shaders() {
+    let Some(game) = game() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU");
+        return;
+    };
+    let rm = &game.resman;
+    let load = |name: &str| -> Option<Arc<Model>> {
+        let data = rm.get_named(name, ResType::MDL).ok()?;
+        Model::read(&data).ok().map(Arc::new)
+    };
+    let dir = mg_testkit::scratch_dir("previews-game-shaders");
+    let item_of = items(&game);
+    let cases: Vec<(&str, Preview)> = vec![
+        (
+            "nw_hen_bod_05",
+            creature(&game, &blueprint(&game, "nw_hen_bod_05", ResType::UTC).root, &item_of)
+                .unwrap(),
+        ),
+        ("nw_wswls001", item(&game, &blueprint(&game, "nw_wswls001", ResType::UTI).root).unwrap()),
+        (
+            "plc_armoire",
+            placeable(&game, &blueprint(&game, "plc_armoire", ResType::UTP).root).unwrap(),
+        ),
+    ];
+    for (name, preview) in cases {
+        let c = Composed::new(&gpu, &preview, &load).expect(name);
+        let (min, max) = c.bounds();
+        let radius = ((max - min).length() * 0.5).max(0.1);
+        let camera = Camera::orbit(
+            (min + max) * 0.5,
+            radius / 20f32.to_radians().sin() * 1.1,
+            40f32.to_radians(),
+            15f32.to_radians(),
+        );
+        let scene = Scene {
+            instances: c.instances(c.idle.as_deref(), 0.5, Mat4::IDENTITY),
+            lights: c.point_lights(Mat4::IDENTITY),
+            area: AreaLight::default(),
+            background: [0.2, 0.25, 0.3],
+            ..Default::default()
+        };
+        let mut pictures = Vec::new();
+        for on in [false, true] {
+            let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+            r.game_shaders = on;
+            let img = r.render_image(&gpu, rm, &scene, &camera, 256, 256);
+            if on {
+                assert_eq!(r.game_shader_failures(), &[], "{name}");
+                assert!(r.drawn.game > 0, "{name}: {:?}", r.drawn);
+            }
+            let file = format!("{name}_{}.png", if on { "game" } else { "own" });
+            let out = std::fs::File::create(dir.join(file)).unwrap();
+            let mut enc = png::Encoder::new(std::io::BufWriter::new(out), img.width, img.height);
+            enc.set_color(png::ColorType::Rgba);
+            enc.write_header().unwrap().write_image_data(&img.data).unwrap();
+            pictures.push(img.data);
+        }
+        let n = pictures[0].len() / 4;
+        let sum: u64 = (pictures[0].chunks(4).zip(pictures[1].chunks(4)))
+            .map(|(a, b)| (0..3).map(|i| u64::from(a[i].abs_diff(b[i]))).sum::<u64>())
+            .sum();
+        let mean = sum as f64 / (3 * n) as f64;
+        eprintln!("{name}: the game's shaders differ by {mean:.2} of 255 on average");
+        assert!(mean < 4.0, "{name}: {mean}");
+    }
+}
+
 /// Under armor, a body part shows the creature's own where the armor's
 /// is bare skin (part 1), and the armor's where it covers it (GitHub issue
 /// 5: a jackalwere's legs and paws were a human's under its armor).
@@ -499,7 +576,8 @@ fn what_is_only_worn_lies_in_an_area_as_aurora_shows_it() {
     // palette's alpha shows it, a shiny color's. Without one the alpha
     // was drawn see-through (a builder saw the floor through a cloak
     // Aurora draws solid and shiny). Armor dropped has the items' one.
-    assert_eq!(cloak.base.env_map.as_deref(), Some("chrome1"));
+    // (`default`: the area's, as the game binds it; `chrome1` with none.)
+    assert_eq!(cloak.base.env_map.as_deref(), Some("default"));
     assert_eq!(placed("nw_aarcl004").base.env_map.as_deref(), Some("chrome1"));
     // As it is worn: a body's parts.
     let worn = item(&game, &blueprint(&game, "nw_aarcl001", ResType::UTI).root).unwrap();

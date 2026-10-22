@@ -9,7 +9,8 @@
 // roughness, height (parallax and occlusion) and self-illumination maps as
 // the normal-mapped variants (fslit_nm); their tangent frame is the stock
 // shaders' (the vertex tangent, the bitangent N × T by its sign) where the
-// model has tangents, else from screen-space derivatives.
+// model has tangents, else from screen-space derivatives (the tangents made
+// for a mesh without, for the game's shaders, are left alone).
 
 struct Frame {
     view: mat4x4<f32>,
@@ -72,7 +73,11 @@ struct Draw {
     // lightmap there, 8 a flow map slides the texture), y = slide speed,
     // z = shadow reduction, w = shadow brightening.
     effect: vec4<f32>,
-    // x = number of lights for this draw, y = 1 if skinned, z = first bone
+    // The texture's turn (the game's `m_texture`: a tile's ground turned
+    // with it): x = cos, y = sin.
+    uv_turn: vec4<f32>,
+    // x = number of lights for this draw, y = 1 if skinned, z = first bone,
+    // w = 1 if the mesh's tangents were made (not the model's)
     light_count: vec4<u32>,
     // Up to 32 light indices.
     light_index: array<vec4<u32>, 8>,
@@ -131,7 +136,9 @@ struct VertexOut {
 
 fn finish(v: VertexIn, pos: vec3<f32>, normal: vec3<f32>, tangent: vec4<f32>) -> VertexOut {
     var out: VertexOut;
-    let uv = v.uv;
+    // (`mat2(m_texture) * vTcIn`.)
+    let turn = draws[this_draw].uv_turn.xy;
+    let uv = vec2<f32>(turn.x * v.uv.x - turn.y * v.uv.y, turn.y * v.uv.x + turn.x * v.uv.y);
     out.draw = this_draw;
     out.color = v.color;
     out.uv1 = v.uv1;
@@ -198,10 +205,54 @@ fn fresnel(spec0: f32, c: f32) -> f32 {
     return mix(spec0, 1.0, f2 * f2 * f);
 }
 
+// A normal map's x and y turned back as the texture was turned
+// (`transpose(mat2(m_texture))`): the tangents are the model's, which
+// turned with the tile while its texture coordinates turned the other way.
+fn unturn(t: vec2<f32>) -> vec2<f32> {
+    let turn = draws[this_draw].uv_turn.xy;
+    return vec2<f32>(turn.x * t.x + turn.y * t.y, -turn.y * t.x + turn.x * t.y);
+}
+
 // The environment map's 2D ("sphere") coordinates, view space.
 fn env_coords(n: vec3<f32>, pos_view: vec3<f32>) -> vec2<f32> {
     let e = n.xy / (1.0 + abs(n.z)) + 0.5 * pos_view.xy / (-pos_view.z + 0.2);
     return 0.5 * e + vec2<f32>(0.5, 0.25);
+}
+
+// The level of detail a cube map of `size` texels a side is read at for
+// the direction `r` whose screen derivatives are `d1` and `d2`: the
+// derivatives of the coordinates on the face `r` points at (its other two
+// components over the major one), as the graphics APIs define it.
+fn cube_level(r: vec3<f32>, d1: vec3<f32>, d2: vec3<f32>, size: f32) -> f32 {
+    let a = abs(r);
+    var m = r.z;
+    var c = r.xy;
+    var c1 = d1.xy;
+    var c2 = d2.xy;
+    var m1 = d1.z;
+    var m2 = d2.z;
+    if (a.x >= a.y && a.x >= a.z) {
+        m = r.x;
+        c = r.yz;
+        c1 = d1.yz;
+        c2 = d2.yz;
+        m1 = d1.x;
+        m2 = d2.x;
+    } else if (a.y >= a.z) {
+        m = r.y;
+        c = r.xz;
+        c1 = d1.xz;
+        c2 = d2.xz;
+        m1 = d1.y;
+        m2 = d2.y;
+    }
+    let mm = max(m * m, 1e-12);
+    // (Face coordinates from 0 to 1 are half of c / m, so `size` texels
+    // span 2 of c / m.)
+    let g1 = (c1 * m - c * m1) / mm * (0.5 * size);
+    let g2 = (c2 * m - c * m2) / mm * (0.5 * size);
+    let rho = max(length(g1), length(g2));
+    return max(log2(max(rho, 1e-8)), 0.0);
 }
 
 // "Legacy balanced" colour clamp: values above 1 desaturate towards white.
@@ -310,6 +361,37 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     let nm_variant = draws[this_draw].maps2.w > 0.5;
     let surface_n = normalize(select(-in.normal_view, in.normal_view, front));
     let v = -normalize(in.pos_view);
+    // The tangent frame: the model's own tangents, else (and for those
+    // made for the game's shaders, light_count.w) the derivatives'.
+    var tsb = tangent_frame(surface_n, dp1, dp2, duv1, duv2);
+    let own_t = in.tangent_view.xyz;
+    let own = in.tangent_view.w != 0.0 && dot(own_t, own_t) > 1e-12
+        && draws[this_draw].light_count.w == 0u;
+    if (own) {
+        let tn = normalize(own_t);
+        let handed = select(-1.0, 1.0, in.tangent_view.w >= 0.0);
+        tsb = mat3x3<f32>(tn, cross(surface_n, tn) * handed, surface_n);
+    }
+    // The environment map's coordinates' derivatives, here too: the game
+    // samples the map with the roughness as a bias over the level they
+    // give (`inc_envmap`'s `texture2D(texUnitEnv, uv, bias)`), so a
+    // magnified map stays sharp however rough. Taken from the normal the
+    // normal map makes (the game's coordinates are the fragment normal's),
+    // before anything is discarded.
+    var n_env = surface_n;
+    if (normal_mapped) {
+        let s = textureSampleGrad(tex_normal, samp0, in.uv, duv1, duv2).rg * 2.0 - 1.0;
+        let t = select(s, unturn(s), own);
+        n_env = normalize(tsb * vec3<f32>(t, sqrt(max(1.0 - dot(t, t), 0.0))));
+    }
+    let env_uv = env_coords(n_env, in.pos_view);
+    let denv1 = dpdx(env_uv);
+    let denv2 = dpdy(env_uv);
+    let view_to_world =
+        transpose(mat3x3<f32>(frame.view[0].xyz, frame.view[1].xyz, frame.view[2].xyz));
+    let env_dir = view_to_world * reflect(-v, n_env);
+    let ddir1 = dpdx(env_dir);
+    let ddir2 = dpdy(env_dir);
 
     // Tangent frame and parallax.
     var uv = in.uv;
@@ -341,19 +423,8 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
         let way = textureSampleLevel(tex_flow, samp0, in.uv, 0.0).rg * 2.0 - 1.0;
         uv = uv + way * (draws[this_draw].effect.y * frame.time.x);
     }
-    var tsb = mat3x3<f32>(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), surface_n);
-    if (normal_mapped || height_mapped) {
-        let t = in.tangent_view.xyz;
-        if (in.tangent_view.w != 0.0 && dot(t, t) > 1e-12) {
-            let tn = normalize(t);
-            let handed = select(-1.0, 1.0, in.tangent_view.w >= 0.0);
-            tsb = mat3x3<f32>(tn, cross(surface_n, tn) * handed, surface_n);
-        } else {
-            tsb = tangent_frame(surface_n, dp1, dp2, duv1, duv2);
-        }
-        if (height_mapped) {
-            uv = displace(uv, tsb, v, surface_n, in.pos_view, duv1, duv2);
-        }
+    if (height_mapped) {
+        uv = displace(uv, tsb, v, surface_n, in.pos_view, duv1, duv2);
     }
 
     // Every `discard` here is followed by a `return`: a discarded fragment
@@ -452,7 +523,8 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     // The normal map: RG only, Z rebuilt.
     var n = surface_n;
     if (normal_mapped) {
-        let t = textureSampleGrad(tex_normal, samp0, uv, duv1, duv2).rg * 2.0 - 1.0;
+        let s = textureSampleGrad(tex_normal, samp0, uv, duv1, duv2).rg * 2.0 - 1.0;
+        let t = select(s, unturn(s), own);
         n = normalize(tsb * vec3<f32>(t, sqrt(max(1.0 - dot(t, t), 0.0))));
     }
 
@@ -618,15 +690,23 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     let diffuse = acc.diffuse * draws[this_draw].diffuse.rgb;
     var specular = acc.specular * (r2 * 0.25) / (n_dot_v * (1.0 - k) + k);
     let env_spec = mix(fresnel(spec0, n_dot_v), spec0, sqrt(rough));
-    let lod = clamp(rough * 30.0 - 1.0, 0.0, 10.0);
+    // The roughness's bias over the derivatives' level (a bias of b is the
+    // derivatives times 2^b); none for a cube map, whose bias the game
+    // clamps to 0.
+    let bias = exp2(clamp(rough * 30.0 - 1.0, 0.0, 10.0));
     var env_sample: vec3<f32>;
     if (draws[this_draw].extra.x > 0.5) {
-        // Cube maps: the reflected view in world space, level 0.
-        let r = reflect(-v, n);
-        let to_world = transpose(mat3x3<f32>(frame.view[0].xyz, frame.view[1].xyz, frame.view[2].xyz));
-        env_sample = lin(textureSampleLevel(tex_env_cube, samp_env, to_world * r, 0.0).rgb);
+        // Cube maps: the reflected view in world space.
+        // (At the level the direction's derivatives give, worked out here:
+        // `textureSampleGrad` on a cube map is written for Metal with 2D
+        // gradients, which it refuses.)
+        let r = view_to_world * reflect(-v, n);
+        let size = f32(textureDimensions(tex_env_cube).x);
+        let level = cube_level(r, ddir1, ddir2, size);
+        env_sample = lin(textureSampleLevel(tex_env_cube, samp_env, r, level).rgb);
     } else {
-        env_sample = lin(textureSampleLevel(tex_env, samp_env, env_coords(n, in.pos_view), lod).rgb);
+        let at = env_coords(n, in.pos_view);
+        env_sample = lin(textureSampleGrad(tex_env, samp_env, at, denv1 * bias, denv2 * bias).rgb);
     }
     specular = specular + (ambient + diffuse) * env_sample * ao * env_spec;
     ambient = ambient * ao;

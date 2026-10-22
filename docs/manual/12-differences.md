@@ -65,9 +65,16 @@ it differs, it is on purpose:
 - **The Creature Template tab** is not shown (Aurora 1.89 hides it too),
   nor the Item Wizard's Magical, Item Level and Quality (disabled in
   Aurora).
-- **The renderer** is Moonglow's own: it closely approximates the game's
-  lighting (checked against the game's screenshots) but does not use the
-  game's shaders.
+- **The renderer** draws with the game's own shaders (the area view's
+  and the model viewer's **🎨 Shaders**, on by default), compiled from the
+  game and the module's haks: each mesh with the program the game would
+  choose for it, as read from the game's client. Water, particles and
+  the sky are drawn by Moonglow's own shader, which closely approximates
+  the game's stock lighting (checked against the game's screenshots) and
+  draws everything with the switch off. Either way a mesh is drawn as the
+  game draws it: a texture's `bumpyshinytexture` reflects nothing, normal
+  and specular maps show only with a render hint, a DXT1's transparent
+  texels are black.
 
 Not done yet: the Conversation Editor's Scrap tab (the clipboard holds one
 copied or cut branch), and the Sound Wizard's category filter (the sound

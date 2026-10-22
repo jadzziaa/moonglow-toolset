@@ -24,16 +24,23 @@ PROGRAMS = ["moonglow", "mg"]
 LICENSE_FILES = ("license", "licence", "copying", "notice", "unlicense", "copyright")
 # Folders with the licenses of what a crate bundles (fonts, ...).
 BUNDLED = ("fonts", "licenses", "licences")
+# Where a -sys crate keeps the C or C++ sources it builds (glslang-sys:
+# native/glslang, with its LICENSE.txt).
+NATIVE = "native"
 
 
 def licence_files(root):
     """A crate's license files, and those of what it bundles."""
     found = []
-    for d in [root] + [root / b for b in BUNDLED if (root / b).is_dir()]:
+    native = root / NATIVE
+    vendored = sorted(d for d in native.iterdir() if d.is_dir()) if native.is_dir() else []
+    for d in [root] + [root / b for b in BUNDLED if (root / b).is_dir()] + vendored:
         for f in sorted(d.iterdir()):
             name = f.name.lower()
-            bundled = d != root and name.endswith(".txt")
-            if f.is_file() and (name.startswith(LICENSE_FILES) or bundled):
+            bundled = d != root and d not in vendored and name.endswith(".txt")
+            # (A vendored tree's LICENSE.txt, not its license-checker.cfg.)
+            text = d not in vendored or f.suffix in ("", ".txt", ".md")
+            if f.is_file() and ((name.startswith(LICENSE_FILES) and text) or bundled):
                 found.append(f)
     return found
 
@@ -83,9 +90,11 @@ def main():
               "version 3 (LICENSE). It includes Beamdog's NWScript compiler (GPL-3.0)\n"
               "with neverwinter.nim's C API over it (MIT, copyright the neverwinter.nim\n"
               "authors, https://github.com/niv/neverwinter.nim), Ubuntu Bold (Ubuntu\n"
-              "Font Licence 1.0, copyright Canonical Ltd) for its labels, and Luau (MIT,\n"
-              "copyright Roblox Corporation and Lua.org, PUC-Rio) for plugins. It is\n"
-              f"built from these crates, under their own licenses (target {target}):\n\n")
+              "Font Licence 1.0, copyright Canonical Ltd) for its labels, Luau (MIT,\n"
+              "copyright Roblox Corporation and Lua.org, PUC-Rio) for plugins, and\n"
+              "glslang (BSD-3-Clause and others, copyright The Khronos Group and\n"
+              "others: its LICENSE.txt, with glslang-sys) for the game's shaders. It\n"
+              f"is built from these crates, under their own licenses (target {target}):\n\n")
     for p in crates:
         out.write(f"  {p['name']} {p['version']}: {p['license'] or p.get('license_file') or '?'}\n")
     texts = {}

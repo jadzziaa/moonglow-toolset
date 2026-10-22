@@ -25,6 +25,11 @@ pub fn data_dir() -> Option<PathBuf> {
     mg_module::build::data_dir()
 }
 
+/// Moonglow's cache folder ([`mg_module::build::cache_dir`]).
+pub fn cache_dir() -> Option<PathBuf> {
+    mg_module::build::cache_dir()
+}
+
 /// A recovery copy's note.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Note {

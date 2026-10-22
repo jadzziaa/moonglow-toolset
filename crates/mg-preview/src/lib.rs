@@ -194,14 +194,11 @@ fn cell_int(t: &TwoDa, row: usize, column: &str) -> Option<i64> {
     v.parse::<i64>().ok().or_else(|| v.parse::<f32>().ok().map(|f| f as i64))
 }
 
-/// An environment map column: `default` is the toolset's `chrome1`; blank
-/// or `****`: none.
+/// An environment map column: `default` (the area's map, the tileset's
+/// `EnvMap`, which the renderer resolves: `chrome1` where there is no
+/// area; read from the client), a texture, or blank or `****`: none.
 fn env_map(value: Option<&str>) -> Option<String> {
-    match value {
-        Some(v) if v.eq_ignore_ascii_case("default") => Some("chrome1".into()),
-        Some(v) => Some(v.to_ascii_lowercase()),
-        None => None,
-    }
+    value.map(str::to_ascii_lowercase)
 }
 
 /// Resources the builders look up.

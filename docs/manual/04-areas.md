@@ -56,6 +56,36 @@ looking straight down at their middle, north up, as in Aurora.
   view looks (the game draws it within about 24 m of its camera, which
   the editor's views are farther off than). Switched off, in every area
   view; it stays as you leave it.
+- **🎨 Shaders**: draws with the game's own shaders, compiled on your
+  machine from the game and the module's haks, as the game draws: a
+  material's custom shaders (its MTR's `customshaderVS` and
+  `customshaderFS`: grass and leaves that sway in the wind, water that
+  flows, roofs that show only to a low camera indoors), and for the rest
+  the game's own programs, each mesh with the one the game chooses for
+  it (a decal unlit, a reflecting mesh's, a normal-mapped one's where
+  its model or material has a render hint), with a hak's changes to them
+  (a hak that replaces `inc_lighting` lights every surface its way). What moves by
+  itself moves while the view is open. The wind is the area's (Area
+  Properties › Wind Power), the indoor and outdoor flags its own. Off,
+  Moonglow draws with its own shader, which looks like the game's stock
+  lighting and moves no custom shader's mesh (two that builders' tilesets
+  use, `vertexalpha` and NWN Mapper's `mzlm`, it draws its own way). A
+  program that doesn't compile is drawn with Moonglow's shader and named
+  in the log, once (the game draws it magenta; Verify names its file and
+  line). A material that names one custom program alone is drawn with
+  the game's lit shaders, as the game draws it. The sky, the area's
+  grass, additive meshes and particles are drawn with the game's programs
+  too (the grass a touch darker and yellower, lit at its corners as the
+  game lights it). Water stays Moonglow's: the game's water shader shows
+  what lies under the water through the picture already drawn, which the
+  editor's view doesn't give it, and without that its water is pale and
+  opaque. On by default. The programs are compiled
+  while the view goes on, the first time an area needs them (a fraction
+  of a second each), and kept in Moonglow's cache folder for the next
+  time: until they are ready, what they draw is drawn with Moonglow's own
+  shader, so an area may change its look a moment after it opens. It is
+  one switch for every 3D view (the model viewer has it too) and it stays
+  as you leave it: switched off, it stays off.
 - **💡 Lighting**: the area's lighting. Switched off, everything is evenly
   lit, whatever the area's colors and lights: for working in a dark area.
   Areas opened later open as you left it.

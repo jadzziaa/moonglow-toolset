@@ -230,6 +230,24 @@ pub fn data_dir() -> Option<std::path::PathBuf> {
     }
 }
 
+/// Moonglow's cache folder, for what it makes on the user's machine and can
+/// make again (the game's shaders compiled): `$XDG_CACHE_HOME/moonglow`
+/// (else `~/.cache/moonglow`) on Linux, `~/Library/Caches/Moonglow` on
+/// macOS, `%LOCALAPPDATA%\Moonglow\cache` on Windows.
+pub fn cache_dir() -> Option<std::path::PathBuf> {
+    use std::path::PathBuf;
+    let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
+    if cfg!(windows) {
+        env("LOCALAPPDATA").map(|d| d.join("Moonglow").join("cache"))
+    } else if cfg!(target_os = "macos") {
+        env("HOME").map(|h| h.join("Library/Caches/Moonglow"))
+    } else {
+        env("XDG_CACHE_HOME")
+            .or_else(|| env("HOME").map(|h| h.join(".cache")))
+            .map(|d| d.join("moonglow"))
+    }
+}
+
 /// Where the window and `mg compile` both keep what they remember of the
 /// scripts they compiled ([`Remembered`]): one folder, so each passes over
 /// what the other compiled.

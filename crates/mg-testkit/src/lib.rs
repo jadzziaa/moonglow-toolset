@@ -109,6 +109,13 @@ pub fn bundled_haks(root: &Path) -> Vec<PathBuf> {
     files_with_ext(&root.join("data/hk"), "hak")
 }
 
+/// Folders of a builder's haks that the corpus tests take as installed
+/// (`MOONGLOW_HAKS`, separated as `PATH` is), beside the user's `hak/`
+/// and the game's `data/hk/`: a module's own build folder, say.
+pub fn builder_hak_dirs() -> Vec<PathBuf> {
+    env::var_os("MOONGLOW_HAKS").map(|v| env::split_paths(&v).collect()).unwrap_or_default()
+}
+
 /// Files in `dir` (not recursive) with extension `ext` (any case), sorted.
 pub fn files_with_ext(dir: &Path, ext: &str) -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
@@ -150,6 +157,20 @@ pub fn scratch_dir(name: &str) -> PathBuf {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("create scratch dir");
     dir
+}
+
+/// Puts `from` at `to` for a test's scratch user folder (a builder's hak
+/// in its `hak`): a symbolic link where the platform makes one without
+/// asking (Unix), else a copy.
+pub fn link_or_copy(from: &Path, to: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(from, to)
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::copy(from, to).map(|_| ())
+    }
 }
 
 /// A directory under `target/test-output/` that is kept as it is: for

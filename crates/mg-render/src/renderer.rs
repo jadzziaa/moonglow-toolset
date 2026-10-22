@@ -40,6 +40,10 @@ pub fn attenuation_params() -> (f32, f32) {
 /// MTR or without: the client's `fAlphaDiscardValue`, read from it
 /// (`cutouts_look` with `MG_DISCARD=1` in `client_render.rs`).
 const ALPHA_DISCARD: f32 = 0.2;
+/// The alpha from which a see-through mesh's texel is drawn with its solid
+/// part (`SOLID_ALPHA` in `shader.wgsl`): [`Pass::Blend`], hiding what is
+/// behind it; below, with the rest ([`Pass::Fringe`]).
+pub(crate) const SOLID_ALPHA: f32 = 0.95;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
@@ -79,6 +83,7 @@ struct DrawUniform {
     extra: [f32; 4],
     water: [f32; 4],
     effect: [f32; 4],
+    uv_turn: [f32; 4],
     light_count: [u32; 4],
     light_index: [[u32; 4]; 8],
 }
@@ -106,6 +111,13 @@ enum Pass {
 #[derive(Debug)]
 struct TextureEntry {
     gpu: GpuTexture,
+    /// Its alpha means something: an alpha channel with texels below
+    /// opaque in it (a 32-bit picture all opaque has none, as the game
+    /// takes it), or a BioWare DDS's alpha mean below 1.
+    alpha: bool,
+    /// The game cuts a mesh by it (`NO_DISCARD` 0): it has alpha, or its
+    /// TXI's `alphamean` is below 1 (that decides, where given).
+    cut: bool,
     blending: Blending,
     env: Option<String>,
     decal: bool,
@@ -118,10 +130,20 @@ struct TextureEntry {
     water: bool,
 }
 
+/// Whether the game's shiny water is drawn with its own programs
+/// (`vswater`/`fswater`, which the client draws it with) where the game's
+/// shaders are on, or with Moonglow's water (`docs/shaders-proposal.md`,
+/// M5): Moonglow's. `fswater` sees what is under the water through the
+/// framebuffer (`texFBColor`, `texFBDepth`), which Moonglow doesn't give
+/// it; without it, the water is drawn opaque and pale, farther from the
+/// client than Moonglow's own (TDoD's fountain 16.4 of 255 against 11.7, a
+/// rural lake 19.4 against 12.6: `surfaces_in_the_client`).
+pub const GAME_WATER: bool = false;
+
 /// Texture slots: diffuse, normal, specular, roughness, height,
 /// self-illumination; then the two a known custom shader reads
 /// ([`Effect`]): an alpha mask or lightmap, and a flow map.
-const SLOTS: usize = 8;
+pub(crate) const SLOTS: usize = 8;
 /// The slots the stock shaders read (the rest are a custom shader's).
 const STOCK_SLOTS: usize = 6;
 
@@ -171,8 +193,10 @@ struct Slots {
     displacement_multiplier: f32,
     /// MTR `CustomSpecularColor`, linear.
     specular_color: Option<glam::Vec3>,
-    /// The game's normal-mapped shader variant (`_nm`): a render hint, or
-    /// any map beyond the diffuse texture.
+    /// The game's normal-mapped shader variant (`_nm`): a render hint, the
+    /// model's or the MTR's. Without one the game draws `fslit`, which reads
+    /// no map beyond the diffuse texture (read from the client): the maps
+    /// are left out.
     normal_variant: bool,
     /// A known custom shader's doings.
     effect: Option<Effect>,
@@ -183,11 +207,49 @@ struct Slots {
     no_env: bool,
     /// The MTR's `transparency`: the mesh is blended.
     transparency: bool,
+    /// The MTR's `parameter`s, which the game's shaders take by name.
+    params: Vec<(String, mg_image::mtr::Param)>,
+    /// The program pair the MTR names (`customshaderVS` and `FS`, both):
+    /// drawn with it where the game's shaders are on
+    /// ([`Renderer::game_shaders`]).
+    custom: Option<(String, String)>,
+    /// The MTR names a geometry program (`customshaderGS`), which wgpu has
+    /// no stage for: drawn with Moonglow's own shader.
+    geometry: Option<String>,
     /// The MTR's `twosided`: its faces are drawn from behind too. Nothing
     /// else shows a face's back in the game: not a cut-out texture
     /// (`blending punchthrough`), not `decal` (seen in the client:
     /// `cutouts_look` in `client_render.rs`).
     twosided: bool,
+}
+
+/// `m_texture` for a mesh of an instance: a tile's texture turned with it
+/// where the mesh asks (`rotatetexture 1`), by the tile's turn; else the
+/// identity ([`crate::Instance::tile`]).
+fn texture_turn(inst: &Instance, mat: &crate::model::Material) -> Mat4 {
+    if !(inst.tile && mat.rotate_texture) {
+        return Mat4::IDENTITY;
+    }
+    let x = inst.transform.x_axis;
+    Mat4::from_rotation_z(x.y.atan2(x.x))
+}
+
+/// Whether a texture's alpha means something ([`TextureEntry::alpha`]): an
+/// alpha channel, with texels below opaque where they can be read (RGBA8
+/// pictures: TGA, PLT; a BioWare DDS by its alpha mean).
+fn alpha_in(t: &mg_image::Texture) -> bool {
+    if !t.has_alpha {
+        return false;
+    }
+    if let Some(mean) = t.alpha_mean {
+        return mean < 1.0;
+    }
+    match (t.format, t.mips.first()) {
+        (mg_image::Format::Rgba8, Some(level)) => {
+            level.as_chunks::<4>().0.iter().any(|p| p[3] < 255)
+        }
+        _ => true,
+    }
 }
 
 /// Whether a fragment shader's source switches the environment map off.
@@ -224,11 +286,21 @@ struct Surface {
     /// The texture's alpha makes the mesh see-through (not when it is an
     /// environment map's reflectivity).
     has_alpha: bool,
+    /// The game cuts it by its texture's alpha (`NO_DISCARD` 0, with the
+    /// draw's own reasons: [`crate::game::no_discard`]).
+    cut: bool,
+    /// What chooses the game's stock pair for it.
+    traits: crate::game::Traits,
     /// It reflects an environment map, and that is a cube map.
     reflects: bool,
     env_cube: bool,
     /// Its bind group, in [`Renderer::groups`].
     material: u32,
+    /// Shiny water's bind group for `fswater`, and whether its map is a
+    /// cube: the area's map, as every lit mesh's without one of its own
+    /// (read from the client: its `bumpyshinytexture` cube is not bound),
+    /// where Moonglow's own water reflects that cube.
+    water_material: Option<(u32, bool)>,
 }
 
 /// What a model's [`Surface`]s are kept by: the model, and of the
@@ -263,6 +335,9 @@ struct Draw<'a> {
     /// Replaced vertices: their bytes in the frame's dynamic buffer, from
     /// and to.
     dynamic: Option<(u64, u64)>,
+    /// Drawn with the game's shaders: which of the frame's see-through
+    /// game draws it is.
+    game: Option<u32>,
     /// Its box in the scene (`None` for a mesh that leaves its box: a
     /// skinned or animated one, and the sky), and which of the frame's
     /// instances it is of: for putting draws of one mesh together
@@ -281,9 +356,57 @@ pub enum DebugView {
     MaterialDiffuse,
 }
 
+/// A mesh's pipeline of the game's programs, and a see-through one's
+/// fringe's.
+type GamePipelines = (Arc<crate::game::GamePipeline>, Option<Arc<crate::game::GamePipeline>>);
+
+/// A mesh the game's shaders drew, and with what
+/// ([`Renderer::game_programs`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GameProgram {
+    /// The model's name and the mesh's node's.
+    pub model: String,
+    pub node: String,
+    /// The program pair, and the preamble's `NO_DISCARD`.
+    pub vs: String,
+    pub fs: String,
+    pub no_discard: bool,
+}
+
+/// What [`GamePipelines`] are kept by ([`Renderer::game_pipelines`]).
+type GamePipelinesKey = (usize, crate::game::Traits, bool, bool, crate::game::GamePass);
+
 #[derive(Debug)]
 pub struct Renderer {
     pub debug: DebugView,
+    /// Where `Some`, each frame lists there the program pairs the game's
+    /// shaders chose for the meshes they draw (for comparing with the
+    /// client's choice: `program_choice_in_the_client`).
+    pub game_programs: Option<Vec<GameProgram>>,
+    /// Lit meshes are drawn with the game's own shaders (`vslit`/`fslit`
+    /// and their variants, compiled from the assets' `.shd`) where they
+    /// can be, Moonglow's own shader drawing the rest and any whose
+    /// program doesn't compile (`docs/shaders-proposal.md`, M1). Off by
+    /// default.
+    pub game_shaders: bool,
+    /// Shiny water is drawn by the game's `vswater`/`fswater` too, where
+    /// the game's shaders are on ([`GAME_WATER`] by default: Moonglow's own
+    /// water; on, for comparing).
+    pub game_water: bool,
+    /// The game's programs are compiled, and their pipelines made, while
+    /// the frames go on (a view drawn again and again: the area view, the
+    /// model viewer), a mesh drawn with Moonglow's own shader until its
+    /// pipeline is ready ([`Drawn::game_pending`]); off, a frame waits for
+    /// them (a picture drawn once: a thumbnail, a preview, a test). Off by
+    /// default.
+    pub game_background: bool,
+    game: crate::game::GameShaders,
+    /// The pipelines of each mesh's slots ([`Renderer::game_pipelines`]): by
+    /// the slots (their place), what chooses its stock pair, its
+    /// `NO_DISCARD`, whether it is skinned, and its pass.
+    game_pipelines: HashMap<GamePipelinesKey, Option<GamePipelines>>,
+    /// Each material's key, by its place among [`Renderer::groups`].
+    material_keys: Vec<MaterialKey>,
     /// Draws of one mesh are drawn as instances of one draw (on; off,
     /// each is drawn by itself, in the order they came in: to compare).
     pub instancing: bool,
@@ -351,6 +474,20 @@ pub struct Drawn {
     /// How many times a draw's material was another than the draw's
     /// before it.
     pub materials: usize,
+    /// The meshes drawn with the game's own shaders
+    /// ([`Renderer::game_shaders`]), each a draw of its own (two for a
+    /// see-through one).
+    pub game: usize,
+    /// Pipelines of the game's programs being made
+    /// ([`Renderer::game_background`]): meshes waiting for them were drawn
+    /// with Moonglow's own shader, and a frame drawn again once they are
+    /// ready shows them otherwise.
+    pub game_pending: usize,
+    /// Of those, the meshes whose programs read the clock
+    /// (`worldtimerTimeOfDay`, `sceneCurrentFrame`): they move by
+    /// themselves, and a view that shows them draws them again as time
+    /// passes.
+    pub timed: usize,
 }
 
 /// A line's end ([`crate::Line`]), in world space.
@@ -735,6 +872,13 @@ impl Renderer {
         });
         Renderer {
             debug: DebugView::Lit,
+            game_programs: None,
+            game_shaders: false,
+            game_water: GAME_WATER,
+            game_background: false,
+            game: crate::game::GameShaders::new(gpu),
+            game_pipelines: HashMap::new(),
+            material_keys: Vec::new(),
             instancing: true,
             color_format,
             sample_count,
@@ -786,7 +930,97 @@ impl Renderer {
         self.slots.clear();
         self.materials.clear();
         self.groups.clear();
+        self.material_keys.clear();
         self.surfaces.clear();
+        self.game.clear();
+        self.game_pipelines.clear();
+    }
+
+    /// Whether a mesh is one the game's shaders draw (with them on): one
+    /// whose material names a program pair; else one Moonglow's shader
+    /// does nothing of its own for (no known custom shader's effect, no
+    /// ripples, no water), with the stock pair (a decal's unlit). Shiny
+    /// water only with [`Renderer::game_water`], rippling or not (`fswater`
+    /// reads its texture's mean colour alone); a texture that only ripples
+    /// (`proceduretype arturo`, a procedure the engine runs on the CPU)
+    /// stays Moonglow's, which ripples it.
+    fn game_path(&mut self, slots: &Slots, surface: &Surface) -> bool {
+        if let Some(g) = &slots.geometry {
+            self.game.fail(g, "it is a geometry program, which wgpu has no stage for".into());
+            return false;
+        }
+        let own = if surface.water { !self.game_water } else { surface.ripple.is_some() };
+        slots.custom.is_some() || (slots.effect.is_none() && !own)
+    }
+
+    /// The pipelines a mesh of these slots is drawn with by the game's
+    /// shaders (a see-through one's two parts: its fringe's second); kept
+    /// by the slots, so that a frame's draws look up no programs by name.
+    #[allow(clippy::too_many_arguments)]
+    fn game_pipelines(
+        &mut self,
+        gpu: &Gpu,
+        assets: &dyn Assets,
+        slots: &Arc<Slots>,
+        traits: crate::game::Traits,
+        no_discard: bool,
+        skinned: bool,
+        pass: crate::game::GamePass,
+    ) -> Option<GamePipelines> {
+        use crate::game::{GamePass, PipelineKey};
+        let at = (Arc::as_ptr(slots) as usize, traits, no_discard, skinned, pass);
+        if let Some(p) = self.game_pipelines.get(&at) {
+            return p.clone();
+        }
+        let (vs, fs, _) = crate::game::program_pair(slots.custom.as_ref(), traits);
+        let key = PipelineKey { vs, fs, no_discard, skinned, twosided: slots.twosided, pass };
+        let (format, samples, wait) = (self.color_format, self.sample_count, !self.game_background);
+        use crate::game::Ready;
+        let p = match self.game.pipeline(gpu, assets, &key, format, samples, wait) {
+            Ready::Yes(p) if pass == GamePass::Solid => {
+                let fringe = PipelineKey { pass: GamePass::Fringe, ..key };
+                match self.game.pipeline(gpu, assets, &fringe, format, samples, wait) {
+                    Ready::Yes(q) => Some((p, Some(q))),
+                    Ready::No => None,
+                    Ready::Pending => return None,
+                }
+            }
+            Ready::Yes(p) => Some((p, None)),
+            Ready::No => None,
+            // (Drawn with Moonglow's own until it is made; not kept.)
+            Ready::Pending => return None,
+        };
+        self.game_pipelines.insert(at, p.clone());
+        p
+    }
+
+    /// Keeps the game's compiled programs in `dir` between sessions (the
+    /// user's cache folder: what is made of the game's shaders stays on
+    /// the user's machine), or nowhere. Read where a program compiled
+    /// before is drawn again.
+    pub fn set_shader_cache(&mut self, dir: Option<std::path::PathBuf>) {
+        self.game.cache = dir.map(mg_shader::ProgramCache::new);
+    }
+
+    /// Calls `wake` when a pipeline of the game's programs is ready
+    /// ([`Renderer::game_background`]), from the thread that made it: a
+    /// window asks for a frame.
+    pub fn set_game_waker(&mut self, wake: impl Fn() + Send + Sync + 'static) {
+        if let Ok(mut w) = self.game.waker.lock() {
+            *w = Some(crate::game::Waker(Arc::new(wake)));
+        }
+    }
+
+    /// What has been compiled and read from the cache, and how long the
+    /// pipelines took to make.
+    pub fn game_shader_stats(&self) -> crate::game::ShaderStats {
+        self.game.stats
+    }
+
+    /// The game's shaders that couldn't be drawn ([`Renderer::game_shaders`]),
+    /// as `vs/fs` pairs or programs, and why: drawn with Moonglow's own.
+    pub fn game_shader_failures(&self) -> &[(String, String)] {
+        &self.game.failures
     }
 
     /// A mesh's texture slots and MTR parameters: an MTR named by the model,
@@ -826,6 +1060,14 @@ impl Renderer {
             out.displacement_offset = f("DisplacementOffset");
             out.displacement_multiplier = f("DisplacementMultiplier");
             out.specular_color = custom_specular(mtr);
+            out.params = mtr.params.clone();
+            out.custom =
+                crate::game::custom_pair(mtr.shader_vs.as_deref(), mtr.shader_fs.as_deref());
+            out.geometry = mtr
+                .shader_gs
+                .as_deref()
+                .map(|g| g.trim().to_ascii_lowercase())
+                .filter(|g| !g.is_empty() && g != "null");
             let fs = mtr.shader_fs.as_deref().unwrap_or_default().to_ascii_lowercase();
             let known = EFFECT_SHADERS.iter().any(|known| fs.starts_with(known));
             out.transparency = mtr.transparency;
@@ -840,20 +1082,30 @@ impl Renderer {
                 lightmap: if mapper { f("LightmapON") > 0.5 } else { f("fLightmapMode") > 0.5 },
                 blend: mtr.transparency,
             });
+            if known
+                && let Some((vs, fs)) = &out.custom
+                && (assets.shader(vs).is_none() || assets.shader(fs).is_none())
+            {
+                // (Its source isn't there: NWN Mapper ships none of
+                // `mzlm`'s. The hand-ported effect draws it, as with the
+                // game's shaders off.)
+                out.custom = None;
+            }
             if mapper {
                 // Its lightmap is where the other pair has its flow map.
                 out.names[6] = out.names[7].take();
             }
         }
-        if out.effect.is_none() {
-            // (A custom shader's own slots mean nothing to the stock ones.)
-            for name in &mut out.names[STOCK_SLOTS..] {
+        out.normal_variant = mat.normal_mapped
+            || mtr.as_ref().is_some_and(|m| m.renderhint != mg_image::mtr::RenderHint::None);
+        if out.effect.is_none() && out.custom.is_none() {
+            // (A custom shader's own slots mean nothing to the stock ones;
+            // nor do the maps to `fslit`, without a render hint.)
+            let from = if out.normal_variant { STOCK_SLOTS } else { 1 };
+            for name in &mut out.names[from..] {
                 *name = None;
             }
         }
-        out.normal_variant = mat.normal_mapped
-            || mtr.as_ref().is_some_and(|m| m.renderhint != mg_image::mtr::RenderHint::None)
-            || out.names[1..STOCK_SLOTS].iter().any(Option::is_some);
         let out = Arc::new(out);
         self.slots.insert(key, out.clone());
         out
@@ -905,6 +1157,7 @@ impl Renderer {
             ],
         });
         self.groups.push(group);
+        self.material_keys.push(key.clone());
         let at = self.groups.len() as u32 - 1;
         self.materials.insert(key.clone(), at);
         at
@@ -1008,19 +1261,24 @@ impl Renderer {
         let bound: [bool; SLOTS] = std::array::from_fn(|i| {
             names[i].as_deref().is_some_and(|t| self.texture(gpu, assets, t).is_some())
         });
-        let (blending, env, decal, clamp, has_alpha) = match &tex {
-            Some(t) => (t.blending, t.env.clone(), t.decal, t.clamp, t.gpu.has_alpha),
-            None => (Blending::Default, None, false, (false, false), false),
+        let (blending, env, decal, clamp, has_alpha, cut) = match &tex {
+            Some(t) => (t.blending, t.env.clone(), t.decal, t.clamp, t.alpha, t.cut),
+            None => (Blending::Default, None, false, (false, false), false, false),
         };
-        // The environment map: the texture's (TXI), `default` or
-        // none there meaning the object's, then the area's.
-        let fallback = || inst.env_map.clone().or_else(|| scene_env.map(str::to_string));
+        // The environment map a mesh reflects: its texture's (TXI
+        // `envmaptexture`), else its object's (placeables.2da
+        // `Reflection`, appearance.2da `ENVMAP`); `default` the area's
+        // (the tileset's `EnvMap`), else `chrome1`. And the one every lit
+        // mesh's specular light reflects, bound to `texUnitEnv`: its own,
+        // else the area's (read from the client:
+        // `program_choice_in_the_client` in `client_render.rs`).
+        let area = || scene_env.map_or_else(|| "chrome1".to_string(), str::to_string);
+        let resolved = |e: String| if e.eq_ignore_ascii_case("default") { area() } else { e };
+        let object = inst.env_map.clone().map(resolved);
         let env = match env {
-            Some(e) if e.eq_ignore_ascii_case("default") => {
-                Some(fallback().unwrap_or_else(|| "chrome1".into()))
-            }
+            Some(e) if e.eq_ignore_ascii_case("default") => Some(object.unwrap_or_else(area)),
             Some(e) => Some(e),
-            None => inst.env_map.clone(),
+            None => object,
         };
         let env_mapped = env.is_some();
         // A shader with the environment map switched off reflects
@@ -1033,16 +1291,19 @@ impl Renderer {
             env_mapped && !slots.no_env,
             has_alpha && !(env_mapped && slots.no_env && !see_through),
         );
-        let env_cube = env
-            .as_deref()
-            .and_then(|e| self.texture(gpu, assets, &e.to_ascii_lowercase()))
-            .is_some_and(|t| t.cube);
-        let key: MaterialKey = (
-            std::array::from_fn(|i| if bound[i] { names[i].clone() } else { None }),
-            env.map_or_else(|| "chrome1".into(), |e| e.to_ascii_lowercase()),
-            clamp,
-        );
+        let env = env.unwrap_or_else(area).to_ascii_lowercase();
+        let env_cube = self.texture(gpu, assets, &env).is_some_and(|t| t.cube);
+        let key: MaterialKey =
+            (std::array::from_fn(|i| if bound[i] { names[i].clone() } else { None }), env, clamp);
+        let hint = slots.normal_variant;
+        let water = tex.as_ref().is_some_and(|t| t.water);
+        let water_material = water.then(|| {
+            let env = area().to_ascii_lowercase();
+            let cube = self.texture(gpu, assets, &env).is_some_and(|t| t.cube);
+            (self.material_group(gpu, assets, &(key.0.clone(), env, key.2)), cube)
+        });
         Surface {
+            water_material,
             material: self.material_group(gpu, assets, &key),
             slots,
             bound,
@@ -1053,6 +1314,17 @@ impl Renderer {
             water: tex.as_ref().is_some_and(|t| t.water),
             has_alpha,
             reflects,
+            // (An environment-mapped texture's alpha is its reflectivity.)
+            cut: cut && !env_mapped,
+            traits: crate::game::Traits {
+                uvs: mat.uvs,
+                reflects,
+                hint,
+                decal,
+                water,
+                grass: inst.grass,
+                sky: false,
+            },
             env_cube,
         }
     }
@@ -1068,6 +1340,8 @@ impl Renderer {
             if let Some(faces) = faces.and_then(|f| <[mg_image::Texture; 6]>::try_from(f).ok()) {
                 let entry = Some(Arc::new(TextureEntry {
                     gpu: GpuTexture::upload_cube(gpu, name, &faces),
+                    alpha: false,
+                    cut: false,
                     blending: txi.blending(),
                     env: None,
                     decal: false,
@@ -1081,11 +1355,20 @@ impl Renderer {
             }
         }
         let entry = assets.texture(name).map(|t| {
+            let alpha = alpha_in(&t.texture);
             Arc::new(TextureEntry {
                 cube: false,
+                alpha,
+                cut: t.txi.alpha_mean().map_or(alpha, |mean| mean < 1.0),
                 gpu: GpuTexture::upload(gpu, name, &t.texture, t.txi.mipmap()),
                 blending: t.txi.blending(),
-                env: t.txi.envmap().map(str::to_ascii_lowercase),
+                // (Water reflects its `bumpyshinytexture`, as the game's
+                // shiny water does: Moonglow's stands in for it.)
+                env: t
+                    .txi
+                    .envmap()
+                    .or_else(|| t.txi.water().then(|| t.txi.bumpy_shiny()).flatten())
+                    .map(str::to_ascii_lowercase),
                 decal: t.txi.decal(),
                 clamp: t.txi.clamp(),
                 ripple: t.txi.ripple(),
@@ -1160,6 +1443,39 @@ impl Renderer {
             time: [scene.time, 0.0, 0.0, 0.0],
         };
         gpu.queue.write_buffer(&self.frame_buffer, 0, bytemuck::bytes_of(&frame));
+        // What the game's shaders share across the frame's draws.
+        let game_frame = self.game_shaders.then(|| {
+            let (max_intensity_inv, falloff) = attenuation_params();
+            crate::game::FrameValues {
+                proj: camera.projection_gl(size.0 as f32 / size.1.max(1) as f32),
+                view,
+                size: (size.0.max(1) as f32, size.1.max(1) as f32),
+                near: camera.near,
+                far: camera.far,
+                area_ambient: scene.area.ambient,
+                area_diffuse: scene.area.diffuse,
+                area_direction: area_dir,
+                max_intensity_inv,
+                falloff,
+                fog,
+                fog_color: frame.fog_color,
+                seconds: scene.time,
+                eye: camera.eye,
+                target: camera.target,
+                fov_y: camera.fov_y,
+                environment: scene.environment,
+                ..Default::default()
+            }
+            .derive()
+        });
+        // (What the worker made since the last frame is drawn from now.)
+        self.game.poll();
+        // The solid meshes drawn with the game's shaders (drawn after
+        // Moonglow's own solid ones), and the see-through ones' two parts
+        // (each in `draws`, sorted with the rest).
+        let mut game_draws: Vec<crate::game::GameDraw<'_>> = Vec::new();
+        let mut game_blended: Vec<crate::game::GameDraw<'_>> = Vec::new();
+        let mut timed = 0;
 
         // Lights in view space.
         let lights: Vec<LightUniform> = scene
@@ -1181,6 +1497,7 @@ impl Renderer {
             &lights,
             std::mem::size_of::<LightUniform>(),
         );
+        self.game.begin(bytemuck::cast_slice(&lights));
 
         // Draws.
         // The sky first, around the camera.
@@ -1202,9 +1519,19 @@ impl Renderer {
         let frustum = Frustum::new(proj * view);
         let mut reach = LightGrid::new(&scene.lights);
         let mut chosen = Vec::new();
+        // (The lights as a game draw's blocks take them.)
+        let frame_lights: &[[[f32; 4]; 2]] = bytemuck::cast_slice(&lights);
+        // (The sets of lights the game's draws are lit by, each numbered;
+        // and the last draw's, which the next often shares.)
+        let mut light_sets: crate::game::Fast<Box<[u32]>, u32> = Default::default();
+        let mut light_set: Vec<u32> = Vec::new();
+        let mut last_set: (Vec<u32>, u32) = (Vec::new(), u32::MAX);
         let scene_env = scene.env_map.as_deref();
         let scene_env_id = self.name_id(scene_env);
         let mut hidden = 0;
+        if let Some(list) = &mut self.game_programs {
+            list.clear();
+        }
         // (instance, sky, sky fade colour)
         let all = sky
             .iter()
@@ -1302,6 +1629,157 @@ impl Renderer {
                 for (j, (_, _, i)) in chosen.iter().enumerate() {
                     light_index[j / 4][j % 4] = *i;
                 }
+                // The game's own shaders, where they can draw it: a mesh
+                // whose material names a program pair, with that pair; else
+                // a lit one Moonglow's shader does nothing of its own for,
+                // with the stock pair the engine would choose. Solid, or
+                // see-through in two parts as Moonglow draws it.
+                let game_pass = match pass {
+                    Pass::Opaque => Some(crate::game::GamePass::Opaque),
+                    Pass::Blend => Some(crate::game::GamePass::Solid),
+                    Pass::Additive => Some(crate::game::GamePass::Additive),
+                    Pass::Sky => Some(crate::game::GamePass::Sky),
+                    // (The horizon's fade: Moonglow's, in the fog's colour.)
+                    Pass::SkyFade | Pass::Fringe => None,
+                };
+                // (The skybox: `vsvt`/`fst`, read from the client.)
+                let traits = crate::game::Traits { sky: is_sky, ..surface.traits };
+                if let Some(f) = &game_frame
+                    && let Some(game_pass) = game_pass
+                    && !inst.unlit
+                    // (A blueprint about to be placed, see-through, is
+                    // Moonglow's: it lays its depth first.)
+                    && inst.opacity >= 1.0
+                    && self.debug == DebugView::Lit
+                    && mesh.skin.as_ref().is_none_or(|s| s.bones.len() <= 64)
+                    && self.game_path(slots, surface)
+                {
+                    // (`NO_DISCARD`: the material's, and the mesh's alpha
+                    // as it is now.)
+                    // (The skybox and shiny water: 1 whatever their
+                    // textures' alpha, read from the client.)
+                    let no_discard = traits.sky
+                        || (traits.water && slots.custom.is_none())
+                        || crate::game::no_discard(
+                            surface.textured,
+                            surface.cut,
+                            alpha,
+                            slots.transparency,
+                        );
+                    if let Some(list) = &mut self.game_programs {
+                        let (vs, fs, _) = crate::game::program_pair(slots.custom.as_ref(), traits);
+                        let node = |n: usize| inst.model.model.nodes.get(n).map(|n| n.name.clone());
+                        list.push(GameProgram {
+                            model: inst.model.model.name.clone(),
+                            node: node(mesh.node).unwrap_or_default(),
+                            vs,
+                            fs,
+                            no_discard,
+                        });
+                    }
+                    let pipelines = self.game_pipelines(
+                        gpu,
+                        assets,
+                        slots,
+                        traits,
+                        no_discard,
+                        mesh.skin.is_some(),
+                        game_pass,
+                    );
+                    // (Shiny water: the area's map.)
+                    let (material, env_cube) = match surface.water_material {
+                        Some(m) if traits.water && slots.custom.is_none() => m,
+                        _ => (surface.material, surface.env_cube),
+                    };
+                    if let Some((p, fringe)) = pipelines {
+                        light_set.clear();
+                        light_set.extend(chosen.iter().map(|(_, _, i)| *i));
+                        let lights_id = if last_set.1 != u32::MAX && last_set.0 == light_set {
+                            last_set.1
+                        } else {
+                            let next = light_sets.len() as u32;
+                            let n = match light_sets.get(&light_set[..]) {
+                                Some(&n) => n,
+                                None => {
+                                    light_sets.insert(light_set.clone().into_boxed_slice(), next);
+                                    next
+                                }
+                            };
+                            last_set.0.clone_from(&light_set);
+                            last_set.1 = n;
+                            n
+                        };
+                        let d = crate::game::DrawValues {
+                            world,
+                            bones: &bones[bone_base as usize..],
+                            ambient: lin(mat.ambient).extend(1.0).to_array(),
+                            diffuse: lin(mat.diffuse).extend(alpha).to_array(),
+                            emissive: lin(emissive).extend(1.0).to_array(),
+                            bound: std::array::from_fn(|i| bound.get(i).copied().unwrap_or(false)),
+                            env_cube,
+                            alpha_discard: ALPHA_DISCARD,
+                            frame_lights,
+                            light_index: &light_set,
+                            lights: lights_id,
+                            bbox: (mesh.min, mesh.max),
+                            params: &slots.params,
+                            material,
+                            texture_matrix: texture_turn(inst, mat),
+                            blend_mode: 0,
+                        };
+                        timed += usize::from(p.timed);
+                        let geometry = crate::game::Geometry::Mesh(mesh);
+                        let draw = self.game.push(p, material, geometry, dynamic_range, f, &d);
+                        match fringe {
+                            None if game_pass == crate::game::GamePass::Opaque => {
+                                game_draws.push(draw)
+                            }
+                            // (Additive, the sky: a draw of its own, in its
+                            // place among the others.)
+                            None => {
+                                let at = game_blended.len() as u32;
+                                game_blended.push(draw);
+                                draws.push(Draw {
+                                    pass,
+                                    twosided: slots.twosided,
+                                    depth: -view.transform_point3(centre).z,
+                                    hint: mat.transparency_hint,
+                                    uniform: 0,
+                                    material: surface.material,
+                                    mesh,
+                                    dynamic: dynamic_range,
+                                    game: Some(at),
+                                    bounds,
+                                    instance: instance as u32,
+                                });
+                            }
+                            Some(q) => {
+                                // Its two parts, among the see-through
+                                // meshes (the same blocks for both).
+                                let rest = self.game.again(&draw, q, f);
+                                let at = game_blended.len() as u32;
+                                game_blended.push(draw);
+                                game_blended.push(rest);
+                                let draw = Draw {
+                                    pass: Pass::Blend,
+                                    twosided: slots.twosided,
+                                    depth: -view.transform_point3(centre).z,
+                                    hint: mat.transparency_hint,
+                                    uniform: 0,
+                                    material: surface.material,
+                                    mesh,
+                                    dynamic: dynamic_range,
+                                    game: Some(at),
+                                    bounds,
+                                    instance: instance as u32,
+                                };
+                                draws.push(draw);
+                                draws.push(Draw { pass: Pass::Fringe, game: Some(at + 1), ..draw });
+                            }
+                        }
+                        continue;
+                    }
+                }
                 let normal = model_view.inverse().transpose();
                 let uniform = DrawUniform {
                     world: cols(world),
@@ -1355,6 +1833,10 @@ impl Renderer {
                         let (far, fast) = surface.ripple.unwrap_or((0.0, 0.0));
                         [far, fast, flag(surface.water), 0.0]
                     },
+                    uv_turn: {
+                        let m = texture_turn(inst, mat);
+                        [m.x_axis.x, m.x_axis.y, 0.0, 0.0]
+                    },
                     effect: match slots.effect {
                         Some(e) => {
                             // 1 vertex colors, 2 alpha mask, 4 lightmap,
@@ -1374,11 +1856,13 @@ impl Renderer {
                         }
                         None => [0.0; 4],
                     },
+                    // (w: the tangents were made, not the model's: the
+                    // tangent frame is taken from the derivatives.)
                     light_count: [
                         chosen.len() as u32,
                         u32::from(mesh.skin.is_some()),
                         bone_base,
-                        0,
+                        u32::from(mesh.tangents_made),
                     ],
                     light_index,
                 };
@@ -1391,6 +1875,7 @@ impl Renderer {
                     material: surface.material,
                     mesh,
                     dynamic: dynamic_range,
+                    game: None,
                     bounds,
                     instance: instance as u32,
                 };
@@ -1417,7 +1902,14 @@ impl Renderer {
                 }
             }
         }
-        self.drawn = Drawn { meshes: draws.len(), hidden, ..Drawn::default() };
+        self.drawn = Drawn {
+            meshes: draws.len() + game_draws.len(),
+            hidden,
+            game: game_draws.len() + game_blended.len(),
+            timed,
+            game_pending: self.game.busy(),
+            ..Drawn::default()
+        };
         // Opaque (any order), then blended back to front by hint then depth,
         // then additive.
         draws.sort_by(|a, b| {
@@ -1457,8 +1949,19 @@ impl Renderer {
                 // sixteenth of it and a hundredth of a pixel.)
                 if solid { batcher.pass(10.0, 1e-3) } else { batcher.pass(0.125, 1e-5) }
             }
-            let key = (std::ptr::from_ref(d.mesh) as usize, d.material, d.dynamic);
-            let batch = if !self.instancing {
+            // (A see-through, additive or sky draw of the game's: with
+            // others of its pipeline, material and mesh where they don't
+            // meet on the screen, as Moonglow's own; a skinned one by
+            // itself.)
+            let game_key = d.game.map(|i| game_blended[i as usize].batch_key());
+            let key = match game_key {
+                Some(Some((pipeline, material))) => {
+                    (std::ptr::from_ref(d.mesh) as usize, material, pipeline + 1, d.dynamic)
+                }
+                Some(None) => (usize::MAX - d.game.unwrap_or(0) as usize, u32::MAX, u32::MAX, None),
+                None => (std::ptr::from_ref(d.mesh) as usize, d.material, 0, d.dynamic),
+            };
+            let batch = if !self.instancing || matches!(game_key, Some(None)) {
                 batcher.place(key, None, None)
             } else if solid {
                 // (A model's own meshes in the order they came in.)
@@ -1473,6 +1976,20 @@ impl Renderer {
         }
         let (starts, order) = crate::batch::in_order(&batch_of, batcher.batches());
         self.batcher = batcher;
+        // The game's draws among them in the order they are drawn, so that
+        // a batch's are instances in a row.
+        if !game_blended.is_empty() {
+            let mut taken: Vec<Option<crate::game::GameDraw<'_>>> =
+                game_blended.drain(..).map(Some).collect();
+            for &k in &order {
+                if let Some(i) = draws[k as usize].game {
+                    let at = game_blended.len() as u32;
+                    game_blended.extend(taken[i as usize].take());
+                    draws[k as usize].game = Some(at);
+                }
+            }
+        }
+        // (And the game's solid draws', as they are drawn.)
         self.drawn.batches = starts.len() - 1;
         // (Each instance's uniforms, by its number.)
         let named: Vec<u32> = order.iter().map(|&d| draws[d as usize].uniform).collect();
@@ -1570,7 +2087,68 @@ impl Renderer {
                 }
                 None => particle_vertices.extend_from_slice(&b.vertices),
             }
-            particle_draws.push((b.blend, group, start..particle_vertices.len() as u32));
+            particle_draws.push((b.blend, group, start..particle_vertices.len() as u32, None));
+        }
+        // The particles through `vsparticle`/`fsparticle` (read from the
+        // client: `NO_DISCARD` 1 but for punch-through, `blendMode` the
+        // blend); where their pipeline isn't ready, Moonglow's own.
+        if let Some(f) = &game_frame
+            && self.debug == DebugView::Lit
+        {
+            use crate::game::{GamePass, PipelineKey, Ready};
+            let (format, samples, wait) =
+                (self.color_format, self.sample_count, !self.game_background);
+            for (k, (blend, group, range, game)) in particle_draws.iter_mut().enumerate() {
+                let key = PipelineKey {
+                    vs: "vsparticle".into(),
+                    fs: "fsparticle".into(),
+                    no_discard: *blend != ParticleBlend::PunchThrough,
+                    skinned: false,
+                    twosided: false,
+                    pass: GamePass::Particles(*blend),
+                };
+                let Ready::Yes(p) = self.game.pipeline(gpu, assets, &key, format, samples, wait)
+                else {
+                    continue;
+                };
+                let textured = batches[k]
+                    .texture
+                    .as_deref()
+                    .is_some_and(|t| self.texture(gpu, assets, t).is_some());
+                let mut bound = [false; 16];
+                bound[0] = textured;
+                let d = crate::game::DrawValues {
+                    world: Mat4::IDENTITY,
+                    ambient: [1.0; 4],
+                    diffuse: [1.0; 4],
+                    emissive: [0.0, 0.0, 0.0, 1.0],
+                    bound,
+                    alpha_discard: ALPHA_DISCARD,
+                    lights: u32::MAX,
+                    material: *group,
+                    texture_matrix: Mat4::IDENTITY,
+                    blend_mode: match blend {
+                        ParticleBlend::Normal => 0,
+                        ParticleBlend::Lighten => 1,
+                        ParticleBlend::PunchThrough => 2,
+                    },
+                    ..Default::default()
+                };
+                if let Some(list) = &mut self.game_programs {
+                    list.push(GameProgram {
+                        model: "(particles)".into(),
+                        node: format!("{blend:?}"),
+                        vs: key.vs.clone(),
+                        fs: key.fs.clone(),
+                        no_discard: key.no_discard,
+                    });
+                }
+                let geometry = crate::game::Geometry::Particles(range.start, range.end);
+                *game = Some(game_blended.len());
+                game_blended.push(self.game.push(p, *group, geometry, None, f, &d));
+                self.drawn.game += 1;
+            }
+            self.drawn.game_pending = self.game.busy();
         }
         upload(
             gpu,
@@ -1593,6 +2171,44 @@ impl Renderer {
             &line_vertices,
             0,
         );
+        // The game's shaders' blocks and bind groups; the solid draws by
+        // pipeline and material, each set once for its draws.
+        game_draws.sort_by_key(|d| d.order());
+        if !game_draws.is_empty() || !game_blended.is_empty() {
+            self.game.upload(gpu, &mut game_draws, &mut game_blended);
+            let (white, white_cube) = (self.white.clone(), self.white_cube.clone());
+            let noise = self.texture(gpu, assets, "solid_noise");
+            let env_sampler = self.env_sampler.clone();
+            for d in game_draws.iter().chain(&game_blended) {
+                if self.game.prepared(d) {
+                    continue;
+                }
+                let key = self.material_keys[d.material as usize].clone();
+                let textures: Vec<Option<Arc<TextureEntry>>> = key
+                    .0
+                    .iter()
+                    .map(|n| n.as_deref().and_then(|t| self.texture(gpu, assets, t)))
+                    .collect();
+                let env = self.texture(gpu, assets, &key.1);
+                let sampler = self.sampler(gpu, key.2);
+                let (env_view, cube_view) = match &env {
+                    Some(t) if t.cube => (&white.view, &t.gpu.view),
+                    Some(t) => (&t.gpu.view, &white_cube.view),
+                    None => (&white.view, &white_cube.view),
+                };
+                let views = crate::game::MaterialViews {
+                    slots: std::array::from_fn(|i| textures[i].as_ref().map(|t| &t.gpu.view)),
+                    env: env_view,
+                    env_cube: cube_view,
+                    noise: noise.as_ref().map_or(&white.view, |t| &t.gpu.view),
+                    white: &white.view,
+                    white_cube: &white_cube.view,
+                    sampler: &sampler,
+                    env_sampler: &env_sampler,
+                };
+                self.game.prepare(gpu, d, &views);
+            }
+        }
         let bg = scene.background;
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
         {
@@ -1629,9 +2245,37 @@ impl Renderer {
             // every draw was a quarter of drawing a large area.)
             let (mut pipeline, mut material) = (None, None);
             let mut materials = 0;
+            // The game's shaders' draws, after the solid ones of Moonglow's.
+            let mut game_drawn = game_draws.is_empty();
+            // (What the game's draws left bound, and whether Moonglow's own
+            // must bind its frame again before it draws.)
+            let mut game_bound = crate::game::Bound3::default();
+            let mut own_lost = false;
             for batch in starts.windows(2) {
                 // (A batch's draws are of one mesh and one material.)
                 let d = &draws[order[batch[0] as usize] as usize];
+                if !game_drawn && !matches!(d.pass, Pass::Sky | Pass::SkyFade | Pass::Opaque) {
+                    let (dynamic, particles) = (&self.dynamic_buffer, &self.particle_buffer);
+                    self.drawn.batches +=
+                        self.game.draw(&mut pass, &game_draws, dynamic, particles, &mut game_bound);
+                    game_drawn = true;
+                    own_lost = true;
+                }
+                if let Some(i) = d.game {
+                    // (The batch's draws, in a row.)
+                    let n = (batch[1] - batch[0]) as usize;
+                    let draws = &game_blended[i as usize..i as usize + n];
+                    let (dynamic, particles) = (&self.dynamic_buffer, &self.particle_buffer);
+                    let _ = self.game.draw(&mut pass, draws, dynamic, particles, &mut game_bound);
+                    own_lost = true;
+                    continue;
+                }
+                if own_lost {
+                    pass.set_bind_group(0, &frame_group, &[]);
+                    (pipeline, material) = (None, None);
+                    game_bound = crate::game::Bound3::default();
+                    own_lost = false;
+                }
                 let key = (d.pass, d.mesh.skin.is_some(), d.twosided);
                 if pipeline != Some(key) {
                     pass.set_pipeline(&self.pipelines[&key]);
@@ -1654,15 +2298,31 @@ impl Renderer {
                 pass.set_index_buffer(d.mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..d.mesh.index_count, 0, batch[0]..batch[1]);
             }
+            if !game_drawn {
+                let (dynamic, particles) = (&self.dynamic_buffer, &self.particle_buffer);
+                self.drawn.batches +=
+                    self.game.draw(&mut pass, &game_draws, dynamic, particles, &mut game_bound);
+            }
             self.drawn.materials = materials;
-            if !particle_draws.is_empty() {
-                pass.set_bind_group(0, &self.particle_frame, &[]);
-                pass.set_vertex_buffer(0, self.particle_buffer.slice(..));
-                for (blend, group, range) in &particle_draws {
-                    pass.set_pipeline(&self.particle_pipelines[blend]);
-                    pass.set_bind_group(1, &self.groups[*group as usize], &[]);
-                    pass.draw(range.clone(), 0..1);
+            // (Moonglow's particle pipeline's frame and vertices, bound
+            // again after a game draw.)
+            let mut own_bound = false;
+            for (blend, group, range, game) in &particle_draws {
+                if let Some(i) = game {
+                    let draw = std::slice::from_ref(&game_blended[*i]);
+                    let (dynamic, particles) = (&self.dynamic_buffer, &self.particle_buffer);
+                    let _ = self.game.draw(&mut pass, draw, dynamic, particles, &mut game_bound);
+                    own_bound = false;
+                    continue;
                 }
+                if !own_bound {
+                    pass.set_bind_group(0, &self.particle_frame, &[]);
+                    pass.set_vertex_buffer(0, self.particle_buffer.slice(..));
+                    own_bound = true;
+                }
+                pass.set_pipeline(&self.particle_pipelines[blend]);
+                pass.set_bind_group(1, &self.groups[*group as usize], &[]);
+                pass.draw(range.clone(), 0..1);
             }
             if !line_vertices.is_empty() {
                 pass.set_pipeline(&self.line_pipeline);
@@ -1851,6 +2511,84 @@ mod tests {
         let (max_inv, falloff) = super::attenuation_params();
         assert!((max_inv - 0.4098).abs() < 1e-3, "{max_inv}");
         assert!((falloff - 136.31).abs() < 0.1, "{falloff}");
+    }
+
+    /// The WGSL shaders' cube maps, by their names.
+    fn cube_maps(source: &str) -> Vec<String> {
+        source
+            .lines()
+            .filter(|l| l.contains("texture_cube"))
+            .filter_map(|l| l.split("var ").nth(1)?.split(':').next())
+            .map(|n| n.trim().to_string())
+            .collect()
+    }
+
+    /// No cube map is read with gradients or a bias: naga writes
+    /// `textureSampleGrad` on a cube for Metal with 2D gradients
+    /// (`metal::gradient2d` of `float3`s), which Metal refuses, and the
+    /// whole lit pipeline wasn't made there (M4's CI on macOS).
+    #[test]
+    fn no_cube_map_is_read_with_gradients() {
+        for (name, source) in [
+            ("shader.wgsl", include_str!("shader.wgsl")),
+            ("particle.wgsl", include_str!("particle.wgsl")),
+            ("line.wgsl", include_str!("line.wgsl")),
+        ] {
+            let cubes = cube_maps(source);
+            for (i, line) in source.lines().enumerate() {
+                for cube in &cubes {
+                    for call in ["textureSampleGrad(", "textureSampleBias("] {
+                        let used = line.replace(' ', "").contains(&format!("{call}{cube},"));
+                        assert!(!used, "{name}:{}: {call} on the cube map {cube}", i + 1);
+                    }
+                }
+            }
+        }
+        assert_eq!(cube_maps(include_str!("shader.wgsl")), ["tex_env_cube"]);
+    }
+
+    /// The shaders as naga writes them for Metal: no cube map sampled with
+    /// 2D gradients.
+    #[test]
+    fn the_shaders_written_for_metal_sample_cube_maps_as_cubes() {
+        for (name, source) in [
+            ("shader.wgsl", include_str!("shader.wgsl")),
+            ("particle.wgsl", include_str!("particle.wgsl")),
+            ("line.wgsl", include_str!("line.wgsl")),
+        ] {
+            let module =
+                naga::front::wgsl::parse_str(source).unwrap_or_else(|e| panic!("{name}: {e}"));
+            let info = naga::valid::Validator::new(
+                naga::valid::ValidationFlags::all(),
+                naga::valid::Capabilities::all(),
+            )
+            .validate(&module)
+            .unwrap_or_else(|e| panic!("{name}: {e:?}"));
+            let options = naga::back::msl::Options {
+                lang_version: (2, 1),
+                fake_missing_bindings: true,
+                ..Default::default()
+            };
+            let pipeline = naga::back::msl::PipelineOptions::default();
+            let (msl, _) = naga::back::msl::write_string(&module, &info, &options, &pipeline)
+                .unwrap_or_else(|e| panic!("{name}: {e}"));
+            let cubes: Vec<&str> = msl
+                .lines()
+                .filter(|l| l.contains("metal::texturecube<"))
+                .filter_map(|l| l.split('>').nth(1)?.split_whitespace().next())
+                .collect();
+            if name == "shader.wgsl" {
+                assert!(!cubes.is_empty(), "no cube map found in the Metal source");
+            }
+            for line in msl.lines().filter(|l| l.contains("gradient2d")) {
+                for cube in &cubes {
+                    assert!(
+                        !line.contains(&format!("{cube}.sample(")),
+                        "{name}: a cube map with 2D gradients: {line}"
+                    );
+                }
+            }
+        }
     }
 
     /// A fragment shader stops where it discards. On Metal a discarded

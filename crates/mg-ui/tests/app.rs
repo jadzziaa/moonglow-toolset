@@ -3230,6 +3230,9 @@ fn model_viewer_plays_animations() {
     let install = mg_resman::GameInstall::new(&root, None, "en");
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.set_render_state(rs.clone());
+    // (Moonglow's own shader: the view asks for frames while the game's
+    // programs are made, which `run` would wait out.)
+    app.settings.game_shaders = Some(false);
     let key = ResKey::parse("plc_a01", ResType::MDL).unwrap();
     app.actions.push(mg_ui::Action::OpenTab(Tab::Model(key)));
     let mut h = Harness::builder()
@@ -3251,6 +3254,50 @@ fn model_viewer_plays_animations() {
     );
     let img = h.render().expect("render");
     assert!(img.width() > 0);
+}
+
+/// The model view's Shaders switch is the area view's (one setting for
+/// every 3D view): on by default, the game's lit shaders drawing the model
+/// once its programs are made; off, Moonglow's own; on again.
+#[test]
+fn the_model_view_s_shaders_switch_draws_with_the_game_s_shaders() {
+    let root = mg_testkit::corpus!();
+    mg_testkit::gpu::hold();
+    if mg_render::Gpu::headless().is_none() {
+        eprintln!("skipped: no GPU adapter");
+        return;
+    }
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    let key = ResKey::parse("plc_a01", ResType::MDL).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Model(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 700.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(1);
+    assert_eq!(h.state().settings.game_shaders, None);
+    assert!(h.state().settings.game_shaders());
+    let drawn = |h: &Harness<'_, Moonglow>| h.state().viewport.as_ref().unwrap().renderer.drawn;
+    // (Its programs made while the view goes on: Moonglow's shader first.)
+    assert!(drawn(&h).game_pending > 0 || drawn(&h).game > 0, "{:?}", drawn(&h));
+    until_the_game_draws(&mut h);
+    let vp = h.state().viewport.as_ref().unwrap();
+    assert_eq!(vp.renderer.game_shader_failures(), &[]);
+    assert!(drawn(&h).game > 0, "{:?}", drawn(&h));
+    h.get_by_label("Shaders").click();
+    h.run_steps(3);
+    assert_eq!(h.state().settings.game_shaders, Some(false));
+    assert_eq!(drawn(&h).game, 0);
+    h.get_by_label("Shaders").click();
+    until_the_game_draws(&mut h);
+    assert_eq!(h.state().settings.game_shaders, Some(true));
+    assert!(drawn(&h).game > 0, "{:?}", drawn(&h));
 }
 
 #[test]
@@ -7189,6 +7236,9 @@ fn area_harness_on(
     );
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.set_render_state(rs.clone());
+    // (Moonglow's own shader, chosen: the area view tests' pictures don't
+    // change as the game's programs are made.)
+    app.settings.game_shaders = Some(false);
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
     // Frames a 60th of a second apart, so that clicks can be double clicks.
@@ -7199,6 +7249,324 @@ fn area_harness_on(
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(3);
     Some((h, area))
+}
+
+/// Frames until the game's programs, made while the frames go on, draw
+/// (at most a minute).
+fn until_the_game_draws(h: &mut Harness<'_, Moonglow>) {
+    let start = std::time::Instant::now();
+    loop {
+        h.run_steps(1);
+        let d = h.state().viewport.as_ref().unwrap().renderer.drawn;
+        if d.game > 0 && d.game_pending == 0 {
+            // (And one more frame: the area view's picture is drawn anew
+            // as its animations step.)
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            h.run_steps(2);
+            return;
+        }
+        assert!(start.elapsed().as_secs() < 60, "the game's programs never drew: {d:?}");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
+/// The area view's Shaders switch: on by default (the setting not yet
+/// chosen: the other area view tests choose it off); off, Moonglow's own
+/// shader; on, the area is drawn again with the game's own shaders (the
+/// stock lit programs for the tiles), and the choice is kept in the
+/// settings; off again, with Moonglow's own.
+#[test]
+fn the_area_view_s_shaders_switch_draws_with_the_game_s_shaders() {
+    let Some((mut h, area)) = area_harness("shaders-switch") else { return };
+    h.state_mut().settings.game_shaders = None;
+    assert!(h.state().settings.game_shaders());
+    let drawn = |h: &Harness<'_, Moonglow>| h.state().viewport.as_ref().unwrap().renderer.drawn;
+    until_the_game_draws(&mut h);
+    h.get_by_label("🎨 Shaders").click();
+    h.run_steps(3);
+    assert_eq!(h.state().settings.game_shaders, Some(false));
+    let pictures = h.state().area_views[&area].pictures;
+    assert!(pictures > 0);
+    assert_eq!(drawn(&h).game, 0);
+    h.get_by_label("🎨 Shaders").click();
+    h.run_steps(1);
+    // (Its programs made while the view goes on: Moonglow's shader first.)
+    assert!(drawn(&h).game_pending > 0 || drawn(&h).game > 0, "{:?}", drawn(&h));
+    until_the_game_draws(&mut h);
+    assert_eq!(h.state().settings.game_shaders, Some(true));
+    assert!(h.state().area_views[&area].pictures > pictures, "drawn again");
+    let vp = h.state().viewport.as_ref().unwrap();
+    assert!(vp.renderer.game_shaders);
+    assert_eq!(vp.renderer.game_shader_failures(), &[]);
+    assert!(drawn(&h).game > 0, "{:?}", drawn(&h));
+    // Kept as the settings are.
+    let saved = serde_json::to_string(&h.state().settings).unwrap();
+    let read: mg_ui::Settings = serde_json::from_str(&saved).unwrap();
+    assert!(read.game_shaders());
+    h.get_by_label("🎨 Shaders").click();
+    h.run_steps(3);
+    assert_eq!(h.state().settings.game_shaders, Some(false));
+    assert_eq!(drawn(&h).game, 0);
+}
+
+/// The area view with The Domains of Dread's tileset and shaders (its haks
+/// where `MOONGLOW_HAKS` has them, linked into a scratch user folder; the
+/// haks themselves untouched; skipped without): a field of `mst04` tiles
+/// whose trees' leaves and plants sway by its custom shaders. With the
+/// Shaders switch off the view holds still from one moment to the next;
+/// on, it is drawn otherwise (its own lighting, `tdod_shaders`'
+/// `inc_lighting`), and moves. Pictures in
+/// `target/test-output/ui-area-tdod-shaders/` to look at.
+#[cfg(unix)]
+#[test]
+fn tdod_s_wind_shaders_move_in_the_area_view() {
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let Some(haks) = mg_testkit::builder_hak_dirs()
+        .into_iter()
+        .find(|d| d.join("tdod_t_tap.hak").is_file() && d.join("tdod_shaders.hak").is_file())
+    else {
+        eprintln!("skipped: no tdod_t_tap.hak in MOONGLOW_HAKS");
+        return;
+    };
+    mg_testkit::gpu::hold();
+    if mg_render::Gpu::headless().is_none() {
+        eprintln!("skipped: no GPU adapter");
+        return;
+    }
+    let dir = mg_testkit::scratch_dir("ui-area-tdod-shaders");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let names = ["tdod_shaders", "tdod_t_tap"];
+    for name in names {
+        let file = format!("{name}.hak");
+        mg_testkit::link_or_copy(&haks.join(&file), &user.join("hak").join(&file)).unwrap();
+    }
+    // A module on a stock tileset, made Medieval Rural's field of TDoD's
+    // `mst04` tiles 42 and 48 (trees and plants of the wind shaders).
+    let install = mg_resman::GameInstall::new(&root, Some(user.clone()), "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut rng = fastrand::Rng::with_seed(7);
+    let mut m = new_module(&game, "Wind", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Field".into(),
+        tileset: ResRef::from_str("ttr01").unwrap(),
+        width: 2,
+        height: 2,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let key = ResKey::new(area, ResType::ARE);
+    let mut are = m.gff(&key).unwrap().unwrap();
+    are.root.set("Tileset", mg_gff::Value::ResRef(b"mst04".to_vec()));
+    for (i, t) in are.root.list_mut("Tile_List").unwrap().iter_mut().enumerate() {
+        t.set("Tile_ID", mg_gff::Value::Int(if i % 2 == 0 { 42 } else { 48 }));
+        t.set("Tile_Orientation", mg_gff::Value::Int(0));
+        t.set("Tile_Height", mg_gff::Value::Int(0));
+    }
+    m.set_gff(key, &are).unwrap();
+    let ifo_key = ResKey::parse("module", ResType::IFO).unwrap();
+    let mut ifo = m.gff(&ifo_key).unwrap().unwrap();
+    let list = mg_module::attach::hak_list(&ifo.root, &names.map(String::from));
+    ifo.root.set("Mod_HakList", list);
+    m.set_gff(ifo_key, &ifo).unwrap();
+    let path = dir.join("wind.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    // (Off first, as the test compares the two.)
+    app.settings.game_shaders = Some(false);
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 900.0))
+        .with_step_dt(1.0 / 60.0)
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(20);
+    // Close on the trees, from low down.
+    if let Some(o) = h.state_mut().area_views.get_mut(&area).and_then(|v| v.orbit.as_mut()) {
+        o.target = glam::Vec3::new(5.0, 10.0, 2.0);
+        (o.distance, o.pitch) = (16.0, 0.35);
+    }
+    h.run_steps(10);
+    let shot = |h: &mut Harness<'_, Moonglow>, name: &str| {
+        let img = h.render().expect("render");
+        img.save(dir.join(format!("{name}.png"))).unwrap();
+        img
+    };
+    let differ = |a: &image::RgbaImage, b: &image::RgbaImage| {
+        a.pixels().zip(b.pixels()).filter(|(p, q)| (0..3).any(|i| p[i].abs_diff(q[i]) > 2)).count()
+    };
+    let off = [shot(&mut h, "off_a"), {
+        h.run_steps(30);
+        shot(&mut h, "off_b")
+    }];
+    h.get_by_label("🎨 Shaders").click();
+    until_the_game_draws(&mut h);
+    let on_a = shot(&mut h, "on_a");
+    h.run_steps(30);
+    let on_b = shot(&mut h, "on_b");
+    let log: Vec<String> = h.state().log.entries.iter().map(|e| e.1.clone()).collect();
+    let drawn = h.state().viewport.as_ref().unwrap().renderer.drawn;
+    let (still, moved, changed) =
+        (differ(&off[0], &off[1]), differ(&on_a, &on_b), differ(&off[1], &on_a));
+    eprintln!("{drawn:?}; off {still} pixels moved, on {moved}; {changed} changed by the switch");
+    assert!(
+        !log.iter().any(|l| l.contains("drawn with Moonglow's own")),
+        "no program failed: {log:?}"
+    );
+    assert!(drawn.game > 0 && drawn.timed > 0, "{drawn:?}");
+    assert!(changed > 1000, "the switch changes the view: {changed}");
+    assert!(moved > still + 200, "the wind moves it: {moved} against {still}");
+}
+
+/// A hak's include overrides the stock one through the load order
+/// (`docs/shaders-proposal.md`, M4): an area of The Domains of Dread's
+/// `mst04` tiles (`MOONGLOW_HAKS`; skipped without), drawn by the game's
+/// shaders with `tdod_shaders.hak` attached (its `inc_lighting`, a
+/// diffuse-wrap lighting, over the stock one) and without it, and with the
+/// switch off. Pictures in `target/test-output/ui-area-tdod-lighting/`
+/// (`with.png`, `without.png`, `off_with.png`, `off_without.png`).
+#[cfg(unix)]
+#[test]
+fn tdod_s_inc_lighting_changes_the_area_view_through_the_load_order() {
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let Some(haks) = mg_testkit::builder_hak_dirs()
+        .into_iter()
+        .find(|d| d.join("tdod_t_tap.hak").is_file() && d.join("tdod_shaders.hak").is_file())
+    else {
+        eprintln!("skipped: no tdod_t_tap.hak in MOONGLOW_HAKS");
+        return;
+    };
+    mg_testkit::gpu::hold();
+    if mg_render::Gpu::headless().is_none() {
+        eprintln!("skipped: no GPU adapter");
+        return;
+    }
+    let dir = mg_testkit::scratch_dir("ui-area-tdod-lighting");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    for name in ["tdod_shaders", "tdod_t_tap"] {
+        let file = format!("{name}.hak");
+        mg_testkit::link_or_copy(&haks.join(&file), &user.join("hak").join(&file)).unwrap();
+    }
+    let install = mg_resman::GameInstall::new(&root, Some(user.clone()), "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    // The area: 4 by 4 of mst04's first tiles, in a module listing the
+    // haks given.
+    let module = |haks: &[&str], file: &str| {
+        let mut rng = fastrand::Rng::with_seed(7);
+        let mut m = new_module(&game, "Lighting", &mut rng).unwrap();
+        let spec = AreaSpec {
+            name: "Field".into(),
+            tileset: ResRef::from_str("ttr01").unwrap(),
+            width: 4,
+            height: 4,
+        };
+        let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+        let key = ResKey::new(area, ResType::ARE);
+        let mut are = m.gff(&key).unwrap().unwrap();
+        are.root.set("Tileset", mg_gff::Value::ResRef(b"mst04".to_vec()));
+        for (i, t) in are.root.list_mut("Tile_List").unwrap().iter_mut().enumerate() {
+            t.set("Tile_ID", mg_gff::Value::Int(i as i32));
+            t.set("Tile_Orientation", mg_gff::Value::Int(0));
+            t.set("Tile_Height", mg_gff::Value::Int(0));
+        }
+        m.set_gff(key, &are).unwrap();
+        let ifo_key = ResKey::parse("module", ResType::IFO).unwrap();
+        let mut ifo = m.gff(&ifo_key).unwrap().unwrap();
+        let names: Vec<String> = haks.iter().map(|h| h.to_string()).collect();
+        let list = mg_module::attach::hak_list(&ifo.root, &names);
+        ifo.root.set("Mod_HakList", list);
+        m.set_gff(ifo_key, &ifo).unwrap();
+        let path = dir.join(file);
+        m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+        (path, area)
+    };
+    // The area view of a module, the switch on or off, after the same
+    // number of frames (the wind shaders' clock the same).
+    let picture = |path: &std::path::Path, area: ResRef, on: bool, name: &str| {
+        let rs = egui_kittest::wgpu::create_render_state(
+            egui_kittest::wgpu::default_wgpu_setup(),
+            egui_wgpu::RendererOptions::PREDICTABLE,
+        );
+        let mut app = Moonglow::new(Some(install.clone()), Box::new(NoDialogs::default()));
+        app.set_render_state(rs.clone());
+        app.settings.game_shaders = Some(on);
+        app.open_module(path);
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1200.0, 900.0))
+            .with_step_dt(1.0 / 60.0)
+            .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run_steps(20);
+        if let Some(o) = h.state_mut().area_views.get_mut(&area).and_then(|v| v.orbit.as_mut()) {
+            o.target = glam::Vec3::new(20.0, 20.0, 0.0);
+            (o.distance, o.pitch) = (42.0, 0.8);
+        }
+        let mut steps = 20;
+        let start = std::time::Instant::now();
+        if on {
+            loop {
+                h.run_steps(1);
+                steps += 1;
+                let d = h.state().viewport.as_ref().unwrap().renderer.drawn;
+                if d.game > 0 && d.game_pending == 0 {
+                    break;
+                }
+                assert!(start.elapsed().as_secs() < 60, "the game's programs never drew: {d:?}");
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        }
+        assert!(steps < 300, "{steps} frames to draw");
+        h.run_steps(300 - steps);
+        let img = h.render().expect("render");
+        img.save(dir.join(format!("{name}.png"))).unwrap();
+        let log: Vec<String> = h.state().log.entries.iter().map(|e| e.1.clone()).collect();
+        assert!(
+            !log.iter().any(|l| l.contains("drawn with Moonglow's own")),
+            "no program failed: {log:?}"
+        );
+        img
+    };
+    let (with_path, area) = module(&["tdod_shaders", "tdod_t_tap"], "with.mod");
+    let (without_path, area2) = module(&["tdod_t_tap"], "without.mod");
+    assert_eq!(area, area2);
+    let with = picture(&with_path, area, true, "with");
+    let without = picture(&without_path, area, true, "without");
+    let off_with = picture(&with_path, area, false, "off_with");
+    let off_without = picture(&without_path, area, false, "off_without");
+    // (The area view's picture: the window around it names the module.)
+    let view = |a: &image::RgbaImage| image::imageops::crop_imm(a, 270, 220, 660, 500).to_image();
+    let (with, without, off_with, off_without) =
+        (view(&with), view(&without), view(&off_with), view(&off_without));
+    let differ = |a: &image::RgbaImage, b: &image::RgbaImage| {
+        a.pixels().zip(b.pixels()).filter(|(p, q)| (0..3).any(|i| p[i].abs_diff(q[i]) > 2)).count()
+    };
+    let brightness = |a: &image::RgbaImage| {
+        a.pixels().map(|p| (f64::from(p[0]) + f64::from(p[1]) + f64::from(p[2])) / 3.0).sum::<f64>()
+            / f64::from(a.width() * a.height())
+    };
+    let (lit, off) = (differ(&with, &without), differ(&off_with, &off_without));
+    eprintln!(
+        "with tdod_shaders' inc_lighting {lit} pixels differ from without it (brightness {:.1} \
+         against {:.1}); with the switch off {off} (brightness {:.1}, {:.1})",
+        brightness(&with),
+        brightness(&without),
+        brightness(&off_with),
+        brightness(&off_without),
+    );
+    // The hak's include changes what the game's shaders draw, and nothing
+    // of Moonglow's own.
+    assert!(lit > 50_000, "{lit}");
+    assert!(off == 0, "{off}");
 }
 
 /// A waypoint's position in the workspace's GIT.

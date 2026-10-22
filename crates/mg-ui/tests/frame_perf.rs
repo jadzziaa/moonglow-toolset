@@ -347,8 +347,9 @@ fn render_state() -> egui_wgpu::RenderState {
 }
 
 /// An area in the viewer: as it opens (all of it in sight, from above),
-/// turned about, and close to the ground.
-fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64) {
+/// turned about, and close to the ground. `label` follows its name in what
+/// is printed (the Shaders switch, say).
+fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: &str) {
     let tab = Tab::Area(area);
     h.state_mut().actions.push(Action::OpenTab(tab.clone()));
     // Its opening: the frames in which its models are read and its
@@ -367,9 +368,24 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64) {
         h.run_steps(1);
         opening.push(t.elapsed());
     }
+    // (The game's programs, made while the frames go on: what is timed
+    // after is the view as it stays.)
+    let start = Instant::now();
+    while h.state().viewport.as_ref().is_some_and(|v| v.renderer.drawn.game_pending > 0)
+        && start.elapsed() < Duration::from_secs(60)
+    {
+        std::thread::sleep(Duration::from_millis(5));
+        h.run_steps(1);
+    }
     if !r.shots {
         let longest = opening.iter().max().copied().unwrap_or_default();
-        println!("  area {area}: opening, its longest frame {:.0} ms", ms(longest));
+        let all: Duration = opening.iter().sum();
+        println!(
+            "  area {area}{label}: opening, its longest frame {:.0} ms ({} frames, {:.0} ms in all)",
+            ms(longest),
+            opening.len(),
+            ms(all)
+        );
     }
     let objects = h
         .state()
@@ -377,7 +393,7 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64) {
         .get(&area)
         .and_then(|v| v.model.as_ref())
         .map_or(0, |m| m.objects.len());
-    let name = format!("area {area} ({tiles} tiles, {objects} objects)");
+    let name = format!("area {area} ({tiles} tiles, {objects} objects){label}");
     view(h, r, &format!("{name}, overview"), Some(&tab));
     view_with(h, r, &format!("{name}, turning"), Some(&tab), |app, _| {
         if let Some(o) = app.area_views.get_mut(&area).and_then(|v| v.orbit.as_mut()) {
@@ -395,10 +411,19 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64) {
     close(h, &tab);
 }
 
+/// `FRAME_GAME_WATER=1`: shiny water by the game's `fswater` too, with the
+/// Shaders switch on.
+fn game_water() -> bool {
+    std::env::var_os("FRAME_GAME_WATER").is_some()
+}
+
 /// The area viewer's frame taken apart, on a renderer of the test's own:
 /// the scene built (every tile and object posed), the particles moved on,
-/// the draws encoded and sent, and the GPU drawing them.
-fn area_parts(h: &mut App<'_>, area: ResRef, count: usize) {
+/// the draws encoded and sent, and the GPU drawing them; with the Shaders
+/// switch as each of `shaders` has it (a renderer of its own each: the
+/// first frame, which reads the textures and, with the switch on, makes
+/// the game's programs, is printed by itself).
+fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool]) {
     use mg_render::{Renderer, Targets};
     let app = h.state_mut();
     let Some(vp) = app.viewport.as_ref() else { return };
@@ -430,14 +455,24 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize) {
     };
     let (width, height) = model.size();
     let span = width.max(height);
-    for (what, distance, pitch, samples, instancing) in [
+    let configs = [
         ("overview, 4x MSAA", span * 1.45, 1.5695, 4, true),
         ("…a draw for each mesh", span * 1.45, 1.5695, 4, false),
         ("overview, no MSAA", span * 1.45, 1.5695, 1, true),
         ("close, 4x MSAA", 25.0, 0.7, 4, true),
-    ] {
+    ];
+    for (what, distance, pitch, samples, instancing, on) in
+        configs.into_iter().flat_map(|c| shaders.iter().map(move |&g| (c.0, c.1, c.2, c.3, c.4, g)))
+    {
+        // (A draw for each mesh is the switch off's comparison only.)
+        if on && !instancing {
+            continue;
+        }
         let mut renderer = Renderer::new(&gpu, format, samples);
         renderer.instancing = instancing;
+        renderer.game_shaders = on;
+        renderer.game_water = on && game_water();
+        let mut first = Duration::ZERO;
         let targets = Targets::new(&gpu, format, samples, w, h_px);
         let mut sims = std::collections::HashMap::new();
         let (mut build, mut particles, mut encode, mut drawn) =
@@ -452,6 +487,11 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize) {
             let mut camera = mg_render::Camera::orbit(target, distance, yaw, pitch);
             camera.far = camera.far.max(distance * 4.0 + 400.0);
             wait();
+            // (The last frame lists what the game's shaders drew: how many
+            // with NO_DISCARD 1.)
+            if on && n == count + 3 {
+                renderer.game_programs = Some(Vec::new());
+            }
             let t0 = Instant::now();
             let mut frame = scene.scene(&model, &view);
             let t1 = Instant::now();
@@ -470,6 +510,9 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize) {
             let t3 = Instant::now();
             wait();
             let t4 = Instant::now();
+            if n == 0 {
+                first = t4 - t0;
+            }
             // (The first frames load the textures.)
             if n >= 4 {
                 build.push(t1 - t0);
@@ -486,21 +529,30 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize) {
         }
         let (instances, meshes, lights, quads) = counts;
         let did = renderer.drawn;
+        if let Some(programs) = renderer.game_programs.take() {
+            let solid = programs.iter().filter(|p| p.no_discard).count();
+            println!("      NO_DISCARD 1 for {solid} of the game's {} meshes", programs.len());
+        }
+        let what = if on { format!("{what}, Shaders on") } else { what.to_string() };
         println!(
             // (The GPU's least times too: with another program drawing,
             // the usual one is as much that program's.)
-            "    {what:20} scene {:5.2} ms, particles {:5.2} ms, draws encoded {:5.2} ms, GPU \
-             {:5.2} ms (the quickest tenth {:5.2}) ({instances} instances, {meshes} meshes, \
-             {lights} lights, {quads} particles; {} meshes in {} draws of {} materials in turn, \
-             {} meshes out of sight)",
+            "    {what:32} first frame {:6.0} ms, scene {:5.2} ms, particles {:5.2} ms, draws \
+             encoded {:5.2} ms (worst {:5.2}), GPU {:5.2} ms (the quickest tenth {:5.2}) \
+             ({instances} instances, {meshes} meshes, {lights} lights, {quads} particles; {} \
+             meshes in {} draws of {} materials in turn, {} of the game's, {} meshes out of \
+             sight)",
+            ms(first),
             ms(pick(build, 0.5)),
             ms(pick(particles, 0.5)),
-            ms(pick(encode, 0.5)),
+            ms(pick(encode.clone(), 0.5)),
+            ms(pick(encode, 0.99)),
             ms(pick(drawn.clone(), 0.5)),
             ms(pick(drawn, 0.1)),
             did.meshes,
             did.batches,
             did.materials,
+            did.game,
             did.hidden,
         );
     }
@@ -627,11 +679,11 @@ fn frames_at_144() {
         tab(&mut h, &mut r, "Area Properties", Tab::AreaProperties(*area));
     }
     for (area, tiles) in &sized {
-        area_views(&mut h, &mut r, *area, *tiles);
+        area_views(&mut h, &mut r, *area, *tiles, "");
     }
     if !r.shots {
         for (area, _) in &sized {
-            area_parts(&mut h, *area, r.count);
+            area_parts(&mut h, *area, r.count, &[false]);
         }
     }
     println!("over the budget:\n  {}", r.over.join("\n  "));
@@ -774,4 +826,346 @@ fn grass_frames_at_144() {
     for over in &r.over {
         println!("OVER: {over}");
     }
+}
+
+/// The Shaders switch's cost (`docs/shaders-proposal.md`, M3): a large
+/// area of stock content (the campaign's largest) and a large area of The
+/// Domains of Dread's own, with its haks and their custom shaders
+/// (`MOONGLOW_HAKS`, [`tdod_area`]), each in the viewer with the switch off
+/// and then on (its opening timed: on, the game's programs are made), and
+/// taken apart off and on. Needs the game and a GPU; run in release:
+/// `cargo test --release -p mg-ui --test frame_perf game_shaders -- --ignored --nocapture`.
+/// `FRAME_AREA=stock`, `water` ([`water_area`]: water, grass, fires,
+/// a skybox) or `tdod` times only that one.
+#[test]
+#[ignore]
+fn game_shaders_frames_at_144() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let mut r = Report::new();
+    let only = std::env::var("FRAME_AREA").ok();
+    let wanted = |name: &str| only.as_deref().is_none_or(|o| o == name);
+    println!("the Shaders switch: frames at {SCREEN:?}, budget {:.2} ms", ms(BUDGET));
+    let path = root.join("data/nwm").join(CAMPAIGN);
+    if wanted("stock") && path.is_file() {
+        let rs = render_state();
+        let mut app = Moonglow::new(
+            Some(GameInstall::new(&root, None, "en")),
+            Box::new(NoDialogs::default()),
+        );
+        app.set_render_state(rs.clone());
+        app.open_module(&path);
+        let (area, tiles) = *areas(&mut app).last().unwrap();
+        let mut h = harness(app, rs);
+        shaders_off_and_on(&mut h, &mut r, area, tiles);
+        drop(h);
+        shaders_opening(&root, None, &path, area);
+    }
+    if wanted("water") {
+        let (module, area, tiles) = water_area(&root);
+        let rs = render_state();
+        let mut app = Moonglow::new(
+            Some(GameInstall::new(&root, None, "en")),
+            Box::new(NoDialogs::default()),
+        );
+        app.set_render_state(rs.clone());
+        app.open_module(&module);
+        let mut h = harness(app, rs);
+        shaders_off_and_on(&mut h, &mut r, area, tiles);
+        drop(h);
+    }
+    if wanted("tdod") {
+        match tdod_area(&root) {
+            Some((module, user, area, tiles)) => {
+                let rs = render_state();
+                let install = GameInstall::new(&root, Some(user.clone()), "en");
+                let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+                app.set_render_state(rs.clone());
+                app.open_module(&module);
+                let mut h = harness(app, rs);
+                shaders_off_and_on(&mut h, &mut r, area, tiles);
+                drop(h);
+                shaders_opening(&root, Some(user), &module, area);
+            }
+            None => println!("skipped The Domains of Dread: no tdod_t_tap.hak in MOONGLOW_HAKS"),
+        }
+    }
+    println!("over the budget:\n  {}", r.over.join("\n  "));
+}
+
+/// A stock area of water, grass and fires (M5's special surfaces): 16 by
+/// 16 of the rural tileset (`ttr01`), every other pair of rows all water
+/// (tile 20, `ttr01_b20_01`: shiny water), the rest its grassy tiles, a
+/// skybox, a medium wind, and 160 braziers, campfires and flames (their
+/// particles). The module, the area and its tiles.
+fn water_area(root: &std::path::Path) -> (std::path::PathBuf, ResRef, i64) {
+    use mg_gff::{Gff, Value};
+    use mg_module::ModuleLocation;
+    use mg_module::instances::{Placement, Placing, instance};
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    let game = mg_rules::GameData::open(&GameInstall::new(root, None, "en")).unwrap();
+    let mut rng = fastrand::Rng::with_seed(5);
+    let mut m = new_module(&game, "Water and fires", &mut rng).unwrap();
+    let side = 16;
+    let spec = AreaSpec {
+        name: "Lake".into(),
+        tileset: ResRef::from_str("ttr01").unwrap(),
+        width: side,
+        height: side,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let key = ResKey::new(area, ResType::ARE);
+    let mut are = m.gff(&key).unwrap().unwrap();
+    are.root.set("WindPower", Value::Int(1));
+    are.root.set("SkyBox", Value::Byte(1));
+    for (i, t) in are.root.list_mut("Tile_List").unwrap().iter_mut().enumerate() {
+        if (i / side as usize) % 4 < 2 {
+            t.set("Tile_ID", Value::Int(20));
+            t.set("Tile_Height", Value::Int(0));
+        }
+    }
+    m.set_gff(key, &are).unwrap();
+    // Braziers, campfires (with a spit), large and medium flames
+    // (placeables.2da rows 57, 58, 60, 149, 150), on the grass.
+    let rows = [57u32, 58, 60, 149, 150];
+    let bp = Gff::read(&game.resman.get_named("plc_armoire", ResType::UTP).unwrap()).unwrap();
+    let none = |_: ResRef| None;
+    let placing = Placing { game: &game, item: &none };
+    let span = side as f32 * 10.0;
+    let placed: Vec<_> = (0..160)
+        .map(|i| {
+            let mut root = bp.root.clone();
+            root.set("Appearance", Value::Dword(rows[i % rows.len()]));
+            // (Rows 2 and 3 of every four: the grass.)
+            let band = (i % (side as usize / 4)) as f32 * 40.0 + 20.0 + rng.f32() * 20.0;
+            let at = Placement { position: [rng.f32() * span, band, 0.0], rotation: 0.0 };
+            instance(&placing, ResType::UTP, &root, at, &[]).unwrap()
+        })
+        .collect();
+    let git_key = ResKey::new(area, ResType::GIT);
+    let mut git = m.gff(&git_key).unwrap().unwrap();
+    git.root.set("Placeable List", Value::List(placed));
+    m.set_gff(git_key, &git).unwrap();
+    let path = mg_testkit::scratch_dir("frame-water").join("water.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    println!("Water and fires: {side} by {side} of ttr01, half water, 160 fires");
+    (path, area, i64::from(side) * i64::from(side))
+}
+
+/// An area opened with its module in a new window, the switch on from the
+/// start (the module's own frames counted: it may open the area itself), its
+/// programs' cache folder empty, then again with it filled: the frames of
+/// its opening (the longest, and the time until its models show), and the
+/// time until the game's programs draw it (their pipelines made while the
+/// frames go on).
+fn shaders_opening(
+    root: &std::path::Path,
+    user: Option<std::path::PathBuf>,
+    module: &std::path::Path,
+    area: ResRef,
+) {
+    let cache = mg_testkit::scratch_dir("frame-shader-cache");
+    for run in ["the cache empty", "the cache filled"] {
+        let rs = render_state();
+        let install = GameInstall::new(root, user.clone(), "en");
+        let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+        app.set_render_state(rs.clone());
+        app.shader_cache_dir = Some(cache.clone());
+        app.settings.game_shaders = Some(true);
+        // (From the module's opening: it may open the area itself.)
+        let t0 = Instant::now();
+        app.open_module(module);
+        let mut h = harness(app, rs);
+        let tab = Tab::Area(area);
+        h.state_mut().actions.push(Action::OpenTab(tab.clone()));
+        let opened = t0.elapsed();
+        let (mut longest, mut frames) = (Duration::ZERO, 0);
+        let (mut shown_at, mut drawn_at) = (None, None);
+        while t0.elapsed() < Duration::from_secs(60) {
+            let t = Instant::now();
+            h.run_steps(1);
+            longest = longest.max(t.elapsed());
+            frames += 1;
+            let app = h.state();
+            if shown_at.is_none() && app.area_views.get(&area).is_some_and(|v| v.model.is_some()) {
+                shown_at = Some(t0.elapsed());
+            }
+            let drawn = app.viewport.as_ref().map(|v| v.renderer.drawn);
+            if shown_at.is_some() && drawn.is_some_and(|d| d.game > 0 && d.game_pending == 0) {
+                drawn_at = Some(t0.elapsed());
+                break;
+            }
+        }
+        let vp = h.state().viewport.as_ref();
+        let stats = vp.map(|v| v.renderer.game_shader_stats()).unwrap_or_default();
+        let failures = vp.map(|v| v.renderer.game_shader_failures().to_vec()).unwrap_or_default();
+        if !failures.is_empty() {
+            println!("  the game's shaders that couldn't be drawn: {failures:?}");
+        }
+        println!(
+            "  area {area} opened with the Shaders on, {run}: the module opened in {:.0} ms, then \
+             its longest frame {:.0} ms of {frames}; \
+             shown after {:.0} ms, drawn by the game's programs after {:.0} ms ({} programs \
+             compiled, {} read from the cache, {} pipelines made in {:.0} ms of the worker's)",
+            ms(opened),
+            ms(longest),
+            shown_at.map_or(f64::NAN, ms),
+            drawn_at.map_or(f64::NAN, ms),
+            stats.compiled,
+            stats.cached,
+            stats.pipelines,
+            stats.seconds * 1000.0,
+        );
+        close(&mut h, &tab);
+    }
+}
+
+/// An area of an opened module in the viewer with the switch off, then on;
+/// then taken apart, off and on.
+fn shaders_off_and_on(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64) {
+    h.run_steps(3);
+    close(h, &Tab::Palette);
+    close(h, &Tab::ModuleProperties);
+    let shown: Vec<Tab> = h
+        .state()
+        .dock
+        .iter_all_tabs()
+        .map(|(_, t)| t.clone())
+        .filter(|t| matches!(t, Tab::Area(_)))
+        .collect();
+    for t in &shown {
+        close(h, t);
+    }
+    for on in [false, true] {
+        h.state_mut().settings.game_shaders = Some(on);
+        let label = if on { ", Shaders on" } else { ", Shaders off" };
+        area_views(h, r, area, tiles, label);
+    }
+    // (`FRAME_GAME_WATER=1`: on again, shiny water by `fswater` too, as
+    // M5 timed it.)
+    if game_water() {
+        if let Some(vp) = h.state_mut().viewport.as_mut() {
+            vp.renderer.game_water = true;
+        }
+        area_views(h, r, area, tiles, ", Shaders on, the game's water");
+        if let Some(vp) = h.state_mut().viewport.as_mut() {
+            vp.renderer.game_water = mg_render::GAME_WATER;
+        }
+    }
+    if !r.shots {
+        area_parts(h, area, r.count, &[false, true]);
+    }
+}
+
+/// A large area of The Domains of Dread's (`MOONGLOW_HAKS`): 24 by 24 of its
+/// `mst04` tiles (the wind shaders' trees, plants and grass), the set's
+/// tiles in turn, and 400 of its placeables whose models are in
+/// `tdod_p_tap` and `tdod_p_ham` (grass, leaves, falling water: custom
+/// shaders among them), in a scratch module with the shader haks attached
+/// and a scratch user folder holding them. The module, the user folder,
+/// the area and its tiles.
+fn tdod_area(
+    root: &std::path::Path,
+) -> Option<(std::path::PathBuf, std::path::PathBuf, ResRef, i64)> {
+    use mg_gff::{Gff, Value};
+    use mg_module::ModuleLocation;
+    use mg_module::instances::{Placement, Placing, instance};
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    let haks = mg_testkit::builder_hak_dirs()
+        .into_iter()
+        .find(|d| d.join("tdod_t_tap.hak").is_file() && d.join("tdod_shaders.hak").is_file())?;
+    let dir = mg_testkit::scratch_dir("frame-tdod-shaders");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    // (Highest priority first, as the module lists them.)
+    let names = ["tdod_shaders", "tdod_t_tap", "tdod_p_tap", "tdod_p_ham", "tdod_top"];
+    for name in names {
+        let file = format!("{name}.hak");
+        mg_testkit::link_or_copy(&haks.join(&file), &user.join("hak").join(&file)).unwrap();
+    }
+    let install = GameInstall::new(root, Some(user.clone()), "en");
+    let mut game = mg_rules::GameData::open(&install).unwrap();
+    let mut models = std::collections::HashSet::new();
+    for name in names.iter().rev() {
+        let c = mg_resman::ErfContainer::open(&haks.join(format!("{name}.hak"))).unwrap();
+        if matches!(*name, "tdod_p_tap" | "tdod_p_ham") {
+            models.extend(
+                c.index()
+                    .iter()
+                    .filter(|(k, _)| k.restype == ResType::MDL)
+                    .map(|(k, _)| k.resref.to_string().to_ascii_lowercase()),
+            );
+        }
+        game.resman.add(
+            mg_resman::priority::HAK_USER,
+            format!("hak:{name}"),
+            mg_resman::LayerClass::Erf,
+            c,
+        );
+    }
+    game.invalidate();
+    let set = mg_area::tileset(&game, ResRef::from_str("mst04").unwrap()).ok()?;
+    let mut rng = fastrand::Rng::with_seed(7);
+    let mut m = new_module(&game, "TDoD Shaders", &mut rng).unwrap();
+    let side = 24;
+    let spec = AreaSpec {
+        name: "Woods".into(),
+        tileset: ResRef::from_str("ttr01").unwrap(),
+        width: side,
+        height: side,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let key = ResKey::new(area, ResType::ARE);
+    let mut are = m.gff(&key).unwrap().unwrap();
+    are.root.set("Tileset", Value::ResRef(b"mst04".to_vec()));
+    // (A medium wind: the sway shaders move.)
+    are.root.set("WindPower", Value::Int(1));
+    let count = set.tiles.len().max(1);
+    for (i, t) in are.root.list_mut("Tile_List").unwrap().iter_mut().enumerate() {
+        t.set("Tile_ID", Value::Int((i % count) as i32));
+        t.set("Tile_Orientation", Value::Int((i / count % 4) as i32));
+        t.set("Tile_Height", Value::Int(0));
+    }
+    m.set_gff(key, &are).unwrap();
+    // Its placeables, by their rows of placeables.2da.
+    let table = game.table("placeables").ok()?;
+    let rows: Vec<usize> = (0..table.len())
+        .filter(|&row| {
+            table.get(row, "ModelName").is_some_and(|n| models.contains(&n.to_ascii_lowercase()))
+        })
+        .collect();
+    if rows.is_empty() {
+        return None;
+    }
+    let bp = game.resman.get_named("plc_armoire", ResType::UTP).unwrap();
+    let mut bp = Gff::read(&bp).unwrap();
+    let none = |_: ResRef| None;
+    let placing = Placing { game: &game, item: &none };
+    let span = side as f32 * 10.0;
+    let placed: Vec<_> = (0..400)
+        .map(|i| {
+            bp.root.set("Appearance", Value::Dword(rows[i % rows.len()] as u32));
+            let at = Placement {
+                position: [rng.f32() * span, rng.f32() * span, 0.0],
+                rotation: rng.f32() * 360.0,
+            };
+            instance(&placing, ResType::UTP, &bp.root, at, &[]).unwrap()
+        })
+        .collect();
+    let git_key = ResKey::new(area, ResType::GIT);
+    let mut git = m.gff(&git_key).unwrap().unwrap();
+    git.root.set("Placeable List", Value::List(placed));
+    m.set_gff(git_key, &git).unwrap();
+    let ifo_key = ResKey::parse("module", ResType::IFO).unwrap();
+    let mut ifo = m.gff(&ifo_key).unwrap().unwrap();
+    let list = mg_module::attach::hak_list(&ifo.root, &names.map(String::from));
+    ifo.root.set("Mod_HakList", list);
+    m.set_gff(ifo_key, &ifo).unwrap();
+    let path = dir.join("tdod-shaders.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    println!(
+        "The Domains of Dread: {side} by {side} of mst04's {count} tiles, 400 placeables of {} rows",
+        rows.len()
+    );
+    Some((path, user, area, i64::from(side) * i64::from(side)))
 }

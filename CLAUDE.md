@@ -36,14 +36,19 @@ Corpus tests read the installed game: `NWN_ROOT` (or the Steam default path)
 and neverwinter.nim's tools and nasher as oracles (`NWN_TOOLS_BIN`, default
 `~/.local/opt/neverwinter/bin`), plus nwnmdlcomp for models (also found in
 `~/Projects/neverblender/tools/bin`) and Pillow (`python3`) for textures.
-`MOONGLOW_REQUIRE_CORPUS=1` turns skips into failures.
+`MOONGLOW_REQUIRE_CORPUS=1` turns skips into failures. `MOONGLOW_HAKS`
+(folders, separated as `PATH` is) adds a builder's haks to those the
+tests take as installed: the shader test's baseline is 102 of 102 with
+`~/Projects/tdod-module/build/hak`.
 
 ## Layout
 
 Cargo workspace, layered bottom-up (a crate depends only on crates listed
 before it in `docs/PLAN.md` §4): `crates/mg-core` (ResRef, ResType, languages,
 LocString, binary helpers), `mg-gff`, `mg-erf`, `mg-key`, `mg-2da`, `mg-tlk`,
-... `mg-edit` (undoable workspace), `mg-nui` (NUI windows: the JUI document,
+... `mg-shader` (the game's `.shd` programs assembled, compiled by glslang
+and read into naga modules; Verify's `shader-compile`), ... `mg-edit`
+(undoable workspace), `mg-nui` (NUI windows: the JUI document,
 its checks and the generated scripts), `mg-plugin` (the plugin host: manifests
 and the sandboxed Luau runtime; the API is documented in
 `docs/manual/16-writing-plugins.md` and `17-plugin-api.md`, and

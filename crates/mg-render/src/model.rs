@@ -17,9 +17,11 @@ pub struct Vertex {
     pub pos: [f32; 3],
     pub normal: [f32; 3],
     pub uv: [f32; 2],
-    /// The tangent and the bitangent's sign, where the model has them
-    /// (`tangents`, or compiled with a render hint); zero otherwise, and
-    /// the shader takes the tangent frame from screen-space derivatives.
+    /// The tangent and the bitangent's sign: the model's (`tangents`, or
+    /// compiled with a render hint), else made from its texture coordinates
+    /// ([`GpuMesh::tangents_made`]: the game's shaders read them, as the
+    /// engine makes them; Moonglow's own takes the tangent frame from
+    /// screen-space derivatives then); zero without texture coordinates.
     pub tangent: [f32; 4],
     /// The model's vertex color (`colors`), white without: the game hands
     /// it to custom shaders alone (`vCustomColor`).
@@ -84,6 +86,12 @@ pub struct Material {
     pub emissive: Vec3,
     pub alpha: f32,
     pub transparency_hint: u32,
+    /// `rotatetexture 1`: on a tile, its texture turns with the tile
+    /// ([`crate::Instance::tile`]).
+    pub rotate_texture: bool,
+    /// It has texture coordinates (`tverts`): the game draws one without
+    /// with `vslitnotex` (or `vslitnt_sm`).
+    pub uvs: bool,
 }
 
 /// A drawn mesh.
@@ -99,6 +107,9 @@ pub struct GpuMesh {
     pub min: Vec3,
     pub max: Vec3,
     pub skin: Option<GpuSkin>,
+    /// The model has no tangents for it: they were made from its texture
+    /// coordinates ([`made_tangents`]).
+    pub tangents_made: bool,
 }
 
 /// A model's meshes on the GPU.
@@ -220,9 +231,12 @@ impl GpuModel {
                     emissive,
                     alpha: node.value("alpha").and_then(|v| v.first().copied()).unwrap_or(1.0),
                     transparency_hint: m.transparency_hint,
+                    rotate_texture: m.rotate_texture,
+                    uvs: m.uvs.first().is_some_and(|u| !u.is_empty()),
                 },
                 min,
                 max,
+                tangents_made: m.tangents.is_empty(),
                 skin,
             });
         }
@@ -231,14 +245,64 @@ impl GpuModel {
     }
 }
 
+/// Tangents for a mesh that has none (each vertex's, and the bitangent's
+/// sign), from its positions and first texture coordinates, as the engine
+/// makes them for a mesh whose material asks for normal maps (the wiki's
+/// MTR, "Renderhint"): the stock normal-mapped shaders take the tangent as
+/// it comes (`SetupTSB` normalizes it), and a zero one is a black mesh.
+/// Each face's tangent and bitangent are added to its corners'; each
+/// vertex's tangent is made at right angles to its normal. Where the
+/// texture coordinates give none (no coordinates, a face without area in
+/// them), one at right angles to the normal.
+pub fn made_tangents(m: &Mesh) -> Vec<[f32; 4]> {
+    let n = m.vertices.len();
+    let (mut t, mut b) = (vec![Vec3::ZERO; n], vec![Vec3::ZERO; n]);
+    let uv = |v: usize| glam::Vec2::from(m.uvs[0].get(v).copied().unwrap_or([0.0, 0.0]));
+    for [i, j, k] in m.triangles() {
+        let (i, j, k) = (i as usize, j as usize, k as usize);
+        if i >= n || j >= n || k >= n {
+            continue;
+        }
+        let p = |v: usize| Vec3::from(m.vertices[v]);
+        let (e1, e2) = (p(j) - p(i), p(k) - p(i));
+        let (d1, d2) = (uv(j) - uv(i), uv(k) - uv(i));
+        let det = d1.x * d2.y - d2.x * d1.y;
+        if det.abs() < 1e-12 {
+            continue;
+        }
+        let r = 1.0 / det;
+        let (ft, fb) = ((e1 * d2.y - e2 * d1.y) * r, (e2 * d1.x - e1 * d2.x) * r);
+        for v in [i, j, k] {
+            t[v] += ft;
+            b[v] += fb;
+        }
+    }
+    (0..n)
+        .map(|v| {
+            let normal = Vec3::from(m.normals.get(v).copied().unwrap_or([0.0, 0.0, 1.0]))
+                .normalize_or(Vec3::Z);
+            let along = t[v] - normal * normal.dot(t[v]);
+            let tangent = if along.length_squared() > 1e-12 {
+                along.normalize()
+            } else {
+                normal.any_orthonormal_vector()
+            };
+            let sign = if normal.cross(tangent).dot(b[v]) < 0.0 { -1.0 } else { 1.0 };
+            tangent.extend(sign).to_array()
+        })
+        .collect()
+}
+
 /// A mesh's vertices as uploaded.
 pub fn mesh_vertices(m: &Mesh) -> Vec<Vertex> {
+    let made = if m.tangents.is_empty() { made_tangents(m) } else { Vec::new() };
+    let tangents = if m.tangents.is_empty() { &made } else { &m.tangents };
     (0..m.vertices.len())
         .map(|v| Vertex {
             pos: m.vertices[v],
             normal: m.normals.get(v).copied().unwrap_or([0.0, 0.0, 1.0]),
             uv: m.uvs[0].get(v).copied().unwrap_or([0.0, 0.0]),
-            tangent: m.tangents.get(v).copied().unwrap_or([0.0; 4]),
+            tangent: tangents.get(v).copied().unwrap_or([0.0; 4]),
             color: m.colors.get(v).copied().unwrap_or([255; 4]),
             uv1: m.uvs[1].get(v).copied().unwrap_or([0.0, 0.0]),
         })
@@ -270,6 +334,41 @@ pub fn rest_pose(model: &Model) -> Vec<Mat4> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Tangents made for a mesh without: along +u, at right angles to the
+    /// normal, the bitangent's sign by which way +v runs; one at right
+    /// angles to the normal where the coordinates give none.
+    #[test]
+    fn tangents_are_made_from_the_texture_coordinates() {
+        let quad = |uvs: Vec<[f32; 2]>| Mesh {
+            vertices: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]],
+            normals: vec![[0.0, 0.0, 1.0]; 4],
+            uvs: [uvs, vec![], vec![], vec![]],
+            faces: vec![
+                mg_mdl::Face { vertices: [0, 1, 2], material: 0 },
+                mg_mdl::Face { vertices: [0, 2, 3], material: 0 },
+            ],
+            ..Default::default()
+        };
+        let up = quad(vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]);
+        for t in made_tangents(&up) {
+            assert!((Vec3::from_slice(&t[..3]) - Vec3::X).length() < 1e-5 && t[3] == 1.0, "{t:?}");
+        }
+        // Mirrored in v: the bitangent the other way.
+        let down = quad(vec![[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]]);
+        assert!(made_tangents(&down).iter().all(|t| t[0] > 0.99 && t[3] == -1.0));
+        // No coordinates: at right angles to the normal, not zero.
+        let none = quad(vec![]);
+        for t in made_tangents(&none) {
+            let t = Vec3::from_slice(&t[..3]);
+            assert!((t.length() - 1.0).abs() < 1e-5 && t.z.abs() < 1e-5, "{t}");
+        }
+        // The model's own are kept.
+        let mut own = quad(vec![[0.0, 0.0]; 4]);
+        own.tangents = vec![[0.0, 1.0, 0.0, -1.0]; 4];
+        assert!(mesh_vertices(&own).iter().all(|v| v.tangent == [0.0, 1.0, 0.0, -1.0]));
+        assert!(mesh_vertices(&up).iter().all(|v| v.tangent[0] > 0.99));
+    }
 
     /// A node that names a parent after itself (no model of the game's
     /// does; a broken custom one might) stands as if it had none: the rest

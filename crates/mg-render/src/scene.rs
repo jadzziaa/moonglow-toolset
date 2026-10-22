@@ -34,6 +34,17 @@ pub struct Instance {
     /// whatever the scene's light: an editor's marker (a waypoint's flag),
     /// which must tell apart in a dark area.
     pub unlit: bool,
+    /// A tile of an area: the meshes of its model that turn their texture
+    /// with them (`rotatetexture 1`, the tilesets' ground) have it turned
+    /// by the tile's orientation, through the game's `m_texture` (read
+    /// from the client: `program_choice_in_the_client` in
+    /// `client_render.rs`). A placeable's are not, however it is turned.
+    pub tile: bool,
+    /// An area's grass (the tufts the editor grows on its tiles'
+    /// walkmesh): the game draws it with `vsgrass`/`fsgrass`, lit at its
+    /// corners (read from the client: `surfaces_in_the_client` in
+    /// `client_render.rs`).
+    pub grass: bool,
 }
 
 impl Instance {
@@ -49,6 +60,8 @@ impl Instance {
             textures: None,
             opacity: 1.0,
             unlit: false,
+            tile: false,
+            grass: false,
         }
     }
 }
@@ -184,8 +197,90 @@ pub struct Scene {
     /// Lines drawn after the meshes, hidden behind them (the area's tile
     /// grid), a pixel wide.
     pub lines: Vec<Line>,
-    /// Seconds, for what moves by itself: the game's water ripples.
+    /// Seconds, for what moves by itself: the game's water ripples, and
+    /// the game's shaders' clock (`worldtimerTimeOfDay`,
+    /// `sceneCurrentFrame`: wind-swayed grass, flowing water).
     pub time: f32,
+    /// What the game's shaders read of the area besides its light.
+    pub environment: Environment,
+}
+
+/// What the game's shaders read of an area besides its light
+/// (`docs/research/notes_shaders.md` §B.4): its flags, its wind and its
+/// weather. Nothing of it changes what Moonglow's own shader draws.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Environment {
+    /// `areaFlags`, the ARE's `Flags`: 1 interior, 2 underground, 4
+    /// natural.
+    pub flags: u32,
+    /// `areaGlobalWind`: its length squared 1 for a medium wind, 4 for a
+    /// strong one.
+    pub wind: Vec3,
+    /// `areaWeatherType`: 0 clear, 1 rain, 2 snow.
+    pub weather: u8,
+    /// `areaWeatherDensity`.
+    pub weather_density: f32,
+    /// The module's clock (`moduleHour`, `moduleDawnHour`…).
+    pub clock: ModuleClock,
+}
+
+/// The module's clock as the game's shaders read it (`moduleHour`,
+/// `moduleMinutesPerHour`, `moduleDawnHour`, `moduleDuskHour`,
+/// `moduleDay`, `moduleMonth`, `moduleYear`): the module.ifo's starting
+/// hour, day, month and year, its minutes an hour and its dawn and dusk
+/// (read back from the client as it starts a module:
+/// `program_choice_in_the_client` in `client_render.rs`). The editor's
+/// clock doesn't run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ModuleClock {
+    pub hour: u32,
+    pub minutes_per_hour: u32,
+    pub dawn: u32,
+    pub dusk: u32,
+    pub day: u32,
+    pub month: u32,
+    pub year: u32,
+}
+
+impl Default for ModuleClock {
+    /// No module's: noon of a day of two minutes an hour, dawn at 6, dusk
+    /// at 18 (the toolset's new module's).
+    fn default() -> Self {
+        ModuleClock {
+            hour: 12,
+            minutes_per_hour: 2,
+            dawn: 6,
+            dusk: 18,
+            day: 1,
+            month: 1,
+            year: 1372,
+        }
+    }
+}
+
+impl Environment {
+    /// An area's, from its ARE's `Flags` and `WindPower` (0 none, 1
+    /// medium, 2 strong). Its weather is clear: the game rolls it from the
+    /// ARE's chances as it runs, and the editor runs none.
+    pub fn from_are(flags: u32, wind_power: i64) -> Environment {
+        Environment {
+            flags,
+            wind: wind(wind_power),
+            weather: 0,
+            weather_density: 0.0,
+            clock: ModuleClock::default(),
+        }
+    }
+}
+
+/// `areaGlobalWind` for an ARE's `WindPower`: none, (0.707, 0.707, 0) and
+/// (1.414, 1.414, 0), as The Domains of Dread's wind shaders give the
+/// toolset's three (their comments, `shd_windgrass_vs`; a length squared of
+/// 1 and 4, as notes §B.4 has it), and as the client uploads it (a strong
+/// wind read back: `program_choice_in_the_client` in `client_render.rs`).
+pub fn wind(power: i64) -> Vec3 {
+    let along = std::f32::consts::FRAC_1_SQRT_2 * power.clamp(0, 2) as f32;
+    Vec3::new(along, along, 0.0)
 }
 
 /// A line in the scene ([`Scene::lines`]).
@@ -229,6 +324,12 @@ impl Camera {
     pub fn projection(&self, aspect: f32) -> Mat4 {
         Mat4::perspective_rh(self.fov_y, aspect.max(1e-3), self.near, self.far)
     }
+
+    /// The projection as the game's shaders take it: OpenGL's, depth from
+    /// -1 to 1 (`m_proj`).
+    pub fn projection_gl(&self, aspect: f32) -> Mat4 {
+        Mat4::perspective_rh_gl(self.fov_y, aspect.max(1e-3), self.near, self.far)
+    }
 }
 
 #[cfg(test)]
@@ -237,6 +338,17 @@ mod tests {
 
     /// The client's uniforms for these lights (read back through a debug
     /// shader): colour and cutoff.
+    #[test]
+    fn wind_is_the_ares_power() {
+        assert_eq!(wind(0), Vec3::ZERO);
+        assert!((wind(1).length_squared() - 1.0).abs() < 1e-6);
+        assert!((wind(2).length_squared() - 4.0).abs() < 1e-5);
+        assert_eq!(wind(7), wind(2));
+        let e = Environment::from_are(5, 1);
+        assert_eq!((e.flags, e.weather), (5, 0));
+        assert!(e.wind.x == e.wind.y && e.wind.z == 0.0 && e.wind.x > 0.7);
+    }
+
     #[test]
     fn lights_convert_like_the_game() {
         let close = |a: Vec3, b: Vec3| (a - b).abs().max_element() < 1e-3;

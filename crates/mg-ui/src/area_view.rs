@@ -481,6 +481,8 @@ struct Drawn {
     merchant_signs: bool,
     spawn_markers: bool,
     follows: bool,
+    /// The Shaders switch.
+    shaders: bool,
 }
 
 /// How long the area's picture is kept while nothing but its animations
@@ -1440,6 +1442,22 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView) {
     view.model = Some(model);
 }
 
+/// The module's clock as it starts, as the game's shaders read it
+/// (`moduleHour`, `moduleDawnHour`…: the module.ifo's).
+fn module_clock(app: &mut Moonglow) -> mg_render::ModuleClock {
+    let info = app.ws.as_mut().and_then(|ws| ws.doc(&crate::module_props::info_key()).ok());
+    let Some(r) = info.map(|i| &i.root) else { return mg_render::ModuleClock::default() };
+    mg_render::ModuleClock {
+        hour: r.read(&ifo::MOD_START_HOUR).into(),
+        minutes_per_hour: r.read(&ifo::MOD_MIN_PER_HOUR).into(),
+        dawn: r.read(&ifo::MOD_DAWN_HOUR).into(),
+        dusk: r.read(&ifo::MOD_DUSK_HOUR).into(),
+        day: r.read(&ifo::MOD_START_DAY).into(),
+        month: r.read(&ifo::MOD_START_MONTH).into(),
+        year: r.read(&ifo::MOD_START_YEAR),
+    }
+}
+
 /// The module's start location, if it is in this area: position and facing.
 fn start_location(app: &mut Moonglow, area: ResRef) -> Option<(Vec3, f32)> {
     let ws = app.ws.as_mut()?;
@@ -1714,6 +1732,18 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             .changed()
         {
             app.settings.no_grass = !grass;
+        }
+        let mut shaders = app.settings.game_shaders();
+        if ui
+            .toggle_value(&mut shaders, labelled(icons::SHADERS, "Shaders"))
+            .on_hover_text(
+                "Draw with the game's own shaders, compiled from the game and the module's haks: \
+                 a material's custom shaders (swaying grass and leaves, flowing water) and the \
+                 game's lit shaders; off, with Moonglow's own (in every 3D view)",
+            )
+            .changed()
+        {
+            app.settings.game_shaders = Some(shaders);
         }
         ui.toggle_value(&mut view.grid, labelled(icons::GRID, "Grid"))
             .on_hover_text("Display Grid");
@@ -2099,6 +2129,7 @@ fn viewport(
         || !ghost_instances.is_empty()
         || !preview_instances.is_empty()
         || !hidden.is_empty();
+    let clock = module_clock(app);
     let (Some(model), Some(scene), Some(orbit), Some(vp), Some(game)) =
         (&view.model, &view.scene, view.orbit, app.viewport.as_mut(), app.game.as_deref())
     else {
@@ -2125,6 +2156,7 @@ fn viewport(
         merchant_signs: scene.merchant_signs,
         spawn_markers: scene.spawn_markers,
         follows,
+        shaders: app.settings.game_shaders(),
     };
     let since = view.drawn.as_ref().map(|(_, at)| view.time - at);
     let kept = !follows
@@ -2165,6 +2197,7 @@ fn viewport(
     let (targets, id) = view.targets.as_ref().expect("made above");
     if !kept {
         let mut frame = scene.scene_hiding(&shown, &settings, &hidden);
+        frame.environment.clock = clock;
         // Flames, sparks and portals: with the animations (they need
         // frames), moved on by the time since they were last drawn.
         if settings.animate {
@@ -2186,6 +2219,13 @@ fn viewport(
             frame.background = [r, g, b].map(|c| f32::from(c) / 255.0);
         }
         let camera = orbit.camera();
+        // (As the picture's key has it: the switch may have changed this
+        // frame.)
+        vp.renderer.game_shaders = from.shaders;
+        // (The game's programs made while the view goes on, Moonglow's own
+        // shader drawing until they are: no frame waits on them. The view
+        // is drawn again as the animations step, and when one is ready.)
+        vp.renderer.game_background = true;
         vp.renderer.render(
             &vp.gpu,
             &game.resman,
@@ -2196,6 +2236,7 @@ fn viewport(
             &targets.depth,
             (w, h),
         );
+        vp.renderer.game_background = false;
         view.drawn = Some((from, view.time));
         view.pictures += 1;
     }

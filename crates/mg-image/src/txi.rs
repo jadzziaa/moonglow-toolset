@@ -128,10 +128,20 @@ impl Txi {
         self.int("decal").is_some_and(|v| v != 0)
     }
 
-    /// The environment map, `envmaptexture` or `bumpyshinytexture`
-    /// (`default`: the object's or area's).
+    /// The environment map, `envmaptexture` (`default`: the object's or
+    /// area's). Not `bumpyshinytexture`, which Enhanced Edition reads
+    /// nothing of: a texture naming one is drawn with the plain lit
+    /// programs, its alpha its opacity, reflecting the area's map as any
+    /// other (read from the client: `program_choice_in_the_client` in
+    /// `mg-corpus-tests`' `client_render.rs`).
     pub fn envmap(&self) -> Option<&str> {
-        self.value("envmaptexture").or_else(|| self.value("bumpyshinytexture"))
+        self.value("envmaptexture")
+    }
+
+    /// `bumpyshinytexture`: what the game's shiny water reflects (its
+    /// water TXIs name a cube map there).
+    pub fn bumpy_shiny(&self) -> Option<&str> {
+        self.value("bumpyshinytexture")
     }
 
     /// A cube map stored as six files `name0`…`name5`.

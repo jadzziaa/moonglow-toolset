@@ -765,7 +765,10 @@ impl AreaScene {
             for (i, (tile, grass)) in area.tiles.iter().zip(&self.tile_grass).enumerate() {
                 let Some(grass) = grass.as_ref().filter(|_| !hidden.contains(&i)) else { continue };
                 if tile.position.truncate().distance(focus) <= GRASS_REACH {
-                    instances.push(Instance::new(grass.clone(), tile.transform()));
+                    instances.push(Instance {
+                        grass: true,
+                        ..Instance::new(grass.clone(), tile.transform())
+                    });
                 }
             }
         }
@@ -842,6 +845,7 @@ impl AreaScene {
             // (Water ripples whether or not the objects' animations play,
             // as the tiles' animations go on.)
             time: view.time,
+            environment: mg_render::Environment::from_are(l.flags, l.wind_power),
         }
     }
 
@@ -934,6 +938,7 @@ impl AreaScene {
             pose: posed.pose.clone(),
             state: posed.state.clone(),
             textures,
+            tile: true,
             ..Instance::new(loaded.gpu.clone(), transform)
         });
     }

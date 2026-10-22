@@ -14,6 +14,8 @@ pub(crate) const NIGHT: &str = "🌙";
 pub(crate) const FOG: &str = "☁";
 pub(crate) const GRID: &str = "⊞";
 pub(crate) const GRASS: &str = "🌿";
+/// The game's own shaders (the area and model views' Shaders switch).
+pub(crate) const SHADERS: &str = "🎨";
 pub(crate) const AMBIENT: &str = "🍃";
 pub(crate) const MUSIC: &str = "🎵";
 pub(crate) const WALKMESH: &str = "👣";

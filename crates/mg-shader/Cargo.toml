@@ -1,0 +1,21 @@
+[package]
+name = "mg-shader"
+description = "The game's own shaders (.shd) assembled, compiled with glslang and read into naga modules with their uniforms, textures and varyings"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+glslang.workspace = true
+mg-core.workspace = true
+mg-resman.workspace = true
+naga.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+naga = { workspace = true, features = ["wgsl-out"] }
+
+[lints]
+workspace = true

@@ -18,7 +18,8 @@
 //! onto the view.
 //!
 //! Compared: mean colours of floor, wall and armoire regions away from the
-//! game's GUI.
+//! game's GUI, Moonglow drawing with the Shaders switch off (its own
+//! shader) and on (the game's).
 //!
 //! `light_uniforms_match_the_client` reads the client's lighting uniforms
 //! back instead: a debug copy of the game's own `inc_standard.shd` (patched
@@ -31,6 +32,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use glam::{Mat4, Quat, Vec3};
 use mg_core::{ResRef, ResType};
@@ -47,6 +49,9 @@ use mg_testkit::{corpus, oracle_tool, scratch_dir};
 
 mod common;
 use common::{SETTINGS, client_screenshot, compile, save_png};
+
+#[path = "client_render/programs.rs"]
+mod programs;
 
 /// The scripted camera: facing (degrees anticlockwise from east).
 const FACING: f32 = 90.0;
@@ -270,6 +275,57 @@ fn fitted_camera(pc: Vec3, fov: f32, focus: f32, distance: f32, pitch: f32) -> C
     }
 }
 
+/// How far a picture of Moonglow's is from the client's: the mean
+/// difference per channel (of 255) over the picture away from the game's
+/// GUI (its middle, from a tenth in at each side to seven tenths down).
+fn picture_difference(client: &Rgba, ours: &Rgba) -> f64 {
+    let (mut sum, mut n) = (0f64, 0f64);
+    let (w, h) = (client.width as usize, client.height as usize);
+    for y in h / 10..h * 7 / 10 {
+        for x in w / 10..w * 9 / 10 {
+            let i = (y * w + x) * 4;
+            sum += (0..3)
+                .map(|c| f64::from(client.data[i + c].abs_diff(ours.data[i + c])))
+                .sum::<f64>()
+                / 3.0;
+            n += 1.0;
+        }
+    }
+    sum / n.max(1.0)
+}
+
+/// Moonglow's pictures of a scene with the Shaders switch off (its own
+/// shader: `{name}.png`) and on (the game's: `{name}_on.png`), and how far
+/// each is from the client's ([`picture_difference`]), printed.
+#[allow(clippy::too_many_arguments)]
+fn off_and_on(
+    gpu: &Gpu,
+    game: &GameData,
+    scene: &Scene,
+    camera: &Camera,
+    (w, h): (u32, u32),
+    client: Option<&Rgba>,
+    dir: &Path,
+    name: &str,
+) {
+    let mut r = Renderer::new(gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+    let off = r.render_image(gpu, &game.resman, scene, camera, w, h);
+    r.game_shaders = true;
+    let on = r.render_image(gpu, &game.resman, scene, camera, w, h);
+    save_png(&off, &dir.join(format!("{name}.png")));
+    save_png(&on, &dir.join(format!("{name}_on.png")));
+    if let Some(c) = client {
+        eprintln!(
+            "{}/{name}: from the client's picture, Shaders off {:.2}, on {:.2} of 255 \
+             (failures {:?})",
+            dir.display(),
+            picture_difference(c, &off),
+            picture_difference(c, &on),
+            r.game_shader_failures()
+        );
+    }
+}
+
 /// Exploration (`MG_FIT=1`): the camera that matches the client's image best
 /// (grey levels, outside the GUI).
 fn fit_camera(r: &mut Renderer, gpu: &Gpu, game: &GameData, scene: &Scene, client: &Rgba) {
@@ -341,15 +397,44 @@ fn reference_scenes_match_the_client() {
         if std::env::var_os("MG_FIT").is_some() {
             fit_camera(&mut r, &gpu, &game, &scene, &client);
         }
-        let ours = r.render_image(&gpu, &game.resman, &scene, &camera, client.width, client.height);
-        save_png(&ours, &dir.join("moonglow.png"));
-        for (region, rect, tolerance) in REGIONS {
-            let (a, b) = (mean(&client, rect), mean(&ours, rect));
-            let diff: Vec<f32> = (0..3).map(|c| b[c] - a[c]).collect();
-            eprintln!("{name}: {region:12} client {a:5.1?} moonglow {b:5.1?} diff {diff:5.1?}");
-            if diff.iter().any(|d| d.abs() > tolerance) {
-                failures.push(format!("{name}: {region} differs by {diff:?}"));
+        // Moonglow's own shader (the Shaders switch off) and the game's
+        // (on), each against the client.
+        for on in [false, true] {
+            r.game_shaders = on;
+            let ours =
+                r.render_image(&gpu, &game.resman, &scene, &camera, client.width, client.height);
+            assert_eq!(r.game_shader_failures(), &[], "{name}");
+            let switch = if on { "on" } else { "off" };
+            save_png(&ours, &dir.join(format!("moonglow_{switch}.png")));
+            let mut worst = 0f32;
+            for (region, rect, tolerance) in REGIONS {
+                let (a, b) = (mean(&client, rect), mean(&ours, rect));
+                let diff: Vec<f32> = (0..3).map(|c| b[c] - a[c]).collect();
+                worst = diff.iter().fold(worst, |w, d| w.max(d.abs()));
+                eprintln!(
+                    "{name} ({switch}): {region:12} client {a:5.1?} moonglow {b:5.1?} diff {diff:5.1?}"
+                );
+                if diff.iter().any(|d| d.abs() > tolerance) {
+                    failures.push(format!("{name} ({switch}): {region} differs by {diff:?}"));
+                }
             }
+            // The whole picture below the game's GUI: the mean difference.
+            let (mut sum, mut n) = (0f64, 0f64);
+            let (w, h) = (client.width as usize, client.height as usize);
+            for y in h / 10..h * 7 / 10 {
+                for x in w / 10..w * 9 / 10 {
+                    let i = (y * w + x) * 4;
+                    sum += (0..3)
+                        .map(|c| f64::from(client.data[i + c].abs_diff(ours.data[i + c])))
+                        .sum::<f64>()
+                        / 3.0;
+                    n += 1.0;
+                }
+            }
+            eprintln!(
+                "{name} ({switch}): regions within {worst:.1} of 255; the picture {:.2} of 255 on average",
+                sum / n
+            );
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");
@@ -376,6 +461,15 @@ float MgValue(int k)
     if (k == 13) return fogParams.w;
     if (k >= 14 && k < 17) return fogColor[k - 14];
 #endif
+    // The time uniforms' bytes, and the module's clock.
+    if (k >= 17 && k < 21) return (float((worldtimerTimeOfDay >> (8 * (k - 17))) & 255) + 0.5) / 256.0;
+    if (k >= 21 && k < 25) return (float((sceneCurrentFrame >> (8 * (k - 21))) & 255) + 0.5) / 256.0;
+    if (k == 25) return (float(moduleHour) + 0.5) / 256.0;
+    if (k == 26) return (float(moduleMinutesPerHour) + 0.5) / 256.0;
+    if (k == 27) return (float(moduleDawnHour) + 0.5) / 256.0;
+    if (k == 28) return (float(moduleDuskHour) + 0.5) / 256.0;
+    if (k == 29) return (float(moduleDay) + 0.5) / 256.0;
+    if (k == 30) return (float(moduleMonth) + 0.5) / 256.0;
     if (k >= 32 && k < 32 + 8 * 8)
     {
         int i = (k - 32) / 8;
@@ -424,6 +518,131 @@ fn debug_value(img: &Rgba, k: usize, scale: f32) -> f32 {
     let y = img.height as usize - 1 - ((row + 6) * 32 + 16);
     let i = (y * img.width as usize + col * 32 + 16) * 4;
     (img.data[i] as f32 / 255.0 + img.data[i + 1] as f32 / 65025.0) * scale
+}
+
+/// An int the debug shader shows in four blocks from `k`, a byte each.
+fn debug_int(img: &Rgba, k: usize) -> i64 {
+    let byte = |j: usize| (debug_value(img, k + j, 256.0) - 0.5).round() as i64;
+    let v = byte(0) | byte(1) << 8 | byte(2) << 16 | byte(3) << 24;
+    // (Two's complement.)
+    if v >= 1 << 31 { v - (1 << 32) } else { v }
+}
+
+/// A byte the debug shader shows in block `k`.
+fn debug_byte(img: &Rgba, k: usize) -> i64 {
+    (debug_value(img, k, 256.0) - 0.5).round() as i64
+}
+
+/// The entry script with the module's clock written to the log at the
+/// start and every five seconds after.
+const TIME_ENTER: &str = r#"
+void Log(string s) { WriteTimestampedLogEntry(s); }
+void Tick()
+{
+    Log("MG_TIME " + IntToString(GetTimeHour()) + ":" + IntToString(GetTimeMinute()) + ":"
+        + IntToString(GetTimeSecond()) + "." + IntToString(GetTimeMillisecond()));
+    DelayCommand(5.0, Tick());
+}
+void main()
+{
+    object pc = GetEnteringObject();
+    if (!GetIsPC(pc)) return;
+    location start = GetStartingLocation();
+    ApplyEffectToObject(DURATION_TYPE_PERMANENT, EffectVisualEffect(VFX_DUR_CUTSCENE_INVISIBILITY), pc);
+    AssignCommand(pc, SetCameraFacing(90.0, 12.0, 45.0, CAMERA_TRANSITION_TYPE_SNAP));
+    LockCameraDirection(pc, TRUE);
+    LockCameraPitch(pc, TRUE);
+    LockCameraDistance(pc, TRUE);
+    Tick();
+    DelayCommand(4.0, Log("MG_READY"));
+}
+"#;
+
+/// The time uniforms' units (`docs/research/notes_shaders.md` §B.4):
+/// `worldtimerTimeOfDay` and `sceneCurrentFrame` read back through the
+/// debug shader in five screenshots 3 seconds apart (each screenshot's
+/// time measured), beside the module's clock, which the entry script logs,
+/// in modules starting at other hours and days and with other minutes an
+/// hour. Seen on 2026-10-21 (89.8193.37-17): the timer counts real
+/// milliseconds (999-1000 a second, at 2 and at 10 minutes an hour), the
+/// frame counter the client's frames (54-55 a second here, about 370 some
+/// 7 seconds after entering the area). The timer's value follows neither
+/// the module's hour nor its day: about 424,800 there at 2 minutes an
+/// hour, 3,304,900 at 10 (six game hours' worth more), its origin unknown. Needs the game, a GPU and the off-screen display;
+/// run by hand (`--ignored`).
+#[test]
+#[ignore]
+fn time_uniforms_in_the_client() {
+    let root = corpus!();
+    let _ = oracle_tool!("nwn_script_comp");
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let shader = debug_shader(&game);
+    // (Modules starting at other hours and days, with another number of
+    // minutes an hour: what the timer depends on.) (start hour, minutes an
+    // hour, start day)
+    for (hour, minutes, day) in [(13u8, 2u8, 1u8), (6, 2, 1), (13, 10, 1), (13, 2, 15)] {
+        let dir = scratch_dir(&format!("client_time_{hour}_{minutes}_{day}"));
+        let light =
+            Lighting { ambient: 0x404040, diffuse: 0x808080, main_light: 0, only_tile: None };
+        let (mut m, _) = build_module(&game, &dir, light);
+        m.set(
+            ResKey::parse("mg_enter", ResType::NCS).unwrap(),
+            compile(&dir, "mg_enter", TIME_ENTER),
+        );
+        let mut info = m.info().unwrap();
+        info.root.write(&ifo::MOD_START_HOUR, hour);
+        info.root.write(&ifo::MOD_MIN_PER_HOUR, minutes);
+        info.root.write(&ifo::MOD_START_DAY, day);
+        m.set_info(&info).unwrap();
+        std::fs::create_dir_all(dir.join("user/override")).unwrap();
+        std::fs::write(dir.join("user/settings.tml"), SETTINGS).unwrap();
+        std::fs::write(dir.join("user/override/inc_standard.shd"), &shader).unwrap();
+        m.save_as(&ModuleLocation::Archive(dir.join("user/modules/MgScene.mod"))).unwrap();
+        let shots = common::client_screenshots(&dir, "MgScene", 5, Duration::from_secs(3))
+            .unwrap_or_else(|| {
+                panic!("the client did not reach the scene (see {})", dir.display())
+            });
+        let log =
+            std::fs::read_to_string(dir.join("user/logs/nwclientLog1.txt")).unwrap_or_default();
+        for line in log.lines().filter(|l| l.contains("MG_TIME")) {
+            eprintln!("{hour}h {minutes}min/h day {day}: {line}");
+        }
+        let mut rows: Vec<(f64, i64, i64)> = Vec::new();
+        for (i, (at, img)) in shots.iter().enumerate() {
+            save_png(img, &dir.join(format!("shot_{i}.png")));
+            let (timer, frame) = (debug_int(img, 17), debug_int(img, 21));
+            eprintln!(
+                "{hour}h {minutes}min/h day {day}, shot {i} at {at:6.3} s: worldtimerTimeOfDay {timer}, \
+                 sceneCurrentFrame {frame}, moduleHour {}, moduleMinutesPerHour {}, dawn {}, \
+                 dusk {}, day {}, month {}",
+                debug_byte(img, 25),
+                debug_byte(img, 26),
+                debug_byte(img, 27),
+                debug_byte(img, 28),
+                debug_byte(img, 29),
+                debug_byte(img, 30),
+            );
+            // (A screenshot of a window the client hadn't drawn anew since
+            // the last is the last one again: left out.)
+            if rows.last().is_none_or(|r| r.2 != frame) {
+                rows.push((*at, timer, frame));
+            }
+        }
+        let (first, last) = (rows[0], rows[rows.len() - 1]);
+        let dt = last.0 - first.0;
+        let (timer_rate, frame_rate) =
+            ((last.1 - first.1) as f64 / dt, (last.2 - first.2) as f64 / dt);
+        eprintln!(
+            "{hour}h {minutes}min/h day {day}: over {dt:.3} s worldtimerTimeOfDay {timer_rate:.1} a second, \
+             sceneCurrentFrame {frame_rate:.1} a second ({} shots)",
+            rows.len()
+        );
+        assert!(rows.len() >= 2 && dt > 5.0, "{rows:?}");
+        // Milliseconds of real time, whatever the module's minutes per hour.
+        assert!((timer_rate - 1000.0).abs() < 50.0, "{timer_rate}");
+        // A frame count (as fast as the client draws).
+        assert!(frame_rate > 10.0, "{frame_rate}");
+    }
 }
 
 /// L5: the client's light uniforms (read back through a debug shader) match
@@ -745,9 +964,7 @@ fn grass_and_sky_look() {
     let camera =
         fitted_camera(Vec3::new(20.0, 20.0, 0.0), FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
     let (w, h) = client.as_ref().map_or((1280, 800), |c| (c.width, c.height));
-    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
-    let ours = r.render_image(&gpu, &game.resman, &scene, &camera, w, h);
-    save_png(&ours, &dir.join("moonglow.png"));
+    off_and_on(&gpu, &game, &scene, &camera, (w, h), client.as_ref(), &dir, "moonglow");
     eprintln!("{}: client {}", dir.display(), client.is_some());
 }
 
@@ -839,9 +1056,7 @@ fn grass_overrides_look() {
         let camera =
             fitted_camera(Vec3::new(20.0, 20.0, 0.0), FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
         let (w, h) = client.as_ref().map_or((1024, 768), |c| (c.width, c.height));
-        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
-        let ours = r.render_image(&gpu, &game.resman, &scene, &camera, w, h);
-        save_png(&ours, &dir.join("moonglow.png"));
+        off_and_on(&gpu, &game, &scene, &camera, (w, h), client.as_ref(), &dir, "moonglow");
         eprintln!("{variant}: {} (client {})", dir.display(), client.is_some());
     }
 }
@@ -1361,9 +1576,7 @@ fn placeables_look() {
     let camera =
         fitted_camera(Vec3::new(20.0, 20.0, 0.0), FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
     let (w, h) = client.as_ref().map_or((1280, 800), |c| (c.width, c.height));
-    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
-    let ours = r.render_image(&gpu, &game.resman, &scene, &camera, w, h);
-    save_png(&ours, &dir.join("moonglow.png"));
+    off_and_on(&gpu, &game, &scene, &camera, (w, h), client.as_ref(), &dir, "moonglow");
     eprintln!("{}: client {}", dir.display(), client.is_some());
 }
 
@@ -1440,9 +1653,7 @@ fn items_look() {
         .collect();
     let camera = fitted_camera(Vec3::new(20.0, 20.0, 0.0), c[3], c[2], c[0], c[1]);
     let (w, h) = client.as_ref().map_or((1280, 800), |c| (c.width, c.height));
-    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
-    let ours = r.render_image(&gpu, &game.resman, &scene, &camera, w, h);
-    save_png(&ours, &dir.join("moonglow.png"));
+    off_and_on(&gpu, &game, &scene, &camera, (w, h), client.as_ref(), &dir, "moonglow");
     eprintln!("{}: client {}", dir.display(), client.is_some());
 }
 
@@ -1676,9 +1887,7 @@ fn creatures_look() {
         .collect();
     let camera = fitted_camera(Vec3::new(20.0, 20.0, 0.0), c[3], c[2], c[0], c[1]);
     let (w, h) = client.as_ref().map_or((1280, 800), |c| (c.width, c.height));
-    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
-    let ours = r.render_image(&gpu, &game.resman, &scene, &camera, w, h);
-    save_png(&ours, &dir.join("moonglow.png"));
+    off_and_on(&gpu, &game, &scene, &camera, (w, h), client.as_ref(), &dir, "moonglow");
     eprintln!("{}: client {}", dir.display(), client.is_some());
 }
 
@@ -1929,8 +2138,148 @@ fn cutouts_look() {
     let camera =
         fitted_camera(Vec3::new(20.0, 20.0, 0.0), FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
     let (w, h) = client.as_ref().map_or((1280, 800), |c| (c.width, c.height));
-    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
-    let ours = r.render_image(&gpu, &game.resman, &scene, &camera, w, h);
-    save_png(&ours, &dir.join(format!("moonglow_{mode}.png")));
+    off_and_on(
+        &gpu,
+        &game,
+        &scene,
+        &camera,
+        (w, h),
+        client.as_ref(),
+        &dir,
+        &format!("moonglow_{mode}"),
+    );
     eprintln!("{}: client {}", dir.display(), client.is_some());
+}
+
+/// The Domains of Dread's custom shaders in the client beside Moonglow's
+/// drawing (`docs/shaders-proposal.md`, M2): its fountain
+/// (`dd_tap_stron1030`, placeables.2da row 63754 of `tdod_top`; the
+/// falling water by `dd_tap_flow_vs`/`_fs`) north of the player in the
+/// reference room, with its haks (`MOONGLOW_HAKS`, linked into the scratch
+/// user folder's `hak`; `tdod_shaders`' `inc_lighting` with them). Moonglow
+/// draws it with the Shaders switch off and on; each is compared with the
+/// client over the fountain's pixels (where Moonglow's drawing with it
+/// differs from one without it) and over the floor regions: the mean
+/// difference per channel. Pictures in `target/test-output/client_tdod_shaders/`.
+#[test]
+#[ignore]
+fn tdod_custom_shaders_look() {
+    use mg_module::instances::{Placement, Placing, instance};
+    let root = corpus!();
+    let _ = oracle_tool!("nwn_script_comp");
+    let Some(haks) = mg_testkit::builder_hak_dirs()
+        .into_iter()
+        .find(|d| d.join("tdod_p_tap.hak").is_file() && d.join("tdod_top.hak").is_file())
+    else {
+        eprintln!("skipped: no tdod_p_tap.hak in MOONGLOW_HAKS");
+        return;
+    };
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU");
+        return;
+    };
+    let dir = scratch_dir("client_tdod_shaders");
+    std::fs::create_dir_all(dir.join("user/hak")).unwrap();
+    std::fs::write(dir.join("user/settings.tml"), SETTINGS).unwrap();
+    // (Highest priority first, as the module lists them.)
+    let names = ["tdod_shaders", "tdod_p_tap", "tdod_top"];
+    for name in names {
+        let file = format!("{name}.hak");
+        mg_testkit::link_or_copy(&haks.join(&file), &dir.join("user/hak").join(&file)).unwrap();
+    }
+    let mut game = GameData::open(&GameInstall::new(&root, Some(dir.join("user")), "en")).unwrap();
+    for name in names.iter().rev() {
+        let c = mg_resman::ErfContainer::open(&haks.join(format!("{name}.hak"))).unwrap();
+        game.resman.add(
+            mg_resman::priority::HAK_USER,
+            format!("hak:{name}"),
+            mg_resman::LayerClass::Erf,
+            c,
+        );
+    }
+    game.invalidate();
+    let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+    let (mut m, are) = build_module(&game, &dir, light);
+    let enter: String =
+        ENTER.lines().filter(|l| !l.contains("CreateObject")).collect::<Vec<_>>().join("\n");
+    m.set(ResKey::parse("mg_enter", ResType::NCS).unwrap(), compile(&dir, "mg_enter", &enter));
+    let mut info = m.info().unwrap();
+    let list = mg_module::attach::hak_list(&info.root, &names.map(String::from));
+    info.root.set("Mod_HakList", list);
+    m.set_info(&info).unwrap();
+    let git_key = *m.keys_of(ResType::GIT).next().unwrap();
+    let mut git = m.gff(&git_key).unwrap().unwrap();
+    let bp = game.resman.get_named("plc_armoire", ResType::UTP).unwrap();
+    let mut bp = Gff::read(&bp).unwrap();
+    bp.root.set("Appearance", Value::Dword(63754));
+    let none = |_: ResRef| None;
+    let placing = Placing { game: &game, item: &none };
+    let at = Placement { position: [20.0, 20.0 + AHEAD + 2.0, 0.0], rotation: 0.0 };
+    let fountain = instance(&placing, ResType::UTP, &bp.root, at, &[]).unwrap();
+    let mut empty = git.clone();
+    git.root.set("Placeable List", Value::List(vec![fountain]));
+    empty.root.set("Placeable List", Value::List(Vec::new()));
+    m.set_gff(git_key, &git).unwrap();
+    m.save_as(&ModuleLocation::Archive(dir.join("user/modules/MgScene.mod"))).unwrap();
+    let client = client_screenshot(&dir, "MgScene");
+    if let Some(c) = &client {
+        save_png(c, &dir.join("client.png"));
+    }
+
+    let tileset = mg_area::tileset(&game, ResRef::from_str("tic01").unwrap()).ok();
+    let camera =
+        fitted_camera(Vec3::new(20.0, 20.0, 0.0), FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
+    let (w, h) = client.as_ref().map_or((1280, 800), |c| (c.width, c.height));
+    let draw = |git: &Gff, on: bool, water: bool| {
+        let model = mg_area::AreaModel::read(&game, &are.root, &git.root, tileset.as_ref());
+        let area_scene = mg_area::AreaScene::new(&gpu, &game, &model);
+        let view = mg_area::View { fog: false, time: 4.0, ..mg_area::View::of(&model) };
+        let scene = area_scene.scene(&model, &view);
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+        r.game_shaders = on;
+        r.game_water = water;
+        let img = r.render_image(&gpu, &game.resman, &scene, &camera, w, h);
+        (img, r.drawn, r.game_shader_failures().to_vec())
+    };
+    let (bare, _, _) = draw(&empty, false, false);
+    let (off, _, _) = draw(&git, false, false);
+    let (on, drawn, failures) = draw(&git, true, false);
+    // (The basin's water by `fswater`, as the client draws it, but without
+    // the framebuffer: M5 measured it, and left it out.)
+    let (water, _, _) = draw(&git, true, true);
+    save_png(&off, &dir.join("moonglow_off.png"));
+    save_png(&on, &dir.join("moonglow_on.png"));
+    save_png(&water, &dir.join("moonglow_water.png"));
+    eprintln!("switch on: {drawn:?}, failures {failures:?}");
+    let Some(client) = client else {
+        eprintln!("{}: no client picture", dir.display());
+        return;
+    };
+    // The fountain's pixels: where it changes Moonglow's picture.
+    let mask: Vec<bool> = (bare.data.chunks(4).zip(off.data.chunks(4)))
+        .map(|(a, b)| (0..3).any(|i| a[i].abs_diff(b[i]) > 6))
+        .collect();
+    let over = |img: &Rgba| {
+        let (mut sum, mut n) = (0.0f64, 0.0f64);
+        for (k, (a, b)) in img.data.chunks(4).zip(client.data.chunks(4)).enumerate() {
+            if mask[k] {
+                sum += (0..3).map(|i| f64::from(a[i].abs_diff(b[i]))).sum::<f64>() / 3.0;
+                n += 1.0;
+            }
+        }
+        (sum / n.max(1.0), n as usize)
+    };
+    let (d_off, n) = over(&off);
+    let (d_on, _) = over(&on);
+    let (d_water, _) = over(&water);
+    eprintln!(
+        "fountain ({n} pixels): Moonglow's own shader differs from the client by {d_off:.1} of 255 \
+         on average, the game's shaders by {d_on:.1}, and with the game's water by {d_water:.1}"
+    );
+    for (name, r, _) in REGIONS.iter().filter(|(n, ..)| n.contains("floor")) {
+        let c = mean(&client, *r);
+        let (a, b) = (mean(&off, *r), mean(&on, *r));
+        eprintln!("{name}: client {c:.1?}, own {a:.1?}, game's {b:.1?}");
+    }
 }
