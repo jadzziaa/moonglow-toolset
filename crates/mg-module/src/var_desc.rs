@@ -133,6 +133,23 @@ impl Owner {
             t => ObjectKind::from_restype(t).map(Owner::of_kind),
         }
     }
+
+    /// What the struct a path in a resource of type `t` leads to is,
+    /// by the lists the path goes through (`Placeable List`, `ItemList`),
+    /// as [`variables_of`] walks them.
+    pub fn of_place(t: ResType, lists: &[&str]) -> Option<Owner> {
+        let mut owner = Owner::of_restype(t)?;
+        for list in lists {
+            owner = match *list {
+                l if owner == Owner::Area => Owner::of_kind(ObjectKind::from_list(l)?),
+                "ItemList" | "Equip_ItemList" => Owner::Item,
+                // (A store's page.)
+                "StoreList" if owner == Owner::Store => Owner::Store,
+                _ => return None,
+            };
+        }
+        Some(owner)
+    }
 }
 
 /// A value a variable takes, and what it means (shown with it).

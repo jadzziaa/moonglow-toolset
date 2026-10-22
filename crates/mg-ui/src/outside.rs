@@ -202,8 +202,9 @@ impl Moonglow {
     pub fn reload_project_files(&mut self) {
         let Some(ws) = self.ws.as_mut() else { return };
         // The project file (`moonglow.toml`) made, changed or deleted.
+        let had = ws.module.project_file.found;
         if ws.module.reread_project_file() {
-            self.log_project_file(true);
+            self.log_project_file(true, had);
         }
         let Some(ws) = self.ws.as_mut() else { return };
         let Some((changes, problems)) = ws.module.outside() else { return };

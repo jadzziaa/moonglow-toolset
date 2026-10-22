@@ -3440,3 +3440,98 @@ fn store_wizard_by_the_project_and_duplicate_tags() {
         }
     }
 }
+
+/// The Variables window without described variables and with a
+/// project's (`variables.toml`): the names offered as one is typed, a
+/// value chosen from its values, what the description finds wrong; the
+/// Builder Code window, and the Area Wizard's ResRef by the code.
+#[test]
+#[ignore]
+fn described_variables_and_the_builder_code() {
+    use mg_module::{Module, ModuleLocation};
+    use mg_ui::widgets::{FieldTarget, VarRow, VarTableEdit};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let install = GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let dir = mg_testkit::output_dir("screens");
+    let mut rng = fastrand::Rng::with_seed(5);
+    let mut m: Module = mg_module::new::new_module(&game, "Krezk", &mut rng).unwrap();
+    let spec = mg_module::new::AreaSpec {
+        name: "Market".into(),
+        tileset: mg_core::ResRef::from_str("ttr01").unwrap(),
+        width: 2,
+        height: 2,
+    };
+    let area = mg_module::new::add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let git = ResKey::new(area, ResType::GIT);
+    let mut g = m.gff(&git).unwrap().unwrap();
+    g.root.set("Placeable List", mg_gff::Value::List(vec![mg_gff::Struct::new(9)]));
+    m.set_gff(git, &g).unwrap();
+    let scratch = mg_testkit::scratch_dir("screens-described-variables");
+    let plain = scratch.join("plain");
+    let project = scratch.join("project");
+    m.save_as(&ModuleLocation::Folder(plain.clone())).unwrap();
+    m.save_as(&ModuleLocation::Folder(project.clone())).unwrap();
+    std::fs::write(
+        project.join("variables.toml"),
+        "undescribed = [\"tdod_*\"]\n\n\
+         [tdod_workbench]\ntype = \"string\"\non = [\"placeable\"]\n\
+         values = { forge = \"Smithing\", tanner = \"Leatherworking\", loom = \"Tailoring\", \
+         carpenter = \"Woodworking\", fire = \"a kitchen, for Cooking\" }\n\
+         help = \"The craft the bench serves: a player works within 5 m of it\"\n\n\
+         [tdod_harvest]\ntype = \"string\"\non = [\"placeable\"]\nvalues = [\"herb\", \"ore\", \"timber\"]\n\n\
+         [tdod_harvest_dc]\ntype = \"int\"\non = [\"placeable\"]\nmin = 1\nmax = 60\n\n\
+         [tdod_light]\ntype = \"int\"\nvalues = { 1 = \"lit\" }\nhelp = \"A natural light against delirium, within 3.33 m\"\n\n\
+         [tdod_lit]\ntype = \"int\"\non = [\"placeable\"]\nvalues = { 1 = \"lit\" }\n\n\
+         [tdod_banker]\ntype = \"int\"\non = [\"creature\", \"placeable\"]\nvalues = { 1 = \"a banker\" }\n",
+    )
+    .unwrap();
+    let rows = || {
+        vec![
+            VarRow::new("tdod_harvest", 3, "Herb"),
+            VarRow::new("tdod_lit", 3, "1"),
+            VarRow::new("tdod_harvest_dc", 1, "75"),
+            VarRow::new("tdod_", 1, "0"),
+        ]
+    };
+    for (name, folder) in [("plain", &plain), ("described", &project)] {
+        let mut app = Moonglow::new(Some(install.clone()), Box::new(NoDialogs::default()));
+        app.open_module(folder);
+        app.open_palette = false;
+        let path = GffPath::root().item("Placeable List", 0);
+        let mut edit = VarTableEdit::new(FieldTarget::new(git, path, "VarTable"), &[]);
+        edit.rows = rows();
+        app.var_edit = Some(edit);
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1000.0, 640.0))
+            .wgpu()
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run_steps(3);
+        // The last row's name, being typed.
+        h.get_all_by_value("tdod_").next().unwrap().click();
+        h.run_steps(3);
+        shoot(&mut h, &dir, &format!("variables-{name}-typed"));
+        if name == "described" {
+            h.get_all_by_value("tdod_").next().unwrap().type_text("w");
+            h.run_steps(2);
+            h.get_by_label("tdod_workbench").click();
+            h.run_steps(3);
+            h.get_by_value("(choose)").click();
+            h.run_steps(3);
+            shoot(&mut h, &dir, "variables-described-choice");
+            h.key_press(egui::Key::Escape);
+            h.run_steps(3);
+            h.state_mut().var_edit = None;
+            h.run_steps(2);
+            h.state_mut().builder_code =
+                Some(mg_ui::builder_code::Draft { code: "ab".into(), root: project.clone() });
+            shoot(&mut h, &dir, "builder-code");
+            h.get_all_by_label("OK").last().unwrap().click();
+            h.run_steps(3);
+            h.state_mut().actions.push(mg_ui::Action::AreaWizard);
+            h.run_steps(3);
+            shoot(&mut h, &dir, "area-wizard-builder-code");
+        }
+    }
+}

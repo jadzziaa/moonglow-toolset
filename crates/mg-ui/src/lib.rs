@@ -2132,7 +2132,7 @@ impl Moonglow {
                 let remembered = m.location.as_ref().map(|l| l.path().to_path_buf());
                 self.use_module(m);
                 self.take_project_warnings();
-                self.log_project_file(false);
+                self.log_project_file(false, false);
                 let path = remembered.as_deref().unwrap_or(path);
                 self.settings.remember(path);
                 // The area opened last in it, if it still has it; else the
@@ -3132,16 +3132,25 @@ impl Moonglow {
     }
 
     /// Says in the log that the project file (`moonglow.toml`) was read
-    /// (`again`: when it changed), and what in it was not understood.
-    pub(crate) fn log_project_file(&mut self, again: bool) {
+    /// (`again`: when it or the files beside it changed; `had`: whether
+    /// it was there before), and what in them was not understood.
+    pub(crate) fn log_project_file(&mut self, again: bool, had: bool) {
         let Some(ws) = &self.ws else { return };
         let p = &ws.module.project_file;
         let name = mg_module::project_file::FILE_NAME;
-        match (p.found, again) {
+        match (p.found, again && had) {
             (true, false) => self.log.info(format!("The project's rules are read from {name}")),
             (true, true) => self.log.info(format!("{name} changed: its rules are read again")),
             (false, true) => self.log.info(format!("{name} is gone: no project rules now")),
             (false, false) => {}
+        }
+        let described = p.variables.described.len();
+        let file = mg_module::var_desc::FILE_NAME;
+        if p.variables_found {
+            self.log.info(format!(
+                "{described} variable{} described in {file}",
+                if described == 1 { "" } else { "s" }
+            ));
         }
         for e in &p.errors {
             self.log.error(format!("{e} (its rules are left out)"));

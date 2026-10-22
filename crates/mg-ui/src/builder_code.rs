@@ -51,10 +51,11 @@ pub(crate) fn set(app: &mut Moonglow, root: &std::path::Path, code: Option<&str>
                 )),
                 None => app.log.info("No builder code: new ResRefs are made from names alone"),
             }
-            if let Some(ws) = app.ws.as_mut()
-                && ws.module.reread_project_file()
-            {
-                app.log_project_file(true);
+            if let Some(ws) = app.ws.as_mut() {
+                let had = ws.module.project_file.found;
+                if ws.module.reread_project_file() {
+                    app.log_project_file(true, had);
+                }
             }
         }
         Err(e) => app.log.error(format!("The builder code was not written: {e}")),

@@ -7,6 +7,9 @@ use egui::Ui;
 use mg_core::{Gender, Language, LocString, LocStringKey, ResRef, ResType, StrRef};
 use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{Struct, Value};
+use mg_module::var_desc::{
+    Choices, Described, ModuleLookup, Owner, Unknown, Variables, type_label,
+};
 use mg_module::vars::VarType;
 use mg_resman::ResKey;
 
@@ -186,6 +189,134 @@ pub struct VarTableEdit {
     pub rows: Vec<VarRow>,
     /// Save Set's name, while it's being typed.
     pub set_name: Option<String>,
+    /// The project's described variables (`variables.toml`), as the
+    /// window offers and checks them: read when it first shows.
+    pub described: Option<VarHelp>,
+}
+
+/// What the Variables window knows of the project's described variables
+/// (`variables.toml`): the names it offers as one is typed, their types
+/// set as one is chosen, their values to choose from, their help.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct VarHelp {
+    /// What the variables are on (the module, an area, a placeable…).
+    pub owner: Option<Owner>,
+    pub variables: Variables,
+    /// Each described variable's values, by its description's name, read
+    /// when first needed (a table's rows, a script's constants).
+    choices: std::collections::HashMap<String, Choices>,
+    /// The rows' names at the frame before, to see one change.
+    names: Vec<String>,
+    /// The row whose name is being typed: the names offered under it.
+    pub completing: Option<usize>,
+}
+
+impl VarHelp {
+    /// The descriptions of the open module's project, for the variables
+    /// of `target`.
+    fn of(app: &Moonglow, target: &FieldTarget) -> VarHelp {
+        let variables = (app.ws.as_ref())
+            .map(|ws| ws.module.project_file.variables.clone())
+            .unwrap_or_default();
+        let lists: Vec<&str> = (target.path.0.iter())
+            .filter_map(|s| match s {
+                mg_edit::Step::Item(list, _) => Some(list.as_str()),
+                mg_edit::Step::Field(_) => None,
+            })
+            .collect();
+        let owner = Owner::of_place(target.key.restype, &lists);
+        VarHelp { owner, variables, ..Default::default() }
+    }
+
+    /// The values of the variables the rows name, read where not yet.
+    fn read_choices(&mut self, app: &Moonglow, rows: &[VarRow]) {
+        let Some(ws) = app.ws.as_ref() else { return };
+        let mut lookup = None;
+        for r in rows {
+            let Some(d) = self.variables.describe(&r.name) else { continue };
+            if !d.has_list() || self.choices.contains_key(&d.name) {
+                continue;
+            }
+            let rm = app.game.as_deref().map(|g| &g.resman);
+            let lookup = lookup.get_or_insert_with(|| ModuleLookup::new(&ws.module, rm));
+            let c = d.choices(lookup);
+            self.choices.insert(d.name.clone(), c);
+        }
+    }
+
+    /// What is wrong with a row by the descriptions, for the note under
+    /// the list (none where nothing is, or nothing is described).
+    fn note(&self, r: &VarRow) -> Option<String> {
+        let file = mg_module::var_desc::FILE_NAME;
+        let name = r.name.trim();
+        if name.is_empty() {
+            return None;
+        }
+        let Some(d) = self.variables.describe(name) else {
+            return match self.variables.unknown(name)? {
+                Unknown::OtherCase(d) => Some(format!(
+                    "{name}: described as {} ({file}:{}); the game tells names apart by their case",
+                    d.name, d.line
+                )),
+                Unknown::Undescribed { pattern, nearest } => Some(format!(
+                    "{name} is named as the project's variables are ({pattern}) and described \
+                     nowhere{}",
+                    nearest.map(|n| format!(": {n}?")).unwrap_or_default()
+                )),
+            };
+        };
+        let have = VarType::of(r.kind.into());
+        if let (Some(want), Some(have)) = (d.var_type, have)
+            && want != have
+        {
+            return Some(format!(
+                "{name} is to be {} ({file}:{}): as {} the scripts read nothing",
+                d.words(),
+                d.line,
+                type_label(have)
+            ));
+        }
+        if let Some(o) = self.owner.filter(|o| !d.belongs_on(*o)) {
+            return Some(format!(
+                "{name} goes on {} ({file}:{}), not on {} {}",
+                d.on.iter().map(|o| o.name()).collect::<Vec<_>>().join(", "),
+                d.line,
+                if o.name().starts_with(['a', 'e', 'i', 'o', 'u']) { "an" } else { "a" },
+                o.name()
+            ));
+        }
+        // (A value not yet chosen: Verify says it, the window waits.)
+        if r.value.trim().is_empty() {
+            return None;
+        }
+        let empty = Choices::default();
+        let c = self.choices.get(&d.name).unwrap_or(&empty);
+        d.value_problem(r.value.trim(), c).map(|p| format!("{name}: {p} ({file}:{})", d.line))
+    }
+
+    /// The described names to offer for a name being typed: those that
+    /// go on this object, begin with (or hold) what is typed, and no other
+    /// row has.
+    fn offered(&self, typed: &str, rows: &[VarRow], row: usize) -> Vec<&Described> {
+        let typed = typed.trim().to_ascii_lowercase();
+        let taken = |n: &str| rows.iter().enumerate().any(|(i, r)| i != row && r.name == n);
+        let mut first: Vec<&Described> = Vec::new();
+        let mut then: Vec<&Described> = Vec::new();
+        for d in self.variables.names_for(self.owner) {
+            let lower = d.name.to_ascii_lowercase();
+            if taken(&d.name) || d.name == typed {
+                continue;
+            }
+            if lower.starts_with(&typed) {
+                first.push(d);
+            } else if !typed.is_empty() && lower.contains(&typed) {
+                then.push(d);
+            }
+        }
+        first.extend(then);
+        first.truncate(12);
+        first
+    }
 }
 
 impl VarTableEdit {
@@ -213,7 +344,7 @@ impl VarTableEdit {
             })
             .collect();
         rows.sort_by_cached_key(|r| r.name.to_lowercase());
-        VarTableEdit { target, original: list.to_vec(), rows, set_name: None }
+        VarTableEdit { target, original: list.to_vec(), rows, set_name: None, described: None }
     }
 
     /// For several objects edited together: the command that sets what
@@ -289,6 +420,117 @@ impl VarTableEdit {
     }
 }
 
+/// A described variable's tip: what it is, and its help.
+fn description_tip(d: &Described) -> String {
+    let what = d.words();
+    let what = format!("{}{}", what[..1].to_uppercase(), &what[1..]);
+    match &d.help {
+        Some(h) => format!("{what}.\n{h}"),
+        None => format!("{what}."),
+    }
+}
+
+/// A row named (anew) as a described variable takes the type it is
+/// described with, where the window sets that type; a value that type
+/// can't hold is emptied.
+fn take_described_type(variables: &Variables, r: &mut VarRow) {
+    let Some(t) = variables.describe(r.name.trim()).and_then(|d| d.var_type) else { return };
+    let editable = |k: u32| VarType::of(k.into()).is_some_and(|t| t.field_type().is_some());
+    if t.code() == r.kind || t.field_type().is_none() || !editable(r.kind) {
+        return;
+    }
+    let was = r.kind;
+    r.kind = t.code();
+    if t != VarType::String && t.value(&r.value, crate::text::game_codepage()).is_err() {
+        r.value = if t == VarType::Int { "0".into() } else { "0.0".into() };
+    }
+    // (A new row's 0 is an Int's, not a String's value.)
+    if t == VarType::String && was == VarType::Int.code() && r.value.trim() == "0" {
+        r.value.clear();
+    }
+}
+
+/// The described names offered under a name being typed: the one
+/// clicked is `picked` (its row and name). Whether the pointer is over
+/// the list.
+fn completion(
+    ui: &Ui,
+    row: usize,
+    field: &egui::Response,
+    offered: &[&Described],
+    picked: &mut Option<(usize, String)>,
+) -> bool {
+    if offered.is_empty() {
+        return false;
+    }
+    let area = egui::Area::new(field.id.with("described"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(field.rect.left_bottom())
+        .show(ui.ctx(), |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                ui.set_min_width(field.rect.width());
+                for d in offered {
+                    let what = d.words();
+                    let item =
+                        ui.selectable_label(false, &d.name).on_hover_text(description_tip(d));
+                    ui.weak(what);
+                    if item.clicked() {
+                        *picked = Some((row, d.name.clone()));
+                    }
+                }
+            });
+        });
+    area.response.hovered() || area.response.contains_pointer()
+}
+
+/// A described variable's value, chosen from its values (and typed, where
+/// it takes others too).
+fn value_choice(
+    ui: &mut Ui,
+    row: usize,
+    d: &Described,
+    c: &Choices,
+    value: &mut String,
+    width: f32,
+) {
+    let listed = c.list.iter().find(|x| x.value == *value);
+    let shown = |x: &mg_module::var_desc::Choice| match &x.note {
+        Some(n) => format!("{} — {n}", x.value),
+        None => x.value.clone(),
+    };
+    if d.other {
+        ui.horizontal(|ui| {
+            ui.add(egui::TextEdit::singleline(value).desired_width(width - 28.0));
+            ui.menu_button("▾", |ui| {
+                for x in &c.list {
+                    if ui.button(shown(x)).clicked() {
+                        *value = x.value.clone();
+                        ui.close();
+                    }
+                }
+            })
+            .response
+            .on_hover_text("Its values (variables.toml)");
+        });
+        return;
+    }
+    let text = match listed {
+        Some(x) => egui::RichText::new(shown(x)),
+        None if value.is_empty() => egui::RichText::new("(choose)").weak(),
+        None => egui::RichText::new(format!("{value} (not one of its values)"))
+            .color(ui.visuals().warn_fg_color),
+    };
+    egui::ComboBox::from_id_salt(("var-value", row))
+        .selected_text(text)
+        .width(width)
+        .height(320.0)
+        .show_ui(ui, |ui| {
+            for x in &c.list {
+                ui.selectable_value(value, x.value.clone(), shown(x));
+            }
+        });
+}
+
 /// A variable's type as the window names it.
 fn kind_name(kind: u32) -> &'static str {
     VarType::of(kind.into()).map_or("value", VarType::name)
@@ -341,6 +583,8 @@ const VAR_NAME_WIDTH: f32 = 260.0;
 const VAR_VALUE_WIDTH: f32 = 220.0;
 /// The room under the Variables list for its buttons and notes.
 const VAR_FOOT: f32 = 96.0;
+/// The most notes of the project's descriptions shown under the list.
+const VAR_NOTES: usize = 4;
 
 /// A window in the middle of the app's, of a size its content gives it.
 pub(crate) fn window(title: &str) -> egui::Window<'_> {
@@ -502,6 +746,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
 
     if let Some(mut edit) = app.var_edit.take() {
         let mut close = false;
+        // The project's described variables, and the values of those the
+        // rows name.
+        if edit.described.is_none() {
+            edit.described = Some(VarHelp::of(app, &edit.target));
+        }
+        let mut help = edit.described.take().expect("just made");
+        help.read_choices(app, &edit.rows);
+        let described = !help.variables.is_empty();
         // A window to size as the list needs: its edges are dragged, and the
         // name and value fields take the width there is.
         let room = ctx.content_rect();
@@ -516,8 +768,20 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             ])
             .min_size([520.0, 220.0])
             .show(&ctx, |ui| {
+                // What the project's descriptions say is wrong (not of the
+                // name being typed), a line each under the list.
+                let notes: Vec<String> = if described {
+                    let typing = help.completing;
+                    (edit.rows.iter().enumerate())
+                        .filter(|(i, _)| Some(*i) != typing)
+                        .filter_map(|(_, r)| help.note(r))
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                let lines = notes.len().min(VAR_NOTES + 1) as f32;
                 // (The list scrolls, over the buttons kept in reach below it.)
-                let tall = (ui.available_height() - VAR_FOOT).max(100.0);
+                let tall = (ui.available_height() - VAR_FOOT - lines * 18.0).max(100.0);
                 let spare =
                     (ui.available_width() - VAR_NAME_WIDTH - VAR_VALUE_WIDTH - 210.0).max(0.0);
                 let (name_width, value_width) =
@@ -531,15 +795,42 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             ui.strong("Value");
                             ui.end_row();
                             let mut remove = None;
-                            for (i, r) in edit.rows.iter_mut().enumerate() {
+                            let mut picked = None;
+                            for i in 0..edit.rows.len() {
                                 // (A minimum: a new window offers the fields no width yet,
                                 // and they would keep to it.)
-                                let wide = |text, width| {
+                                fn wide(text: &mut String, width: f32) -> egui::TextEdit<'_> {
                                     egui::TextEdit::singleline(text)
                                         .desired_width(width)
                                         .min_size(egui::vec2(width, 0.0))
+                                }
+                                let field = wide(&mut edit.rows[i].name, name_width);
+                                let name = ui.add(field.hint_text("Name"));
+                                let r = &edit.rows[i];
+                                let desc = help.variables.describe(r.name.trim());
+                                let name = match desc {
+                                    Some(d) => name.on_hover_text(description_tip(d)),
+                                    None => name,
                                 };
-                                ui.add(wide(&mut r.name, name_width));
+                                // The described names, offered as one is typed.
+                                if described {
+                                    if name.has_focus() || name.gained_focus() {
+                                        help.completing = Some(i);
+                                    }
+                                    if help.completing == Some(i) {
+                                        let offered = help.offered(&r.name, &edit.rows, i);
+                                        let over = completion(ui, i, &name, &offered, &mut picked);
+                                        let pressed = ui.input(|i| i.pointer.any_pressed());
+                                        if offered.is_empty()
+                                            || picked.is_some()
+                                            || (!name.has_focus() && !over && pressed)
+                                            || (name.lost_focus() && !over)
+                                        {
+                                            help.completing = None;
+                                        }
+                                    }
+                                }
+                                let r = &mut edit.rows[i];
                                 // An object's or a location's is shown, not
                                 // edited (it isn't set from text).
                                 let edits = VarType::of(r.kind.into())
@@ -555,15 +846,40 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                             }
                                         });
                                 });
-                                ui.add_enabled(edits, wide(&mut r.value, value_width));
+                                let typed = desc
+                                    .is_some_and(|d| d.var_type.is_none_or(|t| t.code() == r.kind));
+                                let choices = desc.and_then(|d| help.choices.get(&d.name));
+                                match (desc, choices) {
+                                    (Some(d), Some(c)) if edits && typed && !c.list.is_empty() => {
+                                        value_choice(ui, i, d, c, &mut r.value, value_width);
+                                    }
+                                    _ => {
+                                        ui.add_enabled(edits, wide(&mut r.value, value_width));
+                                    }
+                                }
                                 if ui.small_button("Delete").clicked() {
                                     remove = Some(i);
                                 }
                                 ui.end_row();
                             }
+                            if let Some((i, name)) = picked {
+                                edit.rows[i].name = name;
+                            }
                             if let Some(i) = remove {
                                 edit.rows.remove(i);
+                                help.completing = None;
                             }
+                            // A name changed to a described one: its type.
+                            let names: Vec<String> =
+                                edit.rows.iter().map(|r| r.name.clone()).collect();
+                            if names.len() == help.names.len() {
+                                for (r, was) in edit.rows.iter_mut().zip(&help.names) {
+                                    if r.name != *was {
+                                        take_described_type(&help.variables, r);
+                                    }
+                                }
+                            }
+                            help.names = names;
                         });
                     },
                 );
@@ -636,6 +952,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 if let Some(p) = &problem {
                     ui.colored_label(ui.visuals().error_fg_color, p);
                 }
+                // What the project's descriptions say is wrong (OK still
+                // writes it: Verify Module says it too).
+                for n in notes.iter().take(VAR_NOTES) {
+                    let text = egui::RichText::new(n).color(ui.visuals().warn_fg_color);
+                    ui.add(egui::Label::new(text).truncate()).on_hover_text(n);
+                }
+                if notes.len() > VAR_NOTES {
+                    ui.weak(format!("and {} more", notes.len() - VAR_NOTES));
+                }
                 if !edit.target.also.is_empty() {
                     ui.weak(format!(
                         "{} edited together, shown as the first: the variables you add or change \
@@ -661,6 +986,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     }
                 });
             });
+        edit.described = Some(help);
         app.var_edit = if close { None } else { Some(edit) };
     }
 

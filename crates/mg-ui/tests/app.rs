@@ -21642,3 +21642,255 @@ fn properties_is_the_last_item_of_an_inventory_row_s_menu() {
     let items = menu_items(&h, "Properties");
     assert_eq!(items, ["Copy", "Paste", "Remove", "Properties"]);
 }
+
+/// A module folder (a project: a `.mod` has none) of the sample module's
+/// resources, with these files beside it.
+fn project_folder(name: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
+    let scratch = mg_testkit::scratch_dir(name);
+    let m = Module::open(&sample_module(&scratch)).unwrap();
+    let dir = scratch.join("project");
+    let mut m = m;
+    m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
+    for (file, text) in files {
+        std::fs::write(dir.join(file), text).unwrap();
+    }
+    dir
+}
+
+/// Edit › Builder Code…: the code is written to the builder's own file
+/// (out of version control), and the ResRefs the wizards, a copy and the
+/// Area Wizard propose next begin with it (The Domains of Dread's builder
+/// proposal, C1).
+#[test]
+fn a_builder_code_set_in_its_window_begins_the_resrefs_proposed() {
+    use mg_module::palette::BlueprintKind;
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = project_folder("ui-builder-code", &[]);
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&dir);
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Edit").click();
+    h.run();
+    h.get_by_label("Builder Code…").click();
+    h.run();
+    assert!(
+        h.query_by_label("None: ResRefs are made from names alone, as Aurora makes them.")
+            .is_some()
+    );
+    type_into_hint(&mut h, "ab", "AB");
+    assert!(
+        h.query_by_label(
+            "A new area named Market: ab_market. A copy of nw_chicken: ab_nw_chicken001."
+        )
+        .is_some()
+    );
+    h.get_all_by_label("OK").last().unwrap().click();
+    h.run();
+    assert!(h.state().builder_code.is_none(), "closed");
+    let user = std::fs::read_to_string(dir.join(".moonglow/user.toml")).unwrap();
+    assert_eq!(user, "[builder]\ncode = \"ab\"\n");
+    assert!(dir.join(".moonglow/.gitignore").is_file());
+    let said =
+        |h: &Harness<'_, Moonglow>, s: &str| h.state().log.entries.iter().any(|e| e.1.contains(s));
+    assert!(said(&h, "Your builder code is ab"), "{:?}", h.state().log.entries);
+    let module = &h.state().ws.as_ref().unwrap().module;
+    assert_eq!(module.project_file.user.builder_code.as_deref(), Some("ab"), "read at once");
+
+    // A blueprint wizard's.
+    h.state_mut().blueprint_wizard =
+        Some(mg_ui::blueprint_wizard::BlueprintWizard::new(BlueprintKind::Store));
+    h.run();
+    h.get_by_label("Merchants").click();
+    h.run();
+    h.get_by_label("Next >").click();
+    h.run();
+    let hint =
+        |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("ab_merchants001");
+    assert!(h.query_all(egui_kittest::kittest::by().predicate(hint)).next().is_some(), "the hint");
+    h.get_by_label("Finish").click();
+    h.run();
+    assert!(module_gff(&mut h, "ab_merchants001", ResType::UTM).is_some(), "as the hint said");
+
+    // A copy's.
+    let hello = ResKey::parse("hello", ResType::NSS).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::CopyDialog(hello));
+    h.run();
+    assert_eq!(h.state().copy_as.as_ref().map(|c| c.resref.as_str()), Some("ab_hello001"));
+    h.state_mut().copy_as = None;
+
+    // The Area Wizard's, which shows the ResRef where the code makes it.
+    h.state_mut().actions.push(mg_ui::Action::AreaWizard);
+    h.run();
+    assert!(h.query_by_label("ResRef: ab_area002").is_some());
+    h.get_by_label("Castle Interior").click();
+    h.run();
+    h.get_by_label("Small").click();
+    h.run();
+    h.get_by_label("Create").click();
+    h.run();
+    let ws = h.state().ws.as_ref().unwrap();
+    assert!(ws.module.contains(&ResKey::parse("ab_area002", ResType::ARE).unwrap()));
+
+    // No code: as Aurora again, and the rest of the file kept.
+    std::fs::write(dir.join(".moonglow/user.toml"), "# mine\n[builder]\ncode = \"ab\"\n").unwrap();
+    h.get_by_label("Edit").click();
+    h.run();
+    h.get_by_label("Builder Code…").click();
+    h.run();
+    h.get_by_label("No Code").click();
+    h.run();
+    let user = std::fs::read_to_string(dir.join(".moonglow/user.toml")).unwrap();
+    assert_eq!(user, "# mine\n[builder]\n");
+    assert_eq!(h.state().ws.as_ref().unwrap().module.project_file.naming(), Default::default());
+}
+
+/// A module kept in one file has no project to keep a code in: the menu
+/// item is there, and off.
+#[test]
+fn a_module_in_one_file_has_no_builder_code() {
+    let dir = mg_testkit::scratch_dir("ui-builder-code-mod");
+    let mut app = app_with(Vec::new());
+    app.open_module(&sample_module(&dir));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Edit").click();
+    h.run();
+    assert!(h.get_by_label("Builder Code…").accesskit_node().is_disabled());
+}
+
+const DESCRIBED: &str = "undescribed = [\"tdod_*\"]\n\n\
+    [tdod_workbench]\ntype = \"string\"\non = [\"placeable\"]\n\
+    values = { forge = \"Smithing\", tanner = \"Leatherworking\" }\n\
+    help = \"The craft the bench serves, within 5 m\"\n\n\
+    [tdod_lit]\ntype = \"int\"\nvalues = { 1 = \"lit\" }\nhelp = \"A fire: 1, lit\"\n\n\
+    [tdod_banker]\ntype = \"int\"\non = [\"creature\"]\n";
+
+/// The Variables window offers the project's described variables
+/// (`variables.toml`) as a name is typed, sets the type of the one
+/// chosen, chooses its value from its values, and says what the
+/// description finds wrong without keeping OK from writing it (C2).
+#[test]
+fn the_variables_window_offers_the_project_s_described_variables() {
+    use mg_ui::widgets::{FieldTarget, VarTableEdit};
+    let dir = project_folder("ui-described-variables", &[("variables.toml", DESCRIBED)]);
+    let git = ResKey::parse("start", ResType::GIT).unwrap();
+    {
+        let mut m = Module::open(&dir).unwrap();
+        let mut g = Gff::new(*b"GIT ");
+        g.root.set("Placeable List", mg_gff::Value::List(vec![mg_gff::Struct::new(9)]));
+        m.set_gff(git, &g).unwrap();
+        m.save().unwrap();
+    }
+    let mut app = app_with(Vec::new());
+    app.open_module(&dir);
+    assert!(
+        app.log.entries.iter().any(|e| e.1.contains("3 variables described in variables.toml"))
+    );
+    let path = mg_edit::GffPath::root().item("Placeable List", 0);
+    app.var_edit = Some(VarTableEdit::new(FieldTarget::new(git, path, "VarTable"), &[]));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 700.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Add").click();
+    h.run();
+    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Name");
+    h.get(egui_kittest::kittest::by().predicate(hint)).click();
+    h.run();
+    // What goes on a placeable is offered, as it is typed.
+    assert!(h.query_by_label("tdod_workbench").is_some() && h.query_by_label("tdod_lit").is_some());
+    assert!(h.query_by_label("tdod_banker").is_none(), "a creature's");
+    h.get(egui_kittest::kittest::by().predicate(hint)).type_text("tdod_w");
+    h.run();
+    assert!(h.query_by_label("tdod_lit").is_none());
+    h.get_by_label("tdod_workbench").click();
+    h.run();
+    h.run();
+    let row =
+        |h: &Harness<'_, Moonglow>, i: usize| h.state().var_edit.as_ref().unwrap().rows[i].clone();
+    assert_eq!((row(&h, 0).name.as_str(), row(&h, 0).kind), ("tdod_workbench", 3), "a String");
+    assert!(h.query_by_label("tdod_workbench").is_none(), "the offer closed");
+    // Its value, from its values.
+    h.get_by_value("(choose)").click();
+    h.run();
+    h.get_by_label("forge — Smithing").click();
+    h.run();
+    assert_eq!(row(&h, 0).value, "forge");
+    // A name typed whole takes its type too; one changed after is said.
+    h.get_by_label("Add").click();
+    h.run();
+    h.state_mut().var_edit.as_mut().unwrap().rows[1].name = "tdod_lit".into();
+    h.run();
+    assert_eq!(row(&h, 1).kind, 1, "an Int");
+    h.state_mut().var_edit.as_mut().unwrap().rows[1].kind = 3;
+    h.run();
+    assert!(
+        h.query_by_label(
+            "tdod_lit is to be an Int (variables.toml:9): as String the scripts read nothing"
+        )
+        .is_some()
+    );
+    h.state_mut().var_edit.as_mut().unwrap().rows[1].name = "tdod_wrokbench".into();
+    h.run();
+    assert!(
+        h.query_by_label(
+            "tdod_wrokbench is named as the project's variables are (tdod_*) and described \
+             nowhere: tdod_workbench?"
+        )
+        .is_some()
+    );
+    h.get_all_by_label("OK").last().unwrap().click();
+    h.run();
+    assert!(h.state().var_edit.is_none(), "written all the same");
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let doc = ws.doc(&git).unwrap();
+    let vars = doc.root.list("Placeable List").unwrap()[0].list("VarTable").unwrap();
+    assert_eq!(vars.len(), 2);
+    assert_eq!(vars[0].string("Value"), Some(&b"forge"[..]));
+}
+
+/// Verify Module holds the module's variables to the project's
+/// descriptions: a variable of another type is an error (C2).
+#[test]
+fn verify_holds_variables_to_their_descriptions() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = project_folder("ui-verify-described", &[("variables.toml", DESCRIBED)]);
+    {
+        let mut m = Module::open(&dir).unwrap();
+        let mut v = mg_gff::Struct::new(0);
+        v.set("Name", mg_gff::Value::String(b"tdod_lit".to_vec()));
+        v.set("Type", mg_gff::Value::Dword(3));
+        v.set("Value", mg_gff::Value::String(b"1".to_vec()));
+        let mut p = mg_gff::Struct::new(9);
+        p.set("Tag", mg_gff::Value::String(b"FIRE".to_vec()));
+        p.set("VarTable", mg_gff::Value::List(vec![v]));
+        let mut g = Gff::new(*b"GIT ");
+        g.root.set("Placeable List", mg_gff::Value::List(vec![p]));
+        m.set_gff(ResKey::parse("start", ResType::GIT).unwrap(), &g).unwrap();
+        m.save().unwrap();
+    }
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&dir);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::Verify);
+    h.run();
+    let log = &h.state().log.entries;
+    assert!(
+        log.iter().any(|(l, m)| *l == mg_ui::Level::Error
+            && m.contains("tdod_lit is a String here, and variables.toml:9 says it is an Int: the scripts read 0")),
+        "{log:#?}"
+    );
+}
