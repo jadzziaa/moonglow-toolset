@@ -44,7 +44,7 @@ pub fn scope_words(scope: Scope) -> &'static str {
     match scope {
         Scope::User => "yours, in Moonglow's settings",
         Scope::Project => "the team's, in the project's moonglow.toml",
-        Scope::UserProject => "yours, for this project (.moonglow/user.toml)",
+        Scope::UserProject => "yours, for this project, in its .moonglow/user.toml",
     }
 }
 

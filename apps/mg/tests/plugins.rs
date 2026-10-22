@@ -357,3 +357,192 @@ fn a_plugin_s_own_tests_run_as_in_a_pipeline() {
     assert!(!none.status.success());
     assert!(String::from_utf8_lossy(&none.stderr).contains("has no tests"));
 }
+
+/// A project (a module folder) with a creature whose tag lacks the team's
+/// prefix, the team's prefix in its moonglow.toml, and the builder-tags
+/// example in its `plugins/`.
+fn project_with_plugins(name: &str) -> PathBuf {
+    let dir = mg_testkit::scratch_dir(name);
+    let mut m = Module::new();
+    m.set_info(&Gff::new(*b"IFO ")).unwrap();
+    let mut captain = Gff::new(*b"UTC ");
+    captain.root.set("Tag", Value::String(b"captain".to_vec()));
+    m.set_gff(key("captain.utc"), &captain).unwrap();
+    m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
+    std::fs::write(
+        dir.join("moonglow.toml"),
+        "[plugins.\"example.builder-tags\"]\nprefix = \"KRZ_\"\n",
+    )
+    .unwrap();
+    let example =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/plugins/examples/builder-tags");
+    let into = dir.join("plugins/builder-tags");
+    std::fs::create_dir_all(&into).unwrap();
+    for file in ["plugin.cfg", "main.luau"] {
+        std::fs::copy(example.join(file), into.join(file)).unwrap();
+    }
+    dir
+}
+
+/// Allows a project's plugin as `mg plugin list` says it is now, in the
+/// builder's own file, as the window's question does.
+fn allow(project: &Path, listed: &Json) {
+    let p = &listed["plugins"].as_array().unwrap()[0];
+    let text = format!(
+        "[project_plugins]\n{:?} = {{ allow = true, version = {}, digest = {} }}\n",
+        p["id"].as_str().unwrap(),
+        p["version"],
+        p["project"]["digest"]
+    );
+    mg_module::project_file::ProjectFile::write_user(project, &text).unwrap();
+}
+
+/// A project's plugins: listed with what the builder allowed and their
+/// settings' values in the project; allowed by content.
+#[test]
+fn a_project_s_plugins_are_listed_as_allowed() {
+    let dir = project_with_plugins("mg-project-plugins-list");
+    let project = dir.to_str().unwrap();
+    let (ok, listed) = mg(&["plugin", "list", "--project", project]);
+    assert!(ok, "{listed}");
+    let p = &listed["plugins"][0];
+    assert_eq!(p["id"], "example.builder-tags");
+    assert_eq!(p["project"]["trust"], "not asked");
+    assert_eq!(p["project"]["runs"], false);
+    assert!(p["project"]["digest"].as_str().unwrap().starts_with("sha256:"));
+    let prefix = &p["settings"][0];
+    assert_eq!(
+        (&prefix["id"], &prefix["scope"], &prefix["value"], &prefix["default"]),
+        (&json!("prefix"), &json!("project"), &json!("KRZ_"), &json!(""))
+    );
+    assert_eq!(p["settings"][2]["max"], 32);
+    allow(&dir, &listed);
+    let (_, listed) = mg(&["plugin", "list", "--project", project]);
+    assert_eq!(listed["plugins"][0]["project"]["trust"], "allowed");
+    // Changed since: asked again.
+    let main = dir.join("plugins/builder-tags/main.luau");
+    let code = std::fs::read_to_string(&main).unwrap();
+    std::fs::write(&main, format!("{code}\n-- changed\n")).unwrap();
+    let (_, listed) = mg(&["plugin", "list", "--project", project]);
+    assert_eq!(listed["plugins"][0]["project"]["trust"], "changed since allowed");
+    // As text: a line for it and one for each setting.
+    let out = crate::mg()
+        .args(["--no-user-dir", "plugin", "list", "--project", project])
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("\tthe project's: changed since allowed"), "{text}");
+    assert!(text.contains("\tsetting\tprefix\tstring\tproject\t\"KRZ_\""), "{text}");
+}
+
+/// `mg verify` runs a project's plugins only as the builder allowed them,
+/// or every one with `--allow-project-plugins` (a build pipeline).
+#[test]
+fn verify_runs_a_project_s_plugins_as_allowed() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = project_with_plugins("mg-project-plugins-verify");
+    let args = ["--root", root.to_str().unwrap(), "verify", dir.to_str().unwrap()];
+    let ours = |v: &Json| -> Vec<String> {
+        (v["findings"].as_array().unwrap().iter())
+            .filter(|f| f["check"] == "example.builder-tags/tag-prefix")
+            .map(|f| f["message"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let (_, plain) = mg(&args);
+    assert!(ours(&plain).is_empty(), "not allowed: not run");
+    let notes = plain["notes"].to_string();
+    assert!(
+        notes.contains(
+            "the project's plugin example.builder-tags 1.0.0 did not run: you have not allowed it"
+        ),
+        "{notes}"
+    );
+    let (_, all) = mg(&[&args[..], &["--allow-project-plugins"]].concat());
+    assert_eq!(ours(&all), ["tag \"captain\" does not begin with KRZ_"], "the team's prefix");
+    // Allowed by the builder: it runs without the flag.
+    let (_, listed) = mg(&["plugin", "list", "--project", dir.to_str().unwrap()]);
+    allow(&dir, &listed);
+    let (_, allowed) = mg(&args);
+    assert_eq!(ours(&allowed).len(), 1);
+    // Changed since: not run, and said.
+    let main = dir.join("plugins/builder-tags/main.luau");
+    let code = std::fs::read_to_string(&main).unwrap();
+    std::fs::write(&main, format!("{code}\n-- changed\n")).unwrap();
+    let (_, changed) = mg(&args);
+    assert!(ours(&changed).is_empty());
+    assert!(
+        changed["notes"].to_string().contains("it changed since you allowed it (version 1.0.0)")
+    );
+}
+
+/// `mg plugin run`: the project's settings for the run, `--setting` over
+/// them, and what the plugin sets kept in the project's files.
+#[test]
+fn a_plugin_s_settings_are_read_and_kept_on_the_command_line() {
+    let dir = project_with_plugins("mg-plugin-settings");
+    let plugin = dir.join("plugins/builder-tags");
+    let run = |more: &[&str]| {
+        let args = [&["plugin", "run", dir.to_str().unwrap(), plugin.to_str().unwrap()][..], more]
+            .concat();
+        mg(&args)
+    };
+    let (ok, out) = run(&["remember-code", "--answer", "code=zz"]);
+    assert!(ok, "{out}");
+    assert_eq!(
+        out["settings"],
+        json!([{ "id": "code", "scope": "user-project", "value": "zz", "kept": true }])
+    );
+    let own = std::fs::read_to_string(dir.join(".moonglow/user.toml")).unwrap();
+    assert_eq!(own, "[plugins.\"example.builder-tags\"]\ncode = \"zz\"\n");
+    // The code kept, read by the next run; a --setting over it.
+    let (ok, out) = run(&["prefix-tags", "--select", "captain.utc", "--dry-run"]);
+    assert!(ok, "{out}");
+    assert!(out["log"].to_string().contains("1 tags begin with KRZ_zz_"), "{out}");
+    let (_, out) = run(&[
+        "prefix-tags",
+        "--select",
+        "captain.utc",
+        "--dry-run",
+        "--setting",
+        "code=ab",
+        "--setting",
+        "max_length=9",
+    ]);
+    assert!(out["log"].to_string().contains("1 tags begin with KRZ_ab_"), "{out}");
+    assert!(out.to_string().contains("KRZ_ab_ca"), "cut to 9: {out}");
+    // A --setting that is none, or not of its kind.
+    let fails = |more: &[&str]| {
+        let out = crate::mg()
+            .args([
+                "--no-user-dir",
+                "plugin",
+                "run",
+                dir.to_str().unwrap(),
+                plugin.to_str().unwrap(),
+                "prefix-tags",
+            ])
+            .args(more)
+            .output()
+            .unwrap();
+        assert!(!out.status.success());
+        String::from_utf8_lossy(&out.stderr).into_owned()
+    };
+    assert!(
+        fails(&["--setting", "nope=1"])
+            .contains("has no such setting (prefix, kinds, max_length, code, strict)")
+    );
+    assert!(fails(&["--setting", "max_length=40"]).contains("40 is more than 32"));
+    // With --dry-run, what it would keep is said, and nothing is.
+    let (_, out) = run(&["remember-code", "--answer", "code=yy", "--dry-run"]);
+    assert_eq!(out["settings"][0]["kept"], false);
+    let said = |n: &Json| {
+        n.as_array().unwrap().iter().any(|l| {
+            l.as_str().unwrap().starts_with("would set code to \"yy\" (yours, for this project")
+        })
+    };
+    assert!(said(&out["notes"]), "{out}");
+    assert!(std::fs::read_to_string(dir.join(".moonglow/user.toml")).unwrap().contains("\"zz\""));
+}
