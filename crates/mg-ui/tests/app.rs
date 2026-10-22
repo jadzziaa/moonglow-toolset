@@ -11821,6 +11821,43 @@ fn the_mouse_wheel_steps_through_an_armor_s_parts() {
     assert_eq!(torso(&mut h), Some(before));
 }
 
+/// An armor's part can be 0, no part (a builder's report: it couldn't be
+/// chosen, as the game's parts_bicep.2da leaves row 0's `ACBONUS` blank):
+/// chosen in its list, it is saved as 0, its EE twin too.
+#[test]
+fn an_armor_s_part_can_be_none() {
+    let Some((mut h, key)) = blueprint_harness("nw_aarcl001", "part_none", ResType::UTI) else {
+        return;
+    };
+    h.get_by_label("Appearance").click();
+    h.run();
+    let bicep = |h: &mut Harness<'_, Moonglow>, label: &str| field(h, &key).integer(label);
+    assert!(bicep(&mut h, "ArmorPart_LBicep").is_some_and(|n| n > 0), "a bicep to start with");
+    let label = h.get_by_label("Left Bicep").rect();
+    h.get_all_by_role(egui::accesskit::Role::ComboBox)
+        .find(|n| {
+            let r = n.rect();
+            r.min.x > label.max.x && (r.center().y - label.center().y).abs() < 6.0
+        })
+        .expect("the left bicep's list")
+        .click();
+    h.run();
+    // (The open list's row; Belt and Robe show it in their boxes.)
+    h.get_all_by_label("0 (none)")
+        .find(|n| {
+            n.accesskit_node().role() != egui::accesskit::Role::ComboBox
+                && n.rect().min.y > label.max.y
+        })
+        .expect("the row of none")
+        .click();
+    h.run();
+    assert_eq!(bicep(&mut h, "ArmorPart_LBicep"), Some(0));
+    let wide = mg_rules::items::wide_label("ArmorPart_LBicep");
+    assert_eq!(bicep(&mut h, &wide), Some(0), "its EE twin");
+    // The list says so.
+    assert!(h.get_all_by_value("0 (none)").next().is_some(), "the list shows none");
+}
+
 #[test]
 fn an_armor_s_parts_take_colors_of_their_own_and_keep_them() {
     use mg_gff::Value;

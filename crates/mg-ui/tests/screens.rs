@@ -3755,3 +3755,60 @@ fn claims_and_project_commands() {
     h.run_steps(3);
     shoot(&mut h, &dir, "claims-command-trust");
 }
+
+/// An armor whose left bicep and forearm are 0 (a builder's report: 0
+/// couldn't be chosen): its Appearance page, the bicep's list open, and
+/// the armor in the model viewer, the body's bare arm where its parts are
+/// 0. `MG_SHOT` names the pictures (`before`, `after`).
+#[test]
+#[ignore]
+fn armor_part_none() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens-armor-part-none");
+    let shot = std::env::var("MG_SHOT").unwrap_or_else(|_| "after".into());
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    let game = app.game.as_deref().unwrap();
+    let data = game.resman.get_named("nw_aarcl001", ResType::UTI).unwrap().into_owned();
+    let mut armor = mg_gff::Gff::read(&data).unwrap();
+    for label in ["ArmorPart_LBicep", "ArmorPart_LFArm"] {
+        armor.root.set(label, mg_gff::Value::Byte(0));
+        armor.root.set(&mg_rules::items::wide_label(label), mg_gff::Value::Word(0));
+    }
+    let key = ResKey::parse("mg_armor_none", ResType::UTI).unwrap();
+    let mut m = mg_module::Module::new();
+    m.set_gff(key, &armor).unwrap();
+    let path = dir.join("armor.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    app.open_module(&path);
+    app.open_palette = false;
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
+    app.blueprint_pages.insert((key, GffPath::root()), "Appearance");
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 760.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(4);
+    shoot(&mut h, &dir, &format!("{shot}-appearance"));
+    let label = h.get_by_label("Left Bicep").rect();
+    h.get_all_by_role(egui::accesskit::Role::ComboBox)
+        .find(|n| {
+            let r = n.rect();
+            r.min.x > label.max.x && (r.center().y - label.center().y).abs() < 6.0
+        })
+        .expect("the left bicep's list")
+        .click();
+    h.run_steps(3);
+    shoot(&mut h, &dir, &format!("{shot}-bicep-list"));
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Model(key)));
+    h.run_steps(6);
+    shoot(&mut h, &dir, &format!("{shot}-model"));
+}
