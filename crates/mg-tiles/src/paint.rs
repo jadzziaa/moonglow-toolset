@@ -653,6 +653,56 @@ pub fn step_fit(
     }
 }
 
+/// The cell's next appearance: the next other tile (by its index in the
+/// tileset) among those that fit, turned and raised as `current` is where
+/// it fits so, else as it first fits; with `back`, the one before. `None`
+/// when no other tile fits the cell. (Its turns are [`turn_fit`]'s.)
+pub fn step_appearance(
+    index: &TileIndex,
+    cell: &Cell,
+    current: Placement,
+    back: bool,
+) -> Option<Placement> {
+    let fits = fits_in_order(index, cell);
+    let mut tiles: Vec<u32> = fits.iter().map(|p| p.tile).collect();
+    tiles.dedup();
+    let n = tiles.len();
+    let next = match tiles.iter().position(|t| *t == current.tile) {
+        Some(_) if n < 2 => return None,
+        Some(i) if back => tiles[(i + n - 1) % n],
+        Some(i) => tiles[(i + 1) % n],
+        None if back => *tiles.last()?,
+        None => *tiles.first()?,
+    };
+    let of = |keep: &dyn Fn(&Placement) -> bool| fits.iter().find(|p| p.tile == next && keep(p));
+    of(&|p| p.orientation == current.orientation && p.height == current.height)
+        .or_else(|| of(&|p| p.orientation == current.orientation))
+        .or_else(|| of(&|_| true))
+        .copied()
+}
+
+/// `current` turned a quarter counter-clockwise (with `back`, clockwise)
+/// where it still fits the cell, else the turn after that does (a half
+/// turn, for a tile two of whose sides match); the same tile, never
+/// another. `None` when it fits there only as it lies: turned, its
+/// corners and edges would no longer match its neighbours'.
+pub fn turn_fit(
+    index: &TileIndex,
+    cell: &Cell,
+    current: Placement,
+    back: bool,
+) -> Option<Placement> {
+    let fits = index.fits(cell);
+    (1..4u8).find_map(|k| {
+        let turns = if back { 4 - k } else { k };
+        let orientation = (current.orientation % 4 + turns) % 4;
+        let of = |keep: &dyn Fn(&Placement) -> bool| {
+            fits.iter().find(|p| p.tile == current.tile && p.orientation == orientation && keep(p))
+        };
+        of(&|p| p.height == current.height).or_else(|| of(&|_| true)).copied()
+    })
+}
+
 /// Cells of open ground around a group placed by [`group_placed`]: room
 /// for the tiles around it that its placement changes.
 pub const GROUP_MARGIN: u32 = 3;
@@ -943,5 +993,47 @@ Top={}\nRight={}\nBottom={}\nLeft={}\n",
         assert_eq!(g.lattice.cell(2, 2).edges, [None, Some(r), None, None]);
         assert_eq!(g.lattice.cell(2, 1).edges, [None; 4]);
         assert_eq!(g.lattice.cell(3, 2).edges, [None, None, None, Some(r)]);
+    }
+
+    #[test]
+    fn appearances_step_through_other_tiles_and_turns_keep_the_tile() {
+        let set = set();
+        let index = TileIndex::new(&set);
+        let g = grid(&index, 3);
+        // Open ground: two tiles fit (all-A twice over in the set), each
+        // at every turn.
+        let open = g.lattice.cell(1, 1);
+        let now = Placement { tile: 0, orientation: 1, height: 0 };
+        let next = step_appearance(&index, &open, now, false).unwrap();
+        assert_eq!(next, Placement { tile: 16, ..now }, "another tile, turned as this one");
+        assert_eq!(step_appearance(&index, &open, next, false), Some(now), "and round again");
+        assert_eq!(step_appearance(&index, &open, next, true), Some(now));
+        let turned = turn_fit(&index, &open, now, false).unwrap();
+        assert_eq!(turned, Placement { orientation: 2, ..now });
+        assert_eq!(turn_fit(&index, &open, now, true), Some(Placement { orientation: 0, ..now }));
+        let round = (0..4).fold(now, |p, _| turn_fit(&index, &open, p, false).unwrap());
+        assert_eq!(round, now, "four quarter turns");
+        // One B corner: other tiles fit, each only as it lies; none turns.
+        let b = index.terrain("B").unwrap();
+        let mut l = g.lattice.clone();
+        l.set_corner(1, 1, Corner { terrain: b, height: 0 });
+        let corner = l.cell(1, 1);
+        let fits = index.fits(&corner);
+        assert!(fits.len() > 1, "{fits:?}");
+        for p in &fits {
+            assert_eq!(turn_fit(&index, &corner, *p, false), None, "{p:?} fits only as it lies");
+            let other = step_appearance(&index, &corner, *p, false).unwrap();
+            assert_ne!(other.tile, p.tile);
+            assert!(fits.contains(&other));
+        }
+        // A tile alone in its cell has no other appearance.
+        let r = index.crosser("R").unwrap();
+        let mut l = g.lattice.clone();
+        l.set_edge(1, 1, crate::NORTH, Some(r));
+        let end = l.cell(1, 1);
+        let only = index.fits(&end);
+        assert_eq!(only.len(), 1, "{only:?}");
+        assert_eq!(step_appearance(&index, &end, only[0], false), None);
+        assert_eq!(turn_fit(&index, &end, only[0], false), None);
     }
 }

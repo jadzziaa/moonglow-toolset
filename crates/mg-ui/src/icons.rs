@@ -9,6 +9,11 @@ pub(crate) const TILES: &str = "🗻";
 pub(crate) const ERASER: &str = "🗑";
 pub(crate) const RAISE_LOWER: &str = "↕";
 pub(crate) const REFINE: &str = "🔁";
+/// The tiles palette's Next and Previous Tile Appearance and Rotate
+/// Tile (a quarter turn counter-clockwise, as the variants' "↺90°").
+pub(crate) const NEXT_APPEARANCE: &str = "⏭";
+pub(crate) const PREVIOUS_APPEARANCE: &str = "⏮";
+pub(crate) const ROTATE: &str = "↺";
 pub(crate) const START: &str = "🏁";
 pub(crate) const NIGHT: &str = "🌙";
 pub(crate) const FOG: &str = "☁";

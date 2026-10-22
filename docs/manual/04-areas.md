@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:21:56Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T11:57:32Z }
 ---
 
 # Areas
@@ -105,10 +105,12 @@ looking straight down at their middle, north up, as in Aurora.
   Walkmeshes**, where placeables (their `.pwk`, orange) and doors (their
   `.dwk`, blue, for the state they're placed in: closed or open) keep
   creatures out. The selection's are brighter.
-- **Select Tiles**: select tiles rather than objects (Aurora's Select
-  Terrain). Without the toolbar: a double click on the ground selects its
-  tile (Select Tiles comes on), and a click on an object while tiles are
-  selected selects it (Select Tiles goes off).
+- **Select Tiles** (F10): select tiles rather than objects (Aurora's
+  Select Terrain); the Tiles palette has it too, at the top of its tools.
+  Without the toolbar: a double click on the ground selects its tile
+  (Select Tiles comes on), and a click on an object while tiles are
+  selected selects it (Select Tiles goes off). Turning it on puts down
+  the terrain brush, and choosing a brush turns it off.
 - **✏ Paint** (B): paint the placeables chosen in the palette onto the
   ground (see [Painting placeables](#painting-placeables)).
 - **Area Properties**, **Reorient Camera** (north up again), **Go to Start
@@ -524,8 +526,11 @@ Choose **Tiles** in the palette pane to paint the area with its tileset,
 as Aurora's Terrain tab does:
 
 - **Terrain brushes** (grass, water, cliffs… whatever the tileset has)
-  and **Raise/Lower** act on the tile corner nearest the pointer; the
-  right button lowers. Drag to mark every corner the pointer passes
+  and **Raise/Lower** act on the tile corner nearest the pointer;
+  Raise/Lower's right button lowers, and a terrain's right click opens
+  the [tile menu](#tiles) for the tile under the pointer, the brush kept
+  (Aurora's right click puts the brush down: here Escape does, or the
+  menu's first item, **Put Down**). Drag to mark every corner the pointer passes
   (yellow; running the drag back unmarks them), or Shift + drag to mark
   the whole rectangle from where the drag began. Letting go paints them
   all, and one undo takes the whole drag back. The cursor shows the four
@@ -551,7 +556,10 @@ as Aurora's Terrain tab does:
   tiles it passes, as a terrain brush marks corners (run back, Shift for
   a rectangle), and erases them when you let go.
 - **Refine Tile** (Moonglow's own) steps the tile you click through the
-  other tiles that fit there, whatever it holds, and never paints.
+  other tiles that fit there, whatever it holds, and never paints. It
+  goes in Aurora's order, as Shift + right click does: each tile's turns,
+  then the next tile's, so the tile's look and its rotation change
+  together (it isn't random: click on to come round again).
   Dragged, it does that to the first tile, and every tile it passes of the
   same kind (the same terrain at its corners and the same crossers, so
   that tile fits there) becomes that tile too, turned to fit: a whole run
@@ -584,8 +592,23 @@ as Aurora's Terrain tab does:
   the castle its corners call for; a boat in its water). Click one to
   place it (a right click in the area turns it), or drag it into the
   area.
-- The Eraser, Refine Tile and Raise/Lower head the Terrain list, whatever
-  the tileset's order.
+- **Next Tile Appearance** and **Previous Tile Appearance** (Moonglow's
+  own) give the tile you click another tile of the same kind: the same
+  terrain at its corners and the same crossers, so it still fits, turned
+  as the old one was where it fits so. Its lights are chosen afresh, as a
+  painted tile's.
+- **Rotate Tile** (Moonglow's own) turns the tile you click a quarter
+  counter-clockwise (Shift + click: clockwise), the same tile, keeping its
+  lights and loops. A tile turns only where it still fits its neighbors:
+  open ground turns every way, a tile with a corner of another terrain or
+  a crosser at one side fits only as it lies (turned, it would no longer
+  meet its neighbors' terrain), so the area's line says so and the tile
+  flashes red; a tile whose opposite sides match turns a half. To turn the
+  terrain itself, paint it.
+- Select Tiles, the Eraser, Refine Tile, the three tools above and
+  Raise/Lower head the Terrain list, whatever the tileset's order. A
+  right click with the Eraser, Refine Tile or the three opens the tile
+  menu.
 
 Under the pointer, the area shows the tiles a click would make, slightly
 see-through (their nearer surfaces over their farther ones, a bridge
@@ -599,8 +622,10 @@ The cursor is green where a click paints and red where the tileset
 refuses it. Click there all the same and the tiles in the way flash red
 for a moment, as in Aurora: those that have no tile fitting what the
 stroke would make of them, or belong to a group it would break. It is blue where a click only chooses tiles again: a crosser
-over a quarter it already crosses, the Eraser with Shift, Refine Tile, and
-a corner of the brush's own terrain (with Shift, the next tiles that fit).
+over a quarter it already crosses, the Eraser with Shift, Refine Tile, the
+appearance and rotate tools (red where the tile has no other appearance,
+or doesn't turn), and a corner of the brush's own terrain (with Shift,
+the next tiles that fit).
 
 Each stroke is one undoable step. Moonglow paints as Aurora does: the
 same strokes give the same tiles, heights and crossers.
@@ -610,24 +635,39 @@ same strokes give the same tiles, heights and crossers.
 With **Select Tiles** on, a click selects a tile, Ctrl + click adds one,
 and a drag selects a box of them. **Delete** takes the selected tiles'
 crossers away. **Shift + right click** steps the tile under the pointer
-through the tiles that fit, as **Next Variant** on the tile menu does;
-**Previous Variant** there steps back. Ctrl+C and Ctrl+V copy and paste tiles.
+through every tile that fits, each of its turns and then the next tile's
+(Aurora's order, as Refine Tile steps). Ctrl+C and Ctrl+V copy and paste
+tiles.
 
-A right click opens the tile menu (**Next Variant**, **Previous
-Variant**, **Delete**), which ends with **Tile Properties**. With one
-tile chosen it shows the **variants**: every tile that fits there, as
-pictures, the one there now framed. Click another and it is put there
-at once (one step to undo), the window staying open on it. Tile
-Properties is a window like the editors': resize it, maximize it or dock
-it beside the area, and the pictures fill it. The same
-model turned another way is listed again, its picture turned so (seen
-from the south-west) and the turn written under it. And:
-- the tiles' main and source light colors and their animation loops, as
-  the tile's model has them (**Defaults** puts back the lighting
-  scheme's);
-- the **Replacement Texture**: what a texture named `replace_tex` in the
-  tile's model is drawn with (a `replacetexture.2da` row; the game keeps
-  it, though Aurora has no field for it).
+A right click on a tile opens the **tile menu**: **Next Tile
+Appearance**, **Previous Tile Appearance** and **Rotate Tile**, as the
+Tiles palette's tools of those names do (each one step to undo), then
+**Delete**, and last **Tile Properties**. In Select Tiles they act on
+the selected tiles (each on its own), with a terrain brush or a tile tool
+chosen on the tile clicked. Without either, a right click on the ground
+where no object is starts the area's menu with the tile's items (Tile
+(x, y), the three, Tile Properties), as Aurora's menu has Tile
+Properties for a tile; on an object, the object's menu.
+
+With one tile chosen, Tile Properties shows the **variants**: every tile
+that fits there, as pictures, the one there now framed. Click another and
+it is put there at once (one step to undo), the window staying open on
+it. Tile Properties is a window like the editors': resize it, maximize it
+or dock it beside the area, and the pictures fill it. The **Size** slider
+beside the variants makes the pictures larger (up to 224 points), to tell
+tiles much alike apart; it is remembered. Under the pointer, a picture
+shown smaller shows at its largest beside it. The same model turned
+another way is listed again, its picture turned so (seen from the
+south-west) and the turn written under it. And the tiles' main and
+source light colors and their animation loops, as the tile's model has
+them (**Defaults** puts back the lighting scheme's).
+
+A tile's replacement texture (`Tile_ReplaceTex`, a `replacetexture.2da`
+row for a texture named `replace_tex` in the tile's model) isn't in the
+window: it is BioWare's unused field, no tile of the game's tilesets has
+such a texture, and whether the game draws it wasn't seen. One already in
+an area is kept, and shown among the raw fields of the area's `.are`
+(its row's menu in the module tree), where it can be edited.
 
 **Edit › Resize Area…** grows or shrinks the area at its north and east
 edges, as Aurora does, or at the two you choose there (east and south,

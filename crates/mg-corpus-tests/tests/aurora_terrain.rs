@@ -119,9 +119,10 @@ fn act(
             let (x, y) = at(&step["at"]);
             grid.raise(index, rules, x, y, !step["lower"].as_bool().unwrap_or(false))
         }
-        Brush::Refine | Brush::Tile(_) => {
+        Brush::Refine | Brush::Appearance { .. } | Brush::Rotate | Brush::Tile(_) => {
             panic!(
-                "{area}: Refine Tile and a tile chosen alone are Moonglow's, in no tileset's palette"
+                "{area}: Refine Tile, the appearance and turning tools and a tile chosen alone \
+                 are Moonglow's, in no tileset's palette"
             )
         }
     }

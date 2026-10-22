@@ -9099,6 +9099,17 @@ fn area_viewer_selects_tiles_and_sets_their_properties() {
         let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
         are.root.list("Tile_List").unwrap()[i].clone()
     };
+    // A replacement texture in the file (BioWare's unused `Tile_ReplaceTex`,
+    // set by hand): kept, and not in the window.
+    let set = mg_edit::Edit::SetField {
+        key: ResKey::new(area, ResType::ARE),
+        path: mg_edit::GffPath::root().item("Tile_List", 5),
+        label: "Tile_ReplaceTex".into(),
+        value: Some(mg_gff::Value::Byte(1)),
+    };
+    let set = mg_edit::Command::new("Replacement texture", vec![set]);
+    h.state_mut().actions.push(mg_ui::Action::Apply(set));
+    h.run_steps(2);
     h.get_by_label("⛶ Select Tiles").click();
     h.run_steps(2);
     // The room in the middle: tile (1, 1), index 5.
@@ -9154,15 +9165,12 @@ fn area_viewer_selects_tiles_and_sets_their_properties() {
     // Main light 1 to colour 9, through the colour picker.
     h.state_mut().tile_props.as_mut().unwrap().main[0] = 9;
     h.state_mut().tile_props.as_mut().unwrap().loops = [false, false, false];
-    // The replacement texture: replacetexture.2da row 1.
-    h.state_mut().tile_props.as_mut().unwrap().replace = Some(1);
+    assert!(h.query_by_label_contains("Replacement Texture").is_none(), "no longer in the window");
     h.run_steps(1);
     h.get_by_label("OK").click();
     h.run_steps(2);
     let t = tile(&mut h, 5);
-    assert_eq!(t.integer("Tile_ReplaceTex"), Some(1));
-    let model = h.state().area_views[&area].model.as_ref().unwrap();
-    assert_eq!(model.tiles[5].replace_texture.as_deref(), Some("t_flag02"));
+    assert_eq!(t.integer("Tile_ReplaceTex"), Some(1), "the file's field kept");
     if props.has_main[0] {
         assert_eq!(t.integer("Tile_MainLight1"), Some(9));
     }
@@ -15389,6 +15397,282 @@ fn refine_tile_steps_a_tile_through_those_that_fit_and_paints_nothing() {
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run_steps(3);
     assert_eq!(grid(&mut h).tile(1, 1), before.tile(1, 1));
+}
+
+/// A right click on a tile opens the tile's items without Select Tiles
+/// (a builder's tile feedback): on the ground with no object there, the
+/// area's menu has them (as Aurora's has Tile Properties for a tile); on
+/// an object, not. With a terrain brush, the tile menu, the brush kept.
+#[test]
+fn a_right_click_on_a_tile_opens_its_menu_without_select_tiles() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("tile-menu") else { return };
+    let right_click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
+        h.hover_at(at);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(3);
+    };
+    assert!(!h.state().area_views[&area].tile_mode);
+    // The ground of tile (1, 1): its items first, the area's after.
+    let ground = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
+    right_click(&mut h, ground);
+    let items = menu_items(&h, "Set Start Location Here");
+    let dir = mg_testkit::scratch_dir("ui-tile-menu-ground");
+    h.render().unwrap().save(dir.join("ground.png")).unwrap();
+    assert_eq!(
+        items[..4],
+        ["Next Tile Appearance", "Previous Tile Appearance", "Rotate Tile", "Tile Properties…"],
+        "{items:?}"
+    );
+    h.get_by_label("Tile Properties…").click();
+    h.run_steps(2);
+    let props = h.state().tile_props.clone().expect("Tile Properties is open");
+    assert_eq!(props.tiles, [5]);
+    assert!(!h.state().area_views[&area].tile_mode, "still working on objects");
+    h.state_mut().tile_props = None;
+    h.run_steps(2);
+    // A waypoint: its menu, no tile's items.
+    let waypoint = screen(&h, area, Vec3::new(20.0, 20.0, 0.0));
+    right_click(&mut h, waypoint);
+    let items = menu_items(&h, "Properties");
+    assert!(!items.iter().any(|i| i.contains("Tile")), "{items:?}");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    // Painting Grass: a right click is the tile menu, and Grass stays.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    palette_type(&mut h, "🗻", "Tiles");
+    h.run_steps(2);
+    h.get_by_label("Grass").click();
+    h.run_steps(2);
+    right_click(&mut h, ground);
+    let items = menu_items(&h, "Tile Properties…");
+    assert_eq!(
+        items,
+        [
+            "Put Down Grass",
+            "Next Tile Appearance",
+            "Previous Tile Appearance",
+            "Rotate Tile",
+            "Tile Properties…"
+        ]
+    );
+    assert!(h.state().palette.tile_brush.is_some(), "the brush kept");
+    let dir = mg_testkit::scratch_dir("ui-tile-menu");
+    h.render().unwrap().save(dir.join("painting.png")).unwrap();
+    h.get_by_label("Put Down Grass").click();
+    h.run_steps(2);
+    assert!(h.state().palette.tile_brush.is_none());
+    // The palette's Select Tiles: the view's tile mode, the brush let go.
+    h.get_by_label("↕ Raise/Lower").click();
+    h.run_steps(2);
+    h.get_by_label("⛶ Select Tiles (F10)").click();
+    h.run_steps(2);
+    assert!(h.state().area_views[&area].tile_mode);
+    assert!(h.state().palette.tile_brush.is_none());
+    // A brush chosen: out of tile mode.
+    h.get_by_label("Grass").click();
+    h.run_steps(2);
+    assert!(!h.state().area_views[&area].tile_mode);
+}
+
+/// Next and Previous Tile Appearance and Rotate Tile, from the tiles
+/// palette and the tile menu (a builder's tile feedback): another tile of
+/// the kind, the same tile turned (its lights kept), each one undoable
+/// step; the terrain as it was.
+#[test]
+fn tile_tools_change_a_tile_s_appearance_and_turn_it() {
+    use glam::Vec3;
+    use mg_tiles::TileIndex;
+    use mg_tiles::paint::{step_appearance, turn_fit};
+    let Some((mut h, area)) = area_harness("tile-tools") else { return };
+    let index = {
+        let game = h.state().game.as_deref().unwrap();
+        TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
+    };
+    let grid = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        mg_area::terrain::grid(&are.root, &index).unwrap()
+    };
+    let tile = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        are.root.list("Tile_List").unwrap()[5].clone()
+    };
+    let undo_label =
+        |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(str::to_string);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    palette_type(&mut h, "🗻", "Tiles");
+    h.run_steps(2);
+    // The tools, in order: Select Tiles, the Eraser, Refine Tile, the
+    // three, Raise/Lower.
+    let top = |h: &Harness<'_, Moonglow>, label: &str| h.get_by_label(label).rect().top();
+    let order = [
+        "⛶ Select Tiles (F10)",
+        "🗑 Eraser",
+        "🔁 Refine Tile",
+        "⏭ Next Tile Appearance",
+        "⏮ Previous Tile Appearance",
+        "↺ Rotate Tile",
+        "↕ Raise/Lower",
+    ];
+    for pair in order.windows(2) {
+        assert!(top(&h, pair[0]) < top(&h, pair[1]), "{} above {}", pair[0], pair[1]);
+    }
+    let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
+    let click = |h: &mut Harness<'_, Moonglow>| {
+        h.hover_at(at);
+        h.run_steps(2);
+        press(h, at, true, egui::Modifiers::NONE);
+        press(h, at, false, egui::Modifiers::NONE);
+        h.run_steps(3);
+    };
+    let before = grid(&mut h);
+    let cell = before.lattice.cell(1, 1);
+    let now = before.tile(1, 1);
+    // Next, then Previous: another tile, then back.
+    h.get_by_label("⏭ Next Tile Appearance").click();
+    h.run_steps(2);
+    click(&mut h);
+    let next = step_appearance(&index, &cell, now, false).expect("Rural's grass has others");
+    assert_ne!(next.tile, now.tile);
+    let g = grid(&mut h);
+    assert_eq!(g.tile(1, 1), next);
+    assert_eq!(g.lattice, before.lattice, "no terrain painted");
+    assert_eq!(undo_label(&h).as_deref(), Some("Next tile appearance"));
+    h.get_by_label("⏮ Previous Tile Appearance").click();
+    h.run_steps(2);
+    click(&mut h);
+    assert_eq!(grid(&mut h).tile(1, 1), now, "a step back");
+    assert_eq!(undo_label(&h).as_deref(), Some("Previous tile appearance"));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(3);
+    assert_eq!(grid(&mut h).tile(1, 1), next, "undone");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(3);
+    assert_eq!(grid(&mut h).tile(1, 1), now, "undone");
+    // Rotate: the same tile a quarter round, its lights as they were.
+    let lights = |t: &mg_gff::Struct| {
+        ["Tile_MainLight1", "Tile_MainLight2", "Tile_SrcLight1", "Tile_SrcLight2"]
+            .map(|l| t.integer(l))
+    };
+    let was = tile(&mut h);
+    h.get_by_label("↺ Rotate Tile").click();
+    h.run_steps(2);
+    click(&mut h);
+    let turned = turn_fit(&index, &cell, now, false).expect("grass turns");
+    assert_eq!(turned.tile, now.tile);
+    assert_eq!(grid(&mut h).tile(1, 1), turned);
+    assert_eq!(lights(&tile(&mut h)), lights(&was), "the lights kept");
+    assert_eq!(undo_label(&h).as_deref(), Some("Rotate tile"));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(3);
+    assert_eq!(tile(&mut h), was, "undone");
+    // The tile menu's, in tile mode: on the tile selected.
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    h.get_by_label("⛶ Select Tiles (F10)").click();
+    h.run_steps(2);
+    click(&mut h);
+    assert_eq!(h.state().area_views[&area].tile_selection, [(1, 1)]);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    h.get_by_label("Rotate Tile").click();
+    h.run_steps(3);
+    assert_eq!(grid(&mut h).tile(1, 1), turned);
+    assert_eq!(undo_label(&h).as_deref(), Some("Rotate tile"));
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    h.get_by_label("Next Tile Appearance").click();
+    h.run_steps(3);
+    let other = step_appearance(&index, &cell, turned, false).unwrap();
+    assert_eq!(grid(&mut h).tile(1, 1), other);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(3);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(3);
+    assert_eq!(tile(&mut h), was, "both undone");
+}
+
+/// Tile Properties' variants' pictures take their size from their
+/// slider's setting, kept in the settings (a builder's tile feedback:
+/// tiles much alike couldn't be told apart small).
+#[test]
+fn tile_variant_pictures_take_the_size_set() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("tile-variant-size") else { return };
+    h.state_mut().settings.tile_variant_side = Some(200);
+    let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    h.get_by_label("Tile Properties…").click();
+    h.run_steps(2);
+    let (_, variants) = h.state().tile_props.clone().unwrap().variants.unwrap();
+    // (The pictures made, to look at.)
+    for _ in 0..400 {
+        h.run_steps(1);
+        if h.state().thumbnails.waiting() == 0 {
+            break;
+        }
+    }
+    // How far apart the first two are, across (their names, under them).
+    let apart = |h: &Harness<'_, Moonglow>| {
+        let rect = |k: usize| {
+            let (p, model) = &variants[k];
+            let turn = ["", " ↺90°", " ↺180°", " ↺270°"][usize::from(p.orientation % 4)];
+            h.get_by_label(&format!("{model}{turn}")).rect()
+        };
+        let (a, b) = (rect(0), rect(1));
+        assert_eq!(a.top(), b.top(), "on one row");
+        b.left() - a.left()
+    };
+    assert!((apart(&h) - 214.0).abs() < 1.0, "200 points and the gaps: {}", apart(&h));
+    h.get_by_label("Size");
+    let dir = mg_testkit::scratch_dir("ui-tile-variant-size");
+    h.render().unwrap().save(dir.join("large.png")).unwrap();
+    // The usual size, unless set.
+    h.state_mut().settings.tile_variant_side = None;
+    h.run_steps(3);
+    assert!((apart(&h) - 98.0).abs() < 1.0, "{}", apart(&h));
+    // Small, a picture under the pointer shows at its largest beside it.
+    let (p, model) = &variants[1];
+    let turn = ["", " ↺90°", " ↺180°", " ↺270°"][usize::from(p.orientation % 4)];
+    let name = h.get_by_label(&format!("{model}{turn}")).rect();
+    h.hover_at(name.center_top() - egui::vec2(0.0, 40.0));
+    h.run_steps(60);
+    h.render().unwrap().save(dir.join("hovered.png")).unwrap();
+    h.render().unwrap().save(dir.join("usual.png")).unwrap();
 }
 
 /// The model of tile `tile` of the test area's tileset (Rural): its
@@ -22014,7 +22298,16 @@ fn properties_is_the_last_item_of_the_area_and_tree_menus() {
     let tile = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
     right_click(&mut h, tile);
     let items = menu_items(&h, "Tile Properties…");
-    assert_eq!(items, ["Next Variant", "Previous Variant", "Delete", "Tile Properties…"]);
+    assert_eq!(
+        items,
+        [
+            "Next Tile Appearance",
+            "Previous Tile Appearance",
+            "Rotate Tile",
+            "Delete",
+            "Tile Properties…"
+        ]
+    );
 }
 
 /// An inventory row's right-click menu ends with Properties, as Aurora's

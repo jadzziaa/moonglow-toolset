@@ -3,7 +3,7 @@ type: Manual Page
 title: Coming from Aurora
 description: For builders who know Aurora - the Aurora problems Moonglow doesn't have, the habits to change, what is easy to miss, and going back to Aurora.
 tags: [manual, aurora]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T22:26:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T11:57:32Z }
 ---
 
 # Coming from Aurora
@@ -55,11 +55,13 @@ Each names what Aurora does, then what Moonglow does instead.
   exactly as it was read.
 - **EE data with no field.** Texture, animation and shader replacements,
   highlight colors, cursors and text bubbles (an editor's **Visuals**
-  page), area flags past interior, underground and natural, a tile's
-  replacement texture, an armor's per-part colors, a creature's
-  familiar, animal companion, domains and school, and stacks past the
-  base item's limit all needed a GFF editor or a script. Moonglow has fields for them, each checked against
-  what the game reads (see [Blueprints](05-blueprints.md)).
+  page), area flags past interior, underground and natural, an armor's
+  per-part colors, a creature's familiar, animal companion, domains and
+  school, and stacks past the base item's limit all needed a GFF editor
+  or a script. Moonglow has fields for them, each checked against what
+  the game reads (see [Blueprints](05-blueprints.md)). A tile's
+  replacement texture (`Tile_ReplaceTex`, BioWare's unused field) is
+  kept, and edited among the area's raw fields.
 - **One modal dialog at a time**, which can open behind the main window.
   Moonglow's editors are tabs and windows: keep a script, a conversation
   and the area open together, side by side or docked (see

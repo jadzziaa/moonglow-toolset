@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T11:37:43Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T11:57:32Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -510,6 +510,27 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   0 regards a player, or a player it, was not measured (no player joins
   a headless server); an encounter's creatures were not looked at. (S)
   (Jasperre's report, October 2026)
+
+- **A tile's replacement texture, out of Tile Properties:** the form
+  had a Replacement Texture (`Tile_ReplaceTex`, a `replacetexture.2da`
+  row for a texture named `replace_tex` in the tile's model); a builder
+  called it untested and likely not working, and it was taken out
+  (2026-10-22). What is known: the server keeps the byte
+  (`engine_ee_fields.rs`, `ObjectToJson`); nwn.wiki calls it BioWare's
+  unused functionality ("Replacing Simple Textures", "2da Files"); the
+  game's `replacetexture.2da` has two rows, both `T_Flag02`; the one
+  model with a `replace_tex` texture, `tms01_c08_01`, is in no tileset
+  (not in `tms01.set`); none of BioWare's 20 campaign modules
+  (`data/nwm`) writes the field. Not known: whether the client draws
+  it. To settle it: a scratch user directory whose `override` has a
+  copy of `tms01.set` with a tile's model made `tms01_c08_01` (its
+  `.wok` checked), an area of that tile with and without the field,
+  screenshotted with `tools/nwclient/run-client.sh` (two client runs;
+  the pictures differing is the answer). One in a file is kept, shown
+  and editable in the raw fields, and the area view still draws it
+  (`mg-area` `scene.rs`), unverified. If the client draws it, the
+  field can come back with that test. (S to M)
+  (from a builder's tile feedback, October 2026)
 
 ## Blueprint editors and inventories
 
@@ -1203,7 +1224,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **A press with Ctrl held is the camera's** with a tileset brush chosen
   (it painted when let go). A right drag that turns the view and ends
   where it began is still a right click to the brush (Raise/Lower
-  lowers; other brushes are put down). (S)
+  lowers; a terrain, the Eraser, Refine Tile and the tile tools open
+  the tile menu). (S)
   (from builders' reports after 1.14.1)
 - **Lights placed on the fly** ([the proposal](lights-proposal.md)):
   way A is in (the game's seven invisible light placeables from the
@@ -1246,6 +1268,25 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Tile Properties' Defaults:** not yet compared with Aurora for a
   lighting scheme whose colors aren't black
   (`docs/research/notes_tilesets.md`). (S) (from the research notes)
+- **Tile appearance and rotation:** Next and Previous Tile Appearance
+  step through the tiles that fit by their index in the tileset (Aurora
+  has no such step to compare with; its Shift + right click cycles the
+  tiles and their turns together, as Refine Tile does); the new tile
+  gets fresh lights, as a painted one does, not the old tile's colors.
+  Rotate Tile turns a tile only where the same tile still fits, and
+  refuses elsewhere: it doesn't turn the terrain under it (that would
+  repaint the neighbors), and whether Aurora or the engine has a turn
+  for a placed tile was not looked into (the engine draws any
+  `Tile_Orientation`; a tile turned against its neighbors' terrain
+  would show seams). (S) (from a builder's tile feedback, October 2026)
+- **A brush's right click is the tile menu,** not Aurora's putting the
+  brush down (Escape or the menu's Put Down does); Select Tiles is in
+  the Tiles palette too, but isn't turned on by choosing the Tiles
+  palette (Aurora's Terrain tab doesn't, and objects are still worked on
+  with it shown). Out of Select Tiles, a right click on the ground with
+  no object there starts the area's menu with the tile's items, whatever
+  objects are selected; Delete there is still the selection's. (S)
+  (from a builder's tile feedback, October 2026)
 
 ## The turning ring
 
