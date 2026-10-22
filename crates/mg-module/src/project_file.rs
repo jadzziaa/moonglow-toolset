@@ -310,6 +310,13 @@ impl ProjectFile {
                 }
             };
             let name = if own { format!("{USER_DIR}/{USER_FILE}") } else { FILE_NAME.to_string() };
+            // (One made by hand: its folder would be committed for all.)
+            if own && !root.join(USER_DIR).join(".gitignore").exists() {
+                p.warnings.push(format!(
+                    "{name}: {USER_DIR} has no .gitignore; put one there holding * so that \
+                     your own settings stay out of version control"
+                ));
+            }
             p.found |= !own;
             p.apply(&name, &source, own);
         }
@@ -641,6 +648,10 @@ keeper_variable = "tdod_store"
         );
         let ignore = std::fs::read_to_string(dir.join(USER_DIR).join(".gitignore")).unwrap();
         assert!(ignore.lines().any(|l| l == "*"));
+        // A folder made by hand, without it: said.
+        std::fs::remove_file(dir.join(USER_DIR).join(".gitignore")).unwrap();
+        let p = ProjectFile::read(&dir);
+        assert!(p.warnings[0].contains(".moonglow has no .gitignore"), "{:?}", p.warnings);
         std::fs::remove_file(dir.join(FILE_NAME)).unwrap();
         assert!(p.changed(), "a file deleted is a change");
         let _ = std::fs::remove_dir_all(&dir);

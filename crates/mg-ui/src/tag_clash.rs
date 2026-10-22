@@ -37,8 +37,11 @@ pub struct TagClash {
     pub others: usize,
 }
 
-/// The module's objects by tag, as they are now (unsaved edits too).
-pub(crate) fn index(ws: &mut Workspace) -> TagIndex {
+/// The module's objects by tag, as they are now (unsaved edits too). An
+/// area not yet open is read from the module's copy and not kept: the
+/// workspace's documents are written back at a save, and a module
+/// folder's file would be rewritten for one only read here.
+pub(crate) fn index(ws: &Workspace) -> TagIndex {
     let mut keys: Vec<ResKey> = ws
         .module
         .keys()
@@ -48,10 +51,20 @@ pub(crate) fn index(ws: &mut Workspace) -> TagIndex {
     keys.sort();
     let mut index = TagIndex::default();
     for key in keys {
-        let Ok(doc) = ws.doc(&key) else { continue };
+        let read;
+        let root = match ws.loaded(&key) {
+            Some(doc) => &doc.root,
+            None => match ws.module.gff(&key) {
+                Some(Ok(g)) => {
+                    read = g;
+                    &read.root
+                }
+                _ => continue,
+            },
+        };
         match key.restype {
-            ResType::ARE => index.add_area(key.resref, &doc.root),
-            _ => index.add_git(key.resref, &doc.root),
+            ResType::ARE => index.add_area(key.resref, root),
+            _ => index.add_git(key.resref, root),
         }
     }
     index

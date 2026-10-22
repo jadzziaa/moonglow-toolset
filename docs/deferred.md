@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T06:58:25Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T07:11:09Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2732,7 +2732,9 @@ and duplicate tags on paste. What is left:
   holds other modules (a `NAME.moonglow.toml` beside it would serve). (S)
 - **`[builder] code` is read, not used:** the wizards and Add to Palette
   don't start new ResRefs with it yet (the proposal's C1); nothing writes
-  `.moonglow/user.toml` but a test (no form for it). (S–M)
+  `.moonglow/user.toml` but a test (no form for it), so its folder's
+  `.gitignore` is the builder's to make (the log warns without it).
+  (S–M)
 - **No form for the project file:** it is written by hand; Moonglow
   reads it and says what it doesn't understand. (M)
 - **The project file is read again only with reloading on** (Options ›
@@ -2756,6 +2758,11 @@ and duplicate tags on paste. What is left:
   rocks or posts asks each time (Keep Tags, or the project's
   `"unique"`); leaving out static placeables, or tags no script
   names, would be a choice for the owner. (S)
+- **A paste reads every area's objects for their tags:** those not open
+  are parsed from the module each time (not kept, so that a save doesn't
+  rewrite them); in a persistent world of hundreds of areas a paste may
+  take a moment. An index kept by the workspace's revision would answer
+  at once. (S)
 - **Verify's `tag-unique` covers the project's patterns only:** no check
   of every duplicate tag (scenery shares tags by design). (S)
 - **Which object `GetObjectByTag` takes of several** was measured for

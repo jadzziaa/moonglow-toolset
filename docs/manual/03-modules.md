@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, the project file (moonglow.toml), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T06:58:24Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T07:11:09Z }
 ---
 
 # Modules
@@ -276,9 +276,10 @@ a value of the wrong kind (`moonglow.toml:12: "colour" is not a key of
 rules are left out until it is mended.
 
 **Each builder's own settings** go in `.moonglow/user.toml` in the same
-folder, never in the file the team shares. Moonglow writes a `.gitignore`
-into `.moonglow` when it makes the folder, so that it stays out of
-version control without a line in the project's own. It holds
+folder, never in the file the team shares. Nothing in Moonglow writes
+it yet: make the folder by hand, with a `.gitignore` in it holding `*`,
+so that it stays out of version control without a line in the project's
+own (the log warns while `.moonglow` has none). It holds
 `[builder] code`, the builder's code, which Moonglow reads but does not
 use yet (new ResRefs are to start with it). A team's section put there,
 or `[builder]` put in the team's file, is said and left out.
