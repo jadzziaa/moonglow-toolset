@@ -82,6 +82,8 @@ rodio = { version = "0.22", default-features = false, features = ["playback"] }
 symphonia = { version = "0.6", default-features = false, features = ["adpcm", "mp3", "pcm", "wav"] }
 thiserror = "2"
 toml = "1"
+# (Writing the project file's plugin tables in place, the rest of it as written.)
+toml_edit = "0.25"
 # (`naga-ir`: the game's shaders reach wgpu as naga modules, mg-shader's.)
 wgpu = { version = "30", features = ["naga-ir"] }
 # (Reading a plugin's archive: flate2 with zlib-rs is built in already.)

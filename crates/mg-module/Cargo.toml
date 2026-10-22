@@ -26,6 +26,7 @@ mg-script.workspace = true
 regex-lite.workspace = true
 serde_json.workspace = true
 toml.workspace = true
+toml_edit.workspace = true
 thiserror.workspace = true
 mg-tlk.workspace = true
 png.workspace = true
