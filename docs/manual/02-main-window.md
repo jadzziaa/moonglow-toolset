@@ -1,7 +1,7 @@
 ---
 type: Manual Page
 title: The main window
-description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
+description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
 generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T01:16:50Z }
 ---
@@ -357,3 +357,16 @@ Messages go to the log at the bottom: what was opened or saved, compiler
 errors, warnings about missing resources. Warnings are yellow, errors red.
 **Clear**, in its right corner (or View › Clear Log), empties it: a
 second Verify's report isn't then mistaken for the first's.
+
+## Screen readers and desktop agents
+
+Moonglow's controls are offered to the system's accessibility interface
+(UI Automation on Windows, the accessibility API on macOS, AT-SPI on
+Linux), so a screen reader, or a program that drives desktop
+applications, can read them by name and press them. Moonglow builds that
+description only while such a program asks for it; otherwise it costs
+nothing. On Linux it is offered while the desktop says a screen reader
+is on: start one (Orca), or turn the setting on for the session with
+`busctl --user set-property org.a11y.Bus /org/a11y/bus org.a11y.Status
+ScreenReaderEnabled b true`. The Flatpak is allowed to ask the desktop
+for that setting.

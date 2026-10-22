@@ -44,7 +44,7 @@ anyhow = "1"
 base64 = "0.23"
 bytemuck = { version = "1", features = ["derive"] }
 clap = { version = "4", features = ["derive"] }
-eframe = { version = "0.36", default-features = false, features = ["wgpu", "default_fonts", "links", "wayland", "x11", "persistence"] }
+eframe = { version = "0.36", default-features = false, features = ["accesskit", "wgpu", "default_fonts", "links", "wayland", "x11", "persistence"] }
 egui = "0.36"
 egui-wgpu = "0.36"
 egui_commonmark = { version = "0.25", default-features = false, features = ["pulldown_cmark"] }
