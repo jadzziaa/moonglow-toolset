@@ -45,6 +45,14 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="2.0.0" date="2026-10-21">
+      <description>
+        <p>Areas, models and previews drawn with the game's own shaders: the
+        stock ones, a hak's changes to them and the custom shaders materials
+        name, compiled on your machine. Also userpatch.ini's haks, a
+        placeable's illumination, and many script editor improvements.</p>
+      </description>
+    </release>
     <release version="1.37.0" date="2026-10-21">
       <description>
         <p>Script parameters kept through Ink and Twine, 2DA columns sized
