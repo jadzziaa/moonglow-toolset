@@ -914,7 +914,7 @@ and says what is to come of it (each key may be left out):
 | `findings` | How many findings, where their list is not given. |
 | `fix` | Make the fixes of this label (as Verify's buttons would), then hold the module to the keys below. |
 | `left` | How many findings the check makes once the fixes are made. |
-| `[[test.field]]` | A field after the edits: `resource`, `field` (its path, as `ctx.edit` takes it) and `value` (text, a number, a localized string's English text), or `absent = true`. |
+| `[[test.field]]` | A field after the edits: `resource`, `field` (its path, as `ctx.edit` takes it) and `value` (text, a number, a localized string's English text), or `absent = true`. `field` may be a list's item (`Equip_ItemList[2]`, `/VarTable[0]`; since Moonglow 2.1.1): it is there, or with `absent = true` it is not; an item has no `value`. |
 | `edits`, `resources` | How many edits there were, and which resources they change. |
 | `log` | Lines the log must have: each is part of one. |
 | `error` | The job fails, saying this (part of what it says). |

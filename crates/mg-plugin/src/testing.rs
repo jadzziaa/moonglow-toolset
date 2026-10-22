@@ -42,7 +42,7 @@ use std::sync::Arc;
 use mg_core::{Codepage, Gender, Language};
 use mg_edit::fix::{Found, Guard};
 use mg_edit::wire::field_from_str;
-use mg_edit::{Command, Workspace};
+use mg_edit::{Command, GffPath, Step, Workspace};
 use mg_gff::Value;
 use mg_module::Module;
 use mg_module::doctor::Severity;
@@ -182,10 +182,11 @@ struct Expected {
 #[serde(deny_unknown_fields)]
 struct FieldWanted {
     resource: String,
-    /// Its path (`Tag`, `/Placeable List[0]/Tag`).
+    /// Its path (`Tag`, `/Placeable List[0]/Tag`), or a list's item's
+    /// (`Equip_ItemList[2]`), which is there or not and has no value.
     field: String,
     value: Option<toml::Value>,
-    /// The field is not there.
+    /// The field (or the item) is not there.
     #[serde(default)]
     absent: bool,
 }
@@ -710,6 +711,21 @@ fn field_as_wanted(ws: &mut Workspace, f: &FieldWanted, codepage: Codepage) -> R
     let at = format!("{} {}", f.resource, f.field);
     let key = ResKey::from_filename(&f.resource)
         .ok_or_else(|| format!("{:?} is not a resource's name", f.resource))?;
+    // A list's item (`Equip_ItemList[2]`, `/VarTable[0]`): there or not.
+    let full = if f.field.starts_with('/') { f.field.clone() } else { format!("/{}", f.field) };
+    if let Ok(path) = full.parse::<GffPath>()
+        && let Some(Step::Item(..)) = path.0.last()
+    {
+        if f.value.is_some() {
+            return Err(format!("{at}: a list's item has no value: name a field of it"));
+        }
+        let doc = ws.doc(&key).map_err(|e| format!("{at}: {e}"))?;
+        return match (path.get(&doc.root).is_some(), f.absent) {
+            (false, true) | (true, false) => Ok(()),
+            (true, true) => Err(format!("{at} is there, and was to be gone")),
+            (false, false) => Err(format!("{at} is not there")),
+        };
+    }
     let (path, label) = field_from_str(&f.field).map_err(|e| format!("{at}: {e}"))?;
     let doc = ws.doc(&key).map_err(|e| format!("{at}: {e}"))?;
     let value = path.get(&doc.root).and_then(|s| s.get(&label));

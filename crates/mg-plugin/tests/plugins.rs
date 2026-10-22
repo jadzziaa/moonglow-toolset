@@ -755,6 +755,32 @@ fn a_plugin_s_own_tests_say_what_is_not_as_wanted() {
         resource = "guard.utc"
         field = "Tag"
         value = "GATE_GUARD"
+        [[test.field]]
+        resource = "guard.utc"
+        field = "ClassList[0]"
+        [[test.field]]
+        resource = "guard.utc"
+        field = "/ClassList[1]"
+        absent = true
+        [[test.field]]
+        resource = "guard.utc"
+        field = "/Equip_ItemList[0]"
+        absent = true
+
+        [[test]]
+        name = "list items there and gone"
+        command = "fix-tags"
+        [[test.field]]
+        resource = "guard.utc"
+        field = "/ClassList[0]"
+        absent = true
+        [[test.field]]
+        resource = "guard.utc"
+        field = "ClassList[3]"
+        [[test.field]]
+        resource = "guard.utc"
+        field = "ClassList[0]"
+        value = 1
 
         [[test]]
         name = "wrong finding"
@@ -817,6 +843,15 @@ fn a_plugin_s_own_tests_say_what_is_not_as_wanted() {
         assert!(field.contains(says), "{says}: {field}");
     }
     assert!(!field.contains("Comment") && !field.contains("Wis"), "{field}");
+    // A list's item, as a field of the test: there or gone, never a value.
+    assert_eq!(
+        of("list items there and gone"),
+        [
+            "guard.utc /ClassList[0] is there, and was to be gone",
+            "guard.utc ClassList[3] is not there",
+            "guard.utc ClassList[0]: a list's item has no value: name a field of it",
+        ]
+    );
     assert_eq!(of("it was to fail"), ["it was to fail, saying \"nope\", and did not"]);
     assert!(of("both")[0].contains("one thing"));
     let b = results.iter().find(|r| r.file == "b.toml").unwrap();
