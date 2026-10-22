@@ -24,6 +24,11 @@ pub(crate) const PAINT: &str = "✏";
 pub(crate) const PROPERTIES: &str = "ℹ";
 pub(crate) const CAMERA: &str = "🎥";
 pub(crate) const GO_TO_START: &str = "🏃";
+/// An area another builder has claimed, one this builder has, and one
+/// merged (its Tag and ResRef kept): the module tree's marks.
+pub(crate) const CLAIMED: &str = "🔒";
+pub(crate) const CLAIMED_MINE: &str = "✔";
+pub(crate) const MERGED: &str = "📌";
 /// Prefabs: groups of placed objects kept to place again.
 pub(crate) const PREFABS: &str = "🗐";
 

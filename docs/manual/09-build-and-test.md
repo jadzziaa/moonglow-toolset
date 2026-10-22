@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync, long work, Verify Module and the fixes beside its findings, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:14:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:21:29Z }
 ---
 
 # Build, verify and test
@@ -123,6 +123,7 @@ crash Aurora with an access violation that names nothing:
 | A creature, placeable, door or encounter of the PC faction (a warning; not a trigger, which Aurora gives faction 0 when its blueprint has none) | the PC faction is the players' alone: the game puts such a creature in Hostile, and creatures regard the others as they regard players |
 | An area with variables in its ARE (as Moonglow wrote them before 1.34.3) | the game reads an area's variables from its GIT, so a script reads 0 for them; opening the area's Variables moves them, as does its fix |
 | A tag the [project file](03-modules.md#the-project-file-moonglowtoml) says must be unique (`[tags] unique`) on more than one area or placed object (a warning, `tag-unique`) | `GetObjectByTag` finds only one of them: a start waypoint copied and left behind keeps new characters there. Its fix gives the others tags of their own (`TAG_2`, `TAG_3`…; an area keeps its tag); what the scripts look for is yours to check |
+| An area the project's [claims table](03-modules.md#protected-areas) says is merged that the module no longer has (`claims-merged`), or whose Tag is not the one the table records (`claims-tag`); errors | the game keeps players' first visits by an area's ResRef and their positions by its Tag: those who were there lose them |
 | A tile model with over 10,000 faces | can crash Aurora when painting |
 | A hak over 2 GiB with files starting past that mark | the game can't read those files and doesn't look for them in lower haks (a 2DA reads as empty, a script doesn't run); nor do Aurora and nwsync |
 

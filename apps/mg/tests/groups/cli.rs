@@ -6,6 +6,8 @@
 mod areas;
 #[path = "../attach.rs"]
 mod attach;
+#[path = "../claims.rs"]
+mod claims;
 #[path = "../compile.rs"]
 mod compile;
 #[path = "../dialog_io.rs"]

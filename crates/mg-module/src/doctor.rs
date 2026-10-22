@@ -65,10 +65,12 @@ pub enum Check {
     VarValue,
     VarObject,
     VarName,
+    ClaimsMerged,
+    ClaimsTag,
 }
 
 impl Check {
-    pub const ALL: [Check; 31] = [
+    pub const ALL: [Check; 33] = [
         Check::CustomTlk,
         Check::ErfSize,
         Check::SetRead,
@@ -100,6 +102,8 @@ impl Check {
         Check::VarValue,
         Check::VarObject,
         Check::VarName,
+        Check::ClaimsMerged,
+        Check::ClaimsTag,
     ];
 
     pub fn id(self) -> &'static str {
@@ -135,6 +139,8 @@ impl Check {
             Check::VarValue => "var-value",
             Check::VarObject => "var-object",
             Check::VarName => "var-name",
+            Check::ClaimsMerged => "claims-merged",
+            Check::ClaimsTag => "claims-tag",
         }
     }
 
@@ -200,6 +206,14 @@ impl Check {
                 "a variable named as the project's are (variables.toml's undescribed) is \
                  described, and a described one is named in the case it is described in"
             }
+            Check::ClaimsMerged => {
+                "an area the project's claims table says is merged (in the game) is in the module \
+                 under its ResRef, which keeps players' first visits"
+            }
+            Check::ClaimsTag => {
+                "a merged area's Tag is the one the claims table records, which keeps players' \
+                 positions"
+            }
         }
     }
 
@@ -233,7 +247,11 @@ impl Check {
             | Check::VarValue
             | Check::VarObject
             | Check::VarName => Group::Objects,
-            Check::CustomTlk | Check::ErfSize | Check::NuiSources => Group::Module,
+            Check::CustomTlk
+            | Check::ErfSize
+            | Check::NuiSources
+            | Check::ClaimsMerged
+            | Check::ClaimsTag => Group::Module,
         }
     }
 }
@@ -448,6 +466,7 @@ pub fn examine(module: &Module, resman: &ResMan, tlk: TalkTables) -> Vec<Finding
     pc_faction(&mut d, module);
     area_variables(&mut d, module);
     unique_tags(&mut d, module);
+    merged_areas(&mut d, module);
     described_variables(&mut d, module);
     described_tables(&mut d, module);
     custom_tlk(&mut d, module);
@@ -1589,6 +1608,51 @@ fn unique_tags(d: &mut Doctor, module: &Module) {
     }
 }
 
+/// The areas the project's claims table says are merged (in the game):
+/// still in the module under their ResRef (the game keeps players' first
+/// visits by it), and with the Tag the table records (their positions).
+fn merged_areas(d: &mut Doctor, module: &Module) {
+    let pf = &module.project_file;
+    let Some(table) = &pf.claim_table else { return };
+    let file = pf.claims.file.as_deref().unwrap_or("the claims table");
+    for c in table.rows.iter().filter(|c| c.merged()) {
+        let key = ResKey::new(c.area, ResType::ARE);
+        let at = format!("{file}, row {}", c.row);
+        match module.gff(&key) {
+            None => d.push(
+                Severity::Error,
+                Check::ClaimsMerged,
+                "module",
+                key,
+                at,
+                format!(
+                    "{} is merged ({file}), and the module has no area of that ResRef: the game \
+                     keeps players' first visits by it, and an area renamed is another area to it",
+                    c.area
+                ),
+            ),
+            Some(Ok(are)) => {
+                let now = String::from_utf8_lossy(are.root.string("Tag").unwrap_or_default());
+                if let Some(want) = c.tag.as_deref().filter(|w| *w != now) {
+                    d.push(
+                        Severity::Error,
+                        Check::ClaimsTag,
+                        "module",
+                        key,
+                        at,
+                        format!(
+                            "{}'s Tag is {now}, and it was merged as {want} ({file}): a \
+                             character's position is kept by the area's Tag",
+                            c.area
+                        ),
+                    );
+                }
+            }
+            Some(Err(_)) => {}
+        }
+    }
+}
+
 /// The module's variables held to the project's descriptions
 /// (`variables.toml`): the type each is of (a variable read as another
 /// type is that type's empty value, `engine_local_variables`), its value,
@@ -2179,6 +2243,57 @@ mod tests {
             found[0].message
         );
         assert_eq!(Group::of(found[0]), Group::Objects);
+    }
+
+    /// The Domains of Dread's builder proposal, C7: a merged area keeps its
+    /// ResRef and the Tag the claims table records.
+    #[test]
+    fn a_merged_area_renamed_or_retagged_is_found() {
+        let dir = mg_testkit::scratch_dir("doctor-merged-areas");
+        let mut m = Module::new();
+        for (area, tag) in [("kz_square", "KZ_SQUARE"), ("kz_gate", "KZ_GATE_2")] {
+            let mut are = Gff::new(*b"ARE ");
+            are.root.set("Tag", Value::String(tag.as_bytes().to_vec()));
+            m.set_gff(key(area, ResType::ARE), &are).unwrap();
+        }
+        m.save_as(&crate::ModuleLocation::Folder(dir.clone())).unwrap();
+        std::fs::write(
+            dir.join("claims.2da"),
+            "2DA V2.0\n\n Area Builder Status Date Tag\n0 kz_square ab merged x KZ_SQUARE\n\
+             1 kz_gate **** merged x KZ_GATE\n2 kz_bridge cd merged x KZ_BRIDGE\n\
+             3 kz_mill cd claimed x ****\n",
+        )
+        .unwrap();
+        let m = Module::open(&dir).unwrap();
+        let f = examine(&m, &resman(&[]), TalkTables::default());
+        assert!(f.iter().all(|x| !x.check.starts_with("claims-")), "no project file: {f:?}");
+        std::fs::write(dir.join("moonglow.toml"), "[claims]\nfile = \"claims.2da\"\n").unwrap();
+        let m = Module::open(&dir).unwrap();
+        let f = examine(&m, &resman(&[]), TalkTables::default());
+        let found: Vec<(&str, &str, String)> = f
+            .iter()
+            .filter(|x| x.check.starts_with("claims-"))
+            .map(|x| (&*x.check, &*x.at, x.resource.to_string()))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                ("claims-merged", "claims.2da, row 2", "kz_bridge.are".into()),
+                ("claims-tag", "claims.2da, row 1", "kz_gate.are".into()),
+            ]
+        );
+        let tag = f.iter().find(|x| x.check == "claims-tag").unwrap();
+        assert_eq!(
+            tag.message,
+            "kz_gate's Tag is KZ_GATE_2, and it was merged as KZ_GATE (claims.2da): a character's \
+             position is kept by the area's Tag"
+        );
+        assert!(
+            f.iter()
+                .filter(|x| x.check.starts_with("claims-"))
+                .all(|x| x.severity == Severity::Error)
+        );
+        assert_eq!(Group::of(tag), Group::Module);
     }
 
     #[test]

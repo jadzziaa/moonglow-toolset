@@ -117,6 +117,8 @@ pub enum Item {
     Wizards,
     /// The enabled plugins' commands.
     PluginCommands,
+    /// The commands the project names (moonglow.toml's `[commands]`).
+    Project,
 }
 
 use Item::{Do, Separator, Sub};
@@ -133,6 +135,7 @@ pub const MENUS: [(&str, &[Item]); 8] = [
             Do(Id::Save),
             Do(Id::SaveAs),
             Do(Id::SaveAsProject),
+            Item::Project,
             Separator,
             Do(Id::Import),
             Do(Id::Export),
@@ -258,7 +261,11 @@ impl Id {
                     Item::Wizards => {
                         out.extend(crate::blueprint_wizard::KINDS.into_iter().map(Id::Wizard));
                     }
-                    Separator | Item::Recent | Item::Prefabs | Item::PluginCommands => {}
+                    Separator
+                    | Item::Recent
+                    | Item::Prefabs
+                    | Item::PluginCommands
+                    | Item::Project => {}
                 }
             }
         }
@@ -1301,6 +1308,30 @@ fn menu(app: &mut Moonglow, ui: &mut Ui, items: &[Item], level: usize) {
                     ui.separator();
                 }
             }
+            Item::Project => {
+                let commands =
+                    crate::project_commands::commands(app).map(|(_, c)| c).unwrap_or_default();
+                let enabled = !commands.is_empty();
+                submenu(app, ui, level, "Project", enabled, |app, ui| {
+                    for c in commands {
+                        let name = format!("{}…", c.label);
+                        let can = c.run.is_some();
+                        let (entry, chosen) =
+                            row(app, level + 1, &name, egui::Button::new(&name), can);
+                        let tip = crate::project_commands::tip(&c);
+                        let r = ui.add_enabled(can, entry);
+                        let r = r.on_hover_text(&tip).on_disabled_hover_text(&tip);
+                        if r.clicked() || chosen {
+                            app.actions.push(Action::ProjectCommand(c.name));
+                            egui::Popup::close_all(ui.ctx());
+                        }
+                    }
+                })
+                .on_disabled_hover_text(
+                    "The commands a project names in its moonglow.toml ([commands]): its update \
+                     and submit scripts. A module folder or nasher project with them.",
+                );
+            }
             Item::Recent => {
                 let recent = app.settings.recent.clone();
                 let enabled = !recent.is_empty();
@@ -1378,7 +1409,9 @@ fn menu_of(id: Id) -> Option<&'static str> {
             Do(other) => *other == id,
             Sub(_, items) => has(items, id),
             Item::Wizards => matches!(id, Id::Wizard(_)),
-            Separator | Item::Recent | Item::Prefabs | Item::PluginCommands => false,
+            Separator | Item::Recent | Item::Prefabs | Item::PluginCommands | Item::Project => {
+                false
+            }
         })
     }
     MENUS.iter().find(|(_, items)| has(items, id)).map(|(name, _)| *name)

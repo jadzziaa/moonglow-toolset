@@ -3589,3 +3589,114 @@ fn described_variables_and_the_builder_code() {
         }
     }
 }
+
+/// The Domains of Dread's builder proposal, C6 to C8: an area another
+/// builder claimed (its banner, the module tree's marks), a merged area's
+/// Tag about to change, a save of an unclaimed area, File › Project, and
+/// the question before a project's command first runs.
+#[test]
+#[ignore]
+fn claims_and_project_commands() {
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens-claims");
+    let install = GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut rng = fastrand::Rng::with_seed(7);
+    let mut m = new_module(&game, "Krezk", &mut rng).unwrap();
+    let mut areas = Vec::new();
+    for name in ["Krezk Square", "Abbey Gate", "Mill"] {
+        let spec = AreaSpec {
+            name: name.into(),
+            tileset: mg_core::ResRef::from_str("ttr01").unwrap(),
+            width: 4,
+            height: 4,
+        };
+        areas.push(add_area(&mut m, &game, &spec, &mut rng).unwrap());
+    }
+    let project = mg_testkit::scratch_dir("screens-claims").join("krezk");
+    m.save_as(&mg_module::ModuleLocation::Folder(project.clone())).unwrap();
+    std::fs::write(
+        project.join("moonglow.toml"),
+        "[claims]\nfile = \"builders/claims.2da\"\nothers = \"read-only\"\nunclaimed = \"warn\"\n\n\
+         [commands]\nupdate = \"bin/update\"\nsubmit = { run = \"bin/submit\", label = \"Submit for Review\" }\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(project.join("builders")).unwrap();
+    std::fs::write(
+        project.join("builders/claims.2da"),
+        format!(
+            "2DA V2.0\n\n    Area             Builder  Status   Date        Tag\n\
+             0   {:<16} cd       claimed  2026-10-20  ****\n\
+             1   {:<16} ab       merged   2026-10-01  ****\n",
+            areas[0], areas[1]
+        ),
+    )
+    .unwrap();
+    mg_module::project_file::ProjectFile::set_builder_code(&project, Some("ab")).unwrap();
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.settings.game_shaders = Some(false);
+    app.settings.no_last_area = true;
+    app.open_module(&project);
+    app.open_palette = false;
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(areas[0])));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 760.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(6);
+    shoot(&mut h, &dir, "claims-area-read-only");
+    // A merged area: its note, and its Tag about to change.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(areas[1])));
+    h.run_steps(6);
+    let key = ResKey::new(areas[1], ResType::ARE);
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "Tag",
+        vec![mg_edit::Edit::SetField {
+            key,
+            path: GffPath::root(),
+            label: "Tag".into(),
+            value: Some(mg_gff::Value::String(b"ABBEY_GATE_2".to_vec())),
+        }],
+    )));
+    h.run_steps(3);
+    shoot(&mut h, &dir, "claims-protected-tag");
+    h.get_by_label("Change It Anyway").click();
+    h.run_steps(3);
+    // An unclaimed area changed, and saved.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(areas[2])));
+    h.run_steps(6);
+    let key = ResKey::new(areas[2], ResType::ARE);
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "Tag",
+        vec![mg_edit::Edit::SetField {
+            key,
+            path: GffPath::root(),
+            label: "Tag".into(),
+            value: Some(mg_gff::Value::String(b"MILL_2".to_vec())),
+        }],
+    )));
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run_steps(3);
+    shoot(&mut h, &dir, "claims-save-unclaimed");
+    h.get_by_label("Save Anyway").click();
+    h.run_steps(3);
+    // File › Project, and the question before a command first runs.
+    h.get_by_label("File").click();
+    h.run_steps(2);
+    h.get_by_label("Project").hover();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "claims-project-menu");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::ProjectCommand("update".into()));
+    h.run_steps(3);
+    shoot(&mut h, &dir, "claims-command-trust");
+}

@@ -856,7 +856,13 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                                 ui.data_mut(|d| d.insert_temp(opened, out));
                             }
                         }
-                        ui.add(egui::Button::selectable(in_hand || at_row, label).sense(sense))
+                        let r = ui
+                            .add(egui::Button::selectable(in_hand || at_row, label).sense(sense));
+                        // Who holds it (the project's claims table).
+                        if is_area {
+                            crate::claims::tree_mark(crate::claims::of(&app.ws), ui, k.resref);
+                        }
+                        r
                     });
                     // (A row out of sight is given this height.)
                     debug_assert!(
@@ -979,6 +985,8 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                             if ui.button("View Area").clicked() {
                                 app.actions.push(Action::OpenTab(Tab::Area(k.resref)));
                             }
+                            let p = crate::claims::of(&app.ws);
+                            crate::claims::menu_items(p, &mut app.actions, ui, k.resref);
                             if ui
                                 .button("Export Minimap…")
                                 .on_hover_text("The area's map as the game shows it, as a PNG")
