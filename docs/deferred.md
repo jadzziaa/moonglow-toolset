@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:21:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:32:34Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -3000,10 +3000,6 @@ File › Project. What is left:
   a password waits until canceled; its stdin is closed). (S)
 - **The project's commands are not in the Command Palette** nor given
   keys (Options › Keyboard): only File › Project. (S)
-- **What was allowed rests on `.moonglow`'s own `.gitignore`:** a
-  checkout that committed a `.moonglow/user.toml` by force would carry
-  commands allowed for everyone who opens it. A seal kept outside the
-  checkout (Moonglow's settings) would close that. (S)
 - **The project's commands on Windows** (`cmd /C` with the command's
   text as written, no console window) are tested by CI's runs of the
   UI tests, not on a builder's machine with a real update script. (S,

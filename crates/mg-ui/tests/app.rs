@@ -22630,8 +22630,14 @@ fn a_project_s_command_is_allowed_once_and_run_after_a_save() {
     h.run();
     assert!(logged(&h, "Update: done"), "{:?}", h.state().log.entries);
     assert!(logged(&h, "  said"));
-    let user = std::fs::read_to_string(dir.join(".moonglow/user.toml")).unwrap();
-    assert!(user.contains("[allowed_commands]\nupdate = "), "{user}");
+    // Kept in Moonglow's settings, by the folder's canonical path, never
+    // in the project's files.
+    let project = std::fs::canonicalize(&dir).unwrap().display().to_string();
+    assert_eq!(
+        h.state().settings.allowed_commands,
+        [(project, "update".to_string(), update.to_string())]
+    );
+    assert!(!dir.join(".moonglow").exists(), "nothing written into the project");
     // What it made is read into the module (as files changed outside are).
     let made = ResKey::parse("made", ResType::NSS).unwrap();
     assert!(h.state().ws.as_ref().unwrap().module.contains(&made), "{:?}", h.state().log.entries);
@@ -22662,6 +22668,46 @@ fn a_project_s_command_is_allowed_once_and_run_after_a_save() {
     h.get_all_by_label("Cancel").last().unwrap().click();
     h.run();
     assert!(!logged(&h, "exit code 4"), "not run");
+}
+
+/// A trust decision is never read from the checkout: a repository that
+/// committed a `.moonglow/user.toml` allowing its own command is still
+/// asked about it (and the log says the file's `[allowed_commands]` is not
+/// read); one allowed for another folder is asked about here too.
+#[test]
+fn commands_allowed_by_a_committed_user_file_are_still_asked_about() {
+    let rules = "[commands]\nupdate = \"echo said\"\n";
+    let dir = project_folder("ui-project-commands-committed", &[("moonglow.toml", rules)]);
+    mg_module::project_file::ProjectFile::write_user(
+        &dir,
+        "[builder]\ncode = \"ab\"\n\n[allowed_commands]\nupdate = \"echo said\"\n",
+    )
+    .unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    // (Allowed, as it reads, for another project's folder.)
+    let elsewhere = mg_testkit::scratch_dir("ui-project-commands-elsewhere");
+    let elsewhere = std::fs::canonicalize(elsewhere).unwrap().display().to_string();
+    app.settings.allowed_commands.push((elsewhere, "update".into(), "echo said".into()));
+    app.open_module(&dir);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 700.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    assert!(logged(&h, "[allowed_commands] is not read"), "{:?}", h.state().log.entries);
+    assert_eq!(
+        h.state().ws.as_ref().unwrap().module.project_file.user.builder_code.as_deref(),
+        Some("ab"),
+        "the builder code is still read from it"
+    );
+    h.state_mut().actions.push(mg_ui::Action::ProjectCommand("update".into()));
+    h.run();
+    h.run();
+    h.get_by_label("Run a Project Command?");
+    assert!(!logged(&h, "Update: done"), "not run unasked");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run();
+    assert!(!logged(&h, "Update: done"));
 }
 
 /// File › Project is there and off for a project that names no commands.

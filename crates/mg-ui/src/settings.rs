@@ -182,6 +182,11 @@ pub struct Settings {
     /// answer (`yes`, or `path:` and the folder chosen). Forgotten when
     /// the plugin is disabled, removed or installed anew.
     pub plugin_grants: Vec<(String, String, String)>,
+    /// The projects' commands (moonglow.toml's `[commands]`) allowed to
+    /// run: the project's folder (its canonical path), the command's name
+    /// and its text as allowed (another text asks again). Kept here, not
+    /// in the project's files, which a repository could carry.
+    pub allowed_commands: Vec<(String, String, String)>,
     /// The game install, when not the detected one.
     pub game_root: Option<PathBuf>,
     /// The NWN user folder (haks, override, modules), when not the detected

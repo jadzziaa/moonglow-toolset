@@ -170,10 +170,6 @@ pub struct UserSettings {
     /// proposes for new resources start with (by `[resrefs] pattern`),
     /// in lower case.
     pub builder_code: Option<String>,
-    /// `[allowed_commands]`: the project's commands the builder allowed
-    /// to run, each by its name and the text it had then (another text
-    /// asks again).
-    pub allowed_commands: Vec<(String, String)>,
 }
 
 /// A command the project names (`[commands]`), which File › Project runs
@@ -523,24 +519,6 @@ pub fn command_name(name: &str) -> bool {
     !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
-/// Text as a TOML string, in quotes.
-fn toml_string(text: &str) -> String {
-    let mut out = String::from("\"");
-    for c in text.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\t' => out.push_str("\\t"),
-            '\r' => out.push_str("\\r"),
-            c if c.is_control() => out.push_str(&format!("\\u{:04X}", c as u32)),
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-    out
-}
-
 impl ProjectFile {
     /// Where a module's team file is: in a nasher project's root or a
     /// module folder; none for a module kept in one file (`.mod`), whose
@@ -757,22 +735,13 @@ impl ProjectFile {
                         }
                     }
                 }
-                ("allowed_commands", true) => {
-                    for e in r.section(entry) {
-                        let name = e.0.get_ref().to_string();
-                        if let Some(text) = r.text(e) {
-                            self.user.allowed_commands.retain(|(n, _)| *n != name);
-                            self.user.allowed_commands.push((name, text));
-                        }
-                    }
-                }
-                ("allowed_commands", false) => r.warn(
+                // (A trust decision is never read from the checkout: one a
+                // repository carries would run its commands unasked.)
+                ("allowed_commands", _) => r.warn(
                     key.span().start,
-                    format!(
-                        "[allowed_commands] is each builder's own: it goes in \
-                         {USER_DIR}/{USER_FILE} (Moonglow writes it when you allow a command), \
-                         never in the file the team shares"
-                    ),
+                    "[allowed_commands] is not read: Moonglow keeps the commands you allowed in \
+                     its own settings, never in the project's files, which a repository could \
+                     carry",
                 ),
                 ("builder", true) => {
                     for e in r.section(entry) {
@@ -905,32 +874,6 @@ impl ProjectFile {
     pub fn claims_path(&self) -> Option<PathBuf> {
         let root = self.path.as_deref()?.parent()?;
         self.claims.path_in(root)
-    }
-
-    /// Whether the builder allowed a command of the project to run as it
-    /// reads now.
-    pub fn command_allowed(&self, name: &str, run: &str) -> bool {
-        self.user.allowed_commands.iter().any(|(n, t)| n == name && t == run)
-    }
-
-    /// Records that the builder allows a command (as `run` reads), or no
-    /// longer does (`None`), in their own file, keeping the rest of it as
-    /// it is written.
-    pub fn set_allowed_command(root: &Path, name: &str, run: Option<&str>) -> std::io::Result<()> {
-        let invalid = |e: String| std::io::Error::new(std::io::ErrorKind::InvalidInput, e);
-        if !command_name(name) {
-            return Err(invalid(format!("\"{name}\" is not a command's name")));
-        }
-        let path = Self::user_path(root);
-        let text = match std::fs::read(&path) {
-            Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-            Err(e) => return Err(e),
-        };
-        let value = run.map(toml_string);
-        let text =
-            with_value(&text, "allowed_commands", name, value.as_deref()).map_err(invalid)?;
-        Self::write_user(root, &text)
     }
 
     /// How the ResRefs proposed for new resources are made: by the
@@ -1508,38 +1451,19 @@ keeper_variable = "tdod_store"
                 ("empty", "Empty", None),
             ]
         );
-        // Allowed in the builder's own file, by name and text; never by
-        // the team's.
-        let p = read("[allowed_commands]\nupdate = \"bin/update\"\n");
-        assert!(
-            p.warnings[0].contains("[allowed_commands] is each builder's own"),
-            "{:?}",
-            p.warnings
-        );
-        assert!(p.user.allowed_commands.is_empty());
-        let dir = mg_testkit::scratch_dir("project-file-allowed-commands");
-        std::fs::write(dir.join(FILE_NAME), "[commands]\nupdate = \"bin/update --all\"\n").unwrap();
-        ProjectFile::write_user(&dir, "# mine\n[builder]\ncode = \"ab\"\n").unwrap();
-        let p = ProjectFile::read(&dir);
-        assert!(!p.command_allowed("update", "bin/update --all"));
-        ProjectFile::set_allowed_command(&dir, "update", Some("bin/update --all")).unwrap();
-        ProjectFile::set_allowed_command(&dir, "submit", Some("say \"hi\" \\ there")).unwrap();
-        let text = std::fs::read_to_string(ProjectFile::user_path(&dir)).unwrap();
-        assert_eq!(
-            text,
-            "# mine\n[builder]\ncode = \"ab\"\n\n[allowed_commands]\nsubmit = \"say \\\"hi\\\" \\\\ \
-             there\"\nupdate = \"bin/update --all\"\n"
-        );
-        let p = ProjectFile::read(&dir);
-        assert_eq!(p.warnings, Vec::<String>::new());
-        assert!(p.command_allowed("update", "bin/update --all"));
-        assert!(p.command_allowed("submit", "say \"hi\" \\ there"));
-        assert!(!p.command_allowed("update", "bin/update"), "another text asks again");
-        assert_eq!(p.user.builder_code.as_deref(), Some("ab"), "the rest kept");
-        ProjectFile::set_allowed_command(&dir, "update", Some("bin/update")).unwrap();
-        ProjectFile::set_allowed_command(&dir, "submit", None).unwrap();
-        let p = ProjectFile::read(&dir);
-        assert_eq!(p.user.allowed_commands, [("update".to_string(), "bin/update".to_string())]);
-        assert!(ProjectFile::set_allowed_command(&dir, "a b", Some("x")).is_err());
+        // What was allowed is never read from the project's files, the
+        // builder's own included: a repository could carry them.
+        for own in [false, true] {
+            let mut p = ProjectFile::default();
+            p.apply("x.toml", "[builder]\n[allowed_commands]\nupdate = \"bin/update\"\n", own);
+            assert!(
+                p.warnings.iter().any(|w| w.starts_with(
+                    "x.toml:2: [allowed_commands] is not read: Moonglow keeps the commands you \
+                     allowed in its own settings"
+                )),
+                "{:?}",
+                p.warnings
+            );
+        }
     }
 }

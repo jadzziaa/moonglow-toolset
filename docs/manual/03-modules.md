@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:21:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:32:34Z }
 ---
 
 # Modules
@@ -438,10 +438,10 @@ folder, never in the file the team shares. Moonglow makes the folder
 with a `.gitignore` in it holding `*`, so that it stays out of version
 control without a line in the project's own (the log warns of a
 `.moonglow` made by hand without one). It holds `[builder] code`, your
-builder code (below), and `[allowed_commands]`, the project's commands
-you allowed to run ([below](#the-projects-commands)). A team's section
-put there, or one of these put in the team's file, is said and left
-out.
+builder code (below). A team's section put there, or `[builder]` put in
+the team's file, is said and left out. Which of the project's commands
+you allowed to run is never kept in the project's files
+([below](#the-projects-commands)).
 
 ### Your builder code
 
@@ -689,8 +689,12 @@ Choosing one:
    changes: **Run a Project Command?** shows what it runs and where. A
    project's files can name any program, and it runs as you, with
    everything you may do: allow it only if you trust where the project
-   came from. What you allowed is kept in your own `.moonglow/user.toml`
-   (`[allowed_commands]`, each command by its name and text). A command
+   came from. What you allowed is kept in Moonglow's own settings (in
+   your configuration folder), each command by the project folder's
+   full path, its name and its exact text: never in the project's
+   files, which a repository could carry. An `[allowed_commands]` found
+   in `moonglow.toml` or `.moonglow/user.toml` is not read (the log
+   says so). The same project in another folder asks again. A command
    never runs when a module opens.
 3. **Lets the project's files go**: it stops looking at them for changes
    made outside, and closes the module's haks, so that the command may

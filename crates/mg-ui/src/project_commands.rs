@@ -18,8 +18,11 @@
 //! A command named by a file that came with a checkout is a program the
 //! builder did not choose: the first time it is run, and whenever its
 //! text changes, the builder is shown it and asked to allow it, as a
-//! plugin's reach is asked for. What was allowed is kept in the builder's
-//! own `.moonglow/user.toml` (`[allowed_commands]`), by name and text.
+//! plugin's reach is asked for. What was allowed is kept in Moonglow's
+//! own settings (`allowed_commands`), by the project's canonical path,
+//! the command's name and its exact text: never in the project's files,
+//! which a repository could carry (a `[allowed_commands]` found there is
+//! said and not read).
 
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
@@ -27,6 +30,18 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 
 use mg_module::project_file::{ProjectCommand, ProjectFile};
+
+/// A project's folder as its allowed commands are kept: its canonical
+/// path (the same folder reached another way is the same project).
+fn project_key(root: &Path) -> String {
+    std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf()).display().to_string()
+}
+
+/// Whether the builder allowed a project's command, as it reads now.
+fn allowed(app: &Moonglow, root: &Path, name: &str, run: &str) -> bool {
+    let project = project_key(root);
+    (app.settings.allowed_commands.iter()).any(|(p, n, t)| *p == project && n == name && t == run)
+}
 
 use crate::Moonglow;
 
@@ -80,27 +95,20 @@ pub(crate) fn run(app: &mut Moonglow, name: &str) {
         ));
         return;
     };
-    let allowed =
-        app.ws.as_ref().is_some_and(|ws| ws.module.project_file.command_allowed(&c.name, &text));
-    if !allowed {
+    if !allowed(app, &root, &c.name, &text) {
         app.project_commands.ask = Some(Ask { name: c.name, label: c.label, run: text, root });
         return;
     }
     start(app, &c.label, &text, &root);
 }
 
-/// Allows a command as it reads (in the builder's own file), and runs it.
+/// Allows a command as it reads (in Moonglow's settings, for this
+/// project), and runs it.
 fn allow_and_run(app: &mut Moonglow, ask: &Ask) {
-    if let Err(e) = ProjectFile::set_allowed_command(&ask.root, &ask.name, Some(&ask.run)) {
-        app.log.error(format!("{}: not allowed (.moonglow/user.toml: {e})", ask.label));
-        return;
-    }
-    if let Some(ws) = app.ws.as_mut() {
-        let had = ws.module.project_file.found;
-        if ws.module.reread_project_file() {
-            app.log_project_file(true, had);
-        }
-    }
+    let project = project_key(&ask.root);
+    // (One text a command: the one allowed before is forgotten.)
+    app.settings.allowed_commands.retain(|(p, n, _)| !(*p == project && *n == ask.name));
+    app.settings.allowed_commands.push((project, ask.name.clone(), ask.run.clone()));
     start(app, &ask.label, &ask.run, &ask.root);
 }
 
@@ -281,9 +289,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                  command reads as you expect.",
             );
             ui.weak(
-                "Allowed, it runs without asking until its text changes (kept in this \
-                 project's .moonglow/user.toml). Moonglow saves the module first, and reads its \
-                 files again after.",
+                "Allowed, it runs without asking until its text changes (kept in Moonglow's own \
+                 settings for this folder, not in the project). Moonglow saves the module first, \
+                 and reads its files again after.",
             );
             ui.separator();
             ui.horizontal(|ui| {
