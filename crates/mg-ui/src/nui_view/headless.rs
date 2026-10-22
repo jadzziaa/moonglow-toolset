@@ -323,7 +323,10 @@ fn frames(
     }
     let record = assets.record.take().unwrap_or_default();
     let mut layout = laid_out(w.name, &record, scale, &settings);
+    // (Said once each, however many frames found them.)
     layout.issues = assets.issues.clone();
+    layout.issues.sort();
+    layout.issues.dedup();
     layout.not_drawn = not_drawn.into_iter().collect();
     Ok((layout, ctx))
 }
