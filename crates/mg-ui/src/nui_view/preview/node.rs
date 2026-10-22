@@ -218,11 +218,20 @@ impl Renderer<'_> {
         }
         let visible = flag(&node["visible"], s, row, true);
         let parent_disabled = self.ancestor_disabled;
+        // (A state asked for off the screen, by the control's ID or for all.
+        // Disabled by its ID, what is in it is too, as in the game; all
+        // disabled, each is, and one given another state by ID has it.)
+        let still = &self.state.still_states;
+        let by_id = node["id"].as_str().and_then(|id| still.get(&Some(id.to_owned()))).copied();
+        let asked = by_id.or_else(|| still.get(&None).copied());
         let disabled = parent_disabled
             || !flag(&node["enabled"], s, row, true)
             || (!live && selected && self.state.preview_state == 4);
-        self.ancestor_disabled = disabled;
-        let mode = if !live && selected && self.state.preview_state > 0 {
+        self.ancestor_disabled = disabled || by_id == Some(4);
+        let disabled = disabled || asked == Some(4);
+        let mode = if let Some(mode) = asked.filter(|m| *m != 4) {
+            mode
+        } else if !live && selected && self.state.preview_state > 0 {
             self.state.preview_state
         } else if response.is_pointer_button_down_on() {
             3
@@ -232,6 +241,12 @@ impl Renderer<'_> {
             1
         };
         let state_key = look(disabled, mode, flag(&node["encouraged"], s, row, false));
+        self.assets.record_look(match state_key {
+            _ if disabled => "disabled",
+            "hover" => "hover",
+            "active" => "pressed",
+            _ => "normal",
+        });
         let tint = if disabled { Color32::from_gray(115) } else { Color32::WHITE };
         let p = ui.painter().with_clip_rect(painted_bounds.intersect(ui.clip_rect()));
         let a = self.assets;

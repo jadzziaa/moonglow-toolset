@@ -56,6 +56,10 @@ pub(crate) struct State {
     /// The state the canvas shows the selected control in: 0 follows the
     /// pointer, then normal, hover, pressed and disabled.
     preview_state: usize,
+    /// The states controls are drawn in off the screen (`mg nui render
+    /// --state`), counted as `preview_state` is, by ID (`None`: all but
+    /// those given by ID).
+    still_states: std::collections::BTreeMap<Option<String>, usize>,
     /// Resources: under the canvas's toolbar, where each picture and font
     /// came from and what was not found.
     preview_info: bool,

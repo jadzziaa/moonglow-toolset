@@ -3,7 +3,7 @@ type: Manual Page
 title: NUI Creator
 description: The NUI Creator - designing an Enhanced Edition UI window (JUI) on a canvas with the game's skin and fonts, images, keys, binds, swap layout variants, event handlers (or one event script for several windows), the settings file, building its scripts, making windows without the window (render, layout, import), and what the game refuses or does on its own.
 tags: [manual, nui, scripts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:15:13Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:05:20Z }
 sources:
   - id: mg-nui
     resource: crates/mg-nui
@@ -76,7 +76,21 @@ corresponding bind-array values.
 
 Standard controls without an explicit width keep their 150-point width in a
 column. Widening the window does not stretch those controls; set **Width** when
-you need a wider label, button or input. Interact also supports the window's
+you need a wider label, button or input. Exactly: a button, image button,
+toggle button, check box, combo box, slider, text field or text without a
+width is 150 points wide (`NUI_STYLE_PRIMARY_WIDTH` in the game's
+`nw_inc_nui.nss`, and the width the client gives it), options and tabs 150
+an entry, a color picker 300; a label, image, spacer, progress bar, list,
+chart, row, column or group without one takes its column's width. A
+column is as wide as its widest control (a label, image or spacer counts
+nothing toward it; a list, chart or progress bar 150), the window's own
+column too, not as wide as the window: a new window's column is 154
+points wide whatever the window's size, and a list or label in it 150. A
+control as wide as the window less 20 points fills the window's column
+(the 8-point inset and the column's 2 points of padding on each side),
+and what has no width of its own fills that with it. A new window's
+controls have no widths, as `nw_inc_nui`'s functions make them:
+`mg nui schema --layout` says this too. Interact also supports the window's
 collapse button. A static `collapsed: false` hides that button; Reset restores
 the initial preview state. Font sizes use the installed font's vertical metrics.
 
@@ -483,7 +497,14 @@ every option):
    off the screen, at a UI scale and a window size of your choosing, and
    `mg nui layout MODULE NAME --json` gives each control's rectangle and
    what doesn't fit (clipped, out of view, no room, text cut): the same
-   layout the picture shows. Both take a `.jui` file alone too.
+   layout the picture shows. Both take a `.jui` file alone too, and draw
+   the window otherwise than as it opens with the same options:
+   `--state hover:send` (or `pressed`, `disabled`, `normal`; without
+   `:ID`, every control), `--binds FILE.json` (the binds as a script sets
+   them, so a list has the rows a character would see) and `--variant
+   NAME` (a swap layout variant in its group). For the crier's list of
+   cries in this repository's tests:
+   `mg nui render cries.jui --binds cries.binds.json --state hover:read`.
 4. `mg nui generate MODULE NAME` writes and compiles its scripts.
 
 In a nasher project whose sources take in scripts and JSON only, a

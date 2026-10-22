@@ -1,0 +1,11 @@
+{
+  "cry_count": 4,
+  "cry_by": ["The burgomaster", "Mistress Halloran", "The watch", "A traveler"],
+  "cry_text": [
+    "The gates close at dusk.",
+    "Fresh bread at the mill.",
+    "Wolves on the east road.",
+    "News of my brother, lost in the fog?"
+  ],
+  "detail_text": "Wolves seen on the east road: travel in company, and keep to the lit side of the bridge."
+}

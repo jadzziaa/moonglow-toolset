@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T13:37:41Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:05:20Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2396,11 +2396,18 @@ contribution itself states as not done or not checked.
   (`mg nui render`, `layout`, `schema`, `import`, the `nui-sources`
   check, AccessKit, the event function; the asks are the module
   project's probe, `tdod-modulework/docs/systems/nui-creator-probe.md`):
-  - *`render` has no `--state`, `--variant` or bind values from a file*
-    (the probe asked; the owner's list did not): the picture is the
-    window as it opens, nothing hovered, pressed or disabled by hand,
-    the initial contents of its swap layouts, the binds' first values.
-    (S each: `State::preview_state`, `edit_view`, `Settings::bindings`.)
+  - ~~*`render` has no `--state`, `--variant` or bind values from a
+    file*~~ Done after The Domains of Dread Design session's review of
+    2.1.0: `render` and `layout` take `--state STATE[:ID]`, `--binds
+    FILE.json` and `--variant NAME`. Left of it:
+    - *A state by ID is every row's*: a control of a list's row template
+      is hovered (pressed, disabled) in every row; there is no
+      `ID@ROW`. (S)
+    - *One variant at a time*: `--variant` shows one; a window with two
+      swap layouts is drawn with the other's initial contents. (S)
+    - *A bind's value is checked only for its kind*: a value of another
+      kind than the bind's first is said, not what the game would make
+      of it (a number where a string is drawn, a color missing `a`). (S)
   - *What `layout` cannot see*: rows of a list out of its view are not
     reported (the canvas draws only those in view); the title's text,
     cut or not, isn't checked; `overlaps` comes of the canvas's own

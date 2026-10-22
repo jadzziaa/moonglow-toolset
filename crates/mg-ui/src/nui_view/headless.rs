@@ -4,10 +4,13 @@
 //! itself ([`preview::still`]): the same layout, the game's skin, pictures
 //! and fonts found as the editor finds them, nothing selected and no
 //! guides. Laying out needs no GPU; the picture is egui's drawing of that
-//! frame on the device given.
+//! frame on the device given. [`Options`] can draw it otherwise than as it
+//! opens: controls hovered, pressed or disabled, binds set as a script
+//! would set them, a swap layout variant shown.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::str::FromStr;
 
 use egui::{Pos2, Rect, vec2};
 use mg_core::ResType;
@@ -17,7 +20,7 @@ use mg_resman::{ResKey, ResMan};
 use serde::Serialize;
 use serde_json::Value;
 
-use super::{State, preview, skin};
+use super::{State, layouts, preview, skin};
 
 /// A window of a module, and where its skin, pictures, fonts and strings
 /// are found.
@@ -40,18 +43,86 @@ impl fmt::Debug for Window<'_> {
 }
 
 /// How the window is drawn.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Options {
     /// The UI scale, as the game's option: 1 is 100%. Kept within 0.25 to 4.
     pub scale: f32,
     /// The window's width and height in points, in place of its geometry's
     /// (as a player resizing it would): `None` keeps the geometry's.
     pub size: Option<[f32; 2]>,
+    /// Controls drawn in a state of their own, by ID (`None`: every
+    /// control, but those given one by ID), as the Creator's State menu
+    /// shows the selected one. A control its binds disable is drawn
+    /// disabled whatever its state here, as in the game.
+    pub states: BTreeMap<Option<String>, Look>,
+    /// Binds' values in place of their first ones, by name, as the game's
+    /// `NuiSetBind` sets them: a string, number, boolean, an array (a
+    /// list's row template, a value a row), a color or a rectangle.
+    pub binds: BTreeMap<String, Value>,
+    /// A swap layout variant shown in its group (or as the whole window)
+    /// in place of what the group holds at first, as `NuiSetGroupLayout`
+    /// shows it: its controls are then laid out where the variant puts
+    /// them, their paths the window's as shown.
+    pub variant: Option<String>,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { scale: 1.0, size: None }
+        Options {
+            scale: 1.0,
+            size: None,
+            states: BTreeMap::new(),
+            binds: BTreeMap::new(),
+            variant: None,
+        }
+    }
+}
+
+/// How a control looks: the skin's states.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Look {
+    Normal,
+    /// Under the pointer.
+    Hover,
+    /// Pressed (the skin's `active`).
+    Pressed,
+    /// Not enabled: its children too.
+    Disabled,
+}
+
+impl Look {
+    /// As `State::preview_state` counts them.
+    pub(super) fn mode(self) -> usize {
+        match self {
+            Look::Normal => 1,
+            Look::Hover => 2,
+            Look::Pressed => 3,
+            Look::Disabled => 4,
+        }
+    }
+
+    /// Its name, as `mg nui` takes it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Look::Normal => "normal",
+            Look::Hover => "hover",
+            Look::Pressed => "pressed",
+            Look::Disabled => "disabled",
+        }
+    }
+}
+
+impl FromStr for Look {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Look, String> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "normal" => Ok(Look::Normal),
+            "hover" => Ok(Look::Hover),
+            "pressed" | "active" => Ok(Look::Pressed),
+            "disabled" => Ok(Look::Disabled),
+            _ => Err(format!("{s:?}: a state is normal, hover, pressed or disabled")),
+        }
     }
 }
 
@@ -66,6 +137,12 @@ pub enum Error {
     Read(ResKey, mg_nui::NuiError),
     /// The picture could not be made on the GPU.
     Gpu(String),
+    /// No swap layout variant has this name: those there are.
+    Variant(String, Vec<String>),
+    /// The variant is shown by no handler and was made for no group.
+    NoGroup(String),
+    /// No control of the window as shown has this ID: those there are.
+    Id(String, Vec<String>),
 }
 
 impl fmt::Display for Error {
@@ -75,11 +152,35 @@ impl fmt::Display for Error {
             Error::Name(name) => write!(f, "{name:?} is not a resource's name"),
             Error::Read(key, e) => write!(f, "{key}: {e}"),
             Error::Gpu(e) => write!(f, "the GPU could not draw the window: {e}"),
+            Error::Variant(name, known) if known.is_empty() => {
+                write!(f, "no swap layout variant {name:?}: the window has none")
+            }
+            Error::Variant(name, known) => {
+                write!(f, "no swap layout variant {name:?}: the window's are {}", quoted(known))
+            }
+            Error::NoGroup(name) => write!(
+                f,
+                "the variant {name:?} has no group to be shown in: no handler shows it, and the \
+                 settings' view_targets don't say which it was made for"
+            ),
+            Error::Id(id, known) => write!(
+                f,
+                "no control has the ID {id:?}{}",
+                if known.is_empty() {
+                    ": the window's controls have none".to_owned()
+                } else {
+                    format!(": the IDs are {}", quoted(known))
+                }
+            ),
         }
     }
 }
 
 impl std::error::Error for Error {}
+
+fn quoted(names: &[String]) -> String {
+    names.iter().map(|n| format!("{n:?}")).collect::<Vec<_>>().join(", ")
+}
 
 /// Where the canvas put a window's controls, in the window's points (its
 /// top left corner, title bar included, at 0, 0; unscaled).
@@ -132,8 +233,12 @@ pub struct Element {
     /// Inside its margin.
     #[serde(flatten)]
     pub area: Area,
-    /// `visible` is false (from the layout or its bind's first value).
+    /// `visible` is false (from the layout or its bind's value).
     pub hidden: bool,
+    /// How it was drawn, when not normal: `hover`, `pressed` or `disabled`
+    /// (by its binds, an ancestor's or as asked).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<&'static str>,
     /// No room: no width or no height.
     pub zero_sized: bool,
     /// Part of it is cut off by the window, a group or a list.
@@ -249,9 +354,10 @@ pub fn render(gpu: &mg_render::Gpu, w: &Window<'_>, o: &Options) -> Result<Pictu
     Ok(Picture { width, height, rgba: read.data, layout })
 }
 
-/// The window and its settings as the module has them, `o.size` given to
-/// its geometry.
-fn document(w: &Window<'_>, o: &Options) -> Result<(Value, Settings), Error> {
+/// The window and its settings as the module has them, with what `o`
+/// changes of them: the variant shown, the binds' values, the size given
+/// to its geometry; and what is to be said of them.
+fn document(w: &Window<'_>, o: &Options) -> Result<(Value, Settings, Vec<String>), Error> {
     let key = |ty| ResKey::parse(w.name, ty).ok_or_else(|| Error::Name(w.name.into()));
     let jui = key(ResType::JUI)?;
     let data = w.module.get(&jui).ok_or(Error::Missing(jui))?;
@@ -261,6 +367,42 @@ fn document(w: &Window<'_>, o: &Options) -> Result<(Value, Settings), Error> {
         Some(b) => Settings::parse(b).map_err(|e| Error::Read(txt, e))?,
         None => Settings::default(),
     };
+    let mut said = Vec::new();
+    // (The binds the window and its variants read: those a script sets.)
+    let mut read = mg_nui::bind_names(&window);
+    for v in settings.views.values() {
+        read.extend(mg_nui::bind_names(v));
+    }
+    if let Some(view) = &o.variant {
+        if !settings.views.contains_key(view) {
+            return Err(Error::Variant(view.clone(), settings.views.keys().cloned().collect()));
+        }
+        let target = layouts::target_for(&settings, view).ok_or(Error::NoGroup(view.clone()))?;
+        window = layouts::context_document(&window, &settings, view, &target)
+            .ok_or(Error::NoGroup(view.clone()))?;
+    }
+    if !o.binds.is_empty() {
+        for (name, value) in &o.binds {
+            if !read.contains(name) {
+                said.push(format!("bind {name:?}: no property of the window reads it"));
+            }
+            let b = settings.bindings.entry(name.clone()).or_default();
+            if !b.value.is_null() && kind(&b.value) != kind(value) {
+                said.push(format!(
+                    "bind {name:?}: given {} where its first value is {}",
+                    kind(value),
+                    kind(&b.value)
+                ));
+            }
+            b.value = value.clone();
+        }
+    }
+    let ids = mg_nui::element_ids(&window);
+    for id in o.states.keys().flatten() {
+        if !ids.contains(id) {
+            return Err(Error::Id(id.clone(), ids.into_iter().collect()));
+        }
+    }
     if let Some([width, height]) = o.size
         && window.is_object()
     {
@@ -275,7 +417,19 @@ fn document(w: &Window<'_>, o: &Options) -> Result<(Value, Settings), Error> {
         geometry["w"] = width.into();
         geometry["h"] = height.into();
     }
-    Ok((window, settings))
+    Ok((window, settings, said))
+}
+
+/// What a value is, as said of a bind given another.
+fn kind(v: &Value) -> &'static str {
+    match v {
+        Value::Null => "null",
+        Value::Bool(_) => "a boolean",
+        Value::Number(_) => "a number",
+        Value::String(_) => "a string",
+        Value::Array(_) => "an array",
+        Value::Object(_) => "an object",
+    }
 }
 
 /// Frames of the canvas until it has all it draws with (fonts are added to
@@ -286,10 +440,15 @@ fn frames(
     o: &Options,
     mut each: impl FnMut(&egui::Context, &mut egui::FullOutput),
 ) -> Result<(Layout, egui::Context), Error> {
-    let (mut doc, settings) = document(w, o)?;
+    let (mut doc, settings, said) = document(w, o)?;
     let scale = if o.scale.is_finite() { o.scale.clamp(0.25, 4.0) } else { 1.0 };
-    let mut state =
-        State { preview_scale: scale, preview_clean: true, zoom: 1.0, ..Default::default() };
+    let mut state = State {
+        preview_scale: scale,
+        preview_clean: true,
+        zoom: 1.0,
+        still_states: o.states.iter().map(|(id, look)| (id.clone(), look.mode())).collect(),
+        ..Default::default()
+    };
     let mut assets = skin::Assets::default();
     let ctx = egui::Context::default();
     let size = (preview::window_size(&doc, &settings) * scale).ceil();
@@ -325,6 +484,7 @@ fn frames(
     let mut layout = laid_out(w.name, &record, scale, &settings);
     // (Said once each, however many frames found them.)
     layout.issues = assets.issues.clone();
+    layout.issues.extend(said);
     layout.issues.sort();
     layout.issues.dedup();
     layout.not_drawn = not_drawn.into_iter().collect();
@@ -360,10 +520,11 @@ fn laid_out(name: &str, r: &skin::Record, scale: f32, s: &Settings) -> Layout {
                 binds: own_binds(&p.node),
                 text: ["label", "value"]
                     .into_iter()
-                    .find(|k| super::resolved(&p.node[*k], s).is_string())
+                    .find(|k| preview::val(&p.node[*k], s, p.row).is_string())
                     .map(|k| preview::string(&p.node[k], s, p.row)),
                 area: area(p.rect),
                 hidden: !preview::flag(&p.node["visible"], s, p.row, true),
+                state: p.look.filter(|l| *l != "normal"),
                 zero_sized,
                 clipped,
                 out_of_view,
@@ -428,6 +589,7 @@ mod tests {
             clip: Rect::from_min_size(Pos2::ZERO, vec2(400.0, 300.0)),
             parent,
             cut: Vec::new(),
+            look: None,
         }
     }
 

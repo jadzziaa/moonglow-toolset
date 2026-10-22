@@ -507,12 +507,94 @@ fn schema_prints_the_settings_form_and_the_controls() {
 /// The town crier's window (`crates/mg-nui/tests/data`), as files in a
 /// scratch folder of its own: `crier.jui` and `crier.txt`.
 fn crier_files(test: &str) -> PathBuf {
+    window_files(test, "crier")
+}
+
+/// A window of `crates/mg-nui/tests/data` as files in a scratch folder:
+/// NAME.jui, NAME.txt and the binds a script would set, NAME.binds.json.
+fn window_files(test: &str, name: &str) -> PathBuf {
     let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/mg-nui/tests/data");
     let dir = mg_testkit::scratch_dir(test);
-    for file in ["crier.jui", "crier.txt"] {
-        std::fs::copy(from.join(file), dir.join(file)).unwrap();
+    for ext in ["jui", "txt", "binds.json"] {
+        let file = format!("{name}.{ext}");
+        std::fs::copy(from.join(&file), dir.join(&file)).unwrap();
     }
-    dir.join("crier.jui")
+    dir.join(format!("{name}.jui"))
+}
+
+/// `layout` and `render` draw a window in a state asked for, with binds
+/// from a file and a swap layout variant in its group; the same options
+/// give both the same layout. What doesn't fit the window is refused, or
+/// said.
+#[test]
+fn layout_and_render_take_states_binds_and_a_variant() {
+    let jui = window_files("mg-nui-layout-options", "cries");
+    let file = jui.to_str().unwrap();
+    let binds = jui.with_file_name("cries.binds.json");
+    let binds = binds.to_str().unwrap();
+    let options = ["--binds", binds, "--state", "hover:read", "--state", "disabled"];
+    let (ok, layout) = mg(None, &[&["layout", file][..], &options].concat());
+    assert!(ok, "{layout}");
+    let elements = layout["elements"].as_array().unwrap();
+    let read: Vec<_> = elements.iter().filter(|e| e["id"] == "read").collect();
+    assert_eq!(read.len(), 4, "{layout}");
+    assert!(read.iter().all(|e| e["state"] == "hover"), "{layout}");
+    let list = elements.iter().find(|e| e["id"] == "cries").unwrap();
+    assert_eq!(list["state"], "disabled");
+    let row = elements.iter().find(|e| e["row"] == 3 && e["kind"] == "label").unwrap();
+    assert_eq!(row["text"], "A traveler");
+    // As it opens, nothing has a state.
+    let (_, first) = mg(None, &["layout", file]);
+    assert!(first["elements"].as_array().unwrap().iter().all(|e| e.get("state").is_none()));
+    // The variant, in the swap layout it was made for.
+    let (ok, details) =
+        mg(None, &["layout", file, "--variant", "details", "--state", "pressed:back"]);
+    assert!(ok, "{details}");
+    let back = details["elements"].as_array().unwrap().iter().find(|e| e["id"] == "back");
+    assert_eq!(back.unwrap()["state"], "pressed", "{details}");
+    // For people: the state on the control's line.
+    let out = output(None, &[&["nui", "layout", file][..], &options].concat());
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.lines().any(|l| l.contains("#read\t") && l.ends_with("\thover")), "{text}");
+
+    // Refused: an ID no control has, a variant there isn't, a state that
+    // isn't one or is given twice, binds that aren't an object of JSON.
+    let error = |args: &[&str]| {
+        let (ok, said) = mg(None, &[&["layout", file][..], args].concat());
+        assert!(!ok, "{args:?}: {said}");
+        said["error"].as_str().unwrap().to_owned()
+    };
+    assert!(error(&["--state", "hover:nope"]).contains("no control has the ID \"nope\""));
+    assert!(error(&["--variant", "cover"]).contains("the window's are \"details\""));
+    let twice = error(&["--state", "hover:read", "--state", "pressed:read"]);
+    assert!(twice.contains("\"read\" is given hover and pressed"), "{twice}");
+    let list = jui.with_file_name("list.json");
+    std::fs::write(&list, "[1, 2]").unwrap();
+    assert!(error(&["--binds", list.to_str().unwrap()]).contains("one JSON object"));
+    std::fs::write(&list, "{").unwrap();
+    assert!(error(&["--binds", list.to_str().unwrap()]).contains("not JSON"));
+    for bad in ["glow", "hover:"] {
+        let out = output(None, &["nui", "layout", file, "--state", bad]);
+        assert!(!out.status.success());
+        let said = String::from_utf8_lossy(&out.stderr);
+        assert!(said.contains("normal, hover, pressed or disabled") || said.contains("ID after"));
+    }
+    // Said: a bind no property reads.
+    std::fs::write(&list, r#"{"cry_count": 2, "nope": true}"#).unwrap();
+    let (ok, said) = mg(None, &["layout", file, "--binds", list.to_str().unwrap()]);
+    assert!(ok, "{said}");
+    let issues = said["issues"].as_array().unwrap();
+    assert!(issues.contains(&json!("bind \"nope\": no property of the window reads it")));
+
+    // render takes the same options.
+    mg_testkit::gpu::hold();
+    let png = jui.with_file_name("cries.png");
+    let args = [file, "-o", png.to_str().unwrap(), "--binds", binds, "--variant", "details"];
+    let Some(drawn) = render(&[&args[..], &["--state", "pressed:back"]].concat()) else {
+        return;
+    };
+    assert_eq!(png_size(&png), (600, 330));
+    assert_eq!(drawn["window"], "cries");
 }
 
 #[test]

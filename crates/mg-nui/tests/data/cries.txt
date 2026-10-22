@@ -1,0 +1,23 @@
+{
+  "format": "moonglow.nui/1",
+  "bindings": {
+    "cry_by": {"value": ["No one"]},
+    "cry_count": {"value": 1},
+    "cry_text": {"value": ["Nothing has been cried yet."]},
+    "detail_text": {"value": ""}
+  },
+  "views": {
+    "details": {"type": "col", "label": null, "value": null, "children": [
+      {"type": "text", "label": null, "value": {"bind": "detail_text"}, "border": true,
+       "scrollbars": 4, "width": 560.0, "height": 170.0},
+      {"type": "button", "id": "back", "label": "Back", "value": null, "width": 100.0,
+       "height": 34.0}
+    ]}
+  },
+  "view_targets": {"details": "pages"},
+  "swap_hosts": ["pages"],
+  "actions": [
+    {"event": "click", "element": "read", "action": "view", "group": "pages", "view": "details"}
+  ],
+  "window_id": "tdod_cries"
+}
