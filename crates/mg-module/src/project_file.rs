@@ -374,12 +374,18 @@ pub struct ProjectFile {
     /// A file that could not be read at all (its rules are then left out).
     pub errors: Vec<String>,
     /// The files' times and sizes when read, to see a change.
-    stamps: Vec<Option<(SystemTime, u64)>>,
+    stamps: Vec<Option<(SystemTime, u64, u64)>>,
 }
 
-fn stamp(path: &Path) -> Option<(SystemTime, u64)> {
+fn stamp(path: &Path) -> Option<(SystemTime, u64, u64)> {
+    use std::hash::{Hash, Hasher};
     let m = std::fs::metadata(path).ok()?;
-    Some((m.modified().ok()?, m.len()))
+    // These files are small: their bytes' hash too, as a rewrite of the
+    // same length within a timestamp's tick (coarse on some systems) would
+    // otherwise go unseen.
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    std::fs::read(path).ok()?.hash(&mut h);
+    Some((m.modified().ok()?, m.len(), h.finish()))
 }
 
 /// The line (from 1) a byte of `source` is on.
