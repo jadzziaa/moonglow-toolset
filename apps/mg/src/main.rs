@@ -129,6 +129,34 @@ enum Cmd {
     /// List the checks `verify` makes of custom content: each one's id (a
     /// finding's "check" with --json) and what it holds to be true.
     Checks,
+    /// The variables a project describes (`variables.toml` beside its
+    /// `moonglow.toml`): each one's type, what it goes on, its values (a
+    /// script's constants and a table's rows read) and its help. `verify`
+    /// holds the module's variables to them.
+    Vars {
+        /// The module: a folder or a nasher project.
+        module: PathBuf,
+        /// Only those that go on this kind of object (`placeable`,
+        /// `creature`, `area`, `module`...).
+        #[arg(long)]
+        on: Option<String>,
+        /// Only this variable (or those a glob names).
+        name: Option<String>,
+    },
+    /// Show, set or take out your builder code in a project: the ResRefs
+    /// the window proposes for new areas, blueprints and copies begin with
+    /// it (by the team's `[resrefs] pattern`). It is kept in the project's
+    /// `.moonglow/user.toml`, which version control leaves out.
+    BuilderCode {
+        /// The project: a module folder, a nasher project's folder or its
+        /// nasher.cfg.
+        project: PathBuf,
+        /// The code to set (letters, digits and _, at most 8).
+        code: Option<String>,
+        /// Take the code out.
+        #[arg(long, conflicts_with = "code")]
+        clear: bool,
+    },
     /// Report the resources a module's haks provide, their conflicts and the
     /// base-game resources they override.
     Haks {
@@ -986,6 +1014,81 @@ enum PluginCmd {
     },
 }
 
+/// `mg vars`: the project's described variables.
+fn vars(cli: &Cli, path: &Path, on: Option<&str>, name: Option<&str>) -> Result<Output> {
+    use mg_module::var_desc::{ModuleLookup, Owner, type_label};
+    use serde_json::json;
+    let m = Module::open(path)?;
+    let owner = match on {
+        Some(o) => Some(Owner::from_name(o).ok_or_else(|| {
+            let all: Vec<&str> = Owner::ALL.iter().map(|o| o.name()).collect();
+            anyhow::anyhow!("--on {o}: one of {}", all.join(", "))
+        })?),
+        None => None,
+    };
+    let p = &m.project_file;
+    let mut out = Output::default();
+    project_file_notes(&m, &mut out);
+    if !p.variables_found {
+        out.note(format!(
+            "{} describes no variables: write a {} beside its moonglow.toml",
+            path.display(),
+            mg_module::var_desc::FILE_NAME
+        ));
+    }
+    // (The game's tables and scripts, where a description names them.)
+    let game = install(cli).ok().and_then(|gi| mg_rules::GameData::open(&gi).ok());
+    let lookup = ModuleLookup::new(&m, game.as_ref().map(|g| &g.resman));
+    let mut rows = Vec::new();
+    for d in &p.variables.described {
+        if owner.is_some_and(|o| !d.belongs_on(o)) {
+            continue;
+        }
+        if let Some(n) = name
+            && !(d.name == n || d.matches(n))
+        {
+            continue;
+        }
+        let c = d.choices(&lookup);
+        let values: Vec<serde_json::Value> =
+            c.list.iter().map(|x| json!({ "value": x.value, "note": x.note })).collect();
+        let mut line = format!("{}\t{}", d.name, d.words());
+        if !c.list.is_empty() {
+            let shown: Vec<String> = c
+                .list
+                .iter()
+                .take(12)
+                .map(|x| match &x.note {
+                    Some(n) => format!("{} ({n})", x.value),
+                    None => x.value.clone(),
+                })
+                .collect();
+            let more = if c.list.len() > shown.len() { ", …" } else { "" };
+            line.push_str(&format!("\t{}{more}", shown.join(", ")));
+        }
+        if let Some(h) = &d.help {
+            line.push_str(&format!("\t{h}"));
+        }
+        out.line(line);
+        if let Some(problem) = &c.problem {
+            out.note(format!("{}: {problem}", d.name));
+        }
+        rows.push(json!({
+            "name": d.name,
+            "line": d.line,
+            "type": d.var_type.map(type_label),
+            "on": d.on.iter().map(|o| o.name()).collect::<Vec<_>>(),
+            "min": d.min,
+            "max": d.max,
+            "other": d.other,
+            "values": values,
+            "help": d.help,
+        }));
+    }
+    out.json = json!({ "undescribed": p.variables.undescribed, "variables": rows });
+    Ok(out)
+}
+
 /// What the module's project file (`moonglow.toml`) said that wasn't
 /// understood, as notes.
 fn project_file_notes(m: &Module, out: &mut Output) {
@@ -1416,6 +1519,39 @@ fn run(cli: &Cli) -> Result<Output> {
             PluginCmd::Remove { id, folder } => plugins::remove(id, folder)?,
         },
         Cmd::Nui { cmd } => nui::run(cli, cmd)?,
+        Cmd::Vars { module, on, name } => vars(cli, module, on.as_deref(), name.as_deref())?,
+        Cmd::BuilderCode { project, code, clear } => {
+            use mg_module::project_file::{DEFAULT_PATTERN, ProjectFile};
+            let root = match project.file_name() {
+                Some(n) if n == "nasher.cfg" => project.parent().unwrap_or(Path::new(".")),
+                _ => project.as_path(),
+            };
+            if !root.is_dir() {
+                bail!("{}: not a project's folder", root.display());
+            }
+            if code.is_some() || *clear {
+                ProjectFile::set_builder_code(root, code.as_deref())?;
+            }
+            let p = ProjectFile::read(root);
+            let pattern = p.resref_pattern.clone().unwrap_or_else(|| DEFAULT_PATTERN.into());
+            let naming = p.naming();
+            let mut out = Output::new(json!({
+                "code": p.user.builder_code,
+                "pattern": pattern,
+                "example": (!naming.is_plain()).then(|| naming.fit("market", "")),
+            }));
+            match &p.user.builder_code {
+                Some(c) => out.line(format!(
+                    "{c}: new ResRefs are made by {pattern} (a new area named Market: {})",
+                    naming.fit("market", "")
+                )),
+                None => out.line("no builder code: new ResRefs are made from names alone"),
+            }
+            for line in p.errors.iter().chain(&p.warnings) {
+                out.note(line.clone());
+            }
+            out
+        }
         Cmd::Checks => {
             use mg_module::doctor::Check;
             let mut out = Output::new(json!({
@@ -2269,6 +2405,32 @@ fn run(cli: &Cli) -> Result<Output> {
                 changes.push(Change::TilesetGrass(on));
             }
             let mut m = Module::open(module)?;
+            // A variable's type, where none is given: its description's
+            // (`variables.toml`), where the project describes it.
+            let mut described_notes = Vec::new();
+            for c in &mut changes {
+                let Change::Var { name, kind, .. } = c else { continue };
+                let Some(d) = m.project_file.variables.describe(name) else { continue };
+                let file = mg_module::var_desc::FILE_NAME;
+                if !d.belongs_on(mg_module::var_desc::Owner::Area) {
+                    described_notes.push(format!(
+                        "{name}: {file}:{} says it goes on {}, not on an area",
+                        d.line,
+                        d.on.iter().map(|o| o.name()).collect::<Vec<_>>().join(", ")
+                    ));
+                }
+                let Some(t) = d.var_type.filter(|t| t.field_type().is_some()) else { continue };
+                match *kind {
+                    None => *kind = Some(t.code()),
+                    Some(k) if k != t.code() => described_notes.push(format!(
+                        "{name}: set as {} as given, and {file}:{} says it is {}",
+                        mg_module::vars::VarType::of(k.into()).map_or("?", |t| t.name()),
+                        d.line,
+                        t.name()
+                    )),
+                    Some(_) => {}
+                }
+            }
             let listed = areas::list_in(&m, module_codepage(cli, &m));
             for a in &filter.only {
                 if !listed.iter().any(|l| l.resref == *a) {
@@ -2302,6 +2464,9 @@ fn run(cli: &Cli) -> Result<Output> {
                 areas::apply(&mut m, &resrefs, &changes, codepage).map_err(anyhow::Error::msg)?;
             let mut out = Output::default();
             project_file_notes(&m, &mut out);
+            for n in described_notes {
+                out.note(n);
+            }
             let kinds = |flags: u32| {
                 let word = |bit: u32, yes: &'static str, no: &'static str| {
                     if flags & bit != 0 { yes } else { no }

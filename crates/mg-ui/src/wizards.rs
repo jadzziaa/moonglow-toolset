@@ -86,6 +86,19 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 ui.label("Name");
                 let field = ui.text_edit_singleline(&mut w.name);
                 crate::widgets::autofocus(ui, &field);
+                // The ResRef the name gives, where the builder's code
+                // makes it other than the name (as Create makes it).
+                if let Some(module) = app.ws.as_ref().map(|ws| &ws.module) {
+                    let naming = module.project_file.naming();
+                    if !naming.is_plain() {
+                        let taken = |r: &mg_core::ResRef| {
+                            module.contains(&mg_resman::ResKey::new(*r, mg_core::ResType::ARE))
+                        };
+                        let made = mg_module::new::resref_for_named(w.name.trim(), &naming, taken);
+                        ui.weak(format!("ResRef: {made}"))
+                            .on_hover_text(crate::blueprint_wizard::made_from_the_name(&naming));
+                    }
+                }
                 ui.add_space(6.0);
                 ui.label("Tileset");
                 egui::Frame::group(ui.style()).show(ui, |ui| {

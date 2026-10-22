@@ -2887,7 +2887,7 @@ of truth, and does each caller's difference matter.
   `mg-plugin files.rs`, `nui_view/skin.rs:342`); the TGA's are one
   since 2026-10-21.
 
-## A project's rules (the builders' proposal, C3, C4, C5)
+## A project's rules (the builders' proposal, C1 to C5)
 
 The Domains of Dread's builder proposal (its section 3): the project file
 (`moonglow.toml`), Make Placeables Static and Setup Store following it,
@@ -2895,11 +2895,41 @@ and duplicate tags on paste. What is left:
 
 - **A module kept in one file has no project file:** a `.mod`'s folder
   holds other modules (a `NAME.moonglow.toml` beside it would serve). (S)
-- **`[builder] code` is read, not used:** the wizards and Add to Palette
-  don't start new ResRefs with it yet (the proposal's C1); nothing writes
-  `.moonglow/user.toml` but a test (no form for it), so its folder's
-  `.gitignore` is the builder's to make (the log warns without it).
-  (S–M)
+- **The builder code is not proposed everywhere** (C1): New Script…, New
+  Conversation…, New NUI Window…, Add Popup Text… and Import
+  Conversation start from an empty name or the file's (the code isn't
+  put in the empty field); a ResRef typed in a wizard is taken as typed
+  (the Creature Wizard's, where the module has it, becomes the next free
+  from it, without the code);
+  plugins' `ctx.terrain:new_area` gets the code (it is the Area
+  Wizard's), plugins' other new resources don't. (S)
+- **A team prefix without a builder's code:** `[resrefs] pattern` must
+  have `{code}`, so a team's own prefix (`tdod_{name}`) for everyone, or
+  one by kind (`tdod_n_` for people, `{kind}`), isn't there. (S)
+- **A builder code isn't checked against the team's:** two builders who
+  choose one code aren't told; a claims table (C6) could list the codes.
+  (S)
+- **Described variables (C2) are not described further:** an object's or
+  a location's value has no description of its values; no `default`,
+  no "required on" (a proprietor needs both `tdod_rental` and
+  `tdod_rental_door`), no rule between variables (as a table's
+  `[[rules]]`), no description of a variable by the script that reads
+  it. (M)
+- **Verify's `var-name` with `undescribed` looks at the names only:** a
+  variable described nowhere and not named as the project's is not
+  said; variables set by scripts are not seen (Verify reads the module's
+  resources). (S)
+- **The Variables window's offer** takes the mouse (or a name typed
+  whole); Up, Down and Enter don't move in it or take one (Enter is the
+  window's OK), and Escape closes the window. A pattern's description
+  (`tdod_rental_*`) isn't offered, only matched. (S)
+- **No `mg vars --undescribed`** listing the module's variables that no
+  description names, nor a plugin API to read the descriptions
+  (`mg.vars.describe`). (S)
+- **A table's rows for a String are a column's cells;** the row's own
+  label (`Label`) as a String's value, or a 2DA from a hak the module
+  lists, in `mg vars` (which reads the game's and the project's, not the
+  haks'), isn't there. (S)
 - **No form for the project file:** it is written by hand; Moonglow
   reads it and says what it doesn't understand. (M)
 - **The project file is read again only with reloading on** (Options ›

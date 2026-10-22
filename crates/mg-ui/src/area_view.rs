@@ -5394,9 +5394,16 @@ fn add_to_palette(app: &mut Moonglow, view: &AreaView, kind: ObjectKind, index: 
     let module = &ws.module;
     let original = |k: ResKey| mg_module::gff_root(Some(module), game, &k);
     let taken = |k: &ResKey| module.contains(k) || game.resman.get(k).is_ok();
-    let Some(added) =
-        mg_module::palette_add::add_to_palette(game, kind.restype(), &placed, &original, &taken)
-    else {
+    // (By the builder's code, in a project with one.)
+    let naming = module.project_file.naming();
+    let Some(added) = mg_module::palette_add::add_to_palette(
+        game,
+        kind.restype(),
+        &placed,
+        &original,
+        &taken,
+        &naming,
+    ) else {
         app.log.error("Add to Palette: no blueprint name is free");
         return;
     };

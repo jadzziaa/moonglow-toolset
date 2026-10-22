@@ -12,7 +12,7 @@ use mg_gff::Value;
 use mg_module::script_wizard::{
     ABILITIES, ActionScript, Alignment, ClassLevel, Compare, Condition, Difficulty, Entry,
     GOOD_EVIL, LAW_CHAOS, Lists, LocalCheck, LocalSet, Operand, Perform, VarType, action_script,
-    condition_script, default_name,
+    condition_script, default_name_named,
 };
 use mg_resman::ResKey;
 
@@ -300,7 +300,8 @@ impl Moonglow {
         };
         let lists = Arc::new(mg_module::script_wizard::Lists::load(game));
         let module = self.ws.as_ref().map(|w| &w.module);
-        let name = default_name(condition, |n| {
+        let naming = module.map(|m| m.project_file.naming()).unwrap_or_default();
+        let name = default_name_named(condition, &naming, |n| {
             module.is_some_and(|m| {
                 [ResType::NSS, ResType::NCS]
                     .iter()

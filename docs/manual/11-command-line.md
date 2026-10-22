@@ -64,6 +64,8 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | `mg verify MODULE [--unused]` | missing resources and problems in the custom content (and, with `--unused`, unused resources); fails if there are errors, so a build pipeline stops |
 | `mg roundtrip MODULE [--keep COPY.mod]` | checks that Moonglow keeps the module as it is: saves a copy (a temporary one; the module is not touched), reads it back and compares every resource byte for byte, then writes every GFF and 2DA anew and compares what it reads back (the same fields and cells, the fields it has no name for too); lists what differs and fails if anything does |
 | `mg model-files WHAT FOLDER [--module MODULE] [--all] [--force] [--dry-run]` | writes the files the game draws a model (`plc_a08`) or a blueprint (`chest.utp`; also `.utd`, `.uti`, `.utc`) with into a folder: models, walkmeshes, textures, materials, from the module's haks and wherever else they are; the game's own are left out unless all are (or `--all`); files already in the folder are not written over without `--force` |
+| `mg vars MODULE [NAME]` | the variables the project describes (`variables.toml`, see [Modules](03-modules.md#described-variables)): each one's type, what it goes on, its values (a script's constants and a table's rows read) and its help; `--on KIND` those that go on one kind of object (`placeable`, `area`, `module`…) |
+| `mg builder-code PROJECT [CODE]` | your builder code in a module folder or nasher project (its `.moonglow/user.toml`, which version control leaves out): shown, set, or taken out with `--clear`; the ResRefs the window proposes begin with it ([Modules](03-modules.md#your-builder-code)) |
 | `mg checks` | the checks `mg verify` makes of custom content: each one's id (a finding's `check` in the JSON), its group and what it holds to be true |
 | `mg verify MODULE --skip GROUP` | leave a group out of the report (repeatable): `references` (missing resources), `tilesets`, `models`, `2das`, `objects`, `module` or `plugins`; the JSON's `skipped` says how many problems each had, and only the rest count toward failing |
 | `mg verify MODULE --plugins DIR` | also run the checks of the plugins in `DIR` (a plugin's folder, or a folder of plugins); their problems count with the rest |
@@ -223,9 +225,12 @@ mg areas mymodule.mod --tileset tin01 --grass Wood:grass:2:0.4 --tileset-grass n
   `0xBBGGRR`. Music and sounds are rows of ambientmusic.2da and
   ambientsound.2da.
 - **`--var NAME=VALUE`**: a scripting variable, set on each area, which
-  keeps its others. Its type is the one the area's variable has, else what
-  the value reads as; `NAME:int=`, `NAME:float=` or `NAME:string=` says
-  which. **`--remove-var NAME`** deletes one.
+  keeps its others. Its type is the one the area's variable has, else the
+  one the project's `variables.toml` describes it with, else what the
+  value reads as; `NAME:int=`, `NAME:float=` or `NAME:string=` says
+  which (a type given against the description is said, and a variable
+  described for other objects than areas). **`--remove-var NAME`**
+  deletes one.
 - All the changes are made, or none: one that can't be made to one of the
   areas stops the command before anything is saved. The output lists each
   change (`area`, field, `from -> to`); an area that already has a value

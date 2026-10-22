@@ -30,6 +30,7 @@ pub enum Id {
     Undo,
     Redo,
     ModuleProperties,
+    BuilderCode,
     ResizeArea,
     RotateArea,
     FindInstance,
@@ -149,6 +150,7 @@ pub const MENUS: [(&str, &[Item]); 8] = [
             Do(Id::Redo),
             Separator,
             Do(Id::ModuleProperties),
+            Do(Id::BuilderCode),
             Separator,
             Do(Id::ResizeArea),
             Do(Id::RotateArea),
@@ -301,6 +303,12 @@ impl Id {
             Id::Undo => ("undo", "Undo", ""),
             Id::Redo => ("redo", "Redo", ""),
             Id::ModuleProperties => ("module-properties", "Module Properties", ""),
+            Id::BuilderCode => (
+                "builder-code",
+                "Builder Code…",
+                "Your own code, which the ResRefs proposed for new areas, blueprints and copies \
+                 begin with (kept in the project, out of version control)",
+            ),
             Id::ResizeArea => ("resize-area", "Resize Area…", ""),
             Id::RotateArea => ("rotate-area", "Rotate Area…", ""),
             Id::FindInstance => ("find-instance", "Find Instance…", ""),
@@ -601,6 +609,9 @@ impl Id {
                 .unwrap_or_else(|| app.ws.as_ref().is_some_and(|ws| ws.can_redo().is_some())),
             Id::ResizeArea | Id::RotateArea | Id::AreaStatistics => shown_area(app).is_some(),
             Id::PackTarget => self.shown(app),
+            // (A project's or a module folder's: a .mod's folder holds
+            // other modules too.)
+            Id::BuilderCode => crate::builder_code::root(app).is_some(),
             Id::TakeInLeftOut => (app.ws.as_ref())
                 .and_then(|ws| ws.module.project.as_ref())
                 .is_some_and(|p| !p.left_out.is_empty()),
@@ -706,6 +717,7 @@ impl Id {
                 app.creature_wizard = Some(Default::default());
                 return;
             }
+            Id::BuilderCode => return crate::builder_code::open(app),
             Id::Wizard(kind) => {
                 app.blueprint_wizard = Some(crate::blueprint_wizard::BlueprintWizard::new(kind));
                 return;

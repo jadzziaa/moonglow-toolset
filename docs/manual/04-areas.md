@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T07:17:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T08:31:10Z }
 ---
 
 # Areas
@@ -321,7 +321,9 @@ Aurora):
   **Add Spawn Point** (at the point you right-clicked).
 - **Conversation**, **Inventory** (creatures, placeables with an
   inventory, stores).
-- **Add to Palette**: the instance as a new custom blueprint.
+- **Add to Palette**: the instance as a new custom blueprint (its ResRef
+  after [your builder code](03-modules.md#your-builder-code), where you
+  have one).
 - **Test From Here**: starts the game at the point you right-clicked,
   facing the way the camera looks, with the module as it is now (see
   [Build, verify and test](09-build-and-test.md)). **Test From Here,
@@ -333,7 +335,8 @@ Aurora):
   placeable as a shopkeeper: its conversation, a store and the script that
   opens it; see [Setup Store](#setup-store)), **Add Popup Text…** (a
   placeable that speaks a line when clicked).
-- **Variables…**: the object's local variables.
+- **Variables…**: the object's local variables (with the project's
+  [described variables](03-modules.md#described-variables) offered).
 - **Properties**, the last item: the object's properties as placed in
   the area (an instance can differ from its blueprint). With several
   objects of one kind selected, one window edits them together: a field

@@ -54,6 +54,8 @@ mod tlk_io;
 mod twoda_check;
 #[path = "../update_instances.rs"]
 mod update_instances;
+#[path = "../vars.rs"]
+mod vars;
 #[path = "../verify.rs"]
 mod verify;
 #[path = "../watch.rs"]

@@ -61,10 +61,14 @@ pub enum Check {
     AreaVariables,
     TagUnique,
     NuiSources,
+    VarType,
+    VarValue,
+    VarObject,
+    VarName,
 }
 
 impl Check {
-    pub const ALL: [Check; 27] = [
+    pub const ALL: [Check; 31] = [
         Check::CustomTlk,
         Check::ErfSize,
         Check::SetRead,
@@ -92,6 +96,10 @@ impl Check {
         Check::AreaVariables,
         Check::TagUnique,
         Check::NuiSources,
+        Check::VarType,
+        Check::VarValue,
+        Check::VarObject,
+        Check::VarName,
     ];
 
     pub fn id(self) -> &'static str {
@@ -123,6 +131,10 @@ impl Check {
             Check::AreaVariables => "area-variables",
             Check::TagUnique => "tag-unique",
             Check::NuiSources => "nui-sources",
+            Check::VarType => "var-type",
+            Check::VarValue => "var-value",
+            Check::VarObject => "var-object",
+            Check::VarName => "var-name",
         }
     }
 
@@ -176,6 +188,18 @@ impl Check {
                 "a nasher project's sources take in its NUI windows' files (.jui and .txt), which \
                  nasher otherwise doesn't pack and Moonglow doesn't read back"
             }
+            Check::VarType => {
+                "a variable the project describes (variables.toml) is of the type it says: one \
+                 of another type reads as that type's empty value (an Int read as a String is \"\")"
+            }
+            Check::VarValue => {
+                "a described variable's value is one of those it lists, within its range"
+            }
+            Check::VarObject => "a described variable is on the kind of object it says",
+            Check::VarName => {
+                "a variable named as the project's are (variables.toml's undescribed) is \
+                 described, and a described one is named in the case it is described in"
+            }
         }
     }
 
@@ -201,9 +225,14 @@ impl Check {
             | Check::TwoDaStrRef
             | Check::TwoDaRef
             | Check::TwoDaDescribed => Group::Tables,
-            Check::ObjectRow | Check::PcFaction | Check::AreaVariables | Check::TagUnique => {
-                Group::Objects
-            }
+            Check::ObjectRow
+            | Check::PcFaction
+            | Check::AreaVariables
+            | Check::TagUnique
+            | Check::VarType
+            | Check::VarValue
+            | Check::VarObject
+            | Check::VarName => Group::Objects,
             Check::CustomTlk | Check::ErfSize | Check::NuiSources => Group::Module,
         }
     }
@@ -419,6 +448,7 @@ pub fn examine(module: &Module, resman: &ResMan, tlk: TalkTables) -> Vec<Finding
     pc_faction(&mut d, module);
     area_variables(&mut d, module);
     unique_tags(&mut d, module);
+    described_variables(&mut d, module);
     described_tables(&mut d, module);
     custom_tlk(&mut d, module);
     nui_sources(&mut d, module);
@@ -1559,6 +1589,117 @@ fn unique_tags(d: &mut Doctor, module: &Module) {
     }
 }
 
+/// The module's variables held to the project's descriptions
+/// (`variables.toml`): the type each is of (a variable read as another
+/// type is that type's empty value, `engine_local_variables`), its value,
+/// what it is on, and names that look like a described one's but are
+/// not (in another case, which the game tells apart, or named as the
+/// project's are and described nowhere).
+fn described_variables(d: &mut Doctor, module: &Module) {
+    use crate::var_desc::{self, Choices, ModuleLookup, Unknown, type_label};
+    let vars = &module.project_file.variables;
+    if vars.is_empty() {
+        return;
+    }
+    let file = var_desc::FILE_NAME;
+    let lookup = ModuleLookup::new(module, Some(d.rm));
+    let mut choices: HashMap<String, Choices> = HashMap::new();
+    let mut unread: HashSet<String> = HashSet::new();
+    let mut keys: Vec<ResKey> = module
+        .keys()
+        .filter(|k| var_desc::Owner::of_restype(k.restype).is_some())
+        .copied()
+        .collect();
+    keys.sort();
+    let empty = |t: crate::vars::VarType| match t {
+        crate::vars::VarType::Int => "0",
+        crate::vars::VarType::Float => "0.0",
+        crate::vars::VarType::String => "\"\"",
+        crate::vars::VarType::Object => "OBJECT_INVALID",
+        crate::vars::VarType::Location => "an invalid location",
+    };
+    for key in keys {
+        let Some(Ok(gff)) = module.gff(&key) else { continue };
+        for f in var_desc::variables_of(key, &gff) {
+            let place = crate::rename::describe(key, Some(&gff), &format!("{}/VarTable", f.path));
+            let at = format!("{place} › {}", f.name);
+            let Some(desc) = vars.describe(&f.name) else {
+                let message = match vars.unknown(&f.name) {
+                    Some(Unknown::OtherCase(o)) => format!(
+                        "{} is described as {} ({file}:{}): the game tells names apart by \
+                         their case, and a script that reads {} finds nothing here",
+                        f.name, o.name, o.line, o.name
+                    ),
+                    Some(Unknown::Undescribed { pattern, nearest }) => {
+                        let near = nearest.map(|n| format!(": {n}?")).unwrap_or_default();
+                        format!(
+                            "{} is named as the project's variables are ({pattern}), and {file} \
+                             describes no such variable{near}",
+                            f.name
+                        )
+                    }
+                    None => continue,
+                };
+                d.push(Severity::Warning, Check::VarName, "module", key, at, message);
+                continue;
+            };
+            if let (Some(want), Some(have)) = (desc.var_type, f.var_type)
+                && want != have
+            {
+                let message = format!(
+                    "{} is {} {} here, and {file}:{} says it is {} {}: the scripts read {}",
+                    f.name,
+                    if have == crate::vars::VarType::Int { "an" } else { "a" },
+                    type_label(have),
+                    desc.line,
+                    if want == crate::vars::VarType::Int { "an" } else { "a" },
+                    type_label(want),
+                    empty(want)
+                );
+                d.push(Severity::Error, Check::VarType, "module", key, at, message);
+                continue;
+            }
+            if !desc.belongs_on(f.owner) {
+                let on: Vec<&str> = desc.on.iter().map(|o| o.name()).collect();
+                let message = format!(
+                    "{} is on {} {}, and {file}:{} says it goes on {}",
+                    f.name,
+                    if f.owner.name().starts_with(['a', 'e', 'i', 'o', 'u']) { "an" } else { "a" },
+                    f.owner.name(),
+                    desc.line,
+                    on.join(", ")
+                );
+                d.push(Severity::Warning, Check::VarObject, "module", key, at.clone(), message);
+            }
+            let typed = matches!(
+                f.var_type,
+                Some(
+                    crate::vars::VarType::Int
+                        | crate::vars::VarType::Float
+                        | crate::vars::VarType::String
+                )
+            );
+            if !typed || !(desc.has_list() || desc.min.is_some() || desc.max.is_some()) {
+                continue;
+            }
+            let c = choices.entry(desc.name.clone()).or_insert_with(|| desc.choices(&lookup));
+            if let Some(problem) = &c.problem
+                && unread.insert(desc.name.clone())
+            {
+                let message = format!(
+                    "{}'s values ({file}:{}) can't be listed: {problem}",
+                    desc.name, desc.line
+                );
+                d.push(Severity::Warning, Check::VarValue, "module", key, at.clone(), message);
+            }
+            if let Some(problem) = desc.value_problem(&f.value, c) {
+                let message = format!("{}: {problem} ({file}:{})", f.name, desc.line);
+                d.push(Severity::Warning, Check::VarValue, "module", key, at, message);
+            }
+        }
+    }
+}
+
 /// The object type a GIT list or inventory holds (of these,
 /// [`walk_objects`] checks creatures, doors, placeables and items, and
 /// the items stores and the others hold).
@@ -1853,6 +1994,155 @@ mod tests {
 
     /// A tag the project's moonglow.toml wants unique, on two objects: a
     /// warning naming both. Without the file, nothing.
+    #[test]
+    fn variables_are_held_to_the_project_s_descriptions() {
+        let dir = mg_testkit::scratch_dir("doctor-described-variables");
+        let var = |name: &str, value: Value| {
+            let t = match value {
+                Value::Int(_) => 1,
+                Value::Float(_) => 2,
+                _ => 3,
+            };
+            let mut v = Struct::new(0);
+            v.set("Name", Value::String(name.as_bytes().to_vec()));
+            v.set("Type", Value::Dword(t));
+            v.set("Value", value);
+            v
+        };
+        let s = |t: &str| Value::String(t.as_bytes().to_vec());
+        let object = |id: u32, tag: &str, vars: Vec<Struct>| {
+            let mut o = Struct::new(id);
+            o.set("Tag", s(tag));
+            o.set("VarTable", Value::List(vars));
+            o
+        };
+        let mut m = Module::new();
+        let mut ifo = Gff::new(*b"IFO ");
+        ifo.root.set("VarTable", Value::List(vec![var("tdod_lamplit", Value::Int(1))]));
+        m.set_gff(key("module", ResType::IFO), &ifo).unwrap();
+        let mut git = Gff::new(*b"GIT ");
+        git.root.set("VarTable", Value::List(vec![var("tdod_lamplit", Value::Int(1))]));
+        let bench = object(
+            9,
+            "BENCH",
+            vec![
+                var("tdod_workbench", s("Forge")),
+                var("tdod_lit", s("1")),
+                var("TDOD_light", Value::Int(1)),
+                var("tdod_workbnch", s("forge")),
+                var("tdod_harvest_dc", Value::Int(99)),
+                var("tdod_craft", Value::Int(1)),
+                var("tdod_craft2", Value::Int(7)),
+                var("someone_elses", s("x")),
+            ],
+        );
+        let mut good = object(9, "GOOD", vec![var("tdod_workbench", s("forge"))]);
+        good.set("Tag", s("GOOD"));
+        let mut keeper = object(4, "KEEPER", vec![var("tdod_kind", s("monster"))]);
+        let item = object(0, "", vec![var("tdod_kind", s("beast"))]);
+        keeper.set("ItemList", Value::List(vec![item]));
+        git.root.set("Placeable List", Value::List(vec![bench, good]));
+        git.root.set("Creature List", Value::List(vec![keeper]));
+        m.set_gff(key("krezk", ResType::GIT), &git).unwrap();
+        m.set(
+            key("tdod_kind_inc", ResType::NSS),
+            b"const string TDOD_KIND_BEAST = \"beast\";\nconst string TDOD_KIND_UNDEAD = \"undead\";\n"
+                .to_vec(),
+        );
+        m.save_as(&crate::ModuleLocation::Folder(dir.clone())).unwrap();
+        let rm = resman(&[(
+            "crafts",
+            ResType::TWODA,
+            b"2DA V2.0\n\n   Label\n0  Smithing\n1  Tailoring\n",
+        )]);
+        let m = Module::open(&dir).unwrap();
+        let ours = |f: &[Finding]| -> Vec<(String, String, String)> {
+            f.iter()
+                .filter(|x| x.check.starts_with("var-"))
+                .map(|x| (x.check.to_string(), x.at.clone(), x.message.clone()))
+                .collect()
+        };
+        assert_eq!(ours(&examine(&m, &rm, TalkTables::default())), [], "no description");
+        std::fs::write(
+            dir.join("variables.toml"),
+            "undescribed = [\"tdod_*\"]\n\n\
+             [tdod_workbench]\ntype = \"string\"\non = [\"placeable\"]\n\
+             values = { forge = \"Smithing\", tanner = \"Leatherworking\" }\n\n\
+             [tdod_lit]\ntype = \"int\"\nvalues = [1]\n\n\
+             [tdod_light]\ntype = \"int\"\n\n\
+             [tdod_harvest_dc]\ntype = \"int\"\nmin = 1\nmax = 60\n\n\
+             [tdod_lamplit]\ntype = \"int\"\non = [\"area\"]\n\n\
+             [tdod_kind]\ntype = \"string\"\nconstants = \"tdod_kind_inc\"\nprefix = \"TDOD_KIND_\"\n\n\
+             [\"tdod_craft*\"]\ntype = \"int\"\ntable = \"crafts\"\n",
+        )
+        .unwrap();
+        let m = Module::open(&dir).unwrap();
+        assert!(m.project_file.variables_found, "{:?}", m.project_file.warnings);
+        assert_eq!(m.project_file.warnings, Vec::<String>::new());
+        let found = ours(&examine(&m, &rm, TalkTables::default()));
+        let has = |check: &str, at: &str, message: &str| {
+            assert!(
+                found.iter().any(|(c, a, m)| c == check && a.ends_with(at) && m == message),
+                "no {check} at …{at}: {message}\nin {found:#?}"
+            );
+        };
+        has(
+            "var-type",
+            "tdod_lit",
+            "tdod_lit is a String here, and variables.toml:8 says it is an Int: the scripts read 0",
+        );
+        has(
+            "var-value",
+            "tdod_workbench",
+            "tdod_workbench: \"Forge\" is none of its values: \"forge\" (the scripts compare it as \
+             it is written, case and all) (variables.toml:3)",
+        );
+        has(
+            "var-value",
+            "tdod_harvest_dc",
+            "tdod_harvest_dc: 99 is more than 60, the most it takes (variables.toml:15)",
+        );
+        has(
+            "var-value",
+            "tdod_kind",
+            "tdod_kind: \"monster\" is none of its values (\"beast\", \"undead\") \
+             (variables.toml:24)",
+        );
+        has(
+            "var-value",
+            "tdod_craft2",
+            "tdod_craft2: 7 is no row of crafts.2da (2 rows) (variables.toml:29)",
+        );
+        has(
+            "var-name",
+            "TDOD_light",
+            "TDOD_light is described as tdod_light (variables.toml:12): the game tells names \
+             apart by their case, and a script that reads tdod_light finds nothing here",
+        );
+        has(
+            "var-name",
+            "tdod_workbnch",
+            "tdod_workbnch is named as the project's variables are (tdod_*), and variables.toml \
+             describes no such variable: tdod_workbench?",
+        );
+        has(
+            "var-object",
+            "Module › VarTable › tdod_lamplit",
+            "tdod_lamplit is on a module, and variables.toml:20 says it goes on area",
+        );
+        // Those that are right, and the others' variables, are not said.
+        assert_eq!(found.len(), 8, "{found:#?}");
+        let severity = examine(&m, &rm, TalkTables::default())
+            .into_iter()
+            .filter(|f| f.check.starts_with("var-"))
+            .map(|f| (f.check.to_string(), f.severity))
+            .collect::<Vec<_>>();
+        assert!(severity.contains(&("var-type".into(), Severity::Error)));
+        assert!(
+            severity.iter().filter(|(c, _)| c != "var-type").all(|(_, s)| *s == Severity::Warning)
+        );
+    }
+
     #[test]
     fn a_tag_the_project_wants_unique_is_found_twice() {
         let dir = mg_testkit::scratch_dir("doctor-unique-tags");
