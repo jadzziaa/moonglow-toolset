@@ -3,7 +3,7 @@ type: Research Note
 title: The EE data Aurora has no fields for
 description: The data Enhanced Edition added to the game's objects that Aurora has no fields for - what the game stores and reads - and what Moonglow leaves undone.
 tags: [ee, gff, fields, aurora]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T23:33:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T11:57:32Z }
 ---
 
 # The EE data Aurora has no fields for
@@ -63,9 +63,12 @@ higher bits.
 
 **Tile replacement texture:** the game keeps a tile's `Tile_ReplaceTex`
 byte, a `replacetexture.2da` row. The tile model's texture named
-`replace_tex` is drawn with that row's `TEXTURENAME`. One game model has
-such a texture (`tms01_c08_01`). Tile Properties sets it, and the area
-view draws it.
+`replace_tex` is meant to be drawn with that row's `TEXTURENAME`
+(nwn.wiki; whether the client does wasn't seen). One game model has
+such a texture (`tms01_c08_01`), in no tileset, and the table's two rows
+are both `T_Flag02`. Tile Properties set it until October 2026 and no
+longer does (a builder's tile feedback; `deferred.md`): it is kept, and
+edited in the raw fields. The area view draws it.
 
 ### Creatures
 
