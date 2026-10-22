@@ -141,25 +141,53 @@ impl Clash {
     }
 }
 
+/// An object just pasted or copied, as [`clashes`] weighs it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MadeTag<'a> {
+    pub tag: &'a [u8],
+    /// A builder set the tag ([`is_custom_tag`]).
+    pub custom: bool,
+    /// A static placeable: scenery, never warned of.
+    pub is_static: bool,
+}
+
+/// Whether a builder set an object's tag: it isn't its blueprint's own
+/// (`blueprint`: the one its `TemplateResRef` names, as found in the
+/// module, its haks or the game), or the blueprint isn't found (an area,
+/// which has none, too).
+pub fn is_custom_tag(object: &Struct, blueprint: Option<&Struct>) -> bool {
+    blueprint.is_none_or(|b| {
+        b.string("Tag").unwrap_or_default() != object.string("Tag").unwrap_or_default()
+    })
+}
+
 /// The tags of `made` (those just pasted or copied) that are now on more
 /// than one object of `index` (which has them), as the project's rules
-/// say to warn of them.
-pub fn clashes(index: &TagIndex, made: &[&[u8]], rules: &TagRules) -> Vec<Clash> {
+/// say to warn of them (`custom`, the default: tags a builder set and
+/// those that must be unique). A static placeable's never.
+pub fn clashes(index: &TagIndex, made: &[MadeTag], rules: &TagRules) -> Vec<Clash> {
     if rules.paste_warning == PasteWarning::Off {
         return Vec::new();
     }
     let mut seen = HashSet::new();
     let mut out = Vec::new();
-    for &tag in made {
-        if tag.is_empty() || !seen.insert(tag) || index.count(tag) < 2 {
+    for m in made {
+        let tag = m.tag;
+        if tag.is_empty() || m.is_static || seen.contains(tag) || index.count(tag) < 2 {
             continue;
         }
         let text = String::from_utf8_lossy(tag).into_owned();
         let unique = rules.unique.matching(&text).map(str::to_string);
-        if rules.paste_warning == PasteWarning::Unique && unique.is_none() {
-            continue;
+        let warned = match rules.paste_warning {
+            PasteWarning::Any => true,
+            PasteWarning::Custom => m.custom || unique.is_some(),
+            PasteWarning::Unique => unique.is_some(),
+            PasteWarning::Off => false,
+        };
+        if warned {
+            seen.insert(tag);
+            out.push(Clash { tag: text, count: index.count(tag), unique });
         }
-        out.push(Clash { tag: text, count: index.count(tag), unique });
     }
     out
 }
@@ -263,14 +291,32 @@ mod tests {
         assert_eq!(dups, [&b"INN"[..], b"LAMP"]);
     }
 
+    fn made(tag: &[u8], custom: bool, is_static: bool) -> MadeTag<'_> {
+        MadeTag { tag, custom, is_static }
+    }
+
     #[test]
     fn a_paste_says_what_it_made_twice_as_the_project_wants() {
         let i = index();
         let mut rules = TagRules::default();
-        let made: [&[u8]; 4] = [b"LAMP", b"LAMP", b"CHEST", b"TDOD_START_KREZK"];
-        let got = clashes(&i, &made, &rules);
+        // The default: tags a builder set; a blueprint's own is quiet.
+        let quiet = [made(b"LAMP", false, false), made(b"CHEST", true, false)];
+        assert!(clashes(&i, &quiet, &rules).is_empty(), "LAMP is its blueprint's, CHEST once");
+        let made_custom = [made(b"LAMP", false, false), made(b"LAMP", true, false)];
+        let got = clashes(&i, &made_custom, &rules);
         assert_eq!(got, [Clash { tag: "LAMP".into(), count: 2, unique: None }]);
         assert_eq!(got[0].sentence(), "LAMP is now on two objects");
+        // A static placeable never.
+        assert!(clashes(&i, &[made(b"LAMP", true, true)], &rules).is_empty());
+        rules.paste_warning = PasteWarning::Any;
+        assert_eq!(clashes(&i, &[made(b"LAMP", false, false)], &rules).len(), 1);
+        assert!(clashes(&i, &[made(b"LAMP", false, true)], &rules).is_empty());
+        let made: [MadeTag; 4] = [
+            made(b"LAMP", false, false),
+            made(b"LAMP", false, false),
+            made(b"CHEST", false, false),
+            made(b"TDOD_START_KREZK", false, false),
+        ];
         let mut more = i.clone();
         more.add_git(r("cave"), &{
             let mut g = Struct::new(0);
@@ -278,6 +324,9 @@ mod tests {
             g
         });
         rules.unique = Patterns::new(&["TDOD_START_*"]).unwrap();
+        // The unique ones always, the blueprint's own tag or not.
+        rules.paste_warning = PasteWarning::Custom;
+        assert_eq!(clashes(&more, &made, &rules).len(), 1);
         rules.paste_warning = PasteWarning::Unique;
         let got = clashes(&more, &made, &rules);
         assert_eq!(got.len(), 1);

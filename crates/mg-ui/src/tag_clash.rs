@@ -9,7 +9,7 @@ use mg_core::ResType;
 use mg_edit::{Command, Edit, GffPath, Workspace};
 use mg_gff::Value;
 use mg_module::project_file::PasteWarning;
-use mg_module::tags::{Clash, TagIndex, clashes, retag};
+use mg_module::tags::{Clash, MadeTag, TagIndex, clashes, retag};
 use mg_resman::ResKey;
 
 use crate::Moonglow;
@@ -70,31 +70,65 @@ pub(crate) fn index(ws: &Workspace) -> TagIndex {
     index
 }
 
-/// The tag of the object at `made`.
-fn tag_of(ws: &mut Workspace, made: &Made) -> Option<Vec<u8>> {
+/// What a made object's tag is to [`clashes`]: the tag, whether a builder
+/// set it (not its blueprint's own, as the module, its haks or the game
+/// have the blueprint; an area's always), and whether it is a static
+/// placeable.
+struct Weighed {
+    tag: Vec<u8>,
+    custom: bool,
+    is_static: bool,
+}
+
+fn weigh(ws: &mut Workspace, game: Option<&mg_rules::GameData>, made: &Made) -> Option<Weighed> {
     let doc = ws.doc(&made.key).ok()?;
-    let s = made.path.get(&doc.root)?;
-    s.string("Tag").map(<[u8]>::to_vec)
+    let s = made.path.get(&doc.root)?.clone();
+    let tag = s.string("Tag").map(<[u8]>::to_vec)?;
+    let kind = match made.path.0.last() {
+        Some(mg_edit::Step::Item(list, _)) => mg_rules::ObjectKind::from_list(list),
+        _ => None,
+    };
+    let blueprint = kind.zip(s.resref("TemplateResRef")).and_then(|(kind, r)| {
+        let key = ResKey::new(r, kind.restype());
+        mg_module::gff_root(Some(&ws.module), game?, &key)
+    });
+    let is_static =
+        kind == Some(mg_rules::ObjectKind::Placeable) && s.integer("Static").unwrap_or(0) != 0;
+    let custom = mg_module::tags::is_custom_tag(&s, blueprint.as_ref());
+    Some(Weighed { tag, custom, is_static })
 }
 
 /// After a paste or a copy: says what it put on more than one object (as
-/// the project says to), in the log and the Duplicate Tags window.
-/// `whole_area`: an area copied with all it holds, whose every tag is its
-/// original's: only the area's own and those that must be unique are
-/// listed, the others counted.
+/// the project says to: by default the tags a builder set and those that
+/// must be unique, never a static placeable's), in the log and the
+/// Duplicate Tags window. `whole_area`: an area copied with all it holds,
+/// whose every tag is its original's: with `paste_warning = "any"`, only
+/// the area's own and those that must be unique are listed, the others
+/// counted.
 pub(crate) fn check(app: &mut Moonglow, what: &str, made: Vec<Made>, whole_area: bool) {
+    let game = app.game.clone();
     let Some(ws) = app.ws.as_mut() else { return };
     let rules = ws.module.project_file.tags.clone();
     if rules.paste_warning == PasteWarning::Off || made.is_empty() {
         return;
     }
-    let tagged: Vec<(Made, Vec<u8>)> =
-        made.into_iter().filter_map(|m| Some((m.clone(), tag_of(ws, &m)?))).collect();
+    let weighed: Vec<(Made, Weighed)> = made
+        .into_iter()
+        .filter_map(|m| Some((m.clone(), weigh(ws, game.as_deref(), &m)?)))
+        .collect();
     let index = index(ws);
-    let tags: Vec<&[u8]> = tagged.iter().map(|(_, t)| t.as_slice()).collect();
+    let tags: Vec<MadeTag> = weighed
+        .iter()
+        .map(|(_, w)| MadeTag { tag: &w.tag, custom: w.custom, is_static: w.is_static })
+        .collect();
     let mut found = clashes(&index, &tags, &rules);
+    let tagged: Vec<(Made, Vec<u8>)> = weighed
+        .iter()
+        .filter(|(_, w)| !w.is_static)
+        .map(|(m, w)| (m.clone(), w.tag.clone()))
+        .collect();
     let mut others = 0;
-    if whole_area {
+    if whole_area && rules.paste_warning == PasteWarning::Any {
         let own = |t: &str| {
             tagged.iter().any(|(m, tag)| m.key.restype == ResType::ARE && tag == t.as_bytes())
         };

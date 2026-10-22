@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T06:58:24Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T07:17:50Z }
 ---
 
 # Areas
@@ -426,22 +426,29 @@ its original's place, or the original its copy's, with no error.
 
 After a paste (Ctrl+V, a prefab placed) that puts a tag on more than one
 object of the module (its areas and the objects placed in them), the log
-and the **Duplicate Tags** window say which: "LAMP is now on two
-objects".
+and the **Duplicate Tags** window say which: "KREZK_RENTAL_DOOR is now
+on two objects". They say it of the tags a builder set: a tag that isn't
+the object's blueprint's own (as the module, its haks or the game have
+the blueprint; one whose blueprint isn't found counts as set), and those
+the project wants unique. Copies of a rock with its blueprint's tag ask
+nothing, and a static placeable (scenery) never does.
 
 - **Retag** gives each pasted object with such a tag one of its own, the
   tag with a number that no object has (`LAMP_2`; `STORE_7` becomes
   `STORE_8`), as one step to undo.
-- **Keep Tags** leaves them (scenery that no script looks up).
+- **Keep Tags** leaves them (objects that no script looks up).
 
 An area copied with **Copy…** in the module tree has every tag of its
-original's objects: the window lists the area's own tag and those the
-project wants unique, and the log counts the rest.
+original's objects: the window lists the area's own tag (an area has no
+blueprint), the tags a builder set and those the project wants unique.
 
 The [project file](03-modules.md#the-project-file-moonglowtoml) says
-which to warn of (`[tags] paste_warning`: `"any"`, `"unique"` for only
-the tags it names in `unique`, or `"off"`), and Verify Module warns of a
-tag it wants unique that is on two objects.
+which to warn of (`[tags] paste_warning`: `"custom"`, as above and by
+default; `"any"` for every tag but a static placeable's, an area copy's
+then listing only its own tag and the unique ones and counting the
+rest; `"unique"` for only the tags it names in `unique`; or `"off"`),
+and Verify Module warns of a tag it wants unique that is on two
+objects.
 
 ## Painting placeables
 

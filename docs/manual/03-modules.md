@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, the project file (moonglow.toml), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T07:11:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T07:17:50Z }
 ---
 
 # Modules
@@ -241,7 +241,7 @@ keep_resrefs = ["tdod_*"]           # one placed from a blueprint so named
 
 [tags]
 unique = ["TDOD_START_*", "*_STORE_*"]   # on one object of the module only
-paste_warning = "any"               # which duplicates a paste says it made
+paste_warning = "custom"            # which duplicates a paste says it made
 
 [store]                             # Setup Store
 open_script = "tdod_vendor_open"    # the reply that opens the store runs it
@@ -259,7 +259,7 @@ Names are matched by globs, whatever their case: `*` any characters,
 | `[make_static] keep_tags` | a placeable whose tag these name stays dynamic | none |
 | `[make_static] keep_resrefs` | a placeable placed from a blueprint these name (its `TemplateResRef`) stays dynamic | none |
 | `[tags] unique` | tags that must be on one area or placed object only: Verify Module warns of two (`tag-unique`) | none |
-| `[tags] paste_warning` | which tags a paste or a copy says it put on more than one object: `"any"`, `"unique"` (those of `unique` only) or `"off"` | `"any"` |
+| `[tags] paste_warning` | which tags a paste or a copy says it put on more than one object: `"custom"` (those a builder set, not the object's blueprint's own tag, and those of `unique`), `"any"`, `"unique"` (those of `unique` only) or `"off"`; never a static placeable's | `"custom"` |
 | `[store] open_script` | the script the shopkeeper's reply runs to open the store; none is written | an `openstoreNNN` that calls `OpenStore` |
 | `[store] tag` | the store's tag: `{area}` the area's tag, `{n}` the first number no object has | the blueprint's tag, with a number where another object has it (with a `[store]` section; Aurora's, the blueprint's, without one) |
 | `[store] blueprint` | the store blueprint chosen at first | none chosen |

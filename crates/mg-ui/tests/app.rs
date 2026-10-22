@@ -8365,12 +8365,8 @@ fn copy_cut_and_paste_objects() {
         "the copies are selected"
     );
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Paste"));
-    // The two waypoints' one tag is on four now: said, and kept.
-    let clash = h.state().tag_clash.clone().expect("the Duplicate Tags window");
-    assert_eq!(clash.clashes[0].count, 4);
-    assert_eq!(clash.objects.len(), 2, "the copies");
-    h.get_by_label("Keep Tags").click();
-    h.run_steps(2);
+    // The two waypoints' one tag is on four now, but it is their
+    // blueprint's own: nothing asked.
     assert!(h.state().tag_clash.is_none());
     // Cut: the copies go (into the clipboard).
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::X);
@@ -10377,6 +10373,84 @@ fn setup_store_follows_the_project_file() {
     let var = c.list("VarTable").unwrap().iter().find(|v| v.string("Name") == Some(b"tdod_store"));
     let var = var.expect("the shopkeeper's variable");
     assert_eq!((var.dword("Type"), var.string("Value")), (Some(3), Some(tag.as_bytes())));
+}
+
+/// What a paste warns of by default (`paste_warning = "custom"`): a tag a
+/// builder set (a door renamed), not a blueprint's own (a barrel as
+/// placed from the palette), and never a static placeable's; with
+/// `"any"`, the barrel too, the static one still not.
+#[test]
+fn a_paste_warns_of_builders_tags_not_scenery() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("paste-custom") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    {
+        let app = h.state_mut();
+        let game = app.game.as_deref().unwrap();
+        let read = |name: &str, t: ResType| {
+            Gff::read(&game.resman.get(&ResKey::parse(name, t).unwrap()).unwrap()).unwrap().root
+        };
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let at = |x: f32| Placement { position: [x, 15.0, 0.0], rotation: 0.0 };
+        let barrel =
+            instance(&placing, ResType::UTP, &read("plc_barrel", ResType::UTP), at(10.0), &[]);
+        let mut rock = barrel.clone().unwrap();
+        rock.set("Static", mg_gff::Value::Byte(1));
+        rock.set("XPosition", mg_gff::Value::Float(20.0));
+        rock.set("Tag", mg_gff::Value::String(b"MG_BIG_ROCK".to_vec()));
+        let mut door =
+            instance(&placing, ResType::UTD, &read("nw_door_normal", ResType::UTD), at(30.0), &[])
+                .unwrap();
+        door.set("Tag", mg_gff::Value::String(b"KREZK_RENTAL_DOOR".to_vec()));
+        let insert = |list: &str, index, item| mg_edit::Edit::InsertItem {
+            key: git,
+            path: mg_edit::GffPath::root(),
+            list: list.into(),
+            index,
+            item,
+        };
+        let edits = vec![
+            insert("Placeable List", 0, barrel.unwrap()),
+            insert("Placeable List", 1, rock),
+            insert("Door List", 0, door),
+        ];
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
+    }
+    h.run_steps(3);
+    let paste = |h: &mut Harness<'_, Moonglow>, picked: (ObjectKind, usize), at: Vec3| {
+        h.state_mut().tag_clash = None;
+        h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![picked];
+        let over = screen(h, area, at);
+        h.hover_at(over);
+        h.run_steps(1);
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::C);
+        h.run_steps(1);
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::V);
+        h.run_steps(2);
+        let over = screen(h, area, at);
+        h.hover_at(over);
+        press(h, over, true, egui::Modifiers::NONE);
+        press(h, over, false, egui::Modifiers::NONE);
+        h.run_steps(3);
+        assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Paste"));
+        h.state().tag_clash.clone()
+    };
+    let barrel = (ObjectKind::Placeable, 0);
+    let rock = (ObjectKind::Placeable, 1);
+    let door = (ObjectKind::Door, 0);
+    assert!(paste(&mut h, barrel, Vec3::new(12.0, 30.0, 0.0)).is_none(), "the blueprint's tag");
+    assert!(paste(&mut h, rock, Vec3::new(16.0, 30.0, 0.0)).is_none(), "a static placeable");
+    let clash = paste(&mut h, door, Vec3::new(20.0, 30.0, 0.0)).expect("a renamed door");
+    assert_eq!(clash.clashes[0].sentence(), "KREZK_RENTAL_DOOR is now on two objects");
+    // "any": the barrel's too; the static rock's never.
+    h.state_mut().ws.as_mut().unwrap().module.project_file.tags.paste_warning =
+        mg_module::project_file::PasteWarning::Any;
+    let clash = paste(&mut h, barrel, Vec3::new(24.0, 30.0, 0.0)).expect("any tag");
+    assert!(clash.clashes[0].sentence().ends_with("is now on three objects"), "{clash:?}");
+    assert!(paste(&mut h, rock, Vec3::new(28.0, 30.0, 0.0)).is_none(), "a static placeable");
 }
 
 /// A paste that puts a tag on a second object says so and offers Retag:
@@ -14682,10 +14756,8 @@ fn placement_tools_turn_ground_arrange_lock_and_make_prefabs() {
     press(&h, c, false, egui::Modifiers::NONE);
     h.run_steps(3);
     assert_eq!(waypoints(&mut h).len(), 4, "{:?}", h.state().log.entries);
-    // (The posts' tags are on two objects each now: said, and kept.)
-    assert!(h.state().tag_clash.is_some());
-    h.get_by_label("Keep Tags").click();
-    h.run_steps(2);
+    // (The posts' tags are their blueprint's: nothing asked.)
+    assert!(h.state().tag_clash.is_none());
 
     // Lock: clicks pass locked objects by; Unlock All frees them.
     h.state_mut().area_views.get_mut(&area).unwrap().selection = both;

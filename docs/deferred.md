@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T07:11:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T07:17:50Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2753,11 +2753,6 @@ and duplicate tags on paste. What is left:
 - **Retag changes the copies' tags only:** what names the old tag (a
   copied area's doors' `LinkedTo`, scripts) still names the original's;
   an area's copy's other duplicated tags are counted, not retagged. (M)
-- **The Duplicate Tags window opens for scenery too:** with
-  `paste_warning = "any"` (the default), a paste or a prefab of tagged
-  rocks or posts asks each time (Keep Tags, or the project's
-  `"unique"`); leaving out static placeables, or tags no script
-  names, would be a choice for the owner. (S)
 - **A paste reads every area's objects for their tags:** those not open
   are parsed from the module each time (not kept, so that a save doesn't
   rewrite them); in a persistent world of hundreds of areas a paste may

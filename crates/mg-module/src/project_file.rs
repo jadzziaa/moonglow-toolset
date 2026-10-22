@@ -11,7 +11,7 @@
 //!
 //! [tags]
 //! unique = ["TDOD_START_*"]           # on one object only (Verify says where not)
-//! paste_warning = "any"               # "any" duplicate a paste makes, "unique" ones, "off"
+//! paste_warning = "custom"            # builders' tags and unique ones; "any", "unique", "off"
 //!
 //! [store]                             # Setup Store
 //! open_script = "tdod_vendor_open"    # the reply that opens the store runs this
@@ -113,11 +113,16 @@ impl Default for StaticRules {
     }
 }
 
-/// Which duplicate tags a paste or a copy says it made.
+/// Which duplicate tags a paste or a copy says it made (never a static
+/// placeable's: scenery).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PasteWarning {
-    /// Every tag the paste puts on a second object.
+    /// Tags a builder set (an object's tag that isn't its blueprint's
+    /// own, or one whose blueprint isn't found), and those `[tags]
+    /// unique` names: copies of a rock tagged as its blueprint are quiet.
     #[default]
+    Custom,
+    /// Every tag the paste puts on a second object.
     Any,
     /// Only those `[tags] unique` names.
     Unique,
@@ -369,13 +374,15 @@ impl ProjectFile {
                                 }
                             }
                             "paste_warning" => match r.text(e).as_deref() {
+                                Some("custom") => self.tags.paste_warning = PasteWarning::Custom,
                                 Some("any") => self.tags.paste_warning = PasteWarning::Any,
                                 Some("unique") => self.tags.paste_warning = PasteWarning::Unique,
                                 Some("off") => self.tags.paste_warning = PasteWarning::Off,
                                 Some(other) => r.warn(
                                     e.1.span().start,
                                     format!(
-                                        "paste_warning \"{other}\": \"any\", \"unique\" or \"off\""
+                                        "paste_warning \"{other}\": \"custom\", \"any\", \"unique\" or \
+                                         \"off\""
                                     ),
                                 ),
                                 None => {}
@@ -547,7 +554,7 @@ keeper_variable = "tdod_store"
         assert_eq!(p, ProjectFile::default());
         assert!(p.make_static.keep_variables.matches("anything"), "a variable keeps it dynamic");
         assert!(p.make_static.keep_tags.is_empty() && p.tags.unique.is_empty());
-        assert_eq!(p.tags.paste_warning, PasteWarning::Any);
+        assert_eq!(p.tags.paste_warning, PasteWarning::Custom);
         assert!(p.store.is_none());
         // And `[]`: variables don't keep a placeable dynamic.
         let p = read("[make_static]\nkeep_variables = []\n");
@@ -566,7 +573,7 @@ keeper_variable = "tdod_store"
             [
                 "moonglow.toml:3: \"colour\" is not a key of [store]",
                 "moonglow.toml:6: unique is to be a list of names: [\"A_*\", \"B\"]",
-                "moonglow.toml:7: paste_warning \"loud\": \"any\", \"unique\" or \"off\"",
+                "moonglow.toml:7: paste_warning \"loud\": \"custom\", \"any\", \"unique\" or \"off\"",
                 "moonglow.toml:8: [lights] is not a section Moonglow reads",
                 "moonglow.toml:11: keep_tags: not text",
                 "moonglow.toml:11: [: missing ']'",
