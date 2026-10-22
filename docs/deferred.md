@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:18:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:25:26Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -3194,7 +3194,11 @@ gaps filled in 2.1.1; what they left:
   haks are the machine's user folder's). (S)
 - **A test is told what it lacked of the game only when it fails:** a
   passing test whose plugin made do without a resource (in a `pcall`)
-  isn't. (S)
+  isn't; nor one that listed the game's resources
+  (`ctx.game:resources()`) with no game, which fails as before. And a
+  fixture module that is a folder named `game` beside its test file is
+  read as the test's game folder too, unless `game = "…"` names
+  another. (S)
 - **`mg.struct_id` reads an id; no edit sets one:** an equipped item
   moved to another slot is removed and inserted again. (S)
 
