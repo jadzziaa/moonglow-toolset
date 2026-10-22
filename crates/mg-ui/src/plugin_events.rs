@@ -173,6 +173,15 @@ pub(crate) fn with_plugins(app: &mut Moonglow, cmd: Command, made: &Made) -> Com
         .flat_map(|e| {
             handlers(app, e.kind).into_iter().map(move |(p, id, s)| (p, id, s, e.clone()))
         })
+        // (Only those for what was made: else nothing need be worked out.)
+        .filter(|(p, id, _, e)| {
+            let Some(decl) = p.manifest.events.iter().find(|d| d.id == *id) else { return false };
+            e.resources.iter().any(|k| decl.is_for(k))
+                || e.objects.iter().any(|o| match o {
+                    Selected::Object { kind, .. } => decl.is_for_kind(*kind),
+                    _ => false,
+                })
+        })
         .collect();
     if wanted.is_empty() {
         return cmd;
