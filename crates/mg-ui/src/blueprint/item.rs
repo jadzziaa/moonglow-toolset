@@ -326,10 +326,16 @@ fn part_choice(
     numbers: &[u16],
     text: impl Fn(u16) -> String,
 ) {
-    let current = part_number(&f.root, labels[0]).unwrap_or(0);
     let choices: Vec<Choice> =
         numbers.iter().map(|&n| Choice { row: n as usize, text: text(n) }).collect();
-    if let Some(v) = super::situated::pick_part(ui, f.key, what, &choices, current, PART_WIDTH) {
+    pick_part(f, ui, what, labels, &choices);
+}
+
+/// A part number chosen among `choices`, set in `labels` (and their EE
+/// twins).
+fn pick_part(f: &mut Form<'_>, ui: &mut Ui, what: &str, labels: &[&str], choices: &[Choice]) {
+    let current = part_number(&f.root, labels[0]).unwrap_or(0);
+    if let Some(v) = super::situated::pick_part(ui, f.key, what, choices, current, PART_WIDTH) {
         set_part(f, what, labels, v);
     }
 }
@@ -714,13 +720,18 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, beside: bool) {
                                         .unwrap_or(0.0)
                                 };
                                 crate::widgets::field_label(ui, *text);
-                                if *table == "parts_chest" {
-                                    part_choice(f, ui, text, labels, &numbers, |n| {
+                                // (0 as well, which most of the game's
+                                // tables leave out: no part, so the
+                                // wearer's own shows there, as in the
+                                // game. A builder's report.)
+                                let choices = if *table == "parts_chest" {
+                                    super::situated::part_choices(&numbers, |n| {
                                         format!("{n} (AC {})", ac_of(n).round())
-                                    });
+                                    })
                                 } else {
-                                    part_choice(f, ui, text, labels, &numbers, |n| n.to_string());
-                                }
+                                    super::situated::part_choices(&numbers, |n| n.to_string())
+                                };
+                                pick_part(f, ui, text, labels, &choices);
                                 ui.end_row();
                             }
                         });

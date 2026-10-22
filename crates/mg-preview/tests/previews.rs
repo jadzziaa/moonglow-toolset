@@ -619,6 +619,43 @@ fn a_body_part_wears_its_own_texture_whatever_its_mesh_names() {
     assert!(right.textures.values().all(|t| t == "pmh0_legr003"), "{:?}", right.textures);
 }
 
+/// An armor's part 0 is no part: where it is worn, the wearer's own part
+/// shows (the client draws a bare arm and leg under armor whose left
+/// parts are 0: `creatures_look` with `MG_WORN=1
+/// MG_PARTS=LBicep=0,LFArm=0,...`), and where the wearer has none either,
+/// nothing does (a builder's report: 0 couldn't be chosen).
+#[test]
+fn an_armor_s_part_0_leaves_its_wearer_s_own() {
+    let Some(game) = game() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let mut armor = blueprint(&game, "nw_aarcl001", ResType::UTI);
+    let before = mg_rules::items::part_number(&armor.root, "ArmorPart_LBicep").unwrap();
+    assert!(before > 1, "the armor's own bicep to start with");
+    armor.root.set("ArmorPart_LBicep", mg_gff::Value::Byte(0));
+    let wide = mg_rules::items::wide_label("ArmorPart_LBicep");
+    if armor.root.get(&wide).is_some() {
+        armor.root.set(&wide, mg_gff::Value::Word(0));
+    }
+    // On its own, worn by the preview's body: the body's bare arm.
+    let worn = item(&game, &armor.root).unwrap();
+    let alone = models(&worn);
+    assert!(alone.contains(&"pmh0_bicepl001"), "the body's own bicep: {alone:?}");
+    assert!(!alone.contains(&format!("pmh0_bicepl{before:03}").as_str()), "{alone:?}");
+    assert!(!alone.iter().any(|m| m.ends_with("bicepl000")), "no part 0 model: {alone:?}");
+    // On a creature whose own left bicep is 0 as well: nothing there.
+    let mut utc = CreatureLook::new(6).to_utc();
+    utc.set("BodyPart_LBicep", mg_gff::Value::Byte(0));
+    let mut slot = mg_gff::Struct::new(2);
+    slot.set("EquippedRes", mg_gff::Value::resref("worn".parse().unwrap()));
+    utc.set("Equip_ItemList", mg_gff::Value::List(vec![slot]));
+    let on = creature(&game, &utc, &|_| Some(armor.clone())).unwrap();
+    let models = models(&on);
+    assert!(!models.iter().any(|m| m.contains("bicepl")), "no left bicep: {models:?}");
+    assert!(models.iter().any(|m| m.contains("bicepr")), "the right one: {models:?}");
+}
+
 /// An elf's chest 3 names the human's chest 4 and has no texture of its
 /// own name: the game draws it in the human's chest 3 (seen in the client,
 /// `creatures_look` with `MG_PARTS=Torso=3`).

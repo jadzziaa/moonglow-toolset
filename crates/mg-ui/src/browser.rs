@@ -13,17 +13,53 @@ use mg_resman::ResKey;
 use crate::text::decode;
 use crate::{Action, FileKind, Moonglow, Tab};
 
+/// How far an overridden copy's row is set in under its resource's.
+const COPY_INDENT: f32 = 18.0;
+
+/// A resource's bytes from the load order: the copy the game reads, or
+/// (`layer`, by its label) the copy that layer has.
+fn read_copy<'a>(
+    rm: &'a mg_resman::ResMan,
+    key: &ResKey,
+    layer: Option<&str>,
+) -> Option<std::borrow::Cow<'a, [u8]>> {
+    match layer {
+        None => rm.get(key).ok(),
+        Some(label) => {
+            let i = rm.layers().iter().position(|l| l.label == label)?;
+            rm.get_in(i, key).ok()
+        }
+    }
+}
+
+/// A row of the browser's list: a copy of a resource and its layer's
+/// label; for a copy that a higher layer's overrides, that layer's.
+#[derive(Debug, Clone)]
+struct Row {
+    key: ResKey,
+    layer: String,
+    over: Option<String>,
+}
+
 /// The browser's index and filters.
 #[derive(Debug, Default)]
 pub struct Browser {
-    /// Each resource and the label of its layer; rebuilt when stale.
-    entries: Vec<(ResKey, String)>,
+    /// Every copy of each resource, the one the game reads first and those
+    /// it overrides under it; rebuilt when stale.
+    entries: Vec<Row>,
+    /// How many resources there are (the copies the game reads).
+    resources: usize,
     types: Vec<ResType>,
     pub restype: Option<ResType>,
     pub filter: String,
+    /// The copies that others override are listed under them (a builder's
+    /// report: of a table in two haks, only the higher one was found).
+    pub show_copies: bool,
     /// Indices into `entries` matching the filters, for `query`.
     shown: Vec<usize>,
-    query: Option<(Option<ResType>, String)>,
+    /// How many of those are overridden copies.
+    shown_copies: usize,
+    query: Option<(Option<ResType>, String, bool)>,
     /// The load order changed since the index was built.
     pub(crate) stale: bool,
     /// Export as Files writes compiled models as text.
@@ -41,7 +77,7 @@ pub struct Browser {
 
 impl Browser {
     pub fn new() -> Browser {
-        Browser { stale: true, ..Default::default() }
+        Browser { stale: true, show_copies: true, ..Default::default() }
     }
 
     fn refresh(&mut self, app_resman: Option<&mg_resman::ResMan>) {
@@ -52,29 +88,44 @@ impl Browser {
         self.query = None;
         self.entries = match app_resman {
             Some(rm) => {
-                rm.entries().into_iter().map(|(k, i)| (k, rm.layers()[i].label.clone())).collect()
+                let label = |i: usize| rm.layers()[i].label.clone();
+                rm.every_copy()
+                    .into_iter()
+                    .flat_map(|(key, layers)| {
+                        let top = label(layers[0]);
+                        layers.into_iter().enumerate().map(move |(n, i)| Row {
+                            key,
+                            layer: label(i),
+                            over: (n > 0).then(|| top.clone()),
+                        })
+                    })
+                    .collect()
             }
             None => Vec::new(),
         };
-        let mut types: Vec<ResType> = self.entries.iter().map(|(k, _)| k.restype).collect();
+        self.resources = self.entries.iter().filter(|r| r.over.is_none()).count();
+        let mut types: Vec<ResType> = self.entries.iter().map(|r| r.key.restype).collect();
         types.sort_by_key(|t| t.extension().unwrap_or_default());
         types.dedup();
         self.types = types;
     }
 
     fn filtered(&mut self) -> &[usize] {
-        let query = (self.restype, self.filter.to_ascii_lowercase());
+        let query = (self.restype, self.filter.to_ascii_lowercase(), self.show_copies);
         if self.query.as_ref() != Some(&query) {
             self.shown = self
                 .entries
                 .iter()
                 .enumerate()
-                .filter(|(_, (k, _))| {
-                    query.0.is_none_or(|t| k.restype == t)
-                        && (query.1.is_empty() || k.resref.to_string().contains(&query.1))
+                .filter(|(_, r)| {
+                    (query.2 || r.over.is_none())
+                        && query.0.is_none_or(|t| r.key.restype == t)
+                        && (query.1.is_empty() || r.key.resref.to_string().contains(&query.1))
                 })
                 .map(|(i, _)| i)
                 .collect();
+            self.shown_copies =
+                self.shown.iter().filter(|&&i| self.entries[i].over.is_some()).count();
             self.query = Some(query);
             // (Another list: the keys start at its top.)
             self.cursor = self.cursor.map(|_| 0);
@@ -120,6 +171,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         if ui.button("Refresh").clicked() {
             browser.stale = true;
         }
+        ui.checkbox(&mut browser.show_copies, "Overridden copies").on_hover_text(
+            "Under each resource, the copies of it lower in the load order (another hak's, \
+             override's, the game's), which the one above overrides: each can be opened, \
+             read, copied to the module and saved",
+        );
     });
     let count = browser.filtered().len();
     // The keys in the list, from a click on a row or Down from the
@@ -152,21 +208,36 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     }
     browser.cursor = browser.cursor.filter(|c| *c < count);
     ui.horizontal(|ui| {
-        ui.weak(format!("{count} of {} resources; double-click to open", browser.entries.len()));
+        // (The resources, the copies the game reads; and the copies they
+        // override, listed under them.)
+        let found = count - browser.shown_copies;
+        let copies = match browser.shown_copies {
+            0 => String::new(),
+            1 => ", 1 overridden copy".into(),
+            n => format!(", {n} overridden copies"),
+        };
+        ui.weak(format!(
+            "{found} of {} resources{copies}; double-click to open",
+            browser.resources
+        ));
         // (Narrowed by a type or a name: not the whole game by a slip.)
-        let narrowed = count > 0 && count < browser.entries.len();
+        let narrowed = found > 0 && found < browser.resources;
         if ui
-            .add_enabled(narrowed, egui::Button::new(format!("Export {count} as Files…")))
+            .add_enabled(narrowed, egui::Button::new(format!("Export {found} as Files…")))
             .on_hover_text(
                 "The resources listed, as loose files in a folder (name.ext), as the load \
-                 order has them. Choose a type or type part of a name first.",
+                 order has them (not the copies they override). Choose a type or type part \
+                 of a name first.",
             )
             .clicked()
         {
-            let keys = browser.shown.iter().map(|&i| browser.entries[i].0).collect();
+            let keys = (browser.shown.iter().map(|&i| &browser.entries[i]))
+                .filter(|r| r.over.is_none())
+                .map(|r| r.key)
+                .collect();
             actions.push(Action::SaveResources(keys));
         }
-        if browser.shown.iter().any(|&i| browser.entries[i].0.restype == ResType::MDL) {
+        if browser.shown.iter().any(|&i| browser.entries[i].key.restype == ResType::MDL) {
             ui.checkbox(&mut browser.models_as_text, "Models as text").on_hover_text(
                 "Export as Files writes compiled models as the text they compile from",
             );
@@ -188,15 +259,26 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     let mut clicked = None;
     let out = list.show_rows(ui, row_height, count, |ui, range| {
         for (at, &i) in range.clone().zip(&shown[range]) {
-            let (k, layer) = &browser.entries[i];
+            let Row { key: k, layer, over } = &browser.entries[i];
             ui.horizontal(|ui| {
                 let at_cursor = cursor == Some(at) && keys_are(ui.ctx(), Keys::Browser);
-                let r =
-                    ui.selectable_label(at_cursor, egui::RichText::new(k.to_string()).monospace());
-                ui.weak(layer);
-                let tab = || match Tab::for_resource(*k) {
-                    Some(t @ Tab::Model(_)) => t,
-                    Some(t) if in_module(k) => t,
+                // A copy another overrides: under it, set in, its own
+                // layer's (opened as that layer has it).
+                let mut name = egui::RichText::new(k.to_string()).monospace();
+                if over.is_some() {
+                    ui.add_space(COPY_INDENT);
+                    name = name.weak();
+                }
+                let r = ui.selectable_label(at_cursor, name);
+                match over {
+                    Some(over) => _ = ui.weak(format!("{layer}, overridden by {over}")),
+                    None => _ = ui.weak(layer),
+                }
+                let copy = over.as_ref().map(|_| layer.clone());
+                let tab = || match (&copy, Tab::for_resource(*k)) {
+                    (Some(layer), _) => Tab::ResourceCopy { key: *k, layer: layer.clone() },
+                    (None, Some(t @ Tab::Model(_))) => t,
+                    (None, Some(t)) if in_module(k) => t,
                     _ => Tab::Resource(*k),
                 };
                 if r.clicked() {
@@ -209,14 +291,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     if ui.button("Open").clicked() {
                         actions.push(Action::OpenTab(tab()));
                     }
-                    if k.restype != ResType::MDL
+                    // (The viewer shows the copy the game reads.)
+                    if copy.is_none()
+                        && k.restype != ResType::MDL
                         && crate::model_view::previewable(k.restype)
                         && ui.button("Preview").on_hover_text("See it in the 3D viewer").clicked()
                     {
                         actions.push(Action::OpenTab(Tab::Model(*k)));
                     }
                     if ui.button("Save As…").on_hover_text("As a file, as it is").clicked() {
-                        actions.push(Action::SaveResource(*k));
+                        actions.push(Action::SaveResource(*k, copy.clone()));
                     }
                     if k.restype == ResType::MDL
                         && ui
@@ -224,7 +308,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             .on_hover_text("A compiled model as the text it compiles from")
                             .clicked()
                     {
-                        actions.push(Action::SaveModelText(*k));
+                        actions.push(Action::SaveModelText(*k, copy.clone()));
                     }
                 });
             });
@@ -325,13 +409,27 @@ fn table_menu(app: &Moonglow, ui: &mut Ui, key: ResKey) -> Option<EditTable> {
     out
 }
 
-/// Save As on a resource of the load order: its bytes to a file; or,
-/// `as_text`, a compiled model as its text (one that is text already is
-/// saved as it is).
-pub(crate) fn save_as(app: &mut Moonglow, key: ResKey, as_text: bool) {
+/// A copy of a table that a hak of the module has (`layer`, `hak:name`),
+/// where the hak is the builder's own: a button to edit it in the hak.
+fn hak_table_button(app: &Moonglow, ui: &mut Ui, key: ResKey, layer: &str) -> Option<EditTable> {
+    let name = layer.strip_prefix("hak:")?;
+    let (_, path) = haks_with(app, key).into_iter().find(|(n, _)| n == name)?;
+    let tip = "The hak's own table: the hak is opened in the hak editor (if it isn't), the \
+               table is saved into it, and the hak's Save writes its file";
+    let edit = ui.button(format!("Edit in {name}.hak")).on_hover_text(tip).clicked();
+    edit.then_some(EditTable::InHak(path))
+}
+
+/// Save As on a resource of the load order (the copy the game reads, or
+/// the one `layer` has): its bytes to a file; or, `as_text`, a compiled
+/// model as its text (one that is text already is saved as it is).
+pub(crate) fn save_as(app: &mut Moonglow, key: ResKey, layer: Option<&str>, as_text: bool) {
     let Some(game) = &app.game else { return };
-    let Ok(data) = game.resman.get(&key) else {
-        app.log.error(format!("{key} is not in the load order."));
+    let Some(data) = read_copy(&game.resman, &key, layer) else {
+        match layer {
+            Some(layer) => app.log.error(format!("{layer} has no {key}.")),
+            None => app.log.error(format!("{key} is not in the load order.")),
+        }
         return;
     };
     let data = match as_text.then(|| mg_mdl::decompile(&data)) {
@@ -401,15 +499,22 @@ enum Content {
 }
 
 impl Viewed {
-    fn load(game: &mg_rules::GameData, key: ResKey) -> Option<Viewed> {
+    /// The copy the game reads, or (`layer`, by its label) the one that
+    /// layer has.
+    fn load(game: &mg_rules::GameData, key: ResKey, layer: Option<&str>) -> Option<Viewed> {
         let rm = &game.resman;
-        let data = rm.get(&key).ok()?.into_owned();
-        let origin = rm.origin(&key).unwrap_or("?").to_string();
+        let at = match layer {
+            Some(label) => rm.layers().iter().position(|l| l.label == label)?,
+            None => rm.find(&key)?,
+        };
+        let data = rm.get_in(at, &key).ok()?.into_owned();
+        let origin = rm.layers()[at].label.clone();
         let codepage = game.codepage();
         let content = if key.restype.is_gff() {
             Gff::read(&data).map_or_else(|e| Content::Error(e.to_string()), Content::Gff)
         } else if key.restype == ResType::TWODA {
-            match mg_module::table_layers::layered(rm, &key, codepage) {
+            // (A copy that another overrides: as it stands on those below.)
+            match mg_module::table_layers::layered_from(rm, &key, codepage, at) {
                 Some(l) => Content::TwoDa(l),
                 None => match mg_2da::TwoDa::parse(&data, codepage) {
                     Err(e) => Content::Error(e.to_string()),
@@ -479,23 +584,31 @@ pub(crate) fn plain_ui(ui: &mut Ui, key: ResKey, view: &Plain) {
     });
 }
 
-/// Read-only view of a resource from the load order.
-pub(crate) fn resource_ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
+/// Read-only view of a resource from the load order: the copy the game
+/// reads, or (`layer`, by its label) the copy that layer has, which a
+/// higher one overrides.
+pub(crate) fn resource_ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey, layer: Option<&str>) {
     let Some(game) = &app.game else { return };
-    let viewed = match app.viewed.get(&key) {
+    let at = (key, layer.map(str::to_string));
+    let viewed = match app.viewed.get(&at) {
         Some(v) => v.clone(),
-        None => match Viewed::load(game, key) {
+        None => match Viewed::load(game, key, layer) {
             Some(v) => {
                 let v = std::sync::Arc::new(v);
-                app.viewed.insert(key, v.clone());
+                app.viewed.insert(at, v.clone());
                 v
             }
             None => {
-                ui.label(format!("{key} is not in the load order."));
+                match layer {
+                    Some(layer) => ui.label(format!("{layer} has no {key} now.")),
+                    None => ui.label(format!("{key} is not in the load order.")),
+                };
                 return;
             }
         },
     };
+    // (A copy's: what overrides it, which the game reads.)
+    let over = layer.and_then(|_| game.resman.origin(&key)).map(str::to_string);
     let mut copy = false;
     let mut save = false;
     let mut edit_table = None;
@@ -506,9 +619,16 @@ pub(crate) fn resource_ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         copy = ui.add_enabled(can_copy, egui::Button::new("Copy to Module")).clicked();
         save = ui.button("Save As…").clicked();
         if key.restype == ResType::TWODA {
-            edit_table = table_menu(app, ui, key);
+            edit_table = match layer {
+                None => table_menu(app, ui, key),
+                // A copy a hak of the module has: edited in that hak.
+                Some(layer) => hak_table_button(app, ui, key, layer),
+            };
         }
     });
+    if let Some(over) = &over {
+        ui.weak(format!("Overridden by {over}, whose copy the game reads."));
+    }
     ui.separator();
     match edit_table {
         Some(EditTable::InModule) => _ = crate::table_view::open_in_module(app, key),
@@ -540,7 +660,7 @@ pub(crate) fn resource_ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         }
     }
     if let Content::TwoDa(l) = &viewed.content {
-        two_da(app, ui, key, l);
+        two_da(app, ui, key, layer, l);
         return;
     }
     let palette = crate::script_view::Palette::for_ui(&app.settings.script_style, ui);
@@ -661,7 +781,13 @@ fn gff_tree(ui: &mut Ui, s: &Struct, id: &str) {
 /// editor, the column names stay in sight over the rows and the rows'
 /// numbers beside them, and a column is as wide as the edge of its name
 /// was dragged to (here or there: the widths are the table's).
-fn two_da(app: &mut Moonglow, ui: &mut Ui, key: ResKey, l: &mg_module::table_layers::Layered) {
+fn two_da(
+    app: &mut Moonglow,
+    ui: &mut Ui,
+    key: ResKey,
+    layer: Option<&str>,
+    l: &mg_module::table_layers::Layered,
+) {
     use crate::table_view::{
         Edge, NUMBER, column_edge, column_widths, fit_width, set_column_width,
     };
@@ -731,7 +857,7 @@ fn two_da(app: &mut Moonglow, ui: &mut Ui, key: ResKey, l: &mg_module::table_lay
     };
     // The column names over the rows and the rows' numbers beside them go
     // with the rows' own scroll (a frame behind), kept here.
-    let id = egui::Id::new(("2da-view", key));
+    let id = egui::Id::new(("2da-view", key, layer));
     let scroll: egui::Vec2 = ui.data(|d| d.get_temp(id)).unwrap_or_default();
     let hidden = egui::scroll_area::ScrollBarVisibility::AlwaysHidden;
     let still = egui::scroll_area::ScrollSource::NONE;

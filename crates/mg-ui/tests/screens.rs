@@ -3811,3 +3811,120 @@ fn plugin_save_warning() {
     h.state_mut().actions.push(mg_ui::Action::Save);
     shoot(&mut h, &dir, "plugin-save-refused");
 }
+
+/// An armor whose left bicep and forearm are 0 (a builder's report: 0
+/// couldn't be chosen): its Appearance page, the bicep's list open, and
+/// the armor in the model viewer, the body's bare arm where its parts are
+/// 0. `MG_SHOT` names the pictures (`before`, `after`).
+#[test]
+#[ignore]
+fn armor_part_none() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens-armor-part-none");
+    let shot = std::env::var("MG_SHOT").unwrap_or_else(|_| "after".into());
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    let game = app.game.as_deref().unwrap();
+    let data = game.resman.get_named("nw_aarcl001", ResType::UTI).unwrap().into_owned();
+    let mut armor = mg_gff::Gff::read(&data).unwrap();
+    for label in ["ArmorPart_LBicep", "ArmorPart_LFArm"] {
+        armor.root.set(label, mg_gff::Value::Byte(0));
+        armor.root.set(&mg_rules::items::wide_label(label), mg_gff::Value::Word(0));
+    }
+    let key = ResKey::parse("mg_armor_none", ResType::UTI).unwrap();
+    let mut m = mg_module::Module::new();
+    m.set_gff(key, &armor).unwrap();
+    let path = dir.join("armor.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    app.open_module(&path);
+    app.open_palette = false;
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
+    app.blueprint_pages.insert((key, GffPath::root()), "Appearance");
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 760.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(4);
+    shoot(&mut h, &dir, &format!("{shot}-appearance"));
+    let label = h.get_by_label("Left Bicep").rect();
+    h.get_all_by_role(egui::accesskit::Role::ComboBox)
+        .find(|n| {
+            let r = n.rect();
+            r.min.x > label.max.x && (r.center().y - label.center().y).abs() < 6.0
+        })
+        .expect("the left bicep's list")
+        .click();
+    h.run_steps(3);
+    shoot(&mut h, &dir, &format!("{shot}-bicep-list"));
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Model(key)));
+    h.run_steps(6);
+    shoot(&mut h, &dir, &format!("{shot}-model"));
+}
+
+/// The resource browser searching for portraits.2da, which two haks of
+/// the module have, the first over the second (a builder's report: only
+/// the higher one was listed); and the lower hak's copy opened from its
+/// row. `MG_SHOT` names the pictures (`before`, `after`).
+#[test]
+#[ignore]
+fn browser_overridden_copies() {
+    use mg_schema::{ExoString, StructExt, ifo};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-browser-copies");
+    let out = mg_testkit::output_dir("screens-browser-copies-shots");
+    let shot = std::env::var("MG_SHOT").unwrap_or_else(|_| "after".into());
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    for name in ["mg_top", "mg_low"] {
+        let mut w = mg_erf::ErfWriter::new(*b"HAK ");
+        let table = format!("2DA V2.0\n\n LABEL BaseResRef\n0 {name} po_{name}\n").into_bytes();
+        w.add(mg_core::ResRef::from_str("portraits").unwrap(), ResType::TWODA, table).unwrap();
+        std::fs::write(user.join(format!("hak/{name}.hak")), w.to_bytes().unwrap()).unwrap();
+    }
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.write(&ifo::MOD_TAG, ExoString::from("COPIES"));
+    for h in ["mg_top", "mg_low"] {
+        let mut s = ifo::MOD_HAK_LIST.new_item();
+        s.write(&ifo::mod_hak_list::MOD_HAK, ExoString::from(h));
+        info.root.items_mut(&ifo::MOD_HAK_LIST).push(s);
+    }
+    m.set_info(&info).unwrap();
+    let path = dir.join("copies.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(
+        Some(GameInstall::new(&root, Some(user), "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    app.open_palette = false;
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Resources));
+    app.browser.filter = "portraits".into();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 700.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(4);
+    shoot(&mut h, &out, &format!("{shot}-search"));
+    // The lower hak's row, where there is one, opened.
+    let Some(row) = h.query_by_label_contains("hak:mg_low") else { return };
+    let at = h
+        .get_all_by_label("portraits.2da")
+        .map(|n| n.rect())
+        .find(|r| (r.center().y - row.rect().center().y).abs() < 6.0)
+        .expect("its name");
+    h.get_all_by_label("portraits.2da").find(|n| n.rect() == at).unwrap().click_secondary();
+    h.run_steps(2);
+    h.get_by_label("Open").click();
+    h.run_steps(4);
+    shoot(&mut h, &out, &format!("{shot}-copy"));
+}

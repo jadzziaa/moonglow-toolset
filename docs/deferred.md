@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T11:57:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T12:04:35Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -534,6 +534,16 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Blueprint editors and inventories
 
+- **An armor whose torso is 0** (or another parts_chest.2da row with a
+  blank `ACBONUS`, which the part lists now offer as 0): Moonglow's
+  General page shows no weight for it and prices it as armor class 0;
+  what armor class, weight and cost the game gives it was not measured
+  in the engine. (S) (a builder's report on 2.0.0)
+- **A head of 0:** the previews draw head 1 for `Appearance_Head` 0,
+  as the client drew a head without the field; whether the game draws
+  head 1 or nothing for a 0 that is there was not looked at. (S)
+  (a builder's report on 2.0.0)
+
 - **Text typed and its field gone before the keyboard left it:** a
   text field that sets its text when the keyboard leaves it gives the
   keyboard up at a press of the pointer anywhere else, and before a
@@ -1028,6 +1038,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   print and take the numbers; names aren't shown or accepted there. (S)
 
 ## Getting files out
+
+- **Overridden copies in the resource browser** open read-only as their
+  layer has them (fields, tables, text, a model as its text), copy to
+  the module and save; the model viewer (Preview) shows only the copy
+  the game reads, Export as Files writes only those, and a plugin's
+  selection sees a copy's tab as nothing. (S) (a builder's report on
+  2.0.0)
 
 - **One at a time from the tree:** the tree exports one resource at a
   time (the Export window takes several). The area view's To Scratch

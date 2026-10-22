@@ -1118,6 +1118,94 @@ fn browse_view_and_copy_a_game_resource() {
     );
 }
 
+/// A module with two haks of our own in `user`'s hak folder, each with a
+/// portraits.2da (its one row's label the hak's name), the first over
+/// the second.
+fn module_with_two_tables(dir: &std::path::Path, user: &std::path::Path) -> std::path::PathBuf {
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    for name in ["mg_top", "mg_low"] {
+        let mut w = mg_erf::ErfWriter::new(*b"HAK ");
+        let table = format!("2DA V2.0\n\n LABEL\n0 {name}\n").into_bytes();
+        w.add(ResRef::from_str("portraits").unwrap(), ResType::TWODA, table).unwrap();
+        std::fs::write(user.join(format!("hak/{name}.hak")), w.to_bytes().unwrap()).unwrap();
+    }
+    let path = sample_module(dir);
+    let mut m = Module::open(&path).unwrap();
+    let mut info = m.info().unwrap();
+    for h in ["mg_top", "mg_low"] {
+        let mut s = ifo::MOD_HAK_LIST.new_item();
+        s.write(&ifo::mod_hak_list::MOD_HAK, ExoString::from(h));
+        info.root.items_mut(&ifo::MOD_HAK_LIST).push(s);
+    }
+    m.set_info(&info).unwrap();
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    path
+}
+
+/// The resource browser lists every copy of a resource: the one the game
+/// reads, and under it those it overrides, each opened, copied to the
+/// module and saved as its layer has it (a builder's report: of a
+/// portraits.2da in two haks, only the higher was found).
+#[test]
+fn the_browser_lists_the_copies_a_higher_layer_overrides() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-browser-copies");
+    let user = dir.join("user");
+    let path = module_with_two_tables(&dir, &user);
+    let saved = dir.join("saved.2da");
+    let install = mg_resman::GameInstall::new(&root, Some(user), "en");
+    let dialogs = NoDialogs { save: vec![saved.clone()], ..Default::default() };
+    let mut app = Moonglow::new(Some(install), Box::new(dialogs));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resources));
+    h.state_mut().browser.filter = "portraits".into();
+    h.state_mut().browser.restype = Some(ResType::TWODA);
+    h.run();
+    // The hak the game reads it from, then the other hak's and the game's,
+    // overridden by it.
+    h.get_by_label("hak:mg_top");
+    h.get_by_label("hak:mg_low, overridden by hak:mg_top");
+    let game = h.query_all_by_label_contains(", overridden by hak:mg_top").count();
+    assert!(game >= 2, "the game's own too ({game})");
+    h.get_by_label_contains("1 of ");
+    h.get_by_label_contains(&format!("{game} overridden copies"));
+    let rows: Vec<_> = h.get_all_by_label("portraits.2da").collect();
+    assert_eq!(rows.len(), 1 + game, "a row a copy");
+
+    // The lower hak's, opened: its own row, said to be overridden.
+    rows[1].click_secondary();
+    h.run();
+    h.get_by_label("Open").click();
+    h.run();
+    let key = ResKey::parse("portraits", ResType::TWODA).unwrap();
+    let tab = Tab::ResourceCopy { key, layer: "hak:mg_low".into() };
+    assert!(h.state().dock.find_tab(&tab).is_some());
+    h.get_by_label("mg_low");
+    assert!(h.query_by_label("mg_top").is_none(), "the lower hak's copy, not the higher's");
+    h.get_by_label("Overridden by hak:mg_top, whose copy the game reads.");
+    // Copied to the module, as that hak has it; and saved.
+    h.get_by_label("Copy to Module").click();
+    h.run();
+    let module = &h.state().ws.as_ref().unwrap().module;
+    let data = module.get(&key).unwrap();
+    assert!(String::from_utf8_lossy(data).contains("mg_low"));
+    h.get_by_label("Save As…").click();
+    h.run();
+    assert!(std::fs::read_to_string(&saved).unwrap().contains("mg_low"));
+
+    // Without the overridden copies: the one the game reads.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resources));
+    h.state_mut().browser.show_copies = false;
+    h.run();
+    assert_eq!(h.query_all_by_label_contains(", overridden by ").count(), 0);
+    h.get_by_label("hak:mg_top");
+    h.get_by_label_contains("1 of ");
+}
+
 #[test]
 fn module_name_in_every_language_and_variables() {
     let dir = mg_testkit::scratch_dir("ui-loc-vars");
@@ -11829,6 +11917,43 @@ fn the_mouse_wheel_steps_through_an_armor_s_parts() {
     assert_eq!(torso(&mut h), Some(before));
 }
 
+/// An armor's part can be 0, no part (a builder's report: it couldn't be
+/// chosen, as the game's parts_bicep.2da leaves row 0's `ACBONUS` blank):
+/// chosen in its list, it is saved as 0, its EE twin too.
+#[test]
+fn an_armor_s_part_can_be_none() {
+    let Some((mut h, key)) = blueprint_harness("nw_aarcl001", "part_none", ResType::UTI) else {
+        return;
+    };
+    h.get_by_label("Appearance").click();
+    h.run();
+    let bicep = |h: &mut Harness<'_, Moonglow>, label: &str| field(h, &key).integer(label);
+    assert!(bicep(&mut h, "ArmorPart_LBicep").is_some_and(|n| n > 0), "a bicep to start with");
+    let label = h.get_by_label("Left Bicep").rect();
+    h.get_all_by_role(egui::accesskit::Role::ComboBox)
+        .find(|n| {
+            let r = n.rect();
+            r.min.x > label.max.x && (r.center().y - label.center().y).abs() < 6.0
+        })
+        .expect("the left bicep's list")
+        .click();
+    h.run();
+    // (The open list's row; Belt and Robe show it in their boxes.)
+    h.get_all_by_label("0 (none)")
+        .find(|n| {
+            n.accesskit_node().role() != egui::accesskit::Role::ComboBox
+                && n.rect().min.y > label.max.y
+        })
+        .expect("the row of none")
+        .click();
+    h.run();
+    assert_eq!(bicep(&mut h, "ArmorPart_LBicep"), Some(0));
+    let wide = mg_rules::items::wide_label("ArmorPart_LBicep");
+    assert_eq!(bicep(&mut h, &wide), Some(0), "its EE twin");
+    // The list says so.
+    assert!(h.get_all_by_value("0 (none)").next().is_some(), "the list shows none");
+}
+
 #[test]
 fn an_armor_s_parts_take_colors_of_their_own_and_keep_them() {
     use mg_gff::Value;
@@ -17418,7 +17543,7 @@ fn compiled_models_are_saved_as_text() {
         let data = std::fs::read(p).unwrap();
         !mg_mdl::is_binary(&data) && String::from_utf8_lossy(&data).contains("newmodel")
     };
-    app.run(mg_ui::Action::SaveModelText(key));
+    app.run(mg_ui::Action::SaveModelText(key, None));
     assert!(is_text(&dir.join("one.mdl")));
     app.run(mg_ui::Action::SaveResources(vec![key]));
     assert!(!is_text(&plain.join("plc_a01.mdl")), "as it is, unless asked");

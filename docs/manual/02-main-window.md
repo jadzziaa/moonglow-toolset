@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:21:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T12:06:43Z }
 ---
 
 # The main window
@@ -311,6 +311,18 @@ Files…** writes all the resources listed into a folder, once a type or
 part of a name narrows the list. Files go out as they are; with
 **Models as text** ticked (shown when models are listed), compiled
 models go out as the text they compile from.
+
+A resource that several layers have (a portraits.2da in two haks, a
+texture in a hak and in the game's files) is listed once for the copy
+the game reads, and under it, set in and dimmed, each copy that copy
+overrides: "hak:low, overridden by hak:top". Open one of those to view
+it as its layer has it (a 2DA from that copy down, with the layers below
+it), copy it into the module or save it (**Save As…**, also on its
+right-click menu); for a table in one of your own haks, **Edit in
+name.hak** opens it there. With **Overridden copies** (at the top) unticked, it lists
+the copy the game reads alone. **Export N as Files…** writes the copies
+the game reads, not those they override. `mg which NAME.EXT --module
+MODULE` says the same on the command line.
 
 Its **Name** field has the side panes' keys: Ctrl+F, with the pointer
 over the browser, goes to it; Escape clears what is typed, and Escape

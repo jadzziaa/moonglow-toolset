@@ -439,16 +439,6 @@ fn body_prefix(f: &Form<'_>, game: &GameData) -> Option<String> {
     Some(format!("p{gender}{race}{}", f.int("Phenotype").max(0)))
 }
 
-/// A body part's choices: none (0, which draws nothing, as in Aurora),
-/// then the numbers that have a model.
-fn part_choices(numbers: &[u16]) -> Vec<Choice> {
-    let none = Choice { row: 0, text: "0 (none)".into() };
-    let with_model = numbers.iter().filter(|n| **n != 0);
-    std::iter::once(none)
-        .chain(with_model.map(|&n| Choice { row: n as usize, text: n.to_string() }))
-        .collect()
-}
-
 fn set_part(f: &mut Form<'_>, what: &str, label: &str, v: i64) {
     let wide = wide_label(label);
     f.set_many(what, &[(label, v.min(255), FieldType::Byte), (&wide, v, FieldType::Word)]);
@@ -541,7 +531,7 @@ fn appearance_fields(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, prefix: Opt
         for (text, label, part) in BODY_PARTS {
             let numbers = part_numbers(ui, game, &format!("{prefix}_{part}"));
             let current = part_number(&f.root, label).unwrap_or(0);
-            let choices = part_choices(&numbers);
+            let choices = situated::part_choices(&numbers, |n| n.to_string());
             crate::widgets::field_label(ui, text);
             if let Some(v) = situated::pick_part(ui, f.key, label, &choices, current, 220.0) {
                 set_part(f, text, label, v);
@@ -947,16 +937,6 @@ fn sound_set_sample(app: &crate::Moonglow, set: i64) -> Option<ResRef> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_body_part_can_be_none() {
-        let texts = |numbers: &[u16]| -> Vec<String> {
-            part_choices(numbers).into_iter().map(|c| c.text).collect()
-        };
-        assert_eq!(texts(&[1, 2, 5]), ["0 (none)", "1", "2", "5"]);
-        assert_eq!(texts(&[0, 1]), ["0 (none)", "1"]);
-        assert_eq!(texts(&[]), ["0 (none)"]);
-    }
 
     #[test]
     fn every_right_body_part_has_its_left() {

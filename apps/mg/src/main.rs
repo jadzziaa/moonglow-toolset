@@ -72,10 +72,16 @@ enum Cmd {
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
-    /// Show where a resource comes from in the game's load order.
+    /// Show where a resource comes from in the game's load order: the
+    /// layer the game reads it from, then every layer whose copy that
+    /// overrides, highest first.
     Which {
         /// `name.ext`, e.g. `classes.2da`.
         resource: String,
+        /// A module (.mod, folder or nasher project) whose haks, and the
+        /// module itself, are in the load order too.
+        #[arg(long)]
+        module: Option<PathBuf>,
     },
     /// Print a resource from the game's load order to stdout.
     Cat {
@@ -1492,12 +1498,31 @@ fn run(cli: &Cli) -> Result<Output> {
             out.notes.splice(0..0, notes.notes);
             out
         }
-        Cmd::Which { resource } => {
-            let rm = ResMan::for_game(&install(cli)?)?;
+        Cmd::Which { resource, module } => {
+            let gi = install(cli)?;
             let key = resource_key(resource)?;
-            let Some(label) = rm.origin(&key) else { bail!("{key} not found") };
-            let mut out = Output::new(json!({ "resource": key.to_string(), "layer": label }));
-            out.line(label);
+            let mut out = Output::default();
+            let rm = match module {
+                Some(path) => module_resman(&gi, &Module::open(path)?, &mut out)?,
+                None => ResMan::for_game(&gi)?,
+            };
+            // Every copy, highest first: the first is the one the game reads.
+            let copies = rm.copies(&key);
+            let Some(&top) = copies.first() else { bail!("{key} not found") };
+            let label = |i: usize| rm.layers()[i].label.as_str();
+            out.json = json!({
+                "resource": key.to_string(),
+                "layer": label(top),
+                "copies": copies.iter().map(|&i| json!({
+                    "layer": label(i),
+                    "priority": rm.layers()[i].priority,
+                    "overridden_by": (i != top).then(|| label(top)),
+                })).collect::<Vec<_>>(),
+            });
+            out.line(label(top));
+            for &i in &copies[1..] {
+                out.line(format!("{} (overridden by {})", label(i), label(top)));
+            }
             out
         }
         Cmd::Cat { resource, text } => {

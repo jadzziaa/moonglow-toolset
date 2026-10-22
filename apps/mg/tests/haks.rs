@@ -134,3 +134,61 @@ fn usage_says_what_the_module_reaches_in_each_hak() {
     assert!(text.contains("All\t5 of 8 used"), "{text}");
     assert!(text.contains("nothing reaches 0 of 2 haks"), "{text}");
 }
+
+/// `mg which --module`: a table in two of the module's haks and the game
+/// (a builder's report: only the highest was found). Every copy, the one
+/// the game reads first, the others as overridden by it.
+#[test]
+fn which_names_every_copy_of_a_resource() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("mg-which-copies");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let table = |n: &str| format!("2DA V2.0\n\n LABEL\n0 {n}\n").into_bytes();
+    hak(&user.join("hak/mg_which_top.hak"), &[("portraits.2da", table("top"))]);
+    hak(&user.join("hak/mg_which_low.hak"), &[("portraits.2da", table("low"))]);
+    let mut m = Module::new();
+    let mut info = Gff::new(*b"IFO ");
+    for h in ["mg_which_top", "mg_which_low"] {
+        let mut s = ifo::MOD_HAK_LIST.new_item();
+        s.write(&ifo::mod_hak_list::MOD_HAK, ExoString::from(h));
+        info.root.items_mut(&ifo::MOD_HAK_LIST).push(s);
+    }
+    m.set_info(&info).unwrap();
+    m.save_as(&ModuleLocation::Folder(dir.join("module"))).unwrap();
+    let which = |json: bool| {
+        let mut c = crate::mg();
+        c.args(["--root", root.to_str().unwrap(), "--user-dir", user.to_str().unwrap()]);
+        if json {
+            c.arg("--json");
+        }
+        let out = c
+            .args(["which", "portraits.2da", "--module", dir.join("module").to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        out.stdout
+    };
+    let v: Json = serde_json::from_slice(&which(true)).unwrap();
+    assert_eq!(v["layer"], "hak:mg_which_top", "{v}");
+    let copies = v["copies"].as_array().unwrap();
+    let layers: Vec<&str> = copies.iter().map(|c| c["layer"].as_str().unwrap()).collect();
+    assert_eq!(layers[..2], ["hak:mg_which_top", "hak:mg_which_low"], "{v}");
+    assert!(layers[2..].iter().any(|l| l.starts_with("key:")), "the game's own: {v}");
+    assert!(copies[0]["overridden_by"].is_null());
+    assert!(copies[1..].iter().all(|c| c["overridden_by"] == "hak:mg_which_top"), "{v}");
+    let text = String::from_utf8(which(false)).unwrap();
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(
+        lines[..2],
+        ["hak:mg_which_top", "hak:mg_which_low (overridden by hak:mg_which_top)"]
+    );
+    // Without the module: the game's alone.
+    let out = crate::mg()
+        .args(["--root", root.to_str().unwrap(), "--user-dir", user.to_str().unwrap()])
+        .args(["--json", "which", "portraits.2da"])
+        .output()
+        .unwrap();
+    let v: Json = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(v["layer"].as_str().unwrap().starts_with("key:"), "{v}");
+}

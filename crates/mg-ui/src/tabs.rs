@@ -44,6 +44,10 @@ pub enum Tab {
     Dialog(ResKey),
     /// A resource from the load order, read-only.
     Resource(ResKey),
+    /// A copy of a resource as one layer of the load order has it (a hak's
+    /// table that a higher hak's overrides), read-only: by the layer's
+    /// label.
+    ResourceCopy { key: ResKey, layer: String },
     /// A model, in the 3D viewer.
     Model(ResKey),
     /// The blueprint palettes.
@@ -110,7 +114,7 @@ impl Tab {
             Tab::Table(_) => "table",
             Tab::Tileset(_) => "tileset",
             Tab::Dialog(_) => "dialog",
-            Tab::Resource(_) => "resource",
+            Tab::Resource(_) | Tab::ResourceCopy { .. } => "resource",
             Tab::Model(_) | Tab::InstanceModel { .. } => "model",
             Tab::Palette => "palette",
             Tab::Blueprint(k) => match k.restype {
@@ -159,7 +163,9 @@ impl Tab {
             // their longest name.)
             Tab::Script(_) => (1120.0, 720.0),
             Tab::Nui(_) => (1140.0, 792.0),
-            Tab::Manual | Tab::Resources | Tab::Resource(_) => (920.0, 700.0),
+            Tab::Manual | Tab::Resources | Tab::Resource(_) | Tab::ResourceCopy { .. } => {
+                (920.0, 700.0)
+            }
             Tab::Dialog(_) => (920.0, 692.0),
             Tab::Tileset(_) | Tab::Hak(_) => (920.0, 720.0),
             Tab::Table(_) => (1040.0, 732.0),
@@ -290,7 +296,10 @@ impl Viewer<'_> {
             Tab::Table(id) => crate::table_view::ui(self.app, ui, *id),
             Tab::Tileset(id) => crate::tileset_view::ui(self.app, ui, *id),
             Tab::Dialog(k) => dialog_view::ui(self.app, ui, *k),
-            Tab::Resource(k) => browser::resource_ui(self.app, ui, *k),
+            Tab::Resource(k) => browser::resource_ui(self.app, ui, *k, None),
+            Tab::ResourceCopy { key, layer } => {
+                browser::resource_ui(self.app, ui, *key, Some(layer.as_str()))
+            }
             // A blueprint without a model: what there is to see of it.
             Tab::Model(k) if !model_view::previewable(k.restype) => {
                 crate::area_tools::summary_view(self.app, ui, *k)
@@ -377,6 +386,7 @@ impl TabViewer for Viewer<'_> {
             }
             Tab::Dialog(k) => k.to_string().into(),
             Tab::Resource(k) => format!("{k} (read-only)").into(),
+            Tab::ResourceCopy { key, layer } => format!("{key} from {layer} (read-only)").into(),
             Tab::Model(k) => k.to_string().into(),
             Tab::Area(r) => area_label(self.app, *r).into(),
             Tab::Instance { area, path } => instance_title(self.app, *area, path).into(),

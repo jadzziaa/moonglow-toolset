@@ -616,6 +616,17 @@ pub(super) fn pick_part(
     pick_list(key, name, choices, current, width).ordered().wheel().show(ui)
 }
 
+/// A body or armor part's choices: none first (0, no part there: a
+/// creature's draws nothing, an armor's leaves its wearer's own part
+/// showing, as the game does), then `numbers`, each as `text(n)`. (0 is
+/// offered whether or not a list's rows have it: the game's parts_*.2da
+/// leave row 0's `ACBONUS` blank in most of them.)
+pub(super) fn part_choices(numbers: &[u16], text: impl Fn(u16) -> String) -> Vec<Choice> {
+    let none = Choice { row: 0, text: "0 (none)".into() };
+    let some = numbers.iter().filter(|n| **n != 0);
+    std::iter::once(none).chain(some.map(|&n| Choice { row: n as usize, text: text(n) })).collect()
+}
+
 /// [`pick_ordered`], `width` wide: narrower for choices that are a word
 /// or a number (a part's model and color, in their numbers' order).
 pub(super) fn pick_sized(
@@ -737,5 +748,21 @@ pub(super) fn preview_button(f: &mut Form<'_>, ui: &mut Ui) {
     if ui.button("Preview").on_hover_text("Show the model").clicked() {
         let tab = preview_tab(f);
         f.app.actions.push(crate::Action::OpenTab(tab));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_part_can_be_none() {
+        let texts = |numbers: &[u16]| -> Vec<String> {
+            part_choices(numbers, |n| format!("{n}!")).into_iter().map(|c| c.text).collect()
+        };
+        assert_eq!(texts(&[1, 2, 5]), ["0 (none)", "1!", "2!", "5!"]);
+        // (A list whose rows have 0 already: once, as none.)
+        assert_eq!(texts(&[0, 1]), ["0 (none)", "1!"]);
+        assert_eq!(texts(&[]), ["0 (none)"]);
     }
 }
