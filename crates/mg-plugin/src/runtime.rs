@@ -50,8 +50,18 @@ pub(crate) enum Source {
     Nothing,
     /// A plugin's folder.
     Folder(PathBuf),
-    /// A plugin's archive, not unpacked: its files by their paths in it.
-    Memory(BTreeMap<String, Vec<u8>>),
+    /// A plugin's archive, not unpacked, or a project's plugin as it was
+    /// read: its files by their paths in it.
+    Memory(Arc<BTreeMap<String, Vec<u8>>>),
+}
+
+/// Where a plugin's scripts are read from: its folder, or the copy of it
+/// a project's plugin was read into (what was allowed).
+pub(crate) fn source_of(plugin: &Plugin) -> Source {
+    match &plugin.frozen {
+        Some(f) => Source::Memory(f.files.clone()),
+        None => Source::Folder(plugin.dir.clone()),
+    }
 }
 
 impl Source {
@@ -87,6 +97,13 @@ pub(crate) struct Shared {
     pub(crate) rng: RefCell<fastrand::Rng>,
     /// What is selected and open in the window.
     selection: Selection,
+    /// The plugin's settings, their values as the job goes (what it set
+    /// read back), and what it set.
+    decls: RefCell<Vec<crate::SettingDecl>>,
+    settings: RefCell<crate::Settings>,
+    settings_set: RefCell<Vec<crate::SettingWrite>>,
+    /// Why `ctx.settings:set` is refused in this job (a check's), if it is.
+    no_set: std::cell::Cell<Option<&'static str>>,
 }
 
 pub(crate) fn fail<T>(message: impl std::fmt::Display) -> mlua::Result<T> {
@@ -735,6 +752,139 @@ fn selected(lua: &Lua, sh: &Shared, s: &Selected) -> mlua::Result<Table> {
     Ok(t)
 }
 
+/// A setting's value as the plugin reads it.
+fn setting_value(lua: &Lua, v: &crate::SettingValue) -> mlua::Result<LuaValue> {
+    Ok(match v {
+        crate::SettingValue::Text(t) => LuaValue::String(lua.create_string(t)?),
+        crate::SettingValue::Int(n) => LuaValue::Integer(*n),
+        crate::SettingValue::Bool(b) => LuaValue::Boolean(*b),
+    })
+}
+
+/// `ctx.settings`: the plugin's settings to read by name
+/// (`ctx.settings.code`), to go through (`for name, value in
+/// ctx.settings`), and to set (`ctx.settings:set(name, value)`, nil for
+/// the default), which the host keeps when the job is done.
+fn settings_table(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
+    let t = lua.create_table()?;
+    let meta = lua.create_table()?;
+    let s = sh.clone();
+    let set = lua.create_function(move |_, (_, name, value): (This, String, LuaValue)| {
+        if let Some(why) = s.no_set.get() {
+            return fail(why);
+        }
+        let decls = s.decls.borrow();
+        let Some(d) = decls.iter().find(|d| d.id == name) else {
+            return fail(unknown_setting(&name, &decls));
+        };
+        if d.scope.in_project() && !s.settings.borrow().project {
+            return fail(format!(
+                "ctx.settings:set({name:?}): it is kept in the project's files (scope {}), and \
+                 no project is open (a module kept in one file has none)",
+                d.scope.name()
+            ));
+        }
+        let given = match &value {
+            LuaValue::Nil => None,
+            LuaValue::String(t) => Some(crate::SettingValue::Text(t.to_str()?.to_string())),
+            LuaValue::Boolean(b) => Some(crate::SettingValue::Bool(*b)),
+            LuaValue::Integer(n) => Some(crate::SettingValue::Int(*n)),
+            LuaValue::Number(n) if n.fract() == 0.0 && n.abs() < 9.0e15 => {
+                Some(crate::SettingValue::Int(*n as i64))
+            }
+            other => {
+                return fail(format!(
+                    "ctx.settings:set({name:?}, …): {} is no setting's value (text, a whole \
+                     number, true or false; nil for its default)",
+                    other.type_name()
+                ));
+            }
+        };
+        if let Some(v) = &given
+            && let Err(why) = d.check(v)
+        {
+            return fail(format!("ctx.settings:set({name:?}, …): {why}"));
+        }
+        let now = given.clone().unwrap_or_else(|| d.default.clone());
+        s.settings.borrow_mut().values.insert(name.clone(), now);
+        s.settings_set.borrow_mut().push((name, given));
+        Ok(())
+    })?;
+    let s = sh.clone();
+    meta.set(
+        "__index",
+        lua.create_function(move |lua, (_, key): (LuaValue, LuaValue)| {
+            let name = match &key {
+                LuaValue::String(k) => k.to_str()?.to_string(),
+                other => {
+                    return fail(format!(
+                        "ctx.settings[…]: a setting's name is text, not {}",
+                        other.type_name()
+                    ));
+                }
+            };
+            if name == "set" {
+                return Ok(LuaValue::Function(set.clone()));
+            }
+            match s.settings.borrow().values.get(&name) {
+                Some(v) => setting_value(lua, v),
+                None => fail(format!(
+                    "ctx.settings.{name}: {}",
+                    unknown_setting(&name, &s.decls.borrow())
+                )),
+            }
+        })?,
+    )?;
+    meta.set(
+        "__newindex",
+        lua.create_function(|_, (_, key, _): (LuaValue, LuaValue, LuaValue)| -> mlua::Result<()> {
+            let name = key.to_string().unwrap_or_default();
+            fail(format!(
+                "ctx.settings.{name} = …: a setting is set with ctx.settings:set({name:?}, value)"
+            ))
+        })?,
+    )?;
+    // (`for name, value in ctx.settings`: each in the manifest's order.)
+    let s = sh.clone();
+    meta.set(
+        "__iter",
+        lua.create_function(move |lua, _: LuaValue| {
+            let values = s.settings.borrow();
+            let mut pairs = Vec::new();
+            for d in s.decls.borrow().iter() {
+                if let Some(v) = values.values.get(&d.id) {
+                    pairs.push((d.id.clone(), setting_value(lua, v)?));
+                }
+            }
+            let at = std::cell::Cell::new(0);
+            lua.create_function(move |_, ()| {
+                let i = at.get();
+                at.set(i + 1);
+                Ok(match pairs.get(i) {
+                    Some((name, v)) => (Some(name.clone()), v.clone()),
+                    None => (None, LuaValue::Nil),
+                })
+            })
+        })?,
+    )?;
+    meta.set("__metatable", "ctx.settings")?;
+    t.set_metatable(Some(meta))?;
+    Ok(t)
+}
+
+/// What a name that is none of the plugin's settings is told.
+fn unknown_setting(name: &str, decls: &[crate::SettingDecl]) -> String {
+    match decls {
+        [] => {
+            format!("the plugin declares no settings ([setting] in its manifest), and no {name:?}")
+        }
+        decls => {
+            let names: Vec<&str> = decls.iter().map(|d| d.id.as_str()).collect();
+            format!("the plugin declares no setting {name:?} (it has {})", names.join(", "))
+        }
+    }
+}
+
 /// What a job's handler gets (`about`: the plugin's id, name and version).
 fn context(lua: &Lua, sh: &Rc<Shared>, about: [&str; 3]) -> mlua::Result<Table> {
     let ctx = lua.create_table()?;
@@ -748,6 +898,7 @@ fn context(lua: &Lua, sh: &Rc<Shared>, about: [&str; 3]) -> mlua::Result<Table> 
     plugin.set("name", about[1])?;
     plugin.set("version", about[2])?;
     ctx.set("plugin", plugin)?;
+    ctx.set("settings", settings_table(lua, sh)?)?;
     let chosen = lua.create_table()?;
     for (i, s) in sh.selection.selected.iter().enumerate() {
         chosen.raw_seti(i + 1, selected(lua, sh, s)?)?;
@@ -1014,7 +1165,17 @@ fn failure(name: &str, host: &Rc<dyn Host>, e: mlua::Error) -> PluginError {
 }
 
 fn shared(plugin: &Plugin, input: Input, host: &Rc<dyn Host>) -> Rc<Shared> {
-    shared_in(Source::Folder(plugin.dir.clone()), &plugin.manifest.name, input, host)
+    let sh = shared_in(source_of(plugin), &plugin.manifest.name, input, host);
+    // Each declared setting has a value: the host's, else its default.
+    {
+        let mut settings = sh.settings.borrow_mut();
+        for d in &plugin.manifest.settings {
+            settings.values.entry(d.id.clone()).or_insert_with(|| d.default.clone());
+        }
+        settings.values.retain(|k, _| plugin.setting(k).is_some());
+    }
+    *sh.decls.borrow_mut() = plugin.manifest.settings.clone();
+    sh
 }
 
 fn shared_in(files: Source, who: &str, input: Input, host: &Rc<dyn Host>) -> Rc<Shared> {
@@ -1031,6 +1192,10 @@ fn shared_in(files: Source, who: &str, input: Input, host: &Rc<dyn Host>) -> Rc<
         who: who.to_string(),
         rng: RefCell::new(fastrand::Rng::new()),
         selection: input.selection,
+        decls: RefCell::default(),
+        settings: RefCell::new(input.settings.unwrap_or_default()),
+        settings_set: RefCell::default(),
+        no_set: std::cell::Cell::new(None),
     })
 }
 
@@ -1067,7 +1232,13 @@ pub(crate) fn run_command(
     if host.cancelled() {
         return Err(PluginError::Canceled(plugin.manifest.name.clone()));
     }
-    Ok(Outcome { label, edits: sh.edits.take(), haks: sh.haks.take(), folders: sh.folders.take() })
+    Ok(Outcome {
+        label,
+        edits: sh.edits.take(),
+        haks: sh.haks.take(),
+        folders: sh.folders.take(),
+        settings: sh.settings_set.take(),
+    })
 }
 
 /// What a plugin does on an event: its handler, called as a command's is,
@@ -1100,7 +1271,13 @@ pub(crate) fn run_event(
         return Err(PluginError::Canceled(plugin.manifest.name.clone()));
     }
     let label = label.unwrap_or_else(|| format!("{}: {}", plugin.manifest.name, decl.id));
-    Ok(Outcome { label, edits: sh.edits.take(), haks: sh.haks.take(), folders: sh.folders.take() })
+    Ok(Outcome {
+        label,
+        edits: sh.edits.take(),
+        haks: sh.haks.take(),
+        folders: sh.folders.take(),
+        settings: sh.settings_set.take(),
+    })
 }
 
 /// A fix a check records (`ctx.fix`): what its button says, and the job
@@ -1182,6 +1359,7 @@ pub(crate) fn run_check(
     host: Rc<dyn Host>,
 ) -> Result<Vec<Found>, PluginError> {
     let sh = shared(plugin, input, &host);
+    sh.no_set.set(Some("a check only reads: ctx.settings:set is for commands and events"));
     let records: Rc<RefCell<Vec<FixRecord>>> = Rc::default();
     let run = || -> mlua::Result<Vec<Found>> {
         let lua = start(Some(&plugin.manifest.entry), &sh)?;
@@ -1337,6 +1515,7 @@ pub(crate) fn run_console(
     host: Rc<dyn Host>,
 ) -> Result<Outcome, PluginError> {
     let sh = shared_in(Source::Nothing, "The plugin console", input, &host);
+    sh.no_set.set(Some("the console is no plugin's, and has no settings"));
     let run = || -> mlua::Result<()> {
         let lua = start(None, &sh)?;
         let ctx = context(&lua, &sh, ["console", "Console", crate::API])?;
@@ -1358,6 +1537,7 @@ pub(crate) fn run_console(
         edits: sh.edits.take(),
         haks: sh.haks.take(),
         folders: sh.folders.take(),
+        settings: Vec::new(),
     })
 }
 
@@ -1399,6 +1579,8 @@ pub(crate) fn api_names() -> Vec<String> {
         // What is selected and open (an empty list here, and nothing
         // open), and the fields of each.
         out.extend(["ctx.selection", "ctx.open"].map(String::from));
+        // The settings (none here) and their method.
+        out.extend(["ctx.settings", "ctx.settings:set"].map(String::from));
         out.extend(SELECTED.map(String::from));
         // A check's fixes (`ctx.fix`, a check's alone) and theirs.
         out.extend(FIX_NAMES.map(String::from));

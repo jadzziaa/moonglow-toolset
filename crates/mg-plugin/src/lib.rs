@@ -13,11 +13,16 @@
 //!   log, progress, and questions for the user.
 //! - [`Package`] is a plugin as an archive to hand around, read and
 //!   installed into a plugins folder.
+//! - [`project`]: a project's own plugins, which come with its checkout
+//!   and run only once the builder allows them; [`settings`]: the values
+//!   a plugin keeps.
 
 mod files;
 mod manifest;
 mod package;
+pub mod project;
 mod runtime;
+pub mod settings;
 mod tables;
 mod terrain;
 mod testing;
@@ -27,7 +32,10 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
-pub use manifest::{API, APIS, CheckDecl, CommandDecl, EventDecl, EventKind, Manifest, Target};
+pub use manifest::{
+    API, APIS, CheckDecl, CommandDecl, EventDecl, EventKind, Manifest, Scope, SettingDecl,
+    SettingKind, SettingValue, Target,
+};
 use mg_core::{ResRef, ResType};
 pub use mg_edit::fix::{Fix, Found};
 use mg_edit::{Edit, GffPath};
@@ -39,6 +47,7 @@ use mg_rules::ObjectKind;
 pub use package::{
     Existing, MARKER, MAX_ARCHIVE, MAX_BYTES, MAX_FILES, Package, from_archive, pack, remove,
 };
+pub use settings::{SettingWrite, Settings};
 pub use testing::{TestResult, run_tests, test_files};
 use thiserror::Error;
 
@@ -65,6 +74,41 @@ pub enum PluginError {
 pub struct Plugin {
     pub dir: PathBuf,
     pub manifest: Manifest,
+    /// A project's plugin is read whole when found, and runs from that
+    /// copy: what the builder allowed (by its digest) is what runs,
+    /// whatever its folder holds later. None: it runs from its folder.
+    pub frozen: Option<Frozen>,
+}
+
+/// A plugin's files as they were read, with the digest that names them
+/// (`sha256:` and the hexadecimal SHA-256 of each file's path, length and
+/// bytes, by path).
+#[derive(Clone, PartialEq, Eq)]
+pub struct Frozen {
+    pub digest: String,
+    pub(crate) files: Arc<BTreeMap<String, Vec<u8>>>,
+}
+
+impl std::fmt::Debug for Frozen {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Frozen({}, {} files)", self.digest, self.files.len())
+    }
+}
+
+impl Frozen {
+    /// The files (by their paths in the folder, with `/`) and their digest.
+    pub fn new(files: Vec<(String, Vec<u8>)>) -> Frozen {
+        let files: BTreeMap<String, Vec<u8>> = files.into_iter().collect();
+        let mut h = mg_core::sha256::Sha256::new();
+        for (name, bytes) in &files {
+            h.update(name.as_bytes());
+            h.update(&[0]);
+            h.update(&(bytes.len() as u64).to_le_bytes());
+            h.update(bytes);
+        }
+        let digest = format!("sha256:{}", mg_core::sha1::hex(&h.finish()));
+        Frozen { digest, files: Arc::new(files) }
+    }
 }
 
 impl Plugin {
@@ -83,7 +127,39 @@ impl Plugin {
                 format!("its entry {} is not in the folder", manifest.entry),
             ));
         }
-        Ok(Plugin { dir: dir.to_path_buf(), manifest })
+        Ok(Plugin { dir: dir.to_path_buf(), manifest, frozen: None })
+    }
+
+    /// Reads a project's plugin in folder `dir` whole (its files as an
+    /// archive of it would hold them: not hidden ones, nor its `tests/`),
+    /// to run from that copy; none of its code runs.
+    pub fn load_project(dir: &Path) -> Result<Plugin, PluginError> {
+        let shown = dir.join("plugin.cfg").display().to_string();
+        let files = package::files_of(dir)?;
+        let frozen = Frozen::new(files);
+        let fault = |e: String| PluginError::Manifest(shown.clone(), e);
+        let text = frozen.files.get("plugin.cfg").ok_or_else(|| fault("not there".into()))?;
+        let text = std::str::from_utf8(text).map_err(|_| fault("it is not text (UTF-8)".into()))?;
+        let manifest = Manifest::parse(text).map_err(fault)?;
+        if !frozen.files.contains_key(&manifest.entry) {
+            return Err(fault(format!("its entry {} is not in the folder", manifest.entry)));
+        }
+        Ok(Plugin { dir: dir.to_path_buf(), manifest, frozen: Some(frozen) })
+    }
+
+    /// A project's plugin's digest, by which it is allowed.
+    pub fn digest(&self) -> Option<&str> {
+        self.frozen.as_ref().map(|f| f.digest.as_str())
+    }
+
+    /// Whether it is a project's (read whole, [`Plugin::load_project`]).
+    pub fn is_project(&self) -> bool {
+        self.frozen.is_some()
+    }
+
+    /// A setting it declares.
+    pub fn setting(&self, id: &str) -> Option<&SettingDecl> {
+        self.manifest.settings.iter().find(|s| s.id == id)
     }
 
     /// The id of one of its checks as findings carry it: the plugin's id,
@@ -220,12 +296,16 @@ pub struct Input {
     /// What is selected and open in the window (`ctx.selection`,
     /// `ctx.open`): nothing for a check, or where there is no window.
     pub selection: Selection,
+    /// The plugin's settings (`ctx.settings`), as
+    /// [`settings::resolve`] makes them: none given, their defaults.
+    pub settings: Option<Settings>,
 }
 
 impl Input {
-    /// A job's input with nothing selected or open.
+    /// A job's input with nothing selected or open, and the plugin's
+    /// settings at their defaults.
     pub fn new(module: Module, game: Option<Arc<GameData>>) -> Input {
-        Input { module, game, selection: Selection::default() }
+        Input { module, game, selection: Selection::default(), settings: None }
     }
 }
 
@@ -341,6 +421,8 @@ pub struct Outcome {
     /// Files it wants written into folders the user chose (and agreed
     /// to have written into).
     pub folders: Vec<FolderWrite>,
+    /// The settings it set (`ctx.settings:set`), for the host to keep.
+    pub settings: Vec<SettingWrite>,
 }
 
 /// Files a command wants in a folder the user chose: new ones, or in
@@ -502,5 +584,5 @@ pub fn api_names() -> Vec<String> {
 /// Loads a plugin's code and compares what it registers with what its
 /// manifest declares: the faults, as text (none: the two agree).
 pub fn inspect(plugin: &Plugin, host: Rc<dyn Host>) -> Result<Vec<String>, PluginError> {
-    runtime::inspect(runtime::Source::Folder(plugin.dir.clone()), &plugin.manifest, host)
+    runtime::inspect(runtime::source_of(plugin), &plugin.manifest, host)
 }

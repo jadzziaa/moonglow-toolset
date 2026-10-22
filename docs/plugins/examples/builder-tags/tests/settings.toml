@@ -1,0 +1,67 @@
+# The plugin's own tests: `mg plugin test docs/plugins/examples/builder-tags`.
+# The fixture (a nasher project beside this file) has the team's prefix in
+# its moonglow.toml; a test's `settings` are the plugin's settings for that
+# run over it, and `set` what the command is to set.
+module = "module"
+
+[[test]]
+name = "the team's prefix, from moonglow.toml: two tags lack it"
+check = "tag-prefix"
+[[test.finding]]
+resource = "captain.utc"
+at = "Tag"
+message = 'tag "captain" does not begin with KRZ_'
+severity = "warning"
+fix = "Begin it with KRZ_"
+[[test.finding]]
+resource = "well.utp"
+at = "Tag"
+message = 'tag "WELL" does not begin with KRZ_'
+fix = "Begin it with KRZ_"
+
+[[test]]
+name = "only the creatures, as errors, when the settings say so"
+check = "tag-prefix"
+settings = { kinds = "creatures", strict = true }
+[[test.finding]]
+resource = "captain.utc"
+severity = "error"
+
+[[test]]
+name = "the fix puts the prefix and the builder's code in front, cut to the longest"
+check = "tag-prefix"
+settings = { code = "ab", max_length = 12 }
+fix = "Begin it with KRZ_ab_"
+left = 0
+[[test.field]]
+resource = "captain.utc"
+field = "Tag"
+value = "KRZ_ab_capta"
+
+[[test]]
+name = "no prefix set: nothing is checked"
+check = "tag-prefix"
+settings = { prefix = "" }
+findings = 0
+
+[[test]]
+name = "the builder's code is asked for and kept"
+command = "remember-code"
+answers = { code = "cd" }
+set = { code = "cd" }
+log = ["Your builder code is cd"]
+
+[[test]]
+name = "what is selected is prefixed"
+command = "prefix-tags"
+select = ["well.utp", "guard.utc"]
+settings = { code = "ab" }
+log = ["2 tags begin with KRZ_ab_"]
+[[test.field]]
+resource = "well.utp"
+field = "Tag"
+value = "KRZ_ab_WELL"
+[[test.field]]
+resource = "guard.utc"
+field = "Tag"
+value = "KRZ_ab_GUARD"
