@@ -29,7 +29,7 @@ pub(crate) fn stamp(path: &Path) -> Option<Stamp> {
 #[derive(Debug, Clone)]
 pub(crate) struct Known {
     pub(crate) key: ResKey,
-    pub(crate) path: PathBuf,
+    pub(crate) path: Arc<Path>,
     /// A GFF kept as JSON (a project's), not the resource itself.
     pub(crate) json: bool,
     /// The file's bytes then.
@@ -99,13 +99,17 @@ impl OutsideFound {
 
 /// Whether a change found still stands, `known` being what is known of
 /// its file now: not if a save or a change taken since replaced what was
-/// known when it was found, nor if the file changed again since it was
-/// read (the next look finds it as it is then).
+/// known when it was found, nor if a file found gone is back (a checkout
+/// that deletes and writes again). (A file written again since it was
+/// read is taken as it was read: it was taken with the time it had then,
+/// so the next look finds the write. Looking at every changed file's
+/// time again here took two milliseconds of the window's frame for a
+/// thousand.)
 pub(crate) fn stands(known: Option<&Arc<[u8]>>, change: &Outside) -> bool {
     let same = match (known, change.was()) {
         (Some(now), Some(was)) => Arc::ptr_eq(now, was),
         (None, None) => true,
         _ => false,
     };
-    same && stamp(&change.path) == change.stamp()
+    same && (change.resource.is_some() || !change.path.exists())
 }

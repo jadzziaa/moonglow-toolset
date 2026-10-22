@@ -163,6 +163,17 @@ impl Watch {
     }
 }
 
+/// Whether two resources are the same bytes: at once where they are the
+/// same shared bytes (a module's resource and its file's, as read), which
+/// compared byte by byte took milliseconds for a pull's areas.
+fn same_bytes(a: Option<&[u8]>, b: Option<&[u8]>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => std::ptr::eq(a, b) || a == b,
+        (None, None) => true,
+        _ => false,
+    }
+}
+
 fn hash(parts: impl Hash) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     parts.hash(&mut h);
@@ -393,9 +404,9 @@ impl Moonglow {
             let typing = self.scripts.get(&c.key).is_some_and(|b| b.is_dirty());
             if typing {
                 conflicts.push(c);
-            } else if ours == c.resource.as_deref() {
+            } else if same_bytes(ours, c.resource.as_deref()) {
                 same.push(c);
-            } else if ours == ws.module.as_read(&c.key) {
+            } else if same_bytes(ours, ws.module.as_read(&c.key)) {
                 take.push(c);
             } else {
                 conflicts.push(c);

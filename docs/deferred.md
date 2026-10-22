@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T07:17:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T08:20:16Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -294,24 +294,36 @@ Size: S (an hour or two), M (a day or so), L (several days).
   (from builders' reports after 1.19.1)
 - **A module's files changed outside** (a nasher project's sources, a
   module folder's files; a `.mod` file changed outside isn't noticed)
-  are found by a thread of its own since 1.20.2 (their names, times and
-  sizes every 3 s) and read again on the window's thread. The files'
-  times and sizes decide what is read, so a change that keeps both
-  within the clock's grain is missed. A reload that touches resources
-  the undo history has changes to clears the whole history. A script
-  open in the editor with typing not yet applied counts as changed
-  here. The area list isn't settled again for areas added outside. Not
-  tried against a real `git checkout` of many files, nor measured on a
-  large module (a builder's window stalled every few seconds with a
-  large module folder or nasher project, after 1.20.1, while the
-  window's own thread did the looking); the read after a change
-  (another program's save, or Moonglow's own) still looks at every file
-  once on the window's thread. The haks and the `override`,
-  `development` and portrait folders (and the custom talk table) are
-  watched the same way: looked at on the window's thread only after a
-  change. A watch said nothing of a change made before its thread's
-  first look; it says so after that look now. (M; what is left of the
-  stall S)
+  are found by a thread of its own (their names, times and sizes every
+  3 s, said once a burst of changes has settled), and since The Domains
+  of Dread's builder proposal (C12) read on a thread of their own too
+  (`mg_module::outside`), then taken by the window at once. Measured
+  (`frame_perf` `reload_frames_at_144`: the persistent world kept as
+  a nasher project, 21,000 files, a pull of 970 written over a second):
+  the longest frame was 1,630 ms before, 3.5 ms after, with every change
+  in 4.6 s from the pull's start (2,870 files, every area and 2,000
+  blueprints: 6.5 ms, in 6.2 s). The files' times and sizes decide what
+  is read, so a change that keeps both within the clock's grain is
+  missed (a project's files' times are noted at open now, so this holds
+  from the start). A reload that touches resources the undo history has
+  changes to clears the whole history. A script open in the editor with
+  typing not yet applied counts as changed here. The area list isn't
+  settled again for areas added outside. Not done: the watch's thread
+  still walks every file every 3 s (on its own core; not measured), and
+  the look after it looks at every known file's time
+  again rather than taking the watch's list; what the window's thread
+  does when a look begins and ends (a list of the known files, the
+  changes taken) grows with the project and is under the budget at
+  21,000 files, not measured above; read on another thread, the files'
+  memory comes from that thread's allocator arena, so the process keeps
+  about 200 MB more after a 970-file pull on Linux (25 MB with
+  `MALLOC_ARENA_MAX=1`; it is reused, not leaked); more than 24 scripts compiled after a
+  pull still go to a job, which holds the window's input; a change is
+  in up to about 7 s after it settles (the watch's 3 s, the window's
+  3 s). The haks and the `override`, `development` and portrait folders
+  (and the custom talk table) are watched the same way, and read again
+  on the window's thread after a change (not measured on a large
+  `override`). (S each)
 
 ## Content doctor
 

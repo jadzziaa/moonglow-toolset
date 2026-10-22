@@ -744,7 +744,7 @@ fn frames_at_144_in_a_persistent_world() {
 }
 
 /// The persistent world (`world/mod.rs`) kept as a nasher project, built
-/// once into `pw-world/project` and copied for each run: 25,000 source
+/// once into `pw-world/project` and copied for each run: 21,000 source
 /// files. The copy's root.
 fn world_project(w: &world::World) -> std::path::PathBuf {
     use mg_module::{Module, ModuleLocation};
@@ -790,7 +790,7 @@ fn reset_peak() {
 }
 
 /// A `git pull` on a large nasher project while it is open: the persistent
-/// world's 25,000 source files, of which 150 areas (their `.are.json` and
+/// world's 21,000 source files, of which 150 areas (their `.are.json` and
 /// `.git.json`), 400 blueprints and 200 scripts are rewritten, 40 scripts
 /// added and 30 deleted, in about a second, by another thread, while the
 /// window draws; one blueprint has an unsaved change here too, which is
@@ -825,7 +825,7 @@ fn reload_frames_at_144() {
     h.run_steps(3);
     close(&mut h, &Tab::Palette);
     close(&mut h, &Tab::ModuleProperties);
-    view(&mut h, &mut r, "large nasher project open (25,000 files)", None);
+    view(&mut h, &mut r, "large nasher project open (21,000 files)", None);
 
     // What the pull writes: each file's new text, and what the module is to
     // hold after (`None`: gone).

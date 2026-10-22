@@ -17446,7 +17446,7 @@ fn a_project_s_files_changed_outside_are_read_again() {
 /// on drawing (nothing of it is in the module until the look is done),
 /// then all of it is in, in one go; an area with an unsaved change here
 /// is kept and asked about, and Take the Files' still takes it. A change
-/// after that is found by the watch alone. (How long the window's frames
+/// after that is found by the watch's looks. (How long the window's frames
 /// take while it reloads: `frame_perf.rs`, `reload_frames_at_144`.)
 #[test]
 fn a_pull_s_burst_of_changes_is_read_off_the_window_s_thread() {
@@ -17556,7 +17556,7 @@ fn a_pull_s_burst_of_changes_is_read_off_the_window_s_thread() {
     assert_eq!(tag(&mut h, areas[0]), "PULLED0");
     assert!(h.state().outside_conflicts().is_empty());
 
-    // Later, the watch alone finds a change (its looks are the window's
+    // Later, a change is found by the watch's looks (the window's
     // every few seconds).
     std::fs::write(dir.join("src/s050.nss"), "void main() { int later; }\n").unwrap();
     let started = std::time::Instant::now();

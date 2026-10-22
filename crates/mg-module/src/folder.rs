@@ -81,7 +81,7 @@ impl FolderFiles {
         let files = (self.files.iter())
             .map(|(key, (path, file))| Known {
                 key: *key,
-                path: path.clone(),
+                path: path.as_path().into(),
                 json: false,
                 file: file.clone(),
                 stamp: self.stamps.get(path).copied(),
@@ -138,13 +138,15 @@ pub(crate) fn scan(files: &[Known], dir: &Path) -> OutsideFound {
         }
         let was = Some(k.file.clone());
         match std::fs::read(&k.path) {
-            Err(_) => found.changes.push(Outside::plain(k.key, k.path.clone(), None, was, None)),
+            Err(_) => {
+                found.changes.push(Outside::plain(k.key, k.path.to_path_buf(), None, was, None))
+            }
             Ok(bytes) if bytes[..] == k.file[..] => {
                 found.settled.extend(now.map(|s| (k.key, k.file.clone(), s)));
             }
             Ok(bytes) => {
                 let resource = Some(Arc::from(bytes));
-                found.changes.push(Outside::plain(k.key, k.path.clone(), resource, was, now));
+                found.changes.push(Outside::plain(k.key, k.path.to_path_buf(), resource, was, now));
             }
         }
     }

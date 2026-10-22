@@ -17,7 +17,7 @@ use crate::ModuleError;
 /// A resource's source file, as last read or written.
 #[derive(Debug, Clone)]
 struct Source {
-    path: PathBuf,
+    path: Arc<Path>,
     /// Whether the file is JSON (a GFF kept as text) rather than the
     /// resource itself.
     json: bool,
@@ -227,7 +227,7 @@ impl Project {
                 file.clone()
             };
             resources.insert(key, resource.clone());
-            project.sources.insert(key, Source { path, json, file, resource, stamp });
+            project.sources.insert(key, Source { path: path.into(), json, file, resource, stamp });
         }
         project.settle_area_list(&mut resources);
         project.left_out = project.left_out();
@@ -374,7 +374,7 @@ impl Project {
 
     /// The source file a resource is kept in, if it has one yet.
     pub fn source_path(&self, key: &ResKey) -> Option<&Path> {
-        self.sources.get(key).map(|s| s.path.as_path())
+        self.sources.get(key).map(|s| &*s.path)
     }
 
     /// The source files changed on disk since they were read or written.
@@ -383,7 +383,7 @@ impl Project {
             .sources
             .values()
             .filter(|s| std::fs::read(&s.path).ok().as_deref() != Some(&s.file[..]))
-            .map(|s| s.path.clone())
+            .map(|s| s.path.to_path_buf())
             .collect();
         v.sort();
         v
@@ -467,7 +467,7 @@ impl Project {
                 self.sources.insert(
                     change.key,
                     Source {
-                        path: change.path.clone(),
+                        path: change.path.as_path().into(),
                         json: change.json,
                         file: file.clone(),
                         resource: resource.clone(),
@@ -587,11 +587,11 @@ impl Project {
                     let text = self.source_bytes(key, src.json, bytes, Some(&src.file))?;
                     let current = disk(&src.path);
                     if text[..] == src.file[..] || current.as_deref() == Some(&text[..]) {
-                        steps.push(Step::Adopt(*key, src.path.clone(), src.json, text));
+                        steps.push(Step::Adopt(*key, src.path.to_path_buf(), src.json, text));
                     } else if current.as_deref() != Some(&src.file[..]) {
-                        conflicts.push(src.path.clone());
+                        conflicts.push(src.path.to_path_buf());
                     } else {
-                        steps.push(Step::Write(*key, src.path.clone(), src.json, text));
+                        steps.push(Step::Write(*key, src.path.to_path_buf(), src.json, text));
                     }
                 }
                 None if key.restype == ResType::NCS => {}
@@ -623,11 +623,11 @@ impl Project {
         gone.sort_by(|a, b| a.1.path.cmp(&b.1.path));
         for (key, src) in gone {
             match disk(&src.path) {
-                None => steps.push(Step::Remove(*key, src.path.clone())),
+                None => steps.push(Step::Remove(*key, src.path.to_path_buf())),
                 Some(d) if d[..] == src.file[..] => {
-                    steps.push(Step::Remove(*key, src.path.clone()))
+                    steps.push(Step::Remove(*key, src.path.to_path_buf()))
                 }
-                Some(_) => conflicts.push(src.path.clone()),
+                Some(_) => conflicts.push(src.path.to_path_buf()),
             }
         }
         if !conflicts.is_empty() {
@@ -672,7 +672,7 @@ impl Project {
                     self.sources.insert(
                         key,
                         Source {
-                            path: path.clone(),
+                            path: path.as_path().into(),
                             json,
                             file: Arc::from(text),
                             resource,
@@ -685,7 +685,13 @@ impl Project {
                     let resource = resources[&key].clone();
                     self.sources.insert(
                         key,
-                        Source { path, json, file: Arc::from(text), resource, stamp: None },
+                        Source {
+                            path: path.into(),
+                            json,
+                            file: Arc::from(text),
+                            resource,
+                            stamp: None,
+                        },
                     );
                 }
                 Step::Remove(key, path) => {
@@ -785,7 +791,7 @@ pub(crate) fn scan(
         }
         let gone = || Outside {
             key: k.key,
-            path: k.path.clone(),
+            path: k.path.to_path_buf(),
             resource: None,
             file: None,
             json: k.json,
@@ -812,7 +818,7 @@ pub(crate) fn scan(
         }
     }
     // Files that are new to the tree.
-    let known: std::collections::HashSet<&Path> = files.iter().map(|k| k.path.as_path()).collect();
+    let known: std::collections::HashSet<&Path> = files.iter().map(|k| &*k.path).collect();
     let by_key: HashMap<ResKey, &Known> = files.iter().map(|k| (k.key, k)).collect();
     let mut added: Vec<Outside> = Vec::new();
     for path in target.source_files(root).unwrap_or_default() {
@@ -972,8 +978,8 @@ mod tests {
     }
 
     /// The looking done apart (on another thread, `crate::outside`): what
-    /// Moonglow took while it looked, and what changed again since it was
-    /// read, is left out of what it hands back; the next look finds what
+    /// Moonglow took while it looked, and a file found deleted that is back
+    /// since, are left out of what it hands back; the next look finds what
     /// still differs. A file read and written again before it is taken is
     /// found again.
     #[test]
@@ -981,27 +987,29 @@ mod tests {
         let root = scratch("outside-apart");
         module().save_as(&project_location(&root)).unwrap();
         let mut m = Module::open(&root).unwrap();
-        let (nss, fresh) = (root.join("src/on_load.nss"), root.join("src/fresh.nss"));
-        let (script, new) = (key("on_load", ResType::NSS), key("fresh", ResType::NSS));
+        let (nss, git) = (root.join("src/on_load.nss"), root.join("src/a1.git.json"));
+        let (script, fresh) = (key("on_load", ResType::NSS), key("fresh", ResType::NSS));
         // Opened: every file's time is known, so a look reads none.
         let scan = m.outside_scan().unwrap();
         assert!(!scan.is_empty() && scan.files.iter().all(|f| f.stamp.is_some()));
         assert_eq!(m.outside_found(scan.run()), (vec![], vec![]));
 
-        // Changed and added outside, and looked at apart...
+        // Changed, deleted and added outside, and looked at apart...
+        let area = std::fs::read(&git).unwrap();
         std::fs::write(&nss, "void main() { int one; }\n").unwrap();
-        std::fs::write(&fresh, "void main() {}\n").unwrap();
+        std::fs::remove_file(&git).unwrap();
+        std::fs::write(root.join("src/fresh.nss"), "void main() {}\n").unwrap();
         let found = m.outside_scan().unwrap().run();
-        assert_eq!(found.changes().len(), 2);
-        // ...while the script is taken here, and the new file is written
-        // again: neither is handed back.
+        assert_eq!(found.changes().len(), 3);
+        // ...while the script is taken here and the area's file put back:
+        // only the new file is handed back.
         let (now, _) = m.outside().unwrap();
         m.took(now.iter().find(|c| c.key == script).unwrap());
-        std::fs::write(&fresh, "void main() { int two; }\n").unwrap();
-        assert_eq!(m.outside_found(found), (vec![], vec![]));
-        let (changes, _) = m.outside().unwrap();
-        let found: Vec<_> = changes.iter().map(|c| (c.key, c.resource.as_deref())).collect();
-        assert_eq!(found, [(new, Some(&b"void main() { int two; }\n"[..]))]);
+        std::fs::write(&git, &area).unwrap();
+        let (changes, _) = m.outside_found(found);
+        assert_eq!(changes.iter().map(|c| c.key).collect::<Vec<_>>(), [fresh]);
+        m.took(&changes[0]);
+        assert_eq!(m.outside(), Some((vec![], vec![])));
 
         // Read, then written again before it is taken: still to be found.
         std::fs::write(&nss, "void main() { int three; }\n").unwrap();
