@@ -3,12 +3,12 @@ type: Guide
 title: 'Plugins: for authors'
 description: Starting point for plugin authors - the example plugins, the editor type file, the API changes, where the manual covers plugins, and the mg plugin commands for checking, running and packing one.
 tags: [plugins, authors, examples]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T10:02:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T08:05:22Z }
 ---
 
 # Plugins: for authors
 
-Plugins are experimental: the plugin API is at 0.3, and a later release
+Plugins are experimental: the plugin API is at 0.4, and a later release
 may change it ([`CHANGES.md`](CHANGES.md) lists each change).
 
 What a plugin author needs besides the manual:
@@ -24,6 +24,10 @@ What a plugin author needs besides the manual:
     rule from a second file.
   - [`store-markup`](examples/store-markup): a batch edit with a
     form and progress.
+  - [`set-local`](examples/set-local): commands in the right-click
+    menus of objects and areas (API 0.4), run on what was clicked: a
+    local variable set on the objects or blueprints selected, and an
+    area's objects counted.
   - [`creature-report`](examples/creature-report): reading the game's
     data (a 2DA and the talk table).
   - [`tileset-import`](examples/tileset-import): outside the module. A
@@ -40,7 +44,7 @@ The manual has the rest: [Plugins](../manual/15-plugins.md) (for the
 people who use them), [Writing plugins](../manual/16-writing-plugins.md)
 and the [Plugin API reference](../manual/17-plugin-api.md). The design
 and its reasons are in the [proposal](../plugin-proposal.md); what is
-planned beyond API 0.3 is in the [deferred list](../deferred.md)
+planned beyond API 0.4 is in the [deferred list](../deferred.md)
 (Automation).
 
 To check a plugin, try a command without the window, and pack a plugin

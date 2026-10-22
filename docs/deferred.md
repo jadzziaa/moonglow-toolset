@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T01:22:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T08:05:22Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2240,12 +2240,13 @@ contribution itself states as not done or not checked.
 
 ## Automation
 
-- **Plugins, beyond API 0.3** (`plugin-proposal.md`; commands and checks
+- **Plugins, beyond API 0.4** (`plugin-proposal.md`; commands and checks
   in sandboxed Luau are built; 0.2 added a file or folder the user
   chooses, haks written with their leave, areas and terrain, pictures;
   0.3 files written into a chosen folder, 2DAs and talk tables as
   values, and events, whose own gaps are below, under "Plugins writing
-  into a folder" and "Tables for plugins"):
+  into a folder" and "Tables for plugins"; 0.4 what is selected and
+  open, and commands in right-click menus):
   - **A builder's terrain tool (NWN Mapper) as the measure:** it sculpts
     a free height field, paints texture layers and a walkmesh, bakes
     placeables and a lightmap in, and writes a tileset's group (a model
@@ -2278,9 +2279,25 @@ contribution itself states as not done or not checked.
     its checks through git. `mg verify --plugins DIR` covers a build
     pipeline meanwhile. (M)
   - **More kinds of things to add:** exporters and importers, wizards,
-    quick fixes for findings, settings a plugin keeps, panels.
-    A plugin's command can't yet read what is selected or open in the
-    window. (L)
+    quick fixes for findings, settings a plugin keeps, panels. (L)
+  - **Commands on what is selected** (API 0.4, the Domains of Dread's
+    builder proposal A1: `ctx.selection`, `ctx.open`, a command's
+    `for`). Not done: `for` names a kind for its placed objects and its
+    blueprints alike (a command for one only checks `blueprint` itself);
+    a selection is objects, blueprints or one area, never tiles, a
+    trigger's points, the start location, several areas or several of
+    the module tree's rows; the commands are in the area view's, the
+    module tree's and the palettes' menus, not in Find References,
+    Advanced Search, the Properties editors or the other editors' own;
+    an area's commands are in the area view's menu only when nothing is
+    selected there; from the Plugins menu or a key the selection is the
+    area view shown last, else the palette's, not that of the pane with
+    the focus; `ctx.open` is nil for several objects or blueprints edited
+    together; a palette's blueprint menu has no Properties to end it, so
+    the plugins' commands come last there; a palette's categories and
+    the tree's groups have none. Driven through the UI harness, with one
+    rendered picture of the area view's menu; not used on a desktop.
+    (S each)
   - **A plugin's own tests** (`mg plugin test`, against a fixture
     module): `mg plugin check` and `mg plugin run --dry-run` are what
     there is. (S–M)

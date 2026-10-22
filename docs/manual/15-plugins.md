@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugins
 description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, commands, checks, the console, the command line and when something goes wrong.
 tags: [manual, plugins]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T06:03:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T08:05:22Z }
 ---
 
 # Plugins
@@ -15,9 +15,9 @@ plugin is a folder with a few text files; anyone can write one
 ([Writing plugins](16-writing-plugins.md)).
 
 **Plugins are experimental.** They are new in Moonglow 1.0, and the
-plugin API (version 0.3) may change in a later release as the people who
+plugin API (version 0.4) may change in a later release as the people who
 write plugins try it. A plugin written for an earlier version of the API still
-runs (0.2 and 0.3 only added to it); one written for a version this
+runs (0.2, 0.3 and 0.4 only added to it); one written for a version this
 Moonglow doesn't have is not run: Manage Plugins says so, and Moonglow,
 or the plugin, needs an update. What you build with plugins, and what
 you miss, is welcome on the
@@ -127,6 +127,16 @@ suggest a key for a command; **Tools › Options › Keyboard** lists plugin
 commands with the rest, and any of them can be given a key or have it
 changed there.
 
+A command made for a kind of object (placeables, creatures…) or for
+areas is also in their right-click menus: the area view's menu on the
+objects selected (or, with nothing selected, on the area), the module
+tree's rows, and the palettes' blueprints. It comes after the menu's own
+commands, above Variables and Properties, and acts on what you clicked:
+every object selected in the area view, or every blueprint chosen in the
+palette. Manage Plugins says which menus each command is in. Chosen from
+the Plugins menu instead, it acts on the objects selected in the area
+view, or else on the blueprints selected in the palette.
+
 A command needs a module open. It runs as other long work does
 ([Long work](09-build-and-test.md)): a window names it, shows how far it
 is, and has **Cancel**. If it asks something, the question is in that
@@ -177,6 +187,7 @@ resource's fields are called (`return ctx.module:gff("guard.utc")`).
 mg plugin list ~/.local/share/moonglow/plugins
 mg plugin run mymodule.mod plugins/tag-conventions fix-tags --dry-run
 mg plugin run mymodule.mod plugins/my-plugin on-save --event --changed guard.utc
+mg plugin run mymodule.mod plugins/set-local set-local --select "tavern.git/Placeable List[3]" --answer name=role --answer value=workbench
 mg verify mymodule.mod --plugins plugins/tag-conventions
 mg plugin install tag-conventions-1.0.0.zip plugins
 mg plugin remove example.tag-conventions plugins

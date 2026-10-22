@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T04:32:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T08:05:23Z }
 ---
 
 # Plugin API changes

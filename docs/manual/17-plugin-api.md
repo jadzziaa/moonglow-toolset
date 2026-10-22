@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugin API reference
 description: Reference of the plugin API - mg, ctx.selection and ctx.open, ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T12:04:41Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T08:05:22Z }
 ---
 
 # Plugin API reference
