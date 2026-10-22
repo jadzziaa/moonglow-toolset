@@ -59,10 +59,11 @@ pub enum Check {
     ObjectRow,
     PcFaction,
     AreaVariables,
+    TagUnique,
 }
 
 impl Check {
-    pub const ALL: [Check; 25] = [
+    pub const ALL: [Check; 26] = [
         Check::CustomTlk,
         Check::ErfSize,
         Check::SetRead,
@@ -88,6 +89,7 @@ impl Check {
         Check::ObjectRow,
         Check::PcFaction,
         Check::AreaVariables,
+        Check::TagUnique,
     ];
 
     pub fn id(self) -> &'static str {
@@ -117,6 +119,7 @@ impl Check {
             Check::ObjectRow => "object-row",
             Check::PcFaction => "pc-faction",
             Check::AreaVariables => "area-variables",
+            Check::TagUnique => "tag-unique",
         }
     }
 
@@ -162,6 +165,10 @@ impl Check {
             Check::ObjectRow => "objects use 2DA rows that exist and have what they need",
             Check::PcFaction => "no object belongs to the PC faction, the players' alone",
             Check::AreaVariables => "an area's variables are in its GIT, where the game reads them",
+            Check::TagUnique => {
+                "a tag the project says must be unique (moonglow.toml's [tags] unique) is on one \
+                 object only"
+            }
         }
     }
 
@@ -187,7 +194,9 @@ impl Check {
             | Check::TwoDaStrRef
             | Check::TwoDaRef
             | Check::TwoDaDescribed => Group::Tables,
-            Check::ObjectRow | Check::PcFaction | Check::AreaVariables => Group::Objects,
+            Check::ObjectRow | Check::PcFaction | Check::AreaVariables | Check::TagUnique => {
+                Group::Objects
+            }
             Check::CustomTlk | Check::ErfSize => Group::Module,
         }
     }
@@ -402,6 +411,7 @@ pub fn examine(module: &Module, resman: &ResMan, tlk: TalkTables) -> Vec<Finding
     objects(&mut d, module);
     pc_faction(&mut d, module);
     area_variables(&mut d, module);
+    unique_tags(&mut d, module);
     described_tables(&mut d, module);
     custom_tlk(&mut d, module);
     d.out.sort_by(|a, b| {
@@ -1465,6 +1475,36 @@ fn area_variables(d: &mut Doctor, module: &Module) {
     }
 }
 
+/// Tags the project says must be unique (`[tags] unique` in its
+/// `moonglow.toml`) that are on more than one object: `GetObjectByTag`
+/// gives a script only one of them (the one placed later, of two in an
+/// area: `engine_static_placeables`).
+fn unique_tags(d: &mut Doctor, module: &Module) {
+    let unique = &module.project_file.tags.unique;
+    if unique.is_empty() {
+        return;
+    }
+    let index = crate::tags::TagIndex::of_module(module);
+    for (tag, places) in index.duplicates() {
+        let tag = String::from_utf8_lossy(tag);
+        let Some(pattern) = unique.matching(&tag) else { continue };
+        let at: Vec<String> = places.iter().map(|p| p.describe()).collect();
+        let message = format!(
+            "{tag} is on {} objects, and the project's moonglow.toml wants {pattern} unique: a \
+             script finds only one of them by its tag",
+            places.len()
+        );
+        d.push(
+            Severity::Warning,
+            Check::TagUnique,
+            "module",
+            places[0].key(),
+            at.join(", "),
+            message,
+        );
+    }
+}
+
 /// The object type a GIT list or inventory holds (of these,
 /// [`walk_objects`] checks creatures, doors, placeables and items, and
 /// the items stores and the others hold).
@@ -1704,6 +1744,46 @@ mod tests {
         let f = examine(&m, &resman(&[]), TalkTables::default());
         assert_eq!(checks(&f), [("2da-described", String::new())]);
         assert!(f[0].message.contains("loot.2da.toml") && f[0].message.contains("no kind"));
+    }
+
+    /// A tag the project's moonglow.toml wants unique, on two objects: a
+    /// warning naming both. Without the file, nothing.
+    #[test]
+    fn a_tag_the_project_wants_unique_is_found_twice() {
+        let dir = mg_testkit::scratch_dir("doctor-unique-tags");
+        let mut m = Module::new();
+        let waypoint = |tag: &str| {
+            let mut w = Struct::new(5);
+            w.set("Tag", Value::String(tag.as_bytes().to_vec()));
+            w
+        };
+        for (area, tags) in [
+            ("dev_staging", &["TDOD_START_KREZK", "LAMP"][..]),
+            ("krezk", &["TDOD_START_KREZK", "LAMP"]),
+        ] {
+            let mut git = Gff::new(*b"GIT ");
+            git.root.set("WaypointList", Value::List(tags.iter().map(|t| waypoint(t)).collect()));
+            m.set_gff(key(area, ResType::GIT), &git).unwrap();
+        }
+        m.save_as(&crate::ModuleLocation::Folder(dir.clone())).unwrap();
+        let m = Module::open(&dir).unwrap();
+        let f = examine(&m, &resman(&[]), TalkTables::default());
+        assert!(f.iter().all(|x| x.check != "tag-unique"), "no project file: {f:?}");
+        std::fs::write(dir.join("moonglow.toml"), "[tags]\nunique = [\"TDOD_START_*\"]\n").unwrap();
+        let m = Module::open(&dir).unwrap();
+        assert!(m.project_file.found);
+        let f = examine(&m, &resman(&[]), TalkTables::default());
+        let found: Vec<&Finding> = f.iter().filter(|x| x.check == "tag-unique").collect();
+        assert_eq!(found.len(), 1, "LAMP may be on two: {f:?}");
+        assert_eq!(found[0].at, "waypoint 0 in dev_staging, waypoint 0 in krezk");
+        assert_eq!(found[0].resource, key("dev_staging", ResType::GIT));
+        assert_eq!(found[0].severity, Severity::Warning);
+        assert!(
+            found[0].message.starts_with("TDOD_START_KREZK is on 2 objects"),
+            "{}",
+            found[0].message
+        );
+        assert_eq!(Group::of(found[0]), Group::Objects);
     }
 
     #[test]

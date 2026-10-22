@@ -8365,6 +8365,13 @@ fn copy_cut_and_paste_objects() {
         "the copies are selected"
     );
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Paste"));
+    // The two waypoints' one tag is on four now: said, and kept.
+    let clash = h.state().tag_clash.clone().expect("the Duplicate Tags window");
+    assert_eq!(clash.clashes[0].count, 4);
+    assert_eq!(clash.objects.len(), 2, "the copies");
+    h.get_by_label("Keep Tags").click();
+    h.run_steps(2);
+    assert!(h.state().tag_clash.is_none());
     // Cut: the copies go (into the clipboard).
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::X);
     h.run_steps(2);
@@ -10276,6 +10283,222 @@ fn setup_store_makes_the_conversation_script_and_store() {
     let store = &g.root.list("StoreList").unwrap()[0];
     assert_eq!(store.resref("ResRef"), Some(ResRef::from_str("nw_storethief001").unwrap()));
     assert_eq!((store.float("XPosition"), store.float("YPosition")), (Some(5.0), Some(5.0)));
+}
+
+/// Setup Store in a project whose moonglow.toml has `[store]`: the
+/// project's script opens it (none is written), its tag follows the
+/// pattern and is the only one, its blueprint is offered first, and the
+/// shopkeeper keeps its tag in the project's variable.
+#[test]
+fn setup_store_follows_the_project_file() {
+    use mg_module::instances::{Placement, Placing, instance};
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut rng = fastrand::Rng::with_seed(5);
+    let mut m = new_module(&game, "Shop", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Field".into(),
+        tileset: ResRef::from_str("ttr01").unwrap(),
+        width: 2,
+        height: 2,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let area_tag = {
+        let are = m.gff(&ResKey::new(area, ResType::ARE)).unwrap().unwrap();
+        String::from_utf8(are.root.string("Tag").unwrap().to_vec()).unwrap()
+    };
+    let read = |name: &str, t: ResType| {
+        Gff::read(&game.resman.get(&ResKey::parse(name, t).unwrap()).unwrap()).unwrap().root
+    };
+    let none = |_: ResRef| None;
+    let placing = Placing { game: &game, item: &none };
+    let at = Placement { position: [5.0, 5.0, 0.0], rotation: 0.0 };
+    let keeper = instance(&placing, ResType::UTC, &read("nw_bandit001", ResType::UTC), at, &[]);
+    // A store of the area's with the pattern's first tag already.
+    let mut first =
+        instance(&placing, ResType::UTM, &read("nw_storethief001", ResType::UTM), at, &[]).unwrap();
+    let taken = format!("{area_tag}_STORE_1");
+    first.set("Tag", mg_gff::Value::String(taken.clone().into_bytes()));
+    let git = ResKey::new(area, ResType::GIT);
+    let mut g = m.gff(&git).unwrap().unwrap();
+    g.root.set("Creature List", mg_gff::Value::List(vec![keeper.unwrap()]));
+    g.root.set("StoreList", mg_gff::Value::List(vec![first]));
+    m.set_gff(git, &g).unwrap();
+    let dir = mg_testkit::scratch_dir("ui-setup-store-project").join("shop");
+    m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
+    std::fs::write(
+        dir.join("moonglow.toml"),
+        "[store]\nopen_script = \"tdod_vendor_open\"\ntag = \"{area}_STORE_{n}\"\n\
+         blueprint = \"nw_storethief001\"\nkeeper_variable = \"tdod_store\"\n",
+    )
+    .unwrap();
+
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&dir);
+    app.open_palette = false;
+    assert!(app.log.entries.iter().any(|e| e.1.contains("read from moonglow.toml")));
+    mg_ui::store_wizard::open(&mut app, area, "Creature List", 0);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let w = h.state().store_wizard.clone().unwrap();
+    assert_eq!(w.store, ResRef::from_str("nw_storethief001").ok(), "the project's, chosen");
+    assert!(h.query_by_label_contains("the project's script tdod_vendor_open").is_some());
+    assert!(h.query_by_label("Use appraise checks").is_none());
+    h.get_by_label("Next >").click();
+    h.run();
+    h.get_by_label("Next >").click();
+    h.run();
+    let tag = format!("{area_tag}_STORE_2");
+    assert!(h.query_by_label(&format!("The store's tag: {tag}")).is_some(), "{tag}");
+    h.get_all_by_label("Finish").last().unwrap().click();
+    h.run();
+    assert!(h.state().store_wizard.is_none(), "{:?}", h.state().log.entries);
+    let said =
+        |h: &Harness<'_, Moonglow>, s: &str| h.state().log.entries.iter().any(|e| e.1.contains(s));
+    assert!(said(&h, "tdod_vendor_open is neither the module's nor the game's"));
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    for t in [ResType::NSS, ResType::NCS] {
+        assert!(!ws.module.keys_of(t).any(|k| k.resref.to_string().starts_with("openstore")));
+    }
+    let dlg = ws.doc(&ResKey::parse("store001", ResType::DLG).unwrap()).unwrap();
+    let opens = dlg.root.list("ReplyList").unwrap()[0].resref("Script");
+    assert_eq!(opens, ResRef::from_str("tdod_vendor_open").ok());
+    let g = ws.doc(&git).unwrap();
+    let stores = g.root.list("StoreList").unwrap();
+    assert_eq!(stores[1].string("Tag"), Some(tag.as_bytes()));
+    let c = &g.root.list("Creature List").unwrap()[0];
+    let var = c.list("VarTable").unwrap().iter().find(|v| v.string("Name") == Some(b"tdod_store"));
+    let var = var.expect("the shopkeeper's variable");
+    assert_eq!((var.dword("Type"), var.string("Value")), (Some(3), Some(tag.as_bytes())));
+}
+
+/// A paste that puts a tag on a second object says so and offers Retag:
+/// the copy's tag with a number, unique in the module, one step to undo.
+/// The project file can say to warn of none.
+#[test]
+fn a_paste_that_doubles_a_tag_offers_retag() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("paste-retag") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let tags = |h: &mut Harness<'_, Moonglow>| -> Vec<String> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let g = ws.doc(&git).unwrap();
+        let list = g.root.list("WaypointList").unwrap();
+        list.iter()
+            .map(|w| String::from_utf8_lossy(w.string("Tag").unwrap()).into_owned())
+            .collect()
+    };
+    // The second waypoint's tag its own.
+    let edit = mg_edit::Edit::SetField {
+        key: git,
+        path: mg_edit::GffPath::root().item("WaypointList", 1),
+        label: "Tag".into(),
+        value: Some(mg_gff::Value::String(b"TDOD_START_KREZK".to_vec())),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Tag", vec![edit])));
+    h.run_steps(2);
+    let paste = |h: &mut Harness<'_, Moonglow>, at: Vec3| {
+        h.state_mut().area_views.get_mut(&area).unwrap().selection =
+            vec![(ObjectKind::Waypoint, 1)];
+        let over = screen(h, area, at);
+        h.hover_at(over);
+        h.run_steps(1);
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::C);
+        h.run_steps(1);
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::V);
+        h.run_steps(2);
+        let over = screen(h, area, at);
+        h.hover_at(over);
+        press(h, over, true, egui::Modifiers::NONE);
+        press(h, over, false, egui::Modifiers::NONE);
+        h.run_steps(3);
+    };
+    paste(&mut h, Vec3::new(15.0, 30.0, 0.0));
+    let clash = h.state().tag_clash.clone().expect("the Duplicate Tags window");
+    assert_eq!(clash.clashes[0].sentence(), "TDOD_START_KREZK is now on two objects");
+    // (In the window, and in the log.)
+    assert!(h.query_by_label("• TDOD_START_KREZK is now on two objects").is_some());
+    h.get_by_label("Retag").click();
+    h.run_steps(2);
+    assert!(h.state().tag_clash.is_none());
+    let t = tags(&mut h);
+    assert_eq!(&t[1..], ["TDOD_START_KREZK", "TDOD_START_KREZK_2"]);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Retag"));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(&tags(&mut h)[1..], ["TDOD_START_KREZK", "TDOD_START_KREZK"], "one undo");
+    // The project's rules: warn of the unique ones only, and none here.
+    {
+        let rules = &mut h.state_mut().ws.as_mut().unwrap().module.project_file.tags;
+        rules.paste_warning = mg_module::project_file::PasteWarning::Unique;
+        rules.unique = mg_module::project_file::Patterns::new(&["TDOD_START_*"]).unwrap();
+    }
+    h.state_mut().tag_clash = None;
+    paste(&mut h, Vec3::new(25.0, 35.0, 0.0));
+    let clash = h.state().tag_clash.clone().expect("a unique tag");
+    assert_eq!(
+        clash.clashes[0].sentence(),
+        "TDOD_START_KREZK is now on three objects (the project wants TDOD_START_* unique)"
+    );
+    h.state_mut().tag_clash = None;
+    h.state_mut().ws.as_mut().unwrap().module.project_file.tags.paste_warning =
+        mg_module::project_file::PasteWarning::Off;
+    paste(&mut h, Vec3::new(25.0, 25.0, 0.0));
+    assert!(h.state().tag_clash.is_none(), "the project wants no warning");
+    assert_eq!(tags(&mut h).len(), 5);
+}
+
+/// An area copied with its tag and its objects': the area's own tag and
+/// those the project wants unique are listed, the others counted; Retag
+/// gives the copy's their own.
+#[test]
+fn an_area_copied_with_its_tags_offers_retag() {
+    let Some((mut h, area)) = area_harness("copy-area-tags") else { return };
+    h.state_mut().ws.as_mut().unwrap().module.project_file.tags.unique =
+        mg_module::project_file::Patterns::new(&["NW_*"]).unwrap();
+    let key = ResKey::new(area, ResType::ARE);
+    h.state_mut().actions.push(mg_ui::Action::CopyDialog(key));
+    h.run_steps(3);
+    h.state_mut().copy_as.as_mut().unwrap().resref = "field_two".into();
+    h.run_steps(2);
+    h.get_by_label("Create Copy").click();
+    h.run_steps(3);
+    let clash = h.state().tag_clash.clone().expect("the Duplicate Tags window");
+    let tag = |h: &mut Harness<'_, Moonglow>, k: ResKey, path: mg_edit::GffPath| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let doc = ws.doc(&k).unwrap();
+        String::from_utf8_lossy(path.get(&doc.root).unwrap().string("Tag").unwrap()).into_owned()
+    };
+    let area_tag = tag(&mut h, key, mg_edit::GffPath::root());
+    let waypoint_tag = tag(
+        &mut h,
+        ResKey::new(area, ResType::GIT),
+        mg_edit::GffPath::root().item("WaypointList", 0),
+    );
+    let listed: Vec<&str> = clash.clashes.iter().map(|c| c.tag.as_str()).collect();
+    assert!(
+        listed.contains(&area_tag.as_str()) && listed.contains(&waypoint_tag.as_str()),
+        "{listed:?}"
+    );
+    assert_eq!(clash.objects.len(), 3, "the area and its two waypoints");
+    h.get_by_label("Retag").click();
+    h.run_steps(2);
+    let new = ResRef::from_str("field_two").unwrap();
+    let copy_tag = tag(&mut h, ResKey::new(new, ResType::ARE), mg_edit::GffPath::root());
+    assert_eq!(copy_tag, format!("{area_tag}_2"));
+    let git = ResKey::new(new, ResType::GIT);
+    let w: Vec<String> = (0..2)
+        .map(|i| tag(&mut h, git, mg_edit::GffPath::root().item("WaypointList", i)))
+        .collect();
+    assert_eq!(w, [format!("{waypoint_tag}_2"), format!("{waypoint_tag}_3")]);
 }
 
 #[test]
@@ -13304,14 +13527,15 @@ fn a_module_opens_on_the_area_opened_last_in_it() {
     }
 }
 
-/// Make Placeables Static: those that lose nothing by it, as one command.
+/// Make Placeables Static: those that lose nothing by it, as one command;
+/// one with a variable stays dynamic, and the log says why.
 #[test]
 fn an_area_s_placeables_are_made_static_together() {
     use mg_module::instances::{Placement, Placing, instance};
     let Some((mut h, area)) = area_harness("static-placeables") else { return };
     let git_key = ResKey::new(area, ResType::GIT);
     {
-        // Three chests: plain, Useable, and tilted.
+        // Four chests: plain, Useable, tilted, and with a variable.
         let app = h.state_mut();
         let game = app.game.as_deref().unwrap();
         let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
@@ -13319,7 +13543,7 @@ fn an_area_s_placeables_are_made_static_together() {
         let none = |_: ResRef| None;
         let placing = Placing { game, item: &none };
         let mut edits = Vec::new();
-        for (index, useable) in [(0, 0), (1, 1), (2, 0)] {
+        for (index, useable) in [(0, 0), (1, 1), (2, 0), (3, 0)] {
             let at = Placement { position: [10.0 + 5.0 * index as f32, 20.0, 0.0], rotation: 0.0 };
             let mut item = instance(&placing, ResType::UTP, &chest, at, &[]).unwrap();
             for (label, value) in [("Static", 0), ("Useable", useable), ("HasInventory", 0)] {
@@ -13339,6 +13563,16 @@ fn an_area_s_placeables_are_made_static_together() {
             item.set("Conversation", mg_gff::Value::resref(ResRef::EMPTY));
             item.set("AnimationState", mg_gff::Value::Byte(0));
             item.set("TrapFlag", mg_gff::Value::Byte(0));
+            item.set("Tag", mg_gff::Value::String(format!("CHEST_{index}").into_bytes()));
+            if index == 3 {
+                let mut v = mg_gff::Struct::new(0);
+                v.set("Name", mg_gff::Value::String(b"tdod_lore".to_vec()));
+                v.set("Type", mg_gff::Value::Dword(3));
+                v.set("Value", mg_gff::Value::String(b"stone".to_vec()));
+                item.set("VarTable", mg_gff::Value::List(vec![v]));
+            } else {
+                item.remove("VarTable");
+            }
             edits.push(mg_edit::Edit::InsertItem {
                 key: git_key,
                 path: mg_edit::GffPath::root(),
@@ -13366,24 +13600,37 @@ fn an_area_s_placeables_are_made_static_together() {
         let list = git.root.list("Placeable List").unwrap();
         list.iter().map(|p| p.integer("Static").unwrap()).collect()
     };
-    assert_eq!(fixed(&mut h), [0, 0, 0]);
+    assert_eq!(fixed(&mut h), [0, 0, 0, 0]);
     h.state_mut().actions.push(mg_ui::Action::StaticPlaceables(vec![area]));
     h.run_steps(3);
-    assert_eq!(fixed(&mut h), [1, 0, 0], "the Useable and the tilted ones stay dynamic");
+    assert_eq!(fixed(&mut h), [1, 0, 0, 0], "the Useable, tilted and noted ones stay dynamic");
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Make Placeables Static"));
-    let said = &h.state().log.entries.last().unwrap().1;
+    let entries = &h.state().log.entries;
+    let said = &entries[entries.len() - 2].1;
     assert!(said.starts_with("Made 1 placeable static in 1 area"), "{said}");
     assert!(said.contains("1 Useable, 1 with a visual transform"), "{said}");
+    assert!(said.contains("1 with variables"), "{said}");
+    let why = &entries.last().unwrap().1;
+    assert_eq!(why, &format!("Left dynamic: CHEST_3 in {area}: it has the variable tdod_lore"));
+    // A project that names its own variables: this one isn't.
+    let p = |g: &[&str]| mg_module::project_file::Patterns::new(g).unwrap();
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run_steps(2);
-    assert_eq!(fixed(&mut h), [0, 0, 0], "one undo");
+    assert_eq!(fixed(&mut h), [0, 0, 0, 0], "one undo");
+    h.state_mut().ws.as_mut().unwrap().module.project_file.make_static.keep_variables = p(&["x_*"]);
+    h.state_mut().actions.push(mg_ui::Action::StaticPlaceables(vec![area]));
+    h.run_steps(3);
+    assert_eq!(fixed(&mut h), [1, 0, 0, 1]);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    h.state_mut().ws.as_mut().unwrap().module.project_file = Default::default();
 
     // And back, every one at once.
     h.state_mut().actions.push(mg_ui::Action::StaticPlaceables(vec![area]));
     h.run_steps(3);
     h.state_mut().actions.push(mg_ui::Action::DynamicPlaceables(vec![area]));
     h.run_steps(3);
-    assert_eq!(fixed(&mut h), [0, 0, 0]);
+    assert_eq!(fixed(&mut h), [0, 0, 0, 0]);
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Make Placeables Dynamic"));
     assert_eq!(h.state().log.entries.last().unwrap().1, "Made 1 placeable dynamic in 1 area");
 }
@@ -14435,6 +14682,10 @@ fn placement_tools_turn_ground_arrange_lock_and_make_prefabs() {
     press(&h, c, false, egui::Modifiers::NONE);
     h.run_steps(3);
     assert_eq!(waypoints(&mut h).len(), 4, "{:?}", h.state().log.entries);
+    // (The posts' tags are on two objects each now: said, and kept.)
+    assert!(h.state().tag_clash.is_some());
+    h.get_by_label("Keep Tags").click();
+    h.run_steps(2);
 
     // Lock: clicks pass locked objects by; Unlock All frees them.
     h.state_mut().area_views.get_mut(&area).unwrap().selection = both;

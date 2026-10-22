@@ -896,6 +896,15 @@ enum PluginCmd {
     },
 }
 
+/// What the module's project file (`moonglow.toml`) said that wasn't
+/// understood, as notes.
+fn project_file_notes(m: &Module, out: &mut Output) {
+    let p = &m.project_file;
+    for line in p.errors.iter().chain(&p.warnings) {
+        out.note(line.clone());
+    }
+}
+
 /// What a command produced: its result as JSON, and the same for people
 /// as lines of standard output and notes (warnings, summaries) on
 /// standard error.
@@ -2118,9 +2127,26 @@ fn run(cli: &Cli) -> Result<Output> {
             }
             let resrefs: Vec<mg_core::ResRef> = chosen.iter().map(|a| a.resref).collect();
             let codepage = module_codepage(cli, &m);
+            // What Make Placeables Static leaves dynamic, and why (read
+            // before the change, by the project's rules).
+            let mut left_dynamic = Vec::new();
+            if *static_placeables {
+                let rules = m.project_file.make_static.clone();
+                for &area in &resrefs {
+                    let key = ResKey::new(area, ResType::GIT);
+                    let Some(Ok(git)) = m.gff(&key) else { continue };
+                    let list = git.root.list("Placeable List").unwrap_or(&[]);
+                    for (i, why) in areas::static_plan(&git.root, &rules).kept {
+                        let tag = list[i].string("Tag").unwrap_or_default();
+                        let tag = codepage.decode(tag).into_owned();
+                        left_dynamic.push((area, i, tag, why.describe()));
+                    }
+                }
+            }
             let done =
                 areas::apply(&mut m, &resrefs, &changes, codepage).map_err(anyhow::Error::msg)?;
             let mut out = Output::default();
+            project_file_notes(&m, &mut out);
             let kinds = |flags: u32| {
                 let word = |bit: u32, yes: &'static str, no: &'static str| {
                     if flags & bit != 0 { yes } else { no }
@@ -2154,6 +2180,9 @@ fn run(cli: &Cli) -> Result<Output> {
                         text(&c.to)
                     ));
                 }
+                for (area, i, tag, why) in &left_dynamic {
+                    out.note(format!("{area}: placeable {i} {tag} left dynamic: {why}"));
+                }
                 let changed: std::collections::BTreeSet<_> = done.iter().map(|c| c.area).collect();
                 if *dry_run {
                     out.note(format!(
@@ -2183,6 +2212,12 @@ fn run(cli: &Cli) -> Result<Output> {
                     "field": c.what,
                     "from": c.from,
                     "to": c.to,
+                })).collect::<Vec<_>>(),
+                "left_dynamic": left_dynamic.iter().map(|(area, i, tag, why)| json!({
+                    "area": area.to_string(),
+                    "index": i,
+                    "tag": tag,
+                    "why": why,
                 })).collect::<Vec<_>>(),
                 "dry_run": *dry_run,
             });
@@ -2697,6 +2732,7 @@ fn verify(
 ) -> Result<Output> {
     let m = Module::open(path)?;
     let mut out = Output::default();
+    project_file_notes(&m, &mut out);
     let rm = module_resman(gi, &m, &mut out)?;
     // (Every GFF of the module read once for both.)
     let references = mg_module::verify::module_references(&m);

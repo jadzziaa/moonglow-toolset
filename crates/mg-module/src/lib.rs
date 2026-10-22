@@ -29,6 +29,7 @@ pub mod new;
 pub mod nwsync;
 pub mod palette;
 pub mod palette_add;
+pub mod project_file;
 pub mod query;
 pub mod refs;
 pub mod rename;
@@ -39,6 +40,7 @@ pub mod store_setup;
 pub mod table_desc;
 pub mod table_edit;
 pub mod table_layers;
+pub mod tags;
 pub mod talk;
 pub mod testing;
 pub mod text;
@@ -113,6 +115,9 @@ pub struct Module {
     pub project: Option<Box<nasher::Project>>,
     /// A module folder's files as last read or written, when it is one.
     pub folder: Option<Box<folder::FolderFiles>>,
+    /// The project's rules (`moonglow.toml`): none for a module kept in
+    /// one file, or a folder or project without the file.
+    pub project_file: project_file::ProjectFile,
 }
 
 impl Default for Module {
@@ -132,7 +137,24 @@ impl Module {
             dirty: false,
             project: None,
             folder: None,
+            project_file: project_file::ProjectFile::default(),
         }
+    }
+
+    /// Reads the project file again if it changed (made, edited or
+    /// deleted) since it was read: whether it did.
+    pub fn reread_project_file(&mut self) -> bool {
+        let Some(root) = self.location.as_ref().and_then(project_file::ProjectFile::root_of) else {
+            let had = self.project_file.path.is_some();
+            self.project_file = project_file::ProjectFile::default();
+            return had;
+        };
+        let here = self.project_file.path.as_deref() == Some(&root.join(project_file::FILE_NAME));
+        if here && !self.project_file.changed() {
+            return false;
+        }
+        self.project_file = project_file::ProjectFile::read(root);
+        true
     }
 
     /// Opens a module archive, folder, or nasher project (its folder or its
@@ -181,6 +203,7 @@ impl Module {
         m.location =
             Some(ModuleLocation::Project { root: root.into(), target: project.target.clone() });
         m.project = Some(Box::new(project));
+        m.reread_project_file();
         Ok(m)
     }
 
@@ -223,6 +246,7 @@ impl Module {
         }
         m.folder = Some(Box::new(read));
         m.location = Some(ModuleLocation::Folder(path.into()));
+        m.reread_project_file();
         Ok(m)
     }
 
@@ -461,6 +485,7 @@ impl Module {
                     ModuleLocation::Project { root: root.clone(), target: project.target.clone() };
                 self.location = Some(location);
                 self.dirty = false;
+                self.reread_project_file();
                 return Ok(());
             }
         }
@@ -468,6 +493,7 @@ impl Module {
         self.folder = folder;
         self.location = Some(location.clone());
         self.dirty = false;
+        self.reread_project_file();
         Ok(())
     }
 

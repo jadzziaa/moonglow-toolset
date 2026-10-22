@@ -4,12 +4,19 @@
 //! stands, and a friendlier faction for a hostile shopkeeper, as one
 //! undoable command (`mg_module::store_setup`). And Add Popup Text (a
 //! placeable's): a one-line conversation the placeable takes as its own.
+//!
+//! A project's `moonglow.toml` (`[store]`) may name the script that opens
+//! its stores (no `openstoreNNN` is written then), the store's tag (a
+//! pattern, made unique in the module), the store blueprint offered
+//! first, and a variable the shopkeeper keeps the store's tag in; without
+//! it, the wizard does as Aurora's.
 
 use mg_core::{ResRef, ResType};
 use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{Gff, Struct, Value};
 use mg_module::factions::Factions;
 use mg_module::instances::{Placing, git_list, instance};
+use mg_module::project_file::StoreRules;
 use mg_module::store_setup::{self, GREETING, NO, YES};
 use mg_resman::ResKey;
 
@@ -49,6 +56,11 @@ pub struct StoreWizard {
     pub faction: u32,
     /// The stores listed, for Custom or not.
     listed: Option<(bool, Vec<(ResRef, String)>)>,
+    /// The project's `[store]` settings, if it has them.
+    pub rules: Option<StoreRules>,
+    /// The store's tag, as Finish will give it (worked out on the way to
+    /// the last page).
+    pub tag: Option<String>,
 }
 
 fn factions(app: &mut Moonglow) -> Option<Factions> {
@@ -78,6 +90,11 @@ pub fn open(app: &mut Moonglow, area: ResRef, list: &'static str, creature: usiz
     let pc = list == "Creature List" && i64::from(faction) == mg_rules::objects::PC_FACTION;
     let hostile = pc || store_setup::hostile(factions.as_ref(), faction);
     let module = &ws.module;
+    let rules = module.project_file.store.clone();
+    // The project's blueprint, chosen at first: the module's own (Custom)
+    // if it has one of that name.
+    let store = rules.as_ref().and_then(|r| r.blueprint);
+    let custom = store.is_some_and(|r| module.contains(&ResKey::new(r, ResType::UTM)));
     app.store_wizard = Some(StoreWizard {
         area,
         list,
@@ -89,13 +106,15 @@ pub fn open(app: &mut Moonglow, area: ResRef, list: &'static str, creature: usiz
         appraise: true,
         dialog: store_setup::next_name(module, "store", ResType::DLG).to_string(),
         script: store_setup::next_name(module, "openstore", ResType::NSS).to_string(),
-        store: None,
-        custom: false,
+        store,
+        custom,
         filter: String::new(),
         hostile,
         use_faction: true,
         faction: store_setup::merchant(factions.as_ref()),
         listed: None,
+        rules,
+        tag: None,
     });
 }
 
@@ -134,6 +153,7 @@ fn stores(app: &Moonglow, custom: bool) -> Vec<(ResRef, String)> {
 pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(mut w) = app.store_wizard.take() else { return };
     let (mut finish, mut close) = (false, false);
+    let mut go_to_finish = false;
     if w.page == Page::Store && w.listed.as_ref().is_none_or(|(c, _)| *c != w.custom) {
         w.listed = Some((w.custom, stores(app, w.custom)));
     }
@@ -158,13 +178,27 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     ui.text_edit_singleline(&mut w.yes);
                     ui.label("What does the player say when the player is not interested?");
                     ui.text_edit_singleline(&mut w.no);
-                    ui.checkbox(&mut w.appraise, "Use appraise checks");
+                    let opens = w.rules.as_ref().and_then(|r| r.open_script);
+                    if opens.is_none() {
+                        ui.checkbox(&mut w.appraise, "Use appraise checks");
+                    }
                     ui.label("(optional) Enter the filename for the shopkeeper's conversation");
                     ui.add(egui::TextEdit::singleline(&mut w.dialog).char_limit(16));
-                    ui.label(
-                        "(optional) Enter the filename for the script that will open the store",
-                    );
-                    ui.add(egui::TextEdit::singleline(&mut w.script).char_limit(16));
+                    match opens {
+                        Some(script) => {
+                            ui.label(format!(
+                                "The store is opened by the project's script {script} \
+                                 (moonglow.toml): no script is written."
+                            ));
+                        }
+                        None => {
+                            ui.label(
+                                "(optional) Enter the filename for the script that will open \
+                                 the store",
+                            );
+                            ui.add(egui::TextEdit::singleline(&mut w.script).char_limit(16));
+                        }
+                    }
                 }
                 Page::Store => {
                     ui.heading("Choose Store");
@@ -191,6 +225,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     ui.heading("Finish");
                     ui.label("The Store Setup Wizard is now ready to create the store.");
                     ui.label("Click Finish to finish setting up the store.");
+                    if let Some(tag) = &w.tag {
+                        ui.label(format!("The store's tag: {tag}"));
+                    }
                     ui.label(
                         "Tip: If you wish to move the store or the storekeeper later, it is \
                      strongly recommended that you move both of them together.",
@@ -216,8 +253,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 }
             }
             ui.separator();
+            let opens = w.rules.as_ref().is_some_and(|r| r.open_script.is_some());
             let names_ok = ResRef::from_str(w.dialog.trim()).is_ok_and(|r| r != ResRef::EMPTY)
-                && ResRef::from_str(w.script.trim()).is_ok_and(|r| r != ResRef::EMPTY);
+                && (opens || ResRef::from_str(w.script.trim()).is_ok_and(|r| r != ResRef::EMPTY));
             ui.horizontal(|ui| {
                 if ui
                     .add_enabled(w.page != Page::Conversation, egui::Button::new("< Back"))
@@ -234,6 +272,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     || (next_ok && crate::widgets::enter(ui))
                 {
                     w.page = if w.page == Page::Conversation { Page::Store } else { Page::Finish };
+                    if w.page == Page::Finish {
+                        go_to_finish = true;
+                    }
                 }
                 if ui.add_enabled(w.page == Page::Finish, egui::Button::new("Finish")).clicked()
                     || (w.page == Page::Finish && crate::widgets::enter(ui))
@@ -245,6 +286,11 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 }
             });
         });
+    // (Said on the last page where the project gives the tag; Aurora's
+    // page says nothing of it.)
+    if go_to_finish && w.rules.is_some() {
+        w.tag = store_tag(app, &w).ok();
+    }
     if finish {
         match build(app, &w) {
             Ok(edits) => app.actions.push(Action::Apply(Command::new("Setup Store", edits))),
@@ -257,12 +303,43 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     }
 }
 
+/// The tag the store will have: the blueprint's (as Aurora gives it),
+/// or, in a project with `[store]`, its pattern's (`tag`) or else the
+/// blueprint's with a number where another object has it: a store made
+/// from one blueprint never shares its tag then.
+fn store_tag(app: &mut Moonglow, w: &StoreWizard) -> Result<String, String> {
+    let store = w.store.ok_or("no store chosen")?;
+    let game = app.game.as_deref().ok_or("no game data")?;
+    let ws = app.ws.as_mut().ok_or("no module")?;
+    let blueprint = mg_module::gff_root(Some(&ws.module), game, &ResKey::new(store, ResType::UTM))
+        .ok_or("the store blueprint is missing")?;
+    let own = blueprint.string("Tag").map(crate::text::decode).unwrap_or_default();
+    let Some(rules) = &w.rules else { return Ok(own) };
+    let area_tag = ws
+        .doc(&ResKey::new(w.area, ResType::ARE))
+        .ok()
+        .and_then(|a| a.root.string("Tag").map(crate::text::decode))
+        .unwrap_or_else(|| w.area.to_string());
+    let index = crate::tag_clash::index(ws);
+    let taken = |t: &str| index.count(&crate::text::encode(t)) > 0;
+    Ok(match &rules.tag {
+        Some(pattern) => mg_module::tags::store_tag(pattern, &area_tag, &taken),
+        None if taken(&own) => mg_module::tags::retag(&own, &taken),
+        None => own,
+    })
+}
+
 /// The edits: the conversation, the script (compiled), the shopkeeper's
 /// conversation and faction, and the store placed where it stands.
 fn build(app: &mut Moonglow, w: &StoreWizard) -> Result<Vec<Edit>, String> {
     let dialog = ResRef::from_str(w.dialog.trim()).map_err(|e| e.to_string())?;
-    let script = ResRef::from_str(w.script.trim()).map_err(|e| e.to_string())?;
+    let opens = w.rules.as_ref().and_then(|r| r.open_script);
+    let script = match opens {
+        Some(script) => script,
+        None => ResRef::from_str(w.script.trim()).map_err(|e| e.to_string())?,
+    };
     let store = w.store.ok_or("no store chosen")?;
+    let tag = store_tag(app, w)?;
     let git = ResKey::new(w.area, ResType::GIT);
     let (creature, count) = {
         let ws = app.ws.as_mut().ok_or("no module")?;
@@ -283,37 +360,47 @@ fn build(app: &mut Moonglow, w: &StoreWizard) -> Result<Vec<Edit>, String> {
     let item = |r: ResRef| read(ResKey::new(r, ResType::UTI));
     let placing = Placing { game, item: &item };
     let at = store_setup::store_placement(&creature);
-    let placed = instance(&placing, ResType::UTM, &blueprint, at, &[]).ok_or("not a store")?;
+    let mut placed = instance(&placing, ResType::UTM, &blueprint, at, &[]).ok_or("not a store")?;
+    if w.rules.is_some() {
+        placed.set("Tag", Value::String(crate::text::encode(&tag)));
+    }
     let tag =
         placed.string("Tag").map(|t| String::from_utf8_lossy(t).into_owned()).unwrap_or_default();
+    let found = |t: ResType| {
+        let key = ResKey::new(script, t);
+        ws.module.contains(&key) || game.resman.contains(&key)
+    };
+    if opens.is_some() && !found(ResType::NCS) && !found(ResType::NSS) {
+        app.log.warn(format!(
+            "Setup Store: the project's script {script} is neither the module's nor the game's"
+        ));
+    }
 
     let text = store_setup::script(&tag, w.appraise);
     let nss = ResKey::new(script, ResType::NSS);
-    let mut edits = vec![
-        Edit::SetResource {
-            key: ResKey::new(dialog, ResType::DLG),
-            data: Some(
-                {
-                    // (Its lines in the module's own letters, if it has a
-                    // table of them.)
-                    let line = crate::text::for_windows_1252;
-                    store_setup::conversation(
-                        &line(&w.greeting),
-                        &line(&w.yes),
-                        &line(&w.no),
-                        script,
-                    )
-                }
-                .to_bytes()
-                .map_err(|e| e.to_string())?,
-            ),
-        },
-        Edit::SetResource { key: nss, data: Some(crate::text::encode(&text)) },
-    ];
-    match crate::script_view::compile_source(app, nss, &text) {
-        Ok(ncs) => edits
-            .push(Edit::SetResource { key: ResKey::new(script, ResType::NCS), data: Some(ncs) }),
-        Err(e) => app.log.warn(format!("Setup Store: {script}: {}", e.message)),
+    let mut edits = vec![Edit::SetResource {
+        key: ResKey::new(dialog, ResType::DLG),
+        data: Some(
+            {
+                // (Its lines in the module's own letters, if it has a
+                // table of them.)
+                let line = crate::text::for_windows_1252;
+                store_setup::conversation(&line(&w.greeting), &line(&w.yes), &line(&w.no), script)
+            }
+            .to_bytes()
+            .map_err(|e| e.to_string())?,
+        ),
+    }];
+    // (The project's own script opens it: none is written.)
+    if opens.is_none() {
+        edits.push(Edit::SetResource { key: nss, data: Some(crate::text::encode(&text)) });
+        match crate::script_view::compile_source(app, nss, &text) {
+            Ok(ncs) => edits.push(Edit::SetResource {
+                key: ResKey::new(script, ResType::NCS),
+                data: Some(ncs),
+            }),
+            Err(e) => app.log.warn(format!("Setup Store: {script}: {}", e.message)),
+        }
     }
     let path = GffPath::root().item(w.list, w.creature);
     let set = |label: &str, value: Value| Edit::SetField {
@@ -323,6 +410,21 @@ fn build(app: &mut Moonglow, w: &StoreWizard) -> Result<Vec<Edit>, String> {
         value: Some(value),
     };
     edits.push(set("Conversation", Value::resref(dialog)));
+    // The shopkeeper keeps the store's tag, where the project's script
+    // reads it.
+    if let Some(name) = w.rules.as_ref().and_then(|r| r.keeper_variable.as_deref()) {
+        let mut vars = creature.list("VarTable").unwrap_or(&[]).to_vec();
+        let named = crate::text::encode(name);
+        let mut var = Struct::new(0);
+        var.set("Name", Value::String(named.clone()));
+        var.set("Type", Value::Dword(3));
+        var.set("Value", Value::String(crate::text::encode(&tag)));
+        match vars.iter().position(|v| v.string("Name") == Some(&named[..])) {
+            Some(i) => vars[i] = var,
+            None => vars.push(var),
+        }
+        edits.push(set("VarTable", Value::List(vars)));
+    }
     if w.hostile && w.use_faction {
         edits.push(set(faction_field(w.list), Value::Dword(w.faction)));
     }

@@ -149,9 +149,12 @@ impl Moonglow {
             self.outside.watch = None;
             return;
         };
-        if self.outside.watch.as_ref().is_none_or(|w| w.paths[..] != [root.clone()]) {
+        // (And the builder's own project file, in a hidden folder the
+        // walk passes over.)
+        let paths = vec![root.clone(), mg_module::project_file::ProjectFile::user_path(&root)];
+        if self.outside.watch.as_ref().is_none_or(|w| w.paths != paths) {
             let every = std::time::Duration::from_secs(3);
-            self.outside.watch = Some(Watch::start(vec![root], true, every));
+            self.outside.watch = Some(Watch::start(paths, true, every));
         }
         let watch = self.outside.watch.as_ref().expect("just made");
         // (A watch without its thread says nothing: looked at each time.)
@@ -197,6 +200,11 @@ impl Moonglow {
     /// Looks at the project's or the module folder's files (see the
     /// module's notes).
     pub fn reload_project_files(&mut self) {
+        let Some(ws) = self.ws.as_mut() else { return };
+        // The project file (`moonglow.toml`) made, changed or deleted.
+        if ws.module.reread_project_file() {
+            self.log_project_file(true);
+        }
         let Some(ws) = self.ws.as_mut() else { return };
         let Some((changes, problems)) = ws.module.outside() else { return };
         // (A file moved where the project's include doesn't look is said.)

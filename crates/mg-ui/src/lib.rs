@@ -57,6 +57,7 @@ mod side_doc;
 pub mod store_wizard;
 pub mod table_view;
 mod tabs;
+pub mod tag_clash;
 pub mod talk_view;
 pub mod terrain_mode;
 pub mod test_module;
@@ -208,6 +209,12 @@ pub enum Action {
     /// Makes every static placeable of these areas dynamic.
     DynamicPlaceables(Vec<mg_core::ResRef>),
     Apply(Command),
+    /// After a paste (`what`): whether the objects made put tags on more
+    /// than one object, said in the Duplicate Tags window.
+    CheckTags {
+        what: String,
+        made: Vec<tag_clash::Made>,
+    },
     /// Creates a NUI window with this name and opens it in the NUI Creator.
     NewNui(String),
     /// Builds a NUI window's opener include and event script (Build &
@@ -547,6 +554,9 @@ pub struct Moonglow {
     pub placeable_gallery: Option<appearance_gallery::Gallery>,
     /// The Copy window (Edit Copy, the module tree's Copy…).
     pub copy_as: Option<copy_as::CopyDraft>,
+    /// The Duplicate Tags window: tags a paste or a copy put on more than
+    /// one object, and Retag.
+    pub tag_clash: Option<tag_clash::TagClash>,
     /// The script editor's code navigation and errors as you type.
     pub script_nav: script_nav::Nav,
     /// The Save as Prefab window: the name being typed and the objects.
@@ -807,6 +817,7 @@ impl Moonglow {
             shader_cache_dir: None,
             rename: None,
             copy_as: None,
+            tag_clash: None,
             placeable_gallery: None,
             script_nav: Default::default(),
             prefab_save: None,
@@ -1186,6 +1197,7 @@ impl Moonglow {
         references::rename_window(self, ui.ctx());
         references::delete_window(self, ui.ctx());
         copy_as::window(self, ui.ctx());
+        tag_clash::window(self, ui.ctx());
         outside::window(self, ui.ctx());
         script_nav::rename_window(self, ui.ctx());
         prefabs::save_window(self, ui.ctx());
@@ -2110,6 +2122,7 @@ impl Moonglow {
                 let remembered = m.location.as_ref().map(|l| l.path().to_path_buf());
                 self.use_module(m);
                 self.take_project_warnings();
+                self.log_project_file(false);
                 let path = remembered.as_deref().unwrap_or(path);
                 self.settings.remember(path);
                 // The area opened last in it, if it still has it; else the
@@ -2573,6 +2586,7 @@ impl Moonglow {
                     self.log.error(e.to_string());
                 }
             }
+            Action::CheckTags { what, made } => tag_clash::check(self, &what, made, false),
             Action::NewNui(name) => nui_view::create(self, &name),
             Action::GenerateNui { name, export } => nui_view::generate(self, &name, export),
             Action::CloseTab(tab) => {
@@ -3075,6 +3089,26 @@ impl Moonglow {
         }
     }
 
+    /// Says in the log that the project file (`moonglow.toml`) was read
+    /// (`again`: when it changed), and what in it was not understood.
+    pub(crate) fn log_project_file(&mut self, again: bool) {
+        let Some(ws) = &self.ws else { return };
+        let p = &ws.module.project_file;
+        let name = mg_module::project_file::FILE_NAME;
+        match (p.found, again) {
+            (true, false) => self.log.info(format!("The project's rules are read from {name}")),
+            (true, true) => self.log.info(format!("{name} changed: its rules are read again")),
+            (false, true) => self.log.info(format!("{name} is gone: no project rules now")),
+            (false, false) => {}
+        }
+        for e in &p.errors {
+            self.log.error(format!("{e} (its rules are left out)"));
+        }
+        for w in &p.warnings {
+            self.log.warn(w.clone());
+        }
+    }
+
     /// Logs (and clears) what the open nasher project has to say.
     fn take_project_warnings(&mut self) {
         let Some(ws) = &mut self.ws else { return };
@@ -3574,56 +3608,73 @@ impl Moonglow {
 
     /// Makes the placeables of `areas` static, as one command, where
     /// nothing is lost by it (`mg_module::areas::static_plan`: not the
-    /// Useable ones, those a visual transform changes, nor those with
-    /// scripts and the like), and says in the log what was left.
+    /// Useable ones, those a visual transform changes, those with scripts
+    /// and the like, nor those with variables or the project's rules
+    /// name), and says in the log what was left, and why.
     fn static_placeables(&mut self, areas: &[mg_core::ResRef]) {
         let Some(ws) = self.ws.as_mut() else { return };
+        let rules = ws.module.project_file.make_static.clone();
         let mut edits = Vec::new();
         let (mut made, mut within) = (0, 0);
-        let mut left = [0usize; 3];
+        let mut left = mg_module::areas::StaticPlan::default();
+        // (The first few kept by a variable or the project, by name.)
+        let mut named = Vec::new();
         for &area in areas {
             let key = ResKey::new(area, ResType::GIT);
             let Ok(git) = ws.doc(&key) else { continue };
-            let plan = mg_module::areas::static_plan(&git.root);
+            let plan = mg_module::areas::static_plan(&git.root, &rules);
             let list = git.root.list("Placeable List").unwrap_or(&[]);
             for &i in &plan.convert {
                 let path = mg_edit::GffPath::root().item("Placeable List", i);
-                let set = |label: &str, value: Option<mg_gff::Value>| mg_edit::Edit::SetField {
-                    key,
-                    path: path.clone(),
-                    label: label.into(),
-                    value,
-                };
-                edits.push(set("Static", Some(mg_gff::Value::Byte(1))));
-                // (One that changes nothing: static placeables have none.)
-                for label in ["VisTransformList", "VisualTransform"] {
-                    if list[i].contains(label) {
-                        edits.push(set(label, None));
-                    }
+                for (label, value) in mg_module::areas::static_fields(&list[i]) {
+                    edits.push(mg_edit::Edit::SetField {
+                        key,
+                        path: path.clone(),
+                        label: label.into(),
+                        value,
+                    });
+                }
+            }
+            for (i, why) in &plan.kept {
+                use mg_module::areas::Kept;
+                if matches!(why, Kept::Variable(_) | Kept::Tag(_) | Kept::ResRef(_)) {
+                    let tag = list[*i].string("Tag").map(text::decode).unwrap_or_default();
+                    named.push(format!("{tag} in {area}: {}", why.describe()));
                 }
             }
             made += plan.convert.len();
             within += usize::from(!plan.convert.is_empty());
-            for (n, more) in left.iter_mut().zip([plan.useable, plan.transformed, plan.active]) {
-                *n += more;
-            }
+            left.add(&plan);
         }
-        let kept = format!(
-            "left dynamic: {} Useable, {} with a visual transform, {} with a script, \
-             conversation, trap, inventory or animation",
-            left[0], left[1], left[2]
-        );
+        let kept = match left.left() {
+            l if l.is_empty() => String::new(),
+            l => format!(" (left dynamic: {l})"),
+        };
         if edits.is_empty() {
-            self.log.info(format!("No placeables to make static ({kept})"));
-            return;
-        }
-        match self.apply(Command::new("Make Placeables Static", edits)) {
-            Ok(()) => {
-                let (s, a) = (if made == 1 { "" } else { "s" }, if within == 1 { "" } else { "s" });
-                self.log
-                    .info(format!("Made {made} placeable{s} static in {within} area{a} ({kept})"));
+            self.log.info(format!("No placeables to make static{kept}"));
+        } else {
+            match self.apply(Command::new("Make Placeables Static", edits)) {
+                Ok(()) => {
+                    let s = if made == 1 { "" } else { "s" };
+                    let a = if within == 1 { "" } else { "s" };
+                    self.log
+                        .info(format!("Made {made} placeable{s} static in {within} area{a}{kept}"));
+                }
+                Err(e) => {
+                    self.log.error(e.to_string());
+                    return;
+                }
             }
-            Err(e) => self.log.error(e.to_string()),
+        }
+        const SHOWN: usize = 8;
+        for line in named.iter().take(SHOWN) {
+            self.log.info(format!("Left dynamic: {line}"));
+        }
+        if named.len() > SHOWN {
+            self.log.info(format!(
+                "Left dynamic: {} more by variables or the project",
+                named.len() - SHOWN
+            ));
         }
     }
 

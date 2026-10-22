@@ -57,6 +57,8 @@ mod engine_rules;
 mod engine_saves;
 #[path = "../engine_special_abilities.rs"]
 mod engine_special_abilities;
+#[path = "../engine_static_placeables.rs"]
+mod engine_static_placeables;
 #[path = "../engine_terrain.rs"]
 mod engine_terrain;
 #[path = "../engine_test_start.rs"]

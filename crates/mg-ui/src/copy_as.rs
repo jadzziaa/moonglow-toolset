@@ -125,6 +125,25 @@ impl Moonglow {
         match self.apply(Command::new(format!("Copy {} as {new}", draft.from), edits)) {
             Ok(()) => {
                 self.log.info(format!("Copied {} as {new}", draft.from));
+                // An area's copy has its objects' tags, and perhaps its own.
+                if new.restype == ResType::ARE {
+                    let git = ResKey::new(to, ResType::GIT);
+                    let mut made =
+                        vec![crate::tag_clash::Made { key: new, path: mg_edit::GffPath::root() }];
+                    if let Some(ws) = self.ws.as_mut()
+                        && let Ok(doc) = ws.doc(&git)
+                    {
+                        for kind in mg_area::ObjectKind::ALL {
+                            let n = doc.root.list(kind.list()).map_or(0, <[Struct]>::len);
+                            made.extend((0..n).map(|i| crate::tag_clash::Made {
+                                key: git,
+                                path: mg_edit::GffPath::root().item(kind.list(), i),
+                            }));
+                        }
+                    }
+                    let what = format!("The copy of {}", draft.from.resref);
+                    crate::tag_clash::check(self, &what, made, true);
+                }
                 Some(new)
             }
             Err(e) => {
