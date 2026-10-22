@@ -232,6 +232,74 @@ impl Described {
         self.matcher.is_some()
     }
 
+    /// Its name to quote beside a variable it takes: of a pattern with
+    /// alternatives, the one alternative that takes it
+    /// (`tdod_*_{d6,d20}` for `tdod_skill_d20`: `tdod_*_d20`); and no
+    /// longer than a line, as a pattern may be hundreds of characters.
+    pub fn quoted_for(&self, name: &str) -> String {
+        const LONGEST: usize = 80;
+        let taken = alternatives(&self.name, 4096)
+            .into_iter()
+            .find(|a| glob(a).is_ok_and(|rx| rx.is_match(name)));
+        let shown = taken.unwrap_or_else(|| self.name.clone());
+        match shown.char_indices().nth(LONGEST - 1) {
+            Some((at, _)) => format!("{}…", &shown[..at]),
+            None => shown,
+        }
+    }
+}
+
+/// A pattern's alternatives, each `{a,b}` group taken apart (groups don't
+/// nest; inside `[...]` a brace is a character): none when there are more
+/// than `most`, or no group.
+fn alternatives(pattern: &str, most: usize) -> Vec<String> {
+    let mut out = vec![String::new()];
+    let mut grouped = false;
+    let mut chars = pattern.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '[' => {
+                let mut set = String::from('[');
+                for c in chars.by_ref() {
+                    set.push(c);
+                    if c == ']' && set.len() > 2 {
+                        break;
+                    }
+                }
+                out.iter_mut().for_each(|o| o.push_str(&set));
+            }
+            '{' => {
+                let mut group = String::new();
+                for c in chars.by_ref() {
+                    if c == '}' {
+                        break;
+                    }
+                    group.push(c);
+                }
+                let options: Vec<&str> = group.split(',').collect();
+                if out.len() * options.len() > most {
+                    return Vec::new();
+                }
+                out = out
+                    .iter()
+                    .flat_map(|o| options.iter().map(move |a| format!("{o}{a}")))
+                    .collect();
+                grouped = true;
+            }
+            '\\' => {
+                let next = chars.next();
+                out.iter_mut().for_each(|o| {
+                    o.push('\\');
+                    o.extend(next);
+                });
+            }
+            c => out.iter_mut().for_each(|o| o.push(c)),
+        }
+    }
+    if grouped { out } else { Vec::new() }
+}
+
+impl Described {
     /// Whether it describes a variable so named (in that case only).
     pub fn matches(&self, name: &str) -> bool {
         match &self.matcher {
@@ -1142,6 +1210,34 @@ on = ["creature", "placeable"]
         );
         assert_eq!(v.unknown("nw_other"), None, "not the project's");
         assert_eq!(distance("tdod_lit", "tdod_lti"), 1);
+    }
+
+    /// A pattern quoted beside a variable it takes is the one alternative
+    /// that takes it, and a line at most (the Domains of Dread's note on
+    /// 2.2.0's long patterns: the whole, of 400 characters, was quoted).
+    #[test]
+    fn a_pattern_is_quoted_by_the_alternative_that_takes_the_name() {
+        let long: Vec<String> = (0..40).map(|i| format!("part{i}")).collect();
+        let group = format!("{{{}}}", long.join(","));
+        let source = format!(
+            "[\"tdod_*_{{d6,d10,d20,d100}}{{,_again}}\"]\nruntime = true\n\
+             [\"tdod_[ab]{{x,y}}\"]\nruntime = true\n\
+             [\"tdod_{}_*\"]\nruntime = true\n\
+             [\"tdod_long_*_{}\"]\nruntime = true\n",
+            group,
+            "z".repeat(90)
+        );
+        let (v, w) = read(&source);
+        assert!(w.is_empty(), "{w:?}");
+        let quoted = |name: &str| v.describe(name).unwrap().quoted_for(name);
+        assert_eq!(quoted("tdod_skill_d20_again"), "tdod_*_d20_again");
+        assert_eq!(quoted("tdod_skill_d6"), "tdod_*_d6");
+        assert_eq!(quoted("tdod_by"), "tdod_[ab]y");
+        assert_eq!(quoted("tdod_part31_state"), "tdod_part31_*");
+        let long = quoted(&format!("tdod_long_a_{}", "z".repeat(90)));
+        assert_eq!((long.chars().count(), long.ends_with('…')), (80, true));
+        assert_eq!(alternatives("tdod_*", 10), Vec::<String>::new(), "no group");
+        assert_eq!(alternatives("{a,b}{c,d}", 3), Vec::<String>::new(), "too many");
     }
 
     /// The Domains of Dread's notes on their setup, 1: the scripts' own

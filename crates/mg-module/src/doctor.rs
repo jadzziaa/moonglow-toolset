@@ -1848,8 +1848,11 @@ fn described_variables(d: &mut Doctor, module: &Module) {
             // One the scripts alone set, kept here: it is there from the
             // start, on every server (a test's hook fixing every roll).
             if desc.runtime {
-                let how =
-                    if desc.is_pattern() { format!(" ({})", desc.name) } else { String::new() };
+                let how = if desc.is_pattern() {
+                    format!(" ({})", desc.quoted_for(&f.name))
+                } else {
+                    String::new()
+                };
                 // (A typo of a name of its own entry, a builder's, that
                 // one of the scripts' patterns takes: said as var-name
                 // says one.)
