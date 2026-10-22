@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T01:22:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T06:58:25Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -586,8 +586,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 ## Bulk editing
 
 - **Make Placeables Static, what it can't see:** a placeable that a
-  script destroys, animates or makes usable by its tag looks like scenery
-  and is made static; nothing scans the scripts for its tag. (M)
+  script destroys, animates or makes usable by its tag, and has no
+  variables, looks like scenery and is made static; nothing scans the
+  scripts for its tag (a project names such tags in `[make_static]`
+  `keep_tags`). (M)
 - **Make Placeables Static against the game:** that static placeables
   load and draw more cheaply is from the wiki (the client merges them
   into the tiles' mesh); no load times were measured. (S)
@@ -2711,14 +2713,54 @@ of truth, and does each caller's difference matter.
   `watch`'s doesn't), `mg lsp` finds the user folder its own way
   (`main.rs:1799`), `scratch_dir` twice (`test.rs:41`, `serve.rs:90`),
   `--types` parsed twice (`search.rs:208`, `main.rs:2420`).
-- Making placeables static, twice (`areas.rs:466`, `mg-ui
-  lib.rs:3544`); the other grass mutations (`mg_module::grass` and
-  `mg_area::grass`) agree now but are still two (the edits wanted by
-  the area view against the module's mutations).
+- The grass mutations (`mg_module::grass` and `mg_area::grass`) agree
+  now but are still two (the edits wanted by the area view against the
+  module's mutations). (Making placeables static is one since
+  2026-10-22: `areas::static_plan` and `static_fields`.)
 - The plugin's PNG reading differs from the NUI skin's (16-bit samples
   cut against rounded, limits by pixels against bytes and sides:
   `mg-plugin files.rs`, `nui_view/skin.rs:342`); the TGA's are one
   since 2026-10-21.
+
+## A project's rules (the builders' proposal, C3, C4, C5)
+
+The Domains of Dread's builder proposal (its section 3): the project file
+(`moonglow.toml`), Make Placeables Static and Setup Store following it,
+and duplicate tags on paste. What is left:
+
+- **A module kept in one file has no project file:** a `.mod`'s folder
+  holds other modules (a `NAME.moonglow.toml` beside it would serve). (S)
+- **`[builder] code` is read, not used:** the wizards and Add to Palette
+  don't start new ResRefs with it yet (the proposal's C1); nothing writes
+  `.moonglow/user.toml` but a test (no form for it). (S–M)
+- **No form for the project file:** it is written by hand; Moonglow
+  reads it and says what it doesn't understand. (M)
+- **The project file is read again only with reloading on** (Options ›
+  General), when the folder's watch sees a change; a window open then
+  (Setup Store) keeps the rules it opened with. (S)
+- **Setup Store by a command the project names** (the proposal's "or
+  the store is set up by a command the project names"): waits for the
+  project's commands (C8). (M)
+- **Setup Store's blueprint list** doesn't scroll to the project's
+  blueprint, chosen at first, when it is far down the list. (S)
+- **Duplicate tags are said after a paste and an area's Copy… only:**
+  not when a tag is typed in Properties, an object is placed from the
+  palette (its blueprint's tag), Create Set names waypoints, Find and
+  Replace or `mg` edits change tags, nor for a blueprint copied with its
+  tag. (M)
+- **Retag changes the copies' tags only:** what names the old tag (a
+  copied area's doors' `LinkedTo`, scripts) still names the original's;
+  an area's copy's other duplicated tags are counted, not retagged. (M)
+- **The Duplicate Tags window opens for scenery too:** with
+  `paste_warning = "any"` (the default), a paste or a prefab of tagged
+  rocks or posts asks each time (Keep Tags, or the project's
+  `"unique"`); leaving out static placeables, or tags no script
+  names, would be a choice for the owner. (S)
+- **Verify's `tag-unique` covers the project's patterns only:** no check
+  of every duplicate tag (scenery shares tags by design). (S)
+- **Which object `GetObjectByTag` takes of several** was measured for
+  two in one area (the second placed); across areas, and for more,
+  not. (S)
 
 ## Release and packaging
 

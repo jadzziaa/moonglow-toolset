@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T00:47:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T06:58:25Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -546,6 +546,25 @@ particle keeps 0.8 of its speed along it and 0.8 × `bounce_co` off it.
 - **Moonglow:** `crates/mg-render/src/particles.rs`.
 - **Wiki:** "MDL ASCII Emitter Nodes" describes `mass`, `bounce_co`,
   `m_isTinted` and `twosidedtex` loosely or differently.
+
+### A static placeable is an object to scripts
+
+The server keeps a static placeable (`Static` 1) as an object: a script
+finds it by its tag (`GetObjectByTag`) and among the area's objects
+(`GetFirstObjectInArea`), and reads its local variables. It is Plot,
+whatever its file's `Plot` says. (The client merges it into the area's
+tiles, so what scripts do to it is not seen.) Of two objects with one
+tag in one area, `GetObjectByTag` took the one placed second, and `nNth`
+1 the first.
+
+- **Checked:** engine (`engine_static_placeables.rs`: a static and a
+  dynamic barrel with a variable each, and two with one tag).
+- **Moonglow:** `crates/mg-module/src/areas.rs` (`static_plan`: a
+  placeable with variables stays dynamic), `crates/mg-module/src/tags.rs`
+  (static placeables' tags count).
+- **Wiki:** agrees (Placeable, "Static Placeables": found by
+  `GetObjectByTag`, Plot by default); a builders' guide that says no
+  script finds one is wrong. Which of two tags is found is missing.
 
 ## Drawing, seen in the game client
 

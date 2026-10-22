@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Areas
-description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
+description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T21:52:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T06:58:24Z }
 ---
 
 # Areas
@@ -328,8 +328,8 @@ Aurora):
   (waypoints): name the selected waypoints `<name>_01`, `<name>_02`…
 - **Levelup Wizard…** (creatures), **Setup Store…** (a creature or
   placeable as a shopkeeper: its conversation, a store and the script that
-  opens it), **Add Popup Text…** (a placeable that speaks a line when
-  clicked).
+  opens it; see [Setup Store](#setup-store)), **Add Popup Text…** (a
+  placeable that speaks a line when clicked).
 - **Variables…**: the object's local variables.
 - **Properties**, the last item: the object's properties as placed in
   the area (an instance can differ from its blueprint). With several
@@ -337,6 +337,32 @@ Aurora):
   changed there changes in all of them. It shows the first one's values,
   with **≠** before a field where the others have another (so too for
   blueprints edited together from the palette).
+
+### Setup Store
+
+**Setup Store…** asks what Aurora's Store Setup Wizard asks: the
+shopkeeper's lines, the store blueprint, and a friendlier faction for a
+hostile shopkeeper. **Finish** makes, as one step to undo, the
+conversation (`store001`), the script that opens the store
+(`openstore001`, which calls the game's `OpenStore`, or
+`gplotAppraiseOpenStore` with appraise checks), the store placed where
+the shopkeeper stands with its blueprint's tag, and the shopkeeper's
+conversation.
+
+A server with its own way of opening stores (its prices, its
+reputation, its logs) says so in the [project
+file](03-modules.md#the-project-file-moonglowtoml)'s `[store]`:
+
+- `open_script`: the reply that opens the store runs this script, and
+  no `openstoreNNN` is written (the wizard's page says so; the log warns
+  when neither the module nor the game has the script);
+- `tag`: the store's tag, `{area}` the area's tag and `{n}` the first
+  number no other object of the module has (`{area}_STORE_{n}`); without
+  a pattern the blueprint's tag, with a number where another object has
+  it. Either way no two stores share a tag, and the last page says it;
+- `blueprint`: the store blueprint chosen at first;
+- `keeper_variable`: a String variable set on the shopkeeper to the
+  store's tag, where the project's script reads it.
 
 ## Placing objects
 
@@ -383,12 +409,39 @@ placeables around.
 - **Copy and paste** do the same without a name: Ctrl+C on a selection,
   Ctrl+V in this area or another. (Copying leaves a line of text on the
   system's clipboard, "Moonglow Toolset: 3 objects": Windows gives Ctrl+V
-  nothing to do with an empty clipboard.)
+  nothing to do with an empty clipboard.) A paste that puts a tag on a
+  second object says so: see [Duplicate tags](#duplicate-tags).
 - **Any area, any module:** prefabs are kept in Moonglow's data folder, in
   `prefabs` (see [Troubleshooting](13-troubleshooting.md)). Copy the
   `.prefab.json` files to share them.
 - **Blueprints:** an object keeps everything it had when it was saved,
   and works without the blueprint it came from.
+
+## Duplicate tags
+
+A copy keeps its original's tag, and a script that looks an object up by
+its tag (`GetObjectByTag`) finds only one of them: in the game, the copy
+placed later. A copied start waypoint, rental door or store then takes
+its original's place, or the original its copy's, with no error.
+
+After a paste (Ctrl+V, a prefab placed) that puts a tag on more than one
+object of the module (its areas and the objects placed in them), the log
+and the **Duplicate Tags** window say which: "LAMP is now on two
+objects".
+
+- **Retag** gives each pasted object with such a tag one of its own, the
+  tag with a number that no object has (`LAMP_2`; `STORE_7` becomes
+  `STORE_8`), as one step to undo.
+- **Keep Tags** leaves them (scenery that no script looks up).
+
+An area copied with **Copy…** in the module tree has every tag of its
+original's objects: the window lists the area's own tag and those the
+project wants unique, and the log counts the rest.
+
+The [project file](03-modules.md#the-project-file-moonglowtoml) says
+which to warn of (`[tags] paste_warning`: `"any"`, `"unique"` for only
+the tags it names in `unique`, or `"off"`), and Verify Module warns of a
+tag it wants unique that is on two objects.
 
 ## Painting placeables
 
@@ -704,17 +757,27 @@ area's right-click menu in the module tree has **Make Placeables
 Static**, and the **Areas** group's has **Make Placeables Static in Every
 Area**: each sets Static on the placeables that lose nothing by it, as
 one undoable step, and the log says how many it made static and how many
-it left. Left dynamic are placeables that:
+it left, and why. Left dynamic are placeables that:
 
 - are **Useable**;
 - are tilted, scaled or moved by a visual transform (a static placeable
   has none);
 - have a script, a conversation, a trap or an inventory, or an animation
   switched on (a lit torch): a static placeable plays no animations and
-  can't be destroyed.
+  can't be destroyed;
+- have local variables: scripts set and read them (a lore stone, a
+  lamp, a workbench), and what they do to the placeable a static one
+  doesn't show. The server keeps a static placeable as an object, found
+  by its tag with its variables, but made Plot, and players see it as
+  part of the tiles: lit or put out, opened, destroyed, it stays as it
+  loaded. The log names each kept for its variables;
+- or the [project file](03-modules.md#the-project-file-moonglowtoml)
+  says so (`[make_static]`): its tags or blueprints by name, and which
+  variables count (all, unless it names them).
 
-One a script destroys or animates by its tag can't be told from the
-rest: make it dynamic again from its menu in the area view. **Make
+One a script destroys or animates by its tag, with no variables, can't
+be told from the rest: make it dynamic again from its menu in the area
+view. **Make
 Placeables Dynamic**, on the same menus, clears Static on every
 placeable of the area or the module. From the command line, `mg areas
 --static-placeables` and `--dynamic-placeables` do the same.

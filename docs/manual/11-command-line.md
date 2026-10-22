@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T01:09:03Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T06:58:25Z }
 ---
 
 # Command-line tools
@@ -199,8 +199,10 @@ mg areas mymodule.mod --tileset tin01 --grass Wood:grass:2:0.4 --tileset-grass n
 
 - **`--static-placeables`**: sets Static on each area's placeables that
   lose nothing by it (not the Useable ones, those a visual transform
-  changes, nor those with a script, conversation, trap, inventory or
-  animation switched on); see [Areas](04-areas.md).
+  changes, those with a script, conversation, trap, inventory or
+  animation switched on, those with variables, nor those the project
+  file keeps dynamic); see [Areas](04-areas.md). Each placeable left
+  dynamic is named with why (a note, and `left_dynamic` in the JSON).
   **`--dynamic-placeables`** clears Static on every placeable.
 
 - **`--set FIELD=VALUE`**: a field of the area's `.are` by its label
