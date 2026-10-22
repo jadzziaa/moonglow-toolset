@@ -91,7 +91,13 @@ fn claims_are_listed_claimed_released_and_merged() {
     let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(json["areas"][0]["builder"], serde_json::Value::Null);
     assert_eq!(json["areas"][0]["status"], "merged", "released, still merged");
-    // A merged area retagged: Verify fails, naming the table's row.
+    // A merged area retagged: Verify fails, naming the table's row (Verify
+    // needs the game: skipped without an install, as on CI).
+    if mg_testkit::nwn_root().is_none() {
+        eprintln!("verify part skipped: no game install");
+        return;
+    }
+    // (retagged)
     let mut m = Module::open(&dir).unwrap();
     let key = ResKey::new(ResRef::from_str("kz_gate").unwrap(), ResType::ARE);
     let mut are = m.gff(&key).unwrap().unwrap();

@@ -386,14 +386,29 @@ fn project_with_plugins(name: &str) -> PathBuf {
 
 /// `mg` with a data folder of its own (where Moonglow keeps the answers
 /// about projects' plugins), so that tests running at once keep apart.
+/// `mg` with Moonglow's data folder in `home` on every platform
+/// (`mg_module::build::data_dir`: XDG_DATA_HOME on Linux, APPDATA on
+/// Windows, HOME's Library on macOS).
+fn mg_in(home: &Path) -> std::process::Command {
+    let mut c = crate::mg();
+    c.env("XDG_DATA_HOME", home.join("data")).env("APPDATA", home.join("data")).env("HOME", home);
+    c
+}
+
+/// Where `mg_in(home)` keeps the project plugins' answers.
+fn answers_in(home: &Path) -> std::path::PathBuf {
+    let data = if cfg!(windows) {
+        home.join("data/Moonglow")
+    } else if cfg!(target_os = "macos") {
+        home.join("Library/Application Support/Moonglow")
+    } else {
+        home.join("data/moonglow")
+    };
+    data.join("project-plugins.toml")
+}
+
 fn mg_at(home: &Path, args: &[&str]) -> (bool, Json) {
-    let out = crate::mg()
-        .env("XDG_DATA_HOME", home.join("data"))
-        .env("APPDATA", home.join("data"))
-        .args(["--no-user-dir", "--json"])
-        .args(args)
-        .output()
-        .unwrap();
+    let out = mg_in(home).args(["--no-user-dir", "--json"]).args(args).output().unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.trim().is_empty(), "{args:?}: stderr {stderr}");
     let json = serde_json::from_slice(&out.stdout)
@@ -425,7 +440,7 @@ fn a_project_s_plugins_are_listed_as_allowed() {
     let (ok, allowed) = mg_at(&home, &["plugin", "allow", project]);
     assert!(ok, "{allowed}");
     assert_eq!(allowed["plugins"][0]["allow"], true);
-    assert!(home.join("data/moonglow/project-plugins.toml").is_file());
+    assert!(answers_in(&home).is_file());
     assert!(!dir.join(".moonglow").exists(), "nothing written into the project");
     let (_, listed) = mg_at(&home, &["plugin", "list", "--project", project]);
     assert_eq!(listed["plugins"][0]["project"]["trust"], "allowed");
@@ -439,8 +454,7 @@ fn a_project_s_plugins_are_listed_as_allowed() {
     let (_, listed) = mg_at(&home, &["plugin", "list", "--project", project]);
     assert_eq!(listed["plugins"][0]["project"]["trust"], "denied");
     // As text: a line for it and one for each setting.
-    let out = crate::mg()
-        .env("XDG_DATA_HOME", home.join("data"))
+    let out = mg_in(&home)
         .args(["--no-user-dir", "plugin", "list", "--project", project])
         .output()
         .unwrap();
@@ -448,8 +462,7 @@ fn a_project_s_plugins_are_listed_as_allowed() {
     assert!(text.contains("\tthe project's: denied"), "{text}");
     assert!(text.contains("\tsetting\tprefix\tstring\tproject\t\"KRZ_\""), "{text}");
     // A plugin the project has not.
-    let out = crate::mg()
-        .env("XDG_DATA_HOME", home.join("data"))
+    let out = mg_in(&home)
         .args(["--no-user-dir", "plugin", "allow", project, "nobody.else"])
         .output()
         .unwrap();
