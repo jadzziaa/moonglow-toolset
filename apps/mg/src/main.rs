@@ -939,6 +939,21 @@ enum PluginCmd {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Run a plugin's own tests: the files `tests/*.toml` in its folder,
+    /// each naming a fixture module and the checks, commands and events to
+    /// run on it, with what is to come of each (the findings and their
+    /// fixes, the fields after the edits, the log). Nothing is written to
+    /// the fixture. Exits with an error if a test fails, or there are none.
+    /// The format: the manual's Writing Plugins chapter, "A plugin's own
+    /// tests".
+    Test {
+        /// The plugin's folder.
+        plugin: PathBuf,
+        /// The fixture module for every test (a module folder, a .mod or
+        /// a nasher project), in place of those the test files name.
+        #[arg(long)]
+        module: Option<PathBuf>,
+    },
     /// Pack a plugin's folder into an archive to hand around (a zip that
     /// Install Plugin from File and `mg plugin install` take). Hidden
     /// files are left out; the plugin is checked first.
@@ -1349,6 +1364,10 @@ fn run(cli: &Cli) -> Result<Output> {
         Cmd::Plugin { cmd } => match cmd {
             PluginCmd::List { folders } => plugins::list(folders)?,
             PluginCmd::Check { folders } => plugins::check(folders)?,
+            // (A plugin that reads no game data needs no game.)
+            PluginCmd::Test { plugin, module } => {
+                plugins::test(install(cli).ok().as_ref(), plugin, module.as_deref())?
+            }
             PluginCmd::Run {
                 module,
                 plugin,

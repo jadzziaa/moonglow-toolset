@@ -20,6 +20,7 @@ mod package;
 mod runtime;
 mod tables;
 mod terrain;
+mod testing;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -38,6 +39,7 @@ use mg_rules::ObjectKind;
 pub use package::{
     Existing, MARKER, MAX_ARCHIVE, MAX_BYTES, MAX_FILES, Package, from_archive, pack, remove,
 };
+pub use testing::{TestResult, run_tests, test_files};
 use thiserror::Error;
 
 /// What can go wrong with a plugin.

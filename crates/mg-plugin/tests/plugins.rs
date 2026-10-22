@@ -724,3 +724,115 @@ fn a_selection_is_named_as_a_resource_and_a_path() {
         assert!(e.contains(says), "{bad}: {e}");
     }
 }
+
+/// A plugin's own tests (`mg plugin test`): each says what was not as its
+/// file wants, and a file that does not read, or names no fixture, is a
+/// test that failed.
+#[test]
+fn a_plugin_s_own_tests_say_what_is_not_as_wanted() {
+    use mg_module::ModuleLocation;
+    let dir = mg_testkit::scratch_dir("plugin-own-tests");
+    let source = dir.join("tags");
+    std::fs::create_dir_all(source.join("tests")).unwrap();
+    for file in ["plugin.cfg", "main.luau", "rules.luau"] {
+        std::fs::copy(fixtures().join("tag-conventions").join(file), source.join(file)).unwrap();
+    }
+    let mut m = module();
+    m.save_as(&ModuleLocation::Folder(source.join("tests/fixture"))).unwrap();
+    let tests = r#"
+        module = "fixture"
+
+        [[test]]
+        name = "passes"
+        check = "tag-case"
+        fix = "Upper-case this tag"
+        left = 0
+        [[test.finding]]
+        resource = "guard.utc"
+        message = 'tag "gate_guard" is not upper case'
+        fix = "Upper-case this tag"
+        [[test.field]]
+        resource = "guard.utc"
+        field = "Tag"
+        value = "GATE_GUARD"
+
+        [[test]]
+        name = "wrong finding"
+        check = "tag-case"
+        [[test.finding]]
+        resource = "captain.utc"
+        message = "no"
+        severity = "error"
+        fix = ""
+
+        [[test]]
+        name = "wrong field and log"
+        command = "promote"
+        edits = 3
+        log = ["promoted"]
+        [[test.field]]
+        resource = "guard.utc"
+        field = "/ClassList[0]/ClassLevel"
+        value = 9
+        [[test.field]]
+        resource = "guard.utc"
+        field = "Comment"
+        absent = true
+        [[test.field]]
+        resource = "guard.utc"
+        field = "Wis"
+        value = 14
+
+        [[test]]
+        name = "it was to fail"
+        command = "fix-tags"
+        error = "nope"
+
+        [[test]]
+        name = "both"
+        check = "tag-case"
+        command = "fix-tags"
+    "#;
+    std::fs::write(source.join("tests/a.toml"), tests).unwrap();
+    std::fs::write(source.join("tests/b.toml"), "[[test]]\nname = \"x\"\ncheck = \"tag-case\"\n")
+        .unwrap();
+    std::fs::write(source.join("tests/c.toml"), "[[test]]\nname = \"x\"\nwhat = 1\n").unwrap();
+    let plugin = Plugin::load(&source).unwrap();
+    let results = mg_plugin::run_tests(&plugin, None, &|_| None);
+    let of = |name: &str| -> Vec<String> {
+        results.iter().find(|r| r.name == name).unwrap_or_else(|| panic!("{name}")).problems.clone()
+    };
+    assert_eq!(of("passes"), Vec::<String>::new());
+    let wrong = of("wrong finding").join("\n");
+    for says in [
+        "is of guard.utc, not captain.utc",
+        "says \"tag \\\"gate_guard\\\"",
+        "is a warning, not a error",
+        "has the fix \"Upper-case this tag\", not none",
+    ] {
+        assert!(wrong.contains(says), "{says}: {wrong}");
+    }
+    let field = of("wrong field and log").join("\n");
+    for says in ["ClassLevel is 1, not 9", "no line with \"promoted\"", "18 edits, not 3"] {
+        assert!(field.contains(says), "{says}: {field}");
+    }
+    assert!(!field.contains("Comment") && !field.contains("Wis"), "{field}");
+    assert_eq!(of("it was to fail"), ["it was to fail, saying \"nope\", and did not"]);
+    assert!(of("both")[0].contains("one thing"));
+    let b = results.iter().find(|r| r.file == "b.toml").unwrap();
+    assert!(b.problems[0].contains("no fixture"), "{b:?}");
+    let c = results.iter().find(|r| r.file == "c.toml").unwrap();
+    assert!(c.problems[0].contains("does not read") && c.problems[0].contains("what"), "{c:?}");
+    // Another fixture for every test (`--module`): there the guard's tag
+    // is upper case, so the finding is not there.
+    let mut fixed = module();
+    let mut guard = fixed.gff(&key("guard.utc")).unwrap().unwrap();
+    guard.root.set("Tag", Value::String(b"GATE_GUARD".to_vec()));
+    fixed.set_gff(key("guard.utc"), &guard).unwrap();
+    let other = dir.join("other.mod");
+    fixed.save_as(&ModuleLocation::Archive(other.clone())).unwrap();
+    let results = mg_plugin::run_tests(&plugin, Some(&other), &|_| None);
+    let passes = results.iter().find(|r| r.name == "passes").unwrap();
+    assert!(passes.problems[0].starts_with("0 findings, not 1"), "{passes:?}");
+    assert!(results.iter().any(|r| r.file == "b.toml" && r.passed()), "{results:?}");
+}

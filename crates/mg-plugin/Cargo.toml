@@ -23,8 +23,10 @@ mg-tlk.workspace = true
 fastrand.workspace = true
 png.workspace = true
 mlua.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+toml.workspace = true
 zip.workspace = true
 
 [dev-dependencies]

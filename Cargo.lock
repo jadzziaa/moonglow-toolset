@@ -2241,8 +2241,10 @@ dependencies = [
  "mg-tlk",
  "mlua",
  "png",
+ "serde",
  "serde_json",
  "thiserror 2.0.21",
+ "toml",
  "zip",
 ]
 
