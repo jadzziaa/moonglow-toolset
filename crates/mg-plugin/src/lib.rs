@@ -26,12 +26,14 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
-pub use manifest::{API, APIS, CheckDecl, CommandDecl, EventDecl, EventKind, Manifest};
-use mg_edit::Edit;
+pub use manifest::{API, APIS, CheckDecl, CommandDecl, EventDecl, EventKind, Manifest, Target};
+use mg_core::{ResRef, ResType};
+use mg_edit::{Edit, GffPath};
 use mg_module::Module;
 use mg_module::doctor::Finding;
 use mg_resman::ResKey;
 use mg_rules::GameData;
+use mg_rules::ObjectKind;
 pub use package::{
     Existing, MARKER, MAX_ARCHIVE, MAX_BYTES, MAX_FILES, Package, from_archive, pack, remove,
 };
@@ -212,6 +214,118 @@ pub struct Input {
     pub module: Module,
     /// The game data, with the module's haks (and the module) layered in.
     pub game: Option<Arc<GameData>>,
+    /// What is selected and open in the window (`ctx.selection`,
+    /// `ctx.open`): nothing for a check, or where there is no window.
+    pub selection: Selection,
+}
+
+impl Input {
+    /// A job's input with nothing selected or open.
+    pub fn new(module: Module, game: Option<Arc<GameData>>) -> Input {
+        Input { module, game, selection: Selection::default() }
+    }
+}
+
+/// Something selected, or open, in the window: what the plugin reads as
+/// an entry of `ctx.selection` (its tag and resref read from the job's
+/// copy of the module).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Selected {
+    /// An object placed in an area: item `index` of its kind's list in the
+    /// area's GIT.
+    Object { area: ResRef, kind: ObjectKind, index: usize },
+    /// A blueprint: the module's own, or the game's (a standard palette's).
+    Blueprint(ResKey),
+    /// An area (its ARE).
+    Area(ResRef),
+    /// Another resource, in its editor (only as what is open: a script, a
+    /// conversation).
+    Resource(ResKey),
+}
+
+impl Selected {
+    /// What it is, as a command's `for` names it (`placeable`, `area`); a
+    /// resource that is neither, by its type (`nss`, `dlg`).
+    pub fn kind(&self) -> String {
+        match self {
+            Selected::Object { kind, .. } => kind.name().to_string(),
+            Selected::Blueprint(key) => match ObjectKind::from_restype(key.restype) {
+                Some(kind) => kind.name().to_string(),
+                None => key.restype.extension().unwrap_or_default().to_string(),
+            },
+            Selected::Area(_) => "area".to_string(),
+            Selected::Resource(key) => key.restype.extension().unwrap_or_default().to_string(),
+        }
+    }
+
+    /// What a command must be for to be run on it.
+    pub fn target(&self) -> Option<Target> {
+        match self {
+            Selected::Object { kind, .. } => Some(Target::Object(*kind)),
+            Selected::Blueprint(key) => ObjectKind::from_restype(key.restype).map(Target::Object),
+            Selected::Area(_) => Some(Target::Area),
+            Selected::Resource(_) => None,
+        }
+    }
+
+    /// The resource it is in, and where in it (the root: `""`), as
+    /// `ctx.edit` takes them.
+    pub fn place(&self) -> (ResKey, GffPath) {
+        match self {
+            Selected::Object { area, kind, index } => {
+                (ResKey::new(*area, ResType::GIT), GffPath::root().item(kind.list(), *index))
+            }
+            Selected::Blueprint(key) | Selected::Resource(key) => (*key, GffPath::root()),
+            Selected::Area(area) => (ResKey::new(*area, ResType::ARE), GffPath::root()),
+        }
+    }
+
+    /// What `mg plugin run --select` takes: a resource's name, and for an
+    /// object placed in an area the GIT and the path to it
+    /// (`tavern.git/Placeable List[3]`).
+    pub fn parse(text: &str) -> Result<Selected, String> {
+        let (name, path) = match text.find('/') {
+            Some(at) => (&text[..at], &text[at..]),
+            None => (text, ""),
+        };
+        let key = ResKey::from_filename(name)
+            .ok_or_else(|| format!("{name:?} is not a resource's name (name.ext)"))?;
+        if key.restype == ResType::GIT {
+            let path: GffPath = match path {
+                "" => GffPath::root(),
+                path => path.parse().map_err(|e| format!("{text:?}: {e}"))?,
+            };
+            return match path.0.as_slice() {
+                [mg_edit::Step::Item(list, index)] => match ObjectKind::from_list(list) {
+                    Some(kind) => Ok(Selected::Object { area: key.resref, kind, index: *index }),
+                    None => Err(format!("{list:?} is not a list of an area's objects")),
+                },
+                _ => Err(format!(
+                    "{text:?}: an object placed in an area is its GIT and its place in a list \
+                     (\"{name}/Placeable List[0]\")"
+                )),
+            };
+        }
+        if !path.is_empty() {
+            return Err(format!(
+                "{text:?}: only an object placed in an area (in a GIT) has a path"
+            ));
+        }
+        Ok(match key.restype {
+            ResType::ARE => Selected::Area(key.resref),
+            t if ObjectKind::from_restype(t).is_some() => Selected::Blueprint(key),
+            _ => Selected::Resource(key),
+        })
+    }
+}
+
+/// What is selected in the window (the objects in the area view, or the
+/// blueprints in a palette or the module tree; for a command chosen from
+/// a right-click menu, what was clicked), and what is open in front.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Selection {
+    pub selected: Vec<Selected>,
+    pub open: Option<Selected>,
 }
 
 /// What a command made: the edits to apply as one command, and its name;

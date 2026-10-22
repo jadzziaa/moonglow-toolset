@@ -5,12 +5,13 @@
 
 use mg_module::doctor::Severity;
 use mg_module::nasher::{Section, sections};
+use mg_rules::ObjectKind;
 
 /// The plugin API this Moonglow serves (a manifest's `api`).
-pub const API: &str = "0.3";
+pub const API: &str = "0.4";
 /// The APIs a plugin may be written for: each later one has all of the
 /// ones before.
-pub const APIS: [&str; 3] = ["0.1", "0.2", "0.3"];
+pub const APIS: [&str; 4] = ["0.1", "0.2", "0.3", "0.4"];
 
 /// What a manifest says.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,6 +44,66 @@ pub struct CommandDecl {
     pub hint: String,
     /// The key it has until the user chooses another (`Ctrl+Alt+T`).
     pub key: Option<String>,
+    /// What it is for (`for = "placeable, creature"`): it is in the
+    /// right-click menus of each, and gets what was clicked as its
+    /// selection. None: the Plugins menu alone (API 0.4).
+    pub targets: Vec<Target>,
+}
+
+/// What a command can be for: a kind of object (placed in an area, or its
+/// blueprint) or an area. Their right-click menus have the command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Target {
+    /// Objects of this kind placed in an area, and their blueprints.
+    Object(ObjectKind),
+    Area,
+}
+
+impl Target {
+    /// Every one, in the order the manual lists them.
+    pub fn all() -> impl Iterator<Item = Target> {
+        ObjectKind::ALL.into_iter().map(Target::Object).chain([Target::Area])
+    }
+
+    /// Its name in a manifest: `creature`, `placeable`, `area`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Target::Object(kind) => kind.name(),
+            Target::Area => "area",
+        }
+    }
+
+    pub fn named(name: &str) -> Option<Target> {
+        Target::all().find(|t| t.name() == name)
+    }
+}
+
+/// Whether `api` is a version before `than` (both among [`APIS`]).
+fn api_before(api: &str, than: &str) -> bool {
+    let at = |v: &str| APIS.iter().position(|a| *a == v);
+    at(api) < at(than)
+}
+
+/// A command's `for`: kinds of object, or `area`, each named once, given
+/// as a list (`"placeable, creature"`) or a key to each.
+fn targets_of(s: &Section) -> Result<Vec<Target>, String> {
+    let mut targets = Vec::new();
+    let given = s.pairs.iter().filter(|(k, _)| k == "for");
+    for name in given.flat_map(|(_, v)| v.split(',')).map(str::trim) {
+        let Some(t) = Target::named(name) else {
+            let names: Vec<&str> = Target::all().map(Target::name).collect();
+            return Err(format!(
+                "line {}: a command is for {}, not {name:?}",
+                s.line,
+                names.join(", ")
+            ));
+        };
+        if targets.contains(&t) {
+            return Err(format!("line {}: the command is for {name} twice", s.line));
+        }
+        targets.push(t);
+    }
+    Ok(targets)
 }
 
 /// A check a plugin adds to Verify Module.
@@ -193,16 +254,18 @@ impl Manifest {
                     });
                 }
                 "command" => {
-                    let get = keys(s, &["id", "title", "hint", "key"])?;
+                    let get = keys(s, &["id", "title", "hint", "key", "for"])?;
                     let id = id_of(s, get("id"))?;
                     if commands.iter().any(|c| c.id == id) {
                         return Err(format!("line {}: a second command {id:?}", s.line));
                     }
+                    let targets = targets_of(s)?;
                     commands.push(CommandDecl {
                         id,
                         title: required(s, "title", get("title"))?.to_string(),
                         hint: get("hint").to_string(),
                         key: Some(get("key")).filter(|k| !k.is_empty()).map(str::to_string),
+                        targets,
                     });
                 }
                 "check" => {
@@ -251,6 +314,17 @@ impl Manifest {
             }
         }
         let mut plugin = plugin.ok_or("it has no [plugin] section")?;
+        // (What a later API added, in a manifest that names an earlier
+        // one: said plainly, as a Moonglow without it would refuse it.)
+        if let Some(c) = commands.iter().find(|c| !c.targets.is_empty())
+            && api_before(&plugin.api, "0.4")
+        {
+            return Err(format!(
+                "the command {:?} says what it is for (`for`), which is plugin API 0.4; \
+                 the manifest says api = {:?}",
+                c.id, plugin.api
+            ));
+        }
         plugin.commands = commands;
         plugin.checks = checks;
         plugin.events = events;
@@ -300,6 +374,50 @@ severity = "error"
         assert_eq!(m.commands[0].hint, "Upper-case every creature's tag");
         let severities: Vec<Severity> = m.checks.iter().map(|c| c.severity).collect();
         assert_eq!(severities, [Severity::Warning, Severity::Error]);
+    }
+
+    /// API 0.4: a command says what it is for, as a list or a key to
+    /// each; a command without says nothing, as before.
+    #[test]
+    fn a_command_says_what_it_is_for() {
+        let text = SAMPLE.replace("api = \"0.1\"", "api = \"0.4\"").replace(
+            "key = \"Ctrl+Alt+T\"",
+            "key = \"Ctrl+Alt+T\"\nfor = \"placeable, creature\"\nfor = \"area\"",
+        );
+        let m = Manifest::parse(&text).unwrap();
+        assert_eq!(
+            m.commands[0].targets,
+            [
+                Target::Object(ObjectKind::Placeable),
+                Target::Object(ObjectKind::Creature),
+                Target::Area
+            ]
+        );
+        assert!(Manifest::parse(SAMPLE).unwrap().commands[0].targets.is_empty());
+        let names: Vec<&str> = Target::all().map(Target::name).collect();
+        assert_eq!(
+            names,
+            [
+                "creature",
+                "door",
+                "encounter",
+                "item",
+                "placeable",
+                "sound",
+                "store",
+                "trigger",
+                "waypoint",
+                "area"
+            ]
+        );
+        // Faults: a kind there is none of, one named twice, and `for` in
+        // a manifest written for an API before it.
+        let with = |to: &str| Manifest::parse(&text.replace("for = \"area\"", to)).unwrap_err();
+        let e = with("for = \"chest\"");
+        assert!(e.contains("is for creature, door,") && e.contains("not \"chest\""), "{e}");
+        assert!(with("for = \"creature\"").contains("for creature twice"));
+        let e = Manifest::parse(&text.replace("api = \"0.4\"", "api = \"0.3\"")).unwrap_err();
+        assert!(e.contains("plugin API 0.4") && e.contains("\"fix-tags\""), "{e}");
     }
 
     #[test]

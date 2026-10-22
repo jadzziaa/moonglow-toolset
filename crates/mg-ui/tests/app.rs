@@ -8463,6 +8463,71 @@ fn context_menu_sets_states_mutes_and_adds_spawn_points() {
     img.save(mg_testkit::scratch_dir("ui-area-menu").join("area_view.png")).unwrap();
 }
 
+/// API 0.4: a plugin's command for waypoints is in the area view's menu on
+/// them, above Variables and Properties, and runs on every object
+/// selected; with nothing selected, the area's commands are there. Its
+/// edits are one undoable step. The menu is drawn to a picture.
+#[test]
+fn a_plugin_s_command_runs_on_the_objects_selected_in_the_area() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("plugin-menu") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    h.state_mut().plugin_dir = Some(example_plugins());
+    h.state_mut().load_plugins();
+    h.state_mut().enable_plugin("example.set-local", true);
+    h.run_steps(2);
+    let right_click = |h: &mut Harness<'_, Moonglow>, p: Vec3| {
+        let at = screen(h, area, p);
+        h.hover_at(at);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(3);
+    };
+    // Both waypoints selected; the menu opened on the first keeps both.
+    let both = vec![(ObjectKind::Waypoint, 0), (ObjectKind::Waypoint, 1)];
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = both.clone();
+    right_click(&mut h, Vec3::new(20.0, 20.0, 0.9));
+    assert_eq!(h.state().area_views[&area].selection, both);
+    let command = h.get_by_label("Set Local Variable…").rect();
+    let properties = h.get_all_by_label("Properties").last().unwrap().rect();
+    assert!(command.bottom() <= properties.top(), "{command:?} {properties:?}");
+    assert!(h.query_by_label("Count Objects").is_none(), "that one is for areas");
+    let img = h.render().expect("render");
+    let picture = mg_testkit::scratch_dir("ui-area-plugin-menu").join("menu.png");
+    img.save(&picture).unwrap();
+    eprintln!("the menu: {}", picture.display());
+    h.state_mut().plugins.answers.push_back(set_local_answer());
+    h.get_by_label("Set Local Variable…").click();
+    h.run_steps(3);
+    for i in 0..2 {
+        let on = Some(("WaypointList", i));
+        assert_eq!(variables(&mut h, &git, on), ["role = workbench"], "waypoint {i}");
+    }
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Set role"));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert!(variables(&mut h, &git, Some(("WaypointList", 1))).is_empty(), "one undo");
+
+    // Nothing selected: the area's command, run on the area.
+    h.state_mut().area_views.get_mut(&area).unwrap().selection.clear();
+    right_click(&mut h, Vec3::new(8.0, 30.0, 0.0));
+    assert!(h.query_by_label("Set Local Variable…").is_none());
+    h.get_by_label("Count Objects").click();
+    h.run_steps(3);
+    let log: Vec<String> = h.state().log.entries.iter().map(|(_, m)| m.clone()).collect();
+    assert!(
+        log.iter().any(|m| m.starts_with("Set local: ") && m.ends_with(": 2 waypoints")),
+        "{log:#?}"
+    );
+}
+
 #[test]
 fn doors_go_on_door_hooks() {
     use glam::Vec3;
@@ -15894,7 +15959,7 @@ fn a_plugin_is_off_until_enabled_and_its_command_is_one_undoable_step() {
     h.run();
     // The window says what each adds; enabling one is a tick.
     h.get_by_label_contains("cannot reach your files");
-    h.get_by_label_contains("Plugins are experimental: the plugin API (0.3)");
+    h.get_by_label_contains("Plugins are experimental: the plugin API (0.4)");
     h.get_by_label("Command: Fix Creature Tags");
     h.get_by_label("Check: Creature tags are upper case");
     // (The last of the four installed: below the list's fold.)
@@ -15978,6 +16043,171 @@ fn a_plugin_is_off_until_enabled_and_its_command_is_one_undoable_step() {
             .any(|(l, m)| { *l == mg_ui::Level::Error && m.contains("something went wrong") })
     );
     assert_eq!(tag_of(&mut h, &key), "GATE_GUARD");
+}
+
+/// The example plugins of `docs/plugins/examples`, installed.
+fn example_plugins() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/plugins/examples")
+}
+
+/// The answer to `set-local`'s form: `role`, a string, `workbench`.
+fn set_local_answer() -> Option<mg_plugin::Answer> {
+    let values = std::collections::BTreeMap::from([
+        ("name".to_string(), serde_json::json!("role")),
+        ("type".to_string(), serde_json::json!("string")),
+        ("value".to_string(), serde_json::json!("workbench")),
+    ]);
+    Some(mg_plugin::Answer::Values(values))
+}
+
+/// The names of the variables of a struct of a resource (at `list`'s item,
+/// or the root).
+fn variables(
+    h: &mut Harness<'_, Moonglow>,
+    key: &ResKey,
+    at: Option<(&str, usize)>,
+) -> Vec<String> {
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let g = ws.doc(key).unwrap();
+    let s = match at {
+        Some((list, i)) => &g.root.list(list).unwrap()[i],
+        None => &g.root,
+    };
+    (s.list("VarTable").unwrap_or_default().iter())
+        .map(|v| {
+            let text = |l: &str| String::from_utf8_lossy(v.string(l).unwrap()).into_owned();
+            format!("{} = {}", text("Name"), text("Value"))
+        })
+        .collect()
+}
+
+/// API 0.4: a plugin's command for a kind of object, or for areas, is in
+/// their right-click menus (the module tree's here), before the Properties
+/// that end an area's; chosen there, it runs on what was clicked, and its
+/// edits are one undoable step. Off, or for another kind, it isn't there.
+#[test]
+fn a_plugin_s_command_is_in_the_menus_of_what_it_is_for() {
+    let Some((mut h, key)) = plugin_harness("ui-plugin-menus", false) else { return };
+    // The area's objects: a chest.
+    let git = ResKey::parse("start", ResType::GIT).unwrap();
+    let mut placed = Gff::new(*b"GIT ");
+    let mut chest = mg_gff::Struct::new(9);
+    chest.set("Tag", mg_gff::Value::String(b"CHEST".to_vec()));
+    placed.root.set("Placeable List", mg_gff::Value::List(vec![chest]));
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A chest",
+        vec![mg_edit::Edit::SetResource { key: git, data: Some(placed.to_bytes().unwrap()) }],
+    )));
+    h.state_mut().plugin_dir = Some(example_plugins());
+    h.state_mut().load_plugins();
+    h.run();
+    h.get_by_label_contains("Creatures (1)").click();
+    h.run();
+    // Off: not in the menu.
+    h.get_by_label("guard.utc").click_secondary();
+    h.run();
+    h.get_by_label("Copy to Scratch Folder");
+    assert!(h.query_by_label("Set Local Variable…").is_none());
+    h.key_press(egui::Key::Escape);
+    h.run();
+    h.state_mut().enable_plugin("example.set-local", true);
+    h.run();
+    // A blueprint's row: its command, run on it.
+    h.get_by_label("guard.utc").click_secondary();
+    h.run();
+    assert!(h.query_by_label("Count Objects").is_none(), "that one is for areas");
+    h.state_mut().plugins.answers.push_back(set_local_answer());
+    h.get_by_label("Set Local Variable…").click();
+    h.run_steps(3);
+    assert!(h.state().plugins.answers.is_empty(), "its form was asked");
+    assert_eq!(variables(&mut h, &key, None), ["role = workbench"]);
+    let log: Vec<String> = h.state().log.entries.iter().map(|(_, m)| m.clone()).collect();
+    assert!(log.contains(&"Set local: gate_guard: role = workbench".to_string()), "{log:#?}");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Set role"));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert!(variables(&mut h, &key, None).is_empty(), "one undo");
+
+    // An area's row: its command above the Properties that end the menu,
+    // run on the area.
+    h.get_by_label("start").click_secondary();
+    h.run();
+    assert!(h.query_by_label("Set Local Variable…").is_none(), "that one is for objects");
+    let count = h.get_by_label("Count Objects").rect();
+    let properties = h.get_all_by_label("Properties").last().unwrap().rect();
+    assert!(count.bottom() <= properties.top(), "{count:?} {properties:?}");
+    h.get_by_label("Count Objects").click();
+    h.run_steps(3);
+    let log: Vec<String> = h.state().log.entries.iter().map(|(_, m)| m.clone()).collect();
+    assert!(log.contains(&"Set local: start: 1 placeables".to_string()), "{log:#?}");
+
+    // From the Plugins menu, with nothing selected: it says so. (And
+    // the Plugins window says which menus each is in.)
+    h.state_mut().run_plugin_command("example.set-local", "set-local");
+    h.run_steps(3);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("A chest"), "nothing changed");
+    h.state_mut().plugins.window = true;
+    h.run();
+    h.get_by_label_contains("Command: Set Local Variable (right-click: creature, door,");
+    h.get_by_label("Command: Count Objects (right-click: area)");
+}
+
+/// API 0.4: in a palette, a plugin's command for the kind is last in a
+/// blueprint's menu, and runs on the blueprint (a module's: changed, as
+/// one undoable step; one of the game's is the game's, and the example
+/// leaves it alone).
+#[test]
+fn a_plugin_s_command_is_in_a_palette_s_menu() {
+    let Some((mut h, _)) = plugin_harness("ui-plugin-palette", true) else { return };
+    // A waypoint blueprint of the module's, in its palette's Custom 1.
+    let key = ResKey::parse("mg_gate", ResType::UTW).unwrap();
+    {
+        let game = h.state().game.as_deref().unwrap();
+        let bytes = game.resman.get_named("nw_waypoint001", ResType::UTW).unwrap();
+        let mut g = Gff::read(&bytes).unwrap();
+        g.root.set("TemplateResRef", mg_gff::Value::resref(key.resref));
+        let name = LocString::from_text(Language::ENGLISH, Gender::Male, "Gate A");
+        g.root.set("LocalizedName", mg_gff::Value::LocString(name));
+        g.root.set("PaletteID", mg_gff::Value::Byte(0));
+        let set = mg_edit::Edit::SetResource { key, data: Some(g.to_bytes().unwrap()) };
+        h.state_mut()
+            .actions
+            .push(mg_ui::Action::Apply(mg_edit::Command::new("A gate", vec![set])));
+    }
+    h.state_mut().plugin_dir = Some(example_plugins());
+    h.state_mut().load_plugins();
+    h.state_mut().enable_plugin("example.set-local", true);
+    let tavern = h.state().game.as_deref().unwrap().string(mg_core::StrRef(69068)).unwrap();
+    {
+        let app = h.state_mut();
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+        app.palette.kind = mg_module::palette::BlueprintKind::Waypoint;
+        app.palette.tiles = false;
+        app.palette.filter = "nw_wp_tavern".into();
+    }
+    h.run();
+    // The game's: the command gets it, says it is not the module's, and
+    // changes nothing.
+    h.get_by_label(&tavern).click_secondary();
+    h.run();
+    h.get_by_label("Set Local Variable…").click();
+    h.run_steps(3);
+    let ws = h.state().ws.as_ref().unwrap();
+    assert_eq!(ws.can_undo(), Some("A gate"), "nothing changed");
+    // The module's, in the custom palette.
+    {
+        let app = h.state_mut();
+        app.palette.custom = true;
+        app.palette.filter = "gate".into();
+    }
+    h.run_steps(2);
+    h.get_by_label("Gate A").click_secondary();
+    h.run();
+    h.state_mut().plugins.answers.push_back(set_local_answer());
+    h.get_by_label("Set Local Variable…").click();
+    h.run_steps(3);
+    assert_eq!(variables(&mut h, &key, None), ["role = workbench"]);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Set role"));
 }
 
 /// A plugin's questions show in its job's window, one after another, and

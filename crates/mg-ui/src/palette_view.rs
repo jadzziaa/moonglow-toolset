@@ -471,6 +471,8 @@ enum Pick {
     MoveTo(ResKey, u8),
     /// Added to (true) or removed from Favorites.
     Favorite(ResKey, bool),
+    /// A plugin's command (its place among those for menus) run on these.
+    Plugin(usize, Vec<ResKey>),
 }
 
 /// Expand All and Collapse All as two small buttons, for a list's toolbar.
@@ -844,6 +846,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         // (Down out of the search: to the list's first row.)
         .or(entered.then_some(egui::Key::ArrowDown));
     let gallery = app.settings.palette_gallery && pictured(kind);
+    let menu_commands = app.plugin_menu_commands();
     let mut tree = Tree {
         game,
         kind,
@@ -873,6 +876,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         toggle: view.toggle.take(),
         listed: pressed.map(|_| Listed::default()),
         clicked: false,
+        commands: &menu_commands,
     };
     if find.fuzzy {
         ui.weak("No exact matches: close ones");
@@ -1027,6 +1031,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 None => app.log.warn("Open an area and select what to replace first"),
             },
             Pick::References(key) => app.actions.push(Action::FindReferences(key)),
+            Pick::Plugin(i, keys) => {
+                let on = keys.into_iter().map(mg_plugin::Selected::Blueprint).collect();
+                app.actions.push(crate::plugins::run_on(&menu_commands[i], on));
+            }
             Pick::UpdateInstances(keys) => app.update_instances_of(keys),
             Pick::EditTogether(keys) => app.actions.push(Action::OpenTab(Tab::Blueprints(keys))),
             Pick::Export(keys) => app.actions.push(Action::ExportDialog(keys)),
@@ -1211,6 +1219,8 @@ struct Tree<'a> {
     listed: Option<Listed>,
     /// Something in the tree was clicked: the arrow keys are its own.
     clicked: bool,
+    /// The plugins' commands for right-click menus.
+    commands: &'a [crate::plugins::PluginCommand],
 }
 
 /// Where a blueprint's row is: its branch, the branch's place in the
@@ -1452,6 +1462,7 @@ impl Tree<'_> {
             self.picks.push(if custom { Pick::Edit(key) } else { Pick::View(key) });
         }
         let (sel, picks, new) = (&self.sel, &mut self.picks, self.new);
+        let commands = self.commands;
         r.context_menu(|ui| {
             if let Some(label) = new {
                 if ui.button(label).on_hover_text("A new blueprint (the type's wizard)").clicked() {
@@ -1556,6 +1567,17 @@ impl Tree<'_> {
             if custom && ui.button("Delete").clicked() {
                 picks.push(Pick::Delete(key));
                 ui.close();
+            }
+            // The plugins' commands for the kind, run on the blueprints
+            // chosen (a menu with no Properties to end it: last).
+            if let Some(object) = mg_area::ObjectKind::from_restype(key.restype)
+                && let Some(i) = crate::plugins::menu_commands(
+                    ui,
+                    commands,
+                    &[mg_plugin::Target::Object(object)],
+                )
+            {
+                picks.push(Pick::Plugin(i, sel.bulk(key)));
             }
         });
     }

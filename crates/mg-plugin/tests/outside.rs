@@ -49,7 +49,7 @@ fn bare() -> Module {
 }
 
 fn console(code: &str, host: &Rc<TestHost>) -> Result<Outcome, PluginError> {
-    run_console(code, Input { module: bare(), game: None }, host.clone())
+    run_console(code, Input::new(bare(), None), host.clone())
 }
 
 fn scratch(name: &str) -> PathBuf {
@@ -228,7 +228,7 @@ fn an_area_is_made_and_painted() {
             (area:corner(1, 1)), raised, top, beside, tile.height >= 1, outside, unknown,
             #area.terrains > 2, area.step
     "#;
-    let outcome = run_console(code, Input { module: bare(), game: Some(game) }, h.clone()).unwrap();
+    let outcome = run_console(code, Input::new(bare(), Some(game)), h.clone()).unwrap();
     assert_eq!(h.log.borrow_mut().remove(0), "true true true true false true");
     assert_eq!(
         h.log.borrow().as_slice(),
@@ -294,7 +294,7 @@ fn a_tileset_folder_becomes_a_hak_and_an_area() {
         ("area".to_string(), serde_json::json!("Imported")),
     ]);
     let h = host([Some(Answer::Path(folder)), Some(Answer::Values(form)), Some(Answer::Yes)]);
-    let input = Input { module: bare(), game: Some(game) };
+    let input = Input::new(bare(), Some(game));
     let outcome = run_command(&plugin, "import", input, h.clone()).unwrap();
     let log = h.log.borrow().join("\n");
     assert!(log.contains("2 files into mytiles.hak, 1 left out"), "{log}");
@@ -353,21 +353,21 @@ fn a_plugin_s_text_is_read_and_written_by_the_module_s_encoding_table() {
         ws.module.get(&ResKey::from_filename("y.nss").unwrap()).map(<[u8]>::to_vec)
     };
     let h = host([]);
-    let input = Input { module: module(), game: Some(game(true)) };
+    let input = Input::new(module(), Some(game(true)));
     // ("ı" has no byte in this table: refused, as ever.)
     let refused = run_console(code, input, h.clone()).unwrap_err().to_string();
     assert!(refused.contains("cannot hold"), "{refused}");
     let code = code.replace("ığ", "ğ");
-    let input = Input { module: module(), game: Some(game(true)) };
+    let input = Input::new(module(), Some(game(true)));
     let outcome = run_console(&code, input, h.clone()).unwrap();
     assert_eq!(h.log.borrow_mut().remove(0), "\"// dağ\"");
     assert_eq!(written(&outcome).unwrap(), b"// \xf0");
     // Without the table: Windows-1252, where "ğ" has no byte.
-    let input = Input { module: module(), game: Some(game(false)) };
+    let input = Input::new(module(), Some(game(false)));
     let refused = run_console(&code, input, h.clone()).unwrap_err().to_string();
     assert!(refused.contains("cannot hold"), "{refused}");
     let code = code.replace("ğ", "ð");
-    let input = Input { module: module(), game: Some(game(false)) };
+    let input = Input::new(module(), Some(game(false)));
     let outcome = run_console(&code, input, h.clone()).unwrap();
     assert_eq!(h.log.borrow_mut().remove(0), "\"// dað\"");
     assert_eq!(written(&outcome).unwrap(), b"// \xf0");
@@ -468,7 +468,7 @@ fn an_event_s_handler_gets_what_happened() {
         kind: EventKind::ModuleSaved,
         resources: vec![ResKey::from_filename("guard.utc").unwrap()],
     };
-    let input = || Input { module: bare(), game: None };
+    let input = || Input::new(bare(), None);
     let h = host([Some(Answer::Path(dir.clone())), Some(Answer::Yes)]);
     let outcome = run_event(&plugin, "emit", &happened, input(), h.clone()).unwrap();
     assert_eq!(h.log.borrow().as_slice(), ["module-saved: guard.utc"]);

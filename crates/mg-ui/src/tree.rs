@@ -264,6 +264,9 @@ enum Asked {
     Preview,
     Copy,
     Delete,
+    /// A plugin's command run on it: its place among the plugins'
+    /// commands for menus.
+    Plugin(usize),
 }
 
 /// Whether a placed object of `kind` has a picture for the model viewer.
@@ -275,9 +278,10 @@ pub(crate) fn previewable(kind: mg_area::ObjectKind) -> bool {
 /// An area's placed objects under its row of the module tree, kind by
 /// kind as Aurora lists them. A click goes to the object in the area's
 /// view; a double click opens its Properties; a right click has both, and
-/// Copy and Delete. With a filter that some of them match (lower case),
-/// only those are listed. Only the rows in view are laid out (an area can
-/// hold thousands of a kind).
+/// Copy, Delete and the plugins' commands for its kind. With a filter that
+/// some of them match (lower case), only those are listed. Only the rows
+/// in view are laid out (an area can hold thousands of a kind).
+#[allow(clippy::too_many_arguments)]
 fn contents_ui(
     ui: &mut Ui,
     area: ResRef,
@@ -287,6 +291,8 @@ fn contents_ui(
     // The object in hand (its row marked), and whether to go to it.
     in_hand: Option<(mg_area::ObjectKind, usize, bool)>,
     keys: &mut ContentKeys,
+    // The plugins' commands for right-click menus.
+    commands: &[crate::plugins::PluginCommand],
 ) -> bool {
     let mut went = false;
     let matches = |row: &ObjectRow| row.sought.contains(filter);
@@ -414,6 +420,12 @@ fn contents_ui(
                                 continue;
                             }
                             if asked == Asked::Variables {
+                                // (The plugins' commands for it, before.)
+                                let kinds = [mg_plugin::Target::Object(*kind)];
+                                if let Some(i) = crate::plugins::menu_commands(ui, commands, &kinds)
+                                {
+                                    *go = Some((area, *kind, index, Asked::Plugin(i)));
+                                }
                                 ui.separator();
                             }
                             if ui.button(label).clicked() {
@@ -687,6 +699,10 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
     let mut clicked = None;
     // The resource row under the pointer.
     let mut pointed = None;
+    // The plugins' commands for right-click menus, and one chosen on a
+    // resource's row.
+    let menu_commands = app.plugin_menu_commands();
+    let mut plugin_on: Option<(usize, ResKey)> = None;
     let Some(ws) = &app.ws else { return };
     let revision = ws.revision();
     // Areas opened out whose contents are to be read (after the tree is
@@ -879,7 +895,14 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                                     listed: Vec::new(),
                                 };
                                 let went = contents_ui(
-                                    ui, k.resref, contents, &filter, &mut go, in_hand, &mut keys,
+                                    ui,
+                                    k.resref,
+                                    contents,
+                                    &filter,
+                                    &mut go,
+                                    in_hand,
+                                    &mut keys,
+                                    &menu_commands,
                                 );
                                 if went {
                                     app.tree_object_pending = false;
@@ -1041,6 +1064,17 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                                 scratch: true,
                             });
                         }
+                        // The plugins' commands for it (an area, a
+                        // blueprint), before an area's Properties.
+                        let target = match k.restype {
+                            ResType::ARE => Some(mg_plugin::Target::Area),
+                            t => mg_area::ObjectKind::from_restype(t).map(mg_plugin::Target::Object),
+                        };
+                        if let Some(t) = target
+                            && let Some(i) = crate::plugins::menu_commands(ui, &menu_commands, &[t])
+                        {
+                            plugin_on = Some((i, k));
+                        }
                         // An area's Properties last, as in Aurora.
                         if k.restype == ResType::ARE {
                             ui.separator();
@@ -1198,11 +1232,24 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
         }
         ui.ctx().request_repaint();
     }
+    // A plugin's command on a resource's row: on the area or blueprint.
+    if let Some((i, k)) = plugin_on {
+        let on = match k.restype {
+            ResType::ARE => mg_plugin::Selected::Area(k.resref),
+            _ => mg_plugin::Selected::Blueprint(k),
+        };
+        app.actions.push(crate::plugins::run_on(&menu_commands[i], vec![on]));
+    }
     // An object in an area's list: gone to in the area's view, its
-    // Properties opened, copied or deleted.
+    // Properties opened, copied or deleted, or a plugin's command run on
+    // it.
     if let Some((area, kind, index, asked)) = go {
         let git = ResKey::new(area, ResType::GIT);
         match asked {
+            Asked::Plugin(i) => {
+                let on = mg_plugin::Selected::Object { area, kind, index };
+                app.actions.push(crate::plugins::run_on(&menu_commands[i], vec![on]));
+            }
             Asked::Properties => {
                 let path = mg_edit::GffPath::root().item(kind.list(), index);
                 app.actions.push(Action::OpenTab(Tab::Instance { area, path }));

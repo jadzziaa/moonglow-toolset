@@ -846,6 +846,16 @@ enum PluginCmd {
         /// (`guard.utc`), as often as needed. None named: all of them.
         #[arg(long, value_name = "NAME", requires = "event")]
         changed: Vec<String>,
+        /// What the command is run on, as if selected in the window
+        /// (`ctx.selection`), as often as needed: a blueprint or an area
+        /// (`guard.utc`, `tavern.are`), or an object placed in an area as
+        /// its GIT and its place there (`tavern.git/Placeable List[3]`).
+        #[arg(long, value_name = "NAME[/PATH]", conflicts_with = "event")]
+        select: Vec<String>,
+        /// What is open in front, as in the window (`ctx.open`): named as
+        /// with --select, or any resource of the module (`old.nss`).
+        #[arg(long, value_name = "NAME[/PATH]", conflicts_with = "event")]
+        open: Option<String>,
         /// A form's field, `ID=VALUE` (the others take their defaults).
         #[arg(long)]
         answer: Vec<String>,
@@ -1270,6 +1280,8 @@ fn run(cli: &Cli) -> Result<Output> {
                 command,
                 event,
                 changed,
+                select,
+                open,
                 answer,
                 file,
                 hak_dir,
@@ -1293,7 +1305,14 @@ fn run(cli: &Cli) -> Result<Output> {
                     ),
                     false => None,
                 };
-                let what = plugins::What { id: command, changed };
+                let selected = |n: &String| {
+                    mg_plugin::Selected::parse(n).map_err(|e| anyhow::anyhow!("--select {e}"))
+                };
+                let selection = mg_plugin::Selection {
+                    selected: select.iter().map(selected).collect::<Result<_>>()?,
+                    open: open.as_ref().map(selected).transpose()?,
+                };
+                let what = plugins::What { id: command, changed, selection };
                 plugins::run(gi.as_ref(), module, plugin, &what, host, hak_dir, *dry_run)?
             }
             PluginCmd::Pack { plugin, output } => plugins::pack(plugin, output.as_deref())?,

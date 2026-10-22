@@ -212,7 +212,13 @@ pub(crate) fn list(dirs: &[PathBuf]) -> Result<Output> {
                     let m = &p.manifest;
                     out.line(format!("{}\t{} {}\t{}", m.id, m.name, m.version, p.dir.display()));
                     for c in &m.commands {
-                        out.line(format!("\tcommand\t{}\t{}", c.id, c.title));
+                        let on: Vec<&str> = c.targets.iter().map(|t| t.name()).collect();
+                        let on = if on.is_empty() {
+                            String::new()
+                        } else {
+                            format!("\tfor {}", on.join(", "))
+                        };
+                        out.line(format!("\tcommand\t{}\t{}{on}", c.id, c.title));
                     }
                     for c in &m.checks {
                         out.line(format!("\tcheck\t{}\t{}", c.id, c.title));
@@ -226,6 +232,7 @@ pub(crate) fn list(dirs: &[PathBuf]) -> Result<Output> {
                         "authors": m.authors, "folder": p.dir.display().to_string(),
                         "commands": m.commands.iter().map(|c| json!({
                             "id": c.id, "title": c.title, "hint": c.hint, "key": c.key,
+                            "for": c.targets.iter().map(|t| t.name()).collect::<Vec<_>>(),
                         })).collect::<Vec<_>>(),
                         "checks": m.checks.iter().map(|c| json!({
                             "id": c.id, "title": c.title,
@@ -394,6 +401,9 @@ pub(crate) fn install(file: &Path, plugins: &Path, replace: bool) -> Result<Outp
 pub(crate) struct What<'a> {
     pub id: &'a str,
     pub changed: Option<Vec<mg_resman::ResKey>>,
+    /// What a command is run on (`--select`), and what is open
+    /// (`--open`).
+    pub selection: mg_plugin::Selection,
 }
 
 pub(crate) fn run(
@@ -415,7 +425,34 @@ pub(crate) fn run(
         game.codepage().for_language(mg_core::Language::ENGLISH)
     });
     let host = Rc::new(host);
-    let input = Input { module: m.clone(), game };
+    // What it is run on is the module's (a blueprint may be the game's).
+    let named = what.selection.selected.iter().chain(&what.selection.open);
+    for s in named {
+        let (key, _) = s.place();
+        let game_has = game.as_ref().is_some_and(|g| g.resman.get(&key).is_ok());
+        if !m.contains(&key) && !(matches!(s, mg_plugin::Selected::Blueprint(_)) && game_has) {
+            bail!("{key} is not in the module");
+        }
+    }
+    if let (Some(decl), false) =
+        (plugin.manifest.commands.iter().find(|c| c.id == what.id), what.changed.is_some())
+    {
+        // (A command run on what it is not for: as the window would not
+        // offer it. It is still run: it may say so itself.)
+        let unfit: Vec<String> = (what.selection.selected.iter())
+            .filter(|s| !s.target().is_some_and(|t| decl.targets.contains(&t)))
+            .map(|s| s.place().0.to_string())
+            .collect();
+        if !decl.targets.is_empty() && !unfit.is_empty() {
+            notes.note(format!(
+                "warning: {} is not for {} (it is for {})",
+                decl.id,
+                unfit.join(", "),
+                decl.targets.iter().map(|t| t.name()).collect::<Vec<_>>().join(", ")
+            ));
+        }
+    }
+    let input = Input { selection: what.selection.clone(), ..Input::new(m.clone(), game) };
     let outcome = match &what.changed {
         None => mg_plugin::run_command(&plugin, what.id, input, host.clone()),
         Some(changed) => {
@@ -499,7 +536,7 @@ pub(crate) fn findings(
             let plugin = plugin.map_err(|e| anyhow!("{e}"))?;
             for check in &plugin.manifest.checks {
                 let host = Rc::new(CliHost::default());
-                let input = Input { module: m.clone(), game: game.clone() };
+                let input = Input::new(m.clone(), game.clone());
                 match mg_plugin::run_check(&plugin, &check.id, input, host.clone()) {
                     Ok(found) => all.extend(found),
                     Err(e) => all.push(plugin.check_failed(&check.id, &e)),

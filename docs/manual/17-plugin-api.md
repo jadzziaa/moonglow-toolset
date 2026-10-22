@@ -1,14 +1,14 @@
 ---
 type: Manual Page
 title: Plugin API reference
-description: Reference of the plugin API - mg, ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, Luau, limits and what the API doesn't have yet.
+description: Reference of the plugin API - mg, ctx.selection and ctx.open, ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
 generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T12:04:41Z }
 ---
 
 # Plugin API reference
 
-Everything a plugin's code can use, for plugin API 0.3. The API is
+Everything a plugin's code can use, for plugin API 0.4. The API is
 experimental: a later release may change it, and each change is listed
 in the API's [change list](https://github.com/jadzziaa/moonglow-toolset/tree/develop/docs/plugins).
 How plugins work and how to write one is in
@@ -29,7 +29,7 @@ nothing, and a check is reported as failed.
 
 | | |
 | --- | --- |
-| `mg.api` | The plugin API of the Moonglow running, as text: `"0.3"`. |
+| `mg.api` | The plugin API of the Moonglow running, as text: `"0.4"`. |
 | `mg.command(id, handler)` | Registers the function for the command the manifest declares as `id`. `handler(ctx)` makes its edits with `ctx.edit`. It may return what Undo calls the change, as `{ label = "…" }` or the text alone; else that is the command's title. |
 | `mg.check(id, handler)` | Registers the function for the check the manifest declares as `id`. `handler(ctx)` returns a list of findings (below), or nothing for none. A check that edits fails. |
 | `mg.on(id, handler)` | Registers the function for the event the manifest declares as `id` (`[event]`, with `on = "module-opened"` or `"module-saved"`). `handler(ctx)` is called when it happens, as a command's is; `ctx.event` says what happened: `ctx.event.name`, and for a save `ctx.event.resources`, the names of the resources changed since the last save. It may return what Undo calls its change. |
@@ -80,6 +80,36 @@ typed value is written (a list's item, a whole GFF). Each returns
 - There is none for a struct, a list or a `void` (bytes): write those
   as tables, `{ type = "list", value = { … } }`,
   `{ type = "struct", value = { … }, __struct_id = 0 }`.
+
+## `ctx.selection`, `ctx.open`
+
+What a command was run on, and what is open in the window (since API
+0.4). They are read as `ctx.module` is, with nothing asked: they only
+say which of the module's objects the user means, and a plugin reads the
+whole module anyway.
+
+| | |
+| --- | --- |
+| `ctx.selection` | What the command is run on: a list of entries (below), from 1. From a right-click menu (a command whose manifest says what it is `for`), what the menu was opened on: the objects selected in the area view (a right-click on an object selects it, as for every command of that menu), the blueprints chosen in a palette (Ctrl+click chooses several), the object or blueprint of a row of the module tree, or an area. From the Plugins menu, the Command Palette or a key: the objects selected in the area view in front, else the blueprints selected in the palette, else none. Empty in a check and in an event's handler. |
+| `ctx.open` | The area or editor in front (of the middle of the window, or of the pane with the focus), as an entry; nil if there is none. An area's view and its Properties are the area; an object's or a blueprint's Properties the object or the blueprint; another editor its resource, with its type as `kind` (`"nss"`, `"dlg"`). |
+
+An entry:
+
+| Field | |
+| --- | --- |
+| `selected.kind` | What it is: `"creature"`, `"door"`, `"encounter"`, `"item"`, `"placeable"`, `"sound"`, `"store"`, `"trigger"` or `"waypoint"` (placed, or a blueprint), or `"area"`. |
+| `selected.resource` | The resource it is in: for a placed object its area's GIT (`"tavern.git"`), for a blueprint the blueprint (`"guard.utc"`), for an area its ARE (`"tavern.are"`). |
+| `selected.path` | Where in the resource (see [Paths](#paths)): `"/Placeable List[3]"` for a placed object, `""` for one that is the resource's root. A field of it is `s.path .. "/Tag"`, and `ctx.module:raw(s.resource, s.path)` reads it. |
+| `selected.blueprint` | True for a blueprint; false for a placed object and an area. |
+| `selected.module` | Whether it is the module's: false for a blueprint of the game's (of a standard palette), which `ctx.game` reads and no edit can change. |
+| `selected.area` | The area's resref, for a placed object and an area; else nil. |
+| `selected.index` | A placed object's place in its list, from 0 as in its path; else nil. |
+| `selected.tag` | Its tag, as the job's copy of the module has it (nil if it has none). |
+| `selected.resref` | A blueprint's or an area's resref; for a placed object the blueprint it was made from (its `TemplateResRef`). |
+
+The entries are what was selected when the job began; its own edits
+don't change them (a placed object deleted by `ctx.edit:remove_item`
+leaves those after it a place lower in their list).
 
 ## `ctx.module`
 
@@ -332,7 +362,10 @@ logged, `confirm` is false (true with `--yes`), and a form is nil in a
 check and takes its defaults and `--answer`s with `mg`. A file or a
 folder is nil in a check; with `mg` it is the next `--file PATH` given.
 Writing a hak is refused in a check, and with `mg` unless `--yes` is
-given (the haks go to `--hak-dir`, or the user folder's `hak`).
+given (the haks go to `--hak-dir`, or the user folder's `hak`). With
+`mg`, `ctx.selection` is what `--select` names (each
+`tavern.git/Placeable List[3]`, `guard.utc` or `tavern.are`) and
+`ctx.open` what `--open` names; else nothing.
 
 ## `ctx.plugin`
 
@@ -370,7 +403,9 @@ reached only through what the user chooses (`ctx.ui:open_file`,
 ## What the API doesn't have yet
 
 Plugins can't yet react to other events than a module opened or saved
-(a single resource saved, a selection, an area opened), add panels or their own editors, draw in the area view, read what is
-selected in an area, write files other than haks and those of a folder the user chose, or keep settings. These are planned for later versions of the API; what
+(a single resource saved, the selection changed, an area opened), add
+panels or their own editors, draw in the area view, change what is
+selected, write files other than haks and those of a folder the user
+chose, or keep settings. These are planned for later versions of the API; what
 you'd use them for is welcome on the
 [issue tracker](https://github.com/jadzziaa/moonglow-toolset/issues).

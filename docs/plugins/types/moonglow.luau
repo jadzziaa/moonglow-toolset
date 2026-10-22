@@ -1,5 +1,5 @@
 --!strict
--- The types of Moonglow's plugin API, version 0.3, for editors that check
+-- The types of Moonglow's plugin API, version 0.4, for editors that check
 -- Luau (luau-lsp): point the alias "moonglow" at this file in a `.luaurc`
 -- in or above your plugin's folder, and `require("@moonglow")` is typed
 -- and completed:
@@ -156,7 +156,36 @@ export type Terrain = {
     open: (self: Terrain, area: string) -> Area,
 }
 
+-- Something selected or open in the window (API 0.4): what it is, and
+-- where (the resource and path that ctx.edit takes: a field of it is
+-- `path .. "/Tag"`).
+export type Selected = {
+    -- "creature", "placeable"... (placed, or a blueprint), "area"; for
+    -- another editor open, its resource's type ("nss", "dlg").
+    kind: string,
+    resource: string,
+    -- Where in the resource: "/Placeable List[3]"; "" for its root.
+    path: string,
+    -- A blueprint (of a palette, or the module tree), not a placed object.
+    blueprint: boolean,
+    -- In the module (false: one of the game's blueprints).
+    module: boolean,
+    -- The area's resref, for a placed object and an area.
+    area: string?,
+    -- A placed object's place in its list, from 0.
+    index: number?,
+    tag: string?,
+    -- A blueprint's or an area's own; a placed object's blueprint.
+    resref: string?,
+}
+
 export type Context = {
+    -- What a command was run on (the objects selected in the area view,
+    -- the blueprints in a palette, what was right-clicked); empty in a
+    -- check and an event (API 0.4).
+    selection: { Selected },
+    -- The area or editor in front, if any (API 0.4).
+    open: Selected?,
     module: Reader,
     game: Game,
     edit: Edit,
@@ -172,7 +201,7 @@ export type Context = {
 
 local mg = {}
 
-mg.api = "0.3"
+mg.api = "0.4"
 
 -- A command's handler may return what Undo calls the change:
 -- { label = "..." }, or the text alone.

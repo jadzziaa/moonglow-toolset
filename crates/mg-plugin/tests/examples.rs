@@ -71,7 +71,7 @@ impl Host for TestHost {
 }
 
 fn input(module: &Module) -> Input {
-    Input { module: module.clone(), game: None }
+    Input::new(module.clone(), None)
 }
 
 #[test]
@@ -90,6 +90,7 @@ fn every_example_registers_what_it_declares() {
         [
             "example.creature-report",
             "example.hello",
+            "example.set-local",
             "example.store-markup",
             "example.tag-conventions",
             "example.tileset-import"
@@ -192,6 +193,107 @@ fn store_markup_sets_what_its_form_says() {
     );
 }
 
+/// API 0.4: commands for what was right-clicked. A local variable set on
+/// a placed object and a blueprint (one of that name replaced), the
+/// game's blueprint left alone; and an area's objects counted.
+#[test]
+fn set_local_acts_on_the_selection() {
+    use mg_core::ResRef;
+    use mg_plugin::{Selected, Selection, Target};
+    use mg_rules::ObjectKind;
+    let plugin = example("set-local");
+    let decl = |id: &str| plugin.manifest.commands.iter().find(|c| c.id == id).unwrap().clone();
+    assert_eq!(decl("set-local").targets.len(), 9);
+    assert_eq!(decl("count-objects").targets, [Target::Area]);
+    let mut m = module();
+    let mut git = Gff::new(*b"GIT ");
+    let mut chest = Struct::new(9);
+    chest.set("Tag", Value::String(b"CHEST".to_vec()));
+    let mut waypoint = Struct::new(5);
+    waypoint.set("Tag", Value::String(b"WP_DOOR".to_vec()));
+    git.root.set("Placeable List", Value::List(vec![chest]));
+    git.root.set("WaypointList", Value::List(vec![waypoint.clone(), waypoint]));
+    m.set_gff(key("tavern.git"), &git).unwrap();
+    let mut are = Gff::new(*b"ARE ");
+    are.root.set("Tag", Value::String(b"TAVERN".to_vec()));
+    m.set_gff(key("tavern.are"), &are).unwrap();
+    // The guard has the variable already, as an int.
+    let mut guard = m.gff(&key("guard.utc")).unwrap().unwrap();
+    let mut var = Struct::new(0);
+    var.set("Name", Value::String(b"role".to_vec()));
+    var.set("Type", Value::Dword(1));
+    var.set("Value", Value::Int(7));
+    guard.root.set("VarTable", Value::List(vec![var]));
+    m.set_gff(key("guard.utc"), &guard).unwrap();
+
+    let area = ResRef::from_str("tavern").unwrap();
+    let selection = Selection {
+        selected: vec![
+            Selected::Object { area, kind: ObjectKind::Placeable, index: 0 },
+            Selected::Blueprint(key("guard.utc")),
+            Selected::Blueprint(key("nw_chest.utp")),
+        ],
+        open: Some(Selected::Area(area)),
+    };
+    let host = Rc::new(TestHost::default());
+    let values = BTreeMap::from([
+        ("name".to_string(), serde_json::json!("role")),
+        ("type".to_string(), serde_json::json!("string")),
+        ("value".to_string(), serde_json::json!("workbench")),
+    ]);
+    host.answers.borrow_mut().push_back(Some(Answer::Values(values)));
+    let run_on = Input { selection, ..input(&m) };
+    let outcome = run_command(&plugin, "set-local", run_on, host.clone()).unwrap();
+    let Question::Form { title, .. } = &host.asked.borrow()[0] else { panic!("no form") };
+    assert_eq!(title, "A local variable on 2 objects", "not the game's blueprint");
+    assert_eq!(outcome.label, "Set role");
+    assert_eq!(
+        host.log.borrow().as_slice(),
+        ["CHEST: role = workbench", "gate_guard: role = workbench"]
+    );
+    let mut ws = Workspace::new(m.clone());
+    ws.apply(Command::new(outcome.label, outcome.edits)).unwrap();
+    let vars = |ws: &mut Workspace, name: &str, at: Option<(&str, usize)>| {
+        let g = ws.doc(&key(name)).unwrap();
+        let s = match at {
+            Some((list, i)) => &g.root.list(list).unwrap()[i],
+            None => &g.root,
+        };
+        (s.list("VarTable").unwrap().iter())
+            .map(|v| {
+                let text = |l: &str| String::from_utf8(v.string(l).unwrap().to_vec()).unwrap();
+                (text("Name"), v.integer("Type").unwrap(), text("Value"))
+            })
+            .collect::<Vec<_>>()
+    };
+    let role = ("role".to_string(), 3, "workbench".to_string());
+    assert_eq!(
+        vars(&mut ws, "tavern.git", Some(("Placeable List", 0))),
+        std::slice::from_ref(&role)
+    );
+    assert_eq!(vars(&mut ws, "guard.utc", None), [role], "the int replaced");
+
+    // The area right-clicked; else the one open.
+    let host = Rc::new(TestHost::default());
+    let on = Selection { selected: vec![Selected::Area(area)], open: None };
+    run_command(&plugin, "count-objects", Input { selection: on, ..input(&m) }, host.clone())
+        .unwrap();
+    let opened = Selection { selected: vec![], open: Some(Selected::Area(area)) };
+    run_command(&plugin, "count-objects", Input { selection: opened, ..input(&m) }, host.clone())
+        .unwrap();
+    assert_eq!(
+        host.log.borrow().as_slice(),
+        ["TAVERN: 1 placeables, 2 waypoints", "TAVERN: 1 placeables, 2 waypoints"]
+    );
+    // Nothing selected, no area open: it says so.
+    let host = Rc::new(TestHost::default());
+    run_command(&plugin, "count-objects", input(&m), host.clone()).unwrap();
+    assert_eq!(
+        host.asked.borrow().as_slice(),
+        [Question::Message("Right-click an area, or open one.".into())]
+    );
+}
+
 /// With the game's data (where there is an install): class names come
 /// from `classes.2da` and the talk table.
 #[test]
@@ -203,7 +305,7 @@ fn creature_report_names_the_classes() {
     let install = mg_resman::GameInstall::new(&root, None, "en");
     let game = std::sync::Arc::new(mg_rules::GameData::open(&install).unwrap());
     let host = Rc::new(TestHost::default());
-    let input = Input { module: module(), game: Some(game) };
+    let input = Input::new(module(), Some(game));
     let outcome =
         run_command(&example("creature-report"), "list-classes", input, host.clone()).unwrap();
     assert!(outcome.edits.is_empty());
@@ -271,6 +373,7 @@ fn the_type_file_has_the_whole_api() {
                     "file" => "File",
                     "folder" => "Folder",
                     "image" => "Image",
+                    "selected" => "Selected",
                     "ctx" | "ctx.plugin" => "Context",
                     other => panic!("no type for {other}"),
                 };

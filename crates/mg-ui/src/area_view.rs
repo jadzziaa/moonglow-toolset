@@ -5025,6 +5025,26 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
             }
         }
     }
+    // The plugins' commands for what is selected (with nothing selected,
+    // for the area), run on it.
+    let commands = app.plugin_menu_commands();
+    if !commands.is_empty() {
+        use mg_plugin::{Selected, Target};
+        let area = view.area;
+        let (kinds, selected): (Vec<Target>, Vec<Selected>) = if view.selection.is_empty() {
+            (vec![Target::Area], vec![Selected::Area(area)])
+        } else {
+            let mut kinds: Vec<Target> =
+                view.selection.iter().map(|(k, _)| Target::Object(*k)).collect();
+            kinds.sort();
+            kinds.dedup();
+            let selected = view.selection.iter();
+            (kinds, selected.map(|&(kind, index)| Selected::Object { area, kind, index }).collect())
+        };
+        if let Some(i) = crate::plugins::menu_commands(ui, &commands, &kinds) {
+            app.actions.push(crate::plugins::run_on(&commands[i], selected));
+        }
+    }
     // Variables, then Properties: the menu's last, as in Aurora.
     ui.separator();
     if let Some((kind, index)) = single
