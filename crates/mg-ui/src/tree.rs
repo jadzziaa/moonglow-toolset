@@ -15,8 +15,9 @@ use crate::{Action, Moonglow, Tab};
 /// What Make Placeables Static does, for its menu items.
 const STATIC_TIP: &str = "Sets Static on the placeables that lose nothing by it: the game loads and \
     draws static placeables more cheaply. Left dynamic: those that are Useable, are tilted, \
-    scaled or moved by a visual transform, or have a script, a conversation, a trap, an \
-    inventory or an animation switched on";
+    scaled or moved by a visual transform, have a script, a conversation, a trap, an \
+    inventory or an animation switched on, or have variables, or the project's moonglow.toml \
+    says so";
 
 pub(crate) const GROUPS: &[(&str, &[ResType])] = &[
     ("Areas", &[ResType::ARE]),

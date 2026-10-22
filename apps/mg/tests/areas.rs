@@ -155,6 +155,98 @@ fn placeables_are_made_static_in_the_areas_chosen() {
     assert_eq!(fixed(), [1, 0], "the Useable chest stays dynamic");
 }
 
+/// `--static-placeables` in a module folder with a project file: a
+/// placeable with variables stays dynamic, and the project's rules keep
+/// others; each is named with why. What the file doesn't understand is
+/// said too.
+#[test]
+fn make_static_follows_the_project_file() {
+    let dir = mg_testkit::scratch_dir("mg-areas-static-project");
+    let archive = dir.join("caves.mod");
+    module(&archive);
+    let folder = dir.join("caves");
+    let mut m = Module::open(&archive).unwrap();
+    let git_key = key("inn", ResType::GIT);
+    let mut git = m.gff(&git_key).unwrap().unwrap();
+    let placeable = |tag: &str, var: Option<&str>| {
+        let mut p = Struct::new(9);
+        p.set("Tag", Value::String(tag.as_bytes().to_vec()));
+        p.set("Static", Value::Byte(0));
+        p.set("Useable", Value::Byte(0));
+        if let Some(name) = var {
+            let mut v = Struct::new(0);
+            v.set("Name", Value::String(name.as_bytes().to_vec()));
+            v.set("Type", Value::Dword(1));
+            v.set("Value", Value::Int(1));
+            p.set("VarTable", Value::List(vec![v]));
+        }
+        p
+    };
+    git.root.set(
+        "Placeable List",
+        Value::List(vec![
+            placeable("ROCK", None),
+            placeable("STONE", Some("tdod_lore")),
+            placeable("CRATE", Some("x_note")),
+            placeable("LAMP_1", None),
+        ]),
+    );
+    m.set_gff(git_key, &git).unwrap();
+    m.save().unwrap();
+    m.save_as(&ModuleLocation::Folder(folder.clone())).unwrap();
+    std::fs::write(
+        folder.join("moonglow.toml"),
+        "[make_static]\nkeep_variables = [\"tdod_*\"]\nkeep_tags = [\"LAMP_*\"]\nshout = 1\n",
+    )
+    .unwrap();
+    let out = crate::mg()
+        .args(["--json", "areas"])
+        .arg(&folder)
+        .args(["--all", "--static-placeables"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let left: Vec<(String, String)> = json["left_dynamic"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| (l["tag"].as_str().unwrap().into(), l["why"].as_str().unwrap().into()))
+        .collect();
+    assert_eq!(
+        left,
+        [
+            ("STONE".into(), "it has the variable tdod_lore".into()),
+            ("LAMP_1".into(), "the project keeps tags LAMP_* dynamic".into()),
+        ]
+    );
+    let notes: Vec<&str> =
+        json["notes"].as_array().unwrap().iter().filter_map(|n| n.as_str()).collect();
+    let said = "moonglow.toml:4: \"shout\" is not a key of [make_static]";
+    assert!(notes.contains(&said), "{notes:?}");
+    let git = Module::open(&folder).unwrap().gff(&git_key).unwrap().unwrap();
+    let fixed: Vec<i64> = git
+        .root
+        .list("Placeable List")
+        .unwrap()
+        .iter()
+        .map(|p| p.integer("Static").unwrap())
+        .collect();
+    assert_eq!(fixed, [1, 0, 1, 0], "x_note isn't the project's");
+    // Without the file, any variable keeps a placeable dynamic.
+    let out = crate::mg()
+        .arg("areas")
+        .arg(&archive)
+        .args(["--all", "--static-placeables"])
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        err.contains("inn: placeable 2 CRATE left dynamic: it has the variable x_note"),
+        "{err}"
+    );
+}
+
 /// `--grass`, `--remove-grass` and `--tileset-grass`: the areas' own grass
 /// set in their GITs' AreaProperties, where the game reads it.
 #[test]

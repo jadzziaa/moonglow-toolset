@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Modules
-description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
+description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T07:08:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T07:17:50Z }
 ---
 
 # Modules
@@ -350,6 +350,67 @@ or open the module in Moonglow and make the change there.
 The command needs no game install, and `--json` prints the conflicts for
 a script or a bot. NWNT files (nasher's other text form) aren't merged
 yet.
+
+## The project file (moonglow.toml)
+
+A team's rules for Moonglow are kept with its module, in version
+control: a `moonglow.toml` beside `nasher.cfg` in a nasher project, or
+at the root of a module folder. Moonglow reads it when the module opens,
+and again when it changes (with reloading on, Options › General), and
+the log says so. A module kept in one file (`.mod`) has none: its folder
+holds other modules too. Without the file, Moonglow does what it does
+for any module.
+
+```toml
+[make_static]                       # Make Placeables Static leaves dynamic:
+keep_variables = ["tdod_*"]         # a placeable with a variable so named
+keep_tags = ["LAMP_*", "TORCH"]     # a placeable whose tag matches
+keep_resrefs = ["tdod_*"]           # one placed from a blueprint so named
+
+[tags]
+unique = ["TDOD_START_*", "*_STORE_*"]   # on one object of the module only
+paste_warning = "custom"            # which duplicates a paste says it made
+
+[store]                             # Setup Store
+open_script = "tdod_vendor_open"    # the reply that opens the store runs it
+tag = "{area}_STORE_{n}"            # the store's tag
+blueprint = "tdod_vendor"           # the store blueprint chosen at first
+keeper_variable = "tdod_store"      # the shopkeeper's variable: the store's tag
+```
+
+Names are matched by globs, whatever their case: `*` any characters,
+`?` one, `[abc]` one of them, `{a,b}` either.
+
+| Key | What it does | Without it |
+| --- | --- | --- |
+| `[make_static] keep_variables` | a placeable with a variable these name stays dynamic; `[]`: variables don't keep one | any variable keeps it |
+| `[make_static] keep_tags` | a placeable whose tag these name stays dynamic | none |
+| `[make_static] keep_resrefs` | a placeable placed from a blueprint these name (its `TemplateResRef`) stays dynamic | none |
+| `[tags] unique` | tags that must be on one area or placed object only: Verify Module warns of two (`tag-unique`) | none |
+| `[tags] paste_warning` | which tags a paste or a copy says it put on more than one object: `"custom"` (those a builder set, not the object's blueprint's own tag, and those of `unique`), `"any"`, `"unique"` (those of `unique` only) or `"off"`; never a static placeable's | `"custom"` |
+| `[store] open_script` | the script the shopkeeper's reply runs to open the store; none is written | an `openstoreNNN` that calls `OpenStore` |
+| `[store] tag` | the store's tag: `{area}` the area's tag, `{n}` the first number no object has | the blueprint's tag, with a number where another object has it (with a `[store]` section; Aurora's, the blueprint's, without one) |
+| `[store] blueprint` | the store blueprint chosen at first | none chosen |
+| `[store] keeper_variable` | a String variable set on the shopkeeper to the store's tag | none |
+
+See [Make Placeables Static](04-areas.md#static-placeables-many-at-once),
+[Duplicate tags](04-areas.md#duplicate-tags) and [Setup
+Store](04-areas.md#setup-store).
+
+**What the file doesn't understand** is said in the log (and by `mg`) by
+file and line, and the rest is read: a key or a section it doesn't know,
+a value of the wrong kind (`moonglow.toml:12: "colour" is not a key of
+[store]`). A file that is no TOML at all is an error, by line, and its
+rules are left out until it is mended.
+
+**Each builder's own settings** go in `.moonglow/user.toml` in the same
+folder, never in the file the team shares. Nothing in Moonglow writes
+it yet: make the folder by hand, with a `.gitignore` in it holding `*`,
+so that it stays out of version control without a line in the project's
+own (the log warns while `.moonglow` has none). It holds
+`[builder] code`, the builder's code, which Moonglow reads but does not
+use yet (new ResRefs are to start with it). A team's section put there,
+or `[builder]` put in the team's file, is said and left out.
 
 ## Recovering unsaved work
 

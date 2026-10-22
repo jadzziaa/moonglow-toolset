@@ -3348,3 +3348,95 @@ fn context_menus() {
     right_click(&mut h, row);
     shoot(&mut h, &dir, "menu-tree-area");
 }
+
+/// Setup Store's pages as Aurora has them and as a project's
+/// moonglow.toml makes them (its script, its store tag), and the
+/// Duplicate Tags window a paste opens.
+#[test]
+#[ignore]
+fn store_wizard_by_the_project_and_duplicate_tags() {
+    use mg_module::instances::{Placement, Placing, instance};
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    use mg_module::{Module, ModuleLocation};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let install = GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let dir = mg_testkit::output_dir("screens");
+    let mut rng = fastrand::Rng::with_seed(5);
+    let mut m: Module = new_module(&game, "Shop", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Market".into(),
+        tileset: mg_core::ResRef::from_str("ttr01").unwrap(),
+        width: 2,
+        height: 2,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let bp = game.resman.get(&ResKey::parse("nw_bandit001", ResType::UTC).unwrap()).unwrap();
+    let bp = mg_gff::Gff::read(&bp).unwrap();
+    let none = |_: mg_core::ResRef| None;
+    let placing = Placing { game: &game, item: &none };
+    let at = Placement { position: [5.0, 5.0, 0.0], rotation: 0.0 };
+    let keeper = instance(&placing, ResType::UTC, &bp.root, at, &[]).unwrap();
+    let git = ResKey::new(area, ResType::GIT);
+    let mut g = m.gff(&git).unwrap().unwrap();
+    g.root.set("Creature List", mg_gff::Value::List(vec![keeper]));
+    m.set_gff(git, &g).unwrap();
+    let scratch = mg_testkit::scratch_dir("screens-store-project");
+    let plain = scratch.join("plain");
+    let project = scratch.join("project");
+    m.save_as(&ModuleLocation::Folder(plain.clone())).unwrap();
+    m.save_as(&ModuleLocation::Folder(project.clone())).unwrap();
+    std::fs::write(
+        project.join("moonglow.toml"),
+        "[store]\nopen_script = \"tdod_vendor_open\"\ntag = \"{area}_STORE_{n}\"\n\
+         blueprint = \"nw_storethief001\"\nkeeper_variable = \"tdod_store\"\n",
+    )
+    .unwrap();
+    for (name, folder) in [("aurora", &plain), ("project", &project)] {
+        let mut app = Moonglow::new(Some(install.clone()), Box::new(NoDialogs::default()));
+        app.open_module(folder);
+        app.open_palette = false;
+        mg_ui::store_wizard::open(&mut app, area, "Creature List", 0);
+        if name == "aurora" {
+            app.store_wizard.as_mut().unwrap().store =
+                mg_core::ResRef::from_str("nw_storethief001").ok();
+        }
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1000.0, 760.0))
+            .wgpu()
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        shoot(&mut h, &dir, &format!("setup-store-{name}-conversation"));
+        h.get_by_label("Next >").click();
+        h.run_steps(3);
+        shoot(&mut h, &dir, &format!("setup-store-{name}-store"));
+        h.get_by_label("Next >").click();
+        h.run_steps(3);
+        shoot(&mut h, &dir, &format!("setup-store-{name}-finish"));
+        if name == "project" {
+            h.state_mut().store_wizard = None;
+            let made = |i: usize| mg_ui::tag_clash::Made {
+                key: git,
+                path: GffPath::root().item("WaypointList", i),
+            };
+            let clash = |tag: &str, count, unique: Option<&str>| mg_module::tags::Clash {
+                tag: tag.into(),
+                count,
+                unique: unique.map(str::to_string),
+            };
+            h.state_mut().tag_clash = Some(mg_ui::tag_clash::TagClash {
+                what: "The paste".into(),
+                clashes: vec![
+                    clash("TDOD_START_KREZK", 2, Some("TDOD_START_*")),
+                    clash("KREZK_RENTAL_DOOR", 3, None),
+                ],
+                objects: vec![
+                    (made(1), "TDOD_START_KREZK".into()),
+                    (made(2), "KREZK_RENTAL_DOOR".into()),
+                ],
+                others: 0,
+            });
+            shoot(&mut h, &dir, "duplicate-tags");
+        }
+    }
+}

@@ -200,8 +200,10 @@ mg areas mymodule.mod --tileset tin01 --grass Wood:grass:2:0.4 --tileset-grass n
 
 - **`--static-placeables`**: sets Static on each area's placeables that
   lose nothing by it (not the Useable ones, those a visual transform
-  changes, nor those with a script, conversation, trap, inventory or
-  animation switched on); see [Areas](04-areas.md).
+  changes, those with a script, conversation, trap, inventory or
+  animation switched on, those with variables, nor those the project
+  file keeps dynamic); see [Areas](04-areas.md). Each placeable left
+  dynamic is named with why (a note, and `left_dynamic` in the JSON).
   **`--dynamic-placeables`** clears Static on every placeable.
 
 - **`--set FIELD=VALUE`**: a field of the area's `.are` by its label

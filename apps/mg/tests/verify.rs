@@ -130,6 +130,47 @@ fn verify_warns_of_an_object_of_the_pc_faction() {
     assert!(check.is_some_and(|c| c["group"] == "objects"), "{checks}");
 }
 
+/// A tag the project's moonglow.toml wants unique, on two waypoints of a
+/// module folder: a warning (Verify passes), `tag-unique`, listed by `mg
+/// checks` with the objects' checks.
+#[test]
+fn verify_warns_of_a_unique_tag_on_two_objects() {
+    let root = mg_testkit::corpus!();
+    let chess = root.join("data/mod/Neverwinter Chess.mod");
+    let dir = mg_testkit::scratch_dir("mg-verify-unique-tag").join("chess");
+    let mut m = Module::open(&chess).unwrap();
+    let git = ResKey::new(ResRef::from_str("chess").unwrap(), ResType::GIT);
+    let mut g = m.gff(&git).unwrap().unwrap();
+    let mut w = Struct::new(5);
+    w.set("Tag", Value::String(b"TDOD_START_KREZK".to_vec()));
+    w.set("XPosition", Value::Float(1.0));
+    w.set("YPosition", Value::Float(1.0));
+    g.root.set("WaypointList", Value::List(vec![w.clone(), w]));
+    m.set_gff(git, &g).unwrap();
+    m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
+    std::fs::write(dir.join("moonglow.toml"), "[tags]\nunique = [\"TDOD_START_*\"]\n").unwrap();
+    let out = crate::mg()
+        .args(["--root", root.to_str().unwrap(), "--no-user-dir", "verify", "--json"])
+        .arg(&dir)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let found: Vec<&serde_json::Value> = json["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|f| f["check"] == "tag-unique")
+        .collect();
+    assert_eq!(found.len(), 1, "{json}");
+    assert_eq!(found[0]["severity"], "warning");
+    assert_eq!(found[0]["at"], "waypoint 0 in chess, waypoint 1 in chess");
+    let checks = crate::mg().args(["--json", "checks"]).output().unwrap();
+    let checks: serde_json::Value = serde_json::from_slice(&checks.stdout).unwrap();
+    let check = checks["checks"].as_array().unwrap().iter().find(|c| c["id"] == "tag-unique");
+    assert!(check.is_some_and(|c| c["group"] == "objects"), "{checks}");
+}
+
 /// A module naming a talk table the game can't find doesn't load: Verify
 /// fails on it. The table in the module's own resources is found, as the
 /// game finds it there (`tests/engine_tlk.rs`).

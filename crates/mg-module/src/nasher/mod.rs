@@ -9,7 +9,7 @@
 //! files of the resources that changed.
 
 mod cfg;
-mod glob;
+pub(crate) mod glob;
 mod project;
 
 pub use cfg::{Package, Section, Settings, Target, sections};

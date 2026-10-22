@@ -12,6 +12,7 @@ use mg_gff::{FieldType, Struct, Value};
 use mg_resman::ResKey;
 
 use crate::Module;
+use crate::project_file::StaticRules;
 use crate::vars::VarType;
 
 /// ARE `Flags` bits.
@@ -171,7 +172,10 @@ impl Change {
 /// Which of an area's placeables can be made static, and why the others
 /// are left: the game merges static placeables into the area's tiles when
 /// it loads, so they cost less to load and draw, but they can't be used,
-/// tilted or scaled, play no animations and can't be destroyed.
+/// tilted or scaled, play no animations, are Plot and can't be destroyed
+/// from sight. (The server keeps one as an object, which scripts find by
+/// its tag and whose variables they read, `engine_static_placeables`; but
+/// what they do to it, the players don't see.)
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StaticPlan {
     /// To make static: their places in `Placeable List`.
@@ -185,6 +189,70 @@ pub struct StaticPlan {
     /// Left dynamic: with a script, a conversation, a trap or an
     /// inventory, or switched on (its animation state).
     pub active: usize,
+    /// Left dynamic: with variables (those the project names, else any),
+    /// which scripts set or read on it.
+    pub variables: usize,
+    /// Left dynamic: the project's rules name its tag or its blueprint.
+    pub project: usize,
+    /// Each left dynamic, and why.
+    pub kept: Vec<(usize, Kept)>,
+}
+
+/// Why Make Placeables Static leaves a placeable dynamic.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Kept {
+    Useable,
+    Transformed,
+    /// A script (`OnUsed`), `Conversation`, `TrapFlag`, `HasInventory` or
+    /// `AnimationState`: the field.
+    Active(String),
+    /// A variable, by name.
+    Variable(String),
+    /// The project's `keep_tags` pattern its tag matches.
+    Tag(String),
+    /// The project's `keep_resrefs` pattern its blueprint matches.
+    ResRef(String),
+}
+
+impl Kept {
+    /// Why, in a few words: `it has the variable tdod_light`.
+    pub fn describe(&self) -> String {
+        match self {
+            Kept::Useable => "it is Useable".into(),
+            Kept::Transformed => "a visual transform tilts, scales or moves it".into(),
+            Kept::Active(field) => format!("it has {field}"),
+            Kept::Variable(name) => format!("it has the variable {name}"),
+            Kept::Tag(p) => format!("the project keeps tags {p} dynamic"),
+            Kept::ResRef(p) => format!("the project keeps blueprints {p} dynamic"),
+        }
+    }
+}
+
+impl StaticPlan {
+    /// What was left dynamic, by reason, for a line of text (`2 Useable,
+    /// 1 with variables`); empty for none.
+    pub fn left(&self) -> String {
+        let parts = [
+            (self.useable, "Useable"),
+            (self.transformed, "with a visual transform"),
+            (self.active, "with a script, conversation, trap, inventory or animation"),
+            (self.variables, "with variables"),
+            (self.project, "kept by the project's rules"),
+        ];
+        let said: Vec<String> =
+            parts.iter().filter(|(n, _)| *n > 0).map(|(n, what)| format!("{n} {what}")).collect();
+        said.join(", ")
+    }
+
+    /// Adds another area's plan to this one's counts (not its places).
+    pub fn add(&mut self, other: &StaticPlan) {
+        self.already += other.already;
+        self.useable += other.useable;
+        self.transformed += other.transformed;
+        self.active += other.active;
+        self.variables += other.variables;
+        self.project += other.project;
+    }
 }
 
 /// Whether a placed object's visual transform (EE's `VisTransformList`,
@@ -203,35 +271,85 @@ fn transforms(s: &Struct) -> bool {
     listed || s.child("VisualTransform").is_some_and(|v| changed(&|label: &str| v.float(label)))
 }
 
-/// What making an area's placeables static would do (`git`: the area's
-/// GIT root).
-pub fn static_plan(git: &Struct) -> StaticPlan {
-    let mut plan = StaticPlan::default();
-    let on = |s: &Struct, label: &str| s.integer(label).unwrap_or(0) != 0;
-    for (i, p) in git.list("Placeable List").unwrap_or(&[]).iter().enumerate() {
-        let named = |label: &str| p.resref(label).is_some_and(|r| !r.is_empty());
-        let scripted = p.fields.iter().any(|f| {
-            let empty = matches!(&f.value, Value::ResRef(r) if r.is_empty());
-            f.label.as_bytes().starts_with(b"On") && matches!(f.value, Value::ResRef(_)) && !empty
-        });
-        if on(p, "Static") {
-            plan.already += 1;
-        } else if on(p, "Useable") {
-            plan.useable += 1;
-        } else if transforms(p) {
-            plan.transformed += 1;
-        } else if scripted
-            || named("Conversation")
-            || on(p, "TrapFlag")
-            || on(p, "HasInventory")
-            || on(p, "AnimationState")
-        {
-            plan.active += 1;
-        } else {
-            plan.convert.push(i);
+/// Why a placeable that isn't static is to stay dynamic, if it is.
+fn kept(p: &Struct, rules: &StaticRules) -> Option<Kept> {
+    let on = |label: &str| p.integer(label).unwrap_or(0) != 0;
+    if on("Useable") {
+        return Some(Kept::Useable);
+    }
+    if transforms(p) {
+        return Some(Kept::Transformed);
+    }
+    let script = p.fields.iter().find(|f| {
+        let empty = matches!(&f.value, Value::ResRef(r) if r.is_empty());
+        f.label.as_bytes().starts_with(b"On") && matches!(f.value, Value::ResRef(_)) && !empty
+    });
+    if let Some(f) = script {
+        return Some(Kept::Active(f.label.to_string_lossy().to_string()));
+    }
+    if p.resref("Conversation").is_some_and(|r| !r.is_empty()) {
+        return Some(Kept::Active("Conversation".into()));
+    }
+    for label in ["TrapFlag", "HasInventory", "AnimationState"] {
+        if on(label) {
+            return Some(Kept::Active(label.into()));
         }
     }
+    let text = |b: &[u8]| String::from_utf8_lossy(b).into_owned();
+    for v in p.list("VarTable").unwrap_or(&[]) {
+        let name = text(v.string("Name").unwrap_or_default());
+        if rules.keep_variables.matches(&name) {
+            return Some(Kept::Variable(name));
+        }
+    }
+    let tag = text(p.string("Tag").unwrap_or_default());
+    if let Some(glob) = rules.keep_tags.matching(&tag) {
+        return Some(Kept::Tag(glob.into()));
+    }
+    let resref = p.resref("TemplateResRef").map(|r| r.to_string()).unwrap_or_default();
+    if let Some(glob) = rules.keep_resrefs.matching(&resref).filter(|_| !resref.is_empty()) {
+        return Some(Kept::ResRef(glob.into()));
+    }
+    None
+}
+
+/// What making an area's placeables static would do (`git`: the area's
+/// GIT root), by the project's rules (`StaticRules::default()` without a
+/// project file: a placeable with any variable stays dynamic).
+pub fn static_plan(git: &Struct, rules: &StaticRules) -> StaticPlan {
+    let mut plan = StaticPlan::default();
+    for (i, p) in git.list("Placeable List").unwrap_or(&[]).iter().enumerate() {
+        if p.integer("Static").unwrap_or(0) != 0 {
+            plan.already += 1;
+            continue;
+        }
+        let Some(why) = kept(p, rules) else {
+            plan.convert.push(i);
+            continue;
+        };
+        match &why {
+            Kept::Useable => plan.useable += 1,
+            Kept::Transformed => plan.transformed += 1,
+            Kept::Active(_) => plan.active += 1,
+            Kept::Variable(_) => plan.variables += 1,
+            Kept::Tag(_) | Kept::ResRef(_) => plan.project += 1,
+        }
+        plan.kept.push((i, why));
+    }
     plan
+}
+
+/// The fields to change to make placeable `p` static: `Static` set, and
+/// its visual transform taken off (a static placeable has none; it would
+/// change nothing). Each with its new value (`None`: removed).
+pub fn static_fields(p: &Struct) -> Vec<(&'static str, Option<Value>)> {
+    let mut out = vec![("Static", Some(Value::Byte(1)))];
+    for label in ["VisTransformList", "VisualTransform"] {
+        if p.contains(label) {
+            out.push((label, None));
+        }
+    }
+    out
 }
 
 /// What a change did to one area.
@@ -350,6 +468,7 @@ pub fn apply(
 ) -> Result<Vec<Changed>, String> {
     let mut done = Vec::new();
     let mut write = Vec::new();
+    let rules = m.project_file.make_static.clone();
     for &area in areas {
         let are_key = ResKey::new(area, ResType::ARE);
         let git_key = ResKey::new(area, ResType::GIT);
@@ -437,15 +556,16 @@ pub fn apply(
                 }
                 Change::StaticPlaceables => {
                     let Some(git) = git.as_mut() else { continue };
-                    let plan = static_plan(&git.root);
+                    let plan = static_plan(&git.root, &rules);
                     let Some(list) = git.root.list_mut("Placeable List") else { continue };
                     for &i in &plan.convert {
                         let p = &mut list[i];
-                        p.set("Static", Value::Byte(1));
-                        // (One that changes nothing: static placeables
-                        // have none.)
-                        p.remove("VisTransformList");
-                        p.remove("VisualTransform");
+                        for (label, value) in static_fields(p) {
+                            match value {
+                                Some(v) => p.set(label, v),
+                                None => _ = p.remove(label),
+                            }
+                        }
                         let tag = String::from_utf8_lossy(p.string("Tag").unwrap_or_default());
                         note(
                             format!("placeable {i} {tag} Static"),
@@ -685,6 +805,68 @@ mod tests {
         p
     }
 
+    /// A VarTable of one string variable.
+    fn vars_named(name: &str) -> Value {
+        Value::List(vec![var(name, 3, Value::String(b"x".to_vec()))])
+    }
+
+    /// A placeable with variables stays dynamic (scripts set or read
+    /// them, and what they do to it a static one wouldn't show), and so
+    /// do those the project's rules name; each with why.
+    #[test]
+    fn variables_and_the_project_s_rules_keep_placeables_dynamic() {
+        let mut m = module();
+        let key = ResKey::new(r("inn"), ResType::GIT);
+        let mut git = m.gff(&key).unwrap().unwrap();
+        let blueprint = |name: &str| ("TemplateResRef", Value::resref(r(name)));
+        git.root.set(
+            "Placeable List",
+            Value::List(vec![
+                placeable("ROCK", &[]),
+                placeable("STONE", &[("VarTable", vars_named("tdod_lore"))]),
+                placeable("CRATE", &[("VarTable", vars_named("x_note"))]),
+                placeable("LAMP_3", &[]),
+                placeable("BENCH", &[blueprint("tdod_bench")]),
+                placeable("TABLE", &[blueprint("plc_table")]),
+            ]),
+        );
+        m.set_gff(key, &git).unwrap();
+        // Without a project file: any variable.
+        let plan = static_plan(&git.root, &StaticRules::default());
+        assert_eq!(plan.convert, [0, 3, 4, 5]);
+        assert_eq!(plan.variables, 2);
+        assert_eq!(plan.kept[0], (1, Kept::Variable("tdod_lore".into())));
+        assert_eq!(plan.left(), "2 with variables");
+        // The project's: its variables, tags and blueprints.
+        let p = |globs: &[&str]| crate::project_file::Patterns::new(globs).unwrap();
+        let rules = StaticRules {
+            keep_variables: p(&["tdod_*"]),
+            keep_tags: p(&["LAMP_*"]),
+            keep_resrefs: p(&["TDOD_*"]),
+        };
+        let plan = static_plan(&git.root, &rules);
+        assert_eq!(plan.convert, [0, 2, 5], "x_note is not the project's");
+        assert_eq!((plan.variables, plan.project), (1, 2));
+        let why: Vec<String> = plan.kept.iter().map(|(_, k)| k.describe()).collect();
+        assert_eq!(
+            why,
+            [
+                "it has the variable tdod_lore",
+                "the project keeps tags LAMP_* dynamic",
+                "the project keeps blueprints TDOD_* dynamic"
+            ]
+        );
+        assert_eq!(plan.left(), "1 with variables, 2 kept by the project's rules");
+        // The command follows the module's project file.
+        m.project_file.make_static = rules;
+        let done = apply(&mut m, &[r("inn")], &[Change::StaticPlaceables], CP).unwrap();
+        let what: Vec<&str> = done.iter().map(|c| c.what.as_str()).collect();
+        assert_eq!(
+            what,
+            ["placeable 0 ROCK Static", "placeable 2 CRATE Static", "placeable 5 TABLE Static"]
+        );
+    }
+
     /// A `VisTransformList` whose X rotation is `degrees`.
     fn tilt(degrees: f32) -> Value {
         let mut entry = Struct::new(6);
@@ -716,9 +898,11 @@ mod tests {
             ]),
         );
         m.set_gff(key, &git).unwrap();
-        let plan = static_plan(&git.root);
+        let plan = static_plan(&git.root, &StaticRules::default());
         assert_eq!(plan.convert, [0, 4]);
         assert_eq!((plan.already, plan.useable, plan.transformed, plan.active), (1, 1, 1, 3));
+        assert_eq!(plan.kept[2], (5, Kept::Active("OnHeartbeat".into())));
+        assert_eq!(plan.kept[2].1.describe(), "it has OnHeartbeat");
 
         let areas = [r("cave1"), r("inn")];
         let done = apply(&mut m, &areas, &[Change::StaticPlaceables], CP).unwrap();

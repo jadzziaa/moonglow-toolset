@@ -4385,6 +4385,7 @@ fn paste_at(app: &mut Moonglow, view: &mut AreaView, at: Vec3) {
         .collect();
     let mut edits = Vec::new();
     let mut selection = Vec::new();
+    let mut made = Vec::new();
     for ((o, s, _), position) in clip.objects.iter().zip(pasted_positions(view, &clip, at)) {
         let count = counts.get_mut(&o.kind).expect("every kind");
         edits.push(mg_edit::Edit::insert_item(
@@ -4395,10 +4396,16 @@ fn paste_at(app: &mut Moonglow, view: &mut AreaView, at: Vec3) {
             mg_area::edit::moved(o, s, position, o.rotation),
         ));
         selection.push((o.kind, *count));
+        made.push(crate::tag_clash::Made {
+            key: git,
+            path: mg_edit::GffPath::root().item(o.kind.list(), *count),
+        });
         *count += 1;
     }
     if !edits.is_empty() {
         app.actions.push(Action::Apply(Command::new("Paste", edits)));
+        // (Then, the tags it put on a second object.)
+        app.actions.push(Action::CheckTags { what: "The paste".into(), made });
         view.selection = selection;
     }
 }
