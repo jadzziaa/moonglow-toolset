@@ -331,14 +331,19 @@ fn a_plugin_s_own_tests_run_as_in_a_pipeline() {
     let text = String::from_utf8_lossy(&out.stdout);
     let said = String::from_utf8_lossy(&out.stderr);
     assert!(out.status.success(), "{text}{said}");
-    assert!(text.lines().all(|l| l.starts_with("ok\ttags.toml › ")), "{text}");
-    assert!(said.contains("example.tag-conventions: 3 tests, 3 passed, 0 failed"), "{said}");
+    assert!(
+        text.lines()
+            .all(|l| l.starts_with("ok\ttags.toml › ") || l.starts_with("ok\tbuiltin.toml › ")),
+        "{text}"
+    );
+    assert!(said.contains("example.tag-conventions: 5 tests, 5 passed, 0 failed"), "{said}");
     let (ok, json) = mg(&["plugin", "test", example.to_str().unwrap()]);
     assert!(ok);
-    assert_eq!((json["passed"].as_u64(), json["failed"].as_u64()), (Some(3), Some(0)));
+    assert_eq!((json["passed"].as_u64(), json["failed"].as_u64()), (Some(5), Some(0)));
 
     // The module of `module()`, which has no captain: the command's test
-    // finds no such resource, and the others pass.
+    // finds no such resource, and nor do builtin.toml's find the gate's
+    // posts; the others pass.
     let dir = mg_testkit::scratch_dir("mg-plugin-test");
     let other = module(&dir);
     let out = run(&["--module", other.to_str().unwrap()]);
@@ -348,7 +353,7 @@ fn a_plugin_s_own_tests_run_as_in_a_pipeline() {
         text.contains("FAIL\ttags.toml › the command upper-cases every tag, in one step: "),
         "{text}"
     );
-    assert!(String::from_utf8_lossy(&out.stderr).contains("2 passed, 1 failed"));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("2 passed, 3 failed"));
     let none = crate::mg()
         .args(["--no-user-dir", "plugin", "test"])
         .arg(fixtures().join("hostile"))

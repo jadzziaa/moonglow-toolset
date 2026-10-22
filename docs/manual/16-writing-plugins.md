@@ -3,7 +3,7 @@ type: Manual Page
 title: Writing plugins
 description: Writing plugins - a first plugin, how a plugin runs (events too, a resource's own around a save and the after-create hook), the manifest, reading and editing the module, commands on what is selected, the game's data, talking to the user, settings (ctx.settings, their scopes and where each is kept), files and haks outside the module, areas and terrain, checks and the fixes of their findings, several files, trying and testing (a plugin's own tests, mg plugin test), editor types, versions, sharing, and a project's own plugins.
 tags: [manual, plugins, luau]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:30:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T22:07:09Z }
 ---
 
 # Writing plugins
@@ -858,11 +858,15 @@ value = "CAPTAIN"
 
 ```text
 $ mg plugin test docs/plugins/examples/tag-conventions
+ok	builtin.toml › Moonglow's tag-unique finds the gate's post twice
+ok	builtin.toml › its fix retags the second post
 ok	tags.toml › a lower-case tag is found, with its fix
 ok	tags.toml › the fix upper-cases that tag, and the check finds no more
 ok	tags.toml › the command upper-cases every tag, in one step
-example.tag-conventions: 3 tests, 3 passed, 0 failed
+example.tag-conventions: 5 tests, 5 passed, 0 failed
 ```
+
+(`builtin.toml` runs one of Moonglow's own checks, below.)
 
 An event's test names what happened. The `house-rules` example's tests
 (`tests/events.toml`) hold its save's handler to a module as it was
@@ -920,18 +924,81 @@ A test may also name a game, `root = "~/games/nwn-ee"` (the game's
 folder, as `mg --root` takes it: absolute, from the test file's folder,
 or from your home folder with `~/`), in the file for all its tests or in
 one, to be read in place of the one `mg` finds; a root that is no game
-fails the test. A test that fails having read from the game something
-its game data has not says which, and where to put it: `the game's data
-has no parts_chest.2da, which it read (there is no game install, nor the
-test's game folder, game): put it in game, or name a game with root =
-"…"`. (A plugin that reads the game in a `pcall` and makes do without
-is told so too, as its test then finds other than it wants.)
+fails the test, and says how to name none. **`root = false`** reads no
+game at all (since Moonglow 2.3.0): the test's game data is its own game
+folder and the fixture alone, on every machine, whatever game `mg`
+finds, as with `mg --root` of an empty folder. `root = true` is the game
+`mg` finds, as when `root` is left out: a test of a file that says
+`root = false` reads it so.
+
+A test that fails having read from the game something its game data has
+not says which, and where to put it: `the game's data has no
+parts_chest.2da, which it read (there is no game install, nor the test's
+game folder, game): put it in game, or name a game with root = "…"`. A
+test that passes all the same (its plugin read the game in a `pcall` and
+made do without) is told so in a note, since Moonglow 2.3.0: it stays
+passed, and the note is under its line (`note`), in the JSON (`notes`,
+and `noted`, how many tests have one) and in the summary (`5 passed (1
+with notes)`):
+
+```text
+ok	checks.toml › armor: the good module has none
+note	checks.toml › armor: the good module has none: it passed without parts_chest.2da, which it read and the game's data has not (the test reads no game, root = false, nor the test's game folder, game): to test it with it, put it in game, or name a game with root = "…"
+```
+
+A plugin that lists the game's resources (`ctx.game:resources()`) with
+no game is told that the list is only the fixture's and its game
+folder's (or, with no game folder either, that there is none, and the
+call fails).
+
+**Moonglow's own checks** (Verify's: `tag-unique`, `var-runtime`, the
+others `mg verify --json` names; since Moonglow 2.3.0) run on a
+fixture with `builtin = "id"` in place of `check`, so that a project's
+rules are tested beside its plugin's. A fixture that is a project
+(`moonglow.toml` and `variables.toml` beside its `nasher.cfg`, or in a
+module folder) is checked by its project file, as Verify checks the
+project; what of the project file isn't understood is a note of each
+such test. The findings, their fixes (Verify's own, such as
+`tag-unique`'s Retag) and `left` are held as a plugin's check's are; a
+builtin check has no `select`, `open`, `answers`, `yes`, `files`,
+`settings`, `log` or `error`. The `tag-conventions` example's
+`tests/builtin.toml`, on a project whose `moonglow.toml` wants the
+gate's tags unique (`[tags] unique = ["GATE_*"]`):
+
+```toml
+module = "project"
+root = false
+
+[[test]]
+name = "Moonglow's tag-unique finds the gate's post twice"
+builtin = "tag-unique"
+[[test.finding]]
+resource = "gate.git"
+at = "waypoint 0 in gate, waypoint 1 in gate"
+severity = "warning"
+fix = "Retag the other as GATE_POST_2"
+
+[[test]]
+name = "its fix retags the second post"
+builtin = "tag-unique"
+fix = "Retag the other as GATE_POST_2"
+left = 0
+[[test.field]]
+resource = "gate.git"
+field = "/WaypointList[1]/Tag"
+value = "GATE_POST_2"
+```
+
+`builtin` is a key of its own, not a `check` that falls back on
+Moonglow's: a test says which it runs whatever checks the plugin
+declares, now or later.
 
 A test (`[[test]]`) has a `name` and runs one thing:
 
 | Key | |
 | --- | --- |
 | `check`, `command` or `event` | The id of what is run, as the manifest declares it. |
+| `builtin` | One of Moonglow's own checks, by its id (`tag-unique`), in place of the plugin's (since Moonglow 2.3.0). |
 | `select`, `open` | What a command is run on and what is open (`ctx.selection`, `ctx.open`), named as `mg plugin run --select` names them: `guard.utc`, `tavern.are`, `tavern.git/Placeable List[0]`. For objects placed or pasted, the objects (`ctx.event.objects`). |
 | `answers` | A form's values by field id (`answers = { sell = 200 }`); the other fields take their defaults. |
 | `yes` | The answer to `ctx.ui:confirm` (else no). |
@@ -940,7 +1007,7 @@ A test (`[[test]]`) has a `name` and runs one thing:
 | `was` | For a resource saving or saved: the module as it was before, a fixture from the test file's folder. Its resources are the old ones (`ctx.event.old`), and the save writes those that differ. Left out: each resource as it is. |
 | `by` | What made the objects or resources (`ctx.event.by`). |
 | `settings` | The plugin's settings for the run (`settings = { code = "ab" }`), over what the fixture's project files hold and the defaults. |
-| `game`, `root` | The test's own folder of game resources and the game it reads, as the file's `game` and `root` (above) say them, for this test alone (since Moonglow 2.2.0). |
+| `game`, `root` | The test's own folder of game resources and the game it reads, as the file's `game` and `root` (above) say them, for this test alone (since Moonglow 2.2.0; `root = false` and `true` since 2.3.0). |
 
 and says what is to come of it (each key may be left out):
 

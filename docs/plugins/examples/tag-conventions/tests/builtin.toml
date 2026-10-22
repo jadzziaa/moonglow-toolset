@@ -1,0 +1,23 @@
+# Moonglow's own checks on a fixture of the plugin's: a project whose
+# moonglow.toml wants the gate's tags unique. No game is read.
+module = "project"
+root = false
+
+[[test]]
+name = "Moonglow's tag-unique finds the gate's post twice"
+builtin = "tag-unique"
+[[test.finding]]
+resource = "gate.git"
+at = "waypoint 0 in gate, waypoint 1 in gate"
+severity = "warning"
+fix = "Retag the other as GATE_POST_2"
+
+[[test]]
+name = "its fix retags the second post"
+builtin = "tag-unique"
+fix = "Retag the other as GATE_POST_2"
+left = 0
+[[test.field]]
+resource = "gate.git"
+field = "/WaypointList[1]/Tag"
+value = "GATE_POST_2"

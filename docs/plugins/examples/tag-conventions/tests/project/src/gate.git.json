@@ -1,0 +1,10 @@
+{
+  "__data_type": "GIT ",
+  "WaypointList": {
+    "type": "list",
+    "value": [
+      { "__struct_id": 5, "Tag": { "type": "cexostring", "value": "GATE_POST" } },
+      { "__struct_id": 5, "Tag": { "type": "cexostring", "value": "GATE_POST" } }
+    ]
+  }
+}

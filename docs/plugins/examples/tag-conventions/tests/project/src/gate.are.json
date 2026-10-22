@@ -1,0 +1,6 @@
+{
+  "__data_type": "ARE ",
+  "Name": { "type": "cexolocstring", "value": { "0": "Gate" } },
+  "ResRef": { "type": "resref", "value": "gate" },
+  "Tag": { "type": "cexostring", "value": "GATE" }
+}

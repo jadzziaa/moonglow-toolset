@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:30:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T22:07:09Z }
 ---
 
 # Plugin API changes
@@ -135,6 +135,24 @@ says `api = "0.4"` runs as it did):
   test that fails having read something its game data has not says which,
   and where to put it.
 - From the Domains of Dread's notes on setting up their project.
+
+Since Moonglow 2.3.0, still as API 0.4 (only additions: a plugin that
+says `api = "0.4"` runs as it did, and its tests read as they did):
+
+- A test's `root = false` (in the file, or in one test) reads no game:
+  its game data is its game folder and the fixture alone, whatever game
+  `mg` finds; `root = true` reads that one, over a file's `false`. A
+  root that is no game names `root = false` in its error.
+- A test that passes having read from the game what its game data has
+  not (in a `pcall`) is told so in a note: under its line, in the JSON
+  (`notes`, `noted`) and the summary; it stays passed. A test with no
+  game that lists the game's resources (`ctx.game:resources()`) is
+  told the list is only the fixture's and its game folder's.
+- `builtin = "id"` in a test runs one of Moonglow's own checks
+  (`var-runtime`, `tag-unique`…) on the fixture, by the fixture's
+  project file, held as a plugin's check is (`[[test.finding]]`, `fix`,
+  `left`, `[[test.field]]`). The `tag-conventions` example has one.
+- From the Domains of Dread's notes on 2.2.0.
 
 ## 0.3
 

@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:30:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T22:07:09Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -3214,15 +3214,40 @@ gaps filled in 2.2.0; what they left:
   `ctx.game:string` is nil, and a test can't bring a `dialog.tlk` (or the
   module's custom one) of its own; nor haks of its own (the fixture's
   haks are the machine's user folder's). (S)
-- **A test is told what it lacked of the game only when it fails:** a
-  passing test whose plugin made do without a resource (in a `pcall`)
-  isn't; nor one that listed the game's resources
-  (`ctx.game:resources()`) with no game, which fails as before. And a
-  fixture module that is a folder named `game` beside its test file is
-  read as the test's game folder too, unless `game = "…"` names
-  another. (S)
+- ~~**A test is told what it lacked of the game only when it fails**~~
+  Done in 2.3.0 (the Domains of Dread's notes on 2.2.0, 3): a passing
+  test is told in a note, and one with no game that lists the game's
+  resources is told what the list is of. Left: a fixture module that
+  is a folder named `game` beside its test file is read as the test's
+  game folder too, unless `game = "…"` names another. (S)
 - **`mg.struct_id` reads an id; no edit sets one:** an equipped item
   moved to another slot is removed and inserted again. (S)
+
+## From the Domains of Dread's notes on 2.2.0
+
+The builders' notes on adopting 2.2.0's features (their module at
+8a14906): five gaps, all filled in 2.3.0 (a pattern in
+`variables.toml` as long as it needs, `root = false` for a test with no
+game, a note for what a passing test lacked, `builtin` checks in a
+plugin's tests, `var-runtime`'s nearest name). What they left:
+
+- **A builtin check runs one check a test:** a test names one
+  (`builtin = "var-runtime"`); the whole of what `mg verify` finds on a
+  fixture takes a test a check. (S)
+- **`left` after a builtin check's fix reads the game's data with the
+  fixture as it was:** the checks that read the module itself (tags,
+  variables) see the fix; one that reads a module's resource through
+  the game's data (a module's 2DA, for `2da-*`) does not. (S)
+- **A builtin check with no game counts no talk-table strings:**
+  `2da-strref` and `custom-tlk` then find what the game would not; a
+  test's game folder brings no `dialog.tlk` (above). (S)
+- **With no game and no game folder, `ctx.game` is empty, the fixture
+  not in it:** in Moonglow it is the game with the module over it, so
+  a plugin that reads the module's own 2DAs through `ctx.game` needs a
+  game folder (or a game) in its test. (S)
+- **`var-runtime`'s nearest name is of entries of their own:** a typo of
+  a name a builder's glob describes (`tdod_rental_*`), taken by a glob
+  of the scripts', has no hint. (S)
 
 ## Release and packaging
 

@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:30:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T22:07:09Z }
 ---
 
 # Modules
@@ -579,7 +579,7 @@ help = "A test's hook: the next d20 rolled (the tests set it on the module)"
 
 | Key | What it says | Without it |
 | --- | --- | --- |
-| `[name]` | a variable of that name (in its case); a glob (`["tdod_rental_*"]`, in quotes) describes every variable it names that has no description of its own | |
+| `[name]` | a variable of that name (in its case), up to 1024 characters (what Aurora's Variables window takes; the game reads longer ones); a glob (`["tdod_rental_*"]`, in quotes, with `*`, `?`, `[abc]` and `{a,b}` alternatives) describes every variable it names that has no description of its own, and is as long as it needs (since Moonglow 2.3.0: before, 64 characters) | |
 | `type` | `"int"`, `"float"`, `"string"`, `"object"` or `"location"` | any type (said in the log) |
 | `on` | what it goes on: `module`, `area`, `creature`, `door`, `encounter`, `item`, `placeable`, `sound`, `store`, `trigger`, `waypoint` (blueprints, placed objects and the items they hold alike) | anything |
 | `values` | the values it takes: `["herb", "ore"]`, or each with what it means, `{ forge = "Smithing" }` | any |
@@ -614,7 +614,17 @@ to the descriptions:
 | `var-value` | a value none of its values (a value in another case is named: the scripts compare as written), out of its range, or no row of its table | a warning |
 | `var-object` | a variable on another kind of object than it says | a warning |
 | `var-name` | a described name in another case, and (with `undescribed`) a variable named as the project's that is described nowhere | a warning |
-| `var-runtime` | a variable described as the scripts' own (`runtime = true`) kept in the module: there from the start, on every server (a test's hook set so fixes every roll) | an error: Verify fails |
+| `var-runtime` | a variable described as the scripts' own (`runtime = true`) kept in the module: there from the start, on every server (a test's hook set so fixes every roll). One that a glob of the scripts' takes and that is near a name of its own entry is said with that name, as `var-name` says one (`tdod_lore_txt`, which `["tdod_lore_*"]` takes: `tdod_lore_text?`; since Moonglow 2.3.0) | an error: Verify fails |
+
+A file's own glob of the scripts' may take a builder's typo: a name is
+described by its own entry, else by the first glob that matches it, so
+put the builders' globs before the scripts'. A typo of a builder's name
+that a glob of the scripts' takes is said as `var-runtime`, with the
+builder's name it is near.
+
+A plugin's tests can run these checks, and `tag-unique`, on a fixture
+that is a project of its own: `builtin = "var-runtime"`
+([Writing plugins](16-writing-plugins.md#a-plugins-own-tests)).
 
 `mg vars MODULE` lists the descriptions, with the values a script's
 constants and a table's rows give (`--on placeable`: those that go on
