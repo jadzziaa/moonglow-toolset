@@ -22998,7 +22998,8 @@ const DESCRIBED: &str = "undescribed = [\"tdod_*\"]\n\n\
     values = { forge = \"Smithing\", tanner = \"Leatherworking\" }\n\
     help = \"The craft the bench serves, within 5 m\"\n\n\
     [tdod_lit]\ntype = \"int\"\nvalues = { 1 = \"lit\" }\nhelp = \"A fire: 1, lit\"\n\n\
-    [tdod_banker]\ntype = \"int\"\non = [\"creature\"]\n";
+    [tdod_banker]\ntype = \"int\"\non = [\"creature\"]\n\n\
+    [tdod_trodden]\ntype = \"int\"\nruntime = true\n";
 
 /// The Variables window offers the project's described variables
 /// (`variables.toml`) as a name is typed, sets the type of the one
@@ -23019,7 +23020,7 @@ fn the_variables_window_offers_the_project_s_described_variables() {
     let mut app = app_with(Vec::new());
     app.open_module(&dir);
     assert!(
-        app.log.entries.iter().any(|e| e.1.contains("3 variables described in variables.toml"))
+        app.log.entries.iter().any(|e| e.1.contains("4 variables described in variables.toml"))
     );
     let path = mg_edit::GffPath::root().item("Placeable List", 0);
     app.var_edit = Some(VarTableEdit::new(FieldTarget::new(git, path, "VarTable"), &[]));
@@ -23035,6 +23036,7 @@ fn the_variables_window_offers_the_project_s_described_variables() {
     // What goes on a placeable is offered, as it is typed.
     assert!(h.query_by_label("tdod_workbench").is_some() && h.query_by_label("tdod_lit").is_some());
     assert!(h.query_by_label("tdod_banker").is_none(), "a creature's");
+    assert!(h.query_by_label("tdod_trodden").is_none(), "the scripts' own: never offered");
     h.get(egui_kittest::kittest::by().predicate(hint)).type_text("tdod_w");
     h.run();
     assert!(h.query_by_label("tdod_lit").is_none());
@@ -23062,6 +23064,17 @@ fn the_variables_window_offers_the_project_s_described_variables() {
     assert!(
         h.query_by_label(
             "tdod_lit is to be an Int (variables.toml:9): as String the scripts read nothing"
+        )
+        .is_some()
+    );
+    // One the scripts alone set, typed whole: said, its type not taken.
+    h.state_mut().var_edit.as_mut().unwrap().rows[1].name = "tdod_trodden".into();
+    h.run();
+    assert_eq!(row(&h, 1).kind, 3, "as it was");
+    assert!(
+        h.query_by_label(
+            "tdod_trodden is set by the scripts while the server runs (variables.toml:18): it is \
+             never to be kept in a file"
         )
         .is_some()
     );

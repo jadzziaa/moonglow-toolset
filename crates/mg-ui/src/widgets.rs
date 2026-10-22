@@ -265,6 +265,13 @@ impl VarHelp {
                 )),
             };
         };
+        if d.runtime {
+            return Some(format!(
+                "{name} is set by the scripts while the server runs ({file}:{}): it is never to \
+                 be kept in a file",
+                d.line
+            ));
+        }
         let have = VarType::of(r.kind.into());
         if let (Some(want), Some(have)) = (d.var_type, have)
             && want != have
@@ -434,7 +441,9 @@ fn description_tip(d: &Described) -> String {
 /// described with, where the window sets that type; a value that type
 /// can't hold is emptied.
 fn take_described_type(variables: &Variables, r: &mut VarRow) {
-    let Some(t) = variables.describe(r.name.trim()).and_then(|d| d.var_type) else { return };
+    // (Not one the scripts alone set: it is said, not taken.)
+    let described = variables.describe(r.name.trim()).filter(|d| !d.runtime);
+    let Some(t) = described.and_then(|d| d.var_type) else { return };
     let editable = |k: u32| VarType::of(k.into()).is_some_and(|t| t.field_type().is_some());
     if t.code() == r.kind || t.field_type().is_none() || !editable(r.kind) {
         return;

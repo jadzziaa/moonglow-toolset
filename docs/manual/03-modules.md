@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:41:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:00:02Z }
 ---
 
 # Modules
@@ -568,6 +568,11 @@ help = "What the creature is, where its race misleads"
 ["tdod_rental_*"]               # every variable so named that isn't described above
 type = "string"
 on = ["creature", "placeable"]
+
+["tdod_*_d20"]                  # the scripts' own: never kept in a file
+type = "int"
+runtime = true
+help = "A test's hook: the next d20 rolled (the tests set it on the module)"
 ```
 
 | Key | What it says | Without it |
@@ -581,6 +586,7 @@ on = ["creature", "placeable"]
 | `other = true` | a value not listed is right too (the list is a help) | only those listed |
 | `min`, `max` | an Int's or a Float's range | any |
 | `help` | a line of help, shown with it | |
+| `runtime = true` | the scripts set it while the server runs (their state, a test's hook), and it is never kept in a file: no `undescribed` says it, the Variables window doesn't offer it, and Verify says where one is kept (since Moonglow 2.1.1) | kept in the module's files |
 | `undescribed` (at the top) | names (globs) that are the project's: a variable so named and described nowhere is said, with the described name nearest it (a typo) | not said |
 
 What the file doesn't understand is said in the log by line, as for
@@ -594,7 +600,8 @@ typed whole) takes its type, a value is chosen from its values, and its
 help is the name's tip. Under the list, the window says what the
 description finds wrong (another type, a value not listed, the wrong
 kind of object, a name in another case or like the project's and
-described nowhere); OK writes it all the same, as you have it.
+described nowhere, one only the scripts set); OK writes it all the
+same, as you have it.
 
 **Verify Module** (and `mg verify`) holds every variable of the module
 to the descriptions:
@@ -605,6 +612,7 @@ to the descriptions:
 | `var-value` | a value none of its values (a value in another case is named: the scripts compare as written), out of its range, or no row of its table | a warning |
 | `var-object` | a variable on another kind of object than it says | a warning |
 | `var-name` | a described name in another case, and (with `undescribed`) a variable named as the project's that is described nowhere | a warning |
+| `var-runtime` | a variable described as the scripts' own (`runtime = true`) kept in the module: there from the start, on every server (a test's hook set so fixes every roll) | an error: Verify fails |
 
 `mg vars MODULE` lists the descriptions, with the values a script's
 constants and a table's rows give (`--on placeable`: those that go on

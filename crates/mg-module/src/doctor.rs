@@ -65,12 +65,13 @@ pub enum Check {
     VarValue,
     VarObject,
     VarName,
+    VarRuntime,
     ClaimsMerged,
     ClaimsTag,
 }
 
 impl Check {
-    pub const ALL: [Check; 33] = [
+    pub const ALL: [Check; 34] = [
         Check::CustomTlk,
         Check::ErfSize,
         Check::SetRead,
@@ -102,6 +103,7 @@ impl Check {
         Check::VarValue,
         Check::VarObject,
         Check::VarName,
+        Check::VarRuntime,
         Check::ClaimsMerged,
         Check::ClaimsTag,
     ];
@@ -139,6 +141,7 @@ impl Check {
             Check::VarValue => "var-value",
             Check::VarObject => "var-object",
             Check::VarName => "var-name",
+            Check::VarRuntime => "var-runtime",
             Check::ClaimsMerged => "claims-merged",
             Check::ClaimsTag => "claims-tag",
         }
@@ -206,6 +209,11 @@ impl Check {
                 "a variable named as the project's are (variables.toml's undescribed) is \
                  described, and a described one is named in the case it is described in"
             }
+            Check::VarRuntime => {
+                "a variable the project describes as the scripts' alone (variables.toml's \
+                 runtime = true: state or a test's hook, set while the server runs) is kept in no \
+                 file of the module"
+            }
             Check::ClaimsMerged => {
                 "an area the project's claims table says is merged (in the game) is in the module \
                  under its ResRef, which keeps players' first visits"
@@ -246,7 +254,8 @@ impl Check {
             | Check::VarType
             | Check::VarValue
             | Check::VarObject
-            | Check::VarName => Group::Objects,
+            | Check::VarName
+            | Check::VarRuntime => Group::Objects,
             Check::CustomTlk
             | Check::ErfSize
             | Check::NuiSources
@@ -1707,6 +1716,20 @@ fn described_variables(d: &mut Doctor, module: &Module) {
                 d.push(Severity::Warning, Check::VarName, "module", key, at, message);
                 continue;
             };
+            // One the scripts alone set, kept here: it is there from the
+            // start, on every server (a test's hook fixing every roll).
+            if desc.runtime {
+                let how =
+                    if desc.is_pattern() { format!(" ({})", desc.name) } else { String::new() };
+                let message = format!(
+                    "{}{how} is set by the scripts while the server runs ({file}:{} says runtime \
+                     = true), and is never to be kept in a file: one kept here is there from the \
+                     start, on every server",
+                    f.name, desc.line
+                );
+                d.push(Severity::Error, Check::VarRuntime, "module", key, at, message);
+                continue;
+            }
             if let (Some(want), Some(have)) = (desc.var_type, f.var_type)
                 && want != have
             {
@@ -2098,6 +2121,8 @@ mod tests {
                 var("tdod_craft", Value::Int(1)),
                 var("tdod_craft2", Value::Int(7)),
                 var("someone_elses", s("x")),
+                var("tdod_trodden", Value::Int(1)),
+                var("tdod_save_d20", Value::Int(20)),
             ],
         );
         let mut good = object(9, "GOOD", vec![var("tdod_workbench", s("forge"))]);
@@ -2137,7 +2162,9 @@ mod tests {
              [tdod_harvest_dc]\ntype = \"int\"\nmin = 1\nmax = 60\n\n\
              [tdod_lamplit]\ntype = \"int\"\non = [\"area\"]\n\n\
              [tdod_kind]\ntype = \"string\"\nconstants = \"tdod_kind_inc\"\nprefix = \"TDOD_KIND_\"\n\n\
-             [\"tdod_craft*\"]\ntype = \"int\"\ntable = \"crafts\"\n",
+             [\"tdod_craft*\"]\ntype = \"int\"\ntable = \"crafts\"\n\n\
+             [tdod_trodden]\nruntime = true\nhelp = \"The scripts' own\"\n\n\
+             [\"tdod_*_d20\"]\ntype = \"int\"\nruntime = true\n",
         )
         .unwrap();
         let m = Module::open(&dir).unwrap();
@@ -2194,16 +2221,34 @@ mod tests {
             "Module › VarTable › tdod_lamplit",
             "tdod_lamplit is on a module, and variables.toml:20 says it goes on area",
         );
+        // The scripts' own, kept in a file: an error, whatever its type.
+        has(
+            "var-runtime",
+            "tdod_trodden",
+            "tdod_trodden is set by the scripts while the server runs (variables.toml:33 says \
+             runtime = true), and is never to be kept in a file: one kept here is there from the \
+             start, on every server",
+        );
+        has(
+            "var-runtime",
+            "tdod_save_d20",
+            "tdod_save_d20 (tdod_*_d20) is set by the scripts while the server runs \
+             (variables.toml:37 says runtime = true), and is never to be kept in a file: one kept \
+             here is there from the start, on every server",
+        );
         // Those that are right, and the others' variables, are not said.
-        assert_eq!(found.len(), 8, "{found:#?}");
+        assert_eq!(found.len(), 10, "{found:#?}");
         let severity = examine(&m, &rm, TalkTables::default())
             .into_iter()
             .filter(|f| f.check.starts_with("var-"))
             .map(|f| (f.check.to_string(), f.severity))
             .collect::<Vec<_>>();
         assert!(severity.contains(&("var-type".into(), Severity::Error)));
+        assert!(severity.contains(&("var-runtime".into(), Severity::Error)));
         assert!(
-            severity.iter().filter(|(c, _)| c != "var-type").all(|(_, s)| *s == Severity::Warning)
+            (severity.iter())
+                .filter(|(c, _)| c != "var-type" && c != "var-runtime")
+                .all(|(_, s)| *s == Severity::Warning)
         );
     }
 

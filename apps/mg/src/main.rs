@@ -1127,7 +1127,9 @@ fn vars(cli: &Cli, path: &Path, on: Option<&str>, name: Option<&str>) -> Result<
     let lookup = ModuleLookup::new(&m, game.as_ref().map(|g| &g.resman));
     let mut rows = Vec::new();
     for d in &p.variables.described {
-        if owner.is_some_and(|o| !d.belongs_on(o)) {
+        // (`--on`: what goes on one, as the Variables window offers it,
+        // never one the scripts alone set.)
+        if owner.is_some_and(|o| d.runtime || !d.belongs_on(o)) {
             continue;
         }
         if let Some(n) = name
@@ -1167,6 +1169,7 @@ fn vars(cli: &Cli, path: &Path, on: Option<&str>, name: Option<&str>) -> Result<
             "min": d.min,
             "max": d.max,
             "other": d.other,
+            "runtime": d.runtime,
             "values": values,
             "help": d.help,
         }));
@@ -2541,6 +2544,13 @@ fn run(cli: &Cli) -> Result<Output> {
                 let Change::Var { name, kind, .. } = c else { continue };
                 let Some(d) = m.project_file.variables.describe(name) else { continue };
                 let file = mg_module::var_desc::FILE_NAME;
+                if d.runtime {
+                    described_notes.push(format!(
+                        "{name}: {file}:{} says the scripts set it while the server runs \
+                         (runtime), never in a file: set here, it is there from the start",
+                        d.line
+                    ));
+                }
                 if !d.belongs_on(mg_module::var_desc::Owner::Area) {
                     described_notes.push(format!(
                         "{name}: {file}:{} says it goes on {}, not on an area",

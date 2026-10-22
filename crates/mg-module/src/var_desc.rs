@@ -189,13 +189,18 @@ pub struct Described {
     pub other: bool,
     pub min: Option<f64>,
     pub max: Option<f64>,
+    /// `runtime = true`: the scripts set it while the server runs (state,
+    /// a test's hook), and it is never kept in a file: not offered, and
+    /// one found in the module is said (`var-runtime`).
+    pub runtime: bool,
 }
 
 impl PartialEq for Described {
     fn eq(&self, o: &Self) -> bool {
         (&self.name, self.line, self.var_type, &self.on, &self.help, &self.values)
             == (&o.name, o.line, o.var_type, &o.on, &o.help, &o.values)
-            && (&self.source, self.other, self.min, self.max) == (&o.source, o.other, o.min, o.max)
+            && (&self.source, self.other, self.min, self.max, self.runtime)
+                == (&o.source, o.other, o.min, o.max, o.runtime)
     }
 }
 
@@ -375,6 +380,9 @@ impl Described {
             let on: Vec<&str> = self.on.iter().map(|o| o.name()).collect();
             s.push_str(&format!(", on {} {}", article_of(on[0]), or_list(&on)));
         }
+        if self.runtime {
+            s.push_str(", set by the scripts while the server runs, never in a file");
+        }
         s
     }
 }
@@ -457,11 +465,12 @@ impl Variables {
     }
 
     /// The names (not patterns) that may go on `owner`, in the file's
-    /// order: those the Variables window offers.
+    /// order: those the Variables window offers (never one only the
+    /// scripts set, `runtime`).
     pub fn names_for(&self, owner: Option<Owner>) -> impl Iterator<Item = &Described> {
         self.described
             .iter()
-            .filter(move |d| !d.is_pattern() && owner.is_none_or(|o| d.belongs_on(o)))
+            .filter(move |d| !d.is_pattern() && !d.runtime && owner.is_none_or(|o| d.belongs_on(o)))
     }
 
     /// What is wrong with an undescribed variable's name, if anything.
@@ -614,6 +623,7 @@ fn described(r: &mut Reader, name: &str, at: usize, t: &DeTable) -> Option<Descr
         other: false,
         min: None,
         max: None,
+        runtime: false,
     };
     let (mut script, mut prefix, mut table, mut column) = (None, None, None, None);
     for e in in_order(t) {
@@ -691,6 +701,10 @@ fn described(r: &mut Reader, name: &str, at: usize, t: &DeTable) -> Option<Descr
                 DeValue::Boolean(b) => d.other = *b,
                 _ => r.warn(at, "other is true or false"),
             },
+            "runtime" => match v.get_ref() {
+                DeValue::Boolean(b) => d.runtime = *b,
+                _ => r.warn(at, "runtime is true or false"),
+            },
             "min" | "max" => match number(v.get_ref()) {
                 Some(n) if k.get_ref() == "min" => d.min = Some(n),
                 Some(n) => d.max = Some(n),
@@ -760,7 +774,9 @@ fn described(r: &mut Reader, name: &str, at: usize, t: &DeTable) -> Option<Descr
         }
         _ => {}
     }
-    if d.var_type.is_none() {
+    // (One the scripts alone set is described for people: no type is
+    // checked, as none is found in a file.)
+    if d.var_type.is_none() && !d.runtime {
         r.warn(
             line_at,
             format!("{name} has no type: its type isn't checked (type = \"int\", \"string\"...)"),
@@ -1090,6 +1106,36 @@ on = ["creature", "placeable"]
         );
         assert_eq!(v.unknown("nw_other"), None, "not the project's");
         assert_eq!(distance("tdod_lit", "tdod_lti"), 1);
+    }
+
+    /// The Domains of Dread's notes on their setup, 1: the scripts' own
+    /// variables (state, a test's hook) are described as such, said by
+    /// no `undescribed`, and offered nowhere.
+    #[test]
+    fn a_variable_the_scripts_alone_set_is_described_and_never_offered() {
+        let (v, w) = read(
+            "undescribed = [\"tdod_*\"]\n\
+             [tdod_trodden]\nruntime = true\nhelp = \"Visited\"\n\
+             [\"tdod_*_d20\"]\ntype = \"int\"\non = [\"module\"]\nruntime = true\n\
+             [tdod_lit]\ntype = \"int\"\nruntime = false\n\
+             [tdod_x]\ntype = \"int\"\nruntime = \"yes\"\n",
+        );
+        assert_eq!(w, ["variables.toml:14: runtime is true or false"], "no type needed");
+        let trodden = v.describe("tdod_trodden").unwrap();
+        assert!(trodden.runtime && trodden.var_type.is_none());
+        assert_eq!(
+            trodden.words(),
+            "a variable of any type, set by the scripts while the server runs, never in a file"
+        );
+        assert!(v.describe("tdod_save_d20").unwrap().runtime);
+        assert!(!v.describe("tdod_lit").unwrap().runtime && !v.describe("tdod_x").unwrap().runtime);
+        assert_eq!(v.unknown("tdod_trodden"), None, "described: not said as a typo");
+        assert_eq!(v.unknown("tdod_save_d20"), None);
+        let offered: Vec<&str> = v.names_for(None).map(|d| d.name.as_str()).collect();
+        assert_eq!(offered, ["tdod_lit", "tdod_x"]);
+        let on_module: Vec<&str> =
+            v.names_for(Some(Owner::Module)).map(|d| d.name.as_str()).collect();
+        assert_eq!(on_module, ["tdod_lit", "tdod_x"]);
     }
 
     #[test]
