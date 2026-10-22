@@ -278,6 +278,14 @@ impl Moonglow {
         }
     }
 
+    /// Stops looking at the module's files (a look under way is dropped):
+    /// a project's command is about to change them. The watch begins
+    /// again with the next look.
+    pub(crate) fn pause_outside(&mut self) {
+        self.outside.watch = None;
+        self.outside.looking = None;
+    }
+
     /// Whether the module's files are being read (changed outside).
     pub fn looking_outside(&self) -> bool {
         self.outside.looking.is_some()
@@ -504,6 +512,10 @@ impl Moonglow {
         self.area_contents.clear();
         let keys: Vec<ResKey> = changes.iter().map(|c| c.key).collect();
         self.update_module_layer(&keys);
+        // (A module.ifo read again may list other haks: a pull's.)
+        if keys.contains(&mg_module::Module::info_key()) {
+            self.sync_haks();
+        }
         self.log.info(format!(
             "Read again from the module's files (changed outside Moonglow): {}{}",
             named(changes),

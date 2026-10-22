@@ -456,6 +456,17 @@ impl TabViewer for Viewer<'_> {
             self.app.tree_reveal = Some((*area, true));
             ui.close();
         }
+        // Claim This Area or Release Claim (the project's claims table).
+        if let Tab::Area(area) = tab
+            && crate::claims::menu_items(
+                crate::claims::of(&self.app.ws),
+                &mut self.app.actions,
+                ui,
+                *area,
+            )
+        {
+            ui.close();
+        }
         // A window of its own fills the main pane, and goes back.
         if !tab.docks() && *tab != Tab::Palette {
             let label = if self.app.maximized.contains_key(tab) { "Restore" } else { "Maximize" };

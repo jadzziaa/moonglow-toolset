@@ -44,6 +44,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResRef
         .collect();
     let pressed = app.ws.is_some().then(|| crate::blueprint::ok_cancel(ui, &targets[0], false));
     let pending = app.actions.len();
+    crate::claims::banner(app, ui, area);
     pages(app, ui, area, others);
     let tab = match others {
         [] => crate::Tab::AreaProperties(area),

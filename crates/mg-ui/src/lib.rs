@@ -18,6 +18,7 @@ mod browser;
 pub mod build_view;
 pub mod builder_code;
 pub mod bulk;
+mod claims;
 pub mod commands;
 pub mod copy_as;
 pub mod creature_wizard;
@@ -51,6 +52,7 @@ pub mod palette_categories;
 pub mod palette_view;
 pub mod plugins;
 pub mod prefabs;
+mod project_commands;
 pub mod recovery;
 pub mod references;
 pub mod saved;
@@ -299,6 +301,15 @@ pub enum Action {
     /// Asks whether to delete a resource of the module (the module tree's
     /// Delete…).
     DeleteDialog(ResKey),
+    /// Claim This Area: the area claimed by the builder's code in the
+    /// project's claims table.
+    Claim(mg_core::ResRef),
+    /// Release Claim: the builder's claim of the area let go.
+    ReleaseClaim(mg_core::ResRef),
+    /// File › Project › a command the project names (`[commands]`): the
+    /// module saved and its files let go, the command run in the project's
+    /// folder (allowed first), the module's files read again.
+    ProjectCommand(String),
     /// Deletes a resource of the module (an area with its objects, a
     /// script with its compiled one).
     DeleteResource(ResKey),
@@ -683,6 +694,11 @@ pub struct Moonglow {
     pub import: Option<ImportDraft>,
     /// An action waiting for the answer to "save changes?".
     pub confirm_discard: Option<Action>,
+    /// What is asked of claimed and protected areas.
+    pub(crate) claims: claims::ClaimsState,
+    /// The project's commands (File › Project): the one asked about, its
+    /// output.
+    pub(crate) project_commands: project_commands::CommandsState,
     /// The window's close button was pressed with nothing unsaved: asked
     /// whether to close.
     pub closing: bool,
@@ -922,6 +938,8 @@ impl Moonglow {
             tree_fold: None,
             import: None,
             confirm_discard: None,
+            claims: Default::default(),
+            project_commands: Default::default(),
             closing: false,
             render_info: None,
             outside: Default::default(),
@@ -1253,6 +1271,8 @@ impl Moonglow {
         copy_as::window(self, ui.ctx());
         tag_clash::window(self, ui.ctx());
         builder_code::window(self, ui.ctx());
+        claims::windows(self, ui.ctx());
+        project_commands::window(self, ui.ctx());
         outside::window(self, ui.ctx());
         script_nav::rename_window(self, ui.ctx());
         prefabs::save_window(self, ui.ctx());
@@ -2503,6 +2523,10 @@ impl Moonglow {
     /// Runs one action now. Actions that would discard unsaved work ask
     /// first (see [`Moonglow::confirm_discard`]).
     pub fn run(&mut self, action: Action) {
+        // A protected area's ResRef about to change: asked first.
+        if claims::asks_first(self, &action) {
+            return;
+        }
         let discards = match &action {
             // Options discard nothing unless they choose other folders: the
             // module is opened again from its file then.
@@ -2515,6 +2539,7 @@ impl Moonglow {
                     | Action::OpenModule(_)
                     | Action::Close
                     | Action::Quit
+                    | Action::ProjectCommand(_)
             ),
         };
         // The window's X: with unsaved work, the question Exit asks; with
@@ -2566,6 +2591,10 @@ impl Moonglow {
             }
             Action::NewArea(spec) => self.new_area(&spec),
             Action::SaveThen(next) => {
+                // (Areas not this builder's: asked first.)
+                if claims::hold_save(self, Action::SaveThen(next.clone())) {
+                    return;
+                }
                 self.save(None);
                 if !self.has_unsaved_work() {
                     self.run_now(*next);
@@ -2640,7 +2669,14 @@ impl Moonglow {
                 self.options = Some(draft);
             }
             Action::ApplyOptions(draft) => self.apply_options(*draft),
-            Action::Save => self.save(None),
+            Action::Save => {
+                if !claims::hold_save(self, Action::Save) {
+                    self.save(None)
+                }
+            }
+            Action::Claim(area) => claims::claim(self, area, false),
+            Action::ReleaseClaim(area) => claims::claim(self, area, true),
+            Action::ProjectCommand(name) => project_commands::run(self, &name),
             Action::SaveAsDialog => {
                 // A new module is offered as <name>.mod in the modules folder.
                 let suggested = self.module_path().or_else(|| {
@@ -2697,7 +2733,10 @@ impl Moonglow {
                 }
             }
             Action::Apply(cmd) => {
-                if let Err(e) = self.apply(cmd) {
+                // (One held for an answer says so in its window.)
+                if let Err(e) = self.apply(cmd)
+                    && !std::mem::take(&mut self.claims.held)
+                {
                     self.log.error(e.to_string());
                 }
             }
@@ -3016,6 +3055,8 @@ impl Moonglow {
     /// or talk table. On failure nothing is changed.
     pub(crate) fn apply(&mut self, cmd: Command) -> Result<(), mg_edit::EditError> {
         self.warn_shadowing(&cmd);
+        // Claimed areas kept read-only, protected names asked about.
+        claims::gate(self, &cmd)?;
         let Some(ws) = &mut self.ws else { return Ok(()) };
         // One of the game's blueprints, open to look at: nothing changes it.
         let viewed = |e: &mg_edit::Edit| match e {
@@ -3922,6 +3963,26 @@ impl Moonglow {
 
     /// Layers the module's haks as Module Properties lists them, when the
     /// list changed (an edit, an undo): no reopening needed.
+    /// Closes the module's haks, so that another program may write over
+    /// them (a project's command): whether any were closed.
+    /// [`Moonglow::sync_haks`] opens them again.
+    pub(crate) fn release_haks(&mut self) -> bool {
+        if self.haks_layered.is_empty() {
+            return false;
+        }
+        let Some(game) = exclusive(&mut self.game) else { return false };
+        let haks: Vec<String> = (game.resman.layers().iter())
+            .filter(|l| l.label.starts_with("hak:"))
+            .map(|l| l.label.clone())
+            .collect();
+        for l in haks {
+            game.resman.remove(&l);
+        }
+        self.haks_layered.clear();
+        self.game_data_changed();
+        true
+    }
+
     pub(crate) fn sync_haks(&mut self) {
         let listed = self.listed_haks();
         if listed == self.haks_layered {

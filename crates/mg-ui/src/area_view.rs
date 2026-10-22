@@ -1601,6 +1601,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
         look_at_start(app, &mut view);
     }
     toolbar(app, ui, &mut view);
+    // Whose the area is, where it isn't the builder's (the claims table).
+    crate::claims::banner(app, ui, area);
     let start = start_on_ground(app, &view);
     if let Some(e) = &view.error {
         ui.colored_label(ui.visuals().error_fg_color, e);

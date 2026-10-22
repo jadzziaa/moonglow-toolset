@@ -22307,3 +22307,372 @@ fn verify_holds_variables_to_their_descriptions() {
         "{log:#?}"
     );
 }
+
+/// A claims table of the sample's area `start`: `start` held by `cd` and
+/// merged as it is (`merged`), or held by nobody.
+fn claims_table(holder: &str, status: &str) -> String {
+    format!(
+        "2DA V2.0\n\n    Area             Builder  Status   Date        Tag\n\
+         0   start            {holder:<8} {status:<8} 2026-10-20  ****\n"
+    )
+}
+
+/// The sample module as a project folder whose moonglow.toml names a
+/// claims table, the builder `ab`; opened on its Properties.
+fn claimed_project(name: &str, rules: &str, table: &str) -> (std::path::PathBuf, Moonglow) {
+    let dir = project_folder(name, &[("moonglow.toml", rules), ("claims.2da", table)]);
+    mg_module::project_file::ProjectFile::set_builder_code(&dir, Some("ab")).unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&dir);
+    (dir, app)
+}
+
+/// An edit of the area `start`'s name, as Area Properties makes one.
+fn rename_start(name: &str) -> mg_ui::Action {
+    let key = ResKey::parse("start", ResType::ARE).unwrap();
+    mg_ui::Action::Apply(mg_edit::Command::new(
+        "Name",
+        vec![mg_edit::Edit::SetField {
+            key,
+            path: mg_edit::GffPath::root(),
+            label: "Name".into(),
+            value: Some(mg_gff::Value::LocString(LocString::from_text(
+                Language::ENGLISH,
+                Gender::Male,
+                name,
+            ))),
+        }],
+    ))
+}
+
+fn area_name(h: &mut Harness<'_, Moonglow>) -> String {
+    let are = module_gff(h, "start", ResType::ARE).unwrap();
+    are.root
+        .locstring("Name")
+        .and_then(|l| l.text(Language::ENGLISH, Gender::Male).map(|t| t.to_string()))
+        .unwrap_or_default()
+}
+
+fn logged(h: &Harness<'_, Moonglow>, s: &str) -> bool {
+    h.state().log.entries.iter().any(|e| e.1.contains(s))
+}
+
+/// The Domains of Dread's builder proposal, C6: an area another builder
+/// claimed is marked in the module tree, says so above it, and takes no
+/// change where the project keeps others' areas read-only; where it warns
+/// (the default), a save that would write a change to it asks first.
+#[test]
+fn an_area_another_builder_claimed_is_read_only_or_asked_about_before_a_save() {
+    let (dir, app) = claimed_project(
+        "ui-claims-others",
+        "[claims]\nfile = \"claims.2da\"\nothers = \"read-only\"\n",
+        &claims_table("cd", "claimed"),
+    );
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 700.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    // The tree's mark: whose it is.
+    h.get_by_label("🔒 cd");
+    // Read-only: the change is refused, and said.
+    h.state_mut().actions.push(rename_start("Market"));
+    h.run();
+    assert_eq!(area_name(&mut h), "");
+    assert!(
+        logged(
+            &h,
+            "start is claimed by cd since 2026-10-20, and the project keeps others' areas read-only"
+        ),
+        "{:?}",
+        h.state().log.entries
+    );
+    assert!(!h.state().has_unsaved_work());
+    // Its Properties say so above the pages.
+    h.state_mut()
+        .actions
+        .push(mg_ui::Action::OpenTab(Tab::AreaProperties(ResRef::from_str("start").unwrap())));
+    h.run();
+    h.run();
+    assert!(
+        h.query_by_label(
+            "🔒 start is claimed by cd since 2026-10-20: read-only here. Ask them to release it, \
+             then claim it."
+        )
+        .is_some()
+    );
+
+    // Warned: the change is made, and the save asks.
+    std::fs::write(dir.join("moonglow.toml"), "[claims]\nfile = \"claims.2da\"\n").unwrap();
+    h.state_mut().reload_project_files();
+    h.run();
+    assert!(
+        h.query_by_label(
+            "🔒 start is claimed by cd since 2026-10-20: a save asks before it writes your \
+             changes to it."
+        )
+        .is_some()
+    );
+    h.state_mut().actions.push(rename_start("Market"));
+    h.run();
+    assert_eq!(area_name(&mut h), "Market");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::S);
+    h.run();
+    h.run();
+    h.get_by_label("Areas Not Yours");
+    h.get_by_label("  •  start is claimed by cd since 2026-10-20");
+    assert!(h.state().has_unsaved_work(), "not saved yet");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run();
+    assert!(h.state().has_unsaved_work());
+    assert!(logged(&h, "Not saved: the areas not yours"));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::S);
+    h.run();
+    h.run();
+    h.get_by_label("Save Anyway").click();
+    h.run();
+    h.run();
+    assert!(!h.state().has_unsaved_work(), "saved");
+    let saved = Module::open(&dir).unwrap();
+    let are = saved.gff(&ResKey::parse("start", ResType::ARE).unwrap()).unwrap().unwrap();
+    assert_eq!(
+        are.root.locstring("Name").unwrap().text(Language::ENGLISH, Gender::Male).as_deref(),
+        Some("Market")
+    );
+    // Saved again with nothing changed in it: not asked.
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    assert!(h.query_by_label("Areas Not Yours").is_none());
+}
+
+/// C6: Claim This Area (the module tree's menu) writes the builder's row
+/// into the claims table, which is read again at once; Release Claim lets
+/// it go; without a builder code, Claim is off.
+#[test]
+fn claim_this_area_and_release_claim_edit_the_claims_table() {
+    let (dir, app) = claimed_project(
+        "ui-claims-claim",
+        "[claims]\nfile = \"builders/claims.2da\"\nunclaimed = \"warn\"\n",
+        "",
+    );
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 700.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    assert!(logged(&h, "the claims table builders/claims.2da is not there"));
+    h.get_by_label("start").click_secondary();
+    h.run();
+    h.get_by_label("Claim This Area").click();
+    h.run();
+    h.run();
+    let table = std::fs::read_to_string(dir.join("builders/claims.2da")).unwrap();
+    let row = table.lines().nth(3).unwrap();
+    assert!(row.starts_with("0   start            ab       claimed  "), "{table}");
+    assert!(logged(&h, "start claimed by ab, in builders/claims.2da: commit it"));
+    h.get_by_label("✔ ab");
+    // An edit of it is the builder's own: no question at the save.
+    h.state_mut().actions.push(rename_start("Market"));
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    h.run();
+    assert!(h.query_by_label("Areas Not Yours").is_none());
+    assert!(!h.state().has_unsaved_work());
+    // Released from the same menu.
+    h.get_by_label("start").click_secondary();
+    h.run();
+    h.get_by_label("Release Claim").click();
+    h.run();
+    h.run();
+    let table = std::fs::read_to_string(dir.join("builders/claims.2da")).unwrap();
+    assert!(table.lines().nth(3).unwrap().starts_with("0   start            ****     free     "));
+    assert!(h.query_by_label("✔ ab").is_none());
+    // Unclaimed, in a project that warns of those: said above it, and a
+    // save of a change to it asks.
+    h.state_mut().actions.push(rename_start("Square"));
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    h.run();
+    h.get_by_label("  •  start is claimed by no one");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run();
+    // No code: Claim is there, and off.
+    std::fs::write(dir.join(".moonglow/user.toml"), "").unwrap();
+    h.state_mut().reload_project_files();
+    h.run();
+    h.get_by_label("start").click_secondary();
+    h.run();
+    assert!(h.get_by_label("Claim This Area").accesskit_node().is_disabled());
+}
+
+/// C7: a merged area's Tag (or ResRef) about to change is asked about
+/// first, with a copy offered instead; changed anyway, it is changed.
+#[test]
+fn a_merged_area_s_tag_and_resref_are_asked_about_before_they_change() {
+    let (_dir, app) = claimed_project(
+        "ui-claims-protected",
+        "[claims]\nfile = \"claims.2da\"\n",
+        &claims_table("ab", "merged"),
+    );
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 700.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("✔ ab 📌");
+    let key = ResKey::parse("start", ResType::ARE).unwrap();
+    let retag = |tag: &str| {
+        mg_ui::Action::Apply(mg_edit::Command::new(
+            "Tag",
+            vec![mg_edit::Edit::SetField {
+                key,
+                path: mg_edit::GffPath::root(),
+                label: "Tag".into(),
+                value: Some(mg_gff::Value::String(tag.as_bytes().to_vec())),
+            }],
+        ))
+    };
+    let tag = |h: &mut Harness<'_, Moonglow>| {
+        let are = module_gff(h, "start", ResType::ARE).unwrap();
+        String::from_utf8_lossy(are.root.string("Tag").unwrap_or_default()).into_owned()
+    };
+    h.state_mut().actions.push(retag("START_2"));
+    h.run();
+    h.run();
+    assert_eq!(tag(&mut h), "", "held");
+    h.get_by_label("Protected Area");
+    h.get_by_label("start is merged (in the claims table).");
+    assert!(!logged(&h, "not changed yet"), "the window says it, not the log");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run();
+    assert_eq!(tag(&mut h), "");
+    // A copy instead.
+    h.state_mut().actions.push(retag("START_2"));
+    h.run();
+    h.run();
+    h.get_by_label("Make a Copy Instead…").click();
+    h.run();
+    assert!(h.state().copy_as.is_some(), "the Copy window");
+    h.state_mut().copy_as = None;
+    // Changed anyway.
+    h.state_mut().actions.push(retag("START_2"));
+    h.run();
+    h.run();
+    h.get_by_label("Change It Anyway").click();
+    h.run();
+    h.run();
+    assert_eq!(tag(&mut h), "START_2");
+    // A Name, or the Tag set to what it is: nothing asked.
+    h.state_mut().actions.push(rename_start("Market"));
+    h.state_mut().actions.push(retag("START_2"));
+    h.run();
+    h.run();
+    assert!(h.query_by_label("Protected Area").is_none());
+    assert_eq!(area_name(&mut h), "Market");
+    // Rename…: asked before its window opens.
+    h.get_by_label("start").click_secondary();
+    h.run();
+    h.get_by_label("Rename…").click();
+    h.run();
+    h.run();
+    h.get_by_label("Protected Area");
+    assert!(h.state().rename.is_none());
+    h.get_by_label("Rename It Anyway").click();
+    h.run();
+    h.run();
+    assert!(h.state().rename.is_some(), "the Rename window, once said");
+}
+
+/// The project's commands (C8): File › Project › Update… saves the
+/// module first (asked, as on closing), asks to allow the command as it
+/// reads, runs it in the project's folder with its output in the log,
+/// and reads the module's files again; allowed, it runs without asking
+/// until its text changes.
+#[test]
+fn a_project_s_command_is_allowed_once_and_run_after_a_save() {
+    let (update, fails) = if cfg!(windows) {
+        ("echo void main() {}> made.nss && echo said", "exit 3")
+    } else {
+        ("printf 'void main() {}\\n' > made.nss && echo said && echo warned 1>&2", "exit 3")
+    };
+    let rules = format!(
+        "[commands]\nupdate = {update:?}\nsubmit = {{ run = {fails:?}, label = \"Submit for Review\" }}\n"
+    );
+    let dir = project_folder("ui-project-commands", &[("moonglow.toml", &rules)]);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&dir);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 700.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().actions.push(rename_start("Market"));
+    h.run();
+    assert!(h.state().has_unsaved_work());
+    h.get_by_label("File").click();
+    h.run();
+    h.get_by_label("Project").click();
+    h.run();
+    h.get_by_label("Update…").click();
+    h.run();
+    h.run();
+    // Saved first, as on closing.
+    h.get_by_label("Save").click();
+    h.run();
+    h.run();
+    assert!(!h.state().has_unsaved_work(), "saved before it runs");
+    // Asked: the text shown.
+    h.get_by_label("Run a Project Command?");
+    h.get_by_label(update);
+    assert!(!dir.join("made.nss").exists(), "not run before it is allowed");
+    h.get_by_label("Allow and Run").click();
+    h.run();
+    h.run();
+    assert!(logged(&h, "Update: done"), "{:?}", h.state().log.entries);
+    assert!(logged(&h, "  said"));
+    let user = std::fs::read_to_string(dir.join(".moonglow/user.toml")).unwrap();
+    assert!(user.contains("[allowed_commands]\nupdate = "), "{user}");
+    // What it made is read into the module (as files changed outside are).
+    let made = ResKey::parse("made", ResType::NSS).unwrap();
+    assert!(h.state().ws.as_ref().unwrap().module.contains(&made), "{:?}", h.state().log.entries);
+    // Allowed: it runs again without asking.
+    std::fs::remove_file(dir.join("made.nss")).unwrap();
+    h.state_mut().reload_project_files();
+    h.state_mut().actions.push(mg_ui::Action::ProjectCommand("update".into()));
+    h.run();
+    h.run();
+    assert!(h.query_by_label("Run a Project Command?").is_none());
+    assert!(dir.join("made.nss").exists());
+    // Another, which fails: its exit code said.
+    h.state_mut().actions.push(mg_ui::Action::ProjectCommand("submit".into()));
+    h.run();
+    h.run();
+    h.get_by_label("Allow and Run").click();
+    h.run();
+    h.run();
+    assert!(logged(&h, "Submit for Review failed: it ended with exit code 3"));
+    // Its text changed: asked again.
+    std::fs::write(dir.join("moonglow.toml"), rules.replace("exit 3", "exit 4")).unwrap();
+    h.state_mut().reload_project_files();
+    h.state_mut().actions.push(mg_ui::Action::ProjectCommand("submit".into()));
+    h.run();
+    h.run();
+    h.get_by_label("Run a Project Command?");
+    h.get_by_label("exit 4");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run();
+    assert!(!logged(&h, "exit code 4"), "not run");
+}
+
+/// File › Project is there and off for a project that names no commands.
+#[test]
+fn file_project_is_off_without_the_project_s_commands() {
+    let dir = mg_testkit::scratch_dir("ui-project-commands-none");
+    let mut app = app_with(Vec::new());
+    app.open_module(&sample_module(&dir));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("File").click();
+    h.run();
+    assert!(h.get_by_label("Project").accesskit_node().is_disabled());
+}
