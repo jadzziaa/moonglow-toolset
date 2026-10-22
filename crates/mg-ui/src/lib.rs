@@ -2068,6 +2068,9 @@ impl Moonglow {
                 ui.add(egui::Label::new(&install).truncate()).on_hover_text(&install);
             });
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                if let Some(note) = self.looking_note() {
+                    ui.label(note);
+                }
                 if modified {
                     ui.label("(modified)");
                 }
@@ -2380,6 +2383,36 @@ impl Moonglow {
         game.resman.add(priority::MODULE, "module", LayerClass::Erf, ws.module.container());
         game.invalidate();
         text::set_game_codepage(Some(game.codepage()));
+        self.load_order_changed();
+    }
+
+    /// The game data's module layer with `keys` as the module has them
+    /// now, changed in place: built again whole, a large module's layer
+    /// took milliseconds of a frame for a few files read again
+    /// ([`crate::outside`]). The game data's tables are forgotten only
+    /// where a 2DA is among them.
+    pub(crate) fn update_module_layer(&mut self, keys: &[ResKey]) {
+        let (Some(game), Some(ws)) = (exclusive(&mut self.game), &mut self.ws) else { return };
+        if ws.flush().is_err() {
+            return;
+        }
+        let layer = game.resman.layer_mut("module").and_then(|l| l.container.as_mem_mut());
+        let Some(layer) = layer else {
+            self.refresh_module_layer();
+            return;
+        };
+        for k in keys {
+            match ws.module.shared(k) {
+                Some(data) => layer.insert(*k, data.clone()),
+                None => {
+                    layer.remove(k);
+                }
+            }
+        }
+        if keys.iter().any(|k| k.restype == ResType::TWODA) {
+            game.invalidate();
+            text::set_game_codepage(Some(game.codepage()));
+        }
         self.load_order_changed();
     }
 
@@ -3834,6 +3867,10 @@ impl Moonglow {
     /// Every few seconds, with Options › General's reloading on: the haks
     /// and folders that changed.
     fn reload_timer(&mut self, ui: &egui::Ui) {
+        // A look at the module's files under way: taken once it is done.
+        if self.take_looked() {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+        }
         // (Not under a job, which reads the game data.)
         if self.settings.no_auto_reload || self.game.is_none() || self.busy() {
             return;

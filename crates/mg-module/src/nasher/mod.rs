@@ -13,6 +13,7 @@ pub(crate) mod glob;
 mod project;
 
 pub use cfg::{Package, Section, Settings, Target, sections};
+pub(crate) use project::scan;
 pub use project::{Outside, Project, Resources, SaveReport};
 
 use mg_core::{Codepage, ResType};

@@ -743,6 +743,246 @@ fn frames_at_144_in_a_persistent_world() {
     println!("over the budget:\n  {}", r.over.join("\n  "));
 }
 
+/// The persistent world (`world/mod.rs`) kept as a nasher project, built
+/// once into `pw-world/project` and copied for each run: 25,000 source
+/// files. The copy's root.
+fn world_project(w: &world::World) -> std::path::PathBuf {
+    use mg_module::{Module, ModuleLocation};
+    let base = w.user.parent().unwrap().join("project");
+    let stamp = base.join(".built");
+    if !stamp.is_file() {
+        let _ = std::fs::remove_dir_all(&base);
+        let t = Instant::now();
+        let mut m = Module::open(&w.module).unwrap();
+        m.save_as(&ModuleLocation::Project { root: base.clone(), target: "default".into() })
+            .unwrap();
+        std::fs::write(&stamp, "").unwrap();
+        println!("kept the world as a nasher project in {:.1?}", t.elapsed());
+    }
+    let dir = mg_testkit::scratch_dir("frame-reload").join("project");
+    let mut todo = vec![(base, dir.clone())];
+    while let Some((from, to)) = todo.pop() {
+        std::fs::create_dir_all(&to).unwrap();
+        for e in std::fs::read_dir(&from).unwrap().flatten() {
+            let (f, t) = (e.path(), to.join(e.file_name()));
+            if e.file_type().unwrap().is_dir() {
+                todo.push((f, t));
+            } else {
+                std::fs::copy(&f, &t).unwrap();
+            }
+        }
+    }
+    dir
+}
+
+/// This process's memory now and at its most since [`reset_peak`], in MiB.
+fn memory() -> (u64, u64) {
+    let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    let field = |name: &str| {
+        let line = status.lines().find(|l| l.starts_with(name)).unwrap_or("");
+        line.split_whitespace().nth(1).and_then(|n| n.parse::<u64>().ok()).unwrap_or(0) / 1024
+    };
+    (field("VmRSS:"), field("VmHWM:"))
+}
+
+fn reset_peak() {
+    let _ = std::fs::write("/proc/self/clear_refs", "5");
+}
+
+/// A `git pull` on a large nasher project while it is open: the persistent
+/// world's 25,000 source files, of which 150 areas (their `.are.json` and
+/// `.git.json`), 400 blueprints and 200 scripts are rewritten, 40 scripts
+/// added and 30 deleted, in about a second, by another thread, while the
+/// window draws; one blueprint has an unsaved change here too, which is
+/// to be asked about. Every frame is timed from the pull until it is all
+/// in (and 2 s after): the longest, how many over the budget, how long it
+/// took, and the memory. `FRAME_RELOAD_AREAS` and `FRAME_RELOAD_BLUEPRINTS`
+/// change how many are rewritten. Run alone:
+/// `cargo test --release -p mg-ui --test frame_perf reload -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn reload_frames_at_144() {
+    use mg_gff::Value;
+    use std::collections::HashMap;
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let Some(w) = world::world(&root) else { return };
+    let mut r = Report::new();
+    let var =
+        |name: &str, or: usize| std::env::var(name).ok().and_then(|n| n.parse().ok()).unwrap_or(or);
+    let (areas, blueprints, scripts, added, removed) =
+        (var("FRAME_RELOAD_AREAS", 150), var("FRAME_RELOAD_BLUEPRINTS", 400), 200, 40, 30);
+    let dir = world_project(&w);
+    let rs = render_state();
+    let install = GameInstall::new(&root, Some(w.user.clone()), "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.settings.no_last_area = true;
+    let t = Instant::now();
+    app.open_module(&dir);
+    println!("a large nasher project: opened in {:.1?}", t.elapsed());
+    let mut h = harness(app, rs);
+    h.run_steps(3);
+    close(&mut h, &Tab::Palette);
+    close(&mut h, &Tab::ModuleProperties);
+    view(&mut h, &mut r, "large nasher project open (25,000 files)", None);
+
+    // What the pull writes: each file's new text, and what the module is to
+    // hold after (`None`: gone).
+    let mut plan: Vec<(std::path::PathBuf, Option<Vec<u8>>)> = Vec::new();
+    let mut expected: HashMap<ResKey, Option<Vec<u8>>> = HashMap::new();
+    let (mine, mine_path) = {
+        let ws = h.state().ws.as_ref().unwrap();
+        let project = ws.module.project.as_ref().unwrap();
+        let conversion = project.conversion();
+        let mut rewrite = |key: ResKey, n: usize| {
+            let path = project.source_path(&key).unwrap().to_path_buf();
+            let name = path.display().to_string();
+            let mut g = conversion.from_source(&name, &std::fs::read(&path).unwrap()).unwrap();
+            if key.restype == ResType::GIT {
+                for list in ["Placeable List", "Creature List", "WaypointList"] {
+                    for s in g.root.list_mut(list).into_iter().flatten() {
+                        for f in ["X", "XPosition"] {
+                            if let Some(x) = s.float(f) {
+                                s.set(f, Value::Float(x + 0.5));
+                            }
+                        }
+                    }
+                }
+            } else {
+                g.root.set("Tag", Value::String(format!("PULLED{n}").into_bytes()));
+            }
+            let text = conversion.to_source(key.restype, &g).unwrap().into_bytes();
+            let resource = conversion.from_source(&name, &text).unwrap().to_bytes().unwrap();
+            plan.push((path, Some(text)));
+            expected.insert(key, Some(resource));
+        };
+        let mut are: Vec<ResKey> = ws.module.keys_of(ResType::ARE).copied().collect();
+        are.sort();
+        for (n, k) in are.iter().take(areas).enumerate() {
+            rewrite(*k, n);
+            rewrite(ResKey::new(k.resref, ResType::GIT), n);
+        }
+        let mut bps: Vec<ResKey> = [ResType::UTI, ResType::UTC, ResType::UTP]
+            .iter()
+            .flat_map(|t| ws.module.keys_of(*t).copied().collect::<Vec<_>>())
+            .filter(|k| k.resref.to_string().starts_with("pw_"))
+            .collect();
+        bps.sort();
+        let step = (bps.len() / blueprints.max(1)).max(1);
+        for (n, k) in bps.iter().step_by(step).take(blueprints).enumerate() {
+            rewrite(*k, n);
+        }
+        let mut nss: Vec<ResKey> = ws.module.keys_of(ResType::NSS).copied().collect();
+        nss.sort();
+        for k in nss.iter().take(scripts) {
+            let path = project.source_path(k).unwrap().to_path_buf();
+            let mut text = std::fs::read(&path).unwrap();
+            text.extend_from_slice(b"\n// pulled\n");
+            plan.push((path, Some(text.clone())));
+            expected.insert(*k, Some(text));
+        }
+        for k in nss.iter().rev().take(removed) {
+            plan.push((project.source_path(k).unwrap().to_path_buf(), None));
+            expected.insert(*k, None);
+        }
+        for n in 0..added {
+            let text = format!("void main() {{ int pulled{n}; }}\n").into_bytes();
+            plan.push((dir.join(format!("src/pulled{n:03}.nss")), Some(text.clone())));
+            let k = ResKey::parse(&format!("pulled{n:03}"), ResType::NSS).unwrap();
+            expected.insert(k, Some(text));
+        }
+        // (Changed here too, unsaved: kept, and asked about.)
+        (bps[0], project.source_path(&bps[0]).unwrap().to_path_buf())
+    };
+    let edit = mg_edit::Edit::SetField {
+        key: mine,
+        path: mg_edit::GffPath::root(),
+        label: "Tag".into(),
+        value: Some(Value::String(b"MINE".to_vec())),
+    };
+    h.state_mut().actions.push(Action::Apply(mg_edit::Command::new("Tag", vec![edit])));
+    h.run_steps(2);
+    println!(
+        "  the pull: {} files ({areas} areas' .are and .git, {blueprints} blueprints, {scripts} \
+         scripts rewritten, {added} added, {removed} deleted)",
+        plan.len()
+    );
+
+    // The pull, on a thread of its own, over about a second.
+    reset_peak();
+    let (rss_before, _) = memory();
+    // (The last of each kind written: in once the pull's end is.)
+    let last: Vec<ResKey> = [ResType::ARE, ResType::GIT, ResType::UTI, ResType::NSS]
+        .iter()
+        .filter_map(|t| expected.keys().filter(|k| k.restype == *t && **k != mine).max().copied())
+        .collect();
+    let start = Instant::now();
+    let pull = std::thread::spawn(move || {
+        for (i, (path, text)) in plan.into_iter().enumerate() {
+            match text {
+                Some(t) => std::fs::write(&path, t).unwrap(),
+                None => std::fs::remove_file(&path).unwrap(),
+            }
+            if i % 2 == 0 {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+    });
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, SCREEN);
+    let is_in = |app: &Moonglow, k: &ResKey| {
+        let m = &app.ws.as_ref().unwrap().module;
+        m.get(k) == expected[k].as_deref()
+    };
+    let mut times: Vec<(Duration, Duration)> = Vec::new();
+    let (mut all_in, mut until) = (None, start + Duration::from_secs(90));
+    while Instant::now() < until {
+        let f = frames(&mut h, screen, Pointer::Moves, 1, |_, _| {});
+        times.push((start.elapsed(), f.ui[0] + f.tessellate[0]));
+        if all_in.is_none() && pull.is_finished() && last.iter().all(|k| is_in(h.state(), k)) {
+            all_in = Some(start.elapsed());
+            until = Instant::now() + Duration::from_secs(2);
+        }
+    }
+    let (rss_after, peak) = memory();
+    pull.join().unwrap();
+    let longest = times.iter().map(|(_, d)| *d).max().unwrap_or_default();
+    let at = times.iter().find(|(_, d)| *d == longest).map_or(Duration::ZERO, |(t, _)| *t);
+    let over = times.iter().filter(|(_, d)| *d > BUDGET).count();
+    let cpu: Vec<Duration> = times.iter().map(|(_, d)| *d).collect();
+    println!(
+        "  reload after a pull: {} frames, median {:.2} ms, longest {:.1} ms (at {:.1} s), {over} \
+         over the budget; all in after {}; memory {rss_before} MiB before, {rss_after} after, \
+         {peak} at most",
+        times.len(),
+        ms(pick(cpu, 0.5)),
+        ms(longest),
+        at.as_secs_f64(),
+        all_in.map_or("never (90 s)".into(), |d| format!("{:.1} s", d.as_secs_f64())),
+    );
+    if r.detail {
+        let slow: Vec<String> = (times.iter())
+            .filter(|(_, d)| *d > BUDGET)
+            .map(|(t, d)| format!("{:.1} ms at {:.2} s", ms(*d), t.as_secs_f64()))
+            .collect();
+        println!("      over the budget: {}", slow.join(", "));
+    }
+    // All of it in, the conflict kept and asked about.
+    let wrong: Vec<String> = expected
+        .keys()
+        .filter(|k| **k != mine && !is_in(h.state(), k))
+        .map(ToString::to_string)
+        .collect();
+    assert!(all_in.is_some() && wrong.is_empty(), "not read again: {wrong:?}");
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    assert_eq!(ws.doc(&mine).unwrap().root.string("Tag"), Some(&b"MINE"[..]), "kept");
+    assert_eq!(h.state().outside_conflicts(), [mine_path]);
+    if longest > BUDGET {
+        r.over.push(format!("reload after a pull: longest frame {:.1} ms", ms(longest)));
+    }
+    println!("over the budget:\n  {}", r.over.join("\n  "));
+}
+
 /// Grass's cost: a 32 by 32 rural field (ttr01, grass on nearly every
 /// tile) seen close to the ground, with the area view's grass and without,
 /// and the tufts grown again as a drag on Area Properties › Grass grows

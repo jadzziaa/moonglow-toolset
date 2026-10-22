@@ -3,11 +3,25 @@
 //! Options › General's reloading on, those the module has no unsaved
 //! change to are read again; where it has one, Moonglow's is kept and the
 //! Changed Outside Moonglow window asks which to keep.
+//!
+//! None of the looking is done on the window's thread: a [`Watch`] sees
+//! that something changed (and waits for a burst of changes, a pull's, to
+//! end), then a thread of its own reads what changed
+//! ([`mg_module::outside`]), and the window takes what it found when it
+//! is done. (On the window's thread, a large project's pull held the
+//! window for a second and a half: a builder saw it freeze.)
 
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
+use mg_core::ResType;
+use mg_module::locks::Lock;
 use mg_module::nasher::Outside;
+use mg_module::outside::OutsideFound;
+use mg_resman::ResKey;
 
 use crate::{Moonglow, Tab};
 
@@ -25,6 +39,28 @@ pub(crate) struct OutsideState {
     watch: Option<Watch>,
     /// And at the haks and folders the game data reads.
     content: Option<Watch>,
+    /// The files being read on a thread of their own, after the watch saw
+    /// a change.
+    looking: Option<Looking>,
+}
+
+/// A look at the module's files under way ([`Moonglow::look_outside`]).
+#[derive(Debug)]
+struct Looking {
+    /// The module's folder or project looked at.
+    root: PathBuf,
+    started: Instant,
+    done: std::sync::mpsc::Receiver<Looked>,
+}
+
+/// What a look found.
+#[derive(Debug)]
+struct Looked {
+    found: OutsideFound,
+    /// The locks on the objects of each area whose `.git` changed, as the
+    /// module had the area when the look began: put back as the area is
+    /// read again ([`Moonglow::take_outside`]).
+    locks: HashMap<ResKey, (Arc<[u8]>, Vec<Lock>)>,
 }
 
 /// A thread that looks at a module folder's (or a nasher project's) files
@@ -98,11 +134,24 @@ impl Watch {
                 while std::time::Instant::now() < until && !done.load(Ordering::Relaxed) {
                     std::thread::sleep(std::time::Duration::from_millis(100));
                 }
-                let now = signature(&dirs, deep);
-                if now != last {
-                    last = now;
-                    flag.store(true, Ordering::Relaxed);
+                let mut now = signature(&dirs, deep);
+                if now == last {
+                    continue;
                 }
+                // A burst of changes (a pull, a checkout) is said once it
+                // is over: when a look a moment later finds the same, or
+                // after a while of changes.
+                let settle = (every / 6).min(Duration::from_millis(500));
+                for _ in 0..20 {
+                    std::thread::sleep(settle);
+                    let again = signature(&dirs, deep);
+                    if again == now || done.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    now = again;
+                }
+                last = now;
+                flag.store(true, Ordering::Relaxed);
             }
         };
         if std::thread::Builder::new().name("moonglow files".into()).spawn(work).is_err() {
@@ -134,19 +183,24 @@ fn named(changes: &[Outside]) -> String {
 }
 
 impl Moonglow {
-    /// Every few seconds: the module's files are read again
-    /// ([`Moonglow::reload_project_files`]) if the watch saw any change
-    /// among them. The watch is the module's place's: begun with it, ended
-    /// when the module is closed or kept elsewhere.
-    pub(crate) fn reload_changed_files(&mut self) {
-        use std::sync::atomic::Ordering;
-        let root = self.ws.as_ref().and_then(|ws| {
+    /// The module's folder or nasher project, if it has one.
+    fn module_root(&self) -> Option<PathBuf> {
+        self.ws.as_ref().and_then(|ws| {
             let m = &ws.module;
             (m.project.as_ref().map(|p| p.root().to_path_buf()))
                 .or_else(|| m.folder.as_ref().map(|f| f.dir().to_path_buf()))
-        });
-        let Some(root) = root else {
+        })
+    }
+
+    /// Every few seconds: the module's files are read again, on a thread
+    /// of their own ([`Moonglow::look_outside`]), if the watch saw any
+    /// change among them. The watch is the module's place's: begun with
+    /// it, ended when the module is closed or kept elsewhere.
+    pub fn reload_changed_files(&mut self) {
+        use std::sync::atomic::Ordering;
+        let Some(root) = self.module_root() else {
             self.outside.watch = None;
+            self.outside.looking = None;
             return;
         };
         // (And the builder's own project file, in a hidden folder the
@@ -157,11 +211,104 @@ impl Moonglow {
             self.outside.watch = Some(Watch::start(paths, true, every));
         }
         let watch = self.outside.watch.as_ref().expect("just made");
-        // (A watch without its thread says nothing: looked at each time.)
-        let dead = watch.stop.load(Ordering::Relaxed);
-        if watch.changed.swap(false, Ordering::Relaxed) || dead {
+        // (A watch without its thread says nothing: looked at each time,
+        // on the window's thread, as there are no threads to be had.)
+        if watch.stop.load(Ordering::Relaxed) {
             self.reload_project_files();
+            return;
         }
+        // (One look at a time: a change seen during one is looked at
+        // after it.)
+        if self.outside.looking.is_none() && watch.changed.swap(false, Ordering::Relaxed) {
+            self.look_outside();
+        }
+    }
+
+    /// Begins a look at the module's files on a thread of its own: what is
+    /// known of them is taken now (their bytes are shared, not copied), and
+    /// [`Moonglow::take_looked`] takes what the thread found when it is
+    /// done. Without a thread, looked at here and now.
+    pub fn look_outside(&mut self) {
+        let Some(root) = self.module_root() else { return };
+        let Some(ws) = self.ws.as_mut() else { return };
+        // The project file (`moonglow.toml`) made, changed or deleted.
+        if ws.module.reread_project_file() {
+            self.log_project_file(true);
+        }
+        let Some(ws) = self.ws.as_ref() else { return };
+        let Some(scan) = ws.module.outside_scan() else { return };
+        // (The areas as they are now, for their locks: only the project's
+        // files leave them out.)
+        let areas: HashMap<ResKey, Arc<[u8]>> = if ws.module.project.is_some() {
+            (ws.module.keys_of(ResType::GIT))
+                .filter_map(|k| Some((*k, ws.module.shared(k)?.clone())))
+                .collect()
+        } else {
+            HashMap::new()
+        };
+        let (send, done) = std::sync::mpsc::channel();
+        let work = move || {
+            let found = scan.run();
+            let mut locks = HashMap::new();
+            for c in found.changes() {
+                let Some(bytes) = areas.get(&c.key) else { continue };
+                let Ok(git) = mg_gff::Gff::read(bytes) else { continue };
+                locks
+                    .insert(c.key, (bytes.clone(), mg_module::locks::locks_in(c.key.resref, &git)));
+            }
+            let _ = send.send(Looked { found, locks });
+        };
+        match std::thread::Builder::new().name("moonglow outside".into()).spawn(work) {
+            Ok(_) => {
+                self.outside.looking = Some(Looking { root, started: Instant::now(), done });
+            }
+            Err(_) => self.reload_project_files(),
+        }
+    }
+
+    /// Whether the module's files are being read (changed outside).
+    pub fn looking_outside(&self) -> bool {
+        self.outside.looking.is_some()
+    }
+
+    /// What the status bar says of a look under way that takes a while.
+    pub(crate) fn looking_note(&self) -> Option<&'static str> {
+        let looking = self.outside.looking.as_ref()?;
+        (looking.started.elapsed() > Duration::from_millis(400))
+            .then_some("Reading files changed outside Moonglow…")
+    }
+
+    /// Takes what a look at the module's files found, once it is done
+    /// (each frame while one is under way; not under a job, which holds
+    /// the game data the module's layer is in): the changes are taken as
+    /// [`Moonglow::reload_project_files`] takes them. Returns whether one
+    /// is still under way.
+    pub fn take_looked(&mut self) -> bool {
+        let Some(looking) = self.outside.looking.as_ref() else { return false };
+        if self.busy() {
+            return true;
+        }
+        let looked = match looking.done.try_recv() {
+            Ok(looked) => looked,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return true,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.outside.looking = None;
+                self.log.error("Could not look at the module's files (the look stopped)");
+                return false;
+            }
+        };
+        let looking = self.outside.looking.take().expect("under way");
+        // (Another module open since: what was found is another's.)
+        if self.module_root().as_ref() != Some(&looking.root) {
+            return false;
+        }
+        let Some(ws) = self.ws.as_mut() else { return false };
+        let (changes, problems) = ws.module.outside_found(looked.found);
+        crate::trace::changed("outside", || {
+            format!("{} changed, looked at in {:.0?}", changes.len(), looking.started.elapsed())
+        });
+        self.take_found(changes, problems, &looked.locks);
+        false
     }
 
     /// Every few seconds: the haks and folders the game data reads (and the
@@ -198,7 +345,10 @@ impl Moonglow {
     }
 
     /// Looks at the project's or the module folder's files (see the
-    /// module's notes).
+    /// module's notes) here and now, on the window's thread: what Build ›
+    /// Add Left-Out Files to nasher.cfg does after it, and tests. (The
+    /// watch's looks are done on a thread of their own:
+    /// [`Moonglow::look_outside`].)
     pub fn reload_project_files(&mut self) {
         let Some(ws) = self.ws.as_mut() else { return };
         // The project file (`moonglow.toml`) made, changed or deleted.
@@ -207,6 +357,19 @@ impl Moonglow {
         }
         let Some(ws) = self.ws.as_mut() else { return };
         let Some((changes, problems)) = ws.module.outside() else { return };
+        self.take_found(changes, problems, &HashMap::new());
+    }
+
+    /// Takes the files found changed outside: those the module has no
+    /// unsaved change to are read into it, the others wait for an answer.
+    /// `locks`: the locks of areas, found off the window's thread, as the
+    /// module had them then.
+    fn take_found(
+        &mut self,
+        changes: Vec<Outside>,
+        problems: Vec<String>,
+        locks: &HashMap<ResKey, (Arc<[u8]>, Vec<Lock>)>,
+    ) {
         // (A file moved where the project's include doesn't look is said.)
         self.take_project_warnings();
         let Some(ws) = self.ws.as_mut() else { return };
@@ -253,7 +416,7 @@ impl Moonglow {
         }
         self.outside.conflicts = conflicts;
         if !take.is_empty() {
-            self.take_outside(&take);
+            self.take_outside(&take, locks);
         }
     }
 
@@ -263,17 +426,34 @@ impl Moonglow {
     }
 
     /// Reads `changes` into the module (their files' versions), and counts
-    /// the files as read.
-    fn take_outside(&mut self, changes: &[Outside]) {
+    /// the files as read. `found`: areas' locks found already, as the
+    /// module had the areas then.
+    fn take_outside(
+        &mut self,
+        changes: &[Outside],
+        found: &HashMap<ResKey, (Arc<[u8]>, Vec<Lock>)>,
+    ) {
         let Some(ws) = self.ws.as_mut() else { return };
         // An area's locks, which a project's files don't carry, are put
-        // back on its objects as they are read again.
-        let locks: Vec<mg_module::locks::Lock> = changes
-            .iter()
-            .filter(|c| c.key.restype == mg_core::ResType::GIT)
-            .filter_map(|c| ws.module.gff(&c.key)?.ok().map(|g| (c.key, g)))
-            .flat_map(|(k, g)| mg_module::locks::locks_in(k.resref, &g))
-            .collect();
+        // back on its objects as they are read again (only a project's:
+        // a folder's files have them).
+        let mut locks: Vec<Lock> = Vec::new();
+        if ws.module.project.is_some() {
+            for c in changes.iter().filter(|c| c.key.restype == ResType::GIT) {
+                let now = ws.module.shared(&c.key);
+                match found.get(&c.key) {
+                    // (As they were found: the area is as it was then.)
+                    Some((was, these)) if now.is_some_and(|n| Arc::ptr_eq(n, was)) => {
+                        locks.extend(these.iter().cloned())
+                    }
+                    _ => {
+                        if let Some(Ok(g)) = ws.module.gff(&c.key) {
+                            locks.extend(mg_module::locks::locks_in(c.key.resref, &g));
+                        }
+                    }
+                }
+            }
+        }
         let list: Vec<_> = changes.iter().map(|c| (c.key, c.resource.clone())).collect();
         let dropped = match ws.adopt(&list) {
             Ok(d) => d,
@@ -309,7 +489,8 @@ impl Moonglow {
         // Names shown from the module are read again.
         self.area_names = Default::default();
         self.area_contents.clear();
-        self.refresh_module_layer();
+        let keys: Vec<ResKey> = changes.iter().map(|c| c.key).collect();
+        self.update_module_layer(&keys);
         self.log.info(format!(
             "Read again from the module's files (changed outside Moonglow): {}{}",
             named(changes),
@@ -436,7 +617,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             }
             app.log.info(format!("Kept Moonglow's: {} (Save writes them)", named(&conflicts)));
         }
-        Some(Answer::Theirs) => app.take_outside(&conflicts),
+        Some(Answer::Theirs) => app.take_outside(&conflicts, &HashMap::new()),
         Some(Answer::Later) => {
             app.outside.later = paths;
             app.outside.conflicts = conflicts;
