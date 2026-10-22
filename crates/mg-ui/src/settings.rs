@@ -182,6 +182,11 @@ pub struct Settings {
     /// answer (`yes`, or `path:` and the folder chosen). Forgotten when
     /// the plugin is disabled, removed or installed anew.
     pub plugin_grants: Vec<(String, String, String)>,
+    /// The values of plugins' settings of scope `user` (theirs for every
+    /// module), by plugin id and setting: text, a whole number, true or
+    /// false. Those of a project's scopes are in its files.
+    pub plugin_settings:
+        std::collections::BTreeMap<String, std::collections::BTreeMap<String, serde_json::Value>>,
     /// The game install, when not the detected one.
     pub game_root: Option<PathBuf>,
     /// The NWN user folder (haks, override, modules), when not the detected

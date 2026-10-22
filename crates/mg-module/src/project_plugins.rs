@@ -340,7 +340,10 @@ pub fn with_setting(
         None => {
             if let Some(t) = plugin_table(plugins, id) {
                 t.remove(name);
-                if t.is_empty() {
+                // (Left empty, it goes; but not a comment written over it.)
+                let said =
+                    t.decor().prefix().and_then(|p| p.as_str()).is_some_and(|p| p.contains('#'));
+                if t.is_empty() && !said {
                     plugins.remove(id);
                 }
             }
@@ -507,6 +510,10 @@ mod tests {
             doc.to_string(),
             "# the team's\n[tags]\nunique = [\"A_*\"]\n\n[plugins.\"t.r\"]\nmax = 5 # most\n"
         );
+        // One with a comment over it stays, for the comment.
+        let mut doc: toml_edit::DocumentMut = "# ours\n[plugins.\"t.r\"]\nx = 1\n".parse().unwrap();
+        with_setting(&mut doc, "t.r", "x", None).unwrap();
+        assert_eq!(doc.to_string(), "# ours\n[plugins.\"t.r\"]\n");
         // A table nested by the id's parts is found.
         let mut doc: toml_edit::DocumentMut = "[plugins.t.r]\nmax = 3\n".parse().unwrap();
         with_setting(&mut doc, "t.r", "max", Some(&SettingValue::Int(4))).unwrap();

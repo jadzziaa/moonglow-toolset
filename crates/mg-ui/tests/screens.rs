@@ -2947,6 +2947,61 @@ fn plugins_window() {
     shoot(&mut h, &dir, "plugins-replace");
 }
 
+/// A project's plugins (the builder-tags example in a project's
+/// `plugins/`): the question when it is opened (`project-plugins-ask`),
+/// the Plugins window with it allowed (`project-plugins-window`), and its
+/// settings' form (`plugin-settings`), in
+/// `target/test-output/screens-project-plugins/`.
+#[test]
+#[ignore]
+fn project_plugins() {
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("screens-project-plugins");
+    let project = dir.join("project");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    std::fs::create_dir_all(&project).unwrap();
+    m.save_as(&mg_module::ModuleLocation::Folder(project.clone())).unwrap();
+    std::fs::write(
+        project.join("moonglow.toml"),
+        "[plugins.\"example.builder-tags\"]\nprefix = \"KRZ_\"\n",
+    )
+    .unwrap();
+    let example = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../docs/plugins/examples/builder-tags");
+    let into = project.join("plugins/builder-tags");
+    std::fs::create_dir_all(&into).unwrap();
+    for file in ["plugin.cfg", "main.luau"] {
+        std::fs::copy(example.join(file), into.join(file)).unwrap();
+    }
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.plugin_dir =
+        Some(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../mg-plugin/tests/fixtures"));
+    app.load_plugins();
+    app.open_module(&project);
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    shoot(&mut h, &dir, "project-plugins-ask");
+    h.get_by_label("Allow").click();
+    h.run();
+    h.state_mut().plugins.window = true;
+    h.run();
+    h.get_by_label("This project's plugins").scroll_to_me();
+    h.run();
+    shoot(&mut h, &dir, "project-plugins-window");
+    h.state_mut().plugins.window = false;
+    h.state_mut().open_plugin_settings("example.builder-tags");
+    if let Some(form) = h.state_mut().plugins.settings_form.as_mut() {
+        form.values.insert("code".into(), mg_plugin::SettingValue::Text("ab".into()));
+    }
+    h.run();
+    shoot(&mut h, &dir, "plugin-settings");
+}
+
 /// The application with `app`'s NUI window `key` open in a window of
 /// `size`, at the top left of the room under the toolbar.
 fn nui_harness(app: Moonglow, key: ResKey, size: (f32, f32)) -> Harness<'static, Moonglow> {

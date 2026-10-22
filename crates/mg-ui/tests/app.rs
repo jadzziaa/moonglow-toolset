@@ -22307,3 +22307,279 @@ fn verify_holds_variables_to_their_descriptions() {
         "{log:#?}"
     );
 }
+
+/// A project (a module folder) with a creature whose tag lacks the team's
+/// prefix, that prefix in its moonglow.toml, and the builder-tags example
+/// in its `plugins/` folder.
+fn plugin_project(name: &str) -> std::path::PathBuf {
+    let dir = mg_testkit::scratch_dir(name);
+    let mut m = Module::new();
+    m.set_info(&Gff::new(*b"IFO ")).unwrap();
+    let mut captain = Gff::new(*b"UTC ");
+    captain.root.set("Tag", mg_gff::Value::String(b"captain".to_vec()));
+    m.set_gff(ResKey::parse("captain", ResType::UTC).unwrap(), &captain).unwrap();
+    m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
+    std::fs::write(
+        dir.join("moonglow.toml"),
+        "# The team's.\n[plugins.\"example.builder-tags\"]\nprefix = \"KRZ_\"\n",
+    )
+    .unwrap();
+    let example = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../docs/plugins/examples/builder-tags");
+    let into = dir.join("plugins/builder-tags");
+    std::fs::create_dir_all(&into).unwrap();
+    for file in ["plugin.cfg", "main.luau"] {
+        std::fs::copy(example.join(file), into.join(file)).unwrap();
+    }
+    dir
+}
+
+/// The window on a project of [`plugin_project`]'s, opened, with the
+/// fixture plugins installed (none enabled); with the game where `game`.
+fn project_harness(dir: &std::path::Path, game: bool) -> Option<Harness<'static, Moonglow>> {
+    let mut app = if game {
+        let root = mg_testkit::nwn_root()?;
+        Moonglow::new(
+            Some(mg_resman::GameInstall::new(&root, None, "en")),
+            Box::new(NoDialogs::default()),
+        )
+    } else {
+        app_with(Vec::new())
+    };
+    app.plugin_dir = Some(plugin_fixtures());
+    app.load_plugins();
+    app.open_module(dir);
+    app.open_palette = false;
+    Some(
+        Harness::builder()
+            .with_size(egui::vec2(1200.0, 900.0))
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app),
+    )
+}
+
+fn runs(h: &Harness<'_, Moonglow>, id: &str) -> bool {
+    h.state().enabled_plugins().iter().any(|p| p.manifest.id == id)
+}
+
+/// A project's plugins are asked about when it is opened, with what each
+/// adds and keeps; none runs until allowed, and the answer is kept by the
+/// plugin's content in the builder's own file: a change asks again, a no
+/// stays a no, and Decide Later asks at the next opening.
+#[test]
+fn a_project_s_plugins_are_asked_about_when_it_is_opened() {
+    let dir = plugin_project("ui-project-plugins");
+    let id = "example.builder-tags";
+    let mut h = project_harness(&dir, false).unwrap();
+    h.run();
+    assert_eq!(h.state().plugins.project_asking, [id]);
+    h.get_by_label("This project comes with plugins");
+    h.get_by_label_contains("Its folder plugins/ holds plugins the team shares");
+    h.get_by_label("Builder tags 1.0.0");
+    h.get_by_label("Command: Prefix Tags (right-click: creature, placeable)");
+    h.get_by_label("Check: Tags begin with the team's prefix");
+    h.get_by_label(
+        "Settings the team shares (the project's moonglow.toml): Team prefix, Checked, Longest tag",
+    );
+    h.get_by_label("Settings of yours for this project: Your code");
+    assert!(!runs(&h, id), "not before it is allowed");
+    assert!(!h.state().plugin_commands().iter().any(|c| c.plugin == id));
+    // Put off: still off, and asked at the next opening.
+    h.get_by_label("Decide Later").click();
+    h.run();
+    assert!(h.state().plugins.project_asking.is_empty() && !runs(&h, id));
+    assert!(h.query_by_label("This project comes with plugins").is_none());
+    h.state_mut().open_module(&dir);
+    h.run();
+    assert_eq!(h.state().plugins.project_asking, [id]);
+    // Allowed: it runs, its commands are there, and it is not asked again.
+    h.get_by_label("Allow").click();
+    h.run();
+    assert!(runs(&h, id));
+    assert!(h.state().plugin_commands().iter().any(|c| c.plugin == id && c.title == "Prefix Tags"));
+    let own = std::fs::read_to_string(dir.join(".moonglow/user.toml")).unwrap();
+    assert!(own.contains("[project_plugins]\n\"example.builder-tags\" = { allow = true, version = \"1.0.0\", digest = \"sha256:"), "{own}");
+    assert!(dir.join(".moonglow/.gitignore").is_file(), "never committed");
+    assert!(
+        h.state()
+            .log
+            .entries
+            .iter()
+            .any(|(_, m)| m.starts_with("The project's plugin Builder tags 1.0.0 is allowed"))
+    );
+    h.state_mut().open_module(&dir);
+    h.run();
+    assert!(h.state().plugins.project_asking.is_empty() && runs(&h, id));
+    // Changed (a pull brought other code): off, and asked again.
+    let main = dir.join("plugins/builder-tags/main.luau");
+    let code = std::fs::read_to_string(&main).unwrap();
+    std::fs::write(&main, format!("{code}\n-- changed\n")).unwrap();
+    h.state_mut().open_module(&dir);
+    h.run();
+    assert!(!runs(&h, id));
+    h.get_by_label("Changed since you allowed 1.0.0: it is off until you allow it again.");
+    h.get_by_label("Don't Allow").click();
+    h.run();
+    assert!(!runs(&h, id));
+    // A no stays a no: not asked again, and listed as off.
+    h.state_mut().open_module(&dir);
+    h.run();
+    assert!(h.state().plugins.project_asking.is_empty());
+    h.state_mut().plugins.window = true;
+    h.run();
+    h.get_by_label("This project's plugins").scroll_to_me();
+    h.run();
+    h.get_by_label("You said no: it is off.");
+    // Enabled from the Plugins window: allowed as it is now.
+    h.get_by_label("Builder tags 1.0.0").click();
+    h.run();
+    assert!(runs(&h, id));
+    h.get_by_label("Allowed, as it is now: it runs.");
+    // Closed, the project's plugins go with it.
+    h.state_mut().close();
+    h.run();
+    assert!(!h.state().plugins.installed.iter().any(|i| i.project));
+}
+
+/// A project's plugin and an installed one of the same id: while the
+/// project is open and its own is allowed, that one runs in its stead.
+#[test]
+fn a_project_s_plugin_stands_in_for_one_installed_of_its_id() {
+    let dir = plugin_project("ui-project-plugins-shadow");
+    let plugins = mg_testkit::scratch_dir("ui-project-plugins-shadow-installed");
+    let installed = plugins.join("builder-tags");
+    std::fs::create_dir_all(&installed).unwrap();
+    for file in ["plugin.cfg", "main.luau"] {
+        std::fs::copy(dir.join("plugins/builder-tags").join(file), installed.join(file)).unwrap();
+    }
+    let mut h = project_harness(&dir, false).unwrap();
+    h.state_mut().plugin_dir = Some(plugins);
+    h.state_mut().load_plugins();
+    h.state_mut().enable_plugin("example.builder-tags", true);
+    h.run();
+    let ours = |h: &Harness<'_, Moonglow>| -> Vec<bool> {
+        h.state().enabled_plugins().iter().map(|p| p.is_project()).collect()
+    };
+    assert_eq!(ours(&h), [false], "the installed one, until the project's is allowed");
+    h.get_by_label("Allow").click();
+    h.run();
+    assert_eq!(ours(&h), [true], "the project's, in its stead");
+    h.state_mut().plugins.window = true;
+    h.run();
+    h.get_by_label_contains("The project has a plugin of this id, which runs in its stead");
+}
+
+/// A plugin's settings in their form: each kept where its scope says (the
+/// team's in moonglow.toml, the builder's own in .moonglow/user.toml,
+/// the user's in Moonglow's settings), the rest of each file as it was;
+/// Defaults takes them out again.
+#[test]
+fn a_plugin_s_settings_are_edited_in_their_form() {
+    let dir = plugin_project("ui-plugin-settings-form");
+    let id = "example.builder-tags";
+    let mut h = project_harness(&dir, false).unwrap();
+    h.run();
+    h.get_by_label("Allow").click();
+    h.run();
+    h.state_mut().plugins.window = true;
+    h.run();
+    h.get_by_label("This project's plugins").scroll_to_me();
+    h.run();
+    h.get_by_label("Settings…").click();
+    h.run();
+    h.get_by_label("Settings: Builder tags");
+    for label in ["Team prefix", "Checked", "Longest tag", "Your code", "Report as errors"] {
+        h.get_by_label(label);
+    }
+    assert_eq!(h.get_all_by_label("the team's").count(), 3, "prefix, kinds, longest");
+    assert_eq!(h.get_all_by_label("yours, for this project").count(), 1);
+    {
+        let form = h.state().plugins.settings_form.clone().unwrap();
+        assert_eq!(form.values["prefix"], mg_plugin::SettingValue::Text("KRZ_".into()));
+        assert_eq!(form.values["max_length"], mg_plugin::SettingValue::Int(32));
+    }
+    // Changed in the form, and saved.
+    {
+        let form = h.state_mut().plugins.settings_form.as_mut().unwrap();
+        let text = |t: &str| mg_plugin::SettingValue::Text(t.into());
+        form.values.insert("prefix".into(), text("QQ_"));
+        form.values.insert("code".into(), text("ab"));
+        form.values.insert("kinds".into(), text("creatures"));
+        form.values.insert("strict".into(), mg_plugin::SettingValue::Bool(true));
+    }
+    h.run();
+    h.get_by_label("Save").click();
+    h.run();
+    assert!(h.state().plugins.settings_form.is_none());
+    let team = std::fs::read_to_string(dir.join("moonglow.toml")).unwrap();
+    assert_eq!(
+        team,
+        "# The team's.\n[plugins.\"example.builder-tags\"]\nprefix = \"QQ_\"\nkinds = \"creatures\"\n"
+    );
+    let own = std::fs::read_to_string(dir.join(".moonglow/user.toml")).unwrap();
+    assert!(own.contains("[plugins.\"example.builder-tags\"]\ncode = \"ab\"\n"), "{own}");
+    assert!(own.contains("[project_plugins]"), "the answer kept: {own}");
+    assert_eq!(h.state().settings.plugin_settings[id]["strict"], serde_json::json!(true));
+    let s = h.state().plugin_settings(h.state().project_plugins()[0]);
+    assert_eq!(s.values["code"], mg_plugin::SettingValue::Text("ab".into()));
+    assert!(h.state().log.entries.iter().any(|(_, m)| m
+        == "Builder tags: Team prefix is \"QQ_\" (the team's, in the project's moonglow.toml)"));
+    // Defaults: each taken out of where it was kept.
+    h.state_mut().open_plugin_settings(id);
+    h.run();
+    h.get_by_label("Defaults").click();
+    h.run();
+    h.get_by_label("Save").click();
+    h.run();
+    // (The table stays, for the comment over it.)
+    assert_eq!(
+        std::fs::read_to_string(dir.join("moonglow.toml")).unwrap(),
+        "# The team's.\n[plugins.\"example.builder-tags\"]\n"
+    );
+    assert!(!h.state().settings.plugin_settings.contains_key(id));
+    // A .mod has no project: those of the project's scopes can't be set.
+    let other = mg_testkit::scratch_dir("ui-plugin-settings-mod");
+    let path = sample_module(&other);
+    h.state_mut().open_module(&path);
+    h.state_mut().plugin_dir = Some(dir.join("plugins"));
+    h.state_mut().load_plugins();
+    h.state_mut().open_plugin_settings(id);
+    h.run();
+    let prefix = h.state().plugins.settings_form.as_ref().unwrap().values["prefix"].clone();
+    assert_eq!(prefix, mg_plugin::SettingValue::Text(String::new()), "its default");
+}
+
+/// ctx.settings in the window: a command's settings are kept when it is
+/// done, and a check reads them (the team's prefix, the user's strictness).
+#[test]
+fn a_plugin_reads_and_sets_its_settings_in_the_window() {
+    let dir = plugin_project("ui-plugin-ctx-settings");
+    let Some(mut h) = project_harness(&dir, true) else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    h.run();
+    h.get_by_label("Allow").click();
+    h.run();
+    let id = "example.builder-tags";
+    // Its command asks for the code, and sets it.
+    let values = std::collections::BTreeMap::from([("code".to_string(), serde_json::json!("zz"))]);
+    h.state_mut().plugins.answers.push_back(Some(mg_plugin::Answer::Values(values)));
+    h.state_mut().run_plugin_command(id, "remember-code");
+    h.run_steps(4);
+    let own = std::fs::read_to_string(dir.join(".moonglow/user.toml")).unwrap();
+    assert!(own.contains("code = \"zz\""), "{own}");
+    assert!(h.state().log.entries.iter().any(|(_, m)| m == "Builder tags: Your code is \"zz\" (yours, for this project, in its .moonglow/user.toml)"));
+    // Its check, with the team's prefix and the user's strictness.
+    h.state_mut().settings.plugin_settings.insert(
+        id.into(),
+        std::collections::BTreeMap::from([("strict".to_string(), serde_json::json!(true))]),
+    );
+    h.state_mut().actions.push(mg_ui::Action::Verify);
+    h.run();
+    let log = &h.state().log.entries;
+    assert!(
+        log.iter().any(|(l, m)| *l == mg_ui::Level::Error
+            && m.contains("captain.utc › Tag: tag \"captain\" does not begin with KRZ_")),
+        "{log:#?}"
+    );
+}
