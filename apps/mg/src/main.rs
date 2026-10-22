@@ -5,6 +5,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+mod claims;
 mod diff;
 mod edits;
 mod lsp;
@@ -156,6 +157,25 @@ enum Cmd {
         /// Take the code out.
         #[arg(long, conflicts_with = "code")]
         clear: bool,
+    },
+    /// The project's claims table (moonglow.toml's `[claims] file`): who
+    /// is building which area. Lists every area of the table and the
+    /// module, whose each is; claims areas by your builder code, releases
+    /// your claims, or marks areas merged (in the game: their Tag, recorded
+    /// in the table, and ResRef are kept). The table is a file of the
+    /// checkout: commit it.
+    Claims {
+        /// The project: a module folder, a nasher project's folder or its
+        /// nasher.cfg.
+        project: PathBuf,
+        /// list, claim, release or merged.
+        #[arg(value_enum, default_value = "list")]
+        action: claims::Action,
+        /// The areas (their ResRefs).
+        areas: Vec<String>,
+        /// Claim or release an area another builder holds.
+        #[arg(long)]
+        force: bool,
     },
     /// Report the resources a module's haks provide, their conflicts and the
     /// base-game resources they override.
@@ -1551,6 +1571,9 @@ fn run(cli: &Cli) -> Result<Output> {
                 out.note(line.clone());
             }
             out
+        }
+        Cmd::Claims { project, action, areas, force } => {
+            claims::run(project, *action, areas, *force)?
         }
         Cmd::Checks => {
             use mg_module::doctor::Check;

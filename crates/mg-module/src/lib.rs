@@ -11,6 +11,7 @@ pub mod areas;
 pub mod attach;
 pub mod blueprints;
 pub mod build;
+pub mod claims;
 pub mod dialog;
 pub mod dialog_io;
 pub mod doctor;

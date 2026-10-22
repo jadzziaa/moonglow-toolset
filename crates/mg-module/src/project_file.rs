@@ -170,6 +170,30 @@ pub struct UserSettings {
     /// proposes for new resources start with (by `[resrefs] pattern`),
     /// in lower case.
     pub builder_code: Option<String>,
+    /// `[allowed_commands]`: the project's commands the builder allowed
+    /// to run, each by its name and the text it had then (another text
+    /// asks again).
+    pub allowed_commands: Vec<(String, String)>,
+}
+
+/// A command the project names (`[commands]`), which File › Project runs
+/// in the project's folder: the team's update and submit scripts.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProjectCommand {
+    /// Its name in the file (`update`).
+    pub name: String,
+    /// Its name in the menu (`Update`, or the file's `label`).
+    pub label: String,
+    /// What runs, on this system (none: the file gives none for it).
+    pub run: Option<String>,
+}
+
+/// A command's name in the menu, from its name in the file:
+/// `run_tests` is Run Tests.
+fn label_of(name: &str) -> String {
+    let words = name.replace(['_', '-'], " ");
+    let mut c = words.chars();
+    c.next().map_or_else(String::new, |f| f.to_uppercase().chain(c).collect())
 }
 
 /// The pattern a new ResRef is made by when the builder has a code
@@ -331,6 +355,14 @@ pub struct ProjectFile {
     /// code (none: [`DEFAULT_PATTERN`]).
     pub resref_pattern: Option<String>,
     pub user: UserSettings,
+    /// `[claims]`: where the team's claims table is, and what an area
+    /// another builder holds is.
+    pub claims: crate::claims::ClaimRules,
+    /// The claims table as read (none without `[claims] file`; empty
+    /// where the file isn't there yet).
+    pub claim_table: Option<crate::claims::Claims>,
+    /// `[commands]`, in the file's order.
+    pub commands: Vec<ProjectCommand>,
     /// The team's described variables (`variables.toml` beside the
     /// team's file): none without it.
     pub variables: crate::var_desc::Variables,
@@ -440,6 +472,73 @@ impl<'a> Reader<'a> {
         let globs: Vec<&str> = globs.iter().map(String::as_str).collect();
         Some(Patterns::new(&globs).expect("each read"))
     }
+
+    /// A command of `[commands]`: its text, or a table of `run` (or
+    /// `windows` and `unix`, each for its systems) and `label`.
+    fn command(&mut self, (key, value): Entry) -> Option<ProjectCommand> {
+        let name = key.get_ref().to_string();
+        if !command_name(&name) {
+            let message =
+                format!("command \"{name}\": a command's name is letters, digits, _ and -");
+            self.warn(key.span().start, message);
+            return None;
+        }
+        let mut c = ProjectCommand { label: label_of(&name), name, run: None };
+        match value.get_ref() {
+            DeValue::String(s) => c.run = Some(s.to_string()),
+            DeValue::Table(t) => {
+                let (mut run, mut windows, mut unix) = (None, None, None);
+                for e in in_order(t) {
+                    match e.0.get_ref().as_ref() {
+                        "run" => run = self.text(e),
+                        "windows" => windows = self.text(e),
+                        "unix" => unix = self.text(e),
+                        "label" => {
+                            if let Some(l) = self.text(e).filter(|l| !l.trim().is_empty()) {
+                                c.label = l.trim().to_string();
+                            }
+                        }
+                        _ => self.unknown(&format!("commands.{}", c.name), e),
+                    }
+                }
+                c.run = if cfg!(windows) { windows.or(run) } else { unix.or(run) };
+            }
+            _ => {
+                let message = format!(
+                    "{} is to be its command, in quotes, or a table: {{ run = \"…\", label = \"…\" }}",
+                    c.name
+                );
+                self.warn(value.span().start, message);
+                return None;
+            }
+        }
+        c.run = c.run.filter(|r| !r.trim().is_empty());
+        Some(c)
+    }
+}
+
+/// Whether a command's name is one (`update`, `run-tests`): letters,
+/// digits, `_` and `-`, which TOML takes without quotes.
+pub fn command_name(name: &str) -> bool {
+    !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+/// Text as a TOML string, in quotes.
+fn toml_string(text: &str) -> String {
+    let mut out = String::from("\"");
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            '\r' => out.push_str("\\r"),
+            c if c.is_control() => out.push_str(&format!("\\u{:04X}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 impl ProjectFile {
@@ -467,7 +566,8 @@ impl ProjectFile {
         let described = crate::var_desc::path_in(root);
         let mut p = ProjectFile {
             path: Some(path.clone()),
-            stamps: vec![stamp(&path), stamp(&user), stamp(&described)],
+            // (The claims table's last, once the team's file says where.)
+            stamps: vec![stamp(&path), stamp(&user), stamp(&described), None],
             ..Default::default()
         };
         for (file, own) in [(&path, false), (&user, true)] {
@@ -490,6 +590,11 @@ impl ProjectFile {
             p.found |= !own;
             p.apply(&name, &source, own);
         }
+        // The team's claims table, where it says there is one.
+        if let Some(table) = p.claims.path_in(root) {
+            p.stamps[3] = stamp(&table);
+            p.read_claims(root, &table);
+        }
         // The team's described variables, a file of their own.
         match std::fs::read(&described) {
             Ok(bytes) => {
@@ -500,6 +605,29 @@ impl ProjectFile {
             Err(e) => p.errors.push(format!("{}: {e}", described.display())),
         }
         p
+    }
+
+    /// Reads the claims table (`[claims] file`): one not there yet is an
+    /// empty table (Claim makes it), one that is no table an error.
+    fn read_claims(&mut self, root: &Path, table: &Path) {
+        let name = table.strip_prefix(root).unwrap_or(table).display().to_string();
+        match std::fs::read(table) {
+            Ok(bytes) => {
+                let text = String::from_utf8_lossy(&bytes);
+                match crate::claims::Claims::parse(&name, &text, &mut self.warnings) {
+                    Ok(c) => self.claim_table = Some(c),
+                    Err(e) => self.errors.push(e),
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                self.warnings.push(format!(
+                    "{FILE_NAME}: the claims table {name} is not there: no area is claimed (Claim \
+                     This Area makes it)"
+                ));
+                self.claim_table = Some(Default::default());
+            }
+            Err(e) => self.errors.push(format!("{name}: {e}")),
+        }
     }
 
     /// Reads the described variables' file's text (`variables.toml`):
@@ -620,6 +748,32 @@ impl ProjectFile {
                     }
                     self.store = Some(store);
                 }
+                ("claims", false) => self.read_claim_rules(&mut r, entry),
+                ("commands", false) => {
+                    for e in r.section(entry) {
+                        if let Some(c) = r.command(e) {
+                            self.commands.retain(|o| o.name != c.name);
+                            self.commands.push(c);
+                        }
+                    }
+                }
+                ("allowed_commands", true) => {
+                    for e in r.section(entry) {
+                        let name = e.0.get_ref().to_string();
+                        if let Some(text) = r.text(e) {
+                            self.user.allowed_commands.retain(|(n, _)| *n != name);
+                            self.user.allowed_commands.push((name, text));
+                        }
+                    }
+                }
+                ("allowed_commands", false) => r.warn(
+                    key.span().start,
+                    format!(
+                        "[allowed_commands] is each builder's own: it goes in \
+                         {USER_DIR}/{USER_FILE} (Moonglow writes it when you allow a command), \
+                         never in the file the team shares"
+                    ),
+                ),
                 ("builder", true) => {
                     for e in r.section(entry) {
                         match e.0.get_ref().as_ref() {
@@ -648,16 +802,135 @@ impl ProjectFile {
                          not in the file the team shares"
                     ),
                 ),
-                ("make_static" | "tags" | "store" | "resrefs", true) => r.warn(
-                    key.span().start,
-                    format!("[{section}] is the team's: it goes in {FILE_NAME}"),
-                ),
+                ("make_static" | "tags" | "store" | "resrefs" | "claims" | "commands", true) => r
+                    .warn(
+                        key.span().start,
+                        format!("[{section}] is the team's: it goes in {FILE_NAME}"),
+                    ),
                 _ => {
                     r.warn(key.span().start, format!("[{section}] is not a section Moonglow reads"))
                 }
             }
         }
         self.warnings.append(&mut r.warnings);
+    }
+
+    /// Reads `[claims]`.
+    fn read_claim_rules(&mut self, r: &mut Reader, entry: Entry) {
+        use crate::claims::{ClaimRules, Others, Unclaimed};
+        let mut rules = ClaimRules::default();
+        for e in r.section(entry) {
+            match e.0.get_ref().as_ref() {
+                "file" => {
+                    rules.file = r.text(e).map(|f| f.trim().to_string()).filter(|f| !f.is_empty())
+                }
+                "others" => match r.text(e).as_deref() {
+                    Some("warn") => rules.others = Others::Warn,
+                    Some("read-only") => rules.others = Others::ReadOnly,
+                    Some(other) => r.warn(
+                        e.1.span().start,
+                        format!("others \"{other}\": \"warn\" or \"read-only\""),
+                    ),
+                    None => {}
+                },
+                "unclaimed" => match r.text(e).as_deref() {
+                    Some("edit") => rules.unclaimed = Unclaimed::Edit,
+                    Some("warn") => rules.unclaimed = Unclaimed::Warn,
+                    Some(other) => r.warn(
+                        e.1.span().start,
+                        format!("unclaimed \"{other}\": \"edit\" or \"warn\""),
+                    ),
+                    None => {}
+                },
+                "protected" => {
+                    if let Some(p) = r.patterns(e) {
+                        rules.protected = p;
+                    }
+                }
+                _ => r.unknown("claims", e),
+            }
+        }
+        if rules.file.is_none()
+            && (rules.others != Others::Warn || rules.unclaimed != Unclaimed::Edit)
+        {
+            r.warn(entry.0.span().start, "[claims] names no file: no area is claimed");
+        }
+        self.claims = rules;
+    }
+
+    /// Whose an area is, to this builder (none: the project keeps no
+    /// claims).
+    pub fn standing(&self, area: ResRef) -> Option<crate::claims::Standing<'_>> {
+        let table = self.claim_table.as_ref()?;
+        Some(crate::claims::Standing::of(table, area, self.user.builder_code.as_deref()))
+    }
+
+    /// What this builder may do with an area, by the claims table.
+    pub fn access(&self, area: ResRef) -> crate::claims::Access {
+        use crate::claims::{Access, Others, Standing, Unclaimed};
+        match self.standing(area) {
+            None | Some(Standing::Mine(_)) => Access::Edit,
+            Some(Standing::Others(c)) => {
+                let who = c.holder().unwrap_or_default();
+                let why = match &self.user.builder_code {
+                    Some(_) => format!("{area} is claimed by {who}"),
+                    None => format!("{area} is claimed by {who}, and you have no builder code"),
+                };
+                match self.claims.others {
+                    Others::Warn => Access::Warn(why),
+                    Others::ReadOnly => Access::ReadOnly(why),
+                }
+            }
+            Some(Standing::Free(_)) => match self.claims.unclaimed {
+                Unclaimed::Edit => Access::Edit,
+                Unclaimed::Warn => Access::Warn(format!("{area} is claimed by no one")),
+            },
+        }
+    }
+
+    /// Why an area's Tag and ResRef are to be kept, where they are: it is
+    /// merged (the claims table says so), or `[claims] protected` names
+    /// it.
+    pub fn protected(&self, area: ResRef) -> Option<String> {
+        let merged = self.claim_table.as_ref().and_then(|t| t.of(area)).is_some_and(|c| c.merged());
+        if merged {
+            return Some(format!("{area} is merged (in the claims table)"));
+        }
+        let name = area.to_string_lossy();
+        let glob = self.claims.protected.matching(&name)?;
+        Some(format!("{area} is protected ({FILE_NAME}'s [claims] protected: {glob})"))
+    }
+
+    /// The claims table's file, where the project names one.
+    pub fn claims_path(&self) -> Option<PathBuf> {
+        let root = self.path.as_deref()?.parent()?;
+        self.claims.path_in(root)
+    }
+
+    /// Whether the builder allowed a command of the project to run as it
+    /// reads now.
+    pub fn command_allowed(&self, name: &str, run: &str) -> bool {
+        self.user.allowed_commands.iter().any(|(n, t)| n == name && t == run)
+    }
+
+    /// Records that the builder allows a command (as `run` reads), or no
+    /// longer does (`None`), in their own file, keeping the rest of it as
+    /// it is written.
+    pub fn set_allowed_command(root: &Path, name: &str, run: Option<&str>) -> std::io::Result<()> {
+        let invalid = |e: String| std::io::Error::new(std::io::ErrorKind::InvalidInput, e);
+        if !command_name(name) {
+            return Err(invalid(format!("\"{name}\" is not a command's name")));
+        }
+        let path = Self::user_path(root);
+        let text = match std::fs::read(&path) {
+            Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(e) => return Err(e),
+        };
+        let value = run.map(toml_string);
+        let text =
+            with_value(&text, "allowed_commands", name, value.as_deref()).map_err(invalid)?;
+        Self::write_user(root, &text)
     }
 
     /// How the ResRefs proposed for new resources are made: by the
@@ -676,6 +949,7 @@ impl ProjectFile {
             stamp(path),
             stamp(&Self::user_path(root)),
             stamp(&crate::var_desc::path_in(root)),
+            self.claims.path_in(root).and_then(|t| stamp(&t)),
         ];
         now != self.stamps
     }
@@ -717,6 +991,15 @@ impl ProjectFile {
 /// A builder's file with its `[builder] code` set to `code` (or taken
 /// out), the rest kept as written; an error where the text is no TOML.
 fn with_code(text: &str, code: Option<&str>) -> Result<String, String> {
+    let code = code.map(|c| format!("\"{c}\""));
+    with_value(text, "builder", "code", code.as_deref())
+}
+
+/// A builder's file with `key` of `[section]` set to `value` (a TOML
+/// value, written as it is given) or taken out, the rest kept as written;
+/// an error where the text is no TOML.
+fn with_value(text: &str, section: &str, key: &str, value: Option<&str>) -> Result<String, String> {
+    let code = value;
     let name = format!("{USER_DIR}/{USER_FILE}");
     let table = DeTable::parse(text).map_err(|e| {
         let line = e.span().map_or(1, |s| line_of(text, s.start));
@@ -726,12 +1009,12 @@ fn with_code(text: &str, code: Option<&str>) -> Result<String, String> {
     let line_end = |at: usize| text[at..].find('\n').map_or(text.len(), |i| at + i + 1);
     let mut out = text.to_string();
     let entries = in_order(table.get_ref());
-    let builder = entries.iter().find(|(k, _)| k.get_ref() == "builder");
+    let builder = entries.iter().find(|(k, _)| k.get_ref() == section);
     match builder.map(|(k, v)| (k, v.get_ref())) {
         Some((header, DeValue::Table(t))) => {
-            let entry = in_order(t).into_iter().find(|(k, _)| k.get_ref() == "code");
+            let entry = in_order(t).into_iter().find(|(k, _)| k.get_ref() == key);
             match (entry, code) {
-                (Some((_, v)), Some(code)) => out.replace_range(v.span(), &format!("\"{code}\"")),
+                (Some((_, v)), Some(code)) => out.replace_range(v.span(), code),
                 (Some((k, v)), None) => {
                     out.replace_range(line_start(k.span().start)..line_end(v.span().end), "")
                 }
@@ -742,12 +1025,12 @@ fn with_code(text: &str, code: Option<&str>) -> Result<String, String> {
                         out.push('\n');
                         at = out.len();
                     }
-                    out.insert_str(at, &format!("code = \"{code}\"\n"));
+                    out.insert_str(at, &format!("{key} = {code}\n"));
                 }
                 (None, None) => {}
             }
         }
-        Some(_) => return Err(format!("{name}: \"builder\" is not a section (mend it first)")),
+        Some(_) => return Err(format!("{name}: \"{section}\" is not a section (mend it first)")),
         None => {
             if let Some(code) = code {
                 if !out.is_empty() && !out.ends_with('\n') {
@@ -756,7 +1039,7 @@ fn with_code(text: &str, code: Option<&str>) -> Result<String, String> {
                 if !out.is_empty() {
                     out.push('\n');
                 }
-                out.push_str(&format!("[builder]\ncode = \"{code}\"\n"));
+                out.push_str(&format!("[{section}]\n{key} = {code}\n"));
             }
         }
     }
@@ -1022,7 +1305,9 @@ keeper_variable = "tdod_store"
     #[test]
     fn every_cut_of_the_file_reads_without_a_panic() {
         let full = format!(
-            "{EXAMPLE}\n[resrefs]\npattern = \"{{code}}_{{name}}\"\n[builder]\ncode = \"aug\"\n"
+            "{EXAMPLE}\n[resrefs]\npattern = \"{{code}}_{{name}}\"\n[builder]\ncode = \"aug\"\n\
+             [claims]\nfile = \"c.2da\"\nothers = \"read-only\"\nprotected = [\"a*\"]\n\
+             [commands]\nupdate = {{ run = \"x\", label = \"U\" }}\n[allowed_commands]\nupdate = \"x\"\n"
         );
         for end in (0..=full.len()).filter(|&i| full.is_char_boundary(i)) {
             let mut p = ProjectFile::default();
@@ -1031,6 +1316,7 @@ keeper_variable = "tdod_store"
             let _ = p.naming().fit("name", "001");
             let _ = with_code(&full[..end], Some("ab"));
             let _ = with_code(&full[..end], None);
+            let _ = with_value(&full[..end], "allowed_commands", "update", Some("\"y\""));
         }
         // And bytes that are no text.
         let mut p = ProjectFile::default();
@@ -1084,5 +1370,176 @@ keeper_variable = "tdod_store"
         std::fs::remove_file(dir.join(FILE_NAME)).unwrap();
         assert!(p.changed(), "a file deleted is a change");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    const CLAIMS: &str = "2DA V2.0\n\n    Area             Builder  Status   Date        Tag\n\
+                          0   kz_square        ab       claimed  2026-10-22  ****\n\
+                          1   kz_gate          cd       merged   2026-10-20  KZ_GATE\n\
+                          2   kz_old           ****     merged   2026-10-01  KZ_OLD\n";
+
+    fn claims_project(name: &str, rules: &str) -> PathBuf {
+        let dir = mg_testkit::scratch_dir(name);
+        std::fs::create_dir_all(dir.join("builders")).unwrap();
+        std::fs::write(dir.join("builders/claims.2da"), CLAIMS).unwrap();
+        std::fs::write(dir.join(FILE_NAME), rules).unwrap();
+        dir
+    }
+
+    /// The Domains of Dread's builder proposal, C6 and C7: whose an area
+    /// is, what that lets this builder do, and which areas keep their
+    /// names.
+    #[test]
+    fn the_claims_table_says_whose_an_area_is_and_what_that_allows() {
+        use crate::claims::{Access, Others, Standing, Unclaimed};
+        let r = |s: &str| ResRef::from_str(s).unwrap();
+        let dir = claims_project(
+            "project-file-claims",
+            "[claims]\nfile = \"builders/claims.2da\"\nprotected = [\"kz_inn*\"]\n",
+        );
+        let p = ProjectFile::read(&dir);
+        assert_eq!((p.warnings.len(), p.errors.len()), (0, 0), "{:?} {:?}", p.warnings, p.errors);
+        assert_eq!((p.claims.others, p.claims.unclaimed), (Others::Warn, Unclaimed::Edit));
+        // No code: every claim is another's.
+        assert_eq!(
+            p.access(r("kz_square")),
+            Access::Warn(
+                "kz_square is claimed by ab since 2026-10-22, and you have no builder code".into()
+            )
+        );
+        assert_eq!(p.access(r("kz_old")), Access::Edit);
+        assert_eq!(p.access(r("elsewhere")), Access::Edit);
+        ProjectFile::set_builder_code(&dir, Some("ab")).unwrap();
+        let p = ProjectFile::read(&dir);
+        assert!(matches!(p.standing(r("KZ_SQUARE")), Some(Standing::Mine(_))));
+        assert_eq!(p.access(r("kz_square")), Access::Edit);
+        assert_eq!(
+            p.access(r("kz_gate")),
+            Access::Warn("kz_gate is claimed by cd since 2026-10-20".into())
+        );
+        // Protected: merged in the table, or named by the rule.
+        assert_eq!(p.protected(r("kz_gate")).unwrap(), "kz_gate is merged (in the claims table)");
+        assert!(p.protected(r("kz_old")).is_some());
+        assert_eq!(
+            p.protected(r("kz_inn_cellar")).unwrap(),
+            "kz_inn_cellar is protected (moonglow.toml's [claims] protected: kz_inn*)"
+        );
+        assert_eq!(p.protected(r("kz_square")), None);
+        // Read-only, and unclaimed areas warned of.
+        std::fs::write(
+            dir.join(FILE_NAME),
+            "[claims]\nfile = \"builders/claims.2da\"\nothers = \"read-only\"\nunclaimed = \"warn\"\n",
+        )
+        .unwrap();
+        let p = ProjectFile::read(&dir);
+        assert!(matches!(p.access(r("kz_gate")), Access::ReadOnly(_)));
+        assert_eq!(p.access(r("kz_old")), Access::Warn("kz_old is claimed by no one".into()));
+        assert_eq!(p.access(r("kz_square")), Access::Edit);
+        // A claim written is a change of the project's files, seen.
+        assert!(!p.changed());
+        let table = p.claims_path().unwrap();
+        crate::claims::write_change(&table, r("kz_old"), crate::claims::Change::Claim("ab"), false)
+            .unwrap();
+        assert!(p.changed(), "the table's stamp is the project file's");
+        let p = ProjectFile::read(&dir);
+        assert!(matches!(p.standing(r("kz_old")), Some(Standing::Mine(_))));
+        // Without the project naming a table: no claims at all.
+        std::fs::write(dir.join(FILE_NAME), "[tags]\nunique = []\n").unwrap();
+        let p = ProjectFile::read(&dir);
+        assert!(p.standing(r("kz_gate")).is_none() && p.protected(r("kz_gate")).is_none());
+        assert_eq!(p.access(r("kz_gate")), Access::Edit);
+    }
+
+    #[test]
+    fn a_claims_table_not_there_yet_is_said_and_one_that_is_no_table_an_error() {
+        let dir =
+            claims_project("project-file-claims-missing", "[claims]\nfile = \"claims.2da\"\n");
+        let p = ProjectFile::read(&dir);
+        assert_eq!(
+            p.warnings,
+            ["moonglow.toml: the claims table claims.2da is not there: no area is claimed (Claim \
+              This Area makes it)"]
+        );
+        assert_eq!(p.claim_table, Some(Default::default()));
+        std::fs::write(dir.join("claims.2da"), "area builder\n").unwrap();
+        let p = ProjectFile::read(&dir);
+        assert_eq!(p.errors, ["claims.2da: not a 2DA (its first line is not 2DA V2.0)"]);
+        assert_eq!(p.claim_table, None);
+        let p = read("[claims]\nothers = \"never\"\nunclaimed = 3\nreadonly = true\n");
+        assert_eq!(
+            p.warnings,
+            [
+                "moonglow.toml:2: others \"never\": \"warn\" or \"read-only\"",
+                "moonglow.toml:3: unclaimed is to be text in quotes",
+                "moonglow.toml:4: \"readonly\" is not a key of [claims]",
+            ]
+        );
+        let p = read("[claims]\nothers = \"read-only\"\n");
+        assert_eq!(p.warnings, ["moonglow.toml:1: [claims] names no file: no area is claimed"]);
+    }
+
+    /// The builder proposal's C8: the project's own commands, each run
+    /// only once the builder allowed it as it reads.
+    #[test]
+    fn the_project_s_commands_are_read_and_allowed_by_their_text() {
+        let p = read(
+            "[commands]\nupdate = \"bin/update\"\nsubmit = { run = \"bin/submit\", label = \"Submit \
+             for Review\" }\nrun_tests = { unix = \"bin/test\", windows = \"bin\\\\test.cmd\" }\n\
+             only_windows = { windows = \"x.cmd\" }\n\"two words\" = \"x\"\nbad = 3\nempty = \"\"\n",
+        );
+        assert_eq!(
+            p.warnings,
+            [
+                "moonglow.toml:6: command \"two words\": a command's name is letters, digits, _ and -",
+                "moonglow.toml:7: bad is to be its command, in quotes, or a table: { run = \"…\", \
+                 label = \"…\" }",
+            ]
+        );
+        let names: Vec<(&str, &str, Option<&str>)> =
+            p.commands.iter().map(|c| (&*c.name, &*c.label, c.run.as_deref())).collect();
+        let tests = if cfg!(windows) { "bin\\test.cmd" } else { "bin/test" };
+        let only = if cfg!(windows) { Some("x.cmd") } else { None };
+        assert_eq!(
+            names,
+            [
+                ("update", "Update", Some("bin/update")),
+                ("submit", "Submit for Review", Some("bin/submit")),
+                ("run_tests", "Run tests", Some(tests)),
+                ("only_windows", "Only windows", only),
+                ("empty", "Empty", None),
+            ]
+        );
+        // Allowed in the builder's own file, by name and text; never by
+        // the team's.
+        let p = read("[allowed_commands]\nupdate = \"bin/update\"\n");
+        assert!(
+            p.warnings[0].contains("[allowed_commands] is each builder's own"),
+            "{:?}",
+            p.warnings
+        );
+        assert!(p.user.allowed_commands.is_empty());
+        let dir = mg_testkit::scratch_dir("project-file-allowed-commands");
+        std::fs::write(dir.join(FILE_NAME), "[commands]\nupdate = \"bin/update --all\"\n").unwrap();
+        ProjectFile::write_user(&dir, "# mine\n[builder]\ncode = \"ab\"\n").unwrap();
+        let p = ProjectFile::read(&dir);
+        assert!(!p.command_allowed("update", "bin/update --all"));
+        ProjectFile::set_allowed_command(&dir, "update", Some("bin/update --all")).unwrap();
+        ProjectFile::set_allowed_command(&dir, "submit", Some("say \"hi\" \\ there")).unwrap();
+        let text = std::fs::read_to_string(ProjectFile::user_path(&dir)).unwrap();
+        assert_eq!(
+            text,
+            "# mine\n[builder]\ncode = \"ab\"\n\n[allowed_commands]\nsubmit = \"say \\\"hi\\\" \\\\ \
+             there\"\nupdate = \"bin/update --all\"\n"
+        );
+        let p = ProjectFile::read(&dir);
+        assert_eq!(p.warnings, Vec::<String>::new());
+        assert!(p.command_allowed("update", "bin/update --all"));
+        assert!(p.command_allowed("submit", "say \"hi\" \\ there"));
+        assert!(!p.command_allowed("update", "bin/update"), "another text asks again");
+        assert_eq!(p.user.builder_code.as_deref(), Some("ab"), "the rest kept");
+        ProjectFile::set_allowed_command(&dir, "update", Some("bin/update")).unwrap();
+        ProjectFile::set_allowed_command(&dir, "submit", None).unwrap();
+        let p = ProjectFile::read(&dir);
+        assert_eq!(p.user.allowed_commands, [("update".to_string(), "bin/update".to_string())]);
+        assert!(ProjectFile::set_allowed_command(&dir, "a b", Some("x")).is_err());
     }
 }
