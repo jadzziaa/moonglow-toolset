@@ -83,6 +83,12 @@ fn facts(
         app.palette.tile_brush = Some(brush);
         app.palette.tile_choice = Some(tile);
         app.palette.selected = None;
+        // (Out of tile mode, which the brush would sit on top of.)
+        for view in app.area_views.values_mut() {
+            if view.terrain.as_ref().is_some_and(|t| t.tileset == tileset) {
+                view.tile_mode = false;
+            }
+        }
     }
     ui.add_space(6.0);
     section_heading(ui, "Corners");

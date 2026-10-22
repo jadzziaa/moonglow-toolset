@@ -5,7 +5,13 @@
 //!   adds or removes it) and a drag selects a box of tiles.
 //! - Delete takes the selected tiles' crossers away (and a group's tile out
 //!   of its group); Shift + right click steps the tile under the pointer
-//!   through the tiles that fit; a right click opens the tile menu.
+//!   through the tiles that fit (Aurora's order: each tile's turns, then
+//!   the next tile's).
+//! - A right click opens the tile menu: Next and Previous Tile Appearance
+//!   and Rotate Tile (`TileStep`, as the tiles palette's tools), Delete
+//!   and Tile Properties. A tile brush without a right click of its own
+//!   opens it too, on the tile clicked; out of tile mode the area's menu
+//!   starts with the tile's items (`ground_items`) where no object is.
 //! - Tile Properties sets the selected tiles' main and source light colours
 //!   and animation loops (ARE `Tile_*`), each control only where the tile's
 //!   model has that light or loop (its SET entry), as Aurora shows them.
