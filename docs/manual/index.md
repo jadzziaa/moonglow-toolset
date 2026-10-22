@@ -9,7 +9,7 @@ The user manual, a chapter per file, also built into the program (Help › User 
 # Manual Page
 
 * [Getting started](01-getting-started.md) - What Moonglow needs, installing it, the first start (finding the game) and a first module.
-* [The main window](02-main-window.md) - The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
+* [The main window](02-main-window.md) - The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 * [Modules](03-modules.md) - Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 * [Areas](04-areas.md) - Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 * [Blueprints](05-blueprints.md) - Blueprints - palettes, the blueprint editors and wizards, and instances.
@@ -25,4 +25,4 @@ The user manual, a chapter per file, also built into the program (Help › User 
 * [Plugins](15-plugins.md) - Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, commands, checks, the console, the command line and when something goes wrong.
 * [Writing plugins](16-writing-plugins.md) - Writing plugins - a first plugin, how a plugin runs, the manifest, reading and editing the module, the game's data, talking to the user, files and haks outside the module, areas and terrain, checks, several files, trying and testing, editor types and versions.
 * [Plugin API reference](17-plugin-api.md) - Reference of the plugin API - mg, ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, Luau, limits and what the API doesn't have yet.
-* [NUI Creator](18-nui-creator.md) - The NUI Creator - designing an Enhanced Edition UI window (JUI) on a canvas with the game's skin and fonts, images, keys, binds, swap layout variants, event handlers, building its scripts, and what the game refuses or does on its own.
+* [NUI Creator](18-nui-creator.md) - The NUI Creator - designing an Enhanced Edition UI window (JUI) on a canvas with the game's skin and fonts, images, keys, binds, swap layout variants, event handlers (or one event script for several windows), the settings file, building its scripts, making windows without the window (render, layout, import), and what the game refuses or does on its own.

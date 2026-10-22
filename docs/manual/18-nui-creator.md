@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: NUI Creator
-description: The NUI Creator - designing an Enhanced Edition UI window (JUI) on a canvas with the game's skin and fonts, images, keys, binds, swap layout variants, event handlers, building its scripts, and what the game refuses or does on its own.
+description: The NUI Creator - designing an Enhanced Edition UI window (JUI) on a canvas with the game's skin and fonts, images, keys, binds, swap layout variants, event handlers (or one event script for several windows), the settings file, building its scripts, making windows without the window (render, layout, import), and what the game refuses or does on its own.
 tags: [manual, nui, scripts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-18T20:54:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:15:13Z }
 sources:
   - id: mg-nui
     resource: crates/mg-nui
@@ -459,6 +459,30 @@ stock `nw_inc_nui` API contract and generator requirements. Passing them and
 compiling do **not** prove visual or event parity: build the module and
 use [Test Module](09-build-and-test.md) to try the window, edits, clicks,
 watches and closing in the game.
+
+## Without the window
+
+A window can be made without opening the Creator, by hand or by an
+agent working from a brief ([The command line](11-command-line.md) has
+every option):
+
+1. `mg nui new MODULE NAME` adds a starting window, or `mg nui import
+   MODULE FILE.jui` brings one written elsewhere (with its `.txt`) into a
+   module, an archive too. `mg nui schema` prints the settings' form.
+2. `mg nui validate MODULE NAME` runs the Creator's checks.
+3. `mg nui render MODULE NAME -o NAME.png` draws it as the canvas does,
+   off the screen, at a UI scale and a window size of your choosing, and
+   `mg nui layout MODULE NAME --json` gives each control's rectangle and
+   what doesn't fit (clipped, out of view, no room, text cut): the same
+   layout the picture shows. Both take a `.jui` file alone too.
+4. `mg nui generate MODULE NAME` writes and compiles its scripts.
+
+In a nasher project whose sources take in scripts and JSON only, a
+window's files would be written where nasher neither packs them nor
+Moonglow reads them back: `new`, `validate`, New NUI Window and Verify
+(the `nui-sources` check) say so, with the `include` line that takes
+them in, which **Build › Add Left-Out Files to nasher.cfg** adds once
+they are saved.
 
 ## What the game refuses, and what it does on its own
 
