@@ -203,7 +203,10 @@ mod tests {
     #[test]
     fn the_manual_documents_the_settings_and_its_example_reads() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let manual = std::fs::read_to_string(root.join("docs/manual/18-nui-creator.md")).unwrap();
+        // (A Windows checkout may give these files CRLF line ends.)
+        let lf = |t: String| t.replace("\r\n", "\n");
+        let manual =
+            lf(std::fs::read_to_string(root.join("docs/manual/18-nui-creator.md")).unwrap());
         let section = manual.split("## The settings file").nth(1).expect("the section");
         let section = section.split("\n## ").next().unwrap();
         let schema = settings_schema();
@@ -215,10 +218,10 @@ mod tests {
             assert!(section.contains(&format!("`{action}`")), "{action} is not in the manual");
         }
         let example = section.split("```json\n").nth(1).unwrap().split("```").next().unwrap();
-        let crier = std::fs::read_to_string(
+        let crier = lf(std::fs::read_to_string(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/crier.txt"),
         )
-        .unwrap();
+        .unwrap());
         assert_eq!(example, crier);
         Settings::parse(example.as_bytes()).unwrap();
     }
