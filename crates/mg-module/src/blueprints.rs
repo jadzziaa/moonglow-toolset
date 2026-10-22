@@ -7,6 +7,8 @@
 //! nothing by its classes' packages (`mg_rules::levelup`).
 
 use mg_core::{Gender, Language, LocString, ResRef};
+
+use crate::project_file::Naming;
 use mg_gff::{Gff, Struct, Value};
 use mg_rules::{GameData, ItemValue};
 
@@ -21,32 +23,32 @@ pub fn default_name(category: &str, number: u32) -> String {
 /// letters, digits, spaces and underscores becomes `blueprint` and a
 /// number. `taken` names resrefs in use; a number is appended until free.
 pub fn resref(name: &str, taken: impl Fn(&ResRef) -> bool) -> ResRef {
+    resref_named(name, &Naming::default(), taken)
+}
+
+/// [`resref`] by a project's naming: the builder's code in the team's
+/// pattern around the name (`ab_wizardsword`), the name cut to fit.
+pub fn resref_named(name: &str, naming: &Naming, taken: impl Fn(&ResRef) -> bool) -> ResRef {
     let plain = name.chars().all(|c| c.is_ascii_alphanumeric() || c == ' ' || c == '_');
     let compact: String = if plain {
         name.chars().filter(|c| *c != ' ').map(|c| c.to_ascii_lowercase()).collect()
     } else {
         String::new()
     };
-    let make = |s: &str| ResRef::from_str(s).expect("letters and digits");
+    let compact = naming.strip(&compact).to_string();
+    let make = |s: &str, n: &str| naming.resref(s, n).expect("letters and digits");
     if !compact.is_empty() {
         // A trailing number stays whole.
         let digits = compact.len() - compact.trim_end_matches(|c: char| c.is_ascii_digit()).len();
         let (stem, number) = compact.split_at(compact.len() - digits.min(compact.len()));
-        let mut stem = stem.to_string();
-        stem.truncate(16usize.saturating_sub(number.len()));
-        let candidate = make(&format!("{stem}{number}"));
+        let candidate = make(stem, number);
         if !taken(&candidate) {
             return candidate;
         }
     }
     let stem = if compact.is_empty() { "blueprint".to_string() } else { compact };
     (1..)
-        .map(|n| {
-            let suffix = format!("{n:03}");
-            let mut s = stem.trim_end_matches(|c: char| c.is_ascii_digit()).to_string();
-            s.truncate(16 - suffix.len());
-            make(&format!("{s}{suffix}"))
-        })
+        .map(|n| make(stem.trim_end_matches(|c: char| c.is_ascii_digit()), &format!("{n:03}")))
         .find(|r| !taken(r))
         .expect("a free resref")
 }
@@ -482,6 +484,20 @@ mod tests {
 
     fn r(s: &str) -> ResRef {
         ResRef::from_str(s).unwrap()
+    }
+
+    #[test]
+    fn a_builder_s_code_begins_the_resref_a_name_gives() {
+        let ab = Naming::new("ab", crate::project_file::DEFAULT_PATTERN);
+        let free = |_: &ResRef| false;
+        assert_eq!(resref_named("Wizard Sword", &ab, free), r("ab_wizardsword"));
+        assert_eq!(resref_named("Area Transition 001", &ab, free), r("ab_areatransi001"));
+        assert_eq!(resref_named("ab_lamp", &ab, free), r("ab_lamp"), "never ab_ab_");
+        assert_eq!(resref_named("A & B", &ab, free), r("ab_blueprint001"));
+        let taken = |x: &ResRef| *x == r("ab_wizardsword");
+        assert_eq!(resref_named("Wizard Sword", &ab, taken), r("ab_wizardswor001"));
+        // Without a code, as Aurora.
+        assert_eq!(resref_named("Wizard Sword", &Naming::default(), free), r("wizardsword"));
     }
 
     #[test]

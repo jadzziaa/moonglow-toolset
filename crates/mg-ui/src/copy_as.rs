@@ -70,7 +70,10 @@ impl Moonglow {
             ResKey::parse(name, key.restype)
                 .is_none_or(|k| self.copy_taken(&k.resref, key.restype) || in_game(&k))
         };
-        let resref = crate::palette_view::copy_resref(&key.resref.to_string(), &taken);
+        // (By the builder's code, in a project with one.)
+        let naming = self.ws.as_ref().map(|ws| ws.module.project_file.naming()).unwrap_or_default();
+        let from = key.resref.to_string();
+        let resref = crate::palette_view::copy_resref_named(&from, &naming, &taken);
         let tag = resref_field(key.restype)
             .and_then(|_| Gff::read(&data).ok())
             .and_then(|g| g.root.string("Tag").map(decode));

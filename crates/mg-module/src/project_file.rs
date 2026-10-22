@@ -18,6 +18,16 @@
 //! tag = "{area}_STORE_{n}"            # the store's tag
 //! blueprint = "tdod_vendor"           # the store blueprint offered first
 //! keeper_variable = "tdod_store"      # the shopkeeper's String variable: the store's tag
+//!
+//! [resrefs]
+//! pattern = "{code}_{name}"           # a new ResRef, by the builder's code
+//! ```
+//!
+//! And in `.moonglow/user.toml`, the builder's own:
+//!
+//! ```toml
+//! [builder]
+//! code = "ab"                         # new ResRefs begin ab_ (by the pattern)
 //! ```
 //!
 //! A key the file doesn't know, or a value of the wrong kind, is a
@@ -156,9 +166,155 @@ pub struct StoreRules {
 /// The builder's own settings (`.moonglow/user.toml`).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct UserSettings {
-    /// `[builder] code`: the builder's code, which new ResRefs are to
-    /// start with (read, not used yet).
+    /// `[builder] code`: the builder's code, which the ResRefs Moonglow
+    /// proposes for new resources start with (by `[resrefs] pattern`),
+    /// in lower case.
     pub builder_code: Option<String>,
+}
+
+/// The pattern a new ResRef is made by when the builder has a code
+/// (`[resrefs] pattern`): the code, then `_`, then the name.
+pub const DEFAULT_PATTERN: &str = "{code}_{name}";
+
+/// The longest builder code: a ResRef is 16 characters, and the name
+/// keeps most of them.
+pub const MAX_CODE: usize = 8;
+
+/// The fewest characters a pattern leaves the name (and its number).
+const MIN_ROOM: usize = 6;
+
+/// How the ResRefs Moonglow proposes for new resources are made: the
+/// builder's code put into the team's pattern, before and after the name
+/// (none: as Aurora makes them).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Naming {
+    before: String,
+    after: String,
+}
+
+impl Naming {
+    /// The naming of a code and a pattern (`{code}` and `{name}` in it;
+    /// [`pattern_problem`] says whether it is one).
+    pub fn new(code: &str, pattern: &str) -> Naming {
+        let filled = pattern.replace("{code}", code).to_ascii_lowercase();
+        let (before, after) = filled.split_once("{name}").unwrap_or((filled.as_str(), ""));
+        Naming { before: before.to_string(), after: after.to_string() }
+    }
+
+    /// Whether ResRefs are made as Aurora makes them (no code).
+    pub fn is_plain(&self) -> bool {
+        self.before.is_empty() && self.after.is_empty()
+    }
+
+    /// What goes before the name (`ab_`).
+    pub fn before(&self) -> &str {
+        &self.before
+    }
+
+    /// What goes after it (with a pattern `{name}_{code}`).
+    pub fn after(&self) -> &str {
+        &self.after
+    }
+
+    /// How many characters the name and its number have.
+    pub fn room(&self) -> usize {
+        16usize.saturating_sub(self.before.len() + self.after.len())
+    }
+
+    /// The name without the builder's own code where it begins (or ends)
+    /// with it, so that a copy of `ab_sword` is `ab_sword001`, never
+    /// `ab_ab_sword001`; another builder's code is kept.
+    pub fn strip<'a>(&self, name: &'a str) -> &'a str {
+        let mut s = name;
+        let b = self.before.len();
+        if b > 0
+            && s.len() > b
+            && s.is_char_boundary(b)
+            && s[..b].eq_ignore_ascii_case(&self.before)
+        {
+            s = &s[b..];
+        }
+        let a = self.after.len();
+        if a > 0
+            && s.len() > a
+            && s.is_char_boundary(s.len() - a)
+            && s[s.len() - a..].eq_ignore_ascii_case(&self.after)
+        {
+            s = &s[..s.len() - a];
+        }
+        s
+    }
+
+    /// A ResRef's text: the name (without the builder's code it has, cut
+    /// so that its number and the code fit in 16 characters) and its
+    /// number, in the pattern. Plain, the name cut to leave room for the
+    /// number, as Aurora's wizards do.
+    pub fn fit(&self, name: &str, number: &str) -> String {
+        let name = self.strip(name);
+        let room = self.room().saturating_sub(number.len());
+        let cut = name.char_indices().nth(room).map_or(name.len(), |(i, _)| i);
+        let mut s = format!("{}{}{number}{}", self.before, &name[..cut], self.after);
+        s.make_ascii_lowercase();
+        while s.len() > 16 {
+            s.pop();
+        }
+        s
+    }
+
+    /// The ResRef [`Naming::fit`] makes, or none where that is no ResRef.
+    pub fn resref(&self, name: &str, number: &str) -> Option<ResRef> {
+        ResRef::from_str(&self.fit(name, number)).ok().filter(|r| !r.is_empty())
+    }
+}
+
+/// What is wrong with a builder code, or none where it is one: letters,
+/// digits and `_`, at most [`MAX_CODE`] of them.
+pub fn code_problem(code: &str) -> Option<String> {
+    if code.is_empty() {
+        return Some("empty".into());
+    }
+    if let Some(c) = code.chars().find(|c| !(c.is_ascii_alphanumeric() || *c == '_')) {
+        return Some(format!("\"{c}\": a code is letters, digits and _"));
+    }
+    if code.len() > MAX_CODE {
+        return Some(format!("{} characters: a code has at most {MAX_CODE}", code.len()));
+    }
+    None
+}
+
+/// What is wrong with a ResRef pattern, or none where it is one:
+/// `{code}` and `{name}` once each, the rest letters, digits and `_`,
+/// leaving a name room by a code of [`MAX_CODE`].
+pub fn pattern_problem(pattern: &str) -> Option<String> {
+    let mut rest = pattern;
+    let (mut fixed, mut code, mut name) = (0, 0, 0);
+    while let Some(c) = rest.chars().next() {
+        if let Some(after) = rest.strip_prefix("{code}") {
+            code += 1;
+            rest = after;
+        } else if let Some(after) = rest.strip_prefix("{name}") {
+            name += 1;
+            rest = after;
+        } else if c == '{' {
+            let word = rest.split('}').next().unwrap_or(rest);
+            return Some(format!("{word}}} is neither {{code}} nor {{name}}"));
+        } else if !(c.is_ascii_alphanumeric() || c == '_') {
+            return Some(format!("\"{c}\": a ResRef is letters, digits and _"));
+        } else {
+            fixed += 1;
+            rest = &rest[c.len_utf8()..];
+        }
+    }
+    if code != 1 || name != 1 {
+        return Some("it is to have {code} and {name}, once each".into());
+    }
+    if 16 < fixed + MAX_CODE + MIN_ROOM {
+        return Some(format!(
+            "it leaves a name fewer than {MIN_ROOM} of a ResRef's 16 characters (by a code of \
+             {MAX_CODE})"
+        ));
+    }
+    None
 }
 
 /// A project's rules, as its files say them.
@@ -171,6 +327,9 @@ pub struct ProjectFile {
     pub make_static: StaticRules,
     pub tags: TagRules,
     pub store: Option<StoreRules>,
+    /// `[resrefs] pattern`: how a new ResRef is made by the builder's
+    /// code (none: [`DEFAULT_PATTERN`]).
+    pub resref_pattern: Option<String>,
     pub user: UserSettings,
     /// What was not understood, which leaves the rest as it reads:
     /// `moonglow.toml:12: "colour" is not a key of [store]`.
@@ -391,6 +550,24 @@ impl ProjectFile {
                         }
                     }
                 }
+                ("resrefs", false) => {
+                    for e in r.section(entry) {
+                        match e.0.get_ref().as_ref() {
+                            "pattern" => {
+                                if let Some(t) = r.text(e) {
+                                    match pattern_problem(t.trim()) {
+                                        Some(problem) => r.warn(
+                                            e.1.span().start,
+                                            format!("pattern \"{t}\": {problem}"),
+                                        ),
+                                        None => self.resref_pattern = Some(t.trim().to_string()),
+                                    }
+                                }
+                            }
+                            _ => r.unknown(section, e),
+                        }
+                    }
+                }
                 ("store", false) => {
                     let mut store = StoreRules::default();
                     for e in r.section(entry) {
@@ -418,7 +595,18 @@ impl ProjectFile {
                     for e in r.section(entry) {
                         match e.0.get_ref().as_ref() {
                             "code" => {
-                                self.user.builder_code = r.text(e).filter(|c| !c.trim().is_empty());
+                                let code = r.text(e).map(|c| c.trim().to_ascii_lowercase());
+                                match code.as_deref().map(|c| (c, code_problem(c))) {
+                                    Some(("", _)) | None => {}
+                                    Some((c, Some(problem))) => r.warn(
+                                        e.1.span().start,
+                                        format!(
+                                            "code \"{c}\": {problem}; new ResRefs are made \
+                                             without it"
+                                        ),
+                                    ),
+                                    Some((c, None)) => self.user.builder_code = Some(c.to_string()),
+                                }
                             }
                             _ => r.unknown(section, e),
                         }
@@ -431,7 +619,7 @@ impl ProjectFile {
                          not in the file the team shares"
                     ),
                 ),
-                ("make_static" | "tags" | "store", true) => r.warn(
+                ("make_static" | "tags" | "store" | "resrefs", true) => r.warn(
                     key.span().start,
                     format!("[{section}] is the team's: it goes in {FILE_NAME}"),
                 ),
@@ -441,6 +629,13 @@ impl ProjectFile {
             }
         }
         self.warnings.append(&mut r.warnings);
+    }
+
+    /// How the ResRefs proposed for new resources are made: by the
+    /// builder's code, where they have one, in the team's pattern.
+    pub fn naming(&self) -> Naming {
+        let pattern = self.resref_pattern.as_deref().unwrap_or(DEFAULT_PATTERN);
+        self.user.builder_code.as_deref().map_or_else(Naming::default, |c| Naming::new(c, pattern))
     }
 
     /// Whether the files changed (were made, edited or deleted) since they
@@ -466,6 +661,73 @@ impl ProjectFile {
         }
         std::fs::write(dir.join(USER_FILE), text)
     }
+
+    /// Sets (or, `None`, takes out) the builder's code in their own file,
+    /// keeping whatever else it holds as it is written.
+    pub fn set_builder_code(root: &Path, code: Option<&str>) -> std::io::Result<()> {
+        let invalid = |e: String| std::io::Error::new(std::io::ErrorKind::InvalidInput, e);
+        if let Some(problem) = code.and_then(code_problem) {
+            return Err(invalid(format!("the code \"{}\": {problem}", code.unwrap_or(""))));
+        }
+        let path = Self::user_path(root);
+        let text = match std::fs::read(&path) {
+            Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(e) => return Err(e),
+        };
+        let code = code.map(str::to_ascii_lowercase);
+        let text = with_code(&text, code.as_deref()).map_err(invalid)?;
+        Self::write_user(root, &text)
+    }
+}
+
+/// A builder's file with its `[builder] code` set to `code` (or taken
+/// out), the rest kept as written; an error where the text is no TOML.
+fn with_code(text: &str, code: Option<&str>) -> Result<String, String> {
+    let name = format!("{USER_DIR}/{USER_FILE}");
+    let table = DeTable::parse(text).map_err(|e| {
+        let line = e.span().map_or(1, |s| line_of(text, s.start));
+        format!("{name}:{line}: {} (mend it first)", e.message().trim())
+    })?;
+    let line_start = |at: usize| text[..at].rfind('\n').map_or(0, |i| i + 1);
+    let line_end = |at: usize| text[at..].find('\n').map_or(text.len(), |i| at + i + 1);
+    let mut out = text.to_string();
+    let entries = in_order(table.get_ref());
+    let builder = entries.iter().find(|(k, _)| k.get_ref() == "builder");
+    match builder.map(|(k, v)| (k, v.get_ref())) {
+        Some((header, DeValue::Table(t))) => {
+            let entry = in_order(t).into_iter().find(|(k, _)| k.get_ref() == "code");
+            match (entry, code) {
+                (Some((_, v)), Some(code)) => out.replace_range(v.span(), &format!("\"{code}\"")),
+                (Some((k, v)), None) => {
+                    out.replace_range(line_start(k.span().start)..line_end(v.span().end), "")
+                }
+                (None, Some(code)) => {
+                    // (The line after its header.)
+                    let mut at = line_end(header.span().start);
+                    if at == out.len() && !out.ends_with('\n') {
+                        out.push('\n');
+                        at = out.len();
+                    }
+                    out.insert_str(at, &format!("code = \"{code}\"\n"));
+                }
+                (None, None) => {}
+            }
+        }
+        Some(_) => return Err(format!("{name}: \"builder\" is not a section (mend it first)")),
+        None => {
+            if let Some(code) = code {
+                if !out.is_empty() && !out.ends_with('\n') {
+                    out.push('\n');
+                }
+                if !out.is_empty() {
+                    out.push('\n');
+                }
+                out.push_str(&format!("[builder]\ncode = \"{code}\"\n"));
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// What is wrong with a store tag's pattern: a `{…}` that is neither
@@ -595,6 +857,128 @@ keeper_variable = "tdod_store"
     }
 
     #[test]
+    fn a_builder_s_code_goes_into_the_team_s_pattern() {
+        let plain = Naming::default();
+        assert!(plain.is_plain());
+        assert_eq!(plain.fit("wizardsword", "001"), "wizardsword001");
+        assert_eq!(plain.fit("averyveryverylongname", "001"), "averyveryvery001");
+        let ab = Naming::new("ab", DEFAULT_PATTERN);
+        assert_eq!((ab.before(), ab.after(), ab.room()), ("ab_", "", 13));
+        assert_eq!(ab.fit("market", ""), "ab_market");
+        assert_eq!(ab.fit("averyveryverylongname", "001"), "ab_averyveryv001", "the name cut");
+        assert_eq!(ab.fit("ab_sword", "002"), "ab_sword002", "never ab_ab_");
+        assert_eq!(ab.fit("AB_Sword", ""), "ab_sword", "whatever its case");
+        assert_eq!(ab.fit("cd_sword", ""), "ab_cd_sword", "another's code is kept");
+        let after = Naming::new("Zed", "{name}_{code}");
+        assert_eq!(after.fit("lamp", "001"), "lamp001_zed");
+        assert_eq!(after.fit("lamp001_zed", ""), "lamp001_zed");
+        let t = Naming::new("ab", "t{code}_{name}");
+        assert_eq!(t.fit("averyveryverylongname", "1"), "tab_averyveryve1");
+        assert_eq!(Naming::new("abcdefgh", DEFAULT_PATTERN).room(), 7);
+        // An area's (the Area Wizard's): a number added where it is taken.
+        let area = |name: &str, taken: &dyn Fn(&ResRef) -> bool| {
+            crate::new::resref_for_named(name, &ab, taken).to_string()
+        };
+        assert_eq!(area("Area 001", &|_| false), "ab_area001");
+        assert_eq!(area("", &|_| false), "ab_area");
+        let r = |s: &str| ResRef::from_str(s).unwrap();
+        assert_eq!(area("Market", &|x| *x == r("ab_market")), "ab_market1");
+        assert_eq!(area("The Long Market Street", &|_| false), "ab_thelongmarket");
+        assert_eq!(crate::new::resref_for_named("Area 001", &plain, |_| false), r("area001"));
+    }
+
+    #[test]
+    fn a_code_and_a_pattern_are_held_to_what_a_resref_can_be() {
+        assert_eq!(code_problem("ab"), None);
+        assert_eq!(code_problem("a_1"), None);
+        assert!(code_problem("").is_some());
+        assert_eq!(code_problem("a b").unwrap(), "\" \": a code is letters, digits and _");
+        assert!(code_problem("abcdefghi").unwrap().contains("at most 8"));
+        assert_eq!(pattern_problem("{code}_{name}"), None);
+        assert_eq!(pattern_problem("{name}{code}"), None);
+        assert_eq!(
+            pattern_problem("{area}_{name}").unwrap(),
+            "{area} is neither {code} nor {name}"
+        );
+        assert!(pattern_problem("{name}").unwrap().contains("once each"));
+        assert!(pattern_problem("{code}{name}{name}").unwrap().contains("once each"));
+        assert!(pattern_problem("{code}-{name}").unwrap().starts_with("\"-\""));
+        assert!(pattern_problem("tdod_{code}_{name}").unwrap().contains("fewer than 6"));
+        assert_eq!(pattern_problem("t{code}{name}"), None);
+    }
+
+    #[test]
+    fn the_pattern_and_the_code_are_read_and_their_faults_said_by_line() {
+        let mut p = read("[resrefs]\npattern = \"{name}_{code}\"\n");
+        assert_eq!(p.naming(), Naming::default(), "no code: as Aurora");
+        p.apply("user.toml", "[builder]\ncode = \"Zed\"\n", true);
+        assert_eq!(p.user.builder_code.as_deref(), Some("zed"));
+        assert_eq!(p.naming().fit("lamp", "001"), "lamp001_zed");
+        let p = read("[resrefs]\npattern = \"{code}-{name}\"\nsize = 3\n");
+        assert_eq!(
+            p.warnings,
+            [
+                "moonglow.toml:2: pattern \"{code}-{name}\": \"-\": a ResRef is letters, digits \
+                 and _",
+                "moonglow.toml:3: \"size\" is not a key of [resrefs]",
+            ]
+        );
+        assert_eq!(p.resref_pattern, None);
+        let mut p = ProjectFile::default();
+        p.apply("user.toml", "[builder]\ncode = \"a b\"\n[resrefs]\npattern = \"x\"\n", true);
+        assert_eq!(
+            p.warnings,
+            [
+                "user.toml:2: code \"a b\": \" \": a code is letters, digits and _; new ResRefs \
+                 are made without it",
+                "user.toml:3: [resrefs] is the team's: it goes in moonglow.toml",
+            ]
+        );
+        assert_eq!(p.naming(), Naming::default());
+    }
+
+    #[test]
+    fn setting_the_code_keeps_the_rest_of_the_builder_s_file() {
+        // None yet: made, with its folder's ignore file.
+        assert_eq!(with_code("", Some("ab")).unwrap(), "[builder]\ncode = \"ab\"\n");
+        let text = "# mine\n[builder]\ncode = \"ab\"   # my code\n\n[later]\nx = 1\n";
+        assert_eq!(
+            with_code(text, Some("cd")).unwrap(),
+            "# mine\n[builder]\ncode = \"cd\"   # my code\n\n[later]\nx = 1\n"
+        );
+        assert_eq!(with_code(text, None).unwrap(), "# mine\n[builder]\n\n[later]\nx = 1\n");
+        assert_eq!(
+            with_code("[builder]\n# none yet\n", Some("ab")).unwrap(),
+            "[builder]\ncode = \"ab\"\n# none yet\n"
+        );
+        assert_eq!(with_code("[builder]", Some("ab")).unwrap(), "[builder]\ncode = \"ab\"\n");
+        assert_eq!(
+            with_code("[x]\ny = 1", Some("ab")).unwrap(),
+            "[x]\ny = 1\n\n[builder]\ncode = \"ab\"\n"
+        );
+        assert_eq!(with_code("[x]\n", None).unwrap(), "[x]\n");
+        let e = with_code("[builder\n", Some("ab")).unwrap_err();
+        assert!(e.starts_with(".moonglow/user.toml:1: "), "{e}");
+        assert!(with_code("builder = 3\n", Some("ab")).is_err());
+
+        let dir = mg_testkit::scratch_dir("project-file-builder-code");
+        ProjectFile::write_user(&dir, "# mine\n[builder]\ncode = \"ab\"\n").unwrap();
+        ProjectFile::set_builder_code(&dir, Some("XY")).unwrap();
+        let text = std::fs::read_to_string(ProjectFile::user_path(&dir)).unwrap();
+        assert_eq!(text, "# mine\n[builder]\ncode = \"xy\"\n");
+        assert_eq!(ProjectFile::read(&dir).user.builder_code.as_deref(), Some("xy"));
+        let e = ProjectFile::set_builder_code(&dir, Some("much_too_long")).unwrap_err();
+        assert!(e.to_string().contains("at most 8"), "{e}");
+        ProjectFile::set_builder_code(&dir, None).unwrap();
+        assert_eq!(ProjectFile::read(&dir).user.builder_code, None);
+        // (A folder of its own, made with its ignore file.)
+        let fresh = mg_testkit::scratch_dir("project-file-builder-code-fresh");
+        ProjectFile::set_builder_code(&fresh, Some("ab")).unwrap();
+        assert!(fresh.join(USER_DIR).join(".gitignore").is_file());
+        assert_eq!(ProjectFile::read(&fresh).warnings, Vec::<String>::new());
+    }
+
+    #[test]
     fn no_toml_is_an_error_with_its_line_and_no_rules() {
         let p = read("[tags]\nunique = [\"A\"]\n[store\nblueprint = \"x\"\n");
         assert_eq!(p.errors.len(), 1, "{:?}", p.errors);
@@ -604,11 +988,16 @@ keeper_variable = "tdod_store"
 
     #[test]
     fn every_cut_of_the_file_reads_without_a_panic() {
-        let full = format!("{EXAMPLE}\n[builder]\ncode = \"aug\"\n");
+        let full = format!(
+            "{EXAMPLE}\n[resrefs]\npattern = \"{{code}}_{{name}}\"\n[builder]\ncode = \"aug\"\n"
+        );
         for end in (0..=full.len()).filter(|&i| full.is_char_boundary(i)) {
             let mut p = ProjectFile::default();
             p.apply(FILE_NAME, &full[..end], false);
             p.apply("user.toml", &full[..end], true);
+            let _ = p.naming().fit("name", "001");
+            let _ = with_code(&full[..end], Some("ab"));
+            let _ = with_code(&full[..end], None);
         }
         // And bytes that are no text.
         let mut p = ProjectFile::default();

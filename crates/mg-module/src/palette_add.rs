@@ -18,6 +18,8 @@ use mg_gff::{Gff, Struct, Value};
 use mg_resman::ResKey;
 use mg_rules::{GameData, ObjectKind};
 
+use crate::project_file::Naming;
+
 /// What Add to Palette makes.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Added {
@@ -35,23 +37,36 @@ pub struct Added {
 /// `nw_wswls002`: `wswls003`; `mgp_utp`: `mgp_utp001`), or the next free
 /// after it.
 pub fn new_resref(template: &str, taken: &dyn Fn(&str) -> bool) -> Option<ResRef> {
+    new_resref_named(template, &Naming::default(), taken)
+}
+
+/// [`new_resref`] by a project's naming: the builder's code in the team's
+/// pattern around the stem (`ab_wswls003`), the stem cut to fit.
+pub fn new_resref_named(
+    template: &str,
+    naming: &Naming,
+    taken: &dyn Fn(&str) -> bool,
+) -> Option<ResRef> {
     let lower = template.to_ascii_lowercase();
     let (prefix, base) = match lower.strip_prefix("nw_") {
         Some(rest) => ("nw_", rest),
         None => ("", lower.as_str()),
     };
+    let base = naming.strip(base);
     let stem = base.trim_end_matches(|c: char| c.is_ascii_digit());
     let mut n: u32 = base[stem.len()..].parse().unwrap_or(0);
     let stem = &stem[..stem.len().min(13)];
     let stem = if stem.is_empty() { "blueprint" } else { stem };
-    let used = |n: u32| taken(&format!("{prefix}{stem}{n:03}")) || taken(&format!("{stem}{n:03}"));
+    let named = |n: u32| naming.fit(stem, &format!("{n:03}"));
+    let used = |n: u32| {
+        taken(&format!("{prefix}{stem}{n:03}"))
+            || taken(&format!("{stem}{n:03}"))
+            || taken(&named(n))
+    };
     while n < 999 && used(n) {
         n += 1;
     }
-    (n + 1..1000)
-        .map(|n| format!("{stem}{n:03}"))
-        .find(|name| !taken(name))
-        .and_then(|name| ResRef::from_str(&name).ok())
+    (n + 1..1000).map(named).find(|name| !taken(name)).and_then(|name| ResRef::from_str(&name).ok())
 }
 
 /// The fields a placed object has and its blueprint does not.
@@ -86,13 +101,15 @@ const HELD: [&str; 5] = ["Repos_PosX", "Repos_Posy", "Dropable", "Pickpocketable
 /// Makes `instance` (a placed object of blueprint type `restype`) into a
 /// new custom blueprint, with its items. `original` finds the blueprint a
 /// resref names (the module's, else the game's); `taken` says whether a
-/// resource name is in use.
+/// resource name is in use; `naming` how new resrefs are made (by the
+/// builder's code, in a project with one).
 pub fn add_to_palette(
     game: &GameData,
     restype: ResType,
     instance: &Struct,
     original: &dyn Fn(ResKey) -> Option<Struct>,
     taken: &dyn Fn(&ResKey) -> bool,
+    naming: &Naming,
 ) -> Option<Added> {
     let mut blueprints: Vec<(ResKey, Gff)> = Vec::new();
     let mut new_instance = instance.clone();
@@ -103,7 +120,7 @@ pub fn add_to_palette(
             key.is_some_and(|k| taken(&k) || blueprints.iter().any(|(b, _)| *b == k))
         };
         let template = instance.resref(template_field).map(|r| r.to_string()).unwrap_or_default();
-        new_resref(&template, &|n| used(n, &blueprints))?
+        new_resref_named(&template, naming, &|n| used(n, &blueprints))?
     };
     let from = instance
         .resref(template_field)
@@ -121,7 +138,7 @@ pub fn add_to_palette(
             let key = ResKey::parse(name, ResType::UTI);
             key.is_some_and(|k| k == own || taken(&k) || blueprints.iter().any(|(b, _)| *b == k))
         };
-        let r = new_resref(&template, &used).unwrap_or(ResRef::EMPTY);
+        let r = new_resref_named(&template, naming, &used).unwrap_or(ResRef::EMPTY);
         let from = item
             .resref("TemplateResRef")
             .filter(|t| !t.is_empty())
@@ -273,6 +290,18 @@ fn file_type(t: ResType) -> [u8; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_builder_s_code_begins_the_new_resref() {
+        let ab = Naming::new("ab", crate::project_file::DEFAULT_PATTERN);
+        let game = |n: &str| n == "nw_wswls001";
+        let new = |t: &str, taken: &dyn Fn(&str) -> bool| {
+            new_resref_named(t, &ab, taken).unwrap().to_string()
+        };
+        assert_eq!(new("nw_wswls001", &game), "ab_wswls003", "past the number, as Aurora");
+        assert_eq!(new("ab_wswls002", &|n| n == "ab_wswls002"), "ab_wswls004");
+        assert_eq!(new("averyveryverylongname", &|_| false), "ab_averyveryv001");
+    }
 
     #[test]
     fn new_resrefs_as_aurora_names_them() {

@@ -91,7 +91,8 @@ fn add_to_palette_matches_aurora() {
     let at = Placement { position: [f("X"), f("Y"), f("Z")], rotation: 0.0 };
     let bp = read(ResKey::new(ResRef::from_str("mgp_utp").unwrap(), ResType::UTP)).unwrap();
     let placed = instance(&placing, ResType::UTP, &bp, at, &[]).unwrap();
-    let added = add_to_palette(&game, ResType::UTP, &placed, &read, &taken).unwrap();
+    let added =
+        add_to_palette(&game, ResType::UTP, &placed, &read, &taken, &Default::default()).unwrap();
     let names: Vec<String> = added.blueprints.iter().map(|(k, _)| k.to_string()).collect();
     assert_eq!(names, made);
     let mut failures = Vec::new();
@@ -122,7 +123,9 @@ fn an_item_holding_one_of_its_kind_gets_two_blueprints() {
     inner.set("BaseItem", Value::Int(66));
     let mut bag = inner.clone();
     bag.set("ItemList", Value::List(vec![inner]));
-    let added = add_to_palette(&game, ResType::UTI, &bag, &|_| None, &|_| false).unwrap();
+    let added =
+        add_to_palette(&game, ResType::UTI, &bag, &|_| None, &|_| false, &Default::default())
+            .unwrap();
     let keys: Vec<String> = added.blueprints.iter().map(|(k, _)| k.to_string()).collect();
     assert_eq!(keys, ["mg_bag001.uti", "mg_bag002.uti"]);
 }

@@ -23,10 +23,12 @@ pub const YES: &str = "Yes. I'd like to see what you have for sale.";
 /// The reply that does not.
 pub const NO: &str = "No, thanks.";
 
-/// The first `stem001`, `stem002`, ... the module has no `restype` of.
+/// The first `stem001`, `stem002`, ... the module has no `restype` of
+/// (by the builder's code, in a project with one: `ab_stem001`).
 pub fn next_name(module: &Module, stem: &str, restype: ResType) -> ResRef {
+    let naming = module.project_file.naming();
     (1..1000)
-        .filter_map(|n| ResRef::from_str(&format!("{stem}{n:03}")).ok())
+        .filter_map(|n| naming.resref(stem, &format!("{n:03}")))
         .find(|r| !module.contains(&ResKey::new(*r, restype)))
         .unwrap_or(ResRef::EMPTY)
 }
@@ -127,5 +129,11 @@ mod tests {
         assert_eq!(next_name(&m, "store", ResType::DLG).to_string(), "store001");
         m.set(ResKey::parse("store001", ResType::DLG).unwrap(), Vec::new());
         assert_eq!(next_name(&m, "store", ResType::DLG).to_string(), "store002");
+        // In a project where the builder has a code: theirs.
+        m.project_file.user.builder_code = Some("ab".into());
+        assert_eq!(next_name(&m, "store", ResType::DLG).to_string(), "ab_store001");
+        assert_eq!(next_name(&m, "openstore", ResType::NSS).to_string(), "ab_openstore001");
+        m.project_file.user.builder_code = Some("abcdefgh".into());
+        assert_eq!(next_name(&m, "openstore", ResType::NSS).to_string(), "abcdefgh_open001");
     }
 }

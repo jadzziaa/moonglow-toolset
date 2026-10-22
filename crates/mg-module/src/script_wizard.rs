@@ -707,8 +707,21 @@ pub fn action_script(name: &str, date: &str, a: &ActionScript) -> String {
 /// The first free wizard script name: `sc_001`, `sc_002`, ... for
 /// conditions, `at_001`, ... for actions (`taken` names in use).
 pub fn default_name(condition: bool, taken: impl Fn(&str) -> bool) -> String {
-    let prefix = if condition { "sc" } else { "at" };
-    (1..).map(|n| format!("{prefix}_{n:03}")).find(|name| !taken(name)).expect("a free name")
+    default_name_named(condition, &Default::default(), taken)
+}
+
+/// [`default_name`] by a project's naming: the builder's code in the
+/// team's pattern around it (`ab_sc_001`).
+pub fn default_name_named(
+    condition: bool,
+    naming: &crate::project_file::Naming,
+    taken: impl Fn(&str) -> bool,
+) -> String {
+    let prefix = if condition { "sc_" } else { "at_" };
+    (1..)
+        .map(|n| naming.fit(prefix, &format!("{n:03}")))
+        .find(|name| !taken(name))
+        .expect("a free name")
 }
 
 #[cfg(test)]
@@ -791,5 +804,7 @@ mod tests {
     fn default_names_skip_those_taken() {
         assert_eq!(default_name(true, |_| false), "sc_001");
         assert_eq!(default_name(false, |n| n == "at_001" || n == "at_002"), "at_003");
+        let ab = crate::project_file::Naming::new("ab", "{code}_{name}");
+        assert_eq!(default_name_named(true, &ab, |n| n == "ab_sc_001"), "ab_sc_002");
     }
 }

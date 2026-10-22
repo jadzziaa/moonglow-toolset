@@ -245,6 +245,14 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let (mut finish, mut cancel) = (false, false);
     let summary = if w.page == 7 { review(app, &w) } else { String::new() };
     let mut looks = Looks { ready: app.thumbnails.looks(), shown: Vec::new() };
+    // The ResRef the name gives, as Finish makes it (on the names' page).
+    let names = Names {
+        naming: crate::blueprint_wizard::naming(app),
+        taken: match (w.page == NAMES_PAGE, app.ws.as_ref()) {
+            (true, Some(ws)) => ws.module.keys_of(ResType::UTC).map(|k| k.resref).collect(),
+            _ => Default::default(),
+        },
+    };
     // The game data, and its pictures (the portraits).
     let mut loader = app.loader().expect("checked");
     // Most of the screen to begin with, and resizable: the pages' lists and
@@ -281,7 +289,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 });
             });
             ui.heading(PAGES[w.page]);
-            page(ui, &mut loader, &mut w, &summary, &mut looks);
+            page(ui, &mut loader, &mut w, &summary, &mut looks, &names);
         });
     // The appearances' pictures in sight: kept while they are, and those
     // still to make are made a few a frame.
@@ -300,12 +308,23 @@ struct Looks {
     shown: Vec<mg_preview::CreatureLook>,
 }
 
+/// The page of the creature's names (and its ResRef and tag).
+const NAMES_PAGE: usize = 5;
+
+/// What a ResRef made from the name is made by: the project's naming, and
+/// the module's creatures' ResRefs.
+struct Names {
+    naming: mg_module::project_file::Naming,
+    taken: std::collections::HashSet<ResRef>,
+}
+
 fn page(
     ui: &mut Ui,
     loader: &mut Loader<'_>,
     w: &mut CreatureWizard,
     summary: &str,
     looks: &mut Looks,
+    names: &Names,
 ) {
     let game = loader.game;
     match w.page {
@@ -606,10 +625,15 @@ fn page(
                 crate::widgets::field_label(ui, "ResRef");
                 ui.add(
                     egui::TextEdit::singleline(&mut w.resref)
-                        .hint_text(blueprints::resref(&name, |_| false).to_string())
+                        .hint_text(
+                            blueprints::resref_named(&name, &names.naming, |r| {
+                                names.taken.contains(r)
+                            })
+                            .to_string(),
+                        )
                         .desired_width(180.0),
                 )
-                .on_hover_text("Left empty: made from the name");
+                .on_hover_text(crate::blueprint_wizard::made_from_the_name(&names.naming));
                 ui.end_row();
                 crate::widgets::field_label(ui, "Tag");
                 ui.add(
@@ -660,10 +684,11 @@ fn make(app: &mut Moonglow, w: &CreatureWizard) {
         // The ResRef typed, unless the module has it (then the next free
         // one from it, as for one made from the name).
         let own = ResRef::from_str(w.resref.trim()).ok().filter(|r| !r.is_empty());
+        let naming = crate::blueprint_wizard::naming(app);
         let resref = match own {
             Some(r) if !taken(&r) => r,
             Some(r) => blueprints::resref(&r.to_string(), taken),
-            None => blueprints::resref(w.first_name.trim(), taken),
+            None => blueprints::resref_named(w.first_name.trim(), &naming, taken),
         };
         let spec = w.spec(resref);
         let item = item_reader(app);

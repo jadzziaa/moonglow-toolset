@@ -16,6 +16,7 @@ pub mod blueprint;
 pub mod blueprint_wizard;
 mod browser;
 pub mod build_view;
+pub mod builder_code;
 pub mod bulk;
 pub mod commands;
 pub mod copy_as;
@@ -561,6 +562,8 @@ pub struct Moonglow {
     /// The Duplicate Tags window: tags a paste or a copy put on more than
     /// one object, and Retag.
     pub tag_clash: Option<tag_clash::TagClash>,
+    /// The Builder Code window (Edit › Builder Code…): the code typed.
+    pub builder_code: Option<builder_code::Draft>,
     /// The script editor's code navigation and errors as you type.
     pub script_nav: script_nav::Nav,
     /// The Save as Prefab window: the name being typed and the objects.
@@ -823,6 +826,7 @@ impl Moonglow {
             rename: None,
             copy_as: None,
             tag_clash: None,
+            builder_code: None,
             placeable_gallery: None,
             script_nav: Default::default(),
             prefab_save: None,
@@ -1203,6 +1207,7 @@ impl Moonglow {
         references::delete_window(self, ui.ctx());
         copy_as::window(self, ui.ctx());
         tag_clash::window(self, ui.ctx());
+        builder_code::window(self, ui.ctx());
         outside::window(self, ui.ctx());
         script_nav::rename_window(self, ui.ctx());
         prefabs::save_window(self, ui.ctx());

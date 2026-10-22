@@ -41,6 +41,8 @@ mod engine_item_cost;
 mod engine_journal;
 #[path = "../engine_light_state.rs"]
 mod engine_light_state;
+#[path = "../engine_local_variables.rs"]
+mod engine_local_variables;
 #[path = "../engine_locked.rs"]
 mod engine_locked;
 #[path = "../engine_modules.rs"]

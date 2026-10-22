@@ -14,6 +14,27 @@ use mg_resman::ResKey;
 use mg_rules::GameData;
 
 use crate::{Action, Moonglow, Tab};
+use mg_module::project_file::Naming;
+
+/// How new ResRefs are made in the open module: by the builder's code,
+/// in a project with one (Edit › Builder Code…).
+pub(crate) fn naming(app: &Moonglow) -> Naming {
+    app.ws.as_ref().map(|ws| ws.module.project_file.naming()).unwrap_or_default()
+}
+
+/// A wizard's ResRef field's tip: where the ResRef left empty comes from.
+pub(crate) fn made_from_the_name(naming: &Naming) -> String {
+    if naming.is_plain() {
+        "Left empty: made from the name".to_string()
+    } else {
+        format!(
+            "Left empty: made from the name, after your builder code ({}…{}; Edit › Builder \
+             Code…)",
+            naming.before(),
+            naming.after()
+        )
+    }
+}
 
 /// The types with a wizard.
 pub const KINDS: [BlueprintKind; 8] = [
@@ -145,10 +166,15 @@ impl BlueprintWizard {
     }
 
     /// The blueprint, with the resref it takes in the module.
-    fn build(&self, game: &GameData, taken: impl Fn(&ResRef) -> bool) -> (ResRef, mg_gff::Gff) {
+    fn build(
+        &self,
+        game: &GameData,
+        naming: &Naming,
+        taken: impl Fn(&ResRef) -> bool,
+    ) -> (ResRef, mg_gff::Gff) {
         let name = self.name.trim();
         let own = ResRef::from_str(self.resref.trim()).ok().filter(|r| !r.is_empty());
-        let resref = own.unwrap_or_else(|| blueprints::resref(name, taken));
+        let resref = own.unwrap_or_else(|| blueprints::resref_named(name, naming, taken));
         let category = self.category.unwrap_or(0);
         let mut g = match self.kind {
             BlueprintKind::Waypoint => {
@@ -261,6 +287,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         let key_taken = |app: &Moonglow, r: &ResRef| {
             app.ws.as_ref().is_some_and(|ws| ws.module.contains(&ResKey::new(*r, w.kind.restype())))
         };
+        let naming = naming(app);
         match w.page() {
             Step::ItemType => {
                 ui.heading("Item Type");
@@ -414,7 +441,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 {
                     w.name = (1..)
                         .map(|n| blueprints::default_name(&name, n))
-                        .find(|s| !key_taken(app, &blueprints::resref(s, |_| false)))
+                        .find(|s| !key_taken(app, &blueprints::resref_named(s, &naming, |_| false)))
                         .expect("a free name");
                 }
             }
@@ -432,7 +459,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 ui.add_space(6.0);
                 let kind = w.kind.restype();
                 let taken = |r: &ResRef| key_taken(app, r);
-                let made = blueprints::resref(w.name.trim(), taken);
+                let made = blueprints::resref_named(w.name.trim(), &naming, taken);
                 egui::Grid::new("bw-names").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
                     crate::widgets::field_label(ui, "ResRef");
                     ui.add(
@@ -440,7 +467,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             .hint_text(made.to_string())
                             .desired_width(180.0),
                     )
-                    .on_hover_text("Left empty: made from the name");
+                    .on_hover_text(made_from_the_name(&naming));
                     ui.end_row();
                     crate::widgets::field_label(ui, "Tag");
                     ui.add(
@@ -494,7 +521,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         let taken = |r: &ResRef| {
             app.ws.as_ref().is_some_and(|ws| ws.module.contains(&ResKey::new(*r, w.kind.restype())))
         };
-        let (resref, g) = w.build(app.game.as_deref().expect("checked"), taken);
+        let naming = naming(app);
+        let (resref, g) = w.build(app.game.as_deref().expect("checked"), &naming, taken);
         let key = ResKey::new(resref, w.kind.restype());
         match g.to_bytes() {
             Ok(data) => {

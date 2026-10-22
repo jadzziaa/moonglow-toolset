@@ -318,10 +318,21 @@ impl Default for PaletteView {
 /// A resref for a copy of `from`: the resref without its trailing digits
 /// and the first free three-digit number, within 16 characters.
 pub fn copy_resref(from: &str, taken: &dyn Fn(&str) -> bool) -> Option<ResRef> {
-    let stem = from.trim_end_matches(|c: char| c.is_ascii_digit());
+    copy_resref_named(from, &Default::default(), taken)
+}
+
+/// [`copy_resref`] by a project's naming: the builder's code in the
+/// team's pattern around the stem (a copy of `nw_chicken` is
+/// `ab_nw_chicken001`; of `ab_chicken001`, `ab_chicken002`).
+pub fn copy_resref_named(
+    from: &str,
+    naming: &mg_module::project_file::Naming,
+    taken: &dyn Fn(&str) -> bool,
+) -> Option<ResRef> {
+    let stem = naming.strip(from).trim_end_matches(|c: char| c.is_ascii_digit());
     let stem = &stem[..stem.len().min(13)];
     (1..1000)
-        .map(|n| format!("{stem}{n:03}"))
+        .map(|n| naming.fit(stem, &format!("{n:03}")))
         .find(|name| !taken(name))
         .and_then(|name| ResRef::from_str(&name).ok())
 }
@@ -1935,5 +1946,13 @@ mod tests {
         // At most 16 characters.
         let long = copy_resref("abcdefghijklmnop", &|_| false).unwrap().to_string();
         assert_eq!(long, "abcdefghijklm001");
+        // By a builder's code: theirs begins it, once.
+        let ab = mg_module::project_file::Naming::new("ab", "{code}_{name}");
+        let copy = |from: &str, taken: &dyn Fn(&str) -> bool| {
+            copy_resref_named(from, &ab, taken).unwrap().to_string()
+        };
+        assert_eq!(copy("nw_chicken", &taken), "ab_nw_chicken001");
+        assert_eq!(copy("ab_chicken001", &|n| n == "ab_chicken001"), "ab_chicken002");
+        assert_eq!(copy("abcdefghijklmnop", &|_| false), "ab_abcdefghij001");
     }
 }

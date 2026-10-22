@@ -313,28 +313,31 @@ pub fn tilesets(game: &GameData) -> Vec<TilesetChoice> {
 /// A resref from a name, as Aurora makes one ("Area 001" → `area001`),
 /// made unique with a number if `taken` says it is in use.
 pub fn resref_for(name: &str, taken: impl Fn(&ResRef) -> bool) -> ResRef {
-    let mut base: String = name
+    resref_for_named(name, &crate::project_file::Naming::default(), taken)
+}
+
+/// [`resref_for`] by a project's naming: the builder's code in the team's
+/// pattern around the name (`ab_area001`), the name cut to fit.
+pub fn resref_for_named(
+    name: &str,
+    naming: &crate::project_file::Naming,
+    taken: impl Fn(&ResRef) -> bool,
+) -> ResRef {
+    let base: String = name
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
         .map(|c| c.to_ascii_lowercase())
         .collect();
+    let mut base = naming.strip(&base).to_string();
     if base.is_empty() {
         base = "area".to_string();
     }
-    base.truncate(16);
-    let candidate = resref(&base);
+    let make = |n: &str| resref(&naming.fit(&base, n));
+    let candidate = make("");
     if !taken(&candidate) {
         return candidate;
     }
-    (1..)
-        .map(|n| {
-            let suffix = n.to_string();
-            let mut b = base.clone();
-            b.truncate(16 - suffix.len());
-            resref(&format!("{b}{suffix}"))
-        })
-        .find(|r| !taken(r))
-        .expect("a free resref")
+    (1..).map(|n| make(&n.to_string())).find(|r| !taken(r)).expect("a free resref")
 }
 
 /// A tag from a name, as Aurora makes one ("Area 001" → `Area001`).
@@ -443,7 +446,8 @@ pub fn add_area_of(
     let defaults = AreaDefaults::for_tileset(game, spec.tileset);
     let scheme = Scheme::read(game, defaults.env_scheme)?;
     let taken = |r: &ResRef| module.contains(&ResKey::new(*r, ResType::ARE));
-    let area = resref_for(&spec.name, taken);
+    // (By the builder's code, in a project that has one.)
+    let area = resref_for_named(&spec.name, &module.project_file.naming(), taken);
     let mut are = Gff::new(*b"ARE ");
     let r = &mut are.root;
     r.write(&are::ID, -1);
