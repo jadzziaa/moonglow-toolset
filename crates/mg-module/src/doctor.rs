@@ -1629,14 +1629,14 @@ fn described_variables(d: &mut Doctor, module: &Module) {
                 continue;
             }
             let c = choices.entry(desc.name.clone()).or_insert_with(|| desc.choices(&lookup));
-            if let Some(problem) = &c.problem {
-                if unread.insert(desc.name.clone()) {
-                    let message = format!(
-                        "{}'s values ({file}:{}) can't be listed: {problem}",
-                        desc.name, desc.line
-                    );
-                    d.push(Severity::Warning, Check::VarValue, "module", key, at.clone(), message);
-                }
+            if let Some(problem) = &c.problem
+                && unread.insert(desc.name.clone())
+            {
+                let message = format!(
+                    "{}'s values ({file}:{}) can't be listed: {problem}",
+                    desc.name, desc.line
+                );
+                d.push(Severity::Warning, Check::VarValue, "module", key, at.clone(), message);
             }
             if let Some(problem) = desc.value_problem(&f.value, c) {
                 let message = format!("{}: {problem} ({file}:{})", f.name, desc.line);

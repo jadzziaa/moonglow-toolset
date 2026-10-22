@@ -551,8 +551,8 @@ fn distance(a: &str, b: &str) -> usize {
     for (i, row) in d.iter_mut().enumerate() {
         row[0] = i;
     }
-    for j in 0..=b.len() {
-        d[0][j] = j;
+    for (j, cell) in d[0].iter_mut().enumerate() {
+        *cell = j;
     }
     for i in 1..=a.len() {
         for j in 1..=b.len() {
@@ -620,16 +620,20 @@ fn described(r: &mut Reader, name: &str, at: usize, t: &DeTable) -> Option<Descr
         let (k, v) = e;
         let at = v.span().start;
         match k.get_ref().as_ref() {
-            "type" => match r.text(e) {
-                Some(t) => match VarType::from_name(&t) {
-                    Some(t) => d.var_type = Some(t),
-                    None => r.warn(
-                        at,
-                        format!("type \"{t}\": \"int\", \"float\", \"string\", \"object\" or \"location\""),
-                    ),
-                },
-                None => {}
-            },
+            "type" => {
+                if let Some(t) = r.text(e) {
+                    match VarType::from_name(&t) {
+                        Some(t) => d.var_type = Some(t),
+                        None => r.warn(
+                            at,
+                            format!(
+                                "type \"{t}\": \"int\", \"float\", \"string\", \"object\" or \
+                                 \"location\""
+                            ),
+                        ),
+                    }
+                }
+            }
             "on" => match v.get_ref() {
                 DeValue::Array(items) => {
                     for item in items.iter() {
@@ -668,7 +672,10 @@ fn described(r: &mut Reader, name: &str, at: usize, t: &DeTable) -> Option<Descr
                         let note = match note.get_ref() {
                             DeValue::String(s) => Some(s.to_string()),
                             _ => {
-                                r.warn(note.span().start, format!("values: {} = \"what it means\"", value.get_ref()));
+                                r.warn(
+                                    note.span().start,
+                                    format!("values: {} = \"what it means\"", value.get_ref()),
+                                );
                                 None
                             }
                         };
@@ -693,7 +700,10 @@ fn described(r: &mut Reader, name: &str, at: usize, t: &DeTable) -> Option<Descr
             "prefix" => prefix = r.text(e),
             "table" => table = r.text(e).map(|s| s.trim_end_matches(".2da").to_ascii_lowercase()),
             "column" => column = r.text(e),
-            other => r.warn(k.span().start, format!("\"{other}\" is not a key of a variable's ([{name}])")),
+            other => r.warn(
+                k.span().start,
+                format!("\"{other}\" is not a key of a variable's ([{name}])"),
+            ),
         }
     }
     let line_at = at;

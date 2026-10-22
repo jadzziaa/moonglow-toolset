@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T00:47:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T08:31:10Z }
 ---
 
 # Blueprints
@@ -172,7 +172,8 @@ The palette's buttons:
   next part, up to the one before, without opening it.
 - **Edit Copy…**: copy any blueprint, standard or custom, into the module
   as a new custom one, and open it. It asks for the copy's ResRef (a free
-  one is offered) and Tag first.
+  one is offered, after your builder code where you have one) and Tag
+  first.
 - **Delete**: remove a custom blueprint from the module.
 - **The model in the page:** a placeable's and a door's Basic page and
   an item's Appearance page show the model beside their fields, in a
@@ -244,7 +245,8 @@ type's wizard asks what Aurora's asks (the base item for an item, the
 appearance for a placeable, the classes for a creature…), a palette
 category and a name, then opens the new blueprint's properties. The Name
 page shows the ResRef and Tag the blueprint gets, made from the name as
-Aurora makes them: type others there to choose your own.
+Aurora makes them (after [your builder code](03-modules.md#your-builder-code),
+in a project where you have one): type others there to choose your own.
 
 ## The editors
 
@@ -290,7 +292,10 @@ Shared parts:
   keeps them under a name. **Add Set** adds a saved set to any object's
   or blueprint's variables, in any module; a variable of the same name
   takes the set's value. Sets are small JSON files in Moonglow's data
-  folder (`variable-sets`), easy to share.
+  folder (`variable-sets`), easy to share. In a project that describes
+  its variables (`variables.toml`), the window offers their names as one
+  is typed, sets their types and offers their values: see [Described
+  variables](03-modules.md#described-variables).
 - **Comments**: notes for the builder, not seen in the game.
 - **Advanced**: the palette category, and **Update Instances** (every
   type but waypoints; see above).

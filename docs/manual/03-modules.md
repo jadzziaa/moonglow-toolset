@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Modules
-description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
+description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T07:17:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T08:31:10Z }
 ---
 
 # Modules
@@ -376,6 +376,9 @@ open_script = "tdod_vendor_open"    # the reply that opens the store runs it
 tag = "{area}_STORE_{n}"            # the store's tag
 blueprint = "tdod_vendor"           # the store blueprint chosen at first
 keeper_variable = "tdod_store"      # the shopkeeper's variable: the store's tag
+
+[resrefs]
+pattern = "{code}_{name}"           # a new ResRef, by each builder's code
 ```
 
 Names are matched by globs, whatever their case: `*` any characters,
@@ -392,6 +395,7 @@ Names are matched by globs, whatever their case: `*` any characters,
 | `[store] tag` | the store's tag: `{area}` the area's tag, `{n}` the first number no object has | the blueprint's tag, with a number where another object has it (with a `[store]` section; Aurora's, the blueprint's, without one) |
 | `[store] blueprint` | the store blueprint chosen at first | none chosen |
 | `[store] keeper_variable` | a String variable set on the shopkeeper to the store's tag | none |
+| `[resrefs] pattern` | how a builder's code goes into the ResRefs Moonglow proposes: `{code}` and `{name}` once each, the rest letters, digits and `_` (`"{name}_{code}"`, `"t{code}{name}"`) | `"{code}_{name}"`, where a builder has a code |
 
 See [Make Placeables Static](04-areas.md#static-placeables-many-at-once),
 [Duplicate tags](04-areas.md#duplicate-tags) and [Setup
@@ -404,13 +408,157 @@ a value of the wrong kind (`moonglow.toml:12: "colour" is not a key of
 rules are left out until it is mended.
 
 **Each builder's own settings** go in `.moonglow/user.toml` in the same
-folder, never in the file the team shares. Nothing in Moonglow writes
-it yet: make the folder by hand, with a `.gitignore` in it holding `*`,
-so that it stays out of version control without a line in the project's
-own (the log warns while `.moonglow` has none). It holds
-`[builder] code`, the builder's code, which Moonglow reads but does not
-use yet (new ResRefs are to start with it). A team's section put there,
-or `[builder]` put in the team's file, is said and left out.
+folder, never in the file the team shares. Moonglow makes the folder
+with a `.gitignore` in it holding `*`, so that it stays out of version
+control without a line in the project's own (the log warns of a
+`.moonglow` made by hand without one). It holds `[builder] code`, your
+builder code (below). A team's section put there, or `[builder]` put in
+the team's file, is said and left out.
+
+### Your builder code
+
+Two builders whose wizards both propose `merchants001` make one file of
+two in version control. With a builder code, the ResRefs Moonglow
+proposes for new resources begin with yours: `ab_merchants001` for one
+builder, `cd_merchants001` for the other. **Edit › Builder Code…** sets
+it (letters, digits and `_`, at most 8, kept in lower case), shows what
+it makes of a name, and writes it into `.moonglow/user.toml`, keeping
+the rest of that file as it is written; **No Code** takes it out. It
+is there for a module folder or a nasher project, not a module kept in
+one file (`.mod`). From a terminal, `mg builder-code PROJECT CODE` does
+the same ([Command-line tools](11-command-line.md)).
+
+```toml
+# .moonglow/user.toml
+[builder]
+code = "ab"
+```
+
+Where a name would make the ResRef too long, the name is cut and the
+code kept (16 characters: `ab_areatransi001`). A name that begins with
+your code already doesn't get it twice: a copy of `ab_chicken001` is
+`ab_chicken002`; another builder's code is kept as part of the name. The
+team's `[resrefs] pattern` says where the code goes. Without a code,
+ResRefs are made from names alone, as Aurora makes them. The code is
+used by:
+
+- the Area Wizard (which then shows the ResRef under the name), the
+  Creature Wizard and every blueprint wizard (the ResRef field's hint);
+- **Add to Palette** (`ab_wswls003` for a placed `nw_wswls001`);
+- **Setup Store**'s conversation and script (`ab_store001`,
+  `ab_openstore001`);
+- **Copy…** and **Edit Copy…** (`ab_nw_chicken001`);
+- the Script Wizard's names (`ab_sc_001`, `ab_at_001`).
+
+A name typed in a wizard's ResRef field, or in **New Script…** and the
+other windows that start with an empty name, is taken as typed.
+
+### Described variables
+
+A module's scripts read local variables by name and type, and a wrong
+one fails without a word: a variable read as another type is that
+type's empty value (an Int read as a String is `""`, a String read as
+an Int is 0), and a name is matched in its case only (`tdod_lit` is not
+`TDOD_LIT`), as the game's server shows. A team describes its
+variables in `variables.toml`, beside its `moonglow.toml` (or alone),
+as a table's columns are described beside it: each variable's type, the
+values it takes, the objects it goes on and a line of help.
+
+```toml
+undescribed = ["tdod_*"]        # a variable so named, described nowhere here, is said
+
+[tdod_workbench]
+type = "string"
+on = ["placeable"]
+values = { forge = "Smithing", tanner = "Leatherworking", loom = "Tailoring", carpenter = "Woodworking", machinist = "Machining", jeweler = "Jewelrymaking", alchemist = "Alchemy", enchanter = "Enchanting", herbalist = "Herblore", fire = "a kitchen, for Cooking", water = "a fishing spot, for Fishing" }
+help = "The craft the bench serves; a player works within 5 m of it"
+
+[tdod_harvest]
+type = "string"
+on = ["placeable"]
+values = { herb = "Herblore", ore = "Smithing", timber = "Woodworking" }
+help = "What the node yields, once a rest to each character"
+
+[tdod_harvest_dc]
+type = "int"
+on = ["placeable"]
+min = 1
+max = 60
+help = "The Survival check's DC (15 without it)"
+
+[tdod_light]
+type = "int"
+on = ["placeable"]
+values = { 1 = "lit" }
+help = "A natural light against delirium, within 3.33 m"
+
+[tdod_crier]
+type = "int"
+on = ["creature", "placeable"]
+values = { 1 = "a crier" }
+help = "Players within 5 m say !cry MESSAGE"
+
+[tdod_settlement]
+type = "string"
+on = ["area"]
+help = "The settlement's key: every street of a town has the same"
+
+[tdod_rental_term]
+type = "string"
+on = ["creature", "placeable"]
+values = { long = "30 days, paid ahead to 90", short = "7 days" }
+
+[tdod_kind]
+type = "string"
+on = ["creature"]
+values = ["aberration", "beast", "construct", "fiend", "fey", "flora", "humanoid", "ooze", "shapechanger", "undead", "vermin"]
+help = "What the creature is, where its race misleads"
+
+["tdod_rental_*"]               # every variable so named that isn't described above
+type = "string"
+on = ["creature", "placeable"]
+```
+
+| Key | What it says | Without it |
+| --- | --- | --- |
+| `[name]` | a variable of that name (in its case); a glob (`["tdod_rental_*"]`, in quotes) describes every variable it names that has no description of its own | |
+| `type` | `"int"`, `"float"`, `"string"`, `"object"` or `"location"` | any type (said in the log) |
+| `on` | what it goes on: `module`, `area`, `creature`, `door`, `encounter`, `item`, `placeable`, `sound`, `store`, `trigger`, `waypoint` (blueprints, placed objects and the items they hold alike) | anything |
+| `values` | the values it takes: `["herb", "ore"]`, or each with what it means, `{ forge = "Smithing" }` | any |
+| `constants`, `prefix` | its values are a script's constants whose names begin so (`constants = "tdod_kind_inc"`, `prefix = "TDOD_KIND_"`): the project's script of that name (any folder of it), the module's, else the game's | |
+| `table`, `column` | its values are a table's rows: an Int's is a row's number (named by its `Label`), a String's a cell of `column` | |
+| `other = true` | a value not listed is right too (the list is a help) | only those listed |
+| `min`, `max` | an Int's or a Float's range | any |
+| `help` | a line of help, shown with it | |
+| `undescribed` (at the top) | names (globs) that are the project's: a variable so named and described nowhere is said, with the described name nearest it (a typo) | not said |
+
+What the file doesn't understand is said in the log by line, as for
+`moonglow.toml`, and the rest is read; it is read again when it
+changes.
+
+**In the Variables window** (an object's, a blueprint's, an area's, the
+module's), the name being typed offers the described variables that go
+on that object, each with its type and what it goes on; one chosen (or
+typed whole) takes its type, a value is chosen from its values, and its
+help is the name's tip. Under the list, the window says what the
+description finds wrong (another type, a value not listed, the wrong
+kind of object, a name in another case or like the project's and
+described nowhere); OK writes it all the same, as you have it.
+
+**Verify Module** (and `mg verify`) holds every variable of the module
+to the descriptions:
+
+| Check | Finds | |
+| --- | --- | --- |
+| `var-type` | a described variable of another type: the scripts read that type's empty value | an error: Verify fails |
+| `var-value` | a value none of its values (a value in another case is named: the scripts compare as written), out of its range, or no row of its table | a warning |
+| `var-object` | a variable on another kind of object than it says | a warning |
+| `var-name` | a described name in another case, and (with `undescribed`) a variable named as the project's that is described nowhere | a warning |
+
+`mg vars MODULE` lists the descriptions, with the values a script's
+constants and a table's rows give (`--on placeable`: those that go on
+one); `mg areas --var NAME=VALUE` gives a described variable its
+described type ([Command-line tools](11-command-line.md)).
 
 ## Recovering unsaved work
 
@@ -957,5 +1105,7 @@ plugin reads a description with `mg.twoda.describe`
 
 **Wizards › Area Wizard…** makes an area from a name, a tileset and a
 size (2 to 32 tiles each way). It opens with the first tileset chosen
-(Aurora chooses none). **Edit › Resize Area…** and **Rotate Area…**
+(Aurora chooses none). Its ResRef is made from the name, after [your
+builder code](#your-builder-code) where you have one (the wizard then
+shows it). **Edit › Resize Area…** and **Rotate Area…**
 change the area shown last, as in Aurora. See [Areas](04-areas.md).
