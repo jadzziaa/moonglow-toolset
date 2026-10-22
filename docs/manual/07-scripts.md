@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T01:16:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T01:22:00Z }
 ---
 
 # Scripts
@@ -73,8 +73,9 @@ script; Ctrl+click adds one or takes it away, Shift+click selects the
 ones between it and the one clicked before, and Down and Up (Page
 Down, Page Up) move the selection, with Shift widening it, while the
 name is typed too. **Open** (or Enter) opens every script selected,
-each in its tab; with none selected, Enter opens the first listed. A
-double click opens that script alone. The game's and a hak's open to
+each in its tab; with none selected, Enter opens the first listed
+(typing in the name clears the selection). A double click opens that
+script alone. The game's and a hak's open to
 be read. In **Find Text**, Enter finds the next match, again and again.
 **Find In Currently Open Scripts** lists every match in the scripts open
 now under Search Results, and **Find In Files** searches (and replaces

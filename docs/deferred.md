@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T01:16:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T01:22:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -95,8 +95,10 @@ Size: S (an hour or two), M (a day or so), L (several days).
   The two could be one rule. (S)
 - **Open Script's list** takes a click, Ctrl+click, Shift+click, the
   arrows (Shift to widen), Page Down and Up, Enter and a double click;
-  not Home and End, Ctrl+A, or a right-click menu. Scripts selected and
-  then hidden by a narrower name stay selected but aren't opened. (S)
+  not Home and End, Ctrl+A, or a right-click menu. Typing in the name
+  clears the selection (Enter then opens the first listed, as before);
+  scripts selected and then hidden by choosing other resources to show
+  stay selected but aren't opened. (S)
 - **Incremental compiles:** Compile All Scripts passes over a script
   that, with what it includes, is as it was when this window last
   compiled it (`mg_module::build::script_stamps`), as Arelith's

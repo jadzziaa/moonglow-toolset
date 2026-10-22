@@ -1968,8 +1968,11 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
                     .desired_width(f32::INFINITY),
             );
             crate::widgets::autofocus(ui, &field);
+            // (A name typed starts over: Enter opens the first it lists.)
             if field.changed() {
                 w.cursor = 0;
+                w.selected.clear();
+                w.anchor = None;
             }
             // (Enter opens wherever the keys are in the window: after a
             // click on a script or on what to show they are not the
