@@ -41,7 +41,7 @@ mod nui_view;
 /// NUI windows drawn off the screen: `mg nui render` and `mg nui layout`.
 pub mod nui_render {
     pub use crate::nui_view::headless::{
-        Area, Element, Error, Layout, Options, Picture, Window, layout, render,
+        Area, Element, Error, Layout, Look, Options, Picture, Window, layout, render,
     };
 }
 pub mod nwsync_view;

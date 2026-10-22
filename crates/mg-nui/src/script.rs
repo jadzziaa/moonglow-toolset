@@ -23,8 +23,8 @@ use mg_script::CompileError;
 use serde_json::Value;
 
 use crate::actions::{
-    BEGIN, edited_outside, event_function, event_source, initial_function, merge_events,
-    string_expr, variant_function, window_id_function,
+    BEGIN, Refit, edited_outside, event_function, event_source, fit_returns, initial_function,
+    merge_events, string_expr, variant_function, window_id_function,
 };
 use crate::{Action, NuiError, Resources, Settings, Severity, parse, validate};
 
@@ -210,14 +210,24 @@ pub(crate) fn sectioned(name: &str, script: &[u8]) -> bool {
 /// and refused if it was changed outside them; one without sections was
 /// written by hand, and is kept as it is while there are no handlers, and
 /// refused otherwise. The Creator asks the same, so that it and Build
-/// agree on whose a script is.
+/// agree on whose a script is. A `return` in a section that does not fit
+/// the function it is now in is made to ([`fit_returns`]).
 pub fn rebuild_events(
     name: &str,
     settings: &Settings,
     existing: Option<&[u8]>,
 ) -> Result<Vec<u8>, NuiError> {
+    rebuilt(name, settings, existing).map(|(script, _)| script)
+}
+
+/// [`rebuild_events`], and the returns it changed.
+fn rebuilt(
+    name: &str,
+    settings: &Settings,
+    existing: Option<&[u8]>,
+) -> Result<(Vec<u8>, Vec<Refit>), NuiError> {
     let Some(b) = existing else {
-        return event_source(name, settings).map(String::into_bytes);
+        return event_source(name, settings).map(|s| (s.into_bytes(), Vec::new()));
     };
     let text = bytes_text(b).replace("\r\n", "\n");
     if text.contains(BEGIN.trim_end()) {
@@ -226,9 +236,13 @@ pub fn rebuild_events(
                 "{name}_e.nss was changed outside its mg:begin and mg:end lines, where Build would lose it. Move that code into a handler's section, or the top one for includes and helper functions."
             )));
         }
-        Ok(text_bytes(&merge_events(name, settings, Some(&text))?))
+        // (Code that ended a handler early before the window changed from
+        // a script of its own to a function, or back.)
+        let (script, refits) =
+            fit_returns(&merge_events(name, settings, Some(&text))?, settings.event_function);
+        Ok((text_bytes(&script), refits))
     } else if settings.actions.is_empty() {
-        Ok(b.to_vec())
+        Ok((b.to_vec(), Vec::new()))
     } else {
         Err(NuiError::EditedByHand(format!(
             "{name}_e.nss was written by hand. Rename it to keep it, or move its code between the markers of the handlers Moonglow writes."
@@ -290,6 +304,10 @@ pub struct Generated {
     /// keep once the command is applied, so that Compile All passes over
     /// them.
     pub remembered: Remembered,
+    /// The returns in the handlers' sections changed to fit the event
+    /// script's function ([`fit_returns`]): to be said, as they change
+    /// code the builder wrote.
+    pub refits: Vec<Refit>,
 }
 
 /// Build: the scripts of the window `name`, written and compiled.
@@ -348,7 +366,7 @@ pub fn generate(module: &Module, name: &str, build: &Build<'_>) -> Result<Genera
     if existing.is_none() && module.contains(&r.events(ResType::NCS)) {
         return Err(NuiError::WithoutSource(r.events(ResType::NCS)));
     }
-    let event_source = rebuild_events(name, &settings, existing)?;
+    let (event_source, refits) = rebuilt(name, &settings, existing)?;
 
     // The module as it would be, to compile in.
     let mut staged = module.clone();
@@ -408,7 +426,7 @@ pub fn generate(module: &Module, name: &str, build: &Build<'_>) -> Result<Genera
         match pass.results.iter().find(|r| r.script == own).map(|r| &r.result) {
             Some(Ok(())) if staged.contains(&ResKey::new(own.resref, ResType::NCS)) => {}
             Some(Ok(())) => return Err(NuiError::Compile(silent())),
-            Some(Err(e)) => return Err(NuiError::Compile(e.clone())),
+            Some(Err(e)) => return Err(NuiError::Compile(explained(e, name, function))),
             // (An external compiler that could not be run says so once,
             // of whichever script came first.)
             None => {
@@ -447,7 +465,30 @@ pub fn generate(module: &Module, name: &str, build: &Build<'_>) -> Result<Genera
         command: Command::new(format!("Generate NUI {name}"), edits),
         failed,
         remembered,
+        refits,
     })
+}
+
+/// The compiler's error, with what a return of the wrong type means in a
+/// window's event script: the function returns whether the event was the
+/// window's, or a script's own `main` returns nothing.
+fn explained(e: &CompileError, name: &str, function: bool) -> CompileError {
+    let mut e = e.clone();
+    if e.message.contains("RETURN TYPE AND FUNCTION TYPE MISMATCHED") {
+        e.message += &if function {
+            format!(
+                " ({name}_e is the function {}(), which returns an int: end a handler with \
+                 `return TRUE;`)",
+                event_function(name)
+            )
+        } else {
+            format!(
+                " ({name}_e is a script of its own, whose void main() returns nothing: end a \
+                 handler with `return;`)"
+            )
+        };
+    }
+    e
 }
 
 /// A script name the module has nothing under.
@@ -580,6 +621,81 @@ mod tests {
         s.event_function = false;
         let back = rebuild_events("shop", &s, Some(&function)).unwrap();
         assert_eq!(String::from_utf8(back).unwrap(), mine);
+    }
+
+    /// A handler that ends early with `return;`, written while the window
+    /// had a script of its own, returns TRUE once it is a function (whose
+    /// int it must return), and `return;` again when it goes back: in the
+    /// handlers' sections only, not in a string, a comment or the top
+    /// section's helpers. Each change is said with its section and line,
+    /// and a script that fits is left as it is.
+    #[test]
+    fn a_handler_s_returns_fit_the_function_it_is_in() {
+        let mut s = Settings::default();
+        s.actions.push(Route::new("click", "send", Action::Code));
+        s.actions.push(Route::new("click", "other", Action::Code));
+        let own = String::from_utf8(rebuild_events("shop", &s, None).unwrap()).unwrap();
+        let early = "        if (GetIsDM(oPlayer)) return;\n        SpeakString(\"return;\"); // return;\n        if (nRow < 0) return ;\n";
+        let mine = crate::insert_code(&own, "click send", early).unwrap();
+        let helper = "void Helper()\n{\n    return;\n}\n";
+        let mine = mine.replacen("// Includes and helper functions.\n", helper, 1);
+        // As it is: a script of its own's returns fit.
+        assert_eq!(rebuilt("shop", &s, Some(mine.as_bytes())).unwrap().1, []);
+        s.event_function = true;
+        let (function, refits) = rebuilt("shop", &s, Some(mine.as_bytes())).unwrap();
+        let text = String::from_utf8(function.clone()).unwrap();
+        assert!(text.contains("if (GetIsDM(oPlayer)) return TRUE;\n"), "{text}");
+        assert!(text.contains("if (nRow < 0) return TRUE;\n"), "{text}");
+        assert!(text.contains("SpeakString(\"return;\"); // return;\n"), "{text}");
+        assert!(text.contains(helper), "{text}");
+        let line = |needle: &str| text.lines().position(|l| l.contains(needle)).unwrap() + 1;
+        assert_eq!(
+            refits,
+            [
+                Refit {
+                    section: "click send".into(),
+                    line: line("GetIsDM"),
+                    was: "return;".into(),
+                    now: "return TRUE;".into()
+                },
+                Refit {
+                    section: "click send".into(),
+                    line: line("nRow < 0"),
+                    was: "return ;".into(),
+                    now: "return TRUE;".into()
+                },
+            ]
+        );
+        // Built again, nothing more to change; it is the window's own.
+        assert_eq!(rebuilt("shop", &s, Some(&function)).unwrap(), (function.clone(), vec![]));
+        assert!(!edited_outside("shop", &text));
+        // And back: a script of its own returns nothing.
+        s.event_function = false;
+        let (back, refits) = rebuilt("shop", &s, Some(&function)).unwrap();
+        let back = String::from_utf8(back).unwrap();
+        assert!(back.contains("if (GetIsDM(oPlayer)) return;\n"), "{back}");
+        assert_eq!(refits.len(), 2);
+        assert!(refits.iter().all(|r| r.was == "return TRUE;" && r.now == "return;"));
+        // A return of anything else is the builder's, as written.
+        let other =
+            crate::insert_code(&own, "click other", "        return GetIsDM(oPlayer);\n").unwrap();
+        s.event_function = true;
+        assert_eq!(rebuilt("shop", &s, Some(other.as_bytes())).unwrap().1, []);
+    }
+
+    /// A return the rewrite leaves (one of a value, in a script's own
+    /// main) fails to compile with what it means said beside the
+    /// compiler's words.
+    #[test]
+    fn a_return_of_the_wrong_type_is_explained() {
+        let e = CompileError {
+            code: 1,
+            message: "w_e.nss(12): ERROR: RETURN TYPE AND FUNCTION TYPE MISMATCHED".into(),
+        };
+        assert!(explained(&e, "w", true).message.ends_with("end a handler with `return TRUE;`)"));
+        assert!(explained(&e, "w", false).message.contains("void main() returns nothing"));
+        let other = CompileError { code: 1, message: "w_e.nss(3): ERROR: UNKNOWN STATE".into() };
+        assert_eq!(explained(&other, "w", true), other);
     }
 
     #[test]

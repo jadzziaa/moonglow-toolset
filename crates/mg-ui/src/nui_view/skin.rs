@@ -264,6 +264,9 @@ pub(super) struct Placed {
     pub parent: Option<usize>,
     /// Text of it that did not fit and was cut.
     pub cut: Vec<String>,
+    /// How it was drawn (`normal`, `hover`, `pressed`, `disabled`), once
+    /// the canvas knows.
+    pub look: Option<&'static str>,
 }
 
 impl Default for Record {
@@ -312,6 +315,7 @@ impl Assets {
             clip,
             parent,
             cut: Vec::new(),
+            look: None,
         });
         r.current.push(r.placed.len() - 1);
         true
@@ -320,6 +324,15 @@ impl Assets {
     pub(super) fn leave(&self, entered: bool) {
         if entered && let Some(r) = self.record.borrow_mut().as_mut() {
             r.current.pop();
+        }
+    }
+
+    /// How the control being drawn looks.
+    pub(super) fn record_look(&self, look: &'static str) {
+        if let Some(r) = self.record.borrow_mut().as_mut()
+            && let Some(&at) = r.current.last()
+        {
+            r.placed[at].look = Some(look);
         }
     }
 

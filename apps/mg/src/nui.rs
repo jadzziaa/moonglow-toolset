@@ -77,14 +77,8 @@ pub(crate) enum NuiCmd {
         /// The PNG to write (default: NAME.png in the current folder).
         #[arg(long, short)]
         out: Option<PathBuf>,
-        /// The window's size in points, WIDTHxHEIGHT, in place of its
-        /// geometry's.
-        #[arg(long, value_parser = parse_size)]
-        size: Option<[f32; 2]>,
-        /// The UI scale, as the game's option: 1 is 100%, 1.5 is 150%
-        /// (0.25 to 4). The picture is this many pixels a point.
-        #[arg(long, default_value_t = 1.0)]
-        scale: f32,
+        #[command(flatten)]
+        drawn: Drawn,
     },
     /// Bring NUI windows into a module and save: each window's layout
     /// (NAME.jui), its settings (NAME.txt) and its event script's source
@@ -126,14 +120,98 @@ pub(crate) enum NuiCmd {
         module: PathBuf,
         /// The window's name (not given with a .jui file).
         name: Option<String>,
-        /// The window's size in points, WIDTHxHEIGHT, in place of its
-        /// geometry's.
-        #[arg(long, value_parser = parse_size)]
-        size: Option<[f32; 2]>,
-        /// The UI scale it is laid out at (0.25 to 4).
-        #[arg(long, default_value_t = 1.0)]
-        scale: f32,
+        #[command(flatten)]
+        drawn: Drawn,
     },
+}
+
+/// How `render` draws a window and `layout` lays it out: the same options,
+/// so that the rectangles are the picture's.
+#[derive(clap::Args)]
+pub(crate) struct Drawn {
+    /// The window's size in points, WIDTHxHEIGHT, in place of its
+    /// geometry's.
+    #[arg(long, value_parser = parse_size)]
+    size: Option<[f32; 2]>,
+    /// The UI scale, as the game's option: 1 is 100%, 1.5 is 150%
+    /// (0.25 to 4). A picture is this many pixels a point.
+    #[arg(long, default_value_t = 1.0)]
+    scale: f32,
+    /// A state to draw controls in: STATE for every control, STATE:ID for
+    /// the one with that ID (which wins over every control's). STATE is
+    /// normal, hover, pressed or disabled. Again for more: --state
+    /// hover:send --state disabled:cancel. A control its binds disable
+    /// stays disabled.
+    #[arg(long = "state", value_name = "STATE[:ID]", value_parser = parse_state)]
+    states: Vec<(Option<String>, mg_ui::nui_render::Look)>,
+    /// Binds' values from a JSON file, in place of their first ones: an
+    /// object of bind names and values as NuiSetBind sets them (a string,
+    /// number, boolean, an array for a list's rows, {"r","g","b","a"} for
+    /// a color, {"x","y","w","h"} for a rectangle).
+    #[arg(long, value_name = "FILE.json")]
+    binds: Option<PathBuf>,
+    /// A swap layout variant (a key of the settings' `views`) to draw in
+    /// its group, or as the whole window, in place of what it holds at
+    /// first, as NuiSetGroupLayout shows it.
+    #[arg(long, value_name = "NAME")]
+    variant: Option<String>,
+}
+
+impl Drawn {
+    /// As the preview takes them: the binds' file read, a state given
+    /// twice for one control refused.
+    fn options(&self) -> Result<mg_ui::nui_render::Options> {
+        let mut states = std::collections::BTreeMap::new();
+        for (id, look) in &self.states {
+            if let Some(was) = states.insert(id.clone(), *look)
+                && was != *look
+            {
+                bail!(
+                    "--state: {} is given {} and {}",
+                    id.as_ref().map_or("every control".to_owned(), |id| format!("{id:?}")),
+                    was.name(),
+                    look.name()
+                );
+            }
+        }
+        let binds = match &self.binds {
+            None => Default::default(),
+            Some(file) => {
+                let text = std::fs::read(file).with_context(|| path_text(file))?;
+                let value: serde_json::Value = serde_json::from_slice(&text)
+                    .with_context(|| format!("{}: not JSON", path_text(file)))?;
+                let serde_json::Value::Object(map) = value else {
+                    bail!(
+                        "{}: give the binds as one JSON object, a bind's name and its value: \
+                         {{\"message\": \"Hear ye\", \"can_send\": true}}",
+                        path_text(file)
+                    );
+                };
+                map.into_iter().collect()
+            }
+        };
+        Ok(mg_ui::nui_render::Options {
+            scale: self.scale,
+            size: self.size,
+            states,
+            binds,
+            variant: self.variant.clone(),
+        })
+    }
+}
+
+/// A state given as STATE or STATE:ID.
+fn parse_state(
+    text: &str,
+) -> std::result::Result<(Option<String>, mg_ui::nui_render::Look), String> {
+    let (look, id) = match text.split_once(':') {
+        Some((look, "")) => {
+            return Err(format!("{text:?}: give the control's ID after {look}:"));
+        }
+        Some((look, id)) => (look, Some(id.to_owned())),
+        None => (text, None),
+    };
+    Ok((id, look.parse()?))
 }
 
 /// A size given as WIDTHxHEIGHT (or WIDTH,HEIGHT), in points.
@@ -175,9 +253,25 @@ pub(crate) fn run(cli: &Cli, cmd: &NuiCmd) -> Result<Output> {
             // (A script of the module's that includes the opener and does
             // not compile: said as `mg compile` says it.)
             let failed = compiled(&mut out, &made.failed);
+            // (Code of the builder's changed: said, a dry run too.)
+            for r in &made.refits {
+                out.note(format!(
+                    "note: {name}_e.nss:{}: in the section {:?}, {} is now {}, as {}",
+                    r.line,
+                    r.section,
+                    r.was,
+                    r.now,
+                    if r.now == "return;" {
+                        "the event script is a script of its own (void main)".to_owned()
+                    } else {
+                        format!("{} returns whether the event was the window's", event_fn(name))
+                    }
+                ));
+            }
             let mut out = write(ws, made.command, module, name, *dry_run, out)?;
             out.json["failed"] = failed["failed"].clone();
             out.json["errors"] = failed["errors"].clone();
+            out.json["returns"] = serde_json::to_value(&made.refits)?;
             if out.json["saved"] == true
                 && let Some(dir) = &dir
                 && let Err(e) = made.remembered.write(&build::Remembered::file(dir, module))
@@ -187,8 +281,8 @@ pub(crate) fn run(cli: &Cli, cmd: &NuiCmd) -> Result<Output> {
             Ok(out)
         }
         NuiCmd::Validate { module, name } => validate(module, name),
-        NuiCmd::Render { module, name, out, size, scale } => {
-            render(cli, module, name.as_deref(), out.as_deref(), *size, *scale)
+        NuiCmd::Render { module, name, out, drawn } => {
+            render(cli, module, name.as_deref(), out.as_deref(), &drawn.options()?)
         }
         NuiCmd::Import { module, sources, replace, dry_run } => {
             import(module, sources, *replace, *dry_run)
@@ -202,10 +296,10 @@ pub(crate) fn run(cli: &Cli, cmd: &NuiCmd) -> Result<Output> {
             out.json = schema;
             Ok(out)
         }
-        NuiCmd::Layout { module, name, size, scale } => {
+        NuiCmd::Layout { module, name, drawn } => {
+            let options = drawn.options()?;
             let mut out = Output::default();
             let shown = Shown::open(cli, module, name.as_deref(), &mut out)?;
-            let options = mg_ui::nui_render::Options { scale: *scale, size: *size };
             let layout = mg_ui::nui_render::layout(&shown.window(), &options)
                 .with_context(|| window_text(module, &shown.name))?;
             layout_output(module, &layout, out)
@@ -321,16 +415,14 @@ fn render(
     module: &Path,
     name: Option<&str>,
     png: Option<&Path>,
-    size: Option<[f32; 2]>,
-    scale: f32,
+    options: &mg_ui::nui_render::Options,
 ) -> Result<Output> {
     let mut out = Output::default();
     let shown = Shown::open(cli, module, name, &mut out)?;
     let gpu = mg_render::Gpu::headless().ok_or_else(|| {
         anyhow!("no GPU adapter to draw with (a Vulkan, Metal, DirectX 12 or OpenGL driver)")
     })?;
-    let options = mg_ui::nui_render::Options { scale, size };
-    let picture = mg_ui::nui_render::render(&gpu, &shown.window(), &options)
+    let picture = mg_ui::nui_render::render(&gpu, &shown.window(), options)
         .with_context(|| window_text(module, &shown.name))?;
     let file = png.map_or_else(|| PathBuf::from(format!("{}.png", shown.name)), Path::to_path_buf);
     std::fs::write(&file, picture.png()).with_context(|| path_text(&file))?;
@@ -385,7 +477,7 @@ fn layout_output(module: &Path, l: &mg_ui::nui_render::Layout, mut out: Output) 
             line += &format!(" #{id}");
         }
         line += &format!("\t{} {} {} × {}", a.x, a.y, a.w, a.h);
-        let mut notes: Vec<String> = Vec::new();
+        let mut notes: Vec<String> = e.state.iter().map(|s| (*s).to_owned()).collect();
         for (on, what) in [
             (e.hidden, "hidden"),
             (e.zero_sized, "zero-sized"),
@@ -411,6 +503,12 @@ fn layout_output(module: &Path, l: &mg_ui::nui_render::Layout, mut out: Output) 
         out.note(format!("warning: {issue}"));
     }
     Ok(out)
+}
+
+/// `NAME_OnEvent()`, the function a window's event script is when its
+/// events go to the module's own event script.
+fn event_fn(name: &str) -> String {
+    format!("{}()", mg_nui::event_function(name))
 }
 
 /// The window an error is about: `MODULE: window NAME`.

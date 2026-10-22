@@ -333,6 +333,56 @@ fn generate_makes_an_event_function_the_module_s_script_compiles_with() {
     assert_eq!(std::fs::read(&path).unwrap(), before);
 }
 
+/// A handler that ends early with `return;`, written while the window had
+/// a script of its own, compiles once the window's events go to the
+/// module's own event script: generate makes it `return TRUE;` (what
+/// `NAME_OnEvent()` returns) and says where; switched back, `return;`
+/// again. The Domains of Dread's trial failed here on the compiler's
+/// "RETURN TYPE AND FUNCTION TYPE MISMATCHED".
+#[test]
+fn generate_fits_a_handler_s_return_to_the_event_script_s_function() {
+    let root = mg_testkit::corpus!();
+    let path = module("mg-nui-event-function-return");
+    let p = path.to_str().unwrap();
+    assert!(mg(None, &["new", p, "shop"]).0);
+    assert!(mg(Some(&root), &["generate", p, "shop"]).0);
+    let mut m = Module::open(&path).unwrap();
+    let mut s = mg_nui::Settings::parse(m.get(&key("shop.txt")).unwrap()).unwrap();
+    let script = String::from_utf8(m.get(&key("shop_e.nss")).unwrap().to_vec()).unwrap();
+    let early =
+        "        if (!GetIsPC(oPlayer)) return;\n        SendMessageToPC(oPlayer, \"Bought.\");\n";
+    let mine = mg_nui::insert_code(&script, "click mg_close", early).unwrap();
+    m.set(key("shop_e.nss"), mine.clone().into_bytes());
+    s.event_function = true;
+    m.set(key("shop.txt"), s.bytes());
+    m.save().unwrap();
+    let (ok, made) = mg(Some(&root), &["generate", p, "shop"]);
+    assert!(ok, "{made}");
+    let m = Module::open(&path).unwrap();
+    let events = String::from_utf8(m.get(&key("shop_e.nss")).unwrap().to_vec()).unwrap();
+    let line = events.lines().position(|l| l.contains("GetIsPC(oPlayer)) return TRUE;")).unwrap();
+    assert_eq!(
+        made["returns"],
+        json!([{"section": "click mg_close", "line": line + 1, "was": "return;", "now": "return TRUE;"}])
+    );
+    let note = made["notes"][0].as_str().unwrap();
+    assert!(note.starts_with(&format!("note: shop_e.nss:{}: ", line + 1)), "{note}");
+    assert!(note.contains("\"click mg_close\"") && note.contains("shop_OnEvent()"), "{note}");
+    // And back to a script of its own: the code as it was written.
+    let mut s = mg_nui::Settings::parse(m.get(&key("shop.txt")).unwrap()).unwrap();
+    s.event_function = false;
+    let mut m = m;
+    m.set(key("shop.txt"), s.bytes());
+    m.save().unwrap();
+    let out = output(Some(&root), &["nui", "generate", p, "shop"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert!(said.contains("is now return;") && said.contains("void main"), "{said}");
+    let m = Module::open(&path).unwrap();
+    assert_eq!(m.get(&key("shop_e.nss")).unwrap(), mine.as_bytes());
+    assert!(m.contains(&key("shop_e.ncs")));
+}
+
 /// A nasher project whose sources are scripts and JSON, as `nasher init`
 /// writes them (and The Domains of Dread's were): a window made in it is
 /// said to be left out, with the line to add, before validate can only
@@ -457,12 +507,94 @@ fn schema_prints_the_settings_form_and_the_controls() {
 /// The town crier's window (`crates/mg-nui/tests/data`), as files in a
 /// scratch folder of its own: `crier.jui` and `crier.txt`.
 fn crier_files(test: &str) -> PathBuf {
+    window_files(test, "crier")
+}
+
+/// A window of `crates/mg-nui/tests/data` as files in a scratch folder:
+/// NAME.jui, NAME.txt and the binds a script would set, NAME.binds.json.
+fn window_files(test: &str, name: &str) -> PathBuf {
     let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/mg-nui/tests/data");
     let dir = mg_testkit::scratch_dir(test);
-    for file in ["crier.jui", "crier.txt"] {
-        std::fs::copy(from.join(file), dir.join(file)).unwrap();
+    for ext in ["jui", "txt", "binds.json"] {
+        let file = format!("{name}.{ext}");
+        std::fs::copy(from.join(&file), dir.join(&file)).unwrap();
     }
-    dir.join("crier.jui")
+    dir.join(format!("{name}.jui"))
+}
+
+/// `layout` and `render` draw a window in a state asked for, with binds
+/// from a file and a swap layout variant in its group; the same options
+/// give both the same layout. What doesn't fit the window is refused, or
+/// said.
+#[test]
+fn layout_and_render_take_states_binds_and_a_variant() {
+    let jui = window_files("mg-nui-layout-options", "cries");
+    let file = jui.to_str().unwrap();
+    let binds = jui.with_file_name("cries.binds.json");
+    let binds = binds.to_str().unwrap();
+    let options = ["--binds", binds, "--state", "hover:read", "--state", "disabled"];
+    let (ok, layout) = mg(None, &[&["layout", file][..], &options].concat());
+    assert!(ok, "{layout}");
+    let elements = layout["elements"].as_array().unwrap();
+    let read: Vec<_> = elements.iter().filter(|e| e["id"] == "read").collect();
+    assert_eq!(read.len(), 4, "{layout}");
+    assert!(read.iter().all(|e| e["state"] == "hover"), "{layout}");
+    let list = elements.iter().find(|e| e["id"] == "cries").unwrap();
+    assert_eq!(list["state"], "disabled");
+    let row = elements.iter().find(|e| e["row"] == 3 && e["kind"] == "label").unwrap();
+    assert_eq!(row["text"], "A traveler");
+    // As it opens, nothing has a state.
+    let (_, first) = mg(None, &["layout", file]);
+    assert!(first["elements"].as_array().unwrap().iter().all(|e| e.get("state").is_none()));
+    // The variant, in the swap layout it was made for.
+    let (ok, details) =
+        mg(None, &["layout", file, "--variant", "details", "--state", "pressed:back"]);
+    assert!(ok, "{details}");
+    let back = details["elements"].as_array().unwrap().iter().find(|e| e["id"] == "back");
+    assert_eq!(back.unwrap()["state"], "pressed", "{details}");
+    // For people: the state on the control's line.
+    let out = output(None, &[&["nui", "layout", file][..], &options].concat());
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.lines().any(|l| l.contains("#read\t") && l.ends_with("\thover")), "{text}");
+
+    // Refused: an ID no control has, a variant there isn't, a state that
+    // isn't one or is given twice, binds that aren't an object of JSON.
+    let error = |args: &[&str]| {
+        let (ok, said) = mg(None, &[&["layout", file][..], args].concat());
+        assert!(!ok, "{args:?}: {said}");
+        said["error"].as_str().unwrap().to_owned()
+    };
+    assert!(error(&["--state", "hover:nope"]).contains("no control has the ID \"nope\""));
+    assert!(error(&["--variant", "cover"]).contains("the window's are \"details\""));
+    let twice = error(&["--state", "hover:read", "--state", "pressed:read"]);
+    assert!(twice.contains("\"read\" is given hover and pressed"), "{twice}");
+    let list = jui.with_file_name("list.json");
+    std::fs::write(&list, "[1, 2]").unwrap();
+    assert!(error(&["--binds", list.to_str().unwrap()]).contains("one JSON object"));
+    std::fs::write(&list, "{").unwrap();
+    assert!(error(&["--binds", list.to_str().unwrap()]).contains("not JSON"));
+    for bad in ["glow", "hover:"] {
+        let out = output(None, &["nui", "layout", file, "--state", bad]);
+        assert!(!out.status.success());
+        let said = String::from_utf8_lossy(&out.stderr);
+        assert!(said.contains("normal, hover, pressed or disabled") || said.contains("ID after"));
+    }
+    // Said: a bind no property reads.
+    std::fs::write(&list, r#"{"cry_count": 2, "nope": true}"#).unwrap();
+    let (ok, said) = mg(None, &["layout", file, "--binds", list.to_str().unwrap()]);
+    assert!(ok, "{said}");
+    let issues = said["issues"].as_array().unwrap();
+    assert!(issues.contains(&json!("bind \"nope\": no property of the window reads it")));
+
+    // render takes the same options.
+    mg_testkit::gpu::hold();
+    let png = jui.with_file_name("cries.png");
+    let args = [file, "-o", png.to_str().unwrap(), "--binds", binds, "--variant", "details"];
+    let Some(drawn) = render(&[&args[..], &["--state", "pressed:back"]].concat()) else {
+        return;
+    };
+    assert_eq!(png_size(&png), (600, 330));
+    assert_eq!(drawn["window"], "cries");
 }
 
 #[test]

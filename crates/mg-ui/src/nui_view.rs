@@ -56,6 +56,10 @@ pub(crate) struct State {
     /// The state the canvas shows the selected control in: 0 follows the
     /// pointer, then normal, hover, pressed and disabled.
     preview_state: usize,
+    /// The states controls are drawn in off the screen (`mg nui render
+    /// --state`), counted as `preview_state` is, by ID (`None`: all but
+    /// those given by ID).
+    still_states: std::collections::BTreeMap<Option<String>, usize>,
     /// Resources: under the canvas's toolbar, where each picture and font
     /// came from and what was not found.
     preview_info: bool,
@@ -346,7 +350,7 @@ fn build(app: &mut Moonglow, name: &str, export: bool) {
     // (What it could not compile of the module's own scripts, and what is
     // remembered of those it did: said and kept once the rest is applied.)
     .map(|made| {
-        built = Some((made.failed, made.remembered));
+        built = Some((made.failed, made.remembered, made.refits));
         made.command
     });
     // (For the window's Cancel: what Build replaces is set back with the
@@ -360,7 +364,15 @@ fn build(app: &mut Moonglow, name: &str, export: bool) {
     match result {
         Ok(cmd) => match if cmd.edits.is_empty() { Ok(()) } else { app.apply(cmd) } {
             Ok(()) => {
-                if let Some((failed, remembered)) = built {
+                if let Some((failed, remembered, refits)) = built {
+                    // (Code of the builder's that Build changed: said.)
+                    for r in refits {
+                        app.log.info(format!(
+                            "{name}_e.nss line {}: in the section \"{}\", {} is now {}, to fit \
+                             the event script's function",
+                            r.line, r.section, r.was, r.now
+                        ));
+                    }
                     app.script_stamps = remembered;
                     if let Some(file) = &kept
                         && let Err(e) = app.script_stamps.write(file)

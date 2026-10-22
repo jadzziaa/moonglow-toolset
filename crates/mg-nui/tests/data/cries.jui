@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "title": "Today's Cries",
+  "geometry": {"x": -1.0, "y": -1.0, "w": 600.0, "h": 330.0},
+  "resizable": false,
+  "collapsed": null,
+  "closable": true,
+  "transparent": false,
+  "border": true,
+  "accepts_input": true,
+  "root": {
+    "type": "col",
+    "label": null,
+    "value": null,
+    "children": [
+      {"type": "label", "label": null, "value": "What the crier cried today:", "width": 576.0,
+       "height": 30.0, "text_halign": 1, "text_valign": 1},
+      {"type": "group", "id": "pages", "label": null, "value": null, "border": false,
+       "scrollbars": 0, "width": 576.0, "height": 230.0, "children": [
+        {"type": "list", "id": "cries", "label": null, "value": null, "row_template": [
+          [{"type": "label", "label": null, "value": {"bind": "cry_by"}, "text_halign": 1,
+            "text_valign": 0}, 140.0, false],
+          [{"type": "label", "label": null, "value": {"bind": "cry_text"}, "text_halign": 1,
+            "text_valign": 0}, 0.0, true],
+          [{"type": "button", "id": "read", "label": "Read", "value": null}, 70.0, false]
+        ], "row_count": {"bind": "cry_count"}, "row_height": 30.0, "border": true,
+         "scrollbars": 2}
+      ]}
+    ]
+  }
+}

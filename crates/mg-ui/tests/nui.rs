@@ -1679,13 +1679,145 @@ fn a_new_window_in_a_project_that_leaves_it_out_says_the_line() {
 /// The town crier's window (`crates/mg-nui/tests/data`): a label, a text
 /// box, a label from a bind and a row of two buttons, one off by a bind.
 fn crier() -> mg_module::Module {
-    let data = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../mg-nui/tests/data");
+    fixture("crier")
+}
+
+/// A window of `crates/mg-nui/tests/data` in a module of its own.
+fn fixture(name: &str) -> mg_module::Module {
     let mut m = mg_module::Module::new();
     for ty in [ResType::JUI, ResType::TXT] {
-        let key = ResKey::parse("crier", ty).unwrap();
-        m.set(key, std::fs::read(data.join(key.to_string())).unwrap());
+        let key = ResKey::parse(name, ty).unwrap();
+        m.set(key, std::fs::read(fixture_file(&key.to_string())).unwrap());
     }
     m
+}
+
+fn fixture_file(file: &str) -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../mg-nui/tests/data").join(file)
+}
+
+/// A window's binds as a script would set them: `NAME.binds.json`.
+fn fixture_binds(name: &str) -> std::collections::BTreeMap<String, Value> {
+    serde_json::from_slice(&std::fs::read(fixture_file(&format!("{name}.binds.json"))).unwrap())
+        .unwrap()
+}
+
+/// The town crier's recent cries (`crates/mg-nui/tests/data/cries.*`): a
+/// list whose rows come of binds, in a swap layout with a variant.
+fn cries_window(m: &mg_module::Module) -> mg_ui::nui_render::Window<'_> {
+    mg_ui::nui_render::Window { name: "cries", ..crier_window(m) }
+}
+
+/// Off the screen a window can be drawn otherwise than as it opens: a
+/// control in a state of its own, or every one; binds set as a script sets
+/// them, a list's rows from their arrays; a swap layout variant in place
+/// of what its group holds. Where they don't fit the window, said.
+#[test]
+fn a_window_is_laid_out_in_the_states_binds_and_variant_asked() {
+    use mg_ui::nui_render::{Look, Options, layout};
+    let m = fixture("cries");
+    let w = cries_window(&m);
+    // As it opens: one row, its first values.
+    let first = layout(&w, &Options::default()).unwrap();
+    let rows = |l: &mg_ui::nui_render::Layout| {
+        l.elements.iter().filter(|e| e.id.as_deref() == Some("read")).count()
+    };
+    assert_eq!(rows(&first), 1);
+    assert!(first.elements.iter().all(|e| e.state.is_none()), "{first:#?}");
+    // With the binds a character would see, and one control hovered: each
+    // row's Read button, which has that ID.
+    let binds = fixture_binds("cries");
+    let o = Options {
+        binds: binds.clone(),
+        states: [(Some("read".to_owned()), Look::Hover)].into(),
+        ..Default::default()
+    };
+    let l = layout(&w, &o).unwrap();
+    assert_eq!(rows(&l), 4);
+    let texts: Vec<_> = l
+        .elements
+        .iter()
+        .filter(|e| e.path.ends_with("row_template/1/0"))
+        .map(|e| (e.row, e.text.clone().unwrap()))
+        .collect();
+    assert_eq!(texts[3], (Some(3), "News of my brother, lost in the fog?".into()));
+    for e in &l.elements {
+        let hovered = e.id.as_deref() == Some("read");
+        assert_eq!(e.state, hovered.then_some("hover"), "{e:?}");
+    }
+    // Disabled: a list, and what is in it with it; every control hovered
+    // but one given its own.
+    let o = Options {
+        states: [(Some("cries".to_owned()), Look::Disabled), (None, Look::Hover)].into(),
+        ..o
+    };
+    let l = layout(&w, &o).unwrap();
+    for e in &l.elements {
+        let inside = e.path.starts_with("/root/children/1/children/0");
+        assert_eq!(e.state, Some(if inside { "disabled" } else { "hover" }), "{e:?}");
+    }
+    // The variant in its group: its controls where it puts them.
+    let o = Options {
+        variant: Some("details".into()),
+        binds,
+        states: [(Some("back".to_owned()), Look::Pressed)].into(),
+        ..Default::default()
+    };
+    let l = layout(&w, &o).unwrap();
+    let back = l.elements.iter().find(|e| e.id.as_deref() == Some("back")).unwrap();
+    assert_eq!(
+        (back.path.as_str(), back.state),
+        ("/root/children/1/children/0/children/1", Some("pressed"))
+    );
+    assert!(l.elements.iter().all(|e| e.id.as_deref() != Some("cries")));
+    let text = l.elements.iter().find(|e| e.kind == "text").unwrap();
+    assert!(text.text.as_deref().unwrap().starts_with("Wolves seen"), "{text:?}");
+    // (Without the game the skin is said to be missing: nothing of the binds.)
+    assert!(!l.issues.iter().any(|i| i.starts_with("bind")), "{:?}", l.issues);
+    // A control its bind disables stays so, whatever is asked.
+    let crier = crier();
+    let o = Options { states: [(None, Look::Hover)].into(), ..Default::default() };
+    let l = layout(&crier_window(&crier), &o).unwrap();
+    let state = |id: &str| l.elements.iter().find(|e| e.id.as_deref() == Some(id)).unwrap().state;
+    assert_eq!((state("send"), state("cancel")), (Some("disabled"), Some("hover")));
+
+    // What can't be: said, not drawn.
+    let said = |o: Options| layout(&w, &o).unwrap_err().to_string();
+    let o = Options { variant: Some("cover".into()), ..Default::default() };
+    assert_eq!(said(o), "no swap layout variant \"cover\": the window's are \"details\"");
+    let o =
+        Options { states: [(Some("nope".to_owned()), Look::Hover)].into(), ..Default::default() };
+    assert_eq!(
+        said(o),
+        "no control has the ID \"nope\": the IDs are \"cries\", \"pages\", \"read\""
+    );
+    // (Not in the window as shown: the variant's own, without it.)
+    let o =
+        Options { states: [(Some("back".to_owned()), Look::Hover)].into(), ..Default::default() };
+    assert!(said(o).starts_with("no control has the ID \"back\""));
+    let o = Options {
+        binds: [("nope".to_owned(), json!(1)), ("cry_count".to_owned(), json!("four"))].into(),
+        ..Default::default()
+    };
+    assert_eq!(
+        (layout(&w, &o).unwrap().issues.into_iter())
+            .filter(|i| i.starts_with("bind"))
+            .collect::<Vec<_>>(),
+        [
+            "bind \"cry_count\": given a string where its first value is a number",
+            "bind \"nope\": no property of the window reads it"
+        ]
+    );
+    // A variant no handler shows and made for no group has nowhere to go.
+    let mut lost = fixture("cries");
+    let txt = ResKey::parse("cries", ResType::TXT).unwrap();
+    let mut s = Settings::parse(lost.get(&txt).unwrap()).unwrap();
+    s.actions.clear();
+    s.view_targets.clear();
+    lost.set(txt, s.bytes());
+    let o = Options { variant: Some("details".into()), ..Default::default() };
+    let e = layout(&cries_window(&lost), &o).unwrap_err().to_string();
+    assert!(e.starts_with("the variant \"details\" has no group to be shown in"), "{e}");
 }
 
 fn crier_window(m: &mg_module::Module) -> mg_ui::nui_render::Window<'_> {
@@ -1817,4 +1949,136 @@ fn a_window_drawn_off_the_screen_is_where_its_layout_says() {
         assert_eq!(&png[1..4], b"PNG");
         assert_eq!(u32::from_be_bytes(png[16..20].try_into().unwrap()), picture.width);
     }
+}
+
+/// What `mg nui schema --layout` says of widths is how the preview lays
+/// controls out: one without a width keeps 150 points or takes its
+/// column's, a column is as wide as its widest control however wide the
+/// window, and the window's width less 20 fills it.
+#[test]
+fn controls_without_a_width_are_as_the_layout_form_says() {
+    use mg_ui::nui_render::{Options, layout};
+    let about = mg_nui::controls()["description"].as_str().unwrap().to_owned();
+    let mut column = Vec::new();
+    for ty in mg_nui::ELEMENTS {
+        if !matches!(*ty, "col" | "row" | "group" | "spacer" | "options" | "tabbar") {
+            column.push(mg_nui::template(ty));
+        }
+    }
+    let mut doc = mg_nui::window();
+    doc["geometry"]["w"] = json!(600.0);
+    doc["root"]["children"] = json!(column);
+    let mut m = mg_module::Module::new();
+    let key = |ty| ResKey::parse("widths", ty).unwrap();
+    m.set(key(ResType::JUI), serde_json::to_vec(&doc).unwrap());
+    let w = mg_ui::nui_render::Window { name: "widths", ..crier_window(&m) };
+    let l = layout(&w, &Options::default()).unwrap();
+    let width = |kind: &str| l.elements.iter().find(|e| e.kind == kind).unwrap().area.w;
+    // The widest: the color picker's 300, and its column 304.
+    assert_eq!(width("col"), 304.0);
+    for kind in [
+        "button",
+        "button_image",
+        "button_select",
+        "check",
+        "combo",
+        "slider",
+        "sliderf",
+        "textedit",
+        "text",
+    ] {
+        assert_eq!(width(kind), 150.0, "{kind}");
+        assert!(about.contains(kind), "{kind}");
+    }
+    for kind in ["label", "image", "progress", "list", "chart", "color_picker"] {
+        assert_eq!(width(kind), 300.0, "{kind}");
+    }
+    assert!(about.contains("color_picker 300"));
+    // A new window's: 154 wide, its Close button 150, at any width.
+    let mut m = mg_module::Module::new();
+    m.set(key(ResType::JUI), serde_json::to_vec(&mg_nui::window()).unwrap());
+    let w = mg_ui::nui_render::Window { name: "widths", ..crier_window(&m) };
+    for size in [None, Some([900.0, 300.0])] {
+        let l = layout(&w, &Options { size, ..Default::default() }).unwrap();
+        assert_eq!((l.elements[0].area.w, l.elements[2].area.w), (154.0, 150.0), "{size:?}");
+    }
+    assert!(about.contains("a new window's column is 154 wide, its Close button 150"));
+    // A label the window's width less 20 fills the window's column.
+    let mut doc = mg_nui::window();
+    doc["root"]["children"][0]["width"] = json!(400.0);
+    m.set(key(ResType::JUI), serde_json::to_vec(&doc).unwrap());
+    let w = mg_ui::nui_render::Window { name: "widths", ..crier_window(&m) };
+    let l = layout(&w, &Options::default()).unwrap();
+    assert_eq!((l.width, l.elements[0].area.w, l.body.w), (420.0, l.body.w, 404.0));
+    assert!(about.contains("the window's width less 20 fills its root column"));
+}
+
+/// Drawn in a state, with binds or a variant, the picture is the layout
+/// with the same options: a hovered Cancel changes Cancel's pixels and no
+/// others, and a list drawn from the binds' arrays has a row for each,
+/// each row's button drawn.
+#[test]
+fn a_window_drawn_in_a_state_with_binds_is_its_layout() {
+    use mg_ui::nui_render::{Look, Options, layout, render};
+    mg_testkit::gpu::hold();
+    let Some(gpu) = mg_render::Gpu::headless() else {
+        eprintln!("skipped: no GPU adapter");
+        return;
+    };
+    let game = mg_testkit::nwn_root().and_then(|root| {
+        mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).ok()
+    });
+    let m = crier();
+    let window = mg_ui::nui_render::Window { resman: game.as_ref(), ..crier_window(&m) };
+    let plain = render(&gpu, &window, &Options::default()).unwrap();
+    let o =
+        Options { states: [(Some("cancel".to_owned()), Look::Hover)].into(), ..Default::default() };
+    let hovered = render(&gpu, &window, &o).unwrap();
+    assert_eq!(hovered.layout, layout(&window, &o).unwrap());
+    let cancel =
+        hovered.layout.elements.iter().find(|e| e.id.as_deref() == Some("cancel")).unwrap();
+    let a = cancel.area;
+    let mut changed = 0;
+    for (i, (p, h)) in plain.rgba.chunks(4).zip(hovered.rgba.chunks(4)).enumerate() {
+        if p != h {
+            let (x, y) = ((i as u32 % plain.width) as f32, (i as u32 / plain.width) as f32);
+            assert!(
+                x >= a.x && x < a.x + a.w && y >= a.y && y < a.y + a.h,
+                "{x}, {y} changed, outside Cancel ({a:?})"
+            );
+            changed += 1;
+        }
+    }
+    assert!(changed > 0, "hovering Cancel changed nothing");
+
+    // The cries' list from the binds: four rows, with their buttons drawn.
+    let m = fixture("cries");
+    let window = mg_ui::nui_render::Window { resman: game.as_ref(), ..cries_window(&m) };
+    let o = Options {
+        binds: fixture_binds("cries"),
+        states: [(Some("read".to_owned()), Look::Hover)].into(),
+        ..Default::default()
+    };
+    let picture = render(&gpu, &window, &o).unwrap();
+    assert_eq!(picture.layout, layout(&window, &o).unwrap());
+    let pixel = |x: f32, y: f32| {
+        let i = ((y as u32 * picture.width + x as u32) * 4) as usize;
+        picture.rgba[i..i + 4].to_vec()
+    };
+    let buttons: Vec<_> =
+        picture.layout.elements.iter().filter(|e| e.id.as_deref() == Some("read")).collect();
+    assert_eq!(buttons.len(), 4);
+    let empty = pixel(400.0, 300.0);
+    for b in buttons {
+        let a = b.area;
+        let drawn = (0..a.w as u32)
+            .flat_map(|x| (0..a.h as u32).map(move |y| (x, y)))
+            .filter(|&(x, y)| pixel(a.x + x as f32, a.y + y as f32) != empty)
+            .count();
+        assert!(drawn as f32 > a.w * a.h * 0.1, "row {:?}: {drawn} pixels", b.row);
+    }
+    // The variant: drawn as laid out too.
+    let o = Options { variant: Some("details".into()), states: Default::default(), ..o };
+    let picture = render(&gpu, &window, &o).unwrap();
+    assert_eq!(picture.layout, layout(&window, &o).unwrap());
 }
