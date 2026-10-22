@@ -1036,7 +1036,7 @@ fn a_plugin_s_tests_bring_their_own_game_data() {
     assert_eq!(of(&results, "quiet without it"), ["0 findings, not 1: []", lacked]);
     let nowhere = of(&results, "a folder not there");
     assert!(nowhere[0].starts_with("game: ") && nowhere[0].ends_with("nowhere is not a folder"));
-    let root = source.join("tests/elsewhere");
+    let root = source.join("tests").join("elsewhere");
     assert_eq!(
         of(&results, "a root of its own"),
         [format!("root {}: no game install there", root.display())]

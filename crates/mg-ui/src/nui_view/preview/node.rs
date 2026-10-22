@@ -66,8 +66,15 @@ impl Control<'_> {
         let (a, p, scale, tint) = (self.a, &self.p, self.scale, self.tint);
         let state_key = self.state_key;
         if !a.paint(p, &format!("{section}.{state_key}"), r, scale, true, tint) {
-            p.rect_filled(r, 0, Color32::BLACK);
-            p.rect_stroke(r, 0, Stroke::new(scale, GOLD * tint), StrokeKind::Inside);
+            // (No skin: the state still shows, a lit edge under the
+            // pointer and a darker gold while pressed.)
+            let (fill, edge) = match state_key {
+                "hover" => (Color32::BLACK, Color32::from_rgb(230, 200, 140)),
+                "active" => (Color32::from_rgb(60, 45, 20), GOLD),
+                _ => (Color32::BLACK, GOLD),
+            };
+            p.rect_filled(r, 0, fill);
+            p.rect_stroke(r, 0, Stroke::new(scale, edge * tint), StrokeKind::Inside);
         }
     }
 
