@@ -172,10 +172,16 @@ impl Shared {
             if let Some(bytes) = self.in_haks(key) {
                 return Ok(bytes);
             }
-            let Some(data) = &self.game else { return fail("there is no game data") };
+            let Some(data) = &self.game else {
+                self.host.not_in_game(&key.to_string());
+                return fail(format!("{key}: there is no game data (no game install)"));
+            };
             return match data.resman.get(key) {
                 Ok(bytes) => Ok(bytes.into_owned()),
-                Err(_) => fail(format!("{key} is not in the game's resources")),
+                Err(_) => {
+                    self.host.not_in_game(&key.to_string());
+                    fail(format!("{key} is not in the game's resources"))
+                }
             };
         }
         let mut ws = self.ws.borrow_mut();
@@ -494,7 +500,15 @@ fn reader(lua: &Lua, sh: &Rc<Shared>, game: bool) -> mlua::Result<Table> {
         t.set(
             "table",
             lua.create_function(move |lua, (_, name): (This, String)| {
-                let Some(data) = &s.game else { return fail("there is no game data") };
+                let file = format!("{}.2da", name.trim_end_matches(".2da"));
+                let Some(data) = &s.game else {
+                    s.host.not_in_game(&file);
+                    return fail(format!("{file}: there is no game data (no game install)"));
+                };
+                let had = ResKey::from_filename(&file).is_some_and(|k| data.resman.contains(&k));
+                if !had {
+                    s.host.not_in_game(&file);
+                }
                 let table = data.table(&name).or_else(fail)?;
                 crate::tables::twoda(lua, table.clone())
             })?,

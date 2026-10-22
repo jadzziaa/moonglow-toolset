@@ -32,6 +32,12 @@
 //! answers = { code = "ab" }
 //! set = { code = "ab" }            # what the job sets (ctx.settings:set)
 //! ```
+//!
+//! A test reads the game's data (`ctx.game`) from the machine's game, or
+//! the one at `root`, and over it the files of the folder `game` names
+//! (by default `game/` beside the test file, where there is one), as the
+//! game's development folder is read: so a test that reads only those
+//! runs without a game.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -62,9 +68,27 @@ struct File {
     /// The fixture module: a module folder, a `.mod` or a nasher project,
     /// from the test file's folder.
     module: Option<String>,
+    /// A folder of the game's resources for the tests (2DAs, blueprints),
+    /// from the test file's folder, over the game's: [`GAME_FOLDER`] where
+    /// there is one, when this is not given.
+    game: Option<String>,
+    /// The game's root (its install's folder) the tests read the game
+    /// from, in place of the machine's: absolute, from the test file's
+    /// folder, or from the home folder (`~/`).
+    root: Option<String>,
     #[serde(default, rename = "test")]
     tests: Vec<Test>,
 }
+
+/// The folder of the game's resources beside a test file that the tests
+/// read over the game's, where the file names none (`game = "…"`).
+pub const GAME_FOLDER: &str = "game";
+
+/// How [`run_tests`] reads a fixture's game data: the game at a root
+/// (`Some`, a test's `root`) or the machine's (`None`), with the module's
+/// haks and the module layered in. `Ok(None)`: no game; an error, a root
+/// that is no game.
+pub type GameFor<'a> = dyn Fn(&Module, Option<&Path>) -> Result<Option<GameData>, String> + 'a;
 
 /// One test: what to run, on what, and what is to come of it.
 #[derive(Debug, Deserialize)]
@@ -77,6 +101,9 @@ struct Test {
     event: Option<String>,
     /// The fixture, if not the file's.
     module: Option<String>,
+    /// The game's resources and the game's root, if not the file's.
+    game: Option<String>,
+    root: Option<String>,
     /// What the command is run on, and what is open (as `mg plugin run
     /// --select` and `--open` take them).
     #[serde(default)]
@@ -221,13 +248,10 @@ pub fn test_files(plugin: &Plugin) -> Vec<PathBuf> {
 
 /// Runs a plugin's tests: each of its test files' (`module`, when given,
 /// in place of the fixture each file names). `game` gives the game data a
-/// fixture is read with (none: the plugin's `ctx.game` is empty). A file
-/// that does not read is a test that failed.
-pub fn run_tests(
-    plugin: &Plugin,
-    module: Option<&Path>,
-    game: &dyn Fn(&Module) -> Option<Arc<GameData>>,
-) -> Vec<TestResult> {
+/// fixture is read with (none: the plugin's `ctx.game` is empty, but for
+/// the test's own game folder). A file that does not read is a test that
+/// failed.
+pub fn run_tests(plugin: &Plugin, module: Option<&Path>, game: &GameFor) -> Vec<TestResult> {
     let mut out = Vec::new();
     for path in test_files(plugin) {
         let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -250,8 +274,9 @@ pub fn run_tests(
             out.push(fail("(the file)", "it has no tests ([[test]])".into()));
         }
         let dir = path.parent().unwrap_or(Path::new("."));
-        // (Each fixture read once for the file.)
-        let mut opened: BTreeMap<PathBuf, Result<Fixture, String>> = BTreeMap::new();
+        // (Each fixture read once for the file, with each game it is read
+        // with.)
+        let mut opened: BTreeMap<GameKey, Result<Fixture, String>> = BTreeMap::new();
         for test in &tests.tests {
             let fixture = match (module, test.module.as_ref().or(tests.module.as_ref())) {
                 (Some(given), _) => given.to_path_buf(),
@@ -262,14 +287,37 @@ pub fn run_tests(
                     continue;
                 }
             };
-            let read = opened.entry(fixture.clone()).or_insert_with(|| {
+            let root = test.root.as_ref().or(tests.root.as_ref()).map(|r| from(dir, r));
+            let folder = match test.game.as_ref().or(tests.game.as_ref()) {
+                Some(named) => {
+                    let folder = dir.join(named);
+                    if !folder.is_dir() {
+                        let why = format!("game: {} is not a folder", folder.display());
+                        out.push(fail(&test.name, why));
+                        continue;
+                    }
+                    Some(folder)
+                }
+                None => Some(dir.join(GAME_FOLDER)).filter(|f| f.is_dir()),
+            };
+            let at = (fixture.clone(), root.clone(), folder.clone());
+            let read = opened.entry(at).or_insert_with(|| {
                 let m =
                     Module::open(&fixture).map_err(|e| format!("{}: {e}", fixture.display()))?;
-                let g = game(&m);
-                Ok((m, g))
+                let g = game(&m, root.as_deref()).map_err(|e| match &root {
+                    Some(r) => format!("root {}: {e}", r.display()),
+                    None => e,
+                })?;
+                let game = g.is_some();
+                let g = with_folder(&m, g, folder.as_deref());
+                Ok((m, g.map(Arc::new), game))
             });
             let problems = match read {
-                Ok((m, g)) => run_one(plugin, test, dir, m, g.clone()),
+                Ok((m, g, game)) => {
+                    let (root, folder) = (root.as_deref(), folder.as_deref());
+                    let from = GameFrom { game: *game, root, folder, dir };
+                    run_one(plugin, test, dir, m, g.clone(), &from)
+                }
                 Err(e) => vec![e.clone()],
             };
             out.push(TestResult { file: file.clone(), name: test.name.clone(), problems });
@@ -278,13 +326,60 @@ pub fn run_tests(
     out
 }
 
-/// A fixture module read, and the game data it is read with.
-type Fixture = (Module, Option<Arc<GameData>>);
+/// A path a test file names: absolute, from the home folder (`~/`), or
+/// from the test file's folder.
+fn from(dir: &Path, named: &str) -> PathBuf {
+    if let Some(rest) = named.strip_prefix("~/")
+        && let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))
+    {
+        return PathBuf::from(home).join(rest);
+    }
+    dir.join(named)
+}
+
+/// The game's data with the test's own folder of resources over it, as
+/// the game's development folder is read (over the install, the haks and
+/// the module); without a game, the folder and the module alone.
+fn with_folder(m: &Module, g: Option<GameData>, folder: Option<&Path>) -> Option<GameData> {
+    use mg_resman::{DirContainer, LayerClass, ResMan, priority};
+    let Some(folder) = folder else { return g };
+    let mut g = g.unwrap_or_else(|| {
+        let mut rm = ResMan::new();
+        rm.add(priority::MODULE, "module", LayerClass::Erf, m.container());
+        GameData::new(rm, mg_tlk::Tlk::new(Language::ENGLISH))
+    });
+    g.resman.add(
+        priority::DEVELOPMENT,
+        "test:game",
+        LayerClass::Directory,
+        DirContainer::open(folder),
+    );
+    Some(g)
+}
+
+/// A fixture read with a game: its path, the game's root and the test's
+/// folder of resources.
+type GameKey = (PathBuf, Option<PathBuf>, Option<PathBuf>);
+
+/// Where a test's game data came from, for what it says it lacked.
+struct GameFrom<'a> {
+    /// There was a game (the machine's, or at `root`).
+    game: bool,
+    root: Option<&'a Path>,
+    folder: Option<&'a Path>,
+    dir: &'a Path,
+}
+
+/// A fixture module read, the game data it is read with, and whether
+/// there was a game under the test's folder.
+type Fixture = (Module, Option<Arc<GameData>>, bool);
 
 /// The test host: the log kept, a form filled from the answers, a question
 /// answered as the test says.
 struct TestHost {
     log: RefCell<Vec<String>>,
+    /// The game's resources the plugin read and the game data lacked.
+    not_in_game: RefCell<Vec<String>>,
     answers: BTreeMap<String, toml::Value>,
     files: RefCell<std::collections::VecDeque<PathBuf>>,
     yes: bool,
@@ -293,6 +388,13 @@ struct TestHost {
 impl Host for TestHost {
     fn log(&self, _: Level, text: &str) {
         self.log.borrow_mut().push(text.to_string());
+    }
+
+    fn not_in_game(&self, resource: &str) {
+        let mut lacked = self.not_in_game.borrow_mut();
+        if !lacked.iter().any(|r| r == resource) {
+            lacked.push(resource.to_string());
+        }
     }
 
     fn ask(&self, question: &Question) -> Option<Answer> {
@@ -342,6 +444,52 @@ fn run_one(
     dir: &Path,
     module: &Module,
     game: Option<Arc<GameData>>,
+    from: &GameFrom,
+) -> Vec<String> {
+    let host = Rc::new(TestHost {
+        log: RefCell::default(),
+        not_in_game: RefCell::default(),
+        answers: t.answers.clone(),
+        files: RefCell::new(t.files.iter().map(|f| dir.join(f)).collect()),
+        yes: t.yes,
+    });
+    let mut problems = held(plugin, t, dir, module, game, &host);
+    // What it read of the game and did not find, where that may be why.
+    let lacked = host.not_in_game.borrow();
+    if !problems.is_empty() && !lacked.is_empty() {
+        let them = if lacked.len() == 1 { "it" } else { "them" };
+        let game = match (from.game, from.root) {
+            (_, Some(root)) => format!("the game at {} has none", root.display()),
+            (true, None) => "this machine's game has none".to_string(),
+            (false, None) => "there is no game install".to_string(),
+        };
+        let (folder, put) = match from.folder {
+            Some(f) => {
+                let f = f.strip_prefix(from.dir).unwrap_or(f).display().to_string();
+                (format!("nor the test's game folder, {f}"), format!("put {them} in {f}"))
+            }
+            None => (
+                format!("and the test has no game folder ({GAME_FOLDER}/ beside its file)"),
+                format!("put {them} in a folder {GAME_FOLDER}/ beside the test file"),
+            ),
+        };
+        problems.push(format!(
+            "the game's data has no {}, which it read ({game}, {folder}): {put}, or name a game \
+             with root = \"…\"",
+            lacked.join(", ")
+        ));
+    }
+    problems
+}
+
+/// What was not as the test wants.
+fn held(
+    plugin: &Plugin,
+    t: &Test,
+    dir: &Path,
+    module: &Module,
+    game: Option<Arc<GameData>>,
+    host: &Rc<TestHost>,
 ) -> Vec<String> {
     let mut problems = Vec::new();
     if (t.was.is_some() || t.by.is_some() || t.warned.is_some() || t.refused.is_some())
@@ -368,12 +516,6 @@ fn run_one(
             Err(e) => return vec![format!("open: {e}")],
         }
     }
-    let host = Rc::new(TestHost {
-        log: RefCell::default(),
-        answers: t.answers.clone(),
-        files: RefCell::new(t.files.iter().map(|f| dir.join(f)).collect()),
-        yes: t.yes,
-    });
     let settings = match settings_for(plugin, t, module) {
         Ok(s) => s,
         Err(e) => return vec![e],
@@ -492,7 +634,7 @@ fn run_one(
             return problems;
         }
         let input = Input::new(ws.module.clone(), game);
-        match crate::run_check(plugin, id, input, host) {
+        match crate::run_check(plugin, id, input, host.clone()) {
             Ok(after) if after.len() != n => problems.push(format!(
                 "after the fixes the check finds {}, not {n}: {:?}",
                 after.len(),

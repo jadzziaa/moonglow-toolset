@@ -358,6 +358,74 @@ fn a_plugin_s_own_tests_run_as_in_a_pipeline() {
     assert!(String::from_utf8_lossy(&none.stderr).contains("has no tests"));
 }
 
+/// `mg plugin test` with no game: a test whose game data is its own (a
+/// `game/` folder beside the test file) passes; one that names a root
+/// that is no game says so; with a game, a test's `root` reads that one.
+#[test]
+fn a_plugin_s_tests_run_on_their_own_game_data() {
+    let dir = mg_testkit::scratch_dir("mg-plugin-test-game");
+    let source = dir.join("skills");
+    std::fs::create_dir_all(source.join("tests/game")).unwrap();
+    std::fs::write(
+        source.join("plugin.cfg"),
+        "[plugin]\nid = \"test.skills\"\nname = \"Skills\"\nversion = \"1\"\napi = \"0.4\"\n\
+         license = \"GPL-3.0-or-later\"\n[check]\nid = \"skills\"\ntitle = \"Skills\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        source.join("main.luau"),
+        "local mg = require(\"@moonglow\")\n\
+         mg.check(\"skills\", function(ctx)\n\
+             local skills = ctx.game:table(\"skills\")\n\
+             return { { resource = \"guard.utc\", message = skills:get(0, \"Label\") } }\n\
+         end)\n",
+    )
+    .unwrap();
+    std::fs::write(source.join("tests/game/skills.2da"), "2DA V2.0\n\n   Label\n0  Lore\n")
+        .unwrap();
+    module(&source.join("tests"));
+    let mut tests = String::from(
+        "module = \"keep.mod\"\n\
+         [[test]]\nname = \"its own\"\ncheck = \"skills\"\n\
+         [[test.finding]]\nresource = \"guard.utc\"\nmessage = \"Lore\"\n\
+         [[test]]\nname = \"a root that is no game\"\ncheck = \"skills\"\nroot = \"nowhere\"\n",
+    );
+    let game = mg_testkit::nwn_root();
+    if let Some(root) = &game {
+        // (The game's own first skill, over which the folder is not read.)
+        std::fs::create_dir_all(source.join("tests/bare")).unwrap();
+        tests.push_str(&format!(
+            "[[test]]\nname = \"the game at a root\"\ncheck = \"skills\"\nroot = {:?}\n\
+             game = \"bare\"\n[[test.finding]]\nresource = \"guard.utc\"\nmessage = \"AnimalEmpathy\"\n",
+            root.display().to_string()
+        ));
+    }
+    std::fs::write(source.join("tests/game.toml"), tests).unwrap();
+    let out = crate::mg()
+        .args(["--no-user-dir", "--root"])
+        .arg(dir.join("no-game"))
+        .args(["--json", "plugin", "test"])
+        .arg(&source)
+        .output()
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert!(!out.status.success(), "{json}");
+    let test = |name: &str| {
+        json["tests"].as_array().unwrap().iter().find(|t| t["name"] == name).cloned().unwrap()
+    };
+    assert_eq!(test("its own")["passed"], true, "{json}");
+    let nowhere = test("a root that is no game");
+    let said = nowhere["problems"][0].as_str().unwrap();
+    assert!(
+        said.starts_with("root ")
+            && said.ends_with("nowhere: no game install there (no data/nwn_base.key)"),
+        "{said}"
+    );
+    if game.is_some() {
+        assert_eq!(test("the game at a root")["passed"], true, "{json}");
+    }
+}
+
 /// A project (a module folder) with a creature whose tag lacks the team's
 /// prefix, the team's prefix in its moonglow.toml, and the builder-tags
 /// example in its `plugins/`.

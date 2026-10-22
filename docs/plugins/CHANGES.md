@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T19:51:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:17:20Z }
 ---
 
 # Plugin API changes
@@ -127,6 +127,13 @@ says `api = "0.4"` runs as it did):
   equipped item's is its slot, which needed `raw` before.
 - A test's `[[test.field]]` may name a list's item (`Equip_ItemList[2]`):
   there, or gone with `absent = true`.
+- A plugin's tests bring their own game data: a folder `game/` beside
+  the test file (or the one `game = "…"` names, in the file or a test),
+  whose files `ctx.game` reads over the game's, as the game's development
+  folder is; a test that reads only those runs with no game. `root =
+  "…"` names the game a test reads, in place of the one `mg` finds. A
+  test that fails having read something its game data has not says which,
+  and where to put it.
 - From the Domains of Dread's notes on setting up their project.
 
 ## 0.3
