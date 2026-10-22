@@ -321,6 +321,65 @@ fn a_nui_window_the_include_leaves_out_is_said_and_taken_in() {
     assert!(cfg.contains("include = \"src/**/*.{jui,txt}\""), "{cfg}");
 }
 
+/// A script of a nasher project edited in the editor and saved is the
+/// file it was with only the line edited changed (a builder's report: git
+/// took the whole script as replaced). CRLF lines, a lone LF line, tabs,
+/// a Windows-1252 byte and no newline at the end are kept as they were.
+#[test]
+fn a_project_s_script_edited_and_saved_changes_only_its_edited_line() {
+    let dir = mg_testkit::scratch_dir("ui-nasher-script-bytes");
+    let path = sample_module(&dir);
+    let project = dir.join("project");
+    let _ = std::fs::remove_dir_all(&project);
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::write(
+        project.join("nasher.cfg"),
+        "[package]\n  [package.sources]\n  include = \"src/**/*.{nss,json}\"\n  \
+         [package.rules]\n  \"*\" = \"src\"\n[target]\nname = \"m\"\nfile = \"m.mod\"\n",
+    )
+    .unwrap();
+    let mut m = Module::open(&path).unwrap();
+    let location = mg_module::ModuleLocation::Project { root: project.clone(), target: "m".into() };
+    m.save_as(&location).unwrap();
+    let file = project.join("src/hello.nss");
+    let before: &[u8] = b"// Caf\xe9 script\r\nvoid main()\r\n{\r\n\tint n = 1;\n\tint m = 2;\r\n}";
+    std::fs::write(&file, before).unwrap();
+    let other = project.join("src/other.nss");
+    let untouched: &[u8] = b"void main()\n{\r\n    // \x93quoted\x94 \n}\n\n";
+    std::fs::write(&other, untouched).unwrap();
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&project);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let text = h.state().script_text(key).unwrap();
+    let at = text[..text.find("1;").unwrap()].chars().count();
+    h.state_mut().script_tools.jump = Some((key, at));
+    h.run();
+    h.key_press(egui::Key::Delete);
+    h.run();
+    h.event(egui::Event::Text("7".into()));
+    h.run();
+    let edited = h.state().script_text(key).unwrap();
+    assert!(edited.contains("int n = 7;"), "{edited:?} {text:?}");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::S);
+    h.run();
+    h.state_mut().run(mg_ui::Action::Save);
+    h.run();
+    let after = std::fs::read(&file).unwrap();
+    let expected: &[u8] =
+        b"// Caf\xe9 script\r\nvoid main()\r\n{\r\n\tint n = 7;\n\tint m = 2;\r\n}";
+    assert_eq!(
+        String::from_utf8_lossy(&after),
+        String::from_utf8_lossy(expected),
+        "{:?}",
+        h.state().log.entries
+    );
+    assert_eq!(after, expected);
+    assert_eq!(std::fs::read(&other).unwrap(), untouched, "a script not edited is as it was");
+}
+
 /// A NUI window's scripts in a nasher project: Build makes them in the
 /// module, and Save writes them where the project's rules put them (a
 /// builder's report: not copied to the project; Build said "written").

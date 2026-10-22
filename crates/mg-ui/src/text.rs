@@ -240,6 +240,10 @@ pub(crate) fn with_line_ends(text: &str, original: &str) -> String {
             Some(k)
         } else if k >= n - suffix {
             Some(k + m - n)
+        } else if n == m {
+            // (Lines changed in place, as many as there were: each keeps
+            // the end it had, in a file of mixed ends too.)
+            Some(k)
         } else {
             None
         };
@@ -323,6 +327,10 @@ mod tests {
         // Both kinds: the lines before and after the change keep theirs.
         let mixed = "a\r\nb\nc\r\nd\r\n";
         assert_eq!(with_line_ends("a\nb\nX\nY\nd\n", mixed), "a\r\nb\nX\r\nY\r\nd\r\n");
+        // Lines changed in place keep their own ends: an LF line of a CRLF
+        // file stays LF (a builder's git diff of a whole script).
+        let mostly = "a\r\nb\nc\r\nd\r\n";
+        assert_eq!(with_line_ends("a\nB\nc\nd\n", mostly), "a\r\nB\nc\r\nd\r\n");
         // No line ends at all: CRLF, as Aurora writes.
         assert!(uses_crlf("void main() {}"));
         assert!(!uses_crlf("a\nb\r\nc\n"));
