@@ -47,6 +47,7 @@ use mg_rules::ObjectKind;
 pub use package::{
     Existing, MARKER, MAX_ARCHIVE, MAX_BYTES, MAX_FILES, Package, from_archive, pack, remove,
 };
+pub use runtime::EVENT_NAMES;
 pub use settings::{SettingWrite, Settings};
 pub use testing::{TestResult, run_tests, test_files};
 use thiserror::Error;
@@ -299,15 +300,25 @@ pub struct Input {
     /// The plugin's settings (`ctx.settings`), as
     /// [`settings::resolve`] makes them: none given, their defaults.
     pub settings: Option<Settings>,
+    /// How long the job may run: past it, it fails ("out of time"). None:
+    /// as long as it takes (until it is canceled). An event that runs at
+    /// once, within what the user is doing, has [`EVENT_BUDGET`].
+    pub budget: Option<std::time::Duration>,
 }
 
 impl Input {
     /// A job's input with nothing selected or open, and the plugin's
     /// settings at their defaults.
     pub fn new(module: Module, game: Option<Arc<GameData>>) -> Input {
-        Input { module, game, selection: Selection::default(), settings: None }
+        Input { module, game, selection: Selection::default(), settings: None, budget: None }
     }
 }
+
+/// How long the handlers of one plugin's event may run when the event runs
+/// at once, within what the user is doing ([`EventKind::at_once`]: a save
+/// waits for it; a paste, a wizard's Finish): all the resources of a save
+/// together.
+pub const EVENT_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Something selected, or open, in the window: what the plugin reads as
 /// an entry of `ctx.selection` (its tag and resref read from the job's
@@ -423,6 +434,21 @@ pub struct Outcome {
     pub folders: Vec<FolderWrite>,
     /// The settings it set (`ctx.settings:set`), for the host to keep.
     pub settings: Vec<SettingWrite>,
+    /// What a `resource-saving` handler said of the resources it was
+    /// called for: warnings, and refusals.
+    pub said: Vec<Said>,
+}
+
+/// What a `resource-saving` handler said of a resource
+/// (`ctx.event:warn`, `ctx.event:refuse`): a warning, which the user is
+/// asked about before the save goes on, or a refusal, which stops it; with
+/// a fix (`ctx.fix`) the user may make, if it gave one.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Said {
+    pub resource: ResKey,
+    pub text: String,
+    pub refused: bool,
+    pub fix: Option<Fix>,
 }
 
 /// Files a command wants in a folder the user chose: new ones, or in
@@ -476,8 +502,66 @@ impl FolderWrite {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Event {
     pub kind: EventKind,
-    /// For a module saved: the resources that changed.
+    /// For a module saved: the resources that changed. For a resource
+    /// saving or saved, or made: the resources, each of which the handler
+    /// is called for (those its manifest's `types` and `for` take).
     pub resources: Vec<ResKey>,
+    /// For a resource saving or saved: each as it was before (its file's
+    /// bytes, as last read or saved); a resource new since has none.
+    pub before: BTreeMap<ResKey, Arc<[u8]>>,
+    /// For objects placed or pasted: where each is (those its manifest's
+    /// `for` takes are given to it).
+    pub objects: Vec<Selected>,
+    /// What made the objects or the resource: `"wizard"`, `"palette"`,
+    /// `"paste"`… (`ctx.event.by`).
+    pub by: String,
+}
+
+impl Event {
+    /// An event with its resources, and nothing else.
+    pub fn new(kind: EventKind, resources: Vec<ResKey>) -> Event {
+        Event { kind, resources, before: BTreeMap::new(), objects: Vec::new(), by: String::new() }
+    }
+
+    /// The resources a save writes, and each as it was: those of `module`
+    /// that `was` (each resource's bytes before; none: it had none) does
+    /// not give as they are, and those it gives that the module no longer
+    /// has.
+    pub fn saving<'a>(
+        kind: EventKind,
+        module: &Module,
+        was: impl Fn(&ResKey) -> Option<&'a [u8]>,
+        gone: impl IntoIterator<Item = ResKey>,
+    ) -> Event {
+        let mut event = Event::new(kind, Vec::new());
+        let mut keys: Vec<ResKey> = module.keys().copied().collect();
+        keys.sort();
+        for key in keys {
+            let now = module.get(&key);
+            let before = was(&key);
+            let same = match (before, now) {
+                (Some(a), Some(b)) => std::ptr::eq(a, b) || a == b,
+                _ => false,
+            };
+            if same {
+                continue;
+            }
+            if let Some(b) = before {
+                event.before.insert(key, Arc::from(b));
+            }
+            event.resources.push(key);
+        }
+        for key in gone {
+            if module.contains(&key) || event.resources.contains(&key) {
+                continue;
+            }
+            if let Some(b) = was(&key) {
+                event.before.insert(key, Arc::from(b));
+                event.resources.push(key);
+            }
+        }
+        event
+    }
 }
 
 /// Resources a command wants in a hak of the user's hak folder: added to

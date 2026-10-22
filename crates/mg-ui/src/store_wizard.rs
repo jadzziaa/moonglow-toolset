@@ -293,7 +293,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     }
     if finish {
         match build(app, &w) {
-            Ok(edits) => app.actions.push(Action::Apply(Command::new("Setup Store", edits))),
+            Ok((edits, made)) => {
+                app.actions.push(Action::ApplyMade(Command::new("Setup Store", edits), made))
+            }
             Err(e) => app.log.error(format!("Setup Store: {e}")),
         }
         close = true;
@@ -330,8 +332,12 @@ fn store_tag(app: &mut Moonglow, w: &StoreWizard) -> Result<String, String> {
 }
 
 /// The edits: the conversation, the script (compiled), the shopkeeper's
-/// conversation and faction, and the store placed where it stands.
-fn build(app: &mut Moonglow, w: &StoreWizard) -> Result<Vec<Edit>, String> {
+/// conversation and faction, and the store placed where it stands; and
+/// what they make, for the plugins' handlers.
+fn build(
+    app: &mut Moonglow,
+    w: &StoreWizard,
+) -> Result<(Vec<Edit>, crate::plugin_events::Made), String> {
     let dialog = ResRef::from_str(w.dialog.trim()).map_err(|e| e.to_string())?;
     let opens = w.rules.as_ref().and_then(|r| r.open_script);
     let script = match opens {
@@ -430,7 +436,24 @@ fn build(app: &mut Moonglow, w: &StoreWizard) -> Result<Vec<Edit>, String> {
     }
     let (list, _) = git_list(ResType::UTM).expect("stores have a list");
     edits.push(Edit::insert_item(git, GffPath::root(), list, count, placed));
-    Ok(edits)
+    // What it makes: the conversation and the script (by its source), and
+    // the store placed.
+    let mut resources = vec![ResKey::new(dialog, ResType::DLG)];
+    if opens.is_none() {
+        resources.push(nss);
+    }
+    let store = mg_plugin::Selected::Object {
+        area: w.area,
+        kind: mg_rules::ObjectKind::Store,
+        index: count,
+    };
+    let made = crate::plugin_events::Made {
+        by: "setup-store",
+        resources,
+        objects: vec![store],
+        pasted: false,
+    };
+    Ok((edits, made))
 }
 
 /// The Add Popup Text window's fields.

@@ -923,6 +923,12 @@ enum Cmd {
         /// Check the change and print it; change nothing.
         #[arg(long)]
         dry_run: bool,
+        /// Plugins whose handlers look at what is saved (`resource-saving`:
+        /// a refusal stops the save, a warning is said; `resource-saved`,
+        /// after): a plugin's folder, or a folder of plugins. The project's
+        /// own plugins do too, as you allowed them.
+        #[arg(long)]
+        plugins: Vec<PathBuf>,
     },
     /// Apply a file of edits (JSON: fields set and removed, list items
     /// inserted and removed, resources written and removed) to a module and
@@ -934,10 +940,15 @@ enum Cmd {
         /// Check that the edits apply; change nothing.
         #[arg(long)]
         dry_run: bool,
+        /// Plugins whose handlers look at what is saved, as for `mg set`.
+        #[arg(long)]
+        plugins: Vec<PathBuf>,
     },
 }
 
 /// `mg plugin`'s commands.
+// (Parsed once, from the command line: Run's many arguments cost nothing.)
+#[allow(clippy::large_enum_variant)]
 #[derive(Subcommand)]
 enum PluginCmd {
     /// List plugins and what each adds: its commands, checks, events and
@@ -986,16 +997,28 @@ enum PluginCmd {
         /// saved (its event of this id), as the window would then.
         #[arg(long)]
         event: bool,
-        /// With --event, for a module saved: a resource that changed
-        /// (`guard.utc`), as often as needed. None named: all of them.
+        /// With --event: a resource that changed (a module saved), that a
+        /// save writes (a resource saving or saved) or that was made
+        /// (`guard.utc`), as often as needed. None named: all of them (a
+        /// save's: those that differ from --was).
         #[arg(long, value_name = "NAME", requires = "event")]
         changed: Vec<String>,
         /// What the command is run on, as if selected in the window
         /// (`ctx.selection`), as often as needed: a blueprint or an area
         /// (`guard.utc`, `tavern.are`), or an object placed in an area as
         /// its GIT and its place there (`tavern.git/Placeable List[3]`).
-        #[arg(long, value_name = "NAME[/PATH]", conflicts_with = "event")]
+        /// With --event, the objects placed or pasted.
+        #[arg(long, value_name = "NAME[/PATH]")]
         select: Vec<String>,
+        /// With --event, for a resource saving or saved: the module as it
+        /// was before (its resources the old ones; those that differ are
+        /// what the save writes). None: each resource as it is.
+        #[arg(long, value_name = "MODULE", requires = "event")]
+        was: Option<PathBuf>,
+        /// With --event: what made the objects or resources
+        /// (`ctx.event.by`: wizard, paste, palette…).
+        #[arg(long, requires = "event")]
+        by: Option<String>,
         /// What is open in front, as in the window (`ctx.open`): named as
         /// with --select, or any resource of the module (`old.nss`).
         #[arg(long, value_name = "NAME[/PATH]", conflicts_with = "event")]
@@ -1450,15 +1473,24 @@ fn run(cli: &Cli) -> Result<Output> {
             out
         }
         Cmd::Gff { input, output } => gff(input, output.as_deref(), cli.json)?,
-        Cmd::Set { module, resource, fields, remove, dry_run } => {
+        Cmd::Set { module, resource, fields, remove, dry_run, plugins } => {
             let m = Module::open(module)?;
             let codepage = module_codepage(cli, &m);
-            edits::set(m, resource, fields, remove, *dry_run, codepage)?
+            let mut notes = Output::default();
+            let guard = save_guard(cli, &m, plugins, &mut notes)?;
+            let mut out =
+                edits::set(m, resource, fields, remove, *dry_run, codepage, guard.as_ref())?;
+            out.notes.splice(0..0, notes.notes);
+            out
         }
-        Cmd::Apply { module, edits, dry_run } => {
+        Cmd::Apply { module, edits, dry_run, plugins } => {
             let m = Module::open(module)?;
             let codepage = module_codepage(cli, &m);
-            edits::apply(m, edits, *dry_run, codepage)?
+            let mut notes = Output::default();
+            let guard = save_guard(cli, &m, plugins, &mut notes)?;
+            let mut out = edits::apply(m, edits, *dry_run, codepage, guard.as_ref())?;
+            out.notes.splice(0..0, notes.notes);
+            out
         }
         Cmd::Which { resource } => {
             let rm = ResMan::for_game(&install(cli)?)?;
@@ -1537,6 +1569,8 @@ fn run(cli: &Cli) -> Result<Output> {
                 event,
                 changed,
                 select,
+                was,
+                by,
                 open,
                 answer,
                 file,
@@ -1569,7 +1603,14 @@ fn run(cli: &Cli) -> Result<Output> {
                     selected: select.iter().map(selected).collect::<Result<_>>()?,
                     open: open.as_ref().map(selected).transpose()?,
                 };
-                let what = plugins::What { id: command, changed, selection, settings: setting };
+                let what = plugins::What {
+                    id: command,
+                    changed,
+                    selection,
+                    settings: setting,
+                    was: was.as_deref(),
+                    by: by.as_deref(),
+                };
                 plugins::run(gi.as_ref(), module, plugin, &what, host, hak_dir, *dry_run)?
             }
             PluginCmd::Pack { plugin, output } => plugins::pack(plugin, output.as_deref())?,
@@ -3092,6 +3133,24 @@ fn module_codepage(cli: &Cli, m: &Module) -> Codepage {
     let Ok(mut rm) = ResMan::for_game(&gi) else { return own };
     let _ = rm.add_haks(&gi, &haks);
     mg_rules::encoding_of(&rm, own)
+}
+
+/// The plugins that look at what `mg set` or `mg apply` saves (those
+/// `--plugins` names, and the project's as allowed), with the game's data
+/// where there is a game. None: no plugin has a handler for a save.
+fn save_guard(
+    cli: &Cli,
+    m: &Module,
+    dirs: &[PathBuf],
+    out: &mut Output,
+) -> Result<Option<plugins::SaveGuard>> {
+    // (Only a module of a project has plugins of its own.)
+    let project = m.location.as_ref().and_then(mg_module::project_file::ProjectFile::root_of);
+    if dirs.is_empty() && project.is_none() {
+        return Ok(None);
+    }
+    let gi = install(cli).ok();
+    plugins::save_guard(gi.as_ref(), m, dirs, out)
 }
 
 /// An export's stamp ([`mg_module::stamp`]) as JSON.

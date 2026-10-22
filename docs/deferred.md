@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:41:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T11:37:43Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2366,7 +2366,8 @@ contribution itself states as not done or not checked.
   values, and events, whose own gaps are below, under "Plugins writing
   into a folder" and "Tables for plugins"; 0.4 what is selected and
   open, commands in right-click menus, fixes for findings, a plugin's
-  own tests, settings, and a project's own plugins):
+  own tests, settings, a project's own plugins, a resource's own events
+  and the after-create hook):
   - **A builder's terrain tool (NWN Mapper) as the measure:** it sculpts
     a free height field, paints texture layers and a walkmesh, bakes
     placeables and a lightmap in, and writes a tileset's group (a model
@@ -2477,6 +2478,40 @@ contribution itself states as not done or not checked.
     instead?). Driven
     through the UI harness, with one rendered picture of the log's
     buttons; not used on a desktop. (S each)
+  - **A resource's own events and the after-create hook** (API 0.4, the
+    Domains of Dread's builder proposal A4 and A6: `resource-saving`,
+    which warns of or refuses what a save would write, with fixes, in
+    the Before saving window; `resource-saved`; `object-placed`,
+    `object-pasted` and `resource-created`, whose edits join the user's
+    own command; a 5-second budget; `mg set` and `mg apply --plugins`;
+    `mg plugin run --event --was/--select/--by`; a test's `was`, `by`,
+    `warned`, `refused`). Not done: Save As (to another place) asks no
+    plugin, nor do the 2DA, talk table and hak editors' own saves, a
+    script's own Save, Build Module or `mg watch`; the custom palettes
+    Moonglow rebuilds at a save are not among what a handler reads;
+    what fires `resource-created` is the Area Wizard, the creature and
+    blueprint wizards, Add to Palette, Setup Store and Copy (Copy As,
+    Edit Copy), not the Script Wizard, New Script, a NUI window, an
+    import or what a plugin makes, and `object-placed` is a palette's
+    blueprint, the Placeable Gallery, a light, Create Waypoint and Setup
+    Store's store, not a spawn point, the start location or an
+    encounter's points; a handler of a placing, a paste or a making can
+    only edit and log (no warning beside what was made, no refusing a
+    paste); a fix in the Before saving window is made one at a time, the
+    save asked again after each; "as it was" is as each file was read
+    (a module folder, a project) or, for a module kept in one file, as
+    it was at the last save or opening, in this run; `ctx.event.changed`
+    says what differs in a GFF only (100 lines at most), not in a
+    script's text; the budget is fixed (5 seconds), not a setting, and a
+    handler is stopped between steps of its code, not inside a long call
+    of the API (a large `ctx.module:gff`); `mg` runs a save's events for
+    `mg set` and `mg apply` alone (not `mg areas`, `mg rename`, `mg
+    replace`, `mg update-instances`, `mg import`, `mg verify --fix` or a
+    plugin command's own save), and a warning there never fails it (no
+    `--strict`). Driven through the UI harness (a save refused, warned
+    of, its fix made, Save Anyway and Cancel; a paste and a copy edited,
+    one Undo), with rendered pictures of the window warning and
+    refusing; not used on a desktop. (S each)
   - **A plugin's own tests** (API 0.4, A8: `tests/*.toml`, `mg plugin
     test`). Not done: what a plugin writes outside the module (haks, a
     chosen folder) is not written and not held to anything; a command's
@@ -2513,9 +2548,9 @@ contribution itself states as not done or not checked.
   and `mg.on` for a module opened or saved. Not done: a file goes into
   the chosen folder itself, not into a folder inside it (a project's
   `src/` tree of folders is chosen one folder at a time); no copy of a
-  replaced file is kept; there is one event for a save, with the
-  resources changed since the last, not one for each resource, and none
-  for a script's own Save; what an event was allowed is kept between
+  replaced file is kept; a script's own Save is no save of the module
+  and fires none (a resource's own events, around a module's save, came
+  with API 0.4: above); what an event was allowed is kept between
   runs by plugin and version (the settings' `plugin_grants`; a
   plugin's own settings came with API 0.4, above); `mg plugin run
   --event` runs an event by hand, and `mg watch` and `mg build` fire
@@ -2639,9 +2674,9 @@ document; the entries here that name the audit are that list in short.
 - **The manual, what the audit named and is not put right:** GOG's
   folder is not looked for on macOS (chapter 1 does not say so);
   chapter 14 says "There's no OK or Cancel", which is true of property
-  editors only, and repeats chapter 12 in "Habits to change"; chapter
-  15's `--event` example names a plugin of no one's (the examples in
-  `docs/plugins` declare no event). (S each)
+  editors only, and repeats chapter 12 in "Habits to change". (S each)
+  (Chapter 15's `--event` example now names the `house-rules` example,
+  which declares events.)
   (the documentation audit of 2026-10-12)
 - **The parity checklists:** the main menus are not compared with
   Aurora's item by item; "eight tests not in

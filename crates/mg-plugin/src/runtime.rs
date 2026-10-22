@@ -104,6 +104,10 @@ pub(crate) struct Shared {
     settings_set: RefCell<Vec<crate::SettingWrite>>,
     /// Why `ctx.settings:set` is refused in this job (a check's), if it is.
     no_set: std::cell::Cell<Option<&'static str>>,
+    /// How long the job may run ([`Input::budget`]), and when it must
+    /// have ended.
+    budget: Option<std::time::Duration>,
+    deadline: Option<std::time::Instant>,
 }
 
 pub(crate) fn fail<T>(message: impl std::fmt::Display) -> mlua::Result<T> {
@@ -118,6 +122,16 @@ pub(crate) fn key_of(name: &str) -> mlua::Result<ResKey> {
 }
 
 impl Shared {
+    /// Whether the job ran past its time budget.
+    pub(crate) fn out_of_time(&self) -> bool {
+        self.deadline.is_some_and(|d| std::time::Instant::now() > d)
+    }
+
+    /// Whether the job is to stop: canceled, or out of time.
+    fn stopped(&self) -> bool {
+        self.host.cancelled() || self.out_of_time()
+    }
+
     /// Applies an edit to the private copy and records it.
     pub(crate) fn apply(&self, edit: Edit) -> mlua::Result<()> {
         self.apply_all(vec![edit])
@@ -1111,7 +1125,7 @@ fn start(entry: Option<&str>, sh: &Rc<Shared>) -> mlua::Result<Lua> {
     // Called off, the code stops: every step raises, and what catches
     // errors (pcall, xpcall) passes this one on.
     let s = sh.clone();
-    globals.set("__cancelled", lua.create_function(move |_, ()| Ok(s.host.cancelled()))?)?;
+    globals.set("__cancelled", lua.create_function(move |_, ()| Ok(s.stopped()))?)?;
     lua.load(
         r#"
         local cancelled, real_pcall, real_xpcall = __cancelled, pcall, xpcall
@@ -1127,11 +1141,15 @@ fn start(entry: Option<&str>, sh: &Rc<Shared>) -> mlua::Result<Lua> {
     .set_name("=moonglow")
     .exec()?;
     let s = sh.clone();
-    lua.set_interrupt(
-        move |_| {
-            if s.host.cancelled() { fail("canceled") } else { Ok(VmState::Continue) }
-        },
-    );
+    lua.set_interrupt(move |_| {
+        if s.host.cancelled() {
+            fail("canceled")
+        } else if s.out_of_time() {
+            fail("out of time")
+        } else {
+            Ok(VmState::Continue)
+        }
+    });
 
     // From here the globals are fixed, and each script has its own.
     lua.sandbox(true)?;
@@ -1147,8 +1165,17 @@ fn about(plugin: &Plugin) -> [&str; 3] {
 }
 
 /// A job's failure as the host reports it.
-fn failed(plugin: &Plugin, host: &Rc<dyn Host>, e: mlua::Error) -> PluginError {
-    failure(&plugin.manifest.name, host, e)
+fn failed(plugin: &Plugin, sh: &Shared, e: mlua::Error) -> PluginError {
+    if let Some(budget) = sh.budget.filter(|_| sh.out_of_time() && !sh.host.cancelled()) {
+        return PluginError::Script {
+            plugin: plugin.manifest.name.clone(),
+            message: format!(
+                "it ran out of time: it may take {} seconds here, and was stopped",
+                budget.as_secs_f32()
+            ),
+        };
+    }
+    failure(&plugin.manifest.name, &sh.host, e)
 }
 
 fn failure(name: &str, host: &Rc<dyn Host>, e: mlua::Error) -> PluginError {
@@ -1181,7 +1208,10 @@ fn shared(plugin: &Plugin, input: Input, host: &Rc<dyn Host>) -> Rc<Shared> {
 fn shared_in(files: Source, who: &str, input: Input, host: &Rc<dyn Host>) -> Rc<Shared> {
     let game = input.game.as_deref().map_or(CODEPAGE, |g| g.codepage());
     GAME_CODEPAGE.with(|c| c.set(game.for_language(mg_core::Language::ENGLISH)));
+    let deadline = input.budget.map(|b| std::time::Instant::now() + b);
     Rc::new(Shared {
+        budget: input.budget,
+        deadline,
         files,
         ws: RefCell::new(Workspace::new(input.module)),
         edits: RefCell::new(Vec::new()),
@@ -1228,7 +1258,7 @@ pub(crate) fn run_command(
         };
         Ok(label.unwrap_or_else(|| decl.title.clone()))
     };
-    let label = run().map_err(|e| failed(plugin, &host, e))?;
+    let label = run().map_err(|e| failed(plugin, &sh, e))?;
     if host.cancelled() {
         return Err(PluginError::Canceled(plugin.manifest.name.clone()));
     }
@@ -1238,11 +1268,157 @@ pub(crate) fn run_command(
         haks: sh.haks.take(),
         folders: sh.folders.take(),
         settings: sh.settings_set.take(),
+        said: Vec::new(),
     })
 }
 
+/// The names of `ctx.event`, as the reference writes them.
+pub const EVENT_NAMES: [&str; 14] = [
+    "ctx.event",
+    "ctx.event.name",
+    "ctx.event.resources",
+    "ctx.event.resource",
+    "ctx.event.kind",
+    "ctx.event.old",
+    "ctx.event.new",
+    "ctx.event.changed",
+    "ctx.event.made",
+    "ctx.event.objects",
+    "ctx.event.area",
+    "ctx.event.by",
+    "ctx.event:warn",
+    "ctx.event:refuse",
+];
+
+/// What a resource is, as `ctx.event.kind` (and a selection's `kind`)
+/// names it: `"area"`, `"creature"`…, else its type (`"nss"`).
+fn kind_of(key: &ResKey) -> String {
+    match key.restype {
+        mg_core::ResType::ARE => Selected::Area(key.resref).kind(),
+        t if mg_rules::ObjectKind::from_restype(t).is_some() => Selected::Blueprint(*key).kind(),
+        _ => Selected::Resource(*key).kind(),
+    }
+}
+
+/// A resource's bytes as the plugin reads them in `ctx.event.old` and
+/// `new`: a GFF as plain values (as `ctx.module:gff`), another as text
+/// (as `ctx.module:text`); nil for none, or a GFF that does not read.
+fn value_of(lua: &Lua, key: &ResKey, bytes: Option<&[u8]>) -> mlua::Result<LuaValue> {
+    let Some(bytes) = bytes else { return Ok(LuaValue::Nil) };
+    if key.restype.is_gff() {
+        return match Gff::read(bytes) {
+            Ok(g) => Ok(LuaValue::Table(plain(lua, &g.root, &GffPath::root())?)),
+            Err(_) => Ok(LuaValue::Nil),
+        };
+    }
+    Ok(LuaValue::String(lua.create_string(codepage().decode(bytes).as_bytes())?))
+}
+
+/// The most lines `ctx.event.changed` has.
+const CHANGED_LINES: usize = 100;
+
+/// `ctx.event` for one call of an event's handler: what happened, and for
+/// a resource (`key`) the resource; for a resource saving, its `warn` and
+/// `refuse`, which keep what it says in `said`.
+#[allow(clippy::too_many_arguments)]
+fn event_table(
+    lua: &Lua,
+    sh: &Rc<Shared>,
+    happened: &crate::Event,
+    key: Option<ResKey>,
+    objects: &[Selected],
+    said: &Rc<RefCell<Vec<crate::Said>>>,
+    records: &Rc<RefCell<Vec<FixRecord>>>,
+) -> mlua::Result<Table> {
+    let event = lua.create_table()?;
+    let kind = happened.kind;
+    event.set("name", kind.name())?;
+    let names: Vec<String> = happened.resources.iter().map(ToString::to_string).collect();
+    match kind {
+        crate::EventKind::ModuleSaved
+        | crate::EventKind::ResourceSaving
+        | crate::EventKind::ResourceSaved => event.set("resources", names)?,
+        crate::EventKind::ResourceCreated => event.set("made", names)?,
+        _ => {}
+    }
+    if !happened.by.is_empty() {
+        event.set("by", happened.by.as_str())?;
+    }
+    if !objects.is_empty() {
+        let list = lua.create_table()?;
+        for (i, o) in objects.iter().enumerate() {
+            list.raw_seti(i + 1, selected(lua, sh, o)?)?;
+        }
+        event.set("objects", list)?;
+        if let Some(Selected::Object { area, .. }) = objects.first() {
+            event.set("area", area.to_string())?;
+        }
+    }
+    let Some(key) = key else { return Ok(event) };
+    event.set("resource", key.to_string())?;
+    event.set("kind", kind_of(&key))?;
+    if kind.takes_types() {
+        // As it was, and as it is (or will be): read when first asked for.
+        let before = happened.before.get(&key).cloned();
+        let s = sh.clone();
+        let meta = lua.create_table()?;
+        meta.set(
+            "__index",
+            lua.create_function(move |lua, (t, name): (Table, String)| {
+                let now = || -> Option<Vec<u8>> {
+                    let mut ws = s.ws.borrow_mut();
+                    ws.flush().ok()?;
+                    ws.module.get(&key).map(<[u8]>::to_vec)
+                };
+                let v = match name.as_str() {
+                    "old" => value_of(lua, &key, before.as_deref())?,
+                    "new" => value_of(lua, &key, now().as_deref())?,
+                    "changed" => {
+                        let read = |b: Option<&[u8]>| b.and_then(|b| Gff::read(b).ok());
+                        match (
+                            key.restype.is_gff(),
+                            read(before.as_deref()),
+                            read(now().as_deref()),
+                        ) {
+                            (true, Some(a), Some(b)) => {
+                                let lines = mg_gff::diff(&a, &b, CHANGED_LINES);
+                                LuaValue::Table(lua.create_sequence_from(lines)?)
+                            }
+                            _ => LuaValue::Nil,
+                        }
+                    }
+                    _ => return Ok(LuaValue::Nil),
+                };
+                t.raw_set(name, v.clone())?;
+                Ok(v)
+            })?,
+        )?;
+        event.set_metatable(Some(meta))?;
+    }
+    if kind == crate::EventKind::ResourceSaving {
+        for (name, refused) in [("warn", false), ("refuse", true)] {
+            let (said, records) = (said.clone(), records.clone());
+            event.set(
+                name,
+                lua.create_function(move |_, (_, text, fix): (This, String, LuaValue)| {
+                    if text.trim().is_empty() {
+                        return fail(format!("ctx.event:{name}(text): say why"));
+                    }
+                    let what = format!("ctx.event:{name}'s fix");
+                    let fix = fix_of(&records, fix, &what)?;
+                    said.borrow_mut().push(crate::Said { resource: key, text, refused, fix });
+                    Ok(())
+                })?,
+            )?;
+        }
+    }
+    Ok(event)
+}
+
 /// What a plugin does on an event: its handler, called as a command's is,
-/// with what happened as `ctx.event`.
+/// with what happened as `ctx.event`: once, or for each resource (of a
+/// save, or made) its manifest takes, in one job. Around a save it only
+/// reads: a resource saving's handler may warn, refuse and offer fixes.
 pub(crate) fn run_event(
     plugin: &Plugin,
     decl: &crate::EventDecl,
@@ -1250,25 +1426,89 @@ pub(crate) fn run_event(
     input: Input,
     host: Rc<dyn Host>,
 ) -> Result<Outcome, PluginError> {
+    let kind = happened.kind;
+    let keys: Vec<ResKey> = match kind.per_resource() {
+        true => happened.resources.iter().filter(|k| decl.is_for(k)).copied().collect(),
+        false => Vec::new(),
+    };
+    let objects: Vec<Selected> = (happened.objects.iter())
+        .filter(|o| match o {
+            Selected::Object { kind, .. } => decl.is_for_kind(*kind),
+            _ => true,
+        })
+        .cloned()
+        .collect();
+    let objects_event =
+        matches!(kind, crate::EventKind::ObjectPlaced | crate::EventKind::ObjectPasted);
+    let none = |plugin: &Plugin| Outcome {
+        label: format!("{}: {}", plugin.manifest.name, decl.id),
+        edits: Vec::new(),
+        haks: Vec::new(),
+        folders: Vec::new(),
+        settings: Vec::new(),
+        said: Vec::new(),
+    };
+    // (Nothing it is for: its code does not run.)
+    if (kind.per_resource() && keys.is_empty()) || (objects_event && objects.is_empty()) {
+        return Ok(none(plugin));
+    }
     let sh = shared(plugin, input, &host);
-    let run = || -> mlua::Result<Option<String>> {
-        let lua = start(Some(&plugin.manifest.entry), &sh)?;
-        let f = handler(&lua, "mg.events", "event", &decl.id)?;
-        let ctx = context(&lua, &sh, about(plugin))?;
-        let event = lua.create_table()?;
-        event.set("name", happened.kind.name())?;
-        let resources: Vec<String> = happened.resources.iter().map(ToString::to_string).collect();
-        event.set("resources", resources)?;
-        ctx.set("event", event)?;
-        Ok(match f.call::<LuaValue>(ctx)? {
+    if kind == crate::EventKind::ResourceSaving {
+        sh.no_set
+            .set(Some("a resource saving's handler only reads: ctx.settings:set is not for it"));
+    }
+    let records: Rc<RefCell<Vec<FixRecord>>> = Rc::default();
+    let said: Rc<RefCell<Vec<crate::Said>>> = Rc::default();
+    let label_of = |made: LuaValue| -> mlua::Result<Option<String>> {
+        Ok(match made {
             LuaValue::Table(t) => t.get::<Option<String>>("label")?,
             LuaValue::String(s) => Some(s.to_str()?.to_string()),
             _ => None,
         })
     };
-    let label = run().map_err(|e| failed(plugin, &host, e))?;
+    let run = || -> mlua::Result<Option<String>> {
+        let lua = start(Some(&plugin.manifest.entry), &sh)?;
+        let f = handler(&lua, "mg.events", "event", &decl.id)?;
+        let ctx = context(&lua, &sh, about(plugin))?;
+        if kind == crate::EventKind::ResourceSaving {
+            ctx.set("fix", fix_maker(&lua, &sh, &records)?)?;
+        }
+        if !kind.per_resource() {
+            let event = event_table(&lua, &sh, happened, None, &objects, &said, &records)?;
+            ctx.set("event", event)?;
+            return label_of(f.call::<LuaValue>(ctx)?);
+        }
+        let mut label = None;
+        for key in &keys {
+            let event = event_table(&lua, &sh, happened, Some(*key), &objects, &said, &records)?;
+            ctx.set("event", event)?;
+            label = label_of(f.call::<LuaValue>(ctx.clone())?)?.or(label);
+        }
+        Ok(label)
+    };
+    let label = run().map_err(|e| failed(plugin, &sh, e))?;
     if host.cancelled() {
         return Err(PluginError::Canceled(plugin.manifest.name.clone()));
+    }
+    let refuse = |message: String| {
+        Err(PluginError::Script { plugin: plugin.manifest.name.clone(), message })
+    };
+    if !kind.edits() && !sh.edits.borrow().is_empty() {
+        return refuse(format!(
+            "its {} handler {:?} edits the module: around a save a plugin only reads (it may \
+             give a warning a fix, ctx.fix, which the user makes)",
+            kind.name(),
+            decl.id
+        ));
+    }
+    let wrote = !sh.haks.borrow().is_empty() || !sh.folders.borrow().is_empty();
+    if kind.at_once() && wrote {
+        return refuse(format!(
+            "its {} handler {:?} writes outside the module: a handler that runs at once, \
+             within what the user does, can't (nobody is asked)",
+            kind.name(),
+            decl.id
+        ));
     }
     let label = label.unwrap_or_else(|| format!("{}: {}", plugin.manifest.name, decl.id));
     Ok(Outcome {
@@ -1277,6 +1517,7 @@ pub(crate) fn run_event(
         haks: sh.haks.take(),
         folders: sh.folders.take(),
         settings: sh.settings_set.take(),
+        said: said.take(),
     })
 }
 
@@ -1352,6 +1593,33 @@ fn fix_maker(
     })
 }
 
+/// A fix given with a finding or a warning: one made with `ctx.fix`, and
+/// only if it edits (`what`: what it was given as, for the error).
+fn fix_of(
+    records: &RefCell<Vec<FixRecord>>,
+    given: LuaValue,
+    what: &str,
+) -> mlua::Result<Option<Fix>> {
+    match given {
+        LuaValue::Nil => Ok(None),
+        LuaValue::Table(t) => {
+            let n = match t.metatable() {
+                Some(meta) => meta.raw_get::<Option<usize>>("__fix")?,
+                None => None,
+            };
+            let all = records.borrow();
+            let Some(record) = n.and_then(|n| all.get(n)) else {
+                return fail(format!("{what} is one made with ctx.fix(label)"));
+            };
+            let edits = record.job.as_ref().map(|j| j.edits.borrow().clone());
+            Ok(edits
+                .filter(|e| !e.is_empty())
+                .map(|edits| Fix { label: record.label.clone(), edits }))
+        }
+        _ => fail(format!("{what} is one made with ctx.fix(label)")),
+    }
+}
+
 pub(crate) fn run_check(
     plugin: &Plugin,
     decl: &CheckDecl,
@@ -1386,24 +1654,7 @@ pub(crate) fn run_check(
                 }
             };
             // Its fix: one made with ctx.fix, and only if it edits.
-            let fix = match f.get::<LuaValue>("fix")? {
-                LuaValue::Nil => None,
-                LuaValue::Table(t) => {
-                    let n = match t.metatable() {
-                        Some(meta) => meta.raw_get::<Option<usize>>("__fix")?,
-                        None => None,
-                    };
-                    let all = records.borrow();
-                    let Some(record) = n.and_then(|n| all.get(n)) else {
-                        return fail("a finding's fix is one made with ctx.fix(label)");
-                    };
-                    let edits = record.job.as_ref().map(|j| j.edits.borrow().clone());
-                    edits
-                        .filter(|e| !e.is_empty())
-                        .map(|edits| Fix { label: record.label.clone(), edits })
-                }
-                _ => return fail("a finding's fix is one made with ctx.fix(label)"),
-            };
+            let fix = fix_of(&records, f.get::<LuaValue>("fix")?, "a finding's fix")?;
             let finding = Finding {
                 severity,
                 check: plugin.check_id(&decl.id).into(),
@@ -1416,7 +1667,7 @@ pub(crate) fn run_check(
         }
         Ok(out)
     };
-    let findings = run().map_err(|e| failed(plugin, &host, e))?;
+    let findings = run().map_err(|e| failed(plugin, &sh, e))?;
     let wrote = !sh.haks.borrow().is_empty() || !sh.folders.borrow().is_empty();
     if !sh.edits.borrow().is_empty() || wrote {
         return Err(PluginError::Script {
@@ -1538,6 +1789,7 @@ pub(crate) fn run_console(
         haks: sh.haks.take(),
         folders: sh.folders.take(),
         settings: Vec::new(),
+        said: Vec::new(),
     })
 }
 
@@ -1582,8 +1834,11 @@ pub(crate) fn api_names() -> Vec<String> {
         // The settings (none here) and their method.
         out.extend(["ctx.settings", "ctx.settings:set"].map(String::from));
         out.extend(SELECTED.map(String::from));
-        // A check's fixes (`ctx.fix`, a check's alone) and theirs.
+        // A check's fixes (`ctx.fix`, a check's and a resource saving's)
+        // and theirs.
         out.extend(FIX_NAMES.map(String::from));
+        // What happened, for an event's handler.
+        out.extend(EVENT_NAMES.map(String::from));
         // What `ctx.game:table` returns, and the other things handed out.
         out.extend(["twoda.rows", "twoda.columns", "twoda:get"].map(String::from));
         out.extend(crate::files::NAMES.map(String::from));

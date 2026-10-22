@@ -585,3 +585,147 @@ fn a_plugin_s_settings_are_read_and_kept_on_the_command_line() {
     assert!(said(&out["notes"]), "{out}");
     assert!(std::fs::read_to_string(dir.join(".moonglow/user.toml")).unwrap().contains("\"zz\""));
 }
+
+/// The House rules example (a resource's own events, API 0.4).
+fn house_rules() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/plugins/examples/house-rules")
+}
+
+/// A module folder with an area tagged TAVERN; `moonglow.toml` holds the
+/// team's settings of House rules (`toml`).
+fn tavern(name: &str, toml: &str) -> PathBuf {
+    let dir = mg_testkit::scratch_dir(name);
+    let mut m = Module::new();
+    m.set_info(&Gff::new(*b"IFO ")).unwrap();
+    let mut are = Gff::new(*b"ARE ");
+    are.root.set("Tag", Value::String(b"TAVERN".to_vec()));
+    m.set_gff(key("tavern.are"), &are).unwrap();
+    m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
+    std::fs::write(dir.join("moonglow.toml"), format!("[plugins.\"example.house-rules\"]\n{toml}"))
+        .unwrap();
+    dir
+}
+
+fn area_tag(dir: &Path) -> String {
+    let g = Module::open(dir).unwrap().gff(&key("tavern.are")).unwrap().unwrap();
+    String::from_utf8(g.root.string("Tag").unwrap().to_vec()).unwrap()
+}
+
+/// `mg set` and `mg apply` with `--plugins`: what a plugin's
+/// `resource-saving` handler refuses is not written (an error says why),
+/// what it warns of is written and said; without the plugin, as before.
+#[test]
+fn a_plugin_refuses_or_warns_of_what_mg_saves() {
+    let rules = house_rules();
+    let dir = tavern("mg-plugin-save-refused", "");
+    let set = |tag: &str, plugins: bool| {
+        let mut cmd = crate::mg();
+        cmd.args(["--no-user-dir", "--json", "set", dir.to_str().unwrap(), "tavern.are"]);
+        cmd.arg(format!("Tag={tag}"));
+        if plugins {
+            cmd.args(["--plugins", rules.to_str().unwrap()]);
+        }
+        cmd.output().unwrap()
+    };
+    let out = set("INN", true);
+    assert!(!out.status.success());
+    // (With --json, the error is in the JSON.)
+    let stderr = String::from_utf8_lossy(&out.stdout);
+    assert!(stderr.contains("not saved: a plugin refuses it"), "{stderr}");
+    assert!(
+        stderr.contains(
+            "House rules: tavern.are: its tag was TAVERN, now INN: players' places are kept by it \
+             (fix: Put back TAVERN)"
+        ),
+        "{stderr}"
+    );
+    assert_eq!(area_tag(&dir), "TAVERN", "nothing written");
+    // --dry-run says the same, and writes nothing either.
+    let out = crate::mg()
+        .args(["--no-user-dir", "set", dir.to_str().unwrap(), "tavern.are", "Tag=INN", "--dry-run"])
+        .args(["--plugins", rules.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    // Without the plugin, a save is a save.
+    assert!(set("INN", false).status.success());
+    assert_eq!(area_tag(&dir), "INN");
+
+    // The team keeps no tags: a change is a warning, and is written.
+    let dir = tavern("mg-plugin-save-warned", "keep_tags = false\n");
+    let edits = dir.join("edits.json");
+    std::fs::write(
+        &edits,
+        r#"{ "label": "Rename", "edits": [ { "op": "set_field", "resource": "tavern.are",
+             "field": "/Tag", "value": { "type": "cexostring", "value": "Inn" } } ] }"#,
+    )
+    .unwrap();
+    let (ok, out) = mg(&[
+        "apply",
+        dir.to_str().unwrap(),
+        edits.to_str().unwrap(),
+        "--plugins",
+        rules.to_str().unwrap(),
+    ]);
+    assert!(ok, "{out}");
+    assert_eq!(area_tag(&dir), "Inn");
+    assert_eq!(out["said"][0]["refused"], false, "{out}");
+    assert_eq!(out["said"][0]["fix"], "Put back TAVERN", "{out}");
+    let notes = out["notes"].to_string();
+    assert!(
+        notes.contains("warning: House rules: tavern.are: its tag was TAVERN, now Inn"),
+        "{out}"
+    );
+}
+
+/// `mg plugin run --event` runs the new events' handlers by hand: a save's
+/// (with the module as it was, `--was`), objects pasted (`--select`), a
+/// resource made; a refusal fails it.
+#[test]
+fn a_plugin_s_new_events_run_by_hand() {
+    let rules = house_rules();
+    let fixture = rules.join("tests/module");
+    let run = |more: &[&str]| -> (bool, Json) {
+        let out = crate::mg()
+            .args(["--no-user-dir", "--json", "plugin", "run"])
+            .args([fixture.to_str().unwrap(), rules.to_str().unwrap()])
+            .args(more)
+            .output()
+            .unwrap();
+        let json = serde_json::from_slice(&out.stdout).unwrap_or(Json::Null);
+        (out.status.success(), json)
+    };
+    let was = rules.join("tests/was");
+    let (ok, out) = run(&["area-tags", "--event", "--was", was.to_str().unwrap()]);
+    assert!(!ok, "refused: {out}");
+    assert_eq!(out["said"][0]["resource"], "cellar.are", "{out}");
+    assert_eq!(out["said"][0]["refused"], true);
+    let (ok, out) = run(&["area-tags", "--event", "--changed", "tavern.are"]);
+    assert!(ok, "a warning alone: {out}");
+    assert_eq!(out["said"][0]["text"], "tag Tavern is not upper case");
+    let (ok, out) = run(&[
+        "pasted-waypoints",
+        "--event",
+        "--select",
+        "tavern.git/WaypointList[1]",
+        "--by",
+        "paste",
+        "--dry-run",
+    ]);
+    assert!(ok, "{out}");
+    assert!(out["command"].to_string().contains("WP_DOOR_2"), "{out}");
+    let (ok, out) = run(&["new-area", "--event", "--changed", "cellar.are", "--dry-run"]);
+    assert!(ok, "{out}");
+    assert!(out["command"].to_string().contains("barovia"), "{out}");
+    // An object event names its objects.
+    let (ok, _) = run(&["pasted-waypoints", "--event", "--dry-run"]);
+    assert!(!ok);
+    // And mg plugin list says what each does by itself.
+    let (ok, listed) = mg(&["plugin", "list", rules.to_str().unwrap()]);
+    assert!(ok);
+    let events = &listed["plugins"][0]["events"];
+    assert_eq!(events[0]["on"], "resource-saving");
+    assert_eq!(events[0]["types"], json!(["are"]));
+    assert_eq!(events[1]["for"], json!(["waypoint"]));
+    assert!(events[2]["says"].as_str().unwrap().starts_with("when a wizard, Add to Palette"));
+}

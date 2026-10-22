@@ -3,7 +3,7 @@ type: Guide
 title: 'Plugins: for authors'
 description: Starting point for plugin authors - the example plugins, the editor type file, the API changes, where the manual covers plugins, and the mg plugin commands for checking, testing, running and packing one.
 tags: [plugins, authors, examples]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:26:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T11:37:43Z }
 ---
 
 # Plugins: for authors
@@ -30,6 +30,12 @@ What a plugin author needs besides the manual:
     user's, read by a check (with a fix for each finding) and two
     commands, one of which sets the builder's code; tests of its own on
     a fixture project whose `moonglow.toml` gives the prefix.
+  - [`house-rules`](examples/house-rules): events (API 0.4). Before a
+    save, each area it would write is held to a team's rules (a changed
+    tag refused, one not upper case warned of, each with a fix); a
+    pasted waypoint gets a tag of its own, and a new area the team's
+    land, as part of the paste or the making; tests of its own on a
+    fixture project and the same project as it was before a save.
   - [`store-markup`](examples/store-markup): a batch edit with a
     form and progress.
   - [`set-local`](examples/set-local): commands in the right-click
@@ -63,6 +69,7 @@ File… takes:
 mg plugin check docs/plugins/examples
 mg plugin test docs/plugins/examples/tag-conventions
 mg plugin test docs/plugins/examples/builder-tags
+mg plugin test docs/plugins/examples/house-rules
 mg plugin run mymodule.mod docs/plugins/examples/tag-conventions fix-tags --dry-run
 mg plugin pack docs/plugins/examples/tag-conventions
 ```

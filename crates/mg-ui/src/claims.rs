@@ -33,7 +33,7 @@ pub(crate) struct ClaimsState {
     /// write, each with why, and what Save Anyway goes on with.
     pub(crate) save_ask: Option<(Vec<(ResRef, String)>, Action)>,
     /// Save Anyway was chosen: the next save is not asked about.
-    cleared: bool,
+    pub(crate) cleared: bool,
     /// The Protected Area window.
     pub(crate) protected_ask: Option<ProtectedAsk>,
     /// An area the builder said to change anyway: let through once.

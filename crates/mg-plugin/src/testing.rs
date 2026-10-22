@@ -92,9 +92,19 @@ struct Test {
     /// order, from the test file's folder.
     #[serde(default)]
     files: Vec<String>,
-    /// An event's resources changed (a module saved); none: all.
+    /// An event's resources: changed (a module saved), saving or saved
+    /// (none: those that differ from `was`, else all), or made.
     #[serde(default)]
     changed: Vec<String>,
+    /// For a resource saving or saved: the module as it was before (a
+    /// fixture, from the file's folder), whose resources are the old ones.
+    was: Option<String>,
+    /// What made the objects or resources (`ctx.event.by`).
+    by: Option<String>,
+    /// What a resource saving's handler says: its warnings and its
+    /// refusals, all of them in order, each part of what one says.
+    warned: Option<Vec<String>>,
+    refused: Option<Vec<String>>,
     /// The findings, all of them in order (with `[[test.finding]]`), or
     /// how many.
     #[serde(default, rename = "finding")]
@@ -333,6 +343,11 @@ fn run_one(
     game: Option<Arc<GameData>>,
 ) -> Vec<String> {
     let mut problems = Vec::new();
+    if (t.was.is_some() || t.by.is_some() || t.warned.is_some() || t.refused.is_some())
+        && t.event.is_none()
+    {
+        return vec!["was, by, warned and refused are for an event".into()];
+    }
     let run = match (&t.check, &t.command, &t.event) {
         (Some(c), None, None) => Run::Check(c),
         (None, Some(c), None) => Run::Command(c),
@@ -373,18 +388,12 @@ fn run_one(
         Run::Command(id) => crate::run_command(plugin, id, input, host.clone()).map(Err),
         Run::Event(id) => {
             let kind = plugin.manifest.events.iter().find(|e| e.id == id).map(|e| e.on);
-            let mut resources = Vec::new();
-            for name in &t.changed {
-                match ResKey::from_filename(name) {
-                    Some(k) => resources.push(k),
-                    None => return vec![format!("changed: {name:?} is not a resource's name")],
-                }
-            }
-            if resources.is_empty() && kind == Some(crate::EventKind::ModuleSaved) {
-                resources = module.keys().copied().collect();
-                resources.sort();
-            }
-            let event = Event { kind: kind.unwrap_or(crate::EventKind::ModuleSaved), resources };
+            let kind = kind.unwrap_or(crate::EventKind::ModuleSaved);
+            let event = match event_of(t, kind, dir, module, input.selection.selected.clone()) {
+                Ok(event) => event,
+                Err(e) => return vec![e],
+            };
+            let input = Input { selection: Selection::default(), ..input };
             crate::run_event(plugin, id, &event, input, host.clone()).map(Err)
         }
     };
@@ -424,6 +433,7 @@ fn run_one(
         }
         Err(outcome) => {
             settings_as_wanted(t, &outcome.settings, &mut problems);
+            said_as_wanted(t, &outcome.said, &mut problems);
             vec![Command::new(outcome.label.clone(), outcome.edits.clone())]
         }
     };
@@ -492,6 +502,99 @@ fn run_one(
         }
     }
     problems
+}
+
+/// What happened, for a test of an event: the resources it names (or
+/// those of a save: that differ from `was`, else all), the objects it
+/// selects (placed or pasted), what made them.
+fn event_of(
+    t: &Test,
+    kind: crate::EventKind,
+    dir: &Path,
+    module: &Module,
+    selected: Vec<Selected>,
+) -> Result<Event, String> {
+    use crate::EventKind as K;
+    let mut named = Vec::new();
+    for name in &t.changed {
+        match ResKey::from_filename(name) {
+            Some(k) => named.push(k),
+            None => return Err(format!("changed: {name:?} is not a resource's name")),
+        }
+    }
+    let mut event = match kind {
+        K::ResourceSaving | K::ResourceSaved => {
+            let was = match &t.was {
+                Some(w) => {
+                    let path = dir.join(w);
+                    Some(Module::open(&path).map_err(|e| format!("was: {}: {e}", path.display()))?)
+                }
+                None => None,
+            };
+            let before = |k: &ResKey| match &was {
+                Some(w) => w.get(k),
+                // (No module before: each as it is.)
+                None => module.get(k),
+            };
+            let gone: Vec<ResKey> = was.iter().flat_map(|w| w.keys().copied()).collect();
+            let mut e = Event::saving(kind, module, before, gone);
+            if was.is_none() {
+                e.resources = module.keys().copied().collect();
+                e.resources.sort();
+                for k in &e.resources {
+                    if let Some(b) = module.get(k) {
+                        e.before.insert(*k, Arc::from(b));
+                    }
+                }
+            }
+            if !named.is_empty() {
+                e.resources.retain(|k| named.contains(k));
+                if let Some(k) = named.iter().find(|k| !e.resources.contains(k)) {
+                    return Err(format!("changed: {k} is not written by the save"));
+                }
+            }
+            e
+        }
+        K::ResourceCreated if named.is_empty() => {
+            return Err("changed: name the resources made".into());
+        }
+        K::ObjectPlaced | K::ObjectPasted => {
+            if selected.is_empty() || selected.iter().any(|s| !matches!(s, Selected::Object { .. }))
+            {
+                return Err(
+                    "select: the objects placed or pasted (tavern.git/Placeable List[0])".into()
+                );
+            }
+            let mut e = Event::new(kind, Vec::new());
+            e.objects = selected;
+            e
+        }
+        K::ModuleSaved if named.is_empty() => {
+            let mut all: Vec<ResKey> = module.keys().copied().collect();
+            all.sort();
+            Event::new(kind, all)
+        }
+        _ => Event::new(kind, named),
+    };
+    event.by = t.by.clone().unwrap_or_default();
+    Ok(event)
+}
+
+/// What a resource saving's handler said against `warned` and `refused`.
+fn said_as_wanted(t: &Test, said: &[crate::Said], problems: &mut Vec<String>) {
+    for (wanted, refused, what) in [(&t.warned, false, "warnings"), (&t.refused, true, "refusals")]
+    {
+        let Some(wanted) = wanted else { continue };
+        let got: Vec<String> = (said.iter())
+            .filter(|s| s.refused == refused)
+            .map(|s| format!("{}: {}", s.resource, s.text))
+            .collect();
+        let fits = got.len() == wanted.len()
+            && got.iter().zip(wanted).all(|(g, w)| g.contains(w.as_str()));
+        if !fits {
+            problems.push(format!("the {what} are {got:?}, not {wanted:?}"));
+        }
+    }
 }
 
 /// What the job set against `set`: each setting named ends with its value.

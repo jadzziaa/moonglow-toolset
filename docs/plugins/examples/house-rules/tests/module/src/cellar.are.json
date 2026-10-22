@@ -1,0 +1,17 @@
+{
+  "__data_type": "ARE ",
+  "Tag": {
+    "type": "cexostring",
+    "value": "CELLAR"
+  },
+  "ResRef": {
+    "type": "resref",
+    "value": "cellar"
+  },
+  "Name": {
+    "type": "cexolocstring",
+    "value": {
+      "0": "Cellar"
+    }
+  }
+}

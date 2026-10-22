@@ -1,0 +1,17 @@
+{
+  "__data_type": "ARE ",
+  "Tag": {
+    "type": "cexostring",
+    "value": "Tavern"
+  },
+  "ResRef": {
+    "type": "resref",
+    "value": "tavern"
+  },
+  "Name": {
+    "type": "cexolocstring",
+    "value": {
+      "0": "Tavern"
+    }
+  }
+}

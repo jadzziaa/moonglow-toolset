@@ -526,10 +526,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         let key = ResKey::new(resref, w.kind.restype());
         match g.to_bytes() {
             Ok(data) => {
-                app.actions.push(Action::Apply(Command::new(
-                    format!("New {}", w.kind.label().trim_end_matches('s').to_lowercase()),
-                    vec![Edit::SetResource { key, data: Some(data) }],
-                )));
+                app.actions.push(Action::ApplyMade(
+                    Command::new(
+                        format!("New {}", w.kind.label().trim_end_matches('s').to_lowercase()),
+                        vec![Edit::SetResource { key, data: Some(data) }],
+                    ),
+                    crate::plugin_events::Made::resources("wizard", vec![key]),
+                ));
                 if w.launch {
                     app.actions.push(Action::OpenTab(Tab::Blueprint(key)));
                 }

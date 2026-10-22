@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Writing plugins
-description: Writing plugins - a first plugin, how a plugin runs, the manifest, reading and editing the module, commands on what is selected, the game's data, talking to the user, settings (ctx.settings, their scopes and where each is kept), files and haks outside the module, areas and terrain, checks and the fixes of their findings, several files, trying and testing (a plugin's own tests, mg plugin test), editor types, versions, sharing, and a project's own plugins.
+description: Writing plugins - a first plugin, how a plugin runs (events too, a resource's own around a save and the after-create hook), the manifest, reading and editing the module, commands on what is selected, the game's data, talking to the user, settings (ctx.settings, their scopes and where each is kept), files and haks outside the module, areas and terrain, checks and the fixes of their findings, several files, trying and testing (a plugin's own tests, mg plugin test), editor types, versions, sharing, and a project's own plugins.
 tags: [manual, plugins, luau]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T10:41:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T11:37:42Z }
 ---
 
 # Writing plugins
@@ -129,18 +129,23 @@ or that folder if they allow it to write ([Outside the module](#outside-the-modu
 **Cancel** stops it between any two steps, even in a loop that never
 ends; `pcall` does not catch that.
 
-**Events.** A plugin may also act when a module is opened or saved: an
-`[event]` in the manifest and a handler registered with `mg.on(id,
-handler)`. The handler is called as a command's is, a job of its own,
-with what happened as `ctx.event`: its `name` (`"module-saved"`) and, for
-a save, `resources`, the names of the resources that are not as they
-were at the last save (or when the module was opened). Its edits go in
-as one undoable step after the save, so the module then has unsaved
-changes again: an event that edits should have little to say. Where it
-asks for a folder (`ctx.ui:open_folder`) or for leave to write (a hak, a
-folder), the user is asked once and the answer
-is kept for that plugin's events; a form is asked every time. Events
-happen in the window only (`mg plugin run --event` runs one's handler).
+**Events.** A plugin may also act by itself: an `[event]` in the
+manifest and a handler registered with `mg.on(id, handler)`, called as a
+command's is, with what happened as `ctx.event`
+([the events](17-plugin-api.md#ctxevent) and what each says). They are
+of two kinds.
+
+*After something happened:* a module opened or saved (`module-opened`,
+`module-saved`), and since API 0.4 each resource a save wrote
+(`resource-saved`). The handler runs as a job of its own once Moonglow
+is free. `module-saved` gets `resources`, the names of the resources
+that are not as they were at the last save (or when the module was
+opened); its edits go in as one undoable step after the save, so the
+module then has unsaved changes again: an event that edits should have
+little to say. `resource-saved` only reads. Where such a handler asks
+for a folder (`ctx.ui:open_folder`) or for leave to write (a hak, a
+folder), the user is asked once and the answer is kept for that
+plugin's events; a form is asked every time.
 
 ```lua
 mg.on("emit", function(ctx)
@@ -153,6 +158,62 @@ mg.on("emit", function(ctx)
     end
 end)
 ```
+
+*Within what the user does* (API 0.4): before a save, for each resource
+it would write (`resource-saving`); when objects are placed or pasted
+(`object-placed`, `object-pasted`); when a wizard, Add to Palette, Setup
+Store or a copy makes a resource (`resource-created`). These run at once
+(a save waits for them), with 5 seconds and nobody to ask. Before a
+save a handler only reads, as a check does: it reads each resource as
+it was (`ctx.event.old`) and as it will be (`ctx.event.new`), and warns
+(`ctx.event:warn`) or refuses (`ctx.event:refuse`), with a fix made with
+`ctx.fix`. The user sees what it said before anything is written: Save
+Anyway or Cancel for a warning, no save for a refusal, and the fix as a
+button. On what was placed, pasted or made a handler may edit at once,
+and its edits go in with the user's own action, after Moonglow's own
+work (the builder code in a ResRef, the project's rules for a store):
+one Undo takes the paste and what the plugin did to it back together.
+A plugin edits only on the user's word: a paste is the user's action,
+and what a plugin adds to it is part of it; a save is not an edit, so a
+plugin never changes what is being saved ([why](17-plugin-api.md#ctxevent)).
+
+The `house-rules` example has one of each. Before a save, it holds each
+area it would write to the team's rules (its manifest says
+`on = "resource-saving"` and `types = "are"`):
+
+```lua
+mg.on("area-tags", function(ctx)
+    local e = ctx.event
+    if e.new == nil then
+        return -- (an area deleted)
+    end
+    local tag = e.new.Tag or ""
+    local was = if e.old then e.old.Tag or "" else nil
+    if was and was ~= tag then
+        local back = ctx.fix(`Put back {was}`)
+        back:set(e.resource, "Tag", was)
+        local why = `its tag was {was}, now {tag}: players' places are kept by it`
+        if ctx.settings.keep_tags then
+            e:refuse(why, back)
+        else
+            e:warn(why, back)
+        end
+        return
+    end
+    if tag ~= string.upper(tag) then
+        local fix = ctx.fix(`Make it {string.upper(tag)}`)
+        fix:set(e.resource, "Tag", string.upper(tag))
+        e:warn(`tag {tag} is not upper case`, fix)
+    end
+end)
+```
+
+Its other handlers give a pasted waypoint a tag of its own
+(`on = "object-pasted"`, `for = "waypoint"`) and a new area the team's
+land (`on = "resource-created"`, `for = "area"`), both as part of what
+the user did. Events happen in the window and, for a save, with `mg
+set` and `mg apply` (`--plugins`); `mg plugin run --event` runs any
+event's handler by hand.
 
 **Checks only read.** A check gets the same `ctx`; if it makes an edit,
 it fails. Nobody is there to answer a check's questions (it runs among
@@ -201,7 +262,9 @@ running the plugin, to list what it adds.
 | Key | |
 | --- | --- |
 | `id` | Needed. The id the code registers it under (`mg.on`). |
-| `on` | Needed. What it waits for: `"module-opened"` or `"module-saved"`. |
+| `on` | Needed. What it waits for: `"module-opened"`, `"module-saved"` and, since API 0.4, `"resource-saving"`, `"resource-saved"`, `"object-placed"`, `"object-pasted"` or `"resource-created"` ([the events](17-plugin-api.md#ctxevent)). |
+| `types` | For `resource-saving` and `resource-saved` (API 0.4): the types of resource it is for, as a list (`"are, git"`); left out, every one. |
+| `for` | For `object-placed`, `object-pasted` and `resource-created` (API 0.4): the kinds of object, or `area`, it is for, as a command's `for`; left out, every one. |
 
 `[setting]`, once for each value the plugin keeps (since API 0.4;
 [Settings](#settings)):
@@ -795,6 +858,32 @@ ok	tags.toml › the command upper-cases every tag, in one step
 example.tag-conventions: 3 tests, 3 passed, 0 failed
 ```
 
+An event's test names what happened. The `house-rules` example's tests
+(`tests/events.toml`) hold its save's handler to a module as it was
+(`was`, a second fixture whose cellar had another tag) and its paste's
+to the object pasted:
+
+```toml
+[[test]]
+name = "a save that changes an area's tag is refused, with a fix that puts it back"
+event = "area-tags"
+was = "was"
+refused = ["cellar.are: its tag was OLD_CELLAR, now CELLAR"]
+warned = []
+
+[[test]]
+name = "a pasted waypoint gets a tag of its own, with the paste"
+event = "pasted-waypoints"
+select = ["tavern.git/WaypointList[1]"]
+by = "paste"
+log = ["1 pasted waypoints have tags of their own"]
+edits = 1
+[[test.field]]
+resource = "tavern.git"
+field = "/WaypointList[1]/Tag"
+value = "WP_DOOR_2"
+```
+
 `module` is the fixture, from the test file's folder: a module folder, a
 `.mod`, or a nasher project. The example's is a nasher project
 (`tests/module/`, its resources as JSON in `src/`), which reads well in
@@ -808,11 +897,13 @@ A test (`[[test]]`) has a `name` and runs one thing:
 | Key | |
 | --- | --- |
 | `check`, `command` or `event` | The id of what is run, as the manifest declares it. |
-| `select`, `open` | What a command is run on and what is open (`ctx.selection`, `ctx.open`), named as `mg plugin run --select` names them: `guard.utc`, `tavern.are`, `tavern.git/Placeable List[0]`. |
+| `select`, `open` | What a command is run on and what is open (`ctx.selection`, `ctx.open`), named as `mg plugin run --select` names them: `guard.utc`, `tavern.are`, `tavern.git/Placeable List[0]`. For objects placed or pasted, the objects (`ctx.event.objects`). |
 | `answers` | A form's values by field id (`answers = { sell = 200 }`); the other fields take their defaults. |
 | `yes` | The answer to `ctx.ui:confirm` (else no). |
 | `files` | The files and folders the plugin gets where it asks for one, in order, from the test file's folder. |
-| `changed` | An event's resources changed (a module saved); none: all of the fixture's. |
+| `changed` | An event's resources: those a module saved changed, those a save writes, or those made (`resource-created`, which needs them). None: all of the fixture's (of a save with `was`: those that differ). |
+| `was` | For a resource saving or saved: the module as it was before, a fixture from the test file's folder. Its resources are the old ones (`ctx.event.old`), and the save writes those that differ. Left out: each resource as it is. |
+| `by` | What made the objects or resources (`ctx.event.by`). |
 | `settings` | The plugin's settings for the run (`settings = { code = "ab" }`), over what the fixture's project files hold and the defaults. |
 
 and says what is to come of it (each key may be left out):
@@ -828,6 +919,7 @@ and says what is to come of it (each key may be left out):
 | `log` | Lines the log must have: each is part of one. |
 | `error` | The job fails, saying this (part of what it says). |
 | `set` | The settings the command or event sets (`ctx.settings:set`), each with the value it ends with: `set = { code = "cd" }`. |
+| `warned`, `refused` | What a `resource-saving` handler says: its warnings and its refusals, all of them in order, each part of one as `name.ext: text` (`"cellar.are: its tag was OLD_CELLAR"`); `[]`: none. |
 
 The plugin runs with the game's data where `mg` finds a game (as `mg
 plugin run` does) and without it elsewhere (`ctx.game` is then empty):

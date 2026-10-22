@@ -3755,3 +3755,59 @@ fn claims_and_project_commands() {
     h.run_steps(3);
     shoot(&mut h, &dir, "claims-command-trust");
 }
+
+/// What a plugin says before a save (plugin API 0.4, `resource-saving`):
+/// the House rules example's warning with its fix, and its refusal
+/// (`target/test-output/screens-plugin-save/`).
+#[test]
+#[ignore]
+fn plugin_save_warning() {
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("screens-plugin-save");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    let area = |tag: &str| {
+        let mut are = mg_gff::Gff::new(*b"ARE ");
+        are.root.set("Tag", mg_gff::Value::String(tag.as_bytes().to_vec()));
+        are.to_bytes().unwrap()
+    };
+    m.set(ResKey::parse("tavern", ResType::ARE).unwrap(), area("TAVERN"));
+    let path = dir.join("rules.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    app.open_palette = false;
+    app.plugin_dir =
+        Some(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/plugins/examples"));
+    app.load_plugins();
+    app.enable_plugin("example.house-rules", true);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 720.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    // A new area whose tag is not upper case: a warning, with its fix.
+    let key = ResKey::parse("cellar", ResType::ARE).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A cellar",
+        vec![mg_edit::Edit::SetResource { key, data: Some(area("Cellar")) }],
+    )));
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    shoot(&mut h, &dir, "plugin-save-warning");
+    h.get_by_label("Cancel").click();
+    h.run_steps(2);
+    // And the tavern's tag changed too: a refusal, first.
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "Tag",
+        vec![mg_edit::Edit::SetField {
+            key: ResKey::parse("tavern", ResType::ARE).unwrap(),
+            path: GffPath::root(),
+            label: "Tag".into(),
+            value: Some(mg_gff::Value::String(b"INN".to_vec())),
+        }],
+    )));
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    shoot(&mut h, &dir, "plugin-save-refused");
+}

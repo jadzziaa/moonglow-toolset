@@ -345,7 +345,7 @@ pub(crate) fn list(dirs: &[PathBuf], project: Option<&Path>) -> Result<Output> {
                         out.line(format!("\tcheck\t{}\t{}", c.id, c.title));
                     }
                     for e in &m.events {
-                        out.line(format!("\tevent\t{}\t{}", e.id, e.on.name()));
+                        out.line(format!("\tevent\t{}\t{}\t{}", e.id, e.on.name(), e.said()));
                     }
                     // Its settings, with their values in the project.
                     let in_project = file.as_ref().filter(|_| trust.is_some());
@@ -380,6 +380,9 @@ pub(crate) fn list(dirs: &[PathBuf], project: Option<&Path>) -> Result<Output> {
                         })).collect::<Vec<_>>(),
                         "events": m.events.iter().map(|e| json!({
                             "id": e.id, "on": e.on.name(),
+                            "types": e.types.iter().filter_map(|t| t.extension()).collect::<Vec<_>>(),
+                            "for": e.targets.iter().map(|t| t.name()).collect::<Vec<_>>(),
+                            "says": e.said(),
                         })).collect::<Vec<_>>(),
                         "settings": settings,
                         "project": project,
@@ -601,6 +604,10 @@ pub(crate) struct What<'a> {
     pub selection: mg_plugin::Selection,
     /// Its settings for the run (`--setting ID=VALUE`).
     pub settings: &'a [String],
+    /// For a resource saving or saved: the module as it was (`--was`).
+    pub was: Option<&'a Path>,
+    /// What made the objects or resources (`--by`).
+    pub by: Option<&'a str>,
 }
 
 /// The settings of a plugin for a run on a module: what the module's
@@ -746,19 +753,12 @@ pub(crate) fn run(
     };
     let outcome = match &what.changed {
         None => mg_plugin::run_command(&plugin, what.id, input, host.clone()),
-        Some(changed) => {
-            let on = plugin.manifest.events.iter().find(|e| e.id == what.id).map(|e| e.on);
-            let mut resources = changed.clone();
-            if resources.is_empty() {
-                resources = m.keys().copied().collect();
-                resources.sort();
-            }
-            // (An event that is not the plugin's is refused below.)
-            let kind = on.unwrap_or(mg_plugin::EventKind::ModuleSaved);
-            if kind == mg_plugin::EventKind::ModuleOpened {
-                resources.clear();
-            }
-            let event = mg_plugin::Event { kind, resources };
+        Some(_) => {
+            let event = event_for(&plugin, what.id, &m, what)?;
+            // (What is selected names the objects, not ctx.selection; one
+            // that runs at once has its time budget, as in the window.)
+            let budget = event.kind.at_once().then_some(mg_plugin::EVENT_BUDGET);
+            let input = Input { selection: Default::default(), budget, ..input };
             mg_plugin::run_event(&plugin, what.id, &event, input, host.clone())
         }
     };
@@ -772,6 +772,18 @@ pub(crate) fn run(
         }
     };
     host.answered()?;
+    // What a resource saving's handler said: a refusal fails, as the save
+    // would.
+    let said: Vec<serde_json::Value> = (outcome.said.iter())
+        .map(|s| {
+            let fix = s.fix.as_ref().map(|f| f.label.clone());
+            let word = if s.refused { "refused" } else { "warning" };
+            let shown = fix.as_ref().map(|f| format!(" (fix: {f})")).unwrap_or_default();
+            notes.note(format!("{word}: {}: {}{shown}", s.resource, s.text));
+            json!({ "resource": s.resource.to_string(), "text": s.text, "refused": s.refused, "fix": fix })
+        })
+        .collect();
+    let refused = outcome.said.iter().filter(|s| s.refused).count();
     // Its haks first: the module's edits may name them.
     let hak_dir = hak_dir
         .map(Path::to_path_buf)
@@ -800,12 +812,20 @@ pub(crate) fn run(
     }
     let cmd = Command::new(outcome.label, outcome.edits);
     let module = m.clone();
-    let mut out = super::edits::run(Workspace::new(m), cmd, dry_run, None, dry_run, codepage)?;
+    let mut out =
+        super::edits::run(Workspace::new(m), cmd, dry_run, None, dry_run, codepage, None)?;
     let kept = keep_settings(&plugin, &module, &outcome.settings, dry_run, &mut notes)?;
-    if let serde_json::Value::Object(o) = &mut out.json
-        && !kept.is_empty()
-    {
-        o.insert("settings".into(), kept.into());
+    if let serde_json::Value::Object(o) = &mut out.json {
+        if !kept.is_empty() {
+            o.insert("settings".into(), kept.into());
+        }
+        if !said.is_empty() {
+            o.insert("said".into(), said.into());
+        }
+    }
+    if refused > 0 {
+        out.note(format!("the save would be refused: {refused} refusal(s)"));
+        out.failed = true;
     }
     out.notes.splice(0..0, notes.notes);
     host.finish(&mut out);
@@ -907,4 +927,195 @@ pub(crate) fn findings(
         }
     }
     Ok(all)
+}
+
+/// The plugins whose save events `mg set` and `mg apply` run (those
+/// `--plugins` names, and the project's as the builder allowed them, with
+/// a `resource-saving` or `resource-saved` handler), and the game's data
+/// they read.
+pub(crate) struct SaveGuard {
+    plugins: Vec<(Plugin, mg_plugin::Settings)>,
+    game: Option<Arc<GameData>>,
+}
+
+/// The plugins that look at what `mg set` or `mg apply` saves, if any
+/// has a handler for it.
+pub(crate) fn save_guard(
+    gi: Option<&GameInstall>,
+    m: &Module,
+    dirs: &[PathBuf],
+    out: &mut Output,
+) -> Result<Option<SaveGuard>> {
+    let mut plugins = Vec::new();
+    for dir in dirs {
+        let found = plugins_in(dir);
+        if found.is_empty() {
+            bail!("{}: no plugin there (no plugin.cfg)", dir.display());
+        }
+        for plugin in found {
+            plugins.push(plugin.map_err(|e| anyhow!("{e}"))?);
+        }
+    }
+    // (A project's plugin not allowed is not said here: `mg verify` says so.)
+    let theirs = project_plugins(m, false, &plugins, &mut Output::default());
+    plugins.extend(theirs);
+    use mg_plugin::EventKind as K;
+    plugins.retain(|p| {
+        p.manifest.events.iter().any(|e| matches!(e.on, K::ResourceSaving | K::ResourceSaved))
+    });
+    if plugins.is_empty() {
+        return Ok(None);
+    }
+    let mut with = Vec::new();
+    for p in plugins {
+        let settings = settings_for(&p, m, &[], out)?;
+        with.push((p, settings));
+    }
+    let game = game_for(gi, m, &mut Output::default());
+    Ok(Some(SaveGuard { plugins: with, game }))
+}
+
+impl SaveGuard {
+    /// Runs the handlers of `kind` on what the save writes (`now` against
+    /// `was`): what they said, as JSON, and as notes; a plugin that fails
+    /// is a warning.
+    fn run(
+        &self,
+        kind: mg_plugin::EventKind,
+        was: &Module,
+        now: &Module,
+        out: &mut Output,
+    ) -> Vec<(String, mg_plugin::Said)> {
+        let gone: Vec<mg_resman::ResKey> = was.keys().copied().collect();
+        let event = mg_plugin::Event::saving(kind, now, |k| was.get(k), gone);
+        let mut said = Vec::new();
+        if event.resources.is_empty() {
+            return said;
+        }
+        for (plugin, settings) in &self.plugins {
+            let name = &plugin.manifest.name;
+            for e in plugin.manifest.events.iter().filter(|e| e.on == kind) {
+                let host = Rc::new(CliHost::default());
+                let input = Input {
+                    settings: Some(settings.clone()),
+                    budget: kind.at_once().then_some(mg_plugin::EVENT_BUDGET),
+                    ..Input::new(now.clone(), self.game.clone())
+                };
+                match mg_plugin::run_event(plugin, &e.id, &event, input, host.clone()) {
+                    Ok(o) => said.extend(o.said.into_iter().map(|s| (name.clone(), s))),
+                    Err(err) => {
+                        out.note(format!("warning: {name} could not check the save: {err}"))
+                    }
+                }
+                for (_, text) in host.log.borrow().iter() {
+                    out.note(format!("{name}: {text}"));
+                }
+            }
+        }
+        said
+    }
+
+    /// Before the save: what the plugins say of what it would write. A
+    /// refusal is an error (nothing is written); warnings are notes. What
+    /// they said, as JSON.
+    pub(crate) fn before(
+        &self,
+        was: &Module,
+        now: &Module,
+        out: &mut Output,
+    ) -> Result<Vec<serde_json::Value>> {
+        let said = self.run(mg_plugin::EventKind::ResourceSaving, was, now, out);
+        let line = |(name, s): &(String, mg_plugin::Said)| {
+            let fix = s.fix.as_ref().map(|f| format!(" (fix: {})", f.label)).unwrap_or_default();
+            format!("{name}: {}: {}{fix}", s.resource, s.text)
+        };
+        let refused: Vec<String> = said.iter().filter(|(_, s)| s.refused).map(line).collect();
+        let warned: Vec<String> = said.iter().filter(|(_, s)| !s.refused).map(line).collect();
+        if !refused.is_empty() {
+            let mut why = format!("not saved: a plugin refuses it\n  {}", refused.join("\n  "));
+            if !warned.is_empty() {
+                why.push_str(&format!("\nand warns:\n  {}", warned.join("\n  ")));
+            }
+            bail!(why);
+        }
+        warned.iter().for_each(|w| out.note(format!("warning: {w}")));
+        Ok(said
+            .iter()
+            .map(|(name, s)| {
+                json!({
+                    "plugin": name, "resource": s.resource.to_string(), "text": s.text,
+                    "refused": s.refused, "fix": s.fix.as_ref().map(|f| f.label.clone()),
+                })
+            })
+            .collect())
+    }
+
+    /// After the save: the `resource-saved` handlers, on what it wrote.
+    pub(crate) fn after(&self, was: &Module, now: &Module, out: &mut Output) {
+        self.run(mg_plugin::EventKind::ResourceSaved, was, now, out);
+    }
+}
+
+/// What happened, for `mg plugin run --event`: the resources named (a
+/// save's, else those that differ from `--was`, or all), the objects
+/// selected (placed or pasted), what made them (`--by`).
+pub(crate) fn event_for(
+    plugin: &Plugin,
+    id: &str,
+    m: &Module,
+    what: &What<'_>,
+) -> Result<mg_plugin::Event> {
+    use mg_plugin::EventKind as K;
+    let kind = plugin.manifest.events.iter().find(|e| e.id == id).map(|e| e.on);
+    // (An event that is not the plugin's is refused when it is run.)
+    let kind = kind.unwrap_or(K::ModuleSaved);
+    let named = what.changed.clone().unwrap_or_default();
+    let all = || {
+        let mut all: Vec<mg_resman::ResKey> = m.keys().copied().collect();
+        all.sort();
+        all
+    };
+    let mut event = match kind {
+        K::ModuleOpened => mg_plugin::Event::new(kind, Vec::new()),
+        K::ModuleSaved => mg_plugin::Event::new(kind, if named.is_empty() { all() } else { named }),
+        K::ResourceSaving | K::ResourceSaved => {
+            let was = match what.was {
+                Some(p) => Module::open(p).with_context(|| format!("--was {}", p.display()))?,
+                None => m.clone(),
+            };
+            let gone: Vec<mg_resman::ResKey> = was.keys().copied().collect();
+            let mut e = mg_plugin::Event::saving(kind, m, |k| was.get(k), gone);
+            if what.was.is_none() {
+                // (Nothing before: each resource as it is.)
+                e.resources = if named.is_empty() { all() } else { named.clone() };
+                for k in &e.resources {
+                    if let Some(b) = m.get(k) {
+                        e.before.insert(*k, Arc::from(b));
+                    }
+                }
+            } else if !named.is_empty() {
+                e.resources.retain(|k| named.contains(k));
+            }
+            e
+        }
+        K::ResourceCreated => {
+            if named.is_empty() {
+                bail!("--changed: name the resources made (new.are)");
+            }
+            mg_plugin::Event::new(kind, named)
+        }
+        K::ObjectPlaced | K::ObjectPasted => {
+            let objects = what.selection.selected.clone();
+            if objects.is_empty()
+                || objects.iter().any(|s| !matches!(s, mg_plugin::Selected::Object { .. }))
+            {
+                bail!("--select: the objects placed or pasted (tavern.git/Placeable List[0])");
+            }
+            let mut e = mg_plugin::Event::new(kind, Vec::new());
+            e.objects = objects;
+            e
+        }
+    };
+    event.by = what.by.unwrap_or_default().to_string();
+    Ok(event)
 }
