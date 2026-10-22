@@ -3,7 +3,7 @@ type: Manual Page
 title: Differences from Aurora
 description: Where Moonglow deliberately departs from Aurora.
 tags: [manual, aurora, differences]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T22:41:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T07:08:57Z }
 ---
 
 # Differences from Aurora
@@ -57,7 +57,11 @@ it differs, it is on purpose:
   lists don't offer the PC faction to objects (whether Aurora's do was
   not captured).
 - **Locked objects** carry a field of Moonglow's (`MG_Locked`), which the
-  game ignores and Aurora drops when it saves.
+  game ignores and Aurora drops when it saves; in a nasher project the
+  locks are kept in Moonglow's data folder instead.
+- **An exported archive says what it was made from** (the module's git
+  commit, Moonglow's version, the module's name) after its description,
+  and Import warns when the module is at another commit now.
 - **Blueprint previews** in the door and placeable windows are a
   **Preview** button that opens the model viewer.
 - **Renaming custom blueprints in the palette** is done in the blueprint's

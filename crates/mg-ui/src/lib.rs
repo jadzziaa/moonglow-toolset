@@ -538,6 +538,10 @@ pub struct Moonglow {
     /// Where what Compile All remembers is kept from one session to the
     /// next (a file a module, in Moonglow's own folder); `None`: not kept.
     pub compiled_dir: Option<PathBuf>,
+    /// Where a nasher project's locked objects are kept (a file a
+    /// project, in Moonglow's own folder: the lock is kept out of the
+    /// project's files); `None`: locks in a project last the session.
+    pub locks_dir: Option<PathBuf>,
     /// Where the game's shaders, compiled, are kept from one session to the
     /// next (in the user's cache folder); `None`: compiled each session.
     pub shader_cache_dir: Option<PathBuf>,
@@ -804,6 +808,7 @@ impl Moonglow {
             command_after_text: None,
             script_stamps: Default::default(),
             compiled_dir: None,
+            locks_dir: None,
             shader_cache_dir: None,
             rename: None,
             copy_as: None,
@@ -2174,6 +2179,8 @@ impl Moonglow {
                  custom content will be missing. Close and open the module again.",
             );
         }
+        let mut m = m;
+        self.restore_locks(&mut m);
         self.ws = Some(Workspace::new(m));
         self.plugins_module_opened();
         self.outside = Default::default();
@@ -3023,6 +3030,7 @@ impl Moonglow {
                 self.log.info(format!("Saved {}", path.display()));
                 self.settings.remember(&path);
                 self.forget_recovery();
+                self.keep_locks();
                 self.write_mod_beside_folder();
                 self.plugins_module_saved();
             }
@@ -3038,6 +3046,35 @@ impl Moonglow {
         }
         self.take_project_warnings();
         self.refresh_module_layer();
+    }
+
+    /// The file that keeps the locks of the open project, if it is one.
+    fn locks_file(&self, m: &Module) -> Option<PathBuf> {
+        let root = m.project.as_ref()?.root().to_path_buf();
+        Some(mg_module::locks::file(self.locks_dir.as_deref()?, &root))
+    }
+
+    /// Puts a project's locked objects back on them: the project's files
+    /// don't carry the lock ([`mg_module::locks`]).
+    fn restore_locks(&mut self, m: &mut Module) {
+        let Some(path) = self.locks_file(m) else { return };
+        let locks = mg_module::locks::read(&path);
+        let found = m.restore_locks(&locks);
+        if found < locks.len() {
+            trace::note(format!("locks: {found} of {} found again", locks.len()));
+        }
+    }
+
+    /// Keeps the open project's locked objects in Moonglow's folder, after
+    /// it was saved (its files don't carry them).
+    fn keep_locks(&mut self) {
+        let Some(ws) = self.ws.as_ref() else { return };
+        let Some(path) = self.locks_file(&ws.module) else { return };
+        let root = ws.module.project.as_ref().map(|p| p.root().to_path_buf()).unwrap_or_default();
+        let locks = mg_module::locks::module_locks(&ws.module);
+        if let Err(e) = mg_module::locks::write(&path, &root, &locks) {
+            self.log.warn(format!("The locked objects could not be kept: {}: {e}", path.display()));
+        }
     }
 
     /// A module that is a folder (and no nasher project, which packs its

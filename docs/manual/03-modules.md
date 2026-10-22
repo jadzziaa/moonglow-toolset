@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T06:46:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T07:08:57Z }
 ---
 
 # Modules
@@ -211,6 +211,20 @@ unpacking or packing between the toolset and git.
   only, and Moonglow compiles them when it packs. A compiled script
   without its source can't be kept in a project; Moonglow names any it
   leaves out.
+- **Locked objects stay out of the files.** A lock (the area view's
+  **Lock**) is a selection aid the game ignores, so a project's area files
+  don't carry it, and locking never shows in a diff. Moonglow keeps a
+  project's locks in its own data folder (`locks/`, a file a project) and
+  puts them back on the objects when the project is opened, and when an
+  area changed elsewhere is read again. Each lock finds its object by its
+  place in the area's list, its blueprint, tag and position: an object
+  moved or renumbered by another program (or `mg`) is found where it can
+  be, and loses its lock where it can't. A lock lives on the machine it
+  was made on; a teammate's checkout has none. An area file that carries
+  the lock already (written by an earlier Moonglow) keeps it on each
+  object that stays locked; unlocking that object takes it out of the
+  file. A `.mod` and a module folder keep their locks in their files, as
+  before.
 
 nasher rounds the module's numbers to 4 decimal places (its
 `truncateFloats` setting), so objects in a project may sit up to a
@@ -424,6 +438,60 @@ the premium campaigns keep theirs). Its feminine table, `<name>f.tlk`, is
 looked for the same way. If the game can't find the table the module
 names, it won't load the module; Verify reports it. Name it without
 `.tlk`, in lower case: on Linux the file's name must match exactly.
+
+### What the module uses of its haks
+
+`mg haks MODULE --usage` says, hak by hak, which of its resources the
+module reaches and which nothing does: for cutting a release (or a
+player's download) to what is used. A line a hak, and one for them all:
+
+```
+tdod_p_n2e	129 of 4882 used (80.4 MB of 650.1 MB); 4753 unused, 0 shadowed, 0 not judged
+```
+
+With `--json`, every resource used with the module resource whose walk
+reached it first (`from`), and the lists of those unused, shadowed and
+not judged. The walk starts at every resource of the module and follows
+what each names, wherever in the load order that is (a hak's blueprint,
+the game's script), and what that names in turn:
+
+- **References**, as Verify follows them: scripts (the compiled script
+  and its source), conversations, blueprints (a placed object's too),
+  sounds, tilesets, areas, portraits (every size), and a script's
+  `#include`s.
+- **A script's strings**: a string that is the name of a script,
+  blueprint, conversation, sound, music, 2DA, model or texture reaches
+  it. What the string is passed to isn't read, so a string that happens
+  to spell a name counts.
+- **An area**: its tileset (the `.set` and its palette), and of the
+  tiles, those the area places, each with its model, walkmesh and map
+  image; the tileset's grass and environment map; the skybox's models,
+  the loading screen, the ambient sounds and the music (with its
+  stingers).
+- **An object, as the area view draws it**: a placeable's or door's
+  model and sounds (placeableobjsnds.2da); a creature's body (head, body
+  parts, wings, tail, what it wears), its portrait and sound set (the
+  `.ssf` and its sounds); an item's models and their inventory icons;
+  armor's parts and cloaks for every gender, part-based race and
+  phenotype that has a model of them, as anyone may wear them.
+- **A model's own files**: walkmeshes, textures (the DDS or TGA the game
+  picks, and a PLT), materials and TXIs and what they name, its
+  emitters' models and its supermodels.
+
+Each hak resource is then **used** (reached, and this hak's copy is the
+one the game loads), **shadowed** (a hak higher in the list, or the
+module, has it: this copy is never loaded), **not judged** or
+**unused**. Not judged are what the game reads by itself (2DAs other
+than those the walk reads, GUI, fonts, shaders a material doesn't name,
+palettes, NUI windows) and a hak's replacements of the game's own
+resources, which the game's own content may use. Not followed at all:
+what scripts reach by a number (visual effects, spells, item
+properties, appearances set by a script) and what players choose
+(heads, portraits, sound sets and parts at character creation): a hak of player heads can
+show as unused and still be needed. The game is taken as a player has
+it: the user's `override` and `development` folders are left out, the
+haks are found where the game finds them. On The Domains of Dread's
+module and 143 haks (29.5 GB) it takes about 5 seconds.
 
 ### The talk table editor
 
@@ -765,6 +833,21 @@ plugin reads a description with `mg.twoda.describe`
   file if it exists**, choosing an archive that is already there adds
   the resources to it (those of the same names are replaced, the rest
   and its description stay) instead of replacing the file.
+- **An export says what it was made from.** After the description, the
+  archive holds a stamp: the module's git commit, if the module is in a
+  git checkout (a nasher project's folder, a module folder, or the
+  folder of a `.mod`), and whether its files had changes not committed;
+  Moonglow's version; the module's name and tag. In the description:
+
+  ```
+  Moonglow-Export: 2.0.0
+  Base: git 5f96447… with uncommitted changes
+  Module: The Domains of Dread (TDOD)
+  ```
+
+  The game and Aurora pass an archive's description by (Aurora's
+  Import shows it), so the archive imports as before. `mg export` stamps
+  its archives the same way.
 - **Export as Files…** (in the Export window, and on a resource's
   right-click menu in the module tree) writes resources as loose files,
   `name.ext`, into a folder you choose: as they are now in the toolset,
@@ -800,7 +883,14 @@ plugin reads a description with `mg.twoda.describe`
 - **File › Import…** adds an `.erf`'s resources to the module; for those
   the module already has, you choose which to overwrite. It also lists
   what the imported resources refer to that neither the module nor the
-  game has.
+  game has. An archive Moonglow exported says what it was made from, and
+  where the module's git checkout is at another commit now, the window
+  (and the log) warns: the archive was made from **older work** (the
+  module is that many commits on: copied in, it undoes what changed
+  since; import it on a branch from the commit it names and merge), from
+  **other work**, or from a commit the checkout doesn't have; and it says
+  when the archive was made with changes not committed. `mg import` says
+  the same.
 
 ## Areas
 

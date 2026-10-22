@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T06:38:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T07:08:57Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -191,6 +191,19 @@ Size: S (an hour or two), M (a day or so), L (several days).
   report, 2026-10-21)
 
 ## nasher projects
+
+- **Locks kept apart in projects only:** a module folder still writes
+  `MG_Locked` into its area files (binary GFF, so no line diff), and a
+  `.mod` keeps it as before. A project's locks live on one machine
+  (Moonglow's data folder), not in the checkout; an object moved by
+  another program or `mg` loses its lock where it can't be found again
+  (by list place, blueprint, tag and position). (S)
+- **Export's stamp** names the git commit of the module's own folder
+  (or a `.mod`'s folder): a builder's `.mod` outside any checkout is
+  stamped with Moonglow's version and the module's name only. A base the
+  module names itself (a module variable a download script writes, as
+  The Domains of Dread's hand-back proposal has it) isn't read. Import
+  warns; it doesn't import onto a branch for you. (S)
 
 - **NWNT projects:** projects using NWNT instead of JSON for GFF files
   are refused with a message. (M)
@@ -930,6 +943,20 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   boxes cannot be dragged. (S) (GitHub issues 10 to 24, after 1.20.0)
 
 ## Haks in the GUI
+
+- **What the module uses of its haks** is `mg haks --usage` alone: the
+  window has no report of it (Module Properties' Check for Conflicts
+  could show it). The walk is in the command line (`apps/mg/src/usage.rs`)
+  until the window wants it. (S–M)
+- **Not followed by `--usage`:** what scripts reach by a number
+  (visual effects, spells, item properties, `SetCreatureAppearanceType`),
+  a creature's footstep, weapon and combat sounds, an item property's
+  visual effect, armor's inventory icon, what players choose at
+  character creation (heads, portraits, sound sets, parts), and 2DAs the
+  game reads by itself (judged only where the walk reads one). A
+  script's string counts as a use of whatever it spells. A per-hak list
+  for the release cut (a folder of used assets to pack smaller haks) is
+  not written: `--json` has the lists. (M)
 
 - **No zip, 7z or rar:** content downloaded as an archive is unpacked
   first; Add Haks and Talk Table takes the haks and talk table. (S; `zip`

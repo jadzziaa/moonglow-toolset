@@ -144,10 +144,7 @@ pub fn export_erf(
         .unwrap_or_default();
     let mut w = ErfWriter::new(*b"ERF ");
     if !comments.is_empty() {
-        w.description = Description {
-            strref: StrRef::NONE,
-            strings: vec![(0, mg_core::Codepage::WINDOWS_1252.encode_lossy(comments))],
-        };
+        w.description = describe(comments);
     }
     for k in resources {
         let Some(bytes) = module.get(k) else { continue };
@@ -163,6 +160,27 @@ pub fn export_erf(
     }
     w.to_bytes()
         .map_err(|e| ModuleError::Archive { path: Default::default(), message: e.to_string() })
+}
+
+/// An archive's description holding `text` (English, Windows-1252).
+fn describe(text: &str) -> Description {
+    Description {
+        strref: StrRef::NONE,
+        strings: vec![(0, mg_core::Codepage::WINDOWS_1252.encode_lossy(text))],
+    }
+}
+
+/// An archive's description as text: its English string, else its first
+/// (Windows-1252).
+pub fn description_text(d: &Description) -> String {
+    let s = d.strings.iter().find(|(l, _)| *l == 0).or_else(|| d.strings.first());
+    s.map(|(_, b)| mg_core::Codepage::WINDOWS_1252.decode(b).into_owned()).unwrap_or_default()
+}
+
+/// The stamp of an archive's description ([`crate::stamp`]), if it has one.
+pub fn archive_stamp(archive: &[u8]) -> Option<crate::stamp::Stamp> {
+    let erf = Erf::read(archive).ok()?;
+    crate::stamp::read(&description_text(&erf.description)).1
 }
 
 /// An archive with `resources` exported into it ([`export_erf`]) and what
@@ -184,8 +202,15 @@ pub fn export_into_erf(
     let fresh = Erf::read(&fresh).map_err(|e| archive(&e))?;
     let old = Erf::read(existing).map_err(|e| archive(&e))?;
     let mut w = ErfWriter::new(old.file_type);
-    w.description =
-        if comments.is_empty() { old.description.clone() } else { fresh.description.clone() };
+    w.description = match crate::stamp::read(comments) {
+        _ if comments.is_empty() => old.description.clone(),
+        // Stamped anew, with the archive's own text where none is given.
+        (own, Some(stamp)) if own.is_empty() => {
+            let text = crate::stamp::describe(&description_text(&old.description), &stamp);
+            describe(&text)
+        }
+        _ => fresh.description.clone(),
+    };
     let mut seen = HashSet::new();
     for e in &old.entries {
         if !seen.insert(ResKey::new(e.resref, e.restype)) {
@@ -429,6 +454,32 @@ mod tests {
         assert_eq!(&*archive.get(&rr("town"), ResType::ARE).unwrap().unwrap(), b"another town");
         assert_eq!(archive.description.strings[0].1, b"The town", "its description is kept");
         assert!(export_into_erf(b"not an archive", &changed, &keys, "", false).is_err());
+    }
+
+    /// An export's stamp follows its description and reads back from the
+    /// archive; added to an archive, the archive's own text stays and the
+    /// stamp is the new one.
+    #[test]
+    fn the_stamp_is_in_the_description() {
+        use crate::stamp::{Commit, Stamp, describe};
+        let src = sample();
+        let stamp = |hash: &str| Stamp {
+            version: "2.0.0".into(),
+            commit: Some(Commit { hash: hash.into(), dirty: false }),
+            module: "Town".into(),
+            tag: "TOWN".into(),
+        };
+        let keys = [key("town", ResType::ARE)];
+        let erf = export_erf(&src, &keys, &describe("The town", &stamp("aaa")), false).unwrap();
+        assert_eq!(archive_stamp(&erf), Some(stamp("aaa")));
+        let text = description_text(&Erf::read(&erf).unwrap().description);
+        assert_eq!(crate::stamp::read(&text).0, "The town");
+        let more = export_into_erf(&erf, &src, &keys, &describe("", &stamp("bbb")), false).unwrap();
+        let text = description_text(&Erf::read(&more).unwrap().description);
+        assert_eq!(crate::stamp::read(&text), ("The town".to_string(), Some(stamp("bbb"))));
+        // Aurora's (no stamp).
+        let plain = export_erf(&src, &keys, "Aurora's", false).unwrap();
+        assert_eq!(archive_stamp(&plain), None);
     }
 
     #[test]

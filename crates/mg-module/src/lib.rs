@@ -22,6 +22,7 @@ pub mod hak_edit;
 pub mod haks;
 pub mod instances;
 pub mod journal;
+pub mod locks;
 pub mod minimap;
 pub mod models;
 pub mod nasher;
@@ -35,6 +36,7 @@ pub mod rename;
 pub mod script_set;
 pub mod script_wizard;
 pub mod search;
+pub mod stamp;
 pub mod store_setup;
 pub mod table_desc;
 pub mod table_edit;
@@ -662,6 +664,37 @@ impl Module {
             (None, Some(folder)) => Some(folder.outside()),
             (None, None) => None,
         }
+    }
+
+    /// Puts the locks kept apart from a nasher project's files
+    /// ([`locks`]) back on the objects they find, as if the files had them:
+    /// the module doesn't count as changed, and a file changed outside
+    /// Moonglow is still told from Moonglow's changes. Returns how many
+    /// objects were locked. Only for a project (other modules keep the
+    /// lock byte in their files).
+    pub fn restore_locks(&mut self, locks: &[locks::Lock]) -> usize {
+        let Some(project) = self.project.as_mut() else { return 0 };
+        let mut areas: Vec<ResRef> = locks.iter().map(|l| l.area).collect();
+        areas.sort();
+        areas.dedup();
+        let mut n = 0;
+        for area in areas {
+            let key = ResKey::new(area, ResType::GIT);
+            let Some(Ok(mut git)) = self.resources.get(&key).map(|b| Gff::read(b)) else {
+                continue;
+            };
+            let these: Vec<&locks::Lock> = locks.iter().filter(|l| l.area == area).collect();
+            let locked = locks::apply(&mut git, &these);
+            if locked == 0 {
+                continue;
+            }
+            let Ok(bytes) = git.to_bytes() else { continue };
+            let bytes: Arc<[u8]> = Arc::from(bytes);
+            project.stands_for(&key, bytes.clone());
+            self.resources.insert(key, bytes);
+            n += locked;
+        }
+        n
     }
 
     /// What a resource's file held when it was last read or written.

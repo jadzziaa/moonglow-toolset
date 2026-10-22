@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T21:52:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T07:08:57Z }
 ---
 
 # Areas
@@ -308,7 +308,10 @@ Aurora):
   can work around them. **Unlock All** (on any part of the area) frees
   them. Moonglow marks a locked object with a field of its own
   (`MG_Locked`), which the game ignores. Aurora drops it when it saves,
-  unlocking the object.
+  unlocking the object. A nasher project's files don't carry it: Moonglow
+  keeps the project's locks in its own folder (see
+  [nasher projects](03-modules.md#nasher-projects-version-control)), so
+  locking never shows in a diff.
 - **Save as Prefab…**: the selected objects, kept under a name to place
   again (see below): a group of placeables to copy around, in this area
   or another.

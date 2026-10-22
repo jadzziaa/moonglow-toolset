@@ -94,6 +94,8 @@ fn every_command_answers_in_json() {
     assert!(ok(&["haks", c])["haks"].as_array().unwrap().is_empty());
     let exported = ok(&["export", c, "pawn_w.utc", "-o", &at("pawn.erf")]);
     assert!(exported["resources"].as_array().unwrap().iter().any(|r| r == "pawn_w.utc"));
+    assert_eq!(exported["stamp"]["moonglow"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(exported["stamp"]["module"], "Neverwinter Chess");
     let compiled = ok(&["compile", c, "--uncompiled"]);
     assert_eq!(compiled["failed"], 0);
     let refs = ok(&["refs", c, "pawn_w.utc"]);
@@ -125,7 +127,8 @@ fn every_command_answers_in_json() {
     assert_eq!(init["target"], "default");
     let built = ok(&["build", &at("project"), "-o", &at("built.mod")]);
     assert_eq!(built["compiled"]["failed"], 0);
-    ok(&["import", c, &at("pawn.erf")]);
+    let imported = ok(&["import", c, &at("pawn.erf")]);
+    assert_eq!(imported["stamp"], exported["stamp"], "the stamp reads back");
     let hak = dir.join("mg_json.hak");
     std::fs::write(&hak, mg_erf::ErfWriter::new(*b"HAK ").to_bytes().unwrap()).unwrap();
     assert_eq!(ok(&["attach", c, hak.to_str().unwrap()])["haks"][0], "mg_json");

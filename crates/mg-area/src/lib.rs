@@ -221,8 +221,9 @@ pub struct AreaObject {
 }
 
 /// The field Moonglow marks a locked object with: a byte the game and
-/// Aurora don't read (Aurora drops it when it saves).
-pub const LOCKED: &str = "MG_Locked";
+/// Aurora don't read (Aurora drops it when it saves). A nasher project
+/// keeps it out of its files ([`mg_module::locks`]).
+pub use mg_module::locks::LOCKED;
 
 impl AreaObject {
     /// Reads the object `index` of the GIT list of `kind`.

@@ -15,6 +15,7 @@ mod search;
 mod serve;
 mod test;
 mod tlk_alloc;
+mod usage;
 mod watch;
 
 use anyhow::{Context, Result, bail};
@@ -121,7 +122,19 @@ enum Cmd {
     Checks,
     /// Report the resources a module's haks provide, their conflicts and the
     /// base-game resources they override.
-    Haks { module: PathBuf },
+    Haks {
+        module: PathBuf,
+        /// Which of each hak's resources the module reaches (its areas'
+        /// tilesets and tiles, its objects' and blueprints' models, parts,
+        /// portraits and sounds, its scripts and what they name, and the
+        /// textures, materials and supermodels of every model), and which
+        /// nothing reaches: a line a hak, used of all and bytes used of
+        /// all. With --json, each resource used with the module resource
+        /// that reached it first, and those unused. The manual's Modules
+        /// chapter says what is followed and what is not.
+        #[arg(long)]
+        usage: bool,
+    },
     /// Export resources and their dependencies from a module to an ERF; or,
     /// with --files, the resources named as loose files in a folder (for
     /// the game's `development` or `override`, or to hand on).
@@ -139,7 +152,10 @@ enum Cmd {
         /// not what they depend on.
         #[arg(long)]
         files: bool,
-        /// Description stored in the ERF.
+        /// Description stored in the ERF. What the export was made from
+        /// follows it there: the module's git commit (and whether files
+        /// had changes not committed), Moonglow's version and the module's
+        /// name, which `mg import` reads back.
         #[arg(long, default_value = "")]
         comment: String,
         /// Keep custom factions instead of resetting them to their parents.
@@ -815,7 +831,10 @@ enum Cmd {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Import an ERF into a module and save it.
+    /// Import an ERF into a module and save it. What the ERF was made
+    /// from (stamped by Moonglow's export) is said, with a warning when
+    /// the module's git checkout is at another commit now: the ERF was
+    /// made from older work, and copying it in undoes what changed since.
     Import {
         module: PathBuf,
         erf: PathBuf,
@@ -1353,9 +1372,10 @@ fn run(cli: &Cli) -> Result<Output> {
             }
             out
         }
-        Cmd::Haks { module } => {
+        Cmd::Haks { module, usage } => {
             let m = Module::open(module)?;
-            let report = mg_module::haks::hak_report(&install(cli)?, &m.haks()?)?;
+            let gi = install(cli)?;
+            let report = mg_module::haks::hak_report(&gi, &m.haks()?)?;
             let rows = |it: &mut dyn Iterator<Item = (&ResKey, &Vec<String>)>| {
                 it.map(|(k, h)| json!({ "resource": k.to_string(), "haks": h })).collect::<Vec<_>>()
             };
@@ -1365,7 +1385,38 @@ fn run(cli: &Cli) -> Result<Output> {
                 "overrides": rows(&mut report.overrides.iter()),
                 "resources": report.resources.len(),
             }));
-            out.line(report.to_text().trim_end());
+            if *usage {
+                let started = std::time::Instant::now();
+                let (haks, reached) = usage::hak_usage(&gi, &m, &report)?;
+                for u in &haks {
+                    out.line(usage::line(u));
+                }
+                let (used, all): (usize, usize) =
+                    haks.iter().fold((0, 0), |(a, b), u| (a + u.used.len(), b + u.total()));
+                let (used_bytes, bytes) =
+                    haks.iter().fold((0, 0), |(a, b), u| (a + u.used_bytes(), b + u.bytes()));
+                let none: Vec<&usage::HakUsage> =
+                    haks.iter().filter(|u| u.path.is_some() && u.used.is_empty()).collect();
+                let kept = none.iter().filter(|u| !u.not_judged.is_empty()).count();
+                out.line(format!(
+                    "All\t{used} of {all} used ({} of {}); nothing reaches {} of {} haks ({kept} \
+                     of them hold what isn't judged, which the game may read itself)",
+                    usage::size(used_bytes),
+                    usage::size(bytes),
+                    none.len(),
+                    haks.len()
+                ));
+                out.json["usage"] = usage::json(&haks);
+                out.json["reached"] = json!(reached);
+                out.note(format!(
+                    "the walk reached {reached} resources in {:.1} s; not followed: what scripts \
+                     reach by number (effects, spells, appearances), what players choose, and \
+                     what the game reads itself (\"not judged\")",
+                    started.elapsed().as_secs_f64()
+                ));
+            } else {
+                out.line(report.to_text().trim_end());
+            }
             out
         }
         Cmd::Export { module, resources, output, files, comment, keep_factions } => {
@@ -1412,14 +1463,23 @@ fn run(cli: &Cli) -> Result<Output> {
                     r.from, r.path, r.kind, r.target
                 ));
             }
+            // (Where it came from, after the description: Import says
+            // when the module has moved on since.)
+            let stamp = mg_module::stamp::Stamp::of(&m);
+            let description = mg_module::stamp::describe(comment, &stamp);
             let erf =
-                mg_module::transfer::export_erf(&m, &plan.resources, comment, !keep_factions)?;
+                mg_module::transfer::export_erf(&m, &plan.resources, &description, !keep_factions)?;
             std::fs::write(output, erf)?;
             out.json = json!({
                 "erf": path_text(output),
                 "resources": plan.resources.iter().map(ToString::to_string).collect::<Vec<_>>(),
+                "stamp": stamp_json(&stamp),
             });
-            out.note(format!("exported {} resources", plan.resources.len()));
+            out.note(format!(
+                "exported {} resources, stamped with {}",
+                plan.resources.len(),
+                stamp.summary()
+            ));
             out
         }
         Cmd::Compile { module, uncompiled, all, ndb } => {
@@ -2385,6 +2445,17 @@ fn run(cli: &Cli) -> Result<Output> {
                     r.from, r.kind, r.target
                 ));
             }
+            // Where the archive came from, and whether the module has moved
+            // on since (said before anything is imported).
+            let stamp = mg_module::transfer::archive_stamp(&data);
+            let base_warning = stamp.as_ref().and_then(|s| mg_module::stamp::compare(s, &m));
+            match &stamp {
+                Some(s) => out.note(format!("made from {}", s.summary())),
+                None => out.note("the archive doesn't say what it was made from (no stamp)"),
+            }
+            if let Some(w) = &base_warning {
+                out.note(format!("warning: {w}"));
+            }
             let s = mg_module::transfer::import_erf(&mut m, &data, |_| *overwrite)?;
             m.save()?;
             let names = |v: &[ResKey]| v.iter().map(ToString::to_string).collect::<Vec<_>>();
@@ -2393,6 +2464,8 @@ fn run(cli: &Cli) -> Result<Output> {
                 "replaced": names(&s.replaced),
                 "skipped": names(&s.skipped),
                 "new_areas": s.new_areas.iter().map(ToString::to_string).collect::<Vec<_>>(),
+                "stamp": stamp.as_ref().map(stamp_json),
+                "base_warning": base_warning,
             });
             out.note(format!(
                 "imported {} new, replaced {}, skipped {} existing; new areas: {:?}",
@@ -2708,6 +2781,17 @@ fn module_codepage(cli: &Cli, m: &Module) -> Codepage {
     let Ok(mut rm) = ResMan::for_game(&gi) else { return own };
     let _ = rm.add_haks(&gi, &haks);
     mg_rules::encoding_of(&rm, own)
+}
+
+/// An export's stamp ([`mg_module::stamp`]) as JSON.
+fn stamp_json(s: &mg_module::stamp::Stamp) -> serde_json::Value {
+    serde_json::json!({
+        "moonglow": s.version,
+        "commit": s.commit.as_ref().map(|c| c.hash.clone()),
+        "dirty": s.commit.as_ref().map(|c| c.dirty),
+        "module": s.module,
+        "tag": s.tag,
+    })
 }
 
 /// The resman for a module: the game, the module's haks and the module.

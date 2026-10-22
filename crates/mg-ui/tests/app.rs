@@ -17118,6 +17118,95 @@ fn a_project_s_files_changed_outside_are_read_again() {
     assert!(h.state().outside_conflicts().is_empty());
 }
 
+/// A nasher project's locks stay out of its files: Lock and Save leave the
+/// area's JSON as it was and keep the lock in Moonglow's folder; the area
+/// changed outside is read again (no conflict) with the lock still on; and
+/// the project opened again has it back.
+#[test]
+fn a_project_s_locks_stay_out_of_its_files() {
+    use mg_gff::Value;
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    use mg_schema::git;
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut rng = fastrand::Rng::with_seed(7);
+    let mut m = new_module(&game, "Locks", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Field".into(),
+        tileset: ResRef::from_str("ttr01").unwrap(),
+        width: 2,
+        height: 2,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let key = ResKey::new(area, ResType::GIT);
+    let mut g = m.gff(&key).unwrap().unwrap();
+    for (tag, x) in [("POST_A", 5.0), ("POST_B", 9.0)] {
+        let mut w = git::WAYPOINT_LIST.new_item();
+        w.set("Tag", Value::String(tag.as_bytes().to_vec()));
+        w.set("TemplateResRef", Value::resref(ResRef::from_str("nw_waypoint001").unwrap()));
+        w.set("XPosition", Value::Float(x));
+        w.set("YPosition", Value::Float(5.0));
+        g.root.items_mut(&git::WAYPOINT_LIST).push(w);
+    }
+    m.set_gff(key, &g).unwrap();
+    let scratch = mg_testkit::scratch_dir("ui-project-locks");
+    let dir = scratch.join("project");
+    m.save_as(&ModuleLocation::Project { root: dir.clone(), target: "default".into() }).unwrap();
+    let file = dir.join(format!("src/{area}.git.json"));
+    let read = || std::fs::read_to_string(&file).unwrap();
+    let start = |dir: &std::path::Path| {
+        let mut app = Moonglow::new(Some(install.clone()), Box::new(NoDialogs::default()));
+        app.settings.no_last_area = true;
+        app.locks_dir = Some(scratch.join("locks"));
+        app.open_module(dir);
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1100.0, 800.0))
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run_steps(3);
+        h
+    };
+    let locked = |h: &mut Harness<'_, Moonglow>| -> Vec<bool> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let g = ws.doc(&key).unwrap();
+        g.root
+            .items(&git::WAYPOINT_LIST)
+            .iter()
+            .map(|s| s.byte(mg_area::LOCKED) == Some(1))
+            .collect()
+    };
+    let mut h = start(&dir);
+    let written = read();
+    let lock = mg_edit::Edit::SetField {
+        key,
+        path: mg_edit::GffPath::root().item(git::WAYPOINT_LIST.label, 0),
+        label: mg_area::LOCKED.into(),
+        value: Some(Value::Byte(1)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Lock", vec![lock])));
+    h.run_steps(2);
+    assert_eq!(locked(&mut h), [true, false]);
+    h.state_mut().run(mg_ui::Action::Save);
+    h.run_steps(2);
+    assert_eq!(read(), written, "the file is as it was");
+    let kept = mg_module::locks::file(&scratch.join("locks"), &dir);
+    assert_eq!(mg_module::locks::read(&kept).len(), 1, "{:?}", h.state().log.entries);
+
+    // Changed outside (a pull): read again, not a conflict, still locked.
+    std::fs::write(&file, read().replace("POST_B", "POST_C")).unwrap();
+    h.state_mut().reload_project_files();
+    h.run_steps(2);
+    assert!(h.state().outside_conflicts().is_empty());
+    assert_eq!(locked(&mut h), [true, false]);
+    assert!(!h.state().ws.as_ref().unwrap().is_modified());
+
+    // Opened again: the lock is back.
+    drop(h);
+    let mut h = start(&dir);
+    assert_eq!(locked(&mut h), [true, false]);
+    assert!(!h.state().ws.as_ref().unwrap().is_modified());
+}
+
 /// The module tree leaves the middle its room: a very long name is cut
 /// short in it rather than widen it over the area and the palettes (a
 /// builder's module opened with the tree over the whole window).

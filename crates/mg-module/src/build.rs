@@ -272,7 +272,7 @@ pub fn user_content(l: &mg_resman::Layer) -> bool {
 
 /// A module's path as both the window and `mg` know it, however it was
 /// named to them.
-fn settled(module: &std::path::Path) -> std::path::PathBuf {
+pub(crate) fn settled(module: &std::path::Path) -> std::path::PathBuf {
     std::fs::canonicalize(module).unwrap_or_else(|_| module.to_path_buf())
 }
 
