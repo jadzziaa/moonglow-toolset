@@ -17,7 +17,7 @@ use crate::ModuleError;
 /// A resource's source file, as last read or written.
 #[derive(Debug, Clone)]
 struct Source {
-    path: PathBuf,
+    path: Arc<Path>,
     /// Whether the file is JSON (a GFF kept as text) rather than the
     /// resource itself.
     json: bool,
@@ -25,6 +25,10 @@ struct Source {
     file: Arc<[u8]>,
     /// The resource's bytes they stand for.
     resource: Arc<[u8]>,
+    /// The file's time and size when it was last found as it was read
+    /// or written: one that still has them isn't read again
+    /// ([`Project::outside`]).
+    stamp: Option<Stamp>,
 }
 
 /// An open nasher project.
@@ -35,10 +39,6 @@ pub struct Project {
     pub target: String,
     pub settings: Settings,
     sources: HashMap<ResKey, Source>,
-    /// Each source file's time and size when it was last found as it was
-    /// read or written: one that still has them isn't read again
-    /// ([`Project::outside`]).
-    stamps: HashMap<PathBuf, Stamp>,
     /// Things worth telling the user about the tree, taken by the caller.
     pub warnings: Vec<String>,
     /// Files in the source folders that the target's include leaves out
@@ -46,13 +46,7 @@ pub struct Project {
     pub left_out: Vec<PathBuf>,
 }
 
-/// A file's modification time and size.
-type Stamp = (std::time::SystemTime, u64);
-
-fn stamp(path: &Path) -> Option<Stamp> {
-    let m = std::fs::metadata(path).ok()?;
-    Some((m.modified().ok()?, m.len()))
-}
+use crate::outside::{Known, OutsideFound, OutsideScan, Stamp, stamp};
 
 /// A source file changed, added or deleted outside Moonglow since it was
 /// read or written.
@@ -65,13 +59,34 @@ pub struct Outside {
     /// The file's bytes now.
     file: Option<Arc<[u8]>>,
     json: bool,
+    /// The file's bytes as they were known when it was looked at (`None`:
+    /// a file new to the module): the change stands while they still are
+    /// ([`crate::outside::stands`]).
+    was: Option<Arc<[u8]>>,
+    /// Its time and size when it was read (`None`: gone).
+    stamp: Option<Stamp>,
 }
 
 impl Outside {
     /// A change to a file that is its resource as it is (a module
-    /// folder's).
-    pub(crate) fn plain(key: ResKey, path: PathBuf, resource: Option<Arc<[u8]>>) -> Outside {
-        Outside { key, path, file: resource.clone(), resource, json: false }
+    /// folder's), found from `was`, read at `stamp`.
+    pub(crate) fn plain(
+        key: ResKey,
+        path: PathBuf,
+        resource: Option<Arc<[u8]>>,
+        was: Option<Arc<[u8]>>,
+        stamp: Option<Stamp>,
+    ) -> Outside {
+        Outside { key, path, file: resource.clone(), resource, json: false, was, stamp }
+    }
+
+    /// The time and size the file had when it was read.
+    pub(crate) fn stamp(&self) -> Option<Stamp> {
+        self.stamp
+    }
+
+    pub(crate) fn was(&self) -> Option<&Arc<[u8]>> {
+        self.was.as_ref()
     }
 }
 
@@ -167,7 +182,6 @@ impl Project {
             target: t.name.clone(),
             settings,
             sources: HashMap::new(),
-            stamps: HashMap::new(),
             warnings: Vec::new(),
             left_out: Vec::new(),
         };
@@ -199,6 +213,9 @@ impl Project {
                 ));
                 continue;
             }
+            // (Its time and size before it is read: a later look reads
+            // only the files changed since.)
+            let stamp = stamp(&path);
             let file: Arc<[u8]> = Arc::from(std::fs::read(&path).map_err(io(&path))?);
             let resource: Arc<[u8]> = if json {
                 let gff = conv.from_source(&path.display().to_string(), &file)?;
@@ -210,7 +227,7 @@ impl Project {
                 file.clone()
             };
             resources.insert(key, resource.clone());
-            project.sources.insert(key, Source { path, json, file, resource });
+            project.sources.insert(key, Source { path: path.into(), json, file, resource, stamp });
         }
         project.settle_area_list(&mut resources);
         project.left_out = project.left_out();
@@ -229,34 +246,7 @@ impl Project {
     /// builder's NUI window, moved into a folder the include didn't take
     /// in, was not found.
     pub fn left_out(&self) -> Vec<PathBuf> {
-        let root = self.root().to_path_buf();
-        let target = self.target();
-        let mut bases: Vec<String> =
-            target.includes.iter().filter_map(|p| source_base(p)).collect();
-        bases.sort();
-        bases.dedup();
-        let mut out = Vec::new();
-        for base in bases {
-            for path in super::glob::walk(&root, &format!("{base}/**/*")).unwrap_or_default() {
-                if out.contains(&path)
-                    || target.covers(&root, &path)
-                    || target.excludes.iter().any(|p| super::glob::covers(&root, p, &path))
-                {
-                    continue;
-                }
-                let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-                let Some((key, json)) = resource_of(&name) else { continue };
-                if json && !is_json_type(key.restype) {
-                    continue;
-                }
-                if key.restype == ResType::TXT && !path.with_extension("jui").is_file() {
-                    continue;
-                }
-                out.push(path);
-            }
-        }
-        out.sort();
-        out
+        left_out_of(self.root(), self.target())
     }
 
     /// What [`Project::left_out`] found, said.
@@ -384,7 +374,7 @@ impl Project {
 
     /// The source file a resource is kept in, if it has one yet.
     pub fn source_path(&self, key: &ResKey) -> Option<&Path> {
-        self.sources.get(key).map(|s| s.path.as_path())
+        self.sources.get(key).map(|s| &*s.path)
     }
 
     /// The source files changed on disk since they were read or written.
@@ -393,27 +383,10 @@ impl Project {
             .sources
             .values()
             .filter(|s| std::fs::read(&s.path).ok().as_deref() != Some(&s.file[..]))
-            .map(|s| s.path.clone())
+            .map(|s| s.path.to_path_buf())
             .collect();
         v.sort();
         v
-    }
-
-    /// The resource a source file's bytes stand for.
-    fn resource_from(
-        &self,
-        path: &Path,
-        json: bool,
-        file: &Arc<[u8]>,
-    ) -> Result<Arc<[u8]>, ModuleError> {
-        if !json {
-            return Ok(file.clone());
-        }
-        let name = path.display().to_string();
-        let gff = self.conversion().from_source(&name, file)?;
-        let bytes =
-            gff.to_bytes().map_err(|e| ModuleError::Source { name, message: e.to_string() })?;
-        Ok(Arc::from(bytes))
     }
 
     /// The source files changed, added or deleted outside Moonglow since
@@ -421,89 +394,54 @@ impl Project {
     /// pull`), with what could not be read of them. Each is named again
     /// every time until it is taken ([`Project::took`]) or is as it was
     /// again. Files whose time and size are as they were are not read.
+    /// (The three steps of [`crate::outside`] at once.)
     pub fn outside(&mut self) -> (Vec<Outside>, Vec<String>) {
-        let (mut changes, mut problems) = (Vec::new(), Vec::new());
-        let mut settled = Vec::new();
-        for (key, src) in &self.sources {
-            let now = stamp(&src.path);
-            if now.is_some() && self.stamps.get(&src.path) == now.as_ref() {
-                continue;
-            }
-            let gone = || Outside {
+        let found = self.outside_scan().run();
+        self.outside_found(found)
+    }
+
+    /// What is known of the source files, to look at them anywhere
+    /// ([`OutsideScan::run`]).
+    pub(crate) fn outside_scan(&self) -> OutsideScan {
+        let files = (self.sources.iter())
+            .map(|(key, src)| Known {
                 key: *key,
                 path: src.path.clone(),
-                resource: None,
-                file: None,
                 json: src.json,
-            };
-            let Some(file) = std::fs::read(&src.path).ok().map(Arc::<[u8]>::from) else {
-                changes.push(gone());
-                continue;
-            };
-            if file[..] == src.file[..] {
-                // (Touched, or first looked at: as it was read.)
-                settled.extend(now.map(|s| (src.path.clone(), s)));
-                continue;
-            }
-            match self.resource_from(&src.path, src.json, &file) {
-                Ok(resource) => {
-                    changes.push(Outside { resource: Some(resource), file: Some(file), ..gone() })
-                }
-                Err(e) => problems.push(e.to_string()),
-            }
+                file: src.file.clone(),
+                stamp: src.stamp,
+            })
+            .collect();
+        let kind = crate::outside::Kind::Project {
+            root: self.root().to_path_buf(),
+            target: Box::new(self.target().clone()),
+            conversion: self.conversion(),
+        };
+        OutsideScan { files, kind }
+    }
+
+    /// Takes what [`OutsideScan::run`] found: the times of the files found
+    /// as they were, the files the include leaves out; and returns the
+    /// changes that still stand (not those to files Moonglow saved or
+    /// took meanwhile, which the next look finds again if they still
+    /// differ) and the problems.
+    pub(crate) fn outside_found(&mut self, found: OutsideFound) -> (Vec<Outside>, Vec<String>) {
+        if !found.project {
+            return (Vec::new(), Vec::new());
         }
-        self.stamps.extend(settled);
-        // Files that are new to the tree.
-        let known: std::collections::HashSet<&Path> =
-            self.sources.values().map(|s| s.path.as_path()).collect();
-        let root = self.root().to_path_buf();
-        let mut added: Vec<Outside> = Vec::new();
-        for path in self.target().source_files(&root).unwrap_or_default() {
-            if known.contains(path.as_path()) {
-                continue;
-            }
-            let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-            let Some((key, json)) = resource_of(&name) else { continue };
-            // A resource whose file is gone and is found elsewhere in the
-            // tree was moved there (in the project's folder, by hand): it
-            // is read from there now, rather than taken for deleted (a
-            // builder's NUI window, moved, was not found).
-            let moved = self.sources.get(&key).is_some_and(|src| !src.path.exists());
-            if (json && !is_json_type(key.restype))
-                || (self.sources.contains_key(&key) && !moved)
-                || added.iter().any(|a| a.key == key)
+        for (key, was, s) in found.settled {
+            if let Some(src) = self.sources.get_mut(&key)
+                && Arc::ptr_eq(&src.file, &was)
             {
-                continue;
-            }
-            if moved {
-                changes.retain(|c| c.key != key);
-            }
-            let Some(file) = std::fs::read(&path).ok().map(Arc::<[u8]>::from) else { continue };
-            match self.resource_from(&path, json, &file) {
-                Ok(resource) => added.push(Outside {
-                    key,
-                    path,
-                    resource: Some(resource),
-                    file: Some(file),
-                    json,
-                }),
-                Err(e) => problems.push(e.to_string()),
+                src.stamp = Some(s);
             }
         }
-        changes.extend(added);
-        changes.sort_by(|a, b| a.path.cmp(&b.path));
-        problems.sort();
+        let mut changes = found.changes;
+        changes.retain(|c| crate::outside::stands(self.sources.get(&c.key).map(|s| &s.file), c));
         // A file gone from where it was read: if it is now where the
         // include doesn't look, it was moved there, and is said
         // ([`Project::left_out`]) rather than only taken for deleted.
-        let gone: Vec<ResKey> =
-            changes.iter().filter(|c| c.resource.is_none()).map(|c| c.key).collect();
-        if !gone.is_empty() {
-            let left = self.left_out();
-            let moved = left.iter().any(|p| {
-                let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
-                resource_of(&name).is_some_and(|(k, _)| gone.contains(&k))
-            });
+        if let Some((left, moved)) = found.left_out {
             let new = left != self.left_out;
             self.left_out = left;
             if moved && new {
@@ -511,7 +449,7 @@ impl Project {
                 self.warnings.push(warning);
             }
         }
-        (changes, problems)
+        (changes, found.problems)
     }
 
     /// The resource a key's source file stood for when it was last read or
@@ -526,19 +464,20 @@ impl Project {
     pub fn took(&mut self, change: &Outside) {
         match (&change.file, &change.resource) {
             (Some(file), Some(resource)) => {
-                self.stamps.extend(stamp(&change.path).map(|s| (change.path.clone(), s)));
                 self.sources.insert(
                     change.key,
                     Source {
-                        path: change.path.clone(),
+                        path: change.path.as_path().into(),
                         json: change.json,
                         file: file.clone(),
                         resource: resource.clone(),
+                        // (Its time when it was read, not now: a write
+                        // since then is still to be found.)
+                        stamp: change.stamp,
                     },
                 );
             }
             _ => {
-                self.stamps.remove(&change.path);
                 self.sources.remove(&change.key);
             }
         }
@@ -648,11 +587,11 @@ impl Project {
                     let text = self.source_bytes(key, src.json, bytes, Some(&src.file))?;
                     let current = disk(&src.path);
                     if text[..] == src.file[..] || current.as_deref() == Some(&text[..]) {
-                        steps.push(Step::Adopt(*key, src.path.clone(), src.json, text));
+                        steps.push(Step::Adopt(*key, src.path.to_path_buf(), src.json, text));
                     } else if current.as_deref() != Some(&src.file[..]) {
-                        conflicts.push(src.path.clone());
+                        conflicts.push(src.path.to_path_buf());
                     } else {
-                        steps.push(Step::Write(*key, src.path.clone(), src.json, text));
+                        steps.push(Step::Write(*key, src.path.to_path_buf(), src.json, text));
                     }
                 }
                 None if key.restype == ResType::NCS => {}
@@ -684,11 +623,11 @@ impl Project {
         gone.sort_by(|a, b| a.1.path.cmp(&b.1.path));
         for (key, src) in gone {
             match disk(&src.path) {
-                None => steps.push(Step::Remove(*key, src.path.clone())),
+                None => steps.push(Step::Remove(*key, src.path.to_path_buf())),
                 Some(d) if d[..] == src.file[..] => {
-                    steps.push(Step::Remove(*key, src.path.clone()))
+                    steps.push(Step::Remove(*key, src.path.to_path_buf()))
                 }
-                Some(_) => conflicts.push(src.path.clone()),
+                Some(_) => conflicts.push(src.path.to_path_buf()),
             }
         }
         if !conflicts.is_empty() {
@@ -732,14 +671,28 @@ impl Project {
                     let resource = resources[&key].clone();
                     self.sources.insert(
                         key,
-                        Source { path: path.clone(), json, file: Arc::from(text), resource },
+                        Source {
+                            path: path.as_path().into(),
+                            json,
+                            file: Arc::from(text),
+                            resource,
+                            stamp: None,
+                        },
                     );
                     report.written.push(path);
                 }
                 Step::Adopt(key, path, json, text) => {
                     let resource = resources[&key].clone();
-                    self.sources
-                        .insert(key, Source { path, json, file: Arc::from(text), resource });
+                    self.sources.insert(
+                        key,
+                        Source {
+                            path: path.into(),
+                            json,
+                            file: Arc::from(text),
+                            resource,
+                            stamp: None,
+                        },
+                    );
                 }
                 Step::Remove(key, path) => {
                     if path.exists() {
@@ -801,6 +754,153 @@ impl Project {
         }
         Ok(out)
     }
+}
+
+/// The resource a source file's bytes stand for.
+fn resource_from(
+    conversion: Conversion,
+    path: &Path,
+    json: bool,
+    file: &Arc<[u8]>,
+) -> Result<Arc<[u8]>, ModuleError> {
+    if !json {
+        return Ok(file.clone());
+    }
+    let name = path.display().to_string();
+    let gff = conversion.from_source(&name, file)?;
+    let bytes = gff.to_bytes().map_err(|e| ModuleError::Source { name, message: e.to_string() })?;
+    Ok(Arc::from(bytes))
+}
+
+/// [`OutsideScan::run`] for a project: its known source files, and the
+/// target's tree for files new to it.
+pub(crate) fn scan(
+    files: &[Known],
+    root: &Path,
+    target: &Target,
+    conversion: Conversion,
+) -> OutsideFound {
+    let mut found = OutsideFound { project: true, ..Default::default() };
+    let mut changes = Vec::new();
+    for k in files {
+        // (Its time and size before it is read: a write after the read
+        // gives it others, and it is read again.)
+        let now = stamp(&k.path);
+        if now.is_some() && k.stamp == now {
+            continue;
+        }
+        let gone = || Outside {
+            key: k.key,
+            path: k.path.to_path_buf(),
+            resource: None,
+            file: None,
+            json: k.json,
+            was: Some(k.file.clone()),
+            stamp: None,
+        };
+        let Some(file) = std::fs::read(&k.path).ok().map(Arc::<[u8]>::from) else {
+            changes.push(gone());
+            continue;
+        };
+        if file[..] == k.file[..] {
+            // (Touched, or first looked at: as it was read.)
+            found.settled.extend(now.map(|s| (k.key, k.file.clone(), s)));
+            continue;
+        }
+        match resource_from(conversion, &k.path, k.json, &file) {
+            Ok(resource) => changes.push(Outside {
+                resource: Some(resource),
+                file: Some(file),
+                stamp: now,
+                ..gone()
+            }),
+            Err(e) => found.problems.push(e.to_string()),
+        }
+    }
+    // Files that are new to the tree.
+    let known: std::collections::HashSet<&Path> = files.iter().map(|k| &*k.path).collect();
+    let by_key: HashMap<ResKey, &Known> = files.iter().map(|k| (k.key, k)).collect();
+    let mut added: Vec<Outside> = Vec::new();
+    for path in target.source_files(root).unwrap_or_default() {
+        if known.contains(path.as_path()) {
+            continue;
+        }
+        let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let Some((key, json)) = resource_of(&name) else { continue };
+        // A resource whose file is gone and is found elsewhere in the
+        // tree was moved there (in the project's folder, by hand): it
+        // is read from there now, rather than taken for deleted (a
+        // builder's NUI window, moved, was not found).
+        let was = by_key.get(&key);
+        let moved = was.is_some_and(|k| !k.path.exists());
+        if (json && !is_json_type(key.restype))
+            || (was.is_some() && !moved)
+            || added.iter().any(|a| a.key == key)
+        {
+            continue;
+        }
+        if moved {
+            changes.retain(|c| c.key != key);
+        }
+        let now = stamp(&path);
+        let Some(file) = std::fs::read(&path).ok().map(Arc::<[u8]>::from) else { continue };
+        match resource_from(conversion, &path, json, &file) {
+            Ok(resource) => added.push(Outside {
+                key,
+                path,
+                resource: Some(resource),
+                file: Some(file),
+                json,
+                was: was.map(|k| k.file.clone()),
+                stamp: now,
+            }),
+            Err(e) => found.problems.push(e.to_string()),
+        }
+    }
+    changes.extend(added);
+    changes.sort_by(|a, b| a.path.cmp(&b.path));
+    found.problems.sort();
+    let gone: Vec<ResKey> =
+        changes.iter().filter(|c| c.resource.is_none()).map(|c| c.key).collect();
+    if !gone.is_empty() {
+        let left = left_out_of(root, target);
+        let moved = left.iter().any(|p| {
+            let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+            resource_of(&name).is_some_and(|(k, _)| gone.contains(&k))
+        });
+        found.left_out = Some((left, moved));
+    }
+    found.changes = changes;
+    found
+}
+
+/// [`Project::left_out`] of a project at `root` editing `target`.
+fn left_out_of(root: &Path, target: &Target) -> Vec<PathBuf> {
+    let mut bases: Vec<String> = target.includes.iter().filter_map(|p| source_base(p)).collect();
+    bases.sort();
+    bases.dedup();
+    let mut out = Vec::new();
+    for base in bases {
+        for path in super::glob::walk(root, &format!("{base}/**/*")).unwrap_or_default() {
+            if out.contains(&path)
+                || target.covers(root, &path)
+                || target.excludes.iter().any(|p| super::glob::covers(root, p, &path))
+            {
+                continue;
+            }
+            let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let Some((key, json)) = resource_of(&name) else { continue };
+            if json && !is_json_type(key.restype) {
+                continue;
+            }
+            if key.restype == ResType::TXT && !path.with_extension("jui").is_file() {
+                continue;
+            }
+            out.push(path);
+        }
+    }
+    out.sort();
+    out
 }
 
 #[cfg(test)]
@@ -875,6 +975,51 @@ mod tests {
         // Saving a project into a folder that already has one is refused.
         let mut other = module();
         assert!(other.save_as(&project_location(&root)).is_err());
+    }
+
+    /// The looking done apart (on another thread, `crate::outside`): what
+    /// Moonglow took while it looked, and a file found deleted that is back
+    /// since, are left out of what it hands back; the next look finds what
+    /// still differs. A file read and written again before it is taken is
+    /// found again.
+    #[test]
+    fn a_look_apart_hands_back_only_what_still_stands() {
+        let root = scratch("outside-apart");
+        module().save_as(&project_location(&root)).unwrap();
+        let mut m = Module::open(&root).unwrap();
+        let (nss, git) = (root.join("src/on_load.nss"), root.join("src/a1.git.json"));
+        let (script, fresh) = (key("on_load", ResType::NSS), key("fresh", ResType::NSS));
+        // Opened: every file's time is known, so a look reads none.
+        let scan = m.outside_scan().unwrap();
+        assert!(!scan.is_empty() && scan.files.iter().all(|f| f.stamp.is_some()));
+        assert_eq!(m.outside_found(scan.run()), (vec![], vec![]));
+
+        // Changed, deleted and added outside, and looked at apart...
+        let area = std::fs::read(&git).unwrap();
+        std::fs::write(&nss, "void main() { int one; }\n").unwrap();
+        std::fs::remove_file(&git).unwrap();
+        std::fs::write(root.join("src/fresh.nss"), "void main() {}\n").unwrap();
+        let found = m.outside_scan().unwrap().run();
+        assert_eq!(found.changes().len(), 3);
+        // ...while the script is taken here and the area's file put back:
+        // only the new file is handed back.
+        let (now, _) = m.outside().unwrap();
+        m.took(now.iter().find(|c| c.key == script).unwrap());
+        std::fs::write(&git, &area).unwrap();
+        let (changes, _) = m.outside_found(found);
+        assert_eq!(changes.iter().map(|c| c.key).collect::<Vec<_>>(), [fresh]);
+        m.took(&changes[0]);
+        assert_eq!(m.outside(), Some((vec![], vec![])));
+
+        // Read, then written again before it is taken: still to be found.
+        std::fs::write(&nss, "void main() { int three; }\n").unwrap();
+        let (changes, _) = m.outside().unwrap();
+        let read = changes.iter().find(|c| c.key == script).unwrap().clone();
+        std::fs::write(&nss, "void main() { int four, more; }\n").unwrap();
+        m.took(&read);
+        let (changes, _) = m.outside().unwrap();
+        let again = changes.iter().find(|c| c.key == script).unwrap();
+        assert_eq!(again.resource.as_deref(), Some(&b"void main() { int four, more; }\n"[..]));
     }
 
     #[test]

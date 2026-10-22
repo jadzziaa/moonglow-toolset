@@ -6,18 +6,11 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::SystemTime;
 
 use mg_resman::ResKey;
 
 use crate::nasher::Outside;
-
-type Stamp = (SystemTime, u64);
-
-fn stamp(path: &Path) -> Option<Stamp> {
-    let m = std::fs::metadata(path).ok()?;
-    Some((m.modified().ok()?, m.len()))
-}
+use crate::outside::{Known, OutsideFound, OutsideScan, Stamp, stamp};
 
 /// What each resource's file held when it was read or written.
 #[derive(Debug, Clone, Default)]
@@ -76,47 +69,43 @@ impl FolderFiles {
     /// The files changed, added or deleted outside Moonglow since they
     /// were read or written. Each is named again every time until it is
     /// taken ([`FolderFiles::took`]) or is as it was again. Files whose
-    /// time and size are as they were are not read.
+    /// time and size are as they were are not read. (The three steps of
+    /// [`crate::outside`] at once.)
     pub fn outside(&mut self) -> (Vec<Outside>, Vec<String>) {
-        let (mut changes, mut problems) = (Vec::new(), Vec::new());
-        let mut settled = Vec::new();
-        for (key, (path, read)) in &self.files {
-            let now = stamp(path);
-            if now.is_some() && self.stamps.get(path) == now.as_ref() {
-                continue;
-            }
-            match std::fs::read(path) {
-                Err(_) => changes.push(Outside::plain(*key, path.clone(), None)),
-                Ok(bytes) if bytes[..] == read[..] => {
-                    settled.extend(now.map(|s| (path.clone(), s)));
-                }
-                Ok(bytes) => {
-                    changes.push(Outside::plain(*key, path.clone(), Some(Arc::from(bytes))))
-                }
+        let found = self.outside_scan().run();
+        self.outside_found(found)
+    }
+
+    /// What is known of the folder's files, to look at them anywhere.
+    pub(crate) fn outside_scan(&self) -> OutsideScan {
+        let files = (self.files.iter())
+            .map(|(key, (path, file))| Known {
+                key: *key,
+                path: path.as_path().into(),
+                json: false,
+                file: file.clone(),
+                stamp: self.stamps.get(path).copied(),
+            })
+            .collect();
+        OutsideScan { files, kind: crate::outside::Kind::Folder { dir: self.dir.clone() } }
+    }
+
+    /// Takes what [`OutsideScan::run`] found (see
+    /// [`crate::nasher::Project::outside`]'s).
+    pub(crate) fn outside_found(&mut self, found: OutsideFound) -> (Vec<Outside>, Vec<String>) {
+        if found.project {
+            return (Vec::new(), Vec::new());
+        }
+        for (key, was, s) in found.settled {
+            if let Some((path, file)) = self.files.get(&key)
+                && Arc::ptr_eq(file, &was)
+            {
+                self.stamps.insert(path.clone(), s);
             }
         }
-        self.stamps.extend(settled);
-        // Files that are new to the folder.
-        match std::fs::read_dir(&self.dir) {
-            Err(e) => problems.push(format!("{}: {e}", self.dir.display())),
-            Ok(entries) => {
-                let mut added: Vec<Outside> = Vec::new();
-                for path in entries.flatten().map(|e| e.path()).filter(|p| p.is_file()) {
-                    let name = path.file_name().and_then(|n| n.to_str());
-                    let Some(key) = name.and_then(crate::folder_key) else { continue };
-                    // (Moonglow's own file being written, and what it knows.)
-                    if self.files.contains_key(&key) || added.iter().any(|a| a.key == key) {
-                        continue;
-                    }
-                    if let Ok(bytes) = std::fs::read(&path) {
-                        added.push(Outside::plain(key, path, Some(Arc::from(bytes))));
-                    }
-                }
-                changes.extend(added);
-            }
-        }
-        changes.sort_by(|a, b| a.path.cmp(&b.path));
-        (changes, problems)
+        let mut changes = found.changes;
+        changes.retain(|c| crate::outside::stands(self.files.get(&c.key).map(|f| &f.1), c));
+        (changes, found.problems)
     }
 
     /// Counts a file changed outside as read: what a save compares with
@@ -124,8 +113,64 @@ impl FolderFiles {
     /// caller's: one that keeps its own will write it over the file.)
     pub fn took(&mut self, change: &Outside) {
         match &change.resource {
-            Some(bytes) => self.note(change.key, change.path.clone(), bytes.clone()),
+            Some(bytes) => {
+                // (Its time when it was read: a write since is still to
+                // be found.)
+                match change.stamp() {
+                    Some(s) => self.stamps.insert(change.path.clone(), s),
+                    None => self.stamps.remove(&change.path),
+                };
+                self.files.insert(change.key, (change.path.clone(), bytes.clone()));
+            }
             None => self.forget(&change.key),
         }
     }
+}
+
+/// [`OutsideScan::run`] for a module folder: its known files, and the
+/// folder for files new to it.
+pub(crate) fn scan(files: &[Known], dir: &Path) -> OutsideFound {
+    let mut found = OutsideFound::default();
+    for k in files {
+        let now = stamp(&k.path);
+        if now.is_some() && k.stamp == now {
+            continue;
+        }
+        let was = Some(k.file.clone());
+        match std::fs::read(&k.path) {
+            Err(_) => {
+                found.changes.push(Outside::plain(k.key, k.path.to_path_buf(), None, was, None))
+            }
+            Ok(bytes) if bytes[..] == k.file[..] => {
+                found.settled.extend(now.map(|s| (k.key, k.file.clone(), s)));
+            }
+            Ok(bytes) => {
+                let resource = Some(Arc::from(bytes));
+                found.changes.push(Outside::plain(k.key, k.path.to_path_buf(), resource, was, now));
+            }
+        }
+    }
+    // Files that are new to the folder.
+    let known: std::collections::HashSet<ResKey> = files.iter().map(|k| k.key).collect();
+    match std::fs::read_dir(dir) {
+        Err(e) => found.problems.push(format!("{}: {e}", dir.display())),
+        Ok(entries) => {
+            let mut added: Vec<Outside> = Vec::new();
+            for path in entries.flatten().map(|e| e.path()).filter(|p| p.is_file()) {
+                let name = path.file_name().and_then(|n| n.to_str());
+                let Some(key) = name.and_then(crate::folder_key) else { continue };
+                // (Moonglow's own file being written, and what it knows.)
+                if known.contains(&key) || added.iter().any(|a| a.key == key) {
+                    continue;
+                }
+                let now = stamp(&path);
+                if let Ok(bytes) = std::fs::read(&path) {
+                    added.push(Outside::plain(key, path, Some(Arc::from(bytes)), None, now));
+                }
+            }
+            found.changes.extend(added);
+        }
+    }
+    found.changes.sort_by(|a, b| a.path.cmp(&b.path));
+    found
 }

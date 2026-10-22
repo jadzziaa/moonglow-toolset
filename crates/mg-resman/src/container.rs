@@ -48,6 +48,11 @@ pub trait Container: Send + Sync + fmt::Debug {
     fn unreadable(&self) -> Vec<ResKey> {
         Vec::new()
     }
+    /// The container as a [`MemContainer`], to change a few of its
+    /// resources in place (a module's, read again); `None` for others.
+    fn as_mem_mut(&mut self) -> Option<&mut MemContainer> {
+        None
+    }
 }
 
 /// The game reads no resource that starts this far or further into an
@@ -379,6 +384,10 @@ impl Container for MemContainer {
 
     fn len(&self) -> usize {
         self.files.len()
+    }
+
+    fn as_mem_mut(&mut self) -> Option<&mut MemContainer> {
+        Some(self)
     }
 }
 

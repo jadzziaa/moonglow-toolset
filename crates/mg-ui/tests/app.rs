@@ -17671,6 +17671,133 @@ fn a_project_s_files_changed_outside_are_read_again() {
     assert!(h.state().outside_conflicts().is_empty());
 }
 
+/// A `git pull` on an open nasher project: a burst of files rewritten,
+/// added and deleted is read on a thread of its own while the window goes
+/// on drawing (nothing of it is in the module until the look is done),
+/// then all of it is in, in one go; an area with an unsaved change here
+/// is kept and asked about, and Take the Files' still takes it. A change
+/// after that is found by the watch's looks. (How long the window's frames
+/// take while it reloads: `frame_perf.rs`, `reload_frames_at_144`.)
+#[test]
+fn a_pull_s_burst_of_changes_is_read_off_the_window_s_thread() {
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut rng = fastrand::Rng::with_seed(7);
+    let mut m = new_module(&game, "Pull", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Field".into(),
+        tileset: ResRef::from_str("ttr01").unwrap(),
+        width: 2,
+        height: 2,
+    };
+    let areas: Vec<ResRef> =
+        (0..4).map(|_| add_area(&mut m, &game, &spec, &mut rng).unwrap()).collect();
+    let script = |n: usize| ResKey::parse(&format!("s{n:03}"), ResType::NSS).unwrap();
+    for n in 0..120 {
+        m.set(script(n), format!("void main() {{ int n{n}; }}\n").into_bytes());
+    }
+    let dir = mg_testkit::scratch_dir("ui-project-pull").join("project");
+    m.save_as(&ModuleLocation::Project { root: dir.clone(), target: "default".into() }).unwrap();
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&dir);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    // (A first look, as the watch's start makes: nothing changed.)
+    h.state_mut().look_outside();
+    while h.state().looking_outside() {
+        h.step();
+    }
+    let tag = |h: &mut Harness<'_, Moonglow>, area: ResRef| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let g = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        String::from_utf8(g.root.string("Tag").unwrap().to_vec()).unwrap()
+    };
+    let tags: Vec<String> = areas.iter().map(|a| tag(&mut h, *a)).collect();
+    // An unsaved change to the first area, here.
+    let edit = mg_edit::Edit::SetField {
+        key: ResKey::new(areas[0], ResType::ARE),
+        path: mg_edit::GffPath::root(),
+        label: "Tag".into(),
+        value: Some(mg_gff::Value::String(b"MINE".to_vec())),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Tag", vec![edit])));
+    h.run_steps(2);
+
+    // The pull: every script rewritten or deleted, new ones, every area
+    // retagged.
+    for n in 0..120 {
+        let path = dir.join(format!("src/s{n:03}.nss"));
+        if n < 10 {
+            std::fs::remove_file(path).unwrap();
+        } else {
+            std::fs::write(path, format!("void main() {{ int pulled{n}; }}\n")).unwrap();
+        }
+    }
+    for n in 0..10 {
+        std::fs::write(dir.join(format!("src/new{n}.nss")), "void main() {}\n").unwrap();
+    }
+    let are_file = |a: ResRef| dir.join(format!("src/{a}.are.json"));
+    for (i, (a, t)) in areas.iter().zip(&tags).enumerate() {
+        let text = std::fs::read_to_string(are_file(*a)).unwrap();
+        assert!(text.contains(&format!("\"{t}\"")), "{t} in the file");
+        let text = text.replace(&format!("\"{t}\""), &format!("\"PULLED{i}\""));
+        std::fs::write(are_file(*a), text).unwrap();
+    }
+
+    // The look begins and the window's thread goes on: nothing is read yet.
+    let in_module = |h: &Harness<'_, Moonglow>, k: &ResKey| {
+        h.state().ws.as_ref().unwrap().module.get(k).map(<[u8]>::to_vec)
+    };
+    h.state_mut().look_outside();
+    assert!(h.state().looking_outside());
+    assert_eq!(in_module(&h, &script(50)).unwrap(), b"void main() { int n50; }\n");
+    assert!(in_module(&h, &script(5)).is_some());
+    let (mut frames, started) = (0, std::time::Instant::now());
+    while h.state().looking_outside() {
+        h.step();
+        frames += 1;
+        assert!(started.elapsed().as_secs() < 60, "the look ends");
+    }
+    assert!(frames > 0);
+    // (The window that asks, laid out.)
+    h.run_steps(2);
+    // All of it in.
+    assert_eq!(in_module(&h, &script(50)).unwrap(), b"void main() { int pulled50; }\n");
+    assert!(in_module(&h, &script(5)).is_none(), "deleted");
+    assert!(in_module(&h, &ResKey::parse("new3", ResType::NSS).unwrap()).is_some(), "added");
+    for (i, a) in areas.iter().enumerate().skip(1) {
+        assert_eq!(tag(&mut h, *a), format!("PULLED{i}"));
+    }
+    let said = |h: &Harness<'_, Moonglow>, what: &str| {
+        h.state().log.entries.iter().filter(|(_, m)| m.contains(what)).count()
+    };
+    assert_eq!(said(&h, "Read again from the module's files"), 1, "in one go");
+    // The area changed here too: kept, and asked about.
+    assert_eq!(tag(&mut h, areas[0]), "MINE");
+    assert_eq!(h.state().outside_conflicts(), [are_file(areas[0])]);
+    assert_eq!(said(&h, "has unsaved changes here"), 1);
+    h.get_by_label("Take the Files'").click();
+    h.run_steps(3);
+    assert_eq!(tag(&mut h, areas[0]), "PULLED0");
+    assert!(h.state().outside_conflicts().is_empty());
+
+    // Later, a change is found by the watch's looks (the window's
+    // every few seconds).
+    std::fs::write(dir.join("src/s050.nss"), "void main() { int later; }\n").unwrap();
+    let started = std::time::Instant::now();
+    while in_module(&h, &script(50)).unwrap() != b"void main() { int later; }\n" {
+        assert!(started.elapsed().as_secs() < 30, "the watch finds it");
+        h.state_mut().reload_changed_files();
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
 /// A nasher project's locks stay out of its files: Lock and Save leave the
 /// area's JSON as it was and keep the lock in Moonglow's folder; the area
 /// changed outside is read again (no conflict) with the lock still on; and

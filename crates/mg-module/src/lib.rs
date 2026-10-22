@@ -28,6 +28,7 @@ pub mod models;
 pub mod nasher;
 pub mod new;
 pub mod nwsync;
+pub mod outside;
 pub mod palette;
 pub mod palette_add;
 pub mod project_file;
@@ -685,10 +686,34 @@ impl Module {
     /// what could not be read of them. `None`: the module is an archive
     /// (or was never saved), which nothing else edits in place.
     pub fn outside(&mut self) -> Option<(Vec<nasher::Outside>, Vec<String>)> {
-        match (&mut self.project, &mut self.folder) {
-            (Some(project), _) => Some(project.outside()),
-            (None, Some(folder)) => Some(folder.outside()),
+        let found = self.outside_scan()?.run();
+        Some(self.outside_found(found))
+    }
+
+    /// What is known of the module's files, for [`Module::outside`]'s
+    /// looking to be done on another thread ([`outside::OutsideScan::run`],
+    /// then [`Module::outside_found`]). `None`: an archive.
+    pub fn outside_scan(&self) -> Option<outside::OutsideScan> {
+        match (&self.project, &self.folder) {
+            (Some(project), _) => Some(project.outside_scan()),
+            (None, Some(folder)) => Some(folder.outside_scan()),
             (None, None) => None,
+        }
+    }
+
+    /// Takes what [`outside::OutsideScan::run`] found: the files changed
+    /// outside that still are (not those Moonglow saved or took since it
+    /// looked: the next look finds them again if they still differ), and
+    /// what could not be read. (Nothing, from a look at another kind of
+    /// module.)
+    pub fn outside_found(
+        &mut self,
+        found: outside::OutsideFound,
+    ) -> (Vec<nasher::Outside>, Vec<String>) {
+        match (&mut self.project, &mut self.folder) {
+            (Some(project), _) => project.outside_found(found),
+            (None, Some(folder)) => folder.outside_found(found),
+            (None, None) => (Vec::new(), Vec::new()),
         }
     }
 

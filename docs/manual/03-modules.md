@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T07:17:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T08:20:16Z }
 ---
 
 # Modules
@@ -32,8 +32,8 @@ a directory), nasher projects (see below) and the game's campaign files
 - **A module folder is worked on in place**, as in Aurora: keep its
   scripts open in an editor of your own while the module is open here.
   Every few seconds (Options › General: reloading), files saved, added
-  or deleted in the folder by another program are read again, and the
-  log says which. A save never writes over them: a file changed outside
+  or deleted in the folder by another program are read again (in the
+  background, as a nasher project's are), and the log says which. A save never writes over them: a file changed outside
   that you did not change here stays as the other program left it, and
   a file new to the folder is not removed. Where a file was changed
   outside and here both, yours is kept, Save writes nothing and says
@@ -189,6 +189,16 @@ unpacking or packing between the toolset and git.
   moved within the project is read from where it is now. It is
   not unsaved work. If the undo history had changes to one of them, the
   history is cleared (Undo could not take them back from the new file).
+- **A large pull doesn't hold the window.** Moonglow waits for a burst
+  of changes to end (a moment with nothing more written), then reads the
+  changed files in the background while you go on working; the status
+  bar says *Reading files changed outside Moonglow…* while it does, and
+  they come into the module all at once when they have been read. On a
+  project of 21,000 files, a pull of nearly a thousand is in within a
+  few seconds of its end, without a frame of the window over the
+  144 fps budget. A file you save while it is being read, or one
+  deleted and put back meanwhile, is left for the next look, and one
+  written again meanwhile is read again then.
 - **Where you have unsaved changes to a file that also changed
   elsewhere**, Moonglow keeps yours and the **Changed Outside Moonglow**
   window asks: **Keep Moonglow's** (the next Save writes yours over the
