@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T12:04:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T12:06:43Z }
 ---
 
 # The main window
@@ -319,7 +319,7 @@ overrides: "hak:low, overridden by hak:top". Open one of those to view
 it as its layer has it (a 2DA from that copy down, with the layers below
 it), copy it into the module or save it (**Save As…**, also on its
 right-click menu); for a table in one of your own haks, **Edit in
-name.hak** opens it there. **Overridden copies**, at the top, lists
+name.hak** opens it there. With **Overridden copies** (at the top) unticked, it lists
 the copy the game reads alone. **Export N as Files…** writes the copies
 the game reads, not those they override. `mg which NAME.EXT --module
 MODULE` says the same on the command line.
