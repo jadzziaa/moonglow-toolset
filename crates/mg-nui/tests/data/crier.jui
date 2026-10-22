@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "title": "The Town Crier",
+  "geometry": {"x": -1.0, "y": -1.0, "w": 420.0, "h": 300.0},
+  "resizable": false,
+  "collapsed": null,
+  "closable": true,
+  "transparent": false,
+  "border": true,
+  "accepts_input": true,
+  "root": {
+    "type": "col",
+    "label": null,
+    "value": null,
+    "children": [
+      {"type": "label", "label": null, "value": "Write what the crier is to cry:", "height": 30.0,
+       "text_halign": 1, "text_valign": 1},
+      {"type": "textedit", "id": "message", "label": "Write your message...",
+       "value": {"bind": "message"}, "max": 300, "multiline": true, "wordwrap": true,
+       "height": 120.0},
+      {"type": "label", "label": null, "value": {"bind": "fee_text"}, "height": 30.0,
+       "text_halign": 1, "text_valign": 1},
+      {"type": "row", "label": null, "value": null, "height": 40.0, "children": [
+        {"type": "spacer", "label": null, "value": null},
+        {"type": "button", "id": "send", "label": "Send", "value": null, "width": 100.0,
+         "height": 34.0, "enabled": {"bind": "can_send"}},
+        {"type": "button", "id": "cancel", "label": "Cancel", "value": null, "width": 100.0,
+         "height": 34.0}
+      ]}
+    ]
+  }
+}

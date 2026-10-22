@@ -14,7 +14,9 @@
 //! (`target/test-output/frame-shots`). `FRAME_VIEW=<part of a name>` times
 //! only those views, `FRAME_COUNT=<frames>` that many frames of each,
 //! `FRAME_DETAIL=1` prints each frame's time and who asked for the next,
-//! and `FRAME_TARGET=<width>x<height>` sizes the pictures of the areas
+//! `FRAME_ACCESSKIT=1` builds the accessibility tree every frame, as the app
+//! does while an assistive client is connected (a screen reader, a desktop
+//! agent), and `FRAME_TARGET=<width>x<height>` sizes the pictures of the areas
 //! taken apart at the end. (With another program drawing, the game say,
 //! the GPU's times are as much that program's: close it for those.)
 
@@ -113,7 +115,12 @@ fn frames(
     mut each: impl FnMut(&mut Moonglow, usize),
 ) -> Frames {
     let ctx = h.ctx.clone();
-    ctx.disable_accesskit();
+    // (The desktop app builds the accessibility tree only while an assistive
+    // client, a screen reader or a desktop agent, is connected: FRAME_ACCESSKIT
+    // times the frames as they are then.)
+    if std::env::var_os("FRAME_ACCESSKIT").is_none() {
+        ctx.disable_accesskit();
+    }
     let device = h.state().viewport.as_ref().map(|v| v.gpu.device.clone());
     let wait = |device: &Option<wgpu::Device>| {
         if let Some(d) = device {

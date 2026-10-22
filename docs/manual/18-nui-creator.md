@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: NUI Creator
-description: The NUI Creator - designing an Enhanced Edition UI window (JUI) on a canvas with the game's skin and fonts, images, keys, binds, swap layout variants, event handlers, building its scripts, and what the game refuses or does on its own.
+description: The NUI Creator - designing an Enhanced Edition UI window (JUI) on a canvas with the game's skin and fonts, images, keys, binds, swap layout variants, event handlers (or one event script for several windows), the settings file, building its scripts, making windows without the window (render, layout, import), and what the game refuses or does on its own.
 tags: [manual, nui, scripts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-18T20:54:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:15:13Z }
 sources:
   - id: mg-nui
     resource: crates/mg-nui
@@ -316,11 +316,86 @@ script, commented out after `main`, and comes back if you add the handler again.
 Code at the top section (between `// mg:begin top` and its `// mg:end`) is the
 place for `#include` lines and helper functions.
 
+### One event script for several windows
+
+A module that sends every window's events to one script of its own (its
+OnNuiEvent script, a dispatcher handing each event on by window) can
+keep doing so. **Bindings › Client delivery › Events go to the module's
+event script** makes the window's `NAME_e.nss` an include rather than a
+script: its handlers' sections are the same, inside a function
+`NAME_OnEvent()` that handles the window's events and returns `TRUE` for
+them (`FALSE` for another window's, known by the window's ID). The opener
+creates the window with no event script of its own, so its events reach
+the module's. Include it there and call it:
+
+```c
+#include "crier_e"
+#include "shop_e"
+void main()
+{
+    if (crier_OnEvent()) return;
+    if (shop_OnEvent()) return;
+    // The module's other windows.
+}
+```
+
+In such a handler, end early with `return TRUE;`, not `return;`. Build
+compiles the include through a caller of its own, and compiles again the
+module's scripts that include it; switching the option keeps the code in
+the sections. Renaming the window renames the function and the
+`#include` lines.
+
 Choosing **Initial contents** in Layers returns from a variant to the
 original. Switching the edited variant does not change the initial in-game
 content or trigger an event. Use **Interact** on the main window to try it
 locally, then Build and try it in the game with
 [Test Module](09-build-and-test.md).
+
+## The settings file
+
+What the Creator keeps of a window beside its layout is the TXT resource
+of its name, `NAME.txt`: UTF-8 JSON, no key twice in one object. A
+program or an agent can write it as the Creator does; `mg nui schema`
+prints its form as a JSON Schema, made from the same definitions
+Moonglow reads it with. Keys it does not know are kept, at every level.
+A key left out takes its default.
+
+| Key | Default | What it holds |
+| --- | --- | --- |
+| `format` | (required) | `"moonglow.nui/1"`: a TXT with another is not a window's settings |
+| `bindings` | none | The binds by name, each `{"value": …, "watch": false}`. `value` is what the opener sets first: a string, number, boolean, color (`{"r","g","b","a"}`), rectangle (`{"x","y","w","h"}`), or for a list's row template an array, a value a row. Every bind the layout reads needs one. `watch`: a change is a `watch` event (a `watch` handler watches it as well) |
+| `actions` | none | The handlers, in the event script's order: `{"event", "element", "action"}`. `event` is one the game sends (`click`, `watch`, `open`, `close`, `mousedown`, `mouseup`, `mousescroll`, `focus`, `blur`, `range`); `element` the control's ID, the bind's name for `watch`, empty for the window's `open` and `close`. `action` is what its section starts with: `code` (a note for your code), `close`, `toggle` (with `bind`), `set` (with `bind` and `value`) or `view` (with `group`, `_window_` for the whole window, and `view`) |
+| `views` | none | The swap layout variants by name, each a layout (an element, as the JUI's `root` is) |
+| `view_targets` | none | The group each variant was made for, by the variant's name |
+| `swap_hosts` | none | The IDs of the groups made as swap layouts |
+| `window_id` | the window's name | Its ID in the game (`NuiFindWindow`) |
+| `from_resref` | `false` | The opener loads the JUI on the client by name (`NuiCreateFromResRef`): the JUI has to be in a hak |
+| `event_function` | `false` | The window's events go to the module's own event script: Build writes `NAME_e.nss` as an include with `NAME_OnEvent()` ([below](#one-event-script-for-several-windows)) |
+| `opener_hash`, `event_hash` | none | Written by Build, to tell a script changed by hand from its own: leave them out of a file you write |
+
+The town crier's window, a text box whose watch turns Send on, Send and
+Cancel:
+
+```json
+{
+  "format": "moonglow.nui/1",
+  "bindings": {
+    "can_send": {"value": false},
+    "fee_text": {"value": "The fee is 5 silver pieces."},
+    "message": {"value": "", "watch": true}
+  },
+  "actions": [
+    {"event": "watch", "element": "message", "action": "code"},
+    {"event": "click", "element": "send", "action": "code"},
+    {"event": "click", "element": "cancel", "action": "close"}
+  ],
+  "window_id": "tdod_crier"
+}
+```
+
+`mg nui schema --layout` prints a new window and each control as the
+Creator adds it, with the fields the game's `nw_inc_nui` functions write;
+the game's `nw_inc_nui.nss` says what they mean.
 
 ## Build and export
 
@@ -384,6 +459,30 @@ stock `nw_inc_nui` API contract and generator requirements. Passing them and
 compiling do **not** prove visual or event parity: build the module and
 use [Test Module](09-build-and-test.md) to try the window, edits, clicks,
 watches and closing in the game.
+
+## Without the window
+
+A window can be made without opening the Creator, by hand or by an
+agent working from a brief ([The command line](11-command-line.md) has
+every option):
+
+1. `mg nui new MODULE NAME` adds a starting window, or `mg nui import
+   MODULE FILE.jui` brings one written elsewhere (with its `.txt`) into a
+   module, an archive too. `mg nui schema` prints the settings' form.
+2. `mg nui validate MODULE NAME` runs the Creator's checks.
+3. `mg nui render MODULE NAME -o NAME.png` draws it as the canvas does,
+   off the screen, at a UI scale and a window size of your choosing, and
+   `mg nui layout MODULE NAME --json` gives each control's rectangle and
+   what doesn't fit (clipped, out of view, no room, text cut): the same
+   layout the picture shows. Both take a `.jui` file alone too.
+4. `mg nui generate MODULE NAME` writes and compiles its scripts.
+
+In a nasher project whose sources take in scripts and JSON only, a
+window's files would be written where nasher neither packs them nor
+Moonglow reads them back: `new`, `validate`, New NUI Window and Verify
+(the `nui-sources` check) say so, with the `include` line that takes
+them in, which **Build › Add Left-Out Files to nasher.cfg** adds once
+they are saved.
 
 ## What the game refuses, and what it does on its own
 

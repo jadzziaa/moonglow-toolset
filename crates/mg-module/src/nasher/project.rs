@@ -258,14 +258,73 @@ impl Project {
         format!(
             "{}: in the sources, but nasher.cfg's include ({}) leaves {} out: nasher won't pack \
              {}, and Moonglow doesn't read {}. Build › Add Left-Out Files to nasher.cfg takes \
-             in {}.",
+             in {} (the line {}).",
             shown.join(", "),
             self.target().includes.join(", "),
             if shown.len() == 1 { "it" } else { "them" },
             if shown.len() == 1 { "it" } else { "them" },
             if shown.len() == 1 { "it" } else { "them" },
-            left_out_kinds(&self.left_out).join(", ")
+            left_out_kinds(&self.left_out).join(", "),
+            self.include_for(&self.left_out).unwrap_or_default()
         )
+    }
+
+    /// The source file a resource the project doesn't have yet is written
+    /// to, where nasher's rules put it (`unknown` when none matches);
+    /// `None` for one the rules discard, and for compiled scripts (build
+    /// output, never written).
+    fn new_file(&self, key: &ResKey) -> Option<PathBuf> {
+        if key.restype == ResType::NCS {
+            return None;
+        }
+        let json = is_json_type(key.restype);
+        let folder = self.target().rule_folder(&key.to_string().to_ascii_lowercase());
+        let folder = match folder.as_deref() {
+            Some("/dev/null") => return None,
+            Some(f) => f.to_string(),
+            None => "unknown".to_string(),
+        };
+        Some(self.root().join(folder).join(source_name(key, json)))
+    }
+
+    /// The files of `keys` that the target's sources would leave out: those
+    /// the project doesn't have yet, written where the rules put them and
+    /// not taken in by its include (nasher won't pack them, and the project
+    /// won't read them back). A NUI window's files (`.jui`, `.txt`) in a
+    /// project whose include names only scripts and JSON are the usual.
+    pub fn uncovered(&self, keys: &[ResKey]) -> Vec<PathBuf> {
+        let root = self.root();
+        let mut out: Vec<PathBuf> = keys
+            .iter()
+            .filter(|k| !self.sources.contains_key(*k))
+            .filter_map(|k| self.new_file(k))
+            .filter(|p| !self.target().covers(root, p))
+            .collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    /// The `include` line that takes in `files` (paths in the project) with
+    /// the kinds of file they are: `include = "src/**/*.{jui,txt}"`, from
+    /// the folder an include of the target's looks in that holds the first
+    /// of them, else from that file's own folder. `None` for no files, or
+    /// files outside the project.
+    pub fn include_for(&self, files: &[PathBuf]) -> Option<String> {
+        let root = self.root();
+        let first = files.first()?;
+        let base = (self.target().includes.iter())
+            .filter_map(|p| source_base(p))
+            .find(|base| first.starts_with(root.join(base)))
+            .or_else(|| {
+                let folder = first.parent()?.strip_prefix(root).ok()?;
+                let text = folder.display().to_string().replace('\\', "/");
+                (!text.is_empty()).then_some(text)
+            })?;
+        let kinds = left_out_kinds(files);
+        let pick =
+            if kinds.len() == 1 { kinds[0].clone() } else { format!("{{{}}}", kinds.join(",")) };
+        Some(format!("include = \"{base}/**/*.{pick}\""))
     }
 
     /// Takes in the files the include leaves out ([`Project::left_out`]):
@@ -285,14 +344,11 @@ impl Project {
             |message: String| ModuleError::Source { name: cfg.display().to_string(), message };
         let text = std::fs::read_to_string(&cfg).map_err(io(&cfg))?;
         // The include of the target's whose folder holds the first file.
-        let (pattern, base) = (self.target().includes.iter())
-            .filter_map(|p| Some((p.clone(), source_base(p)?)))
-            .find(|(_, base)| left[0].starts_with(root.join(base)))
+        let pattern = (self.target().includes.iter())
+            .find(|p| source_base(p).is_some_and(|base| left[0].starts_with(root.join(base))))
+            .cloned()
             .ok_or_else(|| bad("no include of the target's looks in the files' folder".into()))?;
-        let kinds = left_out_kinds(&left);
-        let pick =
-            if kinds.len() == 1 { kinds[0].clone() } else { format!("{{{}}}", kinds.join(",")) };
-        let added = format!("include = \"{base}/**/*.{pick}\"");
+        let added = self.include_for(&left).expect("files under an include's folder");
         // Beside that include's line, as indented.
         let lines: Vec<&str> = text.lines().collect();
         let at = lines
@@ -594,16 +650,9 @@ impl Project {
                         steps.push(Step::Write(*key, src.path.to_path_buf(), src.json, text));
                     }
                 }
-                None if key.restype == ResType::NCS => {}
                 None => {
+                    let Some(path) = self.new_file(key) else { continue };
                     let json = is_json_type(key.restype);
-                    let folder = self.target().rule_folder(&key.to_string().to_ascii_lowercase());
-                    let folder = match folder.as_deref() {
-                        Some("/dev/null") => continue,
-                        Some(f) => f.to_string(),
-                        None => "unknown".to_string(),
-                    };
-                    let path = root.join(folder).join(source_name(key, json));
                     if !self.target().covers(&root, &path) {
                         uncovered.push(path.clone());
                     }
@@ -643,21 +692,17 @@ impl Project {
                     p.strip_prefix(&root).unwrap_or(p).display().to_string().replace('\\', "/")
                 })
                 .collect();
-            let mut kinds: Vec<String> = uncovered
-                .iter()
-                .filter_map(|p| p.extension().map(|e| e.to_string_lossy().to_string()))
-                .collect();
-            kinds.sort();
-            kinds.dedup();
             self.warnings.push(format!(
                 "{}: written, but nasher.cfg's sources ({}) don't take them in: nasher won't \
                  pack them, and the project won't read them back when opened again. Add {} \
-                 to its include.",
+                 to its include: the line {} (Build › Add Left-Out Files to nasher.cfg adds it).",
                 shown.join(", "),
                 self.target().includes.join(", "),
-                kinds.join(", ")
+                left_out_kinds(&uncovered).join(", "),
+                self.include_for(&uncovered).unwrap_or_default()
             ));
         }
+        let wrote_uncovered = !uncovered.is_empty();
         let mut report = SaveReport::default();
         for step in steps {
             match step {
@@ -702,6 +747,11 @@ impl Project {
                     report.removed.push(path);
                 }
             }
+        }
+        // (Now on disk where the include doesn't look: Build › Add Left-Out
+        // Files to nasher.cfg can take them in.)
+        if wrote_uncovered {
+            self.left_out = self.left_out();
         }
         Ok(report)
     }
@@ -1215,6 +1265,49 @@ mod tests {
         let _ = p.outside();
         assert_eq!(names(&p.left_out), ["win.jui"]);
         assert!(p.warnings.iter().any(|w| w.contains("src/sub/win.jui")), "{:?}", p.warnings);
+    }
+
+    /// A project whose sources are scripts and JSON (`src/**/*.{nss,json}`,
+    /// as `nasher init` writes and The Domains of Dread had): a NUI window's
+    /// files would be written where the rules put them and left out. Said
+    /// before (for `mg nui new` and the Creator) and on saving, with the
+    /// line that takes them in; Add Left-Out Files can then add it.
+    #[test]
+    fn a_window_s_files_the_include_would_leave_out_are_said_with_the_line() {
+        let root = scratch("uncovered-window");
+        std::fs::write(
+            root.join("nasher.cfg"),
+            "[package]\n  [package.sources]\n  include = \"src/**/*.{nss,json}\"\n  \
+             [package.rules]\n  \"*\" = \"src\"\n[target]\nname = \"m\"\nfile = \"m.mod\"\n",
+        )
+        .unwrap();
+        let mut m = module();
+        m.save_as(&project_location(&root)).unwrap();
+        let mut m = Module::open(&root).unwrap();
+        let window = [key("crier", ResType::JUI), key("crier", ResType::TXT)];
+        let p = m.project.as_ref().unwrap();
+        // A script is taken in; a compiled one is never written.
+        let asked = [window[0], window[1], key("crier_e", ResType::NSS), key("x", ResType::NCS)];
+        let left = p.uncovered(&asked);
+        assert_eq!(left, [root.join("src/crier.jui"), root.join("src/crier.txt")]);
+        assert_eq!(p.include_for(&left).as_deref(), Some("include = \"src/**/*.{jui,txt}\""));
+        assert_eq!(p.include_for(&left[..1]).as_deref(), Some("include = \"src/**/*.jui\""));
+        assert_eq!(p.include_for(&[]), None);
+        // Saved: written, said with the line, and left out for Build ›
+        // Add Left-Out Files to take in.
+        m.set(window[0], b"{}".to_vec());
+        m.set(window[1], b"{}".to_vec());
+        m.save().unwrap();
+        let p = m.project.as_mut().unwrap();
+        let said = p.warnings.join("\n");
+        assert!(said.contains("the line include = \"src/**/*.{jui,txt}\""), "{said}");
+        assert_eq!(p.left_out, left);
+        assert_eq!(
+            p.take_in_left_out().unwrap().as_deref(),
+            Some("include = \"src/**/*.{jui,txt}\"")
+        );
+        assert!(p.uncovered(&window).is_empty() && p.left_out.is_empty());
+        assert!(Module::open(&root).unwrap().contains(&window[0]));
     }
 
     #[test]

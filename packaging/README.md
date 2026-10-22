@@ -76,6 +76,12 @@ flatpak override --user --filesystem="/path/to/Neverwinter Nights:ro" io.github.
 Test Module starts the game inside the sandbox, with the Flatpak runtime's
 libraries. If the game does not start there, use the AppImage.
 
+The window's accessibility tree (AccessKit, for screen readers and
+desktop agents) goes over the AT-SPI bus, which Flatpak proxies on its
+own; AccessKit also reads whether a screen reader is on from the session
+bus's `org.a11y.Bus`, which the manifest's `--talk-name=org.a11y.Bus`
+allows. Without it the tree is never offered in the Flatpak.
+
 ## Windows: installer
 
 ```powershell

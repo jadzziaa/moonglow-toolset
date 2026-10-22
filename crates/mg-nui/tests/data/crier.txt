@@ -1,0 +1,14 @@
+{
+  "format": "moonglow.nui/1",
+  "bindings": {
+    "can_send": {"value": false},
+    "fee_text": {"value": "The fee is 5 silver pieces."},
+    "message": {"value": "", "watch": true}
+  },
+  "actions": [
+    {"event": "watch", "element": "message", "action": "code"},
+    {"event": "click", "element": "send", "action": "code"},
+    {"event": "click", "element": "cancel", "action": "close"}
+  ],
+  "window_id": "tdod_crier"
+}

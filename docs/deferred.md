@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:21:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:24:18Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2302,6 +2302,55 @@ contribution itself states as not done or not checked.
   `crates/mg-ui/src/nui_view.rs`): Export… takes the pictures the
   module holds; those a window uses from a hak or the game are not
   copied, and nothing says which a client would miss. (S)
+- **Left by The Domains of Dread's NUI Creator asks (October 2026)**
+  (`mg nui render`, `layout`, `schema`, `import`, the `nui-sources`
+  check, AccessKit, the event function; the asks are the module
+  project's probe, `tdod-modulework/docs/systems/nui-creator-probe.md`):
+  - *`render` has no `--state`, `--variant` or bind values from a file*
+    (the probe asked; the owner's list did not): the picture is the
+    window as it opens, nothing hovered, pressed or disabled by hand,
+    the initial contents of its swap layouts, the binds' first values.
+    (S each: `State::preview_state`, `edit_view`, `Settings::bindings`.)
+  - *What `layout` cannot see*: rows of a list out of its view are not
+    reported (the canvas draws only those in view); the title's text,
+    cut or not, isn't checked; `overlaps` comes of the canvas's own
+    layout, which places neighbors apart, so it is empty but for
+    windows the game would lay out differently, which it can't know. (S)
+  - *The preview is not the game* (as stated above): `render` and
+    `layout` show what the canvas shows, with its known differences.
+  - *The JUI has no schema of its properties*: `mg nui schema --layout`
+    gives the Creator's templates, the checks' rules of which property
+    takes what are in `validate.rs`'s code, not a table a schema could
+    be made from. (M)
+  - *The Creator has no Import*: windows come in from files with `mg nui
+    import` or Import's ERF import (which also brings `.jui` and `.txt`),
+    not from the NUI Creator itself. (S)
+  - *`mg` links `mg-ui`* for `render` and `layout`: its build takes
+    longer and its binary is larger; the preview could become a crate of
+    its own if that matters. (M)
+  - *AccessKit doesn't start on newer Linux desktops*: eframe 0.36's
+    `accesskit_unix` (0.21) offers the tree only when the session bus's
+    `org.a11y.Status.ScreenReaderEnabled` turns true, and at-spi2-core
+    2.62 (the development machine's) has only `IsEnabled`, so there it
+    never starts; `accesskit_unix` 0.24 watches `IsEnabled`, and comes
+    with an egui/eframe whose `accesskit_winit` uses it. Until then the
+    desktop agents here can't read the window. (S, with that upgrade)
+  - *AccessKit was checked on Linux only*: the GUI checks for Windows
+    (`x86_64-pc-windows-gnu`) and eframe's AccessKit for macOS
+    (`aarch64-apple-darwin`); CI builds them, and no one has read the
+    tree with a screen reader on any of the three, nor in the Flatpak
+    (`--talk-name=org.a11y.Bus`, from reading `accesskit_unix`). Its
+    cost with an assistive program connected, `FRAME_ACCESSKIT=1` in
+    `frame_perf` on the campaign's 117 views: 0.86 ms a frame on
+    average without the tree, 0.97 with it, the most 0.55 ms more (a
+    long script, 0.73 to 1.28); none over the budget. Without one,
+    nothing. (S)
+  - *The event function in the game*: compiled against the game's
+    `nwscript.nss`, not yet run in the client (`client_nui.rs` builds
+    windows with their own event scripts). (S)
+  - *`a_module_s_windows_are_laid_out_as_json`* (`crates/mg-ui/tests/nui.rs`,
+    run by hand) measured windows through the editor's accessibility
+    tree; `mg nui layout` does it from the command line now. (S)
 - **Nothing short of the game proves a window** (`apps/mg/src/nui.rs`,
   `crates/mg-nui/src/validate.rs`): `mg nui validate` and `generate`,
   like the checks and Build in the editor, check the document and

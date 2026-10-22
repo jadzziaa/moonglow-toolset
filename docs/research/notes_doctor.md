@@ -3,7 +3,7 @@ type: Research Note
 title: 'The content doctor: what it checks, and how it was calibrated'
 description: What Moonglow's content doctor checks in a module's custom content, where each check comes from, and how the checks were calibrated on shipped content.
 tags: [doctor, custom-content, checks]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T22:41:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:15:13Z }
 ---
 
 # The content doctor: what it checks, and how it was calibrated
@@ -45,6 +45,7 @@ summarized in `community_pain_points.md`. Each check names the source
 | `object-row` | a creature (appearance, classes), placeable, door or item naming a 2DA row that doesn't exist, a reserved row (`USER`), or a row whose model doesn't exist | error placed, warning in a blueprint |
 | `pc-faction` | a creature, placeable, door, trigger or encounter (blueprint or placed) of faction 0, the PC faction, the players' alone (Jasperre's report: the game puts such a creature in Hostile, `engine_factions.rs`); a missing faction field is not reported. None in the shipped modules | warning |
 | `area-variables` | an area with variables in its ARE, which the game does not read (it reads an area's from its GIT: `engine_area_variables`); Moonglow wrote them there before 1.34.3 | error |
+| `nui-sources` | a NUI window's file (`.jui`, or the `.txt` beside one) that a nasher project's include leaves out: in the sources where nasher doesn't pack it and Moonglow doesn't read it, or the module's, to be written there; said with the `include` line that takes it in (The Domains of Dread's project, made with `src/**/*.{nss,json}`, lost a window this way) | warning |
 
 ## Calibration on shipped content
 

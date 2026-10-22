@@ -227,6 +227,114 @@ pub(crate) struct Assets {
     pub(super) origins: BTreeMap<String, String>,
     pub(super) issues: Vec<String>,
     pub(super) loaded: bool,
+    /// Where the canvas put the window and each control, while a caller
+    /// asks for it (`mg nui layout` and `render`: [`super::headless`]);
+    /// `None`, and nothing gathered, in the editor.
+    pub(super) record: std::cell::RefCell<Option<Record>>,
+}
+
+/// Where the canvas drew a window and its controls, in screen points, as
+/// one frame of it laid them out.
+#[derive(Debug, Clone)]
+pub(super) struct Record {
+    /// The window, title bar and frame included.
+    pub window: Rect,
+    /// What its controls are laid out in: inside its 8-point inset.
+    pub body: Rect,
+    /// Each control drawn or passed over, in the order the canvas reached
+    /// them (a parent before its children).
+    pub placed: Vec<Placed>,
+    /// The controls being drawn, innermost last: whose text a cut belongs to.
+    current: Vec<usize>,
+}
+
+/// A control as the canvas laid it out.
+#[derive(Debug, Clone)]
+pub(super) struct Placed {
+    /// Its JSON pointer in the window (`/root/children/1`).
+    pub path: String,
+    /// The list row it was drawn in, for a list's row template.
+    pub row: Option<usize>,
+    pub node: Value,
+    /// Its rectangle, inside its margin.
+    pub rect: Rect,
+    /// What is drawn of it at most: the window's, a group's or a list's clip.
+    pub clip: Rect,
+    /// The control it is in, if any: its index in `placed`.
+    pub parent: Option<usize>,
+    /// Text of it that did not fit and was cut.
+    pub cut: Vec<String>,
+}
+
+impl Default for Record {
+    fn default() -> Self {
+        Record {
+            window: Rect::NOTHING,
+            body: Rect::NOTHING,
+            placed: Vec::new(),
+            current: Vec::new(),
+        }
+    }
+}
+
+impl Assets {
+    /// Starts gathering where the canvas draws (a frame's worth: each frame
+    /// starts again).
+    pub(super) fn start_record(&self) {
+        *self.record.borrow_mut() = Some(Record::default());
+    }
+
+    pub(super) fn record_window(&self, window: Rect, body: Rect) {
+        if let Some(r) = self.record.borrow_mut().as_mut() {
+            r.window = window;
+            r.body = body;
+        }
+    }
+
+    /// A control the canvas is about to draw, in `rect` within `clip`;
+    /// what it draws until [`Assets::leave`] is its.
+    pub(super) fn enter(
+        &self,
+        path: &str,
+        row: Option<usize>,
+        node: &Value,
+        rect: Rect,
+        clip: Rect,
+    ) -> bool {
+        let mut record = self.record.borrow_mut();
+        let Some(r) = record.as_mut() else { return false };
+        let parent = r.current.last().copied();
+        r.placed.push(Placed {
+            path: path.into(),
+            row,
+            node: node.clone(),
+            rect,
+            clip,
+            parent,
+            cut: Vec::new(),
+        });
+        r.current.push(r.placed.len() - 1);
+        true
+    }
+
+    pub(super) fn leave(&self, entered: bool) {
+        if entered && let Some(r) = self.record.borrow_mut().as_mut() {
+            r.current.pop();
+        }
+    }
+
+    /// Text the control being drawn cut because it did not fit.
+    pub(super) fn record_cut(&self, text: &str) {
+        if let Some(r) = self.record.borrow_mut().as_mut()
+            && let Some(&at) = r.current.last()
+        {
+            r.placed[at].cut.push(text.into());
+        }
+    }
+
+    pub(super) fn recording(&self) -> bool {
+        self.record.borrow().is_some()
+    }
 }
 
 fn hash(v: impl Hash) -> u64 {

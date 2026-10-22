@@ -794,6 +794,16 @@ pub(super) fn bindings(
                 "The players' clients must have the JUI then (from a hak or NWSync). Off, the \
                  opener script sends the layout.",
             );
+            ui.checkbox(
+                &mut s.event_function,
+                "Events go to the module's event script (a function to call)",
+            );
+            ui.weak(
+                "Build writes the event script as an include with a function that handles the \
+                 window's events: include it in the module's OnNuiEvent script and call it there \
+                 (it says whether the event was this window's). Off, the window has an event \
+                 script of its own.",
+            );
         });
         egui::CollapsingHeader::new("Window identity").show(ui, |ui| {
             let mut custom = s.window_id.is_some();

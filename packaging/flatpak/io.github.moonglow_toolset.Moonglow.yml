@@ -20,6 +20,11 @@ finish-args:
   - --device=dri
   # Sound previews, area ambience and music.
   - --socket=pulseaudio
+  # The accessibility tree (AccessKit over AT-SPI), for screen readers and
+  # desktop agents. Flatpak proxies the AT-SPI bus itself; AccessKit also
+  # asks the session bus's org.a11y.Bus whether a screen reader is on
+  # (org.a11y.Status), and without this never offers the tree.
+  - --talk-name=org.a11y.Bus
   # The game's user folder (modules, haks, talk tables, override), and the
   # game where Steam installs it, natively or as a Flatpak. Installs in
   # other Steam libraries need their folder added (flatpak override

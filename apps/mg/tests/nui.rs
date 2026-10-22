@@ -299,3 +299,271 @@ fn compile_passes_over_what_generate_compiled() {
         "{compiled}"
     );
 }
+
+/// A window whose events go to the module's own event script: generate
+/// writes its event script as an include (nothing compiled of its own),
+/// compiles it through a caller and compiles the module's dispatcher that
+/// includes it; a second generate changes nothing.
+#[test]
+fn generate_makes_an_event_function_the_module_s_script_compiles_with() {
+    let root = mg_testkit::corpus!();
+    let path = module("mg-nui-event-function");
+    let p = path.to_str().unwrap();
+    assert!(mg(None, &["new", p, "shop"]).0);
+    let mut m = Module::open(&path).unwrap();
+    let mut s = mg_nui::Settings::parse(m.get(&key("shop.txt")).unwrap()).unwrap();
+    s.event_function = true;
+    m.set(key("shop.txt"), s.bytes());
+    m.set(
+        key("mod_nui.nss"),
+        b"#include \"shop_e\"\nvoid main()\n{\n    if (shop_OnEvent()) return;\n}\n".to_vec(),
+    );
+    m.save().unwrap();
+    let (ok, made) = mg(Some(&root), &["generate", p, "shop"]);
+    assert!(ok, "{made}");
+    let m = Module::open(&path).unwrap();
+    let events = String::from_utf8(m.get(&key("shop_e.nss")).unwrap().to_vec()).unwrap();
+    assert!(events.contains("int shop_OnEvent()"), "{events}");
+    assert!(!m.contains(&key("shop_e.ncs")) && m.contains(&key("mod_nui.ncs")));
+    let opener = String::from_utf8(m.get(&key("shop_o.nss")).unwrap().to_vec()).unwrap();
+    assert!(opener.contains("NuiCreate(oPlayer, JsonParse(sLayout), \"shop\");"), "{opener}");
+    let before = std::fs::read(&path).unwrap();
+    let (ok, again) = mg(Some(&root), &["generate", p, "shop"]);
+    assert!(ok && again["resources"] == json!([]), "{again}");
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}
+
+/// A nasher project whose sources are scripts and JSON, as `nasher init`
+/// writes them (and The Domains of Dread's were): a window made in it is
+/// said to be left out, with the line to add, before validate can only
+/// say it is not in the module; validate then says why. `mg checks` lists
+/// the check Verify makes of it.
+#[test]
+fn a_nasher_project_that_leaves_windows_out_is_told_the_line() {
+    let root = mg_testkit::scratch_dir("mg-nui-nasher");
+    let cfg = "[package]\n  [package.sources]\n  include = \"src/**/*.{nss,json}\"\n  \
+               [package.rules]\n  \"*\" = \"src\"\n[target]\nname = \"m\"\nfile = \"m.mod\"\n";
+    std::fs::write(root.join("nasher.cfg"), cfg).unwrap();
+    let mut m = Module::new();
+    m.set_info(&Gff::new(*b"IFO ")).unwrap();
+    m.save_as(&ModuleLocation::Project { root: root.clone(), target: "m".into() }).unwrap();
+    let p = root.to_str().unwrap();
+    let line = "include = \"src/**/*.{jui,txt}\"";
+
+    let out = output(None, &["--json", "nui", "new", p, "crier"]);
+    assert!(out.status.success());
+    let made: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(made["include"], line, "{made}");
+    assert_eq!(made["left_out"], json!(["src/crier.jui", "src/crier.txt"]));
+    assert!(made["notes"][0].as_str().unwrap().contains(line), "{made}");
+    assert!(root.join("src/crier.jui").is_file());
+
+    let (ok, checked) = mg(None, &["validate", p, "crier"]);
+    let error = checked["error"].as_str().unwrap();
+    assert!(!ok && error.contains("crier.jui is not in the module: src/crier.jui"), "{error}");
+    assert!(error.contains(line), "{error}");
+
+    // With the line added, the window is read and passes.
+    std::fs::write(root.join("nasher.cfg"), cfg.replace("{nss,json}", "{nss,json,jui,txt}"))
+        .unwrap();
+    let (ok, checked) = mg(None, &["validate", p, "crier"]);
+    assert!(ok && checked["warnings"] == 0, "{checked}");
+
+    let out = output(None, &["--json", "checks"]);
+    let checks: Value = serde_json::from_slice(&out.stdout).unwrap();
+    let nui = checks["checks"].as_array().unwrap().iter().find(|c| c["id"] == "nui-sources");
+    assert_eq!(nui.unwrap()["group"], "module");
+}
+
+/// `mg nui import` from a window's file, a folder, an ERF and a zip: the
+/// layout, the settings and the event script's source come into the
+/// module, nothing else; one the module has differently is refused but
+/// with --replace; a dry run changes nothing.
+#[test]
+fn import_brings_windows_from_files_folders_erfs_and_zips() {
+    let jui = crier_files("mg-nui-import-files");
+    let dir = jui.parent().unwrap().to_path_buf();
+    std::fs::write(dir.join("crier_e.nss"), b"// mine\nvoid main() {}\n").unwrap();
+    std::fs::write(dir.join("crier_o.nss"), b"// generated elsewhere\n").unwrap();
+    let path = module("mg-nui-import");
+    let p = path.to_str().unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let (ok, dry) = mg(None, &["import", p, jui.to_str().unwrap(), "--dry-run"]);
+    assert!(ok, "{dry}");
+    assert_eq!(dry["resources"], json!(["crier.jui", "crier.txt", "crier_e.nss"]));
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+
+    let (ok, made) = mg(None, &["import", p, jui.to_str().unwrap()]);
+    assert!(ok, "{made}");
+    assert_eq!((&made["saved"], &made["windows"][0]["errors"]), (&json!(true), &json!(0)));
+    let m = Module::open(&path).unwrap();
+    assert_eq!(m.get(&key("crier.jui")).unwrap(), std::fs::read(&jui).unwrap());
+    assert!(m.contains(&key("crier_e.nss")) && !m.contains(&key("crier_o.nss")));
+    assert!(mg(None, &["validate", p, "crier"]).0);
+    // The same again changes nothing; another copy is refused, then replaces.
+    let (ok, again) = mg(None, &["import", p, dir.to_str().unwrap()]);
+    assert!(ok && again["resources"] == json!([]), "{again}");
+    std::fs::write(&jui, std::fs::read_to_string(&jui).unwrap().replace("Town Crier", "Crier"))
+        .unwrap();
+    let (ok, refused) = mg(None, &["import", p, jui.to_str().unwrap()]);
+    let error = refused["error"].as_str().unwrap();
+    assert!(!ok && error.contains("crier.jui") && error.contains("--replace"), "{error}");
+    let (ok, replaced) = mg(None, &["import", p, jui.to_str().unwrap(), "--replace"]);
+    assert!(ok && replaced["resources"] == json!(["crier.jui"]), "{replaced}");
+
+    // From an ERF (a module archive of windows) and a zip, into others.
+    let archive = dir.join("windows.mod");
+    let mut windows = Module::new();
+    windows.set(key("crier.jui"), std::fs::read(&jui).unwrap());
+    windows.set(key("crier.txt"), std::fs::read(dir.join("crier.txt")).unwrap());
+    windows.save_as(&ModuleLocation::Archive(archive.clone())).unwrap();
+    let into = module("mg-nui-import-erf");
+    let (ok, from_erf) = mg(None, &["import", into.to_str().unwrap(), archive.to_str().unwrap()]);
+    assert!(ok && from_erf["resources"] == json!(["crier.jui", "crier.txt"]), "{from_erf}");
+    let zipped = dir.join("windows.zip");
+    let mut zip = zip::ZipWriter::new(std::fs::File::create(&zipped).unwrap());
+    for (name, file) in [("ui/crier.jui", "crier.jui"), ("ui/crier.txt", "crier.txt")] {
+        zip.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+        std::io::Write::write_all(&mut zip, &std::fs::read(dir.join(file)).unwrap()).unwrap();
+    }
+    zip.finish().unwrap();
+    let into = module("mg-nui-import-zip");
+    let (ok, from_zip) = mg(None, &["import", into.to_str().unwrap(), zipped.to_str().unwrap()]);
+    assert!(ok && from_zip["resources"] == json!(["crier.jui", "crier.txt"]), "{from_zip}");
+    // Nothing that is a window: said.
+    let empty = module("mg-nui-import-none");
+    let (ok, none) = mg(None, &["import", p, empty.to_str().unwrap()]);
+    assert!(!ok && none["error"].as_str().unwrap().contains("no NUI window"), "{none}");
+}
+
+/// `mg nui schema`: the settings' form as JSON Schema, the same as text and
+/// with --json; with --layout, the controls as the Creator makes them.
+#[test]
+fn schema_prints_the_settings_form_and_the_controls() {
+    let (ok, schema) = mg(None, &["schema"]);
+    assert!(ok, "{schema}");
+    assert_eq!(schema["properties"]["format"]["const"], "moonglow.nui/1");
+    assert_eq!(schema, mg_nui::settings_schema());
+    let out = output(None, &["nui", "schema"]);
+    assert!(out.status.success());
+    let text: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(text, schema);
+    let (ok, layout) = mg(None, &["schema", "--layout"]);
+    assert!(ok);
+    assert_eq!(layout["controls"]["textedit"]["max"], 255);
+    assert_eq!(layout["window"]["version"], 1);
+}
+
+/// The town crier's window (`crates/mg-nui/tests/data`), as files in a
+/// scratch folder of its own: `crier.jui` and `crier.txt`.
+fn crier_files(test: &str) -> PathBuf {
+    let from = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/mg-nui/tests/data");
+    let dir = mg_testkit::scratch_dir(test);
+    for file in ["crier.jui", "crier.txt"] {
+        std::fs::copy(from.join(file), dir.join(file)).unwrap();
+    }
+    dir.join("crier.jui")
+}
+
+#[test]
+fn layout_gives_each_control_s_place_in_the_window() {
+    let path = module("mg-nui-layout");
+    let p = path.to_str().unwrap();
+    assert!(mg(None, &["new", p, "shop"]).0);
+    let (ok, layout) = mg(None, &["layout", p, "shop"]);
+    assert!(ok, "{layout}");
+    assert_eq!((&layout["width"], &layout["height"]), (&json!(420.0), &json!(240.0)));
+    let elements = layout["elements"].as_array().unwrap();
+    let close = elements.iter().find(|e| e["id"] == "mg_close").unwrap();
+    assert_eq!(close["kind"], "button");
+    assert_eq!(close["text"], "Close");
+    // Below the title bar (33) and the 8-point inset, a label's height on.
+    assert!(close["y"].as_f64().unwrap() > 41.0 + 30.0, "{close}");
+    assert_eq!((&close["w"], &close["h"]), (&json!(150.0), &json!(30.0)));
+    for flag in ["zero_sized", "clipped", "out_of_view", "hidden"] {
+        assert_eq!(close[flag], false, "{flag}");
+    }
+    // At 150% the places are the same points.
+    let (_, scaled) = mg(None, &["layout", p, "shop", "--scale", "1.5"]);
+    assert_eq!(scaled["scale"], 1.5);
+    assert_eq!(scaled["elements"], layout["elements"]);
+    // For people: a line a control.
+    let out = output(None, &["nui", "layout", p, "shop", "--size", "300x200"]);
+    assert!(out.status.success());
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.starts_with("shop: 300 × 200 points at 100%"), "{text}");
+    assert!(text.lines().any(|l| l.starts_with("/root/children/1\tbutton #mg_close\t")), "{text}");
+}
+
+#[test]
+fn a_window_s_file_is_laid_out_with_its_settings() {
+    let jui = crier_files("mg-nui-layout-file");
+    let file = jui.to_str().unwrap();
+    let (ok, layout) = mg(None, &["layout", file]);
+    assert!(ok, "{layout}");
+    assert_eq!(layout["window"], "crier");
+    let elements = layout["elements"].as_array().unwrap();
+    // The fee's text is its bind's first value, from crier.txt.
+    let fee = elements.iter().find(|e| e["path"] == "/root/children/2").unwrap();
+    assert_eq!(fee["text"], "The fee is 5 silver pieces.");
+    assert_eq!(fee["binds"], json!(["fee_text"]));
+    let spacer = elements.iter().find(|e| e["kind"] == "spacer").unwrap();
+    assert_eq!(spacer["zero_sized"], true);
+    // A smaller window cuts off its buttons.
+    let (_, small) = mg(None, &["layout", file, "--size", "200x150"]);
+    let cancel = small["elements"].as_array().unwrap().iter().find(|e| e["id"] == "cancel");
+    assert_eq!(cancel.unwrap()["out_of_view"], true, "{small}");
+
+    // A file with a window's name after it, a module without one, a size
+    // that isn't one: said, not guessed.
+    let (ok, both) = mg(None, &["layout", file, "crier"]);
+    assert!(!ok && both["error"].as_str().unwrap().contains("a .jui file is a window"), "{both}");
+    let path = module("mg-nui-layout-no-name");
+    let (ok, which) = mg(None, &["layout", path.to_str().unwrap()]);
+    assert!(!ok && which["error"].as_str().unwrap().contains("which window?"), "{which}");
+    let out = output(None, &["nui", "layout", file, "--size", "wide"]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("WIDTHxHEIGHT"));
+}
+
+/// `mg nui render`'s answer, or `None` where there is no GPU to draw with.
+fn render(args: &[&str]) -> Option<Value> {
+    let args: Vec<&str> = ["--json", "nui", "render"].iter().chain(args).copied().collect();
+    let out = output(None, &args);
+    // (A driver may say things of its own on standard error.)
+    let json: Value = serde_json::from_slice(&out.stdout).unwrap();
+    if json["error"].as_str().is_some_and(|e| e.contains("no GPU adapter")) {
+        eprintln!("skipped: no GPU adapter");
+        return None;
+    }
+    assert!(out.status.success(), "{json}");
+    Some(json)
+}
+
+/// A PNG's width and height.
+fn png_size(path: &Path) -> (u32, u32) {
+    let png = std::fs::read(path).unwrap();
+    assert_eq!(&png[1..4], b"PNG");
+    let word = |at: usize| u32::from_be_bytes(png[at..at + 4].try_into().unwrap());
+    (word(16), word(20))
+}
+
+#[test]
+fn render_draws_a_window_into_a_png_at_its_scale() {
+    mg_testkit::gpu::hold();
+    let path = module("mg-nui-render");
+    let p = path.to_str().unwrap();
+    assert!(mg(None, &["new", p, "shop"]).0);
+    let png = path.with_file_name("shop.png");
+    let Some(drawn) = render(&[p, "shop", "-o", png.to_str().unwrap(), "--scale", "2"]) else {
+        return;
+    };
+    assert_eq!((&drawn["width"], &drawn["height"]), (&json!(840), &json!(480)));
+    assert_eq!(png_size(&png), (840, 480));
+    // A window's file, at the size asked for.
+    let jui = crier_files("mg-nui-render-file");
+    let out = jui.with_file_name("crier.png");
+    let drawn = render(&[jui.to_str().unwrap(), "--size", "500x320", "-o", out.to_str().unwrap()]);
+    assert_eq!(drawn.unwrap()["window"], "crier");
+    assert_eq!(png_size(&out), (500, 320));
+}

@@ -106,6 +106,8 @@ fn text_section(ty: &str) -> &'static str {
 }
 
 impl Renderer<'_> {
+    /// A control in the room `outer` its parent gives it: drawn, and noted
+    /// where it went when that is asked for (`mg nui layout`), drawn or not.
     pub(super) fn node(
         &mut self,
         ui: &mut Ui,
@@ -115,12 +117,37 @@ impl Renderer<'_> {
         row: Option<usize>,
         depth: usize,
     ) {
+        let entered = depth <= 32
+            && outer.is_finite()
+            && self.assets.recording()
+            && self.assets.enter(
+                path,
+                row,
+                node,
+                outer.shrink(extra_margin(node, self.s, row) * self.scale),
+                ui.clip_rect(),
+            );
+        self.draw_node(ui, node, path, outer, row, depth);
+        self.assets.leave(entered);
+    }
+
+    fn draw_node(
+        &mut self,
+        ui: &mut Ui,
+        node: &Value,
+        path: &str,
+        outer: Rect,
+        row: Option<usize>,
+        depth: usize,
+    ) {
         // (A rectangle that is not finite comes of sizes no window has, such
-        // as an aspect of 1e-40.)
+        // as an aspect of 1e-40.) What can't be seen isn't drawn, unless
+        // where it goes is asked for: then it is laid out, its controls with
+        // it, and drawn clipped, to nothing.
         if depth > 32
             || !outer.is_finite()
             || !outer.is_positive()
-            || !outer.intersects(ui.clip_rect())
+            || (!outer.intersects(ui.clip_rect()) && !self.assets.recording())
         {
             return;
         }
