@@ -430,7 +430,18 @@ impl TabViewer for Viewer<'_> {
         // A little room round what a tab shows. (The dock is given no window
         // margin, `Moonglow::ui`, and takes its tabs' from that: without
         // this they sat flush against their pane's edge.)
-        let margin = egui::Margin { left: 6, right: 6, top: 2, bottom: 6 };
+        let mut margin = egui::Margin { left: 6, right: 6, top: 2, bottom: 6 };
+        // The palettes' pane's: more on the edge it faces the middle by,
+        // where the button that folds it away is (`Moonglow::palettes_edge`).
+        if let Some((side, tabs)) = &self.app.palette_edge
+            && tabs.contains(tab)
+        {
+            let room = (crate::widgets::PANE_EDGE + 4.0) as i8;
+            match side {
+                crate::Side::Left => margin.right = room,
+                _ => margin.left = room,
+            }
+        }
         // In a window of its own, a drag on what isn't a control is the
         // tab's, behind all it shows, not the window's (egui_dock's windows
         // have no title bar, so egui moves them by any part): the window

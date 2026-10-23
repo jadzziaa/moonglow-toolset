@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T11:59:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T13:09:10Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2119,13 +2119,21 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Layout), with keys (Ctrl+Alt+1, 2, 3 and 0, in Options › Keyboard); a
   pane folded away leaves a strip at its edge that brings it back, as
   wide as it was; the palettes' pane closed by its ✕ counts as folded;
-  the state is kept in the settings. A pane's own button to fold
-  it away: the module tree («), the palettes (», after their type
-  icons: they had only their ✕, the reporter's word on 1.21.1) and the
-  log (⏷, on the right, where the strip's ⏶ Log brings it back: they
-  were a – on the right and an arrow on the left). Not done: a folded
-  pane's strip shows an arrow, and its name only for the log and in
-  the tip. (S)
+  the state is kept in the settings. Each pane has one button of its
+  own to fold it away, by the reporter's rule on 1.31.0: a chevron on
+  the edge it faces the middle by (the tree's right, the palettes'
+  left, or right where they were split off the middle's left, the
+  log's top), centered along it, in a thin strip that is all a folded
+  pane leaves, the button in the same place (the tree's «, the
+  palettes' » among their type icons, the log's ⏷ and ⏶ Log, and
+  egui_dock's arrow in the palettes' tab bar went). Not done: the
+  strip names its pane only in the tip; egui_dock's arrow on the
+  palettes' tab bar is covered over (egui_dock has it on every pane or
+  none, and windows fold to their bar by it), so the bar keeps its
+  blank room before the first tab, and the middle's panes keep theirs;
+  palettes joined to the middle's tabs, split above or below it or in
+  a window have no edge button (View and their ✕ fold them), and those
+  split above or below leave their strip on the right. (S)
   (from builders' reports after 1.19.1)
 - **Tool windows where they were last docked** (GitHub issue 14): each
   kind of window (script, conversation, blueprint, Faction Editor…)
