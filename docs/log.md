@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-10-23
+* **Update**: [NUI Creator](manual/18-nui-creator.md) and `mg nui schema --layout`: a text and a text field with no width take their column's width and count nothing toward it, as a label (seen in the game client, NWN EE 8193.37, on the Domains of Dread's windows); they were drawn 150 wide.
 * **Update**: [Command-line tools](manual/11-command-line.md) and [NUI Creator](manual/18-nui-creator.md): `mg nui layout` says wrapped text cut at the bottom of a box that doesn't scroll, with the height that shows it all (`needs_height`): the Domains of Dread Design session's survey of tdod-module's windows.
 
 ## 2026-10-22

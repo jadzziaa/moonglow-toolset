@@ -53,12 +53,17 @@ pub(super) fn natural(node: &Value, s: &Settings, row: Option<usize>, depth: usi
         } else {
             vec2(width, 30.0)
         };
-    } else if matches!(ty, "label" | "image" | "spacer") {
+    } else if matches!(ty, "label" | "image" | "spacer" | "textedit") {
         // These controls take their span from the containing layout; their
-        // content must not inject the button's default 150-unit width.
+        // content must not inject the button's default 150-unit width. (A
+        // text input too, in NWN EE 8193.37: the Domains of Dread's
+        // multiline description filled its 468 column.)
         size.x = 0.0;
     } else if ty == "text" {
-        size.y = 64.0;
+        // As a label: the whole column (NWN EE 8193.37: 460 wide beside
+        // rows of buttons), and only the column (wrapped at a lone 120
+        // button's width).
+        size = vec2(0.0, 64.0);
     } else if matches!(ty, "button" | "button_select" | "button_image") {
         // NUI_STYLE_PRIMARY_HEIGHT: a button with no height is 50 high in the
         // client (less where its row has less room).
@@ -183,6 +188,8 @@ pub(super) fn fills_width(node: &Value, s: &Settings, row: Option<usize>) -> boo
             node["type"].as_str(),
             Some(
                 "label"
+                    | "text"
+                    | "textedit"
                     | "image"
                     | "spacer"
                     | "col"

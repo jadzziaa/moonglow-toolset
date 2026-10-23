@@ -3,7 +3,7 @@ type: Manual Page
 title: NUI Creator
 description: The NUI Creator - designing an Enhanced Edition UI window (JUI) on a canvas with the game's skin and fonts, images, keys, binds, swap layout variants, event handlers (or one event script for several windows), the settings file, building its scripts, making windows without the window (render, layout, import), and what the game refuses or does on its own.
 tags: [manual, nui, scripts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T04:58:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T06:39:29Z }
 sources:
   - id: mg-nui
     resource: crates/mg-nui
@@ -77,13 +77,13 @@ corresponding bind-array values.
 Standard controls without an explicit width keep their 150-point width in a
 column. Widening the window does not stretch those controls; set **Width** when
 you need a wider label, button or input. Exactly: a button, image button,
-toggle button, check box, combo box, slider, text field or text without a
-width is 150 points wide (`NUI_STYLE_PRIMARY_WIDTH` in the game's
-`nw_inc_nui.nss`, and the width the client gives it), options and tabs 150
-an entry, a color picker 300; a label, image, spacer, progress bar, list,
+toggle button, check box, combo box or slider without a width is 150
+points wide (`NUI_STYLE_PRIMARY_WIDTH` in the game's `nw_inc_nui.nss`, and
+the width the client gives it), options and tabs 150 an entry, a color
+picker 300; a label, text, text field, image, spacer, progress bar, list,
 chart, row, column or group without one takes its column's width. A
-column is as wide as its widest control (a label, image or spacer counts
-nothing toward it; a list, chart or progress bar 150), the window's own
+column is as wide as its widest control (a label, text, text field, image
+or spacer counts nothing toward it; a list, chart or progress bar 150), the window's own
 column too, not as wide as the window: a new window's column is 154
 points wide whatever the window's size, and a list or label in it 150. A
 control as wide as the window less 20 points fills the window's column

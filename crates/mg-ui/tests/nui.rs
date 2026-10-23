@@ -2032,23 +2032,30 @@ fn controls_without_a_width_are_as_the_layout_form_says() {
     let width = |kind: &str| l.elements.iter().find(|e| e.kind == kind).unwrap().area.w;
     // The widest: the color picker's 300, and its column 304.
     assert_eq!(width("col"), 304.0);
-    for kind in [
-        "button",
-        "button_image",
-        "button_select",
-        "check",
-        "combo",
-        "slider",
-        "sliderf",
-        "textedit",
-        "text",
-    ] {
+    for kind in ["button", "button_image", "button_select", "check", "combo", "slider", "sliderf"] {
         assert_eq!(width(kind), 150.0, "{kind}");
         assert!(about.contains(kind), "{kind}");
     }
-    for kind in ["label", "image", "progress", "list", "chart", "color_picker"] {
+    // Text and a text input as a label (NWN EE 8193.37, the Domains of
+    // Dread's windows: a text across a 460 column, a description field
+    // filling its 468 one).
+    for kind in ["label", "text", "textedit", "image", "progress", "list", "chart", "color_picker"]
+    {
         assert_eq!(width(kind), 300.0, "{kind}");
     }
+    assert!(about.contains("A label, text, textedit, image"));
+    // And they count nothing toward their column: beside a 120 button, a
+    // text is 120 wide, and wraps there (the game's "You do not shout.").
+    let mut doc = mg_nui::window();
+    doc["root"]["children"] = json!([
+        {"type": "text", "value": "You do not shout.", "height": 40.0, "scrollbars": 0},
+        {"type": "button", "label": "Close", "width": 120.0, "height": 30.0}
+    ]);
+    let mut m = mg_module::Module::new();
+    m.set(key(ResType::JUI), serde_json::to_vec(&doc).unwrap());
+    let w = mg_ui::nui_render::Window { name: "widths", ..crier_window(&m) };
+    let l = layout(&w, &Options::default()).unwrap();
+    assert_eq!((l.elements[0].area.w, l.elements[1].area.w), (124.0, 120.0));
     assert!(about.contains("color_picker 300"));
     // A new window's: 154 wide, its Close button 150, at any width.
     let mut m = mg_module::Module::new();
