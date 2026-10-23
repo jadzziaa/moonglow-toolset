@@ -280,25 +280,6 @@ pub use mg_module::locks::LOCKED;
 impl AreaObject {
     /// Reads the object `index` of the GIT list of `kind`.
     pub fn read(game: &GameData, kind: ObjectKind, index: usize, s: &Struct) -> AreaObject {
-        let float = |label: &str| s.float(label).unwrap_or(0.0);
-        let (position, rotation) = if kind.has_bearing() {
-            (Vec3::new(float("X"), float("Y"), float("Z")), float("Bearing"))
-        } else {
-            let position = Vec3::new(float("XPosition"), float("YPosition"), float("ZPosition"));
-            let (x, y) = (float("XOrientation"), float("YOrientation"));
-            let rotation =
-                if kind.has_outline() || kind == ObjectKind::Sound || (x == 0.0 && y == 0.0) {
-                    0.0
-                } else {
-                    y.atan2(x) - FRAC_PI_2
-                };
-            (position, rotation)
-        };
-        let outline = match kind {
-            ObjectKind::Trigger => outline(s, ["PointX", "PointY", "PointZ"], position),
-            ObjectKind::Encounter => outline(s, ["X", "Y", "Z"], position),
-            _ => Vec::new(),
-        };
         let items = |r: ResRef| -> Option<Gff> {
             let data = game.resman.get(&ResKey::new(r, ResType::UTI)).ok()?;
             Gff::read(&data).ok()
@@ -321,10 +302,36 @@ impl AreaObject {
             Some(Err(e)) => (None, Some(e.to_string())),
             None => (None, None),
         };
-        let template_field = kind.resref_field();
         let laid = if kind == ObjectKind::Item { mg_preview::ground_turn(game, s) } else { 0 };
+        AreaObject { preview, problem, laid, ..AreaObject::placed(kind, index, s) }
+    }
+
+    /// The object `index` of the GIT list of `kind` as it is placed (where
+    /// it stands, how it turns, its outline and fields), without the game:
+    /// no preview, and an item not turned as it lies.
+    pub fn placed(kind: ObjectKind, index: usize, s: &Struct) -> AreaObject {
+        let float = |label: &str| s.float(label).unwrap_or(0.0);
+        let (position, rotation) = if kind.has_bearing() {
+            (Vec3::new(float("X"), float("Y"), float("Z")), float("Bearing"))
+        } else {
+            let position = Vec3::new(float("XPosition"), float("YPosition"), float("ZPosition"));
+            let (x, y) = (float("XOrientation"), float("YOrientation"));
+            let rotation =
+                if kind.has_outline() || kind == ObjectKind::Sound || (x == 0.0 && y == 0.0) {
+                    0.0
+                } else {
+                    y.atan2(x) - FRAC_PI_2
+                };
+            (position, rotation)
+        };
+        let outline = match kind {
+            ObjectKind::Trigger => outline(s, ["PointX", "PointY", "PointZ"], position),
+            ObjectKind::Encounter => outline(s, ["X", "Y", "Z"], position),
+            _ => Vec::new(),
+        };
+        let template_field = kind.resref_field();
         AreaObject {
-            laid,
+            laid: 0,
             kind,
             index,
             position,
@@ -334,8 +341,8 @@ impl AreaObject {
                 .map(|t| String::from_utf8_lossy(t).into_owned())
                 .unwrap_or_default(),
             template: s.resref(template_field).filter(|r| !r.is_empty()),
-            preview,
-            problem,
+            preview: None,
+            problem: None,
             outline,
             visual: VisualTransform::read(s),
             is_static: kind == ObjectKind::Placeable && s.integer("Static").unwrap_or(0) != 0,
