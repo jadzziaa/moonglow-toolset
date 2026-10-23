@@ -12,8 +12,8 @@
 //! (they are in no order of place): its levels share its buffers. Near
 //! the eye each tile's grass is drawn by itself; where a whole chunk of
 //! [`CHUNK`] by [`CHUNK`] tiles is at the last level, its tiles' tufts are
-//! put into one mesh, made the first time the chunk is seen (a few each
-//! frame, [`crate::AreaScene::grow_grass`]) and kept: a large area seen
+//! put into one mesh, made the first time the chunk is seen (on a thread
+//! of its own, [`crate::AreaScene::grow_grass`]) and kept: a large area seen
 //! from high up is some sixty draws of grass rather than a thousand. Until
 //! a chunk's mesh is made, its tiles are drawn by themselves, with the
 //! same tufts: nothing in the picture changes when it is.
