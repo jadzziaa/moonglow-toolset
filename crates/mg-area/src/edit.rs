@@ -220,14 +220,11 @@ pub struct AreaFiles<'a> {
 /// height steps of `step` metres) into the area's ARE, only their
 /// `Tile_Height` where it changes (nothing around them is fitted to them:
 /// a tile raised alone stands above its neighbours, with gaps between),
-/// and move the area's `objects` standing on those tiles (their position
-/// over the tile's square) up or down with them, as far.
-pub fn tile_height_edits(
-    files: &AreaFiles,
-    objects: &[AreaObject],
-    step: f32,
-    heights: &[(usize, i32)],
-) -> Vec<Edit> {
+/// and move the objects of its GIT standing on those tiles (their
+/// position over the tile's square) up or down with them, as far. The
+/// objects are read from the GIT as it is (not from a view of the area,
+/// which may not have caught up with the last change).
+pub fn tile_height_edits(files: &AreaFiles, step: f32, heights: &[(usize, i32)]) -> Vec<Edit> {
     let width = files.are_root.integer("Width").unwrap_or(0).max(0) as usize;
     let list = files.are_root.list("Tile_List").unwrap_or(&[]);
     let mut edits = Vec::new();
@@ -252,18 +249,18 @@ pub fn tile_height_edits(
     if width == 0 || moved.is_empty() {
         return edits;
     }
-    for o in objects {
-        let (x, y) = (o.position.x / crate::TILE_SIZE, o.position.y / crate::TILE_SIZE);
-        if x < 0.0 || y < 0.0 || x as usize >= width {
-            continue;
+    for kind in ObjectKind::ALL {
+        for (index, s) in files.git_root.list(kind.list()).unwrap_or(&[]).iter().enumerate() {
+            let o = AreaObject::placed(kind, index, s);
+            let (x, y) = (o.position.x / crate::TILE_SIZE, o.position.y / crate::TILE_SIZE);
+            if x < 0.0 || y < 0.0 || x as usize >= width {
+                continue;
+            }
+            let i = y as usize * width + x as usize;
+            let Some(&(_, steps)) = moved.iter().find(|(t, _)| *t == i) else { continue };
+            let to = o.position + Vec3::Z * (steps as f32 * step);
+            edits.extend(move_edits(files.git, &o, s, to, o.rotation));
         }
-        let i = y as usize * width + x as usize;
-        let Some(&(_, steps)) = moved.iter().find(|(t, _)| *t == i) else { continue };
-        let Some(s) = files.git_root.list(o.kind.list()).and_then(|l| l.get(o.index)) else {
-            continue;
-        };
-        let to = o.position + Vec3::Z * (steps as f32 * step);
-        edits.extend(move_edits(files.git, o, s, to, o.rotation));
     }
     edits
 }
@@ -364,14 +361,6 @@ mod tests {
         };
         let mut git_root = Struct::new(0xffff_ffff);
         git_root.set("WaypointList", Value::List(vec![point(15.0, 5.0), point(5.0, 5.0)]));
-        let objects: Vec<AreaObject> = [15.0, 5.0]
-            .iter()
-            .enumerate()
-            .map(|(i, &x)| AreaObject {
-                index: i,
-                ..object(ObjectKind::Waypoint, Vec3::new(x, 5.0, 0.0), 0.0)
-            })
-            .collect();
         let files = AreaFiles {
             are: ResKey::new(ResRef::from_str("area").unwrap(), ResType::ARE),
             are_root: &are,
@@ -379,7 +368,7 @@ mod tests {
             git_root: &git_root,
         };
         // Tile 1 (south-east) two steps of 5 m up; tile 2 kept at 1.
-        let edits = tile_height_edits(&files, &objects, 5.0, &[(1, 2), (2, 1)]);
+        let edits = tile_height_edits(&files, 5.0, &[(1, 2), (2, 1)]);
         let [tile_edit, raised] = edits.as_slice() else { panic!("{edits:?}") };
         let Edit::SetField { key, path, label, value } = tile_edit else { panic!() };
         assert_eq!(
@@ -395,7 +384,7 @@ mod tests {
         assert_eq!(path, &GffPath::root().item("WaypointList", 0));
         assert_eq!((label.as_str(), value), ("ZPosition", &Some(Value::Float(10.0))));
         // Down below 0: as far.
-        let edits = tile_height_edits(&files, &objects, 5.0, &[(0, -1)]);
+        let edits = tile_height_edits(&files, 5.0, &[(0, -1)]);
         assert_eq!(labels(&edits), ["1Tile_Height", "1ZPosition"]);
         let Edit::SetField { value, .. } = &edits[1] else { panic!() };
         assert_eq!(value, &Some(Value::Float(-5.0)));

@@ -627,6 +627,23 @@ pub(crate) fn tile_command_with(
     kept: &[((u32, u32), mg_gff::Struct)],
     extra: Vec<mg_edit::Edit>,
 ) {
+    if let Some(command) = tile_command_made(app, view, before, changes, label, kept, extra) {
+        app.actions.push(crate::Action::Apply(command));
+    }
+}
+
+/// The command [`tile_command_with`] applies, made against the area as
+/// the workspace has it now, for a caller that applies it at once (Tile
+/// Properties, whose own step goes over it); `None` when nothing changes.
+pub(crate) fn tile_command_made(
+    app: &mut Moonglow,
+    view: &mut AreaView,
+    before: &Grid,
+    changes: &[((u32, u32), Placement)],
+    label: &str,
+    kept: &[((u32, u32), mg_gff::Struct)],
+    extra: Vec<mg_edit::Edit>,
+) -> Option<Command> {
     let broken = view.terrain.as_ref().map_or(0, |t| before.groups_broken(&t.index, changes).len());
     if broken > 0 {
         view.notice = Some(broken_warning(label, broken));
@@ -634,10 +651,10 @@ pub(crate) fn tile_command_with(
     let (Some(ws), Some(game), Some(tools)) =
         (app.ws.as_mut(), app.game.as_deref(), view.terrain.as_ref())
     else {
-        return;
+        return None;
     };
     let key = ResKey::new(view.area, ResType::ARE);
-    let Ok(are) = ws.doc(&key) else { return };
+    let Ok(are) = ws.doc(&key) else { return None };
     let root = are.root.clone();
     let scheme = root
         .integer("LightingScheme")
@@ -682,9 +699,7 @@ pub(crate) fn tile_command_with(
     // before the doors the tiles take are removed.)
     let mut all = extra;
     all.extend(edits);
-    if !all.is_empty() {
-        app.actions.push(crate::Action::Apply(Command::new(label, all)));
-    }
+    (!all.is_empty()).then(|| Command::new(label, all))
 }
 
 /// Terrain mode's input; `false` when no tileset brush applies to the area

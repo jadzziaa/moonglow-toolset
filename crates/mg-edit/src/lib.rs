@@ -302,6 +302,23 @@ impl Workspace {
         Ok(Some(label))
     }
 
+    /// Takes the last command back and forgets it: undone, with nothing to
+    /// redo (a draft withdrawn, such as a window's changes shown as they
+    /// are made and then cancelled). Returns its label.
+    pub fn withdraw(&mut self) -> Result<Option<String>, EditError> {
+        let Some(inverse) = self.undo.pop() else { return Ok(None) };
+        let label = match self.run(&inverse) {
+            Ok(forward) => forward.label,
+            Err(e) => {
+                self.undo.push(inverse);
+                return Err(e);
+            }
+        };
+        self.changes_since_save -= 1;
+        self.revision += 1;
+        Ok(Some(label))
+    }
+
     /// Redoes the last undone command; returns its label.
     pub fn redo(&mut self) -> Result<Option<String>, EditError> {
         let Some(forward) = self.redo.pop() else { return Ok(None) };
@@ -706,6 +723,32 @@ mod tests {
         assert_eq!(root(&mut ws), (None, None));
         ws.redo().unwrap();
         assert_eq!(root(&mut ws), (Some(3), Some(2)));
+    }
+
+    #[test]
+    fn a_withdrawn_command_leaves_nothing_to_redo() {
+        let mut ws = workspace();
+        let k = key("module", ResType::IFO);
+        let set = |label: &str, v: i32| Edit::SetField {
+            key: k,
+            path: GffPath::root(),
+            label: label.into(),
+            value: Some(Value::Int(v)),
+        };
+        assert_eq!(ws.withdraw().unwrap(), None, "nothing to withdraw");
+        ws.apply(Command::new("Set A", vec![set("A", 1)])).unwrap();
+        ws.apply(Command::new("Draft", vec![set("A", 2), set("B", 3)])).unwrap();
+        ws.amend(vec![set("B", 4)]).unwrap();
+        let revision = ws.revision();
+        assert_eq!(ws.withdraw().unwrap().as_deref(), Some("Draft"));
+        assert!(ws.revision() > revision);
+        let r = &ws.doc(&k).unwrap().root;
+        assert_eq!((r.integer("A"), r.integer("B")), (Some(1), None), "as before the draft");
+        assert_eq!(ws.can_undo(), Some("Set A"));
+        assert_eq!(ws.can_redo(), None, "nothing to redo");
+        assert!(ws.is_modified(), "Set A is still a change");
+        ws.undo().unwrap();
+        assert!(!ws.is_modified());
     }
 
     #[test]

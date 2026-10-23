@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T10:14:36Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T11:59:31Z }
 ---
 
 # Areas
@@ -726,13 +726,32 @@ source light's flame burns, an animation `animloop01` to `03`), and
 greyed out, a loop unchecked, for what it hasn't. The tileset's own
 `MainLight1`…`AnimLoop3` flags don't tell (the game's tilesets have them
 for every tile). With several tiles chosen, a control is there for what
-any of them has, and each tile is given only what its own model has: a
+any of them has, and it shows the first tile's value; a control you set
+goes to every tile that has it, and the ones you don't touch keep each
+tile's own value. Each tile is given only what its own model has: a
 value already in the area for a light the model hasn't is kept as it
 is. **Defaults** puts back the lighting scheme's colors and the loops.
-**OK** applies the changes (one step to undo) and **Cancel** discards
-them. Closed any other way with changes not applied (its tab's or
-window's ✕, Escape), it asks, as a side editor's tab does: **Save**,
-**Don't Save** or **Cancel** (Aurora's ✕ discards them without asking).
+
+Every change in Tile Properties shows in the area **as you make it**: a
+light, a loop, the Height (each click of - or +, and each step of a
+height dragged), Defaults. While the window stays open, all of them are
+**one step to undo**, however many you make. **OK** keeps them and
+closes the window. **Cancel** takes them back, and the tiles and what
+stands on them are as they were when the window opened (nothing is left
+for Redo). Closed any other way with changes (its tab's or window's ✕,
+Escape), it asks, as a side editor's tab does: **Save** keeps them,
+**Don't Save** takes them back, **Cancel** leaves the window open
+(Aurora's ✕ discards them without asking).
+
+A tile put in from the window's pictures (a variant, a tile of All
+tiles, or the tiles turned by its Turn, below) is a step of its own,
+made at once, and Cancel doesn't take it out: Undo does. The window's
+lights, loops and height go on it, and stay its own step, above the
+tile's: Cancel takes them off the new tile, and the tile stays. If
+another change is made in the module while the window is open (an
+object moved, a tile painted), Cancel still puts back what the window
+changed, in a step of its own, **Cancel Tile Properties**, where those
+tiles still have the window's values; what the other change did stays.
 
 **Height** (Moonglow's own) is the tiles' `Tile_Height`, in the
 tileset's height steps (the meters are written beside it): **-** and
@@ -748,8 +767,8 @@ heights: tested from 3 steps below 0 to 1000 above (5 km on Rural's
 5 m steps), the walkmesh with it; Moonglow takes from -1024 to 1024.
 With several tiles chosen of different heights it shows **Mixed** until
 one is set, which they all take (**-** and **+** step from the first's).
-It changes on **OK**, with the lights, as one step to undo, and closing
-with it changed asks as above. A tile of a group or a feature changes
+It changes at once, with the lights in the window's one step, as
+above. A tile of a group or a feature changes
 height only with the whole group chosen (in Select Tiles, all its
 tiles), so that the group stays whole; otherwise the control is greyed
 out and says why (unless **Allow editing tiles of groups and
@@ -759,12 +778,17 @@ height, as the game's does.
 **All tiles (ignore fit)** (Moonglow's own; off each time the window
 opens) shows every tile of the tileset in place of the variants, in the
 tileset's order, groups' pieces too, with **Turn** (0°, ↺90°, ↺180°,
-↺270°) to turn them and the same **Size** slider; only the rows in
-sight are drawn, however many tiles the tileset has. Click one and it
-is put in the tiles chosen as it is, turned so, at the **Height**
-above, whether it fits its neighbors or not: none of them changes (as
-**📌 Exact tile** puts one in). It is one step to undo, the window stays
-open on it, and its lights are chosen afresh, its doors come and go and
+↺270°) and the same **Size** slider; only the rows in sight are drawn,
+however many tiles the tileset has. Choosing a Turn turns the tiles
+chosen at once: each keeps its own tile and its lights and loops, and
+lies as the Turn says, put in as it is, whether it fits its neighbors
+or not (none of them changes); each Turn chosen is one step to undo.
+The pictures show the tiles turned so. Click one and it is put in the
+tiles chosen as it is, turned so, at the height they have (and the
+window's **Height**, if it is set), whether it fits its neighbors or
+not: none of them changes (as **📌 Exact tile** puts one in). It is one
+step to undo, the window stays open on it, and its lights are chosen
+afresh (but for those set in the window), its doors come and go, and
 what stands on it moves with a new height, as above. Off, the variants
 are only the tiles that fit, as ever, and Next and Previous Tile
 Appearance and Rotate Tile only ever give a tile that fits. Not for a
