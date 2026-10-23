@@ -102,11 +102,15 @@ impl Renderer<'_> {
             galley = layout(content.width().max(1.0));
         }
         // (Wrapped past the bottom with no bar to scroll it: cut, as the
-        // client draws it. The box's height that shows it all: the text,
-        // its 6 above and 2 below, and a horizontal bar's.)
-        if !vertical && galley.size().y > content.height() + 0.5 {
+        // client draws it. What counts is where the glyphs end, not the
+        // last line's spacing below them (a box whose last line shows whole
+        // was said cut: the Design session's survey). The box's height that
+        // shows it all: the glyphs, 6 above and 2 below, and a horizontal
+        // bar's.)
+        let ink = galley.mesh_bounds.max.y;
+        if !vertical && ink > content.height() + 0.5 {
             let bar = if horizontal { bar_y } else { 0.0 };
-            a.record_cut_below(&value, (galley.size().y + 8.0 * scale + bar) / scale);
+            a.record_cut_below(&value, (ink + 8.0 * scale + bar) / scale);
         }
         let key = format!("{path}/{row:?}");
         let max_x = if horizontal { extra } else { 0.0 };
