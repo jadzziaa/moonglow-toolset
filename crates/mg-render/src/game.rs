@@ -892,6 +892,18 @@ impl GamePass {
         }
     }
 
+    /// What the pass writes of the picture. One that doesn't blend leaves
+    /// its alpha as it was (opaque, as the scene clears it): the programs
+    /// write the texture's alpha out (`fslit`: `gl_FragColor =
+    /// FragmentColor`), and what a cut-out kept below opaque made the
+    /// picture see-through there (a white line along every cut edge of the
+    /// Domains of Dread's fur cards, in the views and in `mgv render`). The
+    /// client draws those texels solid and never shows its picture's alpha
+    /// (`creatures_look` in `client_render.rs`).
+    fn write_mask(self) -> wgpu::ColorWrites {
+        if self.blend().is_some() { wgpu::ColorWrites::ALL } else { wgpu::ColorWrites::COLOR }
+    }
+
     /// Whether the pass writes its depth.
     fn depth_write(self) -> bool {
         use crate::particles::ParticleBlend as B;
@@ -1614,7 +1626,7 @@ impl Worker {
                     targets: &[Some(wgpu::ColorTargetState {
                         format: job.format,
                         blend: key.pass.blend(),
-                        write_mask: wgpu::ColorWrites::ALL,
+                        write_mask: key.pass.write_mask(),
                     })],
                 }),
                 multiview_mask: None,
@@ -2405,6 +2417,36 @@ mod tests {
         let hinted = Traits { uvs: true, hint: true, ..Traits::default() };
         assert_eq!(program_pair(Some(&custom), hinted), ("vs_a".into(), "fs_a".into(), true));
         assert_eq!(program_pair(None, hinted), ("vslit_nm".into(), "fslit_nm".into(), false));
+    }
+
+    /// A pass that doesn't blend leaves the picture's alpha as it was
+    /// (opaque): the programs write a cut-out's kept texels' alpha out, below
+    /// 1 at its edges. One that blends writes it, and over opaque it stays
+    /// opaque.
+    #[test]
+    fn a_pass_that_does_not_blend_leaves_the_picture_s_alpha() {
+        use crate::particles::ParticleBlend as B;
+        let passes = [
+            GamePass::Opaque,
+            GamePass::Solid,
+            GamePass::Fringe,
+            GamePass::Additive,
+            GamePass::Sky,
+            GamePass::Particles(B::Normal),
+            GamePass::Particles(B::Lighten),
+            GamePass::Particles(B::PunchThrough),
+        ];
+        for pass in passes {
+            match pass.blend() {
+                None => assert_eq!(pass.write_mask(), wgpu::ColorWrites::COLOR, "{pass:?}"),
+                Some(b) => {
+                    assert_eq!(pass.write_mask(), wgpu::ColorWrites::ALL, "{pass:?}");
+                    // (Alpha a over 1: a + 1 · (1 - a).)
+                    assert_eq!(b.alpha, wgpu::BlendComponent::OVER, "{pass:?}");
+                }
+            }
+        }
+        assert_eq!(GamePass::Opaque.write_mask(), wgpu::ColorWrites::COLOR);
     }
 
     /// A card read: what it is, its traits, its pair, `NO_DISCARD`'s

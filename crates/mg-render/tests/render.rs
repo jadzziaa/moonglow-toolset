@@ -1379,6 +1379,77 @@ fn a_cut_out_is_cut_at_the_client_s_alpha() {
     assert_eq!(shot(Some("cut")), background, "alpha 0.18 is cut");
 }
 
+/// What is kept of a cut-out (`blending punchthrough`) is solid in the
+/// picture, its alpha 1, whichever shader draws it: the game's programs
+/// write the texture's alpha out (`fslit`: `gl_FragColor =
+/// FragmentColor`), and where it was below 1 the picture was see-through
+/// there. The Domains of Dread's fur cards had a white line along every
+/// cut edge in the model and area views and in `mgv render` (the window or
+/// the image viewer showing what is behind through it); the client shows
+/// none (`creatures_look` in `client_render.rs`).
+#[test]
+fn a_cut_out_is_solid_in_the_picture_by_the_game_s_programs_too() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    for (name, alpha) in [("kept", 77), ("cut", 46)] {
+        assets.solid(name, [200, 200, 200, alpha]);
+        let txi = mg_image::txi::Txi::parse(b"blending punchthrough\n");
+        assets.txis.insert(name.into(), txi);
+    }
+    // `vslit` and an `fslit` that passes the texture's alpha out and cuts
+    // as the game's does.
+    authored_lit_pair(&mut assets);
+    let fs = r#"
+#define SHADER_TYPE 2
+uniform sampler2D texUnit0;
+uniform float fAlphaDiscardValue;
+varying vec2 vUv;
+varying vec3 vBlack;
+varying vec3 vWhite;
+void main ()
+{
+    vec4 c = texture2D(texUnit0, vUv) * vec4(vWhite + vBlack, 1.0);
+    if (fAlphaDiscardValue >= 0.0 && c.a <= fAlphaDiscardValue)
+    {
+        discard;
+    }
+    gl_FragColor = c;
+}
+"#;
+    assets.shaders.insert("fslit".into(), fs.into());
+    let area = AreaLight { ambient: Vec3::splat(0.5), diffuse: Vec3::ZERO, ..Default::default() };
+    for game in [false, true] {
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        r.game_shaders = game;
+        let mut shot = |texture: Option<&str>| {
+            let mut m = quad();
+            let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind else { unreachable!() };
+            mesh.textures[0] = texture.map(str::to_owned);
+            let model = Arc::new(GpuModel::new(&gpu, Arc::new(m)));
+            let camera = Camera {
+                eye: Vec3::new(0.0, -0.5, 4.0),
+                target: Vec3::ZERO,
+                fov_y: 0.8,
+                near: 0.1,
+                far: 100.0,
+            };
+            let instances =
+                texture.map(|_| Instance::new(model, Mat4::IDENTITY)).into_iter().collect();
+            let scene = Scene { instances, area, ..Default::default() };
+            let px = r.render_image(&gpu, &assets, &scene, &camera, 32, 32).pixel(16, 16);
+            (px, r.drawn.game)
+        };
+        let (background, _) = shot(None);
+        let (kept, drawn) = shot(Some("kept"));
+        let (cut, _) = shot(Some("cut"));
+        assert_eq!(r.game_shader_failures(), &[]);
+        assert_eq!(drawn, usize::from(game), "drawn by the game's programs: {game}");
+        assert_ne!(kept, background, "alpha 0.3 is kept (game's programs: {game})");
+        assert_eq!(kept[3], 255, "and solid in the picture (game's programs: {game}): {kept:?}");
+        assert_eq!(cut, background, "alpha 0.18 is cut (game's programs: {game})");
+    }
+}
+
 /// A `Punch-Through` particle is cut where its texture's alpha is 0.2 or
 /// less and solid above, as the client draws it (`particles_look` with
 /// `MG_PARTICLES=punch` in `client_render.rs`): of a texture whose alpha
