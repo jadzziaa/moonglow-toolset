@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T10:05:13Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T10:14:36Z }
 ---
 
 # Areas
@@ -627,7 +627,9 @@ as Aurora's Terrain tab does:
   is refused, as any stroke is (the group flashes red), unless **Allow
   editing tiles of groups and features** is on, when the status line
   warns of the group left part changed. Each click, or drag, is one step
-  to undo. The switch is off at first and remembered; with it off,
+  to undo. It is for a terrain's and a crosser's tiles: the **Features**
+  and **Groups** pictures are placed whole as ever, switch or not. The
+  switch is off at first and remembered; with it off,
   painting is as above. A tile placed so is a tile like any other after:
   a terrain painted beside it chooses it again where its corners change.
   To raise or lower it, use Tile Properties' **Height**; to put in a

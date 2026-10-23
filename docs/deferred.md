@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T10:05:13Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T10:14:36Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1356,7 +1356,9 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   as the builder asked. (S) (from Jasperre's tile feedback, October 2026)
 - **Exact tile's reach:** the Gallery shows a terrain's and a crosser's
   tiles, not a group's pieces, so a piece of a group goes in alone only
-  through Tile Properties' All tiles; an exact tile takes the height of
+  through Tile Properties' All tiles (the Features and Groups pictures,
+  in the same Gallery as the switch, are placed whole whatever it says:
+  its tip and the manual say so, the pictures don't); an exact tile takes the height of
   the tile it replaces (no height to choose in the palette: Tile
   Properties' Height after). Where an exact tile and its neighbor
   disagree about a shared corner, the brushes read the corner as the

@@ -1343,7 +1343,9 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 "Exact tile: a tile chosen from the pictures goes in alone, exactly as chosen \
                  (a right click in the area turns it), at the height of the tile it replaces. \
                  The tiles around aren't adjusted to it: no neighbor, corner terrain, height or \
-                 crosser changes, so it may not meet them. Off: the tiles around fit themselves \
+                 crosser changes, so it may not meet them. Not the Features and Groups pictures, \
+                 placed whole as ever (Tile Properties' All tiles puts in a piece of one). Off: \
+                 the tiles around fit themselves \
                  to it",
             );
         }

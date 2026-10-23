@@ -1093,7 +1093,8 @@ fn height_row(ui: &mut egui::Ui, props: &mut TileProps) {
             if down.clicked() {
                 set = Some(v - 1);
             }
-            let mut value = egui::DragValue::new(&mut v).range(-HEIGHT_RANGE..=HEIGHT_RANGE);
+            let mut value =
+                egui::DragValue::new(&mut v).range(-HEIGHT_RANGE..=HEIGHT_RANGE).speed(0.1);
             if props.height.is_none() {
                 // (The tiles have different heights: one typed sets them all.)
                 value = value.custom_formatter(|_, _| "Mixed".into());
