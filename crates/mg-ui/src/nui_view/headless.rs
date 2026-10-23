@@ -253,6 +253,10 @@ pub struct Element {
     /// Text of it that did not fit and was cut.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub cut_text: Vec<String>,
+    /// Text that runs past the bottom of its box, which doesn't scroll:
+    /// the height (in points) the box needs to show it all.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub needs_height: Option<f32>,
 }
 
 /// The text a control shows (see [`Element::text`]).
@@ -543,6 +547,7 @@ fn laid_out(name: &str, r: &skin::Record, scale: f32, s: &Settings) -> Layout {
                 out_of_view,
                 overlaps: Vec::new(),
                 cut_text: p.cut.clone(),
+                needs_height: p.needs_height,
             }
         })
         .collect();
@@ -602,6 +607,7 @@ mod tests {
             clip: Rect::from_min_size(Pos2::ZERO, vec2(400.0, 300.0)),
             parent,
             cut: Vec::new(),
+            needs_height: None,
             look: None,
         }
     }

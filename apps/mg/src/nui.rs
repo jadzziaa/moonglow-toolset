@@ -494,6 +494,9 @@ fn layout_output(module: &Path, l: &mg_ui::nui_render::Layout, mut out: Output) 
         for cut in &e.cut_text {
             notes.push(format!("cuts {cut:?}"));
         }
+        if let Some(h) = e.needs_height {
+            notes.push(format!("its text needs a height of {h}"));
+        }
         if !notes.is_empty() {
             line += &format!("\t{}", notes.join("; "));
         }

@@ -43,10 +43,12 @@ pub(super) fn draw_text(
     let mut galley =
         assets.galley(ctx, &face.key(label, width, LINE), || line(ctx, label, face, width));
     // (Half a point either way is the rounding of a fit, not a cut.)
-    if assets.recording()
-        && (galley.size().x > rect.width() + 0.5 || galley.size().y > rect.height() + 0.5)
-    {
-        assets.record_cut(label);
+    if assets.recording() {
+        if galley.size().y > rect.height() + 0.5 {
+            assets.record_cut_below(label, galley.size().y / scale);
+        } else if galley.size().x > rect.width() + 0.5 {
+            assets.record_cut(label);
+        }
     }
     // nk_draw_text cuts a left-aligned line after the glyph that reaches its
     // end (nk_text_clamp; NWN EE 8193.37, np_misc: a 200-wide combo shows

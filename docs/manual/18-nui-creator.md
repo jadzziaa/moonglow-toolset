@@ -3,7 +3,7 @@ type: Manual Page
 title: NUI Creator
 description: The NUI Creator - designing an Enhanced Edition UI window (JUI) on a canvas with the game's skin and fonts, images, keys, binds, swap layout variants, event handlers (or one event script for several windows), the settings file, building its scripts, making windows without the window (render, layout, import), and what the game refuses or does on its own.
 tags: [manual, nui, scripts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:05:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T04:58:53Z }
 sources:
   - id: mg-nui
     resource: crates/mg-nui
@@ -604,7 +604,10 @@ and the preview follow them.
 - **Text that doesn't fit.** Left-aligned text (a label, a combo's choice)
   loses its last letters whole; the letter that reaches the edge stays.
   Centered and right-aligned text is cut at the edge instead. A combo's text
-  stops 14 points before its arrow.
+  stops 14 points before its arrow. Wrapped text (a text box with no
+  vertical scrollbar, a label) that runs past the bottom of its box is cut
+  there; `mg nui layout` says so, with the height that shows it all
+  (`needs_height`).
 - **A combo's list** is as wide as its widest choice plus 67, whatever the
   combo's width, 23 points a choice plus 5 high, and always has a scrollbar.
 - **Encouraged** controls pulse between their normal and their hover look; the

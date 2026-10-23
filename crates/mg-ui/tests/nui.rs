@@ -1708,6 +1708,44 @@ fn cries_window(m: &mg_module::Module) -> mg_ui::nui_render::Window<'_> {
     mg_ui::nui_render::Window { name: "cries", ..crier_window(m) }
 }
 
+/// Wrapped text that runs past the bottom of a box that doesn't scroll is
+/// said, with the height that shows it all (the Domains of Dread Design
+/// session's survey: four windows' text cut after a line or two, which the
+/// layout didn't say). At that height it fits; with a scrollbar it isn't
+/// cut.
+#[test]
+fn text_cut_at_the_bottom_of_its_box_is_said_with_the_height_it_needs() {
+    use mg_ui::nui_render::{Options, layout};
+    let long = "Performance points: 5 of 5. Performances known: 0 of 3.";
+    let text = |id: &str, height: f32, scrollbars: i64| {
+        json!({"type": "text", "id": id, "value": long, "width": 150.0, "height": height,
+               "scrollbars": scrollbars})
+    };
+    let laid = |children: Value| {
+        let mut doc = mg_nui::window();
+        doc["root"]["children"] = children;
+        let mut m = mg_module::Module::new();
+        m.set(ResKey::parse("cut", ResType::JUI).unwrap(), serde_json::to_vec(&doc).unwrap());
+        let w = mg_ui::nui_render::Window { name: "cut", ..crier_window(&m) };
+        layout(&w, &Options::default()).unwrap()
+    };
+    let of = |l: &mg_ui::nui_render::Layout, id: &str| {
+        l.elements.iter().find(|e| e.id.as_deref() == Some(id)).unwrap().clone()
+    };
+    let l = laid(json!([text("short", 40.0, 0), text("scrolls", 40.0, 4)]));
+    let short = of(&l, "short");
+    assert_eq!(short.cut_text, [long]);
+    let needs = short.needs_height.expect("the height it needs");
+    assert!(needs > 40.0, "{needs}");
+    let scrolls = of(&l, "scrolls");
+    assert!(scrolls.cut_text.is_empty() && scrolls.needs_height.is_none(), "{scrolls:?}");
+    // At the height said, all of it shows.
+    let l = laid(json!([text("short", needs, 0)]));
+    let fits = of(&l, "short");
+    assert!(fits.cut_text.is_empty() && fits.needs_height.is_none(), "{fits:?}");
+    assert_eq!(fits.area.h, needs);
+}
+
 /// A text field's text in the layout is what it shows: its value, or its
 /// placeholder (its label) while that is empty (the Design session's
 /// question: the placeholder was given though the binds filled it).

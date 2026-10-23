@@ -264,6 +264,9 @@ pub(super) struct Placed {
     pub parent: Option<usize>,
     /// Text of it that did not fit and was cut.
     pub cut: Vec<String>,
+    /// The height its text needs, in points, where the text runs past the
+    /// bottom of its box and the box doesn't scroll.
+    pub needs_height: Option<f32>,
     /// How it was drawn (`normal`, `hover`, `pressed`, `disabled`), once
     /// the canvas knows.
     pub look: Option<&'static str>,
@@ -315,6 +318,7 @@ impl Assets {
             clip,
             parent,
             cut: Vec::new(),
+            needs_height: None,
             look: None,
         });
         r.current.push(r.placed.len() - 1);
@@ -342,6 +346,18 @@ impl Assets {
             && let Some(&at) = r.current.last()
         {
             r.placed[at].cut.push(text.into());
+        }
+    }
+
+    /// Text the control being drawn cut at the bottom of its box, which
+    /// would need to be `height` points high to show it all.
+    pub(super) fn record_cut_below(&self, text: &str, height: f32) {
+        if let Some(r) = self.record.borrow_mut().as_mut()
+            && let Some(&at) = r.current.last()
+        {
+            let placed = &mut r.placed[at];
+            placed.cut.push(text.into());
+            placed.needs_height = Some(placed.needs_height.unwrap_or(0.0).max(height.ceil()));
         }
     }
 
