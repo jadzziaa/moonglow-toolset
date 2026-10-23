@@ -1730,9 +1730,9 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         if ui
             .toggle_value(&mut grass, labelled(icons::GRASS, "Grass"))
             .on_hover_text(
-                "Grass on the tiles near the view's center, as the game grows it near the \
-                 camera: the tileset's, and the area's own (Area Properties › Grass); in every \
-                 area view",
+                "Grass wherever the view shows grass ground, thinned far off (the game grows \
+                 it near the camera alone): the tileset's, and the area's own (Area Properties \
+                 › Grass); in every area view",
             )
             .changed()
         {
@@ -2080,8 +2080,22 @@ fn viewport(
         show: view.show,
         animate: !app.settings.still_objects,
         fade: view.fade.now(view.tile_mode || crate::terrain_mode::active(app, view).is_some()),
-        grass: view.orbit.filter(|_| !app.settings.no_grass).map(|o| o.target.truncate()),
+        // (As far as the view sees, near and far: the picture's size is
+        // what is left of the panel.)
+        grass: view.orbit.filter(|_| !app.settings.no_grass).map(|o| {
+            let size = ui.available_size().max(egui::vec2(32.0, 32.0));
+            mg_area::Sight::of(&o.camera(), size.x / size.y)
+        }),
     };
+    // The grass far off, put together by chunks on a thread of its own
+    // (drawn tile by tile until it is, the same tufts: the picture stays as
+    // it is); the view is drawn again until they are taken up.
+    if let (Some(sight), Some(scene), Some(model), Some(vp)) =
+        (&settings.grass, view.scene.as_mut(), &view.model, app.viewport.as_ref())
+        && scene.grow_grass(&vp.gpu, model, sight)
+    {
+        ui.ctx().request_repaint();
+    }
     let shift = ui.input(|i| i.modifiers.shift);
     let preview = crate::terrain_mode::preview(app, view, shift);
     let (preview_instances, hidden) =

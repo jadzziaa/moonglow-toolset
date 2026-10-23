@@ -20,6 +20,7 @@ pub use assets::{Assets, LoadedTexture, NoAssets, colored_name, split_colors};
 pub use game::ShaderStats;
 pub use gpu::Gpu;
 pub use model::{GpuModel, rest_pose};
+pub use reach::Frustum;
 pub use renderer::{
     DEPTH_FORMAT, DebugView, Drawn, GAME_WATER, GameProgram, MAX_LIGHTS, Renderer, Targets,
     attenuation_params, tint_light,

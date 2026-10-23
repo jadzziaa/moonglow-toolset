@@ -59,7 +59,7 @@ impl SkinVertex {
 }
 
 /// A skinned mesh's bones and their weights on the GPU.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GpuSkin {
     /// Bone nodes.
     pub bones: Vec<usize>,
@@ -242,6 +242,29 @@ impl GpuModel {
         }
         let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         GpuModel { id, model, meshes, rest }
+    }
+
+    /// This model drawing only the first `count(mesh)` of each mesh's
+    /// indices (at most all of them), from the same buffers: nothing is
+    /// uploaded. (An area's grass far off: the first of its tufts.)
+    pub fn first_indices(&self, mut count: impl FnMut(&GpuMesh) -> u32) -> GpuModel {
+        let meshes = self
+            .meshes
+            .iter()
+            .map(|m| GpuMesh {
+                node: m.node,
+                vertices: m.vertices.clone(),
+                indices: m.indices.clone(),
+                index_count: count(m).min(m.index_count),
+                material: m.material.clone(),
+                min: m.min,
+                max: m.max,
+                skin: m.skin.clone(),
+                tangents_made: m.tangents_made,
+            })
+            .collect();
+        let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        GpuModel { id, model: self.model.clone(), meshes, rest: self.rest.clone() }
     }
 }
 

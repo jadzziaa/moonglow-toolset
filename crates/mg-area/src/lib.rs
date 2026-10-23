@@ -27,6 +27,7 @@ use mg_set::Tileset;
 pub mod arrange;
 pub mod edit;
 pub mod grass;
+mod grass_view;
 pub mod marker;
 pub mod pick;
 pub mod reshape;
@@ -34,7 +35,8 @@ mod scene;
 pub mod terrain;
 pub mod walk;
 
-pub use scene::{AreaScene, GRASS_REACH, Usage, View, fog, overview};
+pub use grass_view::{CHUNK, GrassDraw, Grown, chunk_of, grass_chosen};
+pub use scene::{AreaScene, Sight, Usage, View, fog, overview};
 
 /// A tile's edge, metres.
 pub const TILE_SIZE: f32 = 10.0;

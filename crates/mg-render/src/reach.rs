@@ -213,11 +213,12 @@ impl<'a> LightGrid<'a> {
 }
 
 /// What the camera sees, as the six planes around it.
-pub(crate) struct Frustum([Vec4; 6]);
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Frustum([Vec4; 6]);
 
 impl Frustum {
     /// Of a camera's projection times its view.
-    pub(crate) fn new(view_proj: Mat4) -> Frustum {
+    pub fn new(view_proj: Mat4) -> Frustum {
         let (x, y, z, w) = (view_proj.row(0), view_proj.row(1), view_proj.row(2), view_proj.row(3));
         // Left, right, bottom, top, near (depths from 0), far; each with
         // its normal a unit long, pointing in.
@@ -228,7 +229,7 @@ impl Frustum {
     }
 
     /// Whether a ball is wholly out of sight.
-    pub(crate) fn hides(&self, centre: Vec3, radius: f32) -> bool {
+    pub fn hides(&self, centre: Vec3, radius: f32) -> bool {
         self.0.iter().any(|p| p.truncate().dot(centre) + p.w < -radius)
     }
 }

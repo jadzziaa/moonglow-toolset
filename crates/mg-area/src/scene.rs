@@ -10,7 +10,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use glam::{Mat4, Vec2, Vec3};
+use glam::{Mat4, Vec3};
 use mg_core::ResType;
 use mg_mdl::{Animation, Model};
 use mg_preview::compose::Composed;
@@ -20,12 +20,10 @@ use mg_render::{Gpu, GpuModel};
 use mg_rules::GameData;
 
 use crate::grass::GrassLook;
+pub use crate::grass_view::Sight;
+use crate::grass_view::{ChunkGrass, GrassDraw, Grown, MadeOf, TileGrass};
 use crate::walk::Walkmesh;
 use crate::{AreaModel, AreaObject, AreaTile, Lighting, ObjectKind, TILE_SIZE};
-
-/// How far from the view's focus grass is drawn, meters (the game draws it
-/// near the camera alone): the tiles whose middle is this near.
-pub const GRASS_REACH: f32 = 30.0;
 
 /// How many objects' particles are simulated in a frame at most (an area
 /// of hundreds of torches still draws at once): those nearest the view.
@@ -80,9 +78,9 @@ pub struct View {
     /// black caps under them, stay), as Aurora's Environment › Fade
     /// Geometry leaves them out. (The game's tiles have 0, 1, 2 and 4.)
     pub fade: bool,
-    /// Grass is drawn on the tiles within [`GRASS_REACH`] of this point
-    /// (the view's focus, on the ground); `None`: none.
-    pub grass: Option<Vec2>,
+    /// Grass is drawn wherever this camera sees it ([`Sight`]); `None`:
+    /// none.
+    pub grass: Option<Sight>,
 }
 
 impl View {
@@ -204,11 +202,16 @@ pub struct AreaScene {
     /// Encounters' spawn points are marked (Options › Area).
     pub spawn_markers: bool,
     /// By tile index, the grass it grows ([`crate::grass::tufts`]).
-    tile_grass: Vec<Option<Arc<GpuModel>>>,
+    tile_grass: Vec<Option<Arc<TileGrass>>>,
     /// What grows (by material) that the grass was made for, and the
     /// grass of each tile model, by name.
     grass_for: Vec<(u32, GrassLook)>,
-    grass_cache: HashMap<String, Option<Arc<GpuModel>>>,
+    grass_cache: HashMap<String, Option<Arc<TileGrass>>>,
+    /// The grass of chunks far off, each in one mesh, by chunk
+    /// ([`crate::grass_view`]).
+    chunk_grass: HashMap<(i32, i32), ChunkGrass>,
+    /// What puts them together.
+    chunk_worker: Option<crate::grass_view::ChunkWorker>,
     /// The tile models' walkmeshes, by name.
     walkmesh_cache: HashMap<String, Option<Arc<Walkmesh>>>,
 }
@@ -361,6 +364,7 @@ impl AreaScene {
         if self.grass_for != growing {
             self.grass_for = growing.to_vec();
             self.grass_cache.clear();
+            self.chunk_grass.clear();
         }
         let (grass, walkmeshes) = (&mut self.grass_cache, &mut self.walkmesh_cache);
         self.tile_grass = area
@@ -374,8 +378,10 @@ impl AreaScene {
                         let walk = walkmeshes
                             .entry(name.clone())
                             .or_insert_with(|| Walkmesh::of_tile(game, name).map(Arc::new));
-                        let model = crate::grass::tufts(name, &walk.as_ref()?.faces, growing)?;
-                        Some(Arc::new(GpuModel::new(gpu, Arc::new(model))))
+                        let faces = &walk.as_ref()?.faces;
+                        let model = crate::grass::tufts(name, faces, growing)?;
+                        let densities = crate::grass::densities(&model, faces, growing);
+                        Some(Arc::new(TileGrass::new(gpu, model, densities)))
                     })
                     .clone()
             })
@@ -385,6 +391,71 @@ impl AreaScene {
     /// What grows that the grass shown was made for.
     pub fn grass_grown(&self) -> &[(u32, GrassLook)] {
         &self.grass_for
+    }
+
+    /// What `sight` sees of the grass of `area` ([`crate::grass_chosen`]).
+    fn grass_in_sight(&self, area: &AreaModel, sight: &Sight) -> Vec<GrassDraw> {
+        let grown: Vec<Grown> = (area.tiles.iter().zip(&self.tile_grass).enumerate())
+            .filter_map(|(i, (t, g))| {
+                let g = g.as_ref()?;
+                Some((i, t.position, t.transform().transform_point3(g.centre), g.radius))
+            })
+            .collect();
+        crate::grass_chosen(&grown, sight)
+    }
+
+    /// What the grass of chunk `tiles` (by index) is made of now: each
+    /// tile's index, its grass and where it stands.
+    fn made_of<'a>(
+        &'a self,
+        area: &'a AreaModel,
+        tiles: &'a [usize],
+    ) -> impl ExactSizeIterator<Item = (usize, Option<&'a Arc<TileGrass>>, Mat4)> + 'a {
+        tiles.iter().map(|&i| (i, self.tile_grass[i].as_ref(), area.tiles[i].transform()))
+    }
+
+    /// The chunk's grass in one mesh, if it is made and of what the chunk
+    /// has now.
+    fn chunk_made(
+        &self,
+        area: &AreaModel,
+        key: (i32, i32),
+        tiles: &[usize],
+    ) -> Option<&ChunkGrass> {
+        self.chunk_grass.get(&key).filter(|c| c.is_of(self.made_of(area, tiles)))
+    }
+
+    /// Has the grass of the chunks far off that `sight` sees put together,
+    /// those not yet (or that have changed), nearest first, on a thread of
+    /// its own, and takes those made since the last call: until they are,
+    /// their tiles are drawn one by one (the same tufts). Whether some are
+    /// being made.
+    pub fn grow_grass(&mut self, gpu: &Gpu, area: &AreaModel, sight: &Sight) -> bool {
+        if self.chunk_worker.is_none() {
+            self.chunk_worker = crate::grass_view::ChunkWorker::start();
+        }
+        let Some(worker) = self.chunk_worker.as_mut() else { return false };
+        self.chunk_grass.extend(worker.made());
+        let mut wanted: Vec<(f32, (i32, i32), MadeOf)> = self
+            .grass_in_sight(area, sight)
+            .into_iter()
+            .filter_map(|d| match d {
+                GrassDraw::Chunk(key, tiles) if self.chunk_made(area, key, &tiles).is_none() => {
+                    let at = area.tiles[tiles[0]].position;
+                    let made_of = (self.made_of(area, &tiles))
+                        .filter_map(|(i, grass, transform)| Some((i, grass?.clone(), transform)))
+                        .collect();
+                    Some((at.distance(sight.eye), key, made_of))
+                }
+                _ => None,
+            })
+            .collect();
+        wanted.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let Some(worker) = self.chunk_worker.as_mut() else { return false };
+        for (_, key, made_of) in wanted {
+            worker.make(gpu, key, made_of);
+        }
+        worker.busy()
     }
 
     /// `object` (not in the area: a blueprint about to be placed) as
@@ -761,14 +832,30 @@ impl AreaScene {
                 self.failed.borrow_mut().insert(key);
             }
         }
-        if let Some(focus) = view.grass {
-            for (i, (tile, grass)) in area.tiles.iter().zip(&self.tile_grass).enumerate() {
-                let Some(grass) = grass.as_ref().filter(|_| !hidden.contains(&i)) else { continue };
-                if tile.position.truncate().distance(focus) <= GRASS_REACH {
-                    instances.push(Instance {
-                        grass: true,
-                        ..Instance::new(grass.clone(), tile.transform())
-                    });
+        if let Some(sight) = &view.grass {
+            let tile = |i: usize, level: usize| {
+                let grass = self.tile_grass[i].as_ref().filter(|_| !hidden.contains(&i))?;
+                let model = grass.levels[level.min(grass.levels.len() - 1)].clone();
+                Some(Instance { grass: true, ..Instance::new(model, area.tiles[i].transform()) })
+            };
+            for draw in self.grass_in_sight(area, sight) {
+                match draw {
+                    GrassDraw::Tile(i, level) => instances.extend(tile(i, level)),
+                    // (Whole where it is made and none of it is hidden;
+                    // else its tiles at the same level, the same tufts.)
+                    GrassDraw::Chunk(key, tiles) => {
+                        let whole = self.chunk_made(area, key, &tiles);
+                        match whole.filter(|_| !tiles.iter().any(|i| hidden.contains(i))) {
+                            Some(c) => instances.push(Instance {
+                                grass: true,
+                                ..Instance::new(c.model.clone(), c.at)
+                            }),
+                            None => {
+                                let last = crate::grass::LEVELS.len() - 1;
+                                instances.extend(tiles.iter().filter_map(|&i| tile(i, last)));
+                            }
+                        }
+                    }
                 }
             }
         }
