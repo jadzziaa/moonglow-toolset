@@ -80,6 +80,8 @@ pub enum Id {
     InstallPlugin,
     Manual,
     CommandPalette,
+    /// Asks GitHub whether a newer Moonglow is out (`updates`).
+    CheckUpdates,
     About,
     /// The toolbar's Preview: the window showing the palette's blueprint.
     PreviewWindow,
@@ -218,7 +220,10 @@ pub const MENUS: [(&str, &[Item]); 8] = [
         ],
     ),
     ("Plugins", &[Item::PluginCommands, Do(Id::Plugins), Do(Id::InstallPlugin)]),
-    ("Help", &[Do(Id::Manual), Do(Id::CommandPalette), Do(Id::About)]),
+    (
+        "Help",
+        &[Do(Id::Manual), Do(Id::CommandPalette), Separator, Do(Id::CheckUpdates), Do(Id::About)],
+    ),
 ];
 
 /// The toolbar: each command with its button's text and its tip (`None`:
@@ -438,6 +443,11 @@ impl Id {
             Id::CommandPalette => {
                 ("command-palette", "Command Palette…", "Find a command by its name and run it")
             }
+            Id::CheckUpdates => (
+                "check-updates",
+                "Check for Updates…",
+                "Ask GitHub whether a newer Moonglow is out (nothing is downloaded)",
+            ),
             Id::About => ("about", "About Moonglow Toolset", ""),
             Id::PreviewWindow => ("preview-window", "Preview Window", ""),
             Id::FullScreen => ("full-screen", "Full Screen", ""),
@@ -593,6 +603,7 @@ impl Id {
             | Id::Plugins
             | Id::Manual
             | Id::CommandPalette
+            | Id::CheckUpdates
             | Id::About
             | Id::PreviewWindow
             | Id::FullScreen
@@ -769,6 +780,7 @@ impl Id {
                 app.about = true;
                 return;
             }
+            Id::CheckUpdates => return crate::updates::check_now(app),
             Id::PreviewWindow => {
                 app.preview_window = !app.preview_window;
                 return;

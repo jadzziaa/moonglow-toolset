@@ -25077,3 +25077,249 @@ fn a_save_the_claims_and_a_plugin_ask_about_is_asked_once_each() {
     assert!(h.query_by_label("Areas Not Yours").is_none(), "the claims are not asked again");
     assert!(!h.state().has_unsaved_work(), "saved");
 }
+
+/// GitHub's answer for the latest release (as `/releases/latest` gives
+/// it), tagged `tag`.
+fn release_answer(tag: &str) -> String {
+    serde_json::json!({
+        "tag_name": tag,
+        "html_url": format!("https://github.com/jadzziaa/moonglow-toolset/releases/tag/{tag}"),
+        "draft": false,
+        "prerelease": false,
+    })
+    .to_string()
+}
+
+/// An app whose checks for updates get `answer` (never the network), and
+/// how many times it was asked.
+fn app_with_releases(
+    answer: Result<String, String>,
+) -> (Moonglow, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let asked = std::sync::Arc::new(AtomicUsize::new(0));
+    let mut app = app_with(Vec::new());
+    let counted = asked.clone();
+    app.updates.fetch = Some(std::sync::Arc::new(move || {
+        counted.fetch_add(1, Ordering::SeqCst);
+        answer.clone()
+    }));
+    (app, asked)
+}
+
+/// Help › Check for Updates… says a newer release is out, with its page,
+/// or that this one is the newest, or why GitHub couldn't be asked; a
+/// copy a package manager updates says how.
+#[test]
+fn check_for_updates_says_what_is_newest() {
+    use std::sync::atomic::Ordering;
+    let current = env!("CARGO_PKG_VERSION");
+    let (mut app, asked) = app_with_releases(Ok(release_answer("v99.0.0")));
+    // (No automatic check: one was made a moment ago.)
+    app.settings.update_checked = Some(mg_ui::updates::now());
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    assert_eq!(asked.load(Ordering::SeqCst), 0, "not due");
+    h.get_by_label("Help").click();
+    h.run();
+    h.get_by_label_contains("Check for Updates").click();
+    h.run();
+    h.get_by_label(&format!("Moonglow 99.0.0 is out (you have {current})."));
+    h.get_by_label("Open the release page");
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+    assert!(h.state().updates.notice.is_none(), "the notice is the automatic check's");
+    // The newest.
+    h.state_mut().updates.fetch =
+        Some(std::sync::Arc::new(move || Ok(release_answer(&format!("v{current}")))));
+    h.get_by_label("Check Again").click();
+    h.run();
+    h.get_by_label(&format!("Moonglow {current} is the newest."));
+    // Offline.
+    h.state_mut().updates.fetch =
+        Some(std::sync::Arc::new(|| Err("not connected to the Internet".into())));
+    h.get_by_label("Check Again").click();
+    h.run();
+    h.get_by_label("Couldn't ask GitHub: not connected to the Internet.");
+    // Installed by Scoop: still asked, and said how it is updated.
+    h.state_mut().updates.installer = Some(mg_ui::updates::Installer::Scoop);
+    h.state_mut().updates.fetch = Some(std::sync::Arc::new(|| Ok(release_answer("v99.0.0"))));
+    // (Drawn so first: the window is taller, centered again a frame
+    // later, its button elsewhere.)
+    h.run_steps(2);
+    h.get_by_label("Check Again").click();
+    h.run();
+    h.get_by_label(&format!("Moonglow 99.0.0 is out (you have {current})."));
+    h.get_by_label("This copy is updated by Scoop: scoop update moonglow.");
+    h.get_by_label("Close").click();
+    h.run();
+    assert!(h.query_by_label("Check Again").is_none());
+    // And from Help › About.
+    h.state_mut().about = true;
+    h.run();
+    h.get_by_label("Check for Updates…").click();
+    h.run();
+    h.get_by_label("Check Again");
+}
+
+/// The automatic check, due, tells of a newer release under the toolbar
+/// at start; Don't remind me about this version keeps it from telling of
+/// that one again (a later one is told), and × closes it for now.
+#[test]
+fn the_update_notice_appears_and_is_dismissed() {
+    use std::sync::atomic::Ordering;
+    let current = env!("CARGO_PKG_VERSION");
+    let told = format!("Moonglow 99.0.0 is out (you have {current}).");
+    let (app, asked) = app_with_releases(Ok(release_answer("v99.0.0")));
+    assert_eq!(app.settings.update_checked, None);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label(&told);
+    h.get_by_label("Release Page");
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+    let checked = h.state().settings.update_checked.expect("the check's time is kept");
+    assert!(checked.abs_diff(mg_ui::updates::now()) < 60);
+    // (Once: frames go on without asking again.)
+    h.run_steps(5);
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+    h.get_by_label("Don't remind me about this version").click();
+    h.run();
+    assert!(h.query_by_label(&told).is_none());
+    assert_eq!(h.state().settings.update_skipped.as_deref(), Some("99.0.0"));
+
+    // The next day: the skipped version isn't told; a later one is.
+    let mut settings = h.state().settings.clone();
+    settings.update_checked = Some(checked - mg_ui::updates::DAY);
+    let (mut app, asked) = app_with_releases(Ok(release_answer("v99.0.0")));
+    app.settings = settings.clone();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    assert_eq!(asked.load(Ordering::SeqCst), 1, "asked, a day having gone by");
+    assert!(h.query_by_label(&told).is_none(), "the skipped version isn't told again");
+    let (mut app, _) = app_with_releases(Ok(release_answer("v99.1.0")));
+    app.settings = settings;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label(&format!("Moonglow 99.1.0 is out (you have {current})."));
+    h.get_by_label("×").click();
+    h.run();
+    assert!(h.state().updates.notice.is_none());
+    assert_eq!(h.state().settings.update_skipped.as_deref(), Some("99.0.0"));
+
+    // Offline: nothing said, in the log or elsewhere.
+    let (app, asked) = app_with_releases(Err("not connected to the Internet".into()));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+    assert!(h.state().updates.notice.is_none());
+    assert!(!h.state().log.entries.iter().any(|(_, m)| m.contains("GitHub")));
+}
+
+/// Options › Updates › Check for updates automatically, off: no request
+/// at start; and none where a package manager updates Moonglow, whose
+/// page says so.
+#[test]
+fn the_updates_option_turns_automatic_checks_off() {
+    use std::sync::atomic::Ordering;
+    let (mut app, asked) = app_with_releases(Ok(release_answer("v99.0.0")));
+    app.settings.update_checked = Some(mg_ui::updates::now());
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    h.run();
+    h.get_by_label("Updates").click();
+    h.run();
+    h.get_by_label("Check for updates automatically").click();
+    h.run();
+    h.get_by_label("OK").click();
+    h.run();
+    assert!(h.state().settings.no_update_check);
+    assert_eq!(asked.load(Ordering::SeqCst), 0);
+
+    // At the next start, a day later: not asked.
+    let mut settings = h.state().settings.clone();
+    settings.update_checked = None;
+    let (mut app, asked) = app_with_releases(Ok(release_answer("v99.0.0")));
+    app.settings = settings.clone();
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    assert_eq!(asked.load(Ordering::SeqCst), 0, "switched off");
+    assert!(h.state().updates.notice.is_none());
+
+    // On, but installed by Flatpak: not asked, and the page says why.
+    settings.no_update_check = false;
+    let (mut app, asked) = app_with_releases(Ok(release_answer("v99.0.0")));
+    app.settings = settings;
+    app.updates.installer = Some(mg_ui::updates::Installer::Flatpak);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    assert_eq!(asked.load(Ordering::SeqCst), 0, "a package manager updates it");
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    h.run();
+    h.get_by_label("Updates").click();
+    h.run();
+    h.get_by_label_contains("This copy is updated by Flatpak");
+    assert!(h.get_by_label("Check for updates automatically").accesskit_node().is_disabled());
+}
+
+/// As the desktop app runs it (jobs in the background): the request goes
+/// on its own thread, the window asks while it waits, and the answer is
+/// shown when it comes; turned on in Options, the automatic check asks
+/// at once.
+#[test]
+fn the_update_check_asks_on_its_own_thread() {
+    use std::sync::atomic::Ordering;
+    let current = env!("CARGO_PKG_VERSION");
+    let (mut app, asked) = app_with_releases(Ok(release_answer("v99.0.0")));
+    app.background_jobs = true;
+    app.settings.no_update_check = true;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(2);
+    mg_ui::updates::check_now(h.state_mut());
+    h.run_steps(1);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while h.state().updates.report.is_none() {
+        assert!(std::time::Instant::now() < deadline, "no answer");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.run_steps(1);
+    }
+    h.run_steps(2);
+    h.get_by_label(&format!("Moonglow 99.0.0 is out (you have {current})."));
+    assert!(h.query_by_label("Asking GitHub for the latest release…").is_none());
+    assert!(!h.state().updates.checking());
+    assert!(h.state().updates.notice.is_none(), "the window's check, not the automatic one");
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+
+    // Switched on in Options: asked at the next frames, not in an hour.
+    h.state_mut().updates.window = false;
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    h.run_steps(2);
+    h.get_by_label("Updates").click();
+    h.run_steps(2);
+    h.get_by_label("Check for updates automatically").click();
+    h.run_steps(2);
+    h.get_by_label("OK").click();
+    h.run_steps(1);
+    assert!(!h.state().settings.no_update_check);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while h.state().updates.notice.is_none() {
+        assert!(std::time::Instant::now() < deadline, "no notice");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.run_steps(1);
+    }
+    assert_eq!(asked.load(Ordering::SeqCst), 2);
+}

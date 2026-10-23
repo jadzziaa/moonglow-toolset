@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T12:36:24Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T13:11:53Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2853,6 +2853,33 @@ contribution itself states as not done or not checked.
   isn't read); Beamdog's client isn't looked for. The reporter's case (a
   second drive on Linux) is covered by the list, not tried on their
   machine. (S) (from builders' reports after 1.14.1)
+- **Installing updates from the app** (the rest of GitHub issue 28):
+  Help › Check for Updates… and the daily check only say that a newer
+  release is out and link its page. Not done, for the owner to decide:
+  downloading the package for this system and installing it (the
+  AppImage replaced in place or through AppImageUpdate and zsync; the
+  Windows installer run; the macOS app swapped), restarting after
+  asking about unsaved work or installing at the next start, and the
+  issue's Options (Install updates automatically, off; Include
+  pre-releases, off). Before any of that, verifying what is downloaded:
+  the release would publish SHA-256 checksums and a signature checked
+  against a public key built into the app (minisign or ed25519), so that
+  a tampered download or a compromised GitHub account can't push code
+  to every user; the packages aren't signed yet. Building blocks the
+  issue names, unevaluated: Velopack (a Rust SDK, Windows, macOS and
+  Linux, delta updates), cargo-dist with axoupdater, the `self_update`
+  crate over GitHub Releases. Also not done: the release notes shown in
+  the window (only the page is linked); the issue's "Install Now, Later"
+  buttons (the notice has the page, Don't remind me about this version
+  and ×). (L) (GitHub issue 28)
+- **The Flatpak and the update check:** its sandbox has no network
+  (`finish-args` lacks `--share=network`), so Help › Check for Updates…
+  in the Flatpak says it couldn't reach GitHub unless the user allows
+  the network (the window and Options › Updates say how). Giving the
+  Flatpak the network for one request is the owner's call; Flatpak
+  updates it either way. Builds from source (`cargo run`, a distribution's
+  own package) aren't told apart: they check as the AppImage does. (S)
+  (GitHub issue 28)
 
 ## Documentation
 

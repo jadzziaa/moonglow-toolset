@@ -118,6 +118,19 @@ packaging/scoop/update-manifest.sh <version>
 It takes the zip's SHA-256 from the release on GitHub. Until the
 manifest is committed, Scoop users stay on the release before.
 
+### Updates in package-managed installs
+
+The GUI asks GitHub for the latest release once a day at most (Options ›
+Updates; nothing is downloaded). Where a package manager installed it, it
+doesn't: the Flatpak (`FLATPAK_ID` set or `/.flatpak-info` there), Scoop
+(the program under a `scoop\apps\` folder) and Nix (under `/nix/store`)
+are told apart at start (`mg_ui::updates::Installer`), and Help › Check
+for Updates… says to update through them. The AppImage, the installer
+and zip, and the macOS app check. The Flatpak isn't given the network
+(`finish-args`), so its Check for Updates… reaches GitHub only where the
+user allows it. A new way of installing that updates Moonglow itself
+belongs in that list.
+
 ## macOS: app and disk image
 
 ```sh

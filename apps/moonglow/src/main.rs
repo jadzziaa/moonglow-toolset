@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use mg_ui::{Action, Dialogs, FileKind, Moonglow, Settings};
 
 mod speakers;
+mod update_check;
 
 /// Native file dialogs.
 struct NativeDialogs;
@@ -271,6 +272,11 @@ fn main() -> eframe::Result<()> {
             moonglow.shader_cache_dir = mg_ui::recovery::cache_dir().map(|d| d.join("shaders"));
             // Long work runs while the window keeps drawing.
             moonglow.background_jobs = true;
+            // Help › Check for Updates… and the daily check ask GitHub
+            // (not where a package manager updates Moonglow: Flatpak,
+            // Scoop, Nix; Options › Updates).
+            moonglow.updates.fetch = Some(std::sync::Arc::new(update_check::latest_release));
+            moonglow.updates.installer = mg_ui::updates::Installer::here();
             // The plugins installed in the data folder (`--no-plugins`
             // starts without them).
             moonglow.plugin_dir = mg_ui::recovery::data_dir().map(|d| d.join("plugins"));

@@ -428,6 +428,14 @@ pub struct Settings {
     pub dialog_no_backup: bool,
     /// The backup interval in minutes (`None`: Aurora's 5).
     pub dialog_backup_minutes: Option<u32>,
+    /// Options › Updates: Check for updates automatically, off (on by
+    /// default: GitHub is asked for the latest release once a day at most).
+    pub no_update_check: bool,
+    /// When the automatic check last asked GitHub, UNIX seconds.
+    pub update_checked: Option<u64>,
+    /// The version the update notice is not to tell of again (Don't remind
+    /// me about this version); a later one is told.
+    pub update_skipped: Option<String>,
 }
 
 /// Whether the game's shaders draw the 3D views where the Shaders switch

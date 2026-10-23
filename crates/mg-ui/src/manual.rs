@@ -232,6 +232,7 @@ pub(crate) fn about_window(app: &mut Moonglow, ctx: &egui::Context) {
         return;
     }
     let mut open = true;
+    let mut check = false;
     egui::Window::new("About Moonglow Toolset")
         .open(crate::widgets::open_unless_escape(ctx, "About Moonglow Toolset", &mut open))
         .collapsible(false)
@@ -241,6 +242,13 @@ pub(crate) fn about_window(app: &mut Moonglow, ctx: &egui::Context) {
             ui.vertical_centered(|ui| {
                 ui.heading("Moonglow Toolset");
                 ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
+                if ui
+                    .button("Check for Updates…")
+                    .on_hover_text("Ask GitHub whether a newer Moonglow is out")
+                    .clicked()
+                {
+                    check = true;
+                }
                 ui.add_space(6.0);
                 ui.label("A module toolset for Neverwinter Nights: Enhanced Edition.");
             });
@@ -264,6 +272,9 @@ pub(crate) fn about_window(app: &mut Moonglow, ctx: &egui::Context) {
         });
     if !open {
         app.about = false;
+    }
+    if check {
+        crate::updates::check_now(app);
     }
 }
 

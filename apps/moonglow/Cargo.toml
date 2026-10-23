@@ -15,6 +15,7 @@ mg-audio.workspace = true
 mg-ui.workspace = true
 rfd.workspace = true
 rodio.workspace = true
+ureq.workspace = true
 wgpu.workspace = true
 
 [build-dependencies]

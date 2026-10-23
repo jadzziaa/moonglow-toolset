@@ -78,6 +78,7 @@ pub mod tileset_view;
 pub mod trace;
 mod transfer;
 mod tree;
+pub mod updates;
 pub use tree::TreeAt;
 pub mod var_sets;
 pub mod widgets;
@@ -763,6 +764,8 @@ pub struct Moonglow {
     manual: manual::Manual,
     /// Help › About is open.
     pub about: bool,
+    /// Help › Check for Updates… and the daily check (`updates`).
+    pub updates: updates::Updates,
     /// The window's content area at the last frame (where new windows go).
     screen: Option<egui::Rect>,
     /// The widths of the module tree and of the panes beside it at the last
@@ -977,6 +980,7 @@ impl Moonglow {
             dialog_backed_up: HashMap::new(),
             manual: Default::default(),
             about: false,
+            updates: Default::default(),
             screen: None,
             tree_width: None,
             dock_width: None,
@@ -1113,6 +1117,7 @@ impl Moonglow {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Minimized(true));
         }
         self.poll_job(ui.ctx());
+        updates::frame(self, ui.ctx());
         self.next_plugin_event();
         // (A running job has the window to itself.)
         if !self.busy() {
@@ -1123,6 +1128,8 @@ impl Moonglow {
             // Buttons for the common commands, below the menu as in Aurora.
             commands::toolbar(self, ui);
         });
+        // A newer release, told under the toolbar until dismissed.
+        updates::notice_bar(self, ui);
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
         // The log shrinks to a single line if the user wants it that small.
         let line = ui.text_style_height(&egui::TextStyle::Monospace);
@@ -1256,6 +1263,7 @@ impl Moonglow {
         self.reload_timer(ui);
         recovery::window(self, ui);
         manual::about_window(self, ui.ctx());
+        updates::window(self, ui.ctx());
         // The area view's sounds go on between frames.
         let heard = self.heard.take();
         if area_audio::update(self, heard, ui.input(|i| i.time)) {
