@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:30:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T10:05:13Z }
 ---
 
 # Areas
@@ -612,6 +612,27 @@ as Aurora's Terrain tab does:
   reads **Refine Tile →** and the tile's model) makes the tiles you click
   or drag over that tile, wherever it fits as they stand, and leaves the
   rest. Click the picture again, or another brush, to let it go.
+- **📌 Exact tile**, beside List and Gallery (shown with the Gallery, or
+  a tile chosen from it), puts a tile chosen from the pictures in
+  **alone**: a click (or a drag, in every tile it passes, or a picture
+  dropped) puts exactly that tile there, turned as the right click
+  turns it, at the height of the tile it replaces, and nothing else
+  changes: no neighbor, corner terrain, height or crosser around it is
+  adjusted, so it may not meet them (a wall's end in open ground, the
+  lip of a castle by itself, as builders otherwise did by hand in the
+  area's `Tile_List`). The preview and the cursor show that one tile.
+  Its lights are chosen afresh, as a painted tile's, and the doors its
+  hooks call for come and go as a painted tile's do (as the plugin
+  API's `set_tile` puts a tile). Over a tile of a group or a feature it
+  is refused, as any stroke is (the group flashes red), unless **Allow
+  editing tiles of groups and features** is on, when the status line
+  warns of the group left part changed. Each click, or drag, is one step
+  to undo. The switch is off at first and remembered; with it off,
+  painting is as above. A tile placed so is a tile like any other after:
+  a terrain painted beside it chooses it again where its corners change.
+  To raise or lower it, use Tile Properties' **Height**; to put in a
+  tile the Gallery doesn't show (a piece of a group), its **All tiles**
+  ([Tiles](#tiles)).
 - In the Gallery, **Features** and **Groups** are pictures too: each as
   it stands once placed in open ground, its tiles together with the tiles
   around that its placement changes (a castle's gate, a single tile, in
@@ -710,6 +731,44 @@ is. **Defaults** puts back the lighting scheme's colors and the loops.
 them. Closed any other way with changes not applied (its tab's or
 window's ✕, Escape), it asks, as a side editor's tab does: **Save**,
 **Don't Save** or **Cancel** (Aurora's ✕ discards them without asking).
+
+**Height** (Moonglow's own) is the tiles' `Tile_Height`, in the
+tileset's height steps (the meters are written beside it): **-** and
+**+** lower and raise them a step, and any number of steps can be typed
+or dragged, below 0 too. It is set on the tiles alone: no neighbor,
+corner or terrain around them changes, so a tile raised alone stands
+above the tiles around with gaps between (what the builder asked for,
+to build up a single tile), and the area view draws it, its walkmesh
+and what stands on it there. What stands on a tile (an object whose
+position is over its square) rises or falls with it, as far. The game
+stands a tile where its `Tile_Height` says, whatever its neighbors'
+heights: tested from 3 steps below 0 to 1000 above (5 km on Rural's
+5 m steps), the walkmesh with it; Moonglow takes from -1024 to 1024.
+With several tiles chosen of different heights it shows **Mixed** until
+one is set, which they all take (**-** and **+** step from the first's).
+It changes on **OK**, with the lights, as one step to undo, and closing
+with it changed asks as above. A tile of a group or a feature changes
+height only with the whole group chosen (in Select Tiles, all its
+tiles), so that the group stays whole; otherwise the control is greyed
+out and says why (unless **Allow editing tiles of groups and
+features** is on). The minimap shows a tile's picture whatever its
+height, as the game's does.
+
+**All tiles (ignore fit)** (Moonglow's own; off each time the window
+opens) shows every tile of the tileset in place of the variants, in the
+tileset's order, groups' pieces too, with **Turn** (0°, ↺90°, ↺180°,
+↺270°) to turn them and the same **Size** slider; only the rows in
+sight are drawn, however many tiles the tileset has. Click one and it
+is put in the tiles chosen as it is, turned so, at the **Height**
+above, whether it fits its neighbors or not: none of them changes (as
+**📌 Exact tile** puts one in). It is one step to undo, the window stays
+open on it, and its lights are chosen afresh, its doors come and go and
+what stands on it moves with a new height, as above. Off, the variants
+are only the tiles that fit, as ever, and Next and Previous Tile
+Appearance and Rotate Tile only ever give a tile that fits. Not for a
+tile of a group or a feature, unless the option above is on. A piece
+of a group put in alone is taken, after, for what is left of a group
+(see above: only the Eraser or the option changes it).
 
 
 A tile's replacement texture (`Tile_ReplaceTex`, a `replacetexture.2da`

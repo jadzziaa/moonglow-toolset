@@ -16406,6 +16406,296 @@ fn a_tile_chosen_in_the_gallery_is_painted_along_a_drag() {
     assert_eq!(grid(&mut h).tiles, before.tiles, "one step");
 }
 
+/// The area view as it is now, and seen from the south-west, a little
+/// above: saved as `path` (`-top.png` and `-angled.png`), the camera put
+/// back after.
+fn area_shots(h: &mut Harness<'_, Moonglow>, area: ResRef, path: &std::path::Path) {
+    h.hover_at(egui::pos2(960.0, 610.0));
+    h.run_steps(20);
+    h.render().unwrap().save(path.with_extension("top.png")).unwrap();
+    let was = h.state().area_views[&area].orbit;
+    if let Some(o) = h.state_mut().area_views.get_mut(&area).and_then(|v| v.orbit.as_mut()) {
+        o.target = glam::Vec3::new(20.0, 20.0, 0.0);
+        (o.distance, o.pitch, o.yaw) = (48.0, 0.55, (-120f32).to_radians());
+    }
+    h.run_steps(20);
+    h.render().unwrap().save(path.with_extension("angled.png")).unwrap();
+    h.state_mut().area_views.get_mut(&area).unwrap().orbit = was;
+    h.run_steps(3);
+}
+
+/// The area's `Tile_List`, as the workspace has it.
+fn tile_list(h: &mut Harness<'_, Moonglow>, area: ResRef) -> Vec<mg_gff::Struct> {
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    ws.doc(&ResKey::new(area, ResType::ARE)).unwrap().root.list("Tile_List").unwrap().to_vec()
+}
+
+/// Asserts that `after` is `before` but for the tiles of `changed`
+/// (indices), struct for struct.
+fn only_changed(before: &[mg_gff::Struct], after: &[mg_gff::Struct], changed: &[usize]) {
+    assert_eq!(before.len(), after.len());
+    for (i, (b, a)) in before.iter().zip(after).enumerate() {
+        if changed.contains(&i) {
+            assert_ne!(b, a, "tile {i} changed");
+        } else {
+            assert_eq!(b, a, "tile {i} as it was");
+        }
+    }
+}
+
+/// The tiles palette's Exact tile switch (#29): shown beside List and
+/// Gallery, off at first and remembered; on, a tile chosen in the Gallery
+/// goes in alone where it is clicked (or dragged), as it is, turned as the
+/// right click turns it, at the height of the tile it replaces, though it
+/// fits none of its neighbors: no other tile changes. One step to undo.
+#[test]
+fn an_exact_tile_goes_in_alone() {
+    use glam::Vec3;
+    use mg_tiles::TileIndex;
+    let Some((mut h, area)) = area_harness("exact-tile") else { return };
+    let index = {
+        let game = h.state().game.as_deref().unwrap();
+        TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
+    };
+    let grid = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        mg_area::terrain::grid(&are.root, &index).unwrap()
+    };
+    // The end of a wall (Wall1 across one edge, grass all round): in open
+    // grass it fits nothing (painted as ever, the wall would run on into
+    // the next tile).
+    let (wall, grass) = (index.crosser("Wall1").unwrap(), index.terrain("Grass").unwrap());
+    let tile = *index
+        .tiles_where(|c| {
+            c.edges.iter().filter(|e| **e == Some(wall)).count() == 1
+                && c.corners.iter().all(|k| k.terrain == grass && k.height == 0)
+        })
+        .first()
+        .expect("Rural has wall ends");
+    let shots = mg_testkit::scratch_dir("ui-exact-tile");
+    let away = egui::pos2(960.0, 610.0);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    palette_type(&mut h, "🗻", "Tiles");
+    h.run_steps(3);
+    // Not shown with the List and no tile chosen; beside the Gallery's
+    // switch with it.
+    assert!(h.query_by_label("📌 Exact tile").is_none());
+    h.get_by_label("⊞").click();
+    h.run_steps(2);
+    assert!(!h.state().settings.exact_tiles, "off at first");
+    h.get_by_label("📌 Exact tile").click();
+    h.run_steps(2);
+    assert!(h.state().settings.exact_tiles, "on, and remembered");
+    let picture = index_model(&h, tile);
+    open_tile_heading(&mut h, &picture);
+    h.get_all_by_label(&picture).next().expect("its picture").scroll_to_me();
+    h.run_steps(3);
+    h.get_all_by_label(&picture).next().unwrap().click();
+    h.run_steps(2);
+    h.hover_at(away);
+    h.run_steps(30);
+    h.render().unwrap().save(shots.join("palette.png")).unwrap();
+    let before = grid(&mut h);
+    let list = tile_list(&mut h, area);
+    area_shots(&mut h, area, &shots.join("before"));
+    // A click in tile (1, 1): that tile there, its neighbors untouched.
+    let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
+    h.hover_at(at);
+    h.run_steps(2);
+    h.render().unwrap().save(shots.join("preview.png")).unwrap();
+    // (The preview shows that tile alone.)
+    let view = &h.state().area_views[&area];
+    let shown = view.tile_preview.clone();
+    assert_eq!(shown.len(), 1, "that tile alone");
+    assert_eq!((shown[0].id, shown[0].column, shown[0].row), (i64::from(tile), 1, 1));
+    assert_eq!(view.brush_cursor.len(), 1, "one tile's square");
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let after = grid(&mut h);
+    let height = before.tile(1, 1).height;
+    assert_eq!(after.tile(1, 1), mg_tiles::Placement { tile, orientation: 0, height });
+    only_changed(&list, &tile_list(&mut h, area), &[5]);
+    assert_eq!(
+        h.state().ws.as_ref().unwrap().can_undo(),
+        Some(format!("Exact tile {picture}").as_str())
+    );
+    area_shots(&mut h, area, &shots.join("after"));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(3);
+    assert_eq!(tile_list(&mut h, area), list, "one step");
+    // Turned with a right click, dragged along the third row: those four
+    // tiles, turned, and no other.
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: Default::default(),
+        });
+    }
+    h.run_steps(2);
+    let from = screen(&h, area, Vec3::new(5.0, 25.0, 0.0));
+    let to = screen(&h, area, Vec3::new(35.0, 25.0, 0.0));
+    h.hover_at(from);
+    h.run_steps(2);
+    press(&h, from, true, egui::Modifiers::NONE);
+    for k in 1..=8 {
+        h.hover_at(from + (to - from) * (k as f32 / 8.0));
+        h.run_steps(1);
+    }
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let row = grid(&mut h);
+    for x in 0..4 {
+        assert_eq!((row.tile(x, 2).tile, row.tile(x, 2).orientation), (tile, 1), "({x}, 2)");
+    }
+    only_changed(&list, &tile_list(&mut h, area), &[8, 9, 10, 11]);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(3);
+    assert_eq!(tile_list(&mut h, area), list, "the drag: one step");
+    // Off: the same tile is fitted in, as before, or refused where it can't.
+    h.get_by_label("📌 Exact tile").click();
+    h.run_steps(2);
+    assert!(!h.state().settings.exact_tiles);
+}
+
+/// Tile Properties' Height (#29): a tile raised two steps with its +
+/// button stands two steps up, nothing else of the area's tiles changed,
+/// what stands on it raised with it; one step to undo. Several tiles of
+/// different heights show as mixed; Escape with only the height changed
+/// asks first.
+#[test]
+fn tile_properties_raise_one_tile_alone() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("tile-height") else { return };
+    let list = tile_list(&mut h, area);
+    let waypoints = |h: &mut Harness<'_, Moonglow>| -> Vec<f32> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+        let w = git.root.list("WaypointList").unwrap();
+        w.iter().map(|s| s.float("ZPosition").unwrap_or(0.0)).collect()
+    };
+    let shots = mg_testkit::scratch_dir("ui-tile-height");
+    area_shots(&mut h, area, &shots.join("before"));
+    // Tile (2, 2), under the waypoint at (20, 20); the one at (30, 20) is
+    // on its neighbor.
+    tile_properties_of(&mut h, area, &[Vec3::new(25.0, 25.0, 0.0)]);
+    let props = h.state().tile_props.clone().expect("the window is open");
+    assert_eq!(props.tiles, [10]);
+    let was = props.height.expect("one tile: its height");
+    assert!(!props.height_locked);
+    h.get_by_label("Raise Height").click();
+    h.run_steps(2);
+    h.get_by_label("Raise Height").click();
+    h.run_steps(2);
+    assert_eq!(h.state().tile_props.as_ref().unwrap().height, Some(was + 2));
+    h.render().unwrap().save(shots.join("window.png")).unwrap();
+    h.get_by_label("Lower Height").click();
+    h.run_steps(2);
+    h.get_by_label("Raise Height").click();
+    h.run_steps(2);
+    h.get_by_label("OK").click();
+    h.run_steps(4);
+    let now = tile_list(&mut h, area);
+    assert_eq!(now[10].integer("Tile_Height"), Some(i64::from(was + 2)));
+    only_changed(&list, &now, &[10]);
+    let step = h.state().area_views[&area].model.as_ref().unwrap().height_step;
+    let shown = &h.state().area_views[&area].model.as_ref().unwrap().tiles[10];
+    assert_eq!(shown.position.z, (was + 2) as f32 * step, "drawn at its height");
+    assert_eq!(waypoints(&mut h), [2.0 * step, 0.0], "what stands on it rises with it");
+    h.get_by_label("⛶ Select Tiles").click();
+    area_shots(&mut h, area, &shots.join("after"));
+    // Its walkmesh with it: the ground the game walks on (green).
+    h.state_mut().area_views.get_mut(&area).unwrap().walkmesh = true;
+    area_shots(&mut h, area, &shots.join("walkmesh"));
+    h.state_mut().area_views.get_mut(&area).unwrap().walkmesh = false;
+    h.get_by_label("⛶ Select Tiles").click();
+    h.run_steps(2);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Tile Properties"));
+    // Two tiles of different heights: mixed; Escape with it set asks.
+    tile_properties_of(&mut h, area, &[Vec3::new(25.0, 25.0, 0.0), Vec3::new(35.0, 25.0, 0.0)]);
+    let props = h.state().tile_props.clone().expect("the window is open");
+    assert_eq!(props.height, None, "mixed");
+    assert!(!props.changed());
+    h.get_by_label("Raise Height").click();
+    h.run_steps(2);
+    let p = h.state().tile_props.clone().unwrap();
+    assert_eq!(p.height, Some(was + 3), "from the first tile's");
+    assert!(p.changed());
+    h.state_mut().tile_props.as_mut().unwrap().closing = true;
+    h.run_steps(2);
+    h.get_by_label("Save changes to Tile Properties?");
+    h.get_by_label("Don't Save").click();
+    h.run_steps(2);
+    assert!(h.state().tile_props.is_none());
+    // Undone: as it was.
+    h.state_mut().ws.as_mut().unwrap().undo().unwrap();
+    h.run_steps(3);
+    assert_eq!(tile_list(&mut h, area), list);
+    assert_eq!(waypoints(&mut h), [0.0, 0.0]);
+}
+
+/// Tile Properties' All tiles (ignore fit) (#29): off at first, the
+/// variants that fit as ever; on, every tile of the tileset as pictures
+/// (drawn as they come into sight), and one clicked goes in the tile
+/// chosen as it is, turned as chosen, though it fits nothing there: no
+/// other tile changes, one step to undo.
+#[test]
+fn tile_properties_put_any_tile_alone() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("tile-all") else { return };
+    let list = tile_list(&mut h, area);
+    tile_properties_of(&mut h, area, &[Vec3::new(15.0, 15.0, 0.0)]);
+    let props = h.state().tile_props.clone().expect("the window is open");
+    assert!(!props.all_tiles, "off at first");
+    assert!(h.query_by_label_contains("fit here)").is_some(), "the variants as ever");
+    let fits: Vec<u32> = props.variants.clone().unwrap().1.iter().map(|(p, _)| p.tile).collect();
+    h.get_by_label(mg_ui::tile_select::ALL_TILES).click();
+    h.run_steps(3);
+    assert!(h.state().tile_props.as_ref().unwrap().all_tiles);
+    assert!(h.query_by_label_contains("fit here)").is_none());
+    h.get_by_label_contains("in the tileset)").scroll_to_me();
+    h.get_by_label("↺90°").click();
+    h.run_steps(3);
+    // (Some frames, for the pictures in sight to be made.)
+    let start = std::time::Instant::now();
+    h.run_steps(20);
+    eprintln!("20 frames of every tile's pictures: {:?}", start.elapsed());
+    let shots = mg_testkit::scratch_dir("ui-tile-all");
+    h.render().unwrap().save(shots.join("all-tiles.png")).unwrap();
+    // A tile in sight that doesn't fit there, clicked by its picture.
+    let props = h.state().tile_props.clone().unwrap();
+    let (id, model) = props
+        .every
+        .iter()
+        .find(|(id, m)| !fits.contains(id) && h.query_by_label(&format!("{m} ↺90°")).is_some())
+        .cloned()
+        .expect("a tile that doesn't fit, in sight");
+    let rows = props.every.len();
+    let drawn = h.query_all_by_label_contains(" ↺90°").count();
+    assert!(drawn < rows, "only the rows in sight are drawn: {drawn} of {rows}");
+    let at = h.get_all_by_label(&format!("{model} ↺90°")).next().unwrap().rect().center_top()
+        - egui::vec2(0.0, 40.0);
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(4);
+    let now = tile_list(&mut h, area);
+    assert_eq!(now[5].integer("Tile_ID"), Some(i64::from(id)));
+    assert_eq!(now[5].integer("Tile_Orientation"), Some(1));
+    assert_eq!(now[5].integer("Tile_Height"), list[5].integer("Tile_Height"));
+    only_changed(&list, &now, &[5]);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Tile (ignoring fit)"));
+    let after = h.state().tile_props.clone().expect("the window stays");
+    assert!(after.all_tiles && after.turn == 1, "still every tile, turned so");
+    h.state_mut().ws.as_mut().unwrap().undo().unwrap();
+    h.run_steps(3);
+    assert_eq!(tile_list(&mut h, area), list, "one step");
+}
+
 /// Refine Tile dragged: the first tile steps to the next that fits, and
 /// every tile of its kind passed becomes that tile too; with a tile chosen
 /// in the Gallery first, those it fits become it.

@@ -206,6 +206,68 @@ pub fn visual_transform_edits(
     edits
 }
 
+/// An area's ARE and GIT, as workspace keys and their root structs.
+#[derive(Debug)]
+pub struct AreaFiles<'a> {
+    pub are: ResKey,
+    pub are_root: &'a Struct,
+    pub git: ResKey,
+    pub git_root: &'a Struct,
+}
+
+/// Tiles set to heights of their own (Tile Properties' Height): the edits
+/// that write `heights` (each a `Tile_List` index and its new height, in
+/// height steps of `step` metres) into the area's ARE, only their
+/// `Tile_Height` where it changes (nothing around them is fitted to them:
+/// a tile raised alone stands above its neighbours, with gaps between),
+/// and move the area's `objects` standing on those tiles (their position
+/// over the tile's square) up or down with them, as far.
+pub fn tile_height_edits(
+    files: &AreaFiles,
+    objects: &[AreaObject],
+    step: f32,
+    heights: &[(usize, i32)],
+) -> Vec<Edit> {
+    let width = files.are_root.integer("Width").unwrap_or(0).max(0) as usize;
+    let list = files.are_root.list("Tile_List").unwrap_or(&[]);
+    let mut edits = Vec::new();
+    // (Each tile raised or lowered, in steps.)
+    let mut moved: Vec<(usize, i32)> = Vec::new();
+    for &(i, height) in heights {
+        let Some(tile) = list.get(i) else { continue };
+        let was = tile.integer("Tile_Height").unwrap_or(0) as i32;
+        if was == height && tile.get("Tile_Height").is_some() {
+            continue;
+        }
+        edits.push(Edit::SetField {
+            key: files.are,
+            path: GffPath::root().item("Tile_List", i),
+            label: "Tile_Height".into(),
+            value: Some(Value::Int(height)),
+        });
+        if was != height {
+            moved.push((i, height - was));
+        }
+    }
+    if width == 0 || moved.is_empty() {
+        return edits;
+    }
+    for o in objects {
+        let (x, y) = (o.position.x / crate::TILE_SIZE, o.position.y / crate::TILE_SIZE);
+        if x < 0.0 || y < 0.0 || x as usize >= width {
+            continue;
+        }
+        let i = y as usize * width + x as usize;
+        let Some(&(_, steps)) = moved.iter().find(|(t, _)| *t == i) else { continue };
+        let Some(s) = files.git_root.list(o.kind.list()).and_then(|l| l.get(o.index)) else {
+            continue;
+        };
+        let to = o.position + Vec3::Z * (steps as f32 * step);
+        edits.extend(move_edits(files.git, o, s, to, o.rotation));
+    }
+    edits
+}
+
 /// The edits that delete `objects` (kind and index in its list) from the
 /// GIT `git`: from the end of each list, so that the indices stay valid.
 pub fn delete_edits(git: ResKey, objects: &[(ObjectKind, usize)]) -> Vec<Edit> {
@@ -278,6 +340,65 @@ mod tests {
                 _ => String::new(),
             })
             .collect()
+    }
+
+    /// A tile's height set alone: its `Tile_Height`, and nothing else of
+    /// the area's tiles; what stands on it rises with it, the rest stays.
+    #[test]
+    fn a_tile_s_height_is_set_alone_and_what_stands_on_it_rises() {
+        let tile = |h: i32| {
+            let mut t = Struct::new(1);
+            t.set("Tile_ID", Value::Int(3));
+            t.set("Tile_Height", Value::Int(h));
+            t
+        };
+        let mut are = Struct::new(0xffff_ffff);
+        are.set("Width", Value::Int(2));
+        are.set("Tile_List", Value::List(vec![tile(0), tile(0), tile(1), tile(0)]));
+        let point = |x: f32, y: f32| {
+            let mut s = Struct::new(5);
+            for (label, v) in [("XPosition", x), ("YPosition", y), ("ZPosition", 0.0)] {
+                s.set(label, Value::Float(v));
+            }
+            s
+        };
+        let mut git_root = Struct::new(0xffff_ffff);
+        git_root.set("WaypointList", Value::List(vec![point(15.0, 5.0), point(5.0, 5.0)]));
+        let objects: Vec<AreaObject> = [15.0, 5.0]
+            .iter()
+            .enumerate()
+            .map(|(i, &x)| AreaObject {
+                index: i,
+                ..object(ObjectKind::Waypoint, Vec3::new(x, 5.0, 0.0), 0.0)
+            })
+            .collect();
+        let files = AreaFiles {
+            are: ResKey::new(ResRef::from_str("area").unwrap(), ResType::ARE),
+            are_root: &are,
+            git: git(),
+            git_root: &git_root,
+        };
+        // Tile 1 (south-east) two steps of 5 m up; tile 2 kept at 1.
+        let edits = tile_height_edits(&files, &objects, 5.0, &[(1, 2), (2, 1)]);
+        let [tile_edit, raised] = edits.as_slice() else { panic!("{edits:?}") };
+        let Edit::SetField { key, path, label, value } = tile_edit else { panic!() };
+        assert_eq!(
+            (key, path, label.as_str(), value),
+            (
+                &files.are,
+                &GffPath::root().item("Tile_List", 1),
+                "Tile_Height",
+                &Some(Value::Int(2))
+            )
+        );
+        let Edit::SetField { path, label, value, .. } = raised else { panic!() };
+        assert_eq!(path, &GffPath::root().item("WaypointList", 0));
+        assert_eq!((label.as_str(), value), ("ZPosition", &Some(Value::Float(10.0))));
+        // Down below 0: as far.
+        let edits = tile_height_edits(&files, &objects, 5.0, &[(0, -1)]);
+        assert_eq!(labels(&edits), ["1Tile_Height", "1ZPosition"]);
+        let Edit::SetField { value, .. } = &edits[1] else { panic!() };
+        assert_eq!(value, &Some(Value::Float(-5.0)));
     }
 
     #[test]

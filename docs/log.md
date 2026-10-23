@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-10-23
+* **Update**: GitHub issue #29, "Edit single tiles outside the fit rules" (archvillainette's "tile magic"): [Areas](manual/04-areas.md): the Tiles palette's **📌 Exact tile** switch beside List and Gallery (a tile chosen from the pictures goes in alone, its neighbors left as they are), Tile Properties' **Height** (`Tile_Height` set on the tiles alone, a step at a time or typed, what stands on them moved with them) and **All tiles (ignore fit)** (every tile of the tileset as pictures, any one put in as it is, turned as chosen); [findings](findings.md) and [the tileset notes](research/notes_tilesets.md): the engine stands a tile where its own `Tile_Height` says, from -3 to 1000 steps (`engine_terrain.rs`); [the deferred list](deferred.md): what is left of it.
 * **Update**: [NUI Creator](manual/18-nui-creator.md) and `mg nui schema --layout`: a text and a text field with no width take their column's width and count nothing toward it, as a label (seen in the game client, NWN EE 8193.37, on the Domains of Dread's windows); they were drawn 150 wide.
 * **Update**: [Command-line tools](manual/11-command-line.md) and [NUI Creator](manual/18-nui-creator.md): `mg nui layout` says wrapped text cut at the bottom of a box that doesn't scroll, with the height that shows it all (`needs_height`): the Domains of Dread Design session's survey of tdod-module's windows.
 

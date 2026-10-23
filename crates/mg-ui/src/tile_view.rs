@@ -79,6 +79,7 @@ fn facts(
             label: t.model.clone(),
             brush: mg_area::terrain::Brush::Tile(tile),
             target: None,
+            exact: false,
         };
         app.palette.tile_brush = Some(brush);
         app.palette.tile_choice = Some(tile);

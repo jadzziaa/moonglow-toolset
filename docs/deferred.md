@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T01:42:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T10:05:13Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1310,7 +1310,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   repaint the neighbors), and whether Aurora or the engine has a turn
   for a placed tile was not looked into (the engine draws any
   `Tile_Orientation`; a tile turned against its neighbors' terrain
-  would show seams). (S) (from a builder's tile feedback, October 2026)
+  would show seams). A tile at any turn, whether it fits or not, is put
+  in with Tile Properties' All tiles and its Turn (issue #29); the steps
+  themselves stay fit-only. (S) (from a builder's tile feedback,
+  October 2026)
 - **A brush's right click is the tile menu,** not Aurora's putting the
   brush down (Escape or the menu's Put Down does); Select Tiles is in
   the Tiles palette too, but isn't turned on by choosing the Tiles
@@ -1351,6 +1354,31 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   supermodel are not looked for (the game's tile models have none).
   Aurora's ✕ discards without asking (seen on the oracle); Moonglow asks,
   as the builder asked. (S) (from Jasperre's tile feedback, October 2026)
+- **Exact tile's reach:** the Gallery shows a terrain's and a crosser's
+  tiles, not a group's pieces, so a piece of a group goes in alone only
+  through Tile Properties' All tiles; an exact tile takes the height of
+  the tile it replaces (no height to choose in the palette: Tile
+  Properties' Height after). Where an exact tile and its neighbor
+  disagree about a shared corner, the brushes read the corner as the
+  tile to the north or east has it (`Lattice::from_tiles`), so a stroke
+  beside it may choose it again. How the client draws the seams was
+  looked at in Moonglow's view only. (S) (issue #29)
+- **Tile Height and what stands on a tile:** an object goes up or down
+  with a tile whose square its position is over (doors on its hooks,
+  placeables, creatures, waypoints, a trigger's or encounter's position
+  with its outline), whatever its height above the tile; Raise/Lower's
+  corner strokes still move nothing. Heights below 0 and far above were
+  stood on in the server (`a_tile_s_own_height_stands_where_the_engine_puts_it`),
+  not looked at in the game client; the control's ±1024 is Moonglow's
+  reading bound, not the engine's. (S) (issue #29)
+- **All tiles in Tile Properties:** no search among them (the tileset's
+  order, 283 to 408 pictures in the game's sets); with several tiles
+  chosen each gets the same tile and turn; the switch and the Turn are
+  not remembered from one opening to the next (off each time, as the
+  issue asks). Its frame time was looked at in the UI tests only (20
+  frames in 16 ms with the pictures in sight made), not on the
+  builder's machine with a large hak tileset. Next and Previous Tile
+  Appearance and Rotate Tile stay fit-only by design. (S) (issue #29)
 
 ## The turning ring
 

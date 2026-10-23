@@ -21,7 +21,10 @@
 //! - A tile chosen from a terrain's or a crosser's pictures (the palette's
 //!   Gallery) is placed as it is, turned as a group is (a right click turns
 //!   it), the tiles around fitted to it; dragged, it goes in every tile
-//!   the pointer passes.
+//!   the pointer passes. With the palette's Exact tile switch on
+//!   (`Settings::exact_tiles`, issue #29) it goes in alone, at the height
+//!   of the tile it replaces, nothing around it fitted to it
+//!   (`Grid::set_exact`, as the plugin API's `set_tile`).
 //! - Refine Tile steps a tile to the next that fits there (in Aurora's
 //!   order, Shift + right click's: each tile's turns, then the next tile's),
 //!   or with a tile chosen in the Gallery makes it that one where it fits.
@@ -73,6 +76,10 @@ pub struct TileBrush {
     /// Refine Tile's tile to make of those it acts on, chosen in the
     /// palette's Gallery (`None`: the next that fits).
     pub target: Option<u32>,
+    /// A tile chosen in the Gallery goes in alone, as it is: the palette's
+    /// Exact tile switch (`Settings::exact_tiles`), which [`active`] reads
+    /// as the brush is used (false as the palette keeps it).
+    pub exact: bool,
 }
 
 /// Tile `tile` as it fits cell `(x, y)` of `grid` (turned and raised to
@@ -144,6 +151,9 @@ const TOOLS: [(&str, Brush); 4] = [
     ("Previous Tile Appearance", Brush::Appearance { back: true }),
     ("Rotate Tile", Brush::Rotate),
 ];
+
+/// The tiles palette's Exact tile switch's name.
+pub(crate) const EXACT_TILE: &str = "📌 Exact tile";
 
 /// The tiles palette's Select Tiles row's name.
 const SELECT_TILES: &str = "Select Tiles";
@@ -245,8 +255,9 @@ pub fn spot(p: Vec3, width: u32, height: u32) -> Option<Spot> {
 /// The brush that applies to `view`'s area, if one is chosen for its
 /// tileset.
 pub(crate) fn active(app: &Moonglow, view: &AreaView) -> Option<TileBrush> {
-    let b = app.palette.tile_brush.clone()?;
+    let mut b = app.palette.tile_brush.clone()?;
     let tools = view.terrain.as_ref()?;
+    b.exact = app.settings.exact_tiles && matches!(b.brush, Brush::Tile(_));
     (tools.tileset == b.tileset).then_some(b)
 }
 
@@ -365,6 +376,15 @@ fn stroke(
                 fixed: Vec::new(),
             });
             (st, step.map_or("", TileStep::label).into())
+        }
+        // Exact tile: in its cell alone, at the height of the tile there,
+        // nothing around it fitted to it (as the plugin API's `set_tile`).
+        Brush::Tile(t) if brush.exact => {
+            let (cx, cy) = spot.cell;
+            let height = grid.tile(cx, cy).height;
+            let p = Placement { tile: t, orientation: turns % 4, height };
+            let label = format!("Exact tile {}", brush.label);
+            (grid.set_exact(&tools.index, cx, cy, p), label)
         }
         Brush::Tile(t) => {
             let p = Placement { tile: t, orientation: turns % 4, height: 0 };
@@ -593,6 +613,20 @@ pub(crate) fn tile_command_keeping(
     label: &str,
     kept: &[((u32, u32), mg_gff::Struct)],
 ) {
+    tile_command_with(app, view, before, changes, label, kept, Vec::new());
+}
+
+/// [`tile_command_keeping`], with `extra` edits in the same command (what
+/// stands on a tile raised or lowered, moved with it).
+pub(crate) fn tile_command_with(
+    app: &mut Moonglow,
+    view: &mut AreaView,
+    before: &Grid,
+    changes: &[((u32, u32), Placement)],
+    label: &str,
+    kept: &[((u32, u32), mg_gff::Struct)],
+    extra: Vec<mg_edit::Edit>,
+) {
     let broken = view.terrain.as_ref().map_or(0, |t| before.groups_broken(&t.index, changes).len());
     if broken > 0 {
         view.notice = Some(broken_warning(label, broken));
@@ -644,8 +678,12 @@ pub(crate) fn tile_command_keeping(
             game, git_key, &git, &tools.set, step, &old, changes, &read,
         ));
     }
-    if !edits.is_empty() {
-        app.actions.push(crate::Action::Apply(Command::new(label, edits)));
+    // (The extra edits first: they name the area's objects as they are,
+    // before the doors the tiles take are removed.)
+    let mut all = extra;
+    all.extend(edits);
+    if !all.is_empty() {
+        app.actions.push(crate::Action::Apply(Command::new(label, all)));
     }
 }
 
@@ -1295,6 +1333,20 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         {
             app.settings.palette_gallery = true;
         }
+        // Beside them, for the Gallery's tiles (and a tile chosen from it,
+        // the List shown since): an explicit switch, not a key held, as
+        // Shift, Ctrl and Alt already do things with a brush (#29).
+        let tile_chosen =
+            app.palette.tile_brush.as_ref().is_some_and(|b| matches!(b.brush, Brush::Tile(_)));
+        if gallery || tile_chosen {
+            ui.toggle_value(&mut app.settings.exact_tiles, EXACT_TILE).on_hover_text(
+                "Exact tile: a tile chosen from the pictures goes in alone, exactly as chosen \
+                 (a right click in the area turns it), at the height of the tile it replaces. \
+                 The tiles around aren't adjusted to it: no neighbor, corner terrain, height or \
+                 crosser changes, so it may not meet them. Off: the tiles around fit themselves \
+                 to it",
+            );
+        }
         if gallery {
             // (A slider doesn't wrap of itself: on a row of its own where
             // this one has no room for it.)
@@ -1328,6 +1380,7 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         fold: fold.or(app.palette.fold),
         filter: &filter,
         gallery: gallery.then_some(Pictures { side, ready: &ready }),
+        exact: app.settings.exact_tiles,
         shown: Vec::new(),
         open: None,
     };
@@ -1420,6 +1473,7 @@ pub(crate) fn drop_tile(
         label: dropped.label.clone(),
         brush: dropped.brush,
         target: None,
+        exact: app.settings.exact_tiles && matches!(dropped.brush, Brush::Tile(_)),
     };
     let (st, label) = stroke(tools, &g, &brush, s, false, false, view.group_turns);
     commit(app, view, g, st, &label, None);
@@ -1495,6 +1549,8 @@ struct Place<'a> {
     fold: Option<bool>,
     filter: &'a str,
     gallery: Option<Pictures<'a>>,
+    /// The Exact tile switch is on.
+    exact: bool,
     shown: Vec<crate::model_view::Pictured>,
     open: Option<u32>,
 }
@@ -1656,7 +1712,13 @@ fn brush_row(ui: &mut egui::Ui, label: &str, brush: Brush, at: &mut Place) {
         *at.chosen = if on {
             None
         } else {
-            Some(TileBrush { tileset: at.tileset, label: label.to_string(), brush, target })
+            Some(TileBrush {
+                tileset: at.tileset,
+                label: label.to_string(),
+                brush,
+                target,
+                exact: false,
+            })
         };
         // (A brush other than Refine Tile lets the tile chosen go.)
         if brush != Brush::Refine {
@@ -1692,7 +1754,7 @@ fn group_pictures(ui: &mut egui::Ui, groups: &[(&str, usize)], at: &mut Place) {
             let choose = |at: &mut Place| {
                 *at.choice = None;
                 let label = label.to_string();
-                *at.chosen = Some(TileBrush { tileset: at.tileset, label, brush, target: None });
+                *at.chosen = Some(TileBrush { tileset: at.tileset, label, brush, target: None, exact: false });
             };
             if r.drag_started() {
                 choose(at);
@@ -1751,7 +1813,13 @@ fn tile_pictures(ui: &mut egui::Ui, tiles: &[u32], at: &mut Place) {
             let choose = |at: &mut Place| {
                 *at.choice = Some(t);
                 let (brush, label) = (Brush::Tile(t), tile.model.clone());
-                *at.chosen = Some(TileBrush { tileset: at.tileset, label, brush, target: None });
+                *at.chosen = Some(TileBrush {
+                    tileset: at.tileset,
+                    label,
+                    brush,
+                    target: None,
+                    exact: false,
+                });
             };
             if r.drag_started() {
                 // (Chosen too: the area shows where it would go.)
@@ -1776,9 +1844,12 @@ fn tile_pictures(ui: &mut egui::Ui, tiles: &[u32], at: &mut Place) {
                     let size = 180.0;
                     ui.image(egui::load::SizedTexture::new(id, egui::vec2(size, size)));
                 }
-                ui.weak(
-                    "Click to paint with it, double-click for its view, or drag it into the area",
-                );
+                ui.weak(if at.exact {
+                    "Click to place it alone (Exact tile: its neighbors are left as they are), \
+                     double-click for its view, or drag it into the area"
+                } else {
+                    "Click to paint with it, double-click for its view, or drag it into the area"
+                });
             });
         }
     });
