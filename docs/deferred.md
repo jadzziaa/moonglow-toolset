@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T13:09:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T13:16:34Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2130,7 +2130,9 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   strip names its pane only in the tip; egui_dock's arrow on the
   palettes' tab bar is covered over (egui_dock has it on every pane or
   none, and windows fold to their bar by it), so the bar keeps its
-  blank room before the first tab, and the middle's panes keep theirs;
+  blank room before the first tab, the covered arrow can still be
+  reached by Tab and pressed by Enter, and the middle's panes keep
+  theirs;
   palettes joined to the middle's tabs, split above or below it or in
   a window have no edge button (View and their ✕ fold them), and those
   split above or below leave their strip on the right. (S)
