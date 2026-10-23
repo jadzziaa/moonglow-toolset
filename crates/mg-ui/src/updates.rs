@@ -271,6 +271,11 @@ const LOOK_EVERY: std::time::Duration = std::time::Duration::from_secs(60 * 60);
 pub fn check_now(app: &mut Moonglow) {
     app.updates.window = true;
     app.updates.report = None;
+    // (The Flatpak's sandbox has no network, and Flatpak updates it: the
+    // window says how, and nothing is asked.)
+    if app.updates.installer == Some(Installer::Flatpak) {
+        return;
+    }
     start(app, false, true);
 }
 
@@ -417,7 +422,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
             ui.set_max_width(420.0);
+            let flatpak = app.updates.installer == Some(Installer::Flatpak);
             match &app.updates.report {
+                None if flatpak => {}
                 None => {
                     ui.horizontal(|ui| {
                         ui.spinner();
@@ -429,24 +436,18 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             if let Some(i) = app.updates.installer {
                 ui.add_space(4.0);
                 ui.label(format!("This copy is updated by {}: {}.", i.name(), i.how()));
-                // (Moonglow's Flatpak isn't given the network.)
-                if i == Installer::Flatpak && matches!(app.updates.report, Some(Outcome::Failed(_)))
-                {
-                    ui.weak(
-                        "The Flatpak's sandbox has no network unless it is allowed: flatpak \
-                         override --user --share=network io.github.moonglow_toolset.Moonglow",
-                    );
-                }
             }
-            ui.add_space(6.0);
-            ui.weak(
-                "Sent: one request to GitHub for the latest release's version and page; \
-                 nothing about you, your modules or this computer.",
-            );
+            if !flatpak {
+                ui.add_space(6.0);
+                ui.weak(
+                    "Sent: one request to GitHub for the latest release's version and page; \
+                     nothing about you, your modules or this computer.",
+                );
+            }
             ui.add_space(6.0);
             ui.horizontal(|ui| {
                 let idle = !app.updates.checking();
-                if ui.add_enabled(idle, egui::Button::new("Check Again")).clicked() {
+                if !flatpak && ui.add_enabled(idle, egui::Button::new("Check Again")).clicked() {
                     again = true;
                 }
                 if ui.button("Close").clicked() {

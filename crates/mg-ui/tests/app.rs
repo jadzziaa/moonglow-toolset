@@ -25488,6 +25488,16 @@ fn the_updates_option_turns_automatic_checks_off() {
     h.run();
     h.get_by_label_contains("This copy is updated by Flatpak");
     assert!(h.get_by_label("Check for updates automatically").accesskit_node().is_disabled());
+    // Help › Check for Updates… in the Flatpak, whose sandbox has no
+    // network: nothing asked, only how Flatpak updates it.
+    h.get_by_label("Cancel").click();
+    h.run();
+    mg_ui::updates::check_now(h.state_mut());
+    h.run();
+    assert_eq!(asked.load(Ordering::SeqCst), 0, "the Flatpak asks nothing");
+    h.get_by_label_contains("This copy is updated by Flatpak: flatpak update");
+    assert!(h.query_by_label("Check Again").is_none());
+    assert!(h.query_by_label_contains("Couldn't ask GitHub").is_none());
 }
 
 /// As the desktop app runs it (jobs in the background): the request goes

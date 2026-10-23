@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T13:46:02Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T19:43:49Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2914,10 +2914,8 @@ contribution itself states as not done or not checked.
   and ×). (L) (GitHub issue 28)
 - **The Flatpak and the update check:** its sandbox has no network
   (`finish-args` lacks `--share=network`), so Help › Check for Updates…
-  in the Flatpak says it couldn't reach GitHub unless the user allows
-  the network (the window and Options › Updates say how). Giving the
-  Flatpak the network for one request is the owner's call; Flatpak
-  updates it either way. Builds from source (`cargo run`, a distribution's
+  in the Flatpak asks nothing and says to update it with Flatpak (the
+  owner's choice: no network asked for one request). Builds from source (`cargo run`, a distribution's
   own package) aren't told apart: they check as the AppImage does. (S)
   (GitHub issue 28)
 

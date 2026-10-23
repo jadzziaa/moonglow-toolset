@@ -127,8 +127,8 @@ doesn't: the Flatpak (`FLATPAK_ID` set or `/.flatpak-info` there), Scoop
 are told apart at start (`mg_ui::updates::Installer`), and Help › Check
 for Updates… says to update through them. The AppImage, the installer
 and zip, and the macOS app check. The Flatpak isn't given the network
-(`finish-args`), so its Check for Updates… reaches GitHub only where the
-user allows it. A new way of installing that updates Moonglow itself
+(`finish-args`), and its Check for Updates… asks nothing: it says to
+update with `flatpak update`. A new way of installing that updates Moonglow itself
 belongs in that list.
 
 ## macOS: app and disk image

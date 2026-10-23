@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T13:19:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T19:43:48Z }
 ---
 
 # Options
@@ -327,11 +327,10 @@ program in `/nix/store`), it updates Moonglow, so the automatic check is
 off and the page says how that copy is updated (`flatpak update
 io.github.moonglow_toolset.Moonglow`, `scoop update moonglow`, or the
 flake or channel Nix took it from). Help › Check for Updates… still
-asks, and says the same. The Flatpak's sandbox has no network unless
-you allow it (`flatpak override --user --share=network
-io.github.moonglow_toolset.Moonglow`); without it the check says it
-couldn't reach GitHub. The AppImage, the Windows installer and zip, and
-the macOS app check as described above.
+asks, and says the same; in the Flatpak, whose sandbox has no network,
+it asks nothing and only says to update it with Flatpak. The AppImage,
+the Windows installer and zip, and the macOS app check as described
+above.
 
 The command-line tool, `mg`, never checks.
 
