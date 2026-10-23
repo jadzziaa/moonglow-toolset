@@ -1,15 +1,15 @@
 ---
 type: Manual Page
 title: Options
-description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, verify, language, keyboard) and where the settings are kept.
+description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:06:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T13:11:53Z }
 ---
 
 # Options
 
-**Tools › Options…** has Aurora's pages, in a window that docks and
-tabs with the others. **OK** applies the changes; the module stays open.
+**Tools › Options…** has Aurora's pages (and Moonglow's own Updates),
+in a window that docks and tabs with the others. **OK** applies the changes; the module stays open.
 **Cancel**, closing the window or Escape discards them. Only another game or user folder, the Workshop and userpatch switches or a language the game has installed (the Language page)
 has the game's data read again: unsaved work is asked about first, and
 the module is opened again from its file.
@@ -297,6 +297,42 @@ numbered bookmarks (Ctrl and a digit) keep their keys. A letter or digit
 given to a command of the whole window (alone or with Shift) stays a
 character while a text field has the keyboard; with Ctrl or Alt, and
 function keys, work there too.
+
+## Updates
+
+Moonglow's own: Aurora has no such page.
+
+- **Check for updates automatically** (on by default): once a day at
+  most, in the background, Moonglow asks GitHub for its latest release,
+  and when a newer one is out says so in a line under the toolbar (see
+  [Help › Check for Updates…](02-main-window.md#menus)). It never holds
+  up starting or the window, and nothing is downloaded or installed.
+  Offline, or on any error, it says nothing (a line in the
+  [debug log](13-troubleshooting.md#something-fails-without-a-word) at most) and asks again a day
+  later.
+- **What is sent:** one HTTPS request a day at most, to
+  `api.github.com`, for the latest release's version and page, with
+  Moonglow's version as its User-Agent (`Moonglow/2.4.0`), as GitHub
+  asks of every program. Nothing about you, your computer or your
+  modules: no identifier, path or setting. GitHub sees the request as it
+  sees any, from your address.
+- **Last checked**: when the automatic check last asked.
+- **Not reminded about**: the version **Don't remind me about this
+  version** put aside; **Remind Me Again** tells of it again. A later
+  version is told of anyway.
+
+Where a package manager installed Moonglow (Flatpak, Scoop, or Nix: the
+program in `/nix/store`), it updates Moonglow, so the automatic check is
+off and the page says how that copy is updated (`flatpak update
+io.github.moonglow_toolset.Moonglow`, `scoop update moonglow`, or the
+flake or channel Nix took it from). Help › Check for Updates… still
+asks, and says the same. The Flatpak's sandbox has no network unless
+you allow it (`flatpak override --user --share=network
+io.github.moonglow_toolset.Moonglow`); without it the check says it
+couldn't reach GitHub. The AppImage, the Windows installer and zip, and
+the macOS app check as described above.
+
+The command-line tool, `mg`, never checks.
 
 ## Where the settings are kept
 

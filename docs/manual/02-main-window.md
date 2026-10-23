@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T12:06:43Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T13:11:53Z }
 ---
 
 # The main window
@@ -26,7 +26,7 @@ close it, **Palettes** on the toolbar brings it back.
 | Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, 2DA File…, New Script…, Palettes, Appearance Gallery…, Resource Browser, Tilesets (New Tileset…, Open Tileset…), Haks (New Hak, Open Hak…, Build Hak from Folder…), Reload Resources, Options… |
 | Build | Compile All Scripts, Compile Models, Build Module…, Publish to NWSync…, Verify Module, Test Module, Test Module, Choose Character, Pack *file* (nasher projects), Area Statistics |
 | Plugins | the commands of the plugins you have enabled, Manage Plugins…, Install Plugin from File… ([Plugins](15-plugins.md)) |
-| Help | User Manual, Command Palette…, About Moonglow Toolset |
+| Help | User Manual, Command Palette…, Check for Updates…, About Moonglow Toolset |
 
 **The menus by the keyboard.** Alt, pressed and let go on its own, or
 F10 opens the first menu; the same closes the menus. (With the pointer
@@ -46,6 +46,22 @@ type part of it (or of its menu's name), choose with the arrow keys, and
 Enter runs it; Escape closes. Each command shows its menu and its key. A
 command that can't be chosen now is listed dimmed. Any command can be
 given a key in Tools › Options › Keyboard.
+
+**Help › Check for Updates…** (also a button in Help › About) asks
+GitHub for Moonglow's latest release and says either that yours is the
+newest or that a newer one is out, with a link to its release page in
+your browser; drafts and pre-releases never count. Nothing is
+downloaded or installed: you update as you installed. Offline, or when
+GitHub refuses (it limits how often it is asked), the window says why.
+What is sent is that one request and nothing else (no identifier, path
+or anything about your modules). Once a day at most Moonglow also asks
+by itself, in the background, unless Tools › Options › Updates says not
+to; when a newer release is out, a line under the toolbar says so, with
+the release page, **Don't remind me about this version** (a later
+version is told again) and **×** to close it until the next check.
+Where Flatpak, Scoop or Nix installed Moonglow, it doesn't ask by
+itself, and the window says how that copy is updated
+([Options](10-options.md#updates)).
 
 ## Keyboard shortcuts
 
