@@ -45,6 +45,14 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="2.4.0" date="2026-10-23">
+      <description>
+        <p>Single tiles edited outside the fit rules: an exact tile painted
+        alone, a tile's own height, and any tile of the tileset in Tile
+        Properties. mg nui layout says text cut at the bottom of its box,
+        and NUI text takes its column's width as in the game.</p>
+      </description>
+    </release>
     <release version="2.3.1" date="2026-10-23">
       <description>
         <p>With the game's shaders: cut-out edges no longer left see-through
