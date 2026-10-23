@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T11:59:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T13:46:02Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1090,18 +1090,48 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Moonglow scatters them evenly by face area and density. The mean color
   near the camera matches; how the engine places them (per face, by a
   noise) isn't known. (S–M) (Bee AI's ask, October 2026)
-- **Grass's reach:** the client draws grass within about 24 m of its
-  camera, fading over 2 m; Moonglow draws whole tiles within 30 m of the
-  view's focus, at any distance, with a tile's edge for its edge. (S)
-- **Dense grass's cost:** on a 32 by 32 field (ttr01) seen close to the
-  ground at 3440 by 1400, the GPU takes about 0.2 ms a frame without
-  grass, 3 to 4 ms at the tileset's density 5 and about 8 ms at 20 (over
-  the 6.94 ms budget; measured with the game running beside it, so an
-  upper bound: `grass_frames_at_144` in `frame_perf.rs`). The cost is the
-  overlapping tufts' fragments near the camera: a cheaper shader for
-  them, fewer tufts drawn far off, or a cap below 2000 a tile would bring
-  it down. The CPU's frame is 0.15 ms longer, and a drag's regrowing
-  0.7 ms. (S–M)
+- **Grass's reach and its edge:** the area view draws grass wherever it
+  shows grass ground (the owner's report, October 2026: it was the tiles
+  within 30 m of the view's focus); the client draws it within 30 m of
+  its camera by default (`Grass Render Distance` 900, the distance
+  squared, up to 30,000: 173 m) and fades it in there (since 1.82),
+  about 24 m and over 2 m as measured. Moonglow has no fade at its
+  levels' distances either: past 45 m dense grass (more than 10 tufts a
+  square meter), and past 180 m the tilesets' (5), lose tufts at once
+  where a level begins (`mg_area::grass::LEVELS`), a band a careful eye
+  sees as the camera moves. (S)
+- **Grass from high up shows next to nothing:** a tuft is an upright
+  quad a meter high, a pixel or two from 400 m and edge on from straight
+  above, in the ground's own colors: with or without the grass, a field
+  seen whole from high up looks the same (the pictures of
+  `grass_covers_the_whole_view`). Wider tufts far off would show it, and
+  change its look from low down. (S–M)
+- **Dense grass's cost, with the Shaders switch off:** on a 32 by 32
+  field (ttr01) at 3000 by 1250, Moonglow's own shader takes 9.3 ms of
+  GPU close to the ground at density 20 (as before), and 11.9 ms looking
+  across the field from low down (8.5 before, when the grass in the
+  first 20 m from the camera was not drawn: it was out of the focus's
+  reach); the game's programs (the switch on, the default) take 3.3 and
+  4.6 ms. The cost is the overlapping tufts' fragments near the camera,
+  which the levels leave as they are: a cheaper Moonglow shader for
+  them, or a cap below 2000 a tile, would bring it down. At the
+  tilesets' density 5 every view is within the budget either way
+  (`grass_frames_at_144` in `frame_perf.rs`). (S–M)
+- **Grass far off is lit by the chunk:** the grass of 4 by 4 tiles put
+  together far off is one mesh, whose lights are the 32 that reach its
+  40 m ball, where each tile's chose its own: in an area of many lights
+  the far grass may be lit by fewer of them than its tiles would be. (S)
+- **Grass grown again all at once:** a change to what grows (a drag on
+  Area Properties › Grass) grows every grassy tile model of the area in
+  the frame (1.3 ms on the field above; more in an area of many tile
+  models), and the chunks far off are put together again on their
+  thread, the tiles drawn one by one meanwhile (up to 1.6 ms of the
+  frame's CPU more, from high up). (S)
+- **Overlapping tufts blend in another order:** a tile's tufts are drawn
+  in no order of place (so that the first of them are spread over the
+  tile, for the levels), not face by face: the same tufts in the same
+  places, but where two overlap their fringes blend the other way round
+  (1.3 % of a close view's pixels differ by more than 12 of 255). (S)
 - **A grass tuft's shape:** one upright quad turned at random, a texture
   quarter, as tall as wide; the client's geometry (crossed quads, a lean,
   its sway in the wind) wasn't read, and Moonglow's tufts don't sway. (S)

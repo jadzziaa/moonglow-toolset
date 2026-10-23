@@ -2039,10 +2039,6 @@ fn grid_lines(view: &AreaView, shown: &AreaModel) -> Vec<mg_render::Line> {
 /// The view's pitch (radians above the ground) from which the grid is
 /// faint, and at which it is Aurora's red (in between, something of each).
 const GRID_FAINT_FROM: f32 = 0.6;
-
-/// How long a frame spends putting together the grass far off, at most
-/// (past the first chunk): [`mg_area::AreaScene::grow_grass`].
-const GRASS_GROWING: std::time::Duration = std::time::Duration::from_millis(1);
 const GRID_RED_AT: f32 = 0.2;
 
 /// How far a tile's ground is from the area's foot before the grid is
@@ -2091,11 +2087,12 @@ fn viewport(
             mg_area::Sight::of(&o.camera(), size.x / size.y)
         }),
     };
-    // The grass far off, put together a few chunks a frame (drawn tile by
-    // tile until it is, the same tufts: the picture stays as it is).
+    // The grass far off, put together by chunks on a thread of its own
+    // (drawn tile by tile until it is, the same tufts: the picture stays as
+    // it is); the view is drawn again until they are taken up.
     if let (Some(sight), Some(scene), Some(model), Some(vp)) =
         (&settings.grass, view.scene.as_mut(), &view.model, app.viewport.as_ref())
-        && scene.grow_grass(&vp.gpu, model, sight, GRASS_GROWING)
+        && scene.grow_grass(&vp.gpu, model, sight)
     {
         ui.ctx().request_repaint();
     }

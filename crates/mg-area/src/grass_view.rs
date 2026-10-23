@@ -18,8 +18,8 @@
 //! a chunk's mesh is made, its tiles are drawn by themselves, with the
 //! same tufts: nothing in the picture changes when it is.
 
-use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::collections::{BTreeMap, HashSet};
+use std::sync::{Arc, mpsc};
 
 use glam::{Mat4, Vec3};
 use mg_mdl::{Mesh, Model, Node, NodeKind};
@@ -163,34 +163,42 @@ impl TileGrass {
     }
 }
 
-/// What a chunk's grass is made of: each tile's index, its grass (by its
-/// address) and where it stands.
-pub(crate) type MadeOf = Vec<(usize, usize, Mat4)>;
+/// What a chunk's grass is made of: each tile's index, its grass and
+/// where it stands.
+pub(crate) type MadeOf = Vec<(usize, Arc<TileGrass>, Mat4)>;
 
 /// A chunk's grass at the last level, in one mesh for each kind of grass
-/// (in the area, less the chunk's corner), and what it was made of.
+/// (in the area, less the chunk's corner), and what it was made of (kept,
+/// so that what it is compared with is never another's in its place).
 #[derive(Debug)]
 pub(crate) struct ChunkGrass {
-    pub(crate) made_of: MadeOf,
+    made_of: MadeOf,
     pub(crate) model: Arc<GpuModel>,
     pub(crate) at: Mat4,
 }
 
 impl ChunkGrass {
-    /// Puts together the grass of `tiles` (each its grass and where it
-    /// stands) in chunk `key`: the tufts the last level draws of each.
-    pub(crate) fn new(
-        gpu: &Gpu,
-        key: (i32, i32),
-        tiles: &[(&TileGrass, Mat4)],
-        made_of: MadeOf,
-    ) -> ChunkGrass {
+    /// Whether it is made of what `now` has (each tile's index, its grass
+    /// and where it stands).
+    pub(crate) fn is_of<'a>(
+        &self,
+        now: impl ExactSizeIterator<Item = (usize, Option<&'a Arc<TileGrass>>, Mat4)>,
+    ) -> bool {
+        now.len() == self.made_of.len()
+            && now.zip(&self.made_of).all(|((i, grass, at), (was, made, then))| {
+                i == *was && grass.is_some_and(|g| Arc::ptr_eq(g, made)) && at == *then
+            })
+    }
+
+    /// Puts together the grass of `tiles` in chunk `key`: the tufts the
+    /// last level draws of each.
+    pub(crate) fn new(gpu: &Gpu, key: (i32, i32), tiles: MadeOf) -> ChunkGrass {
         let side = TILE_SIZE * CHUNK as f32;
         let corner = Vec3::new(key.0 as f32 * side, key.1 as f32 * side, 0.0);
         // One mesh for each kind (its texture and colors), in the order
         // they are first met.
         let mut meshes: Vec<Mesh> = Vec::new();
-        for (grass, transform) in tiles {
+        for (_, grass, transform) in &tiles {
             let to = Mat4::from_translation(-corner) * *transform;
             let meshes_of = grass.model().nodes.iter().filter_map(Node::mesh);
             for (mesh, &density) in meshes_of.zip(&grass.densities) {
@@ -242,10 +250,74 @@ impl ChunkGrass {
         let name = format!("chunk_grass_{}_{}", key.0, key.1);
         let model = Model { name, nodes, animation_scale: 1.0, ..Model::default() };
         ChunkGrass {
-            made_of,
+            made_of: tiles,
             model: Arc::new(GpuModel::new(gpu, Arc::new(model))),
             at: Mat4::from_translation(corner),
         }
+    }
+}
+
+/// A chunk to put together: the GPU, the chunk, and what of.
+type Job = (Gpu, (i32, i32), MadeOf);
+
+/// Puts chunks together on a thread of its own, so that no frame waits on
+/// one: a frame hands them over and takes those that are ready.
+#[derive(Debug)]
+pub(crate) struct ChunkWorker {
+    jobs: mpsc::Sender<Job>,
+    done: mpsc::Receiver<((i32, i32), Option<ChunkGrass>)>,
+    /// The chunks handed over and not yet taken back.
+    pending: HashSet<(i32, i32)>,
+    /// Those that failed (drawn tile by tile from then on).
+    failed: HashSet<(i32, i32)>,
+}
+
+impl ChunkWorker {
+    /// Its thread started (`None` if it can't be).
+    pub(crate) fn start() -> Option<ChunkWorker> {
+        let (jobs, todo) = mpsc::channel::<Job>();
+        let (made, done) = mpsc::channel();
+        std::thread::Builder::new()
+            .name("grass chunks".into())
+            .spawn(move || {
+                for (gpu, key, tiles) in todo {
+                    let chunk =
+                        mg_render::guard::guarded("grass", || ChunkGrass::new(&gpu, key, tiles));
+                    if made.send((key, chunk)).is_err() {
+                        break;
+                    }
+                }
+            })
+            .ok()?;
+        let (pending, failed) = (HashSet::new(), HashSet::new());
+        Some(ChunkWorker { jobs, done, pending, failed })
+    }
+
+    /// Hands chunk `key` over, unless it is being made already (or failed).
+    pub(crate) fn make(&mut self, gpu: &Gpu, key: (i32, i32), tiles: MadeOf) {
+        if !self.failed.contains(&key) && self.pending.insert(key) {
+            let _ = self.jobs.send((gpu.clone(), key, tiles));
+        }
+    }
+
+    /// The chunks made since the last call.
+    pub(crate) fn made(&mut self) -> Vec<((i32, i32), ChunkGrass)> {
+        let mut out = Vec::new();
+        while let Ok((key, chunk)) = self.done.try_recv() {
+            self.pending.remove(&key);
+            match chunk {
+                Some(c) => out.push((key, c)),
+                None => {
+                    self.failed.insert(key);
+                }
+            }
+        }
+        out
+    }
+
+    /// Whether chunks are being made.
+    pub(crate) fn busy(&self) -> bool {
+        !self.pending.is_empty()
     }
 }
 

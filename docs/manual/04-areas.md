@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T11:59:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T13:46:03Z }
 ---
 
 # Areas
@@ -52,10 +52,13 @@ looking straight down at their middle, north up, as in Aurora.
   you leave it.
 - **🌿 Grass**: the grass the area grows, as the game grows it on the
   tiles' walkmesh faces: the tileset's, and the area's own (Area
-  Properties › Grass). It is drawn on the tiles within 30 m of where the
-  view looks (the game draws it within about 24 m of its camera, which
-  the editor's views are farther off than). Switched off, in every area
-  view; it stays as you leave it.
+  Properties › Grass). It is drawn wherever the view shows grass ground,
+  out to the far edge of the view, as dense as the game's within 45 m of
+  the camera and thinner further off (dense grass from 45 m, the
+  tilesets' own past 180 m). The game draws it within 30 m of its camera
+  by default (its `Grass Render Distance` setting, up to about 170 m).
+  From high above a field a tuft is a pixel or two, and the grass shows
+  little. Switched off, in every area view; it stays as you leave it.
 - **🎨 Shaders**: draws with the game's own shaders, compiled on your
   machine from the game and the module's haks, as the game draws: a
   material's custom shaders (its MTR's `customshaderVS` and

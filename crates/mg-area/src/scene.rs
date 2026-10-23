@@ -210,6 +210,8 @@ pub struct AreaScene {
     /// The grass of chunks far off, each in one mesh, by chunk
     /// ([`crate::grass_view`]).
     chunk_grass: HashMap<(i32, i32), ChunkGrass>,
+    /// What puts them together.
+    chunk_worker: Option<crate::grass_view::ChunkWorker>,
     /// The tile models' walkmeshes, by name.
     walkmesh_cache: HashMap<String, Option<Arc<Walkmesh>>>,
 }
@@ -402,10 +404,14 @@ impl AreaScene {
         crate::grass_chosen(&grown, sight)
     }
 
-    /// What the grass of chunk `tiles` (by index) is made of now.
-    fn made_of(&self, area: &AreaModel, tiles: &[usize]) -> MadeOf {
-        let grass = |i: usize| self.tile_grass[i].as_ref().map_or(0, |g| Arc::as_ptr(g) as usize);
-        tiles.iter().map(|&i| (i, grass(i), area.tiles[i].transform())).collect()
+    /// What the grass of chunk `tiles` (by index) is made of now: each
+    /// tile's index, its grass and where it stands.
+    fn made_of<'a>(
+        &'a self,
+        area: &'a AreaModel,
+        tiles: &'a [usize],
+    ) -> impl ExactSizeIterator<Item = (usize, Option<&'a Arc<TileGrass>>, Mat4)> + 'a {
+        tiles.iter().map(|&i| (i, self.tile_grass[i].as_ref(), area.tiles[i].transform()))
     }
 
     /// The chunk's grass in one mesh, if it is made and of what the chunk
@@ -416,48 +422,40 @@ impl AreaScene {
         key: (i32, i32),
         tiles: &[usize],
     ) -> Option<&ChunkGrass> {
-        self.chunk_grass.get(&key).filter(|c| c.made_of == self.made_of(area, tiles))
+        self.chunk_grass.get(&key).filter(|c| c.is_of(self.made_of(area, tiles)))
     }
 
-    /// Puts together the grass of the chunks far off that `sight` sees
-    /// and that are not yet (or that have changed), nearest first, until
-    /// `budget` is spent (one at least): their tiles are drawn one by one
-    /// until they are (the same tufts). Whether some are left.
-    pub fn grow_grass(
-        &mut self,
-        gpu: &Gpu,
-        area: &AreaModel,
-        sight: &Sight,
-        budget: std::time::Duration,
-    ) -> bool {
-        let start = std::time::Instant::now();
-        let mut wanted: Vec<(f32, (i32, i32), Vec<usize>)> = self
+    /// Has the grass of the chunks far off that `sight` sees put together,
+    /// those not yet (or that have changed), nearest first, on a thread of
+    /// its own, and takes those made since the last call: until they are,
+    /// their tiles are drawn one by one (the same tufts). Whether some are
+    /// being made.
+    pub fn grow_grass(&mut self, gpu: &Gpu, area: &AreaModel, sight: &Sight) -> bool {
+        if self.chunk_worker.is_none() {
+            self.chunk_worker = crate::grass_view::ChunkWorker::start();
+        }
+        let Some(worker) = self.chunk_worker.as_mut() else { return false };
+        self.chunk_grass.extend(worker.made());
+        let mut wanted: Vec<(f32, (i32, i32), MadeOf)> = self
             .grass_in_sight(area, sight)
             .into_iter()
             .filter_map(|d| match d {
                 GrassDraw::Chunk(key, tiles) if self.chunk_made(area, key, &tiles).is_none() => {
                     let at = area.tiles[tiles[0]].position;
-                    Some((at.distance(sight.eye), key, tiles))
+                    let made_of = (self.made_of(area, &tiles))
+                        .filter_map(|(i, grass, transform)| Some((i, grass?.clone(), transform)))
+                        .collect();
+                    Some((at.distance(sight.eye), key, made_of))
                 }
                 _ => None,
             })
             .collect();
         wanted.sort_by(|a, b| a.0.total_cmp(&b.0));
-        let mut left = wanted.len();
-        for (n, (_, key, tiles)) in wanted.into_iter().enumerate() {
-            if n > 0 && start.elapsed() >= budget {
-                break;
-            }
-            let made_of = self.made_of(area, &tiles);
-            let grown: Vec<(&TileGrass, Mat4)> = tiles
-                .iter()
-                .filter_map(|&i| Some((self.tile_grass[i].as_deref()?, area.tiles[i].transform())))
-                .collect();
-            let chunk = ChunkGrass::new(gpu, key, &grown, made_of);
-            self.chunk_grass.insert(key, chunk);
-            left -= 1;
+        let Some(worker) = self.chunk_worker.as_mut() else { return false };
+        for (_, key, made_of) in wanted {
+            worker.make(gpu, key, made_of);
         }
-        left > 0
+        worker.busy()
     }
 
     /// `object` (not in the area: a blueprint about to be placed) as
