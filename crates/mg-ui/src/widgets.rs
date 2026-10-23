@@ -2321,6 +2321,77 @@ pub(crate) fn fold_buttons(ui: &mut Ui, what: &str) -> Option<bool> {
     fold
 }
 
+/// How thick the strip along a pane's inner edge is, the edge it faces the
+/// middle by (the module tree's right, the palettes' left, the log's top):
+/// the pane's fold button is in it, and it is all a folded pane leaves.
+pub(crate) const PANE_EDGE: f32 = 16.0;
+
+/// Which way a pane's fold button points: the way its pane goes when it
+/// is clicked.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Toward {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+/// Where a pane's fold button is in the strip along its edge
+/// ([`PANE_EDGE`] thick): across all of it, and centered along it (an
+/// up-and-down strip when `upright`).
+pub(crate) fn pane_fold_rect(strip: egui::Rect, upright: bool) -> egui::Rect {
+    const LONG: f32 = 44.0;
+    let size = if upright {
+        egui::vec2(strip.width(), LONG.min(strip.height()))
+    } else {
+        egui::vec2(LONG.min(strip.width()), strip.height())
+    };
+    egui::Rect::from_center_size(strip.center(), size)
+}
+
+/// A pane's own button to fold it away and to bring it back (GitHub issue
+/// 10): a chevron in the strip along the pane's inner edge, at `rect`
+/// ([`pane_fold_rect`]), the same place shown and folded. Unlike the
+/// buttons beside it (the palettes' types, a pane's tabs): narrow and
+/// long, with no text, and lit under the pointer. Named `label` for
+/// screen readers. True on the frame it is clicked.
+pub(crate) fn pane_fold_button(
+    ui: &mut Ui,
+    rect: egui::Rect,
+    id: egui::Id,
+    toward: Toward,
+    label: &str,
+    tip: &str,
+) -> bool {
+    let response = ui.interact(rect, id, egui::Sense::click());
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(tip);
+    if ui.is_rect_visible(rect) {
+        let visuals = ui.style().interact(&response);
+        let lit =
+            response.hovered() || response.has_focus() || response.is_pointer_button_down_on();
+        let fill = if lit { visuals.bg_fill } else { ui.visuals().widgets.inactive.weak_bg_fill };
+        let stroke = if lit { visuals.bg_stroke } else { egui::Stroke::NONE };
+        let painter = ui.painter();
+        let body = rect.shrink(1.0);
+        painter.rect(body, 3.0, fill, stroke, egui::StrokeKind::Inside);
+        // The chevron, pointing the way the pane goes.
+        let c = body.center();
+        let (a, b) = (2.5, 4.5);
+        let points = match toward {
+            Toward::Left => [c + egui::vec2(a, -b), c + egui::vec2(-a, 0.0), c + egui::vec2(a, b)],
+            Toward::Right => {
+                [c + egui::vec2(-a, -b), c + egui::vec2(a, 0.0), c + egui::vec2(-a, b)]
+            }
+            Toward::Up => [c + egui::vec2(-b, a), c + egui::vec2(0.0, -a), c + egui::vec2(b, a)],
+            Toward::Down => [c + egui::vec2(-b, -a), c + egui::vec2(0.0, a), c + egui::vec2(b, -a)],
+        };
+        let color = if lit { visuals.fg_stroke.color } else { ui.visuals().text_color() };
+        painter.add(egui::Shape::line(points.to_vec(), egui::Stroke::new(1.5, color)));
+    }
+    response.clicked()
+}
+
 /// Edit beside a script's name, the field `field` ([`resref_field`]):
 /// the name to give [`Action::EditScript`](crate::Action::EditScript) when
 /// it is clicked. There for any name, as soon as one is typed (the field

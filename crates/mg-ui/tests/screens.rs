@@ -2947,7 +2947,7 @@ fn tile_gallery() {
     shoot(&mut h, &dir, "tile-gallery");
     // Every heading opened: the tiles as pictures, as the blueprint
     // palettes' Gallery draws theirs.
-    // (The palette's: the log's fold button is another ⏷.)
+    // (The palette's: the module tree's Expand All is another ⏷.)
     let palette = h.get_by_label("Tiles").rect().right();
     let fold = h.get_all_by_label("⏷").find(|n| n.rect().left() > palette - 300.0).unwrap();
     fold.click();
@@ -4251,4 +4251,79 @@ fn browser_overridden_copies() {
     h.get_by_label("Open").click();
     h.run_steps(4);
     shoot(&mut h, &out, &format!("{shot}-copy"));
+}
+
+#[test]
+#[ignore]
+fn panes_folded() {
+    // GitHub issue 10: each pane beside the area (the module tree, the
+    // palettes, the log) shown and folded away (View's keys: Ctrl+Alt+1, 2
+    // and 3; 0 for all), in a wide window, a narrow one and at a high-DPI
+    // scale.
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let keys = egui::Modifiers::COMMAND | egui::Modifiers::ALT;
+    let shots = [
+        ("", (1400.0, 860.0), 1.0),
+        ("-narrow", (760.0, 520.0), 1.0),
+        ("-hidpi", (1000.0, 700.0), 2.0),
+    ];
+    for (name, size, scale) in shots {
+        let rs = egui_kittest::wgpu::create_render_state(
+            egui_kittest::wgpu::default_wgpu_setup(),
+            egui_wgpu::RendererOptions::PREDICTABLE,
+        );
+        let mut app = Moonglow::new(
+            Some(GameInstall::new(&root, None, "en")),
+            Box::new(NoDialogs::default()),
+        );
+        app.set_render_state(rs.clone());
+        app.open_module(&root.join("data/nwm/Chapter1.nwm"));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(size.0, size.1))
+            .with_pixels_per_point(scale)
+            .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run_steps(3);
+        let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+        h.run_steps(10);
+        shoot(&mut h, &dir, &format!("panes{name}-shown"));
+        // (The tree's button under the pointer, lit.)
+        h.get_by_label("Fold Module Tree").hover();
+        h.run_steps(30);
+        shoot(&mut h, &dir, &format!("panes{name}-hover"));
+        for (key, pane) in
+            [(egui::Key::Num1, "tree"), (egui::Key::Num2, "palettes"), (egui::Key::Num3, "log")]
+        {
+            h.key_press_modifiers(keys, key);
+            h.run_steps(4);
+            shoot(&mut h, &dir, &format!("panes{name}-{pane}-folded"));
+            h.key_press_modifiers(keys, key);
+            h.run_steps(4);
+        }
+        h.key_press_modifiers(keys, egui::Key::Num0);
+        h.run_steps(4);
+        shoot(&mut h, &dir, &format!("panes{name}-all-folded"));
+        h.key_press_modifiers(keys, egui::Key::Num0);
+        h.run_steps(4);
+        if !name.is_empty() {
+            continue;
+        }
+        // The palettes split off the middle's left: their button on their
+        // right edge, and their strip at the left.
+        {
+            let dock = &mut h.state_mut().dock;
+            let palettes = dock.find_tab(&mg_ui::Tab::Palette).unwrap();
+            dock.remove_tab(palettes);
+            let node = dock.find_tab(&mg_ui::Tab::Area(area)).unwrap().node;
+            dock.main_surface_mut().split_left(node, 0.25, vec![mg_ui::Tab::Palette]);
+        }
+        h.run_steps(4);
+        shoot(&mut h, &dir, "panes-palettes-left-shown");
+        h.key_press_modifiers(keys, egui::Key::Num2);
+        h.run_steps(4);
+        shoot(&mut h, &dir, "panes-palettes-left-folded");
+    }
 }

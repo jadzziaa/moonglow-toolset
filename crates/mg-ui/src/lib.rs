@@ -143,8 +143,7 @@ impl Side {
 /// Something the user asked for, run after the frame is drawn.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
-    /// Folds the palettes' pane away (its own » button: drawn in the
-    /// pane, which the dock holds while it draws).
+    /// Folds the palettes' pane away (as their fold button and View do).
     FoldPalettes,
     NewModuleDialog,
     /// Creates a module with this name (then opens the Area Wizard).
@@ -774,6 +773,10 @@ pub struct Moonglow {
     dock_width: Option<f32>,
     /// The palettes' pane's share of the middle's width, as last drawn.
     palette_share: Option<f32>,
+    /// The side of the middle the palettes' pane was on at the last frame,
+    /// with the tabs in it: they leave room along its inner edge for the
+    /// button that folds it away (`palettes_edge`).
+    palette_edge: Option<(Side, Vec<Tab>)>,
     /// A module was opened: the Palettes pane opens once the module tree
     /// shows (and has a width to match). Tests of other windows turn it
     /// off.
@@ -985,6 +988,7 @@ impl Moonglow {
             tree_width: None,
             dock_width: None,
             palette_share: None,
+            palette_edge: None,
             open_palette: false,
             plugins: Default::default(),
             plugin_dir: None,
@@ -1138,41 +1142,20 @@ impl Moonglow {
         // them: the log at most half the window's height, the module tree
         // at most two fifths of its width.
         let window = ui.ctx().content_rect().size();
-        // A pane folded away (View) leaves a strip at its edge, to bring
-        // it back with a click.
-        let key = |app: &Moonglow, id: commands::Id, ctx: &egui::Context| {
-            let key = app.keymap.label_of(&id.id(), ctx);
-            if key.is_empty() { String::new() } else { format!(" ({key})") }
-        };
-        if self.settings.hide_log {
-            egui::Panel::bottom("log-strip").exact_size(line + 6.0).show(ui, |ui| {
-                let tip = format!("Show the log{}", key(self, commands::Id::ViewLog, ui.ctx()));
-                // (Where the log's own button to fold it was, and its
-                // arrow the other way.)
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button("⏶ Log").on_hover_text(tip).clicked() {
-                        self.show_panel(commands::Id::ViewLog, true);
-                    }
-                });
-            });
-        } else {
+        // Each pane beside the middle has a strip along the edge it faces
+        // the middle by, with its button to fold it away (GitHub issue
+        // 10); folded away (the button, View), the strip is all it leaves,
+        // with the same button, in the same place, to bring it back.
+        if !self.settings.hide_log {
             egui::Panel::bottom("log")
                 .resizable(true)
                 .default_size(120.0)
                 .size_range((line + 6.0)..=(window.y * 0.5).max(line + 6.0))
                 .show(ui, |ui| self.log_ui(ui));
         }
+        self.pane_edge(ui, commands::Id::ViewLog, Side::Below);
         if self.ws.is_some() {
-            if self.settings.hide_tree {
-                egui::Panel::left("tree-strip").exact_size(22.0).show(ui, |ui| {
-                    let id = commands::Id::ViewTree;
-                    let tip = format!("Show the module tree{}", key(self, id, ui.ctx()));
-                    if ui.small_button("⏵").on_hover_text(tip).clicked() {
-                        self.show_panel(id, true);
-                    }
-                });
-                // (As wide as it was, for where the palettes' pane goes.)
-            } else {
+            if !self.settings.hide_tree {
                 let tree = egui::Panel::left("tree")
                     .resizable(true)
                     .default_size(240.0)
@@ -1180,6 +1163,7 @@ impl Moonglow {
                     .show(ui, |ui| tree::module_tree(self, ui));
                 self.tree_width = Some(tree.response.rect.width());
             }
+            self.pane_edge(ui, commands::Id::ViewTree, Side::Left);
             // The palette beside a newly opened module, as in Aurora (not
             // when it was folded away).
             if std::mem::take(&mut self.open_palette)
@@ -1188,17 +1172,18 @@ impl Moonglow {
             {
                 self.actions.push(Action::OpenTab(Tab::Palette));
             }
+            // The palettes' strip, folded away (shown, their pane is the
+            // dock's, and the button is drawn on its edge after it:
+            // `palettes_edge`): on the side they come back on.
             if self.settings.hide_palettes
                 && self.game.is_some()
                 && self.dock.find_tab(&Tab::Palette).is_none()
             {
-                egui::Panel::right("palettes-strip").exact_size(22.0).show(ui, |ui| {
-                    let id = commands::Id::ViewPalettes;
-                    let tip = format!("Show the palettes{}", key(self, id, ui.ctx()));
-                    if ui.small_button("⏴").on_hover_text(tip).clicked() {
-                        self.show_panel(id, true);
-                    }
-                });
+                let side = match self.place_for(&Tab::Palette) {
+                    Place::Split(Side::Left, _) => Side::Left,
+                    _ => Side::Right,
+                };
+                self.pane_edge(ui, commands::Id::ViewPalettes, side);
             }
         }
         self.heard = None;
@@ -1253,6 +1238,7 @@ impl Moonglow {
             }
             self.dock = dock;
             self.window_bars(ui);
+            self.palettes_edge(ui);
         });
         trace::changed("panes", || self.panes());
         self.remember_window_sizes();
@@ -1599,6 +1585,110 @@ impl Moonglow {
                 }
             }
         }
+    }
+
+    /// The strip along the inner edge of the pane `panel` (View's command
+    /// for it), a panel at the window's `side`: with the pane shown,
+    /// between it and the middle; folded away, all that is left of it.
+    /// Its button folds the pane away and brings it back.
+    fn pane_edge(&mut self, ui: &mut egui::Ui, panel: commands::Id, side: Side) {
+        let id = egui::Id::new(("pane-edge", panel.id()));
+        let strip = match side {
+            Side::Left => egui::Panel::left(id),
+            Side::Right => egui::Panel::right(id),
+            Side::Above => egui::Panel::top(id),
+            Side::Below => egui::Panel::bottom(id),
+        };
+        let frame = egui::Frame::side_top_panel(ui.style()).inner_margin(egui::Margin::ZERO);
+        // (With room for the line along its edge, which egui counts in.)
+        let line = ui.visuals().widgets.noninteractive.bg_stroke.width.round();
+        let size = widgets::PANE_EDGE + line;
+        strip.exact_size(size).resizable(false).frame(frame).show(ui, |ui| {
+            let rect = ui.max_rect();
+            self.pane_fold(ui, panel, rect, side);
+        });
+    }
+
+    /// The button that folds the pane `panel` away, or brings it back, in
+    /// the strip `strip` along its inner edge, for a pane on the `side` of
+    /// the middle: centered along the strip, and pointing the way the pane
+    /// goes when it is clicked.
+    fn pane_fold(&mut self, ui: &mut egui::Ui, panel: commands::Id, strip: egui::Rect, side: Side) {
+        use widgets::Toward;
+        let shown = self.panel_shown(panel);
+        let toward = match (side, shown) {
+            (Side::Left, true) | (Side::Right, false) => Toward::Left,
+            (Side::Left, false) | (Side::Right, true) => Toward::Right,
+            (Side::Above, true) | (Side::Below, false) => Toward::Up,
+            (Side::Above, false) | (Side::Below, true) => Toward::Down,
+        };
+        let (name, what) = match panel {
+            commands::Id::ViewTree => ("Module Tree", "the module tree"),
+            commands::Id::ViewLog => ("Log", "the log"),
+            _ => ("Palettes", "the palettes"),
+        };
+        let key = self.keymap.label_of(&panel.id(), ui.ctx());
+        let key = if key.is_empty() { String::new() } else { format!(" ({key})") };
+        let (label, tip) = if shown {
+            (format!("Fold {name}"), format!("Fold {what} away{key}"))
+        } else {
+            (format!("Show {name}"), format!("Show {what}{key}"))
+        };
+        let rect = widgets::pane_fold_rect(strip, matches!(side, Side::Left | Side::Right));
+        let id = egui::Id::new(("pane-fold", name));
+        if widgets::pane_fold_button(ui, rect, id, toward, &label, &tip) {
+            self.show_panel(panel, !shown);
+        }
+    }
+
+    /// The palettes' pane's fold button, on the edge it faces the middle
+    /// by, once the dock has drawn it (a pane of the dock's, not a panel:
+    /// its tabs leave the room for it, `palette_edge`). Only where it is a
+    /// pane at a side of the main window's middle: joined to the middle's
+    /// tabs, in a window of its own, above or below it, View folds it away.
+    fn palettes_edge(&mut self, ui: &mut egui::Ui) {
+        self.palette_edge = None;
+        let Some(dock) = self.dock_rect else { return };
+        let leaf = self.dock.iter_leaves().find(|(p, leaf)| {
+            p.surface.is_main()
+                && leaf.tabs.contains(&Tab::Palette)
+                && !leaf.collapsed
+                && !leaf.tabs.iter().any(|t| matches!(t, Tab::Area(_)))
+        });
+        let Some((_, leaf)) = leaf else { return };
+        let (rect, bar) = (leaf.rect, leaf.viewport.top());
+        let side = if rect.left() > dock.left() + 1.0 && rect.right() >= dock.right() - 1.0 {
+            Side::Right
+        } else if rect.left() <= dock.left() + 1.0 && rect.right() < dock.right() - 1.0 {
+            Side::Left
+        } else {
+            return;
+        };
+        self.palette_edge = Some((side, leaf.tabs.clone()));
+        // egui_dock's arrow at the left of the pane's tab bar, which folds
+        // the pane to its bar, was a second fold button beside the pane's
+        // own (the reporter of issue 10): covered, and its clicks taken.
+        // (egui_dock has it on every pane or none; windows keep theirs, to
+        // fold to their bar.)
+        let arrow = egui::Rect::from_min_max(rect.left_top(), egui::pos2(rect.left() + 24.0, bar));
+        if arrow.is_positive() {
+            let px = ui.ctx().pixels_per_point().recip();
+            let visuals = ui.visuals();
+            let corner = egui::CornerRadius {
+                nw: visuals.widgets.inactive.corner_radius.nw.saturating_add(2),
+                ..Default::default()
+            };
+            let fill = visuals.extreme_bg_color;
+            let cover = arrow.with_max_y(arrow.bottom() - px).expand2(egui::vec2(px, 0.0));
+            ui.painter().rect_filled(cover, corner, fill);
+            ui.interact(arrow, egui::Id::new("palettes-bar-arrow"), egui::Sense::click());
+        }
+        let x = match side {
+            Side::Right => rect.left(),
+            _ => rect.right() - widgets::PANE_EDGE,
+        };
+        let strip = egui::Rect::from_x_y_ranges(x..=x + widgets::PANE_EDGE, rect.y_range());
+        self.pane_fold(ui, commands::Id::ViewPalettes, strip, side);
     }
 
     /// View › Reset Layout: the tree, the palettes and the log shown, at
@@ -2216,19 +2306,11 @@ impl Moonglow {
                     self.actions.push(Action::ApplyFix(line));
                 }
             });
-        // Its own button to fold it away, in its corner (GitHub issue 10:
-        // each pane has one; the strip it leaves brings it back).
+        // A button in its corner to empty it, so that a second Verify's
+        // report isn't mistaken for the first's. (The one that folds it
+        // away is on its edge: `pane_edge`.)
         let corner = ui.max_rect().right_top() + egui::vec2(-36.0, 2.0);
-        let at = egui::Rect::from_min_size(corner, egui::vec2(20.0, 18.0));
-        let fold = ui.put(at, egui::Button::new("⏷").small());
-        // (Named as the strip that brings it back is.)
-        fold.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "⏷ Log"));
-        if fold.on_hover_text("Fold the log away").clicked() {
-            self.show_panel(commands::Id::ViewLog, false);
-        }
-        // And one to empty it, so that a second Verify's report isn't
-        // mistaken for the first's.
-        let at = egui::Rect::from_min_size(corner + egui::vec2(-48.0, 0.0), egui::vec2(44.0, 18.0));
+        let at = egui::Rect::from_min_size(corner + egui::vec2(-12.0, 0.0), egui::vec2(44.0, 18.0));
         let clear = ui.put(at, egui::Button::new("Clear").small());
         clear
             .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Clear Log"));

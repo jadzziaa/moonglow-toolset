@@ -183,15 +183,17 @@ string's text is shown beside its number.
 **The panes beside the middle** (the module tree on the left, the
 palettes on the right, the log below) fold away to give the area's view
 the room: **View** has each, ticked while shown, and **Hide All Panels**.
-The module tree («, beside its Filter), the palettes (», after their
-type icons) and the log (⏷, in its right corner) have a button of their
-own for it.
-A pane folded away leaves a narrow strip at its edge with an arrow: a
-click brings it back, as wide as it was (the log's, **⏶ Log**, on the
-right, where its button to fold it was). Closing the palettes' pane by
-its ✕ folds it away the same. What is folded stays so the next time
-Moonglow starts. **View › Reset Layout** shows all three at the sizes
-they have at first.
+Each pane also has one button of its own for it: a small arrow on the
+edge it faces the middle by, halfway along it (the module tree's right
+edge, the palettes' left edge, the log's top edge). It points the way
+the pane goes, and lights up under the pointer.
+A pane folded away leaves a thin strip at that edge, with the same
+button in the same place, pointing the other way: a click brings the
+pane back, as wide as it was. Palettes you moved to the left of the
+middle have their button on their right edge and leave their strip on
+the left. Closing the palettes' pane by its ✕ folds it away the same.
+What is folded stays so the next time Moonglow starts. **View › Reset
+Layout** shows all three at the sizes they have at first.
 
 **The keyboard in the tree.** A click on a row gives the tree the arrow
 keys, wherever the pointer goes after, until it is in an area's view,

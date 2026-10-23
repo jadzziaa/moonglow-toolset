@@ -4509,8 +4509,8 @@ fn the_module_tree_by_the_keyboard() {
 }
 
 /// GitHub issue 10: the panes beside the middle fold away and come back
-/// (View, Ctrl+Alt+1, 2, 3 and 0, and the strip a folded pane leaves at
-/// its edge), each as wide as it was.
+/// (View, Ctrl+Alt+1, 2, 3 and 0, and each pane's own button, on the edge
+/// it faces the middle by), each as wide as it was.
 #[test]
 fn panels_fold_away_and_come_back() {
     let Some(mut h) = game_harness("panels") else { return };
@@ -4526,50 +4526,48 @@ fn panels_fold_away_and_come_back() {
         let mut leaves = h.state().dock.iter_leaves().map(|(_, l)| l);
         leaves.find(|l| l.tabs.contains(&Tab::Palette)).map(|l| l.rect.width())
     };
-    let tree = |h: &Harness<'_, Moonglow>| h.query_by_label("«").is_some();
+    let tree = |h: &Harness<'_, Moonglow>| h.query_by_label("Fold Module Tree").is_some();
     let was = palette(&h).expect("the palettes' pane");
     assert!(tree(&h));
 
     // The module tree: folded to a strip, and back by the strip.
     key(&mut h, egui::Key::Num1);
     assert!(!tree(&h) && h.state().settings.hide_tree);
-    h.get_by_label("⏵").click();
+    h.get_by_label("Show Module Tree").click();
     h.run();
     assert!(tree(&h) && !h.state().settings.hide_tree);
-    // Each pane's own button folds it away too (the tree's, the log's;
-    // the log's in the corner where the strip's button brings it back).
-    h.get_by_label("«").click();
+    // Its own button folds it away too; so does the log's.
+    h.get_by_label("Fold Module Tree").click();
     h.run();
     assert!(!tree(&h) && h.state().settings.hide_tree);
-    h.get_by_label("⏵").click();
+    h.get_by_label("Show Module Tree").click();
     h.run();
-    h.get_by_label("⏷ Log").click();
+    h.get_by_label("Fold Log").click();
     h.run();
     assert!(h.state().settings.hide_log);
-    h.get_by_label("⏶ Log").click();
+    h.get_by_label("Show Log").click();
     h.run();
     assert!(!h.state().settings.hide_log && tree(&h));
     // The palettes: their pane goes, and comes back as wide.
     key(&mut h, egui::Key::Num2);
     assert!(palette(&h).is_none() && h.state().settings.hide_palettes);
-    h.get_by_label("⏴").click();
+    h.get_by_label("Show Palettes").click();
     h.run();
     h.run();
     let now = palette(&h).expect("back");
     assert!((now - was).abs() < 3.0, "{was} wide, then {now}");
-    // Their own button folds them away as the tree's does (GitHub issue
-    // 10: they had only their ✕).
-    h.get_by_label("»").click();
+    // Their own button folds them away as the tree's does.
+    h.get_by_label("Fold Palettes").click();
     h.run();
     assert!(palette(&h).is_none() && h.state().settings.hide_palettes);
-    h.get_by_label("⏴").click();
+    h.get_by_label("Show Palettes").click();
     h.run();
     h.run();
     assert!(palette(&h).is_some());
     // The log.
     key(&mut h, egui::Key::Num3);
     assert!(h.state().settings.hide_log);
-    h.get_by_label("⏶ Log").click();
+    h.get_by_label("Show Log").click();
     h.run();
     assert!(!h.state().settings.hide_log);
     // All of them, and all back.
@@ -4589,6 +4587,124 @@ fn panels_fold_away_and_come_back() {
     h.run();
     h.run();
     assert!(palette(&h).is_some());
+}
+
+/// GitHub issue 10, as its reporter put it on 1.31.0: one button per pane
+/// to fold it away, on the edge the pane faces the middle by (the module
+/// tree's right, the palettes' left, the log's top), centered along it,
+/// and in the same place folded, where it is all the pane leaves, in the
+/// window; the palettes' tab bar has no other (egui_dock's arrow that
+/// folded the pane to its bar).
+#[test]
+fn each_pane_folds_by_one_button_on_its_inner_edge() {
+    let Some(mut h) = game_harness("pane-edges") else { return };
+    h.run_steps(3);
+    // A pane's button, folded or not (and that there is one).
+    let button = |h: &Harness<'_, Moonglow>, name: &str| {
+        let fold = format!("Fold {name}");
+        let show = format!("Show {name}");
+        let all: Vec<egui::Rect> = (h.query_all_by_label(&fold).chain(h.query_all_by_label(&show)))
+            .map(|n| n.rect())
+            .collect();
+        assert_eq!(all.len(), 1, "one button for the {name}: {all:?}");
+        all[0]
+    };
+    // The middle (the dock's panes but the palettes'), and the palettes'.
+    let middle = |h: &Harness<'_, Moonglow>| {
+        let leaves = h.state().dock.iter_leaves().filter(|(p, _)| p.surface.is_main());
+        let rects = leaves.filter(|(_, l)| !l.tabs.contains(&Tab::Palette)).map(|(_, l)| l.rect);
+        rects.reduce(|a, b| a.union(b)).expect("a middle")
+    };
+    let palettes = |h: &Harness<'_, Moonglow>| {
+        let mut leaves = h.state().dock.iter_leaves();
+        leaves.find(|(_, l)| l.tabs.contains(&Tab::Palette)).map(|(_, l)| (l.rect, l.collapsed))
+    };
+    let window = h.ctx.content_rect();
+    let near = |a: f32, b: f32, what: &str| assert!((a - b).abs() < 1.5, "{what}: {a} and {b}");
+    // (The dock's panes stand 8 points inside the middle's panel, all
+    // round; the panels, as far inside the window.)
+    const MARGIN: f32 = 8.0;
+
+    // The module tree: on its right edge, toward the middle, half way
+    // down it; folded, the same, at the window's left.
+    let (shown, mid) = (button(&h, "Module Tree"), middle(&h));
+    assert!(shown.left() > window.left() + 150.0, "right of the tree: {shown:?}");
+    near(shown.right() + MARGIN, mid.left(), "beside the middle");
+    let (pane, _) = palettes(&h).unwrap();
+    near(shown.center().y, mid.union(pane).center().y, "half way down");
+    assert!(shown.width() >= 12.0 && shown.height() > 2.0 * shown.width(), "{shown:?}");
+    // (A click at the edge, where the tree is resized, is the button's.)
+    let at = egui::pos2(shown.left() + 2.0, shown.center().y);
+    h.hover_at(at);
+    h.run();
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    assert!(h.state().settings.hide_tree, "folded by the click at its edge");
+    let folded = button(&h, "Module Tree");
+    assert!(h.query_by_label("Fold Module Tree").is_none());
+    assert!(window.contains_rect(folded), "in the window: {folded:?}");
+    near(folded.left(), window.left() + MARGIN, "at the window's edge, in its frame");
+    near(folded.right() + MARGIN, middle(&h).left(), "beside the middle");
+    assert_eq!(folded.size(), shown.size());
+    near(folded.center().y, shown.center().y, "where it was");
+    h.get_by_label("Show Module Tree").click();
+    h.run_steps(2);
+    assert!(!h.state().settings.hide_tree);
+    assert_eq!(button(&h, "Module Tree"), shown, "back where it was");
+
+    // The palettes: on their left edge, half way down.
+    let (pane, collapsed) = palettes(&h).unwrap();
+    assert!(!collapsed);
+    let shown = button(&h, "Palettes");
+    near(shown.left(), pane.left(), "on the palettes' left edge");
+    near(shown.center().y, pane.center().y, "half way down");
+    // Their tab bar's arrow is no button: a click there folds nothing.
+    let arrow = egui::pos2(pane.left() + 12.0, pane.top() + 10.0);
+    h.hover_at(arrow);
+    h.run();
+    press(&h, arrow, true, egui::Modifiers::NONE);
+    press(&h, arrow, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    assert_eq!(palettes(&h).map(|p| p.1), Some(false), "not folded to the tab bar");
+    assert!(!h.state().settings.hide_palettes);
+    h.get_by_label("Fold Palettes").click();
+    h.run_steps(3);
+    assert!(palettes(&h).is_none());
+    let folded = button(&h, "Palettes");
+    assert!(window.contains_rect(folded), "in the window: {folded:?}");
+    near(folded.right(), window.right() - MARGIN, "at the window's edge, in its frame");
+    near(folded.left() - MARGIN, middle(&h).right(), "beside the middle");
+    assert_eq!(folded.size(), shown.size());
+    near(folded.center().y, shown.center().y, "where it was");
+    h.get_by_label("Show Palettes").click();
+    h.run_steps(3);
+    assert!(palettes(&h).is_some());
+    near(button(&h, "Palettes").center().y, shown.center().y, "back where it was");
+
+    // The log: on its top edge, half way across.
+    let shown = button(&h, "Log");
+    let clear = h.get_by_label("Clear Log").rect();
+    assert!(shown.bottom() <= clear.top(), "over the log: {shown:?} {clear:?}");
+    near(shown.top() - MARGIN, middle(&h).bottom(), "under the middle");
+    near(shown.center().x, window.center().x, "half way across");
+    assert!(shown.height() >= 12.0 && shown.width() > 2.0 * shown.height(), "{shown:?}");
+    h.get_by_label("Fold Log").click();
+    h.run_steps(2);
+    assert!(h.state().settings.hide_log);
+    let folded = button(&h, "Log");
+    assert!(window.contains_rect(folded), "in the window: {folded:?}");
+    near(folded.top() - MARGIN, middle(&h).bottom(), "under the middle");
+    assert_eq!(folded.size(), shown.size());
+    near(folded.center().x, shown.center().x, "where it was");
+    h.get_by_label("Show Log").click();
+    h.run_steps(2);
+    assert!(!h.state().settings.hide_log);
+    // (The others are gone: the tree's «, the palettes' » after their
+    // types, the log's ⏷ in its corner and the ⏶ Log of its strip.)
+    for old in ["«", "»", "⏷ Log", "⏶ Log", "⏴"] {
+        assert!(h.query_by_label(old).is_none(), "{old}");
+    }
 }
 
 /// GitHub issue 20: the palettes' tab dragged onto the middle of the
@@ -4894,7 +5010,10 @@ fn a_tool_window_reopens_in_its_split_of_the_middle() {
     assert_eq!(placed(&h, "palette").as_deref(), Some("split left 250"));
     h.state_mut().actions.push(mg_ui::Action::FoldPalettes);
     h.run_steps(3);
-    h.get_by_label("⏴").click();
+    // (Their strip, at the left as they were.)
+    let strip = h.get_by_label("Show Palettes").rect();
+    assert!(strip.right() < middle(&h).1.left(), "left of the middle: {strip:?}");
+    h.get_by_label("Show Palettes").click();
     h.run_steps(3);
     let (_, _, palettes) = pane(&h, &Tab::Palette);
     let (_, area_rect) = middle(&h);

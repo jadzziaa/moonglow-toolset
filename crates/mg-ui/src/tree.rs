@@ -482,7 +482,6 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
         && app.tree_cursor.is_some()
         && !ui.ctx().egui_wants_keyboard_input()
         && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::F));
-    let mut fold_away = false;
     // (Escape there clears what is typed; again, or Down, back to the
     // rows.)
     let field_id = egui::Id::new("tree-filter-field");
@@ -490,9 +489,9 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
     // As the palettes' pane: the search across the pane, with what it
     // looks in said and a button to clear it; under it the list's own
     // small toolbar.
+    // (The button that folds the pane away is on its edge: GitHub issue
+    // 10, `Moonglow::pane_edge`.)
     ui.horizontal(|ui| {
-        // (The pane's own button to fold it away: GitHub issue 10.)
-        fold_away = ui.small_button("«").on_hover_text("Fold the module tree away").clicked();
         let clear = !filter.is_empty();
         let room = ui.available_width() - if clear { 26.0 } else { 0.0 };
         ui.add(
@@ -505,9 +504,6 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
             filter.clear();
         }
     });
-    if fold_away {
-        app.show_panel(crate::commands::Id::ViewTree, false);
-    }
     if let Some(left) = left {
         if left == crate::widgets::FilterLeft::Down || app.tree_cursor.is_none() {
             app.tree_cursor = Some(TreeAt::Group(GROUPS[0].0));
