@@ -1310,6 +1310,44 @@ fn user_manual() {
     shoot(&mut h, &dir, "about");
 }
 
+/// The update notice under the toolbar, Help › Check for Updates… (newer,
+/// and on a copy Scoop updates) and Options › Updates (on, and on a
+/// Flatpak's copy). The answers are canned: no network.
+#[test]
+#[ignore]
+fn update_notice_and_options() {
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::output_dir("screens");
+    let answer = |tag: &str| {
+        format!(
+            r#"{{"tag_name":"{tag}","html_url":"https://github.com/jadzziaa/moonglow-toolset/releases/tag/{tag}","draft":false,"prerelease":false}}"#
+        )
+    };
+    let newer = answer("v2.5.0");
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.updates.fetch = Some(Arc::new(move || Ok(newer.clone())));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    shoot(&mut h, &dir, "update-notice");
+    mg_ui::updates::check_now(h.state_mut());
+    shoot(&mut h, &dir, "update-check-newer");
+    h.state_mut().updates.installer = Some(mg_ui::updates::Installer::Scoop);
+    h.get_by_label("Check Again").click();
+    shoot(&mut h, &dir, "update-check-scoop");
+    h.state_mut().updates.window = false;
+    h.state_mut().settings.update_skipped = Some("2.4.9".into());
+    h.state_mut().updates.installer = None;
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    h.run();
+    h.get_by_label("Updates").click();
+    shoot(&mut h, &dir, "options-updates");
+    h.state_mut().updates.installer = Some(mg_ui::updates::Installer::Flatpak);
+    shoot(&mut h, &dir, "options-updates-flatpak");
+}
+
 #[test]
 #[ignore]
 fn script_beside_the_palette_pane() {

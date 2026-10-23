@@ -81,6 +81,11 @@ skrifa = "0.44"
 rodio = { version = "0.22", default-features = false, features = ["playback"] }
 symphonia = { version = "0.6", default-features = false, features = ["adpcm", "mp3", "pcm", "wav"] }
 thiserror = "2"
+# (The GUI's check for a new release: one HTTPS request to GitHub, on a
+# thread. rustls with ring and webpki-roots' certificates, built in, so
+# that the AppImage and the Windows and macOS builds need nothing of the
+# system's; no gzip, no proxies of the registry. The CLI doesn't link it.)
+ureq = { version = "3", default-features = false, features = ["rustls"] }
 toml = "1"
 # (Writing the project file's plugin tables in place, the rest of it as written.)
 toml_edit = "0.25"

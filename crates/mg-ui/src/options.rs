@@ -1,7 +1,8 @@
 //! Tools > Options (Aurora's `TdlgOptions`), as pages: Folders (where the
 //! game and the NWN user folder are), General (Build module on save,
 //! Minimize Toolset on test module) and Script Editor (compile on save,
-//! debug information, the code templates folder, font size and colours).
+//! debug information, the code templates folder, font size and colours),
+//! and Moonglow's own (Updates: the daily check for a new release).
 
 use std::path::PathBuf;
 
@@ -25,6 +26,7 @@ pub enum OptionsPage {
     Verify,
     Language,
     Keyboard,
+    Updates,
 }
 
 /// The Options window's fields: folders as typed (empty to detect), and
@@ -100,6 +102,10 @@ pub struct OptionsDraft {
     pub ambient_sound: bool,
     pub ambient_music: bool,
     pub music_volume: u8,
+    /// Updates: Check for updates automatically, and the version not to be
+    /// reminded about.
+    pub update_check: bool,
+    pub update_skipped: Option<String>,
     pub keymap: crate::keys::Keymap,
     /// The enabled plugins' commands, listed after the window's: the id
     /// each one's keys are kept under, and its name.
@@ -193,6 +199,8 @@ impl OptionsDraft {
             ambient_sound: s.ambient_sound,
             ambient_music: s.ambient_music,
             music_volume: s.music_volume.unwrap_or(crate::area_audio::MUSIC_VOLUME),
+            update_check: !s.no_update_check,
+            update_skipped: s.update_skipped.clone(),
         }
     }
 
@@ -269,6 +277,8 @@ impl OptionsDraft {
             music_volume: (self.music_volume != crate::area_audio::MUSIC_VOLUME)
                 .then_some(self.music_volume.min(127)),
             key_bindings: self.keymap.chosen(),
+            no_update_check: !self.update_check,
+            update_skipped: self.update_skipped.clone(),
             ..s.clone()
         }
     }
@@ -318,6 +328,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     };
     let detected = draft.detected.clone();
     let this_run = app.settings.user_dir_this_run.clone();
+    let (installer, checked) = (app.updates.installer, app.settings.update_checked);
     let mut browse = None;
     let mut close = false;
     // Enter is OK while the pointer is over the tab (it is one window among
@@ -367,6 +378,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             (OptionsPage::Verify, "Verify"),
                             (OptionsPage::Language, "Language"),
                             (OptionsPage::Keyboard, "Keyboard"),
+                            (OptionsPage::Updates, "Updates"),
                         ] {
                             ui.selectable_value(&mut draft.page, page, name);
                         }
@@ -713,6 +725,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             }
                         }
                         OptionsPage::Verify => verify(ui, draft),
+                        OptionsPage::Updates => crate::updates::options_page(
+                            ui,
+                            &mut draft.update_check,
+                            &mut draft.update_skipped,
+                            installer,
+                            checked,
+                        ),
                         OptionsPage::Language => {
                             ui.label("The language text is shown and edited in:");
                             let mut default = draft.edit_language.is_none();
