@@ -1686,9 +1686,19 @@ fn creatures_look() {
             std::fs::copy(f.path(), dir.join("user/override").join(f.file_name())).unwrap();
         }
     }
+    // (At the settings Moonglow's programs are made for, High Quality: at
+    // the game's default, Performance, a cut-out's edges are not lit
+    // through from behind.)
+    std::fs::write(dir.join("user/settings.tml"), SETTINGS).unwrap();
     let user = custom.as_ref().map(|_| dir.join("user"));
     let game = GameData::open(&GameInstall::new(&root, user, "en")).unwrap();
-    let light = Lighting { ambient: 0x808080, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+    // `MG_LIGHT`: the area's ambient and diffuse colors (0xBBGGRR, as an
+    // ARE has them), as `ambient,diffuse` in hexadecimal.
+    let colors: Vec<u32> = std::env::var("MG_LIGHT")
+        .ok()
+        .map(|l| l.split(',').map(|v| u32::from_str_radix(v.trim(), 16).unwrap()).collect())
+        .unwrap_or_else(|| vec![0x808080, 0xC0C0C0]);
+    let light = Lighting { ambient: colors[0], diffuse: colors[1], main_light: 0, only_tile: None };
     let (mut m, are) = build_module(&game, &dir, light);
     let enter: String =
         ENTER.lines().filter(|l| !l.contains("CreateObject")).collect::<Vec<_>>().join("\n");

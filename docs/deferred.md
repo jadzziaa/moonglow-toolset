@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T00:31:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T01:42:18Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1861,6 +1861,24 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   distortion) was not read. (M)
   (from the Domains of Dread's report on the flickering zombie, 2026-10-22;
   seen in the client, `creatures_look`)
+- **A cut-out lit from behind, by Moonglow's own shader:** the game's
+  programs at High Quality light a cut-out's kept texels below opaque
+  (its edges) through from behind (`inc_lighting`'s translucence: the
+  light behind times one minus the alpha), and the client draws the
+  light line that makes along a backlit cut edge (the Domains of Dread's
+  dire wolf, `dd_n2e_wolfdire`, in the area view; `creatures_look` with
+  the wolf, gone with the translucence defined away; held by
+  `a_backlit_cut_out_s_edge_is_lit_through_by_the_game_s_programs`).
+  Moonglow's own shader makes a cut-out solid before it lights it, so it
+  draws no line: it differs from the client there. With The Domains of
+  Dread's `inc_lighting` (a wrapped diffuse, N·L never below 0) there is
+  no translucence; what shows there is the fur card lit otherwise than
+  the normal-mapped body under it, which the client draws too. Also left:
+  the game's programs are made for High Quality whatever the user's
+  `settings.tml` says (at Performance, the game's default, there is no
+  translucence nor light softening). (S)
+  (from the Domains of Dread's report on the wolf's edges in the area
+  view, 2026-10-22; seen in the client)
 
 ## Models and textures
 

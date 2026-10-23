@@ -611,6 +611,175 @@ fn model_view_game_shaders() {
     }
 }
 
+/// Creatures placed in an area, in the area view, with the game's shaders
+/// on and off, selected and not, to look at what they draw differently
+/// there: appearance.2da rows `MG_SCREEN_APPEARANCES` (comma-separated,
+/// a badger's by default) of a builder's haks `MG_SCREEN_HAKS` (names,
+/// highest first, found in `MOONGLOW_HAKS`), the camera
+/// `MG_SCREEN_DISTANCE` meters from the first and `MG_SCREEN_YAW` degrees
+/// round it (from +X). `MG_SCREEN_LIGHT` and `MG_SCREEN_OVERRIDE` below.
+/// The whole window and the view about each creature go to
+/// `target/test-output/screens-area/`. (The Domains of Dread's dire wolf,
+/// 31002, lit from behind: a light line along its fur cards' cut edges
+/// with the game's shaders, which the client draws too: `creatures_look`
+/// in `client_render.rs`.)
+#[test]
+#[ignore]
+fn area_creatures_game_shaders() {
+    use mg_module::ModuleLocation;
+    use mg_module::instances::{Placement, Placing, instance};
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens-area");
+    let scratch = mg_testkit::scratch_dir("screens-area-creatures");
+    let user = scratch.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let haks: Vec<String> = std::env::var("MG_SCREEN_HAKS")
+        .map(|v| v.split(',').map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()).collect())
+        .unwrap_or_default();
+    for name in &haks {
+        let file = format!("{name}.hak");
+        let from = mg_testkit::builder_hak_dirs()
+            .into_iter()
+            .map(|d| d.join(&file))
+            .find(|p| p.is_file())
+            .unwrap_or_else(|| panic!("{file} in MOONGLOW_HAKS"));
+        mg_testkit::link_or_copy(&from, &user.join("hak").join(&file)).unwrap();
+    }
+    // `MG_SCREEN_OVERRIDE`: a folder of files for the user folder's
+    // override (a marked copy of a game shader, to read what it computes).
+    if let Some(from) = std::env::var_os("MG_SCREEN_OVERRIDE") {
+        std::fs::create_dir_all(user.join("override")).unwrap();
+        for f in std::fs::read_dir(from).unwrap().flatten() {
+            std::fs::copy(f.path(), user.join("override").join(f.file_name())).unwrap();
+        }
+    }
+    let rows: Vec<u32> = std::env::var("MG_SCREEN_APPEARANCES")
+        .map(|v| v.split(',').filter_map(|s| s.trim().parse().ok()).collect())
+        .unwrap_or_else(|_| vec![8]);
+    let distance: f32 =
+        std::env::var("MG_SCREEN_DISTANCE").ok().and_then(|v| v.parse().ok()).unwrap_or(5.0);
+    let yaw: f32 = std::env::var("MG_SCREEN_YAW").ok().and_then(|v| v.parse().ok()).unwrap_or(30.0);
+    let install = GameInstall::new(&root, Some(user.clone()), "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut rng = fastrand::Rng::with_seed(7);
+    let mut m = new_module(&game, "Creatures", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Field".into(),
+        tileset: mg_core::ResRef::from_str("ttr01").unwrap(),
+        width: 4,
+        height: 4,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    // `MG_SCREEN_LIGHT`: the area's ambient and diffuse colors (as an ARE
+    // has them, 0xBBGGRR), by day and night, without the day's cycle.
+    if let Ok(light) = std::env::var("MG_SCREEN_LIGHT") {
+        let c: Vec<u32> = light
+            .split(',')
+            .map(|v| u32::from_str_radix(v.trim().trim_start_matches("0x"), 16).unwrap())
+            .collect();
+        let key = ResKey::new(area, ResType::ARE);
+        let mut are = m.gff(&key).unwrap().unwrap();
+        for (label, v) in [
+            ("SunAmbientColor", c[0]),
+            ("MoonAmbientColor", c[0]),
+            ("SunDiffuseColor", c[1]),
+            ("MoonDiffuseColor", c[1]),
+        ] {
+            are.root.set(label, mg_gff::Value::Dword(v));
+        }
+        are.root.set("IsNight", mg_gff::Value::Byte(0));
+        are.root.set("DayNightCycle", mg_gff::Value::Byte(0));
+        m.set_gff(key, &are).unwrap();
+    }
+    let bp = game.resman.get(&ResKey::parse("nw_badger", ResType::UTC).unwrap()).unwrap();
+    let mut bp = mg_gff::Gff::read(&bp).unwrap();
+    let none = |_: mg_core::ResRef| None;
+    let placing = Placing { game: &game, item: &none };
+    let spots: Vec<glam::Vec3> =
+        (0..rows.len()).map(|i| glam::Vec3::new(12.0 + 6.0 * i as f32, 20.0, 0.0)).collect();
+    let placed: Vec<_> = rows
+        .iter()
+        .zip(&spots)
+        .map(|(&row, p)| {
+            bp.root.set("Appearance_Type", mg_gff::Value::Word(row as u16));
+            let at = Placement { position: p.to_array(), rotation: 0.0 };
+            instance(&placing, ResType::UTC, &bp.root, at, &[]).unwrap()
+        })
+        .collect();
+    let git_key = ResKey::new(area, ResType::GIT);
+    let mut git = m.gff(&git_key).unwrap().unwrap();
+    git.root.set("Creature List", mg_gff::Value::List(placed));
+    m.set_gff(git_key, &git).unwrap();
+    let ifo_key = ResKey::parse("module", ResType::IFO).unwrap();
+    let mut ifo = m.gff(&ifo_key).unwrap().unwrap();
+    let list = mg_module::attach::hak_list(&ifo.root, &haks);
+    ifo.root.set("Mod_HakList", list);
+    m.set_gff(ifo_key, &ifo).unwrap();
+    let path = scratch.join("creatures.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    for on in [true, false] {
+        let rs = egui_kittest::wgpu::create_render_state(
+            egui_kittest::wgpu::default_wgpu_setup(),
+            egui_wgpu::RendererOptions::PREDICTABLE,
+        );
+        let install = GameInstall::new(&root, Some(user.clone()), "en");
+        let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+        app.settings.game_shaders = Some(on);
+        app.set_render_state(rs.clone());
+        app.open_module(&path);
+        app.open_palette = false;
+        app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1400.0, 900.0))
+            .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run_steps(5);
+        {
+            let view = h.state_mut().area_views.get_mut(&area).unwrap();
+            if let Some(o) = &mut view.orbit {
+                o.pitch = 20f32.to_radians();
+                o.yaw = yaw.to_radians();
+                o.distance = distance;
+                o.target = spots[0] + glam::Vec3::new(0.0, 0.0, 0.8);
+            }
+        }
+        for selected in [false, true] {
+            h.state_mut().area_views.get_mut(&area).unwrap().selection =
+                if selected { vec![(mg_area::ObjectKind::Creature, 0)] } else { Vec::new() };
+            // (The game's programs are made on threads of their own while
+            // the view is drawn: time for them.)
+            for _ in 0..40 {
+                h.step();
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            let shaders = if on { "game-shaders" } else { "own-shader" };
+            let sel = if selected { "selected" } else { "unselected" };
+            let name = format!("area-creatures-{shaders}-{sel}");
+            h.run_steps(3);
+            let image = h.render().expect("render");
+            image.save(dir.join(format!("{name}.png"))).unwrap();
+            let view = &h.state().area_views[&area];
+            for (i, p) in spots.iter().enumerate() {
+                let Some(c) = view.screen_pos(*p + glam::Vec3::new(0.0, 0.0, 0.8)) else {
+                    continue;
+                };
+                let half = 160.0;
+                let r = egui::Rect::from_center_size(c, egui::vec2(2.0 * half, 2.0 * half))
+                    .intersect(view.rect);
+                let (x, y) = (r.min.x as u32, r.min.y as u32);
+                let (w, hh) = (r.width() as u32, r.height() as u32);
+                if w == 0 || hh == 0 {
+                    continue;
+                }
+                let crop = image::imageops::crop_imm(&image, x, y, w, hh).to_image();
+                crop.save(dir.join(format!("{name}-{}.png", rows[i]))).unwrap();
+            }
+        }
+    }
+}
+
 #[test]
 #[ignore]
 fn palette_hover_preview() {

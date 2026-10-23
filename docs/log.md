@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-10-22
+* **Update**: The Domains of Dread's report of light lines along the dire wolf's (`dd_n2e_wolfdire`) fur card edges in the area view with the game's shaders on, settled in the client: the game's programs at High Quality light a cut-out's kept edge texels through from behind (`inc_lighting`'s translucence), and the client draws the same line (`creatures_look`, now at High Quality, with `MG_LIGHT`); with The Domains of Dread's own `inc_lighting` the cards are lit otherwise than the normal-mapped body, in the client too. No change to the renderer. [The deferred list](deferred.md): Moonglow's own shader draws no translucence on a cut-out, and the programs are made for High Quality whatever the user's settings. [The shader notes](research/notes_shaders.md) D.2: translucence seen in the client.
 * **Update**: [The deferred list](deferred.md): two gaps from the Domains of Dread's report on the flickering `dd_ce3_zombieash` (its glow drawn by Moonglow's shader over a body drawn by the game's programs fought for depth; overlays that lay no depth are now drawn nearer the eye by a bias): a see-through overlay's solid part has no such bias, and a rippling (arturo) glow does not look like the client's.
 * **Update**: var-runtime quotes the one alternative of a pattern that takes the variable (`tdod_*_d20` of `tdod_*_{d6,d10,d20,d100}{,_again}`), a line at most: the Domains of Dread's note on long patterns.
 * **Update**: [Plugins: for authors](plugins/README.md): the `tag-conventions` example's builtin test.
