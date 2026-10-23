@@ -892,6 +892,29 @@ impl GamePass {
         }
     }
 
+    /// What the pass writes of the picture. One that doesn't blend leaves
+    /// its alpha as it was (opaque, as the scene clears it): the programs
+    /// write the texture's alpha out (`fslit`: `gl_FragColor =
+    /// FragmentColor`), and what a cut-out kept below opaque made the
+    /// picture see-through there (a white line along every cut edge of the
+    /// Domains of Dread's fur cards, in the views and in `mgv render`). The
+    /// client draws those texels solid and never shows its picture's alpha
+    /// (`creatures_look` in `client_render.rs`).
+    fn write_mask(self) -> wgpu::ColorWrites {
+        if self.blend().is_some() { wgpu::ColorWrites::ALL } else { wgpu::ColorWrites::COLOR }
+    }
+
+    /// Its depth bias: towards the eye for what is drawn over the solid
+    /// scene without laying its depth, as Moonglow's own shader draws it
+    /// ([`crate::renderer::OVERLAY_DEPTH_BIAS`]): a glow on a body, one drawn
+    /// by these programs and the other by Moonglow's shader, flickered.
+    fn depth_bias(self) -> wgpu::DepthBiasState {
+        match self {
+            GamePass::Additive | GamePass::Fringe => crate::renderer::OVERLAY_DEPTH_BIAS,
+            _ => wgpu::DepthBiasState::default(),
+        }
+    }
+
     /// Whether the pass writes its depth.
     fn depth_write(self) -> bool {
         use crate::particles::ParticleBlend as B;
@@ -1604,7 +1627,7 @@ impl Worker {
                     depth_write_enabled: Some(key.pass.depth_write()),
                     depth_compare: Some(wgpu::CompareFunction::LessEqual),
                     stencil: Default::default(),
-                    bias: Default::default(),
+                    bias: key.pass.depth_bias(),
                 }),
                 multisample: wgpu::MultisampleState { count: job.samples, ..Default::default() },
                 fragment: Some(wgpu::FragmentState {
@@ -1614,7 +1637,7 @@ impl Worker {
                     targets: &[Some(wgpu::ColorTargetState {
                         format: job.format,
                         blend: key.pass.blend(),
-                        write_mask: wgpu::ColorWrites::ALL,
+                        write_mask: key.pass.write_mask(),
                     })],
                 }),
                 multiview_mask: None,
@@ -2405,6 +2428,56 @@ mod tests {
         let hinted = Traits { uvs: true, hint: true, ..Traits::default() };
         assert_eq!(program_pair(Some(&custom), hinted), ("vs_a".into(), "fs_a".into(), true));
         assert_eq!(program_pair(None, hinted), ("vslit_nm".into(), "fslit_nm".into(), false));
+    }
+
+    /// A pass that doesn't blend leaves the picture's alpha as it was
+    /// (opaque): the programs write a cut-out's kept texels' alpha out, below
+    /// 1 at its edges. One that blends writes it, and over opaque it stays
+    /// opaque.
+    #[test]
+    fn a_pass_that_does_not_blend_leaves_the_picture_s_alpha() {
+        use crate::particles::ParticleBlend as B;
+        let passes = [
+            GamePass::Opaque,
+            GamePass::Solid,
+            GamePass::Fringe,
+            GamePass::Additive,
+            GamePass::Sky,
+            GamePass::Particles(B::Normal),
+            GamePass::Particles(B::Lighten),
+            GamePass::Particles(B::PunchThrough),
+        ];
+        for pass in passes {
+            match pass.blend() {
+                None => assert_eq!(pass.write_mask(), wgpu::ColorWrites::COLOR, "{pass:?}"),
+                Some(b) => {
+                    assert_eq!(pass.write_mask(), wgpu::ColorWrites::ALL, "{pass:?}");
+                    // (Alpha a over 1: a + 1 · (1 - a).)
+                    assert_eq!(b.alpha, wgpu::BlendComponent::OVER, "{pass:?}");
+                }
+            }
+        }
+        assert_eq!(GamePass::Opaque.write_mask(), wgpu::ColorWrites::COLOR);
+    }
+
+    /// The meshes drawn over the solid scene without laying their depth
+    /// (additive, a see-through mesh's soft part) are drawn nearer the eye
+    /// by the same bias as Moonglow's own shader draws them, so that one
+    /// lying on a mesh drawn by the other shader doesn't fight with it; a
+    /// pass that lays its depth has none.
+    #[test]
+    fn overlays_are_biased_towards_the_eye_as_moonglow_s_own() {
+        use crate::particles::ParticleBlend as B;
+        let bias = crate::renderer::OVERLAY_DEPTH_BIAS;
+        assert!(bias.constant < 0 && bias.slope_scale < 0.0, "towards the eye: {bias:?}");
+        for pass in [GamePass::Additive, GamePass::Fringe] {
+            assert!(!pass.depth_write(), "{pass:?}");
+            assert_eq!(pass.depth_bias(), bias, "{pass:?}");
+        }
+        for pass in [GamePass::Opaque, GamePass::Solid, GamePass::Particles(B::PunchThrough)] {
+            assert!(pass.depth_write(), "{pass:?}");
+            assert_eq!(pass.depth_bias(), wgpu::DepthBiasState::default(), "{pass:?}");
+        }
     }
 
     /// A card read: what it is, its traits, its pair, `NO_DISCARD`'s

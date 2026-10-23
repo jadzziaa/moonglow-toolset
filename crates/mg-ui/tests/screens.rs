@@ -572,6 +572,45 @@ fn model_viewer() {
     shoot(&mut h, &dir, "model-viewer");
 }
 
+/// A model in the model view with the game's shaders on and off, to look
+/// at what they draw differently: `MG_SCREEN_MODEL` (the model's name,
+/// `c_golemerald` by default) from the game and `MG_TEST_USER`'s
+/// `override` (a builder's model copied there).
+#[test]
+#[ignore]
+fn model_view_game_shaders() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens-model");
+    let name = std::env::var("MG_SCREEN_MODEL").unwrap_or_else(|_| "c_golemerald".into());
+    let user = std::env::var_os("MG_TEST_USER").map(std::path::PathBuf::from);
+    for on in [true, false] {
+        let rs = egui_kittest::wgpu::create_render_state(
+            egui_kittest::wgpu::default_wgpu_setup(),
+            egui_wgpu::RendererOptions::PREDICTABLE,
+        );
+        let install = GameInstall::new(&root, user.clone(), "en");
+        let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+        app.settings.game_shaders = Some(on);
+        app.set_render_state(rs.clone());
+        app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Model(
+            ResKey::parse(&name, ResType::MDL).unwrap(),
+        )));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1100.0, 760.0))
+            .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        // (The game's programs are made on threads of their own while the
+        // view is drawn: time for them.)
+        for _ in 0..50 {
+            h.step();
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        let shaders = if on { "game-shaders" } else { "own-shader" };
+        shoot(&mut h, &dir, &format!("model-{name}-{shaders}"));
+    }
+}
+
 #[test]
 #[ignore]
 fn palette_hover_preview() {
