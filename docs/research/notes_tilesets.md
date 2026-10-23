@@ -3,7 +3,7 @@ type: Research Note
 title: 'NWN:EE tileset system: research notes for Moonglow (area editor / terrain painting)'
 description: The NWN:EE tileset system for the area editor - the SET format, the corner and edge model and terrain painting, ARE and GIT tile data, walkmesh and pathing, tile lights, minimap and palette - with citations and open questions.
 tags: [tilesets, set, terrain, areas]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T04:32:36Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T10:05:13Z }
 ---
 
 # NWN:EE tileset system: research notes for Moonglow (area editor / terrain painting)
@@ -228,7 +228,7 @@ Verified by `tools/aurora/capture_terrain.py`: 54 scripted steps in ttr01, ttz01
 |---|---|---|
 | Tile_ID | INT | Index of `[TILEn]` in the SET |
 | Tile_Orientation | INT | 0–3, CCW quarter turns |
-| Tile_Height | INT | Base height in Transition steps, ≥0 (observed 0–19) |
+| Tile_Height | INT | Base height in Transition steps (observed 0–19 in the game's areas; the engine stands a tile from -3 to 1000 steps where its own value says: `engine_terrain.rs`, 2026-10-23) |
 | Tile_MainLight1/2 | BYTE | lightcolor.2da row 0–31 (0 = off/black) |
 | Tile_SrcLight1/2 | BYTE | 0 = off, 1–15 = colour/animation (see E) |
 | Tile_AnimLoop1/2/3 | **BYTE** (the PDF says INT) | 1 = play `animloop0n`. Official data has 1 even on tiles without the animation, although the PDF says the field should be 0 unless the animation exists |

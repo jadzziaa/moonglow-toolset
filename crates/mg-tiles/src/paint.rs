@@ -491,6 +491,26 @@ impl Grid {
         Some(stroke)
     }
 
+    /// Putting tile `p` in cell (x, y) exactly as it is given, whether it
+    /// fits its neighbours or not (the tiles palette's Exact tile): no
+    /// other tile, corner terrain, height or crosser around it changes,
+    /// and its own corners and edges are what the tile has. `None` on a
+    /// tile of a group or feature, which changes only with it unless
+    /// [`Grid::free_groups`] is on (that group is then
+    /// [`Grid::blocked`]), or for a tile the tileset hasn't.
+    pub fn set_exact(&self, index: &TileIndex, x: u32, y: u32, p: Placement) -> Option<Stroke> {
+        if self.locked(index, x, y) {
+            *self.blocked.borrow_mut() =
+                self.group_cells(index, x, y).unwrap_or_else(|| vec![(x, y)]);
+            return None;
+        }
+        self.blocked.borrow_mut().clear();
+        let cell = index.cell(p)?;
+        let mut lattice = self.lattice.clone();
+        lattice.set_cell(x, y, &cell);
+        Some(Stroke { lattice, cells: Vec::new(), fixed: vec![((x, y), p)] })
+    }
+
     /// The cells that refused the stroke asked of this grid last (a brush
     /// that gave `None`): each has no tile that fits what the stroke would
     /// make of it, or holds a group's tile the stroke would not keep.
@@ -1020,6 +1040,53 @@ Top={}\nRight={}\nBottom={}\nLeft={}\n",
         apply(&mut free, &index, |g| g.place_group(&index, &pond, 2, 1, 0));
         assert_eq!(free.group_cells(&index, 3, 1), Some(vec![(2, 1), (3, 1)]));
         assert!(!index.is_grouped(free.tile(1, 1).tile));
+    }
+
+    /// An exact tile goes in as it is given: its cell alone changes, a tile
+    /// that doesn't fit its neighbours included, raised or turned as asked;
+    /// not over a group's tile unless they are freed.
+    #[test]
+    fn an_exact_tile_changes_its_cell_alone() {
+        let mut set = set();
+        let n = set.tiles.len() as u32;
+        let mut pond = set.tiles[0].clone();
+        pond.model = "pond".into();
+        set.tiles.push(pond);
+        set.groups.push(mg_set::Group {
+            name: "Pond".into(),
+            strref: Default::default(),
+            rows: 1,
+            columns: 1,
+            tiles: vec![Some(n)],
+        });
+        let index = TileIndex::new(&set);
+        let mut g = grid(&index, 5);
+        let pond = set.groups[0].clone();
+        apply(&mut g, &index, |g| g.place_group(&index, &pond, 4, 4, 0));
+        let before = g.clone();
+        // Tile 15, B at every corner, in open ground of A: it fits none of
+        // its neighbours. Turned and two steps up.
+        let p = Placement { tile: 15, orientation: 3, height: 2 };
+        let s = g.set_exact(&index, 2, 1, p).expect("placed");
+        assert!(s.cells.is_empty() && s.fixed == [((2, 1), p)]);
+        let changes = g.apply(&index, s, &mut fastrand::Rng::with_seed(3));
+        assert_eq!(changes, [((2, 1), p)]);
+        for (i, (now, was)) in g.tiles.iter().zip(&before.tiles).enumerate() {
+            if i != 5 + 2 {
+                assert_eq!(now, was, "tile {i} is as it was");
+            }
+        }
+        assert_eq!(g.tile(2, 1), p);
+        // The area read back: the tile as put, its neighbours too.
+        let back = Grid::new(&index, 5, 5, g.tiles.clone()).unwrap();
+        assert_eq!(back.tiles, g.tiles);
+        // Not over the pond's tile, which flashes; freed, it goes.
+        assert!(g.set_exact(&index, 4, 4, p).is_none());
+        assert_eq!(g.blocked(), [(4, 4)]);
+        g.free_groups = true;
+        assert!(g.set_exact(&index, 4, 4, p).is_some());
+        // A tile the tileset hasn't: refused.
+        assert!(g.set_exact(&index, 0, 0, Placement { tile: 999, ..p }).is_none());
     }
 
     #[test]

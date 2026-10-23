@@ -1934,6 +1934,10 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
                  its kind passed"
             }
             mg_area::terrain::Brush::Group(_) => "click to place, right click to turn",
+            mg_area::terrain::Brush::Tile(_) if b.exact => {
+                "Exact tile: click or drag to place this tile alone, its neighbors left as they \
+                 are; right click to turn it"
+            }
             mg_area::terrain::Brush::Tile(_) => {
                 "click or drag to place this tile, right click to turn it"
             }

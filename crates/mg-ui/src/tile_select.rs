@@ -20,6 +20,10 @@
 //!   Defaults puts back the lighting scheme's first colours and the loops.
 //!   Closed with changes not applied (its X, Escape), it asks: Save, Don't
 //!   Save or Cancel; its Cancel button discards them.
+//! - Its Height sets the tiles' `Tile_Height` alone (a step with - and +,
+//!   or typed), what stands on them moved with them; All tiles (ignore
+//!   fit) offers every tile of the tileset, any one put in the tiles as it
+//!   is, turned as chosen, nothing around it fitted to it (issue #29).
 //! - A tile of a group or a feature changes only with its group (the
 //!   steps, the variants, Delete takes the whole group), unless Options ›
 //!   Area allows editing them (`Grid::free_groups`).
@@ -73,7 +77,37 @@ pub struct TileProps {
     /// A variant just chosen: the window takes the new tile's lights and
     /// loops once the area shows it.
     pub chosen: bool,
+    /// The tiles' cells, by `tiles`' order.
+    pub cells: Vec<(u32, u32)>,
+    /// Height: the tiles' `Tile_Height`, in the tileset's height steps,
+    /// set alone (nothing around them fitted to them); `None` while the
+    /// tiles have different heights and none is chosen (shown as mixed).
+    pub height: Option<i32>,
+    /// The height the window opened with.
+    pub opened_height: Option<i32>,
+    /// The first tile's height, which a mixed Height steps from.
+    pub first_height: i32,
+    /// One height step, metres (the tileset's `Transition`).
+    pub step: f32,
+    /// A tile of a group or feature is among them without the rest of its
+    /// group, which changes only whole (unless Options › Area allows
+    /// editing them): their height can't be set.
+    pub height_locked: bool,
+    /// All tiles (ignore fit): every tile of the tileset offered as
+    /// pictures, any of them put in the tiles chosen as it is, nothing
+    /// around fitted to it (#29). Off as the window opens.
+    pub all_tiles: bool,
+    /// The quarter turns (counter-clockwise) a tile chosen among all of
+    /// them is put in with.
+    pub turn: u8,
+    /// Every tile of the tileset, with its model's name.
+    pub every: Vec<(u32, String)>,
 }
+
+/// The most height steps up or down Tile Properties' Height sets (the
+/// engine stands a tile from -3 to 1000 steps where `Tile_Height` puts it:
+/// `engine_terrain.rs`; Moonglow reads the field within ±1024).
+pub const HEIGHT_RANGE: i32 = 1024;
 
 impl TileProps {
     /// Whether a value the tiles have a control for differs from what the
@@ -83,6 +117,7 @@ impl TileProps {
         (0..2).any(|k| self.has_main[k] && self.main[k] != main[k])
             || (0..2).any(|k| self.has_source[k] && self.source[k] != source[k])
             || (0..3).any(|k| self.has_loops[k] && self.loops[k] != loops[k])
+            || (!self.height_locked && self.height != self.opened_height)
     }
 }
 
@@ -607,13 +642,32 @@ fn open_properties(app: &mut Moonglow, view: &AreaView) {
         })
         .collect();
     let has = mg_area::TileFeatures::union(has_each.iter().copied());
+    let cells = view.tile_selection.clone();
+    let grid = current_grid(app, view);
+    // Height: the tiles' own, or mixed; not to set where a group's tile is
+    // among them without the rest of its group.
+    let heights: Vec<i32> =
+        tiles.iter().filter_map(|&i| model.tiles.get(i)).map(|t| t.height).collect();
+    let height = heights.first().copied().filter(|h| heights.iter().all(|k| k == h));
+    let height_locked = grid.as_ref().is_some_and(|g| {
+        cells.iter().any(|&(x, y)| {
+            g.locked(&tools.index, x, y)
+                && !g
+                    .group_cells(&tools.index, x, y)
+                    .is_some_and(|group| group.iter().all(|c| cells.contains(c)))
+        })
+    });
     // One tile: the others that fit there, to choose among by picture
     // (not for a group's tile, which changes only with its group).
     let one = match view.tile_selection.as_slice() {
-        &[(x, y)] => current_grid(app, view).map(|g| ((x, y), g)),
+        &[(x, y)] => grid.clone().map(|g| ((x, y), g)),
         _ => None,
     };
-    let grouped = one.as_ref().is_some_and(|((x, y), g)| g.locked(&tools.index, *x, *y));
+    // (A group's tile among them: nothing but its group changes it.)
+    let grouped =
+        grid.as_ref().is_some_and(|g| cells.iter().any(|&(x, y)| g.locked(&tools.index, x, y)));
+    let every =
+        (tools.set.tiles.iter().enumerate()).map(|(i, t)| (i as u32, t.model.clone())).collect();
     let variants = one.filter(|_| !grouped).map(|((x, y), g)| {
         let fits = mg_tiles::paint::fits_in_order(&tools.index, &g.lattice.cell(x, y));
         let named = fits
@@ -642,6 +696,15 @@ fn open_properties(app: &mut Moonglow, view: &AreaView) {
         closing: false,
         grouped,
         picking: None,
+        cells,
+        height,
+        opened_height: height,
+        first_height: first.height,
+        step: model.height_step,
+        height_locked,
+        all_tiles: false,
+        turn: 0,
+        every,
     });
 }
 
@@ -693,6 +756,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         let now = props.variant.map(|p| i64::from(p.tile));
         if shown.is_some_and(|t| Some(t.id) == now) {
             open_properties(app, &view);
+            // (Still showing every tile, turned as chosen.)
+            if let Some(p) = app.tile_props.as_mut() {
+                (p.all_tiles, p.turn) = (props.all_tiles, props.turn);
+            }
             app.area_views.insert(props.area, view);
             self::ui(app, ui);
             return;
@@ -757,6 +824,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                     ui.end_row();
                 }
             });
+            height_row(ui, &mut props);
             // (No Replacement Texture: `Tile_ReplaceTex` is BioWare's
             // unused field, which no tile of the game's tilesets has a
             // texture for, and the client wasn't seen drawing it. One in a
@@ -788,9 +856,52 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                      and features offers them).",
                 );
             }
-            // The tile's variants: as many across as the tab is wide, the
-            // rest of its height theirs.
-            if let Some((_, variants)) = props.variants.clone().filter(|(_, v)| v.len() > 1) {
+            // All tiles (ignore fit): an explicit switch, the fit-only
+            // variants as ever with it off (#29).
+            let free = !props.grouped && !props.cells.is_empty();
+            ui.separator();
+            ui.horizontal_wrapped(|ui| {
+                let all = ui
+                    .add_enabled(free, egui::Checkbox::new(&mut props.all_tiles, ALL_TILES))
+                    .on_hover_text(
+                        "Every tile of the tileset, as pictures: click one to put it in the tiles \
+                         chosen as it is, turned as chosen beside and at the Height above, \
+                         whether it fits its neighbors or not. No neighbor changes. Off: only \
+                         the tiles that fit are offered",
+                    );
+                if !free {
+                    all.on_disabled_hover_text(
+                        "A tile of a group or a feature: it changes only with its group \
+                         (Options › Area › Allow editing tiles of groups and features)",
+                    );
+                }
+                if props.all_tiles && free {
+                    ui.separator();
+                    crate::widgets::field_label(ui, "Turn");
+                    for (k, name) in ["0°", "↺90°", "↺180°", "↺270°"].iter().enumerate() {
+                        ui.selectable_value(&mut props.turn, k as u8, *name)
+                            .on_hover_text("Quarter turns counter-clockwise");
+                    }
+                }
+            });
+            if props.all_tiles && free {
+                ui.separator();
+                let side = variant_side(app);
+                ui.horizontal(|ui| {
+                    ui.label(format!("All tiles ({} in the tileset)", props.every.len()))
+                        .on_hover_text(
+                            "Every tile of the tileset, in its order, turned as chosen. Click \
+                             one to put it here as it is",
+                        );
+                    size_slider(app, ui, side);
+                });
+                if let Some(p) = all_tiles_pictures(app, ui, &props, side) {
+                    put_any(app, &mut props, p);
+                }
+            } else if let Some((_, variants)) = props.variants.clone().filter(|(_, v)| v.len() > 1)
+            {
+                // The tile's variants: as many across as the tab is wide,
+                // the rest of its height theirs.
                 ui.separator();
                 let side = variant_side(app);
                 ui.horizontal(|ui| {
@@ -798,14 +909,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                         "The tiles that fit here, each turn of each, in the order Shift + right \
                          click steps through them. Click one to put it here",
                     );
-                    // Their size: tiles much alike are told apart larger.
-                    let mut size = side;
-                    let slider = egui::Slider::new(&mut size, VARIANT_MIN..=VARIANT_MAX)
-                        .show_value(false)
-                        .text("Size");
-                    if ui.add(slider).on_hover_text("How large the pictures are").changed() {
-                        app.settings.tile_variant_side = Some(size.round() as u16);
-                    }
+                    size_slider(app, ui, side);
                 });
                 // (A picture's column: its side, the grid's gap and the
                 // spacing after it; the scroll bar's room off the width.)
@@ -958,6 +1062,190 @@ pub(crate) fn variant_side(app: &Moonglow) -> f32 {
     app.settings.tile_variant_side.map_or(VARIANT, f32::from).clamp(VARIANT_MIN, VARIANT_MAX)
 }
 
+/// Tile Properties' All tiles switch's name.
+pub const ALL_TILES: &str = "All tiles (ignore fit)";
+
+/// The pictures' Size slider, beside their heading.
+fn size_slider(app: &mut Moonglow, ui: &mut egui::Ui, side: f32) {
+    // (Tiles much alike are told apart larger.)
+    let mut size = side;
+    let slider =
+        egui::Slider::new(&mut size, VARIANT_MIN..=VARIANT_MAX).show_value(false).text("Size");
+    if ui.add(slider).on_hover_text("How large the pictures are").changed() {
+        app.settings.tile_variant_side = Some(size.round() as u16);
+    }
+}
+
+/// Tile Properties' Height: the tiles' `Tile_Height`, a step down or up
+/// with its buttons, or any number of steps typed or dragged; set alone,
+/// nothing around them fitted to them (#29).
+fn height_row(ui: &mut egui::Ui, props: &mut TileProps) {
+    ui.horizontal(|ui| {
+        crate::widgets::field_label(ui, "Height");
+        let locked = props.height_locked;
+        ui.add_enabled_ui(!locked, |ui| {
+            let mut v = props.height.unwrap_or(props.first_height);
+            let mut set = None;
+            let down = ui.button("-").on_hover_text(
+                "A height step down, these tiles alone: their neighbors stay as they are",
+            );
+            named(&down, "Lower Height", !locked);
+            if down.clicked() {
+                set = Some(v - 1);
+            }
+            let mut value =
+                egui::DragValue::new(&mut v).range(-HEIGHT_RANGE..=HEIGHT_RANGE).speed(0.1);
+            if props.height.is_none() {
+                // (The tiles have different heights: one typed sets them all.)
+                value = value.custom_formatter(|_, _| "Mixed".into());
+            }
+            let r = ui.add(value).on_hover_text(
+                "The tiles' height, in the tileset's height steps (Tile_Height): type or drag \
+                 any number of steps, below 0 too. Nothing around them changes, so a tile \
+                 raised alone stands above its neighbors, with gaps between; what stands on \
+                 it rises with it",
+            );
+            if r.changed() {
+                set = Some(v);
+            }
+            let up = ui.button("+").on_hover_text(
+                "A height step up, these tiles alone: their neighbors stay as they are",
+            );
+            named(&up, "Raise Height", !locked);
+            if up.clicked() {
+                set = Some(v + 1);
+            }
+            if let Some(h) = set {
+                props.height = Some(h.clamp(-HEIGHT_RANGE, HEIGHT_RANGE));
+            }
+            let at = match props.height {
+                Some(h) => format!("{} m", h as f32 * props.step),
+                None => "mixed".into(),
+            };
+            ui.weak(format!("steps of {} m: {at}", props.step));
+        });
+        if locked {
+            ui.weak("(a group's tile, without the rest of its group)").on_hover_text(
+                "A tile of a group or a feature changes only with it whole: select all of its \
+                 tiles to raise or lower it (or Options › Area › Allow editing tiles of groups \
+                 and features)",
+            );
+        }
+    });
+}
+
+/// Every tile of the tileset as pictures, turned as Tile Properties'
+/// Turn says, as many across as the tab is wide; only the rows in sight
+/// are drawn (and their pictures made), however many the tileset has.
+/// The tile clicked, if one is.
+fn all_tiles_pictures(
+    app: &mut Moonglow,
+    ui: &mut egui::Ui,
+    props: &TileProps,
+    side: f32,
+) -> Option<mg_tiles::Placement> {
+    let stride = side + 6.0 + ui.spacing().item_spacing.x;
+    let across = ((ui.available_width() - 16.0 + 6.0) / stride).floor().max(1.0) as usize;
+    let rows = props.every.len().div_ceil(across);
+    // (A picture's button, its padding, and its name under it.)
+    let pad = ui.spacing().button_padding.y * 2.0;
+    let name = ui.text_style_height(&egui::TextStyle::Small);
+    let row = side + pad + ui.spacing().item_spacing.y + name;
+    let mut picked = None;
+    egui::ScrollArea::vertical().id_salt("tile-all").auto_shrink([false, false]).show_rows(
+        ui,
+        row,
+        rows,
+        |ui, range| {
+            for r in range {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0 + ui.spacing().item_spacing.x;
+                    for (id, model) in props.every.iter().skip(r * across).take(across) {
+                        let p =
+                            mg_tiles::Placement { tile: *id, orientation: props.turn, height: 0 };
+                        let now = props
+                            .variant
+                            .is_some_and(|v| v.tile == *id && v.orientation == props.turn);
+                        ui.vertical(|ui| {
+                            ui.set_min_height(row);
+                            if variant_picture(app, ui, p, model, now, side) {
+                                picked = Some(p);
+                            }
+                        });
+                    }
+                });
+            }
+        },
+    );
+    picked
+}
+
+/// The edits that set the tiles of `heights` (`Tile_List` index and
+/// height) of `area` alone, and move what stands on them with them
+/// (`objects`, the area view's, in height steps of `step` metres).
+fn height_edits(
+    ws: &mut mg_edit::Workspace,
+    area: ResRef,
+    objects: &[mg_area::AreaObject],
+    step: f32,
+    heights: &[(usize, i32)],
+) -> Vec<Edit> {
+    let (are, git) = (ResKey::new(area, ResType::ARE), ResKey::new(area, ResType::GIT));
+    let Ok(are_root) = ws.doc(&are).map(|d| d.root.clone()) else { return Vec::new() };
+    let git_root = ws.doc(&git).map(|d| d.root.clone()).unwrap_or_else(|_| mg_gff::Struct::new(0));
+    let files = mg_area::edit::AreaFiles { are, are_root: &are_root, git, git_root: &git_root };
+    mg_area::edit::tile_height_edits(&files, objects, step, heights)
+}
+
+/// A tile chosen among all of the tileset's put in the tiles chosen, each
+/// as it is (turned as chosen, at the Height), nothing around fitted to
+/// it, as one step to undo; what stands on a tile it raises or lowers
+/// goes with it. Refused, as the brushes are, over a group's tile.
+fn put_any(app: &mut Moonglow, props: &mut TileProps, p: mg_tiles::Placement) {
+    let Some(mut view) = app.area_views.remove(&props.area) else { return };
+    if let (Some(g), Some(tools), Some(model)) =
+        (current_grid(app, &view), view.terrain.as_ref(), view.model.as_ref())
+    {
+        let w = g.lattice.width();
+        let mut changes = Vec::new();
+        let mut refused = Vec::new();
+        for &(x, y) in &props.cells {
+            let height = props.height.unwrap_or(g.tile(x, y).height);
+            let q = mg_tiles::Placement { height, ..p };
+            match g.set_exact(&tools.index, x, y, q) {
+                Some(_) => changes.push(((x, y), q)),
+                None => refused.extend(g.blocked()),
+            }
+        }
+        if refused.is_empty() && !changes.is_empty() {
+            let heights: Vec<(usize, i32)> =
+                changes.iter().map(|&((x, y), q)| ((y * w + x) as usize, q.height)).collect();
+            let git = ResKey::new(props.area, ResType::GIT);
+            let (objects, step) = (model.objects.clone(), model.height_step);
+            let moves: Vec<Edit> = app.ws.as_mut().map_or(Vec::new(), |ws| {
+                height_edits(ws, props.area, &objects, step, &heights)
+                    .into_iter()
+                    .filter(|e| matches!(e, Edit::SetField { key, .. } if *key == git))
+                    .collect()
+            });
+            view.notice = None;
+            view.tile_selection = props.cells.clone();
+            let label = "Tile (ignoring fit)";
+            crate::terrain_mode::tile_command_with(app, &mut view, &g, &changes, label, &[], moves);
+            props.variant = Some(changes[0].1);
+            props.chosen = true;
+            props.opened_height = props.height;
+        } else {
+            let tools = view.terrain.as_ref().expect("checked");
+            let why = crate::terrain_mode::refusal(tools, &g, "Tile", &refused, None);
+            app.log.info(why.clone());
+            view.notice = Some(why);
+            view.refused = Some((refused, std::time::Instant::now()));
+        }
+    }
+    app.area_views.insert(props.area, view);
+}
+
 /// One variant in Tile Properties: its model's picture, turned as the
 /// tile would lie (the quarter turns written under it too), framed if it
 /// is the one there now, `side` points across; under the pointer, at its
@@ -1025,6 +1313,19 @@ fn defaults(app: &mut Moonglow, props: &mut TileProps) {
 /// Writes the window's values into the selected tiles, as one command.
 fn apply(app: &mut Moonglow, props: &TileProps) {
     let key = ResKey::new(props.area, ResType::ARE);
+    // Height, set alone (with what stands on the tiles).
+    let raised =
+        match (props.height.filter(|_| !props.height_locked), app.area_views.get(&props.area)) {
+            (Some(h), Some(view)) if props.height != props.opened_height => {
+                let objects = view.model.as_ref().map_or(Vec::new(), |m| m.objects.clone());
+                let step = view.model.as_ref().map_or(0.0, |m| m.height_step);
+                let heights: Vec<(usize, i32)> = props.tiles.iter().map(|&i| (i, h)).collect();
+                app.ws
+                    .as_mut()
+                    .map_or(Vec::new(), |ws| height_edits(ws, props.area, &objects, step, &heights))
+            }
+            _ => Vec::new(),
+        };
     let Some(ws) = app.ws.as_mut() else { return };
     let Ok(are) = ws.doc(&key) else { return };
     let list = are.root.list("Tile_List").unwrap_or(&[]);
@@ -1053,6 +1354,7 @@ fn apply(app: &mut Moonglow, props: &TileProps) {
             set(&format!("Tile_AnimLoop{}", k + 1), on, has.loops[k]);
         }
     }
+    edits.extend(raised);
     if !edits.is_empty() {
         app.actions.push(Action::Apply(Command::new("Tile Properties", edits)));
     }

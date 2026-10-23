@@ -1965,6 +1965,79 @@ fn readme_area_candidates() {
 /// (which shows the install's path) when copied to `docs/images`.
 #[test]
 #[ignore]
+fn exact_tiles_and_tile_height() {
+    // The tiles palette's Gallery with its Exact tile switch on, and Tile
+    // Properties with its Height, then with All tiles (#29).
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.settings.palette_gallery = true;
+    app.settings.exact_tiles = true;
+    app.open_module(&root.join("data/nwm/Chapter1.nwm"));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+    h.run_steps(5);
+    if h.query_by_label("Tiles").is_none() {
+        h.get_by_label("🗻").click();
+    }
+    h.run_steps(30);
+    shoot(&mut h, &dir, "tiles-palette-exact");
+    // Tile Properties of a tile, from the tile menu in Select Tiles.
+    h.state_mut().area_views.get_mut(&area).unwrap().tile_mode = true;
+    h.run_steps(2);
+    let open = |h: &mut Harness<'_, Moonglow>, at: glam::Vec3| {
+        let pos = h.state().area_views[&area].screen_pos(at).unwrap();
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: Default::default(),
+            });
+        }
+        h.run_steps(2);
+        h.get_by_label("Tile Properties…").click();
+        h.run_steps(30);
+    };
+    // A tile of a building (a group) in the middle: its Height is locked.
+    let middle = h.state().area_views[&area].orbit.unwrap().target;
+    open(&mut h, glam::Vec3::new(middle.x, middle.y, 0.0));
+    shoot(&mut h, &dir, "tile-properties-group");
+    h.get_by_label("Cancel").click();
+    h.run_steps(2);
+    // A tile of open ground, nearer.
+    let ground = {
+        let view = &h.state().area_views[&area];
+        let model = view.model.as_ref().unwrap();
+        let (x, y) = (model.width / 2, model.height / 2 - 3);
+        model.tiles[(y * model.width + x) as usize].position
+    };
+    open(&mut h, ground);
+    h.get_by_label("Raise Height").click();
+    h.run_steps(30);
+    shoot(&mut h, &dir, "tile-properties-height");
+    h.get_by_label(mg_ui::tile_select::ALL_TILES).click();
+    h.run_steps(3);
+    h.get_by_label("↺90°").click();
+    h.run_steps(40);
+    shoot(&mut h, &dir, "tile-properties-all-tiles");
+}
+
+#[test]
+#[ignore]
 fn area_grid() {
     // The tile grid among buildings and trees: hidden behind them.
     mg_testkit::gpu::hold();
