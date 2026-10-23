@@ -44,6 +44,18 @@ const ALPHA_DISCARD: f32 = 0.2;
 /// part (`SOLID_ALPHA` in `shader.wgsl`): [`Pass::Blend`], hiding what is
 /// behind it; below, with the rest ([`Pass::Fringe`]).
 pub(crate) const SOLID_ALPHA: f32 = 0.95;
+/// The depth bias of what is drawn over the solid scene without laying its
+/// depth (an additive mesh, a see-through mesh's soft part), towards the
+/// eye, by either shader: such a mesh often lies on another (a glow on a
+/// body: the Domains of Dread's `dd_ce3_zombieash`, two skins of the same
+/// vertices), and where one of the two is drawn by the game's programs and
+/// the other by Moonglow's shader their depths differ by the last bits
+/// (the projections and the skinning are reckoned apart), which flickered
+/// in patches from frame to frame. The client draws both with one program.
+/// 8 steps and one of the depth's slope: the least that measured clean
+/// from 1.6 to 150 m was 4 and 1.
+pub(crate) const OVERLAY_DEPTH_BIAS: wgpu::DepthBiasState =
+    wgpu::DepthBiasState { constant: -8, slope_scale: -1.0, clamp: 0.0 };
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
@@ -709,7 +721,11 @@ impl Renderer {
                     ),
                     depth_compare: Some(wgpu::CompareFunction::LessEqual),
                     stencil: Default::default(),
-                    bias: Default::default(),
+                    bias: if matches!(pass, Pass::Additive | Pass::Fringe) {
+                        OVERLAY_DEPTH_BIAS
+                    } else {
+                        Default::default()
+                    },
                 }),
                 multisample: wgpu::MultisampleState { count: sample_count, ..Default::default() },
                 fragment: Some(wgpu::FragmentState {

@@ -2671,6 +2671,75 @@ fn the_game_s_programs_draw_an_additive_mesh_added() {
     assert!(off[0] == 255 && off[1] > 100, "Moonglow's own: {off:?}");
 }
 
+/// An additive mesh lying on another (a glow on a body) adds to all of it
+/// when the body is drawn by the game's programs and the glow by Moonglow's
+/// shader (it ripples: `proceduretype arturo`), seen from afar. Their
+/// depths, reckoned apart, differed by the last bits and the glow showed
+/// in patches that changed from frame to frame (the Domains of Dread's
+/// `dd_ce3_zombieash`, two skins of the same vertices; the client draws
+/// both with one program).
+#[test]
+fn a_glow_on_a_mesh_drawn_by_the_other_shader_covers_it() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    authored_lit_pair(&mut assets);
+    assets.opaque("body", [96, 0, 0]);
+    assets.opaque("glow", [0, 0, 96]);
+    let txi = b"blending additive\nproceduretype arturo\ndistort 1\narturowidth 32\n\
+                distortionamplitude 6\nspeed 20\n";
+    assets.txis.insert("glow".into(), mg_image::txi::Txi::parse(txi));
+    // A quad seen aslant from 60 m, as an area's view is.
+    let at = Vec3::new(0.0, 0.0, 1.0);
+    let quad_at = |texture: &str| {
+        let mut q = standing_quad(&gpu, texture, at, 3.0);
+        q.transform = Mat4::from_rotation_z(0.9) * q.transform;
+        q
+    };
+    let camera = Camera {
+        eye: at + Vec3::new(-20.0, -55.0, 15.0),
+        target: at,
+        fov_y: 0.06,
+        near: 0.6,
+        far: 640.0,
+    };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    r.game_shaders = true;
+    let mut shot = |glow: bool| {
+        let mut instances = vec![quad_at("body")];
+        if glow {
+            instances.push(quad_at("glow"));
+        }
+        let scene = Scene {
+            instances,
+            area: AreaLight { ambient: Vec3::ONE, diffuse: Vec3::ZERO, direction: Vec3::Z },
+            background: [0.0, 0.0, 0.0],
+            ..Default::default()
+        };
+        (r.render_image(&gpu, &assets, &scene, &camera, 128, 128), r.drawn.game)
+    };
+    let (body, _) = shot(false);
+    let (both, game) = shot(true);
+    assert_eq!(r.game_shader_failures(), &[]);
+    assert_eq!(game, 1, "the body by the game's programs, the glow by Moonglow's shader");
+    let mut covered = 0;
+    let mut missed = Vec::new();
+    for (k, (a, b)) in body.data.chunks(4).zip(both.data.chunks(4)).enumerate() {
+        if a[0] == 96 {
+            covered += 1;
+            if b[2] < 40 {
+                missed.push((k % 128, k / 128));
+            }
+        }
+    }
+    assert!(covered > 2000, "the body is drawn: {covered} pixels");
+    assert!(
+        missed.is_empty(),
+        "the glow misses {} of {covered}: {:?}…",
+        missed.len(),
+        &missed[..missed.len().min(8)]
+    );
+}
+
 /// `vsgrass`/`fsgrass` standing in for the game's: cyan.
 fn authored_grass_pair(assets: &mut TestAssets) {
     let vs = r#"

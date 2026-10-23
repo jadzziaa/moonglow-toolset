@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T22:07:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T00:31:20Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1842,6 +1842,25 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   (S)
   (asked by the Domains of Dread module session; checked in the client,
   2026-10-09)
+- **A mesh lying on another, each drawn by a different shader** (the
+  game's programs for one, Moonglow's for the other: a rippling
+  texture, a known effect, a program that failed): their depths differ by
+  the last bits. What is drawn over the scene without laying its depth
+  (additive, a see-through mesh's soft part) is drawn nearer the eye by a
+  bias for it (`OVERLAY_DEPTH_BIAS`: the flickering glow of
+  `dd_ce3_zombieash`); a see-through overlay's nearly opaque part, which
+  lays its depth, has none and could still fight with the mesh under it.
+  Not seen yet. (S)
+  (from the Domains of Dread's report on the flickering zombie, 2026-10-22)
+- **A rippling glow (TXI `proceduretype arturo`) does not look like the
+  client's:** `dd_ce3_zombieash`'s `dd_ce3_txhotcoal` (additive, arturo
+  `distort 1`) shows in Moonglow as bright red and yellow patches over
+  the body, in the client as dim orange veins, with either shader (the
+  game's programs leave a rippling texture to Moonglow's). How the
+  client makes an arturo texture (its channel scale and translation, the
+  distortion) was not read. (M)
+  (from the Domains of Dread's report on the flickering zombie, 2026-10-22;
+  seen in the client, `creatures_look`)
 
 ## Models and textures
 

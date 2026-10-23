@@ -904,6 +904,17 @@ impl GamePass {
         if self.blend().is_some() { wgpu::ColorWrites::ALL } else { wgpu::ColorWrites::COLOR }
     }
 
+    /// Its depth bias: towards the eye for what is drawn over the solid
+    /// scene without laying its depth, as Moonglow's own shader draws it
+    /// ([`crate::renderer::OVERLAY_DEPTH_BIAS`]): a glow on a body, one drawn
+    /// by these programs and the other by Moonglow's shader, flickered.
+    fn depth_bias(self) -> wgpu::DepthBiasState {
+        match self {
+            GamePass::Additive | GamePass::Fringe => crate::renderer::OVERLAY_DEPTH_BIAS,
+            _ => wgpu::DepthBiasState::default(),
+        }
+    }
+
     /// Whether the pass writes its depth.
     fn depth_write(self) -> bool {
         use crate::particles::ParticleBlend as B;
@@ -1616,7 +1627,7 @@ impl Worker {
                     depth_write_enabled: Some(key.pass.depth_write()),
                     depth_compare: Some(wgpu::CompareFunction::LessEqual),
                     stencil: Default::default(),
-                    bias: Default::default(),
+                    bias: key.pass.depth_bias(),
                 }),
                 multisample: wgpu::MultisampleState { count: job.samples, ..Default::default() },
                 fragment: Some(wgpu::FragmentState {
@@ -2447,6 +2458,26 @@ mod tests {
             }
         }
         assert_eq!(GamePass::Opaque.write_mask(), wgpu::ColorWrites::COLOR);
+    }
+
+    /// The meshes drawn over the solid scene without laying their depth
+    /// (additive, a see-through mesh's soft part) are drawn nearer the eye
+    /// by the same bias as Moonglow's own shader draws them, so that one
+    /// lying on a mesh drawn by the other shader doesn't fight with it; a
+    /// pass that lays its depth has none.
+    #[test]
+    fn overlays_are_biased_towards_the_eye_as_moonglow_s_own() {
+        use crate::particles::ParticleBlend as B;
+        let bias = crate::renderer::OVERLAY_DEPTH_BIAS;
+        assert!(bias.constant < 0 && bias.slope_scale < 0.0, "towards the eye: {bias:?}");
+        for pass in [GamePass::Additive, GamePass::Fringe] {
+            assert!(!pass.depth_write(), "{pass:?}");
+            assert_eq!(pass.depth_bias(), bias, "{pass:?}");
+        }
+        for pass in [GamePass::Opaque, GamePass::Solid, GamePass::Particles(B::PunchThrough)] {
+            assert!(pass.depth_write(), "{pass:?}");
+            assert_eq!(pass.depth_bias(), wgpu::DepthBiasState::default(), "{pass:?}");
+        }
     }
 
     /// A card read: what it is, its traits, its pair, `NO_DISCARD`'s
