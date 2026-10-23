@@ -34,7 +34,11 @@
 //! - Next and Previous Tile Appearance give the tile clicked another tile
 //!   of its kind, turned as it was where that fits; Rotate Tile turns it a
 //!   quarter (Shift: the other way) where it still fits its neighbours,
-//!   keeping its lights. The tile menu has the same three.
+//!   keeping its lights. The tile menu has the same three. With tiles
+//!   selected in Select Tiles, a click on one of the three in the palette
+//!   steps the selected tiles at once instead (`tile_select::step_tiles`,
+//!   as the tile menu's): nothing is chosen, Select Tiles and the
+//!   selection stay, and another click steps them again.
 //! - A right click with a terrain, the Eraser, Refine Tile or the tools
 //!   above opens the tile menu (`tile_select::context_menu`) for the tile
 //!   under the pointer; the brush stays chosen (Escape, or the menu's Put
@@ -1381,6 +1385,7 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let Some(view) = app.area_views.get(&area) else { return };
     let was_tile_mode = view.tile_mode;
     let mut tile_mode = was_tile_mode;
+    let selected = if was_tile_mode { view.tile_selection.len() } else { 0 };
     let Some(tools) = view.terrain.as_ref() else { return };
     let mut at = Place {
         tileset,
@@ -1388,6 +1393,8 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         chosen: &mut chosen,
         choice: &mut choice,
         tile_mode: &mut tile_mode,
+        selected,
+        stepped: None,
         // (With its key, as the toolbar's tip has it; its name then is
         // the palette's own.)
         select_tiles: crate::icons::labelled(
@@ -1406,8 +1413,17 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             show_item(ui, item, &mut at, 0);
         }
     });
-    let (shown, open) = (std::mem::take(&mut at.shown), at.open);
+    let (shown, open, stepped) = (std::mem::take(&mut at.shown), at.open, at.stepped);
     app.thumbnails.show(shown);
+    // A tile tool clicked with tiles selected: the step on them, as the
+    // tile menu's (Select Tiles and the selection staying).
+    if let Some(step) = stepped
+        && let Some(mut view) = app.area_views.remove(&area)
+    {
+        let cells = view.tile_selection.clone();
+        crate::tile_select::step_tiles(app, &mut view, &cells, step);
+        app.area_views.insert(area, view);
+    }
     if let Some(tile) = open {
         app.actions.push(crate::Action::OpenTab(crate::Tab::Tile { tileset, tile }));
     }
@@ -1561,6 +1577,12 @@ struct Place<'a> {
     choice: &'a mut Option<u32>,
     /// The area view's tile mode (the palette's Select Tiles).
     tile_mode: &'a mut bool,
+    /// How many tiles are selected in it (0 out of it): with any, Next
+    /// and Previous Tile Appearance and Rotate Tile step them rather than
+    /// being chosen.
+    selected: usize,
+    /// The step one of those tools was clicked for, on the selection.
+    stepped: Option<TileStep>,
     /// The Select Tiles row's name.
     select_tiles: String,
     fold: Option<bool>,
@@ -1721,11 +1743,28 @@ fn brush_row(ui: &mut egui::Ui, label: &str, brush: Brush, at: &mut Place) {
         ),
         _ => None,
     };
+    let on_selection = *at.tile_mode && at.selected > 0;
     let mut r = ui.selectable_label(on, shown);
     if let Some(tip) = tip {
-        r = r.on_hover_text(tip);
+        r = match brush {
+            Brush::Appearance { .. } | Brush::Rotate => r.on_hover_text(format!(
+                "{tip}. With tiles selected (Select Tiles): a click steps every selected tile \
+                 at once, each on its own, the selection kept; click again to step them again"
+            )),
+            _ => r.on_hover_text(tip),
+        };
     }
-    if r.clicked() {
+    // With tiles selected, a tile tool is a button on them: the step at
+    // once, nothing chosen (Select Tiles and the selection stay).
+    if r.clicked()
+        && on_selection
+        && let Some(step) = tile_step(
+            &TileBrush { tileset: at.tileset, label: String::new(), brush, target, exact: false },
+            ui.input(|i| i.modifiers.shift),
+        )
+    {
+        at.stepped = Some(step);
+    } else if r.clicked() {
         *at.chosen = if on {
             None
         } else {

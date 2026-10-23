@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T11:59:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T12:36:24Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1322,6 +1322,16 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   no object there starts the area's menu with the tile's items, whatever
   objects are selected; Delete there is still the selection's. (S)
   (from a builder's tile feedback, October 2026)
+- **The palette's tile tools on a selection:** with tiles selected in
+  Select Tiles, Next and Previous Tile Appearance and Rotate Tile in the
+  Tiles palette step the selected tiles (Select Tiles and the selection
+  stay); Refine Tile and the Eraser are still chosen as brushes there,
+  turning Select Tiles off and letting the selection go (Refine Tile's
+  drag and its Gallery target, the Eraser's crossers, have no step on a
+  selection yet; Delete is the Eraser's on it). None of the tile tools
+  has a key of its own. The refusal's reason is at the end of Select
+  Tiles' status line, which a narrow area view cuts short (its tip shows
+  all). (S) (from the owner's report, October 2026)
 - **Which tiles are a group's is worked out, not recorded:** the area's
   file doesn't say what a group placed, so a tile is a group's when the
   tileset lists it in a group (`TileIndex::is_grouped`), and the group is
