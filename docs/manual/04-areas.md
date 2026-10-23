@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T11:59:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T12:41:55Z }
 ---
 
 # Areas
@@ -110,7 +110,10 @@ looking straight down at their middle, north up, as in Aurora.
   Without the toolbar: a double click on the ground selects its tile
   (Select Tiles comes on), and a click on an object while tiles are
   selected selects it (Select Tiles goes off). Turning it on puts down
-  the terrain brush, and choosing a brush turns it off.
+  the terrain brush, and choosing a brush turns it off, but for Next
+  and Previous Tile Appearance and Rotate Tile with tiles selected,
+  which step those tiles and leave Select Tiles on (see [Painting
+  terrain](#painting-terrain)).
 - **✏ Paint** (B): paint the placeables chosen in the palette onto the
   ground (see [Painting placeables](#painting-placeables)).
 - **Area Properties**, **Reorient Camera** (north up again), **Go to Start
@@ -655,6 +658,19 @@ as Aurora's Terrain tab does:
   flashes red; a tile whose opposite sides match turns a half. To turn the
   terrain itself, paint it. A group's or a feature's tile turns only with
   that option on (above), where it still meets its neighbors.
+- **With tiles selected** (Select Tiles on), a click on **Next Tile
+  Appearance**, **Previous Tile Appearance** or **Rotate Tile** in the
+  palette steps the selected tiles at once, each on its own, as the tile
+  menu's items do ([Tiles](#tiles)): one step to undo for all of them.
+  The tool isn't chosen: Select Tiles stays on and the tiles stay
+  selected, so another click steps them again (Next Tile Appearance
+  clicked three times: three appearances on), and a click in the area still
+  selects. Shift + click on Rotate Tile turns them clockwise. A tile
+  that can't step (no other appearance, a tile that doesn't turn, a
+  group's tile) is left as it is; when none of them can, the status
+  line says why and they (a group's, the whole group) flash red. With
+  no tile selected, the three are chosen as above, and you click the
+  tiles. They have no keys of their own.
 - Select Tiles, the Eraser, Refine Tile, the three tools above and
   Raise/Lower head the Terrain list, whatever the tileset's order. A
   right click with the Eraser, Refine Tile or the three opens the tile
@@ -696,8 +712,9 @@ A right click on a tile opens the **tile menu**: **Next Tile
 Appearance**, **Previous Tile Appearance** and **Rotate Tile**, as the
 Tiles palette's tools of those names do (each one step to undo), then
 **Delete**, and last **Tile Properties**. In Select Tiles they act on
-the selected tiles (each on its own), with a terrain brush or a tile tool
-chosen on the tile clicked. Without either, a right click on the ground
+the selected tiles (each on its own), as the Tiles palette's three do
+when clicked with tiles selected; with a terrain brush or a tile tool
+chosen, on the tile clicked. Without either, a right click on the ground
 where no object is starts the area's menu with the tile's items (Tile
 (x, y), the three, Tile Properties), as Aurora's menu has Tile
 Properties for a tile; on an object, the object's menu.

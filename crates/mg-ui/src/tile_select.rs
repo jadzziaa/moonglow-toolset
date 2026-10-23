@@ -8,8 +8,8 @@
 //!   through the tiles that fit (Aurora's order: each tile's turns, then
 //!   the next tile's).
 //! - A right click opens the tile menu: Next and Previous Tile Appearance
-//!   and Rotate Tile (`TileStep`, as the tiles palette's tools), Delete
-//!   and Tile Properties. A tile brush without a right click of its own
+//!   and Rotate Tile (`TileStep`, as the tiles palette's tools, which
+//!   with tiles selected step them too), Delete and Tile Properties. A tile brush without a right click of its own
 //!   opens it too, on the tile clicked; out of tile mode the area's menu
 //!   starts with the tile's items (`ground_items`) where no object is.
 //! - Tile Properties sets the selected tiles' main and source light colours
