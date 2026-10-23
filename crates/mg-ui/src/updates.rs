@@ -255,6 +255,13 @@ impl Updates {
     pub fn checking(&self) -> bool {
         self.pending.is_some()
     }
+
+    /// The automatic check looks whether it is due at the next frame, not
+    /// within the hour (Options were applied: it may have been switched
+    /// on).
+    pub(crate) fn look_again(&mut self) {
+        self.looked = None;
+    }
 }
 
 /// How often the automatic check looks whether a day has gone by.

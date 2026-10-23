@@ -342,6 +342,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     ui.horizontal(|ui| {
                         if ui.button("OK").clicked() || (over && crate::widgets::enter(ui)) {
                             close = true;
+                            // (Updates switched on: the check looks at once.)
+                            app.updates.look_again();
                             if draft.moves_game(&app.settings)
                                 || draft.edit_language != app.settings.edit_language
                             {

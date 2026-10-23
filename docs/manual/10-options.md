@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T13:11:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T13:19:34Z }
 ---
 
 # Options
@@ -315,7 +315,8 @@ Moonglow's own: Aurora has no such page.
   Moonglow's version as its User-Agent (`Moonglow/2.4.0`), as GitHub
   asks of every program. Nothing about you, your computer or your
   modules: no identifier, path or setting. GitHub sees the request as it
-  sees any, from your address.
+  sees any, from your address (or your proxy's, where `HTTPS_PROXY` or
+  `ALL_PROXY` names one).
 - **Last checked**: when the automatic check last asked.
 - **Not reminded about**: the version **Don't remind me about this
   version** put aside; **Remind Me Again** tells of it again. A later

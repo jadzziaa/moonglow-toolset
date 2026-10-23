@@ -25083,3 +25083,53 @@ fn the_updates_option_turns_automatic_checks_off() {
     h.get_by_label_contains("This copy is updated by Flatpak");
     assert!(h.get_by_label("Check for updates automatically").accesskit_node().is_disabled());
 }
+
+/// As the desktop app runs it (jobs in the background): the request goes
+/// on its own thread, the window asks while it waits, and the answer is
+/// shown when it comes; turned on in Options, the automatic check asks
+/// at once.
+#[test]
+fn the_update_check_asks_on_its_own_thread() {
+    use std::sync::atomic::Ordering;
+    let current = env!("CARGO_PKG_VERSION");
+    let (mut app, asked) = app_with_releases(Ok(release_answer("v99.0.0")));
+    app.background_jobs = true;
+    app.settings.no_update_check = true;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(2);
+    mg_ui::updates::check_now(h.state_mut());
+    h.run_steps(1);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while h.state().updates.report.is_none() {
+        assert!(std::time::Instant::now() < deadline, "no answer");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.run_steps(1);
+    }
+    h.run_steps(2);
+    h.get_by_label(&format!("Moonglow 99.0.0 is out (you have {current})."));
+    assert!(h.query_by_label("Asking GitHub for the latest release…").is_none());
+    assert!(!h.state().updates.checking());
+    assert!(h.state().updates.notice.is_none(), "the window's check, not the automatic one");
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+
+    // Switched on in Options: asked at the next frames, not in an hour.
+    h.state_mut().updates.window = false;
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    h.run_steps(2);
+    h.get_by_label("Updates").click();
+    h.run_steps(2);
+    h.get_by_label("Check for updates automatically").click();
+    h.run_steps(2);
+    h.get_by_label("OK").click();
+    h.run_steps(1);
+    assert!(!h.state().settings.no_update_check);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while h.state().updates.notice.is_none() {
+        assert!(std::time::Instant::now() < deadline, "no notice");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.run_steps(1);
+    }
+    assert_eq!(asked.load(Ordering::SeqCst), 2);
+}
