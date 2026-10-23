@@ -1050,12 +1050,12 @@ fn grass_overrides_look() {
         let tileset = mg_area::tileset(&game, ResRef::from_str("ttr01").unwrap()).ok();
         let model = mg_area::AreaModel::read(&game, &are.root, &git.root, tileset.as_ref());
         let area_scene = mg_area::AreaScene::new(&gpu, &game, &model);
-        let focus = glam::Vec2::new(20.0, 20.0);
-        let view = mg_area::View { fog: false, grass: Some(focus), ..mg_area::View::of(&model) };
-        let scene = area_scene.scene(&model, &view);
         let camera =
             fitted_camera(Vec3::new(20.0, 20.0, 0.0), FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
         let (w, h) = client.as_ref().map_or((1024, 768), |c| (c.width, c.height));
+        let sight = mg_area::Sight::of(&camera, w as f32 / h as f32);
+        let view = mg_area::View { fog: false, grass: Some(sight), ..mg_area::View::of(&model) };
+        let scene = area_scene.scene(&model, &view);
         off_and_on(&gpu, &game, &scene, &camera, (w, h), client.as_ref(), &dir, "moonglow");
         eprintln!("{variant}: {} (client {})", dir.display(), client.is_some());
     }

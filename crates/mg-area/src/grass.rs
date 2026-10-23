@@ -162,25 +162,17 @@ pub const MAX_TUFTS: usize = 2000;
 /// game lights grass without its faces' directions), in the colours of
 /// its kind. `None` where nothing grows. `name` is the tile model's: the
 /// same model grows the same grass.
+///
+/// A mesh's tufts are in no order of place, so that any number of the
+/// first of them are spread over all of its faces: [`thinned`] keeps the
+/// first, for grass seen far off.
 pub fn tufts(name: &str, faces: &[WalkFace], growing: &[(u32, GrassLook)]) -> Option<Model> {
     let mut nodes = vec![Node::new(&format!("{name}_grass"), NodeKind::Dummy)];
     let seed = name.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
         (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
     });
     let mut rng = fastrand::Rng::with_seed(seed);
-    let area = |f: &WalkFace| {
-        let [a, b, c] = f.corners;
-        (b - a).cross(c - a).length() / 2.0
-    };
-    // (Thinned alike for every kind, so that none crowds out another.)
-    let wanted: f32 = growing
-        .iter()
-        .map(|(m, l)| {
-            let on: f32 = faces.iter().filter(|f| f.material == *m).map(area).sum();
-            on * l.density
-        })
-        .sum();
-    let keep = if wanted > MAX_TUFTS as f32 { MAX_TUFTS as f32 / wanted } else { 1.0 };
+    let keep = kept_on(faces, growing);
     for (material, look) in growing {
         let mut mesh = Mesh {
             diffuse: look.diffuse,
@@ -189,6 +181,7 @@ pub fn tufts(name: &str, faces: &[WalkFace], growing: &[(u32, GrassLook)]) -> Op
             textures: [Some(look.texture.clone()), None, None, None],
             ..Mesh::default()
         };
+        let mut grown = Vec::new();
         for f in faces.iter().filter(|f| f.material == *material) {
             let count = area(f) * look.density * keep;
             let mut n = count.floor() as usize;
@@ -196,11 +189,17 @@ pub fn tufts(name: &str, faces: &[WalkFace], growing: &[(u32, GrassLook)]) -> Op
                 n += 1;
             }
             for _ in 0..n {
-                tuft(&mut mesh, f, look.height, &mut rng);
+                grown.push(tuft(f, look.height, &mut rng));
             }
         }
-        if mesh.faces.is_empty() {
+        if grown.is_empty() {
             continue;
+        }
+        // (Put in no order by a sequence of their own: the tufts are those
+        // they were before they were put so.)
+        fastrand::Rng::with_seed(seed ^ u64::from(*material)).shuffle(&mut grown);
+        for t in &grown {
+            add_tuft(&mut mesh, t);
         }
         mesh.source = (0..mesh.vertices.len() as u32).collect();
         mesh.source_uv = mesh.source.clone();
@@ -216,8 +215,51 @@ pub fn tufts(name: &str, faces: &[WalkFace], growing: &[(u32, GrassLook)]) -> Op
     Some(Model { name: format!("{name}_grass"), nodes, animation_scale: 1.0, ..Model::default() })
 }
 
+fn area(f: &WalkFace) -> f32 {
+    let [a, b, c] = f.corners;
+    (b - a).cross(c - a).length() / 2.0
+}
+
+/// The share of the tufts `growing` asks for that a tile of walkmesh
+/// `faces` grows: all, or as many as [`MAX_TUFTS`] (thinned alike for
+/// every kind, so that none crowds out another).
+fn kept_on(faces: &[WalkFace], growing: &[(u32, GrassLook)]) -> f32 {
+    let wanted: f32 = growing
+        .iter()
+        .map(|(m, l)| {
+            let on: f32 = faces.iter().filter(|f| f.material == *m).map(area).sum();
+            on * l.density
+        })
+        .sum();
+    if wanted > MAX_TUFTS as f32 { MAX_TUFTS as f32 / wanted } else { 1.0 }
+}
+
+/// How many tufts to a square meter each mesh of [`tufts`]'s grass of
+/// the same tile and kinds has, in order.
+pub fn densities(grass: &Model, faces: &[WalkFace], growing: &[(u32, GrassLook)]) -> Vec<f32> {
+    let keep = kept_on(faces, growing);
+    let prefix = &grass.name;
+    grass
+        .nodes
+        .iter()
+        .filter(|n| n.mesh().is_some())
+        .map(|n| {
+            // (Its node is named for its material: `<tile>_grass<material>`.)
+            let material = n.name.strip_prefix(prefix.as_str()).and_then(|m| m.parse::<u32>().ok());
+            let look = growing.iter().find(|(m, _)| Some(*m) == material);
+            look.map_or(f32::INFINITY, |(_, l)| l.density * keep)
+        })
+        .collect()
+}
+
+/// A tuft's corners and its corners' places on the texture.
+struct Tuft {
+    corners: [Vec3; 4],
+    uvs: [[f32; 2]; 4],
+}
+
 /// A tuft at a random point of face `f`.
-fn tuft(mesh: &mut Mesh, f: &WalkFace, height: f32, rng: &mut fastrand::Rng) {
+fn tuft(f: &WalkFace, height: f32, rng: &mut fastrand::Rng) -> Tuft {
     let (mut s, mut t) = (rng.f32(), rng.f32());
     if s + t > 1.0 {
         (s, t) = (1.0 - s, 1.0 - t);
@@ -233,14 +275,66 @@ fn tuft(mesh: &mut Mesh, f: &WalkFace, height: f32, rng: &mut fastrand::Rng) {
     let cell = rng.usize(0..4);
     let (u, v) = ((cell % 2) as f32 * 0.5, (cell / 2) as f32 * 0.5);
     let uvs = [[u, v], [u + 0.5, v], [u + 0.5, v + 0.5], [u, v + 0.5]];
+    Tuft { corners, uvs }
+}
+
+/// The vertices and faces a tuft has in a mesh (four each, in a row).
+pub const TUFT_VERTICES: usize = 4;
+pub const TUFT_FACES: usize = 4;
+
+fn add_tuft(mesh: &mut Mesh, t: &Tuft) {
     let first = mesh.vertices.len() as u32;
-    mesh.vertices.extend(corners.map(|p| p.to_array()));
+    mesh.vertices.extend(t.corners.map(|p| p.to_array()));
     mesh.normals.extend([[0.0, 0.0, 1.0]; 4]);
-    mesh.uvs[0].extend(uvs);
+    mesh.uvs[0].extend(t.uvs);
     // Both sides.
     for v in [[0, 1, 2], [0, 2, 3], [0, 2, 1], [0, 3, 2]] {
         mesh.faces.push(Face { vertices: v.map(|i| first + i), material: 0 });
     }
+}
+
+/// Grass seen from this far away (meters, from the eye to the nearest of
+/// it) is drawn with as many of its tufts as make this many to a square
+/// meter at most, by [`level`] and [`share`]: all of them near, where the
+/// view looks as the game's does; fewer further off, where a tuft is a
+/// few pixels high, and only of dense grass (the tilesets' 5 a square
+/// meter are all drawn out to 180 m, half of them past it); never none, so
+/// that grass is drawn out to the end of what the view shows.
+pub const LEVELS: [(f32, f32); 4] = [(0.0, f32::INFINITY), (45.0, 10.0), (90.0, 5.0), (180.0, 2.5)];
+
+/// Which of [`LEVELS`] grass this far from the eye is drawn at.
+pub fn level(distance: f32) -> usize {
+    LEVELS.iter().rposition(|(from, _)| distance >= *from).unwrap_or(0)
+}
+
+/// The share of its tufts grass of `density` (tufts to a square meter)
+/// is drawn with at `level`.
+pub fn share(level: usize, density: f32) -> f32 {
+    let most = LEVELS[level.min(LEVELS.len() - 1)].1;
+    if density > most { most / density } else { 1.0 }
+}
+
+/// How many of a mesh's `all` tufts are kept of a `share` of them: one at
+/// least (of a mesh that has any).
+pub fn kept(all: usize, share: f32) -> usize {
+    ((all as f32 * share).ceil() as usize).clamp(all.min(1), all)
+}
+
+/// `grass` ([`tufts`]) with the first `share` of each of its meshes'
+/// tufts ([`kept`]): spread over its faces as all of them are.
+pub fn thinned(grass: &Model, share: f32) -> Model {
+    let mut out = grass.clone();
+    for node in &mut out.nodes {
+        let NodeKind::Mesh(mesh) = &mut node.kind else { continue };
+        let kept = kept(mesh.vertices.len() / TUFT_VERTICES, share);
+        mesh.vertices.truncate(kept * TUFT_VERTICES);
+        mesh.normals.truncate(kept * TUFT_VERTICES);
+        mesh.uvs[0].truncate(kept * TUFT_VERTICES);
+        mesh.faces.truncate(kept * TUFT_FACES);
+        mesh.source.truncate(kept * TUFT_VERTICES);
+        mesh.source_uv.truncate(kept * TUFT_VERTICES);
+    }
+    out
 }
 
 #[cfg(test)]
@@ -413,6 +507,58 @@ mod tests {
         let dense = tufts("tst01_a01_01", &faces, &[(3, look("grass", 50.0))]).unwrap();
         assert!(tuft_count(&dense) <= MAX_TUFTS + 20);
         assert!(tuft_count(&dense) > MAX_TUFTS * 9 / 10);
+    }
+
+    /// Grass far off is drawn with the first of its tufts: they are spread
+    /// over all of the ground (no corner bare), as many as the share says.
+    #[test]
+    fn thinned_grass_is_spread_over_all_of_its_ground() {
+        let m = tufts("tst01_a01_01", &field(3), &[(3, look("grass", 5.0))]).unwrap();
+        let all = tuft_count(&m);
+        for share in [1.0, 0.5, 0.25, 0.125] {
+            let thin = thinned(&m, share);
+            let n = tuft_count(&thin);
+            assert_eq!(n, kept(all, share));
+            let mesh = thin.nodes.iter().find_map(Node::mesh).unwrap();
+            // In each quarter of the field, about its share of them.
+            for (qx, qy) in [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)] {
+                let feet = mesh.vertices.chunks(TUFT_VERTICES).filter(|t| {
+                    let foot = (Vec3::from(t[0]) + Vec3::from(t[1])) / 2.0;
+                    foot.x * qx > 0.0 && foot.y * qy > 0.0
+                });
+                let here = feet.count() as f32;
+                assert!(here > n as f32 / 4.0 * 0.6, "{share}: {here} of {n} in ({qx}, {qy})");
+            }
+            // The first of all of them, as they are.
+            let full = m.nodes.iter().find_map(Node::mesh).unwrap();
+            assert_eq!(mesh.vertices[..], full.vertices[..mesh.vertices.len()]);
+            assert_eq!(mesh.faces[..], full.faces[..mesh.faces.len()]);
+        }
+        assert_eq!(kept(7, 0.01), 1, "one at least");
+        assert_eq!(kept(0, 0.5), 0);
+    }
+
+    /// Far off, grass is drawn no denser than its level's most to a square
+    /// meter: the tilesets' (5) all of it out to the last level, dense
+    /// grass thinned from nearer; near, all of any.
+    #[test]
+    fn grass_is_thinned_by_its_density_far_off() {
+        assert_eq!(share(0, 20.0), 1.0);
+        assert_eq!(share(0, 1000.0), 1.0);
+        assert_eq!(share(1, 5.0), 1.0);
+        assert_eq!(share(2, 5.0), 1.0);
+        assert_eq!(share(3, 5.0), 0.5);
+        assert_eq!(share(1, 20.0), 0.5);
+        assert_eq!(share(3, 20.0), 0.125);
+        // Each mesh's density: as grown, its kind's (thinned to the most a
+        // tile grows).
+        let mut faces = field(3);
+        faces.extend(field(1));
+        let growing = [(1, look("mgdirt", 1.0)), (3, look("grass", 50.0))];
+        let m = tufts("tst", &faces, &growing).unwrap();
+        let d = densities(&m, &faces, &growing);
+        let keep = MAX_TUFTS as f32 / (100.0 * 51.0);
+        assert_eq!(d, [1.0 * keep, 50.0 * keep]);
     }
 
     #[test]

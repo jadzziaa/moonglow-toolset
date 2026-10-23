@@ -1730,9 +1730,9 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         if ui
             .toggle_value(&mut grass, labelled(icons::GRASS, "Grass"))
             .on_hover_text(
-                "Grass on the tiles near the view's center, as the game grows it near the \
-                 camera: the tileset's, and the area's own (Area Properties › Grass); in every \
-                 area view",
+                "Grass wherever the view shows grass ground, thinned far off (the game grows \
+                 it near the camera alone): the tileset's, and the area's own (Area Properties \
+                 › Grass); in every area view",
             )
             .changed()
         {
@@ -2039,6 +2039,10 @@ fn grid_lines(view: &AreaView, shown: &AreaModel) -> Vec<mg_render::Line> {
 /// The view's pitch (radians above the ground) from which the grid is
 /// faint, and at which it is Aurora's red (in between, something of each).
 const GRID_FAINT_FROM: f32 = 0.6;
+
+/// How long a frame spends putting together the grass far off, at most
+/// (past the first chunk): [`mg_area::AreaScene::grow_grass`].
+const GRASS_GROWING: std::time::Duration = std::time::Duration::from_millis(1);
 const GRID_RED_AT: f32 = 0.2;
 
 /// How far a tile's ground is from the area's foot before the grid is
@@ -2080,8 +2084,21 @@ fn viewport(
         show: view.show,
         animate: !app.settings.still_objects,
         fade: view.fade.now(view.tile_mode || crate::terrain_mode::active(app, view).is_some()),
-        grass: view.orbit.filter(|_| !app.settings.no_grass).map(|o| o.target.truncate()),
+        // (As far as the view sees, near and far: the picture's size is
+        // what is left of the panel.)
+        grass: view.orbit.filter(|_| !app.settings.no_grass).map(|o| {
+            let size = ui.available_size().max(egui::vec2(32.0, 32.0));
+            mg_area::Sight::of(&o.camera(), size.x / size.y)
+        }),
     };
+    // The grass far off, put together a few chunks a frame (drawn tile by
+    // tile until it is, the same tufts: the picture stays as it is).
+    if let (Some(sight), Some(scene), Some(model), Some(vp)) =
+        (&settings.grass, view.scene.as_mut(), &view.model, app.viewport.as_ref())
+        && scene.grow_grass(&vp.gpu, model, sight, GRASS_GROWING)
+    {
+        ui.ctx().request_repaint();
+    }
     let shift = ui.input(|i| i.modifiers.shift);
     let preview = crate::terrain_mode::preview(app, view, shift);
     let (preview_instances, hidden) =

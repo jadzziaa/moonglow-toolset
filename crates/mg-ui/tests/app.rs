@@ -7423,6 +7423,19 @@ fn area_harness_on(
     tileset: &str,
     tile: Option<i32>,
 ) -> Option<(Harness<'static, Moonglow>, ResRef)> {
+    // (A look test on a builder's content: an area with room for its
+    // groups.)
+    let side = std::env::var("MG_TEST_SIZE").ok().and_then(|s| s.parse().ok()).unwrap_or(4);
+    area_harness_sized(name, tileset, tile, side)
+}
+
+/// [`area_harness_on`] with an area `side` tiles each way.
+fn area_harness_sized(
+    name: &str,
+    tileset: &str,
+    tile: Option<i32>,
+    side: u32,
+) -> Option<(Harness<'static, Moonglow>, ResRef)> {
     use mg_module::instances::{Placement, Placing, instance};
     use mg_module::new::{AreaSpec, add_area, new_module};
     let root = mg_testkit::nwn_root()?;
@@ -7432,9 +7445,8 @@ fn area_harness_on(
         return None;
     }
     // (A look test on a builder's content: a user folder with it in its
-    // override, and an area with room for its groups.)
+    // override.)
     let user = std::env::var_os("MG_TEST_USER").map(std::path::PathBuf::from);
-    let side = std::env::var("MG_TEST_SIZE").ok().and_then(|s| s.parse().ok()).unwrap_or(4);
     let install = mg_resman::GameInstall::new(&root, user, "en");
     let game = mg_rules::GameData::open(&install).unwrap();
     let mut rng = fastrand::Rng::with_seed(7);
@@ -23457,6 +23469,91 @@ fn grass_is_set_in_area_properties_and_grown_in_the_view() {
     let saved = AreaGrass::read(&back.gff(&git).unwrap().unwrap().root);
     assert_eq!(saved, stored(&mut h));
     assert!(saved.default_disabled && saved.overrides[0].material == 1);
+}
+
+/// The area view's grass covers what the view shows, not a reach around
+/// its focus (the owner's report: grass only near the camera's target, the
+/// rest of a field bare): on a 32 by 32 field seen across from low down,
+/// and from halfway up, the grass shows at the far parts of the view, a
+/// hundred meters and more from the target, and on either side of it.
+/// (It once ended 30 m from the target: there nothing changed.) Close up
+/// it looks as it did (the pictures, `target/test-output/ui-area-grass-far/`,
+/// before and after the change). From high up a tuft (an upright quad
+/// seen from above, a meter high) is a pixel or two in a window this
+/// size, and grass changes next to nothing in the picture, near the target
+/// or far: the view from there is drawn, not judged.
+#[test]
+fn grass_covers_the_whole_view() {
+    let Some((mut h, area)) = area_harness_sized("grass-far", "ttr01", None, 32) else { return };
+    let dir = mg_testkit::output_dir("ui-area-grass-far");
+    // (The views: the target, pitch, yaw and distance; and the points
+    // far off in each where the grass must show.)
+    let middle = glam::Vec3::new(160.0, 160.0, 0.0);
+    let views = [
+        ("high", middle, 0.9, -60f32.to_radians(), 420.0),
+        ("across", middle, 0.3, -60f32.to_radians(), 50.0),
+        ("halfway", middle, 0.6, -60f32.to_radians(), 150.0),
+        ("close", glam::Vec3::new(20.0, 20.0, 0.0), 35f32.to_radians(), -60f32.to_radians(), 9.0),
+    ];
+    let mut bare = Vec::new();
+    // (Without the grid, which would cover what is far off.)
+    h.state_mut().area_views.get_mut(&area).unwrap().grid = false;
+    for (name, target, pitch, yaw, distance) in views {
+        if let Some(o) = &mut h.state_mut().area_views.get_mut(&area).unwrap().orbit {
+            o.target = target;
+            (o.pitch, o.yaw, o.distance) = (pitch, yaw, distance);
+        }
+        let mut shots = Vec::new();
+        for no_grass in [false, true] {
+            h.state_mut().settings.no_grass = no_grass;
+            // (Grown as the view comes to it: a few frames.)
+            h.run_steps(12);
+            let shot = h.render().expect("render");
+            let what = if no_grass { "without" } else { "with" };
+            shot.save(dir.join(format!("{name}-{what}.png"))).unwrap();
+            shots.push(shot);
+        }
+        let view = &h.state().area_views[&area];
+        let eye = view.camera().unwrap().eye;
+        // Far off: a hundred meters and more past the target (looking
+        // across), and around it on every side (from halfway up).
+        let away = (target - eye).with_z(0.0).normalize();
+        let side = away.cross(glam::Vec3::Z);
+        let far: Vec<glam::Vec3> = match name {
+            "across" => vec![target + away * 100.0, target + away * 150.0],
+            "halfway" => vec![
+                target + away * 40.0,
+                target - away * 35.0,
+                target + side * 50.0,
+                target - side * 50.0,
+            ],
+            "close" => vec![target],
+            _ => Vec::new(),
+        };
+        for p in far {
+            let at = view.screen_pos(p).expect("in the view");
+            assert!(
+                view.rect.shrink(20.0).contains(at),
+                "{name}: {p} at {at:?} is out of the view"
+            );
+            let (x0, y0) = (at.x as u32 - 20, at.y as u32 - 20);
+            let changed = (x0..x0 + 40)
+                .flat_map(|x| (y0..y0 + 40).map(move |y| (x, y)))
+                .filter(|&(x, y)| {
+                    let (a, b) = (shots[0].get_pixel(x, y), shots[1].get_pixel(x, y));
+                    (0..3).any(|c| a[c].abs_diff(b[c]) > 12)
+                })
+                .count();
+            let off = p.distance(eye);
+            if changed <= 40 {
+                bare.push(format!(
+                    "{name}: the grass at {p} ({off:.0} m from the eye) changed {changed} of \
+                     1600 pixels"
+                ));
+            }
+        }
+    }
+    assert!(bare.is_empty(), "{bare:#?}");
 }
 
 /// The items of the open right-click menu whose last item is `last`, top

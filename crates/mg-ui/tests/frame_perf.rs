@@ -429,8 +429,10 @@ fn game_water() -> bool {
 /// the draws encoded and sent, and the GPU drawing them; with the Shaders
 /// switch as each of `shaders` has it (a renderer of its own each: the
 /// first frame, which reads the textures and, with the switch on, makes
-/// the game's programs, is printed by itself).
-fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool]) {
+/// the game's programs, is printed by itself). With `grass`, the area's
+/// grass as the view draws it, and the field's views of
+/// [`grass_frames_at_144`] too.
+fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], grass: bool) {
     use mg_render::{Renderer, Targets};
     let app = h.state_mut();
     let Some(vp) = app.viewport.as_ref() else { return };
@@ -442,7 +444,7 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool]) {
     let tileset = mg_area::tileset(&game, are.root.resref("Tileset").unwrap()).ok();
     let model = mg_area::AreaModel::read(&game, &are.root, &git.root, tileset.as_ref());
     let t = Instant::now();
-    let scene = mg_area::AreaScene::new(&gpu, &game, &model);
+    let mut scene = mg_area::AreaScene::new(&gpu, &game, &model);
     println!("  area {area}: models loaded in {:.0?}", t.elapsed());
     let mut view = mg_area::View::of(&model);
     // (`FRAME_TARGET=<width>x<height>`: a picture of another size.)
@@ -462,12 +464,19 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool]) {
     };
     let (width, height) = model.size();
     let span = width.max(height);
-    let configs = [
+    let mut configs = vec![
         ("overview, 4x MSAA", span * 1.45, 1.5695, 4, true),
         ("…a draw for each mesh", span * 1.45, 1.5695, 4, false),
         ("overview, no MSAA", span * 1.45, 1.5695, 1, true),
         ("close, 4x MSAA", 25.0, 0.7, 4, true),
     ];
+    if grass {
+        configs.extend([
+            ("across, 4x MSAA", 50.0, 0.3, 4, true),
+            ("high, 4x MSAA", 420.0, 0.9, 4, true),
+            ("orbiting, 4x MSAA", 150.0, 0.6, 4, true),
+        ]);
+    }
     for (what, distance, pitch, samples, instancing, on) in
         configs.into_iter().flat_map(|c| shaders.iter().map(move |&g| (c.0, c.1, c.2, c.3, c.4, g)))
     {
@@ -493,6 +502,9 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool]) {
             let target = glam::Vec3::new(width / 2.0, height / 2.0, 0.0);
             let mut camera = mg_render::Camera::orbit(target, distance, yaw, pitch);
             camera.far = camera.far.max(distance * 4.0 + 400.0);
+            if grass {
+                view.grass = Some(mg_area::Sight::of(&camera, w as f32 / h_px as f32));
+            }
             wait();
             // (The last frame lists what the game's shaders drew: how many
             // with NO_DISCARD 1.)
@@ -500,6 +512,11 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool]) {
                 renderer.game_programs = Some(Vec::new());
             }
             let t0 = Instant::now();
+            // (The chunks of grass far off put together as the area view
+            // does, a few a frame.)
+            if let Some(sight) = &view.grass {
+                scene.grow_grass(&gpu, &model, sight, Duration::from_millis(2));
+            }
             let mut frame = scene.scene(&model, &view);
             let t1 = Instant::now();
             frame.particles = scene.particles(&model, &view, &mut sims, dt, camera.view());
@@ -690,7 +707,7 @@ fn frames_at_144() {
     }
     if !r.shots {
         for (area, _) in &sized {
-            area_parts(&mut h, *area, r.count, &[false]);
+            area_parts(&mut h, *area, r.count, &[false], false);
         }
     }
     println!("over the budget:\n  {}", r.over.join("\n  "));
@@ -1037,18 +1054,45 @@ fn grass_frames_at_144() {
     let tab = Tab::Area(area);
     open(&mut h, tab.clone());
     h.run_steps(5);
-    let close_in = |app: &mut Moonglow, _: usize| {
-        if let Some(o) = app.area_views.get_mut(&area).and_then(|v| v.orbit.as_mut()) {
-            o.target = glam::Vec3::new(160.0, 160.0, 0.0);
-            o.pitch = 0.7;
-            o.distance = 25.0;
-            o.yaw += 0.01;
+    // The field seen close to the ground, from low down across it (the
+    // grass running out to the far end of the view), from high up (all of
+    // the field in sight), from straight above as it opens, and orbited
+    // from halfway up a little faster; each turning as it is timed. (Name,
+    // pitch, distance, turn a frame.)
+    let views = [
+        ("close", 0.7, 25.0, 0.01),
+        ("across", 0.3, 50.0, 0.01),
+        ("high", 0.9, 420.0, 0.01),
+        ("from above", 1.5695, 464.0, 0.01),
+        ("orbiting", 0.6, 150.0, 0.03),
+    ];
+    for (name, pitch, distance, turn) in views {
+        for no_grass in [false, true] {
+            h.state_mut().settings.no_grass = no_grass;
+            let what = format!("field, {name}, {}", if no_grass { "no grass" } else { "grass" });
+            let set = |app: &mut Moonglow, turned: f32| {
+                if let Some(o) = app.area_views.get_mut(&area).and_then(|v| v.orbit.as_mut()) {
+                    o.target = glam::Vec3::new(160.0, 160.0, 0.0);
+                    o.pitch = pitch;
+                    o.distance = distance;
+                    o.yaw += turned;
+                }
+            };
+            // (A picture of it: the view set, and its grass grown, first.)
+            if r.shots {
+                set(h.state_mut(), 0.0);
+                h.state_mut().area_views.get_mut(&area).unwrap().grid = false;
+                if let Some(o) = h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut() {
+                    o.yaw = -60f32.to_radians();
+                }
+                h.run_steps(12);
+            }
+            view_with(&mut h, &mut r, &what, Some(&tab), |app, _| set(app, turn));
         }
-    };
-    for no_grass in [false, true] {
-        h.state_mut().settings.no_grass = no_grass;
-        let what = if no_grass { "field, close, no grass" } else { "field, close, grass" };
-        view_with(&mut h, &mut r, what, Some(&tab), close_in);
+    }
+    // Taken apart, with the grass.
+    if r.only.is_none() && !r.shots {
+        area_parts(&mut h, area, r.count, &[false], true);
     }
     // Grown again, as each frame of a drag grows it.
     let ws_root = {
@@ -1300,7 +1344,7 @@ fn shaders_off_and_on(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64)
         }
     }
     if !r.shots {
-        area_parts(h, area, r.count, &[false, true]);
+        area_parts(h, area, r.count, &[false, true], false);
     }
 }
 

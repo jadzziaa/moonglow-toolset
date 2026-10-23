@@ -1286,14 +1286,14 @@ fn surfaces_in_moonglow(game: &GameData, are: &Gff, git: &Gff, client: &Rgba, di
     let tileset = mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).ok();
     let model = mg_area::AreaModel::read(game, &are.root, &git.root, tileset.as_ref());
     let area_scene = mg_area::AreaScene::new(&gpu, game, &model);
+    let camera =
+        fitted_camera(Vec3::new(20.0, 20.0, 0.0), FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
     let view = mg_area::View {
         fog: false,
         time: 6.0,
-        grass: Some(glam::Vec2::new(20.0, 20.0)),
+        grass: Some(mg_area::Sight::of(&camera, client.width as f32 / client.height as f32)),
         ..mg_area::View::of(&model)
     };
-    let camera =
-        fitted_camera(Vec3::new(20.0, 20.0, 0.0), FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
     let mut scene = area_scene.scene(&model, &view);
     let mut sims = HashMap::new();
     scene.particles = area_scene.particles(&model, &view, &mut sims, 0.0, camera.view());
