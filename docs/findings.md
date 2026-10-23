@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T13:30:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T10:05:13Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -319,6 +319,14 @@ floor is at `Tile_Height` × `Transition`.
   areas, `tiles.rs` `shipped_tile_grids_are_consistent`); engine
   (`engine_terrain.rs`: a corner raised twice in Rural, Transition 5,
   stands at 10.00 m).
+- **A tile's own height:** the engine stands each tile at its own
+  `Tile_Height` × `Transition`, whatever its neighbors' heights, with
+  its walkmesh: a flat Rural tile at -1, -3, 2, 19, 50, 255 and 1000
+  steps had its ground at -5, -15, 10, 95, 250, 1275 and 5000 m, grass
+  underfoot (engine, `engine_terrain.rs`
+  `a_tile_s_own_height_stands_where_the_engine_puts_it`). The game's own
+  areas reach 19; below 0 is not in them but loads. Tile Properties'
+  Height (issue #29) sets it.
 - **Moonglow:** `crates/mg-area/src/lib.rs`, `crates/mg-tiles`.
 - **Wiki:** missing (no page documents the ARE `Tile_*` fields).
 

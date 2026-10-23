@@ -3,7 +3,8 @@
 //! with the ground where the strokes put it: a corner raised twice stands
 //! two height steps up (the corners around it one), a pond painted with
 //! four water corners is not grass, and a placed tile group's doors are
-//! there.
+//! there. A tile's own `Tile_Height` (Tile Properties' Height) stands it
+//! that many steps up or down, whatever its neighbors'.
 
 use std::time::Duration;
 
@@ -156,4 +157,76 @@ void main()
         );
     }
     assert!(!got.contains(&"pond|3".to_string()), "the pond is grass:\n{}", got.join("\n"));
+}
+
+/// A tile's `Tile_Height`, set alone (Tile Properties' Height): the engine
+/// stands the tile's ground at `Tile_Height` × the tileset's height step,
+/// whatever its neighbors' heights: below 0 (-1, -3) and far above what
+/// the game's areas have (up to 1000 steps, 5 km), its walkmesh with it.
+#[test]
+fn a_tile_s_own_height_stands_where_the_engine_puts_it() {
+    let root = corpus!();
+    if server_binary(&root).is_none() {
+        eprintln!("skipped: no nwserver for this platform");
+        return;
+    }
+    let _ = oracle_tool!("nwn_script_comp");
+    let dir = scratch_dir("engine_tile_height");
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let mut rng = fastrand::Rng::with_seed(5);
+    let mut m = new_module(&game, "Heights", &mut rng).unwrap();
+    let spec = AreaSpec { name: "Heights".into(), tileset: r("ttr01"), width: 4, height: 4 };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let are_key = ResKey::new(area, ResType::ARE);
+    // One flat grass tile in every probed cell, each at its own height.
+    let heights: [((u32, u32), i32); 8] = [
+        ((0, 0), -1),
+        ((1, 0), -3),
+        ((2, 0), 2),
+        ((3, 0), 19),
+        ((0, 2), 50),
+        ((1, 2), 255),
+        ((2, 2), 1000),
+        ((3, 3), 0),
+    ];
+    let mut are = m.gff(&are_key).unwrap().unwrap();
+    let flat = are.root.list("Tile_List").unwrap()[5].integer("Tile_ID").unwrap();
+    for &((x, y), h) in &heights {
+        let t = &mut are.root.list_mut("Tile_List").unwrap()[(y * 4 + x) as usize];
+        t.set("Tile_ID", mg_gff::Value::Int(flat as i32));
+        t.set("Tile_Orientation", mg_gff::Value::Int(0));
+        t.set("Tile_Height", mg_gff::Value::Int(h));
+    }
+    m.set_gff(are_key, &are).unwrap();
+    let tag = are.root.string("Tag").map(|t| String::from_utf8_lossy(t).into_owned()).unwrap();
+    let mut lines = String::new();
+    for &((x, y), h) in &heights {
+        let (cx, cy) = (x as f32 * 10.0 + 5.0, y as f32 * 10.0 + 5.0);
+        let at = format!("Location(a, Vector({cx:.1}, {cy:.1}, 0.0), 0.0)");
+        lines += &format!(
+            "    WriteTimestampedLogEntry(\"MG_AT {h}|\" + F(GetGroundHeight({at})) + \"|\" + \
+             IntToString(GetSurfaceMaterial({at})));\n"
+        );
+    }
+    let probe = format!(
+        "string F(float f) {{ return FloatToString(f, 0, 2); }}\n\nvoid main()\n{{\n    object a \
+         = GetObjectByTag(\"{tag}\");\n{lines}    WriteTimestampedLogEntry(\"MG_DONE\");\n}}\n"
+    );
+    let ncs = compile(&dir, "mg_probe", &probe);
+    let mut info = m.info().unwrap();
+    info.root.write(&ifo::MOD_ON_MOD_LOAD, r("mg_probe"));
+    m.set_info(&info).unwrap();
+    m.set(ResKey::new(r("mg_probe"), ResType::NCS), ncs);
+    let user = dir.join("user");
+    m.save_as(&ModuleLocation::Archive(user.join("modules/mg_heights.mod"))).unwrap();
+    let run = run_server(&root, &user, "mg_heights", "MG_DONE", Duration::from_secs(120)).unwrap();
+    assert!(run.finished, "the server did not finish:\n{}", run.log);
+    let got = run.values("MG_AT");
+    // Each tile's ground `Tile_Height` × 5 m (Rural's step), walkable
+    // grass (surfacemat.2da row 3): below 0, and far above the 19 steps
+    // the game's own areas reach, as well as between.
+    for &(_, h) in &heights {
+        let want = format!("{h}|{:.2}|3", h as f32 * 5.0);
+        assert!(got.contains(&want), "expected {want}; the engine reported:\n{}", got.join("\n"));
+    }
 }
