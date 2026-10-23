@@ -304,3 +304,129 @@ fn tdod_roof_shader_shows_a_roof_by_the_camera_s_height() {
     assert!(l > 1000, "shown below the clip height: {l}");
     assert_eq!((h, o), (0, 0), "hidden above it, and outdoors");
 }
+
+/// The game's assets (its programs) with cut-out textures of the test's
+/// own: each `blending punchthrough`.
+struct WithCutOuts<'a> {
+    rm: &'a ResMan,
+    textures: HashMap<String, mg_image::Texture>,
+}
+
+impl Assets for WithCutOuts<'_> {
+    fn texture(&self, name: &str) -> Option<mg_render::LoadedTexture> {
+        Some(mg_render::LoadedTexture {
+            texture: self.textures.get(name)?.clone(),
+            txi: mg_image::txi::Txi::parse(b"blending punchthrough\n"),
+            mtr: None,
+        })
+    }
+
+    fn txi(&self, name: &str) -> Option<mg_image::txi::Txi> {
+        self.textures
+            .contains_key(name)
+            .then(|| mg_image::txi::Txi::parse(b"blending punchthrough\n"))
+    }
+
+    fn shader(&self, name: &str) -> Option<String> {
+        Assets::shader(self.rm, name)
+    }
+}
+
+/// What is kept of a cut-out below opaque (its edge: The Domains of
+/// Dread's fur cards on `dd_n2e_wolfdire`) is lit through from behind by
+/// the game's stock programs at High Quality, the quality they are made
+/// for: `inc_lighting`'s translucence adds the light behind a surface by
+/// one minus its alpha. The client draws it so: `creatures_look` in
+/// `client_render.rs` with the wolf (`MG_APPEARANCES=31002,31002`) shows a
+/// light line along every backlit cut edge, gone with the translucence
+/// defined away in a copy of `fslit` in its override, and none at the
+/// game's default, Performance, which has no translucence. Moonglow's own
+/// shader draws a cut-out's kept texels solid before it lights them (no
+/// line). A light line there, with the game's shaders on, is the game's.
+#[test]
+fn a_backlit_cut_out_s_edge_is_lit_through_by_the_game_s_programs() {
+    let root = corpus!();
+    let Some(gpu) = gpu() else { return };
+    let rm = ResMan::for_game(&GameInstall::new(&root, None, "en")).unwrap();
+    // A gray card, opaque, and the same at half its alpha (kept: the game
+    // cuts at 0.2).
+    let mut textures = HashMap::new();
+    for (name, alpha) in [("mg_card_solid", 255), ("mg_card_edge", 128)] {
+        let data = [128, 128, 128, alpha].repeat(16);
+        let t = mg_image::Rgba { width: 4, height: 4, data }.into_texture(true);
+        textures.insert(name.to_owned(), t);
+    }
+    let assets = WithCutOuts { rm: &rm, textures };
+    // A quad facing +Z, seen from +Z, lit from behind it.
+    let mesh = mg_mdl::Mesh {
+        diffuse: [1.0; 3],
+        ambient: [1.0; 3],
+        render: true,
+        vertices: vec![[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [1.0, 1.0, 0.0], [-1.0, 1.0, 0.0]],
+        normals: vec![[0.0, 0.0, 1.0]; 4],
+        uvs: [vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]], vec![], vec![], vec![]],
+        faces: vec![
+            mg_mdl::Face { vertices: [0, 1, 2], material: 0 },
+            mg_mdl::Face { vertices: [0, 2, 3], material: 0 },
+        ],
+        source: vec![0, 1, 2, 3],
+        ..Default::default()
+    };
+    let area = mg_render::AreaLight {
+        ambient: Vec3::splat(0.05),
+        diffuse: Vec3::splat(0.8),
+        direction: Vec3::new(0.3, 0.2, -0.9).normalize(),
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.5, 4.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    for game in [true, false] {
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        r.game_shaders = game;
+        let mut shot = |texture: &str| {
+            let mut mesh = mesh.clone();
+            mesh.textures[0] = Some(texture.to_owned());
+            let mut root_node = mg_mdl::Node::new("card", mg_mdl::NodeKind::Dummy);
+            root_node.children = vec![1];
+            let mut node = mg_mdl::Node::new("plane", mg_mdl::NodeKind::Mesh(Box::new(mesh)));
+            node.parent = Some(0);
+            let model = Model {
+                name: "card".into(),
+                animation_scale: 1.0,
+                nodes: vec![root_node, node],
+                ..Default::default()
+            };
+            let model = Arc::new(GpuModel::new(&gpu, Arc::new(model)));
+            let scene = Scene {
+                instances: vec![Instance::new(model, Mat4::IDENTITY)],
+                area,
+                background: BACKGROUND,
+                ..Default::default()
+            };
+            let img = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+            assert_eq!(r.game_shader_failures(), &[]);
+            assert_eq!(r.drawn.game, usize::from(game), "drawn by the game's programs: {game}");
+            let p = img.pixel(32, 32);
+            assert_ne!(&p[..3], &[255, 0, 255], "{texture} drawn (game's programs: {game})");
+            p
+        };
+        let (solid, edge) = (shot("mg_card_solid"), shot("mg_card_edge"));
+        let lightness = |p: [u8; 4]| u32::from(p[0]) + u32::from(p[1]) + u32::from(p[2]);
+        eprintln!("game's programs {game}: solid {solid:?}, edge {edge:?}");
+        if game {
+            assert!(
+                lightness(edge) > lightness(solid) + 60,
+                "the edge lit through from behind: {edge:?} against {solid:?}"
+            );
+        } else {
+            assert!(
+                lightness(edge).abs_diff(lightness(solid)) <= 6,
+                "Moonglow's own shader draws the edge as the rest: {edge:?} against {solid:?}"
+            );
+        }
+    }
+}

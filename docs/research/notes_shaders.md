@@ -3,7 +3,7 @@ type: Research Note
 title: 'NWN:EE rendering and lighting pipeline: research notes (game 89.8193.37-17)'
 description: The NWN:EE rendering and lighting pipeline read from the stock shaders - shader selection, vertex attributes and uniforms, texture slots, lighting equations, light sources, fog, shadows, gamma and tonemapping, keyholing - every claim tagged with its evidence.
 tags: [rendering, shaders, lighting, renderer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T21:04:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T01:42:18Z }
 sources:
   - id: time-uniforms
     resource: crates/mg-corpus-tests/tests/client_render.rs (time_uniforms_in_the_client), run 2026-10-21 on 89.8193.37-17
@@ -399,7 +399,7 @@ for i < numLights:
 
 AddDirectional(C, L, att):
    NdotL = dot(N, L)
-   [quality 2 && alpha<1: translucence  Diffuse += C*att*(-NdotL)*(1-alpha)  when NdotL<0]   ("backlit transparent", CL .35)
+   [quality 2 && alpha<1: translucence  Diffuse += C*att*(-NdotL)*(1-alpha)  when NdotL<0]   ("backlit transparent"; [CLIENT] a punch-through card's kept edge texels, 2026-10-23)
    if light softening (quality 2, no fragment normal):  accept NdotL > -0.25;
         att *= 2*smoothstep(0, 2, NdotL*0.8 + 0.2); NdotL = max(NdotL,0)
    else: require NdotL > 0; att *= NdotL
