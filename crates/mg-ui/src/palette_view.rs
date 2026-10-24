@@ -11,7 +11,7 @@ use mg_core::ResRef;
 use mg_edit::{Command, Edit};
 use mg_gff::{Gff, Value};
 use mg_module::palette::{
-    BlueprintKind, Palette, PaletteBlueprint, PaletteNode, rebuild_custom_palette,
+    BlueprintKind, Palette, PaletteBlueprint, PaletteNode, update_custom_palette,
 };
 use mg_resman::ResKey;
 
@@ -353,8 +353,11 @@ pub(crate) fn view_blueprint(app: &mut Moonglow, key: ResKey) {
     }
 }
 
-/// A palette: the game's standard one, or the module's custom one (built
-/// from its blueprints, again after each change); cached.
+/// A palette: the game's standard one, or the module's custom one (its
+/// `<type>palcus.itp` with the blueprints changed since the module was
+/// saved, again after each change: the entries of hak blueprints, of the
+/// override folder's and of blueprints there are no more too, as Aurora
+/// lists them); cached.
 pub(crate) fn palette(
     app: &mut Moonglow,
     kind: BlueprintKind,
@@ -378,10 +381,17 @@ pub(crate) fn palette(
     let ws = app.ws.as_mut()?;
     let rev = ws.revision();
     if view.custom_cache.get(&kind).is_none_or(|(r, _)| *r != rev) {
+        // The palette as the next save writes it (as Aurora shows it): the
+        // module's, with the blueprints changed since it was saved.
         let built = ws
             .flush()
             .ok()
-            .and_then(|()| rebuild_custom_palette(&ws.module, game, kind).ok())
+            .and_then(|()| {
+                match update_custom_palette(&ws.module, ws.saved(), game, kind).ok()? {
+                    Some(g) => Some(g),
+                    None => ws.module.gff(&kind.custom_key())?.ok(),
+                }
+            })
             .map(|g| Palette::read(&g))
             .unwrap_or_default();
         view.custom_cache.insert(kind, (rev, Arc::new(built)));
@@ -848,10 +858,17 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         .or(entered.then_some(egui::Key::ArrowDown));
     let gallery = app.settings.palette_gallery && pictured(kind);
     let menu_commands = app.plugin_menu_commands();
+    // (The custom palette's blueprints the module has: the others, a
+    // hak's, the override folder's or none, are looked at, not edited.)
+    let own = match (&app.ws, custom) {
+        (Some(ws), true) => ws.module.keys_of(kind.restype()).map(|k| k.resref).collect(),
+        _ => std::collections::HashSet::new(),
+    };
     let mut tree = Tree {
         game,
         kind,
         custom,
+        own,
         fold: view.fold,
         new: (app.ws.is_some() && wizard_for(kind)).then(|| new_label(kind)),
         found: found.as_deref(),
@@ -932,7 +949,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 let (branch, blueprint) = listed.rows[row];
                 match blueprint {
                     Some(k) if tree.cursor.is_some() => {
-                        tree.picks.push(if custom { Pick::Edit(k) } else { Pick::View(k) });
+                        let mine = custom && tree.own.contains(&k.resref);
+                        tree.picks.push(if mine { Pick::Edit(k) } else { Pick::View(k) });
                         Step::Stay
                     }
                     Some(_) => Step::Stay,
@@ -1183,6 +1201,10 @@ struct Tree<'a> {
     game: &'a mg_rules::GameData,
     kind: BlueprintKind,
     custom: bool,
+    /// The custom palette's blueprints the module has (the palette also
+    /// lists its haks', the override folder's and blueprints there are no
+    /// more, as Aurora's does: those are viewed, as the game's are).
+    own: std::collections::HashSet<ResRef>,
     /// Every category opened or closed this frame.
     fold: Option<bool>,
     /// What a right click offers to make a new blueprint of the kind
@@ -1381,6 +1403,9 @@ impl Tree<'_> {
         let (branch, listing, cursor) = within;
         let (kind, custom) = (self.kind, self.custom);
         let key = ResKey::new(b.resref, kind.restype());
+        // (One the module has: a hak's, the override folder's or one there
+        // is no more is in the custom palette too, as in Aurora's.)
+        let mine = custom && self.own.contains(&b.resref);
         if let (Some(at), Some(listed)) = (listing, &mut self.listed) {
             listed.rows.push((at, Some(key)));
         }
@@ -1444,7 +1469,7 @@ impl Tree<'_> {
             // Ctrl+click chooses several: custom blueprints for bulk
             // edits, placeables (custom or the game's) to paint.
             let sel = &mut self.sel;
-            let several = custom || kind == BlueprintKind::Placeable;
+            let several = mine || kind == BlueprintKind::Placeable;
             if several && ui.input(|i| i.modifiers.command) {
                 if let Some(at) = sel.chosen.iter().position(|k| *k == key) {
                     sel.chosen.remove(at);
@@ -1460,7 +1485,7 @@ impl Tree<'_> {
             r.dnd_set_drag_payload(Dragged(key));
         }
         if r.double_clicked() {
-            self.picks.push(if custom { Pick::Edit(key) } else { Pick::View(key) });
+            self.picks.push(if mine { Pick::Edit(key) } else { Pick::View(key) });
         }
         let (sel, picks, new) = (&self.sel, &mut self.picks, self.new);
         let commands = self.commands;
@@ -1472,11 +1497,11 @@ impl Tree<'_> {
                 }
                 ui.separator();
             }
-            if custom && ui.button("Edit").clicked() {
+            if mine && ui.button("Edit").clicked() {
                 picks.push(Pick::Edit(key));
                 ui.close();
             }
-            if !custom
+            if !mine
                 && ui
                     .button("View")
                     .on_hover_text("Its properties, to look at: the game's blueprint isn't changed")
@@ -1486,7 +1511,7 @@ impl Tree<'_> {
                 ui.close();
             }
             let keys = sel.bulk(key);
-            if custom
+            if mine
                 && keys.len() > 1
                 && ui
                     .button(format!("Edit {} Together", keys.len()))
@@ -1496,7 +1521,7 @@ impl Tree<'_> {
                 picks.push(Pick::EditTogether(keys.clone()));
                 ui.close();
             }
-            if custom {
+            if mine {
                 let label = if keys.len() > 1 {
                     format!("Export {}…", keys.len())
                 } else {
@@ -1550,7 +1575,7 @@ impl Tree<'_> {
                 picks.push(Pick::References(key));
                 ui.close();
             }
-            if custom {
+            if mine {
                 let keys = sel.bulk(key);
                 let text = match keys.len() {
                     1 => "Update Instances".to_string(),
@@ -1565,7 +1590,7 @@ impl Tree<'_> {
                     ui.close();
                 }
             }
-            if custom && ui.button("Delete").clicked() {
+            if mine && ui.button("Delete").clicked() {
                 picks.push(Pick::Delete(key));
                 ui.close();
             }

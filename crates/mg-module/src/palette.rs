@@ -1,9 +1,20 @@
 //! Blueprint palettes (ITP): trees of categories with blueprints in them.
 //! The game ships a skeleton (`<type>pal.itp`, the categories) and a
 //! standard palette (`<type>palstd.itp`) per blueprint type; a module keeps a
-//! custom one (`<type>palcus.itp`), which Aurora rebuilds from the module's
-//! blueprints: each in the category its `PaletteID` (stores: `ID`) names,
-//! under its name, creatures with their challenge rating and faction.
+//! custom one (`<type>palcus.itp`): each blueprint in the category its
+//! `PaletteID` (stores: `ID`) names, under its name, creatures with their
+//! challenge rating and faction.
+//!
+//! Aurora's custom palette is that file as the module has it (the Aurora
+//! captures in `captures/palettes/`, `aurora_palettes.rs`): it lists the
+//! entries of the module's blueprints, its haks', the override folder's and
+//! of blueprints there are no more, and a save writes them back. Editing,
+//! copying or deleting a blueprint changes its entry alone; only Build's
+//! Palettes and Refresh Palette make the palette anew, from the module's and
+//! its haks' blueprints. Moonglow does the same: a save brings the palette
+//! up to date with the blueprints changed since the module was opened or
+//! saved ([`update_custom_palette`]), Build makes it anew
+//! ([`rebuild_custom_palette`]).
 
 use mg_core::{Codepage, ResRef, ResType, StrRef};
 use mg_gff::{Gff, Struct, Value};
@@ -421,25 +432,22 @@ fn blueprint_name_bytes(kind: BlueprintKind, s: &Struct, game: &GameData) -> Vec
     s.locstring(kind.name_field()).and_then(|l| game.locstring_bytes(l)).unwrap_or_default()
 }
 
-/// The module's custom palette of `kind`, rebuilt from its blueprints: the
-/// skeleton's categories (as [`custom_palette`]), each blueprint in the
-/// category its palette field names (255 hides it, an unknown id drops it)
-/// under its name, sorted by name; creatures with `CR` and `FACTION` (the
-/// module's faction name).
-pub fn rebuild_custom_palette(
-    module: &Module,
-    game: &GameData,
-    kind: BlueprintKind,
-) -> Result<Gff, String> {
-    // (The module's own categories, if it has a skeleton of its own: in
-    // the order it has them. The game's are by name, as Aurora lists them.)
-    let own = module.contains(&kind.skeleton_key());
-    let skeleton = skeleton(module, game, kind)?;
-    let name = |s: u32| game.string(StrRef(s)).unwrap_or_default();
-    let mut palette = crate::new::custom_palette_in(&skeleton, name, !own);
-    // (Names as the files have them: bytes, not text read and written
-    // again.)
-    let factions: Vec<Vec<u8>> = module
+/// The talk-table string a blueprint's name is, when the name it shows is
+/// one: no text of its own in the game's language, and the talk table has
+/// the string. Aurora's Build (and Refresh Palette) writes such a name as
+/// the entry's `STRREF`.
+fn talk_table_name(kind: BlueprintKind, s: &Struct, game: &GameData) -> Option<u32> {
+    let l = s.locstring(kind.name_field())?;
+    if l.get(game.language, mg_core::Gender::Male).is_some_and(|t| !t.is_empty()) {
+        return None;
+    }
+    game.string(l.strref).filter(|t| !t.is_empty())?;
+    Some(l.strref.0)
+}
+
+/// The module's factions' names, by faction id, as the file has them.
+fn faction_names(module: &Module) -> Vec<Vec<u8>> {
+    module
         .gff(&mg_resman::ResKey::parse("repute", ResType::FAC).expect("valid"))
         .and_then(Result::ok)
         .and_then(|f| {
@@ -447,36 +455,91 @@ pub fn rebuild_custom_palette(
                 l.iter().map(|s| s.string("FactionName").unwrap_or_default().to_vec()).collect()
             })
         })
-        .unwrap_or_default();
-    // (Categories a module named in Moonglow before 1.19.4 are UTF-8 in
-    // its skeleton: in the game's bytes here.)
-    if let Some(Value::List(main)) = palette.root.get_mut("MAIN") {
-        names_in_game_bytes(main, game.codepage());
+        .unwrap_or_default()
+}
+
+/// A blueprint's palette entry, as Aurora's Build writes one: its name
+/// (`STRREF` when the name is a talk-table string, else `NAME`, in the
+/// bytes the name has), `RESREF`, and for creatures `CR` and `FACTION`
+/// (the module's faction name).
+fn entry_for(
+    kind: BlueprintKind,
+    resref: ResRef,
+    s: &Struct,
+    game: &GameData,
+    factions: &[Vec<u8>],
+) -> Struct {
+    let mut leaf = Struct::new(0);
+    match talk_table_name(kind, s, game) {
+        Some(strref) => leaf.set("STRREF", Value::Dword(strref)),
+        None => leaf.set("NAME", Value::String(blueprint_name_bytes(kind, s, game))),
     }
+    leaf.set("RESREF", Value::resref(resref));
+    if kind == BlueprintKind::Creature {
+        leaf.set("CR", Value::Float(s.float("ChallengeRating").unwrap_or(0.0)));
+        let faction = s
+            .integer("FactionID")
+            .and_then(|f| factions.get(usize::try_from(f).ok()?).cloned())
+            .unwrap_or_default();
+        leaf.set("FACTION", Value::String(faction));
+    }
+    leaf
+}
+
+/// The category a blueprint goes in: its palette field (255, none: it is
+/// in no palette).
+fn category_of(kind: BlueprintKind, s: &Struct) -> Option<u8> {
+    s.integer(kind.palette_field()).and_then(|v| u8::try_from(v).ok()).filter(|id| *id != 255)
+}
+
+/// The blueprints of `kind` in the module's haks, as the game reads them
+/// (the highest hak that has one), but those the module has itself.
+fn hak_blueprints(module: &Module, game: &GameData, kind: BlueprintKind) -> Vec<(ResRef, Gff)> {
+    use mg_resman::priority::{HAK, HAK_USER};
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for layer in game.resman.layers().iter().filter(|l| matches!(l.priority, HAK | HAK_USER)) {
+        let mut keys: Vec<_> =
+            layer.container.keys().filter(|k| k.restype == kind.restype()).collect();
+        keys.sort();
+        for key in keys {
+            if module.contains(&key) || !seen.insert(key) {
+                continue;
+            }
+            if let Some(g) = layer.container.read(&key).ok().and_then(|d| Gff::read(&d).ok()) {
+                out.push((key.resref, g));
+            }
+        }
+    }
+    out
+}
+
+/// The module's custom palette of `kind` made anew, as Aurora's Build
+/// (Compile › Palettes) and the palette's Refresh Palette make it: the
+/// skeleton's categories (as [`custom_palette`]), and in them the
+/// blueprints of the module and of its haks (the override folder's are
+/// not listed, as in Aurora), each in the category its palette field
+/// names (255 hides it, an unknown id drops it), by name, then ResRef.
+/// An entry is named as [`entry_for`] names it: a talk-table name as its
+/// `STRREF`. Entries whose blueprint is in neither the module nor its
+/// haks are not kept.
+///
+/// [`custom_palette`]: crate::new::custom_palette
+pub fn rebuild_custom_palette(
+    module: &Module,
+    game: &GameData,
+    kind: BlueprintKind,
+) -> Result<Gff, String> {
+    let mut palette = categories(module, game, kind)?;
+    let factions = faction_names(module);
     // Blueprints by category.
     let mut by_category: std::collections::BTreeMap<u8, Vec<(String, Struct)>> = Default::default();
-    for key in module.keys_of(kind.restype()).copied() {
-        let Some(Ok(g)) = module.gff(&key) else { continue };
-        let Some(id) = g.root.integer(kind.palette_field()).and_then(|v| u8::try_from(v).ok())
-        else {
-            continue;
-        };
-        if id == 255 {
-            continue;
-        }
+    let own = module.keys_of(kind.restype()).filter_map(|k| Some((k.resref, module.gff(k)?.ok()?)));
+    let all: Vec<(ResRef, Gff)> = own.chain(hak_blueprints(module, game, kind)).collect();
+    for (resref, g) in &all {
+        let Some(id) = category_of(kind, &g.root) else { continue };
         let name = blueprint_name(kind, &g.root, game);
-        let mut leaf = Struct::new(0);
-        leaf.set("NAME", Value::String(blueprint_name_bytes(kind, &g.root, game)));
-        leaf.set("RESREF", Value::resref(key.resref));
-        if kind == BlueprintKind::Creature {
-            leaf.set("CR", Value::Float(g.root.float("ChallengeRating").unwrap_or(0.0)));
-            let faction = g
-                .root
-                .integer("FactionID")
-                .and_then(|f| factions.get(usize::try_from(f).ok()?).cloned())
-                .unwrap_or_default();
-            leaf.set("FACTION", Value::String(faction));
-        }
+        let leaf = entry_for(kind, *resref, &g.root, game, &factions);
         by_category.entry(id).or_default().push((name, leaf));
     }
     fn fill(
@@ -513,6 +576,22 @@ pub fn rebuild_custom_palette(
     Ok(palette)
 }
 
+/// A custom palette's categories, without blueprints: the skeleton's (the
+/// module's own, in the order it has them; the game's or a hak's, by
+/// name, as Aurora lists them), named in the game's bytes.
+fn categories(module: &Module, game: &GameData, kind: BlueprintKind) -> Result<Gff, String> {
+    let own = module.contains(&kind.skeleton_key());
+    let skeleton = skeleton(module, game, kind)?;
+    let name = |s: u32| game.string(StrRef(s)).unwrap_or_default();
+    let mut palette = crate::new::custom_palette_in(&skeleton, name, !own);
+    // (Categories a module named in Moonglow before 1.19.4 are UTF-8 in
+    // its skeleton: in the game's bytes here.)
+    if let Some(Value::List(main)) = palette.root.get_mut("MAIN") {
+        names_in_game_bytes(main, game.codepage());
+    }
+    Ok(palette)
+}
+
 /// Puts the names of a palette's nodes that were left in UTF-8 (by
 /// Moonglow before 1.19.4) in the game's bytes ([`game_bytes`]); whether
 /// any changed.
@@ -534,8 +613,8 @@ fn names_in_game_bytes(list: &mut [Struct], codepage: Codepage) -> bool {
     changed
 }
 
-/// Rebuilds every custom palette of the module from its blueprints
-/// ([`rebuild_custom_palette`]); how many changed. The module's own
+/// Makes every custom palette of the module anew ([`rebuild_custom_palette`]:
+/// Build › Compile › Palettes); how many changed. The module's own
 /// categories (its skeletons) named in UTF-8 before 1.19.4 are put in
 /// the game's bytes too, for Aurora and the game to read.
 pub fn rebuild_custom_palettes(module: &mut Module, game: &GameData) -> Result<usize, String> {
@@ -559,6 +638,330 @@ pub fn rebuild_custom_palettes(module: &mut Module, game: &GameData) -> Result<u
     }
     Ok(changed)
 }
+
+/// Whether the game has a blueprint other than in the module: in a hak,
+/// the override folder or the game's own files.
+fn elsewhere(game: &GameData, key: &mg_resman::ResKey) -> bool {
+    use mg_resman::priority::MODULE;
+    game.resman.layers().iter().any(|l| l.priority != MODULE && l.container.contains(key))
+}
+
+/// Where the palette entries of `resref` are: each one's path from `MAIN`
+/// through the `LIST`s.
+fn entries_of(list: &[Struct], resref: ResRef, path: &mut Vec<usize>, out: &mut Vec<NodePath>) {
+    for (i, node) in list.iter().enumerate() {
+        path.push(i);
+        if node.resref("RESREF") == Some(resref) {
+            out.push(path.clone());
+        } else if let Some(children) = node.list("LIST") {
+            entries_of(children, resref, path, out);
+        }
+        path.pop();
+    }
+}
+
+/// The path of the category with id `id` (the first, if a palette has it
+/// twice).
+fn category_path(list: &[Struct], id: u8, path: &mut Vec<usize>) -> Option<NodePath> {
+    for (i, node) in list.iter().enumerate() {
+        if node.resref("RESREF").is_some() {
+            continue;
+        }
+        path.push(i);
+        if node.integer("ID") == Some(i64::from(id)) {
+            return Some(path.clone());
+        }
+        if let Some(children) = node.list("LIST")
+            && let Some(found) = category_path(children, id, path)
+        {
+            return Some(found);
+        }
+        path.pop();
+    }
+    None
+}
+
+fn node_mut<'a>(main: &'a mut [Struct], path: &[usize]) -> Option<&'a mut Struct> {
+    let (first, rest) = path.split_first()?;
+    let mut node = main.get_mut(*first)?;
+    for i in rest {
+        node = node.list_mut("LIST")?.get_mut(*i)?;
+    }
+    Some(node)
+}
+
+fn node_at<'a>(main: &'a [Struct], path: &[usize]) -> Option<&'a Struct> {
+    let (first, rest) = path.split_first()?;
+    let mut node = main.get(*first)?;
+    for i in rest {
+        node = node.list("LIST")?.get(*i)?;
+    }
+    Some(node)
+}
+
+/// Takes the node at `path` out of the palette.
+fn take_node(main: &mut Vec<Struct>, path: &[usize]) -> Option<Struct> {
+    let (last, parent) = path.split_last()?;
+    let list =
+        if parent.is_empty() { Some(main) } else { node_mut(main, parent)?.list_mut("LIST") };
+    let list = list.filter(|l| *last < l.len())?;
+    Some(list.remove(*last))
+}
+
+/// Puts `entry` into the category at `category` at its place by name, as
+/// Aurora puts a new one: after the last entry whose name does not come
+/// after its name (so after those of the same name), else before the
+/// first entry. (In a category in order, as Aurora and Moonglow write
+/// them, that is its place; one a builder put out of order stays so.)
+fn insert_sorted(main: &mut [Struct], category: &[usize], entry: Struct, game: &GameData) {
+    let key = word_sort_key(&name_of(&entry).text(game));
+    let Some(node) = node_mut(main, category) else { return };
+    if node.list("LIST").is_none() {
+        node.set("LIST", Value::List(Vec::new()));
+    }
+    let list = node.list_mut("LIST").expect("just made");
+    let entries = || list.iter().enumerate().filter(|(_, s)| s.resref("RESREF").is_some());
+    let at = entries()
+        .filter(|(_, s)| word_sort_key(&name_of(s).text(game)) <= key)
+        .last()
+        .map(|(i, _)| i + 1)
+        .or_else(|| entries().next().map(|(i, _)| i))
+        .unwrap_or(list.len());
+    list.insert(at, entry);
+}
+
+/// Whether a palette entry says what `wanted` (as [`entry_for`] makes
+/// it) says: the same name shown (a talk-table string and the same text
+/// written out are the same, as in Aurora), and for creatures the same
+/// challenge rating and faction.
+fn same_entry(kind: BlueprintKind, entry: &Struct, wanted: &Struct, game: &GameData) -> bool {
+    name_of(entry).text(game) == name_of(wanted).text(game)
+        && (kind != BlueprintKind::Creature
+            || (entry.float("CR") == wanted.float("CR")
+                && entry.string("FACTION") == wanted.string("FACTION")))
+}
+
+/// `entry` saying what `wanted` says: `wanted`'s fields, then those of
+/// `entry` it doesn't have (a builder's or another tool's own) as they
+/// were.
+fn rewritten(entry: Struct, wanted: Struct) -> Struct {
+    let mut out = wanted;
+    out.id = entry.id;
+    for f in entry.fields {
+        let label = f.label.as_bytes();
+        if !matches!(label, b"NAME" | b"STRREF" | b"DELETE_ME" | b"RESREF" | b"CR" | b"FACTION") {
+            out.fields.push(f);
+        }
+    }
+    out
+}
+
+/// The palette's categories made again from a skeleton that changed (the
+/// module's categories edited, or the game's taken back): its entries go
+/// into the categories of the same id, in the order they had, as they
+/// are; those of a category the skeleton no longer has go with it.
+fn restructured(
+    palette: &Gff,
+    module: &Module,
+    game: &GameData,
+    kind: BlueprintKind,
+) -> Result<Gff, String> {
+    fn entries(list: &[Struct], out: &mut std::collections::HashMap<u8, Vec<Struct>>) {
+        for node in list {
+            if node.resref("RESREF").is_some() {
+                continue;
+            }
+            let children = node.list("LIST").unwrap_or(&[]);
+            if let Some(id) = node.integer("ID").and_then(|v| u8::try_from(v).ok()) {
+                let here = children.iter().filter(|c| c.resref("RESREF").is_some()).cloned();
+                out.entry(id).or_default().extend(here);
+            }
+            entries(children, out);
+        }
+    }
+    fn fill(list: &mut [Struct], by_id: &mut std::collections::HashMap<u8, Vec<Struct>>) {
+        for node in list {
+            if let Some(id) = node.integer("ID").and_then(|v| u8::try_from(v).ok())
+                && let Some(leaves) = by_id.remove(&id)
+                && !leaves.is_empty()
+            {
+                if node.list("LIST").is_none() {
+                    node.set("LIST", Value::List(Vec::new()));
+                }
+                node.list_mut("LIST").expect("just made").extend(leaves);
+            }
+            if let Some(children) = node.list_mut("LIST") {
+                fill(children, by_id);
+            }
+        }
+    }
+    let mut by_id = Default::default();
+    entries(palette.root.list("MAIN").unwrap_or(&[]), &mut by_id);
+    let mut fresh = categories(module, game, kind)?;
+    if let Some(main) = fresh.root.list_mut("MAIN") {
+        fill(main, &mut by_id);
+    }
+    Ok(fresh)
+}
+
+/// The module's custom palette of `kind` brought up to date with what
+/// changed since `before` (the module as it was opened or last saved), as
+/// Aurora keeps it: only the entries of the module's blueprints that were
+/// added, changed or deleted since are touched; every other entry stays
+/// as it is, with its fields, its place and its name (a `STRREF` stays
+/// one), whether its blueprint is the module's, a hak's, the override
+/// folder's or nowhere. `None`: the palette is as it was (and not written
+/// again).
+///
+/// - A blueprint added, or one whose name, category (or, for a creature,
+///   challenge rating or faction) no longer matches its entry: the entry
+///   (a new one, as [`entry_for`] makes it, or the old one with what it
+///   says made right, its other fields kept) goes into its category at
+///   its place by name. A blueprint whose entry still matches keeps it
+///   untouched. One hidden (category 255, or one the palette lacks) has
+///   its entry taken out.
+/// - A blueprint deleted from the module: its entry goes, unless a hak,
+///   the override folder or the game still has the blueprint (the entry
+///   is then that one's). A blueprint renamed (deleted and added in one
+///   category under the same name) takes its old entry, in its place.
+/// - The module's categories changed (its skeleton): the categories are
+///   made again, each with the entries it had.
+///
+/// A module without the palette gets it made ([`rebuild_custom_palette`]).
+pub fn update_custom_palette(
+    module: &Module,
+    before: &Module,
+    game: &GameData,
+    kind: BlueprintKind,
+) -> Result<Option<Gff>, String> {
+    let key = kind.custom_key();
+    let Some(data) = module.get(&key) else {
+        return rebuild_custom_palette(module, game, kind).map(Some);
+    };
+    let restype = kind.restype();
+    let skeleton_key = kind.skeleton_key();
+    let skeleton_changed = module.get(&skeleton_key) != before.get(&skeleton_key);
+    let mut changed: Vec<mg_resman::ResKey> = (module.keys_of(restype))
+        .chain(before.keys_of(restype))
+        .filter(|k| module.get(k) != before.get(k))
+        .copied()
+        .collect();
+    changed.sort();
+    changed.dedup();
+    if changed.is_empty() && !skeleton_changed {
+        return Ok(None);
+    }
+    let mut palette = Gff::read(data).map_err(|e| format!("{key}: {e}"))?;
+    if skeleton_changed {
+        palette = restructured(&palette, module, game, kind)?;
+    }
+    if palette.root.list("MAIN").is_none() {
+        palette.root.set("MAIN", Value::List(Vec::new()));
+    }
+    let main = palette.root.list_mut("MAIN").expect("just made");
+    let factions = faction_names(module);
+    let find = |main: &[Struct], resref: ResRef| {
+        let mut out = Vec::new();
+        entries_of(main, resref, &mut Vec::new(), &mut out);
+        out
+    };
+    // Blueprints deleted, that the game no longer has anywhere: their
+    // entries, for a renamed one to take, else to go.
+    let mut gone: Vec<ResRef> = (changed.iter())
+        .filter(|k| !module.contains(k) && !elsewhere(game, k))
+        .map(|k| k.resref)
+        .collect();
+    for key in changed.iter().filter(|k| module.contains(k)) {
+        let Some(Ok(g)) = module.gff(key) else { continue };
+        let at = find(main, key.resref);
+        let category = category_of(kind, &g.root)
+            .and_then(|id| category_path(main, id, &mut Vec::new()).map(|p| (id, p)));
+        let Some((id, category)) = category else {
+            // Hidden, or in a category the palette lacks: in no palette.
+            for path in at.iter().rev() {
+                take_node(main, path);
+            }
+            continue;
+        };
+        let wanted = entry_for(kind, key.resref, &g.root, game, &factions);
+        let Some(first) = at.first() else {
+            // New here. Renamed: the old entry in its place, if it is in
+            // this category under this name.
+            let shown = name_of(&wanted).text(game);
+            let renamed = gone.iter().enumerate().find_map(|(i, r)| {
+                let path = find(main, *r).into_iter().find(|p| p.starts_with(&category))?;
+                let entry = node_at(main, &path)?;
+                (path.len() == category.len() + 1 && name_of(entry).text(game) == shown)
+                    .then_some((i, path))
+            });
+            match renamed {
+                Some((i, path)) => {
+                    gone.remove(i);
+                    let entry = node_mut(main, &path).expect("found");
+                    *entry = rewritten(std::mem::replace(entry, Struct::new(0)), wanted);
+                }
+                None => insert_sorted(main, &category, wanted, game),
+            }
+            continue;
+        };
+        let entry = node_at(main, first).expect("found");
+        let in_place = first.len() == category.len() + 1 && first.starts_with(&category);
+        if in_place && same_entry(kind, entry, &wanted, game) {
+            continue;
+        }
+        let old = take_node(main, first).expect("found");
+        // (Taken out, the category's path may have moved up by one.)
+        let category = category_path(main, id, &mut Vec::new()).expect("still there");
+        insert_sorted(main, &category, rewritten(old, wanted), game);
+    }
+    for resref in gone {
+        for path in find(main, resref).iter().rev() {
+            take_node(main, path);
+        }
+    }
+    let bytes = palette.to_bytes().map_err(|e| format!("{key}: {e}"))?;
+    Ok((bytes[..] != *data).then_some(palette))
+}
+
+/// Brings every custom palette of the module up to date with what changed
+/// since `before` ([`update_custom_palette`]): what a save does. How many
+/// changed; a palette with nothing to change is not written again.
+pub fn update_custom_palettes(
+    module: &mut Module,
+    before: &Module,
+    game: &GameData,
+) -> Result<usize, String> {
+    let mut changed = 0;
+    for kind in BlueprintKind::ALL {
+        if let Some(g) = update_custom_palette(module, before, game, kind)? {
+            let bytes = g.to_bytes().map_err(|e| e.to_string())?;
+            module.set(kind.custom_key(), bytes);
+            changed += 1;
+        }
+    }
+    Ok(changed)
+}
+
+/// Renames a blueprint's palette entries (a blueprint renamed everywhere):
+/// each keeps its place and every other field. Whether any was.
+pub fn rename_entries(palette: &mut Gff, from: ResRef, to: ResRef) -> bool {
+    fn walk(list: &mut [Struct], from: ResRef, to: ResRef) -> bool {
+        let mut any = false;
+        for node in list {
+            if node.resref("RESREF") == Some(from) {
+                node.set("RESREF", Value::resref(to));
+                any = true;
+            } else if let Some(children) = node.list_mut("LIST") {
+                any |= walk(children, from, to);
+            }
+        }
+        any
+    }
+    palette.root.list_mut("MAIN").is_some_and(|main| walk(main, from, to))
+}
+
+#[cfg(test)]
+mod kept_tests;
 
 #[cfg(test)]
 mod tests {

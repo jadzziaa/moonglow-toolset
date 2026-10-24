@@ -186,6 +186,19 @@ pub struct Workspace {
     changes_since_save: isize,
     /// Moves on every change (apply, undo, redo), for views that cache.
     revision: u64,
+    /// The resources as opened or last saved ([`Workspace::saved`]).
+    saved: Module,
+}
+
+/// A module's resources alone, sharing their data.
+fn resources_of(module: &Module) -> Module {
+    let mut out = Module::new();
+    for key in module.keys() {
+        if let Some(data) = module.shared(key) {
+            out.set(*key, data.clone());
+        }
+    }
+    out
 }
 
 /// Where a new workspace's revisions start: each its own range (a change
@@ -199,6 +212,7 @@ fn first_revision() -> u64 {
 impl Workspace {
     pub fn new(module: Module) -> Workspace {
         Workspace {
+            saved: resources_of(&module),
             module,
             docs: HashMap::new(),
             viewed: HashMap::new(),
@@ -213,6 +227,15 @@ impl Workspace {
     /// and that no other workspace has had.
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// The module's resources as it was opened or last saved (with the
+    /// files changed outside that were taken in since, [`Workspace::adopt`]):
+    /// what a save compares the module with, to change what is made from
+    /// it only where the builder changed something (the custom palettes,
+    /// `mg_module::palette::update_custom_palettes`).
+    pub fn saved(&self) -> &Module {
+        &self.saved
     }
 
     /// A GFF document, parsed on first use and cached: the module's, else
@@ -460,6 +483,7 @@ impl Workspace {
         self.flush()?;
         self.module.save()?;
         self.changes_since_save = 0;
+        self.saved = resources_of(&self.module);
         Ok(())
     }
 
@@ -469,6 +493,7 @@ impl Workspace {
         self.flush()?;
         self.module.save_as(location)?;
         self.changes_since_save = 0;
+        self.saved = resources_of(&self.module);
         Ok(())
     }
 
@@ -512,10 +537,14 @@ impl Workspace {
         self.flush()?;
         for (key, data) in changes {
             self.docs.remove(key);
-            match data {
-                Some(d) => self.module.set(*key, d.clone()),
-                None => {
-                    self.module.remove(key);
+            // (Not the builder's change here: what a save compares with
+            // takes it too.)
+            for m in [&mut self.module, &mut self.saved] {
+                match data {
+                    Some(d) => m.set(*key, d.clone()),
+                    None => {
+                        m.remove(key);
+                    }
                 }
             }
         }
@@ -583,6 +612,38 @@ mod tests {
         let own = Edit::SetResource { key, data: Some(gff.to_bytes().unwrap()) };
         ws.apply(Command::new("copy", vec![own])).unwrap();
         assert!(!ws.is_viewed(&key), "the module's own is the one edited");
+    }
+
+    /// What a save compares with (the custom palettes': only what the
+    /// builder changed is made again): the resources as opened, then as
+    /// saved, with the files changed outside taken in, not the edits.
+    #[test]
+    fn the_saved_resources_are_those_opened_saved_or_taken_in() {
+        let mut ws = workspace();
+        let ifo_key = key("module", ResType::IFO);
+        let opened = ws.module.get(&ifo_key).unwrap().to_vec();
+        let edit = Edit::SetField {
+            key: ifo_key,
+            path: GffPath::root(),
+            label: "Mod_XPScale".into(),
+            value: Some(Value::Byte(50)),
+        };
+        ws.apply(Command::new("XP scale", vec![edit])).unwrap();
+        ws.flush().unwrap();
+        assert_ne!(ws.module.get(&ifo_key).unwrap(), &opened[..]);
+        assert_eq!(ws.saved().get(&ifo_key).unwrap(), &opened[..], "an edit is not saved");
+        // A file changed outside: taken in as saved.
+        let outside = key("outside", ResType::UTI);
+        let data: std::sync::Arc<[u8]> = Gff::new(*b"UTI ").to_bytes().unwrap().into();
+        ws.adopt(&[(outside, Some(data.clone()))]).unwrap();
+        assert_eq!(ws.saved().get(&outside), Some(&data[..]));
+        ws.adopt(&[(outside, None)]).unwrap();
+        assert!(!ws.saved().contains(&outside));
+        // Saved: what was saved.
+        let dir = std::env::temp_dir().join(format!("mg-edit-saved-{}", std::process::id()));
+        ws.save_as(&mg_module::ModuleLocation::Archive(dir.join("m.mod"))).unwrap();
+        assert_eq!(ws.saved().get(&ifo_key), ws.module.get(&ifo_key));
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

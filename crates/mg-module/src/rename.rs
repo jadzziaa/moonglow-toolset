@@ -629,6 +629,17 @@ pub fn rename(
         }
     }
 
+    // A blueprint's entry in the custom palette: its ResRef, in its place.
+    if let Some(kind) = ObjectKind::from_restype(from.restype) {
+        let key = kind.custom_key();
+        if let Some(Ok(mut g)) = module.gff(&key)
+            && crate::palette::rename_entries(&mut g, from.resref, to)
+        {
+            module.set_gff(key, &g).map_err(|e| bad(key)(e.to_string()))?;
+            report.changed.push(key);
+        }
+    }
+
     // Script sources: #include lines, and strings if asked.
     let scripts: Vec<ResKey> = module.keys_of(ResType::NSS).copied().collect();
     for key in scripts {

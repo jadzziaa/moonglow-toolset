@@ -1057,7 +1057,9 @@ fn a_saved_module_s_custom_palette_has_names_in_the_game_s_bytes() {
     assert_eq!(book.1, name, "{:?}", String::from_utf8_lossy(&book.1));
 
     // A module saved by 1.19.3 has the names as UTF-8 in its palette:
-    // opened and saved, with nothing changed, it has them right.
+    // opened and saved, with nothing changed, it keeps its palette as it
+    // is (a save changes the entries of the blueprints changed alone, as
+    // Aurora's does); Build's Palettes makes them right.
     let mut broken = Module::open(&path).unwrap();
     let palcus = ResKey::parse("itempalcus", ResType::ITP).unwrap();
     let mut palette = broken.gff(&palcus).unwrap().unwrap();
@@ -1087,13 +1089,100 @@ fn a_saved_module_s_custom_palette_has_names_in_the_game_s_bytes() {
     h.state_mut().open_module(&path);
     h.run();
     assert!(!h.state().ws.as_ref().unwrap().is_modified());
+    let spoiled_bytes = Module::open(&path).unwrap().get(&palcus).unwrap().to_vec();
     h.state_mut().actions.push(mg_ui::Action::Save);
     h.run();
+    let mut saved = Module::open(&path).unwrap();
+    assert_eq!(saved.get(&palcus).unwrap(), &spoiled_bytes[..], "a plain save leaves it");
+    let game = h.state().game.clone().unwrap();
+    mg_module::palette::rebuild_custom_palettes(&mut saved, &game).unwrap();
     let mut found = Vec::new();
-    let repaired = Module::open(&path).unwrap().gff(&palcus).unwrap().unwrap();
+    let repaired = saved.gff(&palcus).unwrap().unwrap();
     leaves(repaired.root.list("MAIN").unwrap(), &mut found);
     let book = found.iter().find(|(r, _)| r == "mg_book").expect("the book in the palette");
-    assert_eq!(book.1, name, "opened and saved: {:?}", String::from_utf8_lossy(&book.1));
+    assert_eq!(book.1, name, "built: {:?}", String::from_utf8_lossy(&book.1));
+}
+
+/// The custom palette shows what the module's palette lists, as Aurora's
+/// does: the entries of the hak's blueprints (a talk-table name read from
+/// the talk table), of the override folder's and of one there is no more;
+/// such an entry is viewed, not edited. A save after a new blueprint adds
+/// its entry and leaves every other as it was (El Grillo's and Jasperre's
+/// report: entries of their haks' blueprints deleted, STRREFs turned into
+/// names). The module is the Aurora palette probe's
+/// (`crates/mg-corpus-tests/tests/aurora_palettes.rs`).
+#[test]
+fn the_custom_palette_keeps_the_entries_of_hak_blueprints() {
+    let root = mg_testkit::corpus!();
+    let probe = mg_testkit::aurora_capture!("palettes/before.mod");
+    let hak = mg_testkit::aurora_capture!("palettes/mgpal.hak");
+    let dir = mg_testkit::scratch_dir("ui-palette-haks");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    std::fs::copy(&hak, user.join("hak/mgpal.hak")).unwrap();
+    let path = dir.join("palette_probe.mod");
+    std::fs::copy(&probe, &path).unwrap();
+    let palcus = ResKey::parse("itempalcus", ResType::ITP).unwrap();
+    let before = Module::open(&path).unwrap().gff(&palcus).unwrap().unwrap();
+    let install = mg_resman::GameInstall::new(&root, Some(user), "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    app.palette.kind = mg_module::palette::BlueprintKind::Item;
+    app.palette.tiles = false;
+    app.palette.custom = true;
+    app.palette.filter = "Drow".into();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 700.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(4);
+    // The hak's blueprint, named from the talk table (its entry's STRREF).
+    // (The menu bar has a View and an Edit of its own.)
+    let count = |h: &Harness<'_, Moonglow>, label: &str| h.query_all_by_label(label).count();
+    let menus = ["View", "Edit", "Delete", "Edit Copy…"].map(|l| count(&h, l));
+    h.get_by_label("Drow Full Plate +1").click_secondary();
+    h.run_steps(4);
+    let now = ["View", "Edit", "Delete", "Edit Copy…"].map(|l| count(&h, l));
+    assert_eq!(now, [menus[0] + 1, menus[1], menus[2], menus[3] + 1], "viewed, not edited");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(4);
+    for (filter, shown) in [("Ghost", "Ghost Sword"), ("Override", "Override Sword")] {
+        h.state_mut().palette.filter = filter.into();
+        h.run_steps(4);
+        assert!(h.query_by_label(shown).is_some(), "{shown} listed");
+    }
+
+    // A new blueprint, then Save: its entry added, every other as it was.
+    {
+        let game = h.state().game.clone().unwrap();
+        let torch = game.resman.get_named("nw_it_torch001", ResType::UTI).unwrap();
+        let mut g = Gff::read(&torch).unwrap();
+        let named = mg_core::LocString::from_text(Language::ENGLISH, mg_core::Gender::Male, "Axe");
+        g.root.set("LocalizedName", mg_gff::Value::LocString(named));
+        g.root.set("PaletteID", mg_gff::Value::Byte(36));
+        let key = ResKey::parse("mg_axe", ResType::UTI).unwrap();
+        g.root.set("TemplateResRef", mg_gff::Value::resref(key.resref));
+        let data = g.to_bytes().unwrap();
+        h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+            "axe",
+            vec![mg_edit::Edit::SetResource { key, data: Some(data) }],
+        )));
+    }
+    h.run_steps(4);
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run_steps(4);
+    let mut saved = Module::open(&path).unwrap().gff(&palcus).unwrap().unwrap();
+    fn take(list: &mut Vec<mg_gff::Struct>, resref: &str) -> Option<mg_gff::Struct> {
+        let at =
+            list.iter().position(|n| n.resref("RESREF").is_some_and(|r| r.to_string() == resref));
+        match at {
+            Some(i) => Some(list.remove(i)),
+            None => list.iter_mut().find_map(|n| take(n.list_mut("LIST")?, resref)),
+        }
+    }
+    let axe = take(saved.root.list_mut("MAIN").unwrap(), "mg_axe").expect("the axe's entry");
+    assert_eq!(axe.string("NAME"), Some(&b"Axe"[..]));
+    assert_eq!(saved, before, "every other entry as it was");
 }
 
 /// A module that is a folder is written as a `.mod` beside the folder too
