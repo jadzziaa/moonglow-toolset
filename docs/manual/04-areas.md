@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T13:46:03Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-24T23:51:31Z }
 ---
 
 # Areas
@@ -89,9 +89,20 @@ looking straight down at their middle, north up, as in Aurora.
   shader, so an area may change its look a moment after it opens. It is
   one switch for every 3D view (the model viewer has it too) and it stays
   as you leave it: switched off, it stays off.
-- **💡 Lighting**: the area's lighting. Switched off, everything is evenly
-  lit, whatever the area's colors and lights: for working in a dark area.
-  Areas opened later open as you left it.
+- **💡 Lighting**: the area's lighting: the sun or moon colors of Area
+  Properties, the tiles' main and source lights (Tile Properties), the
+  light of each placeable whose appearance has one (placeables.2da's
+  `LightColor`, unless its **Illuminated** is off) and the light nodes of
+  every object's models (a builder's lamps and braziers, a held torch),
+  as the game lights them: each with its color and reach, a light node's
+  `multiplier` lengthening its reach, and each surface lit by the 32
+  most important lights that reach it (by their priority, then their
+  nearness), as the game's client is by default. Compared with Aurora an
+  interior looks darker and its colors deeper: Aurora's lighting isn't
+  the game's, Moonglow's is checked against the game's own pictures.
+  Switched off, everything is evenly lit, whatever the area's colors and
+  lights: for working in a dark area. Areas opened later open as you left
+  it.
 - **🔊 Sounds**, **Ambient**, **Music**: play the placed sound objects, the
   area's ambient sound and its music, heard from where the camera looks.
 - **◎ Sound Ranges**: two circles around each placed sound that is heard

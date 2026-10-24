@@ -3,7 +3,7 @@ type: Research Note
 title: 'NWN:EE rendering and lighting pipeline: research notes (game 89.8193.37-17)'
 description: The NWN:EE rendering and lighting pipeline read from the stock shaders - shader selection, vertex attributes and uniforms, texture slots, lighting equations, light sources, fog, shadows, gamma and tonemapping, keyholing - every claim tagged with its evidence.
 tags: [rendering, shaders, lighting, renderer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T01:42:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-24T23:51:31Z }
 sources:
   - id: time-uniforms
     resource: crates/mg-corpus-tests/tests/client_render.rs (time_uniforms_in_the_client), run 2026-10-21 on 89.8193.37-17
@@ -150,6 +150,7 @@ Naming key ([WIKI] + [SRC]):
    - **A tileset's `EnvMap` doesn't choose `_sm`** (§M.12): it is the map bound to `texUnitEnv` for every lit mesh without one of its own (read as its mean colour through the band: the floor's and a placeable's `texUnitEnv` were `tcn01__ref01`'s, not `chrome1`'s), and `default` (2DA `Reflection`/`ENVMAP`, TXI `envmaptexture default`) means it too. `bumpyshinytexture` changes nothing (not the program, not the map bound).
    - **`NO_DISCARD`** (§M.10): 0 where the mesh may be cut or blended by its alpha: no texture, a texture with alpha (in its texels for TGA, by format for DDS: DXT5 yes, DXT1 never; a TXI `alphamean` below 1), a mesh alpha below 1, an MTR's `transparency`. An environment-mapped texture's alpha is not opacity: 1.
    - **Static placeables** (`Static 1`): the plain and `transparencyhint` cards of a static copy came out `NO_DISCARD` 0, next to the `alpha 0.5` card of the same texture: since .37 static geometry is baked into buckets, and a see-through mesh among them seems to make the bucket alpha-tested [INF]. Moonglow draws per mesh and doesn't follow this (open, §M).
+   - **A static placeable doesn't reflect its appearance's `Reflection`** [CLIENT] (`area_env_map_look`, 2026-10-24: authored cards of a gray texture whose alpha is 0, 128 and 255, as the models of appearances whose `Reflection` is `default` or `PLC_G_ENV`, static and not, in `tin01` and `tic01` interiors): static, the alpha-0 cards weren't drawn and the alpha-128 one was half see-through (the alpha is opacity, as without a map); not static, they were drawn solid, reflecting. A texture's TXI `envmaptexture default` on a static placeable reflects the tileset's map (warm in `tin01`). Moonglow leaves the appearance's map out for a static placeable (`mg_preview::placeable`).
    - The stock DDS reader reads past a single-level standard DDS (a 64² DXT1 with `mipMapCount` 0 drew noise at a distance); with all its levels it drew right.
    - Moonglow implements this (`mg-render` `game::stock_pair`, `game::no_discard`, `Renderer::slots`/`surface`; the test asserts Moonglow's choice for each card read).
    - water TXI → `vswater`/`fswater`, read in M5 (`surfaces_in_the_client`). Moonglow knows the choice (`game::stock_pair`) but draws water its own way (`GAME_WATER`, §J).
@@ -556,20 +557,21 @@ Mapping to shaders:
 
 ### E.4 Placeable lights
 - placeables.2da `LightColor` (index into lightcolor.2da) + `LightOffsetX/Y/Z` ([ENG] `AddPlaceableObjectLight`) → spawns `fx_placeable01.mdl`: radius 10, shadowradius 15, verticaldisplacement 3, priority 4, shadow 1, flare.
-- `SetPlaceableIllumination` toggles it.
+- `SetPlaceableIllumination` toggles it. [CLIENT] (`model_light_uniforms`, 2026-10-24) A placed placeable with `LightState` 0 has no such light, static or not; absent or 1, it has it. `LightState` 0 leaves the light nodes of the placeable's own model on.
+- **The light nodes of a placeable's own model are lights** [CLIENT] (`model_light_uniforms`: an authored placeable model with one light node, static and not; the Txpple pack's light-node placeables are such): one light each in the draw's array, converted as E.6 has it.
 
 ### E.5 MDL light-node fields ([WIKI] MDL ASCII)
 | Field | Meaning |
 |---|---|
 | `radius` | range in metres; the cutoff is range × `graphics.lighting.cutoff-range-multiplier` (2.0) × the colour's intensity (E.6) |
-| `multiplier` | intensity. Not verified in EE (Moonglow multiplies the colour, so it lengthens the range above 1) |
+| `multiplier` | **lengthens the light's reach, not its colour** [CLIENT] (`model_light_uniforms`): cutoff = radius × 2 × max(1, brightest channel) × multiplier, colour = lin(colour / max(1, brightest channel)). White radius 5: 10 m; with multiplier 2, 20 m; 0.5, 5 m; gray 0.3 with 2 stays lin(0.3), 20 m; (2, 1, 1) with 2: (1, lin 0.5, lin 0.5), 40 m |
 | `color` | light colour |
 | `ambientonly` | → negative `lightColor.a`, no N·L |
 | `nDynamicType` / `isdynamic` | 0 = static (bakeable), 1 = dynamic |
 | `affectdynamic` | affects dynamic objects (creatures) |
 | `shadow` | can cast shadows |
 | `shadowradius` | default = radius; shadow fades to transparent at 50% |
-| `lightpriority` | 1–5 (1 sun/moon, 2 torches/light spells, 3 spells, 4 tile lights, 5 others); used when trimming to MAX_NUM_LIGHTS |
+| `lightpriority` | 1–5 (1 sun/moon, 2 torches/light spells, 3 spells, 4 tile lights, 5 others); used when trimming to MAX_NUM_LIGHTS: [CLIENT] (`model_light_uniforms`, "crowd") of 36 lights reaching a draw, 34 of priority 5 within 1.7 m and 2 of priority 1 at 3 m, the draw kept 32 with both priority-1 lights (Moonglow: by priority, then nearness) |
 | `fadinglight` | 1.5 s fade in/out |
 | `verticaldisplacement` | moves the shadow-projection origin |
 | `generateflare`, `flare*` | lens flares |
@@ -914,7 +916,7 @@ Sources: CHANGELOG.md / patchnotes (85.32 → 37-17), `Neverwinter Nights Enhanc
    - Is fogEnd exactly FogClipDist, and does a skybox add +90 to fogEnd or only to the far clip?
    - The wiki's "0–200" range conflicts with the 0–15 values seen in AREs and environment.2da.
    - Needs an in-game measurement, or reading the toolset DFM trackbar max.
-2. ~~Uniform values from settings~~: answered in E.6. Still open: the role of the MDL `multiplier` (Moonglow multiplies the colour; every light tested had 1).
+2. ~~Uniform values from settings~~: answered in E.6. ~~The role of the MDL `multiplier`~~: it multiplies the reach, not the colour (E.5, `model_light_uniforms`).
 3. ~~Colour space of uploaded colours~~: lights, ARE colours and MDL material ambient, diffuse and self-illumination (`selfillumcolor`, also animated) are all linearised with pow 2.2 (read back: tic01 floor diffuse 0.659 → 0.400; plc_c01 0.557 → 0.276; a lamp's "on" self-illumination 0.769 → 0.561). Tiles and placeables alike, static or not.
 4. ~~Default `lightAreaDiffuseDirection`~~: (4000, 4500, 7000) normalised, sun and moon (E.1). Still open: how dawn/dusk colours are interpolated (1 h?).
 5. **Toolset rendering mode**: does nwtoolset run with GAMMA_CORRECTION/FRAGMENT_LIGHTING on, or vertex static lighting (it has "Compute Static Lighting" and `controlpart gidy_sun`)? What MAX_NUM_LIGHTS and shader quality does it use? Which set (day/night) does its area view show?

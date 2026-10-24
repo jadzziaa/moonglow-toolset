@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T12:04:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-24T23:51:31Z }
 ---
 
 # Blueprints
@@ -459,9 +459,24 @@ when the game loads it, the state scripts read and change with
 `GetPlaceableIllumination` and `SetPlaceableIllumination`. Aurora doesn't
 show it; the game keeps it in a field of its own (`LightState`), which
 Moonglow writes only once the box is changed, so a placeable left as it
-is stays lit, as it always was. Only an appearance with a light (a
-brazier, a lamp post) has one to turn off; for the others the box is
-grayed. The area view and the preview draw the light either way.
+is stays lit, as it always was. The light it turns on and off is its
+appearance's (placeables.2da's `LightColor`: a brazier, a lamp post, the
+invisible "Light" placeables); the light nodes of the placeable's own
+model shine either way, as they do in the game. Off, the area view and
+the preview draw the placeable without that light, and an invisible
+light's sun in the area view turns gray. An appearance without a light
+isn't lit by the game whatever the box says; the box can be set all the
+same (on unless you untick it), for when the appearance's row gains a
+light later.
+
+A **static** placeable doesn't reflect its appearance's environment map
+(placeables.2da's `Reflection`) in the game, and doesn't in the area view
+or the preview: the alpha of its textures is their transparency, as for
+any placeable without one. A texture's own map (a TXI's `envmaptexture`)
+it keeps. A placeable that isn't static reflects its appearance's map,
+`default` being the area's (its tileset's `EnvMap`: in the rural
+interior, `tin01`, a copper brown), which the preview, having no area,
+shows as the game's `chrome1`.
 
 The faction lists (a creature's, a placeable's, a door's, a trigger's and
 an encounter's Advanced page) leave out the PC faction: it is the

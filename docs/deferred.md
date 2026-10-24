@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T19:43:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-24T23:51:31Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -501,16 +501,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   properties keep an item off wasn't looked into. (S–M)
 - **The Classes page in a narrow window:** the second domain picker
   sits at the window's edge. (S)
-- **A placeable's illumination, drawn:** **Illuminated** (`LightState`)
-  is saved and the server reads it (`engine_light_state.rs`), but the
-  area view and the preview draw a placeable's light whatever it says
-  (`mg-preview/src/object.rs` `placeable`). Whether the client draws a
-  placeable loaded with 0 without its light (and without its glow: the
-  model's own animation state is the separate Initial State) was not
-  looked at in the client; once seen, the preview can leave the light
-  out. Which `LightColor` the engine counts as a light (Moonglow: a row
-  above 0, as the preview) was checked on one row (6). (S) (Jasperre's
-  report, October 2026)
+- **A placeable's illumination, what's left:** **Illuminated** off now
+  leaves out the appearance's light in the area view and the preview
+  (read from the client: `model_light_uniforms`), and the box can be set
+  whatever the appearance. Not looked at: the glow that goes with the
+  light (a lamp's self-illuminated flame, which is the model's own
+  animation state, the separate Initial State), and whether Aurora shows
+  or keeps the field. Which `LightColor` the engine counts as a light
+  (Moonglow: a row above 0) was checked on rows 1 and 25. (S) (Jasperre's
+  reports, October 2026)
 - **The PC faction, what's left:** the faction lists, the Store Wizard
   and Verify (`pc-faction`) keep objects out of faction 0. Not done:
   `mg set` and the raw fields view still write 0 if told to (Verify
@@ -1289,6 +1288,39 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   lowers; a terrain, the Eraser, Refine Tile and the tile tools open
   the tile menu). (S)
   (from builders' reports after 1.14.1)
+- **An object's light nodes, as it stands:** the light nodes of an
+  object's models (its base's and its parts', a held torch's) are taken
+  where they are at the start of its idle animation, with the colour,
+  radius and multiplier keyed there: a light an animation moves, flickers
+  or turns on and off (a lamp's "on" and "off" states keying its light's
+  colour) is drawn as it is at that moment. A part's light nodes are taken
+  in the part's rest pose. The model viewer's **Lights** shows the base
+  model's light nodes (animated) and the appearance's light, not a
+  part's. (S) (from Troubletcat's and Heed's reports, October 2026)
+- **An area full of far-reaching lights:** the Txpple pack's light-node
+  placeables have multipliers of 6 to 10, so a "15 m" one reaches 300 m
+  (as in the game), and every mesh of an area of them is lit by up to 32
+  lights, as the client lights it. In The Domains of Dread's woods
+  (`game_shaders_frames_at_144`, `FRAME_TDOD_LAMPS`) seen close with the
+  game's shaders: 2 lights, 4.7 ms of CPU and 2.3 of GPU a frame; 20 of
+  those placeables, 4.3 and 3.0 (within the budget); 100, 7.0 and 8.0
+  (over it: each fragment adds 32 lights). A light's reach isn't
+  shortened for the frames: what a light past the 32 adds is the
+  client's question too. (S–M)
+- **Heed's tile lights:** "tile lights don't show with Lighting on" was
+  not reproduced: in the stock smithy (`pensmithy1` of Chapter 1, its
+  tiles' main lights the area's only light) the area view, lit, is
+  within 2.4 of 255 of the client's picture on average
+  (`area_lighting_look`); what was missing in the reports' areas was the
+  light of their placeables' light nodes. A builder's tileset whose
+  lights don't show would need its area to look at. (S) (Heed's report,
+  October 2026)
+- **A reflecting placeable in the Preview window:** a placeable that
+  isn't static reflects its appearance's map (`Reflection`), `default`
+  being the area's (its tileset's `EnvMap`); the Preview window, having no
+  area, shows `chrome1` there, the game's map for an area without one. A
+  static one reflects none in the game (`area_env_map_look`), nor in
+  Moonglow now. (S) (Heed's report, October 2026)
 - **Lights placed on the fly** ([the proposal](lights-proposal.md)):
   way A is in (the game's seven invisible light placeables from the
   area's menu, a sun for a marker, Light Color, a ring for the reach).
