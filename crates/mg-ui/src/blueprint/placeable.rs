@@ -129,27 +129,34 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
 
 /// Whether its light is on (`LightState`, read by the game and not shown
 /// by Aurora: `mg_rules::placeables`). Without the field it is on, and
-/// the field is written only when the builder changes it. Only an
-/// appearance with a light has one to turn off.
+/// the field is written only when the builder changes it. It can be set
+/// whatever the appearance (Jasperre's report): one without a light
+/// (placeables.2da `LightColor`) isn't lit by the game, but its row may
+/// gain one later, and a placeable unlit on purpose stays so. It turns off
+/// the appearance's light only; the model's own light nodes stay on, as
+/// they do in the game (`model_light_uniforms` in `client_render.rs`).
 fn illumination(f: &mut Form<'_>, ui: &mut Ui) {
     use mg_rules::placeables::{LIGHT_STATE, has_light, illuminated};
     let appearance = f.int("Appearance");
     let lit = f.app.game.as_deref().is_some_and(|g| has_light(g, appearance));
     crate::widgets::field_label(ui, "");
     f.mark_mixed(ui, LIGHT_STATE);
-    // (Unlit, whatever the field says, without a light.)
-    let mut on = lit && illuminated(&f.root);
-    let r = ui.add_enabled(lit, egui::Checkbox::new(&mut on, "Illuminated"));
-    let r = r
-        .on_hover_text(
-            "Whether the placeable's light is on when the game loads it \
-             (GetPlaceableIllumination; scripts turn it on and off with \
-             SetPlaceableIllumination). Aurora doesn't show this field.",
+    let mut on = illuminated(&f.root);
+    let r = ui.checkbox(&mut on, "Illuminated");
+    let r = if lit {
+        r.on_hover_text(
+            "Whether the placeable's light (placeables.2da LightColor) is on when the game \
+             loads it (GetPlaceableIllumination; scripts turn it on and off with \
+             SetPlaceableIllumination). The model's own light nodes stay on either way. \
+             Aurora doesn't show this field.",
         )
-        .on_disabled_hover_text(
-            "Its appearance has no light (placeables.2da LightColor): the game never lights \
-             it. Aurora doesn't show this field.",
-        );
+    } else {
+        r.on_hover_text(
+            "Its appearance has no light (placeables.2da LightColor), so the game doesn't \
+             light it; this is kept for when the appearance's row gains one. On unless \
+             unticked. Aurora doesn't show this field.",
+        )
+    };
     if r.changed() {
         f.set_int("Illumination", LIGHT_STATE, i64::from(on), FieldType::Byte);
     }

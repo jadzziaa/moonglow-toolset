@@ -2,7 +2,11 @@
 //!
 //! `cargo run -p mg-corpus-tests --release --example render_area -- MODULE AREA OUT.png
 //! [yaw_degrees pitch_degrees distance_fraction]`: MODULE is a `.mod` or
-//! `.nwm` path; the camera orbits the area's centre. Fog only with `MG_FOG=1`.
+//! `.nwm` path; the camera orbits the area's centre. Fog only with
+//! `MG_FOG=1`; Moonglow's own shader unless `MG_SHADERS=1` (the game's, the
+//! app's default); the area's lighting unless `MG_LIT=0` (the Lighting
+//! switch off); `MG_EYE=x,y,z` and `MG_TARGET=x,y,z` place the camera
+//! instead; `MG_LIGHTS=1` lists the scene's lights.
 
 use mg_area::{AreaModel, AreaScene, View, overview};
 use mg_core::{ResRef, ResType};
@@ -11,6 +15,12 @@ use mg_module::Module;
 use mg_render::{Camera, Gpu, Renderer};
 use mg_resman::{GameInstall, LayerClass, ResKey, priority};
 use mg_rules::GameData;
+
+fn vec_var(name: &str) -> Option<glam::Vec3> {
+    let v = std::env::var(name).ok()?;
+    let p: Vec<f32> = v.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+    (p.len() == 3).then(|| glam::Vec3::new(p[0], p[1], p[2]))
+}
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -35,7 +45,21 @@ fn main() {
     let scene = AreaScene::new(&gpu, &game, &model);
     eprintln!("missing models: {:?}", scene.missing);
     let fog = std::env::var_os("MG_FOG").is_some();
-    let s = scene.scene(&model, &View { fog, ..View::of(&model) });
+    let lit = std::env::var("MG_LIT").ok().is_none_or(|v| v != "0");
+    let s = scene.scene(&model, &View { fog, lit, ..View::of(&model) });
+    if std::env::var_os("MG_LIGHTS").is_some() {
+        for l in &s.lights {
+            eprintln!(
+                "light at {:6.2?} color {:5.3?} cutoff {:6.2} ambient only {} priority {}",
+                l.position.to_array(),
+                l.color.to_array(),
+                l.cutoff,
+                l.ambient_only,
+                l.priority
+            );
+        }
+        eprintln!("{} lights; area {:?}", s.lights.len(), s.area);
+    }
     let mut camera = overview(&model);
     if let [yaw, pitch, distance] = rest {
         let (w, h) = model.size();
@@ -45,8 +69,16 @@ fn main() {
         camera =
             Camera::orbit(target, span * f(distance), f(yaw).to_radians(), f(pitch).to_radians());
     }
+    if let (Some(eye), Some(target)) = (vec_var("MG_EYE"), vec_var("MG_TARGET")) {
+        camera = Camera { eye, target, ..camera };
+    }
     let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+    r.game_shaders = std::env::var("MG_SHADERS").is_ok_and(|v| v == "1");
     let img = r.render_image(&gpu, &game.resman, &s, &camera, 1280, 800);
+    if r.game_shaders {
+        eprintln!("game shader failures: {:?}", r.game_shader_failures());
+        eprintln!("drawn: {:?}", r.drawn);
+    }
     let file = std::fs::File::create(out).unwrap();
     let mut enc = png::Encoder::new(std::io::BufWriter::new(file), img.width, img.height);
     enc.set_color(png::ColorType::Rgba);

@@ -671,3 +671,118 @@ fn a_race_s_body_part_wears_the_human_s_texture_of_its_name() {
     let chest = elf.parts.iter().find(|p| p.model == "pme0_chest003").expect("the chest");
     assert_eq!(chest.textures.get("pmh0_chest004").map(String::as_str), Some("pmh0_chest003"));
 }
+
+/// An authored ASCII model: a small square, the dummies `nodes` (name,
+/// position) and the lights `lights` (position, colour, radius,
+/// multiplier).
+fn lamp_model(
+    name: &str,
+    nodes: &[(&str, [f32; 3])],
+    lights: &[([f32; 3], [f32; 3], f32, f32)],
+) -> Model {
+    let mut s = format!(
+        "newmodel {name}\nsetsupermodel {name} NULL\nclassification placeable\n\
+         beginmodelgeom {name}\nnode dummy {name}\n  parent NULL\nendnode\n\
+         node trimesh square\n  parent {name}\n  ambient 1 1 1\n  diffuse 1 1 1\n  \
+         bitmap NULL\n  verts 3\n    0 0 0\n    1 0 0\n    0 1 0\n  faces 1\n    \
+         0 1 2 1 0 0 0 0\nendnode\n"
+    );
+    for (n, [x, y, z]) in nodes {
+        s += &format!("node dummy {n}\n  parent {name}\n  position {x} {y} {z}\nendnode\n");
+    }
+    for (i, ([x, y, z], [r, g, b], radius, multiplier)) in lights.iter().enumerate() {
+        s += &format!(
+            "node light lamp{i}\n  parent {name}\n  position {x} {y} {z}\n  color {r} {g} {b}\n  \
+             radius {radius}\n  multiplier {multiplier}\n  lightpriority 3\nendnode\n"
+        );
+    }
+    s += &format!("endmodelgeom {name}\ndonemodel {name}\n");
+    Model::read(s.as_bytes()).unwrap()
+}
+
+/// An object casts the lights of its models (Troubletcat's and Heed's
+/// reports: a builder's lamps showed in Aurora and the game, not in the
+/// area view): its appearance's light (placeables.2da `LightColor`), the
+/// light nodes of its base model and those of a part hung from the base,
+/// where the base's node holds it; `row_lights` is the appearance's alone.
+#[test]
+fn an_object_casts_its_models_lights() {
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU");
+        return;
+    };
+    let base = Arc::new(lamp_model(
+        "mg_lampbase",
+        &[("hand", [0.5, 0.0, 1.0])],
+        &[([0.0, 0.0, 2.0], [1.0, 0.0, 0.0], 3.0, 1.0)],
+    ));
+    let torch =
+        Arc::new(lamp_model("mg_torch", &[], &[([0.0, 0.0, 0.5], [0.0, 1.0, 0.0], 2.0, 2.0)]));
+    let load = |name: &str| match name {
+        "mg_lampbase" => Some(base.clone()),
+        "mg_torch" => Some(torch.clone()),
+        _ => None,
+    };
+    let mut p = Preview::model("mg_lampbase");
+    let mut part = Preview::model("mg_torch").base;
+    part.attach = Some("hand".into());
+    p.parts.push(part);
+    p.lights.push(mg_preview::PreviewLight {
+        offset: glam::Vec3::new(0.0, 0.0, 1.0),
+        color: glam::Vec3::ONE,
+        radius: 10.0,
+        on: true,
+    });
+    let c = Composed::new(&gpu, &p, &load).unwrap();
+    assert_eq!(c.lamp_count(), 2);
+    let at = Mat4::from_translation(glam::Vec3::new(10.0, 0.0, 0.0));
+    let lights = c.point_lights(at);
+    let found = |x: f32, z: f32| {
+        lights
+            .iter()
+            .find(|l| l.position.distance(glam::Vec3::new(x, 0.0, z)) < 1e-4)
+            .unwrap_or_else(|| panic!("a light at ({x}, 0, {z}) in {lights:#?}"))
+    };
+    assert_eq!(lights.len(), 3);
+    assert_eq!(found(10.0, 1.0).cutoff, 20.0, "the appearance's");
+    let red = found(10.0, 2.0);
+    assert_eq!((red.color, red.cutoff, red.priority), (glam::Vec3::X, 6.0, 3), "the base's");
+    let green = found(10.5, 1.5);
+    assert_eq!((green.color, green.cutoff), (glam::Vec3::Y, 8.0), "the torch's, in the hand");
+    assert_eq!(c.row_lights(at).len(), 1);
+}
+
+/// **Illuminated** off (`LightState` 0) leaves out a placeable's
+/// appearance light, as the client does; absent or 1, it is there
+/// (`model_light_uniforms` in `client_render.rs`). And a static placeable
+/// doesn't reflect its appearance's environment map (`Reflection`), as in
+/// the client (`area_env_map_look`); one that isn't static does.
+#[test]
+fn a_placeable_s_light_and_reflection_follow_the_client() {
+    let Some(game) = game() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let utp = |appearance: u32, light_state: Option<u8>, is_static: u8| {
+        let mut bp = mg_gff::Struct::new(0);
+        bp.set("Appearance", mg_gff::Value::Dword(appearance));
+        bp.set("Static", mg_gff::Value::Byte(is_static));
+        if let Some(v) = light_state {
+            bp.set("LightState", mg_gff::Value::Byte(v));
+        }
+        bp
+    };
+    // "Light, White": lightcolor.2da row 1, kept when off (the area view
+    // shows it, dark).
+    let lights = |s| placeable(&game, &s).unwrap().lights.iter().map(|l| l.on).collect::<Vec<_>>();
+    assert_eq!(lights(utp(15112, None, 1)), [true], "absent: on");
+    assert_eq!(lights(utp(15112, Some(1), 1)), [true]);
+    assert_eq!(lights(utp(15112, Some(0), 1)), [false], "off");
+    assert_eq!(lights(utp(15112, Some(0), 0)), [false], "off, not static");
+    assert!(lights(utp(0, None, 1)).is_empty(), "the armoire has none");
+    // The big mirror: Reflection `default`.
+    let env = |s| placeable(&game, &s).unwrap().base.env_map;
+    assert_eq!(env(utp(428, None, 0)).as_deref(), Some("default"));
+    assert_eq!(env(utp(428, None, 1)), None, "static");
+}

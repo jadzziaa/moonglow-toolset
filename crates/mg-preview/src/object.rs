@@ -10,15 +10,28 @@ use crate::{
 };
 
 /// A placeable blueprint (UTP fields): placeables.2da `ModelName`, its
-/// `Reflection` environment map, its light (lightcolor.2da row at the light
-/// offset, as `fx_placeable01`: radius 10) and the animation of its
-/// `AnimationState`.
+/// `Reflection` environment map unless it is static, its light
+/// (lightcolor.2da row at the light offset, as `fx_placeable01`: radius
+/// 10) unless **Illuminated** is off (`LightState` 0; absent is on) and
+/// the animation of its `AnimationState`. (Illuminated off leaves the
+/// model's own light nodes on, as the client does: `model_light_uniforms`
+/// in `client_render.rs`.)
+///
+/// A static placeable's meshes don't reflect its appearance's map in the
+/// client, `default` (the area's) or named: its textures' alpha is their
+/// opacity there, as for any placeable without one; a texture's own map
+/// (TXI `envmaptexture`) it keeps (`area_env_map_look` in
+/// `client_render.rs`).
 pub fn placeable(game: &GameData, utp: &Struct) -> Result<Preview, PreviewError> {
     let table = game.table("placeables")?;
     let (r, model) = appearance(game, ObjectKind::Placeable, utp)?;
     let mut base = Part::new(model.unwrap_or_default());
-    base.env_map = env_map(cell(&table, r, "Reflection"));
+    let is_static = utp.integer("Static").is_some_and(|v| v != 0);
+    if !is_static {
+        base.env_map = env_map(cell(&table, r, "Reflection"));
+    }
     let mut lights = Vec::new();
+    let illuminated = utp.integer("LightState").is_none_or(|v| v != 0);
     if let Some(c) = cell_int(&table, r, "LightColor").filter(|&c| c > 0) {
         let colors = game.table("lightcolor")?;
         let ch = |col| cell_f32(&colors, c as usize, col).unwrap_or(0.0);
@@ -32,6 +45,7 @@ pub fn placeable(game: &GameData, utp: &Struct) -> Result<Preview, PreviewError>
             color: Vec3::new(ch("RED"), ch("GREEN"), ch("BLUE")),
             // (Measured in the client: `placeable_light_uniforms`.)
             radius: 10.0,
+            on: illuminated,
         });
     }
     let idle = match utp.integer("AnimationState").unwrap_or(0) {

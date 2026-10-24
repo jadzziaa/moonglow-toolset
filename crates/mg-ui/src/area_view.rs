@@ -2748,12 +2748,13 @@ fn overlays(
             continue;
         }
         // A light with nothing to see: a small sun in its color, where it
-        // shines from.
-        if let Some(color) = scene.and_then(|s| s.bare_light(shown, i))
+        // shines from; dark gray with Illuminated off.
+        if let Some((color, on)) = scene.and_then(|s| s.bare_light(shown, i))
             && let Some(c) = at(o.position)
         {
             let top = color.max_element().max(1e-3);
-            let rgb = (color / top * 255.0).to_array().map(|v| v as u8);
+            let rgb =
+                if on { (color / top * 255.0).to_array().map(|v| v as u8) } else { [70, 70, 70] };
             let fill = Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
             let dark = Stroke::new(1.5, Color32::from_black_alpha(200));
             for k in 0..8 {

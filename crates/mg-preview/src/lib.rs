@@ -103,6 +103,9 @@ pub struct PreviewLight {
     /// lightcolor.2da values.
     pub color: Vec3,
     pub radius: f32,
+    /// Whether it shines: a placeable's **Illuminated** (`LightState`);
+    /// one off is still its light, shown as such in the area view.
+    pub on: bool,
 }
 
 /// What to draw for a blueprint.

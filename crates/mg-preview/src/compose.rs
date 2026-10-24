@@ -77,7 +77,14 @@ pub struct Composed {
     parts: Vec<Placed>,
     /// The animation the preview stands in.
     pub idle: Option<String>,
+    /// The light of its appearance (placeables.2da `LightColor`).
     pub lights: Vec<PreviewLight>,
+    /// The light nodes of its models (the base's and the parts'), in the
+    /// base's space as it stands in its idle animation: a builder's lamp,
+    /// a held torch. The client lights an area with them as with any
+    /// other light, whatever the placeable's **Illuminated** says (read
+    /// from the client: `model_light_uniforms` in `client_render.rs`).
+    lamps: Vec<anim::Lamp>,
     /// Models named by the preview that could not be loaded.
     pub missing: Vec<String>,
     /// Posing it failed once: it is drawn no more (rather than fail again
@@ -285,14 +292,48 @@ impl Composed {
                 placed
             })
             .collect();
-        Some(Composed {
+        let mut c = Composed {
             base,
             parts,
             idle: preview.idle.clone(),
             lights: preview.lights.clone(),
+            lamps: Vec::new(),
             missing,
             failed: Default::default(),
-        })
+        };
+        // (Once: where they are as it stands, not as each frame poses it.)
+        let name = c.base.gpu.model.name.clone();
+        c.lamps = mg_render::guard::guarded(&name, || c.lamps_standing()).unwrap_or_default();
+        Some(c)
+    }
+
+    /// The light nodes of its models as it stands at the start of its idle
+    /// animation, in the base's space ([`Composed::lamps`]).
+    fn lamps_standing(&self) -> Vec<anim::Lamp> {
+        let has_light =
+            |m: &Model| m.nodes.iter().any(|n| matches!(n.kind, mg_mdl::NodeKind::Light(_)));
+        let base_model = &*self.base.gpu.model;
+        if !has_light(base_model) && !self.parts.iter().any(|p| has_light(&p.gpu.model)) {
+            return Vec::new();
+        }
+        let idle = self.idle.as_deref().and_then(|a| playing(a, |n| self.base.animation(n)));
+        let base_pose = match idle {
+            Some(a) => anim::pose(base_model, a, 0.0),
+            None => self.base.gpu.rest.clone(),
+        };
+        let mut lamps = anim::lamps_layers(base_model, idle.as_slice(), 0.0, &base_pose);
+        for p in &self.parts {
+            if !has_light(&p.gpu.model) {
+                continue;
+            }
+            let at = p.attach.and_then(|i| base_pose.get(i).copied()).unwrap_or(Mat4::IDENTITY);
+            let hung = at * Mat4::from_scale(Vec3::splat(p.scale));
+            let own = anim::lamps_layers(&p.gpu.model, &[], 0.0, &p.gpu.rest);
+            lamps.extend(
+                own.into_iter().map(|l| anim::Lamp { at: hung.transform_point3(l.at), ..l }),
+            );
+        }
+        lamps
     }
 
     /// The base model.
@@ -385,14 +426,29 @@ impl Composed {
         out
     }
 
-    /// The preview's lights, placed by `transform`.
+    /// The lights it casts, placed by `transform`: its appearance's
+    /// ([`Composed::row_lights`]) and its models' light nodes.
     pub fn point_lights(&self, transform: Mat4) -> Vec<PointLight> {
+        let mut lights = self.row_lights(transform);
+        lights.extend(self.lamps.iter().filter_map(|l| l.placed(transform, &|_| None)));
+        lights
+    }
+
+    /// The light of its appearance (placeables.2da `LightColor`), placed by
+    /// `transform`; none when it is not illuminated.
+    pub fn row_lights(&self, transform: Mat4) -> Vec<PointLight> {
         self.lights
             .iter()
+            .filter(|l| l.on)
             .map(|l| {
                 PointLight::new(transform.transform_point3(l.offset), l.color, l.radius, false, 4)
             })
             .collect()
+    }
+
+    /// How many light nodes its models have (the base's and the parts').
+    pub fn lamp_count(&self) -> usize {
+        self.lamps.len()
     }
 
     /// How much of the base model's surface faces a viewer in direction
