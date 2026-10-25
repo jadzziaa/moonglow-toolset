@@ -9,6 +9,10 @@ use crate::{
     env_map,
 };
 
+/// The map a placeable whose appearance's `Reflection` is `default`
+/// reflects: the game's own, whatever the area's ([`placeable`]).
+pub const PLACEABLE_DEFAULT_ENV_MAP: &str = "chrome1";
+
 /// A placeable blueprint (UTP fields): placeables.2da `ModelName`, its
 /// `Reflection` environment map unless it is static, its light
 /// (lightcolor.2da row at the light offset, as `fx_placeable01`: radius
@@ -18,17 +22,25 @@ use crate::{
 /// in `client_render.rs`.)
 ///
 /// A static placeable's meshes don't reflect its appearance's map in the
-/// client, `default` (the area's) or named: its textures' alpha is their
-/// opacity there, as for any placeable without one; a texture's own map
-/// (TXI `envmaptexture`) it keeps (`area_env_map_look` in
-/// `client_render.rs`).
+/// client, `default` or named: its textures' alpha is their opacity
+/// there, as for any placeable without one; a texture's own map (TXI
+/// `envmaptexture`) it keeps (`area_env_map_look` in `client_render.rs`).
+///
+/// An appearance's `Reflection` of `default` is the game's own map,
+/// `chrome1`, wherever the placeable stands: not the area's (its
+/// tileset's `EnvMap`), which a texture's `envmaptexture default` and a
+/// creature's appearance.2da `ENVMAP` `default` reflect. Read from the
+/// client: in a `tin01` interior, whose map is a copper brown, a sphere
+/// of each drawn with the map bound to it (`area_env_map_look` with
+/// `MG_ENV_PAINT`, `MG_ENV_SHAPE=sphere` and `MG_ENV_CREATURE`).
 pub fn placeable(game: &GameData, utp: &Struct) -> Result<Preview, PreviewError> {
     let table = game.table("placeables")?;
     let (r, model) = appearance(game, ObjectKind::Placeable, utp)?;
     let mut base = Part::new(model.unwrap_or_default());
     let is_static = utp.integer("Static").is_some_and(|v| v != 0);
     if !is_static {
-        base.env_map = env_map(cell(&table, r, "Reflection"));
+        base.env_map = env_map(cell(&table, r, "Reflection"))
+            .map(|e| if e == "default" { PLACEABLE_DEFAULT_ENV_MAP.to_string() } else { e });
     }
     let mut lights = Vec::new();
     let illuminated = utp.integer("LightState").is_none_or(|v| v != 0);

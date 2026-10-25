@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-24T23:59:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T09:23:43Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -757,15 +757,65 @@ where the texture is see-through, `transparency` or not.
 ### A static placeable reflects no appearance map
 
 A placeable whose placeables.2da row names an environment map
-(`Reflection`: `default`, the tileset's, or a named one) reflects it
-only if it isn't static: a static one's textures take their alpha for
-opacity, as without a map (an alpha-0 card isn't drawn). A texture's own
-TXI `envmaptexture` is reflected either way, `default` being the
-tileset's `EnvMap`.
+(`Reflection`: `default` or a named one) reflects it only if it isn't
+static: a static one's textures take their alpha for opacity, as without
+a map (an alpha-0 card isn't drawn). A texture's own TXI
+`envmaptexture` is reflected either way, `default` being the tileset's
+`EnvMap`.
 
 - **Checked:** `area_env_map_look` (authored cards in `tin01` and
   `tic01` interiors).
 - **Moonglow:** `crates/mg-preview/src/object.rs` (`placeable`).
+- **Wiki:** missing.
+
+### A placeable's `Reflection` `default` is `chrome1`
+
+`default` means three things in the game. In placeables.2da's
+`Reflection` it is the game's own map, `chrome1`, wherever the
+placeable stands; in a texture's TXI `envmaptexture` and in
+appearance.2da's `ENVMAP` (a creature's) it is the area's, its tileset's
+`EnvMap`. In a rural interior (`tin01`), whose map is a copper brown, a
+mirror that isn't static is silver; the armoire's texture with
+`envmaptexture default`, and a bone golem, are copper. (Up to 2.5.2
+Moonglow drew the mirror copper too: a builder's armor stand, Heed's
+report.)
+
+- **Checked:** `area_env_map_look` with `MG_ENV_SHAPE=sphere`,
+  `MG_ENV_PAINT` and `MG_ENV_CREATURE=24` (2026-10-25): spheres of a gray
+  texture reflecting wholly, as the models of the big mirror, a mirror,
+  the dwarven mirror, the armoire and the bone golem, each painted with
+  the map bound to it by the game's `inc_standard` in the scratch
+  override; in `tin01` and `tic01`, static and not. Flat cards facing the
+  camera, as first tried, reflect one dark spot of any map: they can't
+  tell the maps apart.
+- **Moonglow:** `crates/mg-preview/src/object.rs`
+  (`PLACEABLE_DEFAULT_ENV_MAP`); a texture's and a creature's `default`
+  in `crates/mg-render/src/renderer.rs`.
+- **Wiki:** missing.
+
+### The game's shaders and Moonglow's own in stock interiors
+
+With the game's stock shaders, the area view draws an interior the same
+with its Shaders switch on and off, and as the client does: in seven
+stock interiors (`tin01`, `tic01`, `tdc01`, `tdm01`; 2 to 111 lights,
+torches and placeables) the two pictures were 130 pixels of 786,432
+apart, by at most 4 of 255, and within 2.5 to 15 of 255 of the client's
+(where it was furthest, the client leaves out rooms the player's tile
+doesn't see, which Moonglow draws, as Aurora does). The client's post
+effects (bloom, high contrast, vibrance, sharpening, ambient occlusion:
+on by default) make its picture a little more saturated (0.02 to 0.07 of
+the HSV saturation) and no darker; High Quality and Performance differ
+by a level or two. What does change the switch's side alone is a hak's
+or the override's shader include: The Domains of Dread's
+`inc_lighting` (Tjured's diffuse wrap) draws an interior a tenth darker
+with the game's shaders, and the client draws it so too.
+
+- **Checked:** `area_lighting_look` (with `MG_CLIENT_SETTINGS=owner` and
+  `default`, `MG_AREA_HAKS=tdod_shaders`, `MG_MUTATE` showing the game's
+  programs draw), and the area view itself:
+  `a_stock_interior_looks_alike_with_the_shaders_on_and_off` in
+  `crates/mg-ui/tests/app.rs`.
+- **Moonglow:** `crates/mg-render/src/game.rs`.
 - **Wiki:** missing.
 
 ### Static placeables stand upright

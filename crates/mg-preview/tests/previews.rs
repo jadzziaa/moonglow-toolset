@@ -757,7 +757,9 @@ fn an_object_casts_its_models_lights() {
 /// appearance light, as the client does; absent or 1, it is there
 /// (`model_light_uniforms` in `client_render.rs`). And a static placeable
 /// doesn't reflect its appearance's environment map (`Reflection`), as in
-/// the client (`area_env_map_look`); one that isn't static does.
+/// the client (`area_env_map_look`); one that isn't static does, and its
+/// `default` is the game's `chrome1`, not the area's map (in a `tin01`
+/// interior the client's mirror is silver, not copper).
 #[test]
 fn a_placeable_s_light_and_reflection_follow_the_client() {
     let Some(game) = game() else {
@@ -783,6 +785,8 @@ fn a_placeable_s_light_and_reflection_follow_the_client() {
     assert!(lights(utp(0, None, 1)).is_empty(), "the armoire has none");
     // The big mirror: Reflection `default`.
     let env = |s| placeable(&game, &s).unwrap().base.env_map;
-    assert_eq!(env(utp(428, None, 0)).as_deref(), Some("default"));
+    assert_eq!(env(utp(428, None, 0)).as_deref(), Some("chrome1"), "the game's, not the area's");
     assert_eq!(env(utp(428, None, 1)), None, "static");
+    // The large treasure: a named map, as it is.
+    assert_eq!(env(utp(191, None, 0)).as_deref(), Some("plc_g_env"));
 }

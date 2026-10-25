@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-24T23:59:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T09:23:43Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1356,16 +1356,33 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   not reproduced: in the stock smithy (`pensmithy1` of Chapter 1, its
   tiles' main lights the area's only light) the area view, lit, is
   within 2.4 of 255 of the client's picture on average
-  (`area_lighting_look`); what was missing in the reports' areas was the
+  (`area_lighting_look`; 2.5 with either shader, measured again on
+  2.5.2); what was missing in the reports' areas was the
   light of their placeables' light nodes. A builder's tileset whose
   lights don't show would need its area to look at. (S) (Heed's report,
   October 2026)
-- **A reflecting placeable in the Preview window:** a placeable that
-  isn't static reflects its appearance's map (`Reflection`), `default`
-  being the area's (its tileset's `EnvMap`); the Preview window, having no
-  area, shows `chrome1` there, the game's map for an area without one. A
-  static one reflects none in the game (`area_env_map_look`), nor in
-  Moonglow now. (S) (Heed's report, October 2026)
+- **Heed's interior darker and grayer with the game's shaders** (on
+  2.5.1 and 2.5.2): not reproduced with stock content. In seven stock
+  interiors the area view's two shaders draw the same picture, near the
+  client's, at the tests' settings, the owner's and the client's
+  defaults (findings, "The game's shaders and Moonglow's own in stock
+  interiors"). What makes the Shaders switch's side alone differ is a
+  shader include in a hak or the override (The Domains of Dread's
+  diffuse wrap: a tenth darker, as in the client), or a tileset's
+  materials (MTR) that Moonglow's own shader reads otherwise. To look
+  at: Heed's module, its haks and user folder (any `.shd` in a hak or the
+  override, MTRs on his tiles), his platform (the CI's Windows and macOS
+  draw authored programs, not the stock ones over an interior). (S–M)
+  (Heed's report, October 2026)
+- **Moonglow draws the rooms the player can't see:** in an interior the
+  client draws only the tiles the player's tile sees (the tileset's
+  visibility); the area view draws every tile, as Aurora does. Comparing
+  pictures with the client's, the prison's main floor and a `tdm01` mine
+  were 13 to 15 of 255 away for this, their lighting alike. (S)
+- **A texture's `envmaptexture default` on a placeable whose
+  `Reflection` is `default` too:** Moonglow takes the placeable's map
+  (`chrome1`) for both; the client wasn't asked (the armoire, read, has
+  no `Reflection`). (S)
 - **Lights placed on the fly** ([the proposal](lights-proposal.md)):
   way A is in (the game's seven invisible light placeables from the
   area's menu, a sun for a marker, Light Color, a ring for the reach).
@@ -1792,10 +1809,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     texels are drawn black, opaque (TDoD has 690 DXT1 textures); a
     32-bit TGA all opaque is solid (drawn among the solid meshes); every
     lit mesh reflects the area's map (the tileset's `EnvMap`) where it
-    has none of its own, not `chrome1`; `default` in placeables.2da's
-    `Reflection` and appearance.2da's `ENVMAP` is the area's map (the
-    previews keep `default`; `chrome1` without an area). (S to look at in
-    the builders' areas)
+    has none of its own, not `chrome1`; `default` in appearance.2da's
+    `ENVMAP` is the area's map (the previews keep `default`; `chrome1`
+    without an area), in placeables.2da's `Reflection` `chrome1` (read
+    from the client since: findings, "A placeable's `Reflection`
+    `default` is `chrome1`"). (S to look at in the builders' areas)
   - **NO_DISCARD and the dense view**: with each material's own, 826 of
     the 16,605 game meshes of TDoD's synthetic woods seen whole are
     `NO_DISCARD` 1 (its textures nearly all DXT5); its GPU time 16.6 ms

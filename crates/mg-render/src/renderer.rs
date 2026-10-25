@@ -1284,7 +1284,9 @@ impl Renderer {
         // The environment map a mesh reflects: its texture's (TXI
         // `envmaptexture`), else its object's (placeables.2da
         // `Reflection`, appearance.2da `ENVMAP`); `default` the area's
-        // (the tileset's `EnvMap`), else `chrome1`. And the one every lit
+        // (the tileset's `EnvMap`), else `chrome1` (a placeable's
+        // `Reflection` `default` is `chrome1` whatever the area's, and
+        // comes here so: `mg_preview::placeable`). And the one every lit
         // mesh's specular light reflects, bound to `texUnitEnv`: its own,
         // else the area's (read from the client:
         // `program_choice_in_the_client` in `client_render.rs`).
