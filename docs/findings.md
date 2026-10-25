@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T09:23:43Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T11:08:30Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -817,6 +817,49 @@ with the game's shaders, and the client draws it so too.
   `crates/mg-ui/tests/app.rs`.
 - **Moonglow:** `crates/mg-render/src/game.rs`.
 - **Wiki:** missing.
+
+### What a custom shader gets of its mesh
+
+A material's custom vertex program reads each of the model's texture
+coordinate sets by the engine's names: `tverts` as `vTcIn`, `tverts1`,
+`tverts2` and `tverts3` as `vTcIn1`, `vTcIn2` and `vTcIn3`. A set the
+model doesn't have reads zeros (not `tverts`). The MTR's `parameter int`
+and `parameter float` lines fill the uniforms of their names; a map the
+MTR doesn't name is not bound (its `textureNBound` 0), for a custom pair
+as for the stock ones, and the stock include's own defaults follow from
+that (specularity 0.04, roughness 0.55, no height or glow). A mesh gets
+tangents only where its model has them or a render hint is given (the
+model's, or its MTR's `renderhint`); without, `vTangent` and
+`fHandedness` are zeros, and the stock include's normal mapping in a
+custom pair draws the mesh black (the tangent frame of a zero vector).
+A static placeable is drawn the same as one that isn't. (Up to 2.5.3
+Moonglow fed every mesh zeros for `vTcIn2` and `vTcIn3`, which drew a
+builder's walls one flat, grayish color where his shader picked
+`tverts2` or `tverts3`, and made tangents for every mesh: Heed's
+report.)
+
+- **Checked:** `custom_shader_uvs_look` (2026-10-25): cards in a `tni01`
+  interior whose four sets each cover one stripe of a texture of gray,
+  red, green and blue stripes, drawn by a custom pair that picks the set
+  by `parameter int nUvmap` and moves it by float parameters (Moonglow's
+  own pair, and the builder's), the normal map alone, every map, with a
+  render hint and without, static and not. The mean color of each card
+  of one stripe in the client and in Moonglow's area view agree within
+  0.6 of 255 (set 2: client (18.5, 77.3, 17.7), Moonglow (18.6, 77.4,
+  17.7); before, Moonglow (33.7, 33.5, 63.5), what (0, 0) samples,
+  saturation 0.47 against 0.77), the cards without a render hint black
+  in both; the cards of the whole texture (set 0, and the stock pair's
+  for comparison) within 3.4, the stripes' edges filtered a little
+  otherwise. `MG_UV_PAINT=bound` painted each card with its bound maps:
+  the client's and Moonglow's flags the same on every card, the whole
+  picture within 0.6 of 255. Seen on Linux (radv); the black of a
+  normal map without tangents (the stock include normalizing a zero
+  vector) was not seen on Windows or macOS.
+- **Moonglow:** `crates/mg-render/src/model.rs` (`Vertex`: `uv1` to
+  `uv3`), `crates/mg-render/src/game.rs` (`attribute`).
+- **Wiki:** the MTR page and the 1.74.8159 notes say the sets link to
+  `vTcIn1`…`vTcIn3`; what a set the model lacks reads, and that a mesh
+  without a render hint has no tangents, are missing.
 
 ### Static placeables stand upright
 

@@ -1421,6 +1421,79 @@ doneanim go t
         );
     }
 
+    /// The other texture coordinate sets (`tverts1`…`tverts3`, a custom
+    /// shader's `vTcIn1`…`vTcIn3`): each corner takes its face's texture
+    /// vertex in every set, and corners that differ in any set are
+    /// vertices of their own.
+    #[test]
+    fn every_texture_coordinate_set_is_read() {
+        let text = "\
+newmodel u
+beginmodelgeom u
+node dummy u
+  parent NULL
+endnode
+node trimesh card
+  parent u
+  bitmap x
+  verts 4
+    0 0 0
+    1 0 0
+    1 1 0
+    0 1 0
+  tverts 4
+    0 0 0
+    1 0 0
+    1 1 0
+    0 0 0
+  tverts1 4
+    0.1 0 0
+    0.2 0 0
+    0.2 1 0
+    0.9 0 0
+  tverts2 4
+    0.3 0 0
+    0.4 0 0
+    0.4 1 0
+    0.3 0 0
+  tverts3 4
+    0.5 0 0
+    0.6 0 0
+    0.6 1 0
+    0.5 0 0
+  faces 2
+    0 1 2 1 0 1 2 0
+    0 2 3 1 3 2 1 0
+endnode
+endmodelgeom u
+donemodel u
+";
+        let m = read(text.as_bytes()).unwrap();
+        let mesh = m.nodes.iter().find(|n| n.name == "card").unwrap().mesh().unwrap();
+        // Vertex 0 of the second face is texture vertex 3: the same as 0 in
+        // `tverts`, `tverts2` and `tverts3`, not in `tverts1`: its own.
+        assert_eq!(mesh.vertices.len(), 5);
+        assert!(mesh.uvs.iter().all(|set| set.len() == 5));
+        let second = mesh.faces[1].vertices;
+        assert_ne!(second[0], mesh.faces[0].vertices[0]);
+        let corner = |set: usize, v: u32| mesh.uvs[set][v as usize];
+        assert_eq!(corner(0, second[0]), [0.0, 0.0]);
+        assert_eq!(corner(1, second[0]), [0.9, 0.0]);
+        assert_eq!(corner(2, second[0]), [0.3, 0.0]);
+        assert_eq!(corner(3, second[0]), [0.5, 0.0]);
+        // (Its third corner is texture vertex 1, in every set.)
+        assert_eq!(
+            [0, 1, 2, 3].map(|s| corner(s, second[2])),
+            [[1.0, 0.0], [0.2, 0.0], [0.4, 0.0], [0.6, 0.0]]
+        );
+        // A mesh of `tverts` alone has the other sets empty.
+        let one = text.split("  tverts1").next().unwrap().to_string()
+            + &text[text.find("  faces").unwrap()..];
+        let m = read(one.as_bytes()).unwrap();
+        let mesh = m.nodes.iter().find(|n| n.name == "card").unwrap().mesh().unwrap();
+        assert_eq!(mesh.uvs.iter().map(Vec::len).collect::<Vec<_>>(), [4, 0, 0, 0]);
+    }
+
     #[test]
     fn preorder_follows_file_order_of_children() {
         let (order, _) = preorder(&[None, Some(0), Some(0), Some(1)]);

@@ -386,7 +386,7 @@ pub struct GameProgram {
 }
 
 /// What [`GamePipelines`] are kept by ([`Renderer::game_pipelines`]).
-type GamePipelinesKey = (usize, crate::game::Traits, bool, bool, crate::game::GamePass);
+type GamePipelinesKey = (usize, crate::game::Traits, bool, bool, bool, crate::game::GamePass);
 
 #[derive(Debug)]
 pub struct Renderer {
@@ -981,15 +981,17 @@ impl Renderer {
         traits: crate::game::Traits,
         no_discard: bool,
         skinned: bool,
+        tangents: bool,
         pass: crate::game::GamePass,
     ) -> Option<GamePipelines> {
         use crate::game::{GamePass, PipelineKey};
-        let at = (Arc::as_ptr(slots) as usize, traits, no_discard, skinned, pass);
+        let at = (Arc::as_ptr(slots) as usize, traits, no_discard, skinned, tangents, pass);
         if let Some(p) = self.game_pipelines.get(&at) {
             return p.clone();
         }
         let (vs, fs, _) = crate::game::program_pair(slots.custom.as_ref(), traits);
-        let key = PipelineKey { vs, fs, no_discard, skinned, twosided: slots.twosided, pass };
+        let twosided = slots.twosided;
+        let key = PipelineKey { vs, fs, no_discard, skinned, tangents, twosided, pass };
         let (format, samples, wait) = (self.color_format, self.sample_count, !self.game_background);
         use crate::game::Ready;
         let p = match self.game.pipeline(gpu, assets, &key, format, samples, wait) {
@@ -1702,6 +1704,9 @@ impl Renderer {
                         traits,
                         no_discard,
                         mesh.skin.is_some(),
+                        // (The engine makes a mesh tangents for a render
+                        // hint alone, the model's or its MTR's.)
+                        !mesh.tangents_made || slots.normal_variant,
                         game_pass,
                     );
                     // (Shiny water: the area's map.)
@@ -2122,6 +2127,7 @@ impl Renderer {
                     fs: "fsparticle".into(),
                     no_discard: *blend != ParticleBlend::PunchThrough,
                     skinned: false,
+                    tangents: true,
                     twosided: false,
                     pass: GamePass::Particles(*blend),
                 };

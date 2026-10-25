@@ -2554,6 +2554,134 @@ fn a_see_through_mesh_is_drawn_in_two_parts_by_its_programs() {
     );
 }
 
+/// A custom pair that draws its texture by the texture coordinate set an
+/// MTR int names (`nUvmap`: `vTcIn`, `vTcIn1`, `vTcIn2`, `vTcIn3`, the
+/// mesh's `tverts`…`tverts3`), or (`nShow` 1) the mesh's tangent.
+fn authored_uv_set_pair(assets: &mut TestAssets) {
+    let vs = r#"
+#define SHADER_TYPE 1
+uniform mat4 m_mv;
+uniform mat4 m_proj;
+uniform int nUvmap;
+attribute vec4 vPos;
+attribute vec2 vTcIn;
+attribute vec2 vTcIn1;
+attribute vec2 vTcIn2;
+attribute vec2 vTcIn3;
+attribute vec3 vTangent;
+varying vec2 vUv;
+varying vec3 vT;
+void main ()
+{
+    vUv = nUvmap == 1 ? vTcIn1 : nUvmap == 2 ? vTcIn2 : nUvmap == 3 ? vTcIn3 : vTcIn;
+    vT = vTangent;
+    gl_Position = m_proj * (m_mv * vPos);
+}
+"#;
+    let fs = r#"
+#define SHADER_TYPE 2
+uniform sampler2D texUnit0;
+uniform int nShow;
+varying vec2 vUv;
+varying vec3 vT;
+void main ()
+{
+    gl_FragColor = nShow == 1 ? vec4(abs(vT), 1.0) : vec4(texture2D(texUnit0, vUv).rgb, 1.0);
+}
+"#;
+    assets.shaders.insert("vs_uvset".into(), vs.into());
+    assets.shaders.insert("fs_uvset".into(), fs.into());
+}
+
+/// A custom shader reads every texture coordinate set of the mesh by the
+/// set an MTR int picks (a builder's walls of `tverts2` drew one flat
+/// color: the third and fourth sets were zero for every mesh); a set the
+/// mesh doesn't have is zeros, as the client feeds it. And a mesh with no
+/// tangents of its own has them only with a render hint, as in the client
+/// (`custom_shader_uvs_look` in `mg-corpus-tests`' `client_render.rs`).
+#[test]
+fn a_custom_shader_reads_the_texture_coordinate_set_its_mtr_picks() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    authored_uv_set_pair(&mut assets);
+    // Four columns: red, green, blue, white.
+    let colors = [[255u8, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 255]];
+    let mut stripes = Vec::new();
+    for _ in 0..4 {
+        for c in colors {
+            stripes.extend([c[0], c[1], c[2], 255]);
+        }
+    }
+    let stripes = mg_image::Rgba { width: 4, height: 4, data: stripes }.into_texture(false);
+    // Set k of the mesh: column k's middle at every corner.
+    let middle = |k: usize| [k as f32 * 0.25 + 0.125, 0.5];
+    let square = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+    let model = |bitmap: &str, sets: usize, uv0: Option<Vec<[f32; 2]>>| {
+        let mut m = quad();
+        let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind else { unreachable!() };
+        for (k, set) in mesh.uvs.iter_mut().enumerate().take(sets) {
+            *set = vec![middle(k); 4];
+        }
+        if let Some(uv0) = uv0 {
+            mesh.uvs[0] = uv0;
+        }
+        mesh.source_uv = vec![0, 1, 2, 3];
+        mesh.textures[0] = Some(bitmap.into());
+        Arc::new(GpuModel::new(&gpu, Arc::new(m)))
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -10.0, 1.0),
+        target: Vec3::new(0.0, 0.0, 1.0),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let standing = Mat4::from_translation(Vec3::new(0.0, 0.0, 1.0))
+        * Mat4::from_rotation_x(90f32.to_radians());
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    r.game_shaders = true;
+    let mut draw = |name: &str, mtr: &str, model: Arc<GpuModel>| {
+        assets.textures.insert(name.into(), stripes.clone());
+        let pair = format!("customshadervs vs_uvset\ncustomshaderfs fs_uvset\n{mtr}");
+        assets.materials.insert(name.into(), mg_image::mtr::Mtr::parse(pair.as_bytes()));
+        let scene = Scene {
+            instances: vec![Instance::new(model, standing)],
+            background: [0.0, 0.0, 0.0],
+            ..Default::default()
+        };
+        let img = r.render_image(&gpu, &assets, &scene, &camera, 32, 32);
+        assert_eq!(r.game_shader_failures(), &[], "{name}");
+        assert_eq!(r.drawn.game, 1, "{name}");
+        img
+    };
+    for (k, color) in colors.iter().enumerate() {
+        let name = format!("uvset{k}");
+        let img = draw(&name, &format!("parameter int nUvmap {k}\n"), model(&name, 4, None));
+        let p = img.pixel(16, 16);
+        assert_eq!([p[0], p[1], p[2]], *color, "set {k}");
+    }
+    // A mesh of two sets, set 2 asked for: what (0, 0) samples.
+    let missing = draw("uvmissing", "parameter int nUvmap 2\n", model("uvmissing", 2, None));
+    let zero =
+        draw("uvzero", "parameter int nUvmap 0\n", model("uvzero", 1, Some(vec![[0.0; 2]; 4])));
+    assert_eq!(missing.pixel(16, 16), zero.pixel(16, 16));
+    assert_ne!(missing.pixel(16, 16), [0, 0, 255, 255], "not set 2's blue");
+
+    // Tangents: none of the mesh's own and no render hint, zeros; with the
+    // MTR's render hint, made along +u (the quad's x).
+    let mut tangent = |name: &str, hint: &str| {
+        let img = draw(
+            name,
+            &format!("parameter int nShow 1\n{hint}"),
+            model(name, 1, Some(square.clone())),
+        );
+        img.pixel(16, 16)
+    };
+    assert_eq!(tangent("untangent", ""), [0, 0, 0, 255]);
+    let made = tangent("tangent", "renderhint NormalAndSpecMapped\n");
+    assert!(made[0] > 250 && made[1] < 5 && made[2] < 5, "{made:?}");
+}
+
 // The special surfaces through the game's programs (`docs/shaders-proposal.md`,
 // M5): authored stand-ins under the stock names the engine draws them with
 // (read from the client: `surfaces_in_the_client` in `mg-corpus-tests`).

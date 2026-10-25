@@ -3,7 +3,7 @@ type: Proposal
 title: 'The game''s own shaders in the area view: a proposal for 2.0'
 description: Drawing areas, blueprints and models with NWN:EE's own GLSL shaders (the stock ones from the install, a hak's overrides of them, and the custom shaders MTRs name) as the centerpiece of Moonglow 2.0 - what the tabled shaders branch held, what the renderer is today, the corpus now on hand, a spike in which all 102 programs reached valid wgpu shader modules, the route (glslang, SPIRV-Tools, naga with two fixups), the uniform contract, costs, milestones with their tests, and the owner's decisions (accepted 2026-10-21 - the game's shaders throughout, native glslang, on by default, a failed program falls back and is reported); M0 built - the mg-shader crate (glslang-rs, the sampler split in Rust), its corpus test (102 of 102) and Verify's shader-compile check; M1 built - the stock lit pair and its variants drawn by mg-render beside its WGSL shader (opt-in), matching it within 1 in 255 on plain lit meshes, the WGSL port's first oracle, and the time uniforms' units measured in the client; M2 built - tier A, a material's own program pair drawn in the area view, the model viewer and the previews behind a Shaders switch (off by default), see-through meshes in Moonglow's two parts, the area's wind, tangents made where a model has none, The Domains of Dread's grass, leaves, water and roof shaders moving, and the client's floor matched where its inc_lighting applies; M3 built - the Shaders switch on by default, every view within 144 fps where Moonglow's own shader is (a large stock area zoomed out 5.97 ms on, 3.97 off; a synthetic TDoD area seen whole, over the budget either way, 54 ms on, 29 off), through uniforms split in IR into a draw's, its lights', the frame's and the bones', draws as instances of storage arrays, compiles on a worker thread and a disk cache; M4 built - every mesh drawn with the program the engine chooses for it and its material's NO_DISCARD, read from the client by marking every stock program (36 kinds of mesh, Moonglow choosing as the client for each), the WGSL shader's environment map sampled as the game's (`_sm` 0.73 to 0.00 of 255 from the stock programs), a hak's inc_lighting through the load order (TDoD's area view), and the client's reference scenes compared with the switch off and on; M5 built - the special surfaces read in the client (water vswater/fswater with the tileset's 2D map, grass vsgrass/fsgrass, the skybox vsvt/fst, additive meshes as any mesh, a decal with an envmap vsvt_sm/fst_sm, particles vsparticle/fsparticle by blend) and drawn with the game's programs - the sky at the far plane, grass, additive meshes, particles - but water, kept Moonglow's because fswater without the framebuffer is farther from the client (TDoD's fountain 16.4 of 255 against 11.7); see-through game draws batched as Moonglow's own; M4's macOS failure (a cube map read with gradients) fixed; after M5, the light-dense water view brought back within the budget with the switch on (7.5 to 6.5 ms, off 5.6) by the game's programs reading the lights by their places in the frame's (a SPIR-V pass) and cheaper writing of the draws' values.
 tags: [proposal, rendering, shaders, custom-content, renderer, release-2]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T03:23:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T10:55:51Z }
 stale_after: 2027-04-01T00:00:00Z
 sources:
   - id: viewer-0-2-0
@@ -369,8 +369,10 @@ build (reported once: `Renderer::game_shader_failures`, and stderr).[^m1]
   Moonglow's `Vertex` by the engine's name (notes §B.1): `vPos` (w filled
   as 1), `vNormal`, `vTcIn`, `vTangent` and `fHandedness` (the tangent's
   fourth component, an attribute of its own), `vCustomColor` (the model's
-  `colors`), `vTcIn1` (the second UV set's name in the engine's bind
-  list); `vIndex` and `vWeight` from `SkinVertex`. wgpu checks only the
+  `colors`), `vTcIn1`, `vTcIn2` and `vTcIn3` (the model's `tverts1` to
+  `tverts3`, zeros for a set it doesn't have, as the client feeds them;
+  `vTcIn2` and `vTcIn3` were zeros for every mesh up to 2.5.3); `vIndex`
+  and `vWeight` from `SkinVertex`. wgpu checks only the
   scalar kind of a vertex input, but `vIndex` is a float `vec4` and no
   vertex format reads `u32`s as floats: `Program::read_input_as_uint`
   changes that argument's type and converts it in the entry point. What
@@ -523,7 +525,11 @@ pictures looked at, before and after):
   programs normalize the tangent as it comes, and TDoD's grass (a binary
   model without tangents, its MTR asking for normal maps) drew black.
   Moonglow's own shader keeps the derivative frame for those meshes (a
-  flag in the draw), so its look is unchanged.
+  flag in the draw), so its look is unchanged. A mesh without tangents
+  and without a render hint (the model's or the MTR's) gets zeros on the
+  game path (`PipelineKey::tangents`), as in the client, where a custom
+  pair's normal map then draws it black (after 2.5.3; made tangents
+  until then).
 - **The clock.** `worldtimerTimeOfDay` and `sceneCurrentFrame` from the
   scene's time as M1 has them (1000 and 60 a second). The area view
   already draws its picture again every `ANIMATION_STEP` (0.04 s) while

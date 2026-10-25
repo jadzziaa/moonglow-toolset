@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T09:23:43Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T11:08:30Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1361,19 +1361,44 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   light of their placeables' light nodes. A builder's tileset whose
   lights don't show would need its area to look at. (S) (Heed's report,
   October 2026)
-- **Heed's interior darker and grayer with the game's shaders** (on
-  2.5.1 and 2.5.2): not reproduced with stock content. In seven stock
-  interiors the area view's two shaders draw the same picture, near the
-  client's, at the tests' settings, the owner's and the client's
-  defaults (findings, "The game's shaders and Moonglow's own in stock
-  interiors"). What makes the Shaders switch's side alone differ is a
-  shader include in a hak or the override (The Domains of Dread's
-  diffuse wrap: a tenth darker, as in the client), or a tileset's
-  materials (MTR) that Moonglow's own shader reads otherwise. To look
-  at: Heed's module, its haks and user folder (any `.shd` in a hak or the
-  override, MTRs on his tiles), his platform (the CI's Windows and macOS
-  draw authored programs, not the stock ones over an interior). (S–M)
-  (Heed's report, October 2026)
+- **Heed's interior washed out with the game's shaders, to confirm in
+  his module:** his walls and floors are placeables whose custom vertex
+  program picks a texture coordinate set by an MTR int (`nUvmap`), and
+  up to 2.5.3 Moonglow fed `tverts2` and `tverts3` as zeros: a wall of
+  either drew the one color at (0, 0), flat and grayish (saturation
+  0.47 against the client's 0.77 on a test card). Fixed, with his two
+  shaders on authored cards matching the client (within 0.6 of 255 for
+  a card of one stripe; findings, "What a custom shader gets of its
+  mesh"); not seen in his
+  own module, which we don't have. If his smithy still differs on the
+  next release, his module and haks are what to look at. (Stock
+  interiors draw the same with either shader: findings, "The game's
+  shaders and Moonglow's own in stock interiors".) (S) (Heed's report,
+  October 2026)
+- **Moonglow's own shader and custom vertex programs:** with the
+  Shaders switch off, a mesh whose material names a custom pair is
+  drawn from its `tverts`, whatever set its vertex program picks or
+  however it moves the coordinates (`fUvScale`, offsets, turns): a
+  builder's walls of `tverts2` show set 0's layout there. Reading the
+  set from the MTR would need Moonglow's shader to know each custom
+  program's parameters. (M) (Heed's report, October 2026)
+- **A custom shader's tangents, not every case read:** the client's
+  rule (tangents from the model or a render hint, else zeros) was read
+  with an ASCII model without tangents, with and without an MTR
+  `renderhint`; a model that names `texture1` itself without a hint,
+  and a compiled one, under a custom pair, weren't tried, nor the black
+  of a normal map without tangents on Windows and macOS (the stock
+  include normalizing a zero vector). (S) (Heed's report, October 2026)
+- **Uniforms a script sets:** a custom shader's uniform that a module's
+  scripts set in the game (`SetMaterialShaderUniformInt`,
+  `SetMaterialShaderUniformVec4` on an object that isn't static) shows
+  the MTR's value in the area view, which runs no scripts. (S) (Heed's
+  report, October 2026)
+- **The extra texture coordinate sets in every vertex:** `tverts2` and
+  `tverts3` made Moonglow's vertex 16 bytes larger (76 bytes), for every
+  mesh, though few models have them; the area views stay within the
+  frame budget (`frame_perf`, 2026-10-25). A stream of their own, bound
+  only for the meshes that have them, would save the memory. (S–M)
 - **Moonglow draws the rooms the player can't see:** in an interior the
   client draws only the tiles the player's tile sees (the tileset's
   visibility); the area view draws every tile, as Aurora does. Comparing
