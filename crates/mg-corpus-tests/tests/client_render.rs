@@ -2552,7 +2552,8 @@ fn model_light_uniforms() {
         .collect();
     // (name, the model's lights (none: the stock "Light, White" placeable),
     // LightState (None: absent), static)
-    let cases: Vec<(&str, Option<Vec<NodeLight>>, Option<u8>, bool)> = vec![
+    type Case<'a> = (&'a str, Option<Vec<NodeLight>>, Option<u8>, bool);
+    let cases: Vec<Case> = vec![
         ("white 5", Some(vec![white]), None, false),
         ("green 15", Some(vec![green]), None, false),
         (
