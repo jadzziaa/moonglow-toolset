@@ -1084,6 +1084,24 @@ doneanim wave m\ndonemodel m\n";
         assert_eq!(again, bytes);
     }
 
+    /// A compiled model keeps all four texture coordinate sets (`tverts`,
+    /// `tverts1`…`tverts3`), each in its own stream, and reads them back.
+    #[test]
+    fn every_texture_coordinate_set_is_written() {
+        let sets = "tverts 4\n    0 0 0\n    1 0 0\n    1 1 0\n    0 1 0\n  \
+                    tverts1 4\n    0.1 0 0\n    0.2 0 0\n    0.2 1 0\n    0.1 1 0\n  \
+                    tverts2 4\n    0.3 0 0\n    0.4 0 0\n    0.4 1 0\n    0.3 1 0\n  \
+                    tverts3 4\n    0.5 0 0\n    0.6 0 0\n    0.6 1 0\n    0.5 1 0\n  ";
+        let text = MODEL.replace("tverts 4\n    0 0 0\n    1 0 0\n    1 1 0\n    0 1 0\n  ", sets);
+        let model = Model::read(text.as_bytes()).unwrap();
+        let bytes = write(&model, &part_numbers(&model, None)).unwrap();
+        let back = Model::read(&bytes).unwrap();
+        let uvs = |m: &Model| m.nodes[m.node("box").unwrap()].mesh().unwrap().uvs.clone();
+        let read = uvs(&back);
+        assert_eq!(read, uvs(&model));
+        assert_eq!(read.map(|s| s.first().copied()), [0.0, 0.1, 0.3, 0.5].map(|u| Some([u, 0.0])));
+    }
+
     #[test]
     fn faces_know_their_planes_and_neighbours() {
         let model = Model::read(MODEL.as_bytes()).unwrap();

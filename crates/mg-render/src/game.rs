@@ -47,8 +47,12 @@ pub(crate) enum Attr {
 }
 
 /// A vertex input of the game's shaders, by the name the engine binds it
-/// to (notes §B.1), from Moonglow's vertex.
-pub(crate) fn attribute(name: &str, skinned: bool) -> Attr {
+/// to (notes §B.1), from Moonglow's vertex; `tangents`: whether the
+/// engine has tangents for the mesh (the model's, or made for a render
+/// hint, the model's or its MTR's), else they are zeros, as the client
+/// feeds a custom shader a mesh without (its normal map then draws black:
+/// `custom_shader_uvs_look` in `client_render.rs`).
+pub(crate) fn attribute(name: &str, skinned: bool, tangents: bool) -> Attr {
     use std::mem::offset_of;
 
     use wgpu::VertexFormat as F;
@@ -57,16 +61,20 @@ pub(crate) fn attribute(name: &str, skinned: bool) -> Attr {
         "vPos" => v(offset_of!(Vertex, pos), F::Float32x3),
         "vNormal" => v(offset_of!(Vertex, normal), F::Float32x3),
         "vTcIn" => v(offset_of!(Vertex, uv), F::Float32x2),
-        "vTangent" => v(offset_of!(Vertex, tangent), F::Float32x3),
+        "vTangent" if tangents => v(offset_of!(Vertex, tangent), F::Float32x3),
         // (The bitangent's sign is the tangent's fourth component.)
-        "fHandedness" => v(offset_of!(Vertex, tangent) + 12, F::Float32),
+        "fHandedness" if tangents => v(offset_of!(Vertex, tangent) + 12, F::Float32),
         // The model's `colors`, which the engine hands to custom shaders.
         "vCustomColor" => v(offset_of!(Vertex, color), F::Unorm8x4),
+        // The other texture coordinate sets (`tverts1`…`tverts3`).
         "vTcIn1" => v(offset_of!(Vertex, uv1), F::Float32x2),
+        "vTcIn2" => v(offset_of!(Vertex, uv2), F::Float32x2),
+        "vTcIn3" => v(offset_of!(Vertex, uv3), F::Float32x2),
         "vIndex" if skinned => Attr::Skin(offset_of!(SkinVertex, bones) as u64, F::Uint32x4),
         "vWeight" if skinned => Attr::Skin(offset_of!(SkinVertex, weights) as u64, F::Float32x4),
         // vColor (the engine's baked per-vertex light), vStaticLightDir,
-        // vTcIn2, vTcIn3, fProjectionFrontal; the bones of a mesh without.
+        // fProjectionFrontal; the bones of a mesh without, the tangents of
+        // a mesh the engine has none for.
         _ => Attr::Zero,
     }
 }
@@ -935,6 +943,8 @@ pub(crate) struct PipelineKey {
     /// The preamble's `NO_DISCARD` for the material ([`no_discard`]).
     pub(crate) no_discard: bool,
     pub(crate) skinned: bool,
+    /// The engine has tangents for the mesh ([`attribute`]).
+    pub(crate) tangents: bool,
     pub(crate) twosided: bool,
     pub(crate) pass: GamePass,
 }
@@ -1531,7 +1541,7 @@ impl Worker {
             let attr = if particles {
                 particle_attribute(&input.name)
             } else {
-                attribute(&input.name, key.skinned)
+                attribute(&input.name, key.skinned, key.tangents)
             };
             match attr {
                 Attr::Vertex(offset, format) => {
@@ -2639,19 +2649,28 @@ mod tests {
     #[test]
     fn vertex_inputs_are_moonglow_s_fields_by_the_engine_s_names() {
         use wgpu::VertexFormat as F;
-        assert_eq!(attribute("vPos", false), Attr::Vertex(0, F::Float32x3));
-        assert_eq!(attribute("vNormal", false), Attr::Vertex(12, F::Float32x3));
-        assert_eq!(attribute("vTcIn", false), Attr::Vertex(24, F::Float32x2));
-        assert_eq!(attribute("vTangent", false), Attr::Vertex(32, F::Float32x3));
-        assert_eq!(attribute("fHandedness", false), Attr::Vertex(44, F::Float32));
-        assert_eq!(attribute("vCustomColor", false), Attr::Vertex(48, F::Unorm8x4));
-        assert_eq!(attribute("vTcIn1", false), Attr::Vertex(52, F::Float32x2));
-        assert_eq!(attribute("vIndex", true), Attr::Skin(0, F::Uint32x4));
-        assert_eq!(attribute("vWeight", true), Attr::Skin(16, F::Float32x4));
-        // A mesh without a skin, the engine's baked light, a third UV set.
-        for name in ["vIndex", "vWeight", "vColor", "vStaticLightDir", "vTcIn2"] {
-            assert_eq!(attribute(name, false), Attr::Zero, "{name}");
+        assert_eq!(attribute("vPos", false, true), Attr::Vertex(0, F::Float32x3));
+        assert_eq!(attribute("vNormal", false, true), Attr::Vertex(12, F::Float32x3));
+        assert_eq!(attribute("vTcIn", false, true), Attr::Vertex(24, F::Float32x2));
+        assert_eq!(attribute("vTangent", false, true), Attr::Vertex(32, F::Float32x3));
+        assert_eq!(attribute("fHandedness", false, true), Attr::Vertex(44, F::Float32));
+        assert_eq!(attribute("vCustomColor", false, true), Attr::Vertex(48, F::Unorm8x4));
+        // (The mesh's `tverts1`, `tverts2` and `tverts3`, each its own.)
+        assert_eq!(attribute("vTcIn1", false, true), Attr::Vertex(52, F::Float32x2));
+        assert_eq!(attribute("vTcIn2", false, true), Attr::Vertex(60, F::Float32x2));
+        assert_eq!(attribute("vTcIn3", true, true), Attr::Vertex(68, F::Float32x2));
+        assert_eq!(attribute("vIndex", true, true), Attr::Skin(0, F::Uint32x4));
+        assert_eq!(attribute("vWeight", true, true), Attr::Skin(16, F::Float32x4));
+        // A mesh without a skin, the engine's baked light.
+        for name in ["vIndex", "vWeight", "vColor", "vStaticLightDir"] {
+            assert_eq!(attribute(name, false, true), Attr::Zero, "{name}");
         }
+        // A mesh the engine has no tangents for (none in the model, no
+        // render hint): zeros, the rest as before.
+        for name in ["vTangent", "fHandedness"] {
+            assert_eq!(attribute(name, false, false), Attr::Zero, "{name}");
+        }
+        assert_eq!(attribute("vTcIn1", false, false), Attr::Vertex(52, F::Float32x2));
         assert_eq!(zero_format(ValueType::Vector(4, Scalar::Float)), Some(F::Float32x4));
         assert_eq!(zero_format(ValueType::Matrix(4, 4)), None);
     }

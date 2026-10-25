@@ -3,7 +3,7 @@ type: Research Note
 title: 'NWN:EE rendering and lighting pipeline: research notes (game 89.8193.37-17)'
 description: The NWN:EE rendering and lighting pipeline read from the stock shaders - shader selection, vertex attributes and uniforms, texture slots, lighting equations, light sources, fog, shadows, gamma and tonemapping, keyholing - every claim tagged with its evidence.
 tags: [rendering, shaders, lighting, renderer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T09:23:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T10:55:51Z }
 sources:
   - id: time-uniforms
     resource: crates/mg-corpus-tests/tests/client_render.rs (time_uniforms_in_the_client), run 2026-10-21 on 89.8193.37-17
@@ -192,11 +192,11 @@ Derived in `inc_common` / `inc_config`:
 |---|---|---|
 | `vPos` | vec4 | position. [WIKI]: since 1.89.8193.37 static geometry has position and orientation **baked into the vertex data in world space** ([CL] .37-13 "Baked static geometry position and orientation in to GPU vertex data"), so `m_mv` for such meshes is effectively the view matrix [INF] |
 | `vTcIn` | vec2 | UV set 0 (`tverts`) |
-| `vTcIn1..3` | vec2 | `tverts1..3` (since 1.74.8159). Not used by stock shaders. **Base tiles have no second UV set and no lightmaps** (checked tno01_a01_01, ttr01_a01_01) |
+| `vTcIn1..3` | vec2 | `tverts1..3` (since 1.74.8159). Not used by stock shaders. **Base tiles have no second UV set and no lightmaps** (checked tno01_a01_01, ttr01_a01_01). [CLIENT] A set the model doesn't have reads zeros (`custom_shader_uvs_look`, 2026-10-25) |
 | `vColor` | vec4 | **engine-generated baked static lighting per vertex** (used when `staticLighting==1`, vertex-lit path). Not the MDL `colors` |
 | `vCustomColor` | vec4 | MDL trimesh `colors` (RGB). Stock shaders ignore it |
 | `vNormal` | vec3 | normal |
-| `vTangent` | vec3 | tangent (renderhint / compiled TSB) |
+| `vTangent` | vec3 | tangent (renderhint / compiled TSB). [CLIENT] Without either, zeros: a custom pair using the stock normal mapping draws such a mesh black (`custom_shader_uvs_look`) |
 | `fHandedness` | float | bitangent sign |
 | `vIndex` | vec4 | 4 bone indices (float → int) |
 | `vWeight` | vec4 | 4 bone weights (skipped when ≤0) |
@@ -771,7 +771,7 @@ See C and D.5.
 - Static tile geometry is combined into buckets and baked into world-space vertex data ([CL] .37).
 
 ### Vertex colours
-- MDL `colors` → `vCustomColor`, unused by stock shaders. Moonglow uploads them and `tverts1` (not `tverts2–3`) but uses them only for the custom shader pairs it knows (`vertexalpha_*`, `mzlm_*`: `mg-render/src/renderer.rs` `Effect`), so otherwise it draws as the stock shaders do; tangents it uploads where the model has them (§ normal map TSB above), else it takes the frame from screen-space derivatives.
+- MDL `colors` → `vCustomColor`, unused by stock shaders. Moonglow uploads them and `tverts1–3` (`tverts2–3` after 2.5.3: until then zeros, which drew a builder's walls of `tverts2` one flat color with the Shaders switch on); its own shader uses them only for the custom shader pairs it knows (`vertexalpha_*`, `mzlm_*`: `mg-render/src/renderer.rs` `Effect`), so otherwise it draws as the stock shaders do; tangents it uploads where the model has them (§ normal map TSB above), else it takes the frame from screen-space derivatives.
 - `vColor` = engine-baked static lighting (vertex-lit mode only).
 
 ### PLT (`fs_pltgen`)

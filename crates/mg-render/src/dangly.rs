@@ -171,6 +171,8 @@ mod tests {
                 tangent: [0.0; 4],
                 color: [255; 4],
                 uv1: [0.0; 2],
+                uv2: [0.0; 2],
+                uv3: [0.0; 2],
             })
             .collect();
         DanglyMesh {

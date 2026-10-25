@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-24T23:51:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T10:55:51Z }
 ---
 
 # Areas
@@ -67,7 +67,15 @@ looking straight down at their middle, north up, as in Aurora.
   the game's own programs, each mesh with the one the game chooses for
   it (a decal unlit, a reflecting mesh's, a normal-mapped one's where
   its model or material has a render hint), with a hak's changes to them
-  (a hak that replaces `inc_lighting` lights every surface its way). What moves by
+  (a hak that replaces `inc_lighting` lights every surface its way). A
+  custom shader gets what the game gives it: the MTR's `parameter` lines
+  as its uniforms, every texture coordinate set of the model (`tverts`,
+  `tverts1`, `tverts2`, `tverts3`, its `vTcIn`…`vTcIn3`; zeros for a set
+  the model doesn't have), and tangents only where the model has them or
+  a render hint (the model's or the MTR's): without, a normal map draws
+  black, as in the game. (A uniform a script sets in the game, with
+  `SetMaterialShaderUniformInt` and the like, keeps the MTR's value
+  here.) What moves by
   itself moves while the view is open. The wind is the area's (Area
   Properties › Wind Power), the indoor and outdoor flags its own. Off,
   Moonglow draws with its own shader, which looks like the game's stock

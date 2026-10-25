@@ -52,6 +52,8 @@ use common::{SETTINGS, client_screenshot, compile, save_png};
 
 #[path = "client_render/programs.rs"]
 mod programs;
+#[path = "client_render/uv_sets.rs"]
+mod uv_sets;
 
 /// The scripted camera: facing (degrees anticlockwise from east).
 const FACING: f32 = 90.0;

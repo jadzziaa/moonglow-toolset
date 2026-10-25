@@ -26,8 +26,12 @@ pub struct Vertex {
     /// The model's vertex color (`colors`), white without: the game hands
     /// it to custom shaders alone (`vCustomColor`).
     pub color: [u8; 4],
-    /// The second texture coordinates (`tverts1`), zero without.
+    /// The other texture coordinate sets (`tverts1`, `tverts2`,
+    /// `tverts3`), zero without (as the client feeds a custom shader's
+    /// `vTcIn1`…`vTcIn3` for a set the mesh doesn't have).
     pub uv1: [f32; 2],
+    pub uv2: [f32; 2],
+    pub uv3: [f32; 2],
 }
 
 impl Vertex {
@@ -328,6 +332,8 @@ pub fn mesh_vertices(m: &Mesh) -> Vec<Vertex> {
             tangent: tangents.get(v).copied().unwrap_or([0.0; 4]),
             color: m.colors.get(v).copied().unwrap_or([255; 4]),
             uv1: m.uvs[1].get(v).copied().unwrap_or([0.0, 0.0]),
+            uv2: m.uvs[2].get(v).copied().unwrap_or([0.0, 0.0]),
+            uv3: m.uvs[3].get(v).copied().unwrap_or([0.0, 0.0]),
         })
         .collect()
 }
@@ -391,6 +397,34 @@ mod tests {
         own.tangents = vec![[0.0, 1.0, 0.0, -1.0]; 4];
         assert!(mesh_vertices(&own).iter().all(|v| v.tangent == [0.0, 1.0, 0.0, -1.0]));
         assert!(mesh_vertices(&up).iter().all(|v| v.tangent[0] > 0.99));
+    }
+
+    /// Every texture coordinate set of a mesh is uploaded (a custom
+    /// shader's `vTcIn1`…`vTcIn3`), and a set the mesh doesn't have is
+    /// zero, as the client feeds it (`custom_shader_uvs_look` in
+    /// `client_render.rs`): the third and fourth were zero for every
+    /// mesh up to 2.5.3, which drew a builder's walls of `tverts2` in
+    /// one flat color.
+    #[test]
+    fn every_texture_coordinate_set_is_uploaded() {
+        let set = |k: f32| (0..3).map(|v| [k, v as f32]).collect::<Vec<_>>();
+        let mesh = |uvs: [Vec<[f32; 2]>; 4]| Mesh {
+            vertices: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            normals: vec![[0.0, 0.0, 1.0]; 3],
+            uvs,
+            faces: vec![mg_mdl::Face { vertices: [0, 1, 2], material: 0 }],
+            ..Default::default()
+        };
+        let all = mesh_vertices(&mesh([set(0.0), set(1.0), set(2.0), set(3.0)]));
+        for (v, vertex) in all.iter().enumerate() {
+            let y = v as f32;
+            assert_eq!(
+                [vertex.uv, vertex.uv1, vertex.uv2, vertex.uv3],
+                [[0.0, y], [1.0, y], [2.0, y], [3.0, y]]
+            );
+        }
+        let two = mesh_vertices(&mesh([set(0.0), set(1.0), vec![], vec![]]));
+        assert!(two.iter().all(|v| v.uv1[0] == 1.0 && v.uv2 == [0.0; 2] && v.uv3 == [0.0; 2]));
     }
 
     /// A node that names a parent after itself (no model of the game's
