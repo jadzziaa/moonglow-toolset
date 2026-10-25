@@ -7981,6 +7981,116 @@ fn the_area_view_s_shaders_switch_draws_with_the_game_s_shaders() {
     assert_eq!(drawn(&h).game, 0);
 }
 
+/// The mean colour and the mean saturation (HSV, 0 to 1) of a picture.
+fn mean_and_saturation(img: &image::RgbaImage) -> ([f64; 3], f64) {
+    let (mut sum, mut sat) = ([0f64; 3], 0f64);
+    for p in img.pixels() {
+        for (c, s) in sum.iter_mut().enumerate() {
+            *s += f64::from(p[c]);
+        }
+        let (max, min) = (p[0].max(p[1]).max(p[2]), p[0].min(p[1]).min(p[2]));
+        if max > 0 {
+            sat += f64::from(max - min) / f64::from(max);
+        }
+    }
+    let n = f64::from(img.width() * img.height()).max(1.0);
+    (sum.map(|s| s / n), sat / n)
+}
+
+/// A stock interior lit (by default the Chapter 1 smithy, `pensmithy1`:
+/// `tin01`, its tiles' lights and the night's; `MG_INTERIOR=module.nwm:area`
+/// another) looks alike in the area view with the Shaders switch on (the
+/// game's own shaders) and off (Moonglow's): the same colours and as
+/// saturated, to within a level of 255. A builder saw the view darker,
+/// grayer and colder with the switch on (Heed, on 2.5.1); with the stock
+/// shaders it isn't (the client agrees with both: `area_lighting_look`
+/// in `client_render.rs`), and a hak's or the override's `inc_lighting`
+/// (as The Domains of Dread's diffuse wrap) is what changes the switch's
+/// side alone, as it changes the game's. Pictures in
+/// `target/test-output/ui-interior-shaders/`.
+#[test]
+fn a_stock_interior_looks_alike_with_the_shaders_on_and_off() {
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let which = std::env::var("MG_INTERIOR").unwrap_or_else(|_| "Chapter1.nwm:pensmithy1".into());
+    let (file, name) = which.split_once(':').expect("module.nwm:area");
+    let source = mg_module::Module::open(&root.join("data/nwm").join(file)).unwrap();
+    let from = ResRef::from_str(name).unwrap();
+    let are = source.gff(&ResKey::new(from, ResType::ARE)).unwrap().unwrap();
+    let tileset = are.root.resref("Tileset").unwrap().to_string();
+    let side = are.root.int("Width").unwrap().max(are.root.int("Height").unwrap()) as u32;
+    // The area made the stock one (under its own name, its scripts and
+    // creatures left out: they walk), lit as it is.
+    let prepare = |m: &mut mg_module::Module, _: &mg_rules::GameData, area: ResRef| {
+        let read = |t| source.gff(&ResKey::new(from, t)).unwrap().unwrap();
+        let (mut are, mut git) = (read(ResType::ARE), read(ResType::GIT));
+        are.root.set("ResRef", mg_gff::Value::resref(area));
+        for label in ["OnEnter", "OnExit", "OnHeartbeat", "OnUserDefined"] {
+            are.root.set(label, mg_gff::Value::resref(ResRef::EMPTY));
+        }
+        git.root.set("Creature List", mg_gff::Value::List(Vec::new()));
+        m.set_gff(ResKey::new(area, ResType::ARE), &are).unwrap();
+        m.set_gff(ResKey::new(area, ResType::GIT), &git).unwrap();
+    };
+    let Some((mut h, area)) =
+        area_harness_with("interior-shaders", &tileset, None, side, None, &prepare)
+    else {
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-interior-shaders");
+    let (w, d) = (are.root.int("Width").unwrap() as f32, are.root.int("Height").unwrap() as f32);
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        assert!(view.lit, "lit at first");
+        view.grid = false;
+        if let Some(o) = view.orbit.as_mut() {
+            o.target = glam::Vec3::new(w * 5.0, d * 5.0, 0.0);
+            (o.distance, o.pitch, o.yaw) = (22.0, 0.85, (-90f32).to_radians());
+        }
+    }
+    let picture = |h: &mut Harness<'_, Moonglow>, on: bool| {
+        h.state_mut().settings.game_shaders = Some(on);
+        h.hover_at(egui::pos2(5.0, 5.0));
+        h.run_steps(3);
+        if on {
+            until_the_game_draws(h);
+            let vp = h.state().viewport.as_ref().unwrap();
+            assert_eq!(vp.renderer.game_shader_failures(), &[]);
+        } else {
+            h.run_steps(3);
+        }
+        let r = h.state().area_views[&area].rect;
+        let img = h.render().expect("render");
+        let img = image::imageops::crop_imm(
+            &img,
+            r.min.x as u32 + 8,
+            r.min.y as u32 + 8,
+            r.width() as u32 - 16,
+            r.height() as u32 - 16,
+        )
+        .to_image();
+        img.save(dir.join(if on { "on.png" } else { "off.png" })).unwrap();
+        img
+    };
+    let (off, on) = (picture(&mut h, false), picture(&mut h, true));
+    let ((a, sa), (b, sb)) = (mean_and_saturation(&off), mean_and_saturation(&on));
+    eprintln!(
+        "{which}: Shaders off ({:.1}, {:.1}, {:.1}) saturation {sa:.3}; on ({:.1}, {:.1}, {:.1}) \
+         saturation {sb:.3}; {}",
+        a[0],
+        a[1],
+        a[2],
+        b[0],
+        b[1],
+        b[2],
+        dir.display()
+    );
+    assert!(a.iter().sum::<f64>() > 30.0, "lit, not dark: {a:?}");
+    for c in 0..3 {
+        assert!((a[c] - b[c]).abs() < 1.0, "channel {c}: off {a:?}, on {b:?}");
+    }
+    assert!((sa - sb).abs() < 0.01, "saturation: off {sa}, on {sb}");
+}
+
 /// The area view with The Domains of Dread's tileset and shaders (its haks
 /// where `MOONGLOW_HAKS` has them, linked into a scratch user folder; the
 /// haks themselves untouched; skipped without): a field of `mst04` tiles

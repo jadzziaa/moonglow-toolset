@@ -255,6 +255,31 @@ pub(crate) const SETTINGS: &str = r#"[graphics]
 			mode = 8
 "#;
 
+/// The game client's settings as a player has them: its defaults (bloom,
+/// high contrast, sharpen, ambient occlusion and vibrance on; "Performance"
+/// shaders) with no splash or movies, and with `quality` as the shader
+/// quality, `max_lights` and the anisotropic filtering of the project's
+/// owner when `owner` (2026-10: "High Quality", 64 lights, 16×). Keyholing,
+/// highlights and tile borders are off in both, so that the pictures
+/// compare.
+#[allow(dead_code)]
+pub(crate) fn player_settings(owner: bool) -> String {
+    let (quality, lights, aniso) =
+        if owner { ("High Quality", 64, 16) } else { ("Performance", 32, 1) };
+    format!(
+        "[graphics]\n\
+         \t[graphics.general]\n\t\tshader-quality = \"{quality}\"\n\
+         \t[graphics.hilite]\n\t\tenabled = false\n\
+         \t[graphics.intro]\n\t\t[graphics.intro.splash]\n\t\t\tenabled = false\n\
+         \t[graphics.keyholing]\n\t\tenabled = false\n\
+         \t[graphics.lighting]\n\t\tmax-lights = {lights}\n\
+         \t[graphics.movies]\n\t\tenabled = false\n\
+         \t\t[graphics.movies.intro]\n\t\t\tenabled = false\n\
+         \t[graphics.tile-borders]\n\t\tenabled = false\n\
+         \t[graphics.video]\n\t\t[graphics.video.anisotropic-filtering]\n\t\t\tmode = {aniso}\n"
+    )
+}
+
 #[allow(dead_code)]
 pub(crate) fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")

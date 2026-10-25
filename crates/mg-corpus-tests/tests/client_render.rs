@@ -294,6 +294,51 @@ fn picture_difference(client: &Rgba, ours: &Rgba) -> f64 {
     sum / n.max(1.0)
 }
 
+/// The mean colour and the mean saturation (HSV, 0 to 1) of a rectangle
+/// (fractions of the image, top-left origin).
+fn mean_and_saturation(img: &Rgba, r: [f32; 4]) -> ([f32; 3], f32) {
+    let (w, h) = (img.width as f32, img.height as f32);
+    let (mut sum, mut sat, mut n) = ([0f64; 3], 0f64, 0f64);
+    for y in (r[1] * h) as u32..(r[3] * h) as u32 {
+        for x in (r[0] * w) as u32..(r[2] * w) as u32 {
+            let i = (y as usize * img.width as usize + x as usize) * 4;
+            let p = &img.data[i..i + 3];
+            for (c, s) in sum.iter_mut().enumerate() {
+                *s += f64::from(p[c]);
+            }
+            let (max, min) =
+                (p.iter().max().copied().unwrap_or(0), p.iter().min().copied().unwrap_or(0));
+            if max > 0 {
+                sat += f64::from(max - min) / f64::from(max);
+            }
+            n += 1.0;
+        }
+    }
+    let n = n.max(1.0);
+    (sum.map(|s| (s / n) as f32), (sat / n) as f32)
+}
+
+/// The pictures' mean colours and saturations, over the picture clear of
+/// the game's GUI and over each of a 3×3 grid of it, printed one line a
+/// region: the client's beside each of Moonglow's.
+fn region_report(what: &str, pictures: &[(&str, &Rgba)]) {
+    let mut regions = vec![("whole".to_string(), [0.1, 0.1, 0.9, 0.7])];
+    for row in 0..3 {
+        for column in 0..3 {
+            let (x, y) = (0.1 + column as f32 * 0.8 / 3.0, 0.1 + row as f32 * 0.6 / 3.0);
+            regions.push((format!("r{row}{column}"), [x, y, x + 0.8 / 3.0, y + 0.2]));
+        }
+    }
+    for (region, rect) in regions {
+        let mut line = format!("{what} {region:5}");
+        for (name, img) in pictures {
+            let (m, s) = mean_and_saturation(img, rect);
+            line += &format!(" | {name} ({:5.1}, {:5.1}, {:5.1}) S {s:.3}", m[0], m[1], m[2]);
+        }
+        eprintln!("{line}");
+    }
+}
+
 /// Moonglow's pictures of a scene with the Shaders switch off (its own
 /// shader: `{name}.png`) and on (the game's: `{name}_on.png`), and how far
 /// each is from the client's ([`picture_difference`]), printed.
@@ -312,6 +357,10 @@ fn off_and_on(
     let off = r.render_image(gpu, &game.resman, scene, camera, w, h);
     r.game_shaders = true;
     let on = r.render_image(gpu, &game.resman, scene, camera, w, h);
+    eprintln!(
+        "{name}: Shaders on drew {} of {} meshes with the game's programs",
+        r.drawn.game, r.drawn.meshes
+    );
     save_png(&off, &dir.join(format!("{name}.png")));
     save_png(&on, &dir.join(format!("{name}_on.png")));
     if let Some(c) = client {
@@ -323,6 +372,9 @@ fn off_and_on(
             picture_difference(c, &on),
             r.game_shader_failures()
         );
+        if std::env::var_os("MG_REGIONS").is_some() {
+            region_report(name, &[("client", c), ("off", &off), ("on", &on)]);
+        }
     }
 }
 
@@ -2311,7 +2363,29 @@ fn tdod_custom_shaders_look() {
 /// the folders of `MOONGLOW_HAKS`, highest first). The area's creatures
 /// are left out (they walk), its placeables, doors and sounds kept. The
 /// pictures go to `target/test-output/client_area_lighting/`, with the
-/// mean difference from the client's printed.
+/// mean difference from the client's printed; `MG_REGIONS` prints the
+/// mean colours and saturations of a 3×3 grid of regions besides.
+/// `MG_CLIENT_SETTINGS=owner` runs the client as the project's owner
+/// plays (its post effects on, High Quality, 64 lights) and `default` at
+/// its defaults (Performance), instead of the tests' settings.
+/// `MG_MUTATE` paints Moonglow's game-shader picture magenta (the
+/// override's `inc_standard`, after the client ran): that the game's
+/// programs draw it.
+///
+/// Seen on 2026-10-25 (Heed's report that the game's shaders drew an
+/// interior darker, grayer and colder than Moonglow's own): in seven
+/// stock interiors (the Chapter 1 and XP1 smithies, the Crack'd Anvil,
+/// the Yawning Portal, the prison's main floor, a `tdc01` crypt and a
+/// `tdm01` mine, from 2 to 111 lights) Moonglow's two shaders drew the
+/// same picture (130 pixels of 786,432 apart in the XP1 smithy, by at most
+/// 4 of 255), within 2.5 to 15 of 255 of the client's, at the tests'
+/// settings, the owner's and the defaults alike (the post effects make
+/// the client's picture a little more saturated: 0.02 to 0.07). Where the
+/// difference is large the client leaves out rooms it can't see from the
+/// player's tile (the tileset's visibility), which Moonglow draws, as
+/// Aurora does. With The Domains of Dread's `inc_lighting` (a diffuse
+/// wrap) in a hak, the game's shaders draw a tenth darker, as the client
+/// does, and Moonglow's own as before.
 #[test]
 #[ignore]
 fn area_lighting_look() {
@@ -2328,7 +2402,15 @@ fn area_lighting_look() {
     let area_name = std::env::var("MG_AREA").unwrap_or_else(|_| "pensmithy1".into());
     let dir = scratch_dir("client_area_lighting");
     std::fs::create_dir_all(dir.join("user/hak")).unwrap();
-    std::fs::write(dir.join("user/settings.tml"), SETTINGS).unwrap();
+    // `MG_CLIENT_SETTINGS`: `owner` (as the project's owner plays) or
+    // `default` (the client's defaults) instead of the tests' settings
+    // (the post effects Moonglow doesn't draw off).
+    let settings = match std::env::var("MG_CLIENT_SETTINGS").as_deref() {
+        Ok("owner") => common::player_settings(true),
+        Ok("default") => common::player_settings(false),
+        _ => SETTINGS.to_string(),
+    };
+    std::fs::write(dir.join("user/settings.tml"), settings).unwrap();
     let haks: Vec<String> = std::env::var("MG_AREA_HAKS")
         .map(|v| v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
         .unwrap_or_default();
@@ -2431,6 +2513,17 @@ fn area_lighting_look() {
         save_png(c, &dir.join("client.png"));
     }
     // Moonglow's area view of the same area.
+    if std::env::var_os("MG_MUTATE").is_some() {
+        let src = game.resman.get_named("inc_standard", ResType::SHD).unwrap();
+        let src = String::from_utf8_lossy(&src).replace(
+            "\tApplyDebugModeOutput(FragmentColor);\n}",
+            "\tApplyDebugModeOutput(FragmentColor);\n\tFragmentColor = vec4(1.0, 0.0, 1.0, 1.0);\n}",
+        );
+        std::fs::create_dir_all(dir.join("user/override")).unwrap();
+        std::fs::write(dir.join("user/override/inc_standard.shd"), src).unwrap();
+        game = GameData::open(&install).unwrap();
+        game.resman.add_haks(&install, &haks).unwrap();
+    }
     let tileset = mg_area::tileset(&game, spec.tileset).ok();
     let model = mg_area::AreaModel::read(&game, &are.root, &git.root, tileset.as_ref());
     let area_scene = mg_area::AreaScene::new(&gpu, &game, &model);
@@ -2698,15 +2791,26 @@ fn model_light_uniforms() {
     }
 }
 
-/// Exploration: placeables whose appearance reflects the area's
-/// environment map (placeables.2da `Reflection` `default`), static and
-/// not, in a lit interior of each
-/// tileset of `MG_ENV_TILESETS` (by default `tin01`, whose map is a
-/// copper brown, and `tic01`, a gray one), in the client beside
-/// Moonglow's area view (the tileset's map) and beside the same scene
-/// with no area map (`chrome1`, as the Preview window has it). The
+/// Exploration: placeables whose appearance reflects an environment map
+/// (placeables.2da `Reflection` `default` or named) and one whose texture
+/// does (TXI `envmaptexture default`), static and not, in a lit interior
+/// of each tileset of `MG_ENV_TILESETS` (by default `tin01`, whose map is
+/// a copper brown, and `tic01`, a gray one), in the client beside
+/// Moonglow's area view (the tileset's map the area's) and beside the
+/// same scene with no area map (`chrome1` for every `default`). The
 /// pictures go to `target/test-output/client_env_<tileset>/`.
-/// `MG_ENV_ROWS` gives other appearances (comma-separated).
+/// `MG_ENV_ROWS` gives other appearances (comma-separated);
+/// `MG_ENV_SHAPE=sphere` makes the models spheres (a reflection shows all
+/// of its map); `MG_ENV_PAINT` paints every environment-mapped mesh with
+/// the map bound to it, in the client and Moonglow's game path alike;
+/// `MG_ENV_CREATURE=row` adds a creature of that appearance, a sphere.
+///
+/// Seen on 2026-10-25, the spheres painted: a placeable that isn't static
+/// and whose `Reflection` is `default` is bound `chrome1` (silver) in
+/// `tin01` and `tic01` alike; a texture's `envmaptexture default` (the
+/// armoire's) and a creature's `ENVMAP` `default` (the bone golem's) the
+/// tileset's map (copper in `tin01`). Flat cards facing the camera, as at
+/// first, reflect one dark spot of either.
 #[test]
 #[ignore]
 fn area_env_map_look() {
@@ -2751,6 +2855,44 @@ fn area_env_map_look() {
              endnode\nendmodelgeom {name}\ndonemodel {name}\n"
         )
     };
+    // `MG_ENV_SHAPE=sphere`: spheres a metre across instead of cards, so
+    // that a reflection shows all of its map, as on a curved piece of
+    // armor, not one spot of it.
+    let sphere = |name: &str, texture: &str| {
+        let (rings, segments) = (16usize, 24usize);
+        let (mut verts, mut tverts, mut faces) = (String::new(), String::new(), String::new());
+        for i in 0..=rings {
+            let v = i as f32 / rings as f32;
+            let theta = v * std::f32::consts::PI;
+            for j in 0..=segments {
+                let u = j as f32 / segments as f32;
+                let phi = u * std::f32::consts::TAU;
+                let (x, y, z) = (theta.sin() * phi.cos(), theta.sin() * phi.sin(), theta.cos());
+                verts += &format!("    {} {} {}\n", x * 0.5, y * 0.5, 1.2 + z * 0.5);
+                tverts += &format!("    {u} {} 0\n", 1.0 - v);
+            }
+        }
+        let mut n = 0;
+        for i in 0..rings {
+            for j in 0..segments {
+                let a = i * (segments + 1) + j;
+                let (b, c, d) = (a + segments + 1, a + segments + 2, a + 1);
+                faces +=
+                    &format!("    {a} {b} {c} 1 {a} {b} {c} 0\n    {a} {c} {d} 1 {a} {c} {d} 0\n");
+                n += 2;
+            }
+        }
+        let count = (rings + 1) * (segments + 1);
+        format!(
+            "newmodel {name}\nsetsupermodel {name} NULL\nclassification character\n\
+             setanimationscale 1\nbeginmodelgeom {name}\nnode dummy {name}\n  parent NULL\nendnode\n\
+             node trimesh ball\n  parent {name}\n  position 0 0 0\n  orientation 0 0 0 0\n  \
+             ambient 1 1 1\n  diffuse 1 1 1\n  specular 0 0 0\n  shininess 1\n  bitmap {texture}\n  \
+             render 1\n  shadow 0\n  verts {count}\n{verts}  tverts {count}\n{tverts}  faces {n}\n{faces}\
+             endnode\nendmodelgeom {name}\ndonemodel {name}\n"
+        )
+    };
+    let spheres = std::env::var("MG_ENV_SHAPE").is_ok_and(|s| s == "sphere");
     let gray = |alpha: u8| {
         let mut t = vec![0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16, 0, 16, 0, 32, 8];
         t.extend(std::iter::repeat_n([160u8, 160, 160, alpha], 256).flatten());
@@ -2782,18 +2924,60 @@ fn area_env_map_look() {
             }
         }
         git.root.set("Placeable List", Value::List(placed));
-        m.set_gff(git_key, &git).unwrap();
         std::fs::create_dir_all(dir.join("user/override")).unwrap();
+        // `MG_ENV_CREATURE=row`: a creature of that appearance (appearance.2da
+        // `ENVMAP`), its model made a sphere of the fully reflecting gray,
+        // just west of the player.
+        let creature_row =
+            std::env::var("MG_ENV_CREATURE").ok().and_then(|r| r.parse::<u32>().ok());
+        if let Some(row) = creature_row {
+            let utc = ResKey::parse("nw_bat", ResType::UTC).unwrap();
+            let mut c = Gff::read(&game.resman.get(&utc).unwrap()).unwrap().root;
+            c.set("Appearance_Type", Value::Word(row as u16));
+            let scripts: Vec<String> = c
+                .fields
+                .iter()
+                .map(|f| f.label.to_string_lossy())
+                .filter(|l| l.starts_with("Script"))
+                .collect();
+            for label in scripts {
+                c.set(&label, Value::resref(ResRef::EMPTY));
+            }
+            let at = Placement { position: [17.0, 21.5, 0.0], rotation: 0.0 };
+            git.root.set(
+                "Creature List",
+                Value::List(vec![instance(&placing, ResType::UTC, &c, at, &[]).unwrap()]),
+            );
+            let appearance = game.table("appearance").unwrap();
+            let model = appearance.get(row as usize, "RACE").unwrap().to_ascii_lowercase();
+            std::fs::write(
+                dir.join(format!("user/override/{model}.mdl")),
+                sphere(&model, "mgshinyc"),
+            )
+            .unwrap();
+            std::fs::write(dir.join("user/override/mgshinyc.tga"), gray(0)).unwrap();
+        }
+        m.set_gff(git_key, &git).unwrap();
         std::fs::write(dir.join("user/settings.tml"), SETTINGS).unwrap();
+        // `MG_ENV_PAINT`: every environment-mapped mesh painted with the map
+        // bound to it, laid out by its texture coordinates (the client and
+        // Moonglow's game path both read this `inc_standard`): which map it
+        // is, plain to see.
+        if std::env::var_os("MG_ENV_PAINT").is_some() {
+            let src = game.resman.get_named("inc_standard", ResType::SHD).unwrap();
+            let src = String::from_utf8_lossy(&src).replace("\r\n", "\n").replace(
+                "\tApplyDebugModeOutput(FragmentColor);\n}",
+                "\tApplyDebugModeOutput(FragmentColor);\n#if SHADER_TYPE == 2 && ENVIRONMENT_MAP == 1\n\
+                 \tFragmentColor = vec4(texture(texUnitEnv, vTexCoords.xy).rgb, 1.0);\n#endif\n}",
+            );
+            std::fs::write(dir.join("user/override/inc_standard.shd"), src).unwrap();
+        }
         for &(row, alpha, txi) in &cards {
             if rows.contains(&row) {
                 let model = model_of(row);
                 let texture = format!("mgshiny{row}");
-                std::fs::write(
-                    dir.join(format!("user/override/{model}.mdl")),
-                    card(&model, &texture),
-                )
-                .unwrap();
+                let shape = if spheres { sphere(&model, &texture) } else { card(&model, &texture) };
+                std::fs::write(dir.join(format!("user/override/{model}.mdl")), shape).unwrap();
                 std::fs::write(dir.join(format!("user/override/{texture}.tga")), gray(alpha))
                     .unwrap();
                 if txi {
