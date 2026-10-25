@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T01:37:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T21:19:15Z }
 ---
 
 # The main window
@@ -101,6 +101,22 @@ changes them; the menus show the current keys.
 **Ctrl and a digit** goes to the main pane's tab of that number (Ctrl+9:
 its last), except while you type in a text field (in the script editor
 Ctrl and a digit is a bookmark). These are not in the Options.
+
+**Copy, cut and paste** have two keys each, the usual ones and the
+classic ones Aurora and Windows programs also take:
+
+| Keys | Command |
+| --- | --- |
+| Ctrl+C, Ctrl+Insert | Copy |
+| Ctrl+X, Shift+Delete | Cut |
+| Ctrl+V, Shift+Insert | Paste |
+
+They work wherever there is something to copy: text fields and the
+script editor, objects in the area viewer (with the pointer over it),
+conversation lines, items in an inventory, cells in the 2DA editor and
+elements of a NUI window. Shift+Delete always cuts, into the clipboard:
+where Delete alone deletes (the area viewer's selection), Shift+Delete
+does not. These keys are not in the Options either.
 
 The area viewer and the editors have their own keys; their chapters list
 them.
