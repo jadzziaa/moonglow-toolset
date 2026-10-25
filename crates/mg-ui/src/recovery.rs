@@ -191,6 +191,12 @@ impl Moonglow {
         use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
         let Err(panic) = catch_unwind(AssertUnwindSafe(|| frame(self))) else { return };
         if !self.settings.no_autosave && self.has_unsaved_work() {
+            // (After a copy being written in the background, if one is: the
+            // two would write one temporary file. A few seconds at most.)
+            let until = std::time::Instant::now() + Duration::from_secs(5);
+            while self.autosave.busy.load(Ordering::Acquire) && std::time::Instant::now() < until {
+                std::thread::sleep(Duration::from_millis(10));
+            }
             // (A copy that fails, or panics too, leaves the crash as it was.)
             match catch_unwind(AssertUnwindSafe(|| self.write_recovery())) {
                 Ok(Ok(path)) => {

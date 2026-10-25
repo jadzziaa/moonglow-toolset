@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T21:15:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T21:20:26Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -805,8 +805,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   with its − button while a line in it is selected leaves the selection
   out of sight (Windows selects the folded line); the keys then go from
   Root. Delete and the other commands' keys still want the pointer over
-  the editor, as before; the arrows don't. (S) (Sacha's report,
-  2026-10-25)
+  the editor, as before; the arrows don't. With a non-text widget in
+  focus (Tab out of the Text field), an arrow also moves egui's focus.
+  (S) (Sacha's report, 2026-10-25)
+- **Opening a conversation doesn't give it the keys:** opened from the
+  module tree (Enter, a double click), the keys stay the tree's until a
+  click in the editor, so Delete then still asks to delete the whole
+  conversation (now without a crash, and undoable). Aurora puts the
+  keyboard in the conversation it opens: should Moonglow? (S) (Sacha's
+  report, 2026-10-25)
 
 ## Palettes
 
