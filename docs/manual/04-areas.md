@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-24T23:51:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T11:15:57Z }
 ---
 
 # Areas
@@ -214,14 +214,16 @@ they turn together. **Turn** on the
 toolbar snaps it. **Tools › Options › Area** switches the ring off.
 
 **The tilt rings**: hold **Shift** and two upright rings take the turning
-ring's place, red and green. Lead the red one round to tilt the model
-about its X axis, the green one about its Y axis; the angle shows in
-degrees, and **Turn** snaps it. This is the rotation of EE's visual
-transform (the one **Adjust Location…** has as numbers), so it is the
+ring's place, red and green. Lead the red one round to tip the model
+about its X axis, the green one to lean it about its Y axis; the angle
+shows in degrees, and **Turn** snaps it. This is the rotation of EE's
+visual transform (the one **Adjust Location…** has as numbers): the red
+ring sets its **Y Rotation** and the green one its **Z Rotation**, which
+is how the game reads them (see Adjust Location below). It is the
 model that tilts, not the object: what it blocks stays as it was.
 Creatures, items, doors and placeables that aren't **Static** have the
-rings; a static placeable has no visual transform in the game, and its
-right-click menu has **Make Dynamic** to clear Static. A dynamic one's
+rings; the game draws a static placeable without its visual transform,
+and its right-click menu has **Make Dynamic** to clear Static. A dynamic one's
 has **Make Static**, which also takes its visual transform away, as
 Aurora does. (The game draws static placeables, and finds paths around
 them, more cheaply: keep scenery that needn't tilt static.) A ring
@@ -302,9 +304,25 @@ places and turns around it.
 Aurora):
 
 - **Adjust Location…**: an exact position and bearing, and the visual
-  transform that EE added (scale, rotation about each axis and offset)
-  for creatures, doors, items and placeables that aren't Static (a static
-  placeable has none, as in Aurora).
+  transform that EE added (scale, rotation and offset of the model) for
+  creatures, doors, items and placeables that aren't Static. **OK**
+  sets what you changed and closes the window, **Apply** sets it and
+  keeps the window open; each is one step to undo. The rotations are
+  named as Aurora names them and the game reads them, which is not by
+  the axis each turns about: **X Rotation** turns the model about its
+  upright axis (as Bearing does), **Y Rotation** tips it forward or
+  back about its own X axis (east at Bearing 0), and **Z Rotation**
+  leans it to one side about its own Y axis; the game makes them in
+  that order, X outermost. **Scale** scales the model every way alike
+  (the game reads one number), and the offsets move it along the
+  object's own axes, turned by its Bearing but not by the rotations.
+  The area view draws all of this as the game client does. A static
+  placeable is offered none, as in Aurora: the game draws a static
+  placeable without its visual transform, whatever its file has (the
+  server keeps it, but players don't see it). The window says so, and
+  that a static placeable's own transform is kept but not drawn;
+  untick **Static** in its Properties to transform it. Verify warns of
+  a static placeable whose file has one (`static-transform`).
 - **Random Facing**: turns each selected object to face a way of its
   own, at random (by the snap angle, if one is set): for trees and rocks
   placed in numbers.

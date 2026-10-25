@@ -192,7 +192,7 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
 /// draws a static placeable without a visual transform (merged into the
 /// area's tiles), whatever its file has, so none is offered for one;
 /// `None` when none is chosen.
-pub(crate) fn static_note(a: &AdjustLocation) -> Option<String> {
+pub fn static_note(a: &AdjustLocation) -> Option<String> {
     if a.fixed == 0 {
         return None;
     }
@@ -208,11 +208,12 @@ pub(crate) fn static_note(a: &AdjustLocation) -> Option<String> {
         1 if a.fixed == 1 => {
             " Its file has a visual transform, which is kept but not drawn.".into()
         }
+        1 => " 1 has a visual transform in its file, kept but not drawn.".into(),
         n => format!(" {n} have a visual transform in their file, kept but not drawn."),
     };
     Some(format!(
-        "{which}: the game draws static placeables without visual transforms, so there are \
-         none to set for it. Untick Static (Properties) to scale, tilt or move its model.{kept}"
+        "{which}: the game draws static placeables without visual transforms, so none is \
+         offered. Untick Static (Properties) to scale, tilt or move a model.{kept}"
     ))
 }
 

@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T09:23:43Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T11:15:57Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1258,6 +1258,34 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   misses. Needs the item. (S) (from builders' reports after 1.19.1)
 
 ## Editing in the area view
+
+- **Visual transforms in Aurora's view:** xtul saw his mirror upright
+  and at full size in Aurora, which was not run on it: whether Aurora
+  draws a visual transform at all, and its rotations as the game does,
+  is unchecked (an Aurora capture would settle it). (S) (xtul's report,
+  October 2026)
+- **No fix for `static-transform`:** Verify warns of a static placeable
+  whose file has a visual transform but offers no button; taking the
+  transform off (as Aurora does when Static is ticked, and Make Static
+  does) or unticking Static is the builder's choice. (S) (xtul's
+  report, October 2026)
+- **Static ticked in Properties keeps the transform:** Aurora takes a
+  placeable's visual transform off when Static is ticked; Moonglow's
+  Properties keep it (not drawn, warned of by Adjust Location and
+  Verify) so that unticking Static brings it back. Whether to do as
+  Aurora does is undecided. (S) (xtul's report, October 2026)
+- **Scale in one field:** the game scales a model by `ScaleX` alone;
+  Adjust Location shows and writes the three alike, as Aurora does, and
+  a file whose `ScaleY` or `ScaleZ` differs (by hand, or another tool)
+  shows `ScaleX` and keeps the others untouched until Scale is changed,
+  when all three are written. Not said in the window. (S) (xtul's
+  report, October 2026)
+- **Lerps, animation speed and other scopes:** Adjust Location edits
+  scope 0's scale, rotation and translation only; a transform's
+  `AnimationSpeed`, a lerp in progress (`ValueFrom`, `LerpDuration`…)
+  and a creature's head, wings, tail or cloak scopes are kept but not
+  shown, and the area view draws scope 0 only. (M) (xtul's report,
+  October 2026)
 
 - **Alt for the camera and the selection:** Alt + right drag turns the
   selection and Alt + middle drag moves the camera (they were Shift's,
@@ -3544,6 +3572,14 @@ plugin's tests, `var-runtime`'s nearest name). What they left:
 Each waits on its reporter: with no word by 2026-11-12 (a month from
 the owner's ruling of 2026-10-12) it is dropped, and said so in the
 log.
+
+- **xtul's mirror at full size in the game:** the client draws a
+  dynamic placeable with Scale 0.46 at 0.46 (`visual_transforms_look`),
+  upright and turned on its stand by X Rotation -50.8; at full size and
+  unturned only when it is static. Whether his mirror is static in the
+  module the game ran (a build step that makes placeables static, or
+  Static ticked after the transform), or the full size was by eye,
+  would settle it. (S) (xtul's report, October 2026)
 
 - **The rectangle by two clicks on a builder's Linux:** 1.25.1 made the
   right Alt place it, which was not his trouble; the next release has Alt
