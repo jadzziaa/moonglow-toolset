@@ -3,7 +3,7 @@ type: Manual Page
 title: Troubleshooting
 description: Troubleshooting - the game is not found, no GPU in the area viewer, Test Module does nothing, no sound, after a crash, and where Moonglow keeps its files.
 tags: [manual, troubleshooting]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T11:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T21:15:21Z }
 ---
 
 # Troubleshooting
@@ -58,9 +58,10 @@ send it, with the model if you can, when you report the problem.
 ## After a crash
 
 Moonglow writes a crash report (`crash-<time>.txt`) in its data folder.
-If the module had unsaved changes, the next start offers back a recovery
-copy from the last few minutes in **Recover Unsaved Work**. Please
-include the crash report when you report the problem.
+If the module had unsaved changes, it writes a recovery copy of them as
+it stops (unless Options › General keeps none), and the next start offers
+it back in **Recover Unsaved Work**. The module's own file is as it was
+last saved. Please include the crash report when you report the problem.
 
 The report names the [plugins](15-plugins.md) that were enabled. To see
 whether one of them is the cause, start Moonglow with `--no-plugins`
