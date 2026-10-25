@@ -981,13 +981,23 @@ pub fn instance(
                 list.push(rank);
             }
             s.set("SkillList", Value::List(list));
-            // Equipment: each slot's item in full.
+            // Equipment: each slot's item in full, keeping the entry's own
+            // fields (`Dropable`, `Pickpocketable`), as the backpack's do.
             let equipped: Vec<Struct> = s
                 .list("Equip_ItemList")
                 .unwrap_or(&[])
                 .iter()
                 .filter_map(|e| match e.resref("EquippedRes") {
-                    Some(r) => (p.item)(r).map(|bp| held_item(p, &bp, e.id, 1)),
+                    Some(r) => (p.item)(r).map(|bp| {
+                        let mut item = held_item(p, &bp, e.id, 1);
+                        for f in &e.fields {
+                            let label = f.label.to_string_lossy();
+                            if label != "EquippedRes" {
+                                item.set(&label, f.value.clone());
+                            }
+                        }
+                        item
+                    }),
                     None => Some(e.clone()),
                 })
                 .collect();
@@ -1597,5 +1607,45 @@ mod tests {
         assert_eq!(stock.get("Infinite"), Some(&Value::Byte(1)));
         // Nothing of the blueprints asked for: nothing to do.
         assert!(update_held(&p, &git, &|_| None, &|_| true).is_none());
+    }
+
+    /// A creature placed from its blueprint holds its items whole, and
+    /// each keeps what the blueprint says of it there: equipped as in the
+    /// backpack, `Dropable` and `Pickpocketable` (the engine reads them
+    /// from the placed creature's items: `engine_item_flags`).
+    #[test]
+    fn a_placed_creature_s_items_keep_their_flags() {
+        let game = game();
+        let potion = |r: ResRef| {
+            (r.to_string() == "potion").then(|| {
+                let mut s = Struct::new(0);
+                s.set("TemplateResRef", Value::resref(r));
+                s.set("BaseItem", Value::Int(49));
+                s
+            })
+        };
+        let p = Placing { game: &game, item: &potion };
+        let flagged = |mut e: Struct| {
+            e.set("Dropable", Value::Byte(1));
+            e.set("Pickpocketable", Value::Byte(1));
+            e
+        };
+        let mut hand = Struct::new(16);
+        hand.set("EquippedRes", Value::resref(ResRef::from_str("potion").unwrap()));
+        let mut pack = Struct::new(0);
+        pack.set("InventoryRes", Value::resref(ResRef::from_str("potion").unwrap()));
+        let mut creature = Struct::new(0);
+        creature.set("Equip_ItemList", Value::List(vec![flagged(hand)]));
+        creature.set("ItemList", Value::List(vec![flagged(pack)]));
+        let placed = instance(&p, ResType::UTC, &creature, Placement::default(), &[]).unwrap();
+        for list in ["Equip_ItemList", "ItemList"] {
+            let item = &placed.list(list).unwrap()[0];
+            assert_eq!(item.integer("BaseItem"), Some(49), "{list}: the whole item");
+            assert!(!item.contains("EquippedRes") && !item.contains("InventoryRes"), "{list}");
+            for flag in ["Dropable", "Pickpocketable"] {
+                assert_eq!(item.get(flag), Some(&Value::Byte(1)), "{list}: {flag}");
+            }
+        }
+        assert_eq!(placed.list("Equip_ItemList").unwrap()[0].id, 16, "in its slot");
     }
 }

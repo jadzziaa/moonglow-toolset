@@ -681,6 +681,19 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   palette's Gallery lie as modelled; on the ground in an area they are
   turned as baseitems.2da's `RotateOnGround` says. (S)
   (GitHub issue 7)
+- **Dropable and Pickpocketable against Aurora:** the inventory capture
+  (`inventory/after.mod`) equips items only, which Aurora writes without
+  either field; what Aurora writes for an item it puts in the backpack,
+  for its boxes ticked and cleared, and for a placed creature made a
+  blueprint (Add to Palette now keeps an equipped item's flags in the
+  blueprint's entry, as the backpack's were kept) was not captured. The
+  game's own modules and blueprints have them as 1 when set and left out
+  when not, which is what Moonglow writes. Several items selected at once
+  is Moonglow's (Aurora selects one). (S) (Sacha's report on 2.5.4)
+- **A placed creature's Inventory in its window as it opens** (about
+  480 points wide) has the slots' item names scrolled out of sight to
+  the right of the side panel; widening the window shows them. (S)
+  (seen while testing Sacha's report on 2.5.4)
 
 ## Bulk editing
 
@@ -2555,9 +2568,16 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Remappable keys
 
-- **Not every key:** text editing, Escape and Enter, Copy, Cut and Paste,
+- **Not every key:** text editing, Escape and Enter, Copy, Cut and Paste
+  (Ctrl+C, X, V and the classic Ctrl+Insert, Shift+Delete, Shift+Insert),
   Delete in the area view, the script editor's numbered bookmarks, and
   mouse bindings (drags, Ctrl+click) are fixed. (S)
+- **Shift+Insert in the window itself:** it asks the backend for the
+  clipboard (`RequestPaste`), and the paste comes a frame later; the UI
+  tests stand in for the backend, and the keys were not pressed in the
+  running program on Linux, Windows or macOS. Shift+Delete in the module
+  tree no longer deletes the resource (it is a cut, which the tree does
+  not take). (S) (Sacha's report on 2.5.4)
 - **Aurora's keys Moonglow lacks:** Plot Wizard (Ctrl+Alt+P; no plot
   wizard), Refresh (F5: it is the script editor's Bookmark here, and a
   key of the whole window would take it from there; Reload Resources

@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T11:15:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T21:19:15Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1114,6 +1114,32 @@ and setting it on does nothing. No base-game blueprint has the field.
   2026).
 - **Wiki:** placeables.2da and Area Lighting say the light is controlled
   with `SetPlaceableIllumination`; the field is missing.
+
+### A creature's items: `Dropable` and `Pickpocketable`
+
+What `GetDroppableFlag` and `GetPickpocketableFlag` report for a creature's
+item is read from two BYTE fields of its entry, spelled `Dropable` (one
+p, unlike the script functions) and `Pickpocketable`: in a blueprint's
+`ItemList` (beside `InventoryRes`) and `Equip_ItemList` (beside
+`EquippedRes`), and in a placed creature's whole items in the GIT. 1 sets
+them; 0 and a field left out do not (an item neither drops nor can be
+stolen unless set). Aurora writes 1 for a ticked box and leaves the field
+out otherwise (its inventory's Options, `cbDropable` and
+`cbPickpocketable`); an item it equips has neither. The game's own
+blueprints and modules have only 1 or no field (one base-game blueprint
+has a 0); placeables' and stores' items never have them.
+
+- **Checked:** engine, `engine_item_flags.rs` (four backpack items and two
+  equipped, set, left out and 0, on a placed creature and on a blueprint
+  created by script); Aurora, `aurora_inventory.rs` (items equipped in
+  its inventory); the base game's UTCs and Kingmaker's and Witch's Wake's
+  GITs counted by hand (October 2026).
+- **Moonglow:** `crates/mg-ui/src/blueprint/creature_lists.rs` (the
+  Inventory page's Options) and `inventory.rs` (`flag_edit`);
+  `crates/mg-module/src/instances.rs` keeps an entry's flags when it
+  places a creature (an equipped item's were dropped up to 2.5.4).
+  Source: Sacha's report (October 2026).
+- **Wiki:** missing; the NWN Lexicon has the functions only.
 
 ### Conversation script parameters
 

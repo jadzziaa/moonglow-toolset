@@ -1581,6 +1581,42 @@ pub(crate) fn open_unless_escape<'a>(
     open
 }
 
+/// The classic (CUA) clipboard keys, Aurora's and every Windows
+/// program's, as egui's Copy, Cut and Paste, before anything reads this
+/// frame's keys: Ctrl+Insert copies, Shift+Delete cuts and Shift+Insert
+/// pastes, wherever Ctrl+C, Ctrl+X and Ctrl+V do (text fields, the script
+/// editor, and Moonglow's own: the area view, conversations, inventories,
+/// tables, NUI windows). The key press is taken: Shift+Delete never also
+/// deletes. egui-winit does this on Windows alone (there the keys come as
+/// the events already); elsewhere they come as keys. A paste needs the
+/// clipboard, which the backend reads: Shift+Insert asks it to
+/// (`RequestPaste`), and the text comes as a Paste the next frame.
+pub(crate) fn clipboard_keys(ctx: &egui::Context) {
+    use egui::{Event, Key, Modifiers};
+    let mut paste = false;
+    ctx.input_mut(|i| {
+        let events = std::mem::take(&mut i.events);
+        for e in events {
+            if let Event::Key { key, pressed: true, modifiers: m, .. } = e {
+                // (Ctrl is Cmd on macOS, which has no Insert key; its Ctrl too.)
+                let ctrl = m.matches_exact(Modifiers::COMMAND) || m.matches_exact(Modifiers::CTRL);
+                let shift = m.matches_exact(Modifiers::SHIFT);
+                match key {
+                    Key::Insert if ctrl => i.events.push(Event::Copy),
+                    Key::Delete if shift => i.events.push(Event::Cut),
+                    Key::Insert if shift => paste = true,
+                    _ => i.events.push(e),
+                }
+            } else {
+                i.events.push(e);
+            }
+        }
+    });
+    if paste {
+        ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+    }
+}
+
 /// Whether copy, cut and paste were asked for this frame: egui's events,
 /// or Ctrl (Cmd) with C, X and V where it sends none.
 pub(crate) fn copy_cut_paste(ui: &egui::Ui) -> (bool, bool, bool) {

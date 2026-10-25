@@ -1253,6 +1253,54 @@ fn glyphs() {
     shoot(&mut h, &dir, "glyphs");
 }
 
+/// A creature's Inventory page: Aurora's Options (Selected Item,
+/// Dropable, Pickpocketable) under the palette, before an item is
+/// selected and with two selected (a builder could not find them).
+#[test]
+#[ignore]
+fn creature_inventory_options() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let (name, t) = ("nw_bandit001", ResType::UTC);
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.no_inventory_warning = true;
+    let game = app.game.as_deref().unwrap();
+    let data = game.resman.get_named(name, t).unwrap().into_owned();
+    let mut m = mg_module::Module::new();
+    m.set(ResKey::parse(name, t).unwrap(), data);
+    let path = dir.join(format!("{name}-options.mod"));
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    app.open_module(&path);
+    let key = ResKey::parse(name, t).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().blueprint_pages.insert((key, GffPath::root()), "Inventory");
+    h.run_steps(3);
+    place(&mut h, &mg_ui::Tab::Blueprint(key), (20.0, 60.0), (1150.0, 720.0));
+    shoot(&mut h, &dir, "creature-inventory-options");
+    let image = egui::accesskit::Role::Image;
+    let pick = |h: &mut Harness<'_, Moonglow>, label: &str, ctrl: bool| {
+        let node = h.get_all_by_label(label).find(|n| n.accesskit_node().role() != image).unwrap();
+        if ctrl {
+            node.click_modifiers(egui::Modifiers::COMMAND);
+        } else {
+            node.click();
+        }
+    };
+    pick(&mut h, "Padded Armor", false);
+    h.run_steps(2);
+    h.get_by_label("Dropable").click();
+    h.run_steps(2);
+    // And the sword with it: Dropable mixed.
+    pick(&mut h, "Longsword", true);
+    h.run_steps(2);
+    shoot(&mut h, &dir, "creature-inventory-options-selected");
+}
+
 #[test]
 #[ignore]
 fn store_chosen_item() {

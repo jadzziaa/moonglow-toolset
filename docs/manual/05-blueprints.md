@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T09:23:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T21:19:15Z }
 ---
 
 # Blueprints
@@ -419,8 +419,24 @@ A domain or school left **Not set** is the game's to choose.
   over the list) carry an item from any inventory to any other, in any
   module open after it. Equipping an item the
   creature lacks the feat for (a weapon proficiency, an armor weight)
-  asks whether to give it the feat. Items can be marked droppable,
-  pickpocketable and infinite (stores).
+  asks whether to give it the feat. A store's items can be marked
+  **Infinite** (its Inventory's column).
+- **Dropable and Pickpocketable:** under the palette, as in Aurora's
+  inventory, **Options** shows the item selected (**Selected Item**) and
+  its **Dropable** and **Pickpocketable** boxes, grayed until you click
+  an item, equipped or in the backpack. Ctrl+click adds an item to the
+  selection (or takes it away) and Shift+click selects the items from the
+  one clicked last; the boxes then set every item selected, in one step,
+  and show a dash where the items differ. A dropable item is left on the
+  creature's remains when it is killed (the script function
+  `GetDroppableFlag`); a pickpocketable one can be stolen from it with
+  Pick Pocket (`GetPickpocketableFlag`). Neither is set on a new item,
+  and the game reads them so: a box set is written as the byte 1 in the
+  item's `Dropable` or `Pickpocketable` field, and a box cleared leaves
+  the field out, as Aurora writes them. The same Options are on a placed
+  creature's Inventory, for the items it holds. A placeable's and a
+  store's inventories have no such boxes: Aurora writes the fields for a
+  creature's items alone.
 - The **Creature Wizard** makes a creature from a race, classes and levels,
   gender, appearance, portrait, faction and name, leveled as the game's
   packages level it. Its appearances are pictures, narrowed by **Find**;

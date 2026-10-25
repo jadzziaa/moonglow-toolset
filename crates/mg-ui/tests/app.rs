@@ -69,6 +69,81 @@ fn filtering_the_tree_opens_its_groups() {
     h.get_by_label("hello");
 }
 
+/// What a key pressed with `modifiers` came to in its frame (pressed in
+/// one frame, let go in the next): the text copied to the clipboard, and
+/// whether the backend was asked for the clipboard's text (a paste).
+fn press_now(
+    h: &mut Harness<'_, Moonglow>,
+    modifiers: egui::Modifiers,
+    key: egui::Key,
+) -> (Vec<String>, bool) {
+    let event =
+        |pressed| egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers };
+    let input = h.input_mut();
+    input.events.push(egui::Event::ModifiersChanged(modifiers));
+    input.events.push(event(true));
+    h.step();
+    let out = h.output();
+    let copied = out
+        .platform_output
+        .commands
+        .iter()
+        .filter_map(|c| match c {
+            egui::OutputCommand::CopyText(t) => Some(t.clone()),
+            _ => None,
+        })
+        .collect();
+    let paste = out
+        .viewport_output
+        .get(&egui::ViewportId::ROOT)
+        .is_some_and(|v| v.commands.contains(&egui::ViewportCommand::RequestPaste));
+    let input = h.input_mut();
+    input.events.push(event(false));
+    input.events.push(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    h.step();
+    (copied, paste)
+}
+
+/// The classic clipboard keys, Aurora's and every Windows program's, in a
+/// text field: Ctrl+Insert copies, Shift+Delete cuts and Shift+Insert
+/// pastes, as Ctrl+C, Ctrl+X and Ctrl+V do (a builder's report).
+#[test]
+fn insert_and_delete_keys_copy_cut_and_paste_text() {
+    let dir = mg_testkit::scratch_dir("ui-cua-text");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let is_input =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
+    let field =
+        |h: &Harness<'_, Moonglow>, text: &str| h.query_all_by_value(text).any(|n| is_input(&n));
+    h.get_all_by_value("SAMPLE").find(is_input).expect("the tag's text field").click();
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.run();
+    use egui::{Key, Modifiers};
+    // Ctrl+Insert: copied, the text as it was.
+    assert_eq!(press_now(&mut h, Modifiers::COMMAND, Key::Insert), (vec!["SAMPLE".into()], false));
+    assert!(field(&h, "SAMPLE"));
+    // Shift+Delete: cut (copied, and taken out), not a character deleted.
+    assert_eq!(press_now(&mut h, Modifiers::SHIFT, Key::Delete), (vec!["SAMPLE".into()], false));
+    assert!(!field(&h, "SAMPLE") && !field(&h, "SAMPL") && !field(&h, "AMPLE"));
+    // Shift+Insert: the clipboard's text asked for (the Insert key itself
+    // goes nowhere); the backend sends it as a paste.
+    assert_eq!(press_now(&mut h, Modifiers::SHIFT, Key::Insert), (vec![], true));
+    h.event(egui::Event::Paste("PASTED".into()));
+    h.run();
+    assert!(field(&h, "PASTED"));
+    h.key_press(Key::Tab);
+    h.run();
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let g = ws.doc(&ResKey::parse("module", ResType::IFO).unwrap()).unwrap();
+    assert_eq!(g.root.read(&ifo::MOD_TAG).as_bytes(), b"PASTED");
+}
+
 #[test]
 fn edit_undo_save_reopen() {
     let dir = mg_testkit::scratch_dir("ui-edit");
@@ -9086,6 +9161,50 @@ fn copy_cut_and_paste_objects() {
     assert_eq!(h.state().object_clip.as_ref().map(|c| c.objects.len()), Some(2));
 }
 
+/// The classic clipboard keys in the area view: Ctrl+Insert copies the
+/// objects selected, Shift+Insert pastes them, and Shift+Delete cuts them
+/// (into the clipboard: Delete alone deletes, and Shift with it must not).
+#[test]
+fn insert_and_delete_keys_copy_cut_and_paste_objects() {
+    use egui::{Key, Modifiers};
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("paste-cua") else { return };
+    let waypoints = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+        git.root.list("WaypointList").unwrap().len()
+    };
+    let clip = |h: &Harness<'_, Moonglow>| h.state().object_clip.as_ref().map(|c| c.objects.len());
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(ObjectKind::Waypoint, 0), (ObjectKind::Waypoint, 1)];
+    let over = screen(&h, area, Vec3::new(15.0, 30.0, 0.0));
+    h.hover_at(over);
+    h.run_steps(1);
+    press_now(&mut h, Modifiers::COMMAND, Key::Insert);
+    assert_eq!(clip(&h), Some(2), "copied");
+    // Shift+Insert asks the backend for the clipboard; its paste (the
+    // text Moonglow put there) pastes the objects.
+    let (_, asked) = press_now(&mut h, Modifiers::SHIFT, Key::Insert);
+    assert!(asked);
+    h.event(egui::Event::Paste("Moonglow Toolset: 2 objects".into()));
+    h.run_steps(2);
+    assert!(h.state().area_views[&area].pasting);
+    let over = screen(&h, area, Vec3::new(15.0, 30.0, 0.0));
+    h.hover_at(over);
+    press(&h, over, true, egui::Modifiers::NONE);
+    press(&h, over, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    assert_eq!(waypoints(&mut h), 4);
+    // Shift+Delete: the copies cut, into the clipboard (emptied first, to
+    // tell a cut from a delete).
+    h.state_mut().object_clip = None;
+    press_now(&mut h, Modifiers::SHIFT, Key::Delete);
+    h.run_steps(2);
+    assert_eq!(waypoints(&mut h), 2);
+    assert_eq!(clip(&h), Some(2), "cut, not deleted");
+}
+
 #[test]
 fn context_menu_sets_states_mutes_and_adds_spawn_points() {
     use glam::Vec3;
@@ -13099,13 +13218,18 @@ fn creature_items_can_be_dropable_and_pickpocketable() {
     };
     assert_eq!(flag(&mut h, "Dropable"), None, "unset, as the game's blueprints leave it");
     h.get_by_label_contains("Selected Item: none");
+    // Aurora's checkboxes are there before an item is selected, grayed.
+    for label in ["Dropable", "Pickpocketable"] {
+        assert!(h.get_by_label(label).accesskit_node().is_disabled(), "{label}");
+    }
     // Select the armor (its name, not its icon), as in Aurora's inventory.
     let image = egui::accesskit::Role::Image;
-    h.get_all_by_label("Padded Armor")
-        .find(|n| n.accesskit_node().role() != image)
-        .unwrap()
-        .click();
-    h.run();
+    let pick = |h: &mut Harness<'_, Moonglow>, label: &str, modifiers: egui::Modifiers| {
+        let node = h.get_all_by_label(label).find(|n| n.accesskit_node().role() != image);
+        node.unwrap().click_modifiers(modifiers);
+        h.run();
+    };
+    pick(&mut h, "Padded Armor", egui::Modifiers::NONE);
     h.get_by_label("Selected Item: Padded Armor");
     h.get_by_label("Dropable").click();
     h.run();
@@ -13116,6 +13240,98 @@ fn creature_items_can_be_dropable_and_pickpocketable() {
     h.get_by_label("Pickpocketable").click();
     h.run();
     assert_eq!(flag(&mut h, "Pickpocketable"), Some(1));
+    // With the sword too (Ctrl), Pickpocketable is mixed; a click sets
+    // both, as one step.
+    pick(&mut h, "Longsword", egui::Modifiers::COMMAND);
+    h.get_by_label("Selected Items: 2");
+    let toggled = |h: &mut Harness<'_, Moonglow>, label: &str| {
+        h.get_by_label(label).accesskit_node().toggled()
+    };
+    use egui::accesskit::Toggled;
+    assert_eq!(toggled(&mut h, "Pickpocketable"), Some(Toggled::Mixed));
+    assert_eq!(toggled(&mut h, "Dropable"), Some(Toggled::False));
+    let both = |h: &mut Harness<'_, Moonglow>, label: &str| -> Vec<Option<i64>> {
+        let s = field(h, &key);
+        s.list("Equip_ItemList").unwrap().iter().map(|e| e.integer(label)).collect()
+    };
+    h.get_by_label("Pickpocketable").click();
+    h.run();
+    assert_eq!(both(&mut h, "Pickpocketable"), [Some(1), Some(1)]);
+    assert_eq!(toggled(&mut h, "Pickpocketable"), Some(Toggled::True));
+    h.get_by_label("Dropable").click();
+    h.run();
+    assert_eq!(both(&mut h, "Dropable"), [Some(1), Some(1)]);
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert_eq!(both(&mut h, "Dropable"), [None, None], "both taken back by one Undo");
+    // Saved: the bytes in the file.
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    let file = h.state().ws.as_ref().unwrap().module.location.as_ref().unwrap().path().to_owned();
+    let saved = Module::open(&file).unwrap().gff(&key).unwrap().unwrap().root;
+    let items = saved.list("Equip_ItemList").unwrap();
+    let byte = |i: usize, label: &str| items[i].get(label).cloned();
+    assert_eq!(byte(0, "Pickpocketable"), Some(mg_gff::Value::Byte(1)));
+    assert_eq!(byte(1, "Pickpocketable"), Some(mg_gff::Value::Byte(1)));
+    assert_eq!((byte(0, "Dropable"), byte(1, "Dropable")), (None, None));
+}
+
+/// A placed creature's items (whole items in the area's GIT) have
+/// Aurora's Dropable and Pickpocketable too, set on the item the creature
+/// holds there.
+#[test]
+fn a_placed_creature_s_items_can_be_dropable_and_pickpocketable() {
+    use mg_edit::{Command, Edit, GffPath};
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("held-flags") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let bandit = {
+        let game = h.state().game.clone().unwrap();
+        let read = |name: ResRef, t: ResType| {
+            let data = game.resman.get(&ResKey::new(name, t)).ok()?;
+            Some(Gff::read(&data).ok()?.root)
+        };
+        let items = |r: ResRef| read(r, ResType::UTI);
+        let placing = Placing { game: &game, item: &items };
+        let at = Placement { position: [12.0, 12.0, 0.0], rotation: 0.0 };
+        let utc = read(ResRef::from_str("nw_bandit001").unwrap(), ResType::UTC).unwrap();
+        instance(&placing, ResType::UTC, &utc, at, &[]).unwrap()
+    };
+    let placed = Edit::InsertItem {
+        key: git,
+        path: GffPath::root(),
+        list: "Creature List".into(),
+        index: 0,
+        item: bandit,
+    };
+    h.state_mut().settings.no_inventory_warning = true;
+    h.state_mut().actions.push(mg_ui::Action::Apply(Command::new("Setup", vec![placed])));
+    let path = GffPath::root().item("Creature List", 0);
+    h.state_mut().blueprint_pages.insert((git, path.clone()), "Inventory");
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Instance { area, path: path.clone() }));
+    h.run_steps(6);
+    // (A window wide enough for the slots' items to show.)
+    let tab = Tab::Instance { area, path: path.clone() };
+    let at = h.state().dock.find_tab(&tab).unwrap();
+    if let Some(w) = h.state_mut().dock.get_window_state_mut(at.surface) {
+        w.set_position(egui::pos2(20.0, 60.0)).set_size(egui::vec2(1000.0, 700.0));
+    }
+    h.run_steps(4);
+    let image = egui::accesskit::Role::Image;
+    h.get_all_by_label("Padded Armor")
+        .find(|n| n.accesskit_node().role() != image)
+        .unwrap()
+        .click();
+    h.run_steps(2);
+    h.get_by_label("Selected Item: Padded Armor");
+    h.get_by_label("Pickpocketable").click();
+    h.run_steps(2);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let creature = path.get(&ws.doc(&git).unwrap().root).cloned().unwrap();
+    let armor = creature.list("Equip_ItemList").unwrap().iter().find(|e| e.id == 0x2).unwrap();
+    assert_eq!(armor.get("Pickpocketable"), Some(&mg_gff::Value::Byte(1)));
+    assert_eq!(armor.get("Dropable"), None);
+    assert!(armor.integer("BaseItem").is_some(), "the whole item the creature holds");
 }
 
 #[test]

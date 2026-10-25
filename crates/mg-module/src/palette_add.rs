@@ -197,7 +197,8 @@ pub fn add_to_palette(
             }
         }
     }
-    // Equipment: held by resref in each slot.
+    // Equipment: held by resref in each slot, with what is said of it there
+    // (`Dropable`, `Pickpocketable`), as the backpack's.
     if let Some(equipped) = instance.list("Equip_ItemList").map(<[Struct]>::to_vec) {
         let mut entries = Vec::new();
         let mut renamed = Vec::new();
@@ -205,6 +206,11 @@ pub fn add_to_palette(
             let r = item_blueprint(item, &mut items);
             let mut entry = Struct::new(item.id);
             entry.set("EquippedRes", Value::resref(r));
+            for label in ["Dropable", "Pickpocketable"] {
+                if let Some(v) = item.get(label) {
+                    entry.set(label, v.clone());
+                }
+            }
             entries.push(entry);
             let mut now = item.clone();
             now.set("TemplateResRef", Value::resref(r));
@@ -290,6 +296,39 @@ fn file_type(t: ResType) -> [u8; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A placed creature made a blueprint: its items' `Dropable` and
+    /// `Pickpocketable` go into the blueprint's entries, equipped as in
+    /// the backpack.
+    #[test]
+    fn a_creature_s_items_keep_their_flags_in_its_new_blueprint() {
+        let game =
+            GameData::new(mg_resman::ResMan::new(), mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let item = |id: u32, template: &str, flag: &str| {
+            let mut s = Struct::new(id);
+            s.set("TemplateResRef", Value::resref(ResRef::from_str(template).unwrap()));
+            s.set("BaseItem", Value::Int(1));
+            s.set(flag, Value::Byte(1));
+            s
+        };
+        let mut creature = Struct::new(4);
+        creature.set("TemplateResRef", Value::resref(ResRef::from_str("bandit").unwrap()));
+        creature.set("Equip_ItemList", Value::List(vec![item(16, "sword", "Dropable")]));
+        let mut pack = item(0, "torch", "Pickpocketable");
+        pack.set("Repos_PosX", Value::Word(0));
+        pack.set("Repos_Posy", Value::Word(0));
+        creature.set("ItemList", Value::List(vec![pack]));
+        let naming = Naming::new("ab", crate::project_file::DEFAULT_PATTERN);
+        let added =
+            add_to_palette(&game, ResType::UTC, &creature, &|_| None, &|_| false, &naming).unwrap();
+        let bp = &added.blueprints[0].1.root;
+        let hand = &bp.list("Equip_ItemList").unwrap()[0];
+        assert_eq!(hand.id, 16);
+        assert_eq!(hand.get("Dropable"), Some(&Value::Byte(1)));
+        assert!(hand.get("Pickpocketable").is_none(), "only what it had");
+        let held = &bp.list("ItemList").unwrap()[0];
+        assert_eq!(held.get("Pickpocketable"), Some(&Value::Byte(1)));
+    }
 
     #[test]
     fn a_builder_s_code_begins_the_new_resref() {

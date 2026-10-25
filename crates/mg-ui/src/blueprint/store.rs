@@ -215,7 +215,7 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             icons: &icons,
             name: &name,
             infinite: true,
-            selected: None,
+            selected: &[],
             equip: false,
             copied: f.app.item_clip.len(),
         };

@@ -759,8 +759,115 @@ const SLOTS: [(u32, &str); 18] = [
     (0x2_0000, "Creature Hide"),
 ];
 
-/// A creature's items' flags (Aurora's Selected Item options).
-const ITEM_FLAGS: [&str; 2] = ["Dropable", "Pickpocketable"];
+/// A creature's items' flags (Aurora's Options, under its palette): each
+/// field, labeled as Aurora labels it, and Aurora's tip with what the game
+/// does with it.
+const ITEM_FLAGS: [(&str, &str); 2] = [
+    (
+        "Dropable",
+        "Specify if selected item can be dropped: the game leaves it on the creature's remains \
+         when it is killed (GetDroppableFlag)",
+    ),
+    (
+        "Pickpocketable",
+        "Specify if selected item can be pickpocketed: a player can steal it with Pick Pocket \
+         (GetPickpocketableFlag)",
+    ),
+];
+
+/// The creature's items selected on its Inventory page (each its list and
+/// place in it), the one clicked last (for Shift's range), and how long
+/// the two lists were then: when either changes, the places mean other
+/// items, and the selection is let go.
+#[derive(Clone, Default)]
+struct Selected {
+    items: std::collections::BTreeSet<(&'static str, usize)>,
+    anchor: Option<(&'static str, usize)>,
+    lens: (usize, usize),
+}
+
+/// What the Options under the palette asked for.
+#[derive(Default)]
+struct OptionsOut {
+    /// The flag set or cleared on every item selected: its edits.
+    flags: Option<(&'static str, Vec<Edit>)>,
+    /// The one item selected: taken from the backpack and equipped
+    /// (Equip), unequipped into the backpack (To Backpack), or its
+    /// properties opened.
+    wear: Option<(usize, ResRef)>,
+    stow: Option<(usize, ResRef)>,
+    open: Option<(&'static str, usize)>,
+}
+
+/// Aurora's Options for the items selected: Selected Item, Dropable and
+/// Pickpocketable (always there; grayed while nothing is selected, as in
+/// Aurora; mixed where the items differ), and for one item Equip or To
+/// Backpack, and Properties.
+fn item_options(
+    f: &Form<'_>,
+    ui: &mut Ui,
+    picked: &[(&'static str, usize, &Struct)],
+    names: &std::collections::HashMap<ResRef, String>,
+) -> OptionsOut {
+    let mut out = OptionsOut::default();
+    let (key, base) = (f.key, &f.path);
+    egui::Frame::group(ui.style()).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        crate::widgets::section_heading(ui, "Options");
+        let what = match picked {
+            [] => "Selected Item: none (click an item; Ctrl+click adds one, Shift+click a range)"
+                .to_string(),
+            [(_, _, e)] => format!("Selected Item: {}", f.entry_name(e, names)),
+            many => format!("Selected Items: {}", many.len()),
+        };
+        ui.add(egui::Label::new(what).wrap());
+        ui.horizontal_wrapped(|ui| {
+            for (flag, tip) in ITEM_FLAGS {
+                let (mut on, mixed) = inventory::flag_state(picked.iter().map(|p| p.2), flag);
+                let boxed = egui::Checkbox::new(&mut on, flag).indeterminate(mixed);
+                let r = ui.add_enabled(!picked.is_empty(), boxed).on_hover_text(tip);
+                if r.changed() {
+                    let edits: Vec<Edit> = picked
+                        .iter()
+                        .filter_map(|&(list, i, e)| {
+                            inventory::flag_edit(key, base.clone().item(list, i), e, flag, on)
+                        })
+                        .collect();
+                    out.flags = Some((flag, edits));
+                }
+            }
+        });
+        let [(list, i, e)] = picked else { return };
+        let (list, i) = (*list, *i);
+        ui.horizontal_wrapped(|ui| {
+            let r = inventory::entry_resref(e);
+            if list == "ItemList" {
+                let hint =
+                    "Take it from the backpack and equip it in the first free slot it goes in";
+                if ui.small_button("Equip").on_hover_text(hint).clicked() {
+                    out.wear = Some((i, r));
+                }
+            } else if ui
+                .small_button("To Backpack")
+                .on_hover_text("Unequip it and put it in the backpack")
+                .clicked()
+            {
+                out.stow = Some((i, r));
+            }
+            if ui
+                .small_button("Properties")
+                .on_hover_text(
+                    "The item's properties: a placed creature's item is its own; a blueprint's \
+                     is its blueprint (the module's to edit, the game's to look at)",
+                )
+                .clicked()
+            {
+                out.open = Some((list, i));
+            }
+        });
+    });
+    out
+}
 
 /// The slots an item can go in (its base item's `EquipableSlots`).
 fn item_slots(f: &mut Form<'_>, resref: ResRef) -> u32 {
@@ -851,15 +958,39 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     // where it is dropped.)
     ui.data_mut(|d| d.insert_temp(super::picker::can_equip_id(), true));
     let mut edits: Vec<(&str, Edit)> = Vec::new();
-    let item_id = egui::Id::new(("utc-selected-item", key, base.clone()));
-    let chosen_item: Option<(&'static str, usize)> = ui.data(|d| d.get_temp(item_id));
+    // The items selected (Aurora selects one; here Ctrl and Shift add
+    // more, to set their options together).
+    let item_id = egui::Id::new(("utc-selected-items", key, base.clone()));
+    let lens = (equipped.len(), backpack.len());
+    let mut selected: Selected =
+        ui.data(|d| d.get_temp(item_id)).filter(|s: &Selected| s.lens == lens).unwrap_or_default();
+    selected.lens = lens;
+    let picked: Vec<(&'static str, usize, &Struct)> = selected
+        .items
+        .iter()
+        .filter_map(|&(list, i)| {
+            let items = if list == "ItemList" { &backpack } else { &equipped };
+            items.get(i).map(|e| (list, i, e))
+        })
+        .collect();
+    let mut options = OptionsOut::default();
     let mut pick_item = None;
     ui.horizontal_top(|ui| {
         ui.vertical(|ui| {
             ui.set_width(240.0);
-            // (The item chosen stays in sight under the tree.)
+            // (The item chosen stays in sight under the tree, and Aurora's
+            // Options under it, for the items selected on the right.)
             add = f.palette_picker_over(ui, BlueprintKind::Item, "Add to Backpack", |f, ui| {
-                f.chosen_item(ui)
+                f.chosen_item(ui);
+                let chosen = f.palette_chosen(ui, BlueprintKind::Item);
+                equip_chosen |= ui
+                    .add_enabled(chosen.is_some(), egui::Button::new("Equip"))
+                    .on_hover_text(
+                        "Equip the item chosen above in the first free slot it goes in (the \
+                         Equip beside a slot puts it in that one)",
+                    )
+                    .clicked();
+                options = item_options(f, ui, &picked, &names);
             });
             chosen = f.palette_chosen(ui, BlueprintKind::Item);
             ui.data_mut(|d| d.remove::<bool>(super::picker::can_equip_id()));
@@ -869,72 +1000,15 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                 chosen = Some(r);
                 equip_chosen = true;
             }
-            equip_chosen |= ui
-                .add_enabled(chosen.is_some(), egui::Button::new("Equip"))
-                .on_hover_text(
-                    "Equip the item chosen above in the first free slot it goes in (the Equip \
-                     beside a slot puts it in that one)",
-                )
-                .clicked();
         });
         ui.separator();
         super::side_panel(ui, egui::Id::new(("utc-inventory", key)), |ui| {
             {
-                // Aurora's Options: the selected item's Dropable and Pickpocketable.
-                ui.strong("Options");
-                let entry = chosen_item.and_then(|(list, i)| {
-                    let items = if list == "ItemList" { &backpack } else { &equipped };
-                    items.get(i).map(|e| (list, i, e))
-                });
-                match entry {
-                    Some((list, i, e)) => {
-                        ui.label(format!("Selected Item: {}", f.entry_name(e, &names)));
-                        ui.horizontal(|ui| {
-                            for flag in ITEM_FLAGS {
-                                let path = base.clone().item(list, i);
-                                if let Some(edit) = inventory::flag_box(ui, key, path, e, flag) {
-                                    edits.push(edit);
-                                }
-                            }
-                        });
-                        ui.horizontal(|ui| {
-                            let r = inventory::entry_resref(e);
-                            if list == "ItemList" {
-                                let hint = "Take it from the backpack and equip it in the first \
-                                            free slot it goes in";
-                                if ui.small_button("Equip").on_hover_text(hint).clicked() {
-                                    wear = Some((i, r, None));
-                                }
-                            } else if ui
-                                .small_button("To Backpack")
-                                .on_hover_text("Unequip it and put it in the backpack")
-                                .clicked()
-                            {
-                                stow = Some((i, r));
-                            }
-                            if ui
-                                .small_button("Properties")
-                                .on_hover_text(
-                                    "The item's properties: a placed creature's item is its \
-                                     own; a blueprint's is its blueprint (the module's to \
-                                     edit, the game's to look at)",
-                                )
-                                .clicked()
-                            {
-                                open = Some((list, i));
-                            }
-                        });
-                    }
-                    None => {
-                        ui.weak("Selected Item: none (click an item)");
-                    }
-                }
-                ui.separator();
-                ui.strong("Equipment");
+                crate::widgets::section_heading(ui, "Equipment");
                 let icons: Vec<_> = equipped.iter().map(|e| f.entry_icon(ui.ctx(), e)).collect();
                 egui::Grid::new(("utc-equip", key)).num_columns(5).striped(true).show(ui, |ui| {
                     for (bit, slot) in SLOTS {
-                        let first = ui.label(slot).rect;
+                        let first = crate::widgets::field_label(ui, slot).rect;
                         let at = equipped.iter().position(|s| s.id == bit);
                         let shown = at.map_or_else(
                             || "—".to_string(),
@@ -942,7 +1016,8 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                         );
                         let icon = at.map_or(&[][..], |i| &icons[i][..]);
                         crate::images::icon_box(ui, icon, crate::images::ICON_MAX, &shown);
-                        let on = at.is_some() && at.map(|i| ("Equip_ItemList", i)) == chosen_item;
+                        let on =
+                            at.is_some_and(|i| selected.items.contains(&("Equip_ItemList", i)));
                         let label = egui::Button::selectable(on, shown)
                             .sense(egui::Sense::click_and_drag());
                         let r = ui.add(label);
@@ -1008,17 +1083,18 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                         ui.end_row();
                     }
                 });
-                ui.separator();
-                ui.strong("Backpack");
+                ui.add_space(crate::widgets::SECTION_GAP);
+                crate::widgets::section_heading(ui, "Backpack");
                 let path = base.clone();
                 let icons: Vec<_> = backpack.iter().map(|it| f.entry_icon(ui.ctx(), it)).collect();
                 let name = |it: &Struct| f.entry_name(it, &names);
-                let selected = chosen_item.filter(|c| c.0 == "ItemList").map(|c| c.1);
+                let in_pack: Vec<usize> =
+                    selected.items.iter().filter(|c| c.0 == "ItemList").map(|c| c.1).collect();
                 let look = inventory::ItemLook {
                     icons: &icons,
                     name: &name,
                     infinite: false,
-                    selected,
+                    selected: &in_pack,
                     equip: true,
                     copied: f.app.item_clip.len(),
                 };
@@ -1044,9 +1120,27 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             }
         });
     });
+    // A click selects the item alone; with Ctrl, adds it or takes it away;
+    // with Shift, the items from the one clicked last to it (the slots in
+    // their order, then the backpack).
     if let Some(p) = pick_item {
-        ui.data_mut(|d| d.insert_temp(item_id, p));
+        let listed: Vec<(&'static str, usize)> = (0..equipped.len())
+            .map(|i| ("Equip_ItemList", i))
+            .chain((0..backpack.len()).map(|i| ("ItemList", i)))
+            .collect();
+        let m = ui.input(|i| i.modifiers);
+        let s = &mut selected;
+        crate::widgets::select_in_list(&mut s.items, &mut s.anchor, &listed, p, m.command, m.shift);
     }
+    if let Some((flag, set)) = options.flags.take() {
+        apply(f, flag, set);
+    }
+    if let Some((i, r)) = options.wear {
+        wear = Some((i, r, None));
+    }
+    stow = stow.or(options.stow);
+    open = open.or(options.open);
+    ui.data_mut(|d| d.insert_temp(item_id, selected));
     // The first free slot an item goes in: for Equip without a slot named.
     let free_slot = |f: &mut Form<'_>, r: ResRef| -> Result<u32, String> {
         let fits = item_slots(f, r);
@@ -1121,7 +1215,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                 // item is.)
                 edits.push(("Take from backpack", remove(key, base.clone(), "ItemList", i)));
                 (equip, chosen) = (Some(bit), Some(r));
-                ui.data_mut(|d| d.remove::<(&'static str, usize)>(item_id));
+                ui.data_mut(|d| d.remove::<Selected>(item_id));
             }
             Err(why) => f.app.log.warn(why),
         }
@@ -1133,7 +1227,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             insert(key, base.clone(), "ItemList", backpack.len(), item),
         ];
         apply(f, "Unequip to backpack", moved);
-        ui.data_mut(|d| d.remove::<(&'static str, usize)>(item_id));
+        ui.data_mut(|d| d.remove::<Selected>(item_id));
     }
     if let Some((list, i)) = open {
         let items = if list == "ItemList" { &backpack } else { &equipped };
