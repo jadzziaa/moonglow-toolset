@@ -4358,9 +4358,10 @@ fn delete(app: &mut Moonglow, view: &mut AreaView) {
     // Objects after the deleted ones move up their lists: their Properties
     // would show others.
     let area = view.area;
-    app.dock.retain_tabs(|t| {
-        !matches!(t, crate::Tab::Instance { area: a, .. } | crate::Tab::Instances { area: a, .. } if *a == area)
-    });
+    crate::tabs::close_tabs(
+        &mut app.dock,
+        |t| !matches!(t, crate::Tab::Instance { area: a, .. } | crate::Tab::Instances { area: a, .. } if *a == area),
+    );
     if !edits.is_empty() {
         app.actions.push(Action::Apply(Command::new("Delete", edits)));
     }

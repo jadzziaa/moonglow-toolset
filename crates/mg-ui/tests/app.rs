@@ -13167,6 +13167,47 @@ fn unsaved_work_survives_a_crash() {
     assert_eq!(ifo.root.string("Mod_Tag"), Some(&b"RECOVERED"[..]));
 }
 
+/// A frame that panics writes the recovery copy before the panic goes
+/// on (Sacha's crash lost what was not saved): the work as it was then,
+/// not as the copy made minutes before had it. Nothing unsaved, no copy.
+#[test]
+fn a_panic_keeps_the_unsaved_work() {
+    let dir = mg_testkit::scratch_dir("ui-recovery-panic");
+    let path = sample_module(&dir);
+    let recovery = dir.join("recovery");
+    let mut app = app_with(Vec::new());
+    app.recovery_dir = Some(recovery.clone());
+    app.open_module(&path);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    // (Its message is printed: the test's own.)
+    let panics = |app: &mut Moonglow| {
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            app.recovering(|_| panic!("a frame that fails, as the test means it to"));
+        }));
+        assert!(caught.is_err(), "the panic goes on");
+    };
+    panics(h.state_mut());
+    assert!(mg_ui::recovery::find(&recovery).is_empty(), "nothing to keep");
+    let key = ResKey::parse("module", ResType::IFO).unwrap();
+    let edit = mg_edit::Edit::SetField {
+        key,
+        path: mg_edit::GffPath::root(),
+        label: "Mod_Tag".into(),
+        value: Some(mg_gff::Value::String(b"KEPT".to_vec())),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("tag", vec![edit])));
+    h.run();
+    panics(h.state_mut());
+    let copies = mg_ui::recovery::find(&recovery);
+    assert_eq!(copies.len(), 1);
+    let kept = Module::open(&copies[0].archive).unwrap();
+    let ifo = kept.gff(&key).unwrap().unwrap();
+    assert_eq!(ifo.root.string("Mod_Tag"), Some(&b"KEPT"[..]));
+    // A frame that does not panic is only the frame.
+    h.state_mut().recovering(|app| app.log.info("drawn"));
+}
+
 #[test]
 fn closing_without_saving_leaves_no_copy() {
     let dir = mg_testkit::scratch_dir("ui-recovery-close");
@@ -26076,4 +26117,397 @@ fn the_update_check_asks_on_its_own_thread() {
         h.run_steps(1);
     }
     assert_eq!(asked.load(Ordering::SeqCst), 2);
+}
+
+/// The sample module with conversation `talk` (`g`), opened as a builder
+/// opens it: a click on it in the module tree, which takes the keys, and
+/// Enter. In its window, as a conversation opens.
+fn dialog_from_tree(name: &str, g: &Gff) -> (Harness<'static, Moonglow>, ResKey) {
+    let dir = mg_testkit::scratch_dir(name);
+    let path = sample_module(&dir);
+    let key = ResKey::parse("talk", ResType::DLG).unwrap();
+    let mut m = Module::open(&path).unwrap();
+    m.set_gff(key, g).unwrap();
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label_contains("Conversations").click();
+    h.run();
+    h.get_by_label("talk").click();
+    h.run();
+    h.key_press(egui::Key::Enter);
+    h.run();
+    h.run();
+    assert!(h.state().dock.find_tab(&Tab::Dialog(key)).is_some());
+    (h, key)
+}
+
+/// A conversation's lines as its outline: kind, text and whether a link.
+fn dialog_lines(h: &mut Harness<'_, Moonglow>, key: ResKey) -> Vec<String> {
+    let g = h.state_mut().ws.as_mut().unwrap().doc(&key).unwrap().clone();
+    mg_module::dialog::outline(&g)
+        .iter()
+        .map(|l| l.split('|').take(3).collect::<Vec<_>>().join("|"))
+        .collect()
+}
+
+/// A greeting with a nested branch, a second greeting with a link to the
+/// first's reply (a line linked from elsewhere).
+fn branching_dialog() -> Gff {
+    use mg_module::dialog::{Kind, Parent, add_link, add_node, new_dialog};
+    let mut g = new_dialog();
+    let hello = add_node(&mut g, Parent::Root, "Hello there.");
+    let who = add_node(&mut g, Parent::Node(Kind::Entry, hello), "Who are you?");
+    let traveller = add_node(&mut g, Parent::Node(Kind::Reply, who), "A traveller.");
+    add_node(&mut g, Parent::Node(Kind::Entry, traveller), "Farewell.");
+    add_node(&mut g, Parent::Node(Kind::Entry, hello), "Bye.");
+    let go = add_node(&mut g, Parent::Root, "Go away.");
+    add_link(&mut g, Parent::Node(Kind::Entry, go), who);
+    g
+}
+
+const BRANCHING: [&str; 7] = [
+    "Entry|Hello there.|",
+    "  Reply|Who are you?|",
+    "    Entry|A traveller.|",
+    "      Reply|Farewell.|",
+    "  Reply|Bye.|",
+    "Entry|Go away.|",
+    "  Reply|Who are you?|link",
+];
+
+/// How a line is deleted.
+#[derive(Debug, Clone, Copy)]
+enum DeleteBy {
+    /// The Delete key, after a click on the line.
+    Key,
+    /// Its right-click menu's Delete.
+    Menu,
+    /// The toolbar's Delete, after a click on the line.
+    Button,
+}
+
+/// Deletes the `nth` row labelled `label` of conversation `key`.
+fn delete_line(h: &mut Harness<'_, Moonglow>, key: ResKey, label: &str, nth: usize, by: DeleteBy) {
+    let at = h.get_all_by_label(label).nth(nth).unwrap().rect().center();
+    match by {
+        DeleteBy::Key | DeleteBy::Button => {
+            h.get_all_by_label(label).nth(nth).unwrap().click();
+            h.run();
+            h.hover_at(at);
+            h.run();
+            if matches!(by, DeleteBy::Key) {
+                h.key_press(egui::Key::Delete);
+            } else {
+                let button = h.get_all_by_label("Delete").next().unwrap();
+                button.click();
+            }
+        }
+        DeleteBy::Menu => {
+            h.get_all_by_label(label).nth(nth).unwrap().click_secondary();
+            h.run();
+            let delete = h.get_all_by_label("Delete").collect::<Vec<_>>();
+            assert_eq!(delete.len(), 2, "the menu's Delete and the toolbar's");
+            delete[1].click();
+        }
+    }
+    h.run();
+    h.run();
+    assert_eq!(h.state().confirm_delete, None, "{label} ({by:?}): not the whole conversation");
+    assert_eq!(h.state().dialog_views[&key].selected, None, "{label} ({by:?})");
+}
+
+/// Sacha's report: Delete on a line of a conversation opened from the
+/// module tree asked to delete the whole conversation (the module tree
+/// still had the keys), and Yes closed Moonglow. Each kind of line goes,
+/// by the Delete key, the line's menu and the toolbar; with it its branch
+/// and the links to what it owned; undo brings them back.
+#[test]
+fn deleting_conversation_lines_by_key_menu_and_button() {
+    let mut cases: Vec<(&str, usize, Vec<&str>)> = Vec::new();
+    let without = |gone: &[usize]| -> Vec<&str> {
+        BRANCHING.iter().enumerate().filter(|(i, _)| !gone.contains(i)).map(|(_, l)| *l).collect()
+    };
+    // A link (the line it links to stays).
+    cases.push(("Who are you?", 1, without(&[6])));
+    // A line linked from elsewhere: its branch, and the link to it.
+    cases.push(("Who are you?", 0, without(&[1, 2, 3, 6])));
+    // A starting line with lines under it.
+    cases.push(("[OWNER] - Hello there.", 0, without(&[0, 1, 2, 3, 4, 6])));
+    // The last starting line, with a link under it.
+    cases.push(("[OWNER] - Go away.", 0, without(&[5, 6])));
+    // A line deep in a branch, with a line under it.
+    cases.push(("[OWNER] - A traveller.", 0, without(&[2, 3])));
+    // A line at the end of a branch.
+    cases.push(("Farewell. [END DIALOGUE]", 0, without(&[3])));
+    for (label, nth, after) in cases {
+        for by in [DeleteBy::Key, DeleteBy::Menu, DeleteBy::Button] {
+            let (mut h, key) = dialog_from_tree("ui-dialog-delete", &branching_dialog());
+            assert_eq!(dialog_lines(&mut h, key), BRANCHING);
+            delete_line(&mut h, key, label, nth, by);
+            assert_eq!(dialog_lines(&mut h, key), after, "{label} ({by:?})");
+            assert!(h.state().dock.find_tab(&Tab::Dialog(key)).is_some(), "still open");
+            h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+            h.run();
+            assert_eq!(dialog_lines(&mut h, key), BRANCHING, "{label} ({by:?}): undone");
+        }
+    }
+}
+
+/// Deleting lines one after another as the lines left are numbered anew,
+/// down to the last; a selection the tree no longer has (redone under it)
+/// is let go; Delete with nothing selected does nothing.
+#[test]
+fn deleting_conversation_lines_down_to_the_last() {
+    let (mut h, key) = dialog_from_tree("ui-dialog-delete-all", &branching_dialog());
+    // The first greeting: the second is the first line now.
+    delete_line(&mut h, key, "[OWNER] - Hello there.", 0, DeleteBy::Key);
+    assert_eq!(dialog_lines(&mut h, key), ["Entry|Go away.|"]);
+    // Undone; a line deep in the branch selected; redone under it.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    h.get_by_label("Farewell. [END DIALOGUE]").click();
+    h.run();
+    assert!(h.state().dialog_views[&key].selected.is_some());
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Y);
+    h.run();
+    h.run();
+    assert_eq!(dialog_lines(&mut h, key), ["Entry|Go away.|"]);
+    assert_eq!(h.state().dialog_views[&key].selected, None, "no such line now");
+    // Keys with that selection gone.
+    for k in [egui::Key::ArrowRight, egui::Key::ArrowLeft, egui::Key::ArrowDown] {
+        h.key_press(k);
+        h.run();
+    }
+    assert_eq!(dialog_lines(&mut h, key), ["Entry|Go away.|"]);
+    // The last line.
+    delete_line(&mut h, key, "[OWNER] - Go away.", 0, DeleteBy::Key);
+    assert!(dialog_lines(&mut h, key).is_empty());
+    // Nothing selected (Root): Delete deletes nothing, asks nothing.
+    h.key_press(egui::Key::Delete);
+    h.run();
+    h.run();
+    assert_eq!(h.state().confirm_delete, None);
+    assert!(h.state().dock.find_tab(&Tab::Dialog(key)).is_some());
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert_eq!(dialog_lines(&mut h, key), ["Entry|Go away.|"]);
+}
+
+/// The second half of Sacha's crash: deleting the conversation (the
+/// module tree's Delete…, answered Delete) while it is open in its window
+/// closed Moonglow (egui_dock drew the window left empty). The window
+/// closes with it, and undo brings the conversation back.
+#[test]
+fn deleting_a_conversation_open_in_its_window() {
+    let (mut h, key) = dialog_from_tree("ui-dialog-delete-file", &branching_dialog());
+    let window = |h: &Harness<'_, Moonglow>| {
+        h.state()
+            .dock
+            .iter_surfaces()
+            .filter(|s| matches!(s, egui_dock::Surface::Window(..)))
+            .count()
+    };
+    assert_eq!(window(&h), 1, "the conversation's window");
+    h.state_mut().actions.push(mg_ui::Action::DeleteDialog(key));
+    h.run();
+    h.get_by_label("Delete from Module");
+    // (The toolbar's Delete is off: no line is selected.)
+    let delete = h.get_all_by_label("Delete").find(|n| !n.accesskit_node().is_disabled());
+    delete.unwrap().click();
+    h.run();
+    h.run();
+    h.run();
+    assert!(!h.state().ws.as_ref().unwrap().module.contains(&key));
+    assert!(h.state().dock.find_tab(&Tab::Dialog(key)).is_none());
+    assert_eq!(window(&h), 0, "its window went with it");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert!(h.state().ws.as_ref().unwrap().module.contains(&key));
+}
+
+/// Sacha's report: in Aurora the arrow keys go from line to line of a
+/// conversation; in Moonglow nothing happened (they were the module
+/// tree's). After a click in the tree, as Windows' tree control (Aurora's)
+/// has them: Up and Down to the row above or below, Right opens a line
+/// out and then goes to its first line, Left folds it and then goes to
+/// the line it is under, Home and End to the first row (Root) and the
+/// last, Page Up and Page Down a page.
+#[test]
+fn the_conversation_tree_by_the_arrow_keys() {
+    use mg_module::dialog::{Kind, Parent};
+    use mg_ui::dialog_view::Row;
+    let (mut h, key) = dialog_from_tree("ui-dialog-arrows", &branching_dialog());
+    let tree_cursor = h.state().tree_cursor;
+    assert!(tree_cursor.is_some(), "the module tree had the keys");
+    let selected = |h: &Harness<'_, Moonglow>| h.state().dialog_views[&key].selected;
+    let press = |h: &mut Harness<'_, Moonglow>, k: egui::Key| {
+        h.key_press(k);
+        h.run();
+        h.run();
+    };
+    let row = |parent: Parent, pos: usize| Some(Row { parent, pos });
+    let hello = row(Parent::Root, 0);
+    let who = row(Parent::Node(Kind::Entry, 0), 0);
+    let traveller = row(Parent::Node(Kind::Reply, 0), 0);
+    let farewell = row(Parent::Node(Kind::Entry, 1), 0);
+    let bye = row(Parent::Node(Kind::Entry, 0), 1);
+    let go = row(Parent::Root, 1);
+    let link = row(Parent::Node(Kind::Entry, 2), 0);
+    h.get_by_label("[OWNER] - Hello there.").click();
+    h.run();
+    assert_eq!(selected(&h), hello);
+    // Down and Up, row by row, as they are drawn.
+    for want in [who, traveller, farewell, bye, go, link] {
+        press(&mut h, egui::Key::ArrowDown);
+        assert_eq!(selected(&h), want);
+    }
+    press(&mut h, egui::Key::ArrowDown);
+    assert_eq!(selected(&h), link, "the last row stays");
+    assert_eq!(h.state().tree_cursor, tree_cursor, "not the module tree's keys");
+    press(&mut h, egui::Key::ArrowUp);
+    assert_eq!(selected(&h), go);
+    // Home: Root; Up there stays; End: the last row.
+    press(&mut h, egui::Key::Home);
+    assert_eq!(selected(&h), None);
+    press(&mut h, egui::Key::ArrowUp);
+    assert_eq!(selected(&h), None);
+    press(&mut h, egui::Key::End);
+    assert_eq!(selected(&h), link);
+    // A link has nothing under it: Right does nothing, Left goes up.
+    press(&mut h, egui::Key::ArrowRight);
+    assert_eq!(selected(&h), link);
+    press(&mut h, egui::Key::ArrowLeft);
+    assert_eq!(selected(&h), go);
+    // Left folds an open line; again, up to Root; Right from Root goes to
+    // the first line; Right opens the folded one, and again goes into it.
+    press(&mut h, egui::Key::Home);
+    press(&mut h, egui::Key::ArrowRight);
+    assert_eq!(selected(&h), hello);
+    press(&mut h, egui::Key::ArrowLeft);
+    assert!(h.state().dialog_views[&key].collapsed.contains(&(Kind::Entry, 0)));
+    assert!(h.query_by_label("Bye. [END DIALOGUE]").is_none(), "folded");
+    assert_eq!(selected(&h), hello);
+    press(&mut h, egui::Key::ArrowDown);
+    assert_eq!(selected(&h), go, "past the folded lines");
+    press(&mut h, egui::Key::ArrowUp);
+    press(&mut h, egui::Key::ArrowLeft);
+    assert_eq!(selected(&h), None, "Root");
+    press(&mut h, egui::Key::ArrowDown);
+    press(&mut h, egui::Key::ArrowRight);
+    assert!(!h.state().dialog_views[&key].collapsed.contains(&(Kind::Entry, 0)));
+    h.get_by_label("Bye. [END DIALOGUE]");
+    assert_eq!(selected(&h), hello);
+    press(&mut h, egui::Key::ArrowRight);
+    assert_eq!(selected(&h), who);
+    // Left from a line with lines under it, open: folds it; again: up.
+    press(&mut h, egui::Key::ArrowLeft);
+    assert_eq!(selected(&h), who);
+    press(&mut h, egui::Key::ArrowLeft);
+    assert_eq!(selected(&h), hello);
+    // Page Down and Page Up: as far as there are rows, here.
+    press(&mut h, egui::Key::PageDown);
+    assert_eq!(selected(&h), link);
+    press(&mut h, egui::Key::PageUp);
+    assert_eq!(selected(&h), None);
+    // Alt+Up and Alt+Down still move the line.
+    press(&mut h, egui::Key::End);
+    press(&mut h, egui::Key::ArrowUp);
+    assert_eq!(selected(&h), go);
+    h.key_press_modifiers(egui::Modifiers::ALT, egui::Key::ArrowUp);
+    h.run();
+    h.run();
+    assert_eq!(selected(&h), hello, "moved up: the first line now");
+    assert_eq!(dialog_lines(&mut h, key)[0], "Entry|Go away.|");
+}
+
+/// The arrow keys are the tree's only while no field is typed in: in the
+/// line's Text and in the Find What field they move the text cursor.
+#[test]
+fn the_conversation_tree_s_keys_leave_text_fields_alone() {
+    let (mut h, key) = dialog_from_tree("ui-dialog-arrows-text", &branching_dialog());
+    let selected = |h: &Harness<'_, Moonglow>| h.state().dialog_views[&key].selected;
+    h.get_all_by_label("Who are you?").next().unwrap().click();
+    h.run();
+    let who = selected(&h);
+    assert!(who.is_some());
+    // The line's text: Home, then typing, puts the text first.
+    let is_text = |n: &egui_kittest::Node<'_>| {
+        n.accesskit_node().role() == egui::accesskit::Role::MultilineTextInput
+    };
+    h.get_all_by_role(egui::accesskit::Role::MultilineTextInput).find(is_text).unwrap().click();
+    h.run();
+    for k in [egui::Key::ArrowDown, egui::Key::ArrowUp, egui::Key::End, egui::Key::Home] {
+        h.key_press(k);
+        h.run();
+    }
+    assert_eq!(selected(&h), who, "the selection stays");
+    h.event(egui::Event::Text("So, ".into()));
+    h.run();
+    h.key_press(egui::Key::Tab);
+    h.run();
+    h.run();
+    assert!(dialog_lines(&mut h, key).contains(&"  Reply|So, Who are you?|".to_string()));
+    // The Find What field.
+    h.get_all_by_label("So, Who are you?").next().unwrap().click();
+    h.run();
+    let over = h.get_by_label("Test").rect().center();
+    h.hover_at(over);
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::F);
+    h.run();
+    h.run();
+    assert!(h.ctx.egui_wants_keyboard_input(), "Find What has the keyboard");
+    h.event(egui::Event::Text("ab".into()));
+    h.run();
+    h.key_press(egui::Key::ArrowLeft);
+    h.run();
+    h.event(egui::Event::Text("X".into()));
+    h.run();
+    assert_eq!(h.state().dialog_views[&key].search.find, "aXb");
+    h.key_press(egui::Key::ArrowDown);
+    h.run();
+    assert_eq!(selected(&h), who, "the selection stays");
+}
+
+/// A step of the arrow keys scrolls the line it goes to into sight.
+#[test]
+fn the_conversation_tree_s_keys_scroll_to_the_line() {
+    use mg_module::dialog::{Parent, add_node, new_dialog};
+    let mut g = new_dialog();
+    for i in 0..80 {
+        add_node(&mut g, Parent::Root, &format!("Line {i}."));
+    }
+    let (mut h, key) = dialog_from_tree("ui-dialog-arrows-scroll", &g);
+    h.get_by_label("[OWNER] - Line 0.").click();
+    h.run();
+    let line = |h: &Harness<'_, Moonglow>, i: usize| {
+        h.get_by_label(&format!("[OWNER] - Line {i}.")).rect()
+    };
+    assert!(line(&h, 79).top() > 800.0, "out of sight");
+    h.key_press(egui::Key::End);
+    h.run();
+    h.run();
+    h.run();
+    let shown = line(&h, 79);
+    assert!(shown.top() > 0.0 && shown.bottom() <= 800.0, "{shown:?}");
+    assert!(line(&h, 0).top() < 0.0, "scrolled away");
+    // Page Up: a page of rows above, drawn.
+    h.key_press(egui::Key::PageUp);
+    h.run();
+    h.run();
+    h.run();
+    let at = h.state().dialog_views[&key].selected.unwrap().pos;
+    assert!((40..79).contains(&at), "{at}");
+    let shown = line(&h, at);
+    assert!(shown.top() > 0.0 && shown.bottom() <= 800.0, "{shown:?}");
+    // Down from there, one row.
+    h.key_press(egui::Key::ArrowDown);
+    h.run();
+    assert_eq!(h.state().dialog_views[&key].selected.unwrap().pos, at + 1);
 }

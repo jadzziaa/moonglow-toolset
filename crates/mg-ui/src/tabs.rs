@@ -221,6 +221,19 @@ impl Tab {
     }
 }
 
+/// Closes every tab that `keep` turns down, one at a time as its close
+/// button does, so that a window left without tabs goes with its last.
+/// (`DockState::retain_tabs` left such a window with an empty pane and
+/// egui_dock panicked drawing it: deleting a conversation open in its
+/// window closed Moonglow, Sacha's report.)
+pub(crate) fn close_tabs(dock: &mut egui_dock::DockState<Tab>, keep: impl Fn(&Tab) -> bool) {
+    while let Some(path) = dock.find_tab_from(|t| !keep(t)) {
+        if dock.remove_tab(path).is_none() {
+            break;
+        }
+    }
+}
+
 pub(crate) struct Viewer<'a> {
     pub(crate) app: &'a mut Moonglow,
 }
@@ -683,4 +696,37 @@ fn welcome(app: &mut Moonglow, ui: &mut Ui) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A window's last tab closed takes the window with it, and the
+    /// others stay where they are; the window drawn after it is whole.
+    #[test]
+    fn closing_a_window_s_last_tab_closes_the_window() {
+        let talk = ResKey::parse("talk", ResType::DLG).unwrap();
+        let other = ResKey::parse("other", ResType::DLG).unwrap();
+        let mut dock = egui_dock::DockState::new(vec![Tab::ModuleProperties]);
+        dock.add_window(vec![Tab::Dialog(talk)]);
+        dock.add_window(vec![Tab::Dialog(other), Tab::Dialog(talk)]);
+        close_tabs(&mut dock, |t| *t != Tab::Dialog(talk));
+        let windows: Vec<Vec<Tab>> = dock
+            .iter_surfaces()
+            .filter(|s| matches!(s, egui_dock::Surface::Window(..)))
+            .map(|s| s.iter_all_tabs().map(|(_, t)| t.clone()).collect())
+            .collect();
+        assert_eq!(windows, [vec![Tab::Dialog(other)]]);
+        assert!(dock.find_tab(&Tab::ModuleProperties).is_some());
+        // Every window left has a pane with tabs to title it by, the one
+        // in focus if one is (`DockState::retain_tabs` left it in focus
+        // emptied).
+        for s in dock.iter_surfaces() {
+            if let egui_dock::Surface::Window(tree, _) = s {
+                assert!(tree.focused_leaf().is_none_or(|n| tree[n].is_leaf()));
+                assert!(tree.iter().any(|n| n.tabs_count() > 0));
+            }
+        }
+    }
 }

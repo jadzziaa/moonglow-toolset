@@ -3,7 +3,7 @@ type: Manual Page
 title: Conversations
 description: Conversations - the conversation tree, a line's tabs, writing conversations elsewhere, the Script Wizard and backups.
 tags: [manual, conversations]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T19:04:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T21:15:21Z }
 ---
 
 # Conversations
@@ -28,7 +28,26 @@ empty field; text typed in the field is said instead.
 
 With the pointer over the editor, Ctrl+A adds a line, Delete deletes the
 selected one, and Ctrl+C, Ctrl+X and Ctrl+V copy, cut and paste, as in
-Aurora (Options › Keyboard changes Add's and Delete's keys).
+Aurora (Options › Keyboard changes Add's and Delete's keys). Delete
+deletes only the line: the whole conversation is deleted from the module
+tree (its menu's Delete…, which asks first).
+
+**The keyboard.** A click in the editor gives the conversation's tree the
+keys (a thin outline shows it has them), as a click gives them to the
+module tree; they stay its until you click another list or point at an
+area's view. Then, as in Aurora's tree:
+
+| Key | Does |
+| --- | --- |
+| Up, Down | select the line above or below, as the tree shows them (Root is the first) |
+| Right | open the selected line's branch; if it is open, go to its first line |
+| Left | fold the selected line's branch; if it is folded (or has none), go to the line it is under |
+| Home, End | select Root, or the last line shown |
+| Page Up, Page Down | go up or down by as many lines as the tree has room for |
+
+The line selected scrolls into sight. While you type in a field (the
+line's Text, Find What), the keys are the field's: they move its text
+cursor.
 
 | Command | Does |
 | --- | --- |

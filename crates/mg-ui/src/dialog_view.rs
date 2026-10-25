@@ -67,6 +67,176 @@ pub struct DialogView {
     pub menu: Option<Asked>,
     /// The selected row is to be scrolled to as it is drawn ([`go_to_line`]).
     pub reveal: bool,
+    /// The selected row is to be scrolled just into sight as it is drawn
+    /// (a step of the arrow keys), not to the middle.
+    pub nudge: bool,
+    /// How many rows the tree had room for when drawn last: Page Up and
+    /// Page Down's step.
+    page: usize,
+}
+
+/// A row of the tree as it is drawn: Root, or a link under its parent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Shown {
+    /// The row (`None`: Root).
+    pub row: Option<Row>,
+    /// The line it shows (`None`: Root).
+    pub line: Option<(Kind, u32)>,
+    /// Where the row it is under is among the rows (`None`: Root's own).
+    pub up: Option<usize>,
+    /// It owns lines, drawn under it while it is open (a link owns none).
+    pub children: bool,
+    pub open: bool,
+}
+
+/// The rows of the tree from top to bottom as [`tree`] draws them: Root,
+/// then each line whose parents are open.
+pub fn shown_rows(g: &Gff, collapsed: &HashSet<(Kind, u32)>) -> Vec<Shown> {
+    fn walk(
+        g: &Gff,
+        parent: Parent,
+        up: usize,
+        collapsed: &HashSet<(Kind, u32)>,
+        path: &mut HashSet<(Kind, u32)>,
+        out: &mut Vec<Shown>,
+    ) {
+        let kind = parent.child_kind();
+        for (pos, l) in links(g, parent).iter().enumerate() {
+            let index = link_index(l);
+            if node(g, kind, index).is_none() {
+                continue;
+            }
+            let children = !is_link(l) && !links(g, Parent::Node(kind, index)).is_empty();
+            let open = !collapsed.contains(&(kind, index));
+            out.push(Shown {
+                row: Some(Row { parent, pos }),
+                line: Some((kind, index)),
+                up: Some(up),
+                children,
+                open,
+            });
+            let here = out.len() - 1;
+            if children && open && path.insert((kind, index)) {
+                walk(g, Parent::Node(kind, index), here, collapsed, path, out);
+                path.remove(&(kind, index));
+            }
+        }
+    }
+    let children = !links(g, Parent::Root).is_empty();
+    let mut out = vec![Shown { row: None, line: None, up: None, children, open: true }];
+    walk(g, Parent::Root, 0, collapsed, &mut HashSet::new(), &mut out);
+    out
+}
+
+/// What a key does in the tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TreeStep {
+    /// The row at this place among the rows is selected.
+    To(usize),
+    /// The line is opened out (`true`) or folded.
+    Fold((Kind, u32), bool),
+    None,
+}
+
+/// The keys of the tree, as Windows' tree control has them (Aurora's
+/// conversation tree is one): Up and Down go to the row above or below,
+/// Home and End to the first and the last, Page Up and Page Down a page
+/// (`page` rows) up or down; Right opens a line out, or goes to its first
+/// line if it is open; Left folds an open line, or goes to the line it is
+/// under. `at` is where the selected row is among `rows`.
+pub fn tree_step(rows: &[Shown], at: usize, key: egui::Key, page: usize) -> TreeStep {
+    use egui::Key;
+    let Some(last) = rows.len().checked_sub(1) else { return TreeStep::None };
+    let at = at.min(last);
+    let here = rows[at];
+    let to = match key {
+        Key::ArrowDown => at + 1,
+        Key::ArrowUp => at.saturating_sub(1),
+        Key::Home => 0,
+        Key::End => last,
+        Key::PageDown => at + page.max(1),
+        Key::PageUp => at.saturating_sub(page.max(1)),
+        Key::ArrowRight => match here.line {
+            Some(line) if here.children && !here.open => return TreeStep::Fold(line, true),
+            // (Its first line, if it is drawn under it: not where a
+            // line is under itself.)
+            _ if here.children && rows.get(at + 1).is_some_and(|r| r.up == Some(at)) => at + 1,
+            _ => return TreeStep::None,
+        },
+        Key::ArrowLeft => match (here.line, here.up) {
+            (Some(line), _) if here.children && here.open => return TreeStep::Fold(line, false),
+            (_, Some(up)) => up,
+            _ => return TreeStep::None,
+        },
+        _ => return TreeStep::None,
+    };
+    let to = to.min(last);
+    if to == at { TreeStep::None } else { TreeStep::To(to) }
+}
+
+/// The keys of the tree that [`tree_step`] reads.
+const TREE_KEYS: [egui::Key; 8] = [
+    egui::Key::ArrowDown,
+    egui::Key::ArrowUp,
+    egui::Key::ArrowRight,
+    egui::Key::ArrowLeft,
+    egui::Key::Home,
+    egui::Key::End,
+    egui::Key::PageDown,
+    egui::Key::PageUp,
+];
+
+/// Gives the keys to conversation `key`'s tree (from a click in its
+/// editor), as a click gives them to the module tree or a table: they are
+/// its from then on, until another list or an area's view takes them.
+fn take_keys(ctx: &egui::Context, key: ResKey) {
+    crate::palette_view::give_keys(ctx, crate::palette_view::Keys::Dialog);
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new("dialog-keys-of"), key));
+}
+
+/// Whether conversation `key`'s tree has the keys.
+pub(crate) fn has_keys(ctx: &egui::Context, key: ResKey) -> bool {
+    crate::palette_view::keys_are(ctx, crate::palette_view::Keys::Dialog)
+        && ctx.data(|d| d.get_temp::<ResKey>(egui::Id::new("dialog-keys-of"))) == Some(key)
+}
+
+/// The tree's keys pressed this frame (with no Shift, Ctrl or Alt: Alt+Up
+/// and Alt+Down move a line), each done in turn.
+fn tree_keys(ui: &Ui, g: &Gff, view: &mut DialogView) {
+    loop {
+        let pressed = ui.input_mut(|i| {
+            let mut found = None;
+            i.events.retain(|e| match e {
+                egui::Event::Key { key, pressed: true, modifiers, .. }
+                    if found.is_none() && modifiers.is_none() && TREE_KEYS.contains(key) =>
+                {
+                    found = Some(*key);
+                    false
+                }
+                _ => true,
+            });
+            found
+        });
+        let Some(k) = pressed else { break };
+        let rows = shown_rows(g, &view.collapsed);
+        // (A selection in a folded branch: from Root.)
+        let at = rows.iter().position(|r| r.row == view.selected).unwrap_or(0);
+        let page = if view.page == 0 { 10 } else { view.page };
+        match tree_step(&rows, at, k, page) {
+            TreeStep::To(to) => {
+                view.selected = rows[to].row;
+                view.nudge = true;
+            }
+            TreeStep::Fold(line, true) => {
+                view.collapsed.remove(&line);
+            }
+            TreeStep::Fold(line, false) => {
+                view.collapsed.insert(line);
+            }
+            TreeStep::None => {}
+        }
+        ui.ctx().request_repaint();
+    }
 }
 
 /// Selects the row where line `(kind, index)` is owned (not a link to
@@ -255,6 +425,12 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let mut view = app.dialog_views.remove(&key).unwrap_or_default();
     // A selection the conversation no longer has (undo) is dropped.
     view.selected = view.selected.filter(|r| r.pos < links(&g, r.parent).len());
+    // The arrow keys and the others of the tree, once a click in the
+    // editor has given it the keys; not while a field is typed in.
+    let keys_here = has_keys(ui.ctx(), key);
+    if keys_here && !ui.ctx().egui_wants_keyboard_input() && view.input.is_none() {
+        tree_keys(ui, &g, &mut view);
+    }
     let mut actions: Vec<Action> = Vec::new();
     let target_of = |r: Row| (r.parent.child_kind(), link_index(&links(&g, r.parent)[r.pos]));
 
@@ -671,36 +847,41 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let hl = view.highlight;
     let mut dropped: Option<Drop> = None;
     let look = Look::new(&app.settings);
-    egui::ScrollArea::both().id_salt(("dlg-tree", key)).auto_shrink([false, false]).show(
-        ui,
-        |ui| {
-            let root = ui.selectable_label(view.selected.is_none(), RichText::new("Root").strong());
-            if root.clicked() {
-                view.selected = None;
-            }
-            if let Some(from) = root.dnd_release_payload::<Row>() {
-                dropped = Some(Drop {
-                    from: *from,
-                    onto: Parent::Root,
-                    link: link_key(ui),
-                    before: None,
-                });
-            }
-            let mut path = HashSet::new();
-            tree(
-                ui,
-                app.game.as_deref(),
-                &g,
-                Parent::Root,
-                1,
-                &mut view,
-                &mut path,
-                hl,
-                &look,
-                &mut dropped,
-            );
-        },
-    );
+    let lines = egui::ScrollArea::both().id_salt(("dlg-tree", key)).auto_shrink([false, false]);
+    let shown = lines.show(ui, |ui| {
+        let root = ui.selectable_label(view.selected.is_none(), RichText::new("Root").strong());
+        if root.clicked() {
+            view.selected = None;
+        }
+        if view.selected.is_none() && std::mem::take(&mut view.nudge) {
+            root.scroll_to_me(None);
+        }
+        let ours = |p: std::sync::Arc<(ResKey, Row)>| (p.0 == key).then_some(p.1);
+        if let Some(from) = root.dnd_release_payload::<(ResKey, Row)>().and_then(ours) {
+            dropped = Some(Drop { from, onto: Parent::Root, link: link_key(ui), before: None });
+        }
+        let mut path = HashSet::new();
+        tree(
+            ui,
+            app.game.as_deref(),
+            key,
+            &g,
+            Parent::Root,
+            1,
+            &mut view,
+            &mut path,
+            hl,
+            &look,
+            &mut dropped,
+        );
+    });
+    let pitch = ui.spacing().interact_size.y + ui.spacing().item_spacing.y;
+    view.page = ((shown.inner_rect.height() / pitch) as usize).saturating_sub(1).max(1);
+    if keys_here {
+        crate::palette_view::keys_outline(ui, shown.inner_rect, crate::palette_view::Keys::Dialog);
+    }
+    // (A row dragged before the lines changed under it is no row now.)
+    let dropped = dropped.filter(|d| d.from.pos < links(&g, d.from.parent).len());
     // A drag moves the line (with its branch) under the line it is dropped
     // on, or above it if that is a line of its own kind (the player's on
     // the player's); with Ctrl it links them instead, by default the dragged line to
@@ -774,6 +955,13 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         }
     }
 
+    // A click in the editor gives its tree the keys: the arrows, and
+    // Delete and the others, are this conversation's, no longer the
+    // module tree's (whose Delete asked to delete the whole conversation:
+    // Sacha's report).
+    if ui.ui_contains_pointer() && ui.input(|i| i.pointer.any_pressed()) {
+        take_keys(ui.ctx(), key);
+    }
     app.dialog_views.insert(key, view);
     app.actions.extend(actions);
 }
@@ -842,11 +1030,13 @@ fn link_key(ui: &Ui) -> bool {
     ui.input(|i| i.modifiers.ctrl || i.modifiers.mac_cmd)
 }
 
-/// Draws the rows under a parent; `path` stops cycles through owning links.
+/// Draws the rows under a parent of conversation `key`; `path` stops
+/// cycles through owning links.
 #[allow(clippy::too_many_arguments)]
 fn tree(
     ui: &mut Ui,
     game: Option<&mg_rules::GameData>,
+    key: ResKey,
     g: &Gff,
     parent: Parent,
     depth: usize,
@@ -906,22 +1096,25 @@ fn tree(
             }
             let r =
                 ui.selectable_label(view.selected == Some(row), rich).interact(egui::Sense::drag());
-            r.dnd_set_drag_payload(row);
-            if let Some(from) = r.dnd_release_payload::<Row>()
-                && *from != row
+            // (With its conversation: a row dropped on another's tree
+            // is not one of its rows.)
+            r.dnd_set_drag_payload((key, row));
+            let ours = |p: std::sync::Arc<(ResKey, Row)>| (p.0 == key).then_some(p.1);
+            if let Some(from) = r.dnd_release_payload::<(ResKey, Row)>().and_then(ours)
+                && from != row
             {
                 let link = link_key(ui);
                 // On a line of its own kind: above it, under its parent.
                 *dropped = Some(if !link && from.parent.child_kind() == kind {
-                    Drop { from: *from, onto: parent, link, before: Some(pos) }
+                    Drop { from, onto: parent, link, before: Some(pos) }
                 } else {
-                    Drop { from: *from, onto: Parent::Node(kind, index), link, before: None }
+                    Drop { from, onto: Parent::Node(kind, index), link, before: None }
                 });
             }
             // Where a line held over this one would go: a line above it,
             // or a frame around it.
-            if let Some(from) = r.dnd_hover_payload::<Row>()
-                && *from != row
+            if let Some(from) = r.dnd_hover_payload::<(ResKey, Row)>().and_then(ours)
+                && from != row
             {
                 let stroke = egui::Stroke::new(2.0, ui.visuals().selection.stroke.color);
                 if !link_key(ui) && from.parent.child_kind() == kind {
@@ -971,6 +1164,10 @@ fn tree(
                 r.scroll_to_me(Some(egui::Align::Center));
                 view.reveal = false;
             }
+            if view.nudge && view.selected == Some(row) {
+                r.scroll_to_me(None);
+                view.nudge = false;
+            }
             if look.scripts {
                 let marks = markers(l, n);
                 if !marks.is_empty() {
@@ -981,7 +1178,8 @@ fn tree(
             }
         });
         if children && open && path.insert((kind, index)) {
-            tree(ui, game, g, Parent::Node(kind, index), depth + 1, view, path, hl, look, dropped);
+            let under = Parent::Node(kind, index);
+            tree(ui, game, key, g, under, depth + 1, view, path, hl, look, dropped);
             path.remove(&(kind, index));
         }
     }
@@ -1785,4 +1983,98 @@ fn footer(ui: &mut Ui, path: &mut Vec<(Kind, u32)>, close: &mut bool) {
             *close = true;
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui::Key;
+    use mg_module::dialog::{add_link, new_link, node_mut};
+
+    /// Root, a greeting with a reply that has a line under it, and a link.
+    fn sample() -> Gff {
+        let mut g = new_dialog();
+        let hello = add_node(&mut g, Parent::Root, "Hello.");
+        let who = add_node(&mut g, Parent::Node(Kind::Entry, hello), "Who?");
+        add_node(&mut g, Parent::Node(Kind::Reply, who), "Me.");
+        let go = add_node(&mut g, Parent::Root, "Go.");
+        add_link(&mut g, Parent::Node(Kind::Entry, go), who);
+        g
+    }
+
+    #[test]
+    fn the_rows_are_those_drawn() {
+        let g = sample();
+        let rows = shown_rows(&g, &HashSet::new());
+        let lines: Vec<_> = rows.iter().map(|r| (r.line, r.up, r.children)).collect();
+        let (e, r) = (Kind::Entry, Kind::Reply);
+        assert_eq!(
+            lines,
+            [
+                (None, None, true),
+                (Some((e, 0)), Some(0), true),
+                (Some((r, 0)), Some(1), true),
+                (Some((e, 1)), Some(2), false),
+                (Some((e, 2)), Some(0), true),
+                // (The link: nothing under it.)
+                (Some((r, 0)), Some(4), false),
+            ]
+        );
+        // A folded line's are not drawn.
+        let folded = HashSet::from([(Kind::Reply, 0)]);
+        assert_eq!(shown_rows(&g, &folded).len(), 5);
+    }
+
+    #[test]
+    fn the_keys_go_as_in_a_windows_tree() {
+        let g = sample();
+        let rows = shown_rows(&g, &HashSet::new());
+        let step = |at, key| tree_step(&rows, at, key, 3);
+        assert_eq!(step(0, Key::ArrowUp), TreeStep::None);
+        assert_eq!(step(0, Key::ArrowDown), TreeStep::To(1));
+        assert_eq!(step(5, Key::ArrowDown), TreeStep::None);
+        assert_eq!(step(3, Key::Home), TreeStep::To(0));
+        assert_eq!(step(1, Key::End), TreeStep::To(5));
+        assert_eq!(step(1, Key::PageDown), TreeStep::To(4));
+        assert_eq!(step(4, Key::PageDown), TreeStep::To(5));
+        assert_eq!(step(4, Key::PageUp), TreeStep::To(1));
+        // Right: into an open line; nothing on a line with none under it.
+        assert_eq!(step(0, Key::ArrowRight), TreeStep::To(1));
+        assert_eq!(step(2, Key::ArrowRight), TreeStep::To(3));
+        assert_eq!(step(3, Key::ArrowRight), TreeStep::None);
+        assert_eq!(step(5, Key::ArrowRight), TreeStep::None);
+        // Left: folds an open line; up from one with nothing under it.
+        assert_eq!(step(2, Key::ArrowLeft), TreeStep::Fold((Kind::Reply, 0), false));
+        assert_eq!(step(3, Key::ArrowLeft), TreeStep::To(2));
+        assert_eq!(step(5, Key::ArrowLeft), TreeStep::To(4));
+        assert_eq!(step(0, Key::ArrowLeft), TreeStep::None, "Root");
+        // Folded: Right opens it, Left goes up.
+        let folded = shown_rows(&g, &HashSet::from([(Kind::Reply, 0)]));
+        assert_eq!(
+            tree_step(&folded, 2, Key::ArrowRight, 3),
+            TreeStep::Fold((Kind::Reply, 0), true)
+        );
+        assert_eq!(tree_step(&folded, 2, Key::ArrowLeft, 3), TreeStep::To(1));
+        assert_eq!(tree_step(&[], 0, Key::ArrowDown, 3), TreeStep::None);
+    }
+
+    /// A file whose line owns the line it is under (no editor makes one)
+    /// is drawn once round, and Right goes nowhere from where it stops.
+    #[test]
+    fn a_line_under_itself_is_drawn_once() {
+        let mut g = new_dialog();
+        let hello = add_node(&mut g, Parent::Root, "Hello.");
+        let who = add_node(&mut g, Parent::Node(Kind::Entry, hello), "Who?");
+        let back = new_link(hello, Parent::Node(Kind::Reply, who), false);
+        let n = node_mut(&mut g, Kind::Reply, who).unwrap();
+        n.set(Kind::Reply.links(), Value::List(vec![back]));
+        let rows = shown_rows(&g, &HashSet::new());
+        assert_eq!(rows.len(), 4, "Root, Hello, Who, Hello again");
+        assert!(rows[3].children);
+        assert_eq!(tree_step(&rows, 3, Key::ArrowRight, 10), TreeStep::None);
+        assert_eq!(
+            tree_step(&rows, 3, Key::ArrowLeft, 10),
+            TreeStep::Fold((Kind::Entry, 0), false)
+        );
+    }
 }

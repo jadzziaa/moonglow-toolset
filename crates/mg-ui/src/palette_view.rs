@@ -246,6 +246,8 @@ pub(crate) enum Keys {
     Browser,
     /// A table's cells, in the 2DA editor.
     Table,
+    /// A conversation's lines, in the conversation editor.
+    Dialog,
 }
 
 pub(crate) fn give_keys(ctx: &egui::Context, to: Keys) {

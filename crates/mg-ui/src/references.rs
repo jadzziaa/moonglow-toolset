@@ -416,7 +416,7 @@ impl Moonglow {
             return;
         }
         let area = (key.restype == ResType::ARE).then_some(key.resref);
-        self.dock.retain_tabs(|t| match t {
+        crate::tabs::close_tabs(&mut self.dock, |t| match t {
             Tab::Script(k) | Tab::Gff(k) | Tab::Dialog(k) | Tab::Blueprint(k) => {
                 *k != key
                     && !(area == Some(k.resref) && with.contains(&k.restype))

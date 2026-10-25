@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T11:15:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T21:20:26Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -792,6 +792,28 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Articy:draft** isn't read; its JSON export could map like Twine. (M)
 - **Ink beyond the subset** (stitches, gathers, inline logic) is refused,
   not converted. (M)
+- **Bookmarks and folded lines after a delete:** deleting a line numbers
+  the lines after it anew, and the bookmarks and folded branches are kept
+  by number: one may then name another line (not a crash; undo puts the
+  numbers back). (S) (Sacha's report, 2026-10-25)
+- **The tree's keys not done:** Aurora was not driven to confirm them;
+  they follow Windows' tree control, which its tree is. Left out: the
+  keypad's + and − (open, fold) and * (open everything under), a letter
+  typed to go to the next line beginning with it, Backspace to the line
+  above, Ctrl+Up and Ctrl+Down to scroll without moving. Escape doesn't
+  hand the keys back (in a window it closes the window). Folding a branch
+  with its − button while a line in it is selected leaves the selection
+  out of sight (Windows selects the folded line); the keys then go from
+  Root. Delete and the other commands' keys still want the pointer over
+  the editor, as before; the arrows don't. With a non-text widget in
+  focus (Tab out of the Text field), an arrow also moves egui's focus.
+  (S) (Sacha's report, 2026-10-25)
+- **Opening a conversation doesn't give it the keys:** opened from the
+  module tree (Enter, a double click), the keys stay the tree's until a
+  click in the editor, so Delete then still asks to delete the whole
+  conversation (now without a crash, and undoable). Aurora puts the
+  keyboard in the conversation it opens: should Moonglow? (S) (Sacha's
+  report, 2026-10-25)
 
 ## Palettes
 
@@ -3017,6 +3039,18 @@ contribution itself states as not done or not checked.
   subfolders hand-made palettes have. (S)
 
 ## The install, starting and crashes
+
+- **The recovery copy written at a panic** holds the work as the frame
+  that panicked left it (a change applied in it is in the copy), and only
+  a panic in a frame writes one: one in a background thread (an
+  autosave, a plugin's run, a model's load) or in eframe's own code
+  writes none. On macOS a panic unwinding into the system's code aborts
+  after the copy is written. Not tried on a real crash on Windows or
+  macOS. (S) (Sacha's report, 2026-10-25)
+- **egui_dock's `retain_tabs`** leaves a window emptied of its last tab
+  with an empty pane in focus, which egui_dock then panics drawing
+  (Sacha's crash): Moonglow closes tabs one at a time instead
+  (`tabs::close_tabs`). Not reported upstream. (S)
 
 - **userpatch.ini's haks** are read (Options › General, off by default), at the
   game's priority for them as the wiki's load order gives it (13: under
