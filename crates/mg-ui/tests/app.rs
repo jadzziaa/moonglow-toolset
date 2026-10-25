@@ -13167,6 +13167,47 @@ fn unsaved_work_survives_a_crash() {
     assert_eq!(ifo.root.string("Mod_Tag"), Some(&b"RECOVERED"[..]));
 }
 
+/// A frame that panics writes the recovery copy before the panic goes
+/// on (Sacha's crash lost what was not saved): the work as it was then,
+/// not as the copy made minutes before had it. Nothing unsaved, no copy.
+#[test]
+fn a_panic_keeps_the_unsaved_work() {
+    let dir = mg_testkit::scratch_dir("ui-recovery-panic");
+    let path = sample_module(&dir);
+    let recovery = dir.join("recovery");
+    let mut app = app_with(Vec::new());
+    app.recovery_dir = Some(recovery.clone());
+    app.open_module(&path);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    // (Its message is printed: the test's own.)
+    let panics = |app: &mut Moonglow| {
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            app.recovering(|_| panic!("a frame that fails, as the test means it to"));
+        }));
+        assert!(caught.is_err(), "the panic goes on");
+    };
+    panics(h.state_mut());
+    assert!(mg_ui::recovery::find(&recovery).is_empty(), "nothing to keep");
+    let key = ResKey::parse("module", ResType::IFO).unwrap();
+    let edit = mg_edit::Edit::SetField {
+        key,
+        path: mg_edit::GffPath::root(),
+        label: "Mod_Tag".into(),
+        value: Some(mg_gff::Value::String(b"KEPT".to_vec())),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("tag", vec![edit])));
+    h.run();
+    panics(h.state_mut());
+    let copies = mg_ui::recovery::find(&recovery);
+    assert_eq!(copies.len(), 1);
+    let kept = Module::open(&copies[0].archive).unwrap();
+    let ifo = kept.gff(&key).unwrap().unwrap();
+    assert_eq!(ifo.root.string("Mod_Tag"), Some(&b"KEPT"[..]));
+    // A frame that does not panic is only the frame.
+    h.state_mut().recovering(|app| app.log.info("drawn"));
+}
+
 #[test]
 fn closing_without_saving_leaves_no_copy() {
     let dir = mg_testkit::scratch_dir("ui-recovery-close");

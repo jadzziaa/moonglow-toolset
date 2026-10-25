@@ -116,7 +116,8 @@ impl eframe::App for App {
         {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(true));
         }
-        self.moonglow.ui(ui);
+        // (A panic keeps the unsaved work in a recovery copy first.)
+        self.moonglow.recovering(|m| m.ui(ui));
         let title = self.moonglow.title();
         if title != self.title {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
@@ -134,7 +135,7 @@ impl eframe::App for App {
 
 /// On a crash, a report in Moonglow's data folder (`crash-<time>.txt`):
 /// the message, where, and the backtrace; the unsaved work is in the
-/// recovery copy.
+/// recovery copy, written as the frame stopped (`Moonglow::recovering`).
 fn crash_reports() {
     let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {

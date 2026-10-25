@@ -182,6 +182,28 @@ impl Moonglow {
         self.recovery_job().ok_or_else(|| "no module or no recovery folder".to_string())?.run()
     }
 
+    /// Runs `frame` (a frame of the window); if it panics, writes the
+    /// recovery copy of the unsaved work first (unless Options › General
+    /// keeps none), then lets the panic go on. The copy is the work as it
+    /// was when the frame stopped: a crash costs none of it, where the copy
+    /// made every few minutes could be minutes old.
+    pub fn recovering(&mut self, frame: impl FnOnce(&mut Moonglow)) {
+        use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
+        let Err(panic) = catch_unwind(AssertUnwindSafe(|| frame(self))) else { return };
+        if !self.settings.no_autosave && self.has_unsaved_work() {
+            // (A copy that fails, or panics too, leaves the crash as it was.)
+            match catch_unwind(AssertUnwindSafe(|| self.write_recovery())) {
+                Ok(Ok(path)) => {
+                    crate::trace::note(format!("recovery copy written: {}", path.display()));
+                    eprintln!("The unsaved work was kept in {}", path.display());
+                }
+                Ok(Err(e)) => eprintln!("recovery copy: {e}"),
+                Err(_) => eprintln!("recovery copy: failed"),
+            }
+        }
+        resume_unwind(panic)
+    }
+
     /// Removes the open module's recovery copy (saved, or closed without
     /// saving).
     pub(crate) fn forget_recovery(&mut self) {
