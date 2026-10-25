@@ -45,6 +45,12 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="2.5.3" date="2026-10-25">
+      <description>
+        <p>A placeable whose appearance reflects "default" shows the game's
+        silver map, not the tileset's.</p>
+      </description>
+    </release>
     <release version="2.5.2" date="2026-10-25">
       <description>
         <p>A color's picker pastes a color: Paste Color, Ctrl+V, and the
