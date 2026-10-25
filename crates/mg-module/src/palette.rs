@@ -520,7 +520,7 @@ fn hak_blueprints(module: &Module, game: &GameData, kind: BlueprintKind) -> Vec<
 /// blueprints of the module and of its haks (the override folder's are
 /// not listed, as in Aurora), each in the category its palette field
 /// names (255 hides it, an unknown id drops it), by name, then ResRef.
-/// An entry is named as [`entry_for`] names it: a talk-table name as its
+/// An entry is named as `entry_for` names it: a talk-table name as its
 /// `STRREF`. Entries whose blueprint is in neither the module nor its
 /// haks are not kept.
 ///
@@ -815,7 +815,7 @@ fn restructured(
 ///
 /// - A blueprint added, or one whose name, category (or, for a creature,
 ///   challenge rating or faction) no longer matches its entry: the entry
-///   (a new one, as [`entry_for`] makes it, or the old one with what it
+///   (a new one, as `entry_for` makes it, or the old one with what it
 ///   says made right, its other fields kept) goes into its category at
 ///   its place by name. A blueprint whose entry still matches keeps it
 ///   untouched. One hidden (category 255, or one the palette lacks) has
