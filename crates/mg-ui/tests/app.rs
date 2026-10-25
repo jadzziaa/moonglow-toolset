@@ -14953,11 +14953,12 @@ fn an_area_s_placeables_are_made_static_together() {
 
 /// Adjust Location's Visual Transforms (xtul's mirror: Scale 0.46, X
 /// Rotation -50.8): Apply writes them and keeps the window open, OK writes
-/// what changed since and closes it, each one step to undo; saved, the
-/// module reopened shows them again in the window, and the area view
-/// keeps the model upright (X Rotation turns it about its upright axis,
-/// as the game does). A static placeable is offered none, and the window
-/// says why and that its file's transform is not drawn.
+/// what changed since and closes it, each one step to undo; a pasted copy
+/// has them too; saved, the module reopened shows them again in the
+/// window, and the area view keeps the model upright (X Rotation turns it
+/// about its upright axis, as the game does). A static placeable is
+/// offered none, and the window says why and that its file's transform
+/// is not drawn.
 #[test]
 fn adjust_location_s_visual_transforms_are_saved_and_reopened() {
     use glam::Vec3;
@@ -15055,6 +15056,21 @@ fn adjust_location_s_visual_transforms_are_saved_and_reopened() {
     let o = model.object(ObjectKind::Placeable, 0).unwrap();
     let up = o.model_transform().transform_vector3(Vec3::Z);
     assert!((up - Vec3::Z * 0.5).length() < 1e-4, "upright, half size: {up}");
+    // Copied and pasted: the copy has it too.
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Placeable, 0)];
+    h.hover_at(screen(&h, area, Vec3::new(20.0, 25.0, 0.0)));
+    h.run_steps(1);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::C);
+    h.run_steps(1);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::V);
+    h.run_steps(2);
+    let over = screen(&h, area, Vec3::new(20.0, 25.0, 0.0));
+    h.hover_at(over);
+    press(&h, over, true, egui::Modifiers::NONE);
+    press(&h, over, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Paste"));
+    assert_eq!(visual(&mut h, 2), Some(half), "the pasted copy's");
 
     // Saved, and the module opened again: the window shows them.
     h.state_mut().actions.push(mg_ui::Action::Save);
