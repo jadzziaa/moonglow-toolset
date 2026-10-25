@@ -200,7 +200,8 @@ struct TurnRing {
 /// Shift is held.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct TiltRing {
-    /// 0: about X, 1: about Y (of the visual transform's rotation).
+    /// 0: about the model's X (Y Rotation tips it so), 1: about its Y (Z
+    /// Rotation leans it so).
     axis: usize,
     pivot: Vec3,
     radius: f32,
@@ -210,6 +211,13 @@ struct TiltRing {
 }
 
 impl TiltRing {
+    /// The field of the visual transform's rotation it sets (an index
+    /// into `rotate`): Y Rotation about X, Z Rotation about Y
+    /// ([`mg_area::VisualTransform::matrix`]).
+    fn field(&self) -> usize {
+        self.axis + 1
+    }
+
     fn point(&self, angle: f32) -> Vec3 {
         self.pivot + (self.u * angle.cos() + self.v * angle.sin()) * self.radius
     }
@@ -865,10 +873,12 @@ impl AreaView {
         self.on_line(&|k| ring.segment(k), pos)
     }
 
-    /// The rings for tilting the selection's models, about X and about Y:
-    /// around each selected object whose model tilts (as `model` has it).
-    /// Each lies across the axis its angle turns the model on, with the
-    /// angles before it applied (Z, then Y, then X).
+    /// The rings for tilting the selection's models, about X (Y Rotation)
+    /// and about Y (Z Rotation): around each selected object whose model
+    /// tilts (as `model` has it). Each lies across the axis its angle
+    /// turns the model on, with the turns outside it applied (X Rotation
+    /// about the upright axis, then Y Rotation about X: the game's order,
+    /// [`mg_area::VisualTransform::matrix`]).
     fn tilt_rings(&self, model: &AreaModel) -> Vec<TiltRing> {
         let Some(camera) = self.camera().filter(|_| self.turn_ring) else { return Vec::new() };
         self.chosen(model)
@@ -877,8 +887,8 @@ impl AreaView {
                 let visual = o.visual.unwrap_or_default();
                 let r = visual.rotate * (std::f32::consts::PI / 180.0);
                 let stands = glam::Quat::from_rotation_z(o.rotation);
-                let about_y = stands * glam::Quat::from_rotation_z(r.z);
-                let about_x = about_y * glam::Quat::from_rotation_y(r.y);
+                let about_x = stands * glam::Quat::from_rotation_z(r.x);
+                let about_y = about_x * glam::Quat::from_rotation_x(r.y);
                 let pivot = o.transform().transform_point3(visual.translate);
                 let radius = ((camera.eye - pivot).length() * 0.0765).max(0.5);
                 let ring = |axis: usize, n: Vec3| {
@@ -1154,7 +1164,7 @@ impl AreaView {
         // Snapping turns the first to the angle; the others by as much.
         let mut by = angle.to_degrees();
         if let (Some(&first), Some(_)) = (tilts.first(), self.snap.1) {
-            let was = model.objects[first].visual.unwrap_or_default().rotate[ring.axis];
+            let was = model.objects[first].visual.unwrap_or_default().rotate[ring.field()];
             let to = mg_area::arrange::snap_rotation((was + by).to_radians(), self.snap.1);
             by = to.to_degrees() - was;
         }
@@ -1163,8 +1173,8 @@ impl AreaView {
             .map(|i| {
                 let mut v = model.objects[i].visual.unwrap_or_default();
                 // Within half a turn either way, to a hundredth of a degree.
-                let to = (v.rotate[ring.axis] + by + 180.0).rem_euclid(360.0) - 180.0;
-                v.rotate[ring.axis] = (to * 100.0).round() / 100.0;
+                let to = (v.rotate[ring.field()] + by + 180.0).rem_euclid(360.0) - 180.0;
+                v.rotate[ring.field()] = (to * 100.0).round() / 100.0;
                 (i, v)
             })
             .collect()
@@ -2925,8 +2935,9 @@ fn overlays(
             && let Some((_, visual)) = view.tilted().first()
         {
             painter.circle_filled(c, 3.5, ring.color());
-            let degrees = visual.rotate[ring.axis];
-            note(c + egui::vec2(10.0, -10.0), format!("{} {degrees:.0}°", ["X", "Y"][ring.axis]));
+            let degrees = visual.rotate[ring.field()];
+            let field = ["X", "Y", "Z"][ring.field()];
+            note(c + egui::vec2(10.0, -10.0), format!("{field} Rotation {degrees:.0}°"));
         }
     }
     // And the arrows for moving it along one axis: east red, north green,

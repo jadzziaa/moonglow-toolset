@@ -173,12 +173,23 @@ pub use mg_rules::ObjectKind;
 
 /// An EE visual transform (scale, rotation in degrees and translation of
 /// the model, not of the object): `VisTransformList`'s entry for scope 0,
-/// or the older `VisualTransform` struct.
+/// or the older `VisualTransform` struct. The fields as the file has them
+/// (`ScaleX`… `TranslateZ`); what they do to the model is
+/// [`VisualTransform::matrix`], as the game client draws it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct VisualTransform {
+    /// `ScaleX`, `ScaleY`, `ScaleZ`. The game scales the model by `ScaleX`
+    /// alone, the same every way (the script's one `SCALE`); Aurora and
+    /// Adjust Location write the three alike.
     pub scale: Vec3,
-    /// Degrees about X, Y and Z.
+    /// `RotateX`, `RotateY`, `RotateZ` (Adjust Location's X, Y and Z
+    /// Rotation), degrees. Not about the axes they are named for: X Rotation
+    /// turns the model about its upright axis (as Bearing does), Y Rotation
+    /// tips it about its own X (east at Bearing 0) and Z Rotation leans it
+    /// about its own Y.
     pub rotate: Vec3,
+    /// `TranslateX`, `TranslateY`, `TranslateZ`: metres along the object's
+    /// own axes (turned by its Bearing, not by the rotation above).
     pub translate: Vec3,
 }
 
@@ -219,13 +230,21 @@ impl VisualTransform {
         *self == VisualTransform::default()
     }
 
-    /// The model's placement within the object: translated, turned (about
-    /// Z, then Y, then X) and scaled.
+    /// The model's placement within the object, as the game client draws
+    /// it (`visual_transforms_look` in `client_render.rs`): scaled by
+    /// `ScaleX` every way; leaned about its Y by `RotateZ`, then tipped
+    /// about its X by `RotateY`, then turned about its upright axis by
+    /// `RotateX`; then moved by the translation.
     pub fn matrix(&self) -> Mat4 {
-        let r = self.rotate * (std::f32::consts::PI / 180.0);
         Mat4::from_translation(self.translate)
-            * Mat4::from_euler(glam::EulerRot::ZYX, r.z, r.y, r.x)
-            * Mat4::from_scale(self.scale)
+            * self.turn()
+            * Mat4::from_scale(Vec3::splat(self.scale.x))
+    }
+
+    /// The rotation alone (of [`VisualTransform::matrix`]).
+    pub fn turn(&self) -> Mat4 {
+        let r = self.rotate * (std::f32::consts::PI / 180.0);
+        Mat4::from_rotation_z(r.x) * Mat4::from_rotation_x(r.y) * Mat4::from_rotation_y(r.z)
     }
 }
 

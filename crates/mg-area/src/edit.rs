@@ -329,6 +329,124 @@ mod tests {
         assert_eq!(o.model_transform(), o.transform());
     }
 
+    /// Each turn as the game client draws it (`visual_transforms_look`):
+    /// X Rotation about the upright axis, Y Rotation about the model's X,
+    /// Z Rotation about its Y, made in that order outside in; the model
+    /// scaled by `ScaleX` every way; translated along the object's axes,
+    /// not the turned ones.
+    #[test]
+    fn a_visual_transform_turns_the_model_as_the_game_draws_it() {
+        let near = |a: Vec3, b: Vec3| (a - b).length() < 1e-5;
+        let turned = |rotate: Vec3, p: Vec3| {
+            crate::VisualTransform { rotate, ..Default::default() }.matrix().transform_point3(p)
+        };
+        // X Rotation: east to north, upright stays upright.
+        assert!(near(turned(Vec3::new(90.0, 0.0, 0.0), Vec3::X), Vec3::Y));
+        assert!(near(turned(Vec3::new(90.0, 0.0, 0.0), Vec3::Z), Vec3::Z));
+        // Y Rotation: the top tips south (about east).
+        assert!(near(turned(Vec3::new(0.0, 90.0, 0.0), Vec3::Z), -Vec3::Y));
+        // Z Rotation: the top leans east (about north).
+        assert!(near(turned(Vec3::new(0.0, 0.0, 90.0), Vec3::Z), Vec3::X));
+        // Tipped, then turned: the top leans east.
+        assert!(near(turned(Vec3::new(90.0, 90.0, 0.0), Vec3::Z), Vec3::X));
+        // Leaned, then tipped: the leaned top (east) stays east.
+        assert!(near(turned(Vec3::new(0.0, 90.0, 90.0), Vec3::Z), Vec3::X));
+        // The builder's mirror: X Rotation -50.8 leaves it upright.
+        let mirror = crate::VisualTransform {
+            scale: Vec3::splat(0.46),
+            rotate: Vec3::new(-50.8, 0.0, 0.0),
+            translate: Vec3::ZERO,
+        };
+        assert!(near(mirror.matrix().transform_point3(Vec3::Z), Vec3::Z * 0.46));
+        // `ScaleX` alone scales it every way; Y and Z are not read.
+        let x_only = crate::VisualTransform { scale: Vec3::new(0.46, 1.0, 1.0), ..mirror };
+        assert_eq!(x_only.matrix(), mirror.matrix());
+        // A translation along the object's axes, whatever the turn.
+        let moved = crate::VisualTransform {
+            rotate: Vec3::new(90.0, 0.0, 0.0),
+            translate: Vec3::new(0.6, 0.0, 0.5),
+            ..Default::default()
+        };
+        assert!(near(moved.matrix().transform_point3(Vec3::ZERO), Vec3::new(0.6, 0.0, 0.5)));
+    }
+
+    /// Adjust Location's fields as the GIT gets them: `VisTransformList`
+    /// with one entry for scope 0 (struct 6): `Scope`, then
+    /// `AnimationSpeed` and each axis as a struct (0) of `TimerType`,
+    /// `ValueTo` and `LerpType`, as Aurora writes them; another scope's
+    /// entry stays, the older `VisualTransform` goes, and it reads back
+    /// as given. Nothing is written when nothing changes.
+    #[test]
+    fn adjust_location_writes_the_git_s_visual_transform_fields() {
+        let v = crate::VisualTransform {
+            scale: Vec3::splat(0.46),
+            rotate: Vec3::new(-50.8, 0.0, 0.0),
+            translate: Vec3::new(0.0, 0.0, 0.25),
+        };
+        let o = object(ObjectKind::Placeable, Vec3::new(7.87, 14.352, 0.51), 1.5643);
+        let mut s = Struct::new(9);
+        s.set("Static", Value::Byte(0));
+        let mut head = Struct::new(6);
+        head.set("Scope", Value::Int(254));
+        s.set("VisTransformList", Value::List(vec![head.clone()]));
+        s.set("VisualTransform", Value::Struct(Struct::new(6)));
+        let edits = visual_transform_edits(git(), &o, &s, v);
+        assert_eq!(labels(&edits), ["1VisTransformList", "1VisualTransform"]);
+        let mut after = s.clone();
+        for e in &edits {
+            let Edit::SetField { label, value, path, .. } = e else { panic!("{e:?}") };
+            assert_eq!(*path, GffPath::root().item("Placeable List", 2));
+            match value {
+                Some(v) => after.set(label, v.clone()),
+                None => {
+                    after.remove(label);
+                }
+            }
+        }
+        assert!(!after.contains("VisualTransform"));
+        let list = after.list("VisTransformList").unwrap();
+        assert_eq!(list.len(), 2, "the head's entry stays");
+        assert_eq!(list[1], head);
+        let entry = &list[0];
+        assert_eq!(entry.id, 6);
+        let fields: Vec<String> =
+            entry.fields.iter().map(|f| f.label.to_string_lossy().to_string()).collect();
+        assert_eq!(
+            fields,
+            [
+                "Scope",
+                "AnimationSpeed",
+                "ScaleX",
+                "ScaleY",
+                "ScaleZ",
+                "RotateX",
+                "RotateY",
+                "RotateZ",
+                "TranslateX",
+                "TranslateY",
+                "TranslateZ"
+            ]
+        );
+        assert_eq!(entry.get("Scope"), Some(&Value::Int(0)));
+        for f in &entry.fields[1..] {
+            let Value::Struct(axis) = &f.value else { panic!("{f:?}") };
+            assert_eq!(axis.id, 0);
+            let parts: Vec<_> = axis.fields.iter().map(|f| f.label.to_string_lossy()).collect();
+            assert_eq!(parts, ["TimerType", "ValueTo", "LerpType"]);
+            assert_eq!(axis.get("TimerType"), Some(&Value::Int(0)));
+            assert_eq!(axis.get("LerpType"), Some(&Value::Int(0)));
+        }
+        let value = |label: &str| entry.child(label).and_then(|a| a.float("ValueTo"));
+        assert_eq!(value("ScaleY"), Some(0.46));
+        assert_eq!(value("RotateX"), Some(-50.8));
+        assert_eq!(value("AnimationSpeed"), Some(1.0));
+        assert_eq!(crate::VisualTransform::read(&after), Some(v));
+        assert!(visual_transform_edits(git(), &o, &after, v).is_empty(), "nothing changes");
+        // None, and none given: nothing written.
+        let bare = Struct::new(9);
+        assert!(visual_transform_edits(git(), &o, &bare, Default::default()).is_empty());
+    }
+
     fn labels(edits: &[Edit]) -> Vec<String> {
         edits
             .iter()

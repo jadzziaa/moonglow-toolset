@@ -1640,6 +1640,121 @@ fn placeables_look() {
     eprintln!("{}: client {}", dir.display(), client.is_some());
 }
 
+/// Exploration: a builder's mirror given a visual transform by Adjust
+/// Location (Scale 0.46, X Rotation -50.8: `mg_area::edit`'s edits), in
+/// the client beside Moonglow's drawing. Five mirrors (placeables.2da
+/// `MG_APPEARANCE`, default 447, Mirror) north of the player, west to
+/// east: transformed and dynamic, not Useable; transformed, dynamic and
+/// Useable; transformed and static; plain; and dynamic with the scale in
+/// `ScaleX` alone, as the engine's own save writes `SetObjectVisualTransform`'s
+/// scale. `MG_BEARING` turns them all (degrees; the builder's was 89.63).
+/// `MG_ROTATIONS` places others instead, dynamic, each given as `rx,ry,rz`
+/// and optionally `,sx,sy,sz,tx,ty,tz` (`;` between them): with
+/// `MG_APPEARANCE=179` (a chair, whose back shows which way it turns),
+/// `0,0,0;45,0,0;0,45,0;0,0,45;90,45,0`, then
+/// `0,45,45;90,0,45;90,45,45;60,30,70;-40,60,20` and translations and
+/// scales one axis at a time settled `VisualTransform::matrix`. Both
+/// views go to `target/test-output/client_visual_transforms/`.
+#[test]
+#[ignore]
+fn visual_transforms_look() {
+    use mg_module::instances::{Placement, Placing, instance};
+    let root = corpus!();
+    let _ = oracle_tool!("nwn_script_comp");
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU");
+        return;
+    };
+    let dir = scratch_dir("client_visual_transforms");
+    std::fs::create_dir_all(dir.join("user")).unwrap();
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+    let (mut m, are) = build_module(&game, &dir, light);
+    let enter: String =
+        ENTER.lines().filter(|l| !l.contains("CreateObject")).collect::<Vec<_>>().join("\n");
+    m.set(ResKey::parse("mg_enter", ResType::NCS).unwrap(), compile(&dir, "mg_enter", &enter));
+    let git_key = *m.keys_of(ResType::GIT).next().unwrap();
+    let mut git = m.gff(&git_key).unwrap().unwrap();
+    let mut bp = Gff::read(&game.resman.get_named("plc_barrel", ResType::UTP).unwrap()).unwrap();
+    let appearance =
+        std::env::var("MG_APPEARANCE").ok().and_then(|a| a.parse().ok()).unwrap_or(447u32);
+    bp.root.set("Appearance", Value::Dword(appearance));
+    let none = |_: ResRef| None;
+    let placing = Placing { game: &game, item: &none };
+    let mirror = mg_area::VisualTransform {
+        scale: Vec3::splat(0.46),
+        rotate: Vec3::new(-50.8, 0.0, 0.0),
+        translate: Vec3::ZERO,
+    };
+    let x_only = mg_area::VisualTransform { scale: Vec3::new(0.46, 1.0, 1.0), ..mirror };
+    // `MG_BEARING`: each one's Bearing, degrees (the builder's was 89.63).
+    let bearing = std::env::var("MG_BEARING")
+        .ok()
+        .and_then(|b| b.parse::<f32>().ok())
+        .unwrap_or(0.0)
+        .to_radians();
+    // `MG_ROTATIONS`: other mirrors instead, dynamic, each turned by its
+    // `x,y,z` (degrees; `;` between mirrors), to tell the axes apart.
+    let mirrors: Vec<(Option<mg_area::VisualTransform>, u8, u8)> =
+        match std::env::var("MG_ROTATIONS") {
+            Ok(list) => list
+                .split(';')
+                .map(|r| {
+                    let r: Vec<f32> = r.split(',').map(|v| v.trim().parse().unwrap()).collect();
+                    let at = |i: usize, or: f32| {
+                        Vec3::from_array(std::array::from_fn(|k| {
+                            r.get(i + k).copied().unwrap_or(or)
+                        }))
+                    };
+                    let v = mg_area::VisualTransform {
+                        rotate: at(0, 0.0),
+                        scale: at(3, 1.0),
+                        translate: at(6, 0.0),
+                    };
+                    (Some(v), 0, 0)
+                })
+                .collect(),
+            Err(_) => vec![
+                (Some(mirror), 0, 0),
+                (Some(mirror), 0, 1),
+                (Some(mirror), 1, 0),
+                (None, 0, 0),
+                (Some(x_only), 0, 0),
+            ],
+        };
+    let mut placed = Vec::new();
+    for (i, (visual, is_static, useable)) in mirrors.into_iter().enumerate() {
+        let at = Placement { position: [17.2 + 1.4 * i as f32, 23.0, 0.0], rotation: bearing };
+        let mut p = instance(&placing, ResType::UTP, &bp.root, at, &[]).unwrap();
+        p.set("Static", Value::Byte(is_static));
+        p.set("Useable", Value::Byte(useable));
+        if let Some(v) = visual {
+            p.set("VisTransformList", mg_area::edit::visual_transform_list(v));
+        }
+        placed.push(p);
+    }
+    git.root.set("Placeable List", Value::List(placed));
+    m.set_gff(git_key, &git).unwrap();
+    m.save_as(&ModuleLocation::Archive(dir.join("user/modules/MgScene.mod"))).unwrap();
+    let client = client_screenshot(&dir, "MgScene");
+
+    let model = mg_area::AreaModel::read(
+        &game,
+        &are.root,
+        &git.root,
+        mg_area::tileset(&game, ResRef::from_str("tic01").unwrap()).ok().as_ref(),
+    );
+    let area_scene = mg_area::AreaScene::new(&gpu, &game, &model);
+    let scene =
+        area_scene.scene(&model, &mg_area::View { fog: false, ..mg_area::View::of(&model) });
+    let camera =
+        fitted_camera(Vec3::new(20.0, 20.0, 0.0), FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
+    let (w, h) = client.as_ref().map_or((1280, 800), |c| (c.width, c.height));
+    off_and_on(&gpu, &game, &scene, &camera, (w, h), client.as_ref(), &dir, "moonglow");
+    eprintln!("{}: client {}", dir.display(), client.is_some());
+}
+
 /// Exploration: items lying in an area, in the client beside Moonglow's
 /// drawing: a shield, a potion, a sword and armor of each weight, north
 /// of the player. `MG_ITEMS` gives other blueprints (comma-separated),

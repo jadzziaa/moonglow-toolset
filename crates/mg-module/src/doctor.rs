@@ -60,6 +60,7 @@ pub enum Check {
     TwoDaDescribed,
     ObjectRow,
     PcFaction,
+    StaticTransform,
     AreaVariables,
     TagUnique,
     NuiSources,
@@ -73,7 +74,7 @@ pub enum Check {
 }
 
 impl Check {
-    pub const ALL: [Check; 34] = [
+    pub const ALL: [Check; 35] = [
         Check::CustomTlk,
         Check::ErfSize,
         Check::SetRead,
@@ -98,6 +99,7 @@ impl Check {
         Check::TwoDaDescribed,
         Check::ObjectRow,
         Check::PcFaction,
+        Check::StaticTransform,
         Check::AreaVariables,
         Check::TagUnique,
         Check::NuiSources,
@@ -136,6 +138,7 @@ impl Check {
             Check::TwoDaDescribed => "2da-described",
             Check::ObjectRow => "object-row",
             Check::PcFaction => "pc-faction",
+            Check::StaticTransform => "static-transform",
             Check::AreaVariables => "area-variables",
             Check::TagUnique => "tag-unique",
             Check::NuiSources => "nui-sources",
@@ -190,6 +193,9 @@ impl Check {
             }
             Check::ObjectRow => "objects use 2DA rows that exist and have what they need",
             Check::PcFaction => "no object belongs to the PC faction, the players' alone",
+            Check::StaticTransform => {
+                "a static placeable has no visual transform: the game draws it without one"
+            }
             Check::AreaVariables => "an area's variables are in its GIT, where the game reads them",
             Check::TagUnique => {
                 "a tag the project says must be unique (moonglow.toml's [tags] unique) is on one \
@@ -251,6 +257,7 @@ impl Check {
             | Check::TwoDaDescribed => Group::Tables,
             Check::ObjectRow
             | Check::PcFaction
+            | Check::StaticTransform
             | Check::AreaVariables
             | Check::TagUnique
             | Check::VarType
@@ -556,6 +563,7 @@ pub fn examine_groups(
     if runs(Group::Objects) {
         timings.time("objects' rows", || objects(&mut d, module));
         timings.time("the PC faction", || pc_faction(&mut d, module));
+        timings.time("static placeables' transforms", || static_transforms(&mut d, module));
         timings.time("areas' variables", || area_variables(&mut d, module));
         timings.time("unique tags", || unique_tags(&mut d, module));
     }
@@ -1680,6 +1688,34 @@ fn pc_faction(d: &mut Doctor, module: &Module) {
                  faction"
             );
             d.push(Severity::Warning, Check::PcFaction, "module", key, place, message);
+        }
+    }
+}
+
+/// Static placeables with a visual transform that changes their model:
+/// the server keeps it (a script reads it back), but the game client
+/// draws a static placeable without it, merged into the area's tiles
+/// (`visual_transforms_look` and `placeables_look` in `client_render.rs`).
+/// Aurora takes a placeable's transform off when Static is ticked;
+/// Moonglow's Properties keep it, and Make Static takes it off.
+fn static_transforms(d: &mut Doctor, module: &Module) {
+    let mut keys: Vec<ResKey> =
+        module.keys().filter(|k| k.restype == ResType::GIT).copied().collect();
+    keys.sort();
+    for key in keys {
+        let Some(Ok(gff)) = module.gff(&key) else { continue };
+        let list = gff.root.list("Placeable List").unwrap_or(&[]);
+        for (i, s) in list.iter().enumerate() {
+            if s.integer("Static").unwrap_or(0) == 0 || !crate::areas::transforms(s) {
+                continue;
+            }
+            let place =
+                crate::rename::describe(key, Some(&gff), &format!("/Placeable List[{i}]/Static"));
+            let message = "static, so the game draws it without its visual transform (its scale, \
+                           rotation and translation): untick Static (Properties) to have it drawn \
+                           transformed"
+                .to_string();
+            d.push(Severity::Warning, Check::StaticTransform, "module", key, place, message);
         }
     }
 }
@@ -2968,5 +3004,47 @@ endmodelgeom fx\ndonemodel fx\n";
         assert!(found[0].message.contains("regard players"), "{found:?}");
         assert!(found[1].message.contains("puts a creature of it in Hostile"), "{found:?}");
         assert_eq!(Check::PcFaction.group(), Group::Objects);
+    }
+
+    /// A static placeable whose visual transform changes its model is
+    /// warned of (the game client draws it without); a dynamic one, or a
+    /// static one whose transform changes nothing, is not.
+    #[test]
+    fn static_placeables_with_a_visual_transform_are_warned_of() {
+        let axis = |v: f32| {
+            let mut s = Struct::new(0);
+            s.set("ValueTo", Value::Float(v));
+            Value::Struct(s)
+        };
+        let placed = |tag: &str, is_static: u8, scale: f32| {
+            let mut s = Struct::new(9);
+            s.set("Tag", Value::String(tag.as_bytes().to_vec()));
+            s.set("Static", Value::Byte(is_static));
+            let mut entry = Struct::new(6);
+            entry.set("Scope", Value::Int(0));
+            for a in ["ScaleX", "ScaleY", "ScaleZ"] {
+                entry.set(a, axis(scale));
+            }
+            s.set("VisTransformList", Value::List(vec![entry]));
+            s
+        };
+        let mut git = Gff::new(*b"GIT ");
+        git.root.set(
+            "Placeable List",
+            Value::List(vec![
+                placed("MIRROR", 1, 0.46),
+                placed("DYNAMIC", 0, 0.46),
+                placed("PLAIN", 1, 1.0),
+            ]),
+        );
+        let mut m = Module::new();
+        m.set_gff(key("area", ResType::GIT), &git).unwrap();
+        let f = examine(&m, &resman(&[]), TalkTables::default());
+        let found: Vec<_> = f.iter().filter(|f| f.check == "static-transform").collect();
+        let at: Vec<&str> = found.iter().map(|f| f.at.as_str()).collect();
+        assert_eq!(at, ["area › placeable MIRROR › Static"]);
+        assert_eq!(found[0].severity, Severity::Warning);
+        assert!(found[0].message.contains("untick Static"), "{found:?}");
+        assert_eq!(Check::StaticTransform.group(), Group::Objects);
     }
 }

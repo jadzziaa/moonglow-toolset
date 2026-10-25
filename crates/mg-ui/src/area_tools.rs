@@ -31,6 +31,11 @@ pub struct AdjustLocation {
     /// doors and placeables that aren't static): else it isn't offered, as
     /// in Aurora.
     pub shaped: bool,
+    /// How many of the objects chosen are static placeables, and how many
+    /// of those have a visual transform in their file: the game draws a
+    /// static placeable without one (the window says so).
+    pub fixed: usize,
+    pub fixed_shaped: usize,
 }
 
 /// Adjust Location for the selection of an area's view (showing the first
@@ -38,7 +43,15 @@ pub struct AdjustLocation {
 pub(crate) fn adjust(view: &crate::area_view::AreaView) -> Option<AdjustLocation> {
     let model = view.model.as_ref()?;
     let first = view.selection.first().and_then(|&(k, i)| model.object(k, i))?;
+    let fixed: Vec<&mg_area::AreaObject> = view
+        .selection
+        .iter()
+        .filter_map(|&(k, i)| model.object(k, i))
+        .filter(|o| o.kind == ObjectKind::Placeable && o.is_static)
+        .collect();
     Some(AdjustLocation {
+        fixed: fixed.len(),
+        fixed_shaped: fixed.iter().filter(|o| o.visual.is_some_and(|v| !v.is_identity())).count(),
         area: view.area,
         objects: view.selection.clone(),
         position: first.position,
@@ -114,8 +127,18 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
                         a.visual_changed = true;
                     }
                     ui.end_row();
+                    // What each turn does, as the game draws it
+                    // (`mg_area::VisualTransform::matrix`).
+                    let turns = [
+                        "Turns the model about its upright axis, as Bearing does",
+                        "Tips the model forward or back, about its own X axis \
+                         (east at Bearing 0)",
+                        "Leans the model to one side, about its own Y axis \
+                         (north at Bearing 0)",
+                    ];
                     for (i, axis) in ["X", "Y", "Z"].into_iter().enumerate() {
-                        crate::widgets::field_label(ui, format!("{axis} Rotation"));
+                        crate::widgets::field_label(ui, format!("{axis} Rotation"))
+                            .on_hover_text(turns[i]);
                         let r = ui.add(
                             egui::DragValue::new(&mut a.visual.rotate[i])
                                 .speed(1.0)
@@ -132,6 +155,10 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
                         ui.end_row();
                     }
                 });
+            }
+            if let Some(note) = static_note(&a) {
+                ui.add_space(crate::widgets::SECTION_GAP);
+                ui.colored_label(ui.visuals().warn_fg_color, note);
             }
             ui.horizontal(|ui| {
                 if ui.button("OK").clicked() || crate::widgets::enter(ui) {
@@ -159,6 +186,34 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
     if open {
         app.adjust = Some(a);
     }
+}
+
+/// What Adjust Location says of the static placeables chosen: the game
+/// draws a static placeable without a visual transform (merged into the
+/// area's tiles), whatever its file has, so none is offered for one;
+/// `None` when none is chosen.
+pub(crate) fn static_note(a: &AdjustLocation) -> Option<String> {
+    if a.fixed == 0 {
+        return None;
+    }
+    let which = if a.objects.len() == 1 {
+        "This placeable is static".to_string()
+    } else if a.fixed == 1 {
+        "1 of these placeables is static".to_string()
+    } else {
+        format!("{} of these placeables are static", a.fixed)
+    };
+    let kept = match a.fixed_shaped {
+        0 => String::new(),
+        1 if a.fixed == 1 => {
+            " Its file has a visual transform, which is kept but not drawn.".into()
+        }
+        n => format!(" {n} have a visual transform in their file, kept but not drawn."),
+    };
+    Some(format!(
+        "{which}: the game draws static placeables without visual transforms, so there are \
+         none to set for it. Untick Static (Properties) to scale, tilt or move its model.{kept}"
+    ))
 }
 
 /// Sets the changed parts of the location on each object (one command).

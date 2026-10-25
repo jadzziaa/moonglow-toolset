@@ -257,7 +257,7 @@ impl StaticPlan {
 
 /// Whether a placed object's visual transform (EE's `VisTransformList`,
 /// or the older `VisualTransform`) changes how its model shows.
-fn transforms(s: &Struct) -> bool {
+pub(crate) fn transforms(s: &Struct) -> bool {
     const AXES: [(&str, f32); 3] = [("Scale", 1.0), ("Rotate", 0.0), ("Translate", 0.0)];
     let changed = |get: &dyn Fn(&str) -> Option<f32>| {
         AXES.iter().any(|(prefix, rest)| {

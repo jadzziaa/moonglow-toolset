@@ -71,3 +71,5 @@ mod engine_tlk;
 mod engine_transfer;
 #[path = "../engine_verify.rs"]
 mod engine_verify;
+#[path = "../engine_visual_transforms.rs"]
+mod engine_visual_transforms;
