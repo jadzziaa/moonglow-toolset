@@ -45,6 +45,14 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="2.5.1" date="2026-10-24">
+      <description>
+        <p>Saving keeps the custom palettes as Aurora does, changing only the
+        entries of changed blueprints. Objects' light nodes light the area,
+        static placeables no longer reflect the tileset's map, and the
+        Illuminated toggle works as in the game.</p>
+      </description>
+    </release>
     <release version="2.5.0" date="2026-10-23">
       <description>
         <p>Grass drawn across the whole area view, Tile Properties changes
