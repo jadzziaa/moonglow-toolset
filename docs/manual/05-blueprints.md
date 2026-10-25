@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-24T23:59:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T09:23:44Z }
 ---
 
 # Blueprints
@@ -495,9 +495,10 @@ A **static** placeable doesn't reflect its appearance's environment map
 or the preview: the alpha of its textures is their transparency, as for
 any placeable without one. A texture's own map (a TXI's `envmaptexture`)
 it keeps. A placeable that isn't static reflects its appearance's map,
-`default` being the area's (its tileset's `EnvMap`: in the rural
-interior, `tin01`, a copper brown), which the preview, having no area,
-shows as the game's `chrome1`.
+`default` being the game's `chrome1` (silver) wherever it stands, as in
+the game: not the area's map (in the rural interior, `tin01`, a copper
+brown), which a texture's own `envmaptexture default` and a creature's
+appearance reflect.
 
 The faction lists (a creature's, a placeable's, a door's, a trigger's and
 an encounter's Advanced page) leave out the PC faction: it is the
