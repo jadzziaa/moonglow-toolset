@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T19:43:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-24T23:59:57Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -847,10 +847,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Read back, names show in that codepage (a Polish module's in
   Windows-1250, which also answers the palette half of GitHub issue
   13), UTF-8 ones from before still as they were meant. A module is put
-  right by opening and saving it once: the palettes are made again at
-  every save, and categories left in UTF-8 are written in the game's
-  bytes there and in the module's own category lists (a test spoils a
-  saved palette as 1.19.3 wrote it, opens the module and saves it). Not seen in the game's DM client here (the bytes are
+  right by Build › Palettes (after 2.5.0 a save changes only the
+  entries of blueprints changed: a name left in UTF-8 stays so until its
+  blueprint changes), and categories left in UTF-8 are written in the
+  game's bytes there and in the module's own category lists (a test
+  spoils a saved palette as 1.19.3 wrote it, saves it unchanged and
+  builds it). Not seen in the game's DM client here (the bytes are
   tested; the client was not run as a DM). Issue 13's other half: with
   Polish the editing language, String Edit read and wrote a string's
   English text as Windows-1252 (mojibake, and Polish letters typed
@@ -861,6 +863,49 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   module; with another editing language a Polish name kept in the
   English text is still read as Windows-1252. (S)
   (from builders' reports after 1.19.1)
+
+- **The custom palettes kept, what is left** (since a save changes only
+  the entries of the blueprints changed, as Aurora does:
+  `update_custom_palette`, the captures in `palettes/`):
+  - *Where Moonglow differs from Aurora, by choice:* a save doesn't put
+    each category's entries in order by name or drop fields it doesn't
+    know, as Aurora's does, so a palette Moonglow didn't change is the
+    same bytes; a new entry for a talk-table name is its `STRREF` (as
+    Aurora's Build writes it) where Aurora's Edit Copy and Add to
+    Palette write the text; a module with no `palcus.itp` gets one made
+    in full at a save, where Aurora writes the categories alone, empty.
+    (S, if any should follow Aurora)
+  - *An entry made stale outside stays so:* Aurora rewrites an entry at
+    Edit and OK even when nothing changed (it writes the blueprint
+    again); Moonglow when the blueprint's bytes changed since the module
+    was opened or saved. An entry left stale by another tool, a merge or
+    a file copied in is made right when its blueprint next changes, or
+    by Build. Work recovered after a crash counts as opened: its
+    blueprints' entries wait for a change too. (S)
+  - *What moves an entry besides its blueprint:* a faction renamed
+    (`repute.fac`) leaves its creatures' `FACTION` until they change; a
+    hak's skeleton changed, or a hak's blueprints changed, renamed or
+    removed, don't touch the module's palette (the module's own
+    skeleton changed remakes its categories, each with its entries; a
+    category taken out takes its entries, a hak's too). What Aurora
+    does with a creature whose CR or faction alone changed, and with a
+    blueprint given category 255 or one the palette lacks (Moonglow
+    takes its entry out), wasn't captured. (S, an Aurora capture)
+  - *An entry put in a category out of order* goes after the last entry
+    whose name doesn't come after it (in order, its place); Aurora puts
+    the whole category in order at its save. (S)
+  - *The command line:* `mg rename` renames a blueprint's entry in
+    place, but `mg set`, `mg apply`, `mg import`, `mg update-instances`
+    and plugin commands run from `mg plugin` change blueprints without
+    touching the palettes; the next save in the GUI or a Build brings
+    them up to date. (S–M)
+  - *No command takes out one entry* whose blueprint isn't the
+    module's (a hak's, the override folder's, one there is no more);
+    Build takes out those of the override folder and the ones there
+    are no more, and keeps a hak's. (S)
+  - Not seen in the game's DM Creator (the files are compared with
+    Aurora's). (S)
+  (El Grillo's and Jasperre's report, October 2026)
 
 ## Custom content data (2DAs and talk tables)
 
