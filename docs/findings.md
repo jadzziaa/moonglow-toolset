@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T11:08:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T11:15:57Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -864,10 +864,42 @@ report.)
 ### Static placeables stand upright
 
 A placeable turned about all three axes stands as its file says; a
-static one is drawn upright whatever its file says.
+static one is drawn upright and at full size whatever its file says
+(the server still holds the transform: `GetObjectVisualTransform`
+reads it back, see "Visual transforms, as the game reads and draws
+them").
 
-- **Checked:** `placeables_look`.
+- **Checked:** `placeables_look`, `visual_transforms_look`.
+- **Moonglow:** `crates/mg-area/src/lib.rs` (`takes_visual_transform`);
+  Verify's `static-transform` warning (`crates/mg-module/src/doctor.rs`).
 - **Wiki:** missing.
+
+### What a visual transform's rotations turn
+
+The rotations of a visual transform (`RotateX`, `RotateY`, `RotateZ`;
+Aurora's and Moonglow's Adjust Location call them X, Y and Z Rotation)
+are not about the axes they are named for. X Rotation turns the model
+about its upright axis (as Bearing does, counter-clockwise seen from
+above), Y Rotation tips it about its own X axis (east at Bearing 0; a
+positive angle brings its top south), and Z Rotation leans it about its
+own Y axis (a positive angle brings its top east). The game makes them
+in that order from the outside in: the model is leaned, then tipped,
+then turned. It is scaled by `ScaleX` alone, the same every way
+(`ScaleY` and `ScaleZ` change nothing; the script's `SCALE` is one
+number), and the translation moves it along the object's own axes,
+turned by its Bearing but not by the rotations. A builder's mirror at
+Bearing 89.63 with X Rotation -50.8 stands upright, turned on its stand.
+
+- **Checked:** `visual_transforms_look` (mirrors, and chairs whose
+  backs show the way they turn, each axis alone and in pairs, in the
+  client beside Moonglow's view).
+- **Moonglow:** `crates/mg-area/src/lib.rs` (`VisualTransform::matrix`);
+  the area view's tilt rings set Y and Z Rotation
+  (`crates/mg-ui/src/area_view.rs`). Up to 2.5.3 Moonglow turned the
+  model about X for X Rotation, about Y for Y and about Z for Z, and
+  scaled each axis by its own field: it laid such a mirror flat.
+- **Wiki:** missing; the Lexicon's constant table says only "X-axis
+  Rotation".
 
 ### A TGA's origin bits are ignored
 
@@ -999,6 +1031,32 @@ keeps the defaults for what it lacks.
 - **Checked:** engine, `engine_ee_fields.rs` (names from `ObjectToJson`).
 - **Moonglow:** `docs/research/notes_ee_fields.md`; the editors' Visuals
   pages.
+
+### Visual transforms, as the game reads and draws them
+
+A placed object's visual transform is `VisTransformList` (struct 6 per
+entry): `Scope` (int, 0 for the whole model), then `AnimationSpeed`,
+`ScaleX`…`ScaleZ`, `RotateX`…`RotateZ` and `TranslateX`…`TranslateZ`,
+each a struct (0) of `TimerType` (int), `ValueTo` (float) and `LerpType`
+(int), as Aurora's Adjust Location writes it and Moonglow's does. The
+server reads it on placed creatures, doors, items and placeables, static
+or not and Useable or not, and the older single `VisualTransform` struct
+(floats `ScaleX`… `RotateX`… directly) too: `GetObjectVisualTransform`
+returns what the file says for each. Its own save writes a transform a
+script set the same way, with `ScaleX` holding the script's one scale and
+`ScaleY` and `ScaleZ` left 1. The client draws it on every one of them
+but a static placeable, which it draws upright and at full size; what
+the rotations turn is in "What a visual transform's rotations turn".
+Saved as a `.mod`, as a folder or through a nasher project (Moonglow's
+JSON, packed by neverwinter.nim's `nwn_gff`), the fields are the same.
+
+- **Checked:** engine, `engine_visual_transforms.rs`; client,
+  `visual_transforms_look`.
+- **Moonglow:** `crates/mg-area/src/edit.rs` (`visual_transform_edits`),
+  `crates/mg-ui/src/area_tools.rs` (Adjust Location).
+- **Wiki:** "Placeables and the Toolset" says transforms are for "a
+  usable placeable or a creature"; the engine applies them to placeables
+  that aren't Useable as well, and to doors and items.
 - **Wiki:** missing.
 
 ### EE "x" twin part fields

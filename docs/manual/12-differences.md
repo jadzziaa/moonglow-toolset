@@ -3,7 +3,7 @@ type: Manual Page
 title: Differences from Aurora
 description: Where Moonglow deliberately departs from Aurora.
 tags: [manual, aurora, differences]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-24T23:51:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T11:15:57Z }
 ---
 
 # Differences from Aurora
@@ -80,6 +80,13 @@ it differs, it is on purpose:
   game draws it: a texture's `bumpyshinytexture` reflects nothing, normal
   and specular maps show only with a render hint, a DXT1's transparent
   texels are black.
+
+- **Static keeps a placeable's visual transform.** Aurora takes a
+  placeable's visual transform off when **Static** is ticked; Moonglow's
+  Properties keep it in the file, so that unticking Static brings it
+  back. The game draws a static placeable without it either way, and
+  Adjust Location and Verify say so. (**Make Static** in the area view
+  takes it off, as Aurora does.)
 
 Not done yet: the Conversation Editor's Scrap tab (the clipboard holds one
 copied or cut branch), and the Sound Wizard's category filter (the sound

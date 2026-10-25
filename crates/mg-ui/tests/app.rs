@@ -14682,9 +14682,10 @@ fn a_tilt_ring_tilts_a_placeable_s_model_while_shift_is_held() {
     h.run_steps(2);
     assert_eq!(rotate(&mut h, 0), None, "no visual transform yet");
     lead(&mut h, pivot, true);
+    // (About the model's X: Y Rotation, as the game reads it.)
     let tilted = rotate(&mut h, 0).expect("a visual transform");
-    assert!((tilted.x - 30.0).abs() < 1.0, "tilted {tilted:?}");
-    assert_eq!((tilted.y, tilted.z), (0.0, 0.0), "about X alone");
+    assert!((tilted.y - 30.0).abs() < 1.0, "tilted {tilted:?}");
+    assert_eq!((tilted.x, tilted.z), (0.0, 0.0), "about X alone");
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Tilt"));
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run_steps(2);
@@ -14723,7 +14724,7 @@ fn a_tilt_ring_tilts_a_placeable_s_model_while_shift_is_held() {
     h.run_steps(2);
     lead(&mut h, pivot, false);
     let tilted = rotate(&mut h, 1).expect("a visual transform");
-    assert!((tilted.x - 30.0).abs() < 1.0, "tilted {tilted:?}");
+    assert!((tilted.y - 30.0).abs() < 1.0, "tilted {tilted:?}");
 
     // The arrow over it, Shift held: led up a meter, the chest rises one.
     let height = |h: &mut Harness<'_, Moonglow>| {
@@ -14950,6 +14951,158 @@ fn an_area_s_placeables_are_made_static_together() {
     assert_eq!(h.state().log.entries.last().unwrap().1, "Made 1 placeable dynamic in 1 area");
 }
 
+/// Adjust Location's Visual Transforms (xtul's mirror: Scale 0.46, X
+/// Rotation -50.8): Apply writes them and keeps the window open, OK writes
+/// what changed since and closes it, each one step to undo; a pasted copy
+/// has them too; saved, the module reopened shows them again in the
+/// window, and the area view keeps the model upright (X Rotation turns it
+/// about its upright axis, as the game does). A static placeable is
+/// offered none, and the window says why and that its file's transform
+/// is not drawn.
+#[test]
+fn adjust_location_s_visual_transforms_are_saved_and_reopened() {
+    use glam::Vec3;
+    use mg_area::{ObjectKind, VisualTransform};
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("visual-saved") else { return };
+    let git_key = ResKey::new(area, ResType::GIT);
+    let mirror = VisualTransform {
+        scale: Vec3::splat(0.46),
+        rotate: Vec3::new(-50.8, 0.0, 0.0),
+        translate: Vec3::ZERO,
+    };
+    {
+        let app = h.state_mut();
+        let game = app.game.as_deref().unwrap();
+        let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        let chest = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let mut edits = Vec::new();
+        // (Inserted at 0 each: the dynamic one ends first.)
+        for (x, fixed) in [(28.0, 1), (12.0, 0)] {
+            let at = Placement { position: [x, 30.0, 0.0], rotation: 1.5643 };
+            let mut item = instance(&placing, ResType::UTP, &chest, at, &[]).unwrap();
+            item.set("Static", mg_gff::Value::Byte(fixed));
+            if fixed == 1 {
+                item.set("VisTransformList", mg_area::edit::visual_transform_list(mirror));
+            }
+            edits.push(mg_edit::Edit::InsertItem {
+                key: git_key,
+                path: mg_edit::GffPath::root(),
+                list: "Placeable List".into(),
+                index: 0,
+                item,
+            });
+        }
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
+    }
+    h.run_steps(3);
+    let visual = |h: &mut Harness<'_, Moonglow>, index: usize| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        VisualTransform::read(
+            &ws.doc(&git_key).unwrap().root.list("Placeable List").unwrap()[index],
+        )
+    };
+    let open = |h: &mut Harness<'_, Moonglow>, at: Vec3| {
+        let at = screen(h, area, at + Vec3::Z * 0.3);
+        h.hover_at(at);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(3);
+        h.get_by_label("Adjust Location…").click();
+        h.run_steps(3);
+    };
+    let dynamic = Vec3::new(12.0, 30.0, 0.0);
+    open(&mut h, dynamic);
+    assert!(h.query_by_label("Visual Transforms").is_some());
+    let a = h.state_mut().adjust.as_mut().expect("the window");
+    assert_eq!(a.objects, [(ObjectKind::Placeable, 0)]);
+    a.visual = mirror;
+    a.visual_changed = true;
+    h.get_by_label("Apply").click();
+    h.run_steps(3);
+    assert_eq!(visual(&mut h, 0), Some(mirror), "Apply wrote it");
+    assert!(h.state().adjust.is_some(), "Apply keeps the window open");
+    // Then the scale alone, and OK.
+    let a = h.state_mut().adjust.as_mut().unwrap();
+    a.visual.scale = Vec3::splat(0.5);
+    a.visual_changed = true;
+    h.get_by_label("OK").click();
+    h.run_steps(3);
+    let half = VisualTransform { scale: Vec3::splat(0.5), ..mirror };
+    assert_eq!(visual(&mut h, 0), Some(half), "OK wrote it");
+    assert!(h.state().adjust.is_none());
+    // Each a step to undo.
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(3);
+    assert_eq!(visual(&mut h, 0), Some(mirror));
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(3);
+    assert_eq!(visual(&mut h, 0), None);
+    for _ in 0..2 {
+        h.state_mut().actions.push(mg_ui::Action::Redo);
+        h.run_steps(3);
+    }
+    assert_eq!(visual(&mut h, 0), Some(half));
+    // Drawn upright: X Rotation turns the model about its upright axis.
+    let model = h.state().area_views[&area].model.as_ref().unwrap();
+    let o = model.object(ObjectKind::Placeable, 0).unwrap();
+    let up = o.model_transform().transform_vector3(Vec3::Z);
+    assert!((up - Vec3::Z * 0.5).length() < 1e-4, "upright, half size: {up}");
+    // Copied and pasted: the copy has it too.
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Placeable, 0)];
+    h.hover_at(screen(&h, area, Vec3::new(20.0, 25.0, 0.0)));
+    h.run_steps(1);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::C);
+    h.run_steps(1);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::V);
+    h.run_steps(2);
+    let over = screen(&h, area, Vec3::new(20.0, 25.0, 0.0));
+    h.hover_at(over);
+    press(&h, over, true, egui::Modifiers::NONE);
+    press(&h, over, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Paste"));
+    assert_eq!(visual(&mut h, 2), Some(half), "the pasted copy's");
+
+    // Saved, and the module opened again: the window shows them.
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run_steps(3);
+    let path =
+        h.state().ws.as_ref().unwrap().module.location.as_ref().unwrap().path().to_path_buf();
+    let m = mg_module::Module::open(&path).unwrap();
+    let git = m.gff(&git_key).unwrap().unwrap();
+    let saved = &git.root.list("Placeable List").unwrap()[0];
+    assert_eq!(VisualTransform::read(saved), Some(half), "in the saved module");
+    h.state_mut().open_module(&path);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+    h.run_steps(3);
+    open(&mut h, dynamic);
+    assert_eq!(h.state().adjust.as_ref().expect("the window").visual, half);
+    h.get_by_label("Cancel").click();
+    h.run_steps(2);
+
+    // The static one: none offered, and why.
+    open(&mut h, Vec3::new(28.0, 30.0, 0.0));
+    assert!(h.query_by_label("Visual Transforms").is_none());
+    let note = mg_ui::area_tools::static_note(h.state().adjust.as_ref().unwrap()).unwrap();
+    assert!(note.starts_with("This placeable is static"), "{note}");
+    assert!(note.contains("kept but not drawn"), "{note}");
+    assert!(h.query_by_label(&note).is_some(), "the window says so");
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-adjust-static").join("window.png")).unwrap();
+    h.get_by_label("Cancel").click();
+    h.run_steps(2);
+    assert_eq!(visual(&mut h, 1), Some(mirror), "its file's transform is kept");
+}
+
 /// From straight above, where a tilt ring is seen edge-on and the up arrow
 /// end on, both are still led, by the pointer's travel on screen. Adjust
 /// Location offers a static placeable no visual transform. The Lighting
@@ -15047,13 +15200,14 @@ fn rings_and_arrows_are_led_from_straight_above() {
     h.run_steps(2);
 
     // The ring about X, edge-on (a line north and south over the chest):
-    // led along that line, it tilts the model.
+    // led along that line, it tilts the model: Y Rotation, which the game
+    // tips a model about its X with.
     let ring = |a: f32| pivot + Vec3::new(0.0, a.cos(), a.sin()) * radius;
     let (from, to) = (screen(&h, area, ring(1.05)), screen(&h, area, ring(0.52)));
     lead(&mut h, from, to);
     let tilted = mg_area::VisualTransform::read(&chest(&mut h, 0)).expect("a visual transform");
-    assert!((-40.0..-10.0).contains(&tilted.rotate.x), "tilted {:?}", tilted.rotate);
-    assert_eq!((tilted.rotate.y, tilted.rotate.z), (0.0, 0.0));
+    assert!((-40.0..-10.0).contains(&tilted.rotate.y), "tilted {:?}", tilted.rotate);
+    assert_eq!((tilted.rotate.x, tilted.rotate.z), (0.0, 0.0));
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Tilt"));
 
     // Lighting, switched off, stays off for views opened later.
