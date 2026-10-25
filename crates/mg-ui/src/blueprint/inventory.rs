@@ -239,22 +239,45 @@ pub(super) fn place(taken: &[(u32, u32, u32, u32)], w: u32, h: u32) -> (u32, u32
         .expect("an empty row fits any item")
 }
 
-/// A creature's item flag (`Dropable`, `Pickpocketable`) as a checkbox:
-/// written as 1 when set and left out when not, as the game's blueprints
-/// have it. The edit, if it changed.
-pub(super) fn flag_box(
-    ui: &mut Ui,
+/// Whether a creature's item has its flag (`Dropable`, `Pickpocketable`)
+/// set: a byte, 0 (or left out, as the engine reads it) when not.
+pub(super) fn flag_on(item: &Struct, flag: &str) -> bool {
+    item.integer(flag).unwrap_or(0) != 0
+}
+
+/// Several items' flag, for one checkbox: (on: set on every one, mixed:
+/// set on some and not on others). None at all: off, not mixed.
+pub(super) fn flag_state<'a>(
+    items: impl IntoIterator<Item = &'a Struct>,
+    flag: &str,
+) -> (bool, bool) {
+    let (mut set, mut unset) = (0, 0);
+    for item in items {
+        if flag_on(item, flag) {
+            set += 1;
+        } else {
+            unset += 1;
+        }
+    }
+    (set > 0 && unset == 0, set > 0 && unset > 0)
+}
+
+/// The edit that sets a creature's item's flag (at `path`) to `on`:
+/// written as 1, cleared by leaving it out, as Aurora and the game's
+/// blueprints write them. None if it is so already (an item left as it
+/// was keeps its bytes, a 0 the file has included).
+pub(super) fn flag_edit(
     key: ResKey,
     path: GffPath,
     item: &Struct,
     flag: &'static str,
-) -> Option<(&'static str, Edit)> {
-    let mut on = item.integer(flag).unwrap_or(0) != 0;
-    if !ui.checkbox(&mut on, flag).changed() {
+    on: bool,
+) -> Option<Edit> {
+    if flag_on(item, flag) == on {
         return None;
     }
     let value = on.then_some(Value::Byte(1));
-    Some((flag, Edit::SetField { key, path, label: flag.into(), value }))
+    Some(Edit::SetField { key, path, label: flag.into(), value })
 }
 
 /// An item dragged in an inventory page: from the item palette, from a
@@ -347,8 +370,8 @@ pub(super) struct ItemLook<'a> {
     pub name: &'a dyn Fn(&Struct) -> String,
     /// A store's Infinite column.
     pub infinite: bool,
-    /// The selected item (a creature's, for its options).
-    pub selected: Option<usize>,
+    /// The selected items (a creature's, for their options).
+    pub selected: &'a [usize],
     /// Its items can be equipped (a creature's backpack): the rows' menu
     /// offers it.
     pub equip: bool,
@@ -479,7 +502,7 @@ pub(super) fn item_list(
                     }
                     let width = ui.available_width();
                     let label = egui::Button::selectable(
-                        selected == Some(i),
+                        selected.contains(&i),
                         (n.as_str(), egui::Atom::grow()),
                     )
                     .min_size(egui::vec2(width, 0.0))
@@ -555,7 +578,7 @@ pub(super) fn item_list(
     if over && ui.ctx().memory(|m| m.focused().is_none()) {
         let event = |f: fn(&egui::Event) -> bool| ui.input(|i| i.events.iter().any(f));
         if event(|e| matches!(e, egui::Event::Copy))
-            && let Some(i) = hovered.or(selected)
+            && let Some(i) = hovered.or(selected.first().copied())
         {
             asked = Some((i, Ask::Copy));
         }
@@ -666,6 +689,72 @@ impl Form<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn item(fields: &[(&str, u8)]) -> Struct {
+        let mut s = Struct::new(0);
+        s.set("InventoryRes", Value::resref(ResRef::from_str("nw_it_torch001").unwrap()));
+        for (label, v) in fields {
+            s.set(label, Value::Byte(*v));
+        }
+        s
+    }
+
+    #[test]
+    fn item_flags_read_as_the_engine_reads_them() {
+        // Left out or 0: not set; any other byte: set.
+        assert!(!flag_on(&item(&[]), "Dropable"));
+        assert!(!flag_on(&item(&[("Dropable", 0)]), "Dropable"));
+        assert!(flag_on(&item(&[("Dropable", 1)]), "Dropable"));
+        assert!(flag_on(&item(&[("Pickpocketable", 2)]), "Pickpocketable"));
+        // Several items: on when every one is, mixed when some are.
+        let (on, off) = (item(&[("Dropable", 1)]), item(&[]));
+        assert_eq!(flag_state([&on, &on], "Dropable"), (true, false));
+        assert_eq!(flag_state([&on, &off], "Dropable"), (false, true));
+        assert_eq!(flag_state([&off, &off], "Dropable"), (false, false));
+        assert_eq!(flag_state([], "Dropable"), (false, false), "none selected");
+    }
+
+    #[test]
+    fn item_flags_are_written_as_aurora_writes_them() {
+        let key = ResKey::parse("bandit", mg_core::ResType::UTC).unwrap();
+        let path = GffPath::root().item("ItemList", 0);
+        let set = |s: &Struct, flag, on| flag_edit(key, path.clone(), s, flag, on);
+        // Set: a byte 1. Cleared: left out.
+        let edit = set(&item(&[]), "Dropable", true).unwrap();
+        let Edit::SetField { label, value, path: at, .. } = &edit else { panic!("{edit:?}") };
+        assert_eq!((label.as_str(), value, at), ("Dropable", &Some(Value::Byte(1)), &path));
+        let edit = set(&item(&[("Pickpocketable", 1)]), "Pickpocketable", false).unwrap();
+        let Edit::SetField { value, .. } = &edit else { panic!("{edit:?}") };
+        assert_eq!(value, &None);
+        // An item that has it so already is left as it is: an explicit 0
+        // stays, as a 1 does.
+        assert!(set(&item(&[("Dropable", 0)]), "Dropable", false).is_none());
+        assert!(set(&item(&[]), "Dropable", false).is_none());
+        assert!(set(&item(&[("Dropable", 1)]), "Dropable", true).is_none());
+        // Applied and read back from the file: the bytes, and nothing else
+        // changed.
+        let mut m = mg_module::Module::new();
+        let mut g = mg_gff::Gff::new(*b"UTC ");
+        g.root.set("ItemList", Value::List(vec![item(&[("Dropable", 0)])]));
+        m.set_gff(key, &g).unwrap();
+        let mut ws = mg_edit::Workspace::new(m);
+        let before = ws.module.get(&key).unwrap().to_vec();
+        let doc = ws.doc(&key).unwrap().root.clone();
+        let it = &doc.list("ItemList").unwrap()[0];
+        let on = set(it, "Pickpocketable", true).unwrap();
+        ws.apply(Command::new("Pickpocketable", vec![on])).unwrap();
+        let saved = |ws: &mut mg_edit::Workspace| {
+            ws.flush().unwrap();
+            mg_gff::Gff::read(ws.module.get(&key).unwrap()).unwrap().root
+        };
+        let read = saved(&mut ws);
+        let it = &read.list("ItemList").unwrap()[0];
+        assert_eq!(it.get("Pickpocketable"), Some(&Value::Byte(1)));
+        assert_eq!(it.get("Dropable"), Some(&Value::Byte(0)), "the 0 kept");
+        ws.undo().unwrap();
+        ws.flush().unwrap();
+        assert_eq!(ws.module.get(&key).unwrap(), &before[..], "undone: the bytes it had");
+    }
 
     #[test]
     fn items_take_the_first_free_place() {

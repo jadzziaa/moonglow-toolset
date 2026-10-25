@@ -1053,6 +1053,9 @@ impl Moonglow {
         self.trace_frame(ui);
         self.thumbnails.begin_frame(self.ws.as_ref().map(|ws| ws.revision()));
         widgets::install_fonts(ui.ctx());
+        // (Ctrl+Insert, Shift+Delete and Shift+Insert as Copy, Cut and
+        // Paste: first, before anything reads the keys.)
+        widgets::clipboard_keys(ui.ctx());
         widgets::dialogs_begin(ui.ctx());
         widgets::text_begin(ui.ctx());
         // Models that broke what builds or poses them, last frame: left out
