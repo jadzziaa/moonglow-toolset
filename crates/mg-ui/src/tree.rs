@@ -1304,7 +1304,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                 if let Some(view) = app.area_views.get_mut(&area) {
                     view.selection.clear();
                 }
-                app.dock.retain_tabs(|t| {
+                crate::tabs::close_tabs(&mut app.dock, |t| {
                     !matches!(t, Tab::Instance { area: a, .. } | Tab::Instances { area: a, .. }
                         if *a == area)
                 });

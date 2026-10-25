@@ -496,7 +496,7 @@ impl Moonglow {
         // What is gone has no editor any more.
         let gone: Vec<_> = changes.iter().filter(|c| c.resource.is_none()).map(|c| c.key).collect();
         if !gone.is_empty() {
-            self.dock.retain_tabs(|t| match t {
+            crate::tabs::close_tabs(&mut self.dock, |t| match t {
                 Tab::Script(k) | Tab::Gff(k) | Tab::Dialog(k) | Tab::Blueprint(k) => {
                     !gone.contains(k)
                 }
