@@ -23,7 +23,8 @@
 //! material's maps are bound (the client's `textureNBound` and Moonglow's,
 //! through the same patched `inc_standard`; [`bound_maps`] reads them),
 //! `MG_UV_PAINT=uv` with its texture coordinates. `MG_UV_STATIC=1` makes
-//! the placeables static. The pictures go to
+//! the placeables static; `MG_UV_NO_CLIENT` draws Moonglow's pictures
+//! alone. The pictures go to
 //! `target/test-output/client_custom_uvs/`; each card's mean color and
 //! saturation is printed, the client's beside Moonglow's.
 

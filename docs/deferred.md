@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T10:55:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T11:08:30Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1367,8 +1367,9 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   up to 2.5.3 Moonglow fed `tverts2` and `tverts3` as zeros: a wall of
   either drew the one color at (0, 0), flat and grayish (saturation
   0.47 against the client's 0.77 on a test card). Fixed, with his two
-  shaders on authored cards matching the client within 0.6 of 255
-  (findings, "What a custom shader gets of its mesh"); not seen in his
+  shaders on authored cards matching the client (within 0.6 of 255 for
+  a card of one stripe; findings, "What a custom shader gets of its
+  mesh"); not seen in his
   own module, which we don't have. If his smithy still differs on the
   next release, his module and haks are what to look at. (Stock
   interiors draw the same with either shader: findings, "The game's
@@ -1381,6 +1382,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   builder's walls of `tverts2` show set 0's layout there. Reading the
   set from the MTR would need Moonglow's shader to know each custom
   program's parameters. (M) (Heed's report, October 2026)
+- **A custom shader's tangents, not every case read:** the client's
+  rule (tangents from the model or a render hint, else zeros) was read
+  with an ASCII model without tangents, with and without an MTR
+  `renderhint`; a model that names `texture1` itself without a hint,
+  and a compiled one, under a custom pair, weren't tried, nor the black
+  of a normal map without tangents on Windows and macOS (the stock
+  include normalizing a zero vector). (S) (Heed's report, October 2026)
 - **Uniforms a script sets:** a custom shader's uniform that a module's
   scripts set in the game (`SetMaterialShaderUniformInt`,
   `SetMaterialShaderUniformVec4` on an object that isn't static) shows
