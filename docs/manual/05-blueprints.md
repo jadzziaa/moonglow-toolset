@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T12:04:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-24T23:59:57Z }
 ---
 
 # Blueprints
@@ -35,8 +35,29 @@ the top:
 
 - **Standard**: the game's blueprints (and those of the module's haks),
   in the game's categories.
-- **Custom**: the module's own blueprints, in the categories you give
-  them.
+- **Custom**: the module's custom palette (`itempalcus.itp` for items,
+  and so on: what the DM's Creator in the game shows), as Aurora shows
+  it: the module's own blueprints, in the categories you give them, and
+  every other entry the file has, a hak's blueprint, the override
+  folder's or one there is no more. Those are viewed, not edited (Edit
+  Copy makes one the module's).
+
+**The custom palettes change only where you change a blueprint.** A save
+leaves a palette as it is, byte for byte (and its nasher JSON file
+untouched), unless a blueprint of its type was added, changed, renamed or
+deleted since the module was opened or saved; then only that blueprint's
+entry changes, as Aurora changes it: a new one goes in at its place by
+name, an edited one whose name or category no longer matches its entry is
+made right and moved to its place (one that still matches is left alone:
+a talk-table name stays a `STRREF`), a deleted one's entry goes (unless a
+hak still has the blueprint), and a renamed one keeps its entry where it
+is. A new entry for a name from the talk table is its `STRREF`, as
+Aurora's Build writes it (Aurora's Edit Copy writes the text). Every
+other entry keeps its fields, its name and its place: those of a hak's
+blueprints are never taken out. Unlike Aurora, a save doesn't put each
+category back in order by name or drop fields it doesn't know. To make
+the palettes anew from the module's and its haks' blueprints, as Aurora's
+Refresh Palette does, use Build › Build Module… with **Palettes**.
 
 A right click on a blueprint, on a category or in the room under the
 list offers **New Creature…** (or the kind shown): the wizard New… opens.

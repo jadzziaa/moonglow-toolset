@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T10:05:13Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-24T23:59:57Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1061,10 +1061,33 @@ ignored but for ties); each blueprint a leaf in its `PaletteID`'s category
 (stores: `ID`), sorted by name then resref; creatures add `CR` and
 `FACTION`.
 
-- **Checked:** Aurora, `aurora_new.rs`; game data, `palettes.rs`
-  `custom_palettes_rebuild_like_aurora`.
-- **Moonglow:** `crates/mg-module/src/palette.rs`, `new.rs`.
-- **Wiki:** "Toolset Palette ITP" doesn't give these rules.
+That is how Aurora makes a palette **anew**, and it does so only in Build
+(Compile › Palettes) and the palette's Refresh Palette: from the module's
+**and its haks'** blueprints (not the override folder's), a name that is a
+talk-table string written as its `STRREF`, a name of the blueprint's own as
+`NAME`; entries whose blueprint is in neither go. Otherwise Aurora's custom
+palette **is the module's `palcus.itp` as read** (none: the categories,
+empty, until a Refresh): it lists the entries of hak blueprints, of the
+override folder's and of blueprints there are no more, and leaves out
+module blueprints the file doesn't list. A save writes the file back with
+every entry as it was (a `STRREF` stays one, a stale name stays stale) but
+sorts each category's entries by name and drops fields it doesn't know.
+Edit then OK on a blueprint rewrites its entry only when the name shown or
+the category differs (as `NAME` text, at its place by name; a talk-table
+name shown the same keeps its `STRREF`); Edit Copy and Add to Palette add
+an entry as `NAME` text, even for a talk-table name, after an entry of the
+same name; Delete takes out the entry alone.
+
+- **Checked:** Aurora, `aurora_new.rs`, `aurora_palettes.rs` (the
+  captures `palettes/`, made by `tools/aurora/capture_palettes.py`);
+  game data, `palettes.rs` `custom_palettes_rebuild_like_aurora`.
+- **Moonglow:** `crates/mg-module/src/palette.rs` (`rebuild_custom_palette`
+  for Build, `update_custom_palette` for a save), `new.rs`. A save does not
+  sort or drop fields, and a new entry for a talk-table name is its
+  `STRREF` (as Aurora's Build writes it), so that a palette changes only
+  where the builder changed something.
+- **Wiki:** "Toolset Palette ITP" says the toolset makes the `palcus.itp`
+  from the module's blueprints at every save; Aurora 89.8193.37 doesn't.
 
 ### Build › Compile › Encounters
 

@@ -3312,11 +3312,14 @@ impl Moonglow {
         // then written; one of the module's is a step saved below.)
         self.save_side_docs();
         let Some(ws) = &mut self.ws else { return };
-        // The custom palettes list the module's blueprints, as Aurora keeps
-        // them.
+        // The custom palettes, as Aurora keeps them: the entries of the
+        // blueprints added, changed or deleted since the module was opened
+        // or saved are brought up to date, and nothing else is touched
+        // (Build's Palettes makes them anew).
         if let Some(game) = &self.game {
+            let saved = ws.saved().clone();
             let rebuilt = ws
-                .derive(|module| mg_module::palette::rebuild_custom_palettes(module, game))
+                .derive(|module| mg_module::palette::update_custom_palettes(module, &saved, game))
                 .map_err(|e| e.to_string())
                 .and_then(|made| made);
             if let Err(e) = rebuilt {

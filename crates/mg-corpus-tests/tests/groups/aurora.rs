@@ -28,6 +28,8 @@ mod aurora_levelup;
 mod aurora_new;
 #[path = "../aurora_palette_add.rs"]
 mod aurora_palette_add;
+#[path = "../aurora_palettes.rs"]
+mod aurora_palettes;
 #[path = "../aurora_script_wizard.rs"]
 mod aurora_script_wizard;
 #[path = "../aurora_sounds.rs"]

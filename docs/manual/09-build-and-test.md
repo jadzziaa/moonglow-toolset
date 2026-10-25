@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync, long work, Verify Module and the fixes beside its findings, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T20:06:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-24T23:59:57Z }
 ---
 
 # Build, verify and test
@@ -17,8 +17,12 @@ Aurora's Build does:
   Debug Information** is on in Options), recalculated **Creature CR** (challenge
   ratings), **Encounters** (each encounter's creature list updated with
   its creatures' challenge ratings and appearances; creatures that no
-  longer exist are removed) and **Palettes** (the custom palettes rebuilt
-  from the module's blueprints).
+  longer exist are removed) and **Palettes** (the custom palettes made
+  anew, as Aurora's Build and Refresh Palette make them: the module's and
+  its haks' blueprints, by name, a name from the talk table as its
+  `STRREF`; entries of the override folder's blueprints and of blueprints
+  there are no more go. A plain save changes only the entries of the
+  blueprints you changed: [Blueprints](05-blueprints.md#palettes)).
 - **Check that resources are available**: **Missing Resources** (scripts,
   blueprints, conversations, models… that something in the module names
   but neither the module, its haks nor the game has) and, if ticked,
@@ -27,7 +31,8 @@ Aurora's Build does:
 Compile and Missing Resources are on by default, Unused off. The
 **Results** list what was found; double-click a result to open what it is
 about, and **Export…** saves the list as text. With **Build module on
-save** (Options › General), every save builds first.
+save** (Options › General), every save builds first (with Palettes
+ticked, every save makes the palettes anew, as Aurora's Build does).
 
 ## Publish to NWSync
 
