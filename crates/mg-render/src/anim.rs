@@ -329,7 +329,11 @@ pub struct Lamp {
 impl Lamp {
     /// The light of a model placed by `transform`; none for one that is
     /// black or reaches nowhere. A main light takes `main_light`'s colour
-    /// when it gives one, and then the engine's radius.
+    /// when it gives one, and then the engine's radius. The node's
+    /// `multiplier` lengthens the light's reach, not its colour: a white
+    /// light of radius 5 and multiplier 2 ends 20 m out, as bright as with
+    /// 1; a gray one stays as gray (read from the client:
+    /// `model_light_uniforms` in `client_render.rs`).
     pub fn placed(
         &self,
         transform: Mat4,
@@ -342,12 +346,13 @@ impl Lamp {
             Some(_) => 5.0,
             None => self.radius,
         };
+        let radius = radius * self.multiplier;
         if radius <= 0.0 || color == Vec3::ZERO {
             return None;
         }
         Some(crate::scene::PointLight::new(
             transform.transform_point3(self.at),
-            color * self.multiplier,
+            color,
             radius,
             self.ambient_only,
             self.priority,
@@ -505,6 +510,49 @@ pub fn node_position(pose: &[Mat4], node: usize) -> Vec3 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn lamp(color: Vec3, radius: f32, multiplier: f32) -> Lamp {
+        Lamp {
+            at: Vec3::new(1.0, 2.0, 3.0),
+            main: None,
+            color,
+            radius,
+            multiplier,
+            ambient_only: false,
+            priority: 2,
+        }
+    }
+
+    /// A light node's multiplier lengthens its reach and leaves its colour,
+    /// as the client's uniforms have it (`model_light_uniforms` in
+    /// `client_render.rs`): white radius 5 ends 10 m out, 20 m with
+    /// multiplier 2 and 5 m with 0.5; gray 0.3 with multiplier 2 stays
+    /// lin(0.3) and ends 20 m out; (2, 1, 1) with 2 is (1, lin(0.5),
+    /// lin(0.5)) ending 40 m out.
+    #[test]
+    fn a_light_node_s_multiplier_lengthens_its_reach() {
+        let none = |_: usize| None;
+        let at = |l: Lamp| l.placed(Mat4::from_translation(Vec3::X), &none).unwrap();
+        let white = at(lamp(Vec3::ONE, 5.0, 1.0));
+        assert_eq!((white.color, white.cutoff), (Vec3::ONE, 10.0));
+        assert_eq!(white.position, Vec3::new(2.0, 2.0, 3.0));
+        assert_eq!(at(lamp(Vec3::ONE, 5.0, 2.0)).cutoff, 20.0);
+        assert_eq!(at(lamp(Vec3::ONE, 5.0, 0.5)).cutoff, 5.0);
+        let gray = at(lamp(Vec3::splat(0.3), 5.0, 2.0));
+        assert!((gray.color.x - 0.3f32.powf(2.2)).abs() < 1e-6, "{gray:?}");
+        assert_eq!(gray.cutoff, 20.0);
+        let bright = at(lamp(Vec3::new(2.0, 1.0, 1.0), 5.0, 2.0));
+        assert!((bright.color - Vec3::new(1.0, 0.2176, 0.2176)).abs().max_element() < 1e-3);
+        assert_eq!(bright.cutoff, 40.0);
+        // A main light keeps the engine's radius, times its multiplier (the
+        // game's tiles have 1).
+        let main = Lamp { main: Some(0), ..lamp(Vec3::ONE, 14.0, 1.0) };
+        let red = |_: usize| Some(Vec3::X);
+        let placed = main.placed(Mat4::IDENTITY, &red).unwrap();
+        assert_eq!((placed.color, placed.cutoff), (Vec3::X, 20.0));
+        assert!(lamp(Vec3::ZERO, 5.0, 1.0).placed(Mat4::IDENTITY, &none).is_none(), "black");
+        assert!(lamp(Vec3::ONE, 5.0, 0.0).placed(Mat4::IDENTITY, &none).is_none(), "no reach");
+    }
 
     #[test]
     fn keys_interpolate_and_clamp() {

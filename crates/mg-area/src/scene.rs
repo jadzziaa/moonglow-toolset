@@ -546,12 +546,12 @@ impl AreaScene {
     /// Whether object `i` is only a light: a placeable whose appearance
     /// has a light (placeables.2da's `LightColor`) and a model too small
     /// to see, as the game's "Light, White" has. Its color, if
-    /// so (lightcolor.2da's values).
-    pub fn bare_light(&self, area: &AreaModel, i: usize) -> Option<Vec3> {
+    /// so (lightcolor.2da's values), and whether it shines (**Illuminated**).
+    pub fn bare_light(&self, area: &AreaModel, i: usize) -> Option<(Vec3, bool)> {
         let shown = self.objects.get(i).and_then(Option::as_ref)?;
         let o = area.objects.get(i)?;
         let light = o.preview.as_ref()?.lights.first()?;
-        (o.kind == ObjectKind::Placeable && bare(shown.bounds)).then_some(light.color)
+        (o.kind == ObjectKind::Placeable && bare(shown.bounds)).then_some((light.color, light.on))
     }
 
     /// How far along `ray` it meets object `i`'s model itself (its

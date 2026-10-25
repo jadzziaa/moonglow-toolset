@@ -6860,9 +6860,10 @@ fn placeable_editor_fills_its_inventory() {
 }
 
 /// A placeable's illumination (`LightState`, which Aurora doesn't show;
-/// Jasperre's report): a brazier without the field is lit, and keeps no
+/// Jasperre's reports): a brazier without the field is lit, and keeps no
 /// field until the box is unticked (0) or ticked again (1), one undoable
-/// change each. A chest, whose appearance has no light, can't be lit.
+/// change each. A chest, whose appearance has no light, shows it on too
+/// and can be unticked (its row may gain a light later).
 #[test]
 fn a_placeable_s_illumination_is_written_only_when_changed() {
     let Some((mut h, key)) = blueprint_harness("plc_brazier", "brazier_light", ResType::UTP) else {
@@ -6897,9 +6898,132 @@ fn a_placeable_s_illumination_is_written_only_when_changed() {
     h.get_by_label("Advanced").click();
     h.run();
     let node = h.get_by_label("Illuminated");
-    assert!(node.accesskit_node().is_disabled());
-    assert_eq!(node.accesskit_node().toggled(), Some(egui::accesskit::Toggled::False));
-    assert_eq!(field(&mut h, &key).get("LightState"), None);
+    assert!(!node.accesskit_node().is_disabled());
+    assert_eq!(node.accesskit_node().toggled(), Some(egui::accesskit::Toggled::True));
+    assert_eq!(field(&mut h, &key).get("LightState"), None, "shown, not written");
+    h.get_by_label("Illuminated").click();
+    h.run();
+    assert_eq!(field(&mut h, &key).get("LightState"), Some(&mg_gff::Value::Byte(0)));
+}
+
+/// The mean colour of the picture `image` in a square `half` points each
+/// way around `at` (points).
+fn mean_around(image: &image::RgbaImage, ppp: f32, at: egui::Pos2, half: f32) -> [f32; 3] {
+    let (mut sum, mut n) = ([0f32; 3], 0f32);
+    let (x0, y0) = (((at.x - half) * ppp) as u32, ((at.y - half) * ppp) as u32);
+    let (x1, y1) = (((at.x + half) * ppp) as u32, ((at.y + half) * ppp) as u32);
+    for y in y0..y1.min(image.height()) {
+        for x in x0..x1.min(image.width()) {
+            let p = image.get_pixel(x, y);
+            for c in 0..3 {
+                sum[c] += f32::from(p[c]);
+            }
+            n += 1.0;
+        }
+    }
+    sum.map(|s| s / n.max(1.0))
+}
+
+/// The area view lights an area with the light nodes of its objects'
+/// models (Troubletcat's and Heed's reports: a builder's lamps, lit in
+/// Aurora and the game, were dark in the area view), and **Illuminated**
+/// off takes away a placeable's appearance light (Jasperre's report), its
+/// model's light nodes staying, as in the client
+/// (`model_light_uniforms` in `client_render.rs`). In an area with no
+/// light of its own (black sun and moon, every tile light off): an
+/// armoire whose model is authored with a green light node over it, and
+/// the game's "Light, White" placeable (placeables.2da `LightColor` 1).
+/// The pictures go to `target/test-output/ui-area-lamps-shots/`.
+#[test]
+fn the_area_view_is_lit_by_objects_lights_and_illumination() {
+    let user = mg_testkit::scratch_dir("ui-area-lamps-user");
+    std::fs::create_dir_all(user.join("override")).unwrap();
+    std::fs::write(
+        user.join("override/plc_a01.mdl"),
+        "newmodel plc_a01\nsetsupermodel plc_a01 NULL\nclassification placeable\n\
+         beginmodelgeom plc_a01\nnode dummy plc_a01\n  parent NULL\nendnode\n\
+         node trimesh square\n  parent plc_a01\n  ambient 1 1 1\n  diffuse 1 1 1\n  \
+         bitmap NULL\n  verts 3\n    0 0 0.1\n    0.3 0 0.1\n    0 0.3 0.1\n  faces 1\n    \
+         0 1 2 1 0 0 0 0\nendnode\nnode light lamp\n  parent plc_a01\n  position 0 0 1\n  \
+         color 0 1 0\n  radius 4\n  multiplier 1\n  lightpriority 2\nendnode\n\
+         endmodelgeom plc_a01\ndonemodel plc_a01\n",
+    )
+    .unwrap();
+    let prepare = |m: &mut mg_module::Module, game: &mg_rules::GameData, area: ResRef| {
+        use mg_module::instances::{Placement, Placing, instance};
+        let key = ResKey::new(area, ResType::ARE);
+        let mut are = m.gff(&key).unwrap().unwrap();
+        for label in ["SunAmbientColor", "SunDiffuseColor", "MoonAmbientColor", "MoonDiffuseColor"]
+        {
+            are.root.set(label, mg_gff::Value::Dword(0));
+        }
+        for t in are.root.list_mut("Tile_List").unwrap() {
+            for label in ["Tile_MainLight1", "Tile_MainLight2", "Tile_SrcLight1", "Tile_SrcLight2"]
+            {
+                t.set(label, mg_gff::Value::Byte(0));
+            }
+        }
+        m.set_gff(key, &are).unwrap();
+        let git_key = ResKey::new(area, ResType::GIT);
+        let mut git = m.gff(&git_key).unwrap().unwrap();
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let placed = [(0, [15.0, 15.0, 0.0]), (15112, [25.0, 25.0, 1.0])].map(|(row, position)| {
+            let mut bp = mg_module::blueprints::placeable(ResRef::EMPTY, "Lamp", 0);
+            bp.root.set("Appearance", mg_gff::Value::Dword(row));
+            bp.root.set("Static", mg_gff::Value::Byte(1));
+            let at = Placement { position, rotation: 0.0 };
+            instance(&placing, ResType::UTP, &bp.root, at, &[]).unwrap()
+        });
+        git.root.set("Placeable List", mg_gff::Value::List(placed.to_vec()));
+        m.set_gff(git_key, &git).unwrap();
+    };
+    let Some((mut h, area)) = area_harness_with("lamps", "tic01", None, 4, Some(user), &prepare)
+    else {
+        return;
+    };
+    // (Close over the room, from above.)
+    if let Some(o) = h.state_mut().area_views.get_mut(&area).and_then(|v| v.orbit.as_mut()) {
+        o.target = glam::Vec3::new(20.0, 20.0, 0.0);
+        (o.distance, o.pitch, o.yaw) = (26.0, 1.4, (-90f32).to_radians());
+    }
+    h.run_steps(10);
+    let dir = mg_testkit::scratch_dir("ui-area-lamps-shots");
+    let ppp = h.ctx.pixels_per_point();
+    // The floor beside the lamp, and beside the light (clear of its marker).
+    let at_lamp = screen(&h, area, glam::Vec3::new(15.0, 15.0, 0.0));
+    let at_light = screen(&h, area, glam::Vec3::new(23.0, 25.0, 0.0));
+    let around = |img: &image::RgbaImage, at| mean_around(img, ppp, at, 12.0);
+    let lit = h.render().unwrap();
+    lit.save(dir.join("lit.png")).unwrap();
+    let (green, white) = (around(&lit, at_lamp), around(&lit, at_light));
+    eprintln!("lit: by the lamp {green:?}, by the light {white:?}");
+    let greener = |c: [f32; 3]| c[1] > 2.0 * c[0].max(c[2]) && c[1] > c[0].max(c[2]) + 4.0;
+    assert!(greener(green), "green by the lamp");
+    assert!(white.iter().all(|&c| c > 8.0), "lit by the light: {white:?}");
+    // Illuminated off: the light's placeable lights nothing, the lamp's
+    // light node still does.
+    let off = mg_edit::Edit::SetField {
+        key: ResKey::new(area, ResType::GIT),
+        path: mg_edit::GffPath::root().item("Placeable List", 1),
+        label: "LightState".into(),
+        value: Some(mg_gff::Value::Byte(0)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Light", vec![off])));
+    h.run_steps(10);
+    let unlit = h.render().unwrap();
+    unlit.save(dir.join("illuminated-off.png")).unwrap();
+    let (green_after, white_after) = (around(&unlit, at_lamp), around(&unlit, at_light));
+    eprintln!("Illuminated off: by the lamp {green_after:?}, by the light {white_after:?}");
+    assert!(white_after[0] < white[0] / 2.0, "dark: {white_after:?}");
+    assert!(greener(green_after), "the lamp's light node stays on");
+    // With the Lighting switch off, the even working light: no green.
+    h.state_mut().area_views.get_mut(&area).unwrap().lit = false;
+    h.run_steps(10);
+    let working = h.render().unwrap();
+    working.save(dir.join("lighting-off.png")).unwrap();
+    let g = around(&working, at_lamp);
+    assert!(!greener(g), "no lamp with the lighting off: {g:?}");
 }
 
 /// The PC faction is the players' alone (Jasperre's report; the game puts
@@ -7644,6 +7768,23 @@ fn area_harness_sized(
     tile: Option<i32>,
     side: u32,
 ) -> Option<(Harness<'static, Moonglow>, ResRef)> {
+    // (A look test on a builder's content: a user folder with it in its
+    // override.)
+    let user = std::env::var_os("MG_TEST_USER").map(std::path::PathBuf::from);
+    area_harness_with(name, tileset, tile, side, user, &|_, _, _| {})
+}
+
+/// [`area_harness_sized`] with the game's user folder `user` (an
+/// authored model in its override), and the module changed by `prepare`
+/// (given the game and the area) before it is opened.
+fn area_harness_with(
+    name: &str,
+    tileset: &str,
+    tile: Option<i32>,
+    side: u32,
+    user: Option<std::path::PathBuf>,
+    prepare: &dyn Fn(&mut mg_module::Module, &mg_rules::GameData, ResRef),
+) -> Option<(Harness<'static, Moonglow>, ResRef)> {
     use mg_module::instances::{Placement, Placing, instance};
     use mg_module::new::{AreaSpec, add_area, new_module};
     let root = mg_testkit::nwn_root()?;
@@ -7652,9 +7793,6 @@ fn area_harness_sized(
         eprintln!("skipped: no GPU adapter");
         return None;
     }
-    // (A look test on a builder's content: a user folder with it in its
-    // override.)
-    let user = std::env::var_os("MG_TEST_USER").map(std::path::PathBuf::from);
     let install = mg_resman::GameInstall::new(&root, user, "en");
     let game = mg_rules::GameData::open(&install).unwrap();
     let mut rng = fastrand::Rng::with_seed(7);
@@ -7689,6 +7827,7 @@ fn area_harness_sized(
         .to_vec();
     git.root.set("WaypointList", mg_gff::Value::List(waypoints));
     m.set_gff(git_key, &git).unwrap();
+    prepare(&mut m, &game, area);
     let path = mg_testkit::scratch_dir(&format!("ui-area-{name}")).join("area.mod");
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
     let rs = egui_kittest::wgpu::create_render_state(

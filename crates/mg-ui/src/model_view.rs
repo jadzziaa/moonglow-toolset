@@ -727,7 +727,9 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
     instances.extend(chunk_instances);
     let mut lights = lights;
     if let Some(c) = &view.composed {
-        lights.extend(c.point_lights(Mat4::IDENTITY));
+        // (The base's light nodes are the viewer's own above, as Lights
+        // has them.)
+        lights.extend(c.row_lights(Mat4::IDENTITY));
     }
     let scene = Scene {
         instances,
@@ -1303,7 +1305,9 @@ fn draw_group_thumbnail(
         let (low, high) = composed.bounds();
         (min, max) = (min.min(at.transform_point3(low)), max.max(at.transform_point3(high)));
         instances.extend(composed.instances(None, 0.0, *at));
-        lights.extend(composed.point_lights(*at));
+        // (A group's tiles: their light nodes are main lights, which the
+        // area's tiles colour; the picture is drawn without them.)
+        lights.extend(composed.row_lights(*at));
     }
     let pitch = 30f32.to_radians();
     let yaw = -120f32.to_radians();
@@ -1401,7 +1405,9 @@ pub(crate) fn render_tile_from_above(
     camera.fov_y = fov;
     let scene = Scene {
         instances: composed.instances(None, 0.0, Mat4::IDENTITY),
-        lights: composed.point_lights(Mat4::IDENTITY),
+        // (A tile's light nodes are main lights, which the area's tiles
+        // colour: the picture is drawn without them.)
+        lights: composed.row_lights(Mat4::IDENTITY),
         area: AreaLight::default(),
         background: [0.0, 0.0, 0.0],
         ..Default::default()

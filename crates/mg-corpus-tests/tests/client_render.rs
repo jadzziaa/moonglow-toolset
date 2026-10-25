@@ -470,6 +470,14 @@ float MgValue(int k)
     if (k == 28) return (float(moduleDuskHour) + 0.5) / 256.0;
     if (k == 29) return (float(moduleDay) + 0.5) / 256.0;
     if (k == 30) return (float(moduleMonth) + 0.5) / 256.0;
+    // How many of the draw's lights have no green (which of several were
+    // kept).
+    if (k == 31)
+    {
+        int n = 0;
+        for (int i = 0; i < numLights; i++) if (lightColor[i].g < 0.001) n++;
+        return float(n) / 64.0;
+    }
     if (k >= 32 && k < 32 + 8 * 8)
     {
         int i = (k - 32) / 8;
@@ -2291,5 +2299,529 @@ fn tdod_custom_shaders_look() {
         let c = mean(&client, *r);
         let (a, b) = (mean(&off, *r), mean(&on, *r));
         eprintln!("{name}: client {c:.1?}, own {a:.1?}, game's {b:.1?}");
+    }
+}
+
+/// An area of a module (by default the Chapter 1 smithy, `pensmithy1` of
+/// `Chapter1.nwm`: an interior at night lit by its tiles' lights) as the
+/// client draws it and as Moonglow's area view draws it, lit and with the
+/// Lighting switch off, from the scripted camera over the player (at
+/// `MG_AREA_PC=x,y`, the area's middle by default). `MG_AREA_MODULE` and
+/// `MG_AREA` give another; `MG_AREA_HAKS` the haks it needs (names, from
+/// the folders of `MOONGLOW_HAKS`, highest first). The area's creatures
+/// are left out (they walk), its placeables, doors and sounds kept. The
+/// pictures go to `target/test-output/client_area_lighting/`, with the
+/// mean difference from the client's printed.
+#[test]
+#[ignore]
+fn area_lighting_look() {
+    let root = corpus!();
+    let _ = oracle_tool!("nwn_script_comp");
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU");
+        return;
+    };
+    let source = std::env::var_os("MG_AREA_MODULE")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| root.join("data/nwm/Chapter1.nwm"));
+    let area_name = std::env::var("MG_AREA").unwrap_or_else(|_| "pensmithy1".into());
+    let dir = scratch_dir("client_area_lighting");
+    std::fs::create_dir_all(dir.join("user/hak")).unwrap();
+    std::fs::write(dir.join("user/settings.tml"), SETTINGS).unwrap();
+    let haks: Vec<String> = std::env::var("MG_AREA_HAKS")
+        .map(|v| v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+        .unwrap_or_default();
+    for name in &haks {
+        let file = format!("{name}.hak");
+        let from = mg_testkit::builder_hak_dirs()
+            .into_iter()
+            .map(|d| d.join(&file))
+            .find(|p| p.is_file())
+            .unwrap_or_else(|| panic!("{file} is in no folder of MOONGLOW_HAKS"));
+        mg_testkit::link_or_copy(&from, &dir.join("user/hak").join(&file)).unwrap();
+    }
+    let install = GameInstall::new(&root, Some(dir.join("user")), "en");
+    let mut game = GameData::open(&install).unwrap();
+    game.resman.add_haks(&install, &haks).unwrap();
+    let from = mg_module::Module::open(&source).unwrap();
+    let area = ResRef::from_str(&area_name).unwrap();
+    let read = |t| from.gff(&ResKey::new(area, t)).unwrap().unwrap();
+    let (mut are, mut git) = (read(ResType::ARE), read(ResType::GIT));
+    // The module: a new one with an area of the same tileset and size,
+    // made this one (under the new area's name), its scripts left out.
+    let mut rng = fastrand::Rng::with_seed(11);
+    let mut m = new_module(&game, "MgScene", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Scene".into(),
+        tileset: are.root.resref("Tileset").unwrap(),
+        width: are.root.int("Width").unwrap() as u32,
+        height: are.root.int("Height").unwrap() as u32,
+    };
+    let new_area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    are.root.set("ResRef", Value::resref(new_area));
+    for label in ["OnEnter", "OnExit", "OnHeartbeat", "OnUserDefined"] {
+        are.root.set(label, Value::resref(ResRef::EMPTY));
+    }
+    git.root.set("Creature List", Value::List(Vec::new()));
+    // `MG_AREA_PLACE=row@x,y[@z][;...]`: placeables of those appearances
+    // added (a builder's lamps), Illuminated as their blueprints are.
+    if let Ok(places) = std::env::var("MG_AREA_PLACE") {
+        use mg_module::instances::{Placement, Placing, instance};
+        let none = |_: ResRef| None;
+        let placing = Placing { game: &game, item: &none };
+        let mut list = git.root.list("Placeable List").map(<[_]>::to_vec).unwrap_or_default();
+        for place in places.split(';').filter(|p| !p.trim().is_empty()) {
+            let mut it = place.split('@');
+            let row: u32 = it.next().unwrap().trim().parse().unwrap();
+            let p: Vec<f32> =
+                it.next().unwrap().split(',').filter_map(|v| v.trim().parse().ok()).collect();
+            let mut bp = mg_module::blueprints::placeable(ResRef::EMPTY, "Placed", 0);
+            bp.root.set("Appearance", Value::Dword(row));
+            bp.root.set("Static", Value::Byte(1));
+            let at = Placement {
+                position: [p[0], p[1], p.get(2).copied().unwrap_or(0.0)],
+                rotation: 0.0,
+            };
+            list.push(instance(&placing, ResType::UTP, &bp.root, at, &[]).unwrap());
+        }
+        git.root.set("Placeable List", Value::List(list));
+    }
+    let (w, h) = (spec.width as f32 * 10.0, spec.height as f32 * 10.0);
+    let pc = std::env::var("MG_AREA_PC")
+        .ok()
+        .and_then(|v| {
+            let p: Vec<f32> = v.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+            (p.len() == 2).then(|| glam::Vec2::new(p[0], p[1]))
+        })
+        .unwrap_or(glam::Vec2::new(w / 2.0, h / 2.0));
+    m.set_gff(ResKey::new(new_area, ResType::ARE), &are).unwrap();
+    m.set_gff(ResKey::new(new_area, ResType::GIT), &git).unwrap();
+    // (Where the player stands, written to the log: the engine puts it
+    // on the walkmesh nearest the entry point.)
+    let enter: String = ENTER
+        .lines()
+        .filter(|l| !l.contains("CreateObject"))
+        .map(|l| {
+            if l.contains("MG_READY") {
+                "    DelayCommand(3.5, Log(\"MG_PC \" + FloatToString(GetPosition(pc).x, 0, 3) + \" \" \
+                 + FloatToString(GetPosition(pc).y, 0, 3) + \" \" + FloatToString(GetPosition(pc).z, 0, 3)));\n"
+                    .to_string()
+                    + l
+            } else {
+                l.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    m.set(ResKey::parse("mg_enter", ResType::NCS).unwrap(), compile(&dir, "mg_enter", &enter));
+    let mut info = m.info().unwrap();
+    info.root.write(&ifo::MOD_ENTRY_X, pc.x);
+    info.root.write(&ifo::MOD_ENTRY_Y, pc.y);
+    info.root.write(&ifo::MOD_ENTRY_Z, 0.0);
+    info.root.write(&ifo::MOD_ON_CLIENT_ENTR, ResRef::from_str("mg_enter").unwrap());
+    if !haks.is_empty() {
+        let list = mg_module::attach::hak_list(&info.root, &haks);
+        info.root.set("Mod_HakList", list);
+    }
+    m.set_info(&info).unwrap();
+    m.save_as(&ModuleLocation::Archive(dir.join("user/modules/MgScene.mod"))).unwrap();
+    let client = client_screenshot(&dir, "MgScene");
+    if let Some(c) = &client {
+        save_png(c, &dir.join("client.png"));
+    }
+    // Moonglow's area view of the same area.
+    let tileset = mg_area::tileset(&game, spec.tileset).ok();
+    let model = mg_area::AreaModel::read(&game, &are.root, &git.root, tileset.as_ref());
+    let area_scene = mg_area::AreaScene::new(&gpu, &game, &model);
+    let log = std::fs::read_to_string(dir.join("user/logs/nwclientLog1.txt")).unwrap_or_default();
+    let stood = log.lines().find_map(|l| {
+        let p: Vec<f32> =
+            l.split("MG_PC ").nth(1)?.split_whitespace().filter_map(|v| v.parse().ok()).collect();
+        (p.len() == 3).then(|| Vec3::new(p[0], p[1], p[2]))
+    });
+    let pc = stood.unwrap_or_else(|| {
+        pc.extend(mg_area::walk::Ground::new(&game, &model).height(pc, 100.0).unwrap_or(0.0))
+    });
+    eprintln!("the player stands at {pc:?} (from the client's log: {})", stood.is_some());
+    let camera = fitted_camera(pc, FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
+    let size = client.as_ref().map_or((1280, 800), |c| (c.width, c.height));
+    for (name, lit, fog) in
+        [("lit", true, true), ("lit_nofog", true, false), ("unlit", false, false)]
+    {
+        let view = mg_area::View { lit, fog, ..mg_area::View::of(&model) };
+        let scene = area_scene.scene(&model, &view);
+        eprintln!("{name}: {} lights, area light {:?}", scene.lights.len(), scene.area);
+        off_and_on(&gpu, &game, &scene, &camera, size, client.as_ref(), &dir, name);
+    }
+    eprintln!("{}: client {}", dir.display(), client.is_some());
+}
+
+/// A light node of an authored placeable model (ASCII, put in the scratch
+/// user folder's override as the armoire's `plc_a01`).
+#[derive(Debug, Clone, Copy)]
+struct NodeLight {
+    radius: f32,
+    multiplier: f32,
+    color: [f32; 3],
+    priority: u32,
+    ambient_only: bool,
+    /// Where it is in the model, metres.
+    at: [f32; 3],
+}
+
+impl NodeLight {
+    fn white(radius: f32) -> NodeLight {
+        NodeLight {
+            radius,
+            multiplier: 1.0,
+            color: [1.0; 3],
+            priority: 2,
+            ambient_only: false,
+            at: [0.0, 0.0, 1.5],
+        }
+    }
+}
+
+/// An ASCII placeable model named `name` of a small box (drawn) and
+/// `lights` under it.
+fn light_model(name: &str, lights: &[NodeLight]) -> String {
+    let mut s = format!(
+        "newmodel {name}\nsetsupermodel {name} NULL\nclassification tile\nsetanimationscale 1\n\
+         beginmodelgeom {name}\nnode dummy {name}\n  parent NULL\nendnode\n\
+         node trimesh box\n  parent {name}\n  position 0 0 0\n  orientation 0 0 0 0\n  \
+         ambient 1 1 1\n  diffuse 1 1 1\n  specular 0 0 0\n  shininess 1\n  bitmap NULL\n  \
+         render 1\n  shadow 0\n  verts 4\n    -0.2 -0.2 0.01\n    0.2 -0.2 0.01\n    \
+         0.2 0.2 0.01\n    -0.2 0.2 0.01\n  faces 2\n    0 1 2 1 0 0 0 0\n    0 2 3 1 0 0 0 0\n\
+         endnode\n"
+    );
+    for (i, l) in lights.iter().enumerate() {
+        let [r, g, b] = l.color;
+        let [x, y, z] = l.at;
+        s += &format!(
+            "node light mglight{i}\n  parent {name}\n  position {x} {y} {z}\n  \
+             orientation 0 0 0 0\n  radius {}\n  multiplier {}\n  color {r} {g} {b}\n  \
+             ambientonly {}\n  isdynamic 1\n  affectdynamic 1\n  shadow 0\n  lightpriority {}\n  \
+             fadingLight 1\n  flareradius 0\nendnode\n",
+            l.radius,
+            l.multiplier,
+            u8::from(l.ambient_only),
+            l.priority
+        );
+    }
+    s + &format!("endmodelgeom {name}\ndonemodel {name}\n")
+}
+
+/// L5: the lights of a placeable's own model (`light` nodes: a builder's
+/// lamps, the Txpple pack's light nodes), as the client hands them to its
+/// shader in a dark area, read back through the debug shader: whether
+/// they are lights at all, what the node's `multiplier` does, which a draw
+/// keeps past the light limit by `lightpriority`, and what **Illuminated**
+/// (`LightState` 0) turns off, a model's lights or only the light of
+/// placeables.2da's `LightColor`. Each case is printed beside the light
+/// Moonglow makes of it (`mg_render::anim::Lamp::placed`).
+/// `MG_LIGHT_CASES` runs only the cases whose names contain it.
+#[test]
+#[ignore]
+fn model_light_uniforms() {
+    use mg_module::instances::{Placement, Placing, instance};
+    let root = corpus!();
+    let _ = oracle_tool!("nwn_script_comp");
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU");
+        return;
+    };
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let shader = debug_shader(&game);
+    let white = NodeLight::white(5.0);
+    let green = NodeLight { color: [0.0, 1.0, 0.0], ..NodeLight::white(15.0) };
+    // A ring of 36 lights around the placeable, 2 of them red of priority
+    // 1 and furthest out, the others green of priority 5.
+    let crowd: Vec<NodeLight> = (0..36)
+        .map(|i| {
+            let turn = i as f32 / 36.0 * std::f32::consts::TAU;
+            let (far, red) = if i < 2 { (3.0, true) } else { (1.0 + i as f32 * 0.02, false) };
+            NodeLight {
+                color: if red { [1.0, 0.0, 0.0] } else { [0.0, 1.0, 0.0] },
+                priority: if red { 1 } else { 5 },
+                at: [far * turn.cos(), far * turn.sin(), 1.0],
+                ..NodeLight::white(5.0)
+            }
+        })
+        .collect();
+    // (name, the model's lights (none: the stock "Light, White" placeable),
+    // LightState (None: absent), static)
+    type Case<'a> = (&'a str, Option<Vec<NodeLight>>, Option<u8>, bool);
+    let cases: Vec<Case> = vec![
+        ("white 5", Some(vec![white]), None, false),
+        ("green 15", Some(vec![green]), None, false),
+        (
+            "green 15 multiplier 10",
+            Some(vec![NodeLight { multiplier: 10.0, ..green }]),
+            None,
+            false,
+        ),
+        ("white 5 multiplier 2", Some(vec![NodeLight { multiplier: 2.0, ..white }]), None, false),
+        (
+            "dim 5 multiplier 2",
+            Some(vec![NodeLight { multiplier: 2.0, color: [0.3; 3], ..white }]),
+            None,
+            false,
+        ),
+        ("white 5 multiplier 0.5", Some(vec![NodeLight { multiplier: 0.5, ..white }]), None, false),
+        (
+            "orange 5 multiplier 3",
+            Some(vec![NodeLight { multiplier: 3.0, color: [1.0, 0.5, 0.0], ..white }]),
+            None,
+            false,
+        ),
+        (
+            "bright 5 multiplier 2",
+            Some(vec![NodeLight { multiplier: 2.0, color: [2.0, 1.0, 1.0], ..white }]),
+            None,
+            false,
+        ),
+        (
+            "white 1 multiplier 6",
+            Some(vec![NodeLight { multiplier: 6.0, at: [0.0, 0.0, 0.3], ..NodeLight::white(1.0) }]),
+            None,
+            false,
+        ),
+        ("bright 5", Some(vec![NodeLight { color: [2.0; 3], ..white }]), None, false),
+        ("ambient only", Some(vec![NodeLight { ambient_only: true, ..white }]), None, false),
+        ("white 5 static", Some(vec![white]), None, true),
+        ("white 5 off", Some(vec![white]), Some(0), false),
+        ("white 5 off static", Some(vec![white]), Some(0), true),
+        ("row light", None, None, true),
+        ("row light off", None, Some(0), true),
+        ("row light off dynamic", None, Some(0), false),
+        ("crowd", Some(crowd), None, false),
+    ];
+    let only = std::env::var("MG_LIGHT_CASES").ok();
+    for (name, lights, light_state, is_static) in cases {
+        if only.as_deref().is_some_and(|o| !name.contains(o)) {
+            continue;
+        }
+        let dir = scratch_dir(&format!("client_model_light_{}", name.replace(' ', "_")));
+        let light = Lighting { ambient: 0, diffuse: 0, main_light: 0, only_tile: None };
+        let (mut m, are) = build_module(&game, &dir, light);
+        let enter: String =
+            ENTER.lines().filter(|l| !l.contains("CreateObject")).collect::<Vec<_>>().join("\n");
+        m.set(ResKey::parse("mg_enter", ResType::NCS).unwrap(), compile(&dir, "mg_enter", &enter));
+        let git_key = *m.keys_of(ResType::GIT).next().unwrap();
+        let mut git = m.gff(&git_key).unwrap().unwrap();
+        let mut bp = mg_module::blueprints::placeable(ResRef::EMPTY, "Light", 0);
+        // The armoire's appearance (its model replaced) or "Light, White".
+        let row = if lights.is_some() { 0 } else { 15112 };
+        bp.root.set("Appearance", Value::Dword(row));
+        bp.root.set("Static", Value::Byte(u8::from(is_static)));
+        let none = |_: ResRef| None;
+        let placing = Placing { game: &game, item: &none };
+        let at = Placement { position: [20.0, 21.0, 0.0], rotation: 0.0 };
+        let mut placed = instance(&placing, ResType::UTP, &bp.root, at, &[]).unwrap();
+        match light_state {
+            Some(v) => placed.set("LightState", Value::Byte(v)),
+            None => {
+                placed.remove("LightState");
+            }
+        }
+        git.root.set("Placeable List", Value::List(vec![placed.clone()]));
+        m.set_gff(git_key, &git).unwrap();
+        std::fs::create_dir_all(dir.join("user/override")).unwrap();
+        std::fs::write(dir.join("user/settings.tml"), SETTINGS).unwrap();
+        std::fs::write(dir.join("user/override/inc_standard.shd"), &shader).unwrap();
+        let model_name = game
+            .table("placeables")
+            .unwrap()
+            .get(row as usize, "ModelName")
+            .map(str::to_ascii_lowercase);
+        if let (Some(lights), Some(model_name)) = (&lights, &model_name) {
+            std::fs::write(
+                dir.join(format!("user/override/{model_name}.mdl")),
+                light_model(model_name, lights),
+            )
+            .unwrap();
+        }
+        m.save_as(&ModuleLocation::Archive(dir.join("user/modules/MgScene.mod"))).unwrap();
+        let Some(client) = client_screenshot(&dir, "MgScene") else {
+            eprintln!("{name}: the client did not reach the scene");
+            continue;
+        };
+        save_png(&client, &dir.join("client.png"));
+        let count = debug_value(&client, 1, 64.0);
+        let mut seen = format!(
+            "{name}: client: {count:.0} lights ({:.0} without green)",
+            debug_value(&client, 31, 64.0)
+        );
+        for i in 0..(count.round() as usize).min(2) {
+            seen += &format!(
+                "; light {i}: color ({:.3}, {:.3}, {:.3}) cutoff {:.2} ambient only {:.0}",
+                debug_value(&client, 32 + 8 * i, 8.0),
+                debug_value(&client, 33 + 8 * i, 8.0),
+                debug_value(&client, 34 + 8 * i, 8.0),
+                debug_value(&client, 35 + 8 * i, 256.0),
+                debug_value(&client, 36 + 8 * i, 1.0),
+            );
+        }
+        eprintln!("{seen}");
+        // Moonglow's lights of the same area, as the area view makes them.
+        let ours_game =
+            GameData::open(&GameInstall::new(&root, Some(dir.join("user")), "en")).unwrap();
+        let tileset = mg_area::tileset(&ours_game, ResRef::from_str("tic01").unwrap()).ok();
+        let model = mg_area::AreaModel::read(&ours_game, &are.root, &git.root, tileset.as_ref());
+        let area_scene = mg_area::AreaScene::new(&gpu, &ours_game, &model);
+        let mut ours = area_scene.scene(&model, &mg_area::View::of(&model)).lights;
+        // (A draw keeps the 32 most important: by priority, then nearness.)
+        ours.sort_by_key(|l| l.priority);
+        eprintln!("{name}: Moonglow: {} lights, the first {:?}", ours.len(), ours.first());
+        if name == "crowd" {
+            assert_eq!((count.round(), debug_value(&client, 31, 64.0).round()), (32.0, 2.0));
+            assert_eq!(ours.len(), 36);
+            assert_eq!(ours.iter().take(2).filter(|l| l.color.y == 0.0).count(), 2, "{name}");
+            continue;
+        }
+        assert_eq!(count.round() as usize, ours.len(), "{name}: the lights");
+        if let Some(l) = ours.first() {
+            for (k, channel) in l.color.to_array().into_iter().enumerate() {
+                let theirs = debug_value(&client, 32 + k, 8.0);
+                assert!((theirs - channel).abs() < 0.005, "{name}: color {k}: {theirs} {channel}");
+            }
+            // (The read-back ends at 256 m.)
+            let theirs = debug_value(&client, 35, 256.0);
+            let cutoff_matches =
+                if l.cutoff < 250.0 { (theirs - l.cutoff).abs() < 0.05 } else { theirs > 255.0 };
+            assert!(cutoff_matches, "{name}: cutoff {theirs} {}", l.cutoff);
+            let ambient = debug_value(&client, 36, 1.0).round() == 1.0;
+            assert_eq!(ambient, l.ambient_only, "{name}: ambient only");
+        }
+    }
+}
+
+/// Exploration: placeables whose appearance reflects the area's
+/// environment map (placeables.2da `Reflection` `default`), static and
+/// not, in a lit interior of each
+/// tileset of `MG_ENV_TILESETS` (by default `tin01`, whose map is a
+/// copper brown, and `tic01`, a gray one), in the client beside
+/// Moonglow's area view (the tileset's map) and beside the same scene
+/// with no area map (`chrome1`, as the Preview window has it). The
+/// pictures go to `target/test-output/client_env_<tileset>/`.
+/// `MG_ENV_ROWS` gives other appearances (comma-separated).
+#[test]
+#[ignore]
+fn area_env_map_look() {
+    use mg_module::instances::{Placement, Placing, instance};
+    let root = corpus!();
+    let _ = oracle_tool!("nwn_script_comp");
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU");
+        return;
+    };
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    // Appearances whose models are made cards 2.2 m square facing the
+    // camera, of gray textures whose alpha is their reflectivity where they
+    // reflect (0 wholly, 128 half, 255 not at all): the environment map
+    // they reflect, plain to see. (appearance, the texture's alpha, a TXI
+    // `envmaptexture default`): the big mirror, a mirror and the dwarven
+    // mirror (`Reflection` `default`), the armoire (none) with the TXI,
+    // and the large treasure (`Reflection` `PLC_G_ENV`). `MG_ENV_ROWS`
+    // gives other appearances, drawn as they are.
+    let cards: Vec<(u32, u8, bool)> = vec![
+        (428, 0, false),
+        (447, 128, false),
+        (15038, 255, false),
+        (0, 0, true),
+        (191, 0, false),
+    ];
+    let table = game.table("placeables").unwrap();
+    let model_of = |row: u32| table.get(row as usize, "ModelName").unwrap().to_ascii_lowercase();
+    let rows: Vec<u32> = std::env::var("MG_ENV_ROWS")
+        .map(|v| v.split(',').filter_map(|r| r.trim().parse().ok()).collect())
+        .unwrap_or_else(|_| cards.iter().map(|c| c.0).collect());
+    let card = |name: &str, texture: &str| {
+        format!(
+            "newmodel {name}\nsetsupermodel {name} NULL\nclassification character\n\
+             setanimationscale 1\nbeginmodelgeom {name}\nnode dummy {name}\n  parent NULL\nendnode\n\
+             node trimesh card\n  parent {name}\n  position 0 0 0\n  orientation 0 0 0 0\n  \
+             ambient 1 1 1\n  diffuse 1 1 1\n  specular 0 0 0\n  shininess 1\n  bitmap {texture}\n  \
+             render 1\n  shadow 0\n  verts 4\n    -1.1 0 0.1\n    1.1 0 0.1\n    1.1 0 2.3\n    \
+             -1.1 0 2.3\n  tverts 4\n    0 0 0\n    1 0 0\n    1 1 0\n    0 1 0\n  faces 4\n    \
+             0 1 2 1 0 1 2 0\n    0 2 3 1 0 2 3 0\n    0 2 1 1 0 2 1 0\n    0 3 2 1 0 3 2 0\n\
+             endnode\nendmodelgeom {name}\ndonemodel {name}\n"
+        )
+    };
+    let gray = |alpha: u8| {
+        let mut t = vec![0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16, 0, 16, 0, 32, 8];
+        t.extend(std::iter::repeat_n([160u8, 160, 160, alpha], 256).flatten());
+        t
+    };
+    let tilesets = std::env::var("MG_ENV_TILESETS").unwrap_or_else(|_| "tin01,tic01".into());
+    for tileset in tilesets.split(',') {
+        let dir = scratch_dir(&format!("client_env_{tileset}"));
+        let light =
+            Lighting { ambient: 0x808080, diffuse: 0xFFFFFF, main_light: 0, only_tile: None };
+        let (mut m, are) = build_module_on(&game, &dir, light, tileset, 0);
+        let enter: String =
+            ENTER.lines().filter(|l| !l.contains("CreateObject")).collect::<Vec<_>>().join("\n");
+        m.set(ResKey::parse("mg_enter", ResType::NCS).unwrap(), compile(&dir, "mg_enter", &enter));
+        let git_key = *m.keys_of(ResType::GIT).next().unwrap();
+        let mut git = m.gff(&git_key).unwrap().unwrap();
+        let none = |_: ResRef| None;
+        let placing = Placing { game: &game, item: &none };
+        let mut placed = Vec::new();
+        // (Each twice: static at the back, not static in front.)
+        for (is_static, y) in [(true, 23.0), (false, 19.5)] {
+            for (i, &row) in rows.iter().enumerate() {
+                let mut bp = mg_module::blueprints::placeable(ResRef::EMPTY, "Shiny", 0);
+                bp.root.set("Appearance", Value::Dword(row));
+                bp.root.set("Static", Value::Byte(u8::from(is_static)));
+                let x = 20.0 + (i as f32 - (rows.len() as f32 - 1.0) / 2.0) * 2.4;
+                let at = Placement { position: [x, y, 0.0], rotation: 0.0 };
+                placed.push(instance(&placing, ResType::UTP, &bp.root, at, &[]).unwrap());
+            }
+        }
+        git.root.set("Placeable List", Value::List(placed));
+        m.set_gff(git_key, &git).unwrap();
+        std::fs::create_dir_all(dir.join("user/override")).unwrap();
+        std::fs::write(dir.join("user/settings.tml"), SETTINGS).unwrap();
+        for &(row, alpha, txi) in &cards {
+            if rows.contains(&row) {
+                let model = model_of(row);
+                let texture = format!("mgshiny{row}");
+                std::fs::write(
+                    dir.join(format!("user/override/{model}.mdl")),
+                    card(&model, &texture),
+                )
+                .unwrap();
+                std::fs::write(dir.join(format!("user/override/{texture}.tga")), gray(alpha))
+                    .unwrap();
+                if txi {
+                    std::fs::write(
+                        dir.join(format!("user/override/{texture}.txi")),
+                        "envmaptexture default\n",
+                    )
+                    .unwrap();
+                }
+            }
+        }
+        m.save_as(&ModuleLocation::Archive(dir.join("user/modules/MgScene.mod"))).unwrap();
+        let client = client_screenshot(&dir, "MgScene");
+        if let Some(c) = &client {
+            save_png(c, &dir.join("client.png"));
+        }
+        let game = GameData::open(&GameInstall::new(&root, Some(dir.join("user")), "en")).unwrap();
+        let set = mg_area::tileset(&game, ResRef::from_str(tileset).unwrap()).ok();
+        let model = mg_area::AreaModel::read(&game, &are.root, &git.root, set.as_ref());
+        let area_scene = mg_area::AreaScene::new(&gpu, &game, &model);
+        let mut scene =
+            area_scene.scene(&model, &mg_area::View { fog: false, ..mg_area::View::of(&model) });
+        let camera =
+            fitted_camera(Vec3::new(20.0, 20.0, 0.0), FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
+        let size = client.as_ref().map_or((1280, 800), |c| (c.width, c.height));
+        eprintln!("{tileset}: the area's environment map {:?}", scene.env_map);
+        off_and_on(&gpu, &game, &scene, &camera, size, client.as_ref(), &dir, "area_view");
+        scene.env_map = None;
+        off_and_on(&gpu, &game, &scene, &camera, size, client.as_ref(), &dir, "no_area_map");
     }
 }

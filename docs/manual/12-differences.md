@@ -3,7 +3,7 @@ type: Manual Page
 title: Differences from Aurora
 description: Where Moonglow deliberately departs from Aurora.
 tags: [manual, aurora, differences]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T07:08:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-24T23:51:31Z }
 ---
 
 # Differences from Aurora
@@ -53,7 +53,8 @@ it differs, it is on purpose:
   their own colors whatever the area's light, and hidden by what stands
   in front of them.
 - **A placeable's illumination** (Advanced › Illuminated, the game's
-  `LightState`) can be set, which Aurora doesn't show; and the faction
+  `LightState`) can be set, which Aurora doesn't show, and the area view
+  draws it; and the faction
   lists don't offer the PC faction to objects (whether Aurora's do was
   not captured).
 - **Locked objects** carry a field of Moonglow's (`MG_Locked`), which the

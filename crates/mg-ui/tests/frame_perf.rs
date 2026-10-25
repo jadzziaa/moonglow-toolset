@@ -1385,8 +1385,10 @@ fn shaders_off_and_on(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64)
 /// tiles in turn, and 400 of its placeables whose models are in
 /// `tdod_p_tap` and `tdod_p_ham` (grass, leaves, falling water: custom
 /// shaders among them), in a scratch module with the shader haks attached
-/// and a scratch user folder holding them. The module, the user folder,
-/// the area and its tiles.
+/// and a scratch user folder holding them. `FRAME_TDOD_LAMPS=<n>`: the
+/// first n of them the Txpple pack's light-node placeables (`dd_tap_lightn*`:
+/// each a light reaching up to 300 m, as in the game), for timing an area
+/// full of lights. The module, the user folder, the area and its tiles.
 fn tdod_area(
     root: &std::path::Path,
 ) -> Option<(std::path::PathBuf, std::path::PathBuf, ResRef, i64)> {
@@ -1460,6 +1462,15 @@ fn tdod_area(
     if rows.is_empty() {
         return None;
     }
+    let lamps: Vec<usize> = (0..table.len())
+        .filter(|&row| {
+            table
+                .get(row, "ModelName")
+                .is_some_and(|n| n.to_ascii_lowercase().starts_with("dd_tap_lightn"))
+        })
+        .collect();
+    let lamp_count: usize =
+        std::env::var("FRAME_TDOD_LAMPS").ok().and_then(|n| n.parse().ok()).unwrap_or(0);
     let bp = game.resman.get_named("plc_armoire", ResType::UTP).unwrap();
     let mut bp = Gff::read(&bp).unwrap();
     let none = |_: ResRef| None;
@@ -1467,7 +1478,12 @@ fn tdod_area(
     let span = side as f32 * 10.0;
     let placed: Vec<_> = (0..400)
         .map(|i| {
-            bp.root.set("Appearance", Value::Dword(rows[i % rows.len()] as u32));
+            let row = if i < lamp_count && !lamps.is_empty() {
+                lamps[i % lamps.len()]
+            } else {
+                rows[i % rows.len()]
+            };
+            bp.root.set("Appearance", Value::Dword(row as u32));
             let at = Placement {
                 position: [rng.f32() * span, rng.f32() * span, 0.0],
                 rotation: rng.f32() * 360.0,
@@ -1487,8 +1503,10 @@ fn tdod_area(
     let path = dir.join("tdod-shaders.mod");
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
     println!(
-        "The Domains of Dread: {side} by {side} of mst04's {count} tiles, 400 placeables of {} rows",
-        rows.len()
+        "The Domains of Dread: {side} by {side} of mst04's {count} tiles, 400 placeables of {} rows \
+         ({} of them light-node placeables)",
+        rows.len(),
+        lamp_count.min(400)
     );
     Some((path, user, area, i64::from(side) * i64::from(side)))
 }

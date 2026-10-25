@@ -498,10 +498,12 @@ color is the stored color, in gamma space.
 
 ### Point lights
 
-For a light color c (MDL `color` × `multiplier`, or lightcolor.2da
-RED/GREEN/BLUE): intensity = max(1, the largest channel of c); the shader's
-color is (c / intensity)^2.2; its cutoff = radius × 2.0 × intensity, and
-`lightColor.a` = ±cutoff², negative for `ambientonly`. A color above 1
+For a light color c (MDL `color`, or lightcolor.2da RED/GREEN/BLUE):
+intensity = max(1, the largest channel of c); the shader's color is
+(c / intensity)^2.2; its cutoff = radius × 2.0 × intensity × the MDL
+`multiplier`, and `lightColor.a` = ±cutoff², negative for `ambientonly`.
+The multiplier lengthens the reach and leaves the color (a gray 0.3 light
+with multiplier 2 is as gray, reaching twice as far). A color above 1
 makes a light reach further, not brighter (BrightWhite 2.0 on a radius-10
 light: color 1, cutoff 40 m). `lightMaxIntensityInv` = 1.5^−2.2 ≈ 0.4098;
 `lightFalloffFactor` = 2² × (0.2^−2.2 − 1.5^−2.2) ≈ 136.33.
@@ -511,8 +513,17 @@ the toolset's swatches) with radius 10 (ml1) and 5 (ml2) whatever the model
 says; source lights take their color from the `fx_flame01` animation named
 by the value, radius 7.
 
+The light nodes of a placeable's own model are lights like any other,
+static or not; **Illuminated** (`LightState` 0) turns off only the
+appearance's light (placeables.2da `LightColor`), not them. A draw keeps
+32 of the lights that reach it, the most important first (by
+`lightpriority`, then nearness).
+
 - **Checked:** game client, `client_render.rs` `light_uniforms_match_the_client`
-  (seven cases).
+  (seven cases); `model_light_uniforms` (an authored placeable model's
+  light node: multipliers 0.5 to 10, colors above and below 1, ambient
+  only, static, `LightState` 0, 36 lights at once; the "Light, White"
+  placeable with `LightState` 0).
 - **Moonglow:** `crates/mg-render/src/scene.rs`, `renderer.rs`
   (`attenuation_params`), `anim.rs`.
 - **Wiki:** "Shader Engine Support" lists the uniforms without values.
@@ -741,6 +752,20 @@ where the texture is see-through, `transparency` or not.
 - **Checked:** `creatures_look` with `MG_OVERRIDE`.
 - **Moonglow:** `crates/mg-render/src/renderer.rs` (`env_switched_off`:
   the shader's source is read for that one line, and not run).
+- **Wiki:** missing.
+
+### A static placeable reflects no appearance map
+
+A placeable whose placeables.2da row names an environment map
+(`Reflection`: `default`, the tileset's, or a named one) reflects it
+only if it isn't static: a static one's textures take their alpha for
+opacity, as without a map (an alpha-0 card isn't drawn). A texture's own
+TXI `envmaptexture` is reflected either way, `default` being the
+tileset's `EnvMap`.
+
+- **Checked:** `area_env_map_look` (authored cards in `tin01` and
+  `tic01` interiors).
+- **Moonglow:** `crates/mg-preview/src/object.rs` (`placeable`).
 - **Wiki:** missing.
 
 ### Static placeables stand upright
