@@ -385,7 +385,7 @@ fn misc(f: &mut Form<'_>, ui: &mut Ui) {
                 let (picked, open) = ui
                     .push_id(f.id("HiliteColor"), |ui| {
                         let popup = ui.auto_id_with("popup");
-                        let changed = ui.color_edit_button_rgb(&mut c).changed();
+                        let changed = crate::color_button::edit_rgb(ui, &mut c).changed();
                         (changed, egui::Popup::is_id_open(ui.ctx(), popup))
                     })
                     .inner;

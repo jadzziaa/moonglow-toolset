@@ -136,6 +136,42 @@ fn the_build_window_s_advanced_controls_keep_its_buttons_in_reach() {
     assert!(done.bottom() < 800.0, "the buttons are in the window: {done:?}");
 }
 
+/// A color pasted into a color button (a builder's report: the picker's
+/// 📋 copies "158, 151, 211", and nothing pasted one back): with the
+/// picker open, the paste its Paste button asks for, or Ctrl+V; with the
+/// pointer on the swatch, Ctrl+V; text that isn't a color changes nothing.
+#[test]
+fn a_color_is_pasted_into_a_color_button() {
+    let swatch = |h: &Harness<'_, [u8; 3]>| {
+        h.get_by(|n| n.role() == egui::accesskit::Role::ColorWell).rect().center()
+    };
+    let mut h = Harness::new_ui_state(
+        |ui, rgb: &mut [u8; 3]| {
+            mg_ui::color_button::edit_srgb(ui, rgb);
+        },
+        [10, 20, 30],
+    );
+    h.run();
+    // Pointed at, Ctrl+V.
+    h.hover_at(swatch(&h));
+    h.run();
+    h.event(egui::Event::Paste("158, 151, 211".into()));
+    h.run();
+    assert_eq!(*h.state(), [158, 151, 211]);
+    // Not a color: nothing.
+    h.event(egui::Event::Paste("hello".into()));
+    h.run();
+    assert_eq!(*h.state(), [158, 151, 211]);
+    // Open: its Paste button, and the clipboard as the next frame's paste.
+    h.get_by(|n| n.role() == egui::accesskit::Role::ColorWell).click();
+    h.run();
+    h.get_by_label("Paste Color").click();
+    h.run();
+    h.event(egui::Event::Paste("#204060".into()));
+    h.run();
+    assert_eq!(*h.state(), [0x20, 0x40, 0x60]);
+}
+
 /// Edit on a row's right-click menu opens it, as a double click does.
 #[test]
 fn a_tree_row_s_menu_opens_it_in_its_editor() {

@@ -292,7 +292,7 @@ fn color(ui: &mut Ui, id: egui::Id, rgb: [f32; 3]) -> ([f32; 3], bool, bool) {
     let (changed, open) = ui
         .push_id(id, |ui| {
             let popup = ui.auto_id_with("popup");
-            let changed = ui.color_edit_button_srgb(&mut bytes).changed();
+            let changed = crate::color_button::edit_srgb(ui, &mut bytes).changed();
             (changed, egui::Popup::is_id_open(ui.ctx(), popup))
         })
         .inner;

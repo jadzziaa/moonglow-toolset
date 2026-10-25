@@ -666,7 +666,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                     draft.area_background = custom.then_some([192, 192, 192]);
                                 }
                                 if let Some(rgb) = &mut draft.area_background {
-                                    ui.color_edit_button_srgb(rgb);
+                                    crate::color_button::edit_srgb(ui, rgb);
                                 } else {
                                     ui.weak("the area's fog");
                                 }
@@ -801,7 +801,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 ui.horizontal(|ui| {
                                     crate::widgets::field_label(ui, label);
                                     let mut rgb = color.unwrap_or(default);
-                                    if ui.color_edit_button_srgb(&mut rgb).changed() {
+                                    if crate::color_button::edit_srgb(ui, &mut rgb).changed() {
                                         *color = Some(rgb);
                                     }
                                     if color.is_some() && ui.small_button("Default").clicked() {
@@ -1062,7 +1062,7 @@ fn script_style(ui: &mut Ui, style: &mut ScriptStyle) {
                 });
             }
             if let Some(rgb) = &mut style.colors[i] {
-                ui.color_edit_button_srgb(rgb);
+                crate::color_button::edit_srgb(ui, rgb);
             } else {
                 ui.weak("theme");
             }
@@ -1076,7 +1076,7 @@ fn script_style(ui: &mut Ui, style: &mut ScriptStyle) {
             style.background = custom.then(|| [ground.r(), ground.g(), ground.b()]);
         }
         if let Some(rgb) = &mut style.background {
-            ui.color_edit_button_srgb(rgb);
+            crate::color_button::edit_srgb(ui, rgb);
         } else {
             ui.weak("theme");
         }

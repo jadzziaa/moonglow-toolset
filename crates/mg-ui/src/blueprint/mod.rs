@@ -805,7 +805,7 @@ impl Form<'_> {
         let (changed, open) = ui
             .push_id(self.id(label), |ui| {
                 let popup = ui.auto_id_with("popup");
-                let changed = ui.color_edit_button_srgb(&mut rgb).changed();
+                let changed = crate::color_button::edit_srgb(ui, &mut rgb).changed();
                 (changed, egui::Popup::is_id_open(ui.ctx(), popup))
             })
             .inner;

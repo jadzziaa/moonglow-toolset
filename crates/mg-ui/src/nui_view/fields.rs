@@ -180,7 +180,7 @@ pub(super) fn color(ui: &mut Ui, o: &mut serde_json::Map<String, Value>) {
     let (changed, open) = ui
         .push_id(pending_id, |ui| {
             let popup = ui.auto_id_with("popup");
-            let changed = ui.color_edit_button_srgba_unmultiplied(&mut rgba).changed();
+            let changed = crate::color_button::edit_srgba_unmultiplied(ui, &mut rgba).changed();
             (changed, egui::Popup::is_id_open(ui.ctx(), popup))
         })
         .inner;

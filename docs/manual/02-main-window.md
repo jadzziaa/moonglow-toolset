@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T13:11:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T01:37:31Z }
 ---
 
 # The main window
@@ -302,6 +302,13 @@ table) keep their own steps: Undo and Redo, by their keys (Ctrl+Z,
 Ctrl+Y and Ctrl+Shift+Z, or those set in Options › Keyboard), are that
 editor's with the pointer over it (and a 2DA's while the keys are in
 its grid), and never the module's last change there.
+
+**Colors.** A color's swatch (an area's lighting, a light, a NUI color,
+the Options' colors) opens a picker. Its 📋 copies the color's values
+(`158, 151, 211`), and **Paste Color** under it, or **Ctrl+V** while it is
+open or the pointer is on the swatch, takes one from the clipboard:
+`158, 151, 211`, `#9e97d3`, `rgb(158, 151, 211)`, or values from 0 to 1.
+The swatch's right-click menu has **Copy Color** and **Paste Color** too.
 
 ## The palette
 

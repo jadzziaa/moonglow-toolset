@@ -21,6 +21,27 @@ fn shoot(h: &mut Harness<'_, Moonglow>, dir: &std::path::Path, name: &str) {
     image.save(dir.join(format!("{name}.png"))).unwrap();
 }
 
+/// A color button's picker, open, with Paste beside it (a builder's
+/// report: the picker copied a color and nothing pasted one back).
+#[test]
+#[ignore]
+fn color_button_paste() {
+    mg_testkit::gpu::hold();
+    let mut h = Harness::builder().with_size(egui::vec2(420.0, 420.0)).wgpu().build_ui_state(
+        |ui, rgb: &mut [u8; 3]| {
+            mg_ui::color_button::edit_srgb(ui, rgb);
+        },
+        [158, 151, 211],
+    );
+    h.run();
+    h.get_by(|n| n.role() == egui::accesskit::Role::ColorWell).click();
+    h.run_steps(3);
+    let image = h.render().expect("render");
+    let path = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("../test-output/screens");
+    std::fs::create_dir_all(&path).unwrap();
+    image.save(path.join("color-button-paste.png")).unwrap();
+}
+
 #[test]
 #[ignore]
 fn script_wizard_pages() {

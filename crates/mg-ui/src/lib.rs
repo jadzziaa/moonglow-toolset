@@ -19,6 +19,7 @@ pub mod build_view;
 pub mod builder_code;
 pub mod bulk;
 mod claims;
+pub mod color_button;
 pub mod commands;
 pub mod copy_as;
 pub mod creature_wizard;
