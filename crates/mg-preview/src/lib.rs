@@ -25,7 +25,7 @@ mod object;
 
 pub use creature::{CreatureLook, creature, creature_look};
 pub use item::{ground_turn, item, item_on, item_placed};
-pub use object::{door, placeable, sound, store, waypoint};
+pub use object::{PLACEABLE_DEFAULT_ENV_MAP, door, placeable, sound, store, waypoint};
 
 /// Why a preview could not be made.
 #[derive(Debug, thiserror::Error)]
