@@ -45,6 +45,14 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="2.5.5" date="2026-10-25">
+      <description>
+        <p>A crash when a window lost its last tab fixed, a recovery copy
+        written when Moonglow crashes, the conversation tree taking the
+        keys (Delete, arrow keys), Dropable and Pickpocketable where Aurora
+        shows them, and Ctrl+Insert, Shift+Delete, Shift+Insert.</p>
+      </description>
+    </release>
     <release version="2.5.4" date="2026-10-25">
       <description>
         <p>Custom shaders read a model's third and fourth UV sets, and visual
