@@ -37,6 +37,8 @@ mod engine_factions;
 mod engine_grass;
 #[path = "../engine_item_cost.rs"]
 mod engine_item_cost;
+#[path = "../engine_item_flags.rs"]
+mod engine_item_flags;
 #[path = "../engine_journal.rs"]
 mod engine_journal;
 #[path = "../engine_light_state.rs"]
