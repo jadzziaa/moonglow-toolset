@@ -27956,26 +27956,37 @@ fn the_conversation_tree_s_other_keys() {
         press(&mut h, egui::Key::Backspace);
         assert_eq!(selected(&h), want);
     }
-    // Letters, from Root: "b" goes to Bye; "w" to Who and to the link to
-    // it, then round the end; "G" to "Go away." past its speaker; "r" to
-    // Root; a letter no line begins with stays.
+    // Letters, each after a pause, from Root: "b" goes to Bye; "w" to Who
+    // and to the link to it, then round the end; "[" to the NPC lines, as
+    // their rows begin (Aurora's go by the row: watched), and "[owner] -
+    // g" typed at once to "Go away."; "h" to no row; "r" to Root; a letter
+    // no row begins with stays.
+    let pause = |h: &mut Harness<'_, Moonglow>| h.run_steps(5);
     typed(&mut h, "b");
     assert_eq!(selected(&h), bye);
     for want in [link, who, link] {
+        pause(&mut h);
         typed(&mut h, "w");
         assert_eq!(selected(&h), want);
     }
-    typed(&mut h, "G");
-    assert_eq!(selected(&h), go);
-    typed(&mut h, "h");
+    pause(&mut h);
+    typed(&mut h, "[");
     assert_eq!(selected(&h), hello);
+    pause(&mut h);
+    typed(&mut h, "[owner] - G");
+    assert_eq!(selected(&h), go);
+    pause(&mut h);
+    typed(&mut h, "h");
+    assert_eq!(selected(&h), go, "no row begins with h");
+    pause(&mut h);
     typed(&mut h, "r");
     assert_eq!(selected(&h), None, "Root");
+    pause(&mut h);
     typed(&mut h, "x");
     assert_eq!(selected(&h), None);
     // The keypad's −, then +: Hello folded, opened, the selection
     // staying on it; each again does nothing.
-    typed(&mut h, "h");
+    press(&mut h, egui::Key::ArrowDown);
     press(&mut h, egui::Key::Minus);
     assert!(folded(&h, 0) && h.query_by_label("Bye. [END DIALOGUE]").is_none());
     press(&mut h, egui::Key::Minus);
@@ -28027,6 +28038,227 @@ fn the_conversation_tree_s_other_keys() {
     assert_eq!(selected(&h), go, "the selection stays");
     assert!(!folded(&h, 2));
     assert!(dialog_lines(&mut h, key).contains(&"Entry|Go away.-x*|".to_string()));
+}
+
+/// The conversation Aurora was watched typing in: an NPC's greeting with
+/// three replies, the second answered by an NPC line beginning with "O"
+/// with a reply beginning with "O" under it.
+fn typing_dialog() -> Gff {
+    use mg_module::dialog::{Kind, Parent, add_node, new_dialog};
+    let mut g = new_dialog();
+    let hello = add_node(&mut g, Parent::Root, "Hello there.");
+    add_node(&mut g, Parent::Node(Kind::Entry, hello), "Goodbye.");
+    let gold = add_node(&mut g, Parent::Node(Kind::Entry, hello), "Gold, please.");
+    let over = add_node(&mut g, Parent::Node(Kind::Reply, gold), "Over here.");
+    add_node(&mut g, Parent::Node(Kind::Entry, over), "Off I go.");
+    add_node(&mut g, Parent::Node(Kind::Entry, hello), "Hmm.");
+    g
+}
+
+/// Letters typed in the tree go by its rows as drawn, as Aurora's did
+/// (watched): "o" goes to "Off I go.", not to the NPC's "Over here.", whose
+/// row begins with `[OWNER]`. Typed in quick succession they go by all of
+/// them ("gol": "Gold, please."), the same letter again to the next row
+/// beginning with it, and a pause starts over.
+#[test]
+fn the_conversation_tree_s_letters_typed_quickly() {
+    use mg_module::dialog::{Kind, Parent};
+    use mg_ui::dialog_view::Row;
+    let (mut h, key) = dialog_from_tree("ui-dialog-type-ahead", &typing_dialog());
+    let selected = |h: &Harness<'_, Moonglow>| h.state().dialog_views[&key].selected;
+    let row = |parent: Parent, pos: usize| Some(Row { parent, pos });
+    let (goodbye, gold) =
+        (row(Parent::Node(Kind::Entry, 0), 0), row(Parent::Node(Kind::Entry, 0), 1));
+    let off = row(Parent::Node(Kind::Entry, 1), 0);
+    let hmm = row(Parent::Node(Kind::Entry, 0), 2);
+    // (Each letter a step after the last: a quarter of a second.)
+    let typed = |h: &mut Harness<'_, Moonglow>, t: &str| {
+        for c in t.chars() {
+            h.event(egui::Event::Text(c.to_string()));
+        }
+        h.run();
+        h.run();
+    };
+    let home = |h: &mut Harness<'_, Moonglow>| {
+        h.key_press(egui::Key::Home);
+        h.run();
+        h.run();
+    };
+    h.get_by_label("Root").click();
+    h.run();
+    typed(&mut h, "o");
+    assert_eq!(selected(&h), off, "the row's text, its speaker first");
+    home(&mut h);
+    typed(&mut h, "h");
+    assert_eq!(selected(&h), hmm);
+    home(&mut h);
+    typed(&mut h, "gol");
+    assert_eq!(selected(&h), gold);
+    home(&mut h);
+    typed(&mut h, "gg");
+    assert_eq!(selected(&h), gold, "the same letter: Goodbye, then Gold");
+    home(&mut h);
+    typed(&mut h, "g");
+    assert_eq!(selected(&h), goodbye);
+    h.run_steps(5);
+    typed(&mut h, "o");
+    assert_eq!(selected(&h), off, "after a pause, o alone");
+}
+
+/// A key the tree reads that a conversation command was given in Options
+/// › Keyboard is the command's (a Mac's delete key is Backspace): Delete
+/// Line on Backspace deletes the line, rather than going to the one it is
+/// under, and Add Line on N adds one rather than looking for a line.
+#[test]
+fn a_conversation_command_on_a_tree_key_wins() {
+    let (mut h, key) = dialog_from_tree("ui-dialog-key-command", &branching_dialog());
+    let chosen = &mut h.state_mut().settings.key_bindings;
+    chosen.insert("delete-line".into(), vec!["Backspace".into()]);
+    chosen.insert("add-line".into(), vec!["N".into()]);
+    h.run();
+    h.get_by_label("Bye. [END DIALOGUE]").click();
+    h.run();
+    h.key_press(egui::Key::Backspace);
+    h.run();
+    h.run();
+    assert!(!dialog_lines(&mut h, key).contains(&"  Reply|Bye.|".to_string()), "deleted");
+    h.get_by_label("[OWNER] - Go away.").click();
+    h.run();
+    let n = |pressed| egui::Event::Key {
+        key: egui::Key::N,
+        physical_key: None,
+        pressed,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    };
+    h.event(n(true));
+    h.event(egui::Event::Text("n".into()));
+    h.event(n(false));
+    h.run();
+    h.run();
+    assert!(h.state().dialog_views[&key].input.is_some(), "Add Line's popup");
+}
+
+/// Delete and the conversation's other commands work while its tree has
+/// the keys, wherever the pointer is (Aurora's control with the focus has
+/// them), not only with the pointer over the editor.
+#[test]
+fn conversation_commands_go_where_the_tree_s_keys_are() {
+    let (mut h, key) = dialog_from_tree("ui-dialog-keys-commands", &branching_dialog());
+    h.get_by_label("Bye. [END DIALOGUE]").click();
+    h.run();
+    // The pointer over the module tree, left of the editor.
+    let tree = h.get_by_label_contains("Conversations").rect();
+    let editor = h.get_by_label("Root").rect();
+    assert!(tree.right() < editor.left(), "{tree:?} {editor:?}");
+    h.hover_at(tree.center());
+    h.run();
+    h.key_press(egui::Key::Delete);
+    h.run();
+    h.run();
+    assert_eq!(h.state().confirm_delete, None, "not the module tree's Delete");
+    assert!(!dialog_lines(&mut h, key).contains(&"  Reply|Bye.|".to_string()), "deleted");
+}
+
+/// Escape hands the tree's keys back, as the module tree's Escape does
+/// (Aurora's Escape does nothing in its tree: watched); not the Escape
+/// that takes the keyboard from the line's Text, after which the arrows
+/// are the tree's again.
+#[test]
+fn escape_hands_the_conversation_tree_s_keys_back() {
+    use mg_module::dialog::{Kind, Parent};
+    use mg_ui::dialog_view::Row;
+    let (mut h, key) = dialog_from_tree("ui-dialog-keys-escape", &branching_dialog());
+    let selected = |h: &Harness<'_, Moonglow>| h.state().dialog_views[&key].selected;
+    let press = |h: &mut Harness<'_, Moonglow>, k: egui::Key| {
+        h.key_press(k);
+        h.run();
+        h.run();
+    };
+    let traveller = Some(Row { parent: Parent::Node(Kind::Reply, 0), pos: 0 });
+    let farewell = Some(Row { parent: Parent::Node(Kind::Entry, 1), pos: 0 });
+    h.get_all_by_label("Who are you?").next().unwrap().click();
+    h.run();
+    h.get_all_by_role(egui::accesskit::Role::MultilineTextInput).next().unwrap().click();
+    h.run();
+    assert!(h.ctx.text_edit_focused());
+    press(&mut h, egui::Key::Escape);
+    assert!(!h.ctx.text_edit_focused());
+    press(&mut h, egui::Key::ArrowDown);
+    assert_eq!(selected(&h), traveller, "the tree's keys still");
+    press(&mut h, egui::Key::Escape);
+    press(&mut h, egui::Key::ArrowDown);
+    assert_eq!(selected(&h), traveller, "handed back");
+    h.get_by_label("[OWNER] - A traveller.").click();
+    h.run();
+    press(&mut h, egui::Key::ArrowDown);
+    assert_eq!(selected(&h), farewell, "a click gives them again");
+}
+
+/// Tab out of the line's Text goes to a button; an arrow then moves the
+/// tree's selection, not egui's focus from widget to widget too: the keys
+/// are the tree's.
+#[test]
+fn an_arrow_after_tab_moves_the_tree_alone() {
+    use mg_module::dialog::{Kind, Parent};
+    use mg_ui::dialog_view::Row;
+    let (mut h, key) = dialog_from_tree("ui-dialog-keys-tab", &branching_dialog());
+    let selected = |h: &Harness<'_, Moonglow>| h.state().dialog_views[&key].selected;
+    h.get_all_by_label("Who are you?").next().unwrap().click();
+    h.run();
+    h.get_all_by_role(egui::accesskit::Role::MultilineTextInput).next().unwrap().click();
+    h.run();
+    h.key_press(egui::Key::Tab);
+    h.run();
+    h.run();
+    let focused = h.ctx.memory(|m| m.focused());
+    assert!(focused.is_some() && !h.ctx.text_edit_focused(), "a button has the focus");
+    h.key_press(egui::Key::ArrowDown);
+    h.run();
+    h.run();
+    assert_eq!(selected(&h), Some(Row { parent: Parent::Node(Kind::Reply, 0), pos: 0 }));
+    assert_eq!(h.ctx.memory(|m| m.focused()), None, "the focus went nowhere else");
+}
+
+/// Bookmarks and folded lines follow their lines across a change the
+/// editor didn't make (a plugin's, the file changed outside Moonglow):
+/// found again in it by what they say and the lines over them, a line
+/// gone with its bookmark; undo brings it back.
+#[test]
+fn bookmarks_and_folded_lines_follow_their_lines_across_a_change_made_elsewhere() {
+    use mg_module::dialog::{Kind, Parent, remove};
+    let (e, r) = (Kind::Entry, Kind::Reply);
+    let (mut h, key) = dialog_from_tree("ui-dialog-bookmarks-elsewhere", &branching_dialog());
+    let marks = |h: &Harness<'_, Moonglow>| h.state().dialog_views[&key].bookmarks.clone();
+    let folds = |h: &Harness<'_, Moonglow>| h.state().dialog_views[&key].collapsed.clone();
+    for label in ["[OWNER] - Go away.", "Farewell. [END DIALOGUE]", "Bye. [END DIALOGUE]"] {
+        h.get_by_label(label).click();
+        h.run();
+        h.get_by_label("Bookmark").click();
+        h.run();
+    }
+    h.get_by_label("[OWNER] - Go away.").click();
+    h.run();
+    h.key_press(egui::Key::ArrowLeft);
+    h.run();
+    h.run();
+    assert_eq!((marks(&h), folds(&h)), (vec![(e, 2), (r, 1), (r, 2)], [(e, 2)].into()));
+    // The traveller deleted by something else: Go away is entry 1, Bye
+    // reply 1.
+    let mut g = branching_dialog();
+    remove(&mut g, Parent::Node(r, 0), 0);
+    let edit = mg_edit::Edit::SetResource { key, data: g.to_bytes().ok() };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Plugin", vec![edit])));
+    h.run();
+    h.run();
+    assert_eq!(marks(&h), [(e, 1), (r, 1)]);
+    assert_eq!(folds(&h), [(e, 1)].into());
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    h.run();
+    assert_eq!(dialog_lines(&mut h, key), BRANCHING);
+    assert_eq!(marks(&h), [(e, 2), (r, 1), (r, 2)]);
+    assert_eq!(folds(&h), [(e, 2)].into());
 }
 
 /// Folding a branch with its − button while a line in it is selected
