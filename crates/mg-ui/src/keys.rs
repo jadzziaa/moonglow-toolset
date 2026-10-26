@@ -348,6 +348,11 @@ impl Cmd {
             Cmd::References => vec![k(SHIFT, Key::F12)],
             Cmd::RenameSymbol => vec![k(CTRL | SHIFT, Key::R)],
             Cmd::AddLine => vec![k(CTRL, Key::A)],
+            // (And a Mac's delete key, which is Backspace: a laptop's has
+            // no Delete key.)
+            Cmd::DeleteLine if cfg!(target_os = "macos") => {
+                vec![k(NONE, Key::Delete), k(NONE, Key::Backspace)]
+            }
             Cmd::DeleteLine => vec![k(NONE, Key::Delete)],
             // Aurora's: Ctrl+F finds, Ctrl+R replaces (one pane here), F3
             // finds again (Ctrl+F4, its key for closing the module, closes a tab here).
@@ -604,6 +609,13 @@ impl Keymap {
         hit
     }
 
+    /// Whether `e` presses a key of a command of `group`: a list's own key
+    /// that a command there was given is the command's.
+    pub fn bound_in(&self, group: Group, e: &Event) -> bool {
+        let of = |c: &Cmd| c.group() == group;
+        Cmd::ALL.iter().filter(|c| of(c)).any(|c| self.keys(*c).iter().any(|s| is(e, s)))
+    }
+
     /// Whether one of the command's keys was pressed this frame (left for
     /// others).
     pub fn pressed(&self, i: &InputState, cmd: Cmd) -> bool {
@@ -748,6 +760,26 @@ mod tests {
             assert_eq!(map.consume_outside_text(&mut typing, id, true), when_typing, "{id}");
             assert_eq!(typing.events.is_empty(), when_typing, "{id}: the field keeps its key");
         }
+    }
+
+    /// A conversation command's keys, as the conversation tree asks before
+    /// it takes one of its own: Delete Line's Delete, and on macOS its
+    /// delete key (Backspace) too.
+    #[test]
+    fn keys_bound_in_a_group() {
+        let key = |key: Key, modifiers: Modifiers| Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        };
+        let map = Keymap::default();
+        let conversation = |e: &Event| map.bound_in(Group::Conversation, e);
+        assert!(conversation(&key(Key::Delete, NONE)));
+        assert!(!conversation(&key(Key::Delete, SHIFT)));
+        assert!(!conversation(&key(Key::Q, NONE)), "an area's");
+        assert_eq!(conversation(&key(Key::Backspace, NONE)), cfg!(target_os = "macos"));
     }
 
     /// The arrows move the camera, but a text field's cursor while one has

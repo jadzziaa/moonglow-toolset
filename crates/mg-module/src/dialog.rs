@@ -450,12 +450,114 @@ impl Renumbering {
         }
     }
 
+    /// How a change nothing says the numbering of took `before` to
+    /// `after` (the file changed outside the editor, a plugin's edit): each
+    /// line found again by what it is, its kind, text and speaker and those
+    /// of the lines owning it up to Root. Lines alike in all that are
+    /// taken in their order where there are as many of them after as
+    /// before, else only one keeping its number. A line not found keeps
+    /// its number where its kind has as many lines as before and no line
+    /// found took the number (its text was changed, not a line deleted);
+    /// any other is gone.
+    pub fn by_lines(before: &Gff, after: &Gff) -> Renumbering {
+        let (was, now) = (signatures(before), signatures(after));
+        let map = |kind: Kind| {
+            let (old, new) = (&was[kind as usize], &now[kind as usize]);
+            let mut groups: HashMap<&[u64], Vec<u32>> = HashMap::new();
+            for (i, s) in new.iter().enumerate() {
+                groups.entry(s).or_default().push(i as u32);
+            }
+            let mut alike: HashMap<&[u64], usize> = HashMap::new();
+            for s in old {
+                *alike.entry(s).or_default() += 1;
+            }
+            let mut seen: HashMap<&[u64], usize> = HashMap::new();
+            let mut out: Vec<Option<u32>> = old
+                .iter()
+                .enumerate()
+                .map(|(i, s)| {
+                    let found = groups.get(s.as_slice())?;
+                    let nth = seen.entry(s).or_default();
+                    *nth += 1;
+                    if found.len() == alike[s.as_slice()] {
+                        Some(found[*nth - 1])
+                    } else {
+                        found.contains(&(i as u32)).then_some(i as u32)
+                    }
+                })
+                .collect();
+            if old.len() == new.len() {
+                let taken: HashSet<u32> = out.iter().flatten().copied().collect();
+                for (i, n) in out.iter_mut().enumerate() {
+                    if n.is_none() && !taken.contains(&(i as u32)) {
+                        *n = Some(i as u32);
+                    }
+                }
+            }
+            out
+        };
+        Renumbering {
+            entries: map(Kind::Entry),
+            replies: map(Kind::Reply),
+            after: [nodes(after, Kind::Entry).len() as u32, nodes(after, Kind::Reply).len() as u32],
+        }
+    }
+
     /// Whether every line keeps its number (nothing was deleted).
     pub fn is_identity(&self) -> bool {
         [&self.entries, &self.replies]
             .iter()
             .all(|m| m.iter().enumerate().all(|(i, n)| *n == Some(i as u32)))
     }
+}
+
+/// Each line's signature for [`Renumbering::by_lines`], entries' then
+/// replies': a hash of its text and speaker, then each owning line's up
+/// to Root (an extra 0 for a line no owning link reaches).
+fn signatures(g: &Gff) -> [Vec<Vec<u64>>; 2] {
+    use std::hash::{Hash, Hasher};
+    let own = |n: &Struct| {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        format!("{:?}{:?}", n.get("Text"), n.get("Speaker")).hash(&mut h);
+        h.finish() | 1
+    };
+    // (Each line's owner, the first as `owner` finds it.)
+    let mut up: HashMap<(Kind, u32), (Kind, u32)> = HashMap::new();
+    let mut roots = HashSet::new();
+    for l in links(g, Parent::Root).iter().filter(|l| !is_link(l)) {
+        roots.insert(link_index(l));
+    }
+    for kind in [Kind::Entry, Kind::Reply] {
+        for i in 0..nodes(g, kind).len() as u32 {
+            for l in links(g, Parent::Node(kind, i)).iter().filter(|l| !is_link(l)) {
+                let child = (kind.child(), link_index(l));
+                let rooted = child.0 == Kind::Entry && roots.contains(&child.1);
+                if !rooted {
+                    up.entry(child).or_insert((kind, i));
+                }
+            }
+        }
+    }
+    let sig = |kind: Kind, index: u32| {
+        let mut out = Vec::new();
+        let mut at = (kind, index);
+        let mut path = HashSet::new();
+        loop {
+            out.push(node(g, at.0, at.1).map_or(0, own));
+            if at.0 == Kind::Entry && roots.contains(&at.1) {
+                break;
+            }
+            match up.get(&at) {
+                Some(next) if path.insert(at) => at = *next,
+                _ => {
+                    out.push(0);
+                    break;
+                }
+            }
+        }
+        out
+    };
+    [Kind::Entry, Kind::Reply].map(|k| (0..nodes(g, k).len() as u32).map(|i| sig(k, i)).collect())
 }
 
 /// Removes the link at `pos` under a parent. Removing an owning link
@@ -902,6 +1004,51 @@ mod tests {
         assert_eq!(back.inverse(), map);
         // Nothing there to delete: nothing numbered anew.
         assert!(remove(&mut g, Parent::Root, 5).is_identity());
+    }
+
+    /// A change nothing says the numbering of: the lines are found again
+    /// by their text, speaker and the lines over them.
+    #[test]
+    fn lines_found_again_after_a_change() {
+        let (e, r) = (Kind::Entry, Kind::Reply);
+        let before = sample();
+        // A delete, as `remove` says it numbered them.
+        let mut after = sample();
+        let known = remove(&mut after, Parent::Root, 0);
+        assert_eq!(Renumbering::by_lines(&before, &after), known);
+        // The same lines made in another order.
+        let mut after = new_dialog();
+        let go = add_node(&mut after, Parent::Root, "Go away.");
+        let hello = add_node(&mut after, Parent::Root, "Hello there.");
+        let who = add_node(&mut after, Parent::Node(e, hello), "Who are you?");
+        add_node(&mut after, Parent::Node(r, who), "A traveller.");
+        add_link(&mut after, Parent::Node(e, go), who);
+        let map = Renumbering::by_lines(&before, &after);
+        assert_eq!([map.line(e, 0), map.line(e, 1), map.line(e, 2)], [Some(1), Some(2), Some(0)]);
+        assert_eq!(map.line(r, 0), Some(0));
+        assert_eq!(map.inverse().line(e, 0), Some(2));
+        // A line's text changed (and so the signature of the lines under
+        // it): as many lines as before, so they keep their numbers.
+        let mut after = sample();
+        let n = node_mut(&mut after, e, 0).unwrap();
+        n.set(
+            "Text",
+            Value::LocString(LocString::from_text(Language::ENGLISH, Gender::Male, "Hi.")),
+        );
+        assert!(Renumbering::by_lines(&before, &after).is_identity());
+        // A line added: the others are found.
+        let mut after = sample();
+        add_node(&mut after, Parent::Root, "And another.");
+        assert!(Renumbering::by_lines(&before, &after).is_identity());
+        // One of two lines alike gone: not to be told apart, only the one
+        // keeping its number is found.
+        let mut before = new_dialog();
+        add_node(&mut before, Parent::Root, "Same.");
+        add_node(&mut before, Parent::Root, "Same.");
+        let mut after = before.clone();
+        remove(&mut after, Parent::Root, 0);
+        let map = Renumbering::by_lines(&before, &after);
+        assert_eq!([map.line(e, 0), map.line(e, 1)], [Some(0), None]);
     }
 
     #[test]
