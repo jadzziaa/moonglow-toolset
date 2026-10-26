@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T00:42:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T05:34:25Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -805,21 +805,41 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Articy:draft** isn't read; its JSON export could map like Twine. (M)
 - **Ink beyond the subset** (stitches, gathers, inline logic) is refused,
   not converted. (M)
-- **Bookmarks and folded lines after a delete:** deleting a line numbers
-  the lines after it anew, and the bookmarks and folded branches are kept
-  by number: one may then name another line (not a crash; undo puts the
-  numbers back). (S) (Sacha's report, 2026-10-25)
-- **The tree's keys not done:** Aurora was not driven to confirm them;
-  they follow Windows' tree control, which its tree is. Left out: the
-  keypad's + and − (open, fold) and * (open everything under), a letter
-  typed to go to the next line beginning with it, Backspace to the line
-  above, Ctrl+Up and Ctrl+Down to scroll without moving. Escape doesn't
-  hand the keys back (in a window it closes the window). Folding a branch
-  with its − button while a line in it is selected leaves the selection
-  out of sight (Windows selects the folded line); the keys then go from
-  Root. Delete and the other commands' keys still want the pointer over
-  the editor, as before; the arrows don't. With a non-text widget in
-  focus (Tab out of the Text field), an arrow also moves egui's focus.
+- **Bookmarks and folded lines after a change Moonglow didn't make:**
+  they follow their lines across the editor's Delete and Cut and their
+  undo and redo (by how the delete numbered the lines anew, and the
+  conversation's fingerprint before and after), however many steps the
+  editor saw at once. A change it didn't make and that numbers lines
+  anew (the file changed outside Moonglow, a plugin's edit) keeps them by
+  number, as before; so does one more than 256 changes back. Two
+  deletes that leave the same bytes (either of two identical lines) look
+  alike: the one recorded first is followed. Bookmarks
+  and folded lines are not saved: closing Moonglow forgets them (what
+  Aurora keeps wasn't captured). (S) (Sacha's report, 2026-10-25)
+- **The tree's keys, what is left:** Aurora was not driven to confirm
+  them; they follow Windows' tree control, which its tree is.
+  - **Letters:** one letter at a time (Windows' tree goes by the letters
+    typed in quick succession: "go" finds "Go away", not "Go" then a
+    line beginning with "o"); a line's own text is matched, not its row
+    as drawn (Windows matches the row's text, which for an NPC line begins
+    with `[OWNER]` or the speaker, in Aurora too, unconfirmed). Typed while
+    the tree has the keys, W, A, S, D, Z, C and the digits also move the
+    camera of the area view the pointer was in last while they are held,
+    as they do from the module tree (the camera's keys work wherever the
+    pointer is).
+  - **The keypad:** egui doesn't tell the keypad's − from the one above
+    the letters, nor reports the keypad's * as a key: both − fold, and *
+    typed either way (Shift+8) opens everything under the line.
+  - **Keys taken from commands:** while the tree has the keys it takes
+    Backspace and −, and + with no modifier, before Options › Keyboard's
+    commands see them: a command given one of them there (Delete Line on
+    Backspace, as a Mac's delete key is) doesn't work in the tree.
+  - Escape doesn't hand the keys back (in a window it closes the window).
+    Delete and the other commands' keys still want the pointer over the
+    editor, as before; the arrows and the tree's other keys don't. With a
+    non-text widget in focus (Tab out of the Text field), an arrow also
+    moves egui's focus.
+
   (S) (Sacha's report, 2026-10-25)
 
 ## Palettes

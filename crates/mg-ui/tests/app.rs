@@ -26745,4 +26745,229 @@ fn the_conversation_tree_s_keys_scroll_to_the_line() {
     h.key_press(egui::Key::ArrowDown);
     h.run();
     assert_eq!(h.state().dialog_views[&key].selected.unwrap().pos, at + 1);
+    // Ctrl+Up and Ctrl+Down scroll a row, the selection staying.
+    let selected = h.state().dialog_views[&key].selected;
+    let top = line(&h, at).top();
+    for _ in 0..2 {
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::ArrowUp);
+        h.run();
+        h.run();
+    }
+    let up = line(&h, at).top() - top;
+    assert!((30.0..80.0).contains(&up), "two rows down the window: {up}");
+    assert_eq!(h.state().dialog_views[&key].selected, selected);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::ArrowDown);
+    h.run();
+    h.run();
+    let down = line(&h, at).top() - top;
+    assert!((up * 0.4..up * 0.6).contains(&down), "a row back: {down} of {up}");
+    assert_eq!(h.state().dialog_views[&key].selected, selected);
+}
+
+/// The other keys of Windows' tree control (Aurora's): Backspace to the
+/// line a row is under; the keypad's + and − open and fold the selected
+/// line, * opens everything under it; a letter typed goes to the next
+/// line whose text begins with it (not the speaker an NPC's row names
+/// first), round the end; with the tree's keys only, not in a text field.
+#[test]
+fn the_conversation_tree_s_other_keys() {
+    use mg_module::dialog::{Kind, Parent};
+    use mg_ui::dialog_view::Row;
+    let (mut h, key) = dialog_from_tree("ui-dialog-tree-keys", &branching_dialog());
+    let selected = |h: &Harness<'_, Moonglow>| h.state().dialog_views[&key].selected;
+    let folded = |h: &Harness<'_, Moonglow>, line| {
+        h.state().dialog_views[&key].collapsed.contains(&(Kind::Entry, line))
+    };
+    let press = |h: &mut Harness<'_, Moonglow>, k: egui::Key| {
+        h.key_press(k);
+        h.run();
+        h.run();
+    };
+    let typed = |h: &mut Harness<'_, Moonglow>, t: &str| {
+        h.event(egui::Event::Text(t.into()));
+        h.run();
+        h.run();
+    };
+    let row = |parent: Parent, pos: usize| Some(Row { parent, pos });
+    let hello = row(Parent::Root, 0);
+    let who = row(Parent::Node(Kind::Entry, 0), 0);
+    let traveller = row(Parent::Node(Kind::Reply, 0), 0);
+    let bye = row(Parent::Node(Kind::Entry, 0), 1);
+    let go = row(Parent::Root, 1);
+    let link = row(Parent::Node(Kind::Entry, 2), 0);
+    // Backspace: up the branch to Root, and no further.
+    h.get_by_label("Farewell. [END DIALOGUE]").click();
+    h.run();
+    for want in [traveller, who, hello, None, None] {
+        press(&mut h, egui::Key::Backspace);
+        assert_eq!(selected(&h), want);
+    }
+    // Letters, from Root: "b" goes to Bye; "w" to Who and to the link to
+    // it, then round the end; "G" to "Go away." past its speaker; "r" to
+    // Root; a letter no line begins with stays.
+    typed(&mut h, "b");
+    assert_eq!(selected(&h), bye);
+    for want in [link, who, link] {
+        typed(&mut h, "w");
+        assert_eq!(selected(&h), want);
+    }
+    typed(&mut h, "G");
+    assert_eq!(selected(&h), go);
+    typed(&mut h, "h");
+    assert_eq!(selected(&h), hello);
+    typed(&mut h, "r");
+    assert_eq!(selected(&h), None, "Root");
+    typed(&mut h, "x");
+    assert_eq!(selected(&h), None);
+    // The keypad's −, then +: Hello folded, opened, the selection
+    // staying on it; each again does nothing.
+    typed(&mut h, "h");
+    press(&mut h, egui::Key::Minus);
+    assert!(folded(&h, 0) && h.query_by_label("Bye. [END DIALOGUE]").is_none());
+    press(&mut h, egui::Key::Minus);
+    assert!(folded(&h, 0));
+    assert_eq!(selected(&h), hello);
+    press(&mut h, egui::Key::Plus);
+    assert!(!folded(&h, 0));
+    h.get_by_label("Bye. [END DIALOGUE]");
+    assert_eq!(selected(&h), hello);
+    // A letter finds only lines drawn: in a folded branch, none.
+    press(&mut h, egui::Key::Minus);
+    typed(&mut h, "f");
+    assert_eq!(selected(&h), hello);
+    // *: Hello's branch opened all through, a line folded deeper too;
+    // not Go's.
+    press(&mut h, egui::Key::Plus);
+    h.get_by_label("[OWNER] - A traveller.").click();
+    h.run();
+    press(&mut h, egui::Key::Minus);
+    assert!(folded(&h, 1));
+    h.get_by_label("[OWNER] - Go away.").click();
+    h.run();
+    press(&mut h, egui::Key::Minus);
+    h.get_by_label("[OWNER] - Hello there.").click();
+    h.run();
+    press(&mut h, egui::Key::Minus);
+    typed(&mut h, "*");
+    assert!(!folded(&h, 0) && !folded(&h, 1), "Hello's branch open");
+    h.get_by_label("Farewell. [END DIALOGUE]");
+    assert!(folded(&h, 2), "Go away still folded");
+    // From Root: everything.
+    press(&mut h, egui::Key::Home);
+    typed(&mut h, "*");
+    assert!(h.state().dialog_views[&key].collapsed.is_empty());
+    // Typing in the line's text types there.
+    h.get_by_label("[OWNER] - Go away.").click();
+    h.run();
+    let text = h.get_all_by_role(egui::accesskit::Role::MultilineTextInput).next().unwrap();
+    text.click();
+    h.run();
+    press(&mut h, egui::Key::End);
+    typed(&mut h, "b");
+    press(&mut h, egui::Key::Minus);
+    press(&mut h, egui::Key::Backspace);
+    typed(&mut h, "-x*");
+    h.key_press(egui::Key::Tab);
+    h.run();
+    h.run();
+    assert_eq!(selected(&h), go, "the selection stays");
+    assert!(!folded(&h, 2));
+    assert!(dialog_lines(&mut h, key).contains(&"Entry|Go away.-x*|".to_string()));
+}
+
+/// Folding a branch with its − button while a line in it is selected
+/// selects the line folded, as Windows' tree control does (the selection
+/// was left out of sight, and the keys went on from Root); Collapse All
+/// selects the first line it is under.
+#[test]
+fn folding_over_the_selection_selects_the_line_folded() {
+    use mg_module::dialog::{Kind, Parent};
+    use mg_ui::dialog_view::Row;
+    let (mut h, key) = dialog_from_tree("ui-dialog-fold-selection", &branching_dialog());
+    let selected = |h: &Harness<'_, Moonglow>| h.state().dialog_views[&key].selected;
+    let who = Some(Row { parent: Parent::Node(Kind::Entry, 0), pos: 0 });
+    let hello = Some(Row { parent: Parent::Root, pos: 0 });
+    h.get_by_label("Farewell. [END DIALOGUE]").click();
+    h.run();
+    // Who's − (the second: Hello's, Who's, the traveller's, Go's).
+    h.get_all_by_label("−").nth(1).unwrap().click();
+    h.run();
+    h.run();
+    assert!(h.state().dialog_views[&key].collapsed.contains(&(Kind::Reply, 0)));
+    assert_eq!(selected(&h), who);
+    // The keys go on from there: Down to Bye.
+    h.key_press(egui::Key::ArrowDown);
+    h.run();
+    h.run();
+    assert_eq!(selected(&h), Some(Row { parent: Parent::Node(Kind::Entry, 0), pos: 1 }));
+    // A fold elsewhere leaves the selection.
+    h.get_all_by_label("−").last().unwrap().click();
+    h.run();
+    h.run();
+    assert!(h.state().dialog_views[&key].collapsed.contains(&(Kind::Entry, 2)));
+    assert_eq!(selected(&h), Some(Row { parent: Parent::Node(Kind::Entry, 0), pos: 1 }));
+    h.get_by_label("Expand All").click();
+    h.run();
+    h.get_by_label("[OWNER] - A traveller.").click();
+    h.run();
+    h.get_by_label("Collapse All").click();
+    h.run();
+    h.run();
+    assert_eq!(selected(&h), hello);
+}
+
+/// Sacha's report: deleting a line numbered the lines after it anew, and
+/// the editor's bookmarks and folded lines, kept by number, then named
+/// other lines. They follow their lines: a bookmark on a line deleted
+/// goes; undo brings it back, in its place, and redo takes it again.
+#[test]
+fn bookmarks_and_folded_lines_follow_their_lines_across_a_delete() {
+    use mg_module::dialog::Kind;
+    let (e, r) = (Kind::Entry, Kind::Reply);
+    let (mut h, key) = dialog_from_tree("ui-dialog-bookmarks-delete", &branching_dialog());
+    let marks = |h: &Harness<'_, Moonglow>| h.state().dialog_views[&key].bookmarks.clone();
+    let folds = |h: &Harness<'_, Moonglow>| h.state().dialog_views[&key].collapsed.clone();
+    // Go away (entry 2), Farewell (reply 1) and Bye (reply 2) bookmarked;
+    // Go away folded (its link to Who hidden).
+    for label in ["[OWNER] - Go away.", "Farewell. [END DIALOGUE]", "Bye. [END DIALOGUE]"] {
+        h.get_by_label(label).click();
+        h.run();
+        h.get_by_label("Bookmark").click();
+        h.run();
+    }
+    assert_eq!(marks(&h), [(e, 2), (r, 1), (r, 2)]);
+    h.get_by_label("[OWNER] - Go away.").click();
+    h.run();
+    h.key_press(egui::Key::ArrowLeft);
+    h.run();
+    h.run();
+    assert_eq!(folds(&h), [(e, 2)].into());
+    assert_eq!(h.get_all_by_label("Who are you?").count(), 1, "the link hidden");
+    // The traveller deleted, Farewell with it: Go away is entry 1 now,
+    // Bye reply 1.
+    delete_line(&mut h, key, "[OWNER] - A traveller.", 0, DeleteBy::Key);
+    h.run();
+    assert_eq!(marks(&h), [(e, 1), (r, 1)]);
+    assert_eq!(folds(&h), [(e, 1)].into());
+    // (Who has nothing under it now: the conversation ends there.)
+    h.get_by_label("Who are you? [END DIALOGUE]");
+    assert!(h.query_by_label("Who are you?").is_none(), "the link still hidden");
+    h.get_by_label("Bookmarks").click();
+    h.run();
+    h.get_by_label("Entry 1: Go away.");
+    h.get_by_label("Reply 1: Bye.");
+    assert!(h.query_by_label_contains("Farewell").is_none());
+    // Undone: as they were, in their order; redone: as after the delete.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    h.run();
+    assert_eq!(dialog_lines(&mut h, key), BRANCHING);
+    assert_eq!(marks(&h), [(e, 2), (r, 1), (r, 2)]);
+    assert_eq!(folds(&h), [(e, 2)].into());
+    h.get_by_label("Reply 1: Farewell.");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Y);
+    h.run();
+    h.run();
+    assert_eq!(marks(&h), [(e, 1), (r, 1)]);
+    assert_eq!(folds(&h), [(e, 1)].into());
 }

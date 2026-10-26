@@ -12,8 +12,9 @@ use mg_core::{ResRef, ResType};
 use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{Gff, Struct, Value};
 use mg_module::dialog::{
-    ANIMATIONS, Branch, Kind, Parent, add_node, copy_branch, is_link, link_index, link_lines,
-    links, move_link_to, new_dialog, node, paste_branch, remove, shift_link, word_count,
+    ANIMATIONS, Branch, Kind, Parent, Renumbering, add_node, copy_branch, is_link, link_index,
+    link_lines, links, move_link_to, new_dialog, node, paste_branch, remove, shift_link,
+    word_count,
 };
 use mg_resman::ResKey;
 use mg_schema::{GffValue, StructExt, jrl};
@@ -73,6 +74,173 @@ pub struct DialogView {
     /// How many rows the tree had room for when drawn last: Page Up and
     /// Page Down's step.
     page: usize,
+    /// Rows to scroll the tree by as it is drawn, the selection staying
+    /// (Ctrl+Up and Ctrl+Down; down is more).
+    scroll: i32,
+    /// The line the selected row shows, as drawn last: the selection
+    /// follows it when the lines are numbered anew.
+    selected_line: Option<(Kind, u32)>,
+    /// The conversation as drawn last: the workspace's revision then, and
+    /// a fingerprint of the conversation ([`fingerprint`]).
+    seen: Option<(u64, u64)>,
+    /// The changes of the conversation the editor made or saw, by which
+    /// what is kept by line number (bookmarks, folded lines) follows its
+    /// lines across a delete and its undo and redo.
+    changes: Vec<Change>,
+}
+
+/// A change of a conversation, from one fingerprint to another: how it
+/// numbered the lines anew, and what it took from the editor.
+#[derive(Debug, Clone)]
+struct Change {
+    before: u64,
+    after: u64,
+    /// `None`: the lines kept their numbers (a change the editor only saw,
+    /// such as a line's text).
+    renumbered: Option<Renumbering>,
+    /// The bookmarks (with their places among them) and folded lines of
+    /// lines it deleted, numbered as before it: undo brings them back.
+    bookmarks: Vec<(usize, (Kind, u32))>,
+    collapsed: Vec<(Kind, u32)>,
+}
+
+/// How many changes a conversation's editor remembers to follow its
+/// lines by.
+const CHANGES: usize = 256;
+
+/// A conversation's fingerprint: a hash of its bytes.
+fn fingerprint(g: &Gff) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    g.to_bytes().unwrap_or_default().hash(&mut h);
+    h.finish()
+}
+
+impl DialogView {
+    /// Has what is kept by line number follow the lines, if conversation
+    /// `g` (at workspace revision `revision`) changed since it was drawn
+    /// last: by the changes between (a delete, its undo or redo, in any
+    /// number of steps); a change it doesn't know keeps the numbers.
+    fn follow(&mut self, key: ResKey, g: &Gff, revision: u64) {
+        if self.seen.is_some_and(|(r, _)| r == revision) {
+            return;
+        }
+        let now = fingerprint(g);
+        let Some((_, was)) = self.seen.replace((revision, now)) else { return };
+        if was == now {
+            return;
+        }
+        let Some(steps) = self.steps(was, now) else {
+            self.remember(Change {
+                before: was,
+                after: now,
+                renumbered: None,
+                bookmarks: Vec::new(),
+                collapsed: Vec::new(),
+            });
+            return;
+        };
+        // The selection, as lines: its parent and the line it shows.
+        let mut selection = self.selected.map(|r| (r.parent, self.selected_line));
+        let mut renumbered = false;
+        for (i, forward) in steps {
+            let Some(map) = self.changes[i].renumbered.clone() else { continue };
+            renumbered |= !map.is_identity();
+            let map = if forward { map } else { map.inverse() };
+            let line = |(k, i): (Kind, u32)| map.line(k, i).map(|n| (k, n));
+            let mut gone = Vec::new();
+            let mut kept = Vec::new();
+            for (at, b) in std::mem::take(&mut self.bookmarks).into_iter().enumerate() {
+                match line(b) {
+                    Some(b) => kept.push(b),
+                    None => gone.push((at, b)),
+                }
+            }
+            self.bookmarks = kept;
+            let (folded, unfolded): (Vec<_>, Vec<_>) =
+                std::mem::take(&mut self.collapsed).into_iter().partition(|c| line(*c).is_some());
+            self.collapsed = folded.into_iter().filter_map(line).collect();
+            if forward {
+                self.changes[i].bookmarks = gone;
+                self.changes[i].collapsed = unfolded;
+            } else {
+                // Undone: what it deleted comes back, where it was.
+                let back = std::mem::take(&mut self.changes[i].bookmarks);
+                for (at, b) in back {
+                    if !self.bookmarks.contains(&b) {
+                        self.bookmarks.insert(at.min(self.bookmarks.len()), b);
+                    }
+                }
+                self.collapsed.extend(std::mem::take(&mut self.changes[i].collapsed));
+            }
+            selection = selection.and_then(|(parent, shown)| {
+                let parent = match parent {
+                    Parent::Root => Parent::Root,
+                    Parent::Node(k, i) => line((k, i)).map(|(k, i)| Parent::Node(k, i))?,
+                };
+                Some((parent, Some(line(shown?)?)))
+            });
+            if let Some(test) = &mut self.test {
+                // (Played up to the first line it deleted.)
+                let to = test.iter().position(|l| line(*l).is_none()).unwrap_or(test.len());
+                test.truncate(to - to % 2);
+                for l in test.iter_mut() {
+                    *l = line(*l).unwrap_or(*l);
+                }
+            }
+            self.search.results.retain_mut(|(k, kind, index, _)| {
+                if *k != key {
+                    return true;
+                }
+                line((*kind, *index)).map(|(_, n)| *index = n).is_some()
+            });
+        }
+        if !renumbered {
+            return;
+        }
+        self.selected = selection.and_then(|(parent, shown)| {
+            let (_, index) = shown?;
+            let pos = links(g, parent).iter().position(|l| link_index(l) == index)?;
+            Some(Row { parent, pos })
+        });
+    }
+
+    /// The changes that lead from fingerprint `from` to `to`, each forward
+    /// (`true`) or undone; `None` if none do.
+    fn steps(&self, from: u64, to: u64) -> Option<Vec<(usize, bool)>> {
+        let mut came: std::collections::HashMap<u64, (u64, usize, bool)> = Default::default();
+        let mut queue = std::collections::VecDeque::from([from]);
+        while let Some(at) = queue.pop_front() {
+            if at == to {
+                let mut out = Vec::new();
+                let mut here = to;
+                while here != from {
+                    let (back, i, forward) = came[&here];
+                    out.push((i, forward));
+                    here = back;
+                }
+                out.reverse();
+                return Some(out);
+            }
+            for (i, c) in self.changes.iter().enumerate() {
+                for (start, end, forward) in [(c.before, c.after, true), (c.after, c.before, false)]
+                {
+                    if start == at && end != from && !came.contains_key(&end) {
+                        came.insert(end, (at, i, forward));
+                        queue.push_back(end);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn remember(&mut self, change: Change) {
+        if self.changes.len() >= CHANGES {
+            self.changes.remove(0);
+        }
+        self.changes.push(change);
+    }
 }
 
 /// A row of the tree as it is drawn: Root, or a link under its parent.
@@ -143,7 +311,9 @@ pub enum TreeStep {
 /// Home and End to the first and the last, Page Up and Page Down a page
 /// (`page` rows) up or down; Right opens a line out, or goes to its first
 /// line if it is open; Left folds an open line, or goes to the line it is
-/// under. `at` is where the selected row is among `rows`.
+/// under; Backspace goes to the line it is under; the keypad's + opens a
+/// line out and − folds it, going nowhere. `at` is where the selected row
+/// is among `rows`.
 pub fn tree_step(rows: &[Shown], at: usize, key: egui::Key, page: usize) -> TreeStep {
     use egui::Key;
     let Some(last) = rows.len().checked_sub(1) else { return TreeStep::None };
@@ -168,14 +338,72 @@ pub fn tree_step(rows: &[Shown], at: usize, key: egui::Key, page: usize) -> Tree
             (_, Some(up)) => up,
             _ => return TreeStep::None,
         },
+        Key::Backspace => match here.up {
+            Some(up) => up,
+            None => return TreeStep::None,
+        },
+        Key::Plus | Key::Minus => {
+            let open = key == Key::Plus;
+            return match here.line {
+                Some(line) if here.children && here.open != open => TreeStep::Fold(line, open),
+                _ => TreeStep::None,
+            };
+        }
         _ => return TreeStep::None,
     };
     let to = to.min(last);
     if to == at { TreeStep::None } else { TreeStep::To(to) }
 }
 
+/// The row a letter typed goes to, as in Windows' tree control: the next
+/// after `at` (round the end, back to itself) whose text (`texts`, a row's
+/// each) begins with it, in either case.
+pub fn seek(texts: &[String], at: usize, letter: char) -> Option<usize> {
+    let n = texts.len();
+    let same = |c: char| c.to_lowercase().eq(letter.to_lowercase());
+    (1..=n).map(|by| (at + by) % n).find(|i| texts[*i].chars().next().is_some_and(same))
+}
+
+/// The lines of line `top`'s branch, itself included, through the links
+/// that own them (every line, from Root: `None`): what the keypad's *
+/// opens out.
+pub fn branch_lines(g: &Gff, top: Option<(Kind, u32)>) -> HashSet<(Kind, u32)> {
+    let mut stack = match top {
+        Some(line) => vec![line],
+        None => links(g, Parent::Root).iter().map(|l| (Kind::Entry, link_index(l))).collect(),
+    };
+    let mut seen = HashSet::new();
+    while let Some((k, i)) = stack.pop() {
+        if seen.insert((k, i)) {
+            let owned = links(g, Parent::Node(k, i)).iter().filter(|l| !is_link(l));
+            stack.extend(owned.map(|l| (k.child(), link_index(l))));
+        }
+    }
+    seen
+}
+
+/// The row to select in place of `selected` once lines are folded
+/// (`collapsed`): itself while it is drawn, else the nearest line it is
+/// under that is, as Windows' tree control selects the line folded over
+/// the selection. `None` is Root.
+pub fn in_sight(g: &Gff, collapsed: &HashSet<(Kind, u32)>, selected: Option<Row>) -> Option<Row> {
+    let shown = shown_rows(g, collapsed);
+    if shown.iter().any(|r| r.row == selected) {
+        return selected;
+    }
+    let every = shown_rows(g, &HashSet::new());
+    let mut at = every.iter().position(|r| r.row == selected)?;
+    while let Some(up) = every[at].up {
+        if shown.iter().any(|r| r.row == every[up].row) {
+            return every[up].row;
+        }
+        at = up;
+    }
+    None
+}
+
 /// The keys of the tree that [`tree_step`] reads.
-const TREE_KEYS: [egui::Key; 8] = [
+const TREE_KEYS: [egui::Key; 11] = [
     egui::Key::ArrowDown,
     egui::Key::ArrowUp,
     egui::Key::ArrowRight,
@@ -184,6 +412,9 @@ const TREE_KEYS: [egui::Key; 8] = [
     egui::Key::End,
     egui::Key::PageDown,
     egui::Key::PageUp,
+    egui::Key::Backspace,
+    egui::Key::Plus,
+    egui::Key::Minus,
 ];
 
 /// Gives the keys to conversation `key`'s tree (from a click in its
@@ -200,9 +431,24 @@ pub(crate) fn has_keys(ctx: &egui::Context, key: ResKey) -> bool {
         && ctx.data(|d| d.get_temp::<ResKey>(egui::Id::new("dialog-keys-of"))) == Some(key)
 }
 
+/// What was pressed or typed for the tree.
+#[derive(Debug, Clone, Copy)]
+enum Pressed {
+    Key(egui::Key),
+    /// A letter (or another character) typed; `*` opens everything out.
+    Typed(char),
+}
+
 /// The tree's keys pressed this frame (with no Shift, Ctrl or Alt: Alt+Up
-/// and Alt+Down move a line), each done in turn.
-fn tree_keys(ui: &Ui, g: &Gff, view: &mut DialogView) {
+/// and Alt+Down move a line), and the letters typed, each done in turn;
+/// Ctrl+Up and Ctrl+Down scroll the tree a row.
+fn tree_keys(ui: &Ui, game: Option<&mg_rules::GameData>, g: &Gff, view: &mut DialogView) {
+    for (arrow, by) in [(egui::Key::ArrowUp, -1), (egui::Key::ArrowDown, 1)] {
+        while ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, arrow)) {
+            view.scroll += by;
+            ui.ctx().request_repaint();
+        }
+    }
     loop {
         let pressed = ui.input_mut(|i| {
             let mut found = None;
@@ -210,19 +456,53 @@ fn tree_keys(ui: &Ui, g: &Gff, view: &mut DialogView) {
                 egui::Event::Key { key, pressed: true, modifiers, .. }
                     if found.is_none() && modifiers.is_none() && TREE_KEYS.contains(key) =>
                 {
-                    found = Some(*key);
+                    found = Some(Pressed::Key(*key));
                     false
+                }
+                egui::Event::Text(t) if found.is_none() => {
+                    let mut chars = t.chars();
+                    match (chars.next(), chars.next()) {
+                        (Some(c), None) if !c.is_whitespace() => {
+                            found = Some(Pressed::Typed(c));
+                            false
+                        }
+                        _ => true,
+                    }
                 }
                 _ => true,
             });
+            // (The keypad's + and − type them too: not letters typed.)
+            if let Some(Pressed::Key(k @ (egui::Key::Plus | egui::Key::Minus))) = found {
+                let typed = if k == egui::Key::Plus { "+" } else { "-" };
+                let text =
+                    i.events.iter().position(|e| matches!(e, egui::Event::Text(t) if t == typed));
+                if let Some(at) = text {
+                    i.events.remove(at);
+                }
+            }
             found
         });
-        let Some(k) = pressed else { break };
+        let Some(pressed) = pressed else { break };
         let rows = shown_rows(g, &view.collapsed);
         // (A selection in a folded branch: from Root.)
         let at = rows.iter().position(|r| r.row == view.selected).unwrap_or(0);
         let page = if view.page == 0 { 10 } else { view.page };
-        match tree_step(&rows, at, k, page) {
+        let step = match pressed {
+            Pressed::Key(k) => tree_step(&rows, at, k, page),
+            Pressed::Typed('*') => {
+                let here = rows[at];
+                if here.line.is_none() || here.children {
+                    let open = branch_lines(g, here.line);
+                    view.collapsed.retain(|l| !open.contains(l));
+                }
+                TreeStep::None
+            }
+            Pressed::Typed(c) => {
+                let texts: Vec<String> = rows.iter().map(|r| row_text(game, g, r)).collect();
+                seek(&texts, at, c).map_or(TreeStep::None, TreeStep::To)
+            }
+        };
+        match step {
             TreeStep::To(to) => {
                 view.selected = rows[to].row;
                 view.nudge = true;
@@ -237,6 +517,16 @@ fn tree_keys(ui: &Ui, g: &Gff, view: &mut DialogView) {
         }
         ui.ctx().request_repaint();
     }
+}
+
+/// A row's text, as a letter typed finds it: a line's own (not the
+/// speaker the row names first), or what the row shows for a line with
+/// none.
+fn row_text(game: Option<&mg_rules::GameData>, g: &Gff, row: &Shown) -> String {
+    let Some((kind, index)) = row.line else { return "Root".to_string() };
+    let Some(n) = node(g, kind, index) else { return String::new() };
+    let text = line_text(game, n).lines().next().unwrap_or_default().to_string();
+    if text.is_empty() && kind == Kind::Reply { "[CONTINUE]".to_string() } else { text }
 }
 
 /// Selects the row where line `(kind, index)` is owned (not a link to
@@ -421,8 +711,13 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             return;
         }
     };
+    let revision = ws.revision();
     // (Taken for the frame and put back at its end, not copied.)
     let mut view = app.dialog_views.remove(&key).unwrap_or_default();
+    // The bookmarks, folded lines and selection follow their lines, if a
+    // delete (or its undo) numbered them anew since the last frame.
+    view.follow(key, &g, revision);
+    let folds = view.collapsed.len();
     // A selection the conversation no longer has (undo) is dropped.
     view.selected = view.selected.filter(|r| r.pos < links(&g, r.parent).len());
     // Opened or brought to the front: the keys are its tree's.
@@ -435,7 +730,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     // typed in.
     let keys_here = has_keys(ui.ctx(), key);
     if keys_here && !ui.ctx().egui_wants_keyboard_input() && view.input.is_none() {
-        tree_keys(ui, &g, &mut view);
+        tree_keys(ui, app.game.as_deref(), &g, &mut view);
     }
     let mut actions: Vec<Action> = Vec::new();
     let target_of = |r: Row| (r.parent.child_kind(), link_index(&links(&g, r.parent)[r.pos]));
@@ -574,8 +869,18 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         }
         if delete && let Some(r) = sel {
             let mut ng = g.clone();
-            remove(&mut ng, r.parent, r.pos);
+            let renumbered = remove(&mut ng, r.parent, r.pos);
             view.selected = None;
+            // (Followed as the conversation becomes it.)
+            if let Some((_, before)) = view.seen {
+                view.remember(Change {
+                    before,
+                    after: fingerprint(&ng),
+                    renumbered: Some(renumbered),
+                    bookmarks: Vec::new(),
+                    collapsed: Vec::new(),
+                });
+            }
             actions.push(replace(key, "Delete line", &ng));
         }
         // Up and down among the lines of its parent: the order the game
@@ -855,6 +1160,12 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let look = Look::new(&app.settings);
     let lines = egui::ScrollArea::both().id_salt(("dlg-tree", key)).auto_shrink([false, false]);
     let shown = lines.show(ui, |ui| {
+        // Ctrl+Up and Ctrl+Down: a row up or down, the selection staying.
+        if view.scroll != 0 {
+            let pitch = ui.spacing().interact_size.y + ui.spacing().item_spacing.y;
+            ui.scroll_with_delta(egui::vec2(0.0, -(view.scroll as f32) * pitch));
+            view.scroll = 0;
+        }
         let root = ui.selectable_label(view.selected.is_none(), RichText::new("Root").strong());
         if root.clicked() {
             view.selected = None;
@@ -883,6 +1194,12 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     });
     let pitch = ui.spacing().interact_size.y + ui.spacing().item_spacing.y;
     view.page = ((shown.inner_rect.height() / pitch) as usize).saturating_sub(1).max(1);
+    // A line folded over the selection (its − button, the keypad's −,
+    // Collapse All) is selected in its place, as in Windows' tree control:
+    // the selection stays in sight, and the keys go on from there.
+    if view.collapsed.len() > folds {
+        view.selected = in_sight(&g, &view.collapsed, view.selected);
+    }
     if keys_here {
         crate::palette_view::keys_outline(ui, shown.inner_rect, crate::palette_view::Keys::Dialog);
     }
@@ -968,6 +1285,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     if ui.ui_contains_pointer() && ui.input(|i| i.pointer.any_pressed()) {
         take_keys(ui.ctx(), key);
     }
+    view.selected_line = view.selected.and_then(|r| {
+        links(&g, r.parent).get(r.pos).map(|l| (r.parent.child_kind(), link_index(l)))
+    });
     app.dialog_views.insert(key, view);
     app.actions.extend(actions);
 }
@@ -2062,6 +2382,134 @@ mod tests {
         );
         assert_eq!(tree_step(&folded, 2, Key::ArrowLeft, 3), TreeStep::To(1));
         assert_eq!(tree_step(&[], 0, Key::ArrowDown, 3), TreeStep::None);
+    }
+
+    /// Backspace goes to the line a row is under; the keypad's + and −
+    /// open and fold a line, going nowhere, and do nothing to a line
+    /// already so or with nothing under it.
+    #[test]
+    fn backspace_and_the_keypad_s_plus_and_minus() {
+        let g = sample();
+        let rows = shown_rows(&g, &HashSet::new());
+        let step = |rows: &[Shown], at, key| tree_step(rows, at, key, 3);
+        assert_eq!(step(&rows, 3, Key::Backspace), TreeStep::To(2));
+        assert_eq!(step(&rows, 1, Key::Backspace), TreeStep::To(0), "Root");
+        assert_eq!(step(&rows, 0, Key::Backspace), TreeStep::None);
+        assert_eq!(step(&rows, 5, Key::Backspace), TreeStep::To(4), "from a link");
+        assert_eq!(step(&rows, 2, Key::Minus), TreeStep::Fold((Kind::Reply, 0), false));
+        assert_eq!(step(&rows, 2, Key::Plus), TreeStep::None, "open already");
+        assert_eq!(step(&rows, 3, Key::Minus), TreeStep::None, "nothing under it");
+        assert_eq!(step(&rows, 5, Key::Plus), TreeStep::None, "a link");
+        assert_eq!(step(&rows, 0, Key::Minus), TreeStep::None, "Root");
+        let folded = shown_rows(&g, &HashSet::from([(Kind::Reply, 0)]));
+        assert_eq!(step(&folded, 2, Key::Plus), TreeStep::Fold((Kind::Reply, 0), true));
+        assert_eq!(step(&folded, 2, Key::Minus), TreeStep::None, "folded already");
+    }
+
+    /// A letter goes to the next row beginning with it, in either case,
+    /// round the end and back to itself.
+    #[test]
+    fn a_letter_goes_to_the_next_row_beginning_with_it() {
+        let texts: Vec<String> =
+            ["Root", "Hello.", "who?", "Me.", "Go.", "Who?"].map(String::from).to_vec();
+        assert_eq!(seek(&texts, 0, 'w'), Some(2));
+        assert_eq!(seek(&texts, 2, 'W'), Some(5));
+        assert_eq!(seek(&texts, 5, 'w'), Some(2), "round the end");
+        assert_eq!(seek(&texts, 1, 'h'), Some(1), "itself, the only one");
+        assert_eq!(seek(&texts, 3, 'r'), Some(0), "Root");
+        assert_eq!(seek(&texts, 3, 'x'), None);
+        assert_eq!(seek(&[], 0, 'x'), None);
+        assert_eq!(seek(&["Élan".to_string(), "x".into()], 1, 'é'), Some(0));
+    }
+
+    /// The keypad's * opens a line's branch, folded deeper down too, not
+    /// lines of other branches; from Root, every line.
+    #[test]
+    fn the_keypad_s_star_opens_a_branch() {
+        let g = sample();
+        let hello = branch_lines(&g, Some((Kind::Entry, 0)));
+        let all = [(Kind::Entry, 0), (Kind::Reply, 0), (Kind::Entry, 1)];
+        assert_eq!(hello, HashSet::from(all));
+        // (Go's link is not a line of its own.)
+        assert_eq!(branch_lines(&g, Some((Kind::Entry, 2))), HashSet::from([(Kind::Entry, 2)]));
+        assert_eq!(branch_lines(&g, None).len(), 4);
+    }
+
+    /// A line folded over the selection takes it; folded higher up, the
+    /// line folded there; a selection drawn keeps its place.
+    #[test]
+    fn the_selection_goes_to_the_line_folded_over_it() {
+        let g = sample();
+        let me = Some(Row { parent: Parent::Node(Kind::Reply, 0), pos: 0 });
+        let who = Some(Row { parent: Parent::Node(Kind::Entry, 0), pos: 0 });
+        let hello = Some(Row { parent: Parent::Root, pos: 0 });
+        assert_eq!(in_sight(&g, &HashSet::new(), me), me);
+        assert_eq!(in_sight(&g, &HashSet::from([(Kind::Reply, 0)]), me), who);
+        let both = HashSet::from([(Kind::Reply, 0), (Kind::Entry, 0)]);
+        assert_eq!(in_sight(&g, &both, me), hello);
+        assert_eq!(in_sight(&g, &both, None), None);
+        assert_eq!(in_sight(&g, &both, hello), hello);
+    }
+
+    /// The bookmarks and folded lines follow their lines across a delete
+    /// that numbers them anew, its undo and its redo, also when the editor
+    /// sees only where a few changes led; a bookmark on a line deleted
+    /// goes, and comes back with it.
+    #[test]
+    fn bookmarks_and_folds_follow_their_lines() {
+        let key = ResKey::parse("talk", ResType::DLG).unwrap();
+        let (e, r) = (Kind::Entry, Kind::Reply);
+        let before = sample();
+        // (What the workspace makes of the bytes the editor gives it.)
+        let read = |g: &Gff| Gff::read(&g.to_bytes().unwrap()).unwrap();
+        let mut view = DialogView::default();
+        view.follow(key, &before, 1);
+        // "Go." (entry 2) folded, bookmarked after "Me." (entry 1);
+        // "Who?" (reply 0) folded; Go's link selected.
+        view.bookmarks = vec![(e, 1), (e, 2)];
+        view.collapsed = HashSet::from([(e, 2), (r, 0)]);
+        view.selected = Some(Row { parent: Parent::Node(e, 2), pos: 0 });
+        view.selected_line = Some((r, 0));
+        // "Hello." deleted, as the editor does it: Go is entry 0 now.
+        let mut after = before.clone();
+        let renumbered = remove(&mut after, Parent::Root, 0);
+        let (was, now) = (fingerprint(&before), fingerprint(&after));
+        assert_eq!(fingerprint(&read(&after)), now, "the same once read back");
+        view.remember(Change {
+            before: was,
+            after: now,
+            renumbered: Some(renumbered),
+            bookmarks: Vec::new(),
+            collapsed: Vec::new(),
+        });
+        view.selected = Some(Row { parent: Parent::Node(e, 2), pos: 0 });
+        view.follow(key, &read(&after), 2);
+        assert_eq!(view.bookmarks, [(e, 0)]);
+        assert_eq!(view.collapsed, HashSet::from([(e, 0)]));
+        assert_eq!(view.selected, None, "the link went with Who?");
+        // Undone: back as they were, the deleted line's bookmark first.
+        view.follow(key, &read(&before), 3);
+        assert_eq!(view.bookmarks, [(e, 1), (e, 2)]);
+        assert_eq!(view.collapsed, HashSet::from([(e, 2), (r, 0)]));
+        // A text changed, seen; then undone twice unseen and redone
+        // twice: the delete is followed through it.
+        let mut text = before.clone();
+        mg_module::dialog::node_mut(&mut text, e, 2)
+            .unwrap()
+            .set("Comment", Value::String(b"note".to_vec()));
+        view.follow(key, &read(&text), 4);
+        assert_eq!(view.bookmarks, [(e, 1), (e, 2)], "nothing numbered anew");
+        view.follow(key, &read(&after), 7);
+        assert_eq!(view.bookmarks, [(e, 0)]);
+        // A change it doesn't know: the numbers stay.
+        let mut other = after.clone();
+        add_node(&mut other, Parent::Root, "New.");
+        view.follow(key, &read(&other), 8);
+        assert_eq!(view.bookmarks, [(e, 0)]);
+        // (Asked again at the same revision: not hashed again.)
+        view.bookmarks.clear();
+        view.follow(key, &before, 8);
+        assert!(view.bookmarks.is_empty());
     }
 
     /// A file whose line owns the line it is under (no editor makes one)
