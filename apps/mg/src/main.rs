@@ -740,7 +740,9 @@ enum Cmd {
     },
     /// Build a nasher project's module: compile its scripts and pack its
     /// target as nasher does (filters, modName and the rest). Fails if a
-    /// script doesn't compile, unless --keep-going.
+    /// script doesn't compile, unless --keep-going. A target that packs a
+    /// talk table (a .tlk) makes it of its <name>.tlk.json, as nasher and
+    /// nwn_tlk do.
     Build {
         /// The project's folder (with its nasher.cfg).
         project: PathBuf,
@@ -2361,7 +2363,7 @@ fn run(cli: &Cli) -> Result<Output> {
             let t = talk_table(table, false)?;
             let (text, format) = match extension(output).as_str() {
                 "json" => (t.to_json(), "json"),
-                "csv" => (t.to_csv_as(!*base), "csv"),
+                "csv" => (t.to_csv_as(!*base).into_bytes(), "csv"),
                 _ => anyhow::bail!("the output must end .json or .csv"),
             };
             std::fs::write(output, text)?;
@@ -2792,6 +2794,25 @@ fn run(cli: &Cli) -> Result<Output> {
             out
         }
         Cmd::Build { project, target, output, keep_going, ndb } => {
+            // A target that packs a talk table: its JSON made into the
+            // table, as nasher packs it.
+            let package = mg_module::nasher::Package::read(project)?;
+            if let Some(t) = target.as_deref().and_then(|name| package.target(name))
+                && t.is_talk_table()
+            {
+                let (path, bytes) = mg_module::nasher::pack_talk_table(project, t)?;
+                let path = output.clone().unwrap_or(path);
+                if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+                    std::fs::create_dir_all(dir)?;
+                }
+                std::fs::write(&path, &bytes)?;
+                let lines = mg_tlk::Tlk::read(&bytes).map_or(0, |t| t.entries.len());
+                let mut out = Output::new(
+                    json!({ "compiled": null, "packed": path_text(&path), "lines": lines }),
+                );
+                out.note(format!("packed {} ({lines} lines)", path.display()));
+                return Ok(out);
+            }
             let mut m = Module::open_project(project, target.as_deref())?;
             let mut out = Output::default();
             if let Some(p) = &m.project {
@@ -3372,7 +3393,10 @@ fn verify(
     let (base, custom) = times.time("the talk tables", || {
         let base = std::fs::read(gi.talk_table(false)).ok().and_then(count).unwrap_or(0);
         let custom = m.custom_tlk().ok().flatten().and_then(|name| {
-            mg_module::talk::find(&rm, &gi.tlk_dirs(), &name).and_then(|f| count(f.data))
+            let language = mg_core::Language::from_short_code(&gi.language);
+            mg_module::talk::find_any(&m, &rm, &gi.tlk_dirs(), &name, language)
+                .and_then(|f| f.tlk_bytes().ok())
+                .and_then(count)
         });
         (base, custom)
     });

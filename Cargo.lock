@@ -2783,6 +2783,7 @@ name = "mg-tlk"
 version = "2.6.0"
 dependencies = [
  "mg-core",
+ "serde_json",
  "thiserror 2.0.21",
 ]
 

@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:48:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T14:09:46Z }
 ---
 
 # The main window
@@ -316,9 +316,18 @@ conversation's window, and the next conversation opens at that size (each
 kind of editor has its own). **Double-click a window's tab** to maximize
 it over the whole of Moonglow's window under the toolbar, and again to
 put it back; **Maximize** and
-**Restore** are on the tab's right-click menu too. Opening an area, or choosing its
-tab, brings the area's row into view in the module tree, marked as the
-one in hand. Where the area is opened out in the tree (the arrow beside
+**Restore** are on the tab's right-click menu too. **The module tree
+follows the tab chosen**: a tab clicked, reached by the keys (Ctrl+Tab,
+Ctrl+Page Down, Ctrl and a digit) or opened (from the tree, a script
+field's Edit, Find References…) marks its resource's row in the tree as
+the one in hand, opens its group and brings the row into view: an area,
+a script, a conversation, a blueprint, a NUI window, the journal or the
+factions (a placed object's Properties: its area). The keys stay with
+the tab, and a row in view stays where it is. With **Show the tab
+chosen in the module tree** unticked in Options › General, the tree
+stays where it is and only the area in front is marked, as in Aurora
+(whose other editors are dialogs, and whose tree marks the area in
+front alone). Where the area is opened out in the tree (the arrow beside
 its row), an object selected in the area's view is shown there too: its
 kind's list opens and its row is marked and brought into view (the tree
 scrolls only as far as it must: a row in view stays where it is). An area
@@ -326,7 +335,8 @@ left closed in the tree is opened out to it, as in Aurora; with **Show
 the object selected in an area in the module tree** unticked in Options
 › General, it stays closed, and the tree goes to an object only where its
 area is opened out already. **Show in Module Tree** on the
-tab's menu opens it out to what is placed in it. The bar beside the
+tab's menu goes to its row whatever the option says, and opens an area
+out to what is placed in it. The bar beside the
 tab does the same on a double click and a right click, and the window is
 dragged by it, and only by it: a drag on a part of the window that isn't
 a control doesn't move it (Options › General › **Move windows by

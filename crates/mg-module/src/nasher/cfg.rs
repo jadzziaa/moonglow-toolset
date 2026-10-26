@@ -687,6 +687,11 @@ pub struct Settings {
     /// `removeUnusedAreas` (true): the module's area list is the areas in
     /// the tree.
     pub remove_unused_areas: bool,
+    /// `tlkFormat`: `json` (the default) or `csv`.
+    pub tlk_format: String,
+    /// How `nwn_tlk` converts a talk table: `tlkFlags`' `--nwn-encoding`
+    /// (windows-1252 without) and `--pretty`.
+    pub tlk_style: mg_tlk::json::JsonStyle,
 }
 
 impl Default for Settings {
@@ -696,8 +701,25 @@ impl Default for Settings {
             codepage: Codepage::WINDOWS_1252,
             truncate_floats: 4,
             remove_unused_areas: true,
+            tlk_format: "json".into(),
+            tlk_style: mg_tlk::json::JsonStyle::default(),
         }
     }
+}
+
+/// The codepage a tool's flags name with `--nwn-encoding`, if any.
+fn encoding_flag(flags: &str) -> Option<Codepage> {
+    let mut words = flags.split_whitespace();
+    let mut found = None;
+    while let Some(w) = words.next() {
+        let name = match w.strip_prefix("--nwn-encoding") {
+            Some(rest) if rest.starts_with(['=', ':']) => Some(rest[1..].to_string()),
+            Some("") => words.next().map(str::to_string),
+            _ => None,
+        };
+        found = name.and_then(|n| Codepage::for_label(&n)).or(found);
+    }
+    found
 }
 
 impl Settings {
@@ -743,19 +765,16 @@ impl Settings {
                     );
                 }
                 "gffFlags" => {
-                    let mut words = value.split_whitespace();
-                    while let Some(w) = words.next() {
-                        let name = match w.strip_prefix("--nwn-encoding") {
-                            Some(rest) if rest.starts_with(['=', ':']) => {
-                                Some(rest[1..].to_string())
-                            }
-                            Some("") => words.next().map(str::to_string),
-                            _ => None,
-                        };
-                        if let Some(cp) = name.and_then(|n| Codepage::for_label(&n)) {
-                            self.codepage = cp;
-                        }
+                    if let Some(cp) = encoding_flag(&value) {
+                        self.codepage = cp;
                     }
+                }
+                "tlkFormat" => self.tlk_format = value,
+                "tlkFlags" => {
+                    self.tlk_style = mg_tlk::json::JsonStyle {
+                        codepage: encoding_flag(&value).unwrap_or(Codepage::WINDOWS_1252),
+                        pretty: value.split_whitespace().any(|w| w == "-p" || w == "--pretty"),
+                    };
                 }
                 _ => {}
             }
@@ -915,5 +934,10 @@ default = true
         assert!(!s.remove_unused_areas);
         assert_eq!(s.codepage, Codepage::WINDOWS_1250);
         assert_eq!(s.gff_format, "json");
+        // The talk tables' conversion is nwn_tlk's own, apart from GFF's.
+        assert_eq!(s.tlk_style, mg_tlk::json::JsonStyle::default());
+        s.apply("tlkFlags = \"--pretty --nwn-encoding=cp1250\"\ntlkFormat = \"csv\"\n");
+        let style = mg_tlk::json::JsonStyle { codepage: Codepage::WINDOWS_1250, pretty: true };
+        assert_eq!((s.tlk_style, s.tlk_format.as_str()), (style, "csv"));
     }
 }

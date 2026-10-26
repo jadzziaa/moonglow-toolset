@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:16:12Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T14:09:46Z }
 ---
 
 # Command-line tools
@@ -263,7 +263,10 @@ for macOS) on a `.mod`, a module folder or a nasher project. A folder or
 a project is packed first: the server loads an archive only. Its
 scripts that have no compiled script are compiled for the packed copy,
 as `mg build` would (the server runs compiled scripts only), and one
-that does not compile is said; the sources are left as they are.
+that does not compile is said; the sources are left as they are. A
+project's own talk table, kept as JSON, is made into the server's `tlk`
+folder (in the game's language, where the project keeps several), in
+place of the one in your tlk folder.
 
 - **Private unless asked.** The server is not listed (`--public` lists
   it) and gets random player, DM and admin passwords, which are printed;
@@ -452,7 +455,7 @@ mg --json verify mymodule.mod | jq '.findings[] | select(.severity == "error")'
 | Command | Does |
 | --- | --- |
 | `mg init MODULE DIR` | put a module into a nasher project in `DIR`: its resources as source files, with a `nasher.cfg` like `nasher init` writes |
-| `mg build DIR` | compile the project's scripts and pack the module, as `nasher pack` does (`--target`, `-o OUT`); `--ndb` makes each script's debug file (`.ndb`) too, packed with it |
+| `mg build DIR` | compile the project's scripts and pack the module, as `nasher pack` does (`--target`, `-o OUT`); `--ndb` makes each script's debug file (`.ndb`) too, packed with it. A `--target` that packs a talk table (a `.tlk`) makes it of its `<name>.tlk.json` as nasher has `nwn_tlk` make it, byte for byte |
 | `mg merge-gff BASE OURS THEIRS` | merge two copies of a GFF resource (an area, `module.ifo`, a blueprint), both made from BASE, as a GFF or as nasher's JSON of one, and write the merge over OURS (`-o FILE` elsewhere). Placed objects merge by object, the area list as a union, variables by name and type. Two different changes to one value are a conflict: it fails, names each by its path and writes nothing, unless `--prefer ours` or `--prefer theirs`. Git runs it as its merge driver: see [Merging in git](03-modules.md#merging-in-git) |
 
 `mg build` fails if a script doesn't compile, which suits a build pipeline:

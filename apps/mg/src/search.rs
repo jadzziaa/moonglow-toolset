@@ -100,9 +100,10 @@ pub(crate) fn game_data(cli: &Cli, m: &Module, out: &mut Output) -> Option<GameD
     let tlk = mg_tlk::Tlk::read(&std::fs::read(gi.talk_table(false)).ok()?).ok()?;
     let mut game = GameData::new(crate::module_resman(&gi, m, out).ok()?, tlk);
     if let Some(name) = m.custom_tlk().ok().flatten()
-        && let Some(f) = mg_module::talk::find(&game.resman, &gi.tlk_dirs(), &name)
+        && let Some(f) =
+            mg_module::talk::find_any(m, &game.resman, &gi.tlk_dirs(), &name, Some(game.language))
     {
-        game.set_custom_tlk(mg_tlk::Tlk::read(&f.data).ok());
+        game.set_custom_tlk(f.tlk().ok());
     }
     Some(game)
 }

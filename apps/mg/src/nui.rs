@@ -349,10 +349,15 @@ impl Shown {
                     Some(tlk) => {
                         let mut game = mg_rules::GameData::new(rm, tlk);
                         if let Some(custom) = module.custom_tlk().ok().flatten()
-                            && let Some(f) =
-                                mg_module::talk::find(&game.resman, &gi.tlk_dirs(), &custom)
+                            && let Some(f) = mg_module::talk::find_any(
+                                &module,
+                                &game.resman,
+                                &gi.tlk_dirs(),
+                                &custom,
+                                Some(game.language),
+                            )
                         {
-                            game.set_custom_tlk(mg_tlk::Tlk::read(&f.data).ok());
+                            game.set_custom_tlk(f.tlk().ok());
                         }
                         (None, Some(game))
                     }

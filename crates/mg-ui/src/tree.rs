@@ -562,8 +562,57 @@ fn follow_selection(app: &mut Moonglow) {
             app.tree_cursor = selected.map(|(area, kind, index)| TreeAt::Object(area, kind, index));
         }
         if let Some((area, ..)) = selected.filter(|_| !app.settings.tree_keeps_areas_closed) {
-            app.tree_reveal = Some((area, true));
+            app.tree_reveal = Some((ResKey::new(area, ResType::ARE), true));
         }
+    }
+}
+
+/// Whether the module tree lists a resource: the module's, of a kind of
+/// its groups.
+pub(crate) fn listed(app: &Moonglow, key: &ResKey) -> bool {
+    GROUPS.iter().any(|(_, types)| types.contains(&key.restype))
+        && app.ws.as_ref().is_some_and(|ws| ws.module.contains(key))
+}
+
+/// The module tree goes to what a tab chosen shows (its row marked, its
+/// group opened, the row brought into view), however it was chosen: a
+/// click on it, the keys, opened. The keys stay with the tab. Where
+/// Options › General says the tree stays, only an area's row is marked,
+/// as the one in front (Aurora marks it so, and its tree follows nothing
+/// else).
+pub(crate) fn reveal_tab(app: &mut Moonglow, tab: &Tab) {
+    let Some(key) = tab.tree_key().filter(|k| listed(app, k)) else { return };
+    if !app.settings.tree_stays {
+        app.tree_reveal = Some((key, false));
+    } else if key.restype == ResType::ARE {
+        app.tree_marked = Some(key);
+        app.tree_area = Some(key.resref);
+    }
+}
+
+/// The tab chosen since the tree last looked, which it goes to
+/// ([`reveal_tab`]): the one in front of the pane given the focus (a
+/// window's, or the middle's), else one come to the front of its pane
+/// (opened, or reached by the keys).
+pub(crate) fn follow_front_tab(app: &mut Moonglow) {
+    let front = |leaf: &egui_dock::LeafNode<Tab>| leaf.tabs.get(leaf.active.0).cloned();
+    let fronts: Vec<Tab> = (app.dock.iter_leaves())
+        .filter_map(|(_, leaf)| front(leaf))
+        .filter(|t| *t != Tab::Palette)
+        .collect();
+    let focused = (app.dock.focused_leaf())
+        .and_then(|p| app.dock.leaf(p).ok())
+        .and_then(front)
+        .filter(|t| *t != Tab::Palette);
+    let (was_focused, was) = std::mem::take(&mut app.tree_front);
+    let chosen = if focused.is_some() && focused != was_focused {
+        focused.clone()
+    } else {
+        fronts.iter().find(|t| !was.contains(t)).cloned()
+    };
+    app.tree_front = (focused, fronts);
+    if let Some(tab) = chosen {
+        reveal_tab(app, &tab);
     }
 }
 
@@ -755,6 +804,9 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
         app.area_names.groups = Some(Groups { shape, lists: Arc::new(lists) });
     }
     let lists = app.area_names.groups.as_ref().map(|g| g.lists.clone()).expect("made above");
+    // The resource to bring into view is in a group still opening: gone
+    // to when it is open (its rows are where they will be then).
+    let mut opening = false;
     for ((name, types), (all, names)) in GROUPS.iter().zip(lists.iter()) {
         listed += all.len();
         // (An area opened out stays for what is placed in it, too.)
@@ -786,11 +838,11 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
             .default_open(*name == "Areas")
             // (The keys' cursor on a group shows as its row marked.)
             .show_background(at_group)
-            // An area to bring into view opens the areas' group (a filter
+            // A resource to bring into view opens its group (a filter
             // typed opens every group, through `fold`); the keys open and
             // close the one they are at.
             .open(
-                (*name == "Areas" && app.tree_reveal.is_some())
+                (app.tree_reveal.is_some_and(|(k, _)| types.contains(&k.restype)))
                     .then_some(true)
                     .or(folded.filter(|(g, _)| *g == TreeAt::Group(name)).map(|(_, open)| open))
                     .or(fold),
@@ -820,17 +872,21 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                         out = open;
                         ui.data_mut(|d| d.insert_temp(opened, out));
                     }
-                    // The area to bring into view (a tab chosen, or its
-                    // menu's Show in Module Tree, which opens it out too).
-                    let reveal = app.tree_reveal.filter(|(a, _)| is_area && *a == k.resref);
-                    if let Some((area, open_out)) = reveal {
-                        app.tree_area = Some(area);
-                        if open_out && !out {
+                    // The resource to bring into view (a tab chosen, or
+                    // its menu's Show in Module Tree, which opens an area
+                    // out too).
+                    let reveal = app.tree_reveal.filter(|(key, _)| *key == k);
+                    if let Some((key, open_out)) = reveal {
+                        app.tree_marked = Some(key);
+                        if is_area {
+                            app.tree_area = Some(k.resref);
+                        }
+                        if open_out && is_area && !out {
                             out = true;
                             ui.data_mut(|d| d.insert_temp(opened, true));
                         }
                     }
-                    let in_hand = is_area && app.tree_area == Some(k.resref);
+                    let in_hand = app.tree_marked == Some(k);
                     let at_row = cursor == Some(TreeAt::Resource(k));
                     // A row out of sight takes its room only (a module can
                     // list thousands of a kind: laid out every frame, they
@@ -1092,9 +1148,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                     });
                 }
             });
-        // (Brought into view, or not among the areas shown: done.)
         if *name == "Areas" {
-            app.tree_reveal = None;
             // The object selected was gone to if its area is opened out;
             // if not (or the areas are folded away), the tree stays as it
             // is. (One whose area is being read again is gone to then.)
@@ -1108,6 +1162,8 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
         if at_group && cursor_moved {
             header.header_response.scroll_to_me(None);
         }
+        opening |= header.openness < 1.0
+            && app.tree_reveal.is_some_and(|(k, _)| types.contains(&k.restype));
         shown.push((*name, !header.fully_closed(), listed_keys));
         if let (Some(id), Some(label)) = (new, &new_label) {
             header.header_response.context_menu(|ui| {
@@ -1134,6 +1190,10 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                 }
             });
         }
+    }
+    // (Brought into view, or not among the rows shown: done.)
+    if !opening {
+        app.tree_reveal = None;
     }
     let others = ws.module.len() - listed;
     ui.weak(format!("{others} other resources"));

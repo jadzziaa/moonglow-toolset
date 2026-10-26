@@ -71,6 +71,13 @@ impl Language {
         })
     }
 
+    /// The language of a `lang/` folder's two-letter code.
+    pub fn from_short_code(code: &str) -> Option<Language> {
+        Language::EE
+            .into_iter()
+            .find(|l| l.short_code().is_some_and(|c| c.eq_ignore_ascii_case(code)))
+    }
+
     /// The codepage the game uses for text in this language.
     pub fn codepage(self) -> Codepage {
         match self.0 {

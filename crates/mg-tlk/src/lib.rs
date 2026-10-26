@@ -6,6 +6,7 @@
 //! order.
 
 pub mod diff;
+pub mod json;
 
 use mg_core::bin::{BinError, Reader, WriteLe, slice};
 use mg_core::{Language, ResRef, StrRef};
@@ -131,6 +132,18 @@ impl Tlk {
 
     /// Serializes: header, entry table, then the strings in entry order.
     pub fn to_bytes(&self) -> Result<Vec<u8>, TlkError> {
+        self.write(false)
+    }
+
+    /// [`to_bytes`](Self::to_bytes) as neverwinter.nim's `nwn_tlk` (and so
+    /// nasher) writes the table: an entry with no text but flags (a
+    /// sound) points where the next text would start, not at 0. The game
+    /// never reads it.
+    pub fn to_bytes_as_nwn_tlk(&self) -> Result<Vec<u8>, TlkError> {
+        self.write(true)
+    }
+
+    fn write(&self, nwn_tlk: bool) -> Result<Vec<u8>, TlkError> {
         let n = self.entries.len();
         let strings_offset = 20 + n * 40;
         let total = strings_offset + self.entries.iter().map(|e| e.text.len()).sum::<usize>();
@@ -150,7 +163,8 @@ impl Tlk {
             out.put_u32(e.pitch_variance);
             // Shipped tables disagree on what empty entries point at (0 or the
             // running offset); the game never reads it.
-            out.put_u32_usize(if e.text.is_empty() { 0 } else { offset });
+            let points = !e.text.is_empty() || (nwn_tlk && e.flags != 0);
+            out.put_u32_usize(if points { offset } else { 0 });
             out.put_u32_usize(e.text.len());
             out.put_f32(e.sound_length);
             offset += e.text.len();

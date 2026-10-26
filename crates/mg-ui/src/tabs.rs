@@ -210,6 +210,24 @@ impl Tab {
         !matches!(self, Tab::Welcome | Tab::NoArea)
     }
 
+    /// The resource of the module tree's that the tab shows: what the tree
+    /// goes to when it is chosen (an object placed in an area: the area).
+    pub fn tree_key(&self) -> Option<ResKey> {
+        let area = |r: &mg_core::ResRef| Some(ResKey::new(*r, ResType::ARE));
+        match self {
+            Tab::Area(r) | Tab::AreaProperties(r) => area(r),
+            Tab::Instance { area: r, .. }
+            | Tab::Instances { area: r, .. }
+            | Tab::InstanceModel { area: r, .. } => area(r),
+            Tab::Script(k) | Tab::Nui(k) | Tab::Dialog(k) | Tab::Blueprint(k) | Tab::Gff(k) => {
+                Some(*k)
+            }
+            Tab::Journal => ResKey::parse("module", ResType::JRL),
+            Tab::Factions => ResKey::parse("repute", ResType::FAC),
+            _ => None,
+        }
+    }
+
     pub fn renamable(&self) -> Option<ResKey> {
         match self {
             Tab::Script(k) | Tab::Dialog(k) | Tab::Blueprint(k) | Tab::Gff(k) | Tab::Nui(k) => {
@@ -500,15 +518,20 @@ impl TabViewer for Viewer<'_> {
             self.app.actions.push(crate::Action::RenameDialog(key));
             ui.close();
         }
-        // An area: its row in the module tree, opened out to what is
-        // placed in it.
-        if let Tab::Area(area) = tab
+        // Its row in the module tree (an area's opened out to what is
+        // placed in it).
+        let in_tree = tab.tree_key().filter(|k| crate::tree::listed(self.app, k));
+        if let Some(key) = in_tree
             && ui
                 .button("Show in Module Tree")
-                .on_hover_text("Its row in the module tree, opened out to what is placed in it")
+                .on_hover_text(if key.restype == ResType::ARE {
+                    "Its row in the module tree, opened out to what is placed in it"
+                } else {
+                    "Its row in the module tree"
+                })
                 .clicked()
         {
-            self.app.tree_reveal = Some((*area, true));
+            self.app.tree_reveal = Some((key, true));
             ui.close();
         }
         // Claim This Area or Release Claim (the project's claims table).
@@ -565,11 +588,10 @@ impl TabViewer for Viewer<'_> {
     /// A double click on a window's tab maximizes it, and restores it.
     fn on_tab_button(&mut self, tab: &mut Tab, response: &egui::Response) {
         self.app.tab_buttons.push((tab.clone(), response.rect, response.layer_id));
-        // An area's tab chosen: the module tree goes to the area.
-        if let Tab::Area(area) = tab
-            && response.clicked()
-        {
-            self.app.tree_reveal = Some((*area, false));
+        // A tab chosen (the one in front too): the module tree goes to
+        // what it shows.
+        if response.clicked() {
+            crate::tree::reveal_tab(self.app, tab);
         }
         if response.middle_clicked() && tab.closeable() {
             self.app.actions.push(crate::Action::CloseTabs(vec![tab.clone()]));

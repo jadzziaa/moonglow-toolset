@@ -1,9 +1,11 @@
 //! The Talk Table editor: the module's custom talk table, its lines by the
 //! StrRefs the game knows them by (16777216 and up), with the feminine
 //! table beside it when there is one. The table is a file of its own in the
-//! user's `tlk/` folder, saved with the module, with its own undo. A table
-//! found in a hak or the module is shown read-only. Open File and New File
-//! edit a `.tlk` anywhere instead, with or without a module open.
+//! user's `tlk/` folder, saved with the module, with its own undo; a module
+//! kept in a nasher project may keep it there as JSON instead, one a
+//! language, saved as `nwn_tlk` writes it. A table found in a hak or the
+//! module is shown read-only. Open File and New File edit a `.tlk` anywhere
+//! instead, with or without a module open.
 
 use egui::Ui;
 use mg_core::StrRef;
@@ -48,6 +50,9 @@ pub struct TalkView {
     /// The module's table that was not found (its name), and when it was
     /// looked for: looked for again every few seconds, not every frame.
     missing: Option<(String, std::time::Instant)>,
+    /// The languages a nasher project keeps the table open in (as JSON, a
+    /// file each), where it keeps more than one.
+    languages: Vec<(mg_core::Language, std::path::PathBuf)>,
 }
 
 impl TalkView {
@@ -88,22 +93,95 @@ fn open(app: &mut Moonglow, name: &str) {
     if (app.talk_view.missing.as_ref()).is_some_and(|(n, at)| n == name && at.elapsed() < again) {
         return;
     }
-    let (Some(game), Some(install)) = (&app.game, &app.install) else { return };
-    let dirs = install.tlk_dirs();
-    let Some(found) = talk::find(&game.resman, &dirs, name) else {
-        app.talk = None;
-        app.talk_view.missing = Some((name.to_string(), std::time::Instant::now()));
+    let (Some(game), Some(install), Some(ws)) = (&app.game, &app.install, &app.ws) else {
         return;
     };
-    let feminine = talk::find(&game.resman, &dirs, &talk::feminine(name));
-    match Table::open(name, found, feminine) {
-        Ok(t) => {
-            app.talk = Some(t);
-            app.talk_view = TalkView::default();
+    let dirs = install.tlk_dirs();
+    // (A nasher project's own, in the game's language where it keeps one
+    // a language.)
+    let language = Some(game.language);
+    let find = |name: &str| talk::find_for(&ws.module, &game.resman, &dirs, name, language);
+    let found = match find(name) {
+        Ok(Some(found)) => found,
+        Ok(None) => {
+            app.talk = None;
+            app.talk_view.missing = Some((name.to_string(), std::time::Instant::now()));
+            return;
         }
         Err(e) => {
             app.log.error(format!("Talk table {name}: {e}"));
             app.talk_view.unreadable = Some(name.to_string());
+            return;
+        }
+    };
+    let languages = project_languages(app, name);
+    let feminine = match &found.source {
+        talk::Source::Json { .. } => {
+            project_feminine(app, name, found.tlk().ok().map(|t| t.language))
+        }
+        _ => find(&talk::feminine(name)).ok().flatten(),
+    };
+    match Table::open(name, found, feminine) {
+        Ok(t) => {
+            app.talk = Some(t);
+            app.talk_view = TalkView { languages, ..TalkView::default() };
+        }
+        Err(e) => {
+            app.log.error(format!("Talk table {name}: {e}"));
+            app.talk_view.unreadable = Some(name.to_string());
+        }
+    }
+}
+
+/// The languages the module's nasher project keeps its table `name` in, a
+/// JSON file each: none unless it keeps more than one.
+fn project_languages(app: &Moonglow, name: &str) -> Vec<(mg_core::Language, std::path::PathBuf)> {
+    let Some(p) = app.ws.as_ref().and_then(|ws| ws.module.project.as_deref()) else {
+        return Vec::new();
+    };
+    let tables = p.talk_tables(name).unwrap_or_default();
+    let out: Vec<_> = tables.into_iter().map(|t| (t.language(), t.path)).collect();
+    if out.len() > 1 { out } else { Vec::new() }
+}
+
+/// The feminine table of the project's table `name` in `language`: its
+/// own target's (`<name>f`), or none (not a `.tlk` of the tlk folder,
+/// which `nasher install` may have left there).
+fn project_feminine(
+    app: &Moonglow,
+    name: &str,
+    language: Option<mg_core::Language>,
+) -> Option<talk::Found> {
+    let p = app.ws.as_ref()?.module.project.as_deref()?;
+    let style = p.settings.tlk_style;
+    let tables = p.talk_tables(&talk::feminine(name)).unwrap_or_default();
+    let f = tables.into_iter().find(|f| Some(f.language()) == language)?;
+    Some(talk::Found { source: talk::Source::Json { path: f.path, style }, data: f.file })
+}
+
+/// The project's table in another of its languages (its file `path`), in
+/// place of the one open (which has no unsaved changes).
+fn open_language(app: &mut Moonglow, path: &std::path::Path) {
+    let Some(t) = &app.talk else { return };
+    let (name, languages) = (t.name.clone(), std::mem::take(&mut app.talk_view.languages));
+    let Some(p) = app.ws.as_ref().and_then(|ws| ws.module.project.as_deref()) else { return };
+    let style = p.settings.tlk_style;
+    let read = |path: &std::path::Path| {
+        let data = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let source = talk::Source::Json { path: path.to_path_buf(), style };
+        Ok::<_, String>(talk::Found { source, data })
+    };
+    let language = languages.iter().find(|(_, p)| p == path).map(|(l, _)| *l);
+    let feminine = project_feminine(app, &name, language);
+    match read(path).and_then(|f| Table::open(&name, f, feminine)) {
+        Ok(t) => {
+            app.log.info(format!("Talk table {} ({} lines)", t.source, t.len()));
+            app.talk = Some(t);
+            app.talk_view = TalkView { languages, ..TalkView::default() };
+        }
+        Err(e) => {
+            app.log.error(format!("Talk table: {e}"));
+            app.talk_view.languages = languages;
         }
     }
 }
@@ -282,7 +360,7 @@ pub(crate) fn transfer(app: &mut Moonglow, import: bool, json: bool) {
         else {
             return;
         };
-        match std::fs::write(&path, if json { t.to_json() } else { t.to_csv() }) {
+        match std::fs::write(&path, if json { t.to_json() } else { t.to_csv().into_bytes() }) {
             Ok(()) => app.log.info(format!("Wrote {} lines to {}", t.len(), path.display())),
             Err(e) => app.log.error(format!("{}: {e}", path.display())),
         }
@@ -391,10 +469,32 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
     let t = talk.as_mut().expect("open");
     let editable = t.editable();
     let mut leave = false;
+    let mut language = None;
     ui.horizontal(|ui| {
         ui.strong(format!("{}.tlk", t.name));
         let lang = t.tlk.language.name().unwrap_or("?");
         let fem = if t.feminine.is_some() { ", with a feminine table" } else { "" };
+        // The nasher project's other languages of it, a file each.
+        if !v.languages.is_empty() {
+            let open = t.source.file().map(std::path::Path::to_path_buf).unwrap_or_default();
+            let mut chosen = open.clone();
+            let paths: Vec<std::path::PathBuf> =
+                v.languages.iter().map(|(_, p)| p.clone()).collect();
+            let named = |p: &std::path::PathBuf| {
+                let l = v.languages.iter().find(|(_, q)| q == p).map(|(l, _)| *l);
+                l.and_then(mg_core::Language::name).unwrap_or("?").to_string()
+            };
+            ui.add_enabled_ui(!t.is_dirty(), |ui| {
+                crate::widgets::dropdown("talk-language")
+                    .selected_text(named(&open))
+                    .show(ui, &mut chosen, &paths, named)
+                    .on_hover_text(
+                        "The project keeps this table in more than one language, a file each \
+                         (save or undo the changes to choose another)",
+                    );
+            });
+            language = (chosen != open).then_some(chosen);
+        }
         if t.is_dirty() {
             ui.weak("(unsaved)");
         }
@@ -416,6 +516,10 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
     if leave {
         *talk = None;
         *v = TalkView::default();
+        return;
+    }
+    if let Some(path) = language {
+        open_language(app, &path);
         return;
     }
     if !editable {

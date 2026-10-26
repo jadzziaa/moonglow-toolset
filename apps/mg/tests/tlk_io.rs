@@ -79,8 +79,11 @@ fn a_talk_table_goes_in_and_out_as_json_and_csv() {
 
     // As nwn_tlk writes the same table.
     let tool = mg_testkit::oracle_tool!("nwn_tlk");
-    let theirs = Command::new(tool).args(["-i", &table, "-k", "json"]).output().unwrap();
+    let theirs = Command::new(&tool).args(["-i", &table, "-k", "json"]).output().unwrap();
     assert!(theirs.status.success(), "{}", String::from_utf8_lossy(&theirs.stderr));
     let theirs: serde_json::Value = serde_json::from_slice(&theirs.stdout).unwrap();
     assert_eq!(read("again.json"), theirs);
+    // Written as `nwn_tlk --pretty` writes it, to the byte.
+    let pretty = Command::new(tool).args(["-i", &table, "-k", "json", "-p"]).output().unwrap();
+    assert_eq!(std::fs::read(dir.join("again.json")).unwrap(), pretty.stdout);
 }

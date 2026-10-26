@@ -198,6 +198,16 @@ impl Project {
                 project.warnings.push(format!("{}: not a resource; left alone", path.display()));
                 continue;
             };
+            // (A talk table's JSON a target of its own packs: read with
+            // the module's talk table, `nasher::talk_tables`.)
+            let talk_table = || {
+                key.restype == ResType::TLK
+                    && (project.package.targets.iter())
+                        .any(|t| t.is_talk_table() && t.covers(root, &path))
+            };
+            if json && !is_json_type(key.restype) && talk_table() {
+                continue;
+            }
             if json && !is_json_type(key.restype) {
                 project.warnings.push(format!(
                     "{}: only GFF files are read as JSON; left alone",
@@ -228,6 +238,15 @@ impl Project {
             };
             resources.insert(key, resource.clone());
             project.sources.insert(key, Source { path: path.into(), json, file, resource, stamp });
+        }
+        if project.settings.tlk_format != "json"
+            && project.package.targets.iter().any(Target::is_talk_table)
+        {
+            project.warnings.push(format!(
+                "the project keeps its talk tables as {}: Moonglow reads JSON ones only, and \
+                 leaves them alone",
+                project.settings.tlk_format
+            ));
         }
         project.settle_area_list(&mut resources);
         project.left_out = project.left_out();
@@ -421,6 +440,12 @@ impl Project {
     /// The target's packed file (`root/file`).
     pub fn target_path(&self) -> PathBuf {
         self.root().join(&self.target().file)
+    }
+
+    /// The talk tables named `name` that the project keeps as JSON, a
+    /// language each ([`super::talk_tables`]).
+    pub fn talk_tables(&self, name: &str) -> Result<Vec<super::TalkTable>, ModuleError> {
+        super::talk_tables(&self.package, &self.settings, name)
     }
 
     /// How GFF files convert in this project.

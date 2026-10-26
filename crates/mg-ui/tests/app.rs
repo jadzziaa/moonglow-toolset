@@ -2150,6 +2150,87 @@ fn a_talk_table_that_cannot_be_read_is_tried_once() {
     assert_eq!(said.len(), 1, "{said:?}");
 }
 
+/// A nasher project that keeps its talk table as JSON (a tlk target of its
+/// own, in two languages): opened, the table is the project's (not the tlk
+/// folder's copy), edited, and saved with the module as nwn_tlk writes it;
+/// the other language is chosen in the editor.
+#[test]
+fn a_projects_talk_table_kept_as_json_is_edited_there() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-talk-project");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("tlk")).unwrap();
+    let mut m = mg_module::Module::open(&sample_module(&dir)).unwrap();
+    let mut info = m.info().unwrap();
+    info.root.set("Mod_CustomTlk", mg_gff::Value::String(b"mg_proj".to_vec()));
+    m.set_info(&info).unwrap();
+    let project = dir.join("project");
+    m.save_as(&ModuleLocation::Project { root: project.clone(), target: "default".into() })
+        .unwrap();
+    let mut cfg = std::fs::read_to_string(project.join("nasher.cfg")).unwrap();
+    cfg.push_str(
+        "\n[target]\nname = \"tlk\"\nfile = \"mg_proj.tlk\"\n  [target.sources]\n  \
+         include = \"src/tlk/*.json\"\n\n[target]\nname = \"tlk_de\"\nfile = \"de/mg_proj.tlk\"\n  \
+         [target.sources]\n  include = \"src/tlk/de/*.json\"\n",
+    );
+    std::fs::write(project.join("nasher.cfg"), cfg).unwrap();
+    std::fs::create_dir_all(project.join("src/tlk/de")).unwrap();
+    let en =
+        r#"{"language":0,"entries":[{"id":0,"text":"Hello"},{"id":2,"text":"","sound":"vs_x"}]}"#;
+    let json = project.join("src/tlk/mg_proj.tlk.json");
+    std::fs::write(&json, en).unwrap();
+    let de = project.join("src/tlk/de/mg_proj.tlk.json");
+    std::fs::write(&de, r#"{"language":2,"entries":[{"id":0,"text":"Hallo"}]}"#).unwrap();
+    // (What `nasher install` put in the tlk folder once: not the one read.)
+    let mut stale = mg_tlk::Tlk::new(Language::ENGLISH);
+    stale.entries.push(mg_tlk::TlkEntry::text("Stale"));
+    std::fs::write(user.join("tlk/mg_proj.tlk"), stale.to_bytes().unwrap()).unwrap();
+    std::fs::write(user.join("tlk/mg_projf.tlk"), stale.to_bytes().unwrap()).unwrap();
+    let install = mg_resman::GameInstall::new(&root, Some(user), "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&project);
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
+    h.run();
+    h.run();
+    let t = h.state().talk.as_ref().expect("the project's table is open");
+    assert!(matches!(&t.source, mg_module::talk::Source::Json { path, .. } if *path == json));
+    assert!(t.editable());
+    assert_eq!((t.len(), t.line(0).text.as_str()), (3, "Hello"));
+    assert!(t.feminine.is_none(), "not the tlk folder's feminine table beside the project's");
+    let game = h.state().game.as_deref().unwrap();
+    assert_eq!(game.string(mg_core::StrRef(16_777_216)).as_deref(), Some("Hello"));
+    // A line added and typed, saved with the module: the JSON as nwn_tlk
+    // writes it, the lines there kept as they were.
+    h.get_by_label("Add Line").click();
+    h.run();
+    type_into_hint(&mut h, "the line's text", "Greetings");
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    assert!(!h.state().talk.as_ref().unwrap().is_dirty());
+    let written = std::fs::read_to_string(&json).unwrap();
+    assert_eq!(written, en.replace("]}", ",{\"id\":3,\"text\":\"Greetings\"}]}"));
+    let game = h.state().game.as_deref().unwrap();
+    assert_eq!(game.string(mg_core::StrRef(16_777_219)).as_deref(), Some("Greetings"));
+    // The table's German, its file of its own.
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    (h.query_all(combo))
+        .find(|n| n.accesskit_node().value().is_some_and(|v| v == "English"))
+        .expect("the table's languages")
+        .click();
+    h.run();
+    h.get_by_label("German").click();
+    h.run();
+    h.run();
+    let t = h.state().talk.as_ref().unwrap();
+    assert!(matches!(&t.source, mg_module::talk::Source::Json { path, .. } if *path == de));
+    assert_eq!((t.len(), t.line(0).text.as_str()), (1, "Hallo"));
+}
+
 #[test]
 fn talk_table_made_edited_saved_and_used_by_strings() {
     let root = mg_testkit::corpus!();
@@ -16850,14 +16931,15 @@ fn tabs_app(name: &str) -> (std::path::PathBuf, Moonglow, std::path::PathBuf) {
 /// middle as the module opened.
 fn open_some_tabs(h: &mut Harness<'_, Moonglow>) {
     let script = |n| Tab::Script(ResKey::parse(n, ResType::NSS).unwrap());
+    // (Steps: the module tree opens a tab's group over a few frames.)
     for tab in [Tab::Area(ResRef::from_str("start").unwrap()), Tab::Factions, script("hello")] {
         h.state_mut().actions.push(mg_ui::Action::OpenTab(tab));
-        h.run();
+        h.run_steps(8);
     }
     h.state_mut().actions.push(mg_ui::Action::OpenTab(script("bye")));
-    h.run();
+    h.run_steps(8);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(script("hello")));
-    h.run();
+    h.run_steps(8);
 }
 
 /// Each pane's tabs (a pane of the main window or not) and the one in
@@ -26687,15 +26769,88 @@ fn the_module_tree_goes_to_the_area_of_the_tab_chosen() {
     h.state_mut().tree_area = None;
     assert!(h.query_by_label("Waypoints (2)").is_none());
     // (As a click on the area's tab asks.)
-    h.state_mut().tree_reveal = Some((area, false));
+    h.state_mut().tree_reveal = Some((ResKey::new(area, ResType::ARE), false));
     h.run_steps(2);
     assert_eq!(h.state().tree_area, Some(area));
     assert!(h.state().tree_reveal.is_none(), "done once");
     assert!(h.query_by_label("Waypoints (2)").is_none(), "not opened out");
     // Show in Module Tree: opened out too.
-    h.state_mut().tree_reveal = Some((area, true));
+    h.state_mut().tree_reveal = Some((ResKey::new(area, ResType::ARE), true));
     h.run_steps(3);
     assert!(h.query_by_label("Waypoints (2)").is_some());
+}
+
+/// Every kind of tab chosen moves the module tree to what it shows, as an
+/// area's does: a script opened marks its row, opens the Scripts group and
+/// brings the row into view; Ctrl+Tab to another script, and a click on
+/// the area's tab, move the mark with them; the keys stay with the tab.
+/// With Options › General's Show the Tab Chosen in the Module Tree off,
+/// the tree stays and marks the area in front only, as Aurora's does.
+#[test]
+fn every_kind_of_tab_chosen_moves_the_module_tree() {
+    let scripts = |m: &mut mg_module::Module, _: &mg_rules::GameData, _: ResRef| {
+        for n in 0..40 {
+            let key = ResKey::parse(&format!("script_{n:02}"), ResType::NSS).unwrap();
+            m.set(key, b"void main()\n{\n}\n".to_vec());
+        }
+    };
+    let Some((mut h, area)) = area_harness_with("tree-follows", "ttr01", None, 4, None, &scripts)
+    else {
+        return;
+    };
+    let script = |n: u32| ResKey::parse(&format!("script_{n:02}"), ResType::NSS).unwrap();
+    let area_key = ResKey::new(area, ResType::ARE);
+    let marked = |h: &Harness<'_, Moonglow>| h.state().tree_marked;
+    assert_eq!(marked(&h), Some(area_key), "the area opened");
+    // (The area's tab first in the middle, for a click on it below.)
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(Tab::ModuleProperties));
+    h.run_steps(3);
+    assert!(h.query_by_label("script_38").is_none(), "the Scripts group is closed");
+    let cursor = h.state().tree_cursor;
+    // A script opened: its row marked, its group opened, brought into
+    // view (the row beside it drawn too: rows out of sight are not).
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(script(39))));
+    // (The group opens over a few frames, then the row is gone to.)
+    h.run_steps(12);
+    assert_eq!(marked(&h), Some(script(39)));
+    assert!(h.query_by_label("script_38").is_some(), "brought into view");
+    assert_eq!(h.state().tree_cursor, cursor, "the keys stay with the tab");
+    // Another, in the same window; Ctrl+Tab back to the first.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(script(0))));
+    h.run_steps(4);
+    assert_eq!(marked(&h), Some(script(0)));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Tab);
+    h.run_steps(3);
+    assert_eq!(marked(&h), Some(script(39)), "Ctrl+Tab");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::PageDown);
+    h.run_steps(3);
+    assert_eq!(marked(&h), Some(script(0)), "Ctrl+PageDown");
+    // A click on the area's tab (the first of the middle's, in its bar).
+    let area_tab = |h: &mut Harness<'_, Moonglow>| {
+        let s = h.state();
+        let path = s.dock.find_tab(&Tab::Area(area)).expect("open");
+        let leaf = s.dock.leaf(path.node_path()).unwrap();
+        assert_eq!(leaf.tabs.iter().position(|t| *t == Tab::Area(area)), Some(0));
+        let at = egui::pos2(leaf.rect.left() + 30.0, (leaf.rect.top() + leaf.viewport.top()) / 2.0);
+        h.hover_at(at);
+        press(h, at, true, egui::Modifiers::NONE);
+        press(h, at, false, egui::Modifiers::NONE);
+        h.run_steps(3);
+    };
+    area_tab(&mut h);
+    assert_eq!(marked(&h), Some(area_key));
+    // The tab's Show in Module Tree, for a script too.
+    h.state_mut().tree_reveal = Some((script(20), true));
+    h.run_steps(3);
+    assert_eq!(marked(&h), Some(script(20)));
+    // Off: the tree stays where it is; the area in front alone is marked.
+    h.state_mut().settings.tree_stays = true;
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(script(5))));
+    h.run_steps(4);
+    assert_eq!(marked(&h), Some(script(20)), "not moved");
+    assert!(h.state().tree_reveal.is_none());
+    area_tab(&mut h);
+    assert_eq!(marked(&h), Some(area_key), "the area in front marked");
 }
 
 /// Where a text has none in the language edited, its text in another
@@ -27197,6 +27352,9 @@ fn open_script_s_arrows_choose_among_those_listed() {
 #[test]
 fn a_script_editor_opens_other_scripts() {
     let Some((mut h, _)) = area_harness("open-script") else { return };
+    // (The module tree kept still: opened at a script, its rows would
+    // have the scripts' names too.)
+    h.state_mut().settings.tree_stays = true;
     let (hello, other) = (
         ResKey::parse("hello", ResType::NSS).unwrap(),
         ResKey::parse("other_one", ResType::NSS).unwrap(),
@@ -27254,6 +27412,9 @@ fn open_script_opens_the_scripts_selected_together() {
     }
     m.save().unwrap();
     let mut app = app_with(Vec::new());
+    // (The module tree kept still: opened at a script, its rows would
+    // have the scripts' names too.)
+    app.settings.tree_stays = true;
     app.open_module(&path);
     let hello = ResKey::parse("hello", ResType::NSS).unwrap();
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(hello)));

@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T14:05:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T14:09:46Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -213,9 +213,25 @@ Size: S (an hour or two), M (a day or so), L (several days).
   wasn't seen; a file broken another way still stops the project from
   opening, where it could be left out and said. (S)
   (from builders' reports after 1.14.1)
-- **A talk table kept as JSON in a nasher project** is not read or
-  written with the project (a builder keeps one, and may keep several,
-  one a language): Import JSON and Export JSON by hand for now. (M)
+- **A talk table kept as JSON in a nasher project**, what is left (the
+  table a tlk target packs is read as the module's, edited, saved as
+  `nwn_tlk` writes it, chosen by language, built by `mg build --target`
+  and made for `mg serve` and `mg test`):
+  - **Kept as CSV** (`tlkFormat = "csv"`): not read; the log says so. (S)
+  - **A new table** made in the editor goes to the tlk folder as a
+    `.tlk`, not into the project as JSON with a target of its own. (S)
+  - **`mg watch`** doesn't see the table's JSON change (it isn't one of
+    the module's resources): the server has the table made when it
+    starts. The editor doesn't read the JSON again when it changes
+    outside Moonglow while open (a `git pull`); the strings shown do. (S)
+  - **A module target that takes the JSON in** (no `exclude =
+    "**/*.tlk.json"`): nasher packs the table into the module, where the
+    game finds it; Moonglow's Pack and `mg build` leave it out. (S)
+  - **A line with a length and no sound** (`nwn_tlk` keeps the length):
+    the editor shows no length without a sound, and editing the line
+    drops it. (S)
+  - **Codepages of more than a byte** (`--nwn-encoding` for Korean,
+    Chinese or Japanese) weren't compared with `nwn_tlk`. (S)
   (from builders' reports after 1.19.1)
 - **`mg merge-gff`, what it leaves out** (the [manual](manual/03-modules.md#merging-in-git)
   has the rules):
@@ -2475,10 +2491,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   are the dark theme's (legible on both), and the area view's overlays
   are drawn for the 3D view. A pass with a builder who uses it would
   settle the rest. (S–M) (a senior builder's review, October 2026)
-- **The module tree goes to the area of the tab chosen** (a click on the
-  tab), marking its row; Show in Module Tree on the tab's menu opens it
-  out too. A tab reached otherwise (opened, or by keys) doesn't move the
-  tree, and other kinds of tab (a script, a blueprint) don't. (S)
+- **The module tree follows the tab chosen** (every kind whose resource
+  it lists, by click, keys or opened; Options › General turns it off, as
+  Aurora's tree is). Not done: Module Properties' tab doesn't mark the
+  tree's Module Properties row; a tab of several (Properties of several
+  blueprints or areas) moves nothing; a row hidden by the tree's Filter
+  isn't shown (the filter stays); the tree scrolls only as far as it
+  must, so a row brought up from below sits at the pane's foot. (S)
   (from builders' reports after 1.16.1)
 - **Panes folded away** (GitHub issue 10): a View menu (Module Tree,
   Palettes Panel, Log, ticked while shown; Hide All Panels; Reset
