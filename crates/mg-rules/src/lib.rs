@@ -51,11 +51,23 @@ pub struct Choice {
     pub text: String,
 }
 
-/// Choices in the order of their names (whatever their case; rows of one
+/// Choices in the order of their names, whatever their case and accents
+/// (`Árboles` beside `arboles`: [`mg_core::text::sort_key`]; rows of one
 /// name in the table's order): long lists are found by name, not by where
 /// the table has them.
 pub fn by_name(mut choices: Vec<Choice>) -> Vec<Choice> {
-    choices.sort_by_cached_key(|c| (c.text.to_lowercase(), c.row));
+    choices.sort_by_cached_key(|c| (mg_core::text::sort_key(&c.text), c.row));
+    choices
+}
+
+/// [`by_name`] for choices named by a path of groups (`Oficios / Herrero`,
+/// parts joined by `separator`): by the first group, then within it, so
+/// that a group's own come together under it.
+pub fn by_path(mut choices: Vec<Choice>, separator: &str) -> Vec<Choice> {
+    choices.sort_by_cached_key(|c| {
+        let parts: Vec<_> = c.text.split(separator).map(mg_core::text::sort_key).collect();
+        (parts, c.row)
+    });
     choices
 }
 
@@ -465,6 +477,31 @@ mod tests {
         let sorted =
             by_name(vec![c(0, "Toughness"), c(1, "alertness"), c(2, "Dodge"), c(3, "Dodge")]);
         assert_eq!(sorted, [c(1, "alertness"), c(2, "Dodge"), c(3, "Dodge"), c(0, "Toughness")]);
+        // An accented first letter beside its letter, not after z (Sacha's
+        // Spanish categories).
+        let sorted =
+            by_name(vec![c(0, "zarza"), c(1, "Árboles"), c(2, "arbustos"), c(3, "Bosque")]);
+        assert_eq!(sorted, [c(1, "Árboles"), c(2, "arbustos"), c(3, "Bosque"), c(0, "zarza")]);
+    }
+
+    #[test]
+    fn choices_named_by_a_path_are_put_in_order_group_by_group() {
+        let c = |row, text: &str| Choice { row, text: text.into() };
+        let sorted = by_path(
+            vec![
+                c(0, "Oficios / Herrero"),
+                c(1, "Oficios, viejos"),
+                c(2, "Oficios"),
+                c(3, "Árboles / Pinos"),
+                c(4, "Oficios / Alfarero"),
+                c(5, "Zona"),
+            ],
+            " / ",
+        );
+        let rows: Vec<usize> = sorted.iter().map(|c| c.row).collect();
+        // (By name alone, "Oficios, viejos" came between the group and its
+        // own: a comma before the slash.)
+        assert_eq!(rows, [3, 2, 4, 0, 1, 5]);
     }
 
     #[test]

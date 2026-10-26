@@ -188,13 +188,12 @@ fn int(v: Option<&Value>) -> Option<i64> {
 }
 
 /// Sort key of Windows' default ("word sort") string comparison, which
-/// Aurora uses for its lists: case-insensitive, hyphens and apostrophes
-/// ignored except to break ties.
+/// Aurora uses for its lists: case and accents set aside (`Árboles` beside
+/// `arboles`: [`mg_core::text::fold`]), hyphens and apostrophes ignored
+/// except to break ties.
 pub fn word_sort_key(s: &str) -> (String, String) {
-    (
-        s.chars().filter(|c| !matches!(c, '-' | '\'')).flat_map(char::to_lowercase).collect(),
-        s.to_string(),
-    )
+    let kept: String = s.chars().filter(|c| !matches!(c, '-' | '\'')).collect();
+    (mg_core::text::fold(&kept), s.to_string())
 }
 
 /// A module's empty custom palette for a blueprint type, from the game's
@@ -642,5 +641,17 @@ impl AreaDefaults {
             music_delay: int("MusicDelay"),
         };
         d
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::word_sort_key;
+
+    #[test]
+    fn the_word_sort_sets_case_accents_and_hyphens_aside() {
+        let mut names = vec!["zarza", "Árboles", "arbustos", "Bosque", "half-orc", "halfling"];
+        names.sort_by_cached_key(|n| word_sort_key(n));
+        assert_eq!(names, ["Árboles", "arbustos", "Bosque", "halfling", "half-orc", "zarza"]);
     }
 }

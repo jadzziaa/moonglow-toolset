@@ -824,12 +824,16 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Palettes
 
-- **Category lists alphabetical, by lower case:** Options › General ›
-  List a blueprint's categories alphabetically sorts by the names in
-  lower case, character by character, as the module tree does: an
-  accented first letter (`Árboles`) comes after `z`, not beside `a`; a
-  group's path (`Oficios / Herrero`) sorts by its group first. (S)
-  (Sacha's report, October 2026)
+- **Names in order, accents aside** (Sacha's report, October 2026):
+  the Category lists (Options › General), the module tree, the lists of
+  a table's rows and the palettes' own order (Windows' word sort) fold
+  case and the accents of Latin letters (`mg_core::text`), so `Árboles`
+  stands beside `arboles`. Not done: the Filter fields still match as
+  typed (`arbol` does not find `Árbol`); only Latin-1 and Latin
+  Extended-A letters are folded (not Vietnamese's, nor Greek's or
+  Cyrillic's accents); names that fold alike are ordered by their bytes
+  (`Arboles`, `arboles`, `Árboles`), not compared with how Windows ties
+  them. (S)
 
 - **The palette's header, not as drawn in the issue:** "More" is a
   word, and the clear button "×" and the Gallery's "⊞" are the glyphs

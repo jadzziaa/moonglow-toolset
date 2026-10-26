@@ -133,7 +133,8 @@ with the pointer over it.
 
 Resources are listed by their ResRefs, as in Aurora. With **Tools ›
 Options › General › List areas and blueprints by name**, areas and
-blueprints are listed by their names instead (in the names' order; one
+blueprints are listed by their names instead (in the names' order,
+case and accents aside, so `Árboles` stands beside `arboles`; one
 without a name keeps its ResRef), areas' tabs are titled by name, the
 filter finds either, and the ResRef shows when the pointer rests on one.
 **Show ResRefs beside names** adds it in parentheses, `Name (resref)`,

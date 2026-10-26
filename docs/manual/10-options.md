@@ -107,7 +107,9 @@ the module is opened again from its file.
   [Troubleshooting](13-troubleshooting.md)).
 - **List a blueprint's categories alphabetically**: a blueprint's
   Category list in alphabetical order, rather than in the palette's
-  (the order Palette › Categories… gives them).
+  (the order Palette › Categories… gives them): case and accents aside
+  (`Árboles` beside `arboles`, not after `z`), and a group's own
+  categories (`Oficios / Herrero`) together under it.
 - **List areas and blueprints by name** in the module tree, rather than
   by ResRef, and **Show ResRefs beside names** (`Name (resref)`, in the
   tree and the palettes). Areas are by name in Find Instance and the
