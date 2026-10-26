@@ -1076,8 +1076,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   StrRef or a line's number; the text boxes share the room under the
   list and scroll; the whole row chooses its line and shows the pointer
   over it, the arrow keys choose from there, and Enter or a double
-  click goes to the text. Not done: the split between the list and the
-  boxes cannot be dragged. (S) (GitHub issues 10 to 24, after 1.20.0)
+  click goes to the text; the line between the list and the boxes is
+  dragged (the boxes keep three lines, the list three tenths). Not
+  done: the share dragged to is kept in egui's memory, as the other
+  editors' panes are, not in Moonglow's settings, and one share serves
+  every table, with or without a feminine one. (S) (GitHub issues 10
+  to 24, after 1.20.0)
 
 ## Haks in the GUI
 
@@ -2309,9 +2313,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   opened with the tree over the whole window: a long name widened it,
   and it could not be dragged back). Docked panes' splits are held
   between 12% and 88% (the palettes'), and the lower halves of the
-  script, conversation and journal editors to a share of their editor.
-  A tree name cut short shows whole only where the row already had a
-  tooltip; the limits on the editors' lower halves aren't under test.
+  script, conversation and journal editors to a share of their editor,
+  and the talk table editor's to seven tenths. A tree name cut short
+  shows whole only where the row already had a tooltip; the limits on
+  the script, conversation and journal editors' lower halves aren't
+  under test (the talk table's are).
   (S)
 - **Windows' sizes and Maximize:** a window's size is remembered by the
   kind of editor, not its place on screen; Maximize is a double click on

@@ -920,7 +920,9 @@ module's talk table:
   sound spoken with it and its length. **Copy** copies its StrRef, to put
   in a 2DA or a script. The text boxes take the room under the list; a
   text longer than its box scrolls in it, and the sound's row stays in
-  sight. A larger window gives them more.
+  sight. A larger window gives them more, and the line between the list
+  and them is dragged up and down to share the room otherwise: the boxes
+  keep three lines, and the list three tenths of the editor.
 - **Add Line** adds one at the end. **Remove Last Line** removes only the
   last, since removing another would renumber the lines after it.
 - **Undo** and **Redo** in its toolbar undo the table's changes, as do

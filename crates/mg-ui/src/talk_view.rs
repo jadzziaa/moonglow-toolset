@@ -606,9 +606,16 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
     let fixed = 2.0 * gap + 6.0 + 2.0 * field + (boxes + 1.0) * (text + gap);
     let least = 3.0 * text + 8.0;
     let available = ui.available_height();
-    // (Two boxes: a little more than half; one: a little less.)
-    let share = if feminine { 0.55 } else { 0.45 };
-    let editor = (available * share).max(fixed + boxes * (least + gap));
+    // The split between them is dragged (its share of the tab is kept);
+    // at first, with two boxes, a little more than half; with one, a
+    // little less. The boxes keep three lines, and the editor at most
+    // seven tenths of the tab: the list keeps its room, as the
+    // conversation editor's lines do.
+    let split_id = egui::Id::new("talk-split");
+    let share = ui.data_mut(|d| d.get_persisted::<f32>(split_id));
+    let share = share.unwrap_or(if feminine { 0.55 } else { 0.45 });
+    let (fewest, most) = split_limits(available, fixed + boxes * (least + gap));
+    let editor = (available * share).clamp(fewest, most);
     let list_height = (available - editor).max(120.0);
     let box_height = ((available - list_height - fixed) / boxes - gap).max(least);
     let mut list = egui::ScrollArea::vertical()
@@ -726,7 +733,10 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
     if rows.is_empty() && !query.is_empty() {
         ui.weak("No line has that.");
     }
-    ui.separator();
+    if let Some(to) = split(ui, editor) {
+        let to = to.clamp(fewest, most) / available.max(1.0);
+        ui.data_mut(|d| d.insert_persisted(split_id, to));
+    }
     let Some(row) = v.selected else {
         ui.weak("Choose a line to edit it.");
         return;
@@ -801,4 +811,47 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
     if let Some(e) = &v.error {
         ui.colored_label(ui.visuals().error_fg_color, e);
     }
+}
+
+/// The least and the most the line's editor under the list takes of the
+/// tab's `available` height: what it needs (`fewest`), and at most seven
+/// tenths of the tab.
+fn split_limits(available: f32, fewest: f32) -> (f32, f32) {
+    (fewest, (available * 0.7).max(fewest))
+}
+
+/// The line between the list and the line's editor, which is dragged up
+/// and down (drawn as a separator is, lit while the pointer is on it):
+/// the editor's height dragged to, from its `editor` height now.
+fn split(ui: &mut Ui, editor: f32) -> Option<f32> {
+    // (As tall as a separator, which it was.)
+    let size = egui::vec2(ui.available_width(), 6.0);
+    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    // (A little taller than the line, to be found by the pointer.)
+    let grip = rect.expand2(egui::vec2(0.0, 3.0));
+    let r = ui.interact(grip, egui::Id::new("talk-split-grip"), egui::Sense::drag());
+    if r.hovered() || r.dragged() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+    }
+    let visuals = ui.visuals();
+    let stroke = if r.dragged() {
+        visuals.widgets.active.fg_stroke
+    } else if r.hovered() {
+        visuals.widgets.hovered.fg_stroke
+    } else {
+        visuals.widgets.noninteractive.bg_stroke
+    };
+    ui.painter().hline(rect.x_range(), rect.center().y, stroke);
+    // (Where the pointer is against where it was pressed, from the height
+    // the editor had then: a drag's first steps, before egui calls it a
+    // drag, count too.)
+    if r.drag_started() {
+        ui.data_mut(|d| d.insert_temp(r.id, editor));
+    }
+    if !r.dragged() {
+        return None;
+    }
+    let from: f32 = ui.data(|d| d.get_temp(r.id))?;
+    let (origin, at) = ui.input(|i| (i.pointer.press_origin(), i.pointer.latest_pos()));
+    Some(from - (at?.y - origin?.y))
 }

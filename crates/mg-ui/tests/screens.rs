@@ -522,6 +522,13 @@ fn talk_table_editor() {
         // The pointer over a line: the whole row shows it.
         h.hover_at(egui::pos2(520.0, 472.0));
         shoot(&mut h, &dir, &format!("talk-table-{name}-hover"));
+        // The split dragged up, the pointer resting on it.
+        h.ctx.data_mut(|d| d.insert_persisted(egui::Id::new("talk-split"), 0.7f32));
+        h.run_steps(2);
+        let strref = Table::strref(27).0;
+        let line = h.get_by_label(&format!("StrRef {strref}")).rect().top() - 5.0;
+        h.hover_at(egui::pos2(520.0, line));
+        shoot(&mut h, &dir, &format!("talk-table-{name}-split"));
     }
 }
 

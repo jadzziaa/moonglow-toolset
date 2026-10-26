@@ -1633,6 +1633,70 @@ fn a_talk_table_s_row_is_clicked_anywhere() {
     assert!(h.state().talk.as_ref().unwrap().line(0).text.contains('!'));
 }
 
+/// The line between the talk table's list and the chosen line's text is
+/// dragged up and down (GitHub issue 24), held between the text boxes'
+/// three lines and seven tenths of the tab.
+#[test]
+fn the_talk_table_s_split_is_dragged() {
+    use mg_module::talk::{Line, Table};
+    let dir = mg_testkit::scratch_dir("ui-talk-split");
+    let mut h = Harness::builder().with_size(egui::vec2(1000.0, 800.0)).build_ui_state(
+        |ui, app: &mut Moonglow| app.ui(ui),
+        Moonglow::new(None, Box::new(NoDialogs::default())),
+    );
+    let mut table = Table::create("split", &dir, mg_core::Language::ENGLISH, false);
+    for row in 0..60 {
+        let text = format!("Text {row}");
+        table
+            .add_line(&Line { text, feminine: None, sound: String::new(), sound_length: 0.0 })
+            .unwrap();
+    }
+    h.state_mut().talk = Some(table);
+    h.state_mut().talk_view.outside = true;
+    h.state_mut().talk_view.selected = Some(5);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
+    h.run_steps(8);
+    let strref = |h: &Harness<'_, Moonglow>| h.get_by_label("StrRef 16777221").rect().top();
+    let top = h.get_by_label("Text 0").rect().top();
+    let drag = |h: &mut Harness<'_, Moonglow>, by: f32| {
+        // (The line is just above the chosen line's StrRef.)
+        let from = egui::pos2(500.0, strref(h) - 5.0);
+        let button = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        h.hover_at(from);
+        h.run_steps(1);
+        h.event(button(from, true));
+        h.run_steps(1);
+        for k in 1..=6 {
+            h.hover_at(from + egui::vec2(0.0, by * k as f32 / 6.0));
+            h.run_steps(1);
+        }
+        h.event(button(from + egui::vec2(0.0, by), false));
+        h.run_steps(3);
+    };
+    let before = strref(&h);
+    drag(&mut h, -80.0);
+    let after = strref(&h);
+    assert!((before - 80.0 - after).abs() < 1.0, "dragged up: {before} to {after}");
+    // Up to seven tenths of the tab: the list keeps its room.
+    drag(&mut h, -2000.0);
+    let highest = strref(&h);
+    assert!(highest < after - 20.0 && highest > top + 150.0, "held: {highest}, {top}");
+    drag(&mut h, -300.0);
+    assert!((strref(&h) - highest).abs() < 1.0, "no higher");
+    // Down to the text box's three lines, the sound's row still in sight.
+    drag(&mut h, 2000.0);
+    let lowest = strref(&h);
+    assert!(lowest > before + 50.0, "dragged down: {lowest}");
+    assert!(h.get_by_label("Sound").rect().bottom() < 800.0);
+    drag(&mut h, 300.0);
+    assert!((strref(&h) - lowest).abs() < 1.0, "no lower");
+}
+
 #[test]
 fn a_talk_table_file_is_made_and_opened_on_its_own() {
     let dir = mg_testkit::scratch_dir("ui-talk-file");
