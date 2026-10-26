@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:16:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:43:07Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1238,6 +1238,38 @@ not know.
   `follow.rs` (an item's own window following it). Up to 2.5.6 a move
   made the item again from its blueprint. Moonglow keeps the fields
   Aurora drops (lossless editing).
+- **Wiki:** missing.
+
+### An item put in an equipment slot that is taken
+
+Aurora's inventory never refuses a slot that holds an item, and asks
+nothing about it: the item dropped takes the slot, and the one the slot
+held goes to the backpack as it is (every field kept; its struct id its
+place in the list, at its end, and `Repos_PosX`/`Repos_Posy` the first
+free cell, which is where a backpack item just taken out left). This is
+so for an item dragged from the backpack, from the palette, and from
+another slot: a ring dragged onto the other ring slot leaves its own
+slot empty and sends the ring that was there to the backpack (no swap).
+The question about a missing feat is asked when a weapon that needs one
+is dropped on a weapon slot, before anything moves; No leaves it where
+it was, Yes adds the first feat. A longsword dropped on the secondary
+weapon slot while the primary is empty goes in the primary slot, so a
+drag of the creature's own longsword from the primary to the secondary
+slot leaves it in the primary (after the question, and Yes still adds
+the feat).
+
+- **Checked:** Aurora, `aurora_inventory.rs`
+  (`an_item_aurora_drops_on_a_taken_slot_sends_its_item_to_the_backpack`:
+  `inventory-slots/before.mod`, `inventory/before.mod` with items of the
+  bandits' own; `after-a.mod`: SPW2's backpack amulet onto its worn one,
+  a palette amulet onto SPW3's, SPW4's left ring onto its right ring's
+  slot, SPW5's longsword from the primary slot onto the secondary with
+  No; `after-b.mod` the same with Yes; `after-c.mod` the sword through
+  the backpack onto the secondary slot) (October 2026).
+- **Moonglow:** `crates/mg-ui/src/blueprint/creature_lists.rs`
+  (`equip_edits`: what the slot held goes to the backpack as it is, in
+  the same step; up to 2.5.6 it was deleted). A weapon dropped on the
+  secondary slot stays there (recorded in deferred.md).
 - **Wiki:** missing.
 
 ### Conversation script parameters

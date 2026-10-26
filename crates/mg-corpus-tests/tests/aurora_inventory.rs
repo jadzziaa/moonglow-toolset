@@ -117,3 +117,50 @@ fn an_item_aurora_moves_is_kept_as_it_is() {
     assert_eq!((packed.id, at("Repos_PosX"), at("Repos_Posy")), (1, 1, 0));
     assert_eq!(aurora(&listed_item(&was, 1, 1, 0)), aurora(&packed));
 }
+
+/// An item dropped on a slot that is taken, in Aurora's inventory
+/// (`inventory-slots/before.mod`: `inventory/before.mod` with items of
+/// the bandits' own; `after-a.mod`: SPW2's backpack amulet dragged onto
+/// its worn one, an amulet of the palette onto SPW3's, and SPW4's left
+/// ring onto its right ring's slot). Aurora asks nothing: the slot takes
+/// the item dropped, and what it held goes to the backpack as it is, at
+/// the list's end and the first free place (where a backpack item left,
+/// that place). A ring moved to the other ring's slot sends that ring to
+/// the backpack; the two are not swapped.
+#[test]
+fn an_item_aurora_drops_on_a_taken_slot_sends_its_item_to_the_backpack() {
+    use mg_module::instances::listed_item;
+    let before = Module::open(&aurora_capture!("inventory-slots/before.mod")).unwrap();
+    let after = Module::open(&aurora_capture!("inventory-slots/after-a.mod")).unwrap();
+    let find = |m: &Module, who: &str, list: &str, tag: &[u8]| {
+        let c = creature(m, who);
+        let items = c.list(list).unwrap_or(&[]);
+        items.iter().find(|s| s.string("Tag") == Some(tag)).cloned()
+    };
+    // (Without what Aurora adds to every item it writes, its fields in one
+    // order.)
+    let aurora = |s: &Struct| {
+        let mut s = s.clone();
+        s.remove("xModelPart1");
+        s.fields.sort_by_key(|f| f.label.to_string_lossy());
+        s
+    };
+    for (who, worn, slot, dropped) in [
+        ("SPW2", &b"MG_OCC_NECK"[..], 0x200, Some(&b"MG_NEW_NECK"[..])),
+        ("SPW3", b"MG_OCC_PAL", 0x200, None),
+        ("SPW4", b"MG_RING_R", 0x100, Some(b"MG_RING_L")),
+    ] {
+        let was = find(&before, who, "Equip_ItemList", worn).unwrap();
+        assert_eq!(was.id, slot);
+        assert!(find(&after, who, "Equip_ItemList", worn).is_none(), "{who}: off");
+        let packed = find(&after, who, "ItemList", worn).unwrap();
+        assert_eq!(creature(&after, who).list("ItemList").unwrap().len(), 1, "{who}");
+        assert_eq!(aurora(&listed_item(&was, 0, 0, 0)), aurora(&packed), "{who}: as it was");
+        let now = creature(&after, who);
+        let on = now.list("Equip_ItemList").unwrap().iter().find(|s| s.id == slot).unwrap();
+        match dropped {
+            Some(tag) => assert_eq!(on.string("Tag"), Some(tag), "{who}"),
+            None => assert_ne!(on.string("Tag"), Some(worn), "{who}: the palette's"),
+        }
+    }
+}

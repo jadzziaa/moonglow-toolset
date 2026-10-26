@@ -1043,13 +1043,14 @@ struct Moving {
     taken: Vec<Edit>,
 }
 
-/// The creature's `equipped` items once `taken` has run: without those it
-/// takes out of them (an item moved from one slot to another).
-fn after_taken(f: &Form<'_>, equipped: &[Struct], taken: &[Edit]) -> Vec<Struct> {
-    let mut rest = equipped.to_vec();
+/// The creature's `items` of its list `of` once `taken` has run: without
+/// those it takes out of them (an item moved from one slot to another, or
+/// from the backpack).
+fn after_taken(f: &Form<'_>, items: &[Struct], of: &str, taken: &[Edit]) -> Vec<Struct> {
+    let mut rest = items.to_vec();
     for e in taken {
         if let Edit::RemoveItem { key, path, list, index } = e
-            && (*key, path, list.as_str()) == (f.key, &f.path, "Equip_ItemList")
+            && (*key, path, list.as_str()) == (f.key, &f.path, of)
             && *index < rest.len()
         {
             rest.remove(*index);
@@ -1058,25 +1059,22 @@ fn after_taken(f: &Form<'_>, equipped: &[Struct], taken: &[Edit]) -> Vec<Struct>
     rest
 }
 
-/// The edits that equip `r` in slot `bit`, replacing what is there:
-/// `moving` taken from where it was and put there as it is, else a new
-/// item of blueprint `r`.
+/// The edits that equip `r` in slot `bit`: `moving` taken from where it
+/// was and put there as it is, else a new item of blueprint `r`. What
+/// the slot held goes to the end of the backpack (`backpack`), as it is.
 fn equip_edits(
     f: &mut Form<'_>,
-    equipped: &[Struct],
+    (equipped, backpack): (&[Struct], &[Struct]),
     bit: u32,
     r: ResRef,
     moving: Option<&Moving>,
 ) -> Vec<Edit> {
     let (key, base) = (f.key, f.path.clone());
     let mut e = Vec::new();
-    let equipped = match moving {
-        Some(m) => {
-            e.extend(m.taken.iter().cloned());
-            after_taken(f, equipped, &m.taken)
-        }
-        None => equipped.to_vec(),
-    };
+    let taken = moving.map_or(&[][..], |m| &m.taken[..]);
+    e.extend(taken.iter().cloned());
+    let equipped = after_taken(f, equipped, "Equip_ItemList", taken);
+    let backpack = after_taken(f, backpack, "ItemList", taken);
     let s = match moving {
         Some(m) => mg_module::instances::equipped_item(&f.carried(&m.item, bit), bit),
         // A placed creature holds the whole item; a blueprint its resref.
@@ -1094,6 +1092,8 @@ fn equip_edits(
     // One item per slot; the list is kept in slot order.
     if let Some(i) = equipped.iter().position(|s| s.id == bit) {
         e.push(remove(key, base.clone(), "Equip_ItemList", i));
+        let held = f.inventory_item(&backpack, &inventory::Added::Item(equipped[i].clone()));
+        e.push(insert(key, base.clone(), "ItemList", backpack.len(), held));
     }
     let at = equipped.iter().filter(|s| s.id < bit).count();
     e.push(insert(key, base, "Equip_ItemList", at, s));
@@ -1441,7 +1441,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                 _ => Vec::new(),
             };
             if missing.is_empty() {
-                let e = equip_edits(f, &equipped, bit, r, moving.as_ref());
+                let e = equip_edits(f, (&equipped, &backpack), bit, r, moving.as_ref());
                 apply(f, "Equip", e);
             } else {
                 ui.data_mut(|d| d.insert_temp(ask, (bit, r, missing, moving)));
@@ -1476,7 +1476,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             let mut feat = Struct::new(FEAT_ID);
             feat.set("Feat", Value::Word(missing[0]));
             let mut e = vec![insert(key, base.clone(), "FeatList", count, feat)];
-            e.extend(equip_edits(f, &equipped, bit, r, moving.as_ref()));
+            e.extend(equip_edits(f, (&equipped, &backpack), bit, r, moving.as_ref()));
             apply(f, "Equip", e);
         }
         if yes || no || modal.should_close() {

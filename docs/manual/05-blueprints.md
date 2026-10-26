@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:26:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:43:08Z }
 ---
 
 # Blueprints
@@ -426,7 +426,10 @@ A domain or school left **Not set** is the game's to choose.
   tip. Items are
   dragged, too: from the palette onto a slot (equipped there, if it goes
   in it) or onto the backpack (added); from the backpack onto a slot;
-  from a slot onto the backpack, or onto another slot it goes in. A
+  from a slot onto the backpack, or onto another slot it goes in. An
+  item put in a slot that holds one (dropped there, or with the Equip
+  beside it) sends that one to the backpack, as it is, in the same step,
+  as Aurora does; two rings are not swapped. A
   right click on an item anywhere offers the same (**Equip** or **To
   Backpack**, **Copy**, **Remove**, and last, as in Aurora's menus,
   **Properties**), and on the palette's
