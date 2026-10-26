@@ -307,6 +307,8 @@ impl Moonglow {
         if let Some(ws) = &mut self.ws {
             ws.mark_modified();
         }
+        // With the tabs it had, as opened from its file.
+        self.read_open_tabs();
         self.log.info(format!(
             "Recovered the unsaved work on {} from {}: save to keep it",
             copy.note.name,

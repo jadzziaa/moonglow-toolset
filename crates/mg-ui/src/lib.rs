@@ -102,7 +102,7 @@ pub use browser::Browser;
 pub use dialogs::{Dialogs, FileKind, NoDialogs};
 /// Carrying on when one model fails (for the application's panic hook).
 pub use mg_render::guard as model_guard;
-pub use options::OptionsDraft;
+pub use options::{OptionsDraft, OptionsPage};
 pub use settings::Settings;
 pub use tabs::Tab;
 pub use text::set_edit_language;

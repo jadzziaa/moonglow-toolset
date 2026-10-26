@@ -1566,6 +1566,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
         view.lit = !app.settings.unlit_areas;
         view.sound_ranges = app.settings.sound_ranges;
         view.fade = Fade::of(app.settings.fade_geometry);
+        // (Where its camera was, if a module's kept tabs opened it again.)
+        if let Some((orbit, night)) =
+            app.open_tabs.take_view(&crate::Tab::Area(area)).and_then(|v| v.orbit())
+        {
+            view.orbit = Some(orbit);
+            view.night = night.unwrap_or(view.night);
+        }
         view
     });
     refresh(app, &mut view);

@@ -472,7 +472,7 @@ pub(crate) fn context_menu(
 /// Opens Tile Properties for `cells`: out of tile mode, the tile selection
 /// (which the window is opened on) is left as it was, so that the view
 /// doesn't show a tile selected that nothing selects.
-fn properties_of(app: &mut Moonglow, view: &mut AreaView, cells: &[(u32, u32)]) {
+pub(crate) fn properties_of(app: &mut Moonglow, view: &mut AreaView, cells: &[(u32, u32)]) {
     let kept = std::mem::replace(&mut view.tile_selection, cells.to_vec());
     open_properties(app, view);
     if !view.tile_mode {

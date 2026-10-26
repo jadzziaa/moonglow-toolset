@@ -236,6 +236,10 @@ pub struct Settings {
     /// How large Tile Properties' variants' pictures are, points (their
     /// slider's; `None`: the usual size).
     pub tile_variant_side: Option<u16>,
+    /// The talk table editor's split: each table's (by its name, and
+    /// `+f` with a feminine table; the last changed first) share of the
+    /// tab given to the chosen line's text, thousandths.
+    pub talk_splits: Vec<(String, u16)>,
     /// Options > General: Show ResRefs beside names: `Name (resref)` in
     /// the module tree (where it lists by name) and the palettes.
     pub name_resrefs: bool,

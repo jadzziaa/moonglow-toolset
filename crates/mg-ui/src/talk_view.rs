@@ -387,7 +387,7 @@ fn stored_line(typed: &Line, stored: &Line) -> Line {
 }
 
 fn table(app: &mut Moonglow, ui: &mut Ui) {
-    let Moonglow { talk, talk_view: v, actions, ws, .. } = app;
+    let Moonglow { talk, talk_view: v, actions, ws, settings, .. } = app;
     let t = talk.as_mut().expect("open");
     let editable = t.editable();
     let mut leave = false;
@@ -624,13 +624,14 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
     let fixed = 2.0 * gap + 6.0 + 2.0 * field + (boxes + 1.0) * (text + gap);
     let least = 3.0 * text + 8.0;
     let available = ui.available_height();
-    // The split between them is dragged (its share of the tab is kept);
-    // at first, with two boxes, a little more than half; with one, a
-    // little less. The boxes keep three lines, and the editor at most
-    // seven tenths of the tab: the list keeps its room, as the
-    // conversation editor's lines do.
-    let split_id = egui::Id::new("talk-split");
-    let share = ui.data_mut(|d| d.get_persisted::<f32>(split_id));
+    // The split between them is dragged (its share of the tab is kept,
+    // each table's in Moonglow's settings); at first, with two boxes, a
+    // little more than half; with one, a little less. The boxes keep
+    // three lines, and the editor at most seven tenths of the tab: the
+    // list keeps its room, as the conversation editor's lines do.
+    let split_key = format!("{}{}", t.name.to_lowercase(), if feminine { "+f" } else { "" });
+    let share = (settings.talk_splits.iter().find(|(k, _)| *k == split_key))
+        .map(|(_, s)| f32::from(*s) / 1000.0);
     let share = share.unwrap_or(if feminine { 0.55 } else { 0.45 });
     let (fewest, most) = split_limits(available, fixed + boxes * (least + gap));
     let editor = (available * share).clamp(fewest, most);
@@ -753,7 +754,10 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
     }
     if let Some(to) = split(ui, editor) {
         let to = to.clamp(fewest, most) / available.max(1.0);
-        ui.data_mut(|d| d.insert_persisted(split_id, to));
+        let to = (to * 1000.0).round().clamp(0.0, 1000.0) as u16;
+        settings.talk_splits.retain(|(k, _)| *k != split_key);
+        settings.talk_splits.insert(0, (split_key, to));
+        settings.talk_splits.truncate(50);
     }
     let Some(row) = v.selected else {
         ui.weak("Choose a line to edit it.");
