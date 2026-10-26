@@ -11,7 +11,7 @@
 //!   `mg_magenta`, a texture of one color written to the scratch override;
 //! - shader parameters: a patched `inc_standard` paints a mesh cyan when
 //!   its `mgParam` uniform is 7 and its `mgVec` is (1, 2, 3, 4), which
-//!   only the object's `Material` sets (a case with 6 stays uncoloured).
+//!   only the object's `Material` sets (a case with 6 stays uncolored).
 //!   The object is a card whose MTR names its own shader pair: the game
 //!   passes parameters to no other material (a stock mesh, or an MTR
 //!   without `customshadervs`/`customshaderfs`, stays at 0, even with the
@@ -31,7 +31,7 @@ use mg_gff::Struct;
 use mg_module::instances::{Placement, Placing, instance};
 
 /// Painting added to the game's `inc_standard.shd`: the shader parameters'
-/// test colour, and `areaFlags`' four bytes in blocks 0-3 of row 6 (as
+/// test color, and `areaFlags`' four bytes in blocks 0-3 of row 6 (as
 /// [`debug_value`] reads them).
 const EE_FUNCTIONS: &str = r#"
 uniform int mgParam;
