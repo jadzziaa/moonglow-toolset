@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:06:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:02:37Z }
 ---
 
 # Modules
@@ -50,6 +50,23 @@ a directory), nasher projects (see below) and the game's campaign files
   on the area you opened last in it; the first time, or when that area
   is gone, on the first the module tree lists (Options › General
   switches this off too).
+- **A folder is opened with File › Open Folder…** (or the welcome page's
+  button): Open Module…'s file dialog picks files, and on Linux it
+  cannot choose a folder (its Open stays grayed out on one).
+- **A `.mod` with its folder beside it** (`modules/mymodule.mod` and
+  `modules/mymodule/`: a module directory, as Aurora keeps one, the
+  `.mod` unpacked into a folder of its name) asks which to open, in
+  Aurora's words ("A directory with the same name has been found. Do
+  you want to open this directory as a module?"): **Open Directory**
+  opens the folder, **Open .mod File** the `.mod`. It asks wherever the
+  `.mod` is opened (Open Module…, Recent Modules, the command line), and
+  Recent Modules remembers which was opened. Options › General's **A
+  .mod with its folder beside it** asks, or always opens the folder (as
+  Aurora's Always open module directories does), or always the `.mod`.
+  The folder opened is saved into, and with **Write a .mod beside a
+  module folder on save** (Options › General, on) written as the `.mod`
+  too, as Aurora does: the game and its server load the `.mod`, never
+  the folder.
 - **File › Save** (Ctrl+S) writes the module where it came from, as an
   archive or a folder. **Save As…** writes it as a `.mod` elsewhere. A new
   module is offered as `<name>.mod` in the user folder's `modules`, where

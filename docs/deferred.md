@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:43:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:02:37Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -307,6 +307,27 @@ Size: S (an hour or two), M (a day or so), L (several days).
   (and the custom talk table) are watched the same way, and read again
   on the window's thread after a change (not measured on a large
   `override`). (S each)
+- **A `.mod` with its folder beside it** (GitHub issue 30: a reporter on
+  Linux who could not choose a folder in Open Module…'s file dialog and
+  found a `.mod` with its folder opened as the `.mod`). It asks which to
+  open, in Aurora's words, wherever the `.mod` is opened in the window
+  (Open Module…, Recent Modules, the command line); Options › General
+  asks, or always opens the folder (Aurora's Always open module
+  directories), or always the `.mod`; Open Folder… is on the welcome
+  page, and Open Module…'s dialog title and tip name it. Not done:
+  - **`mg` says nothing of the folder:** a `.mod` named to `mg` is the
+    `.mod` (as the server reads it), and a command that saves it leaves
+    the folder beside it as it was; a note would go in each of its 40
+    places that open a module (no one place opens them). (S)
+  - **The folder is looked for by the `.mod`'s name as written**
+    (`name.mod`, `name/`), and holding a `module.ifo`: on Linux a folder
+    `Name/` beside `name.mod` is not found, where Aurora on Windows
+    finds names in any case. Whether Aurora asks for a folder with no
+    `module.ifo` in it was not tried. (S)
+  - **No files dropped on the window:** Moonglow opens nothing dragged
+    onto it, so there is no drop to ask from. (S)
+  - The welcome page's Recent modules show a folder by its name alone
+    (`name`, beside `name.mod`); the File menu's show the whole path.
 
 ## Content doctor
 
@@ -3775,8 +3796,10 @@ is not taken for a new gap.
   writes one for a module directory: on unless Options › General
   switches it off (the user's decision: a folder opened from elsewhere,
   a repository's source tree, gets a `.mod` written beside it unless it
-  is off). A nasher project is left to Pack Target. Aurora's own
-  behavior was not captured.
+  is off). A nasher project is left to Pack Target. Captured in Aurora
+  since (`docs/findings.md`, A module directory beside its .mod): it
+  writes the changed files into the folder and packs it into the `.mod`
+  beside it, the old one kept as `.BackupMod`, as Moonglow does.
 - **Clicking between tiles and objects:** a click on an object while
   tiles are selected goes to objects, and a double click on the ground
   to its tile. So a tile wholly under an object is selected by a box,
