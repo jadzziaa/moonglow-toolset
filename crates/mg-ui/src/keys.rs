@@ -448,6 +448,17 @@ impl Default for Keymap {
     }
 }
 
+/// The keys a list has taken from the commands that read keys held down
+/// (the area camera's): [`Keymap::held_but`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Taken {
+    /// The arrow keys.
+    pub arrows: bool,
+    /// The keys that type a character (letters, digits), without
+    /// modifiers.
+    pub letters: bool,
+}
+
 impl Keymap {
     /// The keys with the settings' choices (by command id; an empty list
     /// takes a command's keys away). Keys that don't read are left out; an
@@ -605,13 +616,14 @@ impl Keymap {
     /// camera; and no key counts while a text field has the keyboard
     /// (`typing`): the arrows move its cursor, with Ctrl or Shift too.
     pub fn held(&self, i: &InputState, cmd: Cmd, typing: bool) -> bool {
-        self.held_but(i, cmd, typing, false)
+        self.held_but(i, cmd, typing, Taken::default())
     }
 
-    /// [`held`](Self::held), but for the arrow keys where they are taken
-    /// (`no_arrows`: the palette's tree moves by them after a click in
-    /// it; the command's other keys go on working).
-    pub fn held_but(&self, i: &InputState, cmd: Cmd, typing: bool, no_arrows: bool) -> bool {
+    /// [`held`](Self::held), but for the keys a list takes (the palette's
+    /// tree moves by the arrows after a click in it; a letter typed in the
+    /// conversation tree or the module tree goes to a line or a row): the
+    /// command's other keys go on working.
+    pub fn held_but(&self, i: &InputState, cmd: Cmd, typing: bool, taken: Taken) -> bool {
         use egui::Key::{ArrowDown, ArrowLeft, ArrowRight, ArrowUp};
         let Some(keys) = self.keys.get(cmd.id()) else { return false };
         !typing
@@ -619,7 +631,8 @@ impl Keymap {
                 let plain = s.modifiers.is_none();
                 let text = s.logical_key.name().chars().count() == 1;
                 let arrow = matches!(s.logical_key, ArrowDown | ArrowLeft | ArrowRight | ArrowUp);
-                !(no_arrows && arrow)
+                !(taken.arrows && arrow)
+                    && !(taken.letters && text && plain)
                     && i.key_down(s.logical_key)
                     && if plain {
                         !(text && (i.modifiers.command || i.modifiers.ctrl || i.modifiers.alt))
@@ -747,9 +760,20 @@ mod tests {
         assert!(map.held(&i, Cmd::CameraLeft, false));
         assert!(!map.held(&i, Cmd::CameraLeft, true));
         // The arrows taken (the palette's): the command's other keys work.
-        assert!(!map.held_but(&i, Cmd::CameraLeft, false, true));
+        let arrows = Taken { arrows: true, letters: false };
+        assert!(!map.held_but(&i, Cmd::CameraLeft, false, arrows));
         i.keys_down.insert(Key::A);
-        assert!(map.held_but(&i, Cmd::CameraLeft, false, true));
+        assert!(map.held_but(&i, Cmd::CameraLeft, false, arrows));
+        // The letters taken (a tree's): the arrow works, not A, nor the
+        // keypad's 4.
+        let letters = Taken { arrows: false, letters: true };
+        assert!(map.held_but(&i, Cmd::CameraLeft, false, letters));
+        i.keys_down.remove(&Key::ArrowLeft);
+        assert!(!map.held_but(&i, Cmd::CameraLeft, false, letters));
+        i.keys_down.remove(&Key::A);
+        i.keys_down.insert(Key::Num4);
+        assert!(!map.held_but(&i, Cmd::CameraLeft, false, letters));
+        assert!(map.held_but(&i, Cmd::CameraLeft, false, Taken::default()));
     }
 
     #[test]

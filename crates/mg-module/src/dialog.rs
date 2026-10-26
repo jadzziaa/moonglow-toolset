@@ -392,21 +392,88 @@ fn owned(g: &Gff) -> HashSet<(Kind, u32)> {
     seen
 }
 
+/// How a change numbered a conversation's lines anew: each line's number
+/// after it, by its number before (`None`: deleted). Lines are numbered by
+/// their place in their list, so what is kept by number (the editor's
+/// bookmarks and folded lines) follows its lines by this.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Renumbering {
+    entries: Vec<Option<u32>>,
+    replies: Vec<Option<u32>>,
+    /// How many entries and replies there are after it.
+    after: [u32; 2],
+}
+
+impl Renumbering {
+    /// Every line of `g` keeping its number.
+    pub fn unchanged(g: &Gff) -> Renumbering {
+        let same = |kind| (0..nodes(g, kind).len() as u32).map(Some).collect::<Vec<_>>();
+        Renumbering::new(same(Kind::Entry), same(Kind::Reply))
+    }
+
+    /// Each kind's numbers after, by their numbers before.
+    fn new(entries: Vec<Option<u32>>, replies: Vec<Option<u32>>) -> Renumbering {
+        let after = |m: &[Option<u32>]| m.iter().flatten().max().map_or(0, |n| n + 1);
+        let after = [after(&entries), after(&replies)];
+        Renumbering { entries, replies, after }
+    }
+
+    fn of(&self, kind: Kind) -> &[Option<u32>] {
+        match kind {
+            Kind::Entry => &self.entries,
+            Kind::Reply => &self.replies,
+        }
+    }
+
+    /// Line `(kind, index)`'s number after the change; `None` if it was
+    /// deleted (or was no line before).
+    pub fn line(&self, kind: Kind, index: u32) -> Option<u32> {
+        self.of(kind).get(index as usize).copied().flatten()
+    }
+
+    /// The change undone: each line left, back to its number before (the
+    /// lines deleted come back, from no number).
+    pub fn inverse(&self) -> Renumbering {
+        let back = |map: &[Option<u32>], after: u32| {
+            let mut out = vec![None; after as usize];
+            for (old, new) in map.iter().enumerate() {
+                if let Some(slot) = new.and_then(|n| out.get_mut(n as usize)) {
+                    *slot = Some(old as u32);
+                }
+            }
+            out
+        };
+        Renumbering {
+            entries: back(&self.entries, self.after[0]),
+            replies: back(&self.replies, self.after[1]),
+            after: [self.entries.len() as u32, self.replies.len() as u32],
+        }
+    }
+
+    /// Whether every line keeps its number (nothing was deleted).
+    pub fn is_identity(&self) -> bool {
+        [&self.entries, &self.replies]
+            .iter()
+            .all(|m| m.iter().enumerate().all(|(i, n)| *n == Some(i as u32)))
+    }
+}
+
 /// Removes the link at `pos` under a parent. Removing an owning link
 /// deletes the lines it owned (and every link to them); the remaining
-/// lines are renumbered.
-pub fn remove(g: &mut Gff, parent: Parent, pos: usize) {
-    let Some(l) = links_mut(g, parent) else { return };
-    if pos >= l.len() {
-        return;
+/// lines are renumbered, as the returned [`Renumbering`] says.
+pub fn remove(g: &mut Gff, parent: Parent, pos: usize) -> Renumbering {
+    match links_mut(g, parent) {
+        Some(l) if pos < l.len() => {
+            l.remove(pos);
+            prune(g)
+        }
+        _ => Renumbering::unchanged(g),
     }
-    l.remove(pos);
-    prune(g);
 }
 
 /// Deletes lines no owning link reaches, with the links to them, and
 /// renumbers.
-fn prune(g: &mut Gff) {
+fn prune(g: &mut Gff) -> Renumbering {
     let keep = owned(g);
     let mut maps: HashMap<Kind, Vec<Option<u32>>> = HashMap::new();
     for kind in [Kind::Entry, Kind::Reply] {
@@ -449,6 +516,10 @@ fn prune(g: &mut Gff) {
         }
     }
     renumber(g);
+    Renumbering::new(
+        maps.remove(&Kind::Entry).unwrap_or_default(),
+        maps.remove(&Kind::Reply).unwrap_or_default(),
+    )
 }
 
 /// Struct ids as Aurora writes them: each list's index, and the word count.
@@ -808,6 +879,29 @@ mod tests {
         assert_eq!(nodes(&g, Kind::Reply).len(), 0);
         assert_eq!(outline(&g), ["Entry|Go away.||if ()|do ()|anim 0|"]);
         assert_eq!(g.root.dword("NumWords"), Some(2));
+    }
+
+    /// What a delete numbers anew, and back: the lines after a deleted
+    /// one take lower numbers; deleting a link deletes no line.
+    #[test]
+    fn a_delete_says_how_it_numbered_the_lines() {
+        let mut g = sample();
+        let (e, r) = (Kind::Entry, Kind::Reply);
+        // "Go away." (entry 2) owns the link to "Who are you?".
+        let map = remove(&mut g, Parent::Node(e, 2), 0);
+        assert!(map.is_identity());
+        let mut g = sample();
+        let map = remove(&mut g, Parent::Root, 0);
+        assert_eq!([map.line(e, 0), map.line(e, 1), map.line(e, 2)], [None, None, Some(0)]);
+        assert_eq!(map.line(r, 0), None);
+        assert!(!map.is_identity());
+        assert_eq!(text(node(&g, e, 0).unwrap()), "Go away.");
+        let back = map.inverse();
+        assert_eq!(back.line(e, 0), Some(2));
+        assert_eq!([back.line(e, 1), back.line(r, 0)], [None, None], "no such lines after");
+        assert_eq!(back.inverse(), map);
+        // Nothing there to delete: nothing numbered anew.
+        assert!(remove(&mut g, Parent::Root, 5).is_identity());
     }
 
     #[test]

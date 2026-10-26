@@ -3,7 +3,7 @@ type: Manual Page
 title: Conversations
 description: Conversations - the conversation tree, a line's tabs, writing conversations elsewhere, the Script Wizard and backups.
 tags: [manual, conversations]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T00:42:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T05:28:53Z }
 ---
 
 # Conversations
@@ -45,10 +45,21 @@ area's view. Then, as in Aurora's tree:
 | Left | fold the selected line's branch; if it is folded (or has none), go to the line it is under |
 | Home, End | select Root, or the last line shown |
 | Page Up, Page Down | go up or down by as many lines as the tree has room for |
+| Backspace | go to the line the selected one is under (from a first line, Root) |
+| + and − on the keypad | open or fold the selected line's branch, the selection staying |
+| * on the keypad | open everything under the selected line, branches folded further down too (from Root: the whole tree) |
+| A letter or a digit | go to the next line shown whose text begins with it, upper or lower case, round to the top after the last (an NPC line's text, not the speaker named before it; Root is "Root") |
+| Ctrl+Up, Ctrl+Down | scroll the tree a line up or down, the selection staying |
 
 The line selected scrolls into sight. While you type in a field (the
 line's Text, Find What), the keys are the field's: they move its text
-cursor.
+cursor, and letters, Backspace and − type there. The − above the letters
+folds too, as the keypad's does, and Shift+8 opens everything out as the
+keypad's * does (Moonglow can't tell them apart).
+
+Folding a branch with its **−** (or Collapse All) while a line in it is
+selected selects the line folded, as Windows' tree does, so the
+selection stays in sight.
 
 | Command | Does |
 | --- | --- |
@@ -84,7 +95,9 @@ more than that.
 
 **Search** finds text in this conversation or every conversation in the
 module (match case, whole words, replace); **Bookmarks** remember lines to
-go back to. With the pointer over the editor, Ctrl+F (or Ctrl+R) opens
+go back to. Bookmarks and folded branches stay with their lines when a
+delete numbers the lines after it anew (a bookmark on a line deleted goes,
+and Undo brings it back). With the pointer over the editor, Ctrl+F (or Ctrl+R) opens
 Search and F3 finds again, as in Aurora, from the conversation or from
 the Search pane's Find What field.
 

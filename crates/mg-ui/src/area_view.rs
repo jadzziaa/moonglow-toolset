@@ -3830,8 +3830,12 @@ fn camera_input(
     let typing = ui.memory(|m| m.focused().is_some());
     // Nor the arrow keys while they are the palette's (after a click in
     // its tree, until the pointer is back in an area's view).
-    let no_arrows = crate::palette_view::has_arrows(ui.ctx());
-    let held = |c: Cmd| ui.input(|i| keys.held_but(i, c, typing, no_arrows));
+    // Nor the letters and digits while a tree goes to its lines by them.
+    let taken = crate::keys::Taken {
+        arrows: crate::palette_view::has_arrows(ui.ctx()),
+        letters: crate::palette_view::letters_taken(ui.ctx()),
+    };
+    let held = |c: Cmd| ui.input(|i| keys.held_but(i, c, typing, taken));
     let axis =
         |plus: Cmd, minus: Cmd| f32::from(u8::from(held(plus))) - f32::from(u8::from(held(minus)));
     let dt = ui.input(|i| i.stable_dt).min(0.1);
