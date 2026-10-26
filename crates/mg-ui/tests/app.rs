@@ -8275,6 +8275,84 @@ fn item_wizard_makes_a_weapon_with_its_cost() {
     );
 }
 
+/// The Item Wizard's Magical, as Aurora's: ticked, the item level and
+/// quality are chosen before going on, and the item gets random
+/// properties its base item can have, the same for the same seed, and
+/// is written unidentified. A torch can't be made magical.
+#[test]
+fn item_wizard_makes_a_magical_item_of_a_level_and_quality() {
+    use mg_module::palette::BlueprintKind;
+    let Some(mut h) = game_harness("item-magic") else { return };
+    let make = |h: &mut Harness<'_, Moonglow>, base: &str, name: &str| {
+        let mut w = mg_ui::blueprint_wizard::BlueprintWizard::new(BlueprintKind::Item);
+        w.seed = 7;
+        h.state_mut().blueprint_wizard = Some(w);
+        h.run();
+        h.get_by_label(base).scroll_to_me();
+        h.run();
+        h.get_by_label(base).click();
+        h.run();
+        h.get_by_label("Next >").click();
+        h.run();
+        type_into_hint(h, "Name", name);
+    };
+    make(&mut h, "Longsword", "Magic Sword");
+    // The level and quality wait for Magical; with it, Next waits for
+    // them.
+    assert!(h.get_by_label("Godly").accesskit_node().is_disabled());
+    h.get_by_label("Magical").click();
+    h.run();
+    assert!(!h.get_by_label("Godly").accesskit_node().is_disabled());
+    assert!(h.get_by_label("Next >").accesskit_node().is_disabled());
+    h.get_by_label("16-20").click();
+    h.run();
+    assert!(h.get_by_label("Next >").accesskit_node().is_disabled());
+    h.get_by_label("Godly").click();
+    h.run();
+    h.get_by_label("Next >").click();
+    h.run();
+    h.get_by_label("Plot Item").click();
+    h.run();
+    h.get_by_label("Finish").click();
+    h.run();
+    let made = module_gff(&mut h, "magicsword", ResType::UTI).expect("the item");
+    let game = h.state().game.clone().unwrap();
+    let props: Vec<mg_rules::ItemProperty> = made
+        .root
+        .list("PropertiesList")
+        .unwrap()
+        .iter()
+        .map(mg_rules::ItemProperty::from_gff)
+        .collect();
+    assert!(!props.is_empty());
+    let available = game.available_properties(1);
+    assert!(props.iter().all(|p| available.iter().any(|a| a.row == p.property)), "{props:?}");
+    // 16-20, Godly: a longsword's first property is of the melee
+    // table's top tier.
+    let melee = game.table("itmwizmelee").unwrap();
+    let first = props[0];
+    let top = (0..melee.len()).any(|r| {
+        melee.get_int(r, "Value") == Some(8)
+            && melee.get_int(r, "Prop") == Some(first.property.into())
+            && melee.get_int(r, "CostVal").unwrap_or(0) == i32::from(first.cost_value)
+    });
+    assert!(top, "{first:?}");
+    assert_eq!(made.root.integer("Identified"), Some(0));
+    let cost = game.item_cost(&mg_rules::ItemValue::from_gff(&made.root));
+    assert_eq!(made.root.integer("Cost"), Some(cost.into()));
+    assert!(cost > 30000, "a magical sword's cost: {cost}");
+    // The same seed, the same properties.
+    let plain = mg_module::blueprints::item(&game, ResRef::from_str("x").unwrap(), "X", 1, 0);
+    let mut again = plain.clone();
+    let m = mg_rules::item_wizard::Magical { level: 3, quality: 3, seed: 7 };
+    mg_module::blueprints::make_magical(&game, &mut again, m);
+    assert_eq!(again.root.list("PropertiesList"), made.root.list("PropertiesList"));
+
+    // A torch: no Magical.
+    make(&mut h, "Torch", "Plain Torch");
+    assert!(h.get_by_label("Magical").accesskit_node().is_disabled());
+}
+
 /// A module with a 4 by 4 rural area holding two waypoints, at (20, 20)
 /// and (30, 20), with the game's data and a GPU (`None` without either).
 fn area_harness(name: &str) -> Option<(Harness<'static, Moonglow>, ResRef)> {

@@ -10,6 +10,7 @@ use mg_core::{Gender, Language, LocString, ResRef};
 
 use crate::project_file::Naming;
 use mg_gff::{Gff, Struct, Value};
+use mg_rules::item_wizard::{ItemMagic, Magical};
 use mg_rules::{GameData, ItemValue};
 
 /// The name Aurora's wizards suggest: the category and a number.
@@ -476,6 +477,22 @@ pub fn item(game: &GameData, resref: ResRef, display: &str, base_item: u32, cate
     let cost = game.item_cost(&ItemValue::from_gff(&g.root));
     g.root.set("Cost", Value::Dword(cost));
     g
+}
+
+/// Makes an [`item`] magical, as the Item Wizard's Magical does: random
+/// properties for its level band and quality (`mg_rules::item_wizard`),
+/// its charges, and its cost; unidentified, as Aurora writes it.
+pub fn make_magical(game: &GameData, g: &mut Gff, magic: Magical) {
+    let mut value = ItemValue::from_gff(&g.root);
+    if let Some(m) = ItemMagic::new(game, value.base_item) {
+        let made = m.generate(game, &value, magic.level, magic.quality, magic.seed);
+        let list = made.properties.iter().map(|p| p.to_gff()).collect();
+        g.root.set("PropertiesList", Value::List(list));
+        g.root.set("Charges", Value::Byte(made.charges));
+        value = ItemValue::from_gff(&g.root);
+    }
+    g.root.set("Identified", Value::Byte(0));
+    g.root.set("Cost", Value::Dword(game.item_cost(&value)));
 }
 
 #[cfg(test)]

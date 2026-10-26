@@ -62,6 +62,21 @@ impl ItemProperty {
             chance: s.integer("ChanceAppear").unwrap_or(100) as u8,
         }
     }
+
+    /// A `PropertiesList` entry, its fields in the order Aurora writes
+    /// them.
+    pub fn to_gff(&self) -> mg_gff::Struct {
+        use mg_gff::Value;
+        let mut s = mg_gff::Struct::new(0);
+        s.set("PropertyName", Value::Word(self.property));
+        s.set("Subtype", Value::Word(self.subtype));
+        s.set("CostTable", Value::Byte(self.cost_table));
+        s.set("CostValue", Value::Word(self.cost_value));
+        s.set("Param1", Value::Byte(self.param1));
+        s.set("Param1Value", Value::Byte(self.param1_value));
+        s.set("ChanceAppear", Value::Byte(self.chance));
+        s
+    }
 }
 
 impl ItemValue {

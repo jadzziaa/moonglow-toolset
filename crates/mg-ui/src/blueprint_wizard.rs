@@ -12,6 +12,7 @@ use mg_module::blueprints::{self, SoundStyle};
 use mg_module::palette::{BlueprintKind, Palette, PaletteNode};
 use mg_resman::ResKey;
 use mg_rules::GameData;
+use mg_rules::item_wizard::{self, Magical};
 
 use crate::{Action, Moonglow, Tab};
 use mg_module::project_file::Naming;
@@ -109,6 +110,13 @@ pub struct BlueprintWizard {
     pub sounds: Vec<ResRef>,
     pub creatures: Vec<Struct>,
     pub base_item: Option<u32>,
+    /// Items: Magical, with random properties for an item level band
+    /// (0: 1-5 ... 3: 16-20) and quality (0: Low ... 3: Godly), chosen
+    /// with `seed`.
+    pub magical: bool,
+    pub item_level: Option<u8>,
+    pub item_quality: Option<u8>,
+    pub seed: u64,
 }
 
 impl BlueprintWizard {
@@ -130,6 +138,10 @@ impl BlueprintWizard {
             sounds: Vec::new(),
             creatures: Vec::new(),
             base_item: None,
+            magical: false,
+            item_level: None,
+            item_quality: None,
+            seed: fastrand::u64(..),
         }
     }
 
@@ -151,7 +163,11 @@ impl BlueprintWizard {
             Step::Waves => !self.sounds.is_empty(),
             Step::Creatures => !self.creatures.is_empty(),
             Step::Category => self.category.is_some(),
-            Step::Name => !self.name.trim().is_empty() && !self.resref_refused,
+            Step::Name => {
+                !self.name.trim().is_empty()
+                    && !self.resref_refused
+                    && (!self.magical || self.item_level.is_some() && self.item_quality.is_some())
+            }
         }
     }
 
@@ -191,7 +207,15 @@ impl BlueprintWizard {
             BlueprintKind::Placeable => blueprints::placeable(resref, name, category),
             BlueprintKind::Door => blueprints::door(resref, name, category),
             BlueprintKind::Item => {
-                blueprints::item(game, resref, name, self.base_item.unwrap_or(0), category)
+                let mut g =
+                    blueprints::item(game, resref, name, self.base_item.unwrap_or(0), category);
+                if let (true, Some(level), Some(quality)) =
+                    (self.magical, self.item_level, self.item_quality)
+                {
+                    let magic = Magical { level, quality, seed: self.seed };
+                    blueprints::make_magical(game, &mut g, magic);
+                }
+                g
             }
             BlueprintKind::Creature => unreachable!("the Creature Wizard's own window"),
         };
@@ -270,6 +294,40 @@ fn item_types(game: &GameData) -> Vec<(u32, String)> {
         .collect();
     out.sort_by_key(|(_, n)| n.to_lowercase());
     out
+}
+
+/// The Item Wizard's Magical, Item Level and Item Quality, as Aurora's
+/// Name page has them: the level and quality chosen once Magical is
+/// ticked, for the base items it offers magic for.
+fn magic_ui(ui: &mut Ui, w: &mut BlueprintWizard, game: &GameData) {
+    let offered = w.base_item.is_some_and(|b| item_wizard::offered(game, b));
+    w.magical &= offered;
+    ui.add_space(6.0);
+    ui.add_enabled(offered, egui::Checkbox::new(&mut w.magical, "Magical")).on_hover_text(
+        "Make this a magical item: random properties for the item level and quality, from the \
+         toolset's tables for its kind of item",
+    );
+    ui.add_enabled_ui(w.magical, |ui| {
+        egui::Grid::new("item-wizard-magic").num_columns(2).spacing([40.0, 2.0]).show(ui, |ui| {
+            crate::widgets::field_label(ui, "Item Level")
+                .on_hover_text("The player level to make the item for");
+            crate::widgets::field_label(ui, "Item Quality")
+                .on_hover_text("How powerful the item is");
+            ui.end_row();
+            for (i, (level, quality)) in
+                item_wizard::LEVELS.iter().zip(item_wizard::QUALITIES).enumerate()
+            {
+                let i = i as u8;
+                if ui.radio(w.item_level == Some(i), *level).clicked() {
+                    w.item_level = Some(i);
+                }
+                if ui.radio(w.item_quality == Some(i), quality).clicked() {
+                    w.item_quality = Some(i);
+                }
+                ui.end_row();
+            }
+        });
+    });
 }
 
 /// The open blueprint wizard.
@@ -490,6 +548,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 w.resref_refused = problem.is_some();
                 if let Some(p) = problem {
                     ui.colored_label(ui.visuals().warn_fg_color, p);
+                }
+                if w.kind == BlueprintKind::Item {
+                    let game = app.game.as_deref().expect("checked");
+                    magic_ui(ui, &mut w, game);
                 }
             }
         }

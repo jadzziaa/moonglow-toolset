@@ -20,6 +20,8 @@ mod aurora_factions;
 mod aurora_instances;
 #[path = "../aurora_inventory.rs"]
 mod aurora_inventory;
+#[path = "../aurora_item_wizard.rs"]
+mod aurora_item_wizard;
 #[path = "../aurora_journal.rs"]
 mod aurora_journal;
 #[path = "../aurora_levelup.rs"]

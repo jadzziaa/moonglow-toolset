@@ -26,6 +26,8 @@ mod doctor;
 mod hak_edit;
 #[path = "../item_properties.rs"]
 mod item_properties;
+#[path = "../item_wizard.rs"]
+mod item_wizard;
 #[path = "../module_search.rs"]
 mod module_search;
 #[path = "../modules.rs"]
