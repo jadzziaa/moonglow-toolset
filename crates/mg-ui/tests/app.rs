@@ -11729,7 +11729,7 @@ fn the_spells_page_prepares_spells_beside_those_to_choose_from() {
     h.run();
     assert_eq!(spell_list(&mut h, &key, "MemorizedList1"), level1);
     // The Empowered Bless is shown, and × takes it alone away.
-    let shown = h.get_by_label("Bless (Empowered)").rect();
+    let shown = h.get_by_label("Bless (Empower Spell)").rect();
     let x = h
         .get_all_by_label("×")
         .find(|n| (n.rect().center().y - shown.center().y).abs() < 4.0)
@@ -11771,6 +11771,49 @@ fn the_spells_page_prepares_spells_beside_those_to_choose_from() {
     assert_eq!(spell_list(&mut h, &key, "MemorizedList0"), level0);
     // How many the cleric may have of each level, as Aurora counts them.
     assert!(h.query_by_label_contains("Level 1: ").is_some());
+}
+
+/// Aurora's Meta-Magic: the metamagic feats the creature has, and with one
+/// chosen, a spell is prepared with it at its casting level (Bless, level
+/// 1, Empowered: level 3), its count is of those, and it is listed as
+/// Aurora's summary names it.
+#[test]
+fn the_spells_page_prepares_with_the_metamagic_chosen() {
+    use mg_gff::Value;
+    let Some((mut h, key)) = blueprint_harness("nw_mumcleric", "cleric_meta", ResType::UTC) else {
+        return;
+    };
+    h.run();
+    // Empower Spell (feat.2da 11).
+    let mut feat = mg_gff::Struct::new(1);
+    feat.set("Feat", Value::Word(11));
+    let feats = field(&mut h, &key).list("FeatList").map_or(0, <[_]>::len);
+    let edit = mg_edit::Edit::insert_item(key, mg_edit::GffPath::root(), "FeatList", feats, feat);
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("feat", vec![edit])));
+    h.run();
+    h.get_by_label("Spells").click();
+    h.run();
+    // The Meta-Magic list (showing None).
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    h.query_all(combo)
+        .find(|n| n.accesskit_node().value() == Some("None".into()))
+        .expect("the Meta-Magic list")
+        .click();
+    h.run();
+    h.get_by_label("Empower Spell").click();
+    h.run();
+    let bless = spell_row(&h, "Bless");
+    let level3 = spell_list(&mut h, &key, "MemorizedList3");
+    let level1 = spell_list(&mut h, &key, "MemorizedList1");
+    // (Those to choose from come first.)
+    h.get_all_by_label("Bless").next().expect("Bless to choose").click();
+    h.run();
+    let mut more = level3.clone();
+    more.push((bless, 1, 1));
+    assert_eq!(spell_list(&mut h, &key, "MemorizedList3"), more);
+    assert_eq!(spell_list(&mut h, &key, "MemorizedList1"), level1);
+    assert!(h.query_by_label("Bless (Empower Spell)").is_some());
+    assert!(h.query_by_label("Bless  ×1").is_some(), "the count is of the Empowered ones");
 }
 
 /// A sorcerer's known spells: ticked among those to choose from, listed
@@ -29877,4 +29920,47 @@ fn a_letter_typed_in_a_tree_leaves_the_area_camera() {
     h.run_steps(2);
     hold(&mut h, egui::Key::W, "w");
     assert!((target(&h) - start).length() > 0.1, "W moves the view");
+}
+
+/// Escape in a text field of a Properties window (a number's, a tag's)
+/// leaves the field and no more: what was typed is kept and the window
+/// stays, on its page. A second Escape, with nothing typed in, closes it.
+#[test]
+fn escape_in_a_field_leaves_the_field_not_the_window() {
+    let Some((mut h, key)) = blueprint_harness("nw_chicken", "esc_field", ResType::UTC) else {
+        return;
+    };
+    let is_input =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
+    let open = |h: &Harness<'_, Moonglow>| h.state().dock.find_tab(&Tab::Blueprint(key)).is_some();
+    h.run();
+    // A tag typed into.
+    let tag = String::from_utf8_lossy(field(&mut h, &key).string("Tag").unwrap()).into_owned();
+    h.get_all_by_value(&tag).find(is_input).expect("the tag's field").click();
+    h.run();
+    h.key_press(egui::Key::End);
+    h.get_all_by_value(&tag).find(is_input).unwrap().type_text("X");
+    h.run();
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert!(open(&h), "the window stays");
+    let now = String::from_utf8_lossy(field(&mut h, &key).string("Tag").unwrap()).into_owned();
+    assert_eq!(now, format!("{tag}X"), "what was typed is kept");
+    // A number typed into, on the Statistics page.
+    h.get_by_label("Statistics").click();
+    h.run();
+    let was = field(&mut h, &key).integer("Str").unwrap();
+    h.get_all_by_value(&was.to_string()).next().expect("Strength's field").click();
+    h.run();
+    h.get_all_by_value(&was.to_string()).next().unwrap().type_text("12");
+    h.run();
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert!(open(&h), "the window stays");
+    assert!(h.query_by_label("Ability Scores").is_some(), "on its page");
+    assert_eq!(field(&mut h, &key).integer("Str"), Some(12), "what was typed is kept");
+    // Nothing typed in now: Escape closes the window, as it did.
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert!(!open(&h));
 }

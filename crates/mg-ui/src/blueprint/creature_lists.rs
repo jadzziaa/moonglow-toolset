@@ -303,19 +303,35 @@ fn statement(text: &str) -> &str {
 }
 
 /// `SpellMetaMagic`'s bits and what a spell so cast is called.
-const METAMAGIC: [(u8, &str); 6] = [
-    (1, "Empowered"),
-    (2, "Extended"),
-    (4, "Maximized"),
-    (8, "Quickened"),
-    (16, "Silent"),
-    (32, "Still"),
+/// `SpellMetaMagic`'s bits, the feat (feat.2da) that gives each and its
+/// English name.
+const METAMAGIC: [(u8, usize, &str); 6] = [
+    (1, 11, "Empower Spell"),
+    (2, 12, "Extend Spell"),
+    (4, 25, "Maximize Spell"),
+    (8, 29, "Quicken Spell"),
+    (16, 33, "Silent Spell"),
+    (32, 37, "Still Spell"),
 ];
 
-/// A spell's name with its metamagic: "Fireball (Empowered)".
-fn with_metamagic(name: &str, metamagic: u8) -> String {
-    let how: Vec<&str> =
-        METAMAGIC.iter().filter(|(bit, _)| metamagic & bit != 0).map(|(_, n)| *n).collect();
+/// A metamagic's name, as Aurora names it: its feat's.
+fn metamagic_name(game: &GameData, bit: u8) -> String {
+    let Some(&(_, feat, english)) = METAMAGIC.iter().find(|(b, _, _)| *b == bit) else {
+        return format!("Metamagic {bit}");
+    };
+    let name = game.table("feat").ok().and_then(|t| t.get_int(feat, "FEAT"));
+    name.and_then(|s| game.string(mg_core::StrRef(u32::try_from(s).ok()?)))
+        .unwrap_or_else(|| english.to_string())
+}
+
+/// A spell's name with its metamagic, as Aurora's summary has it: "Bless
+/// (Empower Spell)".
+fn with_metamagic(game: &GameData, name: &str, metamagic: u8) -> String {
+    let how: Vec<String> = METAMAGIC
+        .iter()
+        .filter(|(bit, _, _)| metamagic & bit != 0)
+        .map(|(bit, _, _)| metamagic_name(game, *bit))
+        .collect();
     if how.is_empty() { name.to_string() } else { format!("{name} ({})", how.join(", ")) }
 }
 
@@ -343,11 +359,11 @@ pub(crate) fn spell_groups(list: &[Struct]) -> Vec<SpellGroup> {
 }
 
 /// A new entry of a class's spell list, as the toolset writes one.
-fn spell_entry(spell: usize) -> Struct {
+fn spell_entry(spell: usize, metamagic: u8) -> Struct {
     let mut s = Struct::new(SPELL_ID);
     s.set("Spell", Value::Word(spell as u16));
     s.set("SpellFlags", Value::Byte(1));
-    s.set("SpellMetaMagic", Value::Byte(0));
+    s.set("SpellMetaMagic", Value::Byte(metamagic));
     s
 }
 
@@ -416,6 +432,36 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
         }
     });
     ui.data_mut(|d| d.insert_temp(id, (which, level)));
+    // Aurora's Meta-Magic, for a class that prepares its spells: none, or
+    // one of the metamagic feats the creature has. The spells to choose
+    // from are then prepared with it, at their level raised by it (their
+    // casting level), and a count is of those so prepared.
+    let feats: Vec<i64> =
+        f.root.list("FeatList").unwrap_or(&[]).iter().filter_map(|s| s.integer("Feat")).collect();
+    let metamagics: Vec<u8> = std::iter::once(0)
+        .chain(METAMAGIC.iter().filter(|m| feats.contains(&(m.1 as i64))).map(|m| m.0))
+        .collect();
+    let mut metamagic: u8 = ui.data(|d| d.get_temp(id.with("metamagic"))).unwrap_or(0);
+    if !metamagics.contains(&metamagic) {
+        metamagic = 0;
+    }
+    let meta_name = |m: &u8| if *m == 0 { "None".to_string() } else { metamagic_name(game, *m) };
+    let prepares_spells = casters[which].3.prepares;
+    ui.add_enabled_ui(prepares_spells, |ui| {
+        ui.horizontal(|ui| {
+            crate::widgets::field_label(ui, "Meta-Magic");
+            crate::widgets::dropdown(id.with("metamagic-list"))
+                .selected_text(meta_name(&metamagic))
+                .width(160.0)
+                .show(ui, &mut metamagic, &metamagics, meta_name)
+                .on_hover_text("The metamagic feats the creature has: spells are prepared with it");
+        });
+    });
+    if !prepares_spells {
+        metamagic = 0;
+    }
+    ui.data_mut(|d| d.insert_temp(id.with("metamagic"), metamagic));
+    let raised = mg_module::script_set::metamagic_levels(metamagic) as usize;
     let (mut clear, mut save, mut load) = (false, false, false);
     ui.horizontal_wrapped(|ui| {
         clear = ui.button("Clear Class Spell List").clicked();
@@ -446,9 +492,15 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
     let path = base.item("ClassList", index);
     // What the page changes: (what, edits), one command.
     let mut change: Option<(&str, Vec<Edit>)> = None;
+    // A spell's entries in list `l` (of the metamagic chosen, for a class
+    // that prepares its spells).
     let had = |l: usize, spell: usize| -> Vec<usize> {
-        let at = lists[l].iter().enumerate();
-        at.filter(|(_, s)| s.integer("Spell") == Some(spell as i64)).map(|(i, _)| i).collect()
+        let Some(list) = lists.get(l) else { return Vec::new() };
+        let of = |s: &Struct| {
+            s.integer("Spell") == Some(spell as i64)
+                && (!prepares || s.integer("SpellMetaMagic").unwrap_or(0) == i64::from(metamagic))
+        };
+        list.iter().enumerate().filter(|(_, s)| of(s)).map(|(i, _)| i).collect()
     };
     ui.columns(2, |columns| {
         // The class's spells, to choose from: a click on one gives it to the
@@ -458,11 +510,19 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
             .id_salt(("utc-spell-list", key, which))
             .auto_shrink(false)
             .show(ui, |ui| {
-                egui::Grid::new(("utc-spell-grid", key, which)).num_columns(2).striped(true).show(
-                    ui,
-                    |ui| {
+                // (The casting level, with a metamagic chosen: the spell level else.)
+                let columns = if raised > 0 { 3 } else { 2 };
+                egui::Grid::new(("utc-spell-grid", key, which))
+                    .num_columns(columns)
+                    .striped(true)
+                    .show(ui, |ui| {
                         ui.strong(if prepares { "Spell" } else { "Known Spell" });
                         ui.strong("Level");
+                        if raised > 0 {
+                            ui.strong("Casting").on_hover_text(
+                                "Casting Level: the spell level raised by the metamagic",
+                            );
+                        }
                         ui.end_row();
                         for (row, name, l) in &spells {
                             if level.is_some_and(|x| x != *l)
@@ -471,19 +531,28 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
                             {
                                 continue;
                             }
-                            let present = had(*l, *row);
+                            // (Prepared with metamagic: at its casting level.)
+                            let cast = if prepares { l + raised } else { *l };
+                            let present = had(cast, *row);
                             let r = if prepares {
                                 let text = match present.len() {
                                     0 => name.clone(),
                                     n => format!("{name}  ×{n}"),
                                 };
+                                // (Aurora lists one cast above level 9 too, as a
+                                // level no list keeps.)
                                 let r = ui
-                                    .selectable_label(!present.is_empty(), text)
-                                    .on_hover_text("Prepare one more");
+                                    .add_enabled(
+                                        cast <= 9,
+                                        egui::Button::selectable(!present.is_empty(), text),
+                                    )
+                                    .on_hover_text("Prepare one more")
+                                    .on_disabled_hover_text("Cast above level 9");
                                 if r.clicked() {
-                                    let item = spell_entry(*row);
-                                    let at = lists[*l].len();
-                                    let edit = insert(key, path.clone(), &slots.list(*l), at, item);
+                                    let item = spell_entry(*row, metamagic);
+                                    let at = lists[cast].len();
+                                    let edit =
+                                        insert(key, path.clone(), &slots.list(cast), at, item);
                                     change = Some(("Prepare spell", vec![edit]));
                                 }
                                 r
@@ -493,7 +562,7 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
                                 if r.changed() {
                                     let list = slots.list(*l);
                                     change = Some(if known {
-                                        let item = spell_entry(*row);
+                                        let item = spell_entry(*row, 0);
                                         let at = lists[*l].len();
                                         (
                                             "Add known spell",
@@ -510,10 +579,12 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
                             };
                             described(r, Some(game), "spells", "SpellDesc", *row);
                             ui.label(l.to_string());
+                            if raised > 0 {
+                                ui.label(cast.to_string());
+                            }
                             ui.end_row();
                         }
-                    },
-                );
+                    });
             });
         // Those the class has, by level: how many it may have of each
         // (as Aurora's warnings count them), and a row for each spell (a
@@ -548,7 +619,7 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
                         .iter()
                         .map(|g| {
                             let name = mg_rules::choice_text(&names, g.spell);
-                            (with_metamagic(&name, g.metamagic), g)
+                            (with_metamagic(game, &name, g.metamagic), g)
                         })
                         .collect();
                     rows.sort_by_key(|(name, _)| name.to_lowercase());

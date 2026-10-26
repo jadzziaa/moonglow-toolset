@@ -1374,6 +1374,7 @@ impl Moonglow {
             ui.ctx().request_repaint();
         }
         self.open_tabs_frame(ui.ctx());
+        widgets::dialogs_end(ui.ctx());
     }
 
     /// The debug log's start of a frame: once, the settings and the
