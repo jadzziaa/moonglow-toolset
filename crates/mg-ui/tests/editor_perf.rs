@@ -92,3 +92,95 @@ fn editing_a_huge_script() {
     let buf_len = app.ws.as_ref().unwrap().module.get(&key).map(|b| b.len());
     println!("module copy {buf_len:?} bytes (unsaved edits stay in the editor)");
 }
+
+/// Opening Select Texture on a placeable's Visuals page (GitHub issue 32):
+/// the frame that lists every texture of the game, then the frames that
+/// make the pictures in sight (a few milliseconds' worth each), and one
+/// after typing a name to find.
+#[test]
+#[ignore]
+fn opening_select_texture() {
+    let root = mg_testkit::corpus!();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    let game = app.game.as_deref().unwrap();
+    let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+    let data = game.resman.get_named("plc_chest1", ResType::UTP).unwrap().into_owned();
+    let dir = mg_testkit::scratch_dir("select-texture-perf");
+    let mut m = Module::new();
+    m.set_info(&Gff::new(*b"IFO ")).unwrap();
+    m.set(key, data);
+    let path = dir.join("perf.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1600.0, 1000.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().blueprint_pages.insert((key, mg_edit::GffPath::root()), "Visuals");
+    let t = Instant::now();
+    h.run();
+    println!("the Visuals page, first frame (its models read): {:?}", t.elapsed());
+    let t = Instant::now();
+    h.step();
+    println!("the Visuals page, a frame after: {:?}", t.elapsed());
+
+    h.get_all_by_label("Select Texture…").next().unwrap().click();
+    let t = Instant::now();
+    h.step();
+    println!("the click's frame: {:?}", t.elapsed());
+    let t = Instant::now();
+    h.step();
+    let opened = t.elapsed();
+    // (Frames until three in a row make nothing: quick ones.)
+    let (mut frames, started) = (Vec::new(), Instant::now());
+    while frames.len() < 300
+        && (frames.len() < 3
+            || frames[frames.len() - 3..].iter().any(|d| *d > std::time::Duration::from_millis(2)))
+    {
+        let t = Instant::now();
+        h.step();
+        frames.push(t.elapsed());
+    }
+    let making = &frames[..frames.len() - 3];
+    let worst = making.iter().max().copied().unwrap_or_default();
+    println!(
+        "opened (every texture listed): {opened:?}; pictures in sight made over {} more \
+         frames in {:?}, the longest {worst:?}",
+        making.len(),
+        started.elapsed() - frames[frames.len() - 3..].iter().sum::<std::time::Duration>()
+    );
+    let t = Instant::now();
+    h.step();
+    println!("a frame with them all made: {:?}", t.elapsed());
+    // Scrolled a page at a time: the new pictures in sight made.
+    let at = h.get_by_label("Select Texture").rect().left_top() + egui::vec2(300.0, 300.0);
+    h.hover_at(at);
+    let mut scrolled = Vec::new();
+    for _ in 0..20 {
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -700.0),
+            modifiers: egui::Modifiers::NONE,
+            phase: egui::TouchPhase::Move,
+        });
+        for _ in 0..3 {
+            let t = Instant::now();
+            h.step();
+            scrolled.push(t.elapsed());
+        }
+    }
+    scrolled.sort();
+    println!(
+        "scrolling a page at a time, 20 pages: frames median {:?}, worst {:?}",
+        scrolled[scrolled.len() / 2],
+        scrolled.last().unwrap()
+    );
+    let by_hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Find");
+    h.get(egui_kittest::kittest::by().predicate(by_hint)).click();
+    h.step();
+    h.get(egui_kittest::kittest::by().predicate(by_hint)).type_text("wood");
+    let t = Instant::now();
+    h.step();
+    println!("a frame after typing \"wood\": {:?}", t.elapsed());
+}

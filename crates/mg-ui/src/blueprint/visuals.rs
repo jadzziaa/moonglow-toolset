@@ -14,7 +14,6 @@
 //! triggers, only `MiscVisuals`.
 
 use egui::Ui;
-use mg_core::ResRef;
 use mg_gff::{Struct, Value};
 
 use super::Form;
@@ -22,8 +21,8 @@ use crate::text::{decode, encode};
 use crate::widgets::{commit_number, commit_text};
 
 /// The struct ids the game writes.
-const TEXTURE_REPLACE_ID: u32 = 9;
-const ANIMATION_REPLACE_ID: u32 = 11;
+pub(super) const TEXTURE_REPLACE_ID: u32 = 9;
+pub(super) const ANIMATION_REPLACE_ID: u32 = 11;
 const MATERIAL_ID: u32 = 7;
 const MISC_VISUALS_ID: u32 = 8;
 
@@ -106,12 +105,12 @@ fn cursor_name(v: i64) -> String {
 pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, full: bool) {
     if full {
         crate::widgets::section_heading(ui, "Texture replacements");
-        ui.weak("A texture of the object's model drawn with another (not PLT textures).");
-        pairs(f, ui, Pairs::TEXTURES);
+        ui.weak("A texture of the object's models drawn with another (not PLT textures).");
+        super::replacements::textures(f, ui);
         ui.add_space(crate::widgets::SECTION_GAP);
         crate::widgets::section_heading(ui, "Animation replacements");
         ui.weak("An animation of the object's model played as another.");
-        pairs(f, ui, Pairs::ANIMATIONS);
+        super::replacements::animations(f, ui);
         ui.add_space(crate::widgets::SECTION_GAP);
         crate::widgets::section_heading(ui, "Shader parameters");
         ui.weak("Values a material's shader reads (uniforms).");
@@ -121,42 +120,10 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, full: bool) {
     misc(f, ui);
 }
 
-/// A replacement list's labels.
-struct Pairs {
-    what: &'static str,
-    field: &'static str,
-    id: u32,
-    list: &'static str,
-    old: &'static str,
-    new: &'static str,
-    titles: (&'static str, &'static str),
-}
-
-impl Pairs {
-    const TEXTURES: Pairs = Pairs {
-        what: "Texture replacement",
-        field: "TextureReplace",
-        id: TEXTURE_REPLACE_ID,
-        list: "TextureReplaceLi",
-        old: "OldTexture",
-        new: "NewTexture",
-        titles: ("Texture", "Drawn as"),
-    };
-    const ANIMATIONS: Pairs = Pairs {
-        what: "Animation replacement",
-        field: "AnimationReplace",
-        id: ANIMATION_REPLACE_ID,
-        list: "AnimationReplace",
-        old: "OldAnimation",
-        new: "NewAnimation",
-        titles: ("Animation", "Played as"),
-    };
-}
-
 impl Form<'_> {
     /// The items of a list inside a struct field (`TextureReplace` ›
     /// `TextureReplaceLi`).
-    fn nested_list(&self, field: &str, list: &str) -> Vec<Struct> {
+    pub(super) fn nested_list(&self, field: &str, list: &str) -> Vec<Struct> {
         self.root
             .child(field)
             .and_then(|s| s.list(list))
@@ -166,7 +133,7 @@ impl Form<'_> {
 
     /// Sets the list inside a struct field, keeping the struct's other
     /// fields; an empty list removes the field.
-    fn set_nested_list(
+    pub(super) fn set_nested_list(
         &mut self,
         what: &str,
         field: &str,
@@ -190,75 +157,6 @@ impl Form<'_> {
             s.set(label, v.clone());
         }
         self.set(what, "MiscVisuals", Value::Struct(s));
-    }
-}
-
-fn resref_text(s: &Struct, label: &str) -> String {
-    s.resref(label).map(|r| r.to_string()).unwrap_or_default()
-}
-
-/// Old → new pairs, each with Remove, and a row to add one.
-fn pairs(f: &mut Form<'_>, ui: &mut Ui, p: Pairs) {
-    let items = f.nested_list(p.field, p.list);
-    let mut changed: Option<Vec<Struct>> = None;
-    egui::Grid::new(f.id(p.field)).num_columns(3).min_col_width(140.0).spacing([12.0, 4.0]).show(
-        ui,
-        |ui| {
-            crate::widgets::field_label(ui, p.titles.0);
-            ui.label(p.titles.1);
-            ui.end_row();
-            for (i, e) in items.iter().enumerate() {
-                for label in [p.old, p.new] {
-                    let id = f.id(&format!("{}#{i}#{label}", p.field));
-                    let current = resref_text(e, label);
-                    if let Some(v) = commit_text(f.app, ui, id, &current, false, 140.0)
-                        && let Ok(r) = ResRef::from_str(v.trim())
-                    {
-                        let mut all = items.clone();
-                        all[i].set(label, Value::resref(r));
-                        changed = Some(all);
-                    }
-                }
-                if ui.small_button("Remove").clicked() {
-                    let mut all = items.clone();
-                    all.remove(i);
-                    changed = Some(all);
-                }
-                ui.end_row();
-            }
-            // A new pair.
-            let ids = [p.old, p.new].map(|l| f.id(&format!("{}#new#{l}", p.field)));
-            for (id, hint) in ids.into_iter().zip([p.titles.0, p.titles.1]) {
-                let buf = f.app.buffers.entry(id).or_default();
-                ui.add(
-                    egui::TextEdit::singleline(buf)
-                        .char_limit(16)
-                        .desired_width(140.0)
-                        .hint_text(hint),
-                );
-            }
-            let text = |f: &Form<'_>, id| {
-                f.app.buffers.get(&id).map(|s| s.trim().to_string()).unwrap_or_default()
-            };
-            let (old, new) = (text(f, ids[0]), text(f, ids[1]));
-            let valid = ResRef::from_str(&old).is_ok_and(|r| !r.is_empty())
-                && ResRef::from_str(&new).is_ok();
-            if ui.add_enabled(valid, egui::Button::new("Add").small()).clicked() {
-                let mut e = Struct::new(0);
-                e.set(p.old, Value::resref(ResRef::from_str(&old).expect("checked")));
-                e.set(p.new, Value::resref(ResRef::from_str(&new).expect("checked")));
-                let mut all = items.clone();
-                all.push(e);
-                changed = Some(all);
-                for id in ids {
-                    f.app.buffers.remove(&id);
-                }
-            }
-            ui.end_row();
-        },
-    );
-    if let Some(all) = changed {
-        f.set_nested_list(p.what, p.field, p.id, p.list, all);
     }
 }
 

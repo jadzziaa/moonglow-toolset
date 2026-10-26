@@ -122,6 +122,43 @@ fn stitched(whole: &mg_image::Rgba) -> Option<mg_image::Rgba> {
     Some(mg_image::Rgba { width: (2 * w) as u32, height: h as u32, data })
 }
 
+/// A texture as pixels no more than `side` across: its first mip level that
+/// small (else its smallest), then every `n`th pixel of that.
+fn small(texture: &mg_image::Texture, side: u32) -> mg_image::Rgba {
+    let level = (0..texture.mips.len())
+        .find(|&l| {
+            let (w, h) = texture.level_dims(l);
+            w.max(h) <= side
+        })
+        .unwrap_or(texture.mips.len().saturating_sub(1));
+    let (w, h) = texture.level_dims(level);
+    let data = texture.mips.get(level).map_or(&[][..], Vec::as_slice);
+    let mut rgba = mg_image::Rgba {
+        width: w,
+        height: h,
+        data: mg_image::bc::decode(texture.format, w, h, data),
+    };
+    if !texture.has_alpha {
+        for px in rgba.data.as_chunks_mut::<4>().0 {
+            px[3] = 255;
+        }
+    }
+    let step = w.max(h).div_ceil(side.max(1)).max(1);
+    if step == 1 {
+        return rgba;
+    }
+    let (sw, sh) = (w.div_ceil(step), h.div_ceil(step));
+    let mut out = mg_image::Rgba::new(sw, sh);
+    for y in 0..sh {
+        for x in 0..sw {
+            let from = (((y * step) * w + x * step) * 4) as usize;
+            let to = ((y * sw + x) * 4) as usize;
+            out.data[to..to + 4].copy_from_slice(&rgba.data[from..from + 4]);
+        }
+    }
+    out
+}
+
 impl Loader<'_> {
     /// A resource's bytes: the module's, else the game's.
     fn data(&self, key: ResKey) -> Option<Arc<[u8]>> {
@@ -183,6 +220,27 @@ impl Loader<'_> {
         let rgba = ResRef::from_str(&key).ok().and_then(|r| {
             let (t, data) = self.texture(r)?;
             Some(mg_image::read(t, &data).ok()?.to_rgba())
+        });
+        self.keep(ctx, key, rgba)
+    }
+
+    /// A small picture of the texture named `name`, no more than `side`
+    /// pixels across, loaded once: a DDS's mip level of about that size
+    /// (decoding the whole texture took too long for a gallery of
+    /// thousands), a TGA scaled down.
+    pub(crate) fn thumbnail(
+        &mut self,
+        ctx: &egui::Context,
+        name: &str,
+        side: u32,
+    ) -> Option<Picture> {
+        let key = format!("{}#thumb{side}", name.to_ascii_lowercase());
+        if let Some(p) = self.pictures.get(&key) {
+            return p.clone();
+        }
+        let rgba = ResRef::from_str(name).ok().and_then(|r| {
+            let (t, data) = self.texture(r)?;
+            Some(small(&mg_image::read(t, &data).ok()?, side))
         });
         self.keep(ctx, key, rgba)
     }
@@ -514,6 +572,29 @@ mod tests {
     use mg_gff::Value;
 
     use super::*;
+
+    #[test]
+    fn a_thumbnail_is_a_small_mip_level_or_scaled_down() {
+        // Three levels, 8, 4 and 2 across, each its own grey.
+        let level = |side: usize, v: u8| vec![v; side * side * 4];
+        let t = mg_image::Texture {
+            width: 8,
+            height: 8,
+            format: mg_image::Format::Rgba8,
+            mips: vec![level(8, 10), level(4, 20), level(2, 30)],
+            has_alpha: false,
+            alpha_mean: None,
+        };
+        let s = small(&t, 4);
+        assert_eq!((s.width, s.height, s.data[0], s.data[3]), (4, 4, 20, 255));
+        assert_eq!(small(&t, 1).width, 1, "the smallest, scaled down");
+        // One level: every other pixel.
+        let mut one = t.clone();
+        one.mips.truncate(1);
+        let s = small(&one, 3);
+        assert_eq!((s.width, s.height), (3, 3));
+        assert_eq!(s.data.len(), 3 * 3 * 4);
+    }
 
     #[test]
     fn a_part_past_255_is_read_from_its_ee_twin_whose_label_is_cut() {

@@ -1051,6 +1051,87 @@ fn illumination_and_pc_faction() {
     }
 }
 
+/// The Visuals page's texture and animation pickers (GitHub issue 32) on
+/// a placeable (with a replacement, and one of a texture its model lacks),
+/// a door, a creature of one model and one of body parts (PLTs), and an
+/// item; and Select Texture, open, its pictures made.
+#[test]
+#[ignore]
+fn visuals_pickers() {
+    use mg_gff::{Struct, Value};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let pair = |old: &str, new: &str| {
+        let mut e = Struct::new(0);
+        e.set("OldTexture", Value::resref(mg_core::ResRef::from_str(old).unwrap()));
+        e.set("NewTexture", Value::resref(mg_core::ResRef::from_str(new).unwrap()));
+        e
+    };
+    for (name, t, shot) in [
+        ("plc_chest1", ResType::UTP, "visuals-chest"),
+        ("nw_door_ttr_01", ResType::UTD, "visuals-door"),
+        ("nw_bartender", ResType::UTC, "visuals-creature"),
+        ("nw_bandit001", ResType::UTC, "visuals-human"),
+        ("nw_wswmls010", ResType::UTI, "visuals-item"),
+    ] {
+        let mut app = Moonglow::new(
+            Some(GameInstall::new(&root, None, "en")),
+            Box::new(NoDialogs::default()),
+        );
+        let game = app.game.as_deref().unwrap();
+        let mut g = mg_gff::Gff::read(&game.resman.get_named(name, t).unwrap()).unwrap();
+        if shot == "visuals-human" {
+            // A human, its own parts 1 (under what it wears).
+            g.root.set("Appearance_Type", Value::Word(6));
+            for part in [
+                "Torso", "Pelvis", "Belt", "Neck", "LThigh", "RThigh", "LShin", "RShin", "LFoot",
+                "LFArm", "RFArm", "LBicep", "RBicep", "LHand", "RHand",
+            ] {
+                g.root.set(&format!("BodyPart_{part}"), Value::Byte(1));
+            }
+        }
+        if shot == "visuals-chest" {
+            let p = mg_preview::placeable(game, &g.root).unwrap();
+            let own = mg_preview::replaceable::textures(game, &p);
+            let mut s = Struct::new(9);
+            let first = own.first().map_or("plc_chest1".to_string(), |t| t.name.clone());
+            let mut all = game.resman.list(ResType::DDS);
+            all.sort();
+            let other = all
+                .iter()
+                .map(|r| r.to_lowercase().to_string())
+                .find(|n| n.starts_with("plc_") && !own.iter().any(|t| t.name == *n))
+                .unwrap();
+            let list = vec![pair(&first, &other), pair("mg_absent", "mg_other")];
+            s.set("TextureReplaceLi", Value::List(list));
+            g.root.set("TextureReplace", Value::Struct(s));
+        }
+        let mut m = mg_module::Module::new();
+        m.set(ResKey::parse(name, t).unwrap(), g.to_bytes().unwrap());
+        let path = dir.join(format!("{name}-visuals.mod"));
+        m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+        app.open_module(&path);
+        let key = ResKey::parse(name, t).unwrap();
+        app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1000.0, 760.0))
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.state_mut().blueprint_pages.insert((key, GffPath::root()), "Visuals");
+        shoot(&mut h, &dir, shot);
+        if shot == "visuals-chest" {
+            h.get_all_by_label("Select Texture…").next().unwrap().click();
+            // (Its pictures are made over frames, as they come in sight.)
+            for _ in 0..200 {
+                if h.try_run().is_ok() {
+                    break;
+                }
+            }
+            shoot(&mut h, &dir, "visuals-select-texture");
+        }
+    }
+}
+
 /// An item's General page at several widths: its two columns side by
 /// side only where the first one's fields fit beside the second.
 #[test]
