@@ -17,6 +17,8 @@ mod engine_area_light;
 mod engine_area_variables;
 #[path = "../engine_armor_colors.rs"]
 mod engine_armor_colors;
+#[path = "../engine_armor_torso.rs"]
+mod engine_armor_torso;
 #[path = "../engine_big_hak.rs"]
 mod engine_big_hak;
 #[path = "../engine_blueprints.rs"]

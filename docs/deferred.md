@@ -552,11 +552,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Blueprint editors and inventories
 
-- **An armor whose torso is 0** (or another parts_chest.2da row with a
-  blank `ACBONUS`, which the part lists now offer as 0): Moonglow's
-  General page shows no weight for it and prices it as armor class 0;
-  what armor class, weight and cost the game gives it was not measured
-  in the engine. (S) (a builder's report on 2.0.0)
 - **A head of 0:** the previews draw head 1 for `Appearance_Head` 0,
   as the client drew a head without the field; whether the game draws
   head 1 or nothing for a 0 that is there was not looked at. (S)

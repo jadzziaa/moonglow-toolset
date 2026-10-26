@@ -14068,6 +14068,42 @@ fn an_armor_s_part_can_be_none() {
     assert!(h.get_all_by_value("0 (none)").next().is_some(), "the list shows none");
 }
 
+/// An armor whose torso is 0 (its `ACBONUS` blank, as in most of the
+/// game's parts_chest.2da rows) is clothing, as the engine has it
+/// (`engine_armor_torso.rs`): the General page shows its weight and armor
+/// class 0, and prices it as armor.2da row 0 (a builder's report: no
+/// weight, and the price of nothing).
+#[test]
+fn an_armor_whose_torso_is_0_is_clothing() {
+    let Some((mut h, key)) = blueprint_harness("nw_aarcl001", "torso_none", ResType::UTI) else {
+        return;
+    };
+    let set = |label: &str, value: mg_gff::Value| mg_edit::Edit::SetField {
+        key,
+        path: mg_edit::GffPath::root(),
+        label: label.into(),
+        value: Some(value),
+    };
+    let edits = vec![
+        set("ArmorPart_Torso", mg_gff::Value::Byte(0)),
+        set("PropertiesList", mg_gff::Value::List(Vec::new())),
+    ];
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Torso", edits)));
+    h.run();
+    // Each statistic's value, beside its label on its row.
+    let stat = |h: &Harness<'_, Moonglow>, label: &str, value: &str| {
+        let at = h.get_by_label(label).rect();
+        let beside = h.get_all_by_label(value).any(|n| {
+            let r = n.rect();
+            r.min.x > at.max.x && (r.center().y - at.center().y).abs() < 8.0
+        });
+        assert!(beside, "{label}: {value}");
+    };
+    stat(&h, "Base Weight", "1.0 lbs");
+    stat(&h, "Armor Class", "0");
+    stat(&h, "Total Cost", "1");
+}
+
 #[test]
 fn an_armor_s_parts_take_colors_of_their_own_and_keep_them() {
     use mg_gff::Value;

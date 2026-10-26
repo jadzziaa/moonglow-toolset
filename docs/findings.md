@@ -48,7 +48,7 @@ All arithmetic is single-precision float.
 
 1. **Base cost:** `baseitems.2da BaseCost`. For armor (`ModelType` 3),
    `armor.2da COST` at the row given by `parts_chest.2da ACBONUS` of
-   `ArmorPart_Torso`, rounded.
+   `ArmorPart_Torso`, rounded (a blank one, row 0: below).
 2. **Passive properties** (all but Cast Spell, `itempropdef` row 15): each
    costs (`itempropdef Cost`, or if empty the subtype table's `Cost` at the
    property's `Subtype`) × (the cost table's `Cost` at `CostValue`; the
@@ -90,6 +90,27 @@ All arithmetic is single-precision float.
   table "iprp_charges.2da" (it is `iprp_chargecost`), and omits which rows
   are scaled, the separate truncations, AddCost per item and the minimum
   of 1.
+
+### A torso with no `ACBONUS` is clothing
+
+An armor whose `ArmorPart_Torso` names a parts_chest.2da row with a blank
+`ACBONUS` (row 0 and row 2 of the game's table) or a row the table lacks
+(250) has armor class 0, as a torso of `ACBONUS` 0.00 has: `GetItemACValue`
+0, `GetWeight` 10 (1.0 lb) and `GetGoldPieceValue` 1, its `Cost` 1, which
+are armor.2da row 0's `WEIGHT` and `COST`. A plain armor with torso 4
+(4.00) gives 4, 300 and 100. Moonglow had read a blank as no armor class:
+no weight on the General page and a base cost of 0 (a builder's report on
+2.0.0); it now reads a blank or missing row as 0.
+
+- **Checked:** engine, `engine_armor_torso.rs`
+  `an_armor_whose_torso_has_no_armor_class_is_clothing` (`nw_aarcl001`
+  with no properties, torsos 0, 1, 2, 4 and 250; 2026-10-26, EE
+  89.8193.37).
+- **Moonglow:** `crates/mg-rules/src/items.rs` (`GameData::armor_class`),
+  `crates/mg-ui/src/blueprint/item.rs` (`statistics`).
+- **Wiki:** the armor.2da page says parts_chest.2da's `ACBONUS`, rounded,
+  is the row of armor.2da the armor takes; what a blank cell or a missing
+  row gives is missing.
 
 ### Created items are priced anew
 

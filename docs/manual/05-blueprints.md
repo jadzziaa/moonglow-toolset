@@ -536,7 +536,9 @@ the game's tables mostly leave out: an armor with no part there. As in
 the game, the wearer's own body part then shows there (the preview's
 man or woman shows bare skin); a creature whose own part is 0 as well
 shows nothing there. A creature's body parts offer 0 (none) the same
-way, on its Appearance page.
+way, on its Appearance page. An armor whose torso has no `ACBONUS` (a
+torso of 0) is clothing, as the game has it: armor class 0, 1 lb, and
+priced as armor class 0.
 
 An armor's **Part Colors** (under its colors on the Appearance page) give
 one part a color of its own: choose the part, then a color for any of its
