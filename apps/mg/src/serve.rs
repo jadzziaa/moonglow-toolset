@@ -512,6 +512,39 @@ mod tests {
         assert_eq!(module_name(Path::new("tdod_library.mod")), "tdod_library");
     }
 
+    /// A project that keeps its talk table as JSON: the server's tlk
+    /// folder gets the table made of it (it finds no other), not a link to
+    /// the player's own copy.
+    #[test]
+    fn a_projects_talk_table_is_made_for_the_server() {
+        let Some(root) = mg_testkit::nwn_root() else { return };
+        let dir = mg_testkit::scratch_dir("mg-serve-tlk");
+        let user = dir.join("user");
+        std::fs::create_dir_all(user.join("tlk")).unwrap();
+        std::fs::write(user.join("tlk/mytlk.tlk"), b"the player's own").unwrap();
+        let gi = GameInstall::new(&root, Some(user.clone()), "en");
+        let mut m = Module::new();
+        let mut info = mg_gff::Gff::new(*b"IFO ");
+        info.root.set("Mod_CustomTlk", mg_gff::Value::String(b"mytlk".to_vec()));
+        m.set_info(&info).unwrap();
+        let project = dir.join("project");
+        m.save_as(&ModuleLocation::Project { root: project.clone(), target: "default".into() })
+            .unwrap();
+        let mut cfg = std::fs::read_to_string(project.join("nasher.cfg")).unwrap();
+        cfg.push_str("\n[target]\nname = \"tlk\"\nfile = \"mytlk.tlk\"\n  [target.sources]\n  include = \"src/tlk/*.json\"\n");
+        std::fs::write(project.join("nasher.cfg"), cfg).unwrap();
+        std::fs::create_dir_all(project.join("src/tlk")).unwrap();
+        let json = r#"{"language":0,"entries":[{"id":0,"text":"Ours"}]}"#;
+        std::fs::write(project.join("src/tlk/mytlk.tlk.json"), json).unwrap();
+        let server = dir.join("server");
+        let (_, notes) = prepare(&gi, &project, &server).unwrap();
+        assert!(notes.iter().any(|n| n.contains("made from")), "{notes:?}");
+        let made = std::fs::read(server.join("tlk/mytlk.tlk")).unwrap();
+        let tlk = mg_tlk::Tlk::read(&made).unwrap();
+        assert_eq!(tlk.entries[0].text, b"Ours");
+        assert_eq!(std::fs::read(user.join("tlk/mytlk.tlk")).unwrap(), b"the player's own");
+    }
+
     #[test]
     fn a_scratch_directory_is_the_module_s_own() {
         let (a, b) = (scratch_dir(Path::new("/x/a.mod")), scratch_dir(Path::new("/y/a.mod")));
