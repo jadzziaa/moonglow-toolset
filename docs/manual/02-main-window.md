@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T21:19:15Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T05:29:48Z }
 ---
 
 # The main window
@@ -307,6 +307,11 @@ dragged by it, and only by it: a drag on a part of the window that isn't
 a control doesn't move it (Options › General › **Move windows by
 dragging anywhere in them** does). The arrow at the bar's left folds the
 window to its bar.
+
+**A module opens again with its tabs**: the areas, scripts, blueprints,
+conversations and tools open when it was closed, in the same panes and
+windows, each pane's tab in front in front (Options › General; see
+[Modules](03-modules.md)).
 
 Closing a tab or window never loses work: every change is part of the
 module (and undoable) the moment you make it. **Save** writes the module.

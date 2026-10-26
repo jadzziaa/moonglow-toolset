@@ -15100,6 +15100,170 @@ fn a_module_opens_on_the_area_opened_last_in_it() {
     }
 }
 
+/// [`sample_module`] with a second script, and an app that keeps the open
+/// tabs in a scratch folder (never Moonglow's own): the module's path, the
+/// app and that folder.
+fn tabs_app(name: &str) -> (std::path::PathBuf, Moonglow, std::path::PathBuf) {
+    let dir = mg_testkit::scratch_dir(name);
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    m.set(ResKey::parse("bye", ResType::NSS).unwrap(), b"void main() { }\n".to_vec());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_palette = false;
+    app.open_tabs_dir = Some(dir.join("open-tabs"));
+    (path, app, dir.join("open-tabs"))
+}
+
+/// Opens the sample's area, its two scripts (together in one window, the
+/// first in front) and the Factions; Module Properties is docked in the
+/// middle as the module opened.
+fn open_some_tabs(h: &mut Harness<'_, Moonglow>) {
+    let script = |n| Tab::Script(ResKey::parse(n, ResType::NSS).unwrap());
+    for tab in [Tab::Area(ResRef::from_str("start").unwrap()), Tab::Factions, script("hello")] {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab));
+        h.run();
+    }
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(script("bye")));
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(script("hello")));
+    h.run();
+}
+
+/// Each pane's tabs (a pane of the main window or not) and the one in
+/// front, Module Properties' pane first.
+fn panes_shown(app: &Moonglow) -> Vec<(bool, Vec<Tab>, Tab)> {
+    let mut panes: Vec<(bool, Vec<Tab>, Tab)> = (app.dock.iter_leaves())
+        .filter(|(_, leaf)| !leaf.tabs.is_empty())
+        .map(|(p, leaf)| (p.surface.is_main(), leaf.tabs.clone(), leaf.tabs[leaf.active.0].clone()))
+        .collect();
+    panes.sort_by_key(|(_, tabs, _)| !tabs.contains(&Tab::ModuleProperties));
+    panes
+}
+
+/// A module opened again has the tabs it had when it was closed: the
+/// same, in the same order and places (the middle, a window of the
+/// scripts), each pane's in front in front; kept in Moonglow's data folder
+/// (a scratch one here), not in the module.
+#[test]
+fn a_module_opens_again_with_the_tabs_it_had() {
+    let (path, app, kept) = tabs_app("ui-open-tabs");
+    let resources = Module::open(&path).unwrap().len();
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().open_module(&path);
+    h.run();
+    open_some_tabs(&mut h);
+    let before = panes_shown(h.state());
+    let hello = Tab::Script(ResKey::parse("hello", ResType::NSS).unwrap());
+    let bye = Tab::Script(ResKey::parse("bye", ResType::NSS).unwrap());
+    assert!(before.iter().any(|(main, tabs, front)| {
+        !main && *tabs == [hello.clone(), bye.clone()] && *front == hello
+    }));
+    h.state_mut().actions.push(mg_ui::Action::Close);
+    h.run();
+    assert!(h.state().dock.find_tab(&hello).is_none(), "closed");
+    let file = mg_ui::open_tabs::file(&kept, &path);
+    assert!(file.is_file(), "kept in {}", file.display());
+    // (Not in the module.)
+    assert_eq!(Module::open(&path).unwrap().len(), resources);
+    h.state_mut().open_module(&path);
+    h.run();
+    assert_eq!(panes_shown(h.state()), before);
+    // The tab that had the keys has them again.
+    assert_eq!(
+        h.state().dock.focused_leaf().map(|p| h.state().dock.leaf(p).unwrap().tabs.clone()),
+        Some(vec![hello, bye])
+    );
+}
+
+/// With Options › General's Open a module with the tabs it had off, a
+/// module's tabs are neither kept nor opened again.
+#[test]
+fn a_module_s_tabs_are_not_opened_again_with_the_option_off() {
+    let (path, app, kept) = tabs_app("ui-open-tabs-off");
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let hello = Tab::Script(ResKey::parse("hello", ResType::NSS).unwrap());
+    let file = mg_ui::open_tabs::file(&kept, &path);
+    for keep in [true, false] {
+        h.state_mut().settings.no_reopen_tabs = !keep;
+        let _ = std::fs::remove_file(&file);
+        h.state_mut().open_module(&path);
+        h.run();
+        assert!(h.state().dock.find_tab(&hello).is_none(), "nothing kept yet");
+        open_some_tabs(&mut h);
+        h.state_mut().actions.push(mg_ui::Action::Close);
+        h.run();
+        assert_eq!(file.is_file(), keep, "kept with the option on only");
+        // (Off, a record kept before is not opened either.)
+        if keep {
+            h.state_mut().settings.no_reopen_tabs = true;
+            h.state_mut().open_module(&path);
+            h.run();
+            assert!(h.state().dock.find_tab(&hello).is_none(), "not opened again");
+            h.state_mut().close();
+        }
+    }
+}
+
+/// A kept tab whose resource is gone from the module is passed over; the
+/// others open again.
+#[test]
+fn a_kept_tab_whose_resource_is_gone_is_passed_over() {
+    let (path, app, _) = tabs_app("ui-open-tabs-gone");
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().open_module(&path);
+    h.run();
+    open_some_tabs(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::Close);
+    h.run();
+    let hello = ResKey::parse("hello", ResType::NSS).unwrap();
+    let bye = ResKey::parse("bye", ResType::NSS).unwrap();
+    let mut m = Module::open(&path).unwrap();
+    m.remove(&hello);
+    m.save().unwrap();
+    // (Opened as File › Recent Modules opens it, within a frame.)
+    h.state_mut().actions.push(mg_ui::Action::OpenModule(path.clone()));
+    h.run();
+    let app = h.state();
+    assert!(app.dock.find_tab(&Tab::Script(hello)).is_none(), "gone");
+    assert!(app.dock.find_tab(&Tab::Script(bye)).is_some());
+    assert!(app.dock.find_tab(&Tab::Factions).is_some());
+    assert!(app.dock.find_tab(&Tab::Area(ResRef::from_str("start").unwrap())).is_some());
+}
+
+/// A tab docked in the palettes' pane opens there again, the module opened
+/// again from a menu (within a frame, the pane made at the next).
+#[test]
+fn a_tab_kept_in_the_palettes_pane_opens_there_again() {
+    let Some((mut h, area)) = area_harness("open-tabs-palettes") else { return };
+    let path = h.state().module_path().expect("saved");
+    let kept = mg_testkit::scratch_dir("ui-open-tabs-palettes");
+    h.state_mut().open_tabs_dir = Some(kept.clone());
+    let palette_pane = |app: &Moonglow| {
+        let at = app.dock.find_tab(&Tab::Palette).expect("the palettes are shown");
+        app.dock
+            .leaf(egui_dock::NodePath { surface: at.surface, node: at.node })
+            .unwrap()
+            .tabs
+            .clone()
+    };
+    {
+        let app = h.state_mut();
+        let at = app.dock.find_tab(&Tab::Palette).unwrap();
+        app.dock.set_focused_node_and_surface(egui_dock::NodePath {
+            surface: at.surface,
+            node: at.node,
+        });
+        app.dock.push_to_focused_leaf(Tab::Resources);
+    }
+    h.run_steps(3);
+    assert_eq!(palette_pane(h.state()), [Tab::Palette, Tab::Resources]);
+    h.state_mut().actions.push(mg_ui::Action::OpenModule(path));
+    h.run_steps(4);
+    assert!(h.state().dock.find_tab(&Tab::Area(area)).is_some());
+    assert_eq!(palette_pane(h.state()), [Tab::Palette, Tab::Resources], "in its pane again");
+}
+
 /// Make Placeables Static: those that lose nothing by it, as one command;
 /// one with a variable stays dynamic, and the log says why.
 #[test]
