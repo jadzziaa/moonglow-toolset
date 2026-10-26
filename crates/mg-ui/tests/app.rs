@@ -7898,6 +7898,65 @@ fn visuals_page_lists_a_creature_s_plt_textures_without_a_gallery() {
     assert_eq!(buttons, plt, "a PLT has none to pick");
 }
 
+/// A placed placeable's Properties have the same pickers: Reset on its
+/// replacement edits the area's GIT entry.
+#[test]
+fn visuals_page_of_a_placed_placeable_lists_its_model_s_textures() {
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("placed-visuals") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let own = {
+        let app = h.state_mut();
+        let game = app.game.as_deref().unwrap();
+        let data = game.resman.get(&ResKey::parse("plc_chest1", ResType::UTP).unwrap()).unwrap();
+        let chest = Gff::read(&data).unwrap().root;
+        let p = mg_preview::placeable(game, &chest).unwrap();
+        let own = mg_preview::replaceable::textures(game, &p);
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let at = Placement { position: [12.0, 30.0, 0.0], rotation: 0.0 };
+        let mut item = instance(&placing, ResType::UTP, &chest, at, &[]).unwrap();
+        let mut e = mg_gff::Struct::new(0);
+        e.set("OldTexture", mg_gff::Value::resref(ResRef::from_str(&own[0].name).unwrap()));
+        e.set("NewTexture", mg_gff::Value::resref(ResRef::from_str("mg_gold").unwrap()));
+        let mut s = mg_gff::Struct::new(9);
+        s.set("TextureReplaceLi", mg_gff::Value::List(vec![e]));
+        item.set("TextureReplace", mg_gff::Value::Struct(s));
+        let edit = mg_edit::Edit::InsertItem {
+            key: git,
+            path: mg_edit::GffPath::root(),
+            list: "Placeable List".into(),
+            index: 0,
+            item,
+        };
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
+        let path = mg_edit::GffPath::root().item("Placeable List", 0);
+        app.blueprint_pages.insert((git, path.clone()), "Visuals");
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Instance { area, path: path.clone() }));
+        (own, path)
+    };
+    let (own, path) = own;
+    h.run_steps(4);
+    // (A window clear of the area's own panes.)
+    let at = h.state().dock.find_tab(&Tab::Instance { area, path }).unwrap();
+    if let Some(w) = h.state_mut().dock.get_window_state_mut(at.surface) {
+        w.set_position(egui::pos2(20.0, 60.0)).set_size(egui::vec2(1000.0, 700.0));
+    }
+    h.run_steps(4);
+    for t in &own {
+        assert!(h.query_all_by_label(&t.name).next().is_some(), "{} is listed", t.name);
+    }
+    assert_eq!(h.query_all_by_label("Select Texture…").count(), own.len());
+    let placed = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&git).unwrap().root.list("Placeable List").unwrap()[0].clone()
+    };
+    assert!(placed(&mut h).get("TextureReplace").is_some());
+    h.get_all_by_label("Reset").next().unwrap().click();
+    h.run_steps(3);
+    assert!(placed(&mut h).get("TextureReplace").is_none());
+}
+
 #[test]
 fn classes_page_sets_domains_and_associates() {
     let Some((mut h, key)) = blueprint_harness("nw_mumcleric", "cleric_copy", ResType::UTC) else {

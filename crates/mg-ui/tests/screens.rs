@@ -1119,6 +1119,13 @@ fn visuals_pickers() {
             .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
         h.state_mut().blueprint_pages.insert((key, GffPath::root()), "Visuals");
         shoot(&mut h, &dir, shot);
+        if shot == "visuals-human" {
+            // Why a PLT has nothing to pick, said over its button.
+            let at = h.get_all_by_label("Select Texture…").next().unwrap().rect().center();
+            h.hover_at(at);
+            h.run_steps(30);
+            shoot(&mut h, &dir, "visuals-plt-tooltip");
+        }
         if shot == "visuals-chest" {
             h.get_all_by_label("Select Texture…").next().unwrap().click();
             // (Its pictures are made over frames, as they come in sight.)
