@@ -321,6 +321,9 @@ pub struct AreaView {
     scene: Option<AreaScene>,
     /// The workspace revision `model` was read at.
     revision: Option<u64>,
+    /// How many times the ARE's lists had been rewritten then
+    /// ([`mg_edit::Workspace::rewrites`]).
+    rewrites: Option<u64>,
     tileset: Option<(ResRef, Option<Tileset>)>,
     /// The tileset's tile index and rules, for painting.
     pub(crate) terrain: Option<crate::terrain_mode::Tools>,
@@ -518,14 +521,14 @@ impl AreaView {
         self.drawn = None;
     }
 
-    /// The area's ground is now `width` × `height` tiles (or of another
-    /// tileset): the tile tools let go of the corners and tiles they held
-    /// of the ground as it was, the pointer's (until it moves), a drag's
-    /// going on, and the selected tiles past the new edges. (The preview
-    /// and the cursor are worked out before the pointer's spot is read
-    /// again: one kept from a larger area was looked up in the smaller
-    /// one's lattice, issue 31.)
-    fn ground_changed(&mut self, width: u32, height: u32) {
+    /// The area's tiles were laid out anew (another size, turned, another
+    /// tileset, the file read again): the tile tools let go of the corners
+    /// and tiles they held of the ground as it was, the pointer's (until
+    /// it moves), a drag's going on, and the selected tiles, which are
+    /// others now or none. (The preview and the cursor are worked out
+    /// before the pointer's spot is read again: one kept from a larger
+    /// area was looked up in the smaller one's lattice, issue 31.)
+    fn ground_changed(&mut self) {
         self.spot = None;
         self.terrain_drag = None;
         self.crossing.clear();
@@ -534,7 +537,7 @@ impl AreaView {
         self.preview_cache = None;
         self.cursor_cache = None;
         self.tile_preview.clear();
-        self.tile_selection.retain(|&(x, y)| x < width && y < height);
+        self.tile_selection.clear();
         self.menu_tile = None;
         self.refused = None;
     }
@@ -545,6 +548,7 @@ impl AreaView {
             model: None,
             scene: None,
             revision: None,
+            rewrites: None,
             tileset: None,
             terrain: None,
             spot: None,
@@ -1398,6 +1402,10 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView) {
     };
     step(&format!("reading at revision {}", ws.revision()));
     let are_key = ResKey::new(view.area, ResType::ARE);
+    // (Its tiles laid out anew since, not painted where they are.)
+    let rewrites = ws.rewrites(&are_key);
+    let rewritten = view.rewrites.is_some_and(|r| r != rewrites);
+    view.rewrites = Some(rewrites);
     let are = match ws.doc(&are_key) {
         Ok(g) => g.clone(),
         Err(e) => {
@@ -1475,21 +1483,14 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView) {
     view.told = lacking;
     // Objects that went away are no longer selected.
     view.selection.retain(|&(k, i)| model.object(k, i).is_some());
-    // The ground another size (Resize Area or Rotate Area, done, undone or
-    // redone) or of another tileset: the tile tools let go of what they
-    // held of it as it was (GitHub issue 31).
+    // The tiles laid out anew (Resize Area or Rotate Area, done, undone or
+    // redone; the list set whole by a plugin, the file read again) or of
+    // another tileset: the tile tools let go of what they held of the
+    // ground as it was (GitHub issue 31). (Tile Properties sees it itself:
+    // `tile_select::tiles_moved`.)
     let size = |m: &AreaModel| (m.width, m.height);
-    if other_tileset || view.model.as_ref().is_some_and(|m| size(m) != size(&model)) {
-        view.ground_changed(model.width, model.height);
-        // (Tile Properties' tiles are where they were in the list: another
-        // tile's now, or none.)
-        if app.tile_props.as_ref().is_some_and(|p| p.area == view.area) {
-            app.tile_props = None;
-            app.log.info(format!(
-                "Area {}: its size or tileset changed; Tile Properties closed",
-                view.area
-            ));
-        }
+    if rewritten || other_tileset || view.model.as_ref().is_some_and(|m| size(m) != size(&model)) {
+        view.ground_changed();
     }
     view.error = None;
     view.model = Some(model);

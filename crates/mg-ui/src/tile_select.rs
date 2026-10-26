@@ -54,6 +54,10 @@ pub struct TileProps {
     pub area: ResRef,
     /// The tiles it sets, by index in `Tile_List`.
     pub tiles: Vec<usize>,
+    /// How many times the ARE's lists had been rewritten as it opened
+    /// ([`mg_edit::Workspace::rewrites`]): once they are again, its
+    /// indices may be other tiles', and it closes ([`tiles_moved`]).
+    pub rewrites: u64,
     pub main: [u8; 2],
     pub source: [u8; 2],
     pub loops: [bool; 3],
@@ -757,6 +761,8 @@ fn open_properties(app: &mut Moonglow, view: &AreaView) {
     };
     let width = are.root.integer("Width").unwrap_or(0).max(0) as u32;
     let list = are.root.list("Tile_List").unwrap_or(&[]).to_vec();
+    let rewrites =
+        app.ws.as_ref().map_or(0, |ws| ws.rewrites(&ResKey::new(view.area, ResType::ARE)));
     let tiles: Vec<usize> =
         view.tile_selection.iter().map(|&(x, y)| (y * width + x) as usize).collect();
     let base: Vec<mg_gff::Struct> = tiles.iter().filter_map(|&i| list.get(i).cloned()).collect();
@@ -815,6 +821,7 @@ fn open_properties(app: &mut Moonglow, view: &AreaView) {
         variants,
         variant,
         tiles,
+        rewrites,
         main,
         source,
         loops,
@@ -879,9 +886,28 @@ fn named(r: &egui::Response, name: &str, enabled: bool) {
 }
 
 /// Tile Properties, in its tab, and its colour picker.
+/// Whether Tile Properties' tiles may have left their places in the list
+/// since it opened (Rotate Area, Resize Area, their undo, the list set
+/// whole, the file read again): if so it closes, writing nothing, for its
+/// indices may be other tiles' (GitHub issue 31).
+fn tiles_moved(app: &mut Moonglow, props: &TileProps) -> bool {
+    let key = ResKey::new(props.area, ResType::ARE);
+    let moved = app.ws.as_ref().is_none_or(|ws| ws.rewrites(&key) != props.rewrites);
+    if moved {
+        app.log.info(format!(
+            "Area {}: its tiles were laid out anew; Tile Properties closed",
+            props.area
+        ));
+    }
+    moved
+}
+
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let ctx = &ui.ctx().clone();
     let Some(mut props) = app.tile_props.take() else { return };
+    if tiles_moved(app, &props) {
+        return;
+    }
     let mut picked = None;
     let mut pick = None;
     let colors = light_colors(app);
@@ -1143,6 +1169,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
 pub(crate) fn closing_window(app: &mut Moonglow, ctx: &egui::Context) {
     if !app.tile_props.as_ref().is_some_and(|p| p.closing) {
         return;
+    }
+    // (Don't Save would write the tiles' old values where they no longer
+    // are.)
+    if let Some(props) = app.tile_props.take() {
+        if tiles_moved(app, &props) {
+            return;
+        }
+        app.tile_props = Some(props);
     }
     enum Answer {
         Save,

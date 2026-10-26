@@ -11006,9 +11006,22 @@ fn a_terrain_drag_across_an_undo_of_resize_area_paints_nothing() {
     assert_eq!(area_are(&mut h, area), before, "letting go paints nothing");
 }
 
-/// Issue 31 in tile mode: tiles selected on ground that Undo then takes
-/// away are no longer selected, and Tile Properties open on them closes;
-/// Delete deletes the tile left (it panicked, reading the tile at an index
+/// The tile menu's Tile Properties… on the tiles selected, the menu opened
+/// at `at`.
+fn tile_properties_at(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {
+    for pressed in [true, false] {
+        let button = egui::PointerButton::Secondary;
+        let m = Default::default();
+        h.event(egui::Event::PointerButton { pos: at, button, pressed, modifiers: m });
+    }
+    h.run_steps(2);
+    h.get_by_label("Tile Properties…").click();
+    h.run_steps(3);
+}
+
+/// Issue 31 in tile mode: the tiles laid out anew by an Undo of Resize
+/// Area, the selection goes, and Tile Properties open on them closes;
+/// Delete then deletes nothing (it panicked, reading the tile at an index
 /// past the smaller area's).
 #[test]
 fn tiles_selected_on_ground_an_undo_took_away_are_dropped() {
@@ -11030,14 +11043,7 @@ fn tiles_selected_on_ground_an_undo_took_away_are_dropped() {
     h.run_steps(2);
     assert_eq!(h.state().area_views[&area].tile_selection, [(1, 1), (1, 6)]);
     // Their Tile Properties: by their places in the list, 5 and 25.
-    for pressed in [true, false] {
-        let button = egui::PointerButton::Secondary;
-        let m = Default::default();
-        h.event(egui::Event::PointerButton { pos: north, button, pressed, modifiers: m });
-    }
-    h.run_steps(2);
-    h.get_by_label("Tile Properties…").click();
-    h.run_steps(3);
+    tile_properties_at(&mut h, north);
     assert_eq!(h.state().tile_props.as_ref().map(|p| p.tiles.clone()), Some(vec![5, 25]));
     h.hover_at(screen(&h, area, Vec3::new(15.0, 15.0, 0.0)));
     h.run_steps(1);
@@ -11045,18 +11051,72 @@ fn tiles_selected_on_ground_an_undo_took_away_are_dropped() {
     h.run_steps(3);
     assert_eq!(area_are(&mut h, area), before);
     assert!(h.state().tile_props.is_none(), "Tile Properties closed, its places gone");
-    // Delete over the view: the tile left, and only it, chosen again.
-    let south = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
-    h.hover_at(south);
+    assert!(h.state().area_views[&area].tile_selection.is_empty(), "the selection gone");
+    // Delete over the view: nothing to delete.
+    h.hover_at(screen(&h, area, Vec3::new(15.0, 15.0, 0.0)));
     h.run_steps(1);
     h.key_press(egui::Key::Delete);
     h.run_steps(3);
-    assert_eq!(h.state().area_views[&area].tile_selection, [(1, 1)], "the tile on the ground left");
-    let are = area_are(&mut h, area);
-    assert_eq!(
-        (are.integer("Height"), are.list("Tile_List").map(|l| l.len())),
-        (Some(4), Some(16))
-    );
+    assert_eq!(area_are(&mut h, area), before);
+}
+
+/// The coordinator's case of issue 31: Rotate Area on a square area keeps
+/// its size, but every tile has another place. Tiles selected and Tile
+/// Properties open on them before the turn: the selection goes and the
+/// window closes, so that neither a change in it (a height) nor Delete
+/// lands on the tiles turned into those places; the same across the
+/// turn's Undo.
+#[test]
+fn tiles_selected_across_rotate_area_are_dropped() {
+    use glam::Vec3;
+    use mg_edit::Command;
+    let Some((mut h, area)) = area_harness("tiles-rotate") else { return };
+    h.get_by_label("⛶ Select Tiles").click();
+    h.run_steps(2);
+    // (Where tile (0, 0) is on screen: Tile Properties' pane takes room.)
+    let at = |h: &Harness<'_, Moonglow>| screen(h, area, Vec3::new(5.0, 5.0, 0.0));
+    click_pos(&h, at(&h));
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].tile_selection, [(0, 0)]);
+    let rotate = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let (are_key, git_key) = (ResKey::new(area, ResType::ARE), ResKey::new(area, ResType::GIT));
+        let are = ws.doc(&are_key).unwrap().root.clone();
+        let git = ws.doc(&git_key).unwrap().root.clone();
+        let edits = mg_area::reshape::rotate(are_key, git_key, &are, &git, 1);
+        h.state_mut().actions.push(mg_ui::Action::Apply(Command::new("Rotate Area", edits)));
+        h.run_steps(3);
+    };
+    let tiles =
+        |h: &mut Harness<'_, Moonglow>| area_are(h, area).list("Tile_List").unwrap().to_vec();
+    for undo in [false, true] {
+        let here = at(&h);
+        tile_properties_at(&mut h, here);
+        assert_eq!(h.state().tile_props.as_ref().map(|p| p.tiles.clone()), Some(vec![0]));
+        if undo {
+            h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+            h.run_steps(3);
+        } else {
+            rotate(&mut h);
+        }
+        let turned = tiles(&mut h);
+        // A height asked of the window, were it open: written into tile 0.
+        if let Some(p) = h.state_mut().tile_props.as_mut() {
+            p.height = Some(p.first_height + 2);
+        }
+        h.run_steps(3);
+        assert_eq!(tiles(&mut h), turned, "the height went to no tile (undo: {undo})");
+        assert!(h.state().tile_props.is_none(), "Tile Properties closed (undo: {undo})");
+        assert!(h.state().area_views[&area].tile_selection.is_empty(), "undo: {undo}");
+        h.hover_at(at(&h));
+        h.run_steps(1);
+        h.key_press(egui::Key::Delete);
+        h.run_steps(3);
+        assert_eq!(tiles(&mut h), turned, "no tile changed (undo: {undo})");
+        // Chosen again, for the next round.
+        click_pos(&h, at(&h));
+        h.run_steps(2);
+    }
 }
 
 #[test]
