@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T04:58:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:02:37Z }
 ---
 
 # Command-line tools
@@ -112,7 +112,10 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 
 A module is a `.mod` archive, a module folder or a nasher project. `mg
 compile` and `mg import` write the module in place; an archive's previous
-version is kept beside it (`mymodule.mod.bak`).
+version is kept beside it (`mymodule.mod.bak`). A `.mod` is read and
+written as the `.mod`, as the game's server reads it, even with a
+folder of its name beside it (which the window asks about): name the
+folder to work on the folder.
 
 For example, every placed creature whose tag starts `GUARD` and that has
 no OnSpawn script set, in the area `keep`:

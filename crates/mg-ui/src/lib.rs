@@ -37,6 +37,7 @@ pub mod levelup_view;
 pub mod lighting;
 mod manual;
 pub mod model_view;
+pub mod module_folder;
 pub mod module_props;
 mod nui_view;
 pub mod open_tabs;
@@ -153,7 +154,11 @@ pub enum Action {
     AreaWizard,
     NewArea(AreaSpec),
     OpenModuleDialog,
+    /// Opens a module the user chose: a `.mod` with a folder of its name
+    /// beside it asks which first (Options › General).
     OpenModule(PathBuf),
+    /// Opens this module as it is (the answer to that question).
+    OpenModuleAsIs(PathBuf),
     /// Opens the Export window with these resources chosen.
     ExportDialog(Vec<ResKey>),
     /// Writes resources as loose files (a script with its compiled script,
@@ -716,6 +721,8 @@ pub struct Moonglow {
     pub import: Option<ImportDraft>,
     /// An action waiting for the answer to "save changes?".
     pub confirm_discard: Option<Action>,
+    /// A `.mod` waiting for the answer to "open the folder beside it?".
+    pub module_folder: Option<PathBuf>,
     /// What is asked of claimed and protected areas.
     pub(crate) claims: claims::ClaimsState,
     /// The project's commands (File › Project): the one asked about, its
@@ -974,6 +981,7 @@ impl Moonglow {
             tree_fold: None,
             import: None,
             confirm_discard: None,
+            module_folder: None,
             claims: Default::default(),
             project_commands: Default::default(),
             closing: false,
@@ -2787,10 +2795,11 @@ impl Moonglow {
                     .and_then(|gi| gi.user_dir.as_ref())
                     .map(|u| u.join("modules"));
                 if let Some(p) = self.dialogs.open_file(FileKind::Module, start.as_deref()) {
-                    self.open_module(&p);
+                    module_folder::open(self, &p);
                 }
             }
-            Action::OpenModule(p) => self.open_module(&p),
+            Action::OpenModule(p) => module_folder::open(self, &p),
+            Action::OpenModuleAsIs(p) => self.open_module(&p),
             Action::OpenFolderDialog => {
                 if let Some(p) =
                     self.dialogs.pick_folder("Open Module Folder or nasher Project", None)

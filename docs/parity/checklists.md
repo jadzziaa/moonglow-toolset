@@ -3,7 +3,7 @@ type: Checklist
 title: Parity checklists
 description: Aurora's dialogs against Moonglow, control by control - done and tested, partly, not yet, or deliberately different with the reason - naming the test that covers each.
 tags: [aurora, parity, checklist, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T21:19:15Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:02:37Z }
 sources:
   - id: inventory
     resource: aurora-ui-inventory.md
@@ -82,7 +82,8 @@ unless given otherwise.
 | Options as pages (Aurora's tree): Area, General, Script Editor, Conversation Editor, Spell Checking, Sounds, Language | pages Folders, Area, General, Script Editor, Conversation Editor, Sounds, Language, Keyboard | ✅ (no Spell Checking: see below) |
 | General: Build module on save; Minimize Toolset on test module | the same | ✅ [build_on_save_opens_the_results_when_something_is_wrong]; minimizing is the window manager's (not tested) |
 | General: Create backups of modules (on by default: the module as it was kept as `<name>.BackupMod`, Aurora's name) | the same | ✅ [saving_keeps_the_module_as_it_was_as_a_backup] |
-| General: welcome dialog at startup; colour depth and character set warnings; always open module directories | Moonglow's Welcome tab is its start page, not a dialog; the warnings are about Windows display settings; Moonglow opens module folders and archives alike | — |
+| General: welcome dialog at startup; colour depth and character set warnings | Moonglow's Welcome tab is its start page, not a dialog; the warnings are about Windows display settings | — |
+| General: always open module directories (off: a `.mod` with a folder of its name beside it asks "A directory with the same name has been found. Do you want to open this directory as a module?", Yes the folder, No the `.mod`) | General: A .mod with its folder beside it (ask, the folder, or the `.mod`); the question in Aurora's words, Open Directory and Open .mod File; the folder saved into and written as the `.mod` too | ✅ [a_mod_with_its_folder_beside_it_asks_which_to_open] |
 | General: reserved resref namespace, resource in hak and standard resource overwrite warnings | in the log when a command adds a blueprint named nw_, x0_ to x3_, or a script, conversation or blueprint a hak also has (the hak's wins) or the game has; each has its checkbox on Options › General | ✅ [a_script_named_as_the_game_s_own_is_warned_about], [warnings_are_on_by_default_and_apply] |
 | General: invalid creature spell assignment warning (on closing a creature's properties: spells too high for the class level, too high for the casting ability, more than the class may have) | the same checks, shown on the creature's Spells page while editing, with Never warn again; the option on Options › General | ✅ (`aurora_spell_warnings.rs`: 31 creatures) [the_spells_page_warns_about_invalid_assignments] |
 | General: creature inventory warning (notice on opening a creature's inventory); equipping an item without its feats asks to add the first | the notice on the Inventory page, with Never warn again; Equip asks the same (Yes adds the feat and equips, one undoable step; No leaves the slot) | ✅ (`aurora_inventory.rs`) [equipping_without_the_feat_asks_to_add_it] |

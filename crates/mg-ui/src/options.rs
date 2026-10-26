@@ -10,7 +10,7 @@ use egui::Ui;
 use mg_resman::GameInstall;
 
 use crate::script_view::Palette;
-use crate::settings::{SCRIPT_ELEMENTS, ScriptStyle};
+use crate::settings::{ModuleFolders, SCRIPT_ELEMENTS, ScriptStyle};
 use crate::{Action, Moonglow, Settings};
 
 /// The Options window's pages.
@@ -53,6 +53,7 @@ pub struct OptionsDraft {
     pub script_style: ScriptStyle,
     pub build_on_save: bool,
     pub mod_beside_folder: bool,
+    pub module_folders: ModuleFolders,
     pub area_names: bool,
     pub categories_by_name: bool,
     pub drag_windows_anywhere: bool,
@@ -154,6 +155,7 @@ impl OptionsDraft {
             script_style: s.script_style.clone(),
             build_on_save: s.build_on_save,
             mod_beside_folder: !s.no_mod_beside_folder,
+            module_folders: s.module_folders,
             area_names: s.area_names,
             categories_by_name: s.categories_by_name,
             drag_windows_anywhere: s.drag_windows_anywhere,
@@ -228,6 +230,7 @@ impl OptionsDraft {
             script_style: self.script_style.clone(),
             build_on_save: self.build_on_save,
             no_mod_beside_folder: !self.mod_beside_folder,
+            module_folders: self.module_folders,
             area_names: self.area_names,
             categories_by_name: self.categories_by_name,
             drag_windows_anywhere: self.drag_windows_anywhere,
@@ -467,6 +470,28 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                  directory: the game loads the .mod. (A nasher project has \
                                  Build › Pack for its module file.)",
                             );
+                            ui.horizontal(|ui| {
+                                crate::widgets::field_label(ui, "A .mod with its folder beside it");
+                                let name = |c: &ModuleFolders| match c {
+                                    ModuleFolders::Ask => "Ask which to open",
+                                    ModuleFolders::Folder => "Open the folder",
+                                    ModuleFolders::Module => "Open the .mod",
+                                };
+                                let all = [
+                                    ModuleFolders::Ask,
+                                    ModuleFolders::Folder,
+                                    ModuleFolders::Module,
+                                ];
+                                crate::widgets::dropdown("module-folders")
+                                    .selected_text(name(&draft.module_folders))
+                                    .show(ui, &mut draft.module_folders, &all, name)
+                                    .on_hover_text(
+                                        "A module opened as name.mod, with a folder named name \
+                                         beside it (a module directory, as Aurora keeps one): \
+                                         asked, as Aurora asks, or always the folder (Aurora's \
+                                         Always open module directories), or always the .mod",
+                                    );
+                            });
                             ui.checkbox(
                                 &mut draft.minimize_on_test,
                                 "Minimize Toolset on test module",

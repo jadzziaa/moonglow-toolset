@@ -38,7 +38,8 @@ pub enum FileKind {
 impl FileKind {
     pub fn title(self, save: bool) -> &'static str {
         match (self, save) {
-            (FileKind::Module, false) => "Open Module",
+            // (The file dialog picks no folder: said where it is seen.)
+            (FileKind::Module, false) => "Open Module (a module folder: File › Open Folder…)",
             (FileKind::Module, true) => "Save Module As",
             (FileKind::Erf, false) => "Import",
             (FileKind::Erf, true) => "Export",

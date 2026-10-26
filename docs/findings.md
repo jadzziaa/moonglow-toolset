@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:43:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:02:37Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1468,6 +1468,47 @@ starts over.
   starts over after a second; its Escape hands the tree's keys back
   (`docs/deferred.md`, the Settled section).
 - **Wiki:** missing.
+
+### A module directory beside its .mod
+
+Opening `modules/name.mod` with a folder `modules/name/` beside it,
+Aurora asks, in a window titled "Open directory as a module": "A
+directory with the same name has been found. Do you want to open this
+directory as a module?", then "YES - open directory" and "NO - open
+.mod file", with Yes and No (no Cancel). It asks from the welcome
+dialog's list and from File's recent modules alike, every time (the
+recent list keeps `name.mod` even when the folder was opened). Yes
+loads the folder (its own `module.ifo`, not the `.mod`'s) and unpacks
+nothing; No unpacks the `.mod` into `modules/temp0/` and loads that.
+Saving the folder writes the changed files into it (the module's
+`module.ifo` and the palettes; untouched files keep their times) and
+packs the folder into `name.mod`, keeping the `.mod` that was there as
+`name.BackupMod`. Aurora's Open lists `.mod` files only: a folder with
+no `.mod` is not offered. Its Always open module directories (ini
+`Always Open Module Directory`) opens the folder without asking.
+Whether Aurora also asks for a folder of the name that holds no module
+(no `module.ifo`) was not tried; Moonglow asks only for one that does.
+
+The server does not read module directories: `nwserver -module name`
+loads `modules/name.mod` with a folder `modules/name/` beside it (one
+holding no module) as if the folder were not there, and with only a
+folder of the name (no `.mod`) it fails: "LoadModule() Failed:
+Unrecognized file type", "Unable to load module". So the game needs the
+`.mod` that saving a module directory writes.
+
+- **Checked:** Aurora 89.8193.37 under Wine, driven on the off-screen
+  display (2026-10-26), on `dirprobe.mod` and `dirprobe/` told apart by
+  their module names; the question captured as a picture
+  (`captures/module-folder/prompt.png` in the oracle's folder), the
+  rest watched (no test reads it). The server through `mg serve`
+  (private), on a scratch user folder.
+- **Moonglow:** `crates/mg-ui/src/module_folder.rs` (the question, in
+  Aurora's words, and Options › General's A .mod with its folder beside
+  it: ask, the folder, or the `.mod`), `write_mod_beside_folder` in
+  `crates/mg-ui/src/lib.rs`; test
+  `a_mod_with_its_folder_beside_it_asks_which_to_open`. GitHub issue 30.
+- **Wiki:** [Open Module Folder](https://nwn.wiki/spaces/NWN1/pages/38176075/Open+Module+Folder)
+  has the question's first two lines; the rest is missing.
 
 ## Files and tools
 

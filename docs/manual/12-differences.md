@@ -3,7 +3,7 @@ type: Manual Page
 title: Differences from Aurora
 description: Where Moonglow deliberately departs from Aurora.
 tags: [manual, aurora, differences]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T11:15:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:02:37Z }
 ---
 
 # Differences from Aurora
@@ -24,8 +24,12 @@ it differs, it is on purpose:
   Merchant) and Stores on others; the game's Merchant faction and the
   palette's Merchants category, the game's own names, are as it has
   them.
-- **Module folders** and archives open the same way; there is no "always
-  open module directories" option.
+- **A `.mod` with its folder beside it** asks which to open, as Aurora
+  does, and Aurora's Always open module directories is one of three
+  settings of Options › General's **A .mod with its folder beside it**
+  (ask, the folder, or the `.mod`, which Aurora has not). A module
+  folder also opens by itself, with no `.mod` beside it (**File › Open
+  Folder…**), as Aurora's Open lists only `.mod` files.
 - **Recovery copies** of unsaved work are offered back after a crash
   (Aurora has none).
 - **Sounds** fade with distance from where the area view looks. There is

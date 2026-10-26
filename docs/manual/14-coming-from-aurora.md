@@ -3,7 +3,7 @@ type: Manual Page
 title: Coming from Aurora
 description: For builders who know Aurora - the Aurora problems Moonglow doesn't have, the habits to change, what is easy to miss, and going back to Aurora.
 tags: [manual, aurora]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T11:57:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:02:37Z }
 ---
 
 # Coming from Aurora
@@ -105,9 +105,11 @@ Each names what Aurora does, then what Moonglow does instead.
   of a kind (Properties, scripts, conversations) open as tabs of one
   window; untick the options for that (General, Script Editor,
   Conversation Editor) to have each in a window of its own.
-- **The Welcome tab** replaces Aurora's start dialog. Module folders and
-  `.mod` files open the same way, so there is no "open module
-  directories" option.
+- **The Welcome tab** replaces Aurora's start dialog. A `.mod` with its
+  folder beside it asks which to open, as Aurora does (Options ›
+  General: or always the folder, as Aurora's Always open module
+  directories, or always the `.mod`); a folder opens with File › Open
+  Folder….
 - **The camera** also moves with W, A, S and D, and a right drag turns it.
   The rest are Aurora's bindings (see [Areas](04-areas.md)).
 - **Settings are Moonglow's own.** Aurora's `nwtoolset.ini` isn't read.

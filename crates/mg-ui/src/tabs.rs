@@ -686,6 +686,11 @@ fn welcome(app: &mut Moonglow, ui: &mut Ui) {
         if ui.button("Open Module…").clicked() {
             app.actions.push(Action::OpenModuleDialog);
         }
+        let folder =
+            ui.button("Open Folder…").on_hover_text("A module folder, or a nasher project");
+        if folder.clicked() {
+            app.actions.push(Action::OpenFolderDialog);
+        }
         if !app.settings.recent.is_empty() {
             ui.add_space(20.0);
             ui.strong("Recent modules");
