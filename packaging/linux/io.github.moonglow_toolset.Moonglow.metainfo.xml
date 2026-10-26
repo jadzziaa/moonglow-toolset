@@ -45,6 +45,16 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="2.6.0" date="2026-10-26">
+      <description>
+        <p>A module opens again with the tabs, views and windows it had;
+        items keep their own changes when moved between backpack,
+        equipment and other inventories; every list of choices takes the
+        arrow keys and every filter sets accents aside; Page Up and Page
+        Down in text fields; line ends written as Aurora writes them; the
+        conversation tree's keys and bookmarks as in Aurora.</p>
+      </description>
+    </release>
     <release version="2.5.6" date="2026-10-26">
       <description>
         <p>A conversation opened from the module tree has the keyboard at
