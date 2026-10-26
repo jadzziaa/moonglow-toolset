@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:06:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:11:17Z }
 ---
 
 # Scripts
@@ -24,16 +24,24 @@ lists:
 - **Templates**: code templates, the game's and those in your Code
   Templates Directory (Options › Script Editor). Double-click to insert.
 
-**Help** shows the documentation as the source has it: the comment
-lines above the declaration with their `//` and their spacing, in the
+**Help** shows the documentation as the source has it: the comments
+directly above the declaration (no empty line between), `//` lines and
+`/* … */` blocks alike, with their markers and their spacing, in the
 editor's font and colors, then the declaration itself, so the aligned
 lists in `nwscript.nss`'s comments line up as they do in the file.
+BioWare's includes document a function with a `/* … */` block between
+`//::` lines above its definition; where the prototype has no comment of
+its own, Help shows the definition's. (`mg lsp`'s hover has the same
+text without the markers: no `//`, `/*`, `*/` or the ` * ` down a
+block's side.)
 
 Below the text are the **Compiler** messages: click one to go to its line.
 Each starts with the time it was written (`14:03:27`), so two compiles
 in a row are easy to tell apart. When **Save** saves without compiling
 (Automatically Compile Scripts on Save is off), the Compiler tab says
-so instead of keeping the last compile's message.
+so instead of keeping the last compile's message; so does File › Save
+(Ctrl+S with the keyboard elsewhere) for each script whose unsaved text
+it stores into the module.
 
 The editor works with plain line ends. A script saved with Windows line
 ends (CRLF, as BioWare's scripts and Moonglow's new ones are) has no
@@ -56,7 +64,7 @@ have.
 | Ctrl+R | Replace |
 | F2, Ctrl+Space | complete the word at the cursor (functions, constants, variables) |
 | Enter | a new line, begun as far in as the line it is started from |
-| Tab | one step of indentation at the cursor: four spaces (to the next multiple of four), or a tab (Options › Script Editor › Indent with); on several selected lines, indent each one a step (empty lines stay empty) |
+| Tab | one step of indentation at the cursor, as the script is indented: a tab, or its step of spaces (to the next multiple of it); a script with no indented line to go by, as Options › Script Editor › Indent with says (four spaces); on several selected lines, indent each one a step (empty lines stay empty) |
 | Shift+Tab | outdent the selected lines, or the cursor's line, a step: a tab, or up to the indent width in spaces |
 | Page Down, Page Up | a page down or up, the text with the cursor; with Shift, selecting |
 | Ctrl+Z, Ctrl+Y | take back and give again what was done in the editor (typing, a new line, an indent, a completion, a replacement), while it has the keyboard |
@@ -180,12 +188,29 @@ The buttons:
   with it when it compiled just now. A script that doesn't compile, an
   include file (no `main` or `StartingConditional`) or one with an
   error, is copied alone: the Compiler tab says it is an include file,
-  or gives the compiler's error, then what was copied ("not compiled"),
-  and whether the folder has a compiled script of that name from an
-  earlier copy, which the game would still run. A compiled script the
-  module has from before is not copied with a script that no longer
-  compiles. (See [Modules](03-modules.md) for exporting files
-  elsewhere.)
+  or gives the compiler's error, then what was copied ("not compiled").
+  A compiled script of that name (and its debug file) that an earlier
+  copy left in the folder is removed, for the game would still run it,
+  and the Compiler tab and the log name what was removed. A compiled
+  script the module has from before is not copied with a script that no
+  longer compiles. The module tree's Copy to Scratch Folder follows the
+  same rule (see [Modules](03-modules.md), also for exporting files
+  elsewhere).
+
+**Indentation.** Tab indents as the script open is indented: Moonglow
+looks at its indented lines when it opens it (or reads it again) and
+takes tabs or spaces as most of them are, and for spaces the step by
+which a line is most often further in than the one before it (two,
+four…; the ` * ` down a `/* … */` block's side doesn't count). A script
+with no indented line goes by Options › Script Editor › Indent with.
+**Edit › Convert Indentation to Tabs** and **to Spaces** (also on the
+editor's right-click menu) make every line of the script in front so:
+as far in as it was, a tab for each step (what is left of a step, a
+column lined up, stays spaces), or spaces for each tab (to the next
+multiple of Options' Indent width). It is one step for the editor's
+Undo (Ctrl+Z with the editor's keyboard), and Tab indents so from then
+on. Enter still begins a new line with the spaces and tabs the line it
+is started from has.
 - **External Editor**: open the script in the editor set in Options ›
   Script Editor; what you save there comes back into Moonglow's editor.
   In a nasher project it is the project's own file that opens, in place

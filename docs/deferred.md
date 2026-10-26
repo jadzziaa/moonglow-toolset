@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:43:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:24:17Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -87,12 +87,17 @@ Size: S (an hour or two), M (a day or so), L (several days).
   Aurora's script editor (a window of its own there) has its own Save on
   Ctrl+S; it was not driven to see what it writes. (S)
 - **To Scratch for a script that doesn't compile** (El Grillo's
-  request) copies the source alone and says whether the folder has a
-  compiled script of that name from an earlier copy, which the game
-  would still run; it doesn't remove it. Copy to Scratch Folder from the
-  module tree (Export as Files) still sends a script that no longer
-  compiles with the compiled script the module has, with a warning.
-  The two could be one rule. (S)
+  request): the script editor's To Scratch and the module tree's Copy to
+  Scratch Folder are one rule (the source alone; the folder's
+  `name.ncs` and `name.ndb` from an earlier copy removed, and said).
+  Not done: Export as Files to a folder chosen still sends a script that
+  no longer compiles with the module's older compiled script, with a
+  warning (nothing is removed from a folder the builder picks); with no
+  game data nothing is compiled, so scripts go out with the compiled
+  scripts the module has; only those exact lower-case names are
+  removed (a `HELLO.NCS` another program wrote on a case-sensitive file
+  system stays); a debug file left by an earlier copy of a script that
+  now compiles without debug information stays. (S)
 - **Open Script's list** takes a click, Ctrl+click, Shift+click, the
   arrows (Shift to widen), Page Down and Up, Enter and a double click;
   not Home and End, Ctrl+A, or a right-click menu. Typing in the name
@@ -157,21 +162,30 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **Find In Currently Open Scripts** searches the scripts whose editors
   hold their text, which includes one closed with text typed and not
   saved. (S) (from builders' reports after 1.16.2)
-- **Indentation by file:** Tab's indentation (four spaces, or a tab) is
-  one setting for every script; it isn't guessed from the script open
-  (BioWare's use spaces and tabs both), and Enter copies the line's own
-  leading spaces and tabs as they are. Converting a script's
-  indentation is not offered. (S) (Jasperre's report, 2026-10-21)
-- **"Saved, not compiled" on the module's save:** the script editor's
-  Save says it in the Compiler tab when compiling on save is off; File ›
-  Save (Ctrl+S), which stores the editors' unsaved text too, doesn't.
-  (S) (Jasperre's report, 2026-10-21)
-- **Times in the log:** the Compiler tab's messages carry the time they
-  were said; the log's lines don't. (S) (Jasperre's report, 2026-10-21)
-- **Help for block comments:** Help shows the `//` lines directly above
-  a declaration, as the source has them; a `/* … */` comment above one
-  is not taken as its documentation (as before). (S) (Jasperre's
-  report, 2026-10-21)
+- **Indentation by file:** a script's indentation is guessed when its
+  text is read (opened, read again from the module, a Save of it
+  included, or from outside), from its indented lines (tabs or spaces as
+  most are; the step most often taken), and kept until it is read again
+  or converted: not as it is typed, and not remembered from one session
+  to the next. A conversion taken back with the editor's Ctrl+Z gives
+  the text back but not the guess: Tab indents as converted until the
+  script is next saved or read. Enter copies the line's own leading
+  spaces and tabs as they are. Convert Indentation is the whole
+  script's, not a selection's; from the Edit menu it is the script in
+  front, which for scripts in windows of their own (the tab in front
+  not a script) is the one whose editor had the keyboard last. (S)
+  (Jasperre's report, 2026-10-21)
+- **Times in the log:** each line carries the time of day it was said
+  (no date). The log has no command to copy or save it whole: a line is
+  copied by selecting it, its time with it. (S) (Jasperre's report,
+  2026-10-21)
+- **Help for block comments:** the comments directly above a
+  declaration, `//` lines and `/* … */` blocks, are its documentation;
+  a comment after code on the line above is taken too (`int a; // x`
+  documents what follows), and a `//` line's leading `*` (BioWare's
+  `// * text`) is kept in `mg lsp`'s hover, where a block's is not.
+  Struct members and local variables have none. (S) (Jasperre's report,
+  2026-10-21)
 
 ## nasher projects
 

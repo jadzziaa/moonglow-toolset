@@ -39,6 +39,10 @@ pub enum Id {
     ReplaceText,
     FindReferences,
     AdvancedSearch,
+    /// Edit › Convert Indentation to Tabs: the script in front's.
+    IndentToTabs,
+    /// Edit › Convert Indentation to Spaces.
+    IndentToSpaces,
     AreaWizard,
     CreatureWizard,
     /// A blueprint wizard (the kinds of `blueprint_wizard::KINDS`).
@@ -166,6 +170,9 @@ pub const MENUS: [(&str, &[Item]); 8] = [
             Do(Id::ReplaceText),
             Do(Id::FindReferences),
             Do(Id::AdvancedSearch),
+            Separator,
+            Do(Id::IndentToTabs),
+            Do(Id::IndentToSpaces),
         ],
     ),
     (
@@ -345,6 +352,16 @@ impl Id {
                 "Advanced Search…",
                 "Blueprints and placed objects by their variables, item properties, classes, \
                  feats, spells, skills, appearance, scripts or any field",
+            ),
+            Id::IndentToTabs => (
+                "convert-indent-tabs",
+                "Convert Indentation to Tabs",
+                "The script in front: each line's indentation made tabs (one step to undo)",
+            ),
+            Id::IndentToSpaces => (
+                "convert-indent-spaces",
+                "Convert Indentation to Spaces",
+                "The script in front: each line's indentation made spaces (one step to undo)",
             ),
             Id::AreaWizard => ("area-wizard", "Area Wizard…", ""),
             Id::CreatureWizard => ("creature-wizard", "Creature Wizard…", ""),
@@ -626,6 +643,7 @@ impl Id {
                 .local_can_undo(true)
                 .unwrap_or_else(|| app.ws.as_ref().is_some_and(|ws| ws.can_redo().is_some())),
             Id::ResizeArea | Id::RotateArea | Id::AreaStatistics => shown_area(app).is_some(),
+            Id::IndentToTabs | Id::IndentToSpaces => script_in_front(app).is_some(),
             Id::PackTarget => self.shown(app),
             // (A project's or a module folder's: a .mod's folder holds
             // other modules too.)
@@ -731,6 +749,11 @@ impl Id {
                 app.text_replace.get_or_insert_with(Default::default);
                 return;
             }
+            Id::IndentToTabs | Id::IndentToSpaces => {
+                let tabs = self == Id::IndentToTabs;
+                app.script_tools.convert_indent = script_in_front(app).map(|k| (k, tabs));
+                return;
+            }
             Id::CreatureWizard => {
                 app.creature_wizard = Some(Default::default());
                 return;
@@ -825,6 +848,20 @@ impl Id {
 /// its view is open.
 fn shown_area(app: &Moonglow) -> Option<mg_core::ResRef> {
     app.palette.area.filter(|a| app.area_views.contains_key(a))
+}
+
+/// The script the script commands mean: the one whose editor is the tab
+/// in front, else (a script in a window of its own) the one whose editor
+/// had the keyboard last, else the only one open.
+fn script_in_front(app: &Moonglow) -> Option<mg_resman::ResKey> {
+    let open = |k: &mg_resman::ResKey| app.scripts.contains_key(k);
+    match app.front_tab() {
+        Some(Tab::Script(k)) if open(&k) => Some(k),
+        _ => app.script_tools.last_typed.filter(open).or_else(|| {
+            let mut keys = app.scripts.keys();
+            keys.next().filter(|_| keys.next().is_none()).copied()
+        }),
+    }
 }
 
 /// A command's or a key command's name, by the id its keys are kept under.
