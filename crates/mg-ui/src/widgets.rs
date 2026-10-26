@@ -13,7 +13,7 @@ use mg_module::var_desc::{
 use mg_module::vars::VarType;
 use mg_resman::ResKey;
 
-use crate::text::{decode, encode, from_editor, to_editor};
+use crate::text::{decode, encode, to_editor, with_line_ends};
 use crate::{Action, Moonglow};
 
 /// A field of a GFF resource that an editor window writes back to.
@@ -53,9 +53,10 @@ pub struct LocStringEdit {
     pub target: FieldTarget,
     pub title: String,
     pub strref: String,
-    /// Language, gender, text (with plain line breaks) and whether the
-    /// stored text used CRLF.
-    pub entries: Vec<(Language, Gender, String, bool)>,
+    /// Language, gender, text (with plain line breaks) and the stored
+    /// text, whose line ends the text is written back with (empty for a
+    /// text added).
+    pub entries: Vec<(Language, Gender, String, String)>,
     original: LocString,
     /// Each language's tokens, read when its Token… is first opened.
     tokens: Vec<(Language, Vec<String>)>,
@@ -68,8 +69,7 @@ impl LocStringEdit {
             .iter()
             .map(|(k, bytes)| {
                 let text = crate::text::entry_codepage(k.language()).decode(bytes);
-                let (shown, crlf) = to_editor(&text);
-                (k.language(), k.gender(), shown, crlf)
+                (k.language(), k.gender(), to_editor(&text).0, text.into_owned())
             })
             .collect();
         let strref =
@@ -112,8 +112,8 @@ impl LocStringEdit {
             s => StrRef(s.parse().ok()?),
         };
         let mut out = LocString { strref, strings: Vec::new() };
-        for (language, gender, text, crlf) in &self.entries {
-            let text = from_editor(text, *crlf);
+        for (language, gender, text, stored) in &self.entries {
+            let text = with_line_ends(text, stored);
             let bytes = crate::text::entry_codepage(*language).encode(&text)?;
             out.strings.push((LocStringKey::new(*language, *gender), bytes.into_owned()));
         }
@@ -641,7 +641,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     ))
                     .clicked()
                 {
-                    let text = |i: usize| from_editor(&edit.entries[i].2, edit.entries[i].3);
+                    // (With plain line ends, as the game's own talk table
+                    // has them all.)
+                    let text = |i: usize| edit.entries[i].2.clone();
                     let male = male.expect("enabled");
                     let line = mg_module::talk::Line {
                         text: text(male),
@@ -712,8 +714,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         remove = Some(i);
                     }
                 });
-                let field = egui::TextEdit::multiline(text).id(text_id);
-                ui.add(field.desired_rows(3).desired_width(420.0));
+                let field = egui::TextEdit::multiline(text).desired_rows(3).desired_width(420.0);
+                text_area(ui, text_id, field);
             }
             if let Some(i) = remove {
                 edit.entries.remove(i);
@@ -724,7 +726,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     .flat_map(|l| GENDERS.iter().map(move |g| (*l, g.0)))
                     .find(|(l, g)| !edit.entries.iter().any(|e| e.0 == *l && e.1 == *g));
                 if let Some((l, g)) = free {
-                    edit.entries.push((l, g, String::new(), false));
+                    edit.entries.push((l, g, String::new(), String::new()));
                 }
             }
             ui.add_space(6.0);
@@ -1212,7 +1214,7 @@ pub(crate) fn loc_text(
 /// token.
 pub(crate) fn with_token(ctx: &egui::Context, id: egui::Id, current: &str, token: &str) -> String {
     use egui::text::{CCursor, CCursorRange};
-    let (shown, crlf) = to_editor(current);
+    let shown = to_editor(current).0;
     let chars = shown.chars().count();
     let mut state = egui::TextEdit::load_state(ctx, id);
     let range = state
@@ -1230,7 +1232,7 @@ pub(crate) fn with_token(ctx: &egui::Context, id: egui::Id, current: &str, token
         state.cursor.set_char_range(Some(CCursorRange::one(after)));
         state.clone().store(ctx, id);
     }
-    from_editor(&out, crlf)
+    with_line_ends(&out, current)
 }
 
 /// Whether a widget has the keyboard, the window having it or not. (A
@@ -1268,7 +1270,7 @@ pub(crate) fn commit_text_in(
     width: f32,
     limit: Option<usize>,
 ) -> Option<String> {
-    let (shown, crlf) = to_editor(current);
+    let shown = to_editor(current).0;
     let buf = buffers.entry(id).or_insert_with(|| shown.clone());
     let edit = match rows {
         Some(rows) => egui::TextEdit::multiline(buf).desired_rows(rows),
@@ -1278,13 +1280,72 @@ pub(crate) fn commit_text_in(
         Some(n) => edit.char_limit(n),
         None => edit,
     };
-    let r = ui.add(edit.id(id).desired_width(width));
+    let out = edit.id(id).desired_width(width).show(ui);
+    if rows.is_some() {
+        page_keys(ui, &out);
+    }
+    let r = out.response.response;
     leaves_at_a_press(ui.ctx(), &r);
     if !has_keys(&r) && !r.lost_focus() && *buf != shown {
         // Changed underneath (undo, another selection): show the value.
         *buf = shown.clone();
     }
-    (r.lost_focus() && *buf != shown).then(|| from_editor(buf, crlf))
+    (r.lost_focus() && *buf != shown).then(|| with_line_ends(buf, current))
+}
+
+/// A text field of several lines (`edit`, given the id `id`) drawn, with
+/// Page Down and Page Up ([`page_keys`]).
+pub(crate) fn text_area(
+    ui: &mut Ui,
+    id: egui::Id,
+    edit: egui::TextEdit,
+) -> egui::text_edit::TextEditOutput {
+    let out = edit.id(id).show(ui);
+    page_keys(ui, &out);
+    out
+}
+
+/// Page Down and Page Up in a text field of several lines (`out`, as just
+/// drawn), which egui's field lacks: the caret goes down or up by the lines
+/// of the field in sight (less one, as a page in Windows' fields), and
+/// the field scrolls with it; with Shift, the selection reaches to there.
+/// Rows wrapped count as lines. Every text field of several lines but the
+/// script editor's (which has its own) has them, through here.
+pub(crate) fn page_keys(ui: &Ui, out: &egui::text_edit::TextEditOutput) {
+    use egui::{Key, Modifiers};
+    let id = out.response.id;
+    if !ui.memory(|m| m.has_focus(id)) {
+        return;
+    }
+    let galley = &out.galley;
+    let row = galley.size().y / galley.rows.len().max(1) as f32;
+    let seen = out.text_clip_rect.intersect(ui.clip_rect()).height();
+    let page = ((seen / row.max(1.0)).floor() as usize).saturating_sub(1).max(1);
+    for (key, down) in [(Key::PageDown, true), (Key::PageUp, false)] {
+        // (Shift first: the key alone takes a press with Shift too.)
+        let select = ui.input_mut(|i| i.consume_key(Modifiers::SHIFT, key));
+        if !select && !ui.input_mut(|i| i.consume_key(Modifiers::NONE, key)) {
+            continue;
+        }
+        let mut state = egui::TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
+        let Some(range) = state.cursor.char_range() else { continue };
+        let (mut to, mut h_pos) = (range.primary, range.h_pos);
+        for _ in 0..page {
+            (to, h_pos) = match down {
+                true => galley.cursor_down_one_row(&to, h_pos),
+                false => galley.cursor_up_one_row(&to, h_pos),
+            };
+        }
+        state.cursor.set_char_range(Some(egui::text::CCursorRange {
+            primary: to,
+            secondary: if select { range.secondary } else { to },
+            h_pos,
+        }));
+        state.store(ui.ctx(), id);
+        let at = galley.pos_from_cursor(to).translate(out.galley_pos.to_vec2());
+        ui.scroll_to_rect(at.translate(egui::vec2(-galley.rect.left(), 0.0)), None);
+        ui.ctx().request_repaint();
+    }
 }
 
 fn press_leaves_id() -> egui::Id {
@@ -1615,6 +1676,22 @@ pub(crate) fn clipboard_keys(ctx: &egui::Context) {
     if paste {
         ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste);
     }
+}
+
+/// Once a frame, before anything reads the events: text pasted (or sent
+/// as typed) with CRLF line ends, or a lone CR, comes with plain ones, as
+/// every text field holds its text ([`to_editor`]). A field that kept the
+/// `\r` would have a stop of the caret no one sees.
+pub(crate) fn plain_pastes(ctx: &egui::Context) {
+    ctx.input_mut(|i| {
+        for e in &mut i.events {
+            if let egui::Event::Paste(s) | egui::Event::Text(s) = e
+                && s.contains('\r')
+            {
+                *s = s.replace("\r\n", "\n").replace('\r', "\n");
+            }
+        }
+    });
 }
 
 /// Whether copy, cut and paste were asked for this frame: egui's events,
@@ -2610,6 +2687,17 @@ mod tests {
         let edit = LocStringEdit::new(target(), "Name", &ls);
         assert_eq!(edit.entries[0].2, "a\nb");
         assert_eq!(edit.value(), Some(ls));
+        // Both kinds of line end, untouched: as they were; a line added
+        // takes the text's own (CRLF, most of its lines').
+        let mixed = b"a\r\nb\nc\r\nd".to_vec();
+        let ls = LocString::from_text(Language::ENGLISH, Gender::Male, mixed);
+        let mut edit = LocStringEdit::new(target(), "Description", &ls);
+        assert_eq!(edit.entries[0].2, "a\nb\nc\nd");
+        assert_eq!(edit.value(), Some(ls));
+        edit.entries[0].2 = "a\nb\nc\nd\ne".into();
+        let text =
+            edit.value().unwrap().text(Language::ENGLISH, Gender::Male).unwrap().into_owned();
+        assert_eq!(text, "a\r\nb\nc\r\nd\r\ne");
         let mut bad = edit;
         bad.strref = "x".into();
         assert_eq!(bad.value(), None);

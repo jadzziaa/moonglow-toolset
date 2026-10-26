@@ -630,10 +630,11 @@ impl Form<'_> {
             }
             return;
         }
-        let (shown, crlf) = crate::text::to_editor(shown);
+        let stored = shown;
+        let shown = crate::text::to_editor(stored).0;
         let typed = (self.app.buffers.get(&id))
             .filter(|buf| **buf != shown)
-            .map(|buf| crate::text::from_editor(buf, crlf));
+            .map(|buf| crate::text::with_line_ends(buf, stored));
         let command = typed.map(|text| self.setting(what, label, Some(value(text))));
         self.app.held_text = Some((id, ui.ctx().cumulative_pass_nr(), command));
     }

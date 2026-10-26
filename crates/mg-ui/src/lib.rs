@@ -1069,6 +1069,7 @@ impl Moonglow {
         // (Ctrl+Insert, Shift+Delete and Shift+Insert as Copy, Cut and
         // Paste: first, before anything reads the keys.)
         widgets::clipboard_keys(ui.ctx());
+        widgets::plain_pastes(ui.ctx());
         widgets::dialogs_begin(ui.ctx());
         widgets::text_begin(ui.ctx());
         // Models that broke what builds or poses them, last frame: left out

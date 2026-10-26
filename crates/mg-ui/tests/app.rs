@@ -326,6 +326,153 @@ fn multi_line_text_keeps_its_line_ends() {
     assert_eq!(desc.get(Language::ENGLISH, Gender::Male), Some(&b"First\r\nSecond\r\nThird"[..]));
 }
 
+/// The sample module with `description` for its description, open on its
+/// Description page in a harness `size` big; and the description's box.
+fn module_description_harness(
+    name: &str,
+    description: &str,
+    size: egui::Vec2,
+) -> Harness<'static, Moonglow> {
+    let dir = mg_testkit::scratch_dir(name);
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    let mut info = m.info().unwrap();
+    info.root.write(
+        &ifo::MOD_DESCRIPTION,
+        LocString::from_text(Language::ENGLISH, Gender::Male, description),
+    );
+    m.set_info(&info).unwrap();
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h =
+        Harness::builder().with_size(size).build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Description").click();
+    h.run();
+    h
+}
+
+/// The module's description as stored.
+fn module_description(h: &mut Harness<'_, Moonglow>) -> String {
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let g = ws.doc(&ResKey::parse("module", ResType::IFO).unwrap()).unwrap();
+    let desc: LocString = g.root.read(&ifo::MOD_DESCRIPTION);
+    String::from_utf8(desc.get(Language::ENGLISH, Gender::Male).unwrap().to_vec()).unwrap()
+}
+
+fn multiline_input<'a>(h: &'a Harness<'_, Moonglow>, value: &'a str) -> egui_kittest::Node<'a> {
+    h.get_all_by_value(value)
+        .find(|n| n.accesskit_node().role() == egui::accesskit::Role::MultilineTextInput)
+        .unwrap_or_else(|| panic!("a text box of {value:?}"))
+}
+
+#[test]
+fn page_keys_move_through_a_description() {
+    // Sacha's report: Page Up and Page Down did nothing in the text fields
+    // of several lines (egui's own field has none).
+    let text: String = (0..120).map(|n| format!("Line {n}\r\n")).collect();
+    let shown = text.replace('\r', "");
+    let mut h = module_description_harness("ui-page-desc", &text, egui::vec2(1000.0, 600.0));
+    // (A click on its first lines: the box is taller than the window.)
+    let at = multiline_input(&h, &shown).rect().left_top() + egui::vec2(40.0, 8.0);
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::CTRL, egui::Key::Home);
+    h.run();
+    let heading = |h: &Harness<'_, Moonglow>| h.get_by_label_contains("Description (").rect().top();
+    let top = heading(&h);
+    let typed = |h: &mut Harness<'_, Moonglow>, c: &str| {
+        h.event(egui::Event::Text(c.into()));
+        h.run();
+        let n = h.get_all_by_role(egui::accesskit::Role::MultilineTextInput).find(|n| {
+            n.accesskit_node().value().is_some_and(|v| v.contains(c) && v.contains("Line 119"))
+        });
+        let Some(n) = n else {
+            let all: Vec<String> = (h.get_all_by_role(egui::accesskit::Role::MultilineTextInput))
+                .map(|n| format!("{:.80?}", n.accesskit_node().value()))
+                .collect();
+            panic!("no box with {c}: {all:?}");
+        };
+        let v = n.accesskit_node().value().unwrap().to_string();
+        v.lines().position(|l| l.contains(c)).unwrap()
+    };
+    // Two pages down: as many lines on, the box scrolled with the caret.
+    h.key_press(egui::Key::PageDown);
+    h.run();
+    h.key_press(egui::Key::PageDown);
+    h.run();
+    let down = typed(&mut h, "X");
+    assert!(down >= 10 && down % 2 == 0 && down < 100, "two pages down: line {down}");
+    assert!(heading(&h) < top - 100.0, "scrolled: {} from {top}", heading(&h));
+    // A page up, from before the X: a page back (the lines in sight now,
+    // the box filling the page).
+    h.key_press(egui::Key::ArrowLeft);
+    h.key_press(egui::Key::PageUp);
+    h.run();
+    let up = typed(&mut h, "Y");
+    assert!(up + 10 <= down, "a page up: line {up}");
+    // With Shift, the selection: typed over, the lines go with it.
+    h.key_press(egui::Key::ArrowLeft);
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::PageDown);
+    h.run();
+    assert_eq!(typed(&mut h, "Z"), up);
+    h.key_press(egui::Key::Escape);
+    h.run();
+    let stored = module_description(&mut h);
+    assert!(!stored.contains('Y') && stored.lines().count() <= 110, "{stored:.300}");
+    // The lines kept keep their CRLF.
+    assert!(stored.split_terminator('\n').all(|l| l.ends_with('\r')), "{stored:?}");
+}
+
+#[test]
+fn a_description_with_both_line_ends_keeps_each_line_s() {
+    // Jasperre's report: a text of several lines from a file with CRLF
+    // line ends, or both kinds, keeps them where it isn't changed.
+    let mixed = "One\r\nTwo\nThree\r\nFour";
+    let mut h = module_description_harness("ui-crlf-mixed", mixed, egui::vec2(1000.0, 700.0));
+    let shown = "One\nTwo\nThree\nFour";
+    multiline_input(&h, shown).click();
+    h.run();
+    // A line added at the end: the others keep theirs, the new one takes
+    // the text's (CRLF: most of its lines').
+    h.key_press_modifiers(egui::Modifiers::CTRL, egui::Key::End);
+    h.key_press(egui::Key::Enter);
+    h.event(egui::Event::Text("Five".into()));
+    // Text pasted with CRLF comes with plain line ends.
+    h.event(egui::Event::Paste("\r\nSix".into()));
+    h.run();
+    multiline_input(&h, "One\nTwo\nThree\nFour\nFive\nSix");
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert_eq!(module_description(&mut h), "One\r\nTwo\nThree\r\nFour\r\nFive\r\nSix");
+}
+
+#[test]
+fn a_description_of_one_line_gets_crlf_line_ends() {
+    // As Aurora writes them, and as most of the game's own text of several
+    // lines has them (its blueprints' and conversations').
+    let mut h = module_description_harness("ui-crlf-new", "One", egui::vec2(1000.0, 700.0));
+    multiline_input(&h, "One").click();
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::CTRL, egui::Key::End);
+    h.key_press(egui::Key::Enter);
+    h.event(egui::Event::Text("Two".into()));
+    h.run();
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert_eq!(module_description(&mut h), "One\r\nTwo");
+}
+
 fn set_tag(app: &mut Moonglow, tag: &str) {
     let key = ResKey::parse("module", ResType::IFO).unwrap();
     app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
@@ -1631,6 +1778,61 @@ fn a_talk_table_s_row_is_clicked_anywhere() {
     h.run_steps(2);
     assert_eq!(h.state().talk_view.selected, Some(0));
     assert!(h.state().talk.as_ref().unwrap().line(0).text.contains('!'));
+}
+
+#[test]
+fn a_talk_table_line_with_crlf_shows_and_keeps_plain_line_ends() {
+    // Jasperre's report: a `\r` kept in the field is a stop of the caret
+    // no one sees; End put what was typed after it ("one\rX\r\ntwo").
+    use mg_module::talk::{Line, Table};
+    let dir = mg_testkit::scratch_dir("ui-talk-crlf");
+    let mut h = Harness::builder().with_size(egui::vec2(1000.0, 800.0)).build_ui_state(
+        |ui, app: &mut Moonglow| app.ui(ui),
+        Moonglow::new(None, Box::new(NoDialogs::default())),
+    );
+    let mut table = Table::create("crlf", &dir, mg_core::Language::ENGLISH, false);
+    for text in ["one\r\ntwo", "three"] {
+        let line =
+            Line { text: text.into(), feminine: None, sound: String::new(), sound_length: 0.0 };
+        table.add_line(&line).unwrap();
+    }
+    h.state_mut().talk = Some(table);
+    h.state_mut().talk_view.outside = true;
+    h.state_mut().talk_view.selected = Some(0);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
+    h.run_steps(6);
+    let input = |h: &Harness<'_, Moonglow>, value: &str| {
+        h.get_all_by_value(value)
+            .find(|n| n.accesskit_node().role() == egui::accesskit::Role::MultilineTextInput)
+            .is_some()
+    };
+    assert!(input(&h, "one\ntwo"), "shown with a plain line end");
+    h.get_all_by_value("one\ntwo")
+        .find(|n| n.accesskit_node().role() == egui::accesskit::Role::MultilineTextInput)
+        .unwrap()
+        .click();
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::CTRL, egui::Key::Home);
+    h.key_press(egui::Key::End);
+    h.event(egui::Event::Text("X".into()));
+    h.run_steps(2);
+    let talk = h.state().talk.as_ref().unwrap();
+    assert_eq!(talk.line(0).text, "oneX\r\ntwo", "its line end kept, the X before it");
+    // A line of a single line given a second: plain, as the game's own
+    // talk table has them all.
+    h.key_press(egui::Key::Escape);
+    h.state_mut().talk_view.selected = Some(1);
+    h.run_steps(4);
+    h.get_all_by_value("three")
+        .find(|n| n.accesskit_node().role() == egui::accesskit::Role::MultilineTextInput)
+        .unwrap()
+        .click();
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::CTRL, egui::Key::End);
+    h.key_press(egui::Key::Enter);
+    h.event(egui::Event::Text("four".into()));
+    h.run_steps(2);
+    assert_eq!(h.state().talk.as_ref().unwrap().line(1).text, "three\nfour");
 }
 
 #[test]

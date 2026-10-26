@@ -923,7 +923,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             ui.set_width(340.0);
             ui.label(prompt.as_str());
             let id = egui::Id::new(("dlg-input-text", key));
-            let out = egui::TextEdit::multiline(&mut input.text).id(id).desired_rows(6).show(ui);
+            let field = egui::TextEdit::multiline(&mut input.text).desired_rows(6);
+            let out = crate::widgets::text_area(ui, id, field);
             if !input.shown {
                 // The placeholder is selected, so typing replaces it.
                 let mut state = out.state.clone();
@@ -947,7 +948,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             let kind = input.parent.child_kind();
             let i = add_node(&mut ng, input.parent, "");
             if let Some(n) = ng.root.list_mut(kind.list()).and_then(|l| l.get_mut(i as usize)) {
-                let t = with_english(Default::default(), input.text.trim_end());
+                // (With CRLF line ends, as Aurora's lines have them.)
+                let text = crate::text::with_line_ends(input.text.trim_end(), "");
+                let t = with_english(Default::default(), &text);
                 n.set("Text", Value::LocString(t));
             }
             let words = word_count(&ng);

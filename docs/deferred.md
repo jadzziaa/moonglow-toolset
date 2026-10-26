@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T05:36:36Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T05:37:20Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -157,23 +157,27 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **Find In Currently Open Scripts** searches the scripts whose editors
   hold their text, which includes one closed with text typed and not
   saved. (S) (from builders' reports after 1.16.2)
-- **Page keys elsewhere:** Page Down and Page Up work in the script
-  editor (Sacha's report, 2026-10-21); the other text fields of several
-  lines (descriptions, a conversation line's text, the talk table's
-  strings, comments) are egui's own field, which has none. Their texts
-  are short. (S)
-- **A script with both kinds of line end** (CRLF and plain): untouched,
-  it is written byte for byte; edited, the lines before the first change
-  and after the last keep their own line ends, and every line between
-  takes the kind most of the file's lines have, even an unchanged line
-  between two changes. A real diff of lines would keep those too. No
-  shipped script mixes them, as far as looked. (S) (Jasperre's report,
-  2026-10-21)
-- **Line ends in the other text fields:** the script editor and the
-  resource browser's read-only scripts and text show plain line ends;
-  the other fields of several lines (a conversation line's text,
-  descriptions, the talk table's strings) were not looked at for a
-  CRLF's `\r`. (S) (Jasperre's report, 2026-10-21)
+- **Page keys in a NUI window's preview:** every text field of several
+  lines has Page Down and Page Up (`widgets::page_keys`), but the text
+  fields of a NUI window tried in the preview (Interact) are drawn as
+  the game's, without them; whether the game's own NUI fields take the
+  page keys was not looked at. (S) (from Sacha's report, 2026-10-21)
+- **A script with both kinds of line end, changed a lot:** every line not
+  changed keeps its own line end, by a diff of the lines; past 4 million
+  cells of the diff's table (a run of about 2,000 changed lines each
+  side, a script rewritten whole) the lines of the run are taken as
+  changed in place, keeping the ends of the lines where they were, and
+  lines added take the file's. Two lines swapped count as one kept and
+  one added. (S) (Jasperre's report, 2026-10-21)
+- **CRLF for a new line in a GFF text, from the data:** a text of one
+  line given a second gets CRLF in a GFF field (descriptions,
+  conversation lines, comments) and plain in a talk table, as the
+  game's own data has them (`docs/findings.md`, "Line ends"); that
+  Aurora writes CRLF there was read from its campaigns' files, not
+  tried by typing in Aurora. A blueprint's one-line text field (a
+  `CExoString` such as its Tag) whose stored text has a CRLF shows a
+  plain line end and, once typed in, stores one. (S) (Jasperre's
+  report, 2026-10-21)
 - **Indentation by file:** Tab's indentation (four spaces, or a tab) is
   one setting for every script; it isn't guessed from the script open
   (BioWare's use spaces and tabs both), and Enter copies the line's own

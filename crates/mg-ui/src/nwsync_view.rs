@@ -166,11 +166,10 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                         ui.text_edit_singleline(&mut p.name);
                     });
                     crate::widgets::field_label(ui, "Description");
-                    ui.add(
-                        egui::TextEdit::multiline(&mut p.description)
-                            .desired_rows(3)
-                            .desired_width(420.0),
-                    );
+                    let field = egui::TextEdit::multiline(&mut p.description)
+                        .desired_rows(3)
+                        .desired_width(420.0);
+                    crate::widgets::text_area(ui, ui.id().with("nwsync-description"), field);
                 }
                 ui.horizontal(|ui| {
                     crate::widgets::field_label(ui, "Group ID");

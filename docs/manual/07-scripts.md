@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T19:04:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T05:37:20Z }
 ---
 
 # Scripts
@@ -43,8 +43,10 @@ you paste is turned into plain line ends too. When the script is saved,
 it gets its own line ends back: a script you didn't change is written
 byte for byte as it was, and in a changed one the new lines use the
 file's line ends (CRLF for a CRLF script). In a file that mixes both,
-the lines before and after the change keep their own, and the changed
-ones take the kind most of the file's lines have.
+every line you didn't change keeps its own, wherever it is (Moonglow
+compares the lines as a diff does); a line changed in place keeps the
+end it had, and a line added takes the kind most of the file's lines
+have.
 
 | Keys | Do |
 | --- | --- |

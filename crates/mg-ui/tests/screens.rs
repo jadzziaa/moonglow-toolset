@@ -485,6 +485,49 @@ fn dialog_script_parameters() {
     shoot(&mut h, &dir, "dialog-font-20-menu");
 }
 
+/// A talk-table line whose text has CRLF line ends (Jasperre's report),
+/// with End pressed on its first line and an X typed. With the `\r` in the
+/// field, End went past it and the X came after it, a space's width from
+/// the line ("First line X", the line end now `\rX\n`); the text it
+/// set is written beside the picture.
+#[test]
+#[ignore]
+fn talk_table_crlf_line() {
+    use egui_kittest::kittest::Queryable;
+    use mg_module::talk::{Line, Table};
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::output_dir("screens");
+    let app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 600.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut table = Table::create("crlf", &dir, mg_core::Language::ENGLISH, false);
+    for text in ["First line\r\nSecond line\r\nThird line", "Another"] {
+        let line =
+            Line { text: text.into(), feminine: None, sound: String::new(), sound_length: 0.0 };
+        table.add_line(&line).unwrap();
+    }
+    h.state_mut().talk = Some(table);
+    h.state_mut().talk_view.outside = true;
+    h.state_mut().talk_view.selected = Some(0);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::TalkTable));
+    h.run_steps(8);
+    let field = h
+        .get_all_by_role(egui::accesskit::Role::MultilineTextInput)
+        .find(|n| n.accesskit_node().value().is_some_and(|v| v.starts_with("First line")))
+        .expect("the line's text");
+    field.click();
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::CTRL, egui::Key::Home);
+    h.key_press(egui::Key::End);
+    h.event(egui::Event::Text("X".into()));
+    h.run_steps(2);
+    shoot(&mut h, &dir, "talk-table-crlf");
+    let text = &h.state().talk.as_ref().unwrap().line(0).text;
+    std::fs::write(dir.join("talk-table-crlf.txt"), format!("{text:?}\n")).unwrap();
+}
+
 /// The Talk Table editor on a line with a long text: plain, and with a
 /// feminine table.
 #[test]
