@@ -1694,6 +1694,61 @@ fn script_help() {
     shoot(&mut h, &dir, "script-compiler");
 }
 
+/// Jasperre's script editor notes: Help on a function a `/* … */` block
+/// documents; the Compiler tab after File › Save with compiling on save
+/// off, and the log's lines with their times; the editor's context menu
+/// (Convert Indentation).
+#[test]
+#[ignore]
+fn script_block_help_save_note_and_indentation() {
+    use egui_kittest::kittest::Queryable;
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-script-rest");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Name", mg_gff::Value::String(b"x".to_vec()));
+    m.set_info(&info).unwrap();
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let text = "int Hidden(object oSelf);\r\n\r\n//::///////////////\r\n//:: Hidden\r\n\
+                //::///////////////\r\n/*\r\n    Returns TRUE if oSelf is hidden either\r\n    \
+                magically or via stealth\r\n*/\r\n//:: Created By: Brent\r\n\
+                int Hidden(object oSelf)\r\n{\r\n  return FALSE;\r\n}\r\n\r\nvoid main()\r\n{\r\n  \
+                Hidden(OBJECT_SELF);\r\n}\r\n";
+    m.set(key, text.as_bytes().to_vec());
+    let path = dir.join("s.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(key)));
+    h.state_mut().script_tools.filter = "Hidden".into();
+    h.run();
+    h.run();
+    h.get_by_label("Hidden").click();
+    shoot(&mut h, &dir, "script-block-help");
+    // Typed, then the module saved.
+    let at = text.replace("\r\n", "\n").find("void main").unwrap();
+    h.state_mut().script_tools.jump = Some((key, at));
+    h.run();
+    h.event(egui::Event::Text("// x\n".into()));
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    shoot(&mut h, &dir, "script-module-save-note");
+    h.get_all_by_role(egui::accesskit::Role::MultilineTextInput)
+        .find(|n| n.accesskit_node().value().is_some_and(|v| v.starts_with("int Hidden")))
+        .expect("the script's text")
+        .click_secondary();
+    shoot(&mut h, &dir, "script-indent-menu");
+}
+
 /// A selection in the script editor: whole lines (to their line ends),
 /// and part of one.
 #[test]

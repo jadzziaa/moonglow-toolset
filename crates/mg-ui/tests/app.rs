@@ -3680,8 +3680,11 @@ fn compile_errors_go_to_their_line() {
     let message = h.state().script_tools.messages.last().cloned().expect("a compiler message");
     assert!(message.error);
     assert_eq!(message.location, Some(("hello".to_string(), 4)));
-    // The message is in the log too; the Compiler tab's begins with its
-    // time.
+    // The message is in the log too; both begin with its time. (The log
+    // emptied: the Compiler tab's is clicked.)
+    assert!(h.state().log.entries.iter().any(|(_, m)| *m == message.text));
+    h.state_mut().log.clear();
+    h.run();
     h.get_by_label(&format!("{} {}", message.at, message.text)).click();
     h.run();
     h.run();
@@ -12263,6 +12266,87 @@ fn tab_indents_selected_lines_in_the_script_editor() {
     assert_eq!(h.state().script_text(key).unwrap(), "vo  x\tid main()\n{\n}\n");
 }
 
+/// Tab indents as the script open is indented (tabs, or so many spaces),
+/// and as Options › Script Editor says where it has no indentation to go
+/// by; Edit › Convert Indentation to Tabs and to Spaces (and the editor's
+/// context menu) make every line so, one step for the editor's Undo
+/// (Jasperre's report).
+#[test]
+fn tab_indents_as_the_script_does() {
+    let dir = mg_testkit::scratch_dir("ui-script-indent-by-file");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let open = |text: &str| {
+        let mut m = Module::open(&path).unwrap();
+        m.set(key, text.as_bytes().to_vec());
+        m.save().unwrap();
+        let mut app = app_with(Vec::new());
+        app.settings.no_last_area = true;
+        app.open_module(&path);
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1200.0, 800.0))
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run();
+        h.state_mut().script_tools.jump = Some((key, 0));
+        h.run();
+        h
+    };
+    let tab_at_start = |h: &mut Harness<'_, Moonglow>| {
+        h.state_mut().script_tools.jump = Some((key, 0));
+        h.run();
+        h.key_press(egui::Key::Tab);
+        h.run();
+        let text = h.state().script_text(key).unwrap();
+        text[..text.find('v').unwrap()].to_string()
+    };
+    // Options say four spaces; the scripts say otherwise.
+    let tabbed = "void main()\n{\n\tint n;\n\tif (n)\n\t\tn++;\n}\n";
+    let mut h = open(tabbed);
+    assert!(!h.state().settings.script_style.indent_tabs);
+    assert_eq!(tab_at_start(&mut h), "\t");
+    let two = "void main()\n{\n  int n;\n  if (n)\n    n++;\n}\n";
+    let mut h = open(two);
+    assert_eq!(tab_at_start(&mut h), "  ");
+    let mut h = open("void main()\n{\n}\n");
+    assert_eq!(tab_at_start(&mut h), "    ", "nothing to go by: as Options say");
+
+    // Converted from the Edit menu: one step to undo.
+    let mut h = open(two);
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    h.get_by_label("Convert Indentation to Tabs").click();
+    h.run_steps(3);
+    let converted = "void main()\n{\n\tint n;\n\tif (n)\n\t\tn++;\n}\n";
+    assert_eq!(h.state().script_text(key).unwrap(), converted);
+    // (Back in the editor, as a click there would put it.)
+    h.state_mut().script_tools.jump = Some((key, 3));
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert_eq!(h.state().script_text(key).unwrap(), two, "taken back in one");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Y);
+    h.run();
+    assert_eq!(h.state().script_text(key).unwrap(), converted);
+    // Tab indents with a tab from then on.
+    assert_eq!(tab_at_start(&mut h), "\t");
+
+    // From the editor's context menu: to spaces, Options' four.
+    let mut h = open(tabbed);
+    h.get_all_by_role(egui::accesskit::Role::MultilineTextInput)
+        .find(|n| n.accesskit_node().value().is_some_and(|v| v.starts_with("void main")))
+        .expect("the script's text")
+        .click_secondary();
+    h.run_steps(2);
+    h.get_by_label("Convert Indentation to Spaces").click();
+    h.run_steps(3);
+    assert_eq!(
+        h.state().script_text(key).unwrap(),
+        "void main()\n{\n    int n;\n    if (n)\n        n++;\n}\n"
+    );
+    assert_eq!(tab_at_start(&mut h), "    ");
+}
+
 /// A CRLF script (BioWare's are, and Moonglow's new ones) in the editor:
 /// no `\r` at the lines' ends for End to land after and typing to go
 /// past (Jasperre's report: "trailing spaces" on every line); untouched,
@@ -12352,6 +12436,77 @@ fn a_save_that_does_not_compile_says_so() {
     assert_eq!(h.state().script_tools.info, mg_ui::script_tools::InfoTab::Compiler);
 }
 
+/// File › Save (Ctrl+S), which stores the script editors' unsaved text
+/// too, says in the Compiler tab that it was saved and not compiled, as
+/// the script's own Save does, with compiling on save off (Jasperre's
+/// report).
+#[test]
+fn the_module_s_save_says_a_script_was_not_compiled() {
+    let dir = mg_testkit::scratch_dir("ui-script-module-save-note");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, b"void main()\n{\n}\n".to_vec());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    // Nothing typed: nothing said of the script.
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    assert!(h.state().script_tools.messages.is_empty());
+    h.state_mut().script_tools.info = mg_ui::script_tools::InfoTab::Help;
+    h.state_mut().script_tools.jump = Some((key, 0));
+    h.run();
+    h.event(egui::Event::Text("a".into()));
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    let saved = Module::open(&path).unwrap().get(&key).map(<[u8]>::to_vec);
+    assert_eq!(saved.unwrap(), b"avoid main()\n{\n}\n");
+    let said: Vec<_> = h.state().script_tools.messages.iter().filter(|m| m.script == key).collect();
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(said[0].text.contains("hello.nss: saved, not compiled"), "{}", said[0].text);
+    assert_eq!(h.state().script_tools.info, mg_ui::script_tools::InfoTab::Compiler);
+    h.get_by_label_contains("saved, not compiled");
+}
+
+/// The log's lines carry the time they were said, before them, as the
+/// Compiler tab's messages do (Jasperre's report); copied from the pane
+/// (its lines are selectable), with it.
+#[test]
+fn the_log_s_lines_carry_their_time() {
+    let mut app = app_with(Vec::new());
+    app.log.info("First thing said");
+    app.log.warn("Second thing said");
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let is_clock = |at: &str| {
+        let b = at.as_bytes();
+        b.len() == 8
+            && b[2] == b':'
+            && b[5] == b':'
+            && b.iter().filter(|c| c.is_ascii_digit()).count() == 6
+    };
+    let log = &h.state().log;
+    assert_eq!(log.times.len(), log.entries.len());
+    for (i, at) in log.times.iter().enumerate() {
+        assert!(is_clock(at), "HH:MM:SS: {at:?}");
+        assert_eq!(log.shown(i), format!("{at} {}", log.entries[i].1));
+    }
+    let line = h.get_by_label_contains("Second thing said");
+    let shown = line.accesskit_node().value().unwrap_or_default().to_string();
+    let (at, rest) = shown.split_once(' ').unwrap();
+    assert!(is_clock(at), "{shown:?}");
+    assert_eq!(rest, "Second thing said");
+    // Cleared, the times go with the lines.
+    h.get_by_label("Clear Log").click();
+    h.run();
+    assert!(h.state().log.times.is_empty());
+}
+
 /// Help shows a function's documentation as the source has it: the
 /// comment lines with their `//` and their columns, then the declaration
 /// (Jasperre's report: lists in nwscript.nss's comments lost their
@@ -12379,6 +12534,36 @@ fn help_shows_documentation_as_the_source_has_it() {
     assert_eq!(
         shown, "// Adds.\n// - nA:    the first\n//           (any)\nint Add(int nA)",
         "as written, then the declaration"
+    );
+}
+
+/// A `/* … */` comment directly above a function is its documentation in
+/// Help, as written, as BioWare's includes put theirs between `//::` lines
+/// (Jasperre's report); above the definition, where the prototype has none.
+#[test]
+fn help_takes_a_block_comment_as_documentation() {
+    let dir = mg_testkit::scratch_dir("ui-script-help-block");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let text = "int Hidden(object oSelf);\r\n\r\n//:: Hidden\r\n/*\r\n    Returns TRUE if oSelf is hidden\r\n*/\r\n\
+                int Hidden(object oSelf) { return FALSE; }\r\nvoid main() { Hidden(OBJECT_SELF); }\r\n";
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, text.as_bytes().to_vec());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Hidden").click();
+    h.run();
+    let shown =
+        h.get_by_label_contains("Returns TRUE").accesskit_node().value().unwrap_or_default();
+    assert_eq!(
+        shown,
+        "//:: Hidden\n/*\n    Returns TRUE if oSelf is hidden\n*/\nint Hidden(object oSelf)"
     );
 }
 
@@ -21212,8 +21397,9 @@ fn a_plugin_installs_from_a_file_and_is_off() {
     h.run();
     h.get_by_label("Install Plugin from File…").click();
     h.run();
-    // (In the window, and in the log.)
-    let said = |h: &Harness<'_, Moonglow>, text: &str| h.get_all_by_label(text).count() == 2;
+    // (In the window, and in the log, after its time.)
+    let said =
+        |h: &Harness<'_, Moonglow>, text: &str| h.get_all_by_label_contains(text).count() == 2;
     assert!(said(
         &h,
         "Installed Tag conventions 1.0.0 from tag-conventions-1.0.0.zip: it is off until you \
@@ -21664,12 +21850,20 @@ fn a_script_goes_to_the_scratch_folder_compiled() {
     let said = texts(&h);
     let copied = said.iter().find(|t| t.contains("copied hello.nss to")).expect("{said:?}");
     assert!(copied.contains("not compiled"), "{copied}");
-    // A compiled script left in the folder by an earlier copy is named.
+    // A compiled script left in the folder by an earlier copy, and its
+    // debug file, are removed (the game would run it), and that is said.
     std::fs::write(scratch.join("hello.ncs"), b"NCS V1.0 older").unwrap();
+    std::fs::write(scratch.join("hello.ndb"), b"NDB older").unwrap();
+    std::fs::write(scratch.join("other.ncs"), b"NCS V1.0 other").unwrap();
     h.get_by_label("To Scratch").click();
     h.run_steps(3);
+    assert!(!scratch.join("hello.ncs").exists() && !scratch.join("hello.ndb").exists());
+    assert!(scratch.join("other.ncs").exists(), "another script's is left");
     let said = texts(&h);
-    assert!(said.iter().any(|t| t.contains("the folder's hello.ncs is from an earlier")));
+    let removed = "removed hello.ncs, hello.ndb, left by an earlier copy";
+    assert!(said.iter().any(|t| t.contains(removed)), "{said:?}");
+    let log = &h.state().log.entries;
+    assert!(log.iter().any(|(_, m)| m.contains(removed)), "{log:?}");
     // An include file (no main): copied, not compiled.
     let include_path = sample_module(&dir.join("include"));
     let mut m = Module::open(&include_path).unwrap();
@@ -21726,9 +21920,27 @@ fn a_stale_compiled_script_is_compiled_before_it_goes_out() {
     assert_eq!(out(&mut h), written);
     let later = &h.state().log.entries[entries..];
     assert!(!later.iter().any(|e| e.1.contains("Compiled first")), "{later:?}");
-    // One that no longer compiles goes out with what it has, and is named.
+    // One that no longer compiles goes out as its source alone, as the
+    // script editor's To Scratch sends it, and the compiled script the
+    // last copy left is taken out of the folder (the game would run it).
     set(&mut h, key, b"void main() { x = 1; }\n");
-    assert_eq!(out(&mut h), written);
+    let export = mg_ui::Action::ExportFiles { keys: vec![key], dependencies: false, scratch: true };
+    h.state_mut().actions.push(export);
+    h.run_steps(3);
+    assert_eq!(std::fs::read(scratch.join("hello.nss")).unwrap(), b"void main() { x = 1; }\n");
+    assert!(!scratch.join("hello.ncs").exists(), "no compiled script, old or new");
+    assert!(said(&h, "No longer compiles (its source copied alone"), "{:?}", h.state().log.entries);
+    assert!(said(&h, "Scratch folder: removed hello.ncs, left by an earlier copy"));
+    // Export as Files to a folder chosen sends it as before, with the
+    // module's compiled script, and says it is older.
+    let chosen = scratch.with_file_name("chosen");
+    h.state_mut().dialogs =
+        Box::new(NoDialogs { folders: vec![chosen.clone()], ..Default::default() });
+    let export =
+        mg_ui::Action::ExportFiles { keys: vec![key], dependencies: false, scratch: false };
+    h.state_mut().actions.push(export);
+    h.run_steps(3);
+    assert_eq!(std::fs::read(chosen.join("hello.ncs")).unwrap(), written);
     assert!(said(&h, "No longer compiles (the .ncs written is older than the script): hello"));
 }
 

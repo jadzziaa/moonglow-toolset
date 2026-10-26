@@ -23,7 +23,8 @@ pub struct Function {
     pub return_type: String,
     pub name: String,
     pub params: Vec<Param>,
-    /// The `//` comment lines directly above the declaration, without `//`.
+    /// The comments directly above the declaration (`//` lines, `/* … */`
+    /// blocks), without their markers.
     pub doc: String,
     /// The same lines as written, `//` and the spaces before it too
     /// ([`comment_as_written`](crate::outline::comment_as_written)):
@@ -90,7 +91,7 @@ impl Spec {
         while i < toks.len() {
             let t = &toks[i];
             match t.kind {
-                TokenKind::LineComment => {
+                TokenKind::LineComment | TokenKind::BlockComment { .. } => {
                     if blank_lines > 0 {
                         doc.clear();
                     }
@@ -101,10 +102,6 @@ impl Spec {
                 }
                 TokenKind::Whitespace => {
                     blank_lines += s(t).matches('\n').count().saturating_sub(1);
-                    i += 1;
-                    continue;
-                }
-                TokenKind::BlockComment { .. } => {
                     i += 1;
                     continue;
                 }
@@ -149,9 +146,9 @@ impl Spec {
             let (docs, doc_source) = if blank_lines > 0 {
                 Default::default()
             } else {
-                let plain: Vec<&str> =
+                let plain: Vec<String> =
                     doc.iter().map(|l| crate::outline::comment_text(l)).collect();
-                (plain.join("\n"), doc.join("\n"))
+                (plain.join("\n"), doc.join("\n").replace('\r', ""))
             };
             doc.clear();
             blank_lines = 0;
@@ -260,6 +257,13 @@ void Jump(vector vDest=[0.0,0.0,0.0], location lLoc=LOCATION_INVALID);
             "// Get an integer between 0 and nMaxInteger-1.\n// Return value on error: 0"
         );
         assert_eq!(r.function("Jump").unwrap().doc_source, "");
+        // A `/* … */` block is documentation too; one with an empty line
+        // under it is not.
+        let src = "/* Banner */\r\n\r\nint A = 1;\r\n/*\r\n * Sets it.\r\n */\r\nvoid Set();\r\n";
+        let s = Spec::parse(src.as_bytes());
+        assert_eq!(s.constants[0].doc, "");
+        let f = s.function("Set").unwrap();
+        assert_eq!((f.doc.as_str(), f.doc_source.as_str()), ("Sets it.", "/*\n * Sets it.\n */"));
     }
 
     #[test]

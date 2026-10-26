@@ -38,7 +38,8 @@ pub struct Global {
     pub is_const: bool,
     pub value: Option<String>,
     pub span: Range<usize>,
-    /// The `//` comment lines directly above, without `//`.
+    /// The comments directly above (`//` lines, `/* … */` blocks), without
+    /// their markers.
     pub doc: String,
     /// The same lines as written ([`comment_as_written`]).
     pub doc_source: String,
@@ -54,15 +55,16 @@ pub struct FunctionDecl {
     pub name_span: Range<usize>,
     /// The body `{ ... }` of a definition; `None` for a prototype.
     pub body: Option<Range<usize>>,
-    /// The `//` comment lines directly above, without `//`.
+    /// The comments directly above (`//` lines, `/* … */` blocks), without
+    /// their markers.
     pub doc: String,
     /// The same lines as written ([`comment_as_written`]).
     pub doc_source: String,
 }
 
-/// A `//` comment as written on its line (`span`, a line comment's
-/// token): with the spaces and tabs before it where nothing else is
-/// before it, so that a block of them keeps its columns, and without the
+/// A comment as written (`span`, a comment's token: a `//` line or a
+/// `/* … */` block): with the spaces and tabs before it where nothing else
+/// is before it, so that a block of them keeps its columns, and without the
 /// line's end.
 pub fn comment_as_written<'a>(text: &'a str, span: &Range<usize>) -> &'a str {
     let line_start = text[..span.start].rfind('\n').map_or(0, |i| i + 1);
@@ -71,10 +73,22 @@ pub fn comment_as_written<'a>(text: &'a str, span: &Range<usize>) -> &'a str {
     text[from..span.end].trim_end_matches(['\r', '\n'])
 }
 
-/// A comment line as documentation: without its `//` and the spaces
-/// around it.
-pub(crate) fn comment_text(written: &str) -> &str {
-    written.trim_start().trim_start_matches('/').trim()
+/// A comment as documentation: a line without its `//` and the spaces
+/// around it; a block without its `/*` and `*/`, and each of its lines
+/// without the spaces and the `*`s it begins with (` * ` down the side,
+/// as documentation comments are written), its empty first and last
+/// lines dropped (`/*` and `*/` on lines of their own, as BioWare's
+/// includes have them).
+pub(crate) fn comment_text(written: &str) -> String {
+    let written = written.trim();
+    let Some(block) = written.strip_prefix("/*") else {
+        return written.trim_start_matches('/').trim().to_string();
+    };
+    let block = block.strip_suffix("*/").unwrap_or(block);
+    let lines: Vec<&str> = block.lines().map(|l| l.trim().trim_start_matches('*').trim()).collect();
+    let first = lines.iter().position(|l| !l.is_empty()).unwrap_or(lines.len());
+    let last = lines.iter().rposition(|l| !l.is_empty()).map_or(first, |i| i + 1);
+    lines[first..last].join("\n")
 }
 
 /// A source's top-level declarations.
@@ -124,8 +138,9 @@ impl<'a> Parser<'a> {
         self.pos >= self.sig.len()
     }
 
-    /// The `//` comment lines directly above significant token `k`:
-    /// without their `//`, and as written ([`comment_as_written`]).
+    /// The comments directly above significant token `k` (`//` lines and
+    /// `/* … */` blocks, with no empty line between): without their
+    /// markers ([`comment_text`]), and as written ([`comment_as_written`]).
     fn doc_before(&self, k: usize) -> (String, String) {
         let Some(&raw) = self.sig.get(k) else { return Default::default() };
         let mut lines = Vec::new();
@@ -135,14 +150,16 @@ impl<'a> Parser<'a> {
             let t = &self.toks[i];
             let s = &self.text[t.span.clone()];
             match t.kind {
-                TokenKind::LineComment => lines.push(comment_as_written(self.text, &t.span)),
+                TokenKind::LineComment | TokenKind::BlockComment { .. } => {
+                    lines.push(comment_as_written(self.text, &t.span));
+                }
                 TokenKind::Whitespace if s.matches('\n').count() <= 1 => {}
                 _ => break,
             }
         }
         lines.reverse();
-        let doc: Vec<&str> = lines.iter().map(|l| comment_text(l)).collect();
-        (doc.join("\n"), lines.join("\n"))
+        let doc: Vec<String> = lines.iter().map(|l| comment_text(l)).collect();
+        (doc.join("\n"), lines.join("\n").replace('\r', ""))
     }
 
     /// Skips to just after the next `;` at bracket depth 0, or to (and
@@ -573,6 +590,45 @@ void main()
         let o = outline(b"int a; // A.\r\n    //   B, in.\r\nint F();\r\n");
         assert_eq!(o.functions[0].doc_source, "// A.\n    //   B, in.");
         assert_eq!(o.functions[0].doc, "A.\nB, in.");
+    }
+
+    /// A `/* … */` comment directly above a declaration is its
+    /// documentation, as `//` lines are (Jasperre's report): BioWare's
+    /// includes put theirs between `//::` lines; others write ` * ` down
+    /// the side. A section's banner with an empty line under it is not.
+    #[test]
+    fn block_comments_document_what_follows() {
+        let src = "/**********\n * CONSTANTS\n **********/\n\nconst int A = 1;\n\
+            //::////\n//:: Hidden\n/*\n    Returns TRUE if oSelf is hidden\n\n    magically\n*/\n\
+            //:: Created By: Brent\nint Hidden(object oSelf);\n\
+            /** Javadoc style.\n *  - nKind: the kind\n */\nvoid Set(int nKind);\n\
+            /* One line. */ int One();\n";
+        let o = outline(src.as_bytes());
+        assert_eq!(o.globals[0].doc, "");
+        let doc = |name: &str| {
+            let f = o.functions.iter().find(|f| f.name == name).unwrap();
+            (f.doc.as_str(), f.doc_source.as_str())
+        };
+        assert_eq!(
+            doc("Hidden").0,
+            "::////\n:: Hidden\nReturns TRUE if oSelf is hidden\n\nmagically\n:: Created By: Brent"
+        );
+        assert_eq!(
+            doc("Hidden").1,
+            "//::////\n//:: Hidden\n/*\n    Returns TRUE if oSelf is hidden\n\n    magically\n*/\n\
+             //:: Created By: Brent"
+        );
+        assert_eq!(doc("Set").0, "Javadoc style.\n- nKind: the kind");
+        assert_eq!(doc("Set").1, "/** Javadoc style.\n *  - nKind: the kind\n */");
+        assert_eq!(doc("One"), ("One line.", "/* One line. */"));
+        // An open block runs to the end: nothing after it to document.
+        assert!(outline(b"/* open\nint F();").functions.is_empty());
+        // CRLF: no `\r` in either.
+        let o = outline(b"/*\r\n * Two\r\n */\r\nint F();\r\n");
+        assert_eq!(
+            (o.functions[0].doc.as_str(), o.functions[0].doc_source.as_str()),
+            ("Two", "/*\n * Two\n */")
+        );
     }
 
     #[test]

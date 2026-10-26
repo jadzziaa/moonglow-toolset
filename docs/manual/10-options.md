@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:02:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:11:17Z }
 ---
 
 # Options
@@ -182,8 +182,10 @@ the module is opened again from its file.
   under the toolbar, its line underlined (see [Scripts](07-scripts.md)).
   Off, there is no check and no line kept for it.
 - **Indent with** Spaces (the default) or Tabs, and **Indent width**
-  (4): what Tab puts in, and Shift+Tab takes off. With spaces, Tab goes
-  to the next multiple of the width.
+  (4): what Tab puts in, and Shift+Tab takes off, in a script with no
+  indented line to go by (one that has some is indented as it is: see
+  [Scripts](07-scripts.md)). With spaces, Tab goes to the next multiple
+  of the width. The width is also a tab's, for Convert Indentation.
 - **Open scripts as tabs of one window**: on by default. A script opens
   as a tab of the window scripts are open in already; off, each in a
   window of its own. (Scripts docked in the main pane open there either

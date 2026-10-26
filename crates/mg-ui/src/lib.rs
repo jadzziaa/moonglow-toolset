@@ -379,6 +379,9 @@ impl Level {
 #[derive(Debug, Clone, Default)]
 pub struct Log {
     pub entries: Vec<(Level, String)>,
+    /// When each entry was said, the local time of day (`14:03:27`), as
+    /// the Compiler tab's messages have it (Jasperre's report).
+    pub times: Vec<String>,
     /// The fixes the last Verify's findings offer, each beside its line.
     pub fixes: Vec<OfferedFix>,
     /// What those fixes were worked out on.
@@ -402,6 +405,7 @@ impl Log {
     /// Empties the log, and the fixes beside its lines go with them.
     pub fn clear(&mut self) {
         self.entries.clear();
+        self.times.clear();
         self.fixes.clear();
     }
 
@@ -421,6 +425,17 @@ impl Log {
     pub(crate) fn said(&mut self, level: Level, s: String) {
         trace::note(format!("log {level:?}: {s}"));
         self.entries.push((level, s));
+        self.times.push(script_tools::clock());
+    }
+
+    /// Line `line` as the log shows it: the time it was said, then the
+    /// message.
+    pub fn shown(&self, line: usize) -> String {
+        let msg = self.entries.get(line).map_or("", |e| e.1.as_str());
+        match self.times.get(line) {
+            Some(at) => format!("{at} {msg}"),
+            None => msg.to_string(),
+        }
     }
     pub fn error(&mut self, s: impl Into<String>) {
         self.said(Level::Error, s.into());
@@ -2311,8 +2326,10 @@ impl Moonglow {
             .min_scrolled_height(0.0)
             .show(ui, |ui| {
                 let mut clicked = None;
-                for (i, (level, msg)) in self.log.entries.iter().enumerate() {
-                    let text = egui::RichText::new(msg).color(level.color(ui)).monospace();
+                for (i, (level, _)) in self.log.entries.iter().enumerate() {
+                    // (When it was said, before it: the Compiler tab's way.)
+                    let text = self.log.shown(i);
+                    let text = egui::RichText::new(text).color(level.color(ui)).monospace();
                     // A finding's fix: a button beside it, made when
                     // clicked (Verify Module).
                     let Some(offer) = self.log.fix_at(i) else {
@@ -3335,6 +3352,10 @@ impl Moonglow {
         // Script editors' unsaved text goes into the module first, as saving
         // everything means; so does the talk table, a file of its own.
         let stored = self.store_script_text();
+        // (Compiling on save off: the Compiler tab says they weren't.)
+        if !self.settings.auto_compile {
+            stored.iter().for_each(|k| self.script_tools.saved_not_compiled(*k));
+        }
         // Options › Script Editor › Automatically Compile Scripts on Save:
         // the scripts whose text was just stored are compiled before the
         // module is written (saving the module, not only a script's own
@@ -4360,7 +4381,9 @@ impl Moonglow {
             },
             |app, made| {
                 let Some((missing, found, said, left, guard)) = made else { return };
-                app.log.entries.extend(said);
+                for (level, text) in said {
+                    app.log.said(level, text);
+                }
                 // (The last Verify's fixes alone are offered.)
                 app.log.fixes.clear();
                 app.log.fix_guard = guard;

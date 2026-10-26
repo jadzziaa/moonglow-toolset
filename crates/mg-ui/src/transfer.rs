@@ -68,6 +68,39 @@ pub(crate) fn listed(names: &[String]) -> String {
     }
 }
 
+/// The rule for a script that doesn't compile, copied into the scratch
+/// folder (a script editor's To Scratch, the module tree's Copy to Scratch
+/// Folder): it goes as its source alone, and the compiled script (and its
+/// debug file) of each of `scripts` that an earlier copy left in `dir` is
+/// removed, for the game would still run it (El Grillo's request). What
+/// was removed, by file name, and what could not be.
+pub(crate) fn remove_stale_compiled(
+    dir: &std::path::Path,
+    scripts: &[mg_core::ResRef],
+) -> (Vec<String>, Vec<String>) {
+    let (mut removed, mut failed) = (Vec::new(), Vec::new());
+    for resref in scripts {
+        for kind in [ResType::NCS, ResType::NDB] {
+            let name = ResKey::new(*resref, kind).to_string();
+            let path = dir.join(&name);
+            if !path.is_file() {
+                continue;
+            }
+            match std::fs::remove_file(&path) {
+                Ok(()) => removed.push(name),
+                Err(e) => failed.push(format!("{}: {e}", path.display())),
+            }
+        }
+    }
+    (removed, failed)
+}
+
+/// What the log says of the compiled scripts [`remove_stale_compiled`]
+/// removed from the scratch folder.
+pub(crate) fn removed_said(removed: &[String]) -> String {
+    format!("removed {}, left by an earlier copy (the game would still run it)", listed(removed))
+}
+
 impl Moonglow {
     /// The scratch folder To Scratch copies into: chosen once, then kept
     /// in the settings (Options › Folders); None if none is chosen when
@@ -211,6 +244,15 @@ impl Moonglow {
             .filter(|k| !resources.contains(&ResKey::new(k.resref, mg_core::ResType::NCS)))
             .map(|k| k.resref.to_string())
             .collect();
+        // To the scratch folder, one that no longer compiles goes as its
+        // source alone, as To Scratch sends it: not with the older
+        // compiled script, which the game would run as this script's.
+        if scratch {
+            resources.retain(|k| {
+                !matches!(k.restype, ResType::NCS | ResType::NDB)
+                    || !broken.contains(&k.resref.to_string())
+            });
+        }
         let dir = if scratch {
             self.scratch_folder()
         } else {
@@ -239,7 +281,13 @@ impl Moonglow {
                         crate::transfer::listed(&compiled)
                     ));
                 }
-                if !broken.is_empty() {
+                if !broken.is_empty() && scratch {
+                    self.log.warn(format!(
+                        "No longer compiles (its source copied alone; Compile in the script's \
+                         editor says why): {}",
+                        crate::transfer::listed(&broken)
+                    ));
+                } else if !broken.is_empty() {
                     self.log.warn(format!(
                         "No longer compiles (the .ncs written is older than the script): {}",
                         crate::transfer::listed(&broken)
@@ -251,7 +299,15 @@ impl Moonglow {
                         crate::transfer::listed(&uncompiled)
                     ));
                 }
-                if !scratch {
+                if scratch {
+                    let alone: Vec<mg_core::ResRef> =
+                        (broken.iter().chain(&uncompiled)).filter_map(|n| n.parse().ok()).collect();
+                    let (removed, failed) = remove_stale_compiled(&dir, &alone);
+                    if !removed.is_empty() {
+                        self.log.info(format!("Scratch folder: {}", removed_said(&removed)));
+                    }
+                    failed.into_iter().for_each(|f| self.log.error(f));
+                } else {
                     self.export_dir = Some(dir);
                 }
             }

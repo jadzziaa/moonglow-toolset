@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:06:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:11:17Z }
 ---
 
 # The main window
@@ -20,7 +20,7 @@ close it, **Palettes** on the toolbar brings it back.
 | Menu | Commands |
 | --- | --- |
 | File | New Module…, Open Module…, Open Folder…, Recent Modules, Save, Save As…, Save As nasher Project…, Project ([the project's commands](03-modules.md#the-projects-commands): its update and submit), Import…, Export…, Import Conversation…, Close, Exit |
-| Edit | Undo, Redo (each names what it undoes), Module Properties, Builder Code… ([your code](03-modules.md#your-builder-code), for a module folder or a nasher project), Resize Area…, Rotate Area…, Find Instance…, Prefabs, Edit Areas Together…, Find and Replace Text…, Find References… |
+| Edit | Undo, Redo (each names what it undoes), Module Properties, Builder Code… ([your code](03-modules.md#your-builder-code), for a module folder or a nasher project), Resize Area…, Rotate Area…, Find Instance…, Prefabs, Edit Areas Together…, Find and Replace Text…, Find References…, Advanced Search…, Convert Indentation to Tabs, Convert Indentation to Spaces (the script in front: see [Scripts](07-scripts.md)) |
 | View | Module Tree, Palettes Panel, Log (each ticked while shown), Clear Log, Hide All Panels, Reset Layout |
 | Wizards | Area Wizard…, Creature Wizard…, and a wizard for each other blueprint type (Door, Encounter, Item, Placeable, Sound, Store, Trigger, Waypoint) |
 | Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, 2DA File…, New Script…, Palettes, Appearance Gallery…, Resource Browser, Tilesets (New Tileset…, Open Tileset…), Haks (New Hak, Open Hak…, Build Hak from Folder…), Reload Resources, Options… |
@@ -439,6 +439,9 @@ while the viewer plays): the same switch as the area view's toolbar
 
 Messages go to the log at the bottom: what was opened or saved, compiler
 errors, warnings about missing resources. Warnings are yellow, errors red.
+Each line begins with the time it was written (`14:03:27`), as the
+script editor's Compiler messages do; a line selected and copied from
+the log takes its time with it.
 **Clear**, in its right corner (or View › Clear Log), empties it: a
 second Verify's report isn't then mistaken for the first's.
 

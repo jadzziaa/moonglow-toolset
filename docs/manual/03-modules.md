@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:02:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:11:17Z }
 ---
 
 # Modules
@@ -1337,9 +1337,13 @@ plugin reads a description with `mg.twoda.describe`
   or game has the fix. (Aurora users pick such files out of its `temp0`
   folder; Moonglow keeps a module in memory, so it hands them over
   instead.) A script changed since it was compiled is compiled
-  first, wherever it is sent from, and the log names it; one that no
-  longer compiles goes with the compiled script it has, and the log says
-  that too.
+  first, wherever it is sent from, and the log names it. One that no
+  longer compiles goes to the scratch folder as its source alone, as the
+  script editor's To Scratch sends it, and a compiled script (and debug
+  file) of its name that an earlier copy left there is removed, for the
+  game would still run it; the log names both. (Export as Files to a
+  folder you choose sends it with the compiled script the module has,
+  and the log says that it no longer compiles.)
 - A module opened as a folder (**File › Open Folder…**) or kept as a
   nasher project has its resources as files already.
 - **File › Import…** adds an `.erf`'s resources to the module; for those

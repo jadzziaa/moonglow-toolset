@@ -180,6 +180,11 @@ pub struct ScriptTools {
     pub jump: Option<(ResKey, usize)>,
     /// An editor to scroll to its cursor once laid out.
     pub scroll: Option<ResKey>,
+    /// A script's indentation to convert, to tabs (`true`) or spaces, once
+    /// its editor is drawn (Edit › Convert Indentation…).
+    pub convert_indent: Option<(ResKey, bool)>,
+    /// The script whose editor had the keyboard last.
+    pub(crate) last_typed: Option<ResKey>,
     /// `nwscript.nss`, parsed once.
     pub spec: Option<Arc<Spec>>,
     /// Symbols of each script (with its includes), by its text.
@@ -265,17 +270,37 @@ pub fn script_symbols(text: &str, source: &mut dyn FnMut(&str) -> Option<String>
             }
         }
     }
-    // Prototypes and definitions name a function twice.
+    // Prototypes and definitions name a function twice. (The first's,
+    // with the documentation of whichever has some: BioWare's includes
+    // document a prototype with `//` lines, or only the definition, with a
+    // `/* … */` block.)
     let mut unique: Vec<Symbol> = Vec::new();
     for s in out {
-        if !unique.iter().any(|u| u.name == s.name && u.kind == s.kind) {
-            unique.push(s);
+        match unique.iter_mut().find(|u| u.name == s.name && u.kind == s.kind) {
+            Some(u) if u.doc.is_empty() => u.doc = s.doc,
+            Some(_) => {}
+            None => unique.push(s),
         }
     }
     unique
 }
 
 impl ScriptTools {
+    /// Says in the Compiler tab that `key` was saved and not compiled
+    /// (compiling on save is off), in place of what it said of the script
+    /// before: a builder takes the last compile's "compiled" for this
+    /// text's otherwise (Jasperre's report). A script's own Save and the
+    /// module's both say it.
+    pub(crate) fn saved_not_compiled(&mut self, key: ResKey) {
+        self.messages.retain(|m| m.script != key);
+        let said = format!(
+            "{key}: saved, not compiled (Options › Script Editor › Automatically Compile \
+             Scripts on Save is off)"
+        );
+        self.messages.push(Message::new(key, said, None, false));
+        self.info = InfoTab::Compiler;
+    }
+
     /// All symbols a script can use: its own and its includes' (custom),
     /// then `nwscript.nss`'s; cached by the script's text.
     pub fn symbols_for(
@@ -371,18 +396,80 @@ pub fn new_line_indent(text: &str, at: usize) -> String {
     line.chars().take_while(|c| *c == ' ' || *c == '\t').collect()
 }
 
-/// One step of indentation, as Options › Script Editor has it: a tab, or
-/// `width` spaces (four unless chosen).
+/// One step of indentation: a tab, or `width` spaces; as the script is
+/// indented ([`Indent::of_script`]), else as Options › Script Editor has
+/// it ([`Indent::of`]: four spaces unless chosen).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Indent {
     pub tabs: bool,
     pub width: usize,
 }
 
+/// How a script is indented, as guessed from its text ([`Indent::guess`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Guess {
+    Tabs,
+    /// This many spaces a step.
+    Spaces(usize),
+}
+
 impl Indent {
     /// The style's: [`ScriptStyle`](crate::settings::ScriptStyle)'s.
     pub fn of(style: &crate::settings::ScriptStyle) -> Indent {
         Indent { tabs: style.indent_tabs, width: usize::from(style.indent_width.clamp(1, 16)) }
+    }
+
+    /// A script's: as it is indented itself, else (nothing indented to go
+    /// by) the style's, `style`. A tab is as wide as the style says.
+    pub fn of_script(guess: Option<Guess>, style: Indent) -> Indent {
+        match guess {
+            Some(Guess::Tabs) => Indent { tabs: true, width: style.width },
+            Some(Guess::Spaces(width)) => Indent { tabs: false, width },
+            None => style,
+        }
+    }
+
+    /// How `text` is indented, the common rule: by tabs or spaces as most
+    /// of its indented lines are, and a step of the spaces by which a
+    /// line is most often further in than the one before it (the lines
+    /// of a `/* … */` block's ` * ` side aside). `None` with no line
+    /// indented.
+    pub fn guess(text: &str) -> Option<Guess> {
+        let (mut tabs, mut spaces) = (0usize, 0usize);
+        let mut steps: HashMap<usize, usize> = HashMap::new();
+        let mut before: Option<usize> = None;
+        let mut least = usize::MAX;
+        for line in text.lines() {
+            let rest = line.trim_start_matches([' ', '\t']);
+            if rest.is_empty() || rest.starts_with('*') {
+                continue;
+            }
+            let lead = &line[..line.len() - rest.len()];
+            if lead.contains('\t') {
+                tabs += 1;
+                before = None;
+                continue;
+            }
+            let n = lead.len();
+            if n > 0 {
+                spaces += 1;
+                least = least.min(n);
+            }
+            if let Some(b) = before.filter(|b| n > *b) {
+                *steps.entry(n - b).or_default() += 1;
+            }
+            before = Some(n);
+        }
+        if tabs + spaces == 0 {
+            return None;
+        }
+        if tabs > spaces {
+            return Some(Guess::Tabs);
+        }
+        // (The most often; of as often, the narrowest. Every line as far
+        // in: that far.)
+        let step = steps.into_iter().max_by_key(|&(w, n)| (n, std::cmp::Reverse(w)));
+        Some(Guess::Spaces(step.map_or(least, |(w, _)| w).clamp(1, 16)))
     }
 
     /// One step: a tab, or the width's spaces.
@@ -445,6 +532,31 @@ pub fn indent_lines(
     let tail: String = chars[end..].iter().collect();
     let new_end = start + new_block.chars().count();
     (format!("{head}{new_block}{tail}"), start, new_end)
+}
+
+/// `text` with each line's indentation (the spaces and tabs it begins
+/// with) made tabs or spaces, as Convert Indentation to Tabs and to
+/// Spaces do: as far in as before, a tab `width` columns. To tabs, what is
+/// left of a step stays spaces (a ` * ` under `/*`, a column lined up).
+pub fn convert_indentation(text: &str, tabs: bool, width: usize) -> String {
+    let width = width.max(1);
+    let lines: Vec<String> = text
+        .split('\n')
+        .map(|line| {
+            let rest = line.trim_start_matches([' ', '\t']);
+            let lead = &line[..line.len() - rest.len()];
+            let columns = lead
+                .chars()
+                .fold(0, |col, c| if c == '\t' { (col / width + 1) * width } else { col + 1 });
+            let lead = if tabs {
+                format!("{}{}", "\t".repeat(columns / width), " ".repeat(columns % width))
+            } else {
+                " ".repeat(columns)
+            };
+            format!("{lead}{rest}")
+        })
+        .collect();
+    lines.join("\n")
 }
 
 /// The identifier around a character index.
@@ -586,6 +698,52 @@ pub fn nss(name: &str) -> Option<ResKey> {
 
 #[cfg(test)]
 mod tests {
+    use super::{Guess, Indent};
+
+    /// A script's indentation is guessed from its indented lines (Jasperre's
+    /// report: BioWare's use tabs and spaces both): tabs or spaces as most
+    /// are, the step most often taken; nothing to go by, none.
+    #[test]
+    fn indentation_is_guessed_from_the_script() {
+        let guess = Indent::guess;
+        assert_eq!(guess("void main()\n{\n}\n"), None);
+        assert_eq!(guess(""), None);
+        assert_eq!(guess("void main()\n{\n\tint n;\n\tif (n)\n\t\tn++;\n}\n"), Some(Guess::Tabs));
+        let two = "void main()\n{\n  int n;\n  if (n)\n  {\n    n++;\n  }\n}\n";
+        assert_eq!(guess(two), Some(Guess::Spaces(2)));
+        let four = "void main()\n{\n    int n;\n    if (n)\n    {\n        n++;\n    }\n}\n";
+        assert_eq!(guess(four), Some(Guess::Spaces(4)));
+        // More lines in spaces than in tabs: spaces. (A line lined up
+        // further in doesn't make the step.)
+        let mixed = "{\n\tint n;\n    int m;\n    int k = 1 +\n             2;\n    \
+                     if (m)\n        m++;\n    if (k)\n        k++;\n}\n";
+        assert_eq!(guess(mixed), Some(Guess::Spaces(4)));
+        // A block comment's ` * ` side isn't indentation.
+        let block = "/*\n * Doc.\n * More.\n */\nvoid main()\n{\n\tint n;\n}\n";
+        assert_eq!(guess(block), Some(Guess::Tabs));
+        // Every line as far in, three spaces: three.
+        assert_eq!(guess("   a;\n   b;\n"), Some(Guess::Spaces(3)));
+        // As the script is, else as Options say.
+        let style = Indent { tabs: false, width: 4 };
+        assert_eq!(Indent::of_script(None, style), style);
+        assert_eq!(
+            Indent::of_script(Some(Guess::Spaces(2)), style),
+            Indent { tabs: false, width: 2 }
+        );
+        assert_eq!(Indent::of_script(Some(Guess::Tabs), style), Indent { tabs: true, width: 4 });
+    }
+
+    #[test]
+    fn indentation_converts_to_tabs_and_to_spaces() {
+        let spaces = "void main()\n{\n    int n;\n      // lined up\n        n++;\n\n}\n";
+        let tabs = super::convert_indentation(spaces, true, 4);
+        assert_eq!(tabs, "void main()\n{\n\tint n;\n\t  // lined up\n\t\tn++;\n\n}\n");
+        assert_eq!(super::convert_indentation(&tabs, false, 4), spaces);
+        // A tab after spaces goes to the next stop; two-space steps.
+        assert_eq!(super::convert_indentation("  \tx\n", false, 4), "    x\n");
+        assert_eq!(super::convert_indentation("  a\n    b\n", true, 2), "\ta\n\t\tb\n");
+    }
+
     #[test]
     fn page_keys_move_by_lines_in_the_same_column() {
         let text = "abcd\nx\nefgh\nij";

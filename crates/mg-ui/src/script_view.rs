@@ -53,6 +53,10 @@ pub(crate) struct ScriptBuffer {
     /// until it has had one), as drawn last: what a module's kept tabs
     /// keep of it.
     pub(crate) seen: Option<(egui::Vec2, Option<(usize, usize)>)>,
+    /// How the script is indented, guessed when its text was read
+    /// ([`tools::Indent::guess`]) or set by converting it: what Tab puts
+    /// in (`None`: as Options › Script Editor says).
+    pub(crate) indent: Option<tools::Guess>,
 }
 
 /// A script's text: what its editor holds (unsaved typing too), else the
@@ -145,6 +149,7 @@ impl ScriptBuffer {
         let codepage = script_codepage();
         let raw = codepage.decode(bytes).into_owned();
         let text = crate::text::to_editor(&raw).0;
+        let indent = tools::Indent::guess(&text);
         ScriptBuffer {
             text: text.clone(),
             saved: text,
@@ -155,6 +160,7 @@ impl ScriptBuffer {
             external: None,
             codepage,
             seen: None,
+            indent,
         }
     }
 
@@ -162,6 +168,7 @@ impl ScriptBuffer {
     /// both the text and the text saved.
     fn follow(&mut self, raw: String) {
         let text = crate::text::to_editor(&raw).0;
+        self.indent = tools::Indent::guess(&text);
         self.text = text.clone();
         self.saved = text;
         self.raw = raw;
@@ -413,6 +420,44 @@ fn insert(
     set_cursor(ctx, key, at, at);
 }
 
+/// The editor's context menu's conversions (Edit › Convert Indentation
+/// to Tabs and to Spaces): to tabs or not, and its name.
+const INDENT_CONVERSIONS: [(bool, &str); 2] =
+    [(true, "Convert Indentation to Tabs"), (false, "Convert Indentation to Spaces")];
+
+/// Convert Indentation to Tabs (`tabs`) or to Spaces: every line's
+/// indentation made so ([`tools::convert_indentation`], a step `width`
+/// columns), one step for the editor's Undo; Tab indents so from then on.
+/// The cursor stays on its line, at its start.
+fn convert_indentation(
+    buf: &mut ScriptBuffer,
+    ctx: &egui::Context,
+    key: ResKey,
+    tabs: bool,
+    width: usize,
+) {
+    buf.indent = Some(if tabs { tools::Guess::Tabs } else { tools::Guess::Spaces(width) });
+    let converted = tools::convert_indentation(&buf.text, tabs, width);
+    if converted == buf.text {
+        return;
+    }
+    let id = editor_id(key);
+    let mut state = egui::text_edit::TextEditState::load(ctx, id).unwrap_or_default();
+    let before = state.cursor.char_range().unwrap_or_default();
+    let line = buf.text.chars().take(before.primary.index.into()).filter(|c| *c == '\n').count();
+    let at = egui::text::CCursorRange::one(egui::text::CCursor::new(tools::line_start(
+        &converted, line,
+    )));
+    // (The text before is a point for the editor's Undo to go back to,
+    // in one, however soon it is asked: the field makes the text after
+    // one itself once it is left as it is.)
+    let mut undoer = state.undoer();
+    undoer.add_undo(&(before, std::mem::replace(&mut buf.text, converted)));
+    state.set_undoer(undoer);
+    state.cursor.set_char_range(Some(at));
+    state.store(ctx, id);
+}
+
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     // Fit the pane, whose clip rectangle is its true size: the tab does not
     // scroll (`Viewer::scroll_bars`), and the dock's non-scrolling scroll area
@@ -486,6 +531,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
 
     // Shortcuts while the editor has focus.
     let focused = ctx.memory(|m| m.has_focus(editor_id(key)));
+    if focused {
+        app.script_tools.last_typed = Some(key);
+    }
     let mut open_find = false;
     let mut open_replace = false;
     let mut find_next = false;
@@ -951,12 +999,19 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         });
 
     // The editor with line numbers.
-    let indent = tools::Indent::of(&app.settings.script_style);
+    let style_indent = tools::Indent::of(&app.settings.script_style);
     let error_line = app.live_error(key).and_then(|e| e.0);
     let error_color = ui.visuals().error_fg_color;
     let mut ctrl_click = None;
     let Moonglow { scripts, laid_out, script_tools, open_tabs, .. } = app;
     let buf = scripts.get_mut(&key).expect("open");
+    // Tab indents as the script is indented (Jasperre's report), else as
+    // Options › Script Editor says.
+    let mut indent = tools::Indent::of_script(buf.indent, style_indent);
+    if let Some((_, tabs)) = script_tools.convert_indent.take_if(|(k, _)| *k == key) {
+        convert_indentation(buf, &ctx, key, tabs, indent.width);
+        indent = tools::Indent::of_script(buf.indent, style_indent);
+    }
     // Scrolled and its cursor where they were, a module's kept tabs
     // opening it again (the cursor's not given the keys).
     let (kept_scroll, kept_cursor) =
@@ -1021,8 +1076,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let mut page_scroll = None;
     // Tab on a selection of several lines indents them; Shift+Tab outdents
     // the selected lines, or the cursor's. Tab alone puts in a step of
-    // indentation (Options › Script Editor: four spaces, unless chosen),
-    // not the field's own tab.
+    // indentation (the script's own, else Options › Script Editor's:
+    // four spaces, unless chosen), not the field's own tab.
     if script_tools.completion.is_none()
         && ui.memory(|m| m.has_focus(editor_id(key)))
         && let Some((a, b)) = cursor(&ctx, key)
@@ -1119,6 +1174,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         area = area.scroll_offset(at);
     }
     let mut cursor_now = None;
+    // (The editor's context menu's Convert Indentation, done next frame.)
+    let mut convert = None;
     let shown = area.auto_shrink([false, false]).show(ui, |ui| {
         // The editor fills the room down to the pane under it, however
         // short the script.
@@ -1155,6 +1212,14 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 .show(ui);
             cursor_now = out.state.cursor.char_range();
             ui.visuals_mut().selection.bg_fill = selected;
+            out.response.response.context_menu(|ui| {
+                for (tabs, label) in INDENT_CONVERSIONS {
+                    if ui.button(label).clicked() {
+                        convert = Some(tabs);
+                        ui.close();
+                    }
+                }
+            });
             let field = out.response.response.rect;
             let radius = ui.style().interact(&out.response.response).corner_radius;
             let mut shapes = vec![egui::Shape::rect_filled(field, radius, ground)];
@@ -1200,6 +1265,10 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         (a.min(b), a.max(b))
     });
     buf.seen = Some((shown.state.offset, cursor_now));
+    if let Some(tabs) = convert {
+        script_tools.convert_indent = Some((key, tabs));
+        ctx.request_repaint();
+    }
 
     // The completion list at the cursor.
     if let (Some(c), Some(pos)) =
@@ -1304,18 +1373,7 @@ pub(crate) fn save_script(app: &mut Moonglow, key: ResKey, how: ScriptSave) {
         // so, in place of what it said before, or a builder takes the last
         // compile's "compiled" for this text's (Jasperre's report).
         if save && !app.settings.auto_compile {
-            let tools = &mut app.script_tools;
-            tools.messages.retain(|m| m.script != key);
-            tools.messages.push(Message::new(
-                key,
-                format!(
-                    "{key}: saved, not compiled (Options › Script Editor › Automatically \
-                     Compile Scripts on Save is off)"
-                ),
-                None,
-                false,
-            ));
-            tools.info = InfoTab::Compiler;
+            app.script_tools.saved_not_compiled(key);
         }
         if buf.is_dirty() {
             let (data, warning) = (buf.mark_saved(), buf.unwritable(key));
@@ -1367,14 +1425,20 @@ impl Moonglow {
                     .collect();
                 let names = crate::transfer::listed(&names);
                 let mut said = format!("To Scratch: copied {names} to {}", dir.display());
+                let mut error = false;
                 if !compiled {
                     said.push_str(", not compiled (no compiled script copied)");
-                    let old = ResKey::new(key.resref, ResType::NCS).to_string();
-                    if dir.join(&old).exists() {
-                        said.push_str(&format!("; the folder's {old} is from an earlier compile"));
+                    let (removed, failed) =
+                        crate::transfer::remove_stale_compiled(&dir, &[key.resref]);
+                    if !removed.is_empty() {
+                        said.push_str(&format!("; {}", crate::transfer::removed_said(&removed)));
+                    }
+                    if !failed.is_empty() {
+                        said.push_str(&format!("; could not remove {}", failed.join(", ")));
+                        error = true;
                     }
                 }
-                (said, false)
+                (said, error)
             }
             Err(e) => (format!("To Scratch: could not write to {}: {e}", dir.display()), true),
         };
