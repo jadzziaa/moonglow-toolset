@@ -2150,6 +2150,92 @@ fn the_hak_list_is_reordered_by_keys_buttons_and_a_drag() {
     assert_eq!(haks(&mut h), ["charlie", "alpha", "gone"]);
 }
 
+/// A hak dragged to the bottom edge of a list longer than its frame
+/// scrolls the list (GitHub issue 17), and is let go among the rows that
+/// came into sight.
+#[test]
+fn a_hak_dragged_to_the_list_s_edge_scrolls_it() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-hak-list-scroll");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let path = sample_module(&dir);
+    let install = mg_resman::GameInstall::new(&root, Some(user), "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let info = ResKey::parse("module", ResType::IFO).unwrap();
+    let names: Vec<String> = (1..=30).map(|n| format!("hak{n:02}")).collect();
+    let items = names
+        .iter()
+        .map(|n| {
+            let mut item = ifo::MOD_HAK_LIST.new_item();
+            item.write(&ifo::mod_hak_list::MOD_HAK, ExoString::from(n.as_str()));
+            item
+        })
+        .collect();
+    let edit = mg_edit::Edit::SetField {
+        key: info,
+        path: mg_edit::GffPath::root(),
+        label: ifo::MOD_HAK_LIST.label.to_string(),
+        value: Some(mg_gff::Value::List(items)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Haks", vec![edit])));
+    h.run();
+    h.get_by_label("Custom Content").click();
+    h.run();
+    let haks = |h: &mut Harness<'_, Moonglow>| -> Vec<String> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let root = ws.doc(&info).unwrap().root.clone();
+        root.items(&ifo::MOD_HAK_LIST)
+            .iter()
+            .map(|i| {
+                String::from_utf8_lossy(i.read(&ifo::mod_hak_list::MOD_HAK).as_bytes()).into_owned()
+            })
+            .collect()
+    };
+    // The frame shows 14 rows: the last ones are out of sight, below.
+    let last = |h: &Harness<'_, Moonglow>| h.get_by_label("hak28").rect().top();
+    let hidden = last(&h);
+    let edge = h.get_by_label("hak14").rect().bottom();
+    assert!(hidden > edge + 100.0, "out of sight: {hidden}, {edge}");
+    // hak02 dragged by its name down to the frame's bottom edge, and held
+    // there: the list scrolls up under it.
+    let from = h.get_by_label("hak02").rect().center();
+    let to = egui::pos2(from.x, edge - 4.0);
+    let button = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    h.hover_at(from);
+    h.run_steps(1);
+    h.event(button(from, true));
+    for k in 1..=6 {
+        h.hover_at(from + (to - from) * (k as f32 / 6.0));
+        h.run_steps(1);
+    }
+    h.run_steps(60);
+    let scrolled = last(&h);
+    assert!(scrolled < hidden - 100.0, "the list scrolled: {hidden} to {scrolled}");
+    // Let go above hak28, now in sight.
+    let at = egui::pos2(from.x, h.get_by_label("hak28").rect().top() + 2.0);
+    h.hover_at(at);
+    h.run_steps(1);
+    h.event(button(at, false));
+    h.run();
+    let order = haks(&mut h);
+    let place = order.iter().position(|n| n == "hak02").unwrap();
+    assert!(place > 20, "let go among the rows that came into sight: {order:?}");
+    assert_eq!(order[place + 1], "hak28", "{order:?}");
+}
+
 /// Files added to a hak that has some of them already are asked about
 /// first, as Aurora's hak editor asks: replaced, left out, or nothing
 /// added at all.

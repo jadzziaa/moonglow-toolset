@@ -825,7 +825,9 @@ it is there, or taken off the list.
   Shift + click chooses from the last one clicked to this one.
 - **Move** what is chosen by dragging a row (by its name or the dots
   before it) to where the line shows, with the arrows under the list, or
-  with Alt + Up and Alt + Down. Rows chosen together move together.
+  with Alt + Up and Alt + Down. Rows chosen together move together. A
+  row dragged to the top or bottom edge of a list longer than its frame
+  scrolls it, faster the nearer the edge.
 - **Remove** takes the rows chosen off the list; so does Delete.
 - **The keys** work after a click in the list, with the pointer over it:
   Up and Down choose the row above or below (with Shift, more), Home and

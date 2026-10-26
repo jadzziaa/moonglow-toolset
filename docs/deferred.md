@@ -1114,14 +1114,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   hasn't. (S)
 - **ERF version:** haks are saved as `V1.0`; EE's compressed `E1.0` is
   read but not written. (S–M)
-- **The hak list of Module Properties** (GitHub issue 17) is the
-  issue's recommended layout: a framed list numbered from the top, rows
-  chosen (Ctrl and Shift for more) and moved by a drag, the arrows under
-  the list or Alt + Up and Down, removed with Remove or Delete, one undo
-  each (so nothing asks before a removal, as the issue has it); haks
-  not in the hak folders flagged; the talk table in a section of its
-  own. Not done: a drag does not scroll a list longer than its frame.
-  (S) (from builders' reports after 1.19.1)
 
 ## Raw fields
 
