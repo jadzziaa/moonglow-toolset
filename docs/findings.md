@@ -983,6 +983,28 @@ across, each piece showing its particle's frame whole.
 - **Moonglow:** `crates/mg-render/src/particles.rs`.
 - **Wiki:** not compared.
 
+### An upright particle turns to the eye
+
+An `Aligned_to_World_Z` particle stands upright and is turned about the
+world's Z to face the eye: seen from the north, north-east, east, south
+and west, a still 1 m quad is as wide and the same way round each time
+(103 px at the test's distance), and so is one whose emitter is turned
+a quarter about Z. It keeps no fixed side, neither the world's nor its
+emitter's. (A card fixed in the world beside it went from edge on to
+face on, so the view did turn.) Moonglow drew it so already; its area
+view matches the client's picture within 1 px each way.
+
+- **Checked:** game client, `client_render.rs`'s
+  `upright_particles_look` (2026-10-26, EE 89.8193.37), held to it there
+  and in `particles.rs`'s `an_upright_particle_turns_to_the_eye`. The
+  client's scripted camera takes effect only when set a second after
+  the player enters: `SetCameraFacing` in the module's OnClientEnter
+  itself left the client's own camera (so `particles_look`'s closer
+  camera was likely never the one drawn).
+- **Moonglow:** `crates/mg-render/src/particles.rs` (`batches`).
+- **Wiki:** MDL ASCII Emitter Nodes says the particles "face sideways
+  from ground plane"; that they turn to the camera is missing.
+
 ## Talk tables and 2DAs
 
 ### Where the game finds a custom talk table

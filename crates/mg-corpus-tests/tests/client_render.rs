@@ -56,6 +56,8 @@ mod ee_visuals;
 mod heads;
 #[path = "client_render/programs.rs"]
 mod programs;
+#[path = "client_render/upright.rs"]
+mod upright;
 #[path = "client_render/uv_sets.rs"]
 mod uv_sets;
 
@@ -264,8 +266,14 @@ fn moonglow_scene(gpu: &Gpu, game: &GameData, are: &Gff, light: Lighting) -> (Sc
 }
 
 fn fitted_camera(pc: Vec3, fov: f32, focus: f32, distance: f32, pitch: f32) -> Camera {
+    camera_facing(pc, FACING, fov, focus, distance, pitch)
+}
+
+/// [`fitted_camera`] looking along another facing (degrees anticlockwise
+/// from east).
+fn camera_facing(pc: Vec3, facing: f32, fov: f32, focus: f32, distance: f32, pitch: f32) -> Camera {
     let elevation = (90.0 - pitch).to_radians();
-    let facing = FACING.to_radians();
+    let facing = facing.to_radians();
     let focus = pc + Vec3::new(0.0, 0.0, focus);
     let dir = Vec3::new(
         -facing.cos() * elevation.cos(),

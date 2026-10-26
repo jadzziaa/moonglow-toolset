@@ -528,7 +528,9 @@ impl Particles {
                     // Upright, turned about the world's Z to the eye (a
                     // shaft of light); `billboard_to_world_z` lies flat,
                     // facing up (the glow at the shaft's foot). Seen in
-                    // the client: `particles_look`, `MG_PARTICLES=worldz`.
+                    // the client: `particles_look`, `MG_PARTICLES=worldz`;
+                    // turned to the eye from every side, however the
+                    // emitter is turned: `upright_particles_look`.
                     "aligned_to_world_z" => {
                         let to_eye = (eye - pos) * Vec3::new(1.0, 1.0, 0.0);
                         let r = Vec3::Z.cross(to_eye).normalize_or(Vec3::X);
@@ -796,6 +798,37 @@ mod tests {
         };
         assert!(heights("Aligned_to_World_Z") > 0.2, "upright");
         assert!(heights("Billboard_to_World_Z") < 1e-4, "flat");
+    }
+
+    /// An upright (`Aligned_to_World_Z`) particle is turned about Z to the
+    /// eye, whichever way the emitter is turned: the client shows it face
+    /// on and the same way round from every side (`client_render.rs`'s
+    /// `upright_particles_look`).
+    #[test]
+    fn an_upright_particle_turns_to_the_eye() {
+        let mut m = fountain();
+        if let NodeKind::Emitter(e) = &mut m.nodes[1].kind {
+            e.render = "Aligned_to_World_Z".into();
+        }
+        let pose = crate::rest_pose(&m);
+        let mut p = Particles::new(&m);
+        p.update(&m, None, 0.0, 0.1, &pose, Mat4::IDENTITY);
+        p.update(&m, None, 0.0, 0.1, &pose, Mat4::IDENTITY);
+        // The emitter turned a quarter about Z, seen from the south and
+        // from the east.
+        let turned = Mat4::from_rotation_z(std::f32::consts::FRAC_PI_2);
+        for eye in [Vec3::new(0.0, -5.0, 1.0), Vec3::new(5.0, 0.0, 1.0)] {
+            let view = Mat4::look_at_rh(eye, Vec3::ZERO, Vec3::Z);
+            let b = p.batches(&m, None, 0.0, &pose, turned, view);
+            let v = &b[0].vertices[..6];
+            let (bl, br) = (Vec3::from(v[0].pos), Vec3::from(v[1].pos));
+            let right = (br - bl).normalize();
+            let to_eye = (eye * Vec3::new(1.0, 1.0, 0.0)).normalize();
+            assert!(right.dot(to_eye).abs() < 1e-3, "face on from {eye}: {right}");
+            // Its first column on the left as seen.
+            let seen_right = Vec3::Z.cross(to_eye);
+            assert!(right.dot(seen_right) > 0.99, "the right way round from {eye}");
+        }
     }
 
     /// Thrown down from 1.5 m (the emitter turned upside down), as the
