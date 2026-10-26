@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:48:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T14:05:49Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -697,13 +697,21 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Appearances as pictures** are placeables', creatures' and doors';
   an item's model, and each of a weapon's three parts, are chosen from
   its icons (the item as it would be with each). An armor's parts are
-  still numbers: no pictures of them, on a body or alone. A creature's
-  look is a plain body of the appearance, male unless the creature is
-  female. (S–M) (from builders' reports after 1.10.1)
-- **Armor and cloaks shown on a woman** (the item's Appearance page,
-  Shown on): the model and the page's icons. The icons in inventories
-  and the palette stay the man's, and the choice lasts until Moonglow is
-  closed. (S) (from builders' reports after 1.10.1)
+  chosen from lists of numbers: the pointer resting on a row shows the
+  armor with that part on a body and its icon (the part is small in the
+  picture of the whole body), but there is no picture of a part alone
+  and no gallery of them. A creature's look is a plain body of the
+  appearance, male unless the creature is female. (S–M) (from builders'
+  reports after 1.10.1)
+- **Armor and cloaks shown on a woman, what it doesn't follow:** the
+  choice (Options › General, or Shown on in the item's Appearance page)
+  is kept, and the item's page, inventories, a store's pages and the
+  palette's pictures and Preview follow it. A creature's own Inventory
+  page follows the choice too, not the creature's Gender, and whether
+  the game shows a woman's inventory with `ipf_` icons (as nwn.wiki's
+  icon names say) was not looked at in the client. The game has no
+  woman's icons of cloaks (`icloak_m_` alone): a cloak's icon is the
+  man's either way. (S) (from builders' reports after 1.10.1)
 - **A held item's own Properties, what they can't follow:** the window
   follows its item (keeping its page: its scroll, a field being typed
   in) as items are added, removed or moved before it, as it is moved to
@@ -773,9 +781,17 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   options are read only while it is used (Module Properties' movies and
   talk tables, a conversation's speaker tags, the NUI editor's targets
   and binds) reads them every frame it has the focus. (S) (GitHub issue 7)
-- **Pictures in the Appearance list:** a creature's (a plain male body
-  of the appearance) and a placeable's, beside the row the pointer rests
-  on; a door's and an item's lists have none. (S) (GitHub issue 7)
+- **Pictures in the Appearance list, what is left:** a creature's (a
+  plain male body of the appearance), a placeable's, a door's (Appearance
+  Type and Generic Appearance) and an item's (its model's, a weapon's
+  parts' shapes and colors, an armor's parts: the item as it would be
+  with each, its icon beside) show beside the row the pointer rests on.
+  A tileset door type's row **Use Generic Appearance** shows "(no
+  picture)", not the generic door chosen. A ring or an amulet, which
+  has no model of its own, shows the bag the game drops it as (its icon
+  tells the rows apart). The pictures are made on the UI thread after
+  the frame, 2 ms of a frame at most, as every gallery's are. (S)
+  (GitHub issue 7)
 - **An item stood up in its viewer** is turned a quarter about its
   length's axis from how it lies; which side then faces the viewer isn't
   chosen (a sword shows its edge more than its flat). Items in the

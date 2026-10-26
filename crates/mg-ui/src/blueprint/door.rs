@@ -87,15 +87,20 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         crate::widgets::field_label(ui, "Tag");
         f.text(ui, "Tag", "Tag", 32);
         ui.end_row();
+        // (Each door's picture beside the row the pointer rests on.)
         crate::widgets::field_label(ui, "Appearance Type");
-        f.choice(ui, "Appearance", "Appearance", &types, FieldType::Dword);
+        let shown: super::Shown = super::door_type_picture;
+        f.pictured_choice(ui, ("Appearance", "Appearance"), &types, FieldType::Dword, shown);
         ui.end_row();
         // The generic door's model (EE: GenericType_New; the old byte field
         // follows it where the blueprint has one).
         crate::widgets::field_label(ui, "Generic Appearance");
         let current = f.int(mg_rules::rows::generic_door_field(&f.root));
         ui.add_enabled_ui(f.int("Appearance") == 0, |ui| {
-            if let Some(v) = situated::pick(ui, f.key, "generic", &generic, current) {
+            let app = &mut *f.app;
+            let mut shown = |ui: &mut Ui, row| super::generic_door_picture(app, ui, row);
+            let list = situated::pick_list(f.key, "generic", &generic, current, 220.0);
+            if let Some(v) = list.about(&mut shown).show(ui) {
                 let mut fields = vec![("GenericType_New", v, FieldType::Dword)];
                 if f.root.get("GenericType").is_some() && v <= 255 {
                     fields.push(("GenericType", v, FieldType::Byte));

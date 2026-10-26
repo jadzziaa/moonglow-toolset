@@ -120,6 +120,9 @@ pub struct ModelView {
     /// it was read at: an edit in its editor rebuilds the view.
     preview: Option<Preview>,
     revision: Option<u64>,
+    /// Whether armor was shown on a woman when it was read (Options ›
+    /// General): another choice reads it again.
+    female: bool,
 }
 
 /// What the viewer shows: a model or blueprint (from the module or the
@@ -141,7 +144,13 @@ impl std::fmt::Display for Source {
 
 /// What a source looks like: a model, a blueprint's preview, or a placed
 /// object's (its GIT entry has the blueprint's fields, as edited there).
+/// Armor and cloaks on a woman where Options say so.
 fn preview_of(app: &Moonglow, source: &Source) -> Result<Preview, String> {
+    preview_on(app, source, app.settings.armor_on_woman)
+}
+
+/// [`preview_of`], armor and cloaks on a woman where `female`.
+fn preview_on(app: &Moonglow, source: &Source, female: bool) -> Result<Preview, String> {
     let game = app.game.as_deref().ok_or("No game data.")?;
     let data = |k: &ResKey| {
         app.ws
@@ -171,7 +180,7 @@ fn preview_of(app: &Moonglow, source: &Source) -> Result<Preview, String> {
     let items = |r: ResRef| read(&ResKey::new(r, ResType::UTI));
     let preview = match restype {
         ResType::UTC => mg_preview::creature(game, &object, &items),
-        ResType::UTI => mg_preview::item_on(game, &object, app.armor_on_woman),
+        ResType::UTI => mg_preview::item_on(game, &object, female),
         ResType::UTP => mg_preview::placeable(game, &object),
         ResType::UTD => mg_preview::door(game, &object),
         // The flag the area view draws. (A store's and a sound's markers
@@ -313,14 +322,6 @@ pub(crate) fn export_window(app: &mut Moonglow, ctx: &egui::Context) {
     write_export(app, &export, replace);
 }
 
-/// Has every open viewer read its object again (what it is shown on has
-/// changed: an armor's wearer).
-pub(crate) fn read_again(app: &mut Moonglow) {
-    for view in app.model_views.values_mut() {
-        view.revision = Some(u64::MAX);
-    }
-}
-
 /// Whether the viewer can show a resource type.
 pub(crate) fn previewable(t: ResType) -> bool {
     matches!(t, ResType::MDL | ResType::UTC | ResType::UTI | ResType::UTP | ResType::UTD)
@@ -350,10 +351,11 @@ impl ModelView {
     fn refresh(&mut self, app: &mut Moonglow, source: &Source) {
         let revision = app.ws.as_ref().map(Workspace::revision);
         let model = matches!(source, Source::Resource(k) if k.restype == ResType::MDL);
-        if model || revision == self.revision {
+        let female = app.settings.armor_on_woman;
+        if model || (revision == self.revision && female == self.female) {
             return;
         }
-        self.revision = revision;
+        (self.revision, self.female) = (revision, female);
         // The editors' working copies, which the preview reads.
         if let Some(ws) = app.ws.as_mut() {
             let _ = ws.flush();
@@ -435,6 +437,7 @@ impl ModelView {
             composed,
             preview: preview.ok(),
             revision: app.ws.as_ref().map(Workspace::revision),
+            female: app.settings.armor_on_woman,
         };
         view.frame();
         view
@@ -807,13 +810,19 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
 /// are let go when there are many.
 #[derive(Default)]
 pub struct Thumbnails {
-    made: HashMap<Pictured, Made>,
+    made: HashMap<Kept, Made>,
     /// Asked for this frame and not made (or made before the module last
     /// changed), in the order asked.
-    wanted: Vec<Pictured>,
+    wanted: Vec<Kept>,
     /// The frames, counted, and the module's revision in this one.
     frame: u64,
     revision: Option<u64>,
+    /// Armor is shown on a woman in this frame (Options › General): an
+    /// item blueprint's picture is hers.
+    female: bool,
+    /// The items pictured by their looks ([`Pictured::Item`]), and whether
+    /// on a woman: those asked for and kept.
+    items: HashMap<u64, (mg_gff::Struct, bool)>,
     /// The revision at which the editors' working copies were last written
     /// into the module for the blueprints' looks (once a revision: it
     /// writes every document the workspace has read).
@@ -826,6 +835,12 @@ pub struct Thumbnails {
     /// How many pictures out of sight are kept, if not [`THUMBNAILS_KEPT`].
     pub keep: Option<usize>,
 }
+
+/// What a picture is kept by: what it is of, and whether as a woman wears
+/// it (an item blueprint's, while armor is shown on a woman): a man's
+/// picture and a woman's are kept apart, so choosing again shows those
+/// made before at once.
+type Kept = (Pictured, bool);
 
 /// A picture made.
 struct Made {
@@ -852,6 +867,9 @@ pub(crate) enum Pictured {
     /// A tileset's group (its index): its tiles' models, each in its place,
     /// as the group is placed (a feature, a building).
     Group(mg_core::ResRef, u32),
+    /// An item as its fields make it look (with another model or part, for
+    /// choosing among them), by those fields: [`Thumbnails::item`].
+    Item(u64),
 }
 
 impl Pictured {
@@ -864,38 +882,70 @@ impl Pictured {
 }
 
 impl Thumbnails {
+    /// What `key`'s picture is kept by in this frame: a woman's of an item
+    /// blueprint while armor is shown on one.
+    fn kept_as(&self, key: Pictured) -> Kept {
+        let item = matches!(key, Pictured::Resource(k) if k.restype == ResType::UTI);
+        (key, self.female && item)
+    }
+
+    /// The pictures made that this frame shows, by what they are of (of
+    /// item blueprints, those of the body armor is shown on).
+    fn current(&self) -> impl Iterator<Item = (Pictured, &Made)> {
+        self.made.iter().filter(|(k, _)| self.kept_as(k.0) == **k).map(|(k, made)| (k.0, made))
+    }
+
     /// The thumbnails made, by blueprint.
     pub(crate) fn all(&self) -> HashMap<ResKey, Option<egui::TextureId>> {
-        self.made
-            .iter()
+        self.current()
             .filter_map(|(k, made)| match k {
-                Pictured::Resource(k) => Some((*k, made.id())),
-                Pictured::Look(_) | Pictured::Tile(..) | Pictured::Group(..) => None,
+                Pictured::Resource(k) => Some((k, made.id())),
+                Pictured::Look(_)
+                | Pictured::Tile(..)
+                | Pictured::Group(..)
+                | Pictured::Item(_) => None,
             })
             .collect()
     }
 
     /// Every thumbnail made.
     pub(crate) fn every(&self) -> HashMap<Pictured, Option<egui::TextureId>> {
-        self.made.iter().map(|(k, made)| (*k, made.id())).collect()
+        self.current().map(|(k, made)| (k, made.id())).collect()
     }
 
     /// The thumbnails made of creatures' looks.
     pub(crate) fn looks(&self) -> HashMap<mg_preview::CreatureLook, Option<egui::TextureId>> {
-        self.made
-            .iter()
+        self.current()
             .filter_map(|(k, made)| match k {
-                Pictured::Look(l) => Some((*l, made.id())),
-                Pictured::Resource(_) | Pictured::Tile(..) | Pictured::Group(..) => None,
+                Pictured::Look(l) => Some((l, made.id())),
+                Pictured::Resource(_)
+                | Pictured::Tile(..)
+                | Pictured::Group(..)
+                | Pictured::Item(_) => None,
             })
             .collect()
     }
 
-    /// A new frame, the module at `revision`.
-    pub(crate) fn begin_frame(&mut self, revision: Option<u64>) {
+    /// A new frame, the module at `revision`, armor shown on a woman where
+    /// `female`.
+    pub(crate) fn begin_frame(&mut self, revision: Option<u64>, female: bool) {
         self.frame += 1;
         self.revision = revision;
+        self.female = female;
         self.wanted.clear();
+    }
+
+    /// What pictures `item` (an item's fields: as it would be with another
+    /// model or part), on a woman where `female` (armor and cloaks).
+    pub(crate) fn item(&mut self, item: &mg_gff::Struct, female: bool) -> Pictured {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        // (Its fields as written out: a struct has no hash of its own.)
+        format!("{item:?}").hash(&mut h);
+        female.hash(&mut h);
+        let id = h.finish();
+        self.items.entry(id).or_insert_with(|| (item.clone(), female));
+        Pictured::Item(id)
     }
 
     /// The pictures a view shows this frame: kept while they are shown,
@@ -903,14 +953,15 @@ impl Thumbnails {
     /// changed since).
     pub(crate) fn show(&mut self, keys: impl IntoIterator<Item = Pictured>) {
         for key in keys {
-            match self.made.get_mut(&key) {
+            let kept = self.kept_as(key);
+            match self.made.get_mut(&kept) {
                 Some(made) => {
                     made.used = self.frame;
                     if key.follows_the_module() && made.revision != self.revision {
-                        self.wanted.push(key);
+                        self.wanted.push(kept);
                     }
                 }
-                None => self.wanted.push(key),
+                None => self.wanted.push(kept),
             }
         }
     }
@@ -919,7 +970,7 @@ impl Thumbnails {
     /// it); it is asked for either way, as [`Thumbnails::show`] asks.
     pub(crate) fn get(&mut self, key: Pictured) -> Option<Option<egui::TextureId>> {
         self.show([key]);
-        self.made.get(&key).map(Made::id)
+        self.made.get(&self.kept_as(key)).map(Made::id)
     }
 
     /// Lets go of every picture (another module, or the game's data read
@@ -933,6 +984,7 @@ impl Thumbnails {
             }
         }
         self.wanted.clear();
+        self.items.clear();
         self.flushed = None;
     }
 
@@ -988,7 +1040,7 @@ pub(crate) fn make_thumbnails(app: &mut Moonglow, ctx: &egui::Context) {
     let revision = app.thumbnails.revision;
     // The editors' working copies, which a blueprint's look is read from.
     if app.thumbnails.flushed != revision
-        && wanted.iter().any(|k| k.follows_the_module())
+        && wanted.iter().any(|(k, _)| k.follows_the_module())
         && let Some(ws) = app.ws.as_mut()
     {
         let _ = ws.flush();
@@ -1000,7 +1052,7 @@ pub(crate) fn make_thumbnails(app: &mut Moonglow, ctx: &egui::Context) {
             .thumbnails
             .made
             .get(&key)
-            .is_some_and(|m| !key.follows_the_module() || m.revision == revision);
+            .is_some_and(|m| !key.0.follows_the_module() || m.revision == revision);
         // (Asked for twice in the frame, and made the first time.)
         if current {
             continue;
@@ -1022,7 +1074,7 @@ pub(crate) fn make_thumbnails(app: &mut Moonglow, ctx: &egui::Context) {
     let keep = thumbnails.keep.unwrap_or(THUMBNAILS_KEPT);
     if thumbnails.made.len() > keep {
         let frame = thumbnails.frame;
-        let mut unseen: Vec<(u64, Pictured)> = thumbnails
+        let mut unseen: Vec<(u64, Kept)> = thumbnails
             .made
             .iter()
             .filter(|(_, m)| m.used + 1 < frame)
@@ -1039,26 +1091,37 @@ pub(crate) fn make_thumbnails(app: &mut Moonglow, ctx: &egui::Context) {
             }
         }
     }
+    // The items pictured by their looks that are neither kept nor still
+    // to make (a row the pointer has left).
+    let thumbnails = &mut app.thumbnails;
+    if !thumbnails.items.is_empty() {
+        let (made, wanted) = (&thumbnails.made, &thumbnails.wanted);
+        thumbnails.items.retain(|id, _| {
+            let key = (Pictured::Item(*id), false);
+            made.contains_key(&key) || wanted.contains(&key)
+        });
+    }
 }
 
 /// Makes a picture, or finds the one made before the module changed to be
 /// what the blueprint still looks like.
-fn make_thumbnail(app: &mut Moonglow, key: Pictured) {
+fn make_thumbnail(app: &mut Moonglow, kept: Kept) {
     let (frame, revision) = (app.thumbnails.frame, app.thumbnails.revision);
+    let key = kept.0;
     if let Pictured::Group(tileset, group) = key {
         let picture = draw_group_thumbnail(app, tileset, group);
         app.thumbnails.drawn += 1;
         let made = Made { picture, look: None, revision, used: frame };
-        if let Some(old) = app.thumbnails.made.insert(key, made)
+        if let Some(old) = app.thumbnails.made.insert(kept, made)
             && let (Some((_, id)), Some(vp)) = (old.picture, &app.viewport)
         {
             vp.render_state.renderer.write().free_texture(&id);
         }
         return;
     }
-    let look = pictured_look(app, key);
-    let kept = key.follows_the_module().then_some(look.as_ref().map(|(_, preview)| preview));
-    if let (Some(made), Some(now)) = (app.thumbnails.made.get_mut(&key), kept)
+    let look = pictured_look(app, kept);
+    let same = key.follows_the_module().then_some(look.as_ref().map(|(_, preview)| preview));
+    if let (Some(made), Some(now)) = (app.thumbnails.made.get_mut(&kept), same)
         && made.look.as_ref() == now
     {
         made.revision = revision;
@@ -1069,7 +1132,7 @@ fn make_thumbnail(app: &mut Moonglow, key: Pictured) {
     let look = look.map(|(_, preview)| preview).filter(|_| key.follows_the_module());
     let made = Made { picture, look, revision, used: frame };
     app.thumbnails.drawn += 1;
-    if let Some(old) = app.thumbnails.made.insert(key, made)
+    if let Some(old) = app.thumbnails.made.insert(kept, made)
         && let (Some((_, id)), Some(vp)) = (old.picture, &app.viewport)
     {
         vp.render_state.renderer.write().free_texture(&id);
@@ -1077,7 +1140,7 @@ fn make_thumbnail(app: &mut Moonglow, key: Pictured) {
 }
 
 /// What a picture is drawn from: `None` for what has no picture.
-fn pictured_look(app: &Moonglow, key: Pictured) -> Option<(Source, Preview)> {
+fn pictured_look(app: &Moonglow, (key, female): Kept) -> Option<(Source, Preview)> {
     match key {
         Pictured::Resource(key) | Pictured::Tile(key, _) => {
             // (A blueprint's, or a model's own: a gallery of appearances.)
@@ -1093,8 +1156,16 @@ fn pictured_look(app: &Moonglow, key: Pictured) -> Option<(Source, Preview)> {
                 return None;
             }
             let source = Source::Resource(key);
-            let preview = preview_of(app, &source).ok()?;
+            let preview = preview_on(app, &source, female).ok()?;
             Some((source, preview))
+        }
+        Pictured::Item(id) => {
+            let (item, female) = app.thumbnails.items.get(&id)?;
+            let game = app.game.as_deref()?;
+            let preview = mg_preview::item_on(game, item, *female).ok()?;
+            // (Named as an item's, which tells a shield's from the others'.)
+            let source = Source::Resource(ResKey::parse("item", ResType::UTI)?);
+            Some((source, mg_preview::replaced(preview, item)))
         }
         Pictured::Look(look) => {
             let preview = mg_preview::creature_look(app.game.as_deref()?, &look).ok()?;

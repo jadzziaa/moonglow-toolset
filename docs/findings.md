@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:48:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T14:10:30Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1192,6 +1192,23 @@ even when listed later in `Mod_HakList`. `ResManGetAliasFor` returns
 - **Wiki:** "Content Load Order" lists user haks above install haks, but
   its hak-order section says only that the first listed wins. The alias
   strings are not documented.
+
+### A woman's inventory icons: armor's, not cloaks'
+
+The base game has a woman's inventory icon of every armor part a man's
+has: 182 `ipf_` PLTs beside 182 `ipm_` (belt 17, chest 63, pelvis 39,
+robe 11, left and right shoulders 26 each). Of cloaks it has the man's
+alone, `icloak_m_001` to `icloak_m_016`, and no `icloak_f_`: a cloak's
+icon is the man's whoever wears it.
+
+- **Checked:** the resources, counted by name in the install's load order
+  (`nwn_resman_extract -p ipf_`, `-p ipm_`, `-p icloak`), 2026-10-26.
+- **Moonglow:** `crates/mg-ui/src/images.rs` (`item_icon_names`,
+  `item_icon_on`: a layer without a woman's picture is the man's), shown
+  so with Options › General's Show armor and cloaks on a woman.
+- **Wiki:** "cloakmodel.2da" names the icon `icloak_m_NNN` and says
+  nothing of a woman's; the armor parts' `ipf_` and `ipm_` icons are not
+  named in the mirror.
 
 ## GFF fields
 

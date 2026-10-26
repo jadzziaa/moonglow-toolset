@@ -89,6 +89,22 @@ fn base_row(f: &Form<'_>) -> usize {
     f.int("BaseItem").max(0) as usize
 }
 
+/// Whether an item of base item `row` looks different on a woman: armor,
+/// cloaks and the items the game has an icon of for each.
+fn worn_by_either(game: &GameData, row: usize) -> bool {
+    let Ok(t) = game.table("baseitems") else { return false };
+    t.get_int(row, "ModelType") == Some(3)
+        || t.get(row, "ItemClass").is_some_and(|c| c.eq_ignore_ascii_case("cloak"))
+        || t.get_int(row, "GenderSpecific") == Some(1)
+}
+
+/// Whether the item is shown on a woman (Options › General, or the
+/// Appearance page's Shown on): where it looks different on one.
+fn on_woman(f: &Form<'_>) -> bool {
+    f.app.settings.armor_on_woman
+        && f.app.game.as_deref().is_some_and(|g| worn_by_either(g, base_row(f)))
+}
+
 fn strref(game: &GameData, v: Option<i32>) -> Option<String> {
     v.and_then(|s| game.string(StrRef(s as u32))).filter(|s| !s.is_empty())
 }
@@ -332,12 +348,39 @@ fn part_choice(
 }
 
 /// A part number chosen among `choices`, set in `labels` (and their EE
-/// twins).
+/// twins); beside the row the pointer rests on, the item with that part.
+/// The mouse wheel over the list, closed, steps through them too.
 fn pick_part(f: &mut Form<'_>, ui: &mut Ui, what: &str, labels: &[&str], choices: &[Choice]) {
     let current = part_number(&f.root, labels[0]).unwrap_or(0);
-    if let Some(v) = super::situated::pick_part(ui, f.key, what, choices, current, PART_WIDTH) {
+    if let Some(v) = pictured(f, ui, (what, choices, current), (labels, &|row| row), true) {
         set_part(f, what, labels, v);
     }
+}
+
+/// A list (named `name`, of `choices`, at `current`) of an item's model or
+/// part, set in `labels`, in its numbers' order, the mouse wheel stepping
+/// through it where `wheel`; the item's picture as it would be with the
+/// part `part(row)` beside the row the pointer rests on (on a woman where
+/// the page shows it on one), made as the palette's are and kept. The row
+/// chosen.
+fn pictured(
+    f: &mut Form<'_>,
+    ui: &mut Ui,
+    (name, choices, current): (&str, &[Choice], i64),
+    (labels, part): (&[&str], &dyn Fn(i64) -> i64),
+    wheel: bool,
+) -> Option<i64> {
+    let female = on_woman(f);
+    let key = f.key;
+    let (app, root) = (&mut *f.app, &f.root);
+    let mut shown = move |ui: &mut Ui, row: usize| {
+        let n = part(row as i64).clamp(0, i64::from(u16::MAX)) as u16;
+        let item = labels.iter().fold(root.clone(), |item, label| with_model(&item, label, n));
+        super::item_picture(app, ui, &item, female);
+    };
+    let list = super::situated::pick_list(key, name, choices, current, PART_WIDTH).ordered();
+    let list = if wheel { list.wheel() } else { list };
+    list.about(&mut shown).show(ui)
 }
 
 /// A composite item's parts: (name, field, the letter in its models' names).
@@ -449,11 +492,12 @@ fn part_colors(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     );
 }
 
-/// The item with another model number (and its EE twin).
+/// The item with another model number (and its EE twin, where it has one
+/// or the number needs one).
 fn with_model(item: &Struct, label: &str, n: u16) -> Struct {
     let mut s = item.clone();
     s.set(label, Value::Byte(n.min(255) as u8));
-    if s.get(&wide_label(label)).is_some() {
+    if n > 255 || s.get(&wide_label(label)).is_some() {
         s.set(&wide_label(label), Value::Word(n));
     }
     s
@@ -462,7 +506,7 @@ fn with_model(item: &Struct, label: &str, n: u16) -> Struct {
 /// An item's icon layers (the game lent to the page).
 fn icon(f: &mut Form<'_>, ui: &Ui, game: &GameData, item: &Struct) -> Vec<crate::images::Picture> {
     // (As a woman's inventory shows it, where the page shows it on one.)
-    let female = f.app.armor_on_woman;
+    let female = f.app.settings.armor_on_woman;
     let mut loader = crate::images::Loader {
         pictures: &mut f.app.pictures,
         palettes: &mut f.app.palettes,
@@ -603,21 +647,20 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, beside: bool) {
     }
     // Who wears it in the model and the icon shown: armor, cloaks and the
     // items the game has an icon of for each have a man's and a woman's.
+    // (Options › General has the choice too, kept: inventories and the
+    // palette show the icons and models so.)
     let kind = t.get_int(row, "ModelType").unwrap_or(0);
-    if kind == 3 || class == "cloak" || t.get_int(row, "GenderSpecific") == Some(1) {
+    if worn_by_either(game, row) {
         ui.horizontal(|ui| {
             crate::widgets::field_label(ui, "Shown on");
-            let was = f.app.armor_on_woman;
-            ui.selectable_value(&mut f.app.armor_on_woman, false, "Male");
-            ui.selectable_value(&mut f.app.armor_on_woman, true, "Female");
-            if f.app.armor_on_woman != was {
-                crate::model_view::read_again(f.app);
-            }
+            let on = &mut f.app.settings.armor_on_woman;
+            ui.selectable_value(on, false, "Male");
+            ui.selectable_value(on, true, "Female");
         })
         .response
         .on_hover_text(
-            "The body the item's model is shown on, and whose inventory icon is shown; the \
-             item is the same",
+            "The body the item's model is shown on, and whose inventory icon is shown, here, \
+             in inventories and in the palette (Options › General); the item is the same",
         );
     }
     match kind {
@@ -642,25 +685,21 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, beside: bool) {
                                 text: format!("Model {}", n / 10),
                             })
                             .collect();
-                        if let Some(s) = super::situated::pick_sized(
-                            ui,
-                            f.key,
-                            &format!("{label}-shape"),
-                            &shape_choices,
-                            shape,
-                            PART_WIDTH,
-                        ) {
-                            // Keep the colour where the new shape has it.
+                        // Keep the colour where the new shape has it.
+                        let with_shape = |s: i64| {
                             let v = s * 10 + color;
-                            let v = if numbers.contains(&(v as u16)) {
+                            if numbers.contains(&(v as u16)) {
                                 v
                             } else {
                                 numbers
                                     .iter()
                                     .find(|&&n| i64::from(n / 10) == s)
                                     .map_or(v, |&n| n.into())
-                            };
-                            set_part(f, text, &[label], v);
+                            }
+                        };
+                        let list = (&*format!("{label}-shape"), &shape_choices[..], shape);
+                        if let Some(s) = pictured(f, ui, list, (&[label], &with_shape), false) {
+                            set_part(f, text, &[label], with_shape(s));
                         }
                         let color_choices: Vec<Choice> = numbers
                             .iter()
@@ -670,15 +709,10 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, beside: bool) {
                                 text: format!("Color {}", n % 10),
                             })
                             .collect();
-                        if let Some(c) = super::situated::pick_sized(
-                            ui,
-                            f.key,
-                            &format!("{label}-color"),
-                            &color_choices,
-                            color,
-                            PART_WIDTH,
-                        ) {
-                            set_part(f, text, &[label], shape * 10 + c);
+                        let list = (&*format!("{label}-color"), &color_choices[..], color);
+                        let with_color = |c: i64| shape * 10 + c;
+                        if let Some(c) = pictured(f, ui, list, (&[label], &with_color), false) {
+                            set_part(f, text, &[label], with_color(c));
                         }
                         ui.end_row();
                     }

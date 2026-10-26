@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:11:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T14:05:49Z }
 ---
 
 # Options
@@ -133,6 +133,12 @@ the module is opened again from its file.
   tree and the palettes). Areas are by name in Find Instance and the
   area transition's destinations too.
 - **Show challenge ratings in the creature palette**: on by default.
+- **Show armor and cloaks on a woman**: an armor's or a cloak's model on
+  a woman's body, and an armor's inventory icon as a woman's inventory
+  shows it (`ipf_` parts; a cloak's is the man's, the game having no
+  other), in inventories, a store's pages, the palette's pictures and
+  Preview and the item's Properties, whose Appearance page's **Shown
+  on** changes it too. Off by default: a man's.
 - **Read Steam Workshop content**: off by default, as in Aurora: an item
   you subscribed to for play is not your module's, and a module that
   needs it works only for players who have it too. On, the Steam

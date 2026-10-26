@@ -64,6 +64,7 @@ pub struct OptionsDraft {
     pub debug_log: bool,
     pub name_resrefs: bool,
     pub palette_cr: bool,
+    pub armor_on_woman: bool,
     pub light_theme: bool,
     /// Per cent.
     pub ui_scale: u16,
@@ -166,6 +167,7 @@ impl OptionsDraft {
             debug_log: !s.no_debug_log,
             name_resrefs: s.name_resrefs,
             palette_cr: !s.palette_no_cr,
+            armor_on_woman: s.armor_on_woman,
             light_theme: s.light_theme,
             ui_scale: s.ui_scale.unwrap_or(100),
             minimize_on_test: s.minimize_on_test,
@@ -241,6 +243,7 @@ impl OptionsDraft {
             no_debug_log: !self.debug_log,
             name_resrefs: self.name_resrefs,
             palette_no_cr: !self.palette_cr,
+            armor_on_woman: self.armor_on_woman,
             light_theme: self.light_theme,
             ui_scale: (self.ui_scale != 100).then_some(self.ui_scale.clamp(UI_SCALES[0], 300)),
             minimize_on_test: self.minimize_on_test,
@@ -611,6 +614,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             ui.checkbox(
                                 &mut draft.palette_cr,
                                 "Show challenge ratings in the creature palette",
+                            );
+                            ui.checkbox(
+                                &mut draft.armor_on_woman,
+                                "Show armor and cloaks on a woman",
+                            )
+                            .on_hover_text(
+                                "An armor's or a cloak's model on a woman's body, and an \
+                                 armor's inventory icon as a woman's inventory shows it, in \
+                                 inventories, the palette and the item's Properties (whose \
+                                 Shown on changes it too); off, a man's",
                             );
                             ui.checkbox(&mut draft.workshop, "Read Steam Workshop content")
                                 .on_hover_text(
@@ -1358,6 +1371,7 @@ mod tests {
         (d.area_names, d.categories_by_name, d.drag_windows_anywhere) = (true, true, true);
         d.ui_scale = 125;
         (d.name_resrefs, d.palette_cr, d.light_theme) = (true, false, true);
+        d.armor_on_woman = true;
         d.script_templates = " /tmp/templates ".into();
         d.scratch_dir = "/tmp/scratch".into();
         assert!(d.live_check, "checked as you type unless asked");
@@ -1370,6 +1384,8 @@ mod tests {
         assert!(t.drag_windows_anywhere && !s.drag_windows_anywhere, "by the tab bar unless asked");
         assert_eq!((t.ui_scale, s.ui_scale), (Some(125), None), "the usual size unless asked");
         assert!(t.name_resrefs && t.palette_no_cr && t.light_theme);
+        assert!(t.armor_on_woman && !s.armor_on_woman, "on a man unless asked");
+        assert!(OptionsDraft::from_settings(&t).armor_on_woman, "and kept");
         // Unless asked: names alone, challenge ratings shown, the dark theme.
         let plain = OptionsDraft::from_settings(&s);
         assert!(!plain.name_resrefs && plain.palette_cr && !plain.light_theme);

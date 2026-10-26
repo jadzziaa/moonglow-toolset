@@ -329,9 +329,26 @@ fn creature_picture(app: &mut Moonglow, ui: &mut Ui, row: usize) {
 
 /// A placeable appearance's picture (its model).
 fn placeable_picture(app: &mut Moonglow, ui: &mut Ui, row: usize) {
+    model_picture(app, ui, ("placeables", "ModelName"), row);
+}
+
+/// A tileset door's picture (doortypes.2da's model; the generic door, row
+/// 0, has none of its own).
+pub(super) fn door_type_picture(app: &mut Moonglow, ui: &mut Ui, row: usize) {
+    model_picture(app, ui, ("doortypes", "Model"), row);
+}
+
+/// A generic door's picture (genericdoors.2da's model).
+pub(super) fn generic_door_picture(app: &mut Moonglow, ui: &mut Ui, row: usize) {
+    model_picture(app, ui, ("genericdoors", "ModelName"), row);
+}
+
+/// The picture of the model a 2DA row names in a column.
+fn model_picture(app: &mut Moonglow, ui: &mut Ui, (table, column): (&str, &str), row: usize) {
     let model = app.game.as_deref().and_then(|g| {
-        let t = g.table("placeables").ok()?;
-        ResKey::parse(&t.get(row, "ModelName")?.to_ascii_lowercase(), ResType::MDL)
+        let t = g.table(table).ok()?;
+        let name = t.get(row, column).map(str::trim).filter(|m| !m.is_empty() && *m != "****")?;
+        ResKey::parse(&name.to_ascii_lowercase(), ResType::MDL)
     });
     let made = match model {
         Some(m) => app.thumbnails.get(crate::model_view::Pictured::Resource(m)),
@@ -340,13 +357,31 @@ fn placeable_picture(app: &mut Moonglow, ui: &mut Ui, row: usize) {
     picture(ui, made);
 }
 
+/// An item's inventory icon and picture as `item` (its fields) makes them
+/// look, on a woman where `female` (armor and cloaks). (The icon tells
+/// apart what the model may not: the game's rings and amulets have none of
+/// their own, and lie as a bag.)
+pub(super) fn item_picture(app: &mut Moonglow, ui: &mut Ui, item: &mg_gff::Struct, female: bool) {
+    let key = app.thumbnails.item(item, female);
+    let made = app.thumbnails.get(key);
+    let icon = app.loader().map(|mut l| l.item_icon_on(ui.ctx(), item, female)).unwrap_or_default();
+    ui.horizontal_top(|ui| {
+        if !icon.is_empty() {
+            crate::images::stacked_drawn(ui, &icon, (1.5, PICTURE_SIDE), "Icon");
+        }
+        picture(ui, made);
+    });
+}
+
+/// How large a picture beside a list's row is, points.
+const PICTURE_SIDE: f32 = 180.0;
+
 /// A model's picture beside a list's row, that there is none, or (`None`)
 /// that it is being made.
 fn picture(ui: &mut Ui, made: Option<Option<egui::TextureId>>) {
-    const SIDE: f32 = 180.0;
     match made {
         Some(Some(id)) => {
-            ui.add(egui::Image::new((id, egui::vec2(SIDE, SIDE))));
+            ui.add(egui::Image::new((id, egui::vec2(PICTURE_SIDE, PICTURE_SIDE))));
         }
         Some(None) => {
             ui.weak("(no picture)");
@@ -358,7 +393,7 @@ fn picture(ui: &mut Ui, made: Option<Option<egui::TextureId>>) {
 }
 
 /// Shows something of a 2DA row (a picture) in a choice's list.
-type Shown = fn(&mut Moonglow, &mut Ui, usize);
+pub(super) type Shown = fn(&mut Moonglow, &mut Ui, usize);
 
 /// A loading screen's picture (loadscreens.2da's `BMPResRef`), small; a
 /// line instead where the row has none (the first: a random one of the
@@ -1073,6 +1108,20 @@ impl Form<'_> {
     ) {
         let show: Shown = if creature { creature_picture } else { placeable_picture };
         self.choice_shown(ui, "Appearance", label, choices, default, Some(show));
+    }
+
+    /// [`choice`](Self::choice), with what `about` shows of a row (its
+    /// picture) beside the row the pointer rests on.
+    pub(crate) fn pictured_choice(
+        &mut self,
+        ui: &mut Ui,
+        (what, label): (&str, &str),
+        choices: &[Choice],
+        default: FieldType,
+        about: Shown,
+    ) {
+        self.mark_mixed(ui, label);
+        self.choice_shown(ui, what, label, choices, default, Some(about));
     }
 
     /// The loading screen (a loadscreens.2da row): its picture shows under
