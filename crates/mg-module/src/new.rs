@@ -355,9 +355,42 @@ pub struct Scheme {
     lights: [[u8; 4]; 3],
 }
 
+/// A tile's light fields, as a scheme sets them ([`Scheme::tile_fields`]).
+pub const TILE_LIGHT_FIELDS: [&str; 4] =
+    ["Tile_MainLight1", "Tile_MainLight2", "Tile_SrcLight1", "Tile_SrcLight2"];
+
 impl Scheme {
+    /// The environment.2da row `text` names: its number, its `LABEL`, or
+    /// its name (the talk table's, case and accents aside; a part of it
+    /// that only one row's name has).
+    pub fn find(game: &GameData, text: &str) -> Result<usize, String> {
+        let env = game.table("environment").map_err(|e| format!("environment.2da: {e}"))?;
+        let text = text.trim();
+        let labeled = (0..env.len())
+            .find(|&r| env.get(r, "LABEL").is_some_and(|l| l.eq_ignore_ascii_case(text)));
+        let row = match labeled {
+            Some(r) => r,
+            None => {
+                let columns =
+                    mg_rules::ChoiceColumns { name: Some("STRREF"), label: Some("LABEL") };
+                let choices = game.choices("environment", columns).unwrap_or_default();
+                crate::search::row_named(&choices, "environment", text)?
+            }
+        };
+        if row >= env.len() {
+            return Err(format!("{row}: environment.2da has {} rows", env.len()));
+        }
+        Ok(row)
+    }
+
     pub fn read(game: &GameData, row: usize) -> Result<Scheme, NewError> {
         let env = game.table("environment").map_err(|e| res_error("environment.2da", e))?;
+        if row >= env.len() {
+            return Err(NewError::Invalid(format!(
+                "lighting scheme {row}: environment.2da has {} rows",
+                env.len()
+            )));
+        }
         let int = |col: &str| env.get_int(row, col).unwrap_or(0);
         let color = |prefix: &str| {
             let c = |part: &str| (int(&format!("{prefix}_{part}")) as u32) & 0xff;
@@ -396,10 +429,31 @@ impl Scheme {
         self.fields.clone()
     }
 
+    /// The ARE fields choosing the scheme for an area sets: those of
+    /// [`fields`](Self::fields), and the fog's clip distance and the sky
+    /// box set back to a new area's (45 meters, none), as Aurora's Area
+    /// Properties sets them (`aurora_lighting_scheme.rs`).
+    pub fn applied_fields(&self) -> Vec<(&'static str, Value)> {
+        let mut out = self.fields();
+        out.extend([("FogClipDist", Value::Float(45.0)), ("SkyBox", Value::Byte(0))]);
+        out
+    }
+
     /// A tile's lights (main 1, main 2 and source), each one of the
     /// scheme's four colours at random.
     pub fn tile_lights(&self, rng: &mut fastrand::Rng) -> [u8; 3] {
         self.lights.map(|colors| colors[rng.u32(1..=4) as usize - 1])
+    }
+
+    /// What the scheme sets on a tile of an area it is given (Area
+    /// Properties' Lighting Scheme, `mg areas --lighting-scheme`): its
+    /// [`TILE_LIGHT_FIELDS`], main lights 1 and 2 and the source light
+    /// (both source fields alike, as the Area Wizard writes them) picked
+    /// at random ([`tile_lights`](Self::tile_lights)).
+    pub fn tile_fields(&self, rng: &mut fastrand::Rng) -> [(&'static str, Value); 4] {
+        let [main1, main2, source] = self.tile_lights(rng);
+        let [a, b, c, d] = TILE_LIGHT_FIELDS;
+        [(a, main1), (b, main2), (c, source), (d, source)].map(|(l, v)| (l, Value::Byte(v)))
     }
 }
 

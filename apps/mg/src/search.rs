@@ -95,7 +95,7 @@ pub(crate) struct Args {
 
 /// The game's data for the module (its haks' 2DAs and its talk table), if
 /// the game is installed.
-fn game_data(cli: &Cli, m: &Module, out: &mut Output) -> Option<GameData> {
+pub(crate) fn game_data(cli: &Cli, m: &Module, out: &mut Output) -> Option<GameData> {
     let gi = crate::install(cli).ok()?;
     let tlk = mg_tlk::Tlk::read(&std::fs::read(gi.talk_table(false)).ok()?).ok()?;
     let mut game = GameData::new(crate::module_resman(&gi, m, out).ok()?, tlk);

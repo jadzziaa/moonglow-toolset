@@ -4377,42 +4377,49 @@ fn delete(app: &mut Moonglow, view: &mut AreaView) {
 }
 
 /// The palette's Replace Selected: each selected object of the
-/// blueprint's type becomes one made from blueprint `key`, where it stands
-/// and facing as it faces (one command). Objects of other types, locked
-/// ones, and triggers and encounters (which have outlines) are left. How
-/// many were replaced.
+/// blueprint's type becomes one made from blueprint `key`, as Update
+/// Instances makes one again ([`mg_module::instances::replaced`]): where
+/// it stands, facing as it faces, with its outline (a trigger's or an
+/// encounter's), its visual transform and an encounter's spawn points;
+/// its tag, name, scripts and variables become the blueprint's. One
+/// command; objects of other types and locked ones are left. How many
+/// were replaced.
 pub(crate) fn replace_selected(app: &mut Moonglow, area: ResRef, key: ResKey) -> usize {
-    use mg_module::instances::Placement;
-    let Some(kind) = ObjectKind::from_restype(key.restype).filter(|k| !k.has_outline()) else {
-        app.log.warn("Triggers and encounters are drawn, not replaced");
-        return 0;
-    };
+    use mg_module::instances::{Placing, replaced};
+    let Some(kind) = ObjectKind::from_restype(key.restype) else { return 0 };
     let Some(view) = app.area_views.get(&area) else { return 0 };
     let git = view.git();
-    let stand: Vec<(usize, Vec3, f32)> = view
+    let chosen: Vec<usize> = view
         .selection
         .iter()
         .filter(|(k, _)| *k == kind)
-        .filter_map(|&(k, i)| {
-            view.model.as_ref()?.object(k, i).filter(|o| !o.locked).map(|o| (i, o))
+        .filter(|&&(k, i)| {
+            view.model.as_ref().and_then(|m| m.object(k, i)).is_some_and(|o| !o.locked)
         })
-        .map(|(i, o)| (i, o.position, o.rotation))
+        .map(|&(_, i)| i)
         .collect();
-    let mut edits = Vec::new();
-    for &(index, position, rotation) in &stand {
-        let placement = Placement { position: position.to_array(), rotation };
-        match instance_of(app, key, placement, &[]) {
-            Ok(Some(item)) => {
-                let (path, list) = (mg_edit::GffPath::root(), kind.list().to_string());
-                edits.push(mg_edit::Edit::remove_item(git, path.clone(), list.clone(), index));
-                edits.push(mg_edit::Edit::insert_item(git, path, list, index, item));
-            }
-            Ok(None) => {}
-            Err(e) => {
-                app.log.error(e);
-                return 0;
-            }
+    let (Some(game), Some(ws)) = (app.game.as_deref(), app.ws.as_mut()) else { return 0 };
+    let olds: Vec<(usize, mg_gff::Struct)> = match ws.doc(&git) {
+        Ok(doc) => {
+            let list = doc.root.list(kind.list()).unwrap_or(&[]);
+            chosen.iter().filter_map(|&i| Some((i, list.get(i)?.clone()))).collect()
         }
+        Err(_) => return 0,
+    };
+    let _ = ws.flush();
+    let read = |k: ResKey| mg_module::gff_root(Some(&ws.module), game, &k);
+    let Some(blueprint) = read(key) else {
+        app.log.error(format!("{key}: not found or not readable"));
+        return 0;
+    };
+    let items = |r: ResRef| read(ResKey::new(r, ResType::UTI));
+    let placing = Placing { game, item: &items };
+    let mut edits = Vec::new();
+    for (index, old) in &olds {
+        let Some(item) = replaced(&placing, key.restype, old, &blueprint) else { continue };
+        let (path, list) = (mg_edit::GffPath::root(), kind.list().to_string());
+        edits.push(mg_edit::Edit::remove_item(git, path.clone(), list.clone(), *index));
+        edits.push(mg_edit::Edit::insert_item(git, path, list, *index, item));
     }
     let replaced = edits.len() / 2;
     if replaced == 0 {

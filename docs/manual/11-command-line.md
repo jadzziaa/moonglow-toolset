@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T04:58:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:16:12Z }
 ---
 
 # Command-line tools
@@ -108,7 +108,7 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | `mg replace MODULE FIND WITH` | replace text in the module's names, descriptions, conversations and journal and save (`--match-case`, `--whole-word`, `--only names,journal,…`, `--dry-run` to list the strings only) |
 | `mg set MODULE NAME.EXT FIELD=VALUE…` | set fields of a resource and save: a field is a path from the resource's root (`Tag`, `/ClassList[0]/ClassLevel`) and keeps its type; `--remove FIELD`; `--dry-run` prints the change and makes none. `--plugins DIR` (repeatable) and the project's own plugins as you allowed them look at what is saved, as before a save in the window: a refusal is an error and nothing is written, a warning is a note ([what plugins do by themselves](15-plugins.md#what-plugins-do-by-themselves)) |
 | `mg apply MODULE EDITS.json` | apply a file of edits (below) and save: all of them, or none if one does not apply; `-` reads standard input; `--dry-run` only checks; `--plugins DIR` as for `mg set` |
-| `mg areas MODULE [AREA…]` | list the module's areas, narrowed by `--match TEXT` (in the name, tag or ResRef), `--tileset`, `--interior` or `--exterior`, `--underground` or `--above-ground`, `--natural` or `--artificial`; with `--set FIELD=VALUE`, `--var NAME=VALUE`, `--remove-var NAME`, `--static-placeables` or `--dynamic-placeables`, `--grass MATERIAL:TEXTURE:DENSITY:HEIGHT[:R,G,B[:R,G,B]]`, `--remove-grass MATERIAL` or `--tileset-grass yes|no`, make each change to each of those areas and save (`--dry-run` to list the changes only; `--all` to change every area) |
+| `mg areas MODULE [AREA…]` | list the module's areas, narrowed by `--match TEXT` (in the name, tag or ResRef), `--tileset`, `--interior` or `--exterior`, `--underground` or `--above-ground`, `--natural` or `--artificial`; with `--set FIELD=VALUE`, `--var NAME=VALUE`, `--remove-var NAME`, `--static-placeables` or `--dynamic-placeables`, `--grass MATERIAL:TEXTURE:DENSITY:HEIGHT[:R,G,B[:R,G,B]]`, `--remove-grass MATERIAL`, `--tileset-grass yes|no` or `--lighting-scheme SCHEME`, make each change to each of those areas and save (`--dry-run` to list the changes only; `--all` to change every area) |
 
 A module is a `.mod` archive, a module folder or a nasher project. `mg
 compile` and `mg import` write the module in place; an archive's previous
@@ -196,7 +196,18 @@ mg areas mymodule.mod --tileset tdc01 --set SunFogAmount=8 --set SunFogColor=0x2
 mg areas mymodule.mod cave1 cave2 --var nSpawnLevel=4 --remove-var bOld --set Natural=yes
 mg areas mymodule.mod --all --static-placeables --dry-run
 mg areas mymodule.mod --tileset tin01 --grass Wood:grass:2:0.4 --tileset-grass no
+mg areas mymodule.mod --interior --lighting-scheme InteriorDark --set SunFogAmount=4
 ```
+
+- **`--lighting-scheme SCHEME`**: a lighting scheme, as Area Properties'
+  Lighting Scheme gives it (an `environment.2da` row, by number, label
+  such as `InteriorDark`, or the name the list shows, such as `Interior
+  Dark`): the area's sun and moon colors, fog, shadows, day and night and
+  weather, and each tile's lights, picked at random from the scheme's
+  colors as the toolsets pick them. It reads the game's `environment.2da`
+  (the module's haks' over it), so it needs the game installed (`--root`).
+  It is made before `--set`, which can change what it set. Each area is
+  listed with its `LightingScheme` and how many tiles' lights changed.
 
 - **`--grass MATERIAL:TEXTURE:DENSITY:HEIGHT[:R,G,B[:R,G,B]]`**: grass of
   each area's own on a surface material (a `surfacemat.2da` row, by

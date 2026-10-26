@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:43:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:16:12Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -735,12 +735,20 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   given music or variable), and its choice isn't kept as a named set.
   Advanced Search finds such areas (a variable, any field's value), but
   the chooser can't take what it found. (S–M)
-- **`mg areas` and lighting schemes:** the command sets fields, flags
-  and variables; it doesn't apply a lighting scheme (environment.2da,
-  which also picks each tile's lights, and needs the game's data), nor
-  set names or list fields. Nor does Give Every Area This Page's
-  Settings: it copies the fields the page shows, not the tiles' lights
-  a lighting scheme sets (GitHub issue 6). (S)
+- **`mg areas`, what it doesn't set:** it sets fields, flags, variables,
+  grass and a lighting scheme (`--lighting-scheme`, with the tiles'
+  lights, as Aurora's Area Properties gives one: GitHub issue 6). Not
+  names, tags and comments, which are each area's own (Edit Areas
+  Together doesn't offer them either; `mg replace` changes text in
+  names); a name in one language would need a language to be given.
+  Nor list fields: an ARE's are its tiles, `Expansion_List` and
+  `VarTable` (variables, which `--var` sets, now in the GIT where the
+  game reads them); a tile's own lights, one by one, aren't set. A
+  `--dry-run` with a scheme lists picks of its own, not those a run then
+  makes. Give Every Area This Page's Visual Settings gives an area of
+  another scheme the first's tiles' lights picked anew; an area of the
+  same scheme keeps its own, and the first area's own picks aren't
+  copied tile by tile (the areas' tiles differ). (S)
 - **Lighting of one's own:** Saved Lighting and Copy From Area give an
   area the Visual page's fields; not the tiles' lights (each tile's
   own, as a scheme picks them at random from its colors), and lighting
@@ -1286,15 +1294,19 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   is unchecked (an Aurora capture would settle it). (S) (xtul's report,
   October 2026)
 - **No fix for `static-transform`:** Verify warns of a static placeable
-  whose file has a visual transform but offers no button; taking the
-  transform off (as Aurora does when Static is ticked, and Make Static
-  does) or unticking Static is the builder's choice. (S) (xtul's
-  report, October 2026)
-- **Static ticked in Properties keeps the transform:** Aurora takes a
-  placeable's visual transform off when Static is ticked; Moonglow's
-  Properties keep it (not drawn, warned of by Adjust Location and
-  Verify) so that unticking Static brings it back. Whether to do as
-  Aurora does is undecided. (S) (xtul's report, October 2026)
+  whose file has a visual transform (made elsewhere: Static ticked in
+  Properties, Make Static and `mg areas --static-placeables` take it
+  off, as Aurora does) but offers no button; taking the transform off
+  or unticking Static is the builder's choice. (S) (xtul's report,
+  October 2026)
+- **Static and the transform elsewhere:** ticking Static takes a placed
+  placeable's visual transform off in its Properties (with others
+  edited together) and Make Static, as Aurora does. Not so: a plugin
+  setting `Static`, `mg apply` and `mg set` (fields set as given),
+  and Update Instances, which keeps an object's transform whatever its
+  blueprint's Static (Aurora's Update Instances was captured on dynamic
+  objects only). Whether Aurora takes it off when Static is ticked on a
+  blueprint was not looked at (a blueprint has none from Aurora). (S)
 - **Scale in one field:** the game scales a model by `ScaleX` alone;
   Adjust Location shows and writes the three alike, as Aurora does, and
   a file whose `ScaleY` or `ScaleZ` differs (by hand, or another tool)
@@ -1351,9 +1363,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Scale passes them by). The see-through dab is held by the tests'
   counts; the pictures show strokes laid. (S each)
 - **Replace Selected with This** makes the object anew from the
-  blueprint: what the old one had of its own (its tag, variables, a
-  tilt or scale) goes; triggers and encounters aren't replaced. (S)
-  (from builders' reports after 1.10.1)
+  blueprint as Update Instances does (Aurora has no Replace; its Update
+  Instances is the captured equivalent): place, facing, visual
+  transform, a trigger's or encounter's outline and spawn points are
+  kept, triggers and encounters too. The old object's own tag, name,
+  scripts and variables go, as in Aurora's Update Instances: a choice to
+  keep them (a builder replacing a placeholder keeps its tag for the
+  scripts) isn't offered. (S) (from builders' reports after 1.10.1)
 - **A click is on the model, not its box:** an object with a model is
   picked where the pointer's ray meets its triangles (at rest: a creature
   mid-stride is picked where it stands still), so a click through the

@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:06:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:16:12Z }
 ---
 
 # Areas
@@ -333,10 +333,11 @@ Aurora):
   The area view draws all of this as the game client does. A static
   placeable is offered none, as in Aurora: the game draws a static
   placeable without its visual transform, whatever its file has (the
-  server keeps it, but players don't see it). The window says so, and
-  that a static placeable's own transform is kept but not drawn;
-  untick **Static** in its Properties to transform it. Verify warns of
-  a static placeable whose file has one (`static-transform`).
+  server keeps it, but players don't see it). The window says so;
+  untick **Static** in its Properties to transform it. Ticking Static
+  (in Properties, or Make Static) takes the transform off, as Aurora
+  does, so a static placeable with one in its file was made elsewhere:
+  the window says so, and Verify warns of it (`static-transform`).
 - **Random Facing**: turns each selected object to face a way of its
   own, at random (by the snap angle, if one is set): for trees and rocks
   placed in numbers.
@@ -998,7 +999,11 @@ ticked, shown as the first of them:
   modifiers, player vs. player, the loading screen and No Rest.
 - **Give Every Area This Page's Settings** sets what the page shows (the
   first area's) on all the others, whether changed here or not: to make
-  the areas alike in what they already have.
+  the areas alike in what they already have. On the Visual page, an area
+  whose lighting scheme was another also gets its tiles' lights from the
+  first's scheme, as choosing the scheme gives them (with the game's
+  data, which the scheme's colors come from); an area of the same scheme
+  keeps its tiles' own.
 - **Loading Screen** (Advanced, and a door's or trigger's Area
   Transition page) shows the chosen screen's picture under the list, and
   each screen's when the pointer rests on its name in the list.

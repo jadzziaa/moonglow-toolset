@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:43:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:16:12Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -466,6 +466,28 @@ door bearings + 90°, wrapped into [−π, π).
 - **Moonglow:** `crates/mg-module/src/new.rs`, `crates/mg-tiles/src/lib.rs`.
 - **Wiki:** the environment.2da page lists the columns without
   descriptions; the mapping, the Floor patch and the crash are missing.
+
+### A lighting scheme chosen for an area
+
+Area Properties › Visual's scheme list, on an existing area, writes what
+the Area Wizard writes from the row (above), and more:
+
+- **Fog and sky set back:** `FogClipDist` becomes 45.0 and `SkyBox` 0
+  whatever they were (77.0 and 3 in the probe); the other fields of the
+  area are kept.
+- **Every tile's lights picked anew:** each tile's `Tile_MainLight1`/`2`
+  and `Tile_SrcLight1` from the row's colors at random, `Tile_SrcLight2`
+  equal to `Tile_SrcLight1` (all 16 of the probe's, set to 31, changed;
+  nothing else of a tile). The page says so: choosing a scheme loses
+  "custom tile lighting".
+- **`Version`** counts up, as whenever Aurora saves an area.
+
+- **Checked:** Aurora, `aurora_lighting_scheme.rs` (Interior Evil, row 16,
+  on a 4×4 Rural area whose tiles were lit 31).
+- **Moonglow:** `Scheme::applied_fields` and `tile_fields` in
+  `crates/mg-module/src/new.rs`; Area Properties, Give Every Area This
+  Page's Settings and `mg areas --lighting-scheme` use them.
+- **Wiki:** not described.
 
 ### ARE colors and tile lights, stored and read
 

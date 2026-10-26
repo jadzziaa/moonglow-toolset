@@ -24,6 +24,8 @@ mod aurora_inventory;
 mod aurora_journal;
 #[path = "../aurora_levelup.rs"]
 mod aurora_levelup;
+#[path = "../aurora_lighting_scheme.rs"]
+mod aurora_lighting_scheme;
 #[path = "../aurora_new.rs"]
 mod aurora_new;
 #[path = "../aurora_palette_add.rs"]

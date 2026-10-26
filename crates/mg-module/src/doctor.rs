@@ -1696,8 +1696,9 @@ fn pc_faction(d: &mut Doctor, module: &Module) {
 /// the server keeps it (a script reads it back), but the game client
 /// draws a static placeable without it, merged into the area's tiles
 /// (`visual_transforms_look` and `placeables_look` in `client_render.rs`).
-/// Aurora takes a placeable's transform off when Static is ticked;
-/// Moonglow's Properties keep it, and Make Static takes it off.
+/// Aurora takes a placeable's transform off when Static is ticked, and so
+/// do Moonglow's Properties and Make Static: such a file was made
+/// elsewhere (another tool, by hand, or an older Moonglow).
 fn static_transforms(d: &mut Doctor, module: &Module) {
     let mut keys: Vec<ResKey> =
         module.keys().filter(|k| k.restype == ResType::GIT).copied().collect();
@@ -1713,7 +1714,7 @@ fn static_transforms(d: &mut Doctor, module: &Module) {
                 crate::rename::describe(key, Some(&gff), &format!("/Placeable List[{i}]/Static"));
             let message = "static, so the game draws it without its visual transform (its scale, \
                            rotation and translation): untick Static (Properties) to have it drawn \
-                           transformed"
+                           transformed (ticking it again takes the transform off, as Aurora does)"
                 .to_string();
             d.push(Severity::Warning, Check::StaticTransform, "module", key, place, message);
         }

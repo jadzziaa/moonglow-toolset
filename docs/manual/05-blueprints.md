@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:43:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:16:12Z }
 ---
 
 # Blueprints
@@ -142,9 +142,15 @@ The palette's buttons:
   shows it; the light goes round with the view.
 - **Replace Selected with This** (a blueprint's right-click menu): the
   objects of that type selected in the area become ones of this
-  blueprint, where they stand and facing as they face. One Undo puts the
-  old ones back. With the Gallery, this swaps a placed object for a
-  neighbouring one in a click or two.
+  blueprint, made as [Update Instances](#update-instances) makes them
+  (Aurora has no command to replace; its Update Instances is the same
+  remaking): where they stand, facing as they face, with their visual
+  transform (a tilt, a scale), a trigger's or an encounter's outline and
+  an encounter's spawn points. Their tag, name, scripts and variables
+  become the blueprint's. A placeable the blueprint makes static loses
+  its transform, as ticking Static does. Locked objects are left. One
+  Undo puts the old ones back. With the Gallery, this swaps a placed
+  object for a neighboring one in a click or two.
 - **The Appearance Gallery** (**Tools › Appearance Gallery…**, or **All
   Appearances…** under **More** in the palette's Placeables): **Placeables**, **Creatures**
   and **Doors** at its top choose whose. Every appearance in
@@ -520,6 +526,12 @@ Transition** (doors: to a door or waypoint in another area), Scripts,
 Advanced, Visuals, Description, Comments. A placeable with an inventory
 has an **Inventory** page. It can have one without being usable: players
 can't open it, but scripts can reach what it holds.
+
+Ticking **Static** on a placed placeable takes its visual transform off
+(its scale, rotations and offsets from Adjust Location or the rings), as
+Aurora does: the game draws a static placeable without one. It is the
+same step as Static, for each placeable edited together, and Undo puts
+the transform back; unticking Static gives none back.
 
 A placeable's Advanced page has **Illuminated**: whether its light is on
 when the game loads it, the state scripts read and change with

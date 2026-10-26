@@ -229,29 +229,47 @@ fn give_page(app: &mut Moonglow, area: ResRef, others: &[ResRef], page: &str) {
     // (The grass the first area lacks, the others lose: what is not there
     // is what grows.)
     let lacking = |l: &'static str| (page == "Grass").then_some((l, None));
-    let values: Vec<(&str, Option<Value>)> = match ws.doc(&ResKey::new(area, restype)) {
-        Ok(doc) => match path.get(&doc.root) {
-            Some(from) => labels
-                .iter()
-                .filter_map(|l| from.get(l).map(|v| (*l, Some(v.clone()))).or_else(|| lacking(l)))
-                .collect(),
-            None => return,
-        },
-        Err(_) => return,
-    };
+    let (values, scheme_row): (Vec<(&str, Option<Value>)>, Option<i64>) =
+        match ws.doc(&ResKey::new(area, restype)) {
+            Ok(doc) => match path.get(&doc.root) {
+                Some(from) => (
+                    labels
+                        .iter()
+                        .filter_map(|l| {
+                            from.get(l).map(|v| (*l, Some(v.clone()))).or_else(|| lacking(l))
+                        })
+                        .collect(),
+                    from.integer("LightingScheme"),
+                ),
+                None => return,
+            },
+            Err(_) => return,
+        };
+    // The Visual page: an area of another lighting scheme gets its tiles'
+    // lights from the first's, as choosing the scheme gives them (one of
+    // the same scheme keeps its own). Without the game's data, none.
+    let scheme = (page == "Visual").then_some(scheme_row).flatten().and_then(|row| {
+        app.game.as_deref().and_then(|g| mg_module::new::Scheme::read(g, row as usize).ok())
+    });
+    let mut rng = fastrand::Rng::new();
     let mut edits = Vec::new();
     for other in others {
         let key = ResKey::new(*other, restype);
-        let there = ws.doc(&key).ok().is_some_and(|d| path.get(&d.root).is_some());
-        if !there {
+        let Some(there) = ws.doc(&key).ok().and_then(|d| path.get(&d.root).cloned()) else {
             continue;
-        }
+        };
         edits.extend(values.iter().map(|(label, value)| Edit::SetField {
             key,
             path: path.clone(),
             label: (*label).into(),
             value: value.clone(),
         }));
+        if let Some(scheme) =
+            scheme.as_ref().filter(|_| there.integer("LightingScheme") != scheme_row)
+        {
+            let tiles = there.list("Tile_List").map_or(0, <[_]>::len);
+            edits.extend(tile_light_edits(scheme, key, tiles, &mut rng));
+        }
     }
     if !edits.is_empty() {
         let what = format!("{page} settings to {} areas", others.len());
@@ -559,30 +577,37 @@ fn apply_scheme(f: &mut Form<'_>, row: usize) {
             Some(Ok(are)) => are.root.list("Tile_List").map_or(0, <[_]>::len),
             _ => continue,
         };
-        edits.extend(scheme.fields().into_iter().map(|(label, value)| Edit::SetField {
+        edits.extend(scheme.applied_fields().into_iter().map(|(label, value)| Edit::SetField {
             key,
             path: GffPath::root(),
             label: label.into(),
             value: Some(value),
         }));
-        for i in 0..tiles {
-            let [main1, main2, source] = scheme.tile_lights(&mut rng);
-            for (label, v) in [
-                ("Tile_MainLight1", main1),
-                ("Tile_MainLight2", main2),
-                ("Tile_SrcLight1", source),
-                ("Tile_SrcLight2", source),
-            ] {
-                edits.push(Edit::SetField {
-                    key,
-                    path: GffPath::root().item("Tile_List", i),
-                    label: label.into(),
-                    value: Some(Value::Byte(v)),
-                });
-            }
-        }
+        edits.extend(tile_light_edits(&scheme, key, tiles, &mut rng));
     }
     f.app.actions.push(Action::Apply(Command::new("Lighting scheme", edits)));
+}
+
+/// The edits that give the `tiles` tiles of area `key` (its ARE) the
+/// lights a lighting scheme picks for them.
+fn tile_light_edits(
+    scheme: &mg_module::new::Scheme,
+    key: ResKey,
+    tiles: usize,
+    rng: &mut fastrand::Rng,
+) -> Vec<Edit> {
+    let mut edits = Vec::new();
+    for i in 0..tiles {
+        for (label, value) in scheme.tile_fields(rng) {
+            edits.push(Edit::SetField {
+                key,
+                path: GffPath::root().item("Tile_List", i),
+                label: label.into(),
+                value: Some(value),
+            });
+        }
+    }
+    edits
 }
 
 fn audio(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResRef]) {
