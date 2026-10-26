@@ -3,7 +3,7 @@ type: Manual Page
 title: Conversations
 description: Conversations - the conversation tree, a line's tabs, writing conversations elsewhere, the Script Wizard and backups.
 tags: [manual, conversations]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T21:15:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T00:42:20Z }
 ---
 
 # Conversations
@@ -32,9 +32,10 @@ Aurora (Options › Keyboard changes Add's and Delete's keys). Delete
 deletes only the line: the whole conversation is deleted from the module
 tree (its menu's Delete…, which asks first).
 
-**The keyboard.** A click in the editor gives the conversation's tree the
-keys (a thin outline shows it has them), as a click gives them to the
-module tree; they stay its until you click another list or point at an
+**The keyboard.** Opening a conversation (from the module tree, or
+bringing its tab to the front) gives its tree the keys, as Aurora does, and
+so does a click in the editor (a thin outline shows it has them), as a
+click gives them to the module tree; they stay its until you click another list or point at an
 area's view. Then, as in Aurora's tree:
 
 | Key | Does |

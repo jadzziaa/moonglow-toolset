@@ -26547,6 +26547,25 @@ fn deleting_a_conversation_open_in_its_window() {
     assert!(h.state().ws.as_ref().unwrap().module.contains(&key));
 }
 
+/// A conversation opened from the module tree has the keys at once, as
+/// Aurora gives them to the conversation it opens: Delete before any
+/// click in the editor asks nothing of the whole conversation (the module
+/// tree's Delete, which still had the keys, did), and Down goes to its
+/// first line.
+#[test]
+fn a_conversation_opened_from_the_tree_has_the_keys() {
+    let (mut h, key) = dialog_from_tree("ui-dialog-opened-keys", &branching_dialog());
+    h.key_press(egui::Key::Delete);
+    h.run();
+    h.run();
+    assert_eq!(h.state().confirm_delete, None, "not the module tree's Delete");
+    assert!(h.query_by_label("Delete from Module").is_none());
+    assert!(h.state().ws.as_ref().unwrap().module.contains(&key));
+    h.key_press(egui::Key::ArrowDown);
+    h.run();
+    assert!(h.state().dialog_views[&key].selected.is_some(), "the tree's Down");
+}
+
 /// Sacha's report: in Aurora the arrow keys go from line to line of a
 /// conversation; in Moonglow nothing happened (they were the module
 /// tree's). After a click in the tree, as Windows' tree control (Aurora's)

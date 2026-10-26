@@ -489,6 +489,10 @@ pub struct Moonglow {
     pub faction_view: faction_view::FactionView,
     pub journal_view: journal_view::JournalView,
     pub dialog_views: HashMap<ResKey, dialog_view::DialogView>,
+    /// A conversation opened or brought to the front: its tree takes the
+    /// keys at its next frame, as Aurora's does (not the module tree it was
+    /// opened from, whose Delete would delete the whole conversation).
+    pub(crate) dialog_keys: Option<ResKey>,
     pub dialog_clip: Option<dialog_view::DialogClip>,
     /// The New Conversation window's name.
     pub new_dialog: Option<String>,
@@ -857,6 +861,7 @@ impl Moonglow {
             faction_view: faction_view::FactionView::default(),
             journal_view: journal_view::JournalView::default(),
             dialog_views: HashMap::new(),
+            dialog_keys: None,
             dialog_clip: None,
             new_dialog: None,
             script_tools: script_tools::ScriptTools::default(),
@@ -2921,6 +2926,9 @@ impl Moonglow {
             }
             Action::ToggleMaximize(tab) => self.toggle_maximize(&tab),
             Action::OpenTab(tab) => {
+                if let Tab::Dialog(key) = &tab {
+                    self.dialog_keys = Some(*key);
+                }
                 // The area opened last is opened again with the module.
                 if let (Tab::Area(area), Some(module)) = (&tab, self.module_path()) {
                     self.settings.remember_area(&module, &area.to_string());

@@ -425,8 +425,14 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let mut view = app.dialog_views.remove(&key).unwrap_or_default();
     // A selection the conversation no longer has (undo) is dropped.
     view.selected = view.selected.filter(|r| r.pos < links(&g, r.parent).len());
+    // Opened or brought to the front: the keys are its tree's.
+    if app.dialog_keys == Some(key) {
+        app.dialog_keys = None;
+        take_keys(ui.ctx(), key);
+    }
     // The arrow keys and the others of the tree, once a click in the
-    // editor has given it the keys; not while a field is typed in.
+    // editor or its opening has given it the keys; not while a field is
+    // typed in.
     let keys_here = has_keys(ui.ctx(), key);
     if keys_here && !ui.ctx().egui_wants_keyboard_input() && view.input.is_none() {
         tree_keys(ui, &g, &mut view);
