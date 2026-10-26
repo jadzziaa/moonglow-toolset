@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:43:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:41:31Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -113,6 +113,68 @@ with `Charges` 255 reads back as 250.
   `the_engine_reads_the_ee_fields_aurora_has_none_for`.
 - **Wiki:** the Item page says large stacks "can be defined"; the load-time
   clamp to 250 is not documented.
+
+### The Item Wizard's random properties (Magical)
+
+Aurora's Item Wizard has **Magical** on its Name page; ticked, it enables
+**Item Level** (1-5, 6-10, 11-15, 16-20) and **Item Quality** (Low,
+Medium, High, Godly), and Next waits for both. The item gets random
+properties from the toolset's `itmwiz*.2da` (columns `Prop SubProp
+CostTable CostVal ParamTable Param Value`; `Value` is a tier, 0 to 8 for
+weapons and armor, 0 to 12 for potions, scrolls, wands and trap kits, 0
+to 15 for staves). 126 items Aurora made (33 base items, every level and
+quality, Longswords three times each) show:
+
+- **The table** follows baseitems.2da `PropColumn`: 0 melee, 1 ranged
+  (also the unenchanted wand), 2 throw, 3 staves, 4 rods, 5 ammo, 6
+  armor (and shields), 7 helmet, 8 potion, 9 scroll, 10 wands, 12 trap;
+  16 (amulets, belts, boots, bracers, cloaks, rings) gets the armor
+  or helmet table's properties (they differ in one row, the armor's
+  Weight Reduction, not drawn in the captures; Moonglow uses the armor
+  table). 11, 13–15 and 18–20 (thieves' tools, creature
+  items, books and other unequippables, containers, healer's kits,
+  torches) can't be made magical; 17 (gems) and 21 (gauntlets) can, and
+  get no properties.
+- **The first property's tier** is `round(step × top / 12)` (halves
+  up), the step `3 × level + quality` (0 to 12), `top` the table's
+  highest tier: 2L + {0,1,1,2} on the 9-tier tables, 3L + Q on the
+  13-tier ones, 13 for a 16-20 Medium staff.
+- **The rest** are one or two tiers lower (Low: two lower only), as long
+  as the item's value stays within itemvalue.2da `MAXSINGLEITEMVALUE` at
+  character level 5L + Q + 2 (Medium to Godly: the band's third to fifth
+  level). Low items have at most two properties, and stay within the
+  values of levels 1, 5, 8 and 13 (fitted: 6-10's Low items cost up to
+  4234 and none took a third property under 4604; 11-15's and 16-20's
+  dropped a second worth more than 12000 and 35000). The first is kept
+  whatever it is worth (a 6-10 Low scroll costs 5403). No property is
+  repeated (a +2 sword got no +1); one row's property may be in several
+  tiers (Enhancement +1 is in three of the melee table's), weighting it.
+  Up to four were seen (16-20 Godly throwing weapons and unenchanted
+  wands); the tiers of the rest vary between one and two lower.
+- **Potions, scrolls, wands and trap kits** get one property; **magic
+  staves** three spells, two of the first's tier and one a tier lower
+  (clamped at 0); **rods** up to three. Staves, rods and wands have 50
+  `Charges`. Scrolls and wands also get Use Limitation: Class for Bard,
+  Wizard and Sorcerer (classes 1, 10, 9, in that order), staves for
+  Wizard and Sorcerer, whatever the spell.
+- The item is written with `Identified` 0, and its `Cost` with the
+  properties (Aurora's `Cost` for a +2 longsword was 7248 where the
+  engine's is 7250).
+- Aurora's tables hold properties itemprops.2da doesn't allow: Vampiric
+  Regeneration (row 67) on ranged weapons, Freedom of Movement (75) on
+  thrown ones.
+
+The draws themselves are Aurora's random number generator's; Moonglow
+makes its own (seeded) with these rules, and only properties the base
+item can have.
+
+- **Checked:** Aurora, `aurora_item_wizard.rs` (every captured item holds
+  to the rules), and `item_wizard.rs` (every base item, level and
+  quality of the install gives properties its base item can have, with
+  subtypes, values and parameters from its tables); implemented in
+  `crates/mg-rules/src/item_wizard.rs`.
+- **Wiki:** the 2da Files page lists the `itmwiz*.2da` as "Toolset only;
+  Item Wizard 2da files" and says nothing of how they are used.
 
 ## Creatures
 

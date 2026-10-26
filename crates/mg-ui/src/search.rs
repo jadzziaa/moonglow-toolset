@@ -1,16 +1,24 @@
 //! The Advanced Search tab (Edit › Advanced Search…): the module's
 //! blueprints, placed objects, areas and the rest found by what they hold
-//! (`mg_module::search`), listed by place as Find References lists them;
-//! a click opens the object.
+//! (`mg_module::search`), by one condition or several together, listed by
+//! place as Find References lists them; a click opens the object. What is
+//! found (all of it, or what is ticked) can be changed in one step (a
+//! variable set or removed, an event's script, a field: `mg_edit::found`),
+//! edited together, or its areas chosen in Edit Areas Together.
+
+use std::collections::BTreeMap;
 
 use egui::Ui;
-use mg_core::{Codepage, ResType};
+use mg_core::{Codepage, ResRef, ResType};
+use mg_edit::found::{self, Change};
+use mg_edit::{Command, GffPath};
 use mg_module::search::{
-    self, AppearanceOf, FieldValue, Hit, PropertyParts, Query, Search, VarType,
+    self, AppearanceOf, FieldValue, Hit, Object, PropertyParts, Query, Search, VarType,
 };
-use mg_rules::{Choice, ChoiceColumns, GameData};
+use mg_resman::ResKey;
+use mg_rules::{Choice, ChoiceColumns, GameData, ObjectKind};
 
-use crate::Moonglow;
+use crate::{Action, Moonglow, Tab};
 
 /// What the window looks for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,16 +78,19 @@ const OBJECTS: [(ResType, &str); 12] = [
     (ResType::IFO, "The module"),
 ];
 
-/// The Advanced Search window's state.
+/// The highest class level a condition's range reaches.
+const TOP_LEVEL: u8 = 60;
+
+/// One condition: what is looked for.
 #[derive(Debug, Clone, PartialEq)]
-pub struct AdvancedSearch {
+pub struct Condition {
     pub kind: Kind,
     /// A variable's or script's name, a field's label.
     pub name: String,
     pub var_type: Option<VarType>,
     /// A variable's value, a field's value.
     pub value: String,
-    /// A field's value is a whole number (else text).
+    /// A field's value is a number or a range of them (else text).
     pub number: bool,
     /// The row looked for: a class, feat, spell, skill, appearance, or an
     /// item property's type.
@@ -88,21 +99,16 @@ pub struct AdvancedSearch {
     pub cost: Option<usize>,
     pub param: Option<usize>,
     pub min_rank: u8,
+    /// A class's levels, from and to.
+    pub levels: (u8, u8),
     pub of: AppearanceOf,
-    /// The kind of object looked at; none: all.
-    pub object: Option<ResType>,
-    /// Only placed objects, only blueprints.
-    pub placed: Option<bool>,
-    /// What was found, for the query in `searched`.
-    pub hits: Vec<Hit>,
-    pub searched: Option<Query>,
     /// The item property type's parts, for the type they are of.
     pub parts: Option<((usize, Option<usize>), PropertyParts)>,
 }
 
-impl Default for AdvancedSearch {
-    fn default() -> AdvancedSearch {
-        AdvancedSearch {
+impl Default for Condition {
+    fn default() -> Condition {
+        Condition {
             kind: Kind::Variable,
             name: String::new(),
             var_type: None,
@@ -113,23 +119,20 @@ impl Default for AdvancedSearch {
             cost: None,
             param: None,
             min_rank: 1,
+            levels: (1, TOP_LEVEL),
             of: AppearanceOf::Creature,
-            object: None,
-            placed: None,
-            hits: Vec::new(),
-            searched: None,
             parts: None,
         }
     }
 }
 
-impl AdvancedSearch {
-    /// The query the window asks, or what it still needs.
-    pub fn query(&self) -> Result<Query, String> {
+impl Condition {
+    /// The search it asks, or what it still needs.
+    pub fn search(&self) -> Result<Search, String> {
         let name = self.name.trim();
         let value = self.value.trim();
         let row = |what: &str| self.row.ok_or_else(|| format!("Choose {what}"));
-        let search = match self.kind {
+        Ok(match self.kind {
             Kind::Variable => {
                 if name.is_empty() {
                     return Err("Type a variable's name (* for any characters)".into());
@@ -146,7 +149,12 @@ impl AdvancedSearch {
                 value: self.cost.map(|s| s as u16),
                 param: self.param.map(|s| s as u8),
             },
-            Kind::Class => Search::Class(row("a class")? as i64),
+            Kind::Class if self.levels == (1, TOP_LEVEL) => Search::Class(row("a class")? as i64),
+            Kind::Class => Search::ClassLevel {
+                class: row("a class")? as i64,
+                min: self.levels.0.into(),
+                max: self.levels.1.into(),
+            },
             Kind::Feat => Search::Feat(row("a feat")? as i64),
             Kind::Spell => Search::Spell(row("a spell")? as i64),
             Kind::Skill => Search::Skill { skill: row("a skill")?, min_rank: self.min_rank },
@@ -162,9 +170,7 @@ impl AdvancedSearch {
             Kind::Field => {
                 let value = match (value.is_empty(), self.number) {
                     (true, _) => None,
-                    (false, true) => Some(FieldValue::Number(
-                        value.parse().map_err(|_| format!("{value} is not a whole number"))?,
-                    )),
+                    (false, true) => Some(FieldValue::number(value)?),
                     (false, false) => Some(FieldValue::Text(value.to_string())),
                 };
                 if name.is_empty() && value.is_none() {
@@ -172,8 +178,7 @@ impl AdvancedSearch {
                 }
                 Search::Field { label: (!name.is_empty()).then(|| name.to_string()), value }
             }
-        };
-        Ok(Query { search, types: self.object.into_iter().collect(), placed: self.placed })
+        })
     }
 
     /// The table the row is chosen from.
@@ -191,11 +196,139 @@ impl AdvancedSearch {
         };
         search.table()
     }
+
+    /// The field a change of what it finds sets: the label looked for,
+    /// an appearance's field.
+    fn field(&self) -> Option<String> {
+        match self.kind {
+            Kind::Field if !self.name.contains('*') && !self.name.trim().is_empty() => {
+                Some(self.name.trim().to_string())
+            }
+            Kind::Appearance => Some(self.of.field().1.to_string()),
+            _ => None,
+        }
+    }
+}
+
+/// What is done to what is found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Act {
+    SetVariable,
+    RemoveVariable,
+    SetScript,
+    SetField,
+}
+
+impl Act {
+    pub const ALL: [Act; 4] =
+        [Act::SetVariable, Act::RemoveVariable, Act::SetScript, Act::SetField];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Act::SetVariable => "Set a variable",
+            Act::RemoveVariable => "Remove a variable",
+            Act::SetScript => "Set an event's script",
+            Act::SetField => "Set a field",
+        }
+    }
+}
+
+/// The change to make to what is found.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActDraft {
+    pub act: Act,
+    /// A variable's name, a field's label.
+    pub name: String,
+    pub var_type: VarType,
+    /// A variable's or field's value, a script's name.
+    pub value: String,
+    /// The event (its field's label).
+    pub event: Option<String>,
+    /// What the last change did.
+    pub said: Option<String>,
+}
+
+impl Default for ActDraft {
+    fn default() -> ActDraft {
+        ActDraft {
+            act: Act::SetVariable,
+            name: String::new(),
+            var_type: VarType::Int,
+            value: String::new(),
+            event: None,
+            said: None,
+        }
+    }
+}
+
+impl ActDraft {
+    /// The change asked, or what it still needs.
+    pub fn change(&self) -> Result<Change, String> {
+        let name = self.name.trim().to_string();
+        let needs_name = |what: &str| {
+            if name.is_empty() { Err(format!("Type the {what}")) } else { Ok(name.clone()) }
+        };
+        Ok(match self.act {
+            Act::SetVariable => Change::SetVariable {
+                name: needs_name("variable's name")?,
+                kind: self.var_type,
+                value: self.value.clone(),
+            },
+            Act::RemoveVariable => Change::RemoveVariable { name: needs_name("variable's name")? },
+            Act::SetScript => Change::SetScript {
+                event: self.event.clone().ok_or("Choose an event")?,
+                script: self.value.trim().to_string(),
+            },
+            Act::SetField => {
+                Change::SetField { label: needs_name("field's label")?, value: self.value.clone() }
+            }
+        })
+    }
+}
+
+/// The Advanced Search window's state.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AdvancedSearch {
+    /// What is looked for.
+    pub first: Condition,
+    /// And what the same objects must also hold.
+    pub and: Vec<Condition>,
+    /// The kind of object looked at; none: all.
+    pub object: Option<ResType>,
+    /// Only placed objects, only blueprints.
+    pub placed: Option<bool>,
+    /// What was found, for the query in `searched`.
+    pub hits: Vec<Hit>,
+    pub searched: Option<Query>,
+    /// Which of the hits are ticked (to change, to edit together).
+    pub ticked: Vec<bool>,
+    /// The change to make to them.
+    pub act: ActDraft,
+    /// The events the objects found have (script fields' labels).
+    pub events: Vec<String>,
+}
+
+impl AdvancedSearch {
+    /// The query the window asks, or what it still needs.
+    pub fn query(&self) -> Result<Query, String> {
+        let and = self.and.iter().map(Condition::search).collect::<Result<_, _>>()?;
+        Ok(Query {
+            search: self.first.search()?,
+            and,
+            types: self.object.into_iter().collect(),
+            placed: self.placed,
+        })
+    }
+
+    /// The hits ticked.
+    pub fn chosen(&self) -> Vec<&Hit> {
+        self.hits.iter().zip(&self.ticked).filter(|(_, t)| **t).map(|(h, _)| h).collect()
+    }
 }
 
 impl Moonglow {
     /// Finds what the window asks in the module (its unsaved edits
-    /// included).
+    /// included); everything found is ticked.
     pub fn advanced_search(&mut self, draft: &mut AdvancedSearch) {
         let Ok(q) = draft.query() else { return };
         let Some(ws) = self.ws.as_mut() else { return };
@@ -206,7 +339,53 @@ impl Moonglow {
         let game = self.game.as_deref();
         let cp = game.map_or(Codepage::WINDOWS_1252, GameData::codepage);
         draft.hits = search::search(&ws.module, &q, game, cp);
+        draft.ticked = vec![true; draft.hits.len()];
+        draft.events = found::events(&ws.module, &draft.hits.iter().collect::<Vec<_>>());
         draft.searched = Some(q);
+        // (A change's field follows what is looked for.)
+        if let Some(field) = draft.first.field() {
+            draft.act.name = field;
+        }
+    }
+
+    /// Makes the window's change to what it found and ticked, in one
+    /// step, then finds again.
+    pub fn change_found(&mut self, draft: &mut AdvancedSearch) {
+        let change = match draft.act.change() {
+            Ok(c) => c,
+            Err(e) => {
+                draft.act.said = Some(e);
+                return;
+            }
+        };
+        let Some(ws) = self.ws.as_mut() else { return };
+        if let Err(e) = ws.flush() {
+            self.log.error(e.to_string());
+            return;
+        }
+        let cp = self.game.as_deref().map_or(Codepage::WINDOWS_1252, GameData::codepage);
+        let out = match found::edits(&ws.module, &draft.chosen(), &change, cp) {
+            Ok(out) => out,
+            Err(e) => {
+                draft.act.said = Some(e);
+                return;
+            }
+        };
+        let left = match out.skipped.len() {
+            0 => String::new(),
+            n => format!("; {n} left as they were: {}", out.skipped.join("; ")),
+        };
+        if out.edits.is_empty() {
+            draft.act.said = Some(format!("Nothing to change{left}"));
+            return;
+        }
+        let label = format!("{} on {} found", change.describe(), out.changed);
+        if let Err(e) = self.apply(Command::new(label.clone(), out.edits)) {
+            draft.act.said = Some(e.to_string());
+            return;
+        }
+        draft.act.said = Some(format!("{label}{left}"));
+        self.advanced_search(draft);
     }
 }
 
@@ -253,137 +432,180 @@ fn choices(game: Option<&GameData>, table: &mg_rules::rows::RowTable) -> Vec<Cho
     game.choice_list(table.table, columns).map(|c| c.to_vec()).unwrap_or_default()
 }
 
-/// What to look for, by kind.
-fn search_ui(ui: &mut Ui, d: &mut AdvancedSearch, game: Option<&GameData>) -> bool {
+/// A condition's rows of the window's grid; `salt` keeps its widgets'
+/// ids its own (empty for the first). True when Enter asks to find.
+fn condition_ui(ui: &mut Ui, c: &mut Condition, game: Option<&GameData>, salt: &str) -> bool {
     let mut find = false;
     let text = |ui: &mut Ui, value: &mut String, hint: &str| -> bool {
         let r = ui.add(egui::TextEdit::singleline(value).hint_text(hint).desired_width(260.0));
         r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))
     };
-    egui::Grid::new("advanced-search").num_columns(2).show(ui, |ui| {
-        crate::widgets::field_label(ui, "Look for");
-        let was = d.kind;
-        crate::widgets::dropdown("advanced-search-kind")
-            .selected_text(d.kind.label())
-            .width(260.0)
-            .show(ui, &mut d.kind, &Kind::ALL, |k| k.label());
-        if d.kind != was {
-            d.row = None;
-            d.subtype = None;
-            d.cost = None;
-            d.param = None;
+    let id = |name: &str| format!("advanced-search-{name}{salt}");
+    match c.kind {
+        Kind::Variable => {
+            crate::widgets::field_label(ui, "Name");
+            find |= text(ui, &mut c.name, "e.g. *sDeidad* (* for any characters)");
+            ui.end_row();
+            crate::widgets::field_label(ui, "Type");
+            let types: Vec<Option<VarType>> =
+                std::iter::once(None).chain(VarType::ALL.map(Some)).collect();
+            crate::widgets::dropdown(id("var-type"))
+                .selected_text(c.var_type.map_or("Any", VarType::name))
+                .show(ui, &mut c.var_type, &types, |t| t.map_or("Any", VarType::name));
+            ui.end_row();
+            crate::widgets::field_label(ui, "Value");
+            find |= text(ui, &mut c.value, "any (* for any characters)");
+            ui.end_row();
         }
-        ui.end_row();
-        match d.kind {
-            Kind::Variable => {
-                crate::widgets::field_label(ui, "Name");
-                find |= text(ui, &mut d.name, "e.g. *sDeidad* (* for any characters)");
-                ui.end_row();
-                crate::widgets::field_label(ui, "Type");
-                let types: Vec<Option<VarType>> =
-                    std::iter::once(None).chain(VarType::ALL.map(Some)).collect();
-                crate::widgets::dropdown("advanced-search-var-type")
-                    .selected_text(d.var_type.map_or("Any", VarType::name))
-                    .show(ui, &mut d.var_type, &types, |t| t.map_or("Any", VarType::name));
-                ui.end_row();
-                crate::widgets::field_label(ui, "Value");
-                find |= text(ui, &mut d.value, "any (* for any characters)");
-                ui.end_row();
+        Kind::ItemProperty => {
+            let table = c.table().expect("a table");
+            crate::widgets::field_label(ui, "Property");
+            let was = c.row;
+            row_picker(ui, &id("property"), &choices(game, &table), &mut c.row, None);
+            if c.row != was {
+                (c.subtype, c.cost, c.param) = (None, None, None);
             }
-            Kind::ItemProperty => {
-                let table = d.table().expect("a table");
-                crate::widgets::field_label(ui, "Property");
-                let was = d.row;
-                row_picker(
+            ui.end_row();
+            let parts = match (game, c.row) {
+                (Some(g), Some(p)) => {
+                    let key = (p, c.subtype);
+                    if c.parts.as_ref().is_none_or(|(k, _)| *k != key) {
+                        let parts =
+                            search::property_parts(g, p as u16, c.subtype.map(|s| s as u16));
+                        c.parts = Some((key, parts));
+                    }
+                    c.parts.as_ref().map(|(_, p)| p.clone()).unwrap_or_default()
+                }
+                _ => PropertyParts::default(),
+            };
+            // (Without the game's data, every part by number.)
+            let all = game.is_none();
+            for (label, choices, row) in [
+                ("Subtype", &parts.subtypes, &mut c.subtype),
+                ("Value", &parts.values, &mut c.cost),
+                ("Parameter", &parts.params, &mut c.param),
+            ] {
+                if all || !choices.is_empty() {
+                    crate::widgets::field_label(ui, label);
+                    row_picker(ui, &id(label), choices, row, Some("Any"));
+                    ui.end_row();
+                }
+            }
+        }
+        Kind::Class | Kind::Feat | Kind::Spell | Kind::Skill | Kind::Appearance => {
+            if c.kind == Kind::Appearance {
+                crate::widgets::field_label(ui, "Of");
+                let was = c.of;
+                crate::widgets::dropdown(id("of")).selected_text(c.of.label()).width(260.0).show(
                     ui,
-                    "advanced-search-property",
-                    &choices(game, &table),
-                    &mut d.row,
-                    None,
+                    &mut c.of,
+                    &AppearanceOf::ALL,
+                    |a| a.label(),
                 );
-                if d.row != was {
-                    (d.subtype, d.cost, d.param) = (None, None, None);
+                if c.of != was {
+                    c.row = None;
                 }
-                ui.end_row();
-                let parts = match (game, d.row) {
-                    (Some(g), Some(p)) => {
-                        let key = (p, d.subtype);
-                        if d.parts.as_ref().is_none_or(|(k, _)| *k != key) {
-                            let parts =
-                                search::property_parts(g, p as u16, d.subtype.map(|s| s as u16));
-                            d.parts = Some((key, parts));
-                        }
-                        d.parts.as_ref().map(|(_, p)| p.clone()).unwrap_or_default()
-                    }
-                    _ => PropertyParts::default(),
-                };
-                // (Without the game's data, every part by number.)
-                let all = game.is_none();
-                for (label, choices, row) in [
-                    ("Subtype", &parts.subtypes, &mut d.subtype),
-                    ("Value", &parts.values, &mut d.cost),
-                    ("Parameter", &parts.params, &mut d.param),
-                ] {
-                    if all || !choices.is_empty() {
-                        crate::widgets::field_label(ui, label);
-                        let id = format!("advanced-search-{label}");
-                        row_picker(ui, &id, choices, row, Some("Any"));
-                        ui.end_row();
-                    }
-                }
-            }
-            Kind::Class | Kind::Feat | Kind::Spell | Kind::Skill | Kind::Appearance => {
-                if d.kind == Kind::Appearance {
-                    crate::widgets::field_label(ui, "Of");
-                    let was = d.of;
-                    crate::widgets::dropdown("advanced-search-of")
-                        .selected_text(d.of.label())
-                        .width(260.0)
-                        .show(ui, &mut d.of, &AppearanceOf::ALL, |a| a.label());
-                    if d.of != was {
-                        d.row = None;
-                    }
-                    ui.end_row();
-                }
-                let label = match d.kind {
-                    Kind::Class => "Class",
-                    Kind::Feat => "Feat",
-                    Kind::Spell => "Spell",
-                    Kind::Skill => "Skill",
-                    _ => "Appearance",
-                };
-                crate::widgets::field_label(ui, label);
-                let table = d.table().expect("a table");
-                row_picker(ui, "advanced-search-row", &choices(game, &table), &mut d.row, None);
-                ui.end_row();
-                if d.kind == Kind::Skill {
-                    crate::widgets::field_label(ui, "At least");
-                    ui.add(egui::DragValue::new(&mut d.min_rank).range(1..=127).suffix(" rank(s)"));
-                    ui.end_row();
-                }
-            }
-            Kind::Script => {
-                crate::widgets::field_label(ui, "Script");
-                find |= text(ui, &mut d.name, "e.g. x2_def_* (* for any characters)");
                 ui.end_row();
             }
-            Kind::Field => {
-                crate::widgets::field_label(ui, "Label");
-                find |= text(ui, &mut d.name, "any (* for any characters)");
+            let label = match c.kind {
+                Kind::Class => "Class",
+                Kind::Feat => "Feat",
+                Kind::Spell => "Spell",
+                Kind::Skill => "Skill",
+                _ => "Appearance",
+            };
+            crate::widgets::field_label(ui, label);
+            let table = c.table().expect("a table");
+            row_picker(ui, &id("row"), &choices(game, &table), &mut c.row, None);
+            ui.end_row();
+            if c.kind == Kind::Skill {
+                crate::widgets::field_label(ui, "At least");
+                ui.add(egui::DragValue::new(&mut c.min_rank).range(1..=127).suffix(" rank(s)"));
                 ui.end_row();
-                crate::widgets::field_label(ui, "Value");
+            }
+            if c.kind == Kind::Class {
+                crate::widgets::field_label(ui, "Levels");
                 ui.horizontal(|ui| {
-                    find |= text(
-                        ui,
-                        &mut d.value,
-                        if d.number { "e.g. 103" } else { "text it contains" },
-                    );
-                    ui.checkbox(&mut d.number, "Whole number")
-                        .on_hover_text("Fields of every integer type holding exactly this number");
+                    let (from, to) = &mut c.levels;
+                    ui.add(egui::DragValue::new(from).range(1..=TOP_LEVEL))
+                        .on_hover_text("The fewest levels in the class");
+                    ui.label("to");
+                    ui.add(egui::DragValue::new(to).range(1..=TOP_LEVEL))
+                        .on_hover_text("The most levels in the class");
+                    *to = (*to).max(*from);
                 });
                 ui.end_row();
             }
         }
+        Kind::Script => {
+            crate::widgets::field_label(ui, "Script");
+            find |= text(ui, &mut c.name, "e.g. x2_def_* (* for any characters)");
+            ui.end_row();
+        }
+        Kind::Field => {
+            crate::widgets::field_label(ui, "Label");
+            find |= text(ui, &mut c.name, "any (* for any characters)");
+            ui.end_row();
+            crate::widgets::field_label(ui, "Value");
+            ui.horizontal(|ui| {
+                let hint = if c.number { "e.g. 103, 1.5 or 5..10" } else { "text it contains" };
+                find |= text(ui, &mut c.value, hint);
+                ui.checkbox(&mut c.number, "Number").on_hover_text(
+                    "Number fields holding this number (103, 1.5) or one in a range (5..10, \
+                     5.., ..10)",
+                );
+            });
+            ui.end_row();
+        }
+    }
+    find
+}
+
+/// A condition's kind chosen; the rows chosen for the last one forgotten.
+fn kind_choice(ui: &mut Ui, c: &mut Condition, id: &str) {
+    let was = c.kind;
+    crate::widgets::dropdown(id).selected_text(c.kind.label()).width(260.0).show(
+        ui,
+        &mut c.kind,
+        &Kind::ALL,
+        |k| k.label(),
+    );
+    if c.kind != was {
+        (c.row, c.subtype, c.cost, c.param) = (None, None, None, None);
+    }
+}
+
+/// What to look for, by kind, and the conditions with it.
+fn search_ui(ui: &mut Ui, d: &mut AdvancedSearch, game: Option<&GameData>) -> bool {
+    let mut find = false;
+    let mut remove = None;
+    egui::Grid::new("advanced-search").num_columns(2).show(ui, |ui| {
+        crate::widgets::field_label(ui, "Look for");
+        kind_choice(ui, &mut d.first, "advanced-search-kind");
+        ui.end_row();
+        find |= condition_ui(ui, &mut d.first, game, "");
+        for (i, c) in d.and.iter_mut().enumerate() {
+            crate::widgets::field_label(ui, "And").on_hover_text(
+                "Objects that hold this too (or hold, or are held by, one that does)",
+            );
+            ui.horizontal(|ui| {
+                kind_choice(ui, c, &format!("advanced-search-kind-{i}"));
+                if ui.small_button("Remove").clicked() {
+                    remove = Some(i);
+                }
+            });
+            ui.end_row();
+            find |= condition_ui(ui, c, game, &format!("-{i}"));
+        }
+        ui.label("");
+        if ui
+            .button("And…")
+            .on_hover_text("Another condition the objects found must meet")
+            .clicked()
+        {
+            d.and.push(Condition { kind: Kind::Feat, ..Default::default() });
+        }
+        ui.end_row();
         crate::widgets::field_label(ui, "Look at");
         ui.horizontal(|ui| {
             let object =
@@ -414,7 +636,143 @@ fn search_ui(ui: &mut Ui, d: &mut AdvancedSearch, game: Option<&GameData>) -> bo
         });
         ui.end_row();
     });
+    if let Some(i) = remove {
+        d.and.remove(i);
+    }
     find
+}
+
+/// What can be opened together from what is ticked: blueprints of one
+/// type, objects of one kind placed in one area.
+#[derive(Debug, Clone, PartialEq)]
+enum Together {
+    Blueprints(ResType, Vec<ResKey>),
+    Placed { area: ResRef, kind: ObjectKind, paths: Vec<GffPath> },
+}
+
+impl Together {
+    fn tab(&self) -> Tab {
+        match self {
+            Together::Blueprints(_, keys) if keys.len() == 1 => Tab::Blueprint(keys[0]),
+            Together::Blueprints(_, keys) => Tab::Blueprints(keys.clone()),
+            Together::Placed { area, paths, .. } if paths.len() == 1 => {
+                Tab::Instance { area: *area, path: paths[0].clone() }
+            }
+            Together::Placed { area, paths, .. } => {
+                Tab::Instances { area: *area, paths: paths.clone() }
+            }
+        }
+    }
+}
+
+/// The groups of what is ticked that open together, and the areas it is
+/// in (or is).
+fn together(hits: &[&Hit]) -> (Vec<Together>, Vec<ResRef>) {
+    let mut blueprints: BTreeMap<ResType, Vec<ResKey>> = BTreeMap::new();
+    let mut placed: BTreeMap<(ResRef, &'static str), Vec<GffPath>> = BTreeMap::new();
+    let mut areas: Vec<ResRef> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for h in hits {
+        if matches!(h.key.restype, ResType::ARE | ResType::GIT) && !areas.contains(&h.key.resref) {
+            areas.push(h.key.resref);
+        }
+        let Some(o): Option<Object> = h.object() else { continue };
+        if !seen.insert(o.clone()) {
+            continue;
+        }
+        let steps: Vec<&str> = o.path.trim_start_matches('/').split('/').collect();
+        if o.path == "/" && ObjectKind::from_restype(o.key.restype).is_some() {
+            blueprints.entry(o.key.restype).or_default().push(o.key);
+        } else if o.placed()
+            && let [one] = steps[..]
+            && let Some((list, i)) = one.strip_suffix(']').and_then(|s| s.rsplit_once('['))
+            && let (Some(kind), Ok(i)) = (ObjectKind::from_list(list), i.parse::<usize>())
+        {
+            placed
+                .entry((o.key.resref, kind.list()))
+                .or_default()
+                .push(GffPath::root().item(list, i));
+        }
+    }
+    let mut out: Vec<Together> =
+        blueprints.into_iter().map(|(t, keys)| Together::Blueprints(t, keys)).collect();
+    out.extend(placed.into_iter().map(|((area, list), paths)| Together::Placed {
+        area,
+        kind: ObjectKind::from_list(list).expect("a placed object's list"),
+        paths,
+    }));
+    (out, areas)
+}
+
+/// The change to make, and its button; true when it is asked.
+fn act_ui(ui: &mut Ui, d: &mut AdvancedSearch, n: usize) -> bool {
+    let mut go = false;
+    let a = &mut d.act;
+    egui::Grid::new("advanced-search-act").num_columns(2).show(ui, |ui| {
+        crate::widgets::field_label(ui, "Change");
+        crate::widgets::dropdown("advanced-search-act")
+            .selected_text(a.act.label())
+            .width(260.0)
+            .show(ui, &mut a.act, &Act::ALL, |a| a.label());
+        ui.end_row();
+        let edit = |ui: &mut Ui, v: &mut String, hint: &str| {
+            ui.add(egui::TextEdit::singleline(v).hint_text(hint).desired_width(260.0));
+        };
+        match a.act {
+            Act::SetVariable | Act::RemoveVariable => {
+                crate::widgets::field_label(ui, "Variable");
+                edit(ui, &mut a.name, "its name, e.g. nQuestState");
+                ui.end_row();
+            }
+            Act::SetScript => {
+                crate::widgets::field_label(ui, "Event");
+                let events: Vec<Option<String>> = d.events.iter().cloned().map(Some).collect();
+                let shown =
+                    |e: &Option<String>| e.as_deref().map_or("Choose…".into(), search::event);
+                crate::widgets::dropdown("advanced-search-event")
+                    .selected_text(shown(&a.event))
+                    .width(260.0)
+                    .show(ui, &mut a.event, &events, |e| shown(e));
+                ui.end_row();
+                crate::widgets::field_label(ui, "Script");
+                edit(ui, &mut a.value, "its name (empty: none)");
+                ui.end_row();
+            }
+            Act::SetField => {
+                crate::widgets::field_label(ui, "Field");
+                edit(ui, &mut a.name, "its label, e.g. Appearance_Type");
+                ui.end_row();
+            }
+        }
+        if a.act == Act::SetVariable {
+            crate::widgets::field_label(ui, "Type");
+            let types = [VarType::Int, VarType::Float, VarType::String];
+            crate::widgets::dropdown("advanced-search-act-type")
+                .selected_text(a.var_type.name())
+                .show(ui, &mut a.var_type, &types, |t| t.name());
+            ui.end_row();
+        }
+        if matches!(a.act, Act::SetVariable | Act::SetField) {
+            crate::widgets::field_label(ui, "Value");
+            edit(ui, &mut a.value, "the value");
+            ui.end_row();
+        }
+    });
+    let ok = a.change();
+    ui.horizontal(|ui| {
+        let button = egui::Button::new(format!("Change {n} Found"));
+        go = ui
+            .add_enabled(ok.is_ok() && n > 0, button)
+            .on_hover_text("In one step, undone as one")
+            .clicked();
+        if let Err(why) = &ok {
+            ui.weak(why);
+        }
+    });
+    if let Some(said) = &a.said {
+        ui.weak(said);
+    }
+    go
 }
 
 /// The Advanced Search tab.
@@ -424,7 +782,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         return;
     }
     let mut draft = std::mem::take(&mut app.advanced_search);
-    let (mut find, mut go) = (false, None);
+    let (mut find, mut go, mut change) = (false, None, false);
     // The places, with areas named as the rest of the window names them
     // (Options › General: Show areas by name).
     let places: Vec<String> = draft
@@ -459,16 +817,79 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     if draft.searched.is_some() && !current {
         ui.weak("Find again for what's asked now.");
     }
+    let mut open = Vec::new();
+    let mut choose_areas = None;
     if draft.searched.is_some() {
         ui.separator();
+        draft.ticked.resize(draft.hits.len(), true);
         if draft.hits.is_empty() {
             ui.weak("Nothing in the module holds it.");
         } else {
-            ui.label(format!("{} found:", draft.hits.len()));
+            let chosen = draft.chosen();
+            let n = chosen.len();
+            let (groups, areas) = together(&chosen);
+            // (Areas named as the list names them.)
+            let mut area_name = |area: ResRef| match app.settings.area_names {
+                true => crate::tabs::area_label(app, area),
+                false => area.to_lowercase().to_string(),
+            };
+            let labels: Vec<String> = groups
+                .iter()
+                .map(|g| match g {
+                    Together::Blueprints(t, keys) => {
+                        let kind = ObjectKind::from_restype(*t).map_or("", ObjectKind::name);
+                        format!("Edit {} {kind} blueprint(s) Together", keys.len())
+                    }
+                    Together::Placed { area, kind, paths } => format!(
+                        "Edit {} {}(s) in {} Together",
+                        paths.len(),
+                        kind.name(),
+                        area_name(*area)
+                    ),
+                })
+                .collect();
+            ui.horizontal(|ui| {
+                ui.label(format!("{} found:", draft.hits.len()));
+                if ui.small_button("Tick All").clicked() {
+                    draft.ticked.fill(true);
+                }
+                if ui.small_button("Tick None").clicked() {
+                    draft.ticked.fill(false);
+                }
+            });
+            egui::CollapsingHeader::new(format!("Change the {n} ticked"))
+                .id_salt("advanced-search-change")
+                .show(ui, |ui| change = act_ui(ui, &mut draft, n));
+            egui::CollapsingHeader::new(format!("Edit the {n} ticked together"))
+                .id_salt("advanced-search-together")
+                .show(ui, |ui| {
+                    if groups.is_empty() && areas.is_empty() {
+                        ui.weak("Blueprints of one type, objects of one kind placed in one area");
+                    }
+                    ui.horizontal_wrapped(|ui| {
+                        for (g, text) in groups.iter().zip(labels) {
+                            if ui.button(text).clicked() {
+                                open.push(g.tab());
+                            }
+                        }
+                        if !areas.is_empty()
+                            && ui
+                                .button(format!("Choose {} Area(s)…", areas.len()))
+                                .on_hover_text(
+                                    "Edit Areas Together, with the areas of what is ticked \
+                                     ticked",
+                                )
+                                .clicked()
+                        {
+                            choose_areas = Some(areas.clone());
+                        }
+                    });
+                });
         }
         egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
             for (i, h) in draft.hits.iter().enumerate() {
                 ui.horizontal(|ui| {
+                    ui.checkbox(&mut draft.ticked[i], "");
                     let hover = format!("{} {}", h.key, h.path);
                     if ui.link(&places[i]).on_hover_text(hover).clicked() {
                         go = Some(i);
@@ -479,11 +900,24 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         });
     }
     if find && draft.query().is_ok() {
+        draft.act.said = None;
         app.advanced_search(&mut draft);
+    }
+    if change {
+        app.change_found(&mut draft);
     }
     if let Some(i) = go {
         let usage = draft.hits[i].usage();
         app.go_to_usage(&usage);
+    }
+    for tab in open {
+        app.actions.push(Action::OpenTab(tab));
+    }
+    if let Some(areas) = choose_areas {
+        app.area_chooser = Some(crate::area_props::AreaChooser {
+            chosen: areas.into_iter().collect(),
+            ..Default::default()
+        });
     }
     app.advanced_search = draft;
 }

@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:43:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:41:32Z }
 ---
 
 # Blueprints
@@ -274,6 +274,20 @@ category and a name, then opens the new blueprint's properties. The Name
 page shows the ResRef and Tag the blueprint gets, made from the name as
 Aurora makes them (after [your builder code](03-modules.md#your-builder-code),
 in a project where you have one): type others there to choose your own.
+
+The Item Wizard's Name page has Aurora's **Magical**: ticked, choose an
+**Item Level** (1-5, 6-10, 11-15, 16-20) and an **Item Quality** (Low,
+Medium, High, Godly), and the item gets random properties as Aurora's
+wizard gives them, from the toolset's tables for its kind of item
+(`itmwizmelee.2da`, `itmwizarmor.2da`, `itmwizpotion.2da`…): the first
+of the strength the level and quality reach, then weaker ones while the
+item stays worth no more than an item for that level may be
+(itemvalue.2da). Potions, scrolls, wands and trap kits get one; magic
+staves three spells; staves, rods and wands 50 charges; scrolls and
+wands may be used by bards, wizards and sorcerers, staves by wizards and
+sorcerers. Only properties the base item can have are given. A magical
+item is made unidentified, as Aurora makes it. Torches, books, kits,
+containers, gems, gauntlets and creature items aren't made magical.
 
 ## The editors
 

@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:43:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:41:31Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -601,7 +601,17 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   takes the pointer and the keys until then (so its lists scroll and its
   pages open): what is typed goes when the field is left. (S)
   (a second builder's review, October 2026)
-- **Random item properties** in the Item Wizard, as Aurora's. (M)
+- **Random item properties, what is left** (done: the Item Wizard's
+  Magical, Item Level and Item Quality, with rules fitted to 126 items
+  Aurora's wizard made, `docs/findings.md`): the rules are fitted, not
+  Aurora's code: whether a later property's tier is drawn (one or two
+  below the first) or tried in order, and Low items' most worth (levels
+  1, 5, 8 and 13 fit what was seen; nothing in itemvalue.2da says so)
+  would need more of Aurora's items to settle; amulets, belts, boots,
+  bracers, cloaks and rings get the armor table, where Aurora may use the
+  helmet's (they differ in Weight Reduction only); gems and gauntlets
+  aren't offered Magical (Aurora makes them unidentified with no
+  properties). (S)
   (a second builder's review, October 2026)
 - **Inventories, what is left** (done: the Creature Wizard's ResRef and Tag, its appearances
   as pictures with Find, and every portrait; the inventory's Equip to a
@@ -754,21 +764,30 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   search`) but not replaced, and neither has regular expressions (`*`
   only). (S–M)
 - **Advanced Search, what it doesn't do** (from builders' asks on
-  Discord, October 2026):
-  - It finds; it doesn't change what it found (set or remove a
-    variable, a property, a script on all of them), nor pass its results
-    to Edit Together or the area chooser. (M)
-  - One kind of thing at a time: no "Fighters with Alertness", no
-    class by level, no spell by the class that knows it, no number
-    ranges or floats. (S–M)
+  Discord, October 2026; done: changing what it found, ticked or all, in
+  one step: a variable set or removed, an event's script, a field;
+  Edit Together and Edit Areas Together from its results; conditions
+  together, a class by its levels, number ranges and floats):
+  - Changes are a variable, a script or a field: item properties aren't
+    added or removed on the items found, nor list entries (feats,
+    classes, inventory) on the creatures; a field is set only where the
+    object has it (none is added). Edit Together takes blueprints of one
+    type and objects of one kind placed in one area; items held by
+    placed objects, and conversations, open one by one. (S–M)
+  - No spell by the class that knows it (a spell found is any class's);
+    conditions are all ANDed (no OR, no NOT); a conversation's lines and
+    other things on no object drop out of a search with more than one
+    condition; `mg search` takes one condition at a time, without class
+    levels or ranges. (S)
   - The module only: blueprints in haks and the game's own palettes
     aren't searched. An item blueprint found is followed into the
     inventories of the module's blueprints, one step only (a chest
     blueprint holding a bag blueprint that holds it isn't listed); a
     creature blueprint found isn't followed into the encounters that
     spawn it. (S)
-  - Each search reads every GFF of the module again, on the window's
-    thread (Chapter One, 5271 resources: under a second; a persistent
+  - Each search reads every GFF of the module again, once for each of
+    its conditions, on the window's thread, and again after a change
+    (Chapter One, 5271 resources: under a second; a persistent
     world's thousands of blueprints: longer, with the window waiting).
     Find References keeps an index; this doesn't yet. (S)
   - Appearance covers the 2DA rows a field names (creatures,
