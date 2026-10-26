@@ -400,12 +400,9 @@ pub(crate) fn open_table_ui(app: &mut Moonglow, ctx: &egui::Context) {
             );
             crate::widgets::autofocus(ui, &field);
             let entered = ui.input(|i| i.key_pressed(egui::Key::Enter));
-            let needle = w.filter.trim().to_lowercase();
-            let listed: Vec<&Listed> = w
-                .tables
-                .iter()
-                .filter(|t| needle.is_empty() || t.name().contains(&needle))
-                .collect();
+            let needle = mg_core::text::Needle::new(&w.filter);
+            let listed: Vec<&Listed> =
+                w.tables.iter().filter(|t| needle.finds(&t.name())).collect();
             ui.horizontal(|ui| {
                 ui.weak(format!("{} tables", listed.len()));
                 if ui.button("Browse…").on_hover_text("A .2da file anywhere else").clicked() {
@@ -1174,7 +1171,7 @@ fn header(
 /// The rows shown: all, or those with the filter's text in a cell.
 fn shown_rows(doc: &TableDoc) -> Vec<usize> {
     let t = doc.edit.table();
-    let needle = doc.filter.trim().to_lowercase();
+    let needle = mg_core::text::Needle::new(&doc.filter);
     if needle.is_empty() {
         return (0..t.len()).collect();
     }
@@ -1186,10 +1183,8 @@ fn shown_rows(doc: &TableDoc) -> Vec<usize> {
         .filter(|&r| {
             (0..t.columns().len()).any(|c| {
                 t.cell(r, c).is_some_and(|v| {
-                    v.to_lowercase().contains(&needle)
-                        || kinds[c]
-                            .and_then(|k| k.named(v))
-                            .is_some_and(|n| n.to_lowercase().contains(&needle))
+                    needle.finds(v)
+                        || kinds[c].and_then(|k| k.named(v)).is_some_and(|n| needle.finds(&n))
                 })
             })
         })

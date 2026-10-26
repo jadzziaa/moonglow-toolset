@@ -113,7 +113,7 @@ pub(crate) fn palette_picker(
     let list = egui::ScrollArea::vertical().id_salt(state_id.with("tree")).max_height(height);
     list.auto_shrink([false, true]).show(ui, |ui| {
         if let (Some(p), Some(game)) = (palette, game) {
-            let filter = filter.to_lowercase();
+            let filter = mg_core::text::fold(filter.trim());
             for (i, node) in p.nodes.iter().enumerate() {
                 tree(ui, game, node, &filter, &mut chosen, &mut taken, state_id, &[i], (kind, add));
             }
@@ -166,7 +166,7 @@ fn tree(
 ) {
     fn any(n: &PaletteNode, game: &mg_rules::GameData, filter: &str) -> bool {
         n.blueprints.iter().any(|b| {
-            b.name.text(game).to_lowercase().contains(filter)
+            mg_core::text::fold(&b.name.text(game)).contains(filter)
                 || b.resref.to_string().contains(filter)
         }) || n.children.iter().any(|c| any(c, game, filter))
     }
@@ -186,7 +186,7 @@ fn tree(
             for b in &node.blueprints {
                 let name = b.name.text(game);
                 if !filter.is_empty()
-                    && !name.to_lowercase().contains(filter)
+                    && !mg_core::text::fold(&name).contains(filter)
                     && !b.resref.to_string().contains(filter)
                 {
                     continue;

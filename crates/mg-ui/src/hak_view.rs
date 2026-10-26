@@ -92,7 +92,7 @@ impl HakDoc {
 
     /// The items shown, in the list's order: indices into the hak's items.
     fn rows(&mut self) -> Vec<usize> {
-        let filter = self.filter.trim().to_ascii_lowercase();
+        let filter = mg_core::text::fold(self.filter.trim());
         let fresh = self
             .rows
             .as_ref()
@@ -100,7 +100,10 @@ impl HakDoc {
         if !fresh {
             let items = self.hak.items();
             let mut rows: Vec<usize> = (0..items.len())
-                .filter(|&i| filter.is_empty() || items[i].key.to_string().contains(&filter))
+                .filter(|&i| {
+                    filter.is_empty()
+                        || mg_core::text::fold(&items[i].key.to_string()).contains(&filter)
+                })
                 .collect();
             rows.sort_by_key(|&i| items[i].key.to_string());
             match self.sort {

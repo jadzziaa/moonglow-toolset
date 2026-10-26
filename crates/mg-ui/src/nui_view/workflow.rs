@@ -284,7 +284,7 @@ pub(super) fn images(
                 .id(filter)
                 .hint_text("Find a picture…"),
         );
-        let query = state.asset_search.to_lowercase();
+        let query = mg_core::text::fold(state.asset_search.trim());
         let names: Vec<_> =
             assets.catalog.iter().filter(|n| n.contains(&query)).take(24).cloned().collect();
         assets.request_images(ui.ctx(), names.iter().cloned().collect());

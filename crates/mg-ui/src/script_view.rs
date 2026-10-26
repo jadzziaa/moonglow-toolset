@@ -758,7 +758,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 ui.label("Filter");
                 ui.text_edit_singleline(&mut t.filter);
             });
-            let filter = t.filter.to_ascii_lowercase();
+            let filter = mg_core::text::Needle::new(&t.filter);
             let row = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
             // Long names end in "…" in a narrow panel (Help gives them whole).
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
@@ -770,9 +770,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 // (As wide as the panel: the scroll bar stays at its edge.)
                 let area = egui::ScrollArea::vertical().auto_shrink([false, false]);
                 area.id_salt("templates").show(ui, |ui| {
-                    for (name, path) in
-                        templates.iter().filter(|(n, _)| n.to_ascii_lowercase().contains(&filter))
-                    {
+                    for (name, path) in templates.iter().filter(|(n, _)| filter.finds(n)) {
                         if ui
                             .selectable_label(false, name)
                             .on_hover_text("Double-click to insert")
@@ -790,13 +788,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                     SideTab::Variables => SymbolKind::Variable,
                     _ => SymbolKind::Constant,
                 };
-                let mut list: Vec<&Symbol> = symbols
-                    .iter()
-                    .filter(|s| {
-                        s.kind == kind
-                            && (filter.is_empty() || s.name.to_ascii_lowercase().contains(&filter))
-                    })
-                    .collect();
+                let mut list: Vec<&Symbol> =
+                    symbols.iter().filter(|s| s.kind == kind && filter.finds(&s.name)).collect();
                 list.sort_by(|a, b| a.name.cmp(&b.name));
                 let area = egui::ScrollArea::vertical().auto_shrink([false, false]);
                 area.id_salt(("symbols", kind)).show_rows(ui, row, list.len(), |ui, range| {
@@ -1988,7 +1981,7 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
                     ui.radio_value(&mut w.shown, shown, label);
                 }
             });
-            let needle = w.filter.trim().to_lowercase();
+            let needle = mg_core::text::Needle::new(&w.filter);
             let listed: Vec<(ResKey, ScriptFrom)> = w
                 .scripts
                 .iter()
@@ -1997,7 +1990,7 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
                     ScriptsShown::Module => *from == ScriptFrom::Module,
                     ScriptsShown::Haks => *from == ScriptFrom::Hak,
                 })
-                .filter(|(k, _)| needle.is_empty() || k.resref.to_string().contains(&needle))
+                .filter(|(k, _)| needle.finds(&k.resref.to_string()))
                 .copied()
                 .collect();
             let names: Vec<ResKey> = listed.iter().map(|(k, _)| *k).collect();

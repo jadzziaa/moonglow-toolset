@@ -210,11 +210,11 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                         ui.selectable_value(&mut w.custom, true, "Custom");
                         ui.add(egui::TextEdit::singleline(&mut w.filter).hint_text("Find"));
                     });
-                    let needle = w.filter.to_lowercase();
+                    let needle = mg_core::text::Needle::new(&w.filter);
                     egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
                         for (r, name) in &choices {
                             let label = format!("{name} ({r})");
-                            if !label.to_lowercase().contains(&needle) {
+                            if !needle.finds(&label) {
                                 continue;
                             }
                             if ui.selectable_label(w.store == Some(*r), label).clicked() {

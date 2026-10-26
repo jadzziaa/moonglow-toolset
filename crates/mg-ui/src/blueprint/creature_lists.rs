@@ -36,11 +36,11 @@ fn remove(key: ResKey, path: GffPath, list: &str, index: usize) -> Edit {
 }
 
 /// A text filter kept per page.
-fn filter(ui: &mut Ui, id: egui::Id) -> String {
+fn filter(ui: &mut Ui, id: egui::Id) -> mg_core::text::Needle {
     let mut text: String = ui.data(|d| d.get_temp(id)).unwrap_or_default();
     ui.add(egui::TextEdit::singleline(&mut text).hint_text("Find").desired_width(200.0));
     ui.data_mut(|d| d.insert_temp(id, text.clone()));
-    text.to_lowercase()
+    mg_core::text::Needle::new(&text)
 }
 
 /// Whether a feat's or spell's row is one to offer: it has a name in the
@@ -208,7 +208,7 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
                         feat_table.as_ref().is_none_or(|t| offered(t, c.row, "FEAT", "LABEL"));
                     if (assigned_only && !on)
                         || (!on && !offer)
-                        || !c.text.to_lowercase().contains(&needle)
+                        || !needle.finds(&c.text)
                         || !in_category(c.row)
                     {
                         continue;
@@ -415,10 +415,7 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
                 ui.strong("Level");
                 ui.end_row();
                 for (row, name, l) in &spells {
-                    if level.is_some_and(|x| x != *l)
-                        || !name.to_lowercase().contains(&needle)
-                        || !in_category(*row)
-                    {
+                    if level.is_some_and(|x| x != *l) || !needle.finds(name) || !in_category(*row) {
                         continue;
                     }
                     let count = lists[*l].iter().filter(|&&s| s == *row as i64).count() as i64;
@@ -655,11 +652,10 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
                     let offer = |row: usize| {
                         spell_table.as_ref().is_none_or(|t| offered(t, row, "Name", "Label"))
                     };
-                    for c in names.iter().filter(|c| {
-                        c.text.to_lowercase().contains(&needle)
-                            && in_category(c.row)
-                            && offer(c.row)
-                    }) {
+                    for c in names
+                        .iter()
+                        .filter(|c| needle.finds(&c.text) && in_category(c.row) && offer(c.row))
+                    {
                         let r =
                             ui.selectable_label(false, &c.text).on_hover_text("Add a use of it");
                         let game = described_by.as_deref();

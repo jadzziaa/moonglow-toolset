@@ -1001,13 +1001,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 let field = ui.text_edit_singleline(&mut p.filter);
                 crate::widgets::autofocus(ui, &field);
             });
-            let filter = p.filter.to_ascii_lowercase();
-            let shown: Vec<ResRef> = p
-                .choices
-                .iter()
-                .filter(|r| filter.is_empty() || r.to_string().contains(&filter))
-                .copied()
-                .collect();
+            let filter = mg_core::text::Needle::new(&p.filter);
+            let shown: Vec<ResRef> =
+                p.choices.iter().filter(|r| filter.finds(&r.to_string())).copied().collect();
             ui.weak(format!("{} of {}", shown.len(), p.choices.len()));
             egui::Frame::group(ui.style()).show(ui, |ui| {
                 let row = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
@@ -2051,11 +2047,10 @@ impl<'a> RowChoice<'a> {
                     ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Filter")).changed();
                 ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
             }
-            let filter = filter.trim().to_lowercase();
+            // (Case and accents aside: `arbol` finds `Árbol`.)
+            let filter = mg_core::text::Needle::new(&filter);
             let matches = |c: &mg_rules::Choice| {
-                filter.is_empty()
-                    || text(c, numbered).to_lowercase().contains(&filter)
-                    || c.row.to_string() == filter
+                filter.finds(&text(c, numbered)) || c.row.to_string() == filter.as_str()
             };
             // (The rows scroll under the Filter field, which stays.)
             let mut rows = |ui: &mut Ui| {

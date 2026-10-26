@@ -23206,6 +23206,87 @@ fn arrow_keys_move_through_the_lighting_schemes() {
     assert_eq!(scheme(&mut h), schemes[1].row as i64, "and back");
 }
 
+/// The Filter fields find names case and accents aside, as the lists are
+/// put in order (Sacha's report, October 2026): `arbol` finds `Árbol
+/// viejo` in the module tree and the palette, and `ÁRMOIRE` a list's
+/// Armoire.
+#[test]
+fn filters_find_names_case_and_accents_aside() {
+    use mg_edit::{Command, Edit};
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let app = |name: &str| {
+        let dir = mg_testkit::scratch_dir(name);
+        let path = sample_module(&dir);
+        let install = mg_resman::GameInstall::new(&root, None, "en");
+        let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+        app.open_module(&path);
+        let game = app.game.as_deref().unwrap();
+        let base =
+            Gff::read(&game.resman.get_named("nw_waypoint001", ResType::UTW).unwrap()).unwrap();
+        let edits = [("mg_wp_one", "Árbol viejo"), ("mg_wp_two", "Roble")]
+            .map(|(resref, name)| {
+                let key = ResKey::parse(resref, ResType::UTW).unwrap();
+                let mut g = base.clone();
+                g.root.set("TemplateResRef", mg_gff::Value::resref(key.resref));
+                // (In the game's codepage.)
+                let mut ls = LocString::default();
+                ls.set_text(Language::ENGLISH, Gender::Male, name).unwrap();
+                g.root.set("LocalizedName", mg_gff::Value::LocString(ls));
+                g.root.set("PaletteID", mg_gff::Value::Byte(5));
+                Edit::SetResource { key, data: Some(g.to_bytes().unwrap()) }
+            })
+            .to_vec();
+        app.ws.as_mut().unwrap().apply(Command::new("setup", edits)).unwrap();
+        close_tab(&mut app, &Tab::ModuleProperties);
+        app.open_palette = false;
+        // (The tree by name, Options › General.)
+        app.settings.area_names = true;
+        Harness::builder()
+            .with_size(egui::vec2(900.0, 700.0))
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app)
+    };
+
+    // The module tree's filter, its first text field.
+    let mut h = app("ui-filter-accents-tree");
+    h.run();
+    let field = egui::accesskit::Role::TextInput;
+    h.get_all_by_role(field).next().unwrap().click();
+    h.run();
+    h.get_all_by_role(field).next().unwrap().type_text("arbol");
+    h.run_steps(2);
+    assert!(h.query_by_label_contains("Árbol viejo").is_some(), "the tree finds Árbol");
+    assert!(h.query_by_label_contains("Roble").is_none());
+
+    // The palette's search.
+    let mut h = app("ui-filter-accents-palette");
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.state_mut().palette.kind = mg_module::palette::BlueprintKind::Waypoint;
+    h.state_mut().palette.tiles = false;
+    h.state_mut().palette.custom = true;
+    h.run();
+    h.state_mut().palette.filter = "ARBOL".into();
+    h.run_steps(2);
+    assert!(h.query_by_label_contains("Árbol viejo").is_some(), "the palette finds Árbol");
+    assert!(h.query_by_label_contains("Roble").is_none());
+
+    // A list of a table's rows (a placeable's Appearance).
+    let Some((mut h, _)) = blueprint_harness("plc_chest1", "filter_accents", ResType::UTP) else {
+        return;
+    };
+    h.run();
+    h.get_all_by_role(egui::accesskit::Role::ComboBox)
+        .find(|n| n.accesskit_node().value().as_deref() == Some("Chest"))
+        .expect("the Appearance list")
+        .click();
+    h.run_steps(2);
+    type_into_hint(&mut h, "Filter", "ÁRMOIRE");
+    h.run_steps(2);
+    assert!(h.query_by_label_contains("Armoire").is_some(), "the list finds Armoire");
+}
+
 #[test]
 #[ignore = "a look at a builder's tileset group (MG_TEST_USER, MG_TILESET, MG_GROUP)"]
 fn look_custom_group() {

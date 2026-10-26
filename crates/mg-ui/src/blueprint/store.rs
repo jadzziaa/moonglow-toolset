@@ -309,13 +309,13 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
             ui.set_width(240.0);
             ui.label("Base Items");
             ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Find"));
-            let needle = filter.to_lowercase();
+            let needle = mg_core::text::Needle::new(&filter);
             egui::ScrollArea::vertical().id_salt(("utm-bases", key)).max_height(360.0).show(
                 ui,
                 |ui| {
                     for c in &items {
                         let row = c.row as i64;
-                        if current.contains(&row) || !c.text.to_lowercase().contains(&needle) {
+                        if current.contains(&row) || !needle.finds(&c.text) {
                             continue;
                         }
                         let r = ui.selectable_label(left == Some(row), &c.text);

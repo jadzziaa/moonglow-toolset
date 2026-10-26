@@ -226,7 +226,7 @@ fn area_contents(ws: &mut Workspace, game: Option<&GameData>, area: ResRef) -> A
                     let name = blueprint_name(game, o).trim().to_string();
                     let tag = crate::text::decode(o.string("Tag").unwrap_or_default());
                     let tag = tag.trim().to_string();
-                    let sought = format!("{name}\n{tag}").to_lowercase();
+                    let sought = mg_core::text::fold(&format!("{name}\n{tag}"));
                     let by_tag = kind == mg_area::ObjectKind::Waypoint;
                     let (text, other) = if by_tag { (tag, name) } else { (name, tag) };
                     let (text, tip) = match (text.is_empty(), other.is_empty()) {
@@ -513,8 +513,9 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
         crate::palette_view::give_keys(ui.ctx(), crate::palette_view::Keys::Tree);
     }
     app.buffers.insert(filter_id, filter.clone());
-    // (As the names it is looked for in are lowered: every letter.)
-    let filter = filter.to_lowercase();
+    // (As the names it is looked for in are folded: case and accents
+    // aside, `arbol` finding `Árbol`.)
+    let filter = mg_core::text::fold(&filter);
     // Every group opened or closed at once (this frame). A filter typed
     // opens every group with a match, as it is typed: they can be closed
     // again after.
@@ -768,7 +769,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
         let found: Option<Vec<ResKey>> = (!filter.is_empty()).then(|| {
             let finds = |k: &ResKey| {
                 k.to_string().contains(&filter)
-                    || names.get(k).is_some_and(|n| n.to_lowercase().contains(&filter))
+                    || names.get(k).is_some_and(|n| mg_core::text::fold(n).contains(&filter))
                     || holds(k)
             };
             all.iter().copied().filter(finds).collect()

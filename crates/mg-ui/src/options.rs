@@ -1196,10 +1196,8 @@ fn keyboard(ui: &mut Ui, draft: &mut OptionsDraft) {
         egui::TextEdit::singleline(&mut filter).hint_text("Find a command").desired_width(240.0),
     );
     ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
-    let needle = filter.trim().to_lowercase();
-    rows.retain(|(group, _, name)| {
-        name.to_lowercase().contains(&needle) || group.name().to_lowercase().contains(&needle)
-    });
+    let needle = mg_core::text::Needle::new(&filter);
+    rows.retain(|(group, _, name)| needle.finds(name) || needle.finds(group.name()));
     egui::ScrollArea::vertical().max_height(350.0).show(ui, |ui| {
         let mut group = None;
         egui::Grid::new("keys").num_columns(3).striped(true).show(ui, |ui| {

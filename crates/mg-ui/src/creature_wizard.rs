@@ -445,11 +445,9 @@ fn page(
                         .desired_width(160.0),
                 );
             });
-            let needle = w.appearance_find.to_lowercase();
-            let shown: Vec<&Choice> = appearances
-                .iter()
-                .filter(|c| needle.is_empty() || c.text.to_lowercase().contains(&needle))
-                .collect();
+            let needle = mg_core::text::Needle::new(&w.appearance_find);
+            let shown: Vec<&Choice> =
+                appearances.iter().filter(|c| needle.finds(&c.text)).collect();
             let gap = 4.0;
             let room = ui.available_width() - ui.spacing().scroll.bar_width - 10.0;
             let (per_row, side) = crate::appearance_gallery::fitted(room, 96.0, gap);

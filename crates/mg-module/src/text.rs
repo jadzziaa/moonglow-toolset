@@ -60,6 +60,7 @@ impl TextKind {
 /// How text is matched.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Options {
+    /// Off, case and accents are set aside: `arbol` finds `Árbol`.
     pub match_case: bool,
     /// The text must not run on into letters, digits or `_` either side.
     pub whole_word: bool,
@@ -120,9 +121,8 @@ pub fn matches(text: &str, query: &str, o: Options) -> Vec<std::ops::Range<usize
         return Vec::new();
     }
     let word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
-    let same = |a: char, b: char| {
-        if o.match_case { a == b } else { a == b || a.to_lowercase().eq(b.to_lowercase()) }
-    };
+    let same =
+        |a: char, b: char| if o.match_case { a == b } else { mg_core::text::same_letter(a, b) };
     let mut out = Vec::new();
     let mut from = 0;
     'start: for (start, _) in text.char_indices() {
@@ -330,6 +330,10 @@ mod tests {
         assert_eq!(matches("Orc orcs ORC", "orc", o(false, true)), [0..3, 9..12]);
         assert_eq!(matches("aaaa", "aa", o(false, false)), [0..2, 2..4]);
         assert_eq!(matches("Ærø ærø", "ÆRØ", o(false, false)), [0..5, 6..11]);
+        // Without Match case, accents are set aside too; with it, kept.
+        assert_eq!(matches("Árbol arbol", "arbol", o(false, false)), [0..6, 7..12]);
+        assert_eq!(matches("Árbol arbol", "ÁRBOL", o(false, false)), [0..6, 7..12]);
+        assert_eq!(matches("Árbol arbol", "arbol", o(true, false)), vec![7..12]);
         assert_eq!(
             replace_text("The orc, the Orcs", "orc", "goblin", o(false, true)).0,
             "The goblin, the Orcs"

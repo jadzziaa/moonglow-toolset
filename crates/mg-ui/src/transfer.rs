@@ -369,11 +369,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 let field = ui.text_edit_singleline(&mut draft.filter);
                 crate::widgets::autofocus(ui, &field);
             });
-            let filter = draft.filter.to_ascii_lowercase();
+            let filter = mg_core::text::Needle::new(&draft.filter);
             let listed: Vec<ResKey> = keys
                 .iter()
                 .filter(|k| draft.kind.is_none_or(|t| k.restype == t))
-                .filter(|k| filter.is_empty() || k.to_string().contains(&filter))
+                .filter(|k| filter.finds(&k.to_string()))
                 .copied()
                 .collect();
             // The rows: with every kind listed, each under its heading.

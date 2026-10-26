@@ -32,7 +32,7 @@ pub struct Query {
     pub types: Vec<ResType>,
     /// Tag, ignoring case; `*` matches any run of characters.
     pub tag: Option<String>,
-    /// Words the name contains, ignoring case.
+    /// Words the name contains, ignoring case and accents.
     pub name: Option<String>,
     /// Resref (a placed object's blueprint), ignoring case; `*` as in tags.
     pub resref: Option<String>,
@@ -132,8 +132,8 @@ fn describe(s: &Struct, restype: ResType, placed: Option<(ResRef, usize)>) -> Fo
 fn matches(q: &Query, s: &Struct, f: &Found) -> bool {
     q.tag.as_ref().is_none_or(|t| glob(t, &f.tag))
         && q.name.as_ref().is_none_or(|n| {
-            let name = f.name.to_lowercase();
-            n.split_whitespace().all(|w| name.contains(&w.to_lowercase()))
+            let name = mg_core::text::fold(&f.name);
+            n.split_whitespace().all(|w| name.contains(&mg_core::text::fold(w)))
         })
         && q.resref.as_ref().is_none_or(|r| f.resref.is_some_and(|x| glob(r, &x.to_string())))
         && q.fields.iter().all(|(label, want)| match (s.get(label), want) {

@@ -490,14 +490,13 @@ fn tiles(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
             });
         }
     });
-    let filter = d.filter.trim().to_lowercase();
+    let filter = mg_core::text::Needle::new(&d.filter);
     let rows: Vec<usize> = (0..t.tiles.len())
         .filter(|&i| {
             let tile = &t.tiles[i];
-            filter.is_empty()
-                || tile.model.to_lowercase().contains(&filter)
-                || tile.corners.iter().any(|(c, _)| c.to_lowercase().contains(&filter))
-                || tile.edges.iter().any(|e| e.to_lowercase().contains(&filter))
+            filter.finds(&tile.model)
+                || tile.corners.iter().any(|(c, _)| filter.finds(c))
+                || tile.edges.iter().any(|e| filter.finds(e))
         })
         .collect();
     let row_height = ui.text_style_height(&egui::TextStyle::Body) + 4.0;

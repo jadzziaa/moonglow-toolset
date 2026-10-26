@@ -111,7 +111,7 @@ impl Browser {
     }
 
     fn filtered(&mut self) -> &[usize] {
-        let query = (self.restype, self.filter.to_ascii_lowercase(), self.show_copies);
+        let query = (self.restype, mg_core::text::fold(self.filter.trim()), self.show_copies);
         if self.query.as_ref() != Some(&query) {
             self.shown = self
                 .entries
@@ -120,7 +120,8 @@ impl Browser {
                 .filter(|(_, r)| {
                     (query.2 || r.over.is_none())
                         && query.0.is_none_or(|t| r.key.restype == t)
-                        && (query.1.is_empty() || r.key.resref.to_string().contains(&query.1))
+                        && (query.1.is_empty()
+                            || mg_core::text::fold(&r.key.resref.to_string()).contains(&query.1))
                 })
                 .map(|(i, _)| i)
                 .collect();
