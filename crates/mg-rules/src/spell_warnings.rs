@@ -54,71 +54,100 @@ pub enum SpellWarning {
     TooMany { class: u32, level: usize, max: usize, count: usize },
 }
 
+/// What a creature's spellcasting class may have of each spell level, as
+/// Aurora's checks count it ([`GameData::spell_warnings`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpellSlots {
+    /// Whether the class prepares its spells (`MemorizesSpells`): its
+    /// lists are then `MemorizedList0`–`9`, else `KnownList0`–`9`.
+    pub prepares: bool,
+    /// How many spell levels the class casts at its level (level 0
+    /// counted): it has none from this level up.
+    pub levels: usize,
+    /// Its casting ability (an [`ABILITIES`] index) and the creature's
+    /// score in it, with the race's adjustment.
+    pub ability: usize,
+    pub score: i32,
+    /// The spells of each level it may have.
+    pub max: [usize; 10],
+}
+
+impl SpellSlots {
+    /// The name of the class's list of spells of `level`.
+    pub fn list(&self, level: usize) -> String {
+        format!("{}{level}", if self.prepares { "MemorizedList" } else { "KnownList" })
+    }
+}
+
 impl GameData {
-    /// The warnings for a creature's assigned spells, as Aurora gives them.
-    pub fn spell_warnings(&self, creature: &Struct) -> Vec<SpellWarning> {
-        let Ok(classes) = self.table("classes") else { return Vec::new() };
+    /// What `entry` (an item of the creature's `ClassList`) may have of
+    /// each spell level; `None` for a class that casts no spells.
+    pub fn spell_slots(&self, creature: &Struct, entry: &Struct) -> Option<SpellSlots> {
+        let classes = self.table("classes").ok()?;
         let race = creature.integer("Race").unwrap_or(0).max(0) as u32;
         let racial = self.racial_adjustments(race);
-        let score = |i: usize| creature.integer(ABILITIES[i]).unwrap_or(0) as i32 + racial[i];
+        let row = entry.integer("Class").unwrap_or(0).max(0) as usize;
+        if classes.get_int(row, "SpellCaster") != Some(1) {
+            return None;
+        }
+        let level = entry.integer("ClassLevel").unwrap_or(1).max(1) as usize;
+        let prepares = classes.get_int(row, "MemorizesSpells") == Some(1);
+        let table = |column: &str| {
+            let t = self.table(&classes.get(row, column)?.to_lowercase()).ok()?;
+            let r = (level - 1).min(t.len().checked_sub(1)?);
+            Some((t, r))
+        };
+        let gain = table("SpellGainTable");
+        // The highest level the class casts (NumSpellLevels counts level 0).
+        let levels = gain.as_ref().map_or(0, |(t, r)| {
+            t.get_int(*r, "NumSpellLevels").map_or_else(
+                || {
+                    (0..10)
+                        .rev()
+                        .find(|l| t.get_int(*r, &format!("SpellLevel{l}")).is_some())
+                        .map_or(0, |l| l + 1)
+                },
+                |n| n.clamp(0, 10) as usize,
+            )
+        });
+        let ability = classes
+            .get(row, "SpellcastingAbil")
+            .and_then(|a| ABILITIES.iter().position(|x| x.eq_ignore_ascii_case(a)))
+            .unwrap_or(3);
+        let score = creature.integer(ABILITIES[ability]).unwrap_or(0) as i32 + racial[ability];
+        let (base, m) =
+            if prepares { (gain, modifier(score)) } else { (table("SpellKnownTable"), 0) };
+        let max = std::array::from_fn(|l| {
+            let n = base
+                .as_ref()
+                .and_then(|(t, r)| t.get_int(*r, &format!("SpellLevel{l}")))
+                .unwrap_or(0)
+                .max(0) as usize;
+            let bonus = if m >= l as i32 { (m - l as i32) / 4 + 1 } else { 0 };
+            n + bonus as usize
+        });
+        Some(SpellSlots { prepares, levels, ability, score, max })
+    }
+
+    /// The warnings for a creature's assigned spells, as Aurora gives them.
+    pub fn spell_warnings(&self, creature: &Struct) -> Vec<SpellWarning> {
         let mut out = Vec::new();
         for entry in creature.list("ClassList").unwrap_or(&[]) {
+            let Some(slots) = self.spell_slots(creature, entry) else { continue };
             let class = entry.integer("Class").unwrap_or(0).max(0) as u32;
-            let row = class as usize;
-            if classes.get_int(row, "SpellCaster") != Some(1) {
-                continue;
-            }
-            let level = entry.integer("ClassLevel").unwrap_or(1).max(1) as usize;
-            let prepares = classes.get_int(row, "MemorizesSpells") == Some(1);
-            let prefix = if prepares { "MemorizedList" } else { "KnownList" };
-            let counts: Vec<usize> = (0..10)
-                .map(|l| entry.list(&format!("{prefix}{l}")).map_or(0, <[_]>::len))
-                .collect();
-            let table = |column: &str| {
-                let t = self.table(&classes.get(row, column)?.to_lowercase()).ok()?;
-                let r = (level - 1).min(t.len().checked_sub(1)?);
-                Some((t, r))
-            };
-            let gain = table("SpellGainTable");
-            // The highest level the class casts (NumSpellLevels counts
-            // level 0).
-            let levels = gain.as_ref().map_or(0, |(t, r)| {
-                t.get_int(*r, "NumSpellLevels").map_or_else(
-                    || {
-                        (0..10)
-                            .rev()
-                            .find(|l| t.get_int(*r, &format!("SpellLevel{l}")).is_some())
-                            .map_or(0, |l| l + 1)
-                    },
-                    |n| n.clamp(0, 10) as usize,
-                )
-            });
-            if counts.iter().skip(levels).any(|&n| n > 0) {
+            let counts: Vec<usize> =
+                (0..10).map(|l| entry.list(&slots.list(l)).map_or(0, <[_]>::len)).collect();
+            if counts.iter().skip(slots.levels).any(|&n| n > 0) {
                 out.push(SpellWarning::TooHigh { class });
                 continue;
             }
-            let ability = classes
-                .get(row, "SpellcastingAbil")
-                .and_then(|a| ABILITIES.iter().position(|x| x.eq_ignore_ascii_case(a)))
-                .unwrap_or(3);
-            let have = score(ability);
-            if (0..10).any(|l| counts[l] > 0 && have < 10 + l as i32) {
-                out.push(SpellWarning::Ability { class, ability });
+            if (0..10).any(|l| counts[l] > 0 && slots.score < 10 + l as i32) {
+                out.push(SpellWarning::Ability { class, ability: slots.ability });
                 continue;
             }
-            let (base, m) =
-                if prepares { (gain, modifier(have)) } else { (table("SpellKnownTable"), 0) };
-            let max = |l: usize| -> usize {
-                let n = base
-                    .as_ref()
-                    .and_then(|(t, r)| t.get_int(*r, &format!("SpellLevel{l}")))
-                    .unwrap_or(0)
-                    .max(0) as usize;
-                let bonus = if m >= l as i32 { (m - l as i32) / 4 + 1 } else { 0 };
-                n + bonus as usize
-            };
-            if let Some(l) = (0..10).find(|&l| counts[l] > max(l)) {
-                out.push(SpellWarning::TooMany { class, level: l, max: max(l), count: counts[l] });
+            if let Some(l) = (0..10).find(|&l| counts[l] > slots.max[l]) {
+                let (max, count) = (slots.max[l], counts[l]);
+                out.push(SpellWarning::TooMany { class, level: l, max, count });
             }
         }
         out

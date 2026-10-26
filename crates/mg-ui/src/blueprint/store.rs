@@ -88,10 +88,10 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     crate::widgets::section_heading(ui, "Pricing");
     egui::Grid::new(("utm-pricing", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         crate::widgets::field_label(ui, "Sell Mark Up (%)");
-        f.number(ui, "Sell mark up", "MarkUp", 1..=1000);
+        f.spin(ui, "Sell mark up", "MarkUp", 1..=1000);
         ui.end_row();
         crate::widgets::field_label(ui, "Buy Mark Down (%)");
-        f.number(ui, "Buy mark down", "MarkDown", 0..=100);
+        f.spin(ui, "Buy mark down", "MarkDown", 0..=100);
         ui.end_row();
         crate::widgets::field_label(ui, "Identify Price");
         optional_price(f, ui, "Will Identify Items", "IdentifyPrice", "Identify price", 100, 100);
@@ -103,7 +103,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     ui.horizontal(|ui| {
         ui.add_enabled_ui(black_market, |ui| {
             crate::widgets::field_label(ui, "Buy Mark Down (%)");
-            f.number(ui, "Stolen goods mark down", "BM_MarkDown", 0..=100);
+            f.spin(ui, "Stolen goods mark down", "BM_MarkDown", 0..=100);
         });
     });
     ui.add_space(crate::widgets::SECTION_GAP);

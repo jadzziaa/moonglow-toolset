@@ -608,7 +608,7 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
                 edits.push(("Class", vec![set(key, &path, "Class", Value::Int(v as i32))]));
             }
             let level = c.integer("ClassLevel").unwrap_or(1);
-            if let Some(v) = commit_number(ui, level, 1..=60) {
+            if let Some(v) = spin_number(ui, level, 1..=60) {
                 edits.push((
                     "Class level",
                     vec![set(key, &path, "ClassLevel", Value::Short(v as i16))],
@@ -821,7 +821,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
                     f.choice(ui, "Treasure model", "BodyBag", &bags, FieldType::Byte);
                     ui.end_row();
                     crate::widgets::field_label(ui, "Corpse Decay Time (s)");
-                    f.millis(ui, "Decay time", "DecayTime", 0.0..=32767.0);
+                    f.millis(ui, "Decay time", "DecayTime", 0.0..=32767.0, 1.0);
                     ui.end_row();
                     crate::widgets::field_label(ui, "Perception Range");
                     f.choice(ui, "Perception range", "PerceptionRange", &ranges, FieldType::Byte);
@@ -905,7 +905,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
                 crate::widgets::field_label(ui, "Adjustment");
                 // The rating is recalculated with it (`refresh_hit_points`).
                 let adjust = f.int("CRAdjust");
-                if let Some(v) = commit_number(ui, adjust, -100..=100) {
+                if let Some(v) = spin_number(ui, adjust, -100..=100) {
                     let adjust_value = super::integer(f.root.get("CRAdjust"), v, FieldType::Int);
                     f.set_fields("CR adjustment", vec![("CRAdjust", adjust_value)]);
                 }

@@ -4461,6 +4461,82 @@ fn a_creature_s_statistics_have_arrows_to_step_by_one() {
     assert_eq!(strength(&mut h), was + 2);
 }
 
+/// An arrow held down goes on stepping, after a pause, and the whole run
+/// is one change, made when it is let go; Up and Down in the field step
+/// too; the field's limits hold.
+#[test]
+fn a_held_arrow_repeats_and_the_keys_step_in_the_field() {
+    let Some((mut h, key)) = blueprint_harness("nw_chicken", "stat_held", ResType::UTC) else {
+        return;
+    };
+    h.run();
+    h.get_by_label("Statistics").click();
+    h.run();
+    let int = |h: &mut Harness<'_, Moonglow>, label: &str| field(h, &key).integer(label).unwrap();
+    let was = int(&mut h, "Str");
+    // (After the module tree's own two, Collapse All and Expand All.)
+    let up = h.query_all_by_label("⏶").nth(1).expect("an arrow up").rect().center();
+    let button = |pressed| egui::Event::PointerButton {
+        pos: up,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    h.hover_at(up);
+    h.event(button(true));
+    h.run_steps(5); // (A quarter of a second each.)
+    assert_eq!(int(&mut h, "Str"), was, "nothing changed while it is held");
+    h.event(button(false));
+    h.run();
+    let after = int(&mut h, "Str");
+    assert!(after > was + 2, "it went on stepping: {was} to {after}");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert_eq!(int(&mut h, "Str"), was, "the run was one change");
+    // The keys, in the field.
+    let shown = was.to_string();
+    h.get_all_by_value(&shown).next().expect("Strength's field").click();
+    h.run();
+    h.key_press(egui::Key::ArrowUp);
+    h.key_press(egui::Key::ArrowUp);
+    h.key_press(egui::Key::ArrowDown);
+    h.run();
+    assert_eq!(int(&mut h, "Str"), was + 1);
+    // Natural AC is 0 at the least: its arrow down is off.
+    assert_eq!(int(&mut h, "NaturalAC"), 0, "the chicken has no natural armor");
+    // (The tree's, Strength to Charisma's, then Natural AC's.)
+    assert!(h.query_all_by_label("⏷").nth(7).is_some_and(|n| n.accesskit_node().is_disabled()));
+    assert!(!h.query_all_by_label("⏶").nth(7).is_some_and(|n| n.accesskit_node().is_disabled()));
+}
+
+/// Aurora's arrows are on the other editors' number fields too: a
+/// placeable's hardness, saves and hit points, a lock's DCs.
+#[test]
+fn a_placeable_s_numbers_have_arrows() {
+    let Some((mut h, key)) = blueprint_harness("plc_chest1", "plc_arrows", ResType::UTP) else {
+        return;
+    };
+    h.run();
+    let int = |h: &mut Harness<'_, Moonglow>, label: &str| field(h, &key).integer(label).unwrap();
+    let hardness = int(&mut h, "Hardness");
+    // (Hit points' arrows first, then hardness's.)
+    let up = h.query_all_by_label("⏶").nth(2).expect("hardness's arrow up").rect().center();
+    h.hover_at(up);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: up,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run();
+    assert_eq!(int(&mut h, "Hardness"), hardness + 1);
+    h.get_by_label("Lock").click();
+    h.run();
+    assert!(h.query_all_by_label("⏶").count() >= 3, "the lock's DCs have arrows");
+}
+
 /// A waypoint's editor in a module whose hak has (or, `table` off, has
 /// not) an `encoding.2da` with the wiki's Turkish letters: byte 0xF0 is
 /// "ğ", 0xFD "ı", 0xFE "ş". The waypoint's tag is `Da\xf0`.
@@ -11515,6 +11591,144 @@ fn script_sets_save_and_load() {
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run();
     assert_eq!(field(&mut h, &key).resref("ScriptSpawn"), Some(spawn));
+}
+
+/// The spells.2da row whose label is `label`.
+fn spell_row(h: &Harness<'_, Moonglow>, label: &str) -> i64 {
+    let game = h.state().game.clone().unwrap();
+    let t = game.table("spells").unwrap();
+    (0..t.len()).find(|&r| t.get(r, "Label") == Some(label)).unwrap() as i64
+}
+
+/// A cleric's spell list `list`: (Spell, SpellMetaMagic, SpellFlags) of each.
+fn spell_list(h: &mut Harness<'_, Moonglow>, key: &ResKey, list: &str) -> Vec<(i64, i64, i64)> {
+    let classes = field(h, key).list("ClassList").unwrap().to_vec();
+    let n = |s: &mg_gff::Struct, l: &str| s.integer(l).unwrap_or(-1);
+    // (The cleric's: the mummy is undead first.)
+    let cleric = classes.iter().find(|c| c.integer("Class") == Some(2)).unwrap();
+    cleric
+        .list(list)
+        .unwrap_or(&[])
+        .iter()
+        .map(|s| (n(s, "Spell"), n(s, "SpellMetaMagic"), n(s, "SpellFlags")))
+        .collect()
+}
+
+/// A cleric's Spells page, laid out as the Feats page: a click on a spell
+/// of those to choose from prepares one more of it, each row of those
+/// prepared has its count, with arrows, and × takes it away; the other
+/// entries stay as they were, a metamagic one too. One change each.
+#[test]
+fn the_spells_page_prepares_spells_beside_those_to_choose_from() {
+    use mg_gff::Value;
+    let Some((mut h, key)) = blueprint_harness("nw_mumcleric", "cleric_spells", ResType::UTC)
+    else {
+        return;
+    };
+    h.run();
+    // An Empowered Bless among the level 3 spells (as Aurora writes a spell
+    // prepared with metamagic: at its level raised by it).
+    let bless = spell_row(&h, "Bless");
+    let path = mg_edit::GffPath::root().item("ClassList", 1);
+    let mut empowered = mg_gff::Struct::new(3);
+    empowered.set("Spell", Value::Word(bless as u16));
+    empowered.set("SpellMetaMagic", Value::Byte(1));
+    empowered.set("SpellFlags", Value::Byte(1));
+    let at = spell_list(&mut h, &key, "MemorizedList3").len();
+    let edit = mg_edit::Edit::insert_item(key, path, "MemorizedList3", at, empowered);
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("meta", vec![edit])));
+    h.run();
+    h.get_by_label("Spells").click();
+    h.run();
+    let level1 = spell_list(&mut h, &key, "MemorizedList1");
+    let level3 = spell_list(&mut h, &key, "MemorizedList3");
+    // Bane, which the cleric hasn't prepared: one at level 1, at the end.
+    let bane = spell_row(&h, "Bane");
+    h.get_by_label("Bane").click();
+    h.run();
+    let mut more = level1.clone();
+    more.push((bane, 0, 1));
+    assert_eq!(spell_list(&mut h, &key, "MemorizedList1"), more);
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert_eq!(spell_list(&mut h, &key, "MemorizedList1"), level1);
+    // The Empowered Bless is shown, and × takes it alone away.
+    let shown = h.get_by_label("Bless (Empowered)").rect();
+    let x = h
+        .get_all_by_label("×")
+        .find(|n| (n.rect().center().y - shown.center().y).abs() < 4.0)
+        .expect("its ×");
+    x.click();
+    h.run();
+    let without: Vec<_> = level3.iter().copied().filter(|e| *e != (bless, 1, 1)).collect();
+    assert_eq!(spell_list(&mut h, &key, "MemorizedList3"), without);
+    assert_eq!(spell_list(&mut h, &key, "MemorizedList1"), level1, "the others as they were");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert_eq!(spell_list(&mut h, &key, "MemorizedList3"), level3);
+    // Light's count: its arrow up prepares one more, a copy of it.
+    let light = spell_row(&h, "Light");
+    let level0 = spell_list(&mut h, &key, "MemorizedList0");
+    let lights = level0.iter().filter(|e| e.0 == light).count();
+    let row = h.get_all_by_label("Light").last().expect("Light among those prepared").rect();
+    let up = h
+        .get_all_by_label("⏶")
+        .find(|n| (n.rect().center().y - row.center().y).abs() < 4.0)
+        .expect("its arrow up")
+        .rect()
+        .center();
+    h.hover_at(up);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: up,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run();
+    let after = spell_list(&mut h, &key, "MemorizedList0");
+    assert_eq!(after.iter().filter(|e| e.0 == light).count(), lights + 1);
+    assert_eq!(after.len(), level0.len() + 1);
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert_eq!(spell_list(&mut h, &key, "MemorizedList0"), level0);
+    // How many the cleric may have of each level, as Aurora counts them.
+    assert!(h.query_by_label_contains("Level 1: ").is_some());
+}
+
+/// A sorcerer's known spells: ticked among those to choose from, listed
+/// by level beside them, × to forget one.
+#[test]
+fn the_spells_page_ticks_known_spells() {
+    let Some((mut h, key)) = blueprint_harness("db_tanarukk_do", "sorc_known", ResType::UTC) else {
+        return;
+    };
+    let known = |h: &mut Harness<'_, Moonglow>, l: usize| -> Vec<i64> {
+        let classes = field(h, &key).list("ClassList").unwrap().to_vec();
+        let sorcerer = classes.iter().find(|c| c.integer("Class") == Some(9)).unwrap().clone();
+        let list = sorcerer.list(&format!("KnownList{l}")).unwrap_or(&[]).to_vec();
+        list.iter().filter_map(|s| s.integer("Spell")).collect()
+    };
+    h.run();
+    h.get_by_label("Spells").click();
+    h.run();
+    let acid_splash = spell_row(&h, "Acid_Splash");
+    let was = known(&mut h, 0);
+    assert!(!was.contains(&acid_splash));
+    h.get_by_label("Acid Splash").click();
+    h.run();
+    let mut more = was.clone();
+    more.push(acid_splash);
+    assert_eq!(known(&mut h, 0), more);
+    // Listed beside, where its × forgets it.
+    let shown = h.get_all_by_label("Acid Splash").last().unwrap().rect();
+    h.get_all_by_label("×")
+        .find(|n| (n.rect().center().y - shown.center().y).abs() < 4.0)
+        .expect("its ×")
+        .click();
+    h.run();
+    assert_eq!(known(&mut h, 0), was);
 }
 
 #[test]

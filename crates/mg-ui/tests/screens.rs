@@ -963,7 +963,7 @@ fn blueprint_editors() {
         ("nw_waypoint001", ResType::UTW, &["Basic", "Advanced"][..]),
         ("animalcriesday", ResType::UTS, &["Basic", "Positioning", "Advanced"][..]),
         ("x0_trapavg_shuri", ResType::UTT, &["Basic", "Trap", "Advanced", "Visuals"][..]),
-        ("nw_mumcleric", ResType::UTC, &["Classes"][..]),
+        ("nw_mumcleric", ResType::UTC, &["Classes", "Spells"][..]),
         ("nw_verminbeet", ResType::UTE, &["Basic", "Creature List", "Advanced"][..]),
         ("nw_storebar01", ResType::UTM, &["Basic", "Inventory", "Restrictions"][..]),
         ("x2_storethief001", ResType::UTM, &["Inventory"][..]),

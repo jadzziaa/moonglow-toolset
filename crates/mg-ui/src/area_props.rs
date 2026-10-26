@@ -364,8 +364,8 @@ fn visual(f: &mut Form<'_>, ui: &mut Ui) {
             ui.end_row();
         }
         crate::widgets::field_label(ui, "Fog Amount");
-        f.number(ui, "Sun fog amount", "SunFogAmount", 0..=200);
-        f.number(ui, "Moon fog amount", "MoonFogAmount", 0..=200);
+        f.spin(ui, "Sun fog amount", "SunFogAmount", 0..=200);
+        f.spin(ui, "Moon fog amount", "MoonFogAmount", 0..=200);
         ui.end_row();
         crate::widgets::field_label(ui, "Shadows");
         f.check(ui, "", "SunShadows");
@@ -400,22 +400,22 @@ fn visual(f: &mut Form<'_>, ui: &mut Ui) {
     });
     egui::Grid::new(("are-env2", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         crate::widgets::field_label(ui, "Shadow Opacity");
-        f.number(ui, "Shadow opacity", "ShadowOpacity", 0..=100);
+        f.spin(ui, "Shadow opacity", "ShadowOpacity", 0..=100);
         ui.end_row();
         crate::widgets::field_label(ui, "Fog Clip Distance (m)");
-        f.float(ui, "Fog clip distance", "FogClipDist", 25.0..=999.0, 1.0);
+        f.spin_float(ui, "Fog clip distance", "FogClipDist", 25.0..=999.0, 1.0, 1.0);
         ui.end_row();
         crate::widgets::field_label(ui, "Sky Box");
         f.choice(ui, "Sky box", "SkyBox", &skyboxes, FieldType::Byte);
         ui.end_row();
         crate::widgets::field_label(ui, "% Rain");
-        f.number(ui, "Chance of rain", "ChanceRain", 0..=100);
+        f.spin(ui, "Chance of rain", "ChanceRain", 0..=100);
         ui.end_row();
         crate::widgets::field_label(ui, "% Snow");
-        f.number(ui, "Chance of snow", "ChanceSnow", 0..=100);
+        f.spin(ui, "Chance of snow", "ChanceSnow", 0..=100);
         ui.end_row();
         crate::widgets::field_label(ui, "% Lightning");
-        f.number(ui, "Chance of lightning", "ChanceLightning", 0..=100);
+        f.spin(ui, "Chance of lightning", "ChanceLightning", 0..=100);
         ui.end_row();
         crate::widgets::field_label(ui, "Wind Power");
         let winds = ["None", "Weak", "Strong"];
@@ -633,7 +633,7 @@ fn audio(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResRef]) {
             ui.end_row();
         }
         crate::widgets::field_label(ui, "Music, Playing Delay");
-        f.number(ui, "Music delay", "MusicDelay", -99..=99);
+        f.spin(ui, "Music delay", "MusicDelay", -99..=99);
         ui.end_row();
         crate::widgets::field_label(ui, "Environmental Audio Effects");
         f.choice(ui, "Environmental audio", "EnvAudio", &eax, FieldType::Int);
@@ -695,10 +695,10 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
             ui.end_row();
         }
         crate::widgets::field_label(ui, "Check Modifier - Listen");
-        f.number(ui, "Listen check modifier", "ModListenCheck", -99..=99);
+        f.spin(ui, "Listen check modifier", "ModListenCheck", -99..=99);
         ui.end_row();
         crate::widgets::field_label(ui, "Check Modifier - Spot");
-        f.number(ui, "Spot check modifier", "ModSpotCheck", -99..=99);
+        f.spin(ui, "Spot check modifier", "ModSpotCheck", -99..=99);
         ui.end_row();
         crate::widgets::field_label(ui, "Player Vs. Player");
         f.choice(ui, "Player vs. player", "PlayerVsPlayer", &pvp, FieldType::Byte);
