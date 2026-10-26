@@ -117,7 +117,7 @@ pub fn pack_talk_table(root: &Path, target: &Target) -> Result<(PathBuf, Vec<u8>
         )));
     }
     let name = target.talk_table_name().ok_or_else(|| bad("not a talk table's target".into()))?;
-    let path = target.talk_table_source(root).map_err(&bad)?.ok_or_else(|| {
+    let path = target.talk_table_source(root).map_err(bad)?.ok_or_else(|| {
         bad(format!("target {}: no {name}.tlk.json among its sources", target.name))
     })?;
     let (_, tlk) = read_talk_table(&path, settings.tlk_style)?;
