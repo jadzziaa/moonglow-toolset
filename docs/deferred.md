@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:16:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:43:08Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -608,7 +608,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   free slot, To Backpack and Open Blueprint; talk-table text in its own
   color; a Variables window that is sized; drag and drop and right-click
   menus in the inventory, items dragged between inventories and within
-  a list, Copy and Paste; an item moved as it is, in one step): items
+  a list, Copy and Paste; an item moved as it is, in one step; what a
+  taken slot held sent to the backpack, as Aurora does): items
   are carried one at a time; of the drags between two objects' windows
   only a chest's item onto a creature's backpack is under test; an item
   carried between a placed object and a blueprint is made from its
@@ -616,10 +617,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   the blueprint, so what is pasted is made from it; a moved row keeps
   its place in the game's inventory grid (only the list's order
   changes); an item moved from one slot to another asks the question
-  about a missing feat as any Equip does (whether Aurora asks there was
-  not looked at); an item dropped on a slot that is taken replaces what
-  is there, which is removed, not put in the backpack (what Aurora does
-  was not looked at); blueprints made in a category the palette hides;
+  about a missing feat as any Equip does (Aurora asks when a weapon is
+  dropped on another weapon slot, but a true move of an item that needs
+  a feat between two slots it takes was not seen); a weapon dropped on
+  the secondary weapon slot while the primary is empty goes in the
+  secondary slot, where Aurora puts it in the primary (seen with a
+  longsword only: whether every item that fits both does so was not
+  looked at); blueprints made in a category the palette hides;
   new strings written to a talk-table range. (S–M)
   (a second builder's review, October 2026)
 - **Appearances as pictures** are placeables', creatures' and doors';

@@ -23830,6 +23830,55 @@ fn a_held_item_needing_a_feat_stays_in_the_backpack_on_no() {
     assert!(feats(&mut h).is_empty());
 }
 
+/// An item dropped on a slot that is taken: what the slot held goes to
+/// the backpack as it is (once it was deleted), in the same step.
+#[test]
+fn an_item_dropped_on_a_taken_slot_sends_its_item_to_the_backpack() {
+    use mg_edit::{Command, Edit};
+    let Some((mut h, area)) = area_harness("taken-slot") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let held = |game: &mg_rules::GameData| {
+        vec![own_item(game, "nw_it_mneck020", 0, ("MG_NEW", "New Probe"))]
+    };
+    let bandit = bandit_holding(&mut h, area, &held);
+    // An amulet of its own worn (after the armor and the sword).
+    let game = h.state().game.clone().unwrap();
+    let old = own_item(&game, "nw_it_mneck020", 0, ("MG_OLD", "Old Probe"));
+    let old = mg_module::instances::equipped_item(&old, 0x200);
+    let worn = Edit::insert_item(git, bandit.clone(), "Equip_ItemList", 2, old.clone());
+    h.state_mut().actions.push(mg_ui::Action::Apply(Command::new("Worn", vec![worn])));
+    h.run_steps(4);
+    let before = creature_items(&mut h, area, &bandit);
+    let new = before.1[0].clone();
+    // The backpack's amulet (its row's name) onto the amulet's slot (its
+    // name, in the creature window).
+    let row = h
+        .query_all_by_label("New Probe")
+        .filter(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
+        .map(|n| n.rect().center())
+        .min_by(|a, b| a.x.total_cmp(&b.x))
+        .unwrap();
+    let slot = h
+        .query_all_by_label("Amulet")
+        .map(|n| n.rect())
+        .filter(|r| r.left() > 270.0 && r.right() < 900.0)
+        .min_by(|a, b| a.left().total_cmp(&b.left()))
+        .unwrap();
+    drag_pos(&mut h, row, slot.center());
+    let (worn, pack) = creature_items(&mut h, area, &bandit);
+    let on = worn.iter().find(|s| s.id == 0x200).expect("the slot holds one");
+    assert_eq!(on.string("Tag"), Some(&b"MG_NEW"[..]), "{:?}", h.state().log.entries);
+    assert_eq!(as_held_anywhere(on), as_held_anywhere(&new));
+    assert_eq!(pack.len(), 1, "the one it held in the backpack");
+    assert_eq!(as_held_anywhere(&pack[0]), as_held_anywhere(&old), "as it was");
+    assert_eq!(pack[0].id, 0);
+    assert!(pack[0].get("Repos_PosX").is_some() && pack[0].get("Repos_Posy").is_some());
+    // One step.
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(4);
+    assert_eq!(creature_items(&mut h, area, &bandit), before, "undone whole");
+}
+
 /// Shown on a woman, an armor and a cloak are her models, and the armor's
 /// inventory icon the one her inventory shows.
 #[test]
