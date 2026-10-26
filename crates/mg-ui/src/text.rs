@@ -206,15 +206,25 @@ pub(crate) fn uses_crlf(text: &str) -> bool {
 /// line not changed keeps its own end, found by a diff of the lines; a
 /// line changed in place (between two kept, as many as there were) keeps
 /// the end it had; a line added takes the text's ([`uses_crlf`]: most of
-/// its lines', CRLF with none, as Aurora writes). An untouched text is the
-/// original again, byte for byte, whatever its line ends.
+/// its lines', CRLF with none, as Aurora writes a script or a GFF field's
+/// `CExoString`, a comment). An untouched text is the original again, byte
+/// for byte, whatever its line ends. A localized string's text:
+/// [`with_loc_line_ends`].
 pub(crate) fn with_line_ends(text: &str, original: &str) -> String {
     with_line_ends_or(text, original, true)
 }
 
+/// [`with_line_ends`] for the text of a localized string (`CExoLocString`:
+/// a description, a name, a conversation line's text): a text of one line
+/// given a second gets a plain line end, as Aurora writes one typed there
+/// (its comments, `CExoString`s, get CRLF), and as a talk table has it.
+pub(crate) fn with_loc_line_ends(text: &str, original: &str) -> String {
+    with_line_ends_or(text, original, false)
+}
+
 /// [`with_line_ends`], with `crlf` the line end of a text that has none
-/// yet: plain for a talk table's (the game's own `dialog.tlk` has no CRLF
-/// at all), CRLF for a file's or a GFF field's.
+/// yet: plain for a localized string's or a talk table's (the game's own
+/// `dialog.tlk` has no CRLF at all), CRLF for a file's or a `CExoString`'s.
 pub(crate) fn with_line_ends_or(text: &str, original: &str, crlf: bool) -> String {
     let crlf = if original.contains('\n') { uses_crlf(original) } else { crlf };
     let old: Vec<&str> = original.split('\n').collect();
@@ -242,15 +252,21 @@ pub(crate) fn with_line_ends_or(text: &str, original: &str, crlf: bool) -> Strin
     out
 }
 
-/// The most cells of [`kept_lines`]'s table: a change of more lines than
-/// that (thousands each side, a script rewritten whole) is taken as the
-/// lines changed in place, from the first changed to the last.
+/// The most cells of one table of [`common_lines`]: a run of changed lines
+/// bigger than that (thousands each side, a script rewritten whole) is cut
+/// at the lines each side has once first.
 const DIFF_CELLS: usize = 4_000_000;
 
+/// The most work of one diff ([`kept_lines`]): the cells of its tables and
+/// the lines looked at for the lines each side has once. What is left
+/// past it is taken as changed in place, so a diff takes a bounded time
+/// however the text was changed.
+const DIFF_WORK: usize = 4 * DIFF_CELLS;
+
 /// For each line of `new`, the line of `old` it is: the same text, by a
-/// diff of the lines (their longest common subsequence), or among the lines
-/// changed between two kept ones, the old line in its place (the first
-/// lines of the run, as many as both have). `None`: a line added.
+/// diff of the lines ([`common_lines`]), or among the lines changed between
+/// two kept ones, the old line in its place (the first lines of the run, as
+/// many as both have). `None`: a line added.
 fn kept_lines(old: &[&str], new: &[&str]) -> Vec<Option<usize>> {
     let (m, n) = (old.len(), new.len());
     let mut prefix = 0;
@@ -264,31 +280,8 @@ fn kept_lines(old: &[&str], new: &[&str]) -> Vec<Option<usize>> {
     let (a, b) = (&old[prefix..m - suffix], &new[prefix..n - suffix]);
     // The lines of the changed run that are the same in both, in order.
     let mut same = Vec::new();
-    let w = b.len() + 1;
-    if (a.len() + 1).saturating_mul(w) <= DIFF_CELLS {
-        // (Each cell: the longest common subsequence of a[i..] and b[j..].)
-        let mut len = vec![0u32; (a.len() + 1) * w];
-        for i in (0..a.len()).rev() {
-            for j in (0..b.len()).rev() {
-                len[i * w + j] = if a[i] == b[j] {
-                    len[(i + 1) * w + j + 1] + 1
-                } else {
-                    len[(i + 1) * w + j].max(len[i * w + j + 1])
-                };
-            }
-        }
-        let (mut i, mut j) = (0, 0);
-        while i < a.len() && j < b.len() {
-            if a[i] == b[j] {
-                same.push((i, j));
-                (i, j) = (i + 1, j + 1);
-            } else if len[(i + 1) * w + j] >= len[i * w + j + 1] {
-                i += 1;
-            } else {
-                j += 1;
-            }
-        }
-    }
+    let mut work = DIFF_WORK;
+    common_lines(a, b, (0, 0), &mut work, &mut same);
     same.push((a.len(), b.len()));
     let mut out = vec![None; n];
     for (k, o) in out.iter_mut().enumerate().take(prefix) {
@@ -308,6 +301,128 @@ fn kept_lines(old: &[&str], new: &[&str]) -> Vec<Option<usize>> {
         (i0, j0) = (i + 1, j + 1);
     }
     out
+}
+
+/// The lines `a` and `b` have in common, in order, pushed onto `same` as
+/// pairs of places (`at` added: where the two begin in the run): by the
+/// table of their longest common subsequence if it has at most
+/// [`DIFF_CELLS`] cells; else cut at the lines each has once and both have,
+/// in the order both have them (a patience diff), the lines between two
+/// such taken the same way, their equal ends first. `work`: what is left
+/// of [`DIFF_WORK`]; lines past it are left out (changed).
+fn common_lines(
+    a: &[&str],
+    b: &[&str],
+    at: (usize, usize),
+    work: &mut usize,
+    same: &mut Vec<(usize, usize)>,
+) {
+    let cells = (a.len() + 1).saturating_mul(b.len() + 1);
+    if cells <= DIFF_CELLS && cells <= *work {
+        *work -= cells;
+        common_by_table(a, b, at, same);
+        return;
+    }
+    if a.len() + b.len() > *work {
+        return;
+    }
+    *work -= a.len() + b.len();
+    let (mut i0, mut j0) = (0, 0);
+    for (i, j) in unique_common(a, b).into_iter().chain([(a.len(), b.len())]) {
+        // (Between two lines found once: the lines both begin and end
+        // with, then the rest.)
+        let (ga, gb) = (&a[i0..i], &b[j0..j]);
+        let mut p = 0;
+        while p < ga.len() && p < gb.len() && ga[p] == gb[p] {
+            same.push((at.0 + i0 + p, at.1 + j0 + p));
+            p += 1;
+        }
+        let mut s = 0;
+        while s < ga.len() - p && s < gb.len() - p && ga[ga.len() - 1 - s] == gb[gb.len() - 1 - s] {
+            s += 1;
+        }
+        let inner = (&ga[p..ga.len() - s], &gb[p..gb.len() - s]);
+        common_lines(inner.0, inner.1, (at.0 + i0 + p, at.1 + j0 + p), work, same);
+        for k in (0..s).rev() {
+            same.push((at.0 + i - 1 - k, at.1 + j - 1 - k));
+        }
+        if i < a.len() {
+            same.push((at.0 + i, at.1 + j));
+        }
+        (i0, j0) = (i + 1, j + 1);
+    }
+}
+
+/// [`common_lines`] by the table of the longest common subsequence of `a`
+/// and `b`, `(a.len() + 1) × (b.len() + 1)` cells.
+fn common_by_table(a: &[&str], b: &[&str], at: (usize, usize), same: &mut Vec<(usize, usize)>) {
+    // (Each cell: the longest common subsequence of a[i..] and b[j..].)
+    let w = b.len() + 1;
+    let mut len = vec![0u32; (a.len() + 1) * w];
+    for i in (0..a.len()).rev() {
+        for j in (0..b.len()).rev() {
+            len[i * w + j] = if a[i] == b[j] {
+                len[(i + 1) * w + j + 1] + 1
+            } else {
+                len[(i + 1) * w + j].max(len[i * w + j + 1])
+            };
+        }
+    }
+    let (mut i, mut j) = (0, 0);
+    while i < a.len() && j < b.len() {
+        if a[i] == b[j] {
+            same.push((at.0 + i, at.1 + j));
+            (i, j) = (i + 1, j + 1);
+        } else if len[(i + 1) * w + j] >= len[i * w + j + 1] {
+            i += 1;
+        } else {
+            j += 1;
+        }
+    }
+}
+
+/// The lines found once in `a` and once in `b`, as places in both, the most
+/// of them that are in the same order in both (the longest increasing run
+/// of their places in `b`, by patience sorting).
+fn unique_common(a: &[&str], b: &[&str]) -> Vec<(usize, usize)> {
+    // (A line's count and last place in each.)
+    let mut seen: std::collections::HashMap<&str, [(u32, usize); 2]> =
+        std::collections::HashMap::new();
+    for (side, lines) in [a, b].into_iter().enumerate() {
+        for (k, line) in lines.iter().enumerate() {
+            let e = &mut seen.entry(line).or_default()[side];
+            *e = (e.0 + 1, k);
+        }
+    }
+    let mut pairs: Vec<(usize, usize)> = (seen.into_values())
+        .filter(|[x, y]| x.0 == 1 && y.0 == 1)
+        .map(|[x, y]| (x.1, y.1))
+        .collect();
+    pairs.sort_unstable();
+    // Patience sorting: `tops[k]`, the pair ending the best run of k + 1
+    // found so far (the one whose place in `b` is least); `back`, each
+    // pair's predecessor in its run.
+    let mut tops: Vec<usize> = Vec::new();
+    let mut back = vec![usize::MAX; pairs.len()];
+    for (k, &(_, j)) in pairs.iter().enumerate() {
+        let pile = tops.partition_point(|&t| pairs[t].1 < j);
+        if pile > 0 {
+            back[k] = tops[pile - 1];
+        }
+        if pile == tops.len() {
+            tops.push(k);
+        } else {
+            tops[pile] = k;
+        }
+    }
+    let mut run = Vec::with_capacity(tops.len());
+    let mut k = tops.last().copied().unwrap_or(usize::MAX);
+    while k != usize::MAX {
+        run.push(pairs[k]);
+        k = back[k];
+    }
+    run.reverse();
+    run
 }
 
 /// A localized string with its text in the editing language replaced (or
@@ -438,6 +553,107 @@ mod tests {
         let expected: String =
             (0..3000).map(|k| format!("x{k}{}", ["\r\n", "\n"][k % 2])).collect();
         assert_eq!(out, expected);
+    }
+
+    /// A large change of a text of both kinds (past what one table of the
+    /// diff takes on: thousands of lines each side between the first change
+    /// and the last), lines added among the lines kept: each line kept
+    /// keeps its own end, found by the lines each side has once.
+    #[test]
+    fn a_large_change_keeps_each_kept_line_s_end() {
+        let end = |k: usize| ["\r\n", "\n", "\n"][k % 3];
+        let old: String = (0..6000).map(|k| format!("line {k}{}", end(k))).collect();
+        let mut new = Vec::new();
+        for k in 0..6000 {
+            match k {
+                // Changed near both ends, so that the run between is long.
+                3 | 5996 => new.push(format!("changed {k}")),
+                // Lines added among the kept, others taken away.
+                _ if k % 397 == 0 => new.extend([format!("added {k}"), format!("line {k}")]),
+                _ if k % 541 == 0 => {}
+                _ => new.push(format!("line {k}")),
+            }
+        }
+        let new = new.join("\n") + "\n";
+        let out = with_line_ends(&new, &old);
+        assert_eq!(out.replace("\r\n", "\n"), new);
+        for line in out.split_inclusive('\n') {
+            if let Some(k) = line.strip_prefix("line ") {
+                let k: usize = k.trim_end().parse().unwrap();
+                assert_eq!(line.ends_with("\r\n"), end(k) == "\r\n", "{line:?}");
+            }
+        }
+    }
+
+    /// The diff takes a bounded time however large the text and its
+    /// change: lines all different, lines all alike, every other line
+    /// changed, the lines reversed.
+    #[test]
+    fn a_diff_takes_a_bounded_time() {
+        let n = 200_000;
+        let unique: Vec<String> = (0..n).map(|k| format!("int n{k} = {k};")).collect();
+        let alike: Vec<String> = (0..n).map(|k| ["{", "}", ""][k % 3].to_string()).collect();
+        let every_other: Vec<String> = (unique.iter().enumerate())
+            .map(|(k, l)| if k % 2 == 0 { format!("{l} // x") } else { l.clone() })
+            .collect();
+        let reversed: Vec<String> = unique.iter().rev().cloned().collect();
+        let other: Vec<String> = (0..n).map(|k| ["}", "", "{", "{"][k % 4].to_string()).collect();
+        for (old, new) in
+            [(&unique, &every_other), (&unique, &reversed), (&alike, &other), (&unique, &alike)]
+        {
+            let (old, new) = (old.join("\r\n"), new.join("\n"));
+            let start = std::time::Instant::now();
+            let out = with_line_ends(&new, &old);
+            // (Generous: an unoptimized build, other tests at once.)
+            assert!(start.elapsed().as_secs_f32() < 20.0, "{:?}", start.elapsed());
+            assert_eq!(out.replace("\r\n", "\n"), new);
+        }
+    }
+
+    /// A line typed into a text of one line gets the line end Aurora
+    /// writes for one typed in its field (capture `line-ends/typed.mod`:
+    /// docs/findings.md, "Line ends"): plain in a localized string (a
+    /// placeable's Description, the module's, a conversation line's Text),
+    /// CRLF in a `CExoString` (a comment).
+    #[test]
+    fn a_new_line_takes_the_line_end_aurora_writes() {
+        use mg_core::{ResRef, ResType};
+        let path = mg_testkit::aurora_capture!("line-ends/typed.mod");
+        let bytes = std::fs::read(path).unwrap();
+        let erf = mg_erf::Erf::read(&bytes).unwrap();
+        let gff = |name: &str, ty: ResType| {
+            let data = erf.get(&ResRef::from_str(name).unwrap(), ty).unwrap().unwrap();
+            mg_gff::Gff::read(&data).unwrap()
+        };
+        let english = |ls: Option<&LocString>| {
+            let ls = ls.unwrap();
+            String::from_utf8(ls.get(Language::ENGLISH, Gender::Male).unwrap().to_vec()).unwrap()
+        };
+        let dlg = gff("capdlg", ResType::DLG);
+        let line = &dlg.root.list("EntryList").unwrap()[0];
+        let utp = gff("mgp_utp", ResType::UTP);
+        let ifo = gff("module", ResType::IFO);
+        let string = |s: &mg_gff::Struct| String::from_utf8(s.string("Comment").unwrap().to_vec());
+        let localized = [
+            english(line.locstring("Text")),
+            english(ifo.root.locstring("Mod_Description")),
+            english(utp.root.locstring("Description")),
+        ];
+        let comments = [string(line).unwrap()];
+        for (fields, loc) in [(&localized[..], true), (&comments[..], false)] {
+            let ours = if loc { with_loc_line_ends } else { with_line_ends };
+            for aurora in fields {
+                // The text was one line before; a second typed after it.
+                let first = &aurora[..aurora.find(['\r', '\n']).expect(aurora)];
+                let second = aurora[first.len()..].trim_start_matches(['\r', '\n']);
+                let typed = format!("{first}\n{second}");
+                assert_eq!(ours(&typed, first), *aurora, "{aurora:?}");
+            }
+        }
+        assert!(localized.iter().all(|t| !t.contains('\r')) && comments[0].contains("\r\n"));
+        // (A blueprint's comment, its line end plain before, is CRLF once
+        // Aurora saves the blueprint, untouched.)
+        assert_eq!(string(&utp.root).unwrap(), "lf one\r\nlf two");
     }
 
     #[test]

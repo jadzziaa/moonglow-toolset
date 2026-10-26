@@ -612,15 +612,17 @@ impl Form<'_> {
 
     /// Holds a text field's typing while it has the keyboard, after the
     /// field is drawn: `shown` is the field's value as it is stored, and
-    /// `value` what the text typed would be set as. Should the field be
-    /// gone before the keyboard leaves it, that is set
-    /// ([`Moonglow::held_text`]).
+    /// `value` what the text typed would be set as (`loc`: a localized
+    /// string's text, its line ends as [`crate::text::with_loc_line_ends`]
+    /// sets them). Should the field be gone before the keyboard leaves it,
+    /// that is set ([`Moonglow::held_text`]).
     fn hold_text(
         &mut self,
         ui: &Ui,
         what: &str,
         label: &str,
         shown: &str,
+        loc: bool,
         value: impl Fn(String) -> Value,
     ) {
         let id = self.id(label);
@@ -632,9 +634,9 @@ impl Form<'_> {
         }
         let stored = shown;
         let shown = crate::text::to_editor(stored).0;
-        let typed = (self.app.buffers.get(&id))
-            .filter(|buf| **buf != shown)
-            .map(|buf| crate::text::with_line_ends(buf, stored));
+        let ends = if loc { crate::text::with_loc_line_ends } else { crate::text::with_line_ends };
+        let typed =
+            (self.app.buffers.get(&id)).filter(|buf| **buf != shown).map(|buf| ends(buf, stored));
         let command = typed.map(|text| self.setting(what, label, Some(value(text))));
         self.app.held_text = Some((id, ui.ctx().cumulative_pass_nr(), command));
     }
@@ -664,10 +666,11 @@ impl Form<'_> {
             *buf = shown.clone();
         }
         if r.lost_focus() && *buf != shown {
-            let v = buf.clone();
+            // (Its line ends kept, as a field of several lines keeps them.)
+            let v = crate::text::with_line_ends(buf, &current);
             self.set(what, label, Value::String(encode(&v)));
         }
-        self.hold_text(ui, what, label, &current, |text| Value::String(encode(&text)));
+        self.hold_text(ui, what, label, &current, false, |text| Value::String(encode(&text)));
     }
 
     /// A multi-line text field (`CExoString`), line ends kept.
@@ -677,7 +680,7 @@ impl Form<'_> {
         if let Some(v) = commit_text(self.app, ui, id, &current, true, f32::INFINITY) {
             self.set(what, label, Value::String(encode(&v)));
         }
-        self.hold_text(ui, what, label, &current, |text| Value::String(encode(&text)));
+        self.hold_text(ui, what, label, &current, false, |text| Value::String(encode(&text)));
     }
 
     /// A localized name: the English text, and `…` for every language.
@@ -689,7 +692,7 @@ impl Form<'_> {
             }
             let shown = crate::widgets::loc_shown(self.app, &current).0;
             let held = current.clone();
-            self.hold_text(ui, what, label, &shown, move |text| {
+            self.hold_text(ui, what, label, &shown, true, move |text| {
                 Value::LocString(with_english(held.clone(), &text))
             });
             if ui.small_button("…").on_hover_text("Edit text in multiple languages").clicked() {
@@ -712,7 +715,7 @@ impl Form<'_> {
             self.set(what, label, Value::LocString(with_english(current.clone(), &v)));
         }
         let shown = crate::widgets::loc_shown(self.app, &current).0;
-        self.hold_text(ui, what, label, &shown, move |text| {
+        self.hold_text(ui, what, label, &shown, true, move |text| {
             Value::LocString(with_english(current.clone(), &text))
         });
     }

@@ -13,7 +13,7 @@ use mg_module::var_desc::{
 use mg_module::vars::VarType;
 use mg_resman::ResKey;
 
-use crate::text::{decode, encode, to_editor, with_line_ends};
+use crate::text::{decode, encode, to_editor, with_line_ends, with_loc_line_ends};
 use crate::{Action, Moonglow};
 
 /// A field of a GFF resource that an editor window writes back to.
@@ -113,7 +113,7 @@ impl LocStringEdit {
         };
         let mut out = LocString { strref, strings: Vec::new() };
         for (language, gender, text, stored) in &self.entries {
-            let text = with_line_ends(text, stored);
+            let text = with_loc_line_ends(text, stored);
             let bytes = crate::text::entry_codepage(*language).encode(&text)?;
             out.strings.push((LocStringKey::new(*language, *gender), bytes.into_owned()));
         }
@@ -1190,7 +1190,7 @@ pub(crate) fn borrowed_field<R>(
     out
 }
 
-/// A text field of a localized string as [`commit_text`] makes one,
+/// A text field of a localized string as [`commit_loc_text`] makes one,
 /// showing what [`loc_shown`] says and marked where that is not its own.
 pub(crate) fn loc_text(
     app: &mut Moonglow,
@@ -1201,10 +1201,10 @@ pub(crate) fn loc_text(
     width: f32,
 ) -> Option<String> {
     match loc_shown(app, ls) {
-        (shown, None) => commit_text(app, ui, id, &shown, multiline, width),
-        (shown, Some((from, why))) => {
-            borrowed_field(ui, &from, why, |ui| commit_text(app, ui, id, &shown, multiline, width))
-        }
+        (shown, None) => commit_loc_text(app, ui, id, &shown, multiline, width),
+        (shown, Some((from, why))) => borrowed_field(ui, &from, why, |ui| {
+            commit_loc_text(app, ui, id, &shown, multiline, width)
+        }),
     }
 }
 
@@ -1232,7 +1232,7 @@ pub(crate) fn with_token(ctx: &egui::Context, id: egui::Id, current: &str, token
         state.cursor.set_char_range(Some(CCursorRange::one(after)));
         state.clone().store(ctx, id);
     }
-    with_line_ends(&out, current)
+    with_loc_line_ends(&out, current)
 }
 
 /// Whether a widget has the keyboard, the window having it or not. (A
@@ -1244,7 +1244,10 @@ pub(crate) fn has_keys(r: &egui::Response) -> bool {
 }
 
 /// A text field that commits when focus leaves it (one line, or several
-/// with their line-end style kept). Returns the new text then.
+/// with their line-end style kept). Returns the new text then. For a
+/// file's text or a `CExoString` (a comment): a line typed into a text of
+/// one line gets CRLF, as Aurora writes; a localized string's text:
+/// [`commit_loc_text`].
 pub(crate) fn commit_text(
     app: &mut Moonglow,
     ui: &mut Ui,
@@ -1254,6 +1257,20 @@ pub(crate) fn commit_text(
     width: f32,
 ) -> Option<String> {
     commit_text_in(&mut app.buffers, ui, id, current, multiline.then_some(6), width, None)
+}
+
+/// [`commit_text`] for the text of a localized string (a description, a
+/// conversation line's text): a line typed into a text of one line gets a
+/// plain line end, as Aurora writes ([`with_loc_line_ends`]).
+pub(crate) fn commit_loc_text(
+    app: &mut Moonglow,
+    ui: &mut Ui,
+    id: egui::Id,
+    current: &str,
+    multiline: bool,
+    width: f32,
+) -> Option<String> {
+    commit_loc_text_in(&mut app.buffers, ui, id, current, multiline.then_some(6), width, None)
 }
 
 /// [`commit_text`] with the buffers what is typed is kept in until then:
@@ -1270,8 +1287,38 @@ pub(crate) fn commit_text_in(
     width: f32,
     limit: Option<usize>,
 ) -> Option<String> {
-    let shown = to_editor(current).0;
-    let buf = buffers.entry(id).or_insert_with(|| shown.clone());
+    let typed = commit_typed(buffers, ui, id, &to_editor(current).0, rows, width, limit);
+    typed.map(|text| with_line_ends(&text, current))
+}
+
+/// [`commit_text_in`] for the text of a localized string
+/// ([`commit_loc_text`]).
+pub(crate) fn commit_loc_text_in(
+    buffers: &mut std::collections::HashMap<egui::Id, String>,
+    ui: &mut Ui,
+    id: egui::Id,
+    current: &str,
+    rows: Option<usize>,
+    width: f32,
+    limit: Option<usize>,
+) -> Option<String> {
+    let typed = commit_typed(buffers, ui, id, &to_editor(current).0, rows, width, limit);
+    typed.map(|text| with_loc_line_ends(&text, current))
+}
+
+/// The field of [`commit_text_in`], `shown` its value as the field shows
+/// it ([`to_editor`]): what was typed (with plain line ends) when the
+/// keyboard leaves it changed.
+fn commit_typed(
+    buffers: &mut std::collections::HashMap<egui::Id, String>,
+    ui: &mut Ui,
+    id: egui::Id,
+    shown: &str,
+    rows: Option<usize>,
+    width: f32,
+    limit: Option<usize>,
+) -> Option<String> {
+    let buf = buffers.entry(id).or_insert_with(|| shown.to_owned());
     let edit = match rows {
         Some(rows) => egui::TextEdit::multiline(buf).desired_rows(rows),
         None => egui::TextEdit::singleline(buf),
@@ -1288,9 +1335,9 @@ pub(crate) fn commit_text_in(
     leaves_at_a_press(ui.ctx(), &r);
     if !has_keys(&r) && !r.lost_focus() && *buf != shown {
         // Changed underneath (undo, another selection): show the value.
-        *buf = shown.clone();
+        *buf = shown.to_owned();
     }
-    (r.lost_focus() && *buf != shown).then(|| with_line_ends(buf, current))
+    (r.lost_focus() && *buf != shown).then(|| buf.clone())
 }
 
 /// A text field of several lines (`edit`, given the id `id`) drawn, with
@@ -1310,7 +1357,8 @@ pub(crate) fn text_area(
 /// of the field in sight (less one, as a page in Windows' fields), and
 /// the field scrolls with it; with Shift, the selection reaches to there.
 /// Rows wrapped count as lines. Every text field of several lines but the
-/// script editor's (which has its own) has them, through here.
+/// script editor's (which has its own) and a NUI window's in its preview
+/// (as the game's, which has none) has them, through here.
 pub(crate) fn page_keys(ui: &Ui, out: &egui::text_edit::TextEditOutput) {
     use egui::{Key, Modifiers};
     let id = out.response.id;

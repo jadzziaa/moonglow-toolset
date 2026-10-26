@@ -391,9 +391,11 @@ fn build(
         data: Some(
             {
                 // (Its lines in the module's own letters, if it has a
-                // table of them, and with CRLF line ends, as Aurora's.)
-                let line =
-                    |t: &str| crate::text::for_windows_1252(&crate::text::with_line_ends(t, ""));
+                // table of them, and with plain line ends, as Aurora
+                // writes a line's text.)
+                let line = |t: &str| {
+                    crate::text::for_windows_1252(&crate::text::with_loc_line_ends(t, ""))
+                };
                 store_setup::conversation(&line(&w.greeting), &line(&w.yes), &line(&w.no), script)
             }
             .to_bytes()
@@ -509,7 +511,7 @@ pub(crate) fn popup_window(app: &mut Moonglow, ctx: &egui::Context) {
         });
     if ok && let Some(name) = name {
         let git = ResKey::new(p.area, ResType::GIT);
-        let text = crate::text::with_line_ends(&p.text, "");
+        let text = crate::text::with_loc_line_ends(&p.text, "");
         match store_setup::popup(&crate::text::for_windows_1252(&text)).to_bytes() {
             Ok(data) => {
                 let edits = vec![

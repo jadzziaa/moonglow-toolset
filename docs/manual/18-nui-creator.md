@@ -3,7 +3,7 @@ type: Manual Page
 title: NUI Creator
 description: The NUI Creator - designing an Enhanced Edition UI window (JUI) on a canvas with the game's skin and fonts, images, keys, binds, swap layout variants, event handlers (or one event script for several windows), the settings file, building its scripts, making windows without the window (render, layout, import), and what the game refuses or does on its own.
 tags: [manual, nui, scripts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T06:39:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T06:48:54Z }
 sources:
   - id: mg-nui
     resource: crates/mg-nui
@@ -95,7 +95,8 @@ collapse button. A static `collapsed: false` hides that button; Reset restores
 the initial preview state. Font sizes use the installed font's vertical metrics.
 
 Turn on **Interact** to try checkboxes, toggle buttons, sliders, text fields,
-dropdowns, options, tabs and the color picker. Event handlers are NWScript and
+dropdowns, options, tabs and the color picker (a text field of several lines
+takes no Page Down or Page Up, as in the game). Event handlers are NWScript and
 run only in the game; Interact closes the window for a handler that starts with
 closing it (the Close button's). Preview values and list-row values are temporary and leave the
 JUI, initial bindings, module dirty state and Undo history unchanged. **Reset**
