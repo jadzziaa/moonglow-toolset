@@ -485,6 +485,11 @@ pub struct Moonglow {
     pub module_page: module_props::Page,
     /// Each open blueprint editor's page.
     pub blueprint_pages: blueprint::Pages,
+    /// The ids of placed objects' Properties windows (and of the items
+    /// they hold), by where their objects are: a window keeps its id as
+    /// it follows its object, and with it its widgets' state (its scroll,
+    /// a field being typed in). Given as a window is first drawn.
+    pub(crate) window_ids: HashMap<(mg_core::ResRef, mg_edit::GffPath), egui::Id>,
     /// What each open Properties window has changed, for its Cancel.
     pub(crate) properties_changed: blueprint::Changed,
     pub faction_view: faction_view::FactionView,
@@ -863,6 +868,7 @@ impl Moonglow {
             loc_edit: None,
             module_page: module_props::Page::default(),
             blueprint_pages: Default::default(),
+            window_ids: Default::default(),
             properties_changed: Default::default(),
             faction_view: faction_view::FactionView::default(),
             journal_view: journal_view::JournalView::default(),

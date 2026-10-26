@@ -365,7 +365,19 @@ impl TabViewer for Viewer<'_> {
     type Tab = Tab;
 
     fn id(&mut self, tab: &mut Tab) -> Id {
-        Id::new(("tab", &*tab))
+        // (A placed object's window by its own id, which it keeps as it
+        // follows its object to another place.)
+        let window = |app: &mut Moonglow, area, path: &mg_edit::GffPath| {
+            crate::blueprint::follow::window_id(app, area, path)
+        };
+        match tab {
+            Tab::Instance { area, path } => window(self.app, *area, path).with("instance"),
+            Tab::InstanceModel { area, path } => window(self.app, *area, path).with("model"),
+            Tab::Instances { area, paths } if !paths.is_empty() => {
+                window(self.app, *area, &paths[0]).with(("instances", paths.len()))
+            }
+            _ => Id::new(("tab", &*tab)),
+        }
     }
 
     fn title(&mut self, tab: &mut Tab) -> WidgetText {

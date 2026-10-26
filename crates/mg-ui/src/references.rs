@@ -361,6 +361,15 @@ impl Moonglow {
                 self.blueprint_pages.insert((ResKey::new(to, k.restype), p), v);
             }
         }
+        if is_area {
+            let ids: Vec<_> =
+                self.window_ids.keys().filter(|(area, _)| *area == from).cloned().collect();
+            for (area, p) in ids {
+                if let Some(id) = self.window_ids.remove(&(area, p.clone())) {
+                    self.window_ids.insert((to, p), id);
+                }
+            }
+        }
     }
 
     /// Why `key` can't be deleted, if it can't: the area the module starts
