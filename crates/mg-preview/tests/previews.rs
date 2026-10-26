@@ -656,6 +656,33 @@ fn an_armor_s_part_0_leaves_its_wearer_s_own() {
     assert!(models.iter().any(|m| m.contains("bicepr")), "the right one: {models:?}");
 }
 
+/// A head of 0 is no head, and so is no `Appearance_Head` at all: the
+/// client draws the neck alone for both (`client_render.rs`'s
+/// `heads_look`; a builder's report on 2.0.0 had head 1 drawn for 0).
+#[test]
+fn a_head_of_0_is_no_head() {
+    let Some(game) = game() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let heads = |utc: &mg_gff::Struct| -> Vec<String> {
+        let c = creature(&game, utc, &|_| None).unwrap();
+        models(&c).into_iter().filter(|m| m.contains("_head")).map(str::to_string).collect()
+    };
+    let mut utc = CreatureLook::new(6).to_utc();
+    assert_eq!(heads(&utc), ["pmh0_head001"]);
+    utc.set("Appearance_Head", mg_gff::Value::Byte(2));
+    assert_eq!(heads(&utc), ["pmh0_head002"]);
+    utc.set("Appearance_Head", mg_gff::Value::Byte(0));
+    assert!(heads(&utc).is_empty(), "head 0: {:?}", heads(&utc));
+    utc.fields.retain(|f| f.label.to_string_lossy() != "Appearance_Head");
+    assert!(heads(&utc).is_empty(), "no field: {:?}", heads(&utc));
+    // The EE twin's 0 too, over a byte field's 1.
+    utc.set("Appearance_Head", mg_gff::Value::Byte(1));
+    utc.set(&mg_rules::items::wide_label("Appearance_Head"), mg_gff::Value::Word(0));
+    assert!(heads(&utc).is_empty(), "the twin's 0: {:?}", heads(&utc));
+}
+
 /// An elf's chest 3 names the human's chest 4 and has no texture of its
 /// own name: the game draws it in the human's chest 3 (seen in the client,
 /// `creatures_look` with `MG_PARTS=Torso=3`).

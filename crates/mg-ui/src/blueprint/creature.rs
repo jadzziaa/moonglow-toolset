@@ -367,9 +367,10 @@ const BODY_PARTS: [(&str, &str, &str); 19] = [
 /// each edit that sets `Appearance_Type` to a body of parts, on a creature
 /// that keeps no body part at all (one made with a single model: the
 /// game's bandit), the parts are added as a creature new in Aurora has
-/// them: 1, and no belt or shoulders. The game draws a head and no body
-/// for such a creature without them (`client_render.rs`, `MG_NO_BODY`),
-/// which an armor hides until it is taken off.
+/// them: 1, and no belt or shoulders. The game draws no body for such a
+/// creature without them (`client_render.rs`, `MG_NO_BODY`), which an
+/// armor hides until it is taken off, and no head without its
+/// `Appearance_Head` (`heads_look`).
 pub(crate) fn with_a_body(app: &mut Moonglow, edits: &mut Vec<Edit>) {
     let Some(game) = app.game.clone() else { return };
     let Ok(appearance) = game.table("appearance") else { return };

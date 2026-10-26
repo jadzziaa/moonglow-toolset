@@ -715,20 +715,42 @@ nwnmdlcomp, before `selfillumcolor`).
 A creature made with a single model (the game's `nw_bandit001`,
 appearance 269) keeps no `BodyPart_*` field, no `ArmorPart_RFoot` and no
 `Appearance_Head`. Given a part-based appearance (Human, row 6) and
-nothing else, the client draws its head and no body: a field that is not
-there is part 0, which is nothing. An armor's parts cover that while it
-is worn, so it shows when the armor is taken off (a builder's report,
-"unequipping an armor sets all body parts to 0"). Moonglow draws the
-same, and since 1.22.1 sets the parts (1, and no belt or shoulders, as a
-creature new in Aurora has them) in the step that gives such a creature
-a part-based appearance (`blueprint::with_a_body`).
+nothing else, the client draws no body: a field that is not there is
+part 0, which is nothing; and no head, for the same reason (below). An
+armor's parts cover that while it is worn, so it shows when the armor is
+taken off (a builder's report, "unequipping an armor sets all body parts
+to 0"). Moonglow draws the same, and since 1.22.1 sets the parts (1, and
+no belt or shoulders, as a creature new in Aurora has them, and head 1)
+in the step that gives such a creature a part-based appearance
+(`blueprint::with_a_body`).
 
 - **Checked:** by eye, in the client's picture beside Moonglow's
   (2026-10-12; `client_render.rs`'s `creatures_look` with `MG_NO_BODY=1
   MG_WORN=0 MG_APPEARANCES=6,6`): the creature without the fields beside
-  one with them. The head showed though `Appearance_Head` was gone too;
-  why was not looked into. The step, in
-  `a_part_based_appearance_brings_a_body`.
+  one with them. (A head showed there because `MG_NO_BODY` keeps
+  `Appearance_Head`; without it there is none: `heads_look`, below.) The
+  step, in `a_part_based_appearance_brings_a_body`.
+
+### A head of 0 is no head
+
+A part-based creature whose `Appearance_Head` is 0, or that has no
+`Appearance_Head` at all, has no head in the client: the neck is drawn
+alone, as for a head number with no model (254). The engine holds 0 for
+both (`GetCreatureBodyPart(CREATURE_PART_HEAD)`). It is not drawn as head
+1. Moonglow's previews, and so its area view, had drawn head 1 for
+either (a builder's report on 2.0.0); they now draw none.
+
+- **Checked:** game client, `client_render.rs`'s `heads_look`
+  (2026-10-26, EE 89.8193.37): a human man wearing nothing, one client
+  run each for head 0, 1, 2, 254 and no field (the EE twin
+  `xAppearance_Head` set with the byte); over the head, the pictures of
+  0 and of no field are within 0.4 of 255 of 254's and 2.8 or more from
+  head 1's. Moonglow's area view of the same areas is held to the same in
+  the test, and its previews in `crates/mg-preview/tests/previews.rs`
+  `a_head_of_0_is_no_head`.
+- **Moonglow:** `crates/mg-preview/src/creature.rs` (`creature`).
+- **Wiki:** the Phenotype Quick Overview calls part 000 "invalid
+  (nothing)", which the client's drawing bears out for heads.
 
 ### An armor's part 0 leaves its wearer's own part
 

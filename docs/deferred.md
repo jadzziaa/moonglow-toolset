@@ -552,11 +552,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Blueprint editors and inventories
 
-- **A head of 0:** the previews draw head 1 for `Appearance_Head` 0,
-  as the client drew a head without the field; whether the game draws
-  head 1 or nothing for a 0 that is there was not looked at. (S)
-  (a builder's report on 2.0.0)
-
 - **Text typed and its field gone before the keyboard left it:** a
   text field that sets its text when the keyboard leaves it gives the
   keyboard up at a press of the pointer anywhere else, and before a

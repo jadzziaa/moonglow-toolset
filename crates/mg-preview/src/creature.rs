@@ -298,8 +298,13 @@ pub fn creature(
                     preview.parts.push(p);
                 }
             }
+            // Head 0, or no field, is no head: the client draws the neck
+            // alone (`client_render.rs`'s `heads_look`).
             None if !hidden("head") => {
-                if let Some(m) = part_model("head", number(utc, "Appearance_Head").max(1), "") {
+                let head = number(utc, "Appearance_Head");
+                if head > 0
+                    && let Some(m) = part_model("head", head, "")
+                {
                     preview.parts.push(with(m, Some("head_g"), false, None));
                 }
             }

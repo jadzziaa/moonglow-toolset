@@ -6621,8 +6621,8 @@ fn a_dropdown_opens_at_what_is_chosen() {
 }
 
 /// A creature made with a single model keeps no body parts: given a
-/// part-based appearance it gets them in the same step (the game draws a
-/// head and no body without them), and one that has parts keeps its own.
+/// part-based appearance it gets them in the same step (the game draws no
+/// body without them, and no head), and one that has parts keeps its own.
 #[test]
 fn a_part_based_appearance_brings_a_body() {
     let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_body", ResType::UTC) else {

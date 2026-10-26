@@ -387,8 +387,9 @@ every change, as Aurora does on OK.
   skeleton's bones if it was compiled against the skeleton (as Beamdog's
   HD bodies are), else not at all. A creature that had a
   single model keeps no body parts: given an appearance with a body of
-  parts, it gets them (each 1, no belt or shoulders) in the same step,
-  since the game draws only a head without them. **Pop
+  parts, it gets them (each 1, no belt or shoulders) and head 1 in the
+  same step, since the game draws no body without them. A head of 0, or
+  none, is no head: the game draws the neck alone. **Pop
   Out**, among the viewer's buttons, moves the model to a window of its
   own (to keep beside other pages); **Bring Back** returns it to the page.
 - **Feats** shows the feats the creature has beside the list to choose
