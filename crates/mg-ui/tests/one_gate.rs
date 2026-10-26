@@ -38,7 +38,7 @@ fn every_dropdown_goes_through_the_widgets() {
     assert!(files.len() > 40, "the sources were found");
     let elsewhere: Vec<String> = files
         .iter()
-        .filter(|(file, _)| !file.ends_with("src/widgets.rs"))
+        .filter(|(file, _)| !Path::new(file).ends_with("src/widgets.rs"))
         .flat_map(|(file, code)| {
             code.lines()
                 .enumerate()

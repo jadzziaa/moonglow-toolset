@@ -3533,11 +3533,14 @@ fn the_save_key_in_a_script_editor_saves_the_script_not_the_module() {
     };
     let unsaved = |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().is_modified();
     // Typed at the top, with the editor's keys.
+    // (Steps, not `run`: the check of a script typed in waits half a second
+    // for a pause, and on a slow machine the rest of that wait is shorter
+    // than a step, which egui asks to repaint at once.)
     let type_in = |h: &mut Harness<'_, Moonglow>, text: &str| {
         h.state_mut().script_tools.jump = Some((key, 0));
-        h.run();
+        h.run_steps(3);
         h.event(egui::Event::Text(text.into()));
-        h.run();
+        h.run_steps(3);
     };
     let leave = |h: &mut Harness<'_, Moonglow>| {
         h.ctx.memory_mut(|m| m.surrender_focus(egui::Id::new(("script", key))));
@@ -16187,8 +16190,11 @@ fn the_talk_table_s_split_is_kept_for_each_table() {
     drop(h);
     let h = session(settings.clone(), "split");
     assert!((strref(&h) - dragged).abs() < 1.5, "kept: {} {dragged}", strref(&h));
+    // (Against the other table's own first look: its name lays out the
+    // header otherwise on macOS.)
+    let fresh = strref(&session(mg_ui::Settings::default(), "other"));
     let h = session(settings, "other");
-    assert!((strref(&h) - before).abs() < 1.5, "its own: {} {before}", strref(&h));
+    assert!((strref(&h) - fresh).abs() < 1.5, "its own: {} {fresh}", strref(&h));
 }
 
 /// An area opens again with its camera where it was left; Tile
@@ -29062,6 +29068,7 @@ fn the_conversation_tree_s_keys_scroll_to_the_line() {
 fn the_conversation_tree_s_other_keys() {
     use mg_module::dialog::{Kind, Parent};
     use mg_ui::dialog_view::Row;
+    use mg_ui::keys::Cmd;
     let (mut h, key) = dialog_from_tree("ui-dialog-tree-keys", &branching_dialog());
     let selected = |h: &Harness<'_, Moonglow>| h.state().dialog_views[&key].selected;
     let folded = |h: &Harness<'_, Moonglow>, line| {
@@ -29084,7 +29091,13 @@ fn the_conversation_tree_s_other_keys() {
     let bye = row(Parent::Node(Kind::Entry, 0), 1);
     let go = row(Parent::Root, 1);
     let link = row(Parent::Node(Kind::Entry, 2), 0);
-    // Backspace: up the branch to Root, and no further.
+    // Backspace: up the branch to Root, and no further. (On macOS Delete
+    // Line has Backspace too, the Mac's delete key, and a command's key
+    // wins: there it is Delete alone here.)
+    h.state_mut().keymap.set(
+        Cmd::DeleteLine,
+        vec![egui::KeyboardShortcut::new(egui::Modifiers::NONE, egui::Key::Delete)],
+    );
     h.get_by_label("Farewell. [END DIALOGUE]").click();
     h.run();
     for want in [traveller, who, hello, None, None] {
