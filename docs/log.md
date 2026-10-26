@@ -2,6 +2,7 @@
 
 ## 2026-10-26
 * **Update**: [Modules](manual/03-modules.md), [the main window](manual/02-main-window.md) and [Options](manual/10-options.md): a module opens again with the tabs it had when it was closed (kept in Moonglow's data folder); [the deferred list](deferred.md): what it does not bring back.
+* **Update**: A held item's Properties follow the item; a creature's Equipment laid out for a narrow window (deferred.md, manual 05-blueprints)
 
 ## 2026-10-25
 * **Update**: [Conversations](manual/06-conversations.md) and [the deferred list](deferred.md): a conversation opened (from the module tree, or its tab brought to the front) has the keys at once, as Aurora gives them: Delete before a click no longer asks to delete the whole conversation (Sacha's report; the owner's choice).

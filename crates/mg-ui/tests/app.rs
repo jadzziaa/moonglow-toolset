@@ -22178,6 +22178,265 @@ fn a_held_item_s_properties_open_from_the_inventory() {
     assert!(item.integer("Cost").is_some());
 }
 
+/// Places a chest holding three longswords tagged `ITEM_A`, `ITEM_B` and
+/// `ITEM_C` in the harness's area: its path.
+fn chest_of_three(h: &mut Harness<'_, Moonglow>, area: ResRef) -> mg_edit::GffPath {
+    use mg_edit::{Command, Edit, GffPath};
+    use mg_module::instances::{Placement, Placing, instance};
+    let game = h.state().game.clone().unwrap();
+    let read = |name: &str, t: ResType| {
+        Gff::read(&game.resman.get(&ResKey::parse(name, t).unwrap()).unwrap()).unwrap().root
+    };
+    let none = |_: ResRef| None;
+    let placing = Placing { game: &game, item: &none };
+    let at = Placement { position: [12.0, 12.0, 0.0], rotation: 0.0 };
+    let mut chest =
+        instance(&placing, ResType::UTP, &read("plc_chest1", ResType::UTP), at, &[]).unwrap();
+    let items = ["ITEM_A", "ITEM_B", "ITEM_C"]
+        .into_iter()
+        .enumerate()
+        .map(|(i, tag)| {
+            let mut sword = read("nw_wswls001", ResType::UTI);
+            sword.id = i as u32;
+            sword.set("Tag", mg_gff::Value::String(tag.as_bytes().to_vec()));
+            sword.set("Repos_PosX", mg_gff::Value::Word(i as u16));
+            sword.set("Repos_Posy", mg_gff::Value::Word(0));
+            sword
+        })
+        .collect();
+    chest.set("HasInventory", mg_gff::Value::Byte(1));
+    chest.set("ItemList", mg_gff::Value::List(items));
+    let placed = Edit::InsertItem {
+        key: ResKey::new(area, ResType::GIT),
+        path: GffPath::root(),
+        list: "Placeable List".into(),
+        index: 0,
+        item: chest,
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(Command::new("Setup", vec![placed])));
+    h.run_steps(2);
+    GffPath::root().item("Placeable List", 0)
+}
+
+/// Whether a field shows `tag` (the Tag of an item's General page).
+fn shows_tag(h: &Harness<'_, Moonglow>, tag: &str) -> bool {
+    let is = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.role() == egui::accesskit::Role::TextInput && n.value().as_deref() == Some(tag)
+    };
+    h.query(egui_kittest::kittest::by().predicate(is)).is_some()
+}
+
+/// The window of a held item open (`area`'s, at `path`) and showing the
+/// item tagged `tag` (its Tag field): where it is.
+fn held_window(h: &Harness<'_, Moonglow>, area: ResRef, tag: &str) -> mg_edit::GffPath {
+    let found = h.state().dock.iter_all_tabs().find_map(|(_, t)| match t {
+        Tab::Instance { area: a, path } if *a == area && path.0.len() > 1 => Some(path.clone()),
+        _ => None,
+    });
+    let path = found.expect("the item's window is open");
+    assert!(shows_tag(h, tag), "it shows {tag}");
+    path
+}
+
+/// A held item's Properties follow the item (Undo and Redo too) as items
+/// are added, removed or moved before it in its inventory, and close
+/// when it is removed; their Cancel sets back the item where it went.
+#[test]
+fn a_held_item_s_properties_follow_the_item() {
+    use mg_edit::{Command, Edit};
+    let Some((mut h, area)) = area_harness("held-follow") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let chest = chest_of_three(&mut h, area);
+    let open = |h: &mut Harness<'_, Moonglow>, i: usize| {
+        let path = chest.item("ItemList", i);
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Instance { area, path }));
+        h.run_steps(4);
+    };
+    let apply = |h: &mut Harness<'_, Moonglow>, what: &str, edits: Vec<Edit>| {
+        h.state_mut().actions.push(mg_ui::Action::Apply(Command::new(what, edits)));
+        h.run_steps(4);
+    };
+    let held = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        chest.get(&ws.doc(&git).unwrap().root).unwrap().list("ItemList").unwrap().to_vec()
+    };
+    let at = |i: usize| chest.item("ItemList", i);
+    let remove = |i: usize| Edit::remove_item(git, chest.clone(), "ItemList", i);
+    open(&mut h, 1);
+    assert_eq!(held_window(&h, area, "ITEM_B"), at(1));
+    // Changed in its window (for its Cancel, below).
+    h.get_by_label("Plot Item").click();
+    h.run_steps(3);
+    assert_eq!(held(&mut h)[1].integer("Plot"), Some(1));
+    // The one before it removed: the window follows it up the list.
+    apply(&mut h, "Remove item", vec![remove(0)]);
+    assert_eq!(held_window(&h, area, "ITEM_B"), at(0));
+    assert!(!shows_tag(&h, "ITEM_C"));
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(4);
+    assert_eq!(held_window(&h, area, "ITEM_B"), at(1), "undone");
+    h.state_mut().actions.push(mg_ui::Action::Redo);
+    h.run_steps(4);
+    assert_eq!(held_window(&h, area, "ITEM_B"), at(0), "redone");
+    // One added before it, and it moved to the end (as Move item does).
+    let mut added = held(&mut h)[1].clone();
+    added.set("Tag", mg_gff::Value::String(b"ITEM_D".to_vec()));
+    apply(&mut h, "Add item", vec![Edit::insert_item(git, chest.clone(), "ItemList", 0, added)]);
+    assert_eq!(held_window(&h, area, "ITEM_B"), at(1));
+    let b = held(&mut h)[1].clone();
+    let moved = vec![remove(1), Edit::insert_item(git, chest.clone(), "ItemList", 2, b)];
+    apply(&mut h, "Move item", moved);
+    assert_eq!(held_window(&h, area, "ITEM_B"), at(2), "moved");
+    // Cancel sets back the item it shows, where it is now, and no other.
+    h.get_by_label("Cancel").click();
+    h.run_steps(4);
+    let items = held(&mut h);
+    let tags: Vec<_> = items.iter().map(|s| s.string("Tag").unwrap().to_vec()).collect();
+    assert_eq!(tags, [&b"ITEM_D"[..], b"ITEM_C", b"ITEM_B"]);
+    assert_eq!(items[2].integer("Plot"), Some(0), "set back");
+    assert_eq!(items[1].integer("Plot"), items[0].integer("Plot"), "the others as they were");
+    assert!(!shows_tag(&h, "ITEM_B"), "closed");
+    // Removed, its window closes (as a placed object's when the object is
+    // deleted).
+    open(&mut h, 2);
+    held_window(&h, area, "ITEM_B");
+    apply(&mut h, "Remove item", vec![remove(2)]);
+    let open_items = h.state().dock.iter_all_tabs().filter(
+        |(_, t)| matches!(t, Tab::Instance { area: a, path } if *a == area && path.0.len() > 1),
+    );
+    assert_eq!(open_items.count(), 0, "closed with its item");
+}
+
+/// A placed store's items open their own Properties too (a page's item,
+/// right click › Properties), which follow the item as the page changes.
+#[test]
+fn a_placed_store_s_items_open_their_properties_and_follow_them() {
+    use mg_edit::{Command, Edit, GffPath};
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("held-store") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let store = {
+        let game = h.state().game.clone().unwrap();
+        let read = |name: ResRef, t: ResType| {
+            let data = game.resman.get(&ResKey::new(name, t)).ok()?;
+            Some(Gff::read(&data).ok()?.root)
+        };
+        let items = |r: ResRef| read(r, ResType::UTI);
+        let placing = Placing { game: &game, item: &items };
+        let at = Placement { position: [12.0, 12.0, 0.0], rotation: 0.0 };
+        let utm = read(ResRef::from_str("nw_storebar01").unwrap(), ResType::UTM).unwrap();
+        instance(&placing, ResType::UTM, &utm, at, &[]).unwrap()
+    };
+    // The page with the bar's drinks, and the second of them.
+    let (page, items) = store
+        .list("StoreList")
+        .unwrap()
+        .iter()
+        .enumerate()
+        .find_map(|(i, p)| Some((i, p.list("ItemList").filter(|l| l.len() > 1)?.to_vec())))
+        .unwrap();
+    assert!(items[1].integer("BaseItem").is_some(), "a placed store holds whole items");
+    let tag = String::from_utf8_lossy(items[1].string("Tag").unwrap()).into_owned();
+    let game = h.state().game.clone().unwrap();
+    let name = game.locstring(items[1].locstring("LocalizedName").unwrap()).unwrap();
+    let placed = Edit::InsertItem {
+        key: git,
+        path: GffPath::root(),
+        list: "StoreList".into(),
+        index: 0,
+        item: store,
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(Command::new("Setup", vec![placed])));
+    let path = GffPath::root().item("StoreList", 0);
+    h.state_mut().blueprint_pages.insert((git, path.clone()), "Inventory");
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Instance { area, path: path.clone() }));
+    h.run_steps(6);
+    let row = h
+        .query_all_by_label_contains(&name)
+        .filter(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
+        .map(|n| n.rect().center())
+        .max_by(|a, b| a.x.total_cmp(&b.x))
+        .unwrap();
+    h.hover_at(row);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: row,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    h.get_by_label("Properties").click();
+    h.run_steps(6);
+    let page = path.item("StoreList", page);
+    assert_eq!(
+        held_window(&h, area, &tag),
+        page.item("ItemList", 1),
+        "{:?}",
+        h.state().log.entries
+    );
+    assert!(h.query_all_by_label("Appearance").count() >= 1, "an item's pages");
+    // The first of the page's items removed: the window follows.
+    let remove = Edit::remove_item(git, page.clone(), "ItemList", 0);
+    h.state_mut().actions.push(mg_ui::Action::Apply(Command::new("Remove item", vec![remove])));
+    h.run_steps(4);
+    assert_eq!(held_window(&h, area, &tag), page.item("ItemList", 0));
+}
+
+/// A placed creature's Properties open about 480 points wide beside the
+/// area: on its Inventory page, the slots' items are in sight at that
+/// width (once they were laid out past the window's right edge; Sacha's
+/// report on 2.5.4).
+#[test]
+fn a_placed_creature_s_equipment_is_in_sight_in_a_narrow_window() {
+    use mg_edit::{Command, Edit, GffPath};
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("equipment-narrow") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let bandit = {
+        let game = h.state().game.clone().unwrap();
+        let read = |name: ResRef, t: ResType| {
+            let data = game.resman.get(&ResKey::new(name, t)).ok()?;
+            Some(Gff::read(&data).ok()?.root)
+        };
+        let items = |r: ResRef| read(r, ResType::UTI);
+        let placing = Placing { game: &game, item: &items };
+        let at = Placement { position: [12.0, 12.0, 0.0], rotation: 0.0 };
+        let utc = read(ResRef::from_str("nw_bandit001").unwrap(), ResType::UTC).unwrap();
+        instance(&placing, ResType::UTC, &utc, at, &[]).unwrap()
+    };
+    let placed = Edit::InsertItem {
+        key: git,
+        path: GffPath::root(),
+        list: "Creature List".into(),
+        index: 0,
+        item: bandit,
+    };
+    h.state_mut().settings.no_inventory_warning = true;
+    h.state_mut().actions.push(mg_ui::Action::Apply(Command::new("Setup", vec![placed])));
+    let path = GffPath::root().item("Creature List", 0);
+    h.state_mut().blueprint_pages.insert((git, path.clone()), "Inventory");
+    let tab = Tab::Instance { area, path };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+    h.run_steps(6);
+    let window = egui::Rect::from_min_size(egui::pos2(20.0, 60.0), egui::vec2(480.0, 672.0));
+    let at = h.state().dock.find_tab(&tab).unwrap();
+    if let Some(w) = h.state_mut().dock.get_window_state_mut(at.surface) {
+        w.set_position(window.min).set_size(window.size());
+    }
+    h.run_steps(4);
+    for item in ["Padded Armor", "Longsword"] {
+        let name = h
+            .get_all_by_label(item)
+            .find(|n| n.accesskit_node().role() != egui::accesskit::Role::Image)
+            .unwrap()
+            .rect();
+        assert!(name.right() < window.right(), "{item} at {name:?}, in a window at {window:?}");
+        assert!(name.left() > window.left() + 200.0, "{item}: right of the palette");
+    }
+}
+
 /// Shown on a woman, an armor and a cloak are her models, and the armor's
 /// inventory icon the one her inventory shows.
 #[test]

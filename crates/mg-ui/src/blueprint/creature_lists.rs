@@ -759,6 +759,137 @@ const SLOTS: [(u32, &str); 18] = [
     (0x2_0000, "Creature Hide"),
 ];
 
+/// How the Equipment's slots are laid out in the width the page gives
+/// them: a line each (the slot's name in a column, the item's icon and
+/// name, Equip and Remove) where that has room, else (a window as
+/// narrow as one opens beside the area) the slot's name over the item's
+/// beside a smaller icon, Equip over Remove, so the item's name stays in
+/// sight at any width.
+struct SlotLayout {
+    /// One line a slot, its names' column this wide; `None`: narrow.
+    label: Option<f32>,
+    /// The width of a row.
+    width: f32,
+    /// The width of Equip and Remove over each other.
+    button: f32,
+}
+
+/// The icon beside a narrow slot's names.
+const NARROW_ICON: egui::Vec2 = egui::vec2(40.0, 80.0);
+
+impl SlotLayout {
+    /// The least room for the item's name on a slot's line.
+    const NAME: f32 = 120.0;
+
+    fn new(ui: &Ui) -> SlotLayout {
+        // (The side panel's margin keeps it clear of the scroll bar.)
+        let width = ui.available_width();
+        let measure = |text: &str, style: egui::TextStyle| {
+            let font = style.resolve(ui.style());
+            ui.painter().layout_no_wrap(text.into(), font, egui::Color32::WHITE).size().x
+        };
+        let body = egui::TextStyle::Body;
+        let label = SLOTS.iter().map(|(_, s)| measure(s, body.clone())).fold(0.0, f32::max);
+        let pad = 2.0 * ui.spacing().button_padding.x;
+        let (equip, remove) = (measure("Equip", egui::TextStyle::Button) + pad, {
+            measure("Remove", egui::TextStyle::Button) + pad
+        });
+        let gap = ui.spacing().item_spacing.x;
+        let one_line = label + crate::images::ICON_MAX.x + Self::NAME + equip + remove + 4.0 * gap;
+        SlotLayout { label: (width >= one_line).then_some(label), width, button: equip.max(remove) }
+    }
+}
+
+/// What a slot's row reports: its item's name (clicked, dragged, its
+/// menu), Equip clicked, Remove, and the row's place (a drop on it).
+struct SlotRow {
+    name: egui::Response,
+    equip: bool,
+    take: egui::Response,
+    rect: egui::Rect,
+}
+
+/// What a slot's row shows: the slot, its item's icon, name (`shown`)
+/// and tip, whether it is selected, and which buttons are on.
+struct SlotLook<'a> {
+    slot: &'a str,
+    icon: &'a [crate::images::Picture],
+    shown: &'a str,
+    tip: Option<String>,
+    selected: bool,
+    striped: bool,
+    can_equip: bool,
+    can_take: bool,
+}
+
+/// A slot of the Equipment, laid out as `layout` says, across the whole
+/// width.
+fn slot_row(ui: &mut Ui, layout: &SlotLayout, look: SlotLook<'_>) -> SlotRow {
+    let SlotLook { slot, icon, shown, tip, selected, striped, can_equip, can_take } = look;
+    let gap = ui.spacing().item_spacing.y;
+    let line = ui.spacing().interact_size.y;
+    let (max, lines) = match layout.label {
+        Some(_) => (crate::images::ICON_MAX, line),
+        None => (NARROW_ICON, 2.0 * line + gap),
+    };
+    let height = (crate::images::icon_size(icon, max).y + 4.0).max(lines);
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(layout.width, height), egui::Sense::hover());
+    if striped {
+        ui.painter().rect_filled(rect, 0.0, ui.visuals().faint_bg_color);
+    }
+    let across = egui::Layout::left_to_right(egui::Align::Center);
+    let mut row = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(across));
+    if let Some(w) = layout.label {
+        // (A column: the icons and names after it in line.)
+        let used = crate::widgets::field_label(&mut row, slot).rect.width();
+        row.add_space((w - used).max(0.0));
+    }
+    crate::images::icon_box(&mut row, icon, max, shown);
+    let back = egui::Layout::right_to_left(egui::Align::Center);
+    let (name, equip, take) = row
+        .with_layout(back, |ui| {
+            let remove = || egui::Button::new("Remove").small();
+            let equip = || egui::Button::new("Equip").small();
+            let (equip, take) = if layout.label.is_some() {
+                let take = ui.add_enabled(can_take, remove());
+                (ui.add_enabled(can_equip, equip()), take)
+            } else {
+                let size = egui::vec2(layout.button, lines);
+                let stacked = egui::Layout::top_down_justified(egui::Align::Center);
+                ui.allocate_ui_with_layout(size, stacked, |ui| {
+                    let equip = ui.add_enabled(can_equip, equip());
+                    (equip, ui.add_enabled(can_take, remove()))
+                })
+                .inner
+            };
+            let equip = equip.on_hover_text("Equip the item chosen in the palette").clicked();
+            let names = egui::vec2(ui.available_width(), lines);
+            let down = egui::Layout::top_down(egui::Align::Min);
+            let name = ui
+                .allocate_ui_with_layout(names, down, |ui| {
+                    if layout.label.is_none() {
+                        // (A long one cut short: whole in its tip.)
+                        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                        crate::widgets::field_label(ui, slot);
+                    }
+                    let width = ui.available_width();
+                    let name = egui::Button::selectable(selected, (shown, egui::Atom::grow()))
+                        .min_size(egui::vec2(width, 0.0))
+                        .truncate()
+                        .sense(egui::Sense::click_and_drag());
+                    let r = ui.add(name);
+                    match tip {
+                        Some(tip) => r.on_hover_text(tip),
+                        None => r,
+                    }
+                })
+                .inner;
+            (name, equip, take)
+        })
+        .inner;
+    SlotRow { name, equip, take, rect }
+}
+
 /// A creature's items' flags (Aurora's Options, under its palette): each
 /// field, labeled as Aurora labels it, and Aurora's tip with what the game
 /// does with it.
@@ -976,8 +1107,10 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     let mut options = OptionsOut::default();
     let mut pick_item = None;
     ui.horizontal_top(|ui| {
+        // (Narrower in a narrow window, leaving the slots room.)
+        let palette = (ui.available_width() * 0.4).clamp(200.0, 240.0);
         ui.vertical(|ui| {
-            ui.set_width(240.0);
+            ui.set_width(palette);
             // (The item chosen stays in sight under the tree, and Aurora's
             // Options under it, for the items selected on the right.)
             add = f.palette_picker_over(ui, BlueprintKind::Item, "Add to Backpack", |f, ui| {
@@ -1006,21 +1139,31 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             {
                 crate::widgets::section_heading(ui, "Equipment");
                 let icons: Vec<_> = equipped.iter().map(|e| f.entry_icon(ui.ctx(), e)).collect();
-                egui::Grid::new(("utc-equip", key)).num_columns(5).striped(true).show(ui, |ui| {
-                    for (bit, slot) in SLOTS {
-                        let first = crate::widgets::field_label(ui, slot).rect;
+                let layout = SlotLayout::new(ui);
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    for (n, (bit, slot)) in SLOTS.into_iter().enumerate() {
                         let at = equipped.iter().position(|s| s.id == bit);
                         let shown = at.map_or_else(
                             || "—".to_string(),
                             |i| f.entry_name(&equipped[i], &names),
                         );
-                        let icon = at.map_or(&[][..], |i| &icons[i][..]);
-                        crate::images::icon_box(ui, icon, crate::images::ICON_MAX, &shown);
-                        let on =
-                            at.is_some_and(|i| selected.items.contains(&("Equip_ItemList", i)));
-                        let label = egui::Button::selectable(on, shown)
-                            .sense(egui::Sense::click_and_drag());
-                        let r = ui.add(label);
+                        let tip = at.map(|i| {
+                            format!("{shown} ({})", inventory::entry_resref(&equipped[i]))
+                        });
+                        let look = SlotLook {
+                            slot,
+                            icon: at.map_or(&[][..], |i| &icons[i][..]),
+                            shown: &shown,
+                            tip,
+                            selected: at
+                                .is_some_and(|i| selected.items.contains(&("Equip_ItemList", i))),
+                            striped: n % 2 == 1,
+                            can_equip: chosen.is_some(),
+                            can_take: at.is_some(),
+                        };
+                        let SlotRow { name: r, equip: equip_here, take, rect } =
+                            slot_row(ui, &layout, look);
                         if r.clicked()
                             && let Some(i) = at
                         {
@@ -1059,15 +1202,9 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                                 }
                             });
                         }
-                        if ui
-                            .add_enabled(chosen.is_some(), egui::Button::new("Equip").small())
-                            .on_hover_text("Equip the item chosen in the palette")
-                            .clicked()
-                        {
+                        if equip_here {
                             equip = Some(bit);
                         }
-                        let take =
-                            ui.add_enabled(at.is_some(), egui::Button::new("Remove").small());
                         if take.clicked()
                             && let Some(i) = at
                         {
@@ -1075,12 +1212,9 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                         }
                         // The slot's row (from its name to its buttons)
                         // takes what is dropped on it.
-                        let row =
-                            first.union(r.rect).union(take.rect).expand2(egui::vec2(2.0, 1.0));
-                        if let Some(d) = inventory::dropped_on(ui, row) {
+                        if let Some(d) = inventory::dropped_on(ui, rect) {
                             slot_drop = Some((bit, d));
                         }
-                        ui.end_row();
                     }
                 });
                 ui.add_space(crate::widgets::SECTION_GAP);

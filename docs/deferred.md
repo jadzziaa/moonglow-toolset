@@ -647,12 +647,17 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Shown on): the model and the page's icons. The icons in inventories
   and the palette stay the man's, and the choice lasts until Moonglow is
   closed. (S) (from builders' reports after 1.10.1)
-- **A held item's own Properties** (a placed object's inventory, right
-  click › Properties) are found by the item's place in the list: with
-  the window open, an item added, removed or moved before it in that
-  inventory leaves the window on another item (or none). A blueprint's
-  items (which are named, not held whole) open the item's blueprint
-  instead; a placed store's weren't tried. (S)
+- **A held item's own Properties, what they can't follow:** the window
+  follows its item as items are added, removed or moved before it (a
+  placed creature's, placeable's or store's; Undo and Redo too), and
+  closes when it is removed. An item moved between a creature's backpack
+  and its equipment (Equip, To Backpack, a drag), or to another object's
+  inventory, is made again from its blueprint, so its window closes, and
+  what was changed in the item itself is lost with the old one. A list
+  or resource set whole (a creature window's Cancel sets its `ItemList`
+  back whole) can't be followed: the window keeps its place in the list.
+  A window moved to its item's new place starts its page afresh (its
+  scroll, a field being typed in). (S)
   (from builders' reports after 1.10.1)
 - **Spells as the Feats page is now** (those known beside those to
   choose from): asked for, and left: the page also has levels, classes
@@ -690,9 +695,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   game's own modules and blueprints have them as 1 when set and left out
   when not, which is what Moonglow writes. Several items selected at once
   is Moonglow's (Aurora selects one). (S) (Sacha's report on 2.5.4)
-- **A placed creature's Inventory in its window as it opens** (about
-  480 points wide) has the slots' item names scrolled out of sight to
-  the right of the side panel; widening the window shows them. (S)
+- **A creature's Equipment in a narrow window** (about 480 points, as
+  a placed creature's Properties open beside the area) shows each slot's
+  name over its item's beside a smaller icon, Equip over Remove; the
+  longer slot names (Secondary Weapon or Shield, the creature weapons)
+  are cut short there, whole in their tips. Aurora lays the slots out
+  as a paper doll of icons, which Moonglow doesn't. (S)
   (seen while testing Sacha's report on 2.5.4)
 
 ## Bulk editing
