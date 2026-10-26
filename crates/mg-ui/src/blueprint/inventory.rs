@@ -194,11 +194,19 @@ impl Form<'_> {
         self.base_item_fit(base.unwrap_or(-1))
     }
 
-    /// A new entry for `resref` in an inventory holding `items`: at the
+    /// Where an item to add fits: a moved one's own, else its blueprint's.
+    pub(super) fn added_fit(&mut self, added: &Added) -> ItemFit {
+        match added {
+            Added::Blueprint(r) => self.item_fit(*r),
+            Added::Item(item) => self.entry_fit(item),
+        }
+    }
+
+    /// A new entry in an inventory holding `items`, at its end: at the
     /// first free place, its struct id the list position (as Aurora writes
-    /// them).
-    /// For a placed object, the whole item instead of its resref.
-    pub(super) fn inventory_item(&mut self, items: &[Struct], resref: ResRef) -> Struct {
+    /// them). A blueprint's item is made: for a placed object, the whole
+    /// item instead of its resref. An item moved here is itself.
+    pub(super) fn inventory_item(&mut self, items: &[Struct], added: &Added) -> Struct {
         let taken: Vec<_> = items
             .iter()
             .map(|it| {
@@ -208,22 +216,62 @@ impl Form<'_> {
                 (x, y, fit.w, fit.h)
             })
             .collect();
-        let fit = self.item_fit(resref);
-        let (x, y) = place(&taken, fit.w, fit.h);
         let id = items.len() as u32;
-        let mut item = if self.is_instance()
+        let item = match added {
+            Added::Blueprint(resref) => self.new_item(*resref, id),
+            Added::Item(item) => self.carried(item, id),
+        };
+        let fit = self.added_fit(added);
+        let (x, y) = place(&taken, fit.w, fit.h);
+        mg_module::instances::listed_item(&item, id, x as u16, y as u16)
+    }
+
+    /// A new item of blueprint `resref` as this object holds one (`id`: its
+    /// struct id): a placed object the whole item, a blueprint the resref.
+    fn new_item(&mut self, resref: ResRef, id: u32) -> Struct {
+        if self.is_instance()
             && let Some(whole) = self.held_item(resref, id)
         {
-            whole
-        } else {
-            let mut entry = Struct::new(id);
-            entry.set("InventoryRes", Value::resref(resref));
-            entry
-        };
-        item.set("Repos_PosX", Value::Word(x as u16));
-        item.set("Repos_Posy", Value::Word(y as u16));
-        item
+            return whole;
+        }
+        let mut entry = Struct::new(id);
+        entry.set("InventoryRes", Value::resref(resref));
+        entry
     }
+
+    /// `item`, from another place, as this object holds it (`id`: its
+    /// struct id): itself, every field it has kept, where it is of the
+    /// kind this object holds (a whole item into a placed object, a
+    /// blueprint's entry into a blueprint), as Aurora moves one. Otherwise
+    /// it is made from its blueprint, keeping its flags.
+    pub(super) fn carried(&mut self, item: &Struct, id: u32) -> Struct {
+        if is_whole(item) == self.is_instance() {
+            let mut s = item.clone();
+            s.id = id;
+            return s;
+        }
+        let mut s = self.new_item(entry_resref(item), id);
+        for flag in ["Dropable", "Pickpocketable"] {
+            if let Some(v) = item.get(flag) {
+                s.set(flag, v.clone());
+            }
+        }
+        s
+    }
+}
+
+/// Whether an inventory's entry is a whole item (a placed object's), not
+/// a blueprint's entry naming one.
+pub(super) fn is_whole(entry: &Struct) -> bool {
+    entry.integer("BaseItem").is_some()
+}
+
+/// What goes into an inventory: a new item of a blueprint, or an item
+/// moved (or copied) from another place, as it is.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) enum Added {
+    Blueprint(ResRef),
+    Item(Struct),
 }
 
 /// The first free place for a `w`×`h` item, row by row, among `taken`
@@ -287,12 +335,14 @@ pub(super) fn flag_edit(
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Dragged {
     Palette(ResRef),
-    /// `source`: the document and the object in it whose `ItemList` it is.
+    /// `source`: the document and the object in it whose `ItemList` it is;
+    /// `item`: the item itself, as it is there.
     Listed {
         owner: egui::Id,
         source: (ResKey, GffPath),
         index: usize,
         resref: ResRef,
+        item: Struct,
     },
     /// `source`: the creature whose `Equip_ItemList` it is.
     Equipped {
@@ -300,6 +350,7 @@ pub(crate) enum Dragged {
         source: (ResKey, GffPath),
         index: usize,
         resref: ResRef,
+        item: Struct,
     },
 }
 
@@ -520,6 +571,7 @@ pub(super) fn item_list(
                             source: (key, path.clone()),
                             index: i,
                             resref,
+                            item: it.clone(),
                         });
                     }
                     r.context_menu(|ui| {
@@ -593,26 +645,25 @@ pub(super) fn item_list(
 }
 
 impl Form<'_> {
-    /// What an item list reported that is the same for every inventory:
-    /// What an inventory page does with what its list came to: the
-    /// blueprints to add (picked, pasted or dropped) go to the end of the
-    /// object's `ItemList` at `base`, with `taken` (what took a moved one
-    /// from where it was), as one step; the list's own `edits`, each a
-    /// step.
+    /// What an inventory page does with what its list came to: the items
+    /// to add (picked, pasted or dropped) go to the end of the object's
+    /// `ItemList` at `base`, with `taken` (what took a moved one from where
+    /// it was), as one step; the list's own `edits`, each a step.
     pub(super) fn apply_list(
         &mut self,
         base: &GffPath,
         items: &[Struct],
-        adds: Vec<ResRef>,
+        adds: Vec<Added>,
         taken: Vec<Edit>,
         edits: Vec<(&'static str, Edit)>,
     ) {
         let key = self.key;
         if !adds.is_empty() {
             let mut held = items.to_vec();
+            let what = if taken.is_empty() { "Add item" } else { "Move item" };
             let mut together = taken;
-            for r in adds {
-                let item = self.inventory_item(&held, r);
+            for added in adds {
+                let item = self.inventory_item(&held, &added);
                 together.push(Edit::insert_item(
                     key,
                     base.clone(),
@@ -622,7 +673,7 @@ impl Form<'_> {
                 ));
                 held.push(item);
             }
-            self.app.actions.push(Action::Apply(Command::new("Add item", together)));
+            self.app.actions.push(Action::Apply(Command::new(what, together)));
         }
         for (what, edit) in edits {
             self.app.actions.push(Action::Apply(Command::new(what, vec![edit])));
@@ -632,8 +683,9 @@ impl Form<'_> {
     /// Copy and Properties from a row's menu, a row moved within the
     /// list, and what there is to add to it: the items pasted, one dragged
     /// from the palette, one dragged from another object's inventory
-    /// (moved out of it, unless Ctrl is held: then a copy). The blueprints
-    /// to add, and the edits that take the moved ones from where they were.
+    /// (moved out of it, unless Ctrl is held: then a copy; either way the
+    /// item as it is there). What to add, and the edits that take the
+    /// moved ones from where they were.
     pub(super) fn list_events(
         &mut self,
         ui: &Ui,
@@ -641,7 +693,7 @@ impl Form<'_> {
         out: &mut ListOut,
         whose: egui::Id,
         at: &GffPath,
-    ) -> (Vec<ResRef>, Vec<Edit>) {
+    ) -> (Vec<Added>, Vec<Edit>) {
         let (mut adds, mut removals) = (Vec::new(), Vec::new());
         match out.asked {
             Some((i, Ask::Open)) => {
@@ -661,22 +713,30 @@ impl Form<'_> {
             self.app.actions.push(Action::Apply(Command::new("Move item", moved)));
         }
         if out.paste {
-            adds.extend(self.app.item_clip.iter().copied());
+            adds.extend(self.app.item_clip.iter().copied().map(Added::Blueprint));
         }
         match &out.dropped {
-            Some(Dragged::Palette(r)) => adds.push(*r),
+            Some(Dragged::Palette(r)) => adds.push(Added::Blueprint(*r)),
             Some(
-                d @ (Dragged::Listed { owner, resref, .. }
-                | Dragged::Equipped { owner, resref, .. }),
+                d @ (Dragged::Listed { owner, item, .. } | Dragged::Equipped { owner, item, .. }),
             ) if *owner != whose => {
-                adds.push(*resref);
-                if !ui.input(|i| i.modifiers.command) {
-                    removals.extend(d.removal());
-                }
+                adds.push(Added::Item(item.clone()));
+                removals.extend(self.taking(ui, d));
             }
             _ => {}
         }
         (adds, removals)
+    }
+
+    /// The edit that takes an item dropped here from where it was dragged
+    /// from: none with Ctrl held (a copy), nor from the game's blueprint
+    /// shown to look at (which nothing changes: a copy too).
+    pub(super) fn taking(&self, ui: &Ui, dragged: &Dragged) -> Vec<Edit> {
+        if ui.input(|i| i.modifiers.command) {
+            return Vec::new();
+        }
+        let viewed = |e: &Edit| self.app.ws.as_ref().is_some_and(|ws| ws.is_viewed(e.key()));
+        dragged.removal().into_iter().filter(|e| !viewed(e)).collect()
     }
 
     /// Copies an item (its blueprint), to paste into an inventory.

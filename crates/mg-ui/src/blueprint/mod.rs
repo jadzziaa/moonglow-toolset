@@ -527,6 +527,13 @@ impl Form<'_> {
     }
 
     fn id(&self, name: &str) -> egui::Id {
+        // (A placed object's window keeps its widgets' ids as it follows
+        // its object.)
+        if self.key.restype == ResType::GIT
+            && let Some(id) = self.app.window_ids.get(&(self.key.resref, self.path.clone()))
+        {
+            return id.with(("blueprint", name));
+        }
         egui::Id::new(("blueprint", self.key, &self.path, name))
     }
 

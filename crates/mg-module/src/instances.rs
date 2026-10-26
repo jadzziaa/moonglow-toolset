@@ -812,6 +812,48 @@ pub fn held(p: &Placing<'_>, bp: &Struct, id: u32) -> Struct {
     held_item(p, bp, id, 1)
 }
 
+/// The fields that say where an item is held in an inventory, which a
+/// move changes: its place in the grid. (Its struct id too: its place in
+/// a list, or the slot it is equipped in.)
+pub const PLACE_FIELDS: [&str; 2] = ["Repos_PosX", "Repos_Posy"];
+
+/// Renames field `from` of `s` to `to` where it is, keeping the order.
+fn rename_field(s: &mut Struct, from: &str, to: &str) {
+    if s.contains(to) {
+        return;
+    }
+    if let Some(f) = s.fields.iter_mut().find(|f| f.label.as_bytes() == from.as_bytes()) {
+        f.label = mg_gff::Label::new(to).expect("a short label");
+    }
+}
+
+/// `item` (from a backpack, a slot, a container or a store) as an item of
+/// a list of items (`ItemList`): item `id` of it, at `x`, `y` in the grid;
+/// all else as it was (a blueprint's `EquippedRes` named `InventoryRes`),
+/// as Aurora moves an item into a creature's backpack.
+pub fn listed_item(item: &Struct, id: u32, x: u16, y: u16) -> Struct {
+    let mut s = item.clone();
+    s.id = id;
+    rename_field(&mut s, "EquippedRes", "InventoryRes");
+    s.set("Repos_PosX", Value::Word(x));
+    s.set("Repos_Posy", Value::Word(y));
+    s
+}
+
+/// `item` as equipped in slot `bit` (its struct id): without a place in
+/// the grid, all else as it was (a blueprint's `InventoryRes` named
+/// `EquippedRes`), as the game's modules hold them and Aurora equips an
+/// item from the backpack.
+pub fn equipped_item(item: &Struct, bit: u32) -> Struct {
+    let mut s = item.clone();
+    s.id = bit;
+    rename_field(&mut s, "InventoryRes", "EquippedRes");
+    for label in PLACE_FIELDS {
+        s.remove(label);
+    }
+    s
+}
+
 /// An item as it is held (in an inventory, a store or equipped): its
 /// fields as placed, at −1, −1, −1 facing north; containers hold theirs.
 fn held_item(p: &Placing<'_>, bp: &Struct, id: u32, depth: u32) -> Struct {
@@ -1647,5 +1689,44 @@ mod tests {
             }
         }
         assert_eq!(placed.list("Equip_ItemList").unwrap()[0].id, 16, "in its slot");
+    }
+
+    /// An item moved between the backpack and a slot changes where it is
+    /// held and nothing else, as the game's modules and Aurora write them:
+    /// a place in the grid in the backpack, none in a slot (the slot its
+    /// struct id); a blueprint's entry names its item `InventoryRes` in the
+    /// backpack and `EquippedRes` in a slot, in the same place among its
+    /// fields.
+    #[test]
+    fn an_item_moved_changes_only_where_it_is_held() {
+        let mut entry = {
+            let mut s = Struct::new(0);
+            s.set("InventoryRes", Value::resref(ResRef::from_str("nw_it_torch001").unwrap()));
+            s.set("Dropable", Value::Byte(1));
+            s
+        };
+        entry.id = 3;
+        entry.set("Repos_PosX", Value::Word(4));
+        entry.set("Repos_Posy", Value::Word(1));
+        entry.set("MG_Probe", Value::Int(7));
+        let worn = equipped_item(&entry, 0x100);
+        let labels = |s: &Struct| s.fields.iter().map(|f| f.label.to_string()).collect::<Vec<_>>();
+        assert_eq!(worn.id, 0x100);
+        assert_eq!(labels(&worn), ["EquippedRes", "Dropable", "MG_Probe"]);
+        assert_eq!(worn.resref("EquippedRes"), entry.resref("InventoryRes"));
+        let back = listed_item(&worn, 3, 4, 1);
+        assert_eq!(back.id, 3);
+        assert_eq!(
+            labels(&back),
+            ["InventoryRes", "Dropable", "MG_Probe", "Repos_PosX", "Repos_Posy"]
+        );
+        assert_eq!(back.get("MG_Probe"), entry.get("MG_Probe"));
+        // A whole item (a placed creature's) has neither name: as it is.
+        let mut whole = Struct::new(0);
+        whole.set("BaseItem", Value::Int(52));
+        whole.set("TemplateResRef", Value::resref(ResRef::from_str("nw_it_mring022").unwrap()));
+        whole.set("Pickpocketable", Value::Byte(1));
+        let worn = equipped_item(&listed_item(&whole, 0, 0, 0), 0x80);
+        assert_eq!((worn.id, labels(&worn)), (0x80, labels(&whole)));
     }
 }

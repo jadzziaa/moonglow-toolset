@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:14:43Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:16:54Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -608,17 +608,19 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   free slot, To Backpack and Open Blueprint; talk-table text in its own
   color; a Variables window that is sized; drag and drop and right-click
   menus in the inventory, items dragged between inventories and within
-  a list, Copy and Paste): an item carried between
-  inventories is made anew from its blueprint where it lands (what a
-  placed object's own copy had is lost), one at a time, and the drag
-  between two objects' windows is not under test; a moved row keeps its
-  place in the game's inventory grid (only the list's order changes); a
-  slot-to-slot move and
-  equipping from the backpack are two undo steps each, and skip the
-  question about a missing feat when moved between slots;
-  blueprints made in a category the palette hides;
-  new strings written to a talk-table range; equipping from the
-  backpack makes a placed creature's item anew from its blueprint. (S–M)
+  a list, Copy and Paste; an item moved as it is, in one step): items
+  are carried one at a time; of the drags between two objects' windows
+  only a chest's item onto a creature's backpack is under test; an item
+  carried between a placed object and a blueprint is made from its
+  blueprint there (a blueprint holds only that); Copy and Paste carry
+  the blueprint, so what is pasted is made from it; a moved row keeps
+  its place in the game's inventory grid (only the list's order
+  changes); an item moved from one slot to another asks the question
+  about a missing feat as any Equip does (whether Aurora asks there was
+  not looked at); an item dropped on a slot that is taken replaces what
+  is there, which is removed, not put in the backpack (what Aurora does
+  was not looked at); blueprints made in a category the palette hides;
+  new strings written to a talk-table range. (S–M)
   (a second builder's review, October 2026)
 - **Appearances as pictures** are placeables', creatures' and doors';
   an item's model, and each of a weapon's three parts, are chosen from
@@ -631,16 +633,21 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   and the palette stay the man's, and the choice lasts until Moonglow is
   closed. (S) (from builders' reports after 1.10.1)
 - **A held item's own Properties, what they can't follow:** the window
-  follows its item as items are added, removed or moved before it (a
-  placed creature's, placeable's or store's; Undo and Redo too), and
-  closes when it is removed. An item moved between a creature's backpack
-  and its equipment (Equip, To Backpack, a drag), or to another object's
-  inventory, is made again from its blueprint, so its window closes, and
-  what was changed in the item itself is lost with the old one. A list
-  or resource set whole (a creature window's Cancel sets its `ItemList`
-  back whole) can't be followed: the window keeps its place in the list.
-  A window moved to its item's new place starts its page afresh (its
-  scroll, a field being typed in). (S)
+  follows its item (keeping its page: its scroll, a field being typed
+  in) as items are added, removed or moved before it, as it is moved to
+  a slot, the backpack or another object's inventory (in its area or
+  another), and as a list is set back whole (a creature window's
+  Cancel); Undo and Redo too. It goes by what the item is, so of two
+  items alike but for where they are held (two torches), a move or a
+  list set back takes it to the first. A list set back with its item
+  changed otherwise (changed in its own window after the creature
+  window's first change, so the creature's Cancel sets back the older
+  copy) is found only where it was and of the same blueprint; else the
+  window closes. An item carried to a blueprint's inventory (made from
+  its blueprint there) closes its window; a resource set whole (an
+  area's GIT replaced) can't be followed: the window keeps its place.
+  Several objects edited together stay in their area's window when one
+  is carried to another area (it leaves it). (S)
   (from builders' reports after 1.10.1)
 - **Spells as the Feats page is now** (those known beside those to
   choose from): asked for, and left: the page also has levels, classes
@@ -690,13 +697,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   game's own modules and blueprints have them as 1 when set and left out
   when not, which is what Moonglow writes. Several items selected at once
   is Moonglow's (Aurora selects one). (S) (Sacha's report on 2.5.4)
-- **A creature's Equipment in a narrow window** (about 480 points, as
-  a placed creature's Properties open beside the area) shows each slot's
-  name over its item's beside a smaller icon, Equip over Remove; the
-  longer slot names (Secondary Weapon or Shield, the creature weapons)
-  are cut short there, whole in their tips. Aurora lays the slots out
-  as a paper doll of icons, which Moonglow doesn't. (S)
-  (seen while testing Sacha's report on 2.5.4)
 
 ## Bulk editing
 
@@ -3706,6 +3706,16 @@ log.
 
 Nothing is left to do on these; they are kept so that a report of one
 is not taken for a new gap.
+
+- **A creature's Equipment in a narrow window** (about 480 points, as
+  a placed creature's Properties open beside the area) shows each slot's
+  name over its item's beside a smaller icon, Equip over Remove; the
+  longer slot names (Secondary Weapon or Shield, the creature weapons)
+  are cut short there, whole in their tips. Kept: Aurora's inventory
+  names no slot at all (a paper doll of icons, seen again in the
+  capture of October 2026), so a name cut short with its tip says more
+  than Aurora does, and the item's name, which matters more, stays
+  whole in sight.
 
 - **Seams between tiles:** drawn as instances, a sample on the seam of
   two tiles may show the other tile's floor (12 of 192 pictures, one to

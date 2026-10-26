@@ -199,6 +199,6 @@ fn contents(f: &mut Form<'_>, ui: &mut Ui) {
         (adds, taken) = f.list_events(ui, &items, &mut out, whose, &base);
         edits = out.edits;
     });
-    adds.extend(add);
+    adds.extend(add.map(inventory::Added::Blueprint));
     f.apply_list(&base, &items, adds, taken, edits);
 }

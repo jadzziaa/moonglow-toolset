@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:06:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:26:37Z }
 ---
 
 # Blueprints
@@ -407,10 +407,19 @@ A domain or school left **Not set** is the game's to choose.
   opens the item's properties: for a placed object (a creature, a
   placeable, a store), the item as that object holds it, to change there
   as in Aurora; for a blueprint, the item's blueprint (the module's to
-  edit, the game's to look at). A held item's window stays on its item
-  while items are added, removed or moved before it in that inventory
-  (Undo and Redo too), and closes when the item is removed, as a placed
-  object's does when the object is deleted. In a narrow window (as one
+  edit, the game's to look at). An item moved (Equip, To Backpack, a
+  drag to a slot, to the backpack or to another object's inventory) is
+  moved as it is, in one step: what was changed in it (its own name,
+  tag, charges, properties, flags) goes with it, as in Aurora, and an
+  item whose blueprint is gone moves too; only where it is held changes
+  (an item in the backpack has a place in its grid, an equipped one its
+  slot). A held item's window stays on its item while items are added,
+  removed or moved before it (Undo and Redo too), follows it when it is
+  moved (to a slot, the backpack or another object), and when the
+  creature window's **Cancel** sets its lists back; it keeps its page as
+  it was (its scroll, what is being typed in a field). It closes when the
+  item is removed, as a placed object's does when the object is deleted.
+  In a narrow window (as one
   opens beside the area), each slot shows its name over the item's,
   beside a smaller icon, with Equip over Remove, so the item's name stays
   in sight; a name too long for the room is cut short, and whole in its
@@ -426,12 +435,16 @@ A domain or school left **Not set** is the game's to choose.
 - **Between inventories, and within one:** drag an item from one object's
   inventory (a creature's backpack or equipment, a placeable's contents,
   a store's page) onto another's list or a creature's slot to move it
-  there; hold Ctrl as you let go to copy it instead. Drag a row onto
+  there, as it is; hold Ctrl as you let go to copy it instead (a copy of
+  it as it is; from the game's blueprint, shown to look at, it is always
+  a copy). An item carried from a placed object to a blueprint is
+  made from its blueprint there, as a blueprint holds only that (and the
+  other way round). Drag a row onto
   another row of its own list to move it to that place. **Copy** (a
   row's right-click menu, or Ctrl+C with the pointer over it) and
   **Paste** (the menu, **Paste (n)** in the list's heading, or Ctrl+V
-  over the list) carry an item from any inventory to any other, in any
-  module open after it. Equipping an item the
+  over the list) carry an item's blueprint from any inventory to any
+  other, in any module open after it: what is pasted is made from it. Equipping an item the
   creature lacks the feat for (a weapon proficiency, an armor weight)
   asks whether to give it the feat. A store's items can be marked
   **Infinite** (its Inventory's column).

@@ -998,9 +998,13 @@ fn item_options(
     out
 }
 
-/// The slots an item can go in (its base item's `EquipableSlots`).
-fn item_slots(f: &mut Form<'_>, resref: ResRef) -> u32 {
-    let base = f.blueprint(BlueprintKind::Item, resref).and_then(|u| u.integer("BaseItem"));
+/// The slots an item can go in (its base item's `EquipableSlots`): a
+/// whole item's own base item (`item`, one moved), else its blueprint's.
+fn item_slots(f: &mut Form<'_>, resref: ResRef, item: Option<&Struct>) -> u32 {
+    let base = match item.and_then(|s| s.integer("BaseItem")) {
+        Some(b) => Some(b),
+        None => f.blueprint(BlueprintKind::Item, resref).and_then(|u| u.integer("BaseItem")),
+    };
     let table = f.app.game.as_deref().and_then(|g| g.table("baseitems").ok());
     match (table, base) {
         (Some(t), Some(b)) => t.get_int(b.max(0) as usize, "EquipableSlots").unwrap_or(0) as u32,
@@ -1030,20 +1034,63 @@ fn tlk(game: Option<&GameData>, (strref, english): (u32, &str)) -> String {
     game.and_then(|g| g.string(mg_core::StrRef(strref))).unwrap_or_else(|| english.to_string())
 }
 
-/// The edits that equip `r` in slot `bit`, replacing what is there.
-fn equip_edits(f: &mut Form<'_>, equipped: &[Struct], bit: u32, r: ResRef) -> Vec<Edit> {
+/// An item equipped from where it was (the backpack, another slot,
+/// another object's inventory): itself, and the edits that take it from
+/// there (none for a copy), made with the equipping as one step.
+#[derive(Debug, Clone, PartialEq)]
+struct Moving {
+    item: Struct,
+    taken: Vec<Edit>,
+}
+
+/// The creature's `equipped` items once `taken` has run: without those it
+/// takes out of them (an item moved from one slot to another).
+fn after_taken(f: &Form<'_>, equipped: &[Struct], taken: &[Edit]) -> Vec<Struct> {
+    let mut rest = equipped.to_vec();
+    for e in taken {
+        if let Edit::RemoveItem { key, path, list, index } = e
+            && (*key, path, list.as_str()) == (f.key, &f.path, "Equip_ItemList")
+            && *index < rest.len()
+        {
+            rest.remove(*index);
+        }
+    }
+    rest
+}
+
+/// The edits that equip `r` in slot `bit`, replacing what is there:
+/// `moving` taken from where it was and put there as it is, else a new
+/// item of blueprint `r`.
+fn equip_edits(
+    f: &mut Form<'_>,
+    equipped: &[Struct],
+    bit: u32,
+    r: ResRef,
+    moving: Option<&Moving>,
+) -> Vec<Edit> {
     let (key, base) = (f.key, f.path.clone());
-    // A placed creature holds the whole item; a blueprint its resref.
-    let s = if f.is_instance()
-        && let Some(whole) = f.held_item(r, bit)
-    {
-        whole
-    } else {
-        let mut s = Struct::new(bit);
-        s.set("EquippedRes", Value::resref(r));
-        s
-    };
     let mut e = Vec::new();
+    let equipped = match moving {
+        Some(m) => {
+            e.extend(m.taken.iter().cloned());
+            after_taken(f, equipped, &m.taken)
+        }
+        None => equipped.to_vec(),
+    };
+    let s = match moving {
+        Some(m) => mg_module::instances::equipped_item(&f.carried(&m.item, bit), bit),
+        // A placed creature holds the whole item; a blueprint its resref.
+        None if f.is_instance()
+            && let Some(whole) = f.held_item(r, bit) =>
+        {
+            whole
+        }
+        None => {
+            let mut s = Struct::new(bit);
+            s.set("EquippedRes", Value::resref(r));
+            s
+        }
+    };
     // One item per slot; the list is kept in slot order.
     if let Some(i) = equipped.iter().position(|s| s.id == bit) {
         e.push(remove(key, base.clone(), "Equip_ItemList", i));
@@ -1080,7 +1127,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     // Dropped on a slot (the slot, and what was dropped); an equipped item
     // taken off by its menu.
     let mut slot_drop: Option<(u32, inventory::Dragged)> = None;
-    let (mut adds, mut taken): (Vec<ResRef>, Vec<Edit>) = (Vec::new(), Vec::new());
+    let (mut adds, mut taken): (Vec<inventory::Added>, Vec<Edit>) = (Vec::new(), Vec::new());
     let (mut unequip, mut copy) = (None, None);
     let whose = inventory::owner(key, &base);
     // (The palette's rows offer Equip here, and a dragged one is equipped
@@ -1177,6 +1224,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                                     source: (key, base.clone()),
                                     index: i,
                                     resref,
+                                    item: equipped[i].clone(),
                                 });
                             }
                             r.context_menu(|ui| {
@@ -1274,8 +1322,8 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     open = open.or(options.open);
     ui.data_mut(|d| d.insert_temp(item_id, selected));
     // The first free slot an item goes in: for Equip without a slot named.
-    let free_slot = |f: &mut Form<'_>, r: ResRef| -> Result<u32, String> {
-        let fits = item_slots(f, r);
+    let free_slot = |f: &mut Form<'_>, r: ResRef, item: Option<&Struct>| -> Result<u32, String> {
+        let fits = item_slots(f, r, item);
         if fits == 0 {
             return Err(format!("{} can't be equipped", name_of(r)));
         }
@@ -1287,7 +1335,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             .ok_or_else(|| format!("Every slot {} goes in is taken: remove one first", name_of(r)))
     };
     if let (true, Some(r)) = (equip_chosen, chosen) {
-        match free_slot(f, r) {
+        match free_slot(f, r, None) {
             Ok(bit) => equip = Some(bit),
             Err(why) => f.app.log.warn(why),
         }
@@ -1298,62 +1346,60 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     if let Some(i) = unequip {
         edits.push(("Unequip", remove(key, base.clone(), "Equip_ItemList", i)));
     }
+    // An item equipped from where it was, as it is (not made again from
+    // its blueprint), taken from there in the same step.
+    let mut moving: Option<Moving> = None;
     // Dropped on a slot: the palette's item equipped there; a backpack item
-    // taken out and equipped there; an equipped one moved to it.
-    let mut rest = equipped.clone();
-    // (From another object's inventory: equipped here, and taken from there
-    // unless Ctrl is held, which copies.)
-    if let Some((bit, d)) = &slot_drop
-        && let inventory::Dragged::Listed { owner, resref, .. }
-        | inventory::Dragged::Equipped { owner, resref, .. } = d
-        && *owner != whose
-    {
-        (equip, chosen) = (Some(*bit), Some(*resref));
-        if !ui.input(|i| i.modifiers.command)
-            && let Some(e) = d.removal()
-        {
-            edits.push(("Take item", e));
-        }
-    }
+    // taken out and equipped there; an equipped one moved to it; one from
+    // another object's inventory equipped here, and taken from there unless
+    // Ctrl is held, which copies it.
     match slot_drop {
         Some((bit, inventory::Dragged::Palette(r))) => (equip, chosen) = (Some(bit), Some(r)),
         Some((bit, inventory::Dragged::Listed { owner, index, resref, .. })) if owner == whose => {
             wear = Some((index, resref, Some(bit)));
         }
-        Some((bit, inventory::Dragged::Equipped { owner, index, resref, .. }))
-            if owner == whose && equipped.get(index).is_some_and(|s| s.id != bit) =>
+        Some((bit, inventory::Dragged::Equipped { owner, index, resref, item, .. }))
+            if owner == whose =>
         {
-            if item_slots(f, resref) & bit == 0 {
-                f.app.log.error(format!("{} does not go in that slot", name_of(resref)));
-            } else {
-                // (Out of its slot first; then equipped as any item is.)
-                apply(f, "Unequip", vec![remove(key, base.clone(), "Equip_ItemList", index)]);
-                rest.remove(index);
+            if equipped.get(index).is_some_and(|s| s.id != bit) {
+                let taken = vec![remove(key, base.clone(), "Equip_ItemList", index)];
+                moving = Some(Moving { item, taken });
                 (equip, chosen) = (Some(bit), Some(resref));
             }
         }
-        _ => {}
+        Some((bit, d)) => {
+            if let inventory::Dragged::Listed { resref, item, .. }
+            | inventory::Dragged::Equipped { resref, item, .. } = &d
+            {
+                moving = Some(Moving { item: item.clone(), taken: f.taking(ui, &d) });
+                (equip, chosen) = (Some(bit), Some(*resref));
+            }
+        }
+        None => {}
     }
-    let equipped = rest;
-    if let Some((i, r, slot)) = wear {
+    if let Some((i, r, slot)) = wear
+        && let Some(item) = backpack.get(i)
+    {
         let slot = match slot {
-            Some(bit) if item_slots(f, r) & bit != 0 => Ok(bit),
-            Some(_) => Err(format!("{} does not go in that slot", name_of(r))),
-            None => free_slot(f, r),
+            Some(bit) if item_slots(f, r, Some(item)) & bit != 0 => Ok(bit),
+            Some(_) => Err(format!("{} does not go in that slot", f.entry_name(item, &names))),
+            None => free_slot(f, r, Some(item)),
         };
         match slot {
             Ok(bit) => {
-                // (Out of the backpack, then equipped below as the palette's
-                // item is.)
-                edits.push(("Take from backpack", remove(key, base.clone(), "ItemList", i)));
+                let taken = vec![remove(key, base.clone(), "ItemList", i)];
+                moving = Some(Moving { item: item.clone(), taken });
                 (equip, chosen) = (Some(bit), Some(r));
                 ui.data_mut(|d| d.remove::<Selected>(item_id));
             }
             Err(why) => f.app.log.warn(why),
         }
     }
-    if let Some((i, r)) = stow {
-        let item = f.inventory_item(&backpack, r);
+    // Put in the backpack as it is, at its end, in the same step.
+    if let Some((i, _)) = stow
+        && let Some(item) = equipped.get(i)
+    {
+        let item = f.inventory_item(&backpack, &inventory::Added::Item(item.clone()));
         let moved = vec![
             remove(key, base.clone(), "Equip_ItemList", i),
             insert(key, base.clone(), "ItemList", backpack.len(), item),
@@ -1368,11 +1414,14 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         }
     }
     // An item that needs a feat the creature lacks: Aurora asks whether to
-    // add the first (and does not equip it otherwise).
+    // add the first (and does not equip it otherwise; one moved stays where
+    // it was).
     let ask = egui::Id::new(("utc-equip-feat", key, base.clone()));
     if let (Some(bit), Some(r)) = (equip, chosen) {
-        if item_slots(f, r) & bit == 0 {
-            f.app.log.error(format!("{} does not go in that slot", name_of(r)));
+        let whole = moving.as_ref().map(|m| &m.item).filter(|s| inventory::is_whole(s));
+        if item_slots(f, r, whole) & bit == 0 {
+            let name = whole.map_or_else(|| name_of(r), |s| f.entry_name(s, &names));
+            f.app.log.error(format!("{name} does not go in that slot"));
         } else {
             let feats: Vec<u16> = f
                 .root
@@ -1382,20 +1431,25 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                 .filter_map(|s| s.integer("Feat"))
                 .map(|v| v as u16)
                 .collect();
-            let item = f.blueprint(BlueprintKind::Item, r);
+            // (A moved whole item's own properties, else its blueprint's.)
+            let item = match whole {
+                Some(s) => Some(s.clone()),
+                None => f.blueprint(BlueprintKind::Item, r),
+            };
             let missing = match (f.app.game.as_deref(), item) {
                 (Some(g), Some(item)) => g.missing_feats(&item, &feats),
                 _ => Vec::new(),
             };
             if missing.is_empty() {
-                let e = equip_edits(f, &equipped, bit, r);
+                let e = equip_edits(f, &equipped, bit, r, moving.as_ref());
                 apply(f, "Equip", e);
             } else {
-                ui.data_mut(|d| d.insert_temp(ask, (bit, r, missing)));
+                ui.data_mut(|d| d.insert_temp(ask, (bit, r, missing, moving)));
             }
         }
     }
-    if let Some((bit, r, missing)) = ui.data(|d| d.get_temp::<(u32, ResRef, Vec<u16>)>(ask)) {
+    type Asked = (u32, ResRef, Vec<u16>, Option<Moving>);
+    if let Some((bit, r, missing, moving)) = ui.data(|d| d.get_temp::<Asked>(ask)) {
         let game = f.app.game.as_deref();
         let names: Vec<String> = missing
             .iter()
@@ -1422,14 +1476,14 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             let mut feat = Struct::new(FEAT_ID);
             feat.set("Feat", Value::Word(missing[0]));
             let mut e = vec![insert(key, base.clone(), "FeatList", count, feat)];
-            e.extend(equip_edits(f, &equipped, bit, r));
+            e.extend(equip_edits(f, &equipped, bit, r, moving.as_ref()));
             apply(f, "Equip", e);
         }
         if yes || no || modal.should_close() {
-            ui.data_mut(|d| d.remove::<(u32, ResRef, Vec<u16>)>(ask));
+            ui.data_mut(|d| d.remove::<Asked>(ask));
         }
     }
-    adds.extend(add);
+    adds.extend(add.map(inventory::Added::Blueprint));
     f.apply_list(&base, &backpack, adds, taken, edits);
 }
 

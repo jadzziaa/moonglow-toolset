@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T06:56:13Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:16:54Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1200,6 +1200,45 @@ has a 0); placeables' and stores' items never have them.
   places a creature (an equipped item's were dropped up to 2.5.4).
   Source: Sacha's report (October 2026).
 - **Wiki:** missing; the NWN Lexicon has the functions only.
+
+### A creature's item moved between its backpack and its equipment
+
+A placed creature's items are whole items in the GIT, its backpack's in
+`ItemList` and its equipment's in `Equip_ItemList`, and the two differ
+only in where the item is held: a backpack item's struct id is its place
+in the list and it has `Repos_PosX` and `Repos_Posy` (WORD, its cell in
+the inventory grid); an equipped item's struct id is its slot's bit
+(0x200 the amulet, 0x100 the right ring) and it has neither. Every other
+field is the same in both, `Dropable` and `Pickpocketable` included. A
+blueprint's entries differ the same way, with the item named
+`InventoryRes` in the backpack and `EquippedRes` in a slot. Aurora moves
+the item itself: an item of the creature's own (its own name, tag,
+description, flags) dragged from the backpack onto its slot, or from a
+slot into the backpack, keeps all of that; the struct id and the grid
+fields change, and an item put in the backpack goes at the list's end, at
+the first free cell (beside a necklace at 0, 0: 1, 0). Aurora asks
+nothing on either move, and a right click on a placed creature's item, in
+the backpack or a slot, opens that item's own Item Properties. As with
+every item it writes, Aurora adds `xModelPart1` and drops fields it does
+not know.
+
+- **Checked:** Aurora, `aurora_inventory.rs`
+  (`an_item_aurora_moves_is_kept_as_it_is`: `inventory-moves/before.mod`
+  and `after.mod`, an amulet equipped from SPW0's backpack and a ring
+  taken off SPW1 into its backpack, each with its own tag and name,
+  dropable, pickpocketable and with an unknown field); the campaign
+  modules' GITs counted (1663 equipped items, none with `Repos_PosX` or
+  `Repos_Posy`; 883 backpack items, all with both; the other fields
+  differ only with the kind of item: armor is mostly worn) and the base
+  game's and campaigns' UTCs (319 `EquippedRes` entries, none with grid
+  fields; 95 `InventoryRes`, all with them) (October 2026).
+- **Moonglow:** `crates/mg-module/src/instances.rs` (`listed_item`,
+  `equipped_item`) and `crates/mg-ui/src/blueprint/inventory.rs`
+  (`carried`), `creature_lists.rs` (Equip, To Backpack, drags) and
+  `follow.rs` (an item's own window following it). Up to 2.5.6 a move
+  made the item again from its blueprint. Moonglow keeps the fields
+  Aurora drops (lossless editing).
+- **Wiki:** missing.
 
 ### Conversation script parameters
 

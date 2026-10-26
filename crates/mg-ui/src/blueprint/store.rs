@@ -4,13 +4,13 @@
 //! Inventory… dialog) as its own page.
 
 use egui::Ui;
-use mg_core::ResRef;
 use mg_edit::{Command, Edit};
 use mg_gff::{FieldType, Struct, Value};
 use mg_module::palette::BlueprintKind;
 use mg_rules::Choice;
 
-use super::{Form, inventory, situated};
+use super::inventory::{self, Added};
+use super::{Form, situated};
 use crate::Action;
 use crate::widgets::commit_number;
 
@@ -133,16 +133,20 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
 }
 
 /// Adds an item to the page its base item belongs on, at the first free
-/// place; the page's struct id.
-fn add_item(f: &mut Form<'_>, resref: ResRef) -> u32 {
+/// place, with `taken` (what took a moved one from where it was) as one
+/// step; the page's struct id.
+fn add_item(f: &mut Form<'_>, added: &Added, taken: Vec<Edit>) -> u32 {
     let base = f.path.clone();
-    let page =
-        f.item_fit(resref).panel.and_then(|p| PANEL_PAGE.get(p as usize).copied()).unwrap_or(1);
+    let fit = f.added_fit(added);
+    let page = fit.panel.and_then(|p| PANEL_PAGE.get(p as usize).copied()).unwrap_or(1);
     let pages = f.root.list("StoreList").unwrap_or(&[]).to_vec();
     let index = pages.iter().position(|p| p.id == page);
     let items = index.and_then(|i| pages[i].list("ItemList")).unwrap_or(&[]).to_vec();
-    let mut item = f.inventory_item(&items, resref);
-    item.set("Infinite", Value::Byte(0));
+    let mut item = f.inventory_item(&items, added);
+    // (A store's item moved from another keeps its own.)
+    if !item.contains("Infinite") {
+        item.set("Infinite", Value::Byte(0));
+    }
     let edit = match index {
         Some(i) => {
             Edit::insert_item(f.key, base.item("StoreList", i), "ItemList", items.len(), item)
@@ -153,7 +157,10 @@ fn add_item(f: &mut Form<'_>, resref: ResRef) -> u32 {
             Edit::insert_item(f.key, base, "StoreList", pages.len(), p)
         }
     };
-    f.app.actions.push(Action::Apply(Command::new("Add store item", vec![edit])));
+    let what = if taken.is_empty() { "Add store item" } else { "Move item" };
+    let mut together = taken;
+    together.push(edit);
+    f.app.actions.push(Action::Apply(Command::new(what, together)));
     page
 }
 
@@ -226,14 +233,10 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         (adds, taken) = f.list_events(ui, &items, &mut out, whose, &path);
         edits = out.edits;
     });
-    for edit in taken {
-        f.app.actions.push(Action::Apply(Command::new("Take item", vec![edit])));
-    }
-    for r in adds {
-        shown = add_item(f, r);
-    }
-    if let Some(r) = add {
-        shown = add_item(f, r);
+    // (A moved item's removal goes with it, as one step.)
+    let mut taken = Some(taken);
+    for added in adds.iter().chain(add.map(Added::Blueprint).as_ref()) {
+        shown = add_item(f, added, taken.take().unwrap_or_default());
     }
     for (what, edit) in edits {
         f.app.actions.push(Action::Apply(Command::new(what, vec![edit])));

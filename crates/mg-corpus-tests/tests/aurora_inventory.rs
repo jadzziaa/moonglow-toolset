@@ -72,3 +72,48 @@ fn an_item_aurora_equips_is_neither_dropable_nor_pickpocketable() {
         }
     }
 }
+
+/// A placed creature's own item moved in Aurora's inventory
+/// (`inventory-moves/before.mod`: `inventory/before.mod` with an amulet of
+/// SPW0's own in its backpack, tagged `MG_MOVED_EQ` and named "Moved
+/// Probe", and a ring equipped on SPW1, `MG_MOVED_BP`, "Stowed Probe",
+/// beside a necklace in its backpack; each dropable, pickpocketable and
+/// with an INT field the game doesn't know, `MG_Probe`. `after.mod`: the
+/// amulet dragged onto its slot, the ring into the backpack). Aurora
+/// moves the item itself: its own name, tag, flags and the rest are kept;
+/// only where it is held changes (its struct id, the slot or its place in
+/// the list; `Repos_PosX`/`Repos_Posy`, only in the backpack, the first
+/// free place). Moonglow's moves make what Aurora wrote, but for what
+/// Aurora does to every item it writes: it adds `xModelPart1` and drops
+/// fields it doesn't know (which Moonglow keeps).
+#[test]
+fn an_item_aurora_moves_is_kept_as_it_is() {
+    use mg_module::instances::{equipped_item, listed_item};
+    let before = Module::open(&aurora_capture!("inventory-moves/before.mod")).unwrap();
+    let after = Module::open(&aurora_capture!("inventory-moves/after.mod")).unwrap();
+    let find = |m: &Module, who: &str, list: &str, tag: &[u8]| {
+        let c = creature(m, who);
+        let items = c.list(list).unwrap_or(&[]);
+        items.iter().find(|s| s.string("Tag") == Some(tag)).cloned()
+    };
+    // (Without what Aurora adds to or drops from every item it writes, its
+    // fields in one order.)
+    let aurora = |s: &Struct| {
+        let mut s = s.clone();
+        s.remove("xModelPart1");
+        s.remove("MG_Probe");
+        s.fields.sort_by_key(|f| f.label.to_string_lossy());
+        s
+    };
+    let was = find(&before, "SPW0", "ItemList", b"MG_MOVED_EQ").unwrap();
+    assert!(find(&after, "SPW0", "ItemList", b"MG_MOVED_EQ").is_none());
+    let worn = find(&after, "SPW0", "Equip_ItemList", b"MG_MOVED_EQ").unwrap();
+    assert_eq!(worn.id, 0x200, "the amulet's slot");
+    assert_eq!(aurora(&equipped_item(&was, 0x200)), aurora(&worn));
+    let was = find(&before, "SPW1", "Equip_ItemList", b"MG_MOVED_BP").unwrap();
+    let packed = find(&after, "SPW1", "ItemList", b"MG_MOVED_BP").unwrap();
+    let at = |l: &str| packed.integer(l).unwrap() as u16;
+    // (At the backpack's end, beside the necklace at 0, 0.)
+    assert_eq!((packed.id, at("Repos_PosX"), at("Repos_Posy")), (1, 1, 0));
+    assert_eq!(aurora(&listed_item(&was, 1, 1, 0)), aurora(&packed));
+}

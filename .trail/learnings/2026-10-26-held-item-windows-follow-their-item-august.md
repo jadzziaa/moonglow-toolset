@@ -28,5 +28,5 @@ touches:
 
 ## Watch out
 - A dock tab's title is not in the accesskit tree: tests check what a Properties window shows by a TextInput's value (its Tag field).
-- Equip, To Backpack and drags between objects make the item again from its blueprint (inventory_item, held_item): the held item's own changes are lost and its window closes (recorded in docs/deferred.md).
+- (Superseded by 2026-10-26-a-moved-item-stays-as-it-august.md: a moved item now stays as it is and its window follows it.) Equip, To Backpack and drags between objects made the item again from its blueprint (inventory_item, held_item): the held item's own changes were lost and its window closed.
 - side_panel's right margin already clears its scroll bar: rows inside it take ui.available_width(); item_list subtracts a gutter for its own nested ScrollArea.
