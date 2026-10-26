@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T06:48:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T06:56:13Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -999,6 +999,9 @@ Aurora writes no talk table.
   oracle, 2026-10-26): a line typed into each of those fields of a
   module and saved (capture `line-ends/typed.mod`); test
   `crates/mg-ui/src/text.rs` `a_new_line_takes_the_line_end_aurora_writes`.
+  That the fields are `TMemo`s was read from Aurora's decoded form
+  resources (the oracle's `uiinv/forms.json`); that an edit control's
+  text has CRLF line ends is Windows' documentation, not measured here.
 - **Moonglow:** text fields show plain line ends and store the text's
   own, line by line (`crates/mg-ui/src/text.rs` `with_line_ends_or`); a
   line typed into a text of one line gets LF in a localized string and

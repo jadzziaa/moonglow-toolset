@@ -195,7 +195,8 @@ pub(crate) fn to_editor(text: &str) -> (String, bool) {
 }
 
 /// Whether a text's line ends are CRLF, as most of its are (BioWare's
-/// scripts and Aurora's are); one with none, too, as Aurora writes.
+/// scripts and Aurora's are); one with none, too, as Aurora writes a
+/// script or a `CExoString`.
 pub(crate) fn uses_crlf(text: &str) -> bool {
     let all = text.matches('\n').count();
     all == 0 || text.matches("\r\n").count() * 2 >= all
@@ -327,8 +328,13 @@ fn common_lines(
         return;
     }
     *work -= a.len() + b.len();
+    let anchors = unique_common(a, b);
+    if anchors.is_empty() {
+        // (No line to cut at: the lines are taken as changed.)
+        return;
+    }
     let (mut i0, mut j0) = (0, 0);
-    for (i, j) in unique_common(a, b).into_iter().chain([(a.len(), b.len())]) {
+    for (i, j) in anchors.into_iter().chain([(a.len(), b.len())]) {
         // (Between two lines found once: the lines both begin and end
         // with, then the rest.)
         let (ga, gb) = (&a[i0..i], &b[j0..j]);
@@ -583,6 +589,37 @@ mod tests {
                 assert_eq!(line.ends_with("\r\n"), end(k) == "\r\n", "{line:?}");
             }
         }
+    }
+
+    /// A part of a large change with no line found once on each side, too
+    /// big for one table, is taken as changed at once: the rest of the
+    /// change is still diffed (it was diffed again whole, a level a line,
+    /// until the diff's bound of work was spent, and the lines after it
+    /// were matched by place).
+    #[test]
+    fn a_part_without_lines_found_once_leaves_the_rest_diffed() {
+        let alike = |phase: usize| (0..2100).map(move |k| ["{", "}", ""][(k + phase) % 3]);
+        // After "mid": lines alike but for their ends, one added before.
+        let tail = (0..200).map(|k| ["x\r\n", "y\n"][k % 2]);
+        let old: String = ["begin a\n".to_string()]
+            .into_iter()
+            .chain(alike(0).map(|l| format!("{l}\n")))
+            .chain(["mid\n".into()])
+            .chain(tail.clone().map(String::from))
+            .chain(["end a".into()])
+            .collect();
+        let new: String = ["begin b\n".to_string()]
+            .into_iter()
+            .chain(alike(1).map(|l| format!("{l}\n")))
+            .chain(["mid\n".into(), "z\n".into()])
+            .chain(tail.clone().map(|l| l.replace('\r', "")))
+            .chain(["end b".into()])
+            .collect();
+        let out = with_line_ends(&new, &old);
+        // ("z" added: the text's line end, plain as most of its lines'.)
+        let after = out.split_once("mid\nz\n").expect(&out[..200]).1;
+        let expected: String = tail.collect::<String>() + "end b";
+        assert_eq!(after, expected);
     }
 
     /// The diff takes a bounded time however large the text and its
