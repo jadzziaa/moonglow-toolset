@@ -3,7 +3,6 @@ title: "Page keys in text fields, line ends by a line diff"
 author: August
 date: 2026-10-26
 branch: text-fields-keys-line-ends
-cost: { minutes: 871, tokens: 9355883 }
 touches:
   - crates/mg-ui/src/blueprint/mod.rs
   - crates/mg-ui/src/dialog_view.rs

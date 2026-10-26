@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T05:37:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T05:42:23Z }
 ---
 
 # The main window
@@ -124,7 +124,8 @@ texts) take **Page Down** and **Page Up**: the cursor goes down or up by
 as many lines as the field shows (less one), and the field scrolls with
 it; with Shift, the selection reaches to there. They show plain line
 ends: a text stored with Windows line ends (CRLF, as most of the game's
-own descriptions and conversation lines are, and Aurora writes) has no
+own text of several lines is, its conversation lines and comments, and
+as Aurora writes) has no
 hidden character at the end of each line for the cursor to stop on, and
 text you paste comes with plain line ends too. What you type is stored
 with the text's own line ends: lines you didn't change keep theirs, and
