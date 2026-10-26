@@ -1480,8 +1480,12 @@ pub(crate) fn spin_with<T: egui::emath::Numeric>(
     make: impl for<'a> FnOnce(egui::DragValue<'a>) -> egui::DragValue<'a>,
 ) -> Option<T> {
     let (lo, hi) = (range.start().to_f64(), range.end().to_f64());
-    // A step from a number outside the range comes back into it.
-    let stepped = |v: f64, by: f64| (v + by).clamp(lo, hi);
+    // A step from a number outside the range comes back into it, but
+    // never goes the other way (one less than 0 in 1 to 12 stays 0).
+    let stepped = |v: f64, by: f64| {
+        let to = (v + by).clamp(lo, hi);
+        if (to - v) * by > 0.0 { to } else { v }
+    };
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 2.0;
         // (The field's own id: the next widget is the field.)
@@ -1509,9 +1513,9 @@ pub(crate) fn spin_with<T: egui::emath::Numeric>(
         let shown = run.map_or(current.to_f64(), |r| r.value);
         let (typed, _, _) =
             drag_number_shown(ui, T::from_f64(shown), |d| make(d.range(range.clone())));
-        if let Some(v) = typed {
-            ui.data_mut(|d| d.remove::<SpinRun>(run_id));
-            return (v.to_f64() != current.to_f64()).then_some(v);
+        // (A number typed is set as it is, the arrows still drawn.)
+        if typed.is_some() {
+            run = None;
         }
         let mut held = focused && ui.input(|i| keys.iter().any(|k| i.key_down(*k)));
         for (glyph, arrow, tip) in [("⏶", 1i8, "One more"), ("⏷", -1i8, "One less")] {
@@ -1545,6 +1549,10 @@ pub(crate) fn spin_with<T: egui::emath::Numeric>(
                 }
             }
             ui.ctx().request_repaint();
+        }
+        if let Some(v) = typed {
+            ui.data_mut(|d| d.remove::<SpinRun>(run_id));
+            return (v.to_f64() != current.to_f64()).then_some(v);
         }
         match run {
             Some(r) if !held => {
