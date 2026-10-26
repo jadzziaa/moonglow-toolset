@@ -49,6 +49,17 @@ impl Default for ScriptStyle {
     }
 }
 
+/// What opening a `.mod` with a folder of its name beside it opens
+/// (Options › General): Aurora asks, or with its Always open module
+/// directories opens the folder.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ModuleFolders {
+    #[default]
+    Ask,
+    Folder,
+    Module,
+}
+
 /// The area view's placeable brush, as its strip of settings has it
 /// (`paint_mode`): whole centimeters, percents and degrees, as the snapping
 /// settings are kept.
@@ -212,6 +223,9 @@ pub struct Settings {
     /// it as a `.mod` beside the folder too (it does unless switched off,
     /// as Aurora does for a module directory).
     pub no_mod_beside_folder: bool,
+    /// Options › General: a `.mod` opened with a folder of its name
+    /// beside it (as Aurora keeps a module directory): which is opened.
+    pub module_folders: ModuleFolders,
     /// View: the module tree, the log and the palettes folded away.
     pub hide_tree: bool,
     pub hide_log: bool,

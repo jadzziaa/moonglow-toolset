@@ -292,7 +292,9 @@ impl Id {
     ) -> (std::borrow::Cow<'static, str>, std::borrow::Cow<'static, str>, &'static str) {
         let (id, label, hint) = match self {
             Id::NewModule => ("new-module", "New Module…", ""),
-            Id::OpenModule => ("open-module", "Open Module…", ""),
+            Id::OpenModule => {
+                ("open-module", "Open Module…", "A .mod file (a module folder: Open Folder…)")
+            }
             Id::OpenFolder => {
                 ("open-folder", "Open Folder…", "A module folder, or a nasher project")
             }

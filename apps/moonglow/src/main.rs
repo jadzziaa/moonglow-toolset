@@ -294,9 +294,10 @@ fn main() -> eframe::Result<()> {
             if let Some(s) = speakers::Speakers::open() {
                 moonglow.speaker = Box::new(s);
             }
-            // `moonglow path/to/module.mod` opens a module at start.
+            // `moonglow path/to/module.mod` opens a module at start (or
+            // asks first, a folder of its name being beside it).
             if let Some(path) = &line.module {
-                moonglow.open_module(path);
+                moonglow.actions.push(mg_ui::Action::OpenModule(path.clone()));
             }
             Ok(Box::new(App { moonglow, title: String::new() }))
         }),

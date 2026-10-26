@@ -205,4 +205,5 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             });
         });
     }
+    crate::module_folder::ui(app, &ctx);
 }

@@ -1546,6 +1546,82 @@ fn a_folder_module_is_saved_as_a_mod_beside_it() {
     assert!(dir.join("unpacked.BackupMod").is_file());
 }
 
+/// A `.mod` with a folder of its name beside it (a module directory, as
+/// Aurora keeps one) asks which to open, as Aurora does: the folder (saved
+/// into, and written as the `.mod` too), or the `.mod`; Options › General
+/// opens either without asking (GitHub issue 30).
+#[test]
+fn a_mod_with_its_folder_beside_it_asks_which_to_open() {
+    let dir = mg_testkit::scratch_dir("ui-mod-folder");
+    let path = sample_module(&dir);
+    let folder = dir.join("sample");
+    Module::open(&path).unwrap().save_as(&ModuleLocation::Folder(folder.clone())).unwrap();
+    let mut h =
+        Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app_with(vec![path.clone()]));
+    h.run();
+    let location = |h: &Harness<'_, Moonglow>| h.state().ws.as_ref()?.module.location.clone();
+    // File › Open Module… (the welcome page's button): asked first.
+    h.get_by_label("Open Module…").click();
+    h.run();
+    assert_eq!(h.state().module_folder.as_deref(), Some(path.as_path()));
+    assert!(h.state().ws.is_none(), "nothing opened before the answer");
+    h.get_by_label_contains("A directory with the same name has been found");
+    h.get_by_label("Open Directory").click();
+    h.run();
+    assert_eq!(location(&h), Some(ModuleLocation::Folder(folder.clone())));
+    assert!(h.state().module_folder.is_none());
+    assert_eq!(h.state().settings.recent.first(), Some(&folder), "the folder is remembered");
+    // An edit saved goes into the folder, and into the .mod beside it.
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let text = b"void main() { int saved; }\n".to_vec();
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "edit",
+        vec![mg_edit::Edit::SetResource { key, data: Some(text.clone()) }],
+    )));
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    assert_eq!(std::fs::read(folder.join("hello.nss")).unwrap(), text);
+    assert_eq!(Module::open(&path).unwrap().get(&key), Some(&text[..]));
+    // The .mod again (Recent Modules): asked again; the .mod opened.
+    h.state_mut().actions.push(mg_ui::Action::OpenModule(path.clone()));
+    h.run();
+    assert!(h.state().module_folder.is_some(), "asked again");
+    h.get_by_label("Open .mod File").click();
+    h.run();
+    assert_eq!(location(&h), Some(ModuleLocation::Archive(path.clone())));
+    // Cancel opens nothing: the module open stays.
+    h.state_mut().actions.push(mg_ui::Action::OpenModule(path.clone()));
+    h.run();
+    h.get_by_label("Cancel").click();
+    h.run();
+    assert!(h.state().module_folder.is_none());
+    assert_eq!(location(&h), Some(ModuleLocation::Archive(path.clone())));
+    // Options › General: always the folder, or always the .mod.
+    use mg_ui::settings::ModuleFolders;
+    assert_eq!(h.state().settings.module_folders, ModuleFolders::Ask, "asks unless chosen");
+    h.state_mut().settings.module_folders = ModuleFolders::Folder;
+    h.state_mut().actions.push(mg_ui::Action::OpenModule(path.clone()));
+    h.run();
+    assert!(h.state().module_folder.is_none(), "not asked");
+    assert_eq!(location(&h), Some(ModuleLocation::Folder(folder.clone())));
+    h.state_mut().settings.module_folders = ModuleFolders::Module;
+    h.state_mut().actions.push(mg_ui::Action::OpenModule(path.clone()));
+    h.run();
+    assert!(h.state().module_folder.is_none(), "not asked");
+    assert_eq!(location(&h), Some(ModuleLocation::Archive(path.clone())));
+    // A folder of its name with no module in it (no module.ifo) is no
+    // module directory: the .mod opens as it is.
+    h.state_mut().settings.module_folders = ModuleFolders::Ask;
+    std::fs::remove_dir_all(&folder).unwrap();
+    std::fs::create_dir(&folder).unwrap();
+    std::fs::write(folder.join("notes.txt"), "not a module").unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenModule(path.clone()));
+    h.run();
+    assert!(h.state().module_folder.is_none());
+    assert_eq!(location(&h), Some(ModuleLocation::Archive(path)));
+}
+
 #[test]
 fn browse_view_and_copy_a_game_resource() {
     let root = mg_testkit::corpus!();
