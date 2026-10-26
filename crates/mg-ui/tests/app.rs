@@ -22283,6 +22283,89 @@ fn arrow_keys_step_through_a_list_of_choices() {
     assert_eq!(pictures(&h), without + 1, "the chosen appearance's picture");
 }
 
+/// The lists outside the blueprint editors take the arrow keys as theirs
+/// do once clicked (GitHub issue 7): the area's toolbar (Fade Geometry,
+/// Snap, Turn), without the camera moving, and Area Properties' (a
+/// table's rows, and the grass's surface material).
+#[test]
+fn arrow_keys_step_through_the_area_s_lists() {
+    use mg_area::grass::{AreaGrass, GrassOverride};
+    let Some((mut h, area)) = area_harness("area-list-arrows") else { return };
+    h.run_steps(3);
+    let combo = egui::accesskit::Role::ComboBox;
+    let click = |h: &mut Harness<'_, Moonglow>, value: &str| {
+        h.get_all_by_role(combo)
+            .find(|n| n.accesskit_node().value().as_deref() == Some(value))
+            .unwrap_or_else(|| panic!("the list showing {value:?}"))
+            .click();
+        h.run_steps(2);
+    };
+    let key = |h: &mut Harness<'_, Moonglow>, key: egui::Key| {
+        h.key_press(key);
+        h.run_steps(2);
+    };
+    let camera = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].orbit;
+    let before = camera(&h);
+    click(&mut h, "Fade Geometry: Never");
+    key(&mut h, egui::Key::ArrowDown);
+    assert_eq!(h.state().settings.fade_geometry, 1, "the next, while working on objects");
+    key(&mut h, egui::Key::Escape);
+    click(&mut h, "Snap: off");
+    key(&mut h, egui::Key::ArrowDown);
+    assert_eq!(h.state().settings.snap_grid, Some(25));
+    key(&mut h, egui::Key::Escape);
+    click(&mut h, "Turn: free");
+    key(&mut h, egui::Key::ArrowDown);
+    key(&mut h, egui::Key::ArrowDown);
+    assert_eq!(h.state().settings.snap_angle, Some(15));
+    key(&mut h, egui::Key::ArrowUp);
+    assert_eq!(h.state().settings.snap_angle, Some(5));
+    key(&mut h, egui::Key::Escape);
+    assert_eq!(camera(&h), before, "the arrows were the lists', not the camera's");
+
+    // Area Properties › Audio: a table's rows (soundeax.2da).
+    let git = ResKey::new(area, ResType::GIT);
+    let props = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&git).unwrap().root.child("AreaProperties").unwrap().clone()
+    };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AreaProperties(area)));
+    h.run_steps(5);
+    h.get_all_by_label("Audio").last().unwrap().click();
+    h.run_steps(3);
+    let eax = |h: &mut Harness<'_, Moonglow>| props(h).integer("EnvAudio");
+    let was = eax(&mut h);
+    let line = h.get_by_label("Environmental Audio Effects").rect().center().y;
+    h.get_all_by_role(combo).find(|n| (n.rect().center().y - line).abs() < 6.0).unwrap().click();
+    h.run_steps(2);
+    // (The area's may be the last row: then Up is the one to try.)
+    key(&mut h, egui::Key::ArrowDown);
+    if eax(&mut h) == was {
+        key(&mut h, egui::Key::ArrowUp);
+    }
+    assert_ne!(eax(&mut h), was, "another audio environment");
+    key(&mut h, egui::Key::Escape);
+
+    // Area Properties › Grass: the surface material of the area's own.
+    let root = h.state_mut().ws.as_mut().unwrap().doc(&git).unwrap().root.clone();
+    let edits = mg_area::grass::add_override(git, &root, &GrassOverride::new(1, None));
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Grass", edits)));
+    h.run_steps(2);
+    h.get_all_by_label("Grass").last().unwrap().click();
+    h.run_steps(3);
+    let material = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        AreaGrass::read(&ws.doc(&git).unwrap().root).overrides[0].material
+    };
+    assert_eq!(material(&mut h), 1);
+    click(&mut h, "Dirt (1)");
+    key(&mut h, egui::Key::ArrowDown);
+    if material(&mut h) == 1 {
+        key(&mut h, egui::Key::ArrowUp);
+    }
+    assert_ne!(material(&mut h), 1, "another surface material");
+}
+
 #[test]
 #[ignore = "a look at a builder's tileset group (MG_TEST_USER, MG_TILESET, MG_GROUP)"]
 fn look_custom_group() {

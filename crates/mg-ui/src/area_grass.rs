@@ -160,21 +160,24 @@ pub(crate) fn page(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResR
             egui::Grid::new(id).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
                 crate::widgets::field_label(ui, "Surface Material");
                 ui.horizontal(|ui| {
-                    let mut to = o.material;
-                    egui::ComboBox::from_id_salt(id.with("material"))
-                        .selected_text(material_name(&materials, o.material))
-                        .show_ui(ui, |ui| {
-                            for c in &materials {
-                                let row = c.row as u32;
-                                if row == o.material || !taken.contains(&row) {
-                                    ui.selectable_value(
-                                        &mut to,
-                                        row,
-                                        material_name(&materials, row),
-                                    );
-                                }
-                            }
-                        });
+                    // (A list of the table's rows, as everywhere: the
+                    // arrow keys step through it. Those other surfaces
+                    // have are left out.)
+                    let free: Vec<Choice> = (materials.iter())
+                        .filter(|c| c.row as u32 == o.material || !taken.contains(&(c.row as u32)))
+                        .map(|c| Choice {
+                            row: c.row,
+                            text: material_name(&materials, c.row as u32),
+                        })
+                        .collect();
+                    let list = crate::widgets::row_choice(
+                        id.with("material"),
+                        &free,
+                        i64::from(o.material),
+                    )
+                    .shown(material_name(&materials, o.material));
+                    let to =
+                        list.show(ui).and_then(|v| u32::try_from(v).ok()).unwrap_or(o.material);
                     if to != o.material {
                         let (from, what) = (o.material, "Grass's surface material");
                         apply(app, &gits, what, |k, root| grass::move_override(k, root, from, to));

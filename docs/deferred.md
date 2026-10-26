@@ -666,12 +666,21 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   mark up. Not compared with Aurora's list (its rounding, whether it
   counts a stack); the buy price (mark down) is not shown. (S)
   (GitHub issues 10 to 24, after 1.20.0)
-- **Arrow keys on lists of choices:** the blueprint editors' 2DA lists
-  and part lists take them while the list has the focus (clicked, open
-  or after a choice; Tab). Escape gives the focus up, as everywhere in
-  the interface, so after closing a list with Escape it is clicked
-  again. The lists outside the blueprint editors (Area Properties, the
-  area's toolbar) don't take them. (S) (GitHub issue 7)
+- **Arrow keys on lists of choices:** the lists of a table's rows
+  (`widgets::row_choice`: the blueprint editors', Area Properties', the
+  2DA editor's) and the area's lists (the toolbar's Fade Geometry, Snap
+  and Turn; Resize Area's, Find Instance's and Edit Areas Together's:
+  `widgets::arrow_step`) take them while the list has the focus
+  (clicked, open or after a choice; Tab). Escape gives the focus up, as
+  everywhere in the interface, so after closing a list with Escape it is
+  clicked again. Not done: the plain lists of other windows (Options,
+  Module Properties, the conversation and NUI editors, the wizards, the
+  resource browser, Advanced Search's kinds and fields) and the blueprint
+  editors' few lists that are not a table's rows (a creature's alignment,
+  the mouse cursor, a text bubble's mode) don't take them; Resize
+  Area's, Find Instance's and Edit Areas Together's are not under test;
+  Area Properties' Lighting Scheme is a grid of buttons, not a list.
+  (S) (GitHub issue 7)
 - **Pictures in the Appearance list:** a creature's (a plain male body
   of the appearance) and a placeable's, beside the row the pointer rests
   on; a door's and an item's lists have none. (S) (GitHub issue 7)

@@ -888,7 +888,7 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
                     );
                     ui.end_row();
                     crate::widgets::field_label(ui, "Tileset");
-                    egui::ComboBox::from_id_salt("area-chooser-tileset")
+                    let r = egui::ComboBox::from_id_salt("area-chooser-tileset")
                         .width(260.0)
                         .selected_text(c.tileset.map_or("Any".to_string(), tileset_label))
                         .show_ui(ui, |ui| {
@@ -897,6 +897,10 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
                                 ui.selectable_value(&mut c.tileset, Some(*t), tileset_label(*t));
                             }
                         });
+                    let options: Vec<_> = std::iter::once(None)
+                        .chain(tilesets.iter().map(|(t, _)| Some(*t)))
+                        .collect();
+                    crate::widgets::arrow_step(ui, &r.response, &options, &mut c.tileset);
                     ui.end_row();
                     for (k, (_, either, yes, no)) in FLAG_FILTERS.iter().enumerate() {
                         crate::widgets::field_label(ui, *yes);
@@ -905,14 +909,16 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
                             Some(true) => *yes,
                             Some(false) => *no,
                         };
-                        egui::ComboBox::from_id_salt(("area-chooser-flag", k))
+                        let options = [None, Some(true), Some(false)];
+                        let r = egui::ComboBox::from_id_salt(("area-chooser-flag", k))
                             .width(260.0)
                             .selected_text(text(c.flags[k]))
                             .show_ui(ui, |ui| {
-                                for v in [None, Some(true), Some(false)] {
+                                for v in options {
                                     ui.selectable_value(&mut c.flags[k], v, text(v));
                                 }
                             });
+                        crate::widgets::arrow_step(ui, &r.response, &options, &mut c.flags[k]);
                         ui.end_row();
                     }
                 },
