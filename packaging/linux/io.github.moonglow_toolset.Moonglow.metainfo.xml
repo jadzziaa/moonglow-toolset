@@ -45,6 +45,16 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="2.7.0" date="2026-10-26">
+      <description>
+        <p>Texture and animation pickers on the Visuals page; a .mod with its
+        folder beside it asks which to open; a crash after undoing Resize
+        Area fixed; magical items from the Item Wizard; Advanced Search
+        changes what it finds; the Spells page as Aurora's; a nasher
+        project's talk table kept as JSON; arrows on number fields; and
+        more from builders' requests.</p>
+      </description>
+    </release>
     <release version="2.6.0" date="2026-10-26">
       <description>
         <p>A module opens again with the tabs, views and windows it had;
