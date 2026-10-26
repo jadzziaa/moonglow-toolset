@@ -54,6 +54,10 @@ pub struct TileProps {
     pub area: ResRef,
     /// The tiles it sets, by index in `Tile_List`.
     pub tiles: Vec<usize>,
+    /// How many times the ARE's lists had been rewritten as it opened
+    /// ([`mg_edit::Workspace::rewrites`]): once they are again, its
+    /// indices may be other tiles', and it closes ([`tiles_moved`]).
+    pub rewrites: u64,
     pub main: [u8; 2],
     pub source: [u8; 2],
     pub loops: [bool; 3],
@@ -338,12 +342,15 @@ fn copy_tiles(app: &mut Moonglow, view: &AreaView) -> Option<TileClip> {
     let w = g.lattice.width();
     let x0 = view.tile_selection.iter().map(|c| c.0).min()?;
     let y0 = view.tile_selection.iter().map(|c| c.1).min()?;
-    let low = view.tile_selection.iter().map(|&(x, y)| g.tile(x, y).height).min()?;
-    let tiles = view
+    let selected: Vec<_> = view
         .tile_selection
         .iter()
-        .filter_map(|&(x, y)| {
-            let p = g.tile(x, y);
+        .filter_map(|&(x, y)| Some(((x, y), g.get_tile(x, y)?)))
+        .collect();
+    let low = selected.iter().map(|(_, p)| p.height).min()?;
+    let tiles = selected
+        .into_iter()
+        .filter_map(|((x, y), p)| {
             let s = list.get((y * w + x) as usize)?.clone();
             let offset = (i64::from(x) - i64::from(x0), i64::from(y) - i64::from(y0));
             Some((offset, mg_tiles::Placement { height: p.height - low, ..p }, s))
@@ -557,18 +564,18 @@ impl TileStep {
 
     /// What the step makes of the tile in cell `(x, y)`; `None` where it
     /// can't (a group's tile, unless they are free to edit; no other tile
-    /// fits there, or turned it no longer fits).
+    /// fits there, or turned it no longer fits; a cell outside the grid).
     pub(crate) fn of(
         self,
         tools: &crate::terrain_mode::Tools,
         g: &mg_tiles::paint::Grid,
         (x, y): (u32, u32),
     ) -> Option<mg_tiles::Placement> {
-        let now = g.tile(x, y);
+        let now = g.get_tile(x, y)?;
         if g.locked(&tools.index, x, y) {
             return None;
         }
-        let cell = g.lattice.cell(x, y);
+        let cell = g.lattice.get_cell(x, y)?;
         match self {
             TileStep::Appearance { back } => {
                 mg_tiles::paint::step_appearance(&tools.index, &cell, now, back)
@@ -662,7 +669,8 @@ fn next_variant(app: &mut Moonglow, view: &mut AreaView, (x, y): (u32, u32), bac
         view.refused = Some((shown, std::time::Instant::now()));
         return;
     }
-    let Some(next) = step_fit(&tools.index, &g.lattice.cell(x, y), g.tile(x, y), back) else {
+    let (Some(cell), Some(now)) = (g.lattice.get_cell(x, y), g.get_tile(x, y)) else { return };
+    let Some(next) = step_fit(&tools.index, &cell, now, back) else {
         view.notice = Some("No other tile fits there".into());
         return;
     };
@@ -753,6 +761,8 @@ fn open_properties(app: &mut Moonglow, view: &AreaView) {
     };
     let width = are.root.integer("Width").unwrap_or(0).max(0) as u32;
     let list = are.root.list("Tile_List").unwrap_or(&[]).to_vec();
+    let rewrites =
+        app.ws.as_ref().map_or(0, |ws| ws.rewrites(&ResKey::new(view.area, ResType::ARE)));
     let tiles: Vec<usize> =
         view.tile_selection.iter().map(|&(x, y)| (y * width + x) as usize).collect();
     let base: Vec<mg_gff::Struct> = tiles.iter().filter_map(|&i| list.get(i).cloned()).collect();
@@ -794,13 +804,13 @@ fn open_properties(app: &mut Moonglow, view: &AreaView) {
         grid.as_ref().is_some_and(|g| cells.iter().any(|&(x, y)| g.locked(&tools.index, x, y)));
     let every =
         (tools.set.tiles.iter().enumerate()).map(|(i, t)| (i as u32, t.model.clone())).collect();
-    let variants = one.filter(|_| !grouped).map(|((x, y), g)| {
-        let fits = mg_tiles::paint::fits_in_order(&tools.index, &g.lattice.cell(x, y));
+    let variants = one.filter(|_| !grouped).and_then(|((x, y), g)| {
+        let fits = mg_tiles::paint::fits_in_order(&tools.index, &g.lattice.get_cell(x, y)?);
         let named = fits
             .into_iter()
             .filter_map(|p| Some((p, tools.set.tiles.get(p.tile as usize)?.model.clone())))
             .collect();
-        (((x, y), named), g.tile(x, y))
+        Some((((x, y), named), g.get_tile(x, y)?))
     });
     let (variants, variant) = variants.unzip();
     // (A loop the tiles don't have shows unchecked, as Aurora shows it.)
@@ -811,6 +821,7 @@ fn open_properties(app: &mut Moonglow, view: &AreaView) {
         variants,
         variant,
         tiles,
+        rewrites,
         main,
         source,
         loops,
@@ -875,9 +886,28 @@ fn named(r: &egui::Response, name: &str, enabled: bool) {
 }
 
 /// Tile Properties, in its tab, and its colour picker.
+/// Whether Tile Properties' tiles may have left their places in the list
+/// since it opened (Rotate Area, Resize Area, their undo, the list set
+/// whole, the file read again): if so it closes, writing nothing, for its
+/// indices may be other tiles' (GitHub issue 31).
+fn tiles_moved(app: &mut Moonglow, props: &TileProps) -> bool {
+    let key = ResKey::new(props.area, ResType::ARE);
+    let moved = app.ws.as_ref().is_none_or(|ws| ws.rewrites(&key) != props.rewrites);
+    if moved {
+        app.log.info(format!(
+            "Area {}: its tiles were laid out anew; Tile Properties closed",
+            props.area
+        ));
+    }
+    moved
+}
+
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let ctx = &ui.ctx().clone();
     let Some(mut props) = app.tile_props.take() else { return };
+    if tiles_moved(app, &props) {
+        return;
+    }
     let mut picked = None;
     let mut pick = None;
     let colors = light_colors(app);
@@ -1140,6 +1170,14 @@ pub(crate) fn closing_window(app: &mut Moonglow, ctx: &egui::Context) {
     if !app.tile_props.as_ref().is_some_and(|p| p.closing) {
         return;
     }
+    // (Don't Save would write the tiles' old values where they no longer
+    // are.)
+    if let Some(props) = app.tile_props.take() {
+        if tiles_moved(app, &props) {
+            return;
+        }
+        app.tile_props = Some(props);
+    }
     enum Answer {
         Save,
         DontSave,
@@ -1390,8 +1428,9 @@ fn pick_command(
     let mut kept = Vec::new();
     let label = match what {
         Pick::Variant(p) => {
-            let ((x, y), _) = props.variants.as_ref()?;
-            changes.push(((*x, *y), p));
+            let &((x, y), _) = props.variants.as_ref()?;
+            g.get_tile(x, y)?;
+            changes.push(((x, y), p));
             "Tile variant"
         }
         Pick::Any(_) | Pick::Turn(_) => {
@@ -1405,7 +1444,7 @@ fn pick_command(
                 .unwrap_or(&[])
                 .to_vec();
             for &(x, y) in &props.cells {
-                let now = g.tile(x, y);
+                let now = g.get_tile(x, y)?;
                 let q = match what {
                     Pick::Any(p) => mg_tiles::Placement { height: now.height, ..p },
                     Pick::Turn(t) => mg_tiles::Placement { orientation: t, ..now },

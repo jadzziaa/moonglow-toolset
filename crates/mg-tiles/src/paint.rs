@@ -118,14 +118,29 @@ impl Grid {
         Some(Grid { lattice, tiles, blocked, free_groups: false, replace_groups: false })
     }
 
+    /// The tile in cell (x, y), which must be the grid's: [`Grid::get_tile`]
+    /// where it may not be (a cell from outside, or kept from before the
+    /// area changed size).
     pub fn tile(&self, x: u32, y: u32) -> Placement {
-        self.tiles[(y * self.lattice.width() + x) as usize]
+        self.get_tile(x, y).unwrap_or_else(|| panic!("cell ({x}, {y}) outside the grid"))
+    }
+
+    /// The tile in cell (x, y); `None` outside the grid.
+    pub fn get_tile(&self, x: u32, y: u32) -> Option<Placement> {
+        let i = self.slot(x, y)?;
+        self.tiles.get(i).copied()
+    }
+
+    /// Where cell (x, y)'s tile is in the list; `None` outside the grid.
+    fn slot(&self, x: u32, y: u32) -> Option<usize> {
+        self.lattice.has_cell(x, y).then(|| (y * self.lattice.width() + x) as usize)
     }
 
     /// Whether the tile in cell (x, y) is a group's, which changes only
-    /// with its group (never, with [`Grid::free_groups`] on).
+    /// with its group (never, with [`Grid::free_groups`] on). A cell
+    /// outside the grid is not.
     pub fn locked(&self, index: &TileIndex, x: u32, y: u32) -> bool {
-        !self.free_groups && index.is_grouped(self.tile(x, y).tile)
+        !self.free_groups && self.get_tile(x, y).is_some_and(|t| index.is_grouped(t.tile))
     }
 
     /// The groups that `changes` (cells and their new tiles) would leave
@@ -136,8 +151,9 @@ impl Grid {
         index: &TileIndex,
         changes: &[((u32, u32), Placement)],
     ) -> Vec<Vec<(u32, u32)>> {
-        let changed =
-            |c: (u32, u32)| changes.iter().any(|&(at, p)| at == c && p != self.tile(c.0, c.1));
+        let changed = |c: (u32, u32)| {
+            changes.iter().any(|&(at, p)| at == c && Some(p) != self.get_tile(c.0, c.1))
+        };
         let mut out: Vec<Vec<(u32, u32)>> = Vec::new();
         for &((x, y), _) in changes {
             if !changed((x, y)) || out.iter().any(|g| g.contains(&(x, y))) {
@@ -152,7 +168,8 @@ impl Grid {
         out
     }
 
-    /// Painting corner (x, y) with `terrain`; `None` when refused.
+    /// Painting corner (x, y) with `terrain`; `None` when refused, or
+    /// outside the lattice.
     pub fn paint(
         &self,
         index: &TileIndex,
@@ -163,7 +180,7 @@ impl Grid {
     ) -> Option<Stroke> {
         let mut lattice = self.lattice.clone();
         let mut changed = BTreeSet::new();
-        let mut c = lattice.corner(x, y);
+        let mut c = lattice.get_corner(x, y)?;
         c.terrain = terrain;
         lattice.set_corner(x, y, c);
         changed.insert((x, y));
@@ -172,8 +189,8 @@ impl Grid {
     }
 
     /// Raising (`up`) or lowering corner (x, y) a step; `None` when refused
-    /// (a cell nothing fits). A corner at height 0 stays there: lowering it
-    /// chooses the tiles around it again.
+    /// (a cell nothing fits), or outside the lattice. A corner at height 0
+    /// stays there: lowering it chooses the tiles around it again.
     pub fn raise(
         &self,
         index: &TileIndex,
@@ -183,7 +200,7 @@ impl Grid {
         up: bool,
     ) -> Option<Stroke> {
         let mut lattice = self.lattice.clone();
-        let mut c = lattice.corner(x, y);
+        let mut c = lattice.get_corner(x, y)?;
         c.height += if up { 1 } else { -1 };
         if c.height < 0 {
             return self.repick(index, &around(&self.lattice, x, y));
@@ -201,7 +218,8 @@ impl Grid {
     /// button down (the quarter nearest that edge), from the one it was in
     /// when pressed ([`path_edges`] for a path through cell centres). The
     /// cells on both sides of each edge choose their tiles again; with no
-    /// edge, the `cells` given (a click). `None` when refused.
+    /// edge, the `cells` given (a click). `None` when refused, or for a
+    /// cell outside the grid.
     ///
     /// [`SOUTH`]: crate::SOUTH
     pub fn draw_crosser(
@@ -211,6 +229,9 @@ impl Grid {
         click: &[(u32, u32)],
         crosser: Crosser,
     ) -> Option<Stroke> {
+        if !self.all_inside(edges.iter().map(|(c, _)| c).chain(click)) {
+            return None;
+        }
         let mut lattice = self.lattice.clone();
         let mut cells: Vec<(u32, u32)> = click.to_vec();
         for &((x, y), edge) in edges {
@@ -233,9 +254,9 @@ impl Grid {
     /// On a tile of a group (a building of several tiles, a feature of
     /// one) it takes the group away whole: each of its tiles is replaced
     /// by one that fits the ground there. What is left of a group painted
-    /// over goes a tile at a time.
+    /// over goes a tile at a time. `None` outside the grid, too.
     pub fn erase(&self, index: &TileIndex, x: u32, y: u32) -> Option<Stroke> {
-        if index.is_grouped(self.tile(x, y).tile) {
+        if index.is_grouped(self.get_tile(x, y)?.tile) {
             let cells = self.group_cells(index, x, y).unwrap_or_else(|| vec![(x, y)]);
             return self.delete(index, &cells);
         }
@@ -261,6 +282,9 @@ impl Grid {
         y: u32,
         only: Option<Crosser>,
     ) -> Option<Stroke> {
+        if !self.lattice.has_cell(x, y) {
+            return None;
+        }
         let mut lattice = self.lattice.clone();
         let mut cells = vec![(x, y)];
         // Cells to fit again, with the crosser they lost.
@@ -308,17 +332,29 @@ impl Grid {
 
     /// Choosing the tiles of `cells` again, the terrain as it is (the
     /// Eraser, on the tile under the pointer). `None` when one has no tile
-    /// that fits.
+    /// that fits, or is outside the grid.
     pub fn repick(&self, index: &TileIndex, cells: &[(u32, u32)]) -> Option<Stroke> {
+        if !self.all_inside(cells) {
+            return None;
+        }
         self.stroke(index, self.lattice.clone(), BTreeSet::new(), cells.to_vec())
+    }
+
+    /// Whether every one of `cells` is the grid's.
+    fn all_inside<'a>(&self, cells: impl IntoIterator<Item = &'a (u32, u32)>) -> bool {
+        cells.into_iter().all(|&(x, y)| self.lattice.has_cell(x, y))
     }
 
     /// Delete on selected tiles: each loses its crossers as the Eraser takes
     /// them, and a group's tile is replaced by a tile that fits its place,
     /// the rest of its group too (as the Eraser takes a group), or with
     /// [`Grid::free_groups`] on, alone (the rest of the group stays, as
-    /// Aurora's Delete leaves it). `None` when one has nothing to fit.
+    /// Aurora's Delete leaves it). `None` when one has nothing to fit, or
+    /// is outside the grid.
     pub fn delete(&self, index: &TileIndex, cells: &[(u32, u32)]) -> Option<Stroke> {
+        if !self.all_inside(cells) {
+            return None;
+        }
         let mut grid = self.clone();
         let mut chosen: Vec<(u32, u32)> = Vec::new();
         let mut unlocked = Vec::new();
@@ -396,6 +432,7 @@ impl Grid {
     /// Placing a block of tiles as a group goes in (pasted tiles too):
     /// each at its offset from cell (x, y), raised by the height of the
     /// ground under that cell; `None` offsets are matched like terrain.
+    /// `None` when refused, or for a cell outside the grid.
     pub fn place_tiles(
         &self,
         index: &TileIndex,
@@ -404,7 +441,7 @@ impl Grid {
         y: u32,
     ) -> Option<Stroke> {
         let (w, h) = (self.lattice.width() as i64, self.lattice.height() as i64);
-        let base = self.lattice.cell(x, y).corners.iter().map(|c| c.height).min().unwrap_or(0);
+        let base = self.lattice.get_cell(x, y)?.corners.iter().map(|c| c.height).min().unwrap_or(0);
         let mut lattice = self.lattice.clone();
         let mut fixed = Vec::new();
         let mut empty = Vec::new();
@@ -497,8 +534,12 @@ impl Grid {
     /// and its own corners and edges are what the tile has. `None` on a
     /// tile of a group or feature, which changes only with it unless
     /// [`Grid::free_groups`] is on (that group is then
-    /// [`Grid::blocked`]), or for a tile the tileset hasn't.
+    /// [`Grid::blocked`]), or for a tile the tileset hasn't, or a cell
+    /// outside the grid.
     pub fn set_exact(&self, index: &TileIndex, x: u32, y: u32, p: Placement) -> Option<Stroke> {
+        if !self.lattice.has_cell(x, y) {
+            return None;
+        }
         if self.locked(index, x, y) {
             *self.blocked.borrow_mut() =
                 self.group_cells(index, x, y).unwrap_or_else(|| vec![(x, y)]);
@@ -587,24 +628,33 @@ impl Grid {
 
     /// Applies a stroke, choosing each of its cells' tiles at random among
     /// those that fit. Returns the cells that changed and their new tiles.
+    /// A stroke worked out on a grid of another size changes nothing.
     pub fn apply(
         &mut self,
         index: &TileIndex,
         stroke: Stroke,
         rng: &mut fastrand::Rng,
     ) -> Vec<((u32, u32), Placement)> {
+        let size = |l: &Lattice| (l.width(), l.height());
+        if size(&stroke.lattice) != size(&self.lattice) {
+            return Vec::new();
+        }
         let mut out = Vec::new();
         for &((x, y), p) in &stroke.fixed {
-            self.tiles[(y * stroke.lattice.width() + x) as usize] = p;
+            let Some(i) = self.slot(x, y) else { continue };
+            self.tiles[i] = p;
             out.push(((x, y), p));
         }
         for &(x, y) in &stroke.cells {
-            let fits = index.fits(&stroke.lattice.cell(x, y));
+            let (Some(i), Some(cell)) = (self.slot(x, y), stroke.lattice.get_cell(x, y)) else {
+                continue;
+            };
+            let fits = index.fits(&cell);
             if fits.is_empty() {
                 continue;
             }
             let p = fits[rng.usize(..fits.len())];
-            self.tiles[(y * stroke.lattice.width() + x) as usize] = p;
+            self.tiles[i] = p;
             out.push(((x, y), p));
         }
         self.lattice = stroke.lattice;
@@ -1103,6 +1153,45 @@ Top={}\nRight={}\nBottom={}\nLeft={}\n",
         assert_eq!(g.lattice.corner(2, 2).terrain, b);
         let changed = (0..16).filter(|&i| g.tiles[i] != before[i]).count();
         assert!(changed <= 4);
+    }
+
+    /// A corner or cell past the grid's edge (one kept from a larger area,
+    /// GitHub issue 31) is refused by every brush, not a panic.
+    #[test]
+    fn brushes_outside_the_grid_are_refused() {
+        let set = set();
+        let index = TileIndex::new(&set);
+        let rules = Rules::new(&index, &set);
+        let g = grid(&index, 4);
+        let (b, r) = (index.terrain("B").unwrap(), index.crosser("R").unwrap());
+        // Corners run to 4, cells to 3: (2, 5) and (4, 4) are past them.
+        assert!(g.paint(&index, &rules, 2, 5, b).is_none());
+        assert!(g.paint(&index, &rules, 5, 0, b).is_none());
+        assert!(g.paint(&index, &rules, 4, 4, b).is_some(), "the far corner is the lattice's");
+        assert!(g.raise(&index, &rules, 2, 5, true).is_none());
+        assert!(g.raise(&index, &rules, 2, 5, false).is_none());
+        assert!(g.erase(&index, 4, 4).is_none());
+        assert!(g.erase_only(&index, 1, 4, Some(r)).is_none());
+        assert!(g.repick(&index, &[(1, 1), (1, 6)]).is_none());
+        assert!(g.delete(&index, &[(1, 6)]).is_none());
+        assert!(g.draw_crosser(&index, &[], &[(4, 0)], r).is_none());
+        assert!(
+            g.draw_crosser(&index, &[((3, 3), crate::NORTH), ((3, 4), crate::SOUTH)], &[], r)
+                .is_none()
+        );
+        let p = g.tile(1, 1);
+        assert!(g.place_tiles(&index, &[((0, 0), Some(p))], 4, 1).is_none());
+        assert!(g.set_exact(&index, 1, 4, p).is_none());
+        assert!(g.group_cells(&index, 0, 9).is_none());
+        // (A cell past the east edge is not the next row's first.)
+        assert_eq!((g.get_tile(4, 0), g.get_tile(0, 4)), (None, None));
+        assert_eq!(g.get_tile(3, 3), Some(g.tiles[15]));
+        assert!(!g.locked(&index, 9, 9));
+        // A stroke worked out on another grid's size changes nothing.
+        let mut small = grid(&index, 2);
+        let s = g.paint(&index, &rules, 3, 3, b).unwrap();
+        assert!(small.apply(&index, s, &mut fastrand::Rng::with_seed(4)).is_empty());
+        assert_eq!(small, grid(&index, 2));
     }
 
     #[test]

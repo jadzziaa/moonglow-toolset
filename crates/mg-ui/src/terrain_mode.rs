@@ -90,8 +90,8 @@ pub struct TileBrush {
 /// fit), if it does there: turned as the tile there now is, where it fits
 /// so too.
 fn fit_of(tools: &Tools, grid: &Grid, (x, y): (u32, u32), tile: u32) -> Option<Placement> {
-    let fits = mg_tiles::paint::fits_in_order(&tools.index, &grid.lattice.cell(x, y));
-    let now = grid.tile(x, y);
+    let fits = mg_tiles::paint::fits_in_order(&tools.index, &grid.lattice.get_cell(x, y)?);
+    let now = grid.get_tile(x, y)?;
     (fits.iter().find(|p| p.tile == tile && p.orientation == now.orientation))
         .or_else(|| fits.iter().find(|p| p.tile == tile))
         .copied()
@@ -105,7 +105,7 @@ fn refined(tools: &Tools, grid: &Grid, brush: &TileBrush, (x, y): (u32, u32)) ->
     }
     match brush.target {
         Some(t) => fit_of(tools, grid, (x, y), t),
-        None => next_fit(&tools.index, &grid.lattice.cell(x, y), grid.tile(x, y)),
+        None => next_fit(&tools.index, &grid.lattice.get_cell(x, y)?, grid.get_tile(x, y)?),
     }
 }
 
@@ -334,6 +334,10 @@ fn stroke(
 ) -> (Option<Stroke>, String) {
     let (x, y) = spot.corner;
     let label = format!("Paint {}", brush.label);
+    // (A spot past the grid's edges, as a larger area had it: nothing.)
+    if !grid.lattice.has_corner(x, y) || !grid.lattice.has_cell(spot.cell.0, spot.cell.1) {
+        return (None, label);
+    }
     match brush.brush {
         // Shift + click on a corner of the brush's terrain: the tiles
         // around it each step to their next variant, in Aurora's order.
@@ -422,7 +426,7 @@ pub(crate) fn next_of(tools: &Tools, grid: &Grid, (x, y): (u32, u32)) -> Option<
     if grid.locked(&tools.index, x, y) {
         return None;
     }
-    next_fit(&tools.index, &grid.lattice.cell(x, y), grid.tile(x, y))
+    next_fit(&tools.index, &grid.lattice.get_cell(x, y)?, grid.get_tile(x, y)?)
 }
 
 /// Cells a stroke changed, and their new tiles.
@@ -467,10 +471,13 @@ fn changes(
 ) -> Changes {
     match pick {
         Some(p) => {
-            let cell = stroke.cells[0];
+            let Some(&(x, y)) = stroke.cells.first().filter(|c| grid.lattice.has_cell(c.0, c.1))
+            else {
+                return Vec::new();
+            };
             let w = grid.lattice.width();
-            grid.tiles[(cell.1 * w + cell.0) as usize] = p;
-            vec![(cell, p)]
+            grid.tiles[(y * w + x) as usize] = p;
+            vec![((x, y), p)]
         }
         None => grid.apply(&tools.index, stroke, &mut fastrand::Rng::with_seed(seed)),
     }
@@ -787,7 +794,9 @@ pub(crate) fn input(
             } else if response.secondary_clicked()
                 && let Some(s) = view.spot
                 && let Some(g) = current_grid(app, view)
-                && g.lattice.cell(s.cell.0, s.cell.1).edges[s.edge] == Some(c)
+                && g.lattice
+                    .get_cell(s.cell.0, s.cell.1)
+                    .is_some_and(|t| t.edges[s.edge] == Some(c))
             {
                 // A right click where the crosser is (the cursor blue):
                 // the Eraser's click on that tile for this crosser alone
@@ -1151,7 +1160,7 @@ fn cursor_shapes(
     let (Some(model), Some(tools)) = (view.model.as_ref(), view.terrain.as_ref()) else { return };
     let step = model.height_step;
     let Some(g) = current_grid(app, view) else { return };
-    let z = |x: u32, y: u32| g.lattice.corner(x, y).height as f32 * step;
+    let z = |x: u32, y: u32| g.lattice.get_corner(x, y).map_or(0.0, |c| c.height as f32 * step);
     let point =
         |x: f32, y: f32, z: f32| Vec3::new(x * mg_area::TILE_SIZE, y * mg_area::TILE_SIZE, z);
     // On the ground the pointer picks.
@@ -1192,7 +1201,8 @@ fn cursor_shapes(
                 // Before a drag, over a quarter the crosser already crosses,
                 // a click only chooses the tile again; elsewhere a drag from
                 // here lays it.
-                let there = g.lattice.cell(cell.0, cell.1).edges[edge] == Some(c);
+                let there =
+                    g.lattice.get_cell(cell.0, cell.1).is_some_and(|t| t.edges[edge] == Some(c));
                 let color = if view.crossing.is_empty() && there { CYCLE } else { ok };
                 quarter(cell, edge, color);
             }
@@ -1256,7 +1266,7 @@ fn cursor_shapes(
             // chooses the tiles around it again (with Shift, the next that
             // fit).
             let own = matches!(brush.brush, Brush::Terrain(t)
-                if g.lattice.corner(s.corner.0, s.corner.1).terrain == t);
+                if g.lattice.get_corner(s.corner.0, s.corner.1).is_some_and(|c| c.terrain == t));
             let (st, _) = stroke(tools, &g, &brush, s, false, shift && own, 0);
             let cycle = own;
             let (x, y) = (s.corner.0 as f32, s.corner.1 as f32);

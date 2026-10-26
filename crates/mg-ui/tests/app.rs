@@ -11039,6 +11039,238 @@ fn resize_and_rotate_area_from_the_edit_menu() {
     assert!((w[0].0 - 20.0).abs() < 1e-3 && (w[0].1 - 20.0).abs() < 1e-3, "{w:?}");
 }
 
+/// Resize Area from the Edit menu to `columns` by `rows` (the new ground
+/// at the north and east), the camera then over all of it.
+fn resize_area_to(h: &mut Harness<'_, Moonglow>, area: ResRef, columns: u32, rows: u32) {
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    h.get_by_label("Resize Area…").click();
+    h.run_steps(2);
+    let d = h.state_mut().resize_area.as_mut().expect("the window is open");
+    (d.columns, d.rows) = (columns, rows);
+    h.run_steps(1);
+    h.get_by_label("OK").click();
+    h.run_steps(3);
+    let view = h.state_mut().area_views.get_mut(&area).unwrap();
+    let model = view.model.as_ref().unwrap();
+    assert_eq!((model.width, model.height), (columns, rows));
+    view.orbit = Some(mg_ui::area_view::Orbit::overview(model));
+    h.run_steps(2);
+}
+
+/// The area's ARE as the workspace has it.
+fn area_are(h: &mut Harness<'_, Moonglow>, area: ResRef) -> mg_gff::Struct {
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    ws.doc(&ResKey::new(area, ResType::ARE)).unwrap().root.clone()
+}
+
+/// The Tiles palette open on the area's tileset, brush `brush` chosen.
+fn choose_tile_brush(h: &mut Harness<'_, Moonglow>, brush: &str) {
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    palette_type(h, "🗻", "Tiles");
+    h.run_steps(2);
+    h.get_by_label(brush).click();
+    h.run_steps(2);
+}
+
+/// GitHub issue 31: a terrain brush over ground that only the larger area
+/// had, when Undo took Resize Area back (twice, as reported: a stroke on
+/// the new ground, then the resize). The next frame's preview of the brush
+/// read the corner under the pointer, as the larger area had it, in the
+/// smaller area's lattice, and panicked ("corner (2, 6) outside the
+/// lattice"). The pointer's spot goes with the ground: the brush shows
+/// nothing there, and a click there does nothing.
+#[test]
+fn a_terrain_brush_over_ground_an_undo_took_away_does_nothing() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("terrain-undo-resize") else { return };
+    let before = area_are(&mut h, area);
+    choose_tile_brush(&mut h, "Water");
+    resize_area_to(&mut h, area, 4, 8);
+    // Water at corner (2, 6), on the new ground: one command.
+    let at = screen(&h, area, Vec3::new(20.0, 60.0, 0.0));
+    click_pos(&h, at);
+    h.run_steps(3);
+    assert!(!h.state().area_views[&area].brush_cursor.is_empty(), "the brush's cursor there");
+    assert_ne!(area_are(&mut h, area), before, "painted");
+    // The stroke, then the resize, undone with the pointer resting there.
+    for _ in 0..2 {
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+        h.run_steps(1);
+    }
+    h.run_steps(2);
+    let view = &h.state().area_views[&area];
+    let model = view.model.as_ref().unwrap();
+    assert_eq!((model.width, model.height), (4, 4));
+    // (Past the area's north edge now.)
+    assert!(view.brush_cursor.is_empty() && view.tile_preview.is_empty());
+    assert_eq!(area_are(&mut h, area), before, "both undone");
+    // A click there: nothing painted.
+    click_pos(&h, at);
+    h.run_steps(3);
+    assert_eq!(area_are(&mut h, area), before);
+    // Redo makes the larger area again, and the pointer's corner with it.
+    for _ in 0..2 {
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Y);
+        h.run_steps(1);
+    }
+    h.run_steps(2);
+    let view = &h.state().area_views[&area];
+    assert_eq!(view.model.as_ref().map(|m| (m.width, m.height)), Some((4, 8)));
+    assert!(!view.brush_cursor.is_empty());
+}
+
+/// Issue 31's other ways in: a terrain drag going on as Undo takes the
+/// larger area back marked corners only the larger area had. The drag
+/// goes with them, and letting go paints nothing (nor panics).
+#[test]
+fn a_terrain_drag_across_an_undo_of_resize_area_paints_nothing() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("terrain-drag-undo-resize") else { return };
+    let before = area_are(&mut h, area);
+    choose_tile_brush(&mut h, "↕ Raise/Lower");
+    resize_area_to(&mut h, area, 4, 8);
+    let (from, to) = (
+        screen(&h, area, Vec3::new(20.0, 50.0, 0.0)),
+        screen(&h, area, Vec3::new(20.0, 70.0, 0.0)),
+    );
+    h.hover_at(from);
+    h.run_steps(1);
+    press(&h, from, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    for k in 1..=4 {
+        h.hover_at(from + (to - from) * (k as f32 / 4.0));
+        h.run_steps(1);
+    }
+    // (The cursor: the squares round the corners marked, and the pointer's.)
+    let shapes = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].brush_cursor.len();
+    assert!(shapes(&h) > 2, "a drag going on");
+    // Undone, the button still down.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(3);
+    assert_eq!(shapes(&h), 0, "the drag goes with the ground it marked");
+    assert_eq!(area_are(&mut h, area), before);
+    h.hover_at(to + egui::vec2(0.0, -5.0));
+    h.run_steps(1);
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(4);
+    assert_eq!(area_are(&mut h, area), before, "letting go paints nothing");
+}
+
+/// The tile menu's Tile Properties… on the tiles selected, the menu opened
+/// at `at`.
+fn tile_properties_at(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {
+    for pressed in [true, false] {
+        let button = egui::PointerButton::Secondary;
+        let m = Default::default();
+        h.event(egui::Event::PointerButton { pos: at, button, pressed, modifiers: m });
+    }
+    h.run_steps(2);
+    h.get_by_label("Tile Properties…").click();
+    h.run_steps(3);
+}
+
+/// Issue 31 in tile mode: the tiles laid out anew by an Undo of Resize
+/// Area, the selection goes, and Tile Properties open on them closes;
+/// Delete then deletes nothing (it panicked, reading the tile at an index
+/// past the smaller area's).
+#[test]
+fn tiles_selected_on_ground_an_undo_took_away_are_dropped() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("tiles-undo-resize") else { return };
+    let before = area_are(&mut h, area);
+    resize_area_to(&mut h, area, 4, 8);
+    if !h.state().area_views[&area].tile_mode {
+        h.get_by_label("⛶ Select Tiles").click();
+        h.run_steps(2);
+    }
+    let south = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
+    let north = screen(&h, area, Vec3::new(15.0, 65.0, 0.0));
+    click_pos(&h, south);
+    h.run_steps(2);
+    h.hover_at(north);
+    press(&h, north, true, egui::Modifiers::COMMAND);
+    press(&h, north, false, egui::Modifiers::COMMAND);
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].tile_selection, [(1, 1), (1, 6)]);
+    // Their Tile Properties: by their places in the list, 5 and 25.
+    tile_properties_at(&mut h, north);
+    assert_eq!(h.state().tile_props.as_ref().map(|p| p.tiles.clone()), Some(vec![5, 25]));
+    h.hover_at(screen(&h, area, Vec3::new(15.0, 15.0, 0.0)));
+    h.run_steps(1);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(3);
+    assert_eq!(area_are(&mut h, area), before);
+    assert!(h.state().tile_props.is_none(), "Tile Properties closed, its places gone");
+    assert!(h.state().area_views[&area].tile_selection.is_empty(), "the selection gone");
+    // Delete over the view: nothing to delete.
+    h.hover_at(screen(&h, area, Vec3::new(15.0, 15.0, 0.0)));
+    h.run_steps(1);
+    h.key_press(egui::Key::Delete);
+    h.run_steps(3);
+    assert_eq!(area_are(&mut h, area), before);
+}
+
+/// The coordinator's case of issue 31: Rotate Area on a square area keeps
+/// its size, but every tile has another place. Tiles selected and Tile
+/// Properties open on them before the turn: the selection goes and the
+/// window closes, so that neither a change in it (a height) nor Delete
+/// lands on the tiles turned into those places; the same across the
+/// turn's Undo.
+#[test]
+fn tiles_selected_across_rotate_area_are_dropped() {
+    use glam::Vec3;
+    use mg_edit::Command;
+    let Some((mut h, area)) = area_harness("tiles-rotate") else { return };
+    h.get_by_label("⛶ Select Tiles").click();
+    h.run_steps(2);
+    // (Where tile (0, 0) is on screen: Tile Properties' pane takes room.)
+    let at = |h: &Harness<'_, Moonglow>| screen(h, area, Vec3::new(5.0, 5.0, 0.0));
+    click_pos(&h, at(&h));
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].tile_selection, [(0, 0)]);
+    let rotate = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let (are_key, git_key) = (ResKey::new(area, ResType::ARE), ResKey::new(area, ResType::GIT));
+        let are = ws.doc(&are_key).unwrap().root.clone();
+        let git = ws.doc(&git_key).unwrap().root.clone();
+        let edits = mg_area::reshape::rotate(are_key, git_key, &are, &git, 1);
+        h.state_mut().actions.push(mg_ui::Action::Apply(Command::new("Rotate Area", edits)));
+        h.run_steps(3);
+    };
+    let tiles =
+        |h: &mut Harness<'_, Moonglow>| area_are(h, area).list("Tile_List").unwrap().to_vec();
+    for undo in [false, true] {
+        let here = at(&h);
+        tile_properties_at(&mut h, here);
+        assert_eq!(h.state().tile_props.as_ref().map(|p| p.tiles.clone()), Some(vec![0]));
+        if undo {
+            h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+            h.run_steps(3);
+        } else {
+            rotate(&mut h);
+        }
+        let turned = tiles(&mut h);
+        // A height asked of the window, were it open: written into tile 0.
+        if let Some(p) = h.state_mut().tile_props.as_mut() {
+            p.height = Some(p.first_height + 2);
+        }
+        h.run_steps(3);
+        assert_eq!(tiles(&mut h), turned, "the height went to no tile (undo: {undo})");
+        assert!(h.state().tile_props.is_none(), "Tile Properties closed (undo: {undo})");
+        assert!(h.state().area_views[&area].tile_selection.is_empty(), "undo: {undo}");
+        h.hover_at(at(&h));
+        h.run_steps(1);
+        h.key_press(egui::Key::Delete);
+        h.run_steps(3);
+        assert_eq!(tiles(&mut h), turned, "no tile changed (undo: {undo})");
+        // Chosen again, for the next round.
+        click_pos(&h, at(&h));
+        h.run_steps(2);
+    }
+}
+
 #[test]
 fn walkmesh_overlay_and_area_statistics() {
     let Some((mut h, area)) = area_harness("stats") else { return };

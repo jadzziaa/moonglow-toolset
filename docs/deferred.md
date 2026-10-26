@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:03:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:17:32Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1652,6 +1652,19 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   `tile_properties_turn_turns_the_tiles_at_once`); it was so before the
   Turn changed tiles at once. (S) (the owner's report on Tile
   Properties)
+- **The tile selection and Tile Properties are let go, not carried,
+  when the tiles are laid out anew:** Resize Area, Rotate Area (a square
+  area's too), their Undo and Redo, `Tile_List` set whole (a plugin) or
+  the ARE read again from disk drop the selected tiles, and close Tile
+  Properties open on that area, keeping what the area has (both hold
+  tiles by column and row, or by place in `Tile_List`, which hold other
+  tiles after it: `mg_edit::Workspace::rewrites` tells). Turning or
+  shifting them with the area, so that they stay on their tiles, is not
+  done. (S) (GitHub issue 31, the coordinator's review)
+- **A change `Workspace::derive` makes is not counted as a rewrite:** it
+  makes resources from others (the custom palettes, compiled scripts),
+  never an area's; one that changed an ARE would leave the tile tools
+  holding tiles by places that hold others. (S) (GitHub issue 31)
 
 ## The turning ring
 

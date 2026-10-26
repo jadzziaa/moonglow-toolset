@@ -318,13 +318,32 @@ impl Lattice {
         self.height
     }
 
+    /// Whether corner (x, y) is one of the lattice's: x up to its width,
+    /// y up to its height.
+    pub fn has_corner(&self, x: u32, y: u32) -> bool {
+        x <= self.width && y <= self.height
+    }
+
+    /// Whether cell (x, y) is one of the grid's.
+    pub fn has_cell(&self, x: u32, y: u32) -> bool {
+        x < self.width && y < self.height
+    }
+
     fn corner_index(&self, x: u32, y: u32) -> usize {
-        assert!(x <= self.width && y <= self.height, "corner ({x}, {y}) outside the lattice");
+        assert!(self.has_corner(x, y), "corner ({x}, {y}) outside the lattice");
         y as usize * (self.width as usize + 1) + x as usize
     }
 
+    /// Corner (x, y), which must be the lattice's: [`Lattice::get_corner`]
+    /// where it may not be (a point from outside, or kept from before the
+    /// area changed size).
     pub fn corner(&self, x: u32, y: u32) -> Corner {
         self.corners[self.corner_index(x, y)]
+    }
+
+    /// Corner (x, y); `None` outside the lattice.
+    pub fn get_corner(&self, x: u32, y: u32) -> Option<Corner> {
+        self.has_corner(x, y).then(|| self.corner(x, y))
     }
 
     pub fn set_corner(&mut self, x: u32, y: u32, c: Corner) {
@@ -333,7 +352,7 @@ impl Lattice {
     }
 
     fn edge_slots(&self, x: u32, y: u32) -> [(bool, usize); 4] {
-        assert!(x < self.width && y < self.height, "cell ({x}, {y}) outside the grid");
+        assert!(self.has_cell(x, y), "cell ({x}, {y}) outside the grid");
         let (x, y, w) = (x as usize, y as usize, self.width as usize);
         [
             (true, y * w + x),
@@ -343,8 +362,10 @@ impl Lattice {
         ]
     }
 
-    /// The cell at (x, y).
+    /// The cell at (x, y), which must be the grid's: [`Lattice::get_cell`]
+    /// where it may not be.
     pub fn cell(&self, x: u32, y: u32) -> Cell {
+        assert!(self.has_cell(x, y), "cell ({x}, {y}) outside the grid");
         let corners = [
             self.corner(x, y),
             self.corner(x + 1, y),
@@ -355,6 +376,11 @@ impl Lattice {
             .edge_slots(x, y)
             .map(|(along_x, i)| if along_x { self.x_edges[i] } else { self.y_edges[i] });
         Cell { corners, edges }
+    }
+
+    /// The cell at (x, y); `None` outside the grid.
+    pub fn get_cell(&self, x: u32, y: u32) -> Option<Cell> {
+        self.has_cell(x, y).then(|| self.cell(x, y))
     }
 
     /// Sets edge `edge` (from [`SOUTH`], counter-clockwise) of cell (x, y),
@@ -590,5 +616,23 @@ mod tests {
         lattice.set_corner(1, 1, Corner { terrain: b, height: 0 });
         let err = fill(&index, &lattice, &mut fastrand::Rng::with_seed(1)).unwrap_err();
         assert_eq!(err, TilesError::NoTile { x: 0, y: 0 });
+    }
+
+    /// Corners run to the width and height, cells to one less: past them
+    /// a lookup is `None` (GitHub issue 31's corner (5, 9) of a 16 by 8
+    /// area).
+    #[test]
+    fn lookups_outside_the_lattice_are_none() {
+        let set = set();
+        let index = TileIndex::new(&set);
+        let a = Corner { terrain: index.terrain("A").unwrap(), height: 0 };
+        let lattice = Lattice::new(3, 2, a);
+        assert_eq!(lattice.get_corner(3, 2), Some(a));
+        assert_eq!((lattice.get_corner(4, 0), lattice.get_corner(0, 3)), (None, None));
+        assert!(lattice.get_cell(2, 1).is_some());
+        assert_eq!((lattice.get_cell(3, 0), lattice.get_cell(0, 2)), (None, None));
+        assert!(lattice.has_corner(3, 2) && !lattice.has_cell(3, 2));
+        let empty = Lattice::new(0, 0, a);
+        assert!(empty.get_corner(0, 0).is_some() && empty.get_cell(0, 0).is_none());
     }
 }

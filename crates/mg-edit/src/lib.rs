@@ -186,6 +186,8 @@ pub struct Workspace {
     changes_since_save: isize,
     /// Moves on every change (apply, undo, redo), for views that cache.
     revision: u64,
+    /// [`Workspace::rewrites`], by resource.
+    rewrites: HashMap<ResKey, u64>,
     /// The resources as opened or last saved ([`Workspace::saved`]).
     saved: Module,
 }
@@ -220,6 +222,7 @@ impl Workspace {
             redo: Vec::new(),
             changes_since_save: 0,
             revision: first_revision(),
+            rewrites: HashMap::new(),
         }
     }
 
@@ -227,6 +230,21 @@ impl Workspace {
     /// and that no other workspace has had.
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// How many times resource `key` was replaced whole or had a list at
+    /// its root rewritten (set as a whole, an item put in or taken out),
+    /// by a command, its undo or redo, or a file read again
+    /// ([`Workspace::adopt`]): what holds an item of such a list by its
+    /// place in it (an area's tile by its index in `Tile_List`) may hold
+    /// another since the number moved. Edits inside the items don't count,
+    /// nor [`Workspace::derive`] (what it makes is made from the others).
+    pub fn rewrites(&self, key: &ResKey) -> u64 {
+        self.rewrites.get(key).copied().unwrap_or(0)
+    }
+
+    fn rewritten(&mut self, key: &ResKey) {
+        *self.rewrites.entry(*key).or_default() += 1;
     }
 
     /// The module's resources as it was opened or last saved (with the
@@ -401,11 +419,14 @@ impl Workspace {
                         self.module.remove(key);
                     }
                 }
+                self.rewritten(key);
                 Ok(Edit::SetResource { key: *key, data: old })
             }
             Edit::SetField { key, path, label, value } => {
                 let s = self.struct_at(key, path)?;
                 let old = s.get(label).cloned();
+                let list = |v: &Option<Value>| matches!(v, Some(Value::List(_)));
+                let rewrites = path.0.is_empty() && (list(&old) || list(value));
                 match value {
                     Some(v) => {
                         if Label::new(label).is_err() {
@@ -419,6 +440,9 @@ impl Workspace {
                     None => {
                         s.remove(label);
                     }
+                }
+                if rewrites {
+                    self.rewritten(key);
                 }
                 Ok(Edit::SetField {
                     key: *key,
@@ -443,6 +467,9 @@ impl Workspace {
                     });
                 }
                 items.insert(*index, item.clone());
+                if path.0.is_empty() {
+                    self.rewritten(key);
+                }
                 Ok(Edit::RemoveItem {
                     key: *key,
                     path: path.clone(),
@@ -459,6 +486,9 @@ impl Workspace {
                     }
                 })?;
                 let item = items.remove(*index);
+                if path.0.is_empty() {
+                    self.rewritten(key);
+                }
                 Ok(Edit::InsertItem {
                     key: *key,
                     path: path.clone(),
@@ -548,6 +578,7 @@ impl Workspace {
         self.flush()?;
         for (key, data) in changes {
             self.docs.remove(key);
+            self.rewritten(key);
             // (Not the builder's change here: what a save compares with
             // takes it too.)
             for m in [&mut self.module, &mut self.saved] {
@@ -678,6 +709,42 @@ mod tests {
         assert!(!ws.is_modified(), "undone back to the saved state");
         ws.redo().unwrap();
         assert_eq!(ws.doc(&ifo_key).unwrap().root.read(&ifo::MOD_XP_SCALE), 50);
+    }
+
+    /// A list at a resource's root rewritten (set whole, an item put in or
+    /// taken out), the resource replaced or read again, is counted, by
+    /// command, undo and redo; an edit inside an item or of another field
+    /// is not (an area's tiles painted keep their places, Rotate Area
+    /// moves them: GitHub issue 31).
+    #[test]
+    fn rewrites_of_a_resource_s_lists_are_counted() {
+        let mut ws = workspace();
+        let k = key("area", ResType::GIT);
+        let run = |ws: &mut Workspace, e: Edit| {
+            ws.apply(Command::new("edit", vec![e])).unwrap();
+            ws.rewrites(&k)
+        };
+        assert_eq!(ws.rewrites(&k), 0);
+        let set = |path: GffPath, label: &str, value: Value| Edit::SetField {
+            key: k,
+            path,
+            label: label.into(),
+            value: Some(value),
+        };
+        let inside = GffPath::root().item("Creature List", 0);
+        assert_eq!(run(&mut ws, set(inside, "Tag", Value::String(b"HEN".to_vec()))), 0);
+        assert_eq!(run(&mut ws, set(GffPath::root(), "Note", Value::Int(1))), 0);
+        let added = Edit::insert_item(k, GffPath::root(), "Creature List", 1, Struct::new(4));
+        assert_eq!(run(&mut ws, added), 1);
+        ws.undo().unwrap();
+        assert_eq!(ws.rewrites(&k), 2, "undone");
+        ws.redo().unwrap();
+        assert_eq!(ws.rewrites(&k), 3, "redone");
+        assert_eq!(run(&mut ws, set(GffPath::root(), "Creature List", Value::List(vec![]))), 4);
+        assert_eq!(run(&mut ws, Edit::SetResource { key: k, data: None }), 5);
+        ws.adopt(&[(k, None)]).unwrap();
+        assert_eq!(ws.rewrites(&k), 6, "read again");
+        assert_eq!(ws.rewrites(&key("module", ResType::IFO)), 0, "another resource");
     }
 
     /// What Undo and Redo will run is seen before they run it: the
