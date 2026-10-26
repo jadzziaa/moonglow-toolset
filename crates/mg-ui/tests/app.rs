@@ -31127,6 +31127,65 @@ fn typing_dialog() -> Gff {
     g
 }
 
+/// A builder's report: a name typed in the module tree went letter by
+/// letter, each to the next row beginning with it ("shopthing": an "s",
+/// then an "h", then an "o"...). Typed in quick succession the letters go
+/// by all of them, as in Aurora's tree and the conversation tree; the same
+/// letter again goes to the next row beginning with it, and a pause
+/// starts over.
+#[test]
+fn the_module_tree_s_letters_typed_quickly() {
+    use mg_ui::TreeAt;
+    let dir = mg_testkit::scratch_dir("ui-tree-type-ahead");
+    let mut m = Module::new();
+    for name in ["sewer", "shop", "shopkeep", "shopthing", "tavern"] {
+        m.set(ResKey::parse(name, ResType::NSS).unwrap(), b"void main() { }\n".to_vec());
+    }
+    let path = dir.join("typing.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .with_step_dt(0.25)
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    if h.query_by_label("sewer").is_none() {
+        h.get_by_label_contains("Scripts (").click();
+        h.run();
+        h.key_press(egui::Key::ArrowRight);
+        h.run();
+    }
+    h.get_by_label("sewer").click();
+    h.run();
+    let at = |h: &Harness<'_, Moonglow>| h.state().tree_cursor;
+    let script = |name: &str| Some(TreeAt::Resource(ResKey::parse(name, ResType::NSS).unwrap()));
+    // (Typed as a keyboard types, a frame apart: a quarter of a second.)
+    let typed = |h: &mut Harness<'_, Moonglow>, t: &str| {
+        for c in t.chars() {
+            h.event(egui::Event::Text(c.to_string()));
+            h.step();
+        }
+        h.run();
+    };
+    typed(&mut h, "shopt");
+    assert_eq!(at(&h), script("shopthing"), "by all the letters");
+    h.run_steps(5);
+    typed(&mut h, "t");
+    assert_eq!(at(&h), script("tavern"), "after a pause, t alone");
+    h.run_steps(5);
+    typed(&mut h, "SHOP");
+    assert_eq!(at(&h), script("shop"), "the first beginning with them, in either case");
+    typed(&mut h, "k");
+    assert_eq!(at(&h), script("shopkeep"), "on with them: shopk");
+    h.run_steps(5);
+    typed(&mut h, "s");
+    assert_eq!(at(&h), script("shopthing"));
+    typed(&mut h, "s");
+    assert_eq!(at(&h), Some(TreeAt::Group("Sounds")), "the same letter again: the next");
+}
+
 /// Letters typed in the tree go by its rows as drawn, as Aurora's did
 /// (watched): "o" goes to "Off I go.", not to the NPC's "Over here.", whose
 /// row begins with `[OWNER]`. Typed in quick succession they go by all of

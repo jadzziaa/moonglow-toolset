@@ -363,7 +363,7 @@ fn contents_ui(
                         egui::pos2(ui.cursor().left(), top + at as f32 * step),
                         egui::vec2(1.0, row),
                     );
-                    ui.scroll_to_rect(rect, None);
+                    bring_into_view(ui, rect);
                     went = true;
                 }
                 // (And the keys' row, as near as it need be.)
@@ -372,7 +372,7 @@ fn contents_ui(
                         egui::pos2(ui.cursor().left(), top + at as f32 * step),
                         egui::vec2(1.0, row),
                     );
-                    ui.scroll_to_rect(rect, None);
+                    bring_into_view(ui, rect);
                 }
                 let clip = ui.clip_rect();
                 let first =
@@ -440,7 +440,7 @@ fn contents_ui(
                 room(ui, shown.len() - last);
             });
             if at_kind && keys.moved {
-                shown_header.header_response.scroll_to_me(None);
+                bring_into_view(ui, shown_header.header_response.rect);
             }
             if shown_header.header_response.clicked() {
                 keys.clicked = Some(TreeAt::Kind(area, *kind));
@@ -466,6 +466,13 @@ struct ContentKeys {
 /// followed by one itself).
 fn spacing_gap(ui: &Ui) -> f32 {
     ui.spacing().item_spacing.y
+}
+
+/// Brings a row (`rect`) into view up or down only: the tree scrolled
+/// sideways stays so (egui's own goes to a long row's start).
+fn bring_into_view(ui: &Ui, rect: egui::Rect) {
+    let x = ui.clip_rect().center().x;
+    ui.scroll_to_rect(egui::Rect::from_x_y_ranges(x..=x, rect.y_range()), None);
 }
 
 /// The module tree's pane: the Filter and Expand All / Collapse All, which
@@ -529,11 +536,24 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
     });
     ui.separator();
     let fold = fold.or(typed.then_some(true));
-    let mut rows = egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-        // A name too long for the pane is cut short (the pointer over it
-        // shows it whole), rather than widen the pane over the middle.
-        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+    let mut rows = egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| {
+        // A name too long for the pane goes on past it, and the tree
+        // scrolls sideways to it, as Aurora's does (a builder's report:
+        // only widening the pane showed long names whole).
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+        let left = ui.min_rect().left();
         tree_rows(app, ui, &filter, fold);
+        // (Rows out of sight are not laid out: the widest drawn since the
+        // filter changed keeps the width scrolled through, which then
+        // doesn't change as rows go by.)
+        let widest = egui::Id::new(("tree-widest", &filter));
+        let drawn = ui.min_rect().right() - left;
+        let width = ui.data_mut(|d| {
+            let w = d.get_temp_mut_or(widest, 0.0_f32);
+            *w = w.max(drawn);
+            *w
+        });
+        ui.expand_to_include_x(left + width);
     });
     crate::widgets::home_and_end(ui, &mut rows);
     crate::palette_view::keys_outline(ui, rows.inner_rect, crate::palette_view::Keys::Tree);
@@ -673,14 +693,18 @@ pub(crate) fn first_row() -> TreeAt {
 /// The rows shown: each group, whether it is open, and its resources.
 type Shown = Vec<(&'static str, bool, Vec<ResKey>)>;
 
-/// The next row after `at` (round the end) whose name begins with
-/// `letter`: a group's name, or a resource's name as its row shows it
-/// (`named`: an area's or a blueprint's name where they are listed by
-/// name; else its ResRef). A letter typed in the tree goes there.
+/// The row the letters typed in quick succession (`typed`) go to, as in
+/// the conversation tree ([`crate::dialog_view::type_ahead`]): one
+/// letter, or the same again and again, the next row after `at` beginning
+/// with it; else the first from `at` on (itself first, round the end)
+/// whose name begins with them all, case and accents aside. A row's name
+/// is a group's, or a resource's as its row shows it (`named`: an area's
+/// or a blueprint's name where they are listed by name; else its ResRef);
+/// from inside an area opened out, its row is where the search begins.
 fn seek(
     shown: &Shown,
     at: Option<TreeAt>,
-    letter: char,
+    typed: &str,
     named: &dyn Fn(&ResKey) -> Option<String>,
 ) -> Option<TreeAt> {
     let rows: Vec<(TreeAt, String)> = shown
@@ -693,12 +717,18 @@ fn seek(
             std::iter::once((TreeAt::Group(name), name.to_string())).chain(inside)
         })
         .collect();
+    let at = match at {
+        Some(TreeAt::Kind(area, _) | TreeAt::Object(area, ..)) => {
+            Some(TreeAt::Resource(ResKey::new(area, ResType::ARE)))
+        }
+        at => at,
+    };
+    // (No row: from the first, itself first.)
     let from = at.and_then(|at| rows.iter().position(|r| r.0 == at));
-    let n = rows.len();
-    (1..=n)
-        .map(|by| from.map_or(by - 1, |from| (from + by) % n))
-        .find(|i| rows[*i].1.chars().next().is_some_and(|c| c.eq_ignore_ascii_case(&letter)))
-        .map(|i| rows[i].0)
+    let from = from.unwrap_or(rows.len().saturating_sub(1));
+    let texts: Vec<String> = rows.iter().map(|r| mg_core::text::fold(&r.1)).collect();
+    let to = crate::dialog_view::type_ahead(&texts, from, &mg_core::text::fold(typed))?;
+    Some(rows[to].0)
 }
 
 fn step(shown: &Shown, outs: &Outs, at: Option<TreeAt>, key: egui::Key) -> Step {
@@ -892,7 +922,11 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                     // list thousands of a kind: laid out every frame, they
                     // slowed everything down while their group was open).
                     let height = ui.spacing().interact_size.y;
-                    let room = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(1.0, height));
+                    // (Up and down only: scrolled sideways past its start,
+                    // a long name's row is still in sight.)
+                    let top = ui.cursor().top();
+                    let room =
+                        egui::Rect::from_x_y_ranges(ui.clip_rect().x_range(), top..=top + height);
                     // (The keys' row out of sight is drawn, to scroll to it.)
                     let sought = at_row && cursor_moved;
                     if !out && reveal.is_none() && !sought && !ui.is_rect_visible(room) {
@@ -933,10 +967,10 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                     if reveal.is_some() && object_here {
                         app.tree_object_pending = true;
                     } else if reveal.is_some() {
-                        r.scroll_to_me(None);
+                        bring_into_view(ui, r.rect);
                     }
                     if sought {
-                        r.scroll_to_me(None);
+                        bring_into_view(ui, r.rect);
                     }
                     if r.clicked() {
                         clicked = Some(TreeAt::Resource(k));
@@ -1160,7 +1194,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
             clicked = Some(TreeAt::Group(name));
         }
         if at_group && cursor_moved {
-            header.header_response.scroll_to_me(None);
+            bring_into_view(ui, header.header_response.rect);
         }
         opening |= header.openness < 1.0
             && app.tree_reveal.is_some_and(|(k, _)| types.contains(&k.restype));
@@ -1228,35 +1262,76 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
             app.tree_cursor = None;
             crate::palette_view::give_arrows(ui.ctx(), false);
         }
-        // A letter or a digit typed, with the pointer over the tree (a
-        // letter is a command elsewhere: W, A, S, D, Q and E in an area's
-        // view): the next row that begins with it.
+        // Letters typed with the pointer over the tree (a letter is a
+        // command elsewhere: W, A, S, D, Q and E in an area's view) go to
+        // the row whose name begins with them, as in Aurora's (Windows')
+        // tree: a pause starts over.
         let over = ui.rect_contains_pointer(ui.clip_rect());
         if over {
             // (Not the camera's too, held down: the area is drawn after.)
             crate::palette_view::take_letters(ui.ctx());
         }
-        let typed = ui.input_mut(|i| {
-            if !over || !i.modifiers.is_none() {
-                return None;
+        let typed_id = egui::Id::new("tree-typed");
+        let now = ui.input(|i| i.time);
+        let (mut typed, mut typed_at) =
+            ui.data(|d| d.get_temp::<(String, f64)>(typed_id)).unwrap_or_default();
+        let going_on = !typed.is_empty() && now - typed_at <= crate::dialog_view::TYPE_AHEAD;
+        let letters = ui.input_mut(|i| {
+            let m = i.modifiers;
+            if !over || m.ctrl || m.alt || m.command || m.mac_cmd {
+                return Vec::new();
             }
-            let found = i.events.iter().find_map(|e| match e {
-                egui::Event::Key { key, pressed: true, .. } => {
-                    let name = key.name();
-                    let c = name.chars().next().filter(|_| name.len() == 1)?;
-                    c.is_ascii_alphanumeric().then_some((*key, c))
+            // What is typed, as a name has it ("Beggar's Nest: T"; a
+            // space goes on with letters being typed, and starts none).
+            let mut letters: Vec<char> = Vec::new();
+            i.events.retain(|e| {
+                let egui::Event::Text(t) = e else { return true };
+                let on = going_on || !letters.is_empty();
+                let name_s = |c: char| (!c.is_whitespace() && !c.is_control()) || (c == ' ' && on);
+                let taken = !t.is_empty() && t.chars().all(name_s);
+                if taken {
+                    letters.extend(t.chars());
                 }
-                _ => None,
-            })?;
+                !taken
+            });
+            // (A key that types nothing, as a test's: its letter or digit.)
+            let letter = |key: &egui::Key| {
+                let name = key.name();
+                let c = name.chars().next().filter(|_| name.len() == 1)?;
+                c.is_ascii_alphanumeric().then(|| c.to_ascii_lowercase())
+            };
+            if letters.is_empty() && m.is_none() {
+                letters = (i.events.iter())
+                    .filter_map(|e| match e {
+                        egui::Event::Key { key, pressed: true, .. } => letter(key),
+                        _ => None,
+                    })
+                    .collect();
+            }
+            // (Their keys too: no command has them meanwhile.)
             i.events.retain(|e| match e {
-                egui::Event::Key { key, .. } => *key != found.0,
-                egui::Event::Text(t) => !t.eq_ignore_ascii_case(&found.1.to_string()),
+                egui::Event::Key { key: egui::Key::Space, .. } => !letters.contains(&' '),
+                egui::Event::Key { key, .. } => {
+                    letter(key).is_none_or(|c| !letters.iter().any(|t| t.eq_ignore_ascii_case(&c)))
+                }
                 _ => true,
             });
-            Some(found.1)
+            letters
         });
         let named = |k: &ResKey| lists.iter().find_map(|(_, names)| names.get(k).cloned());
-        if let Some(at) = typed.and_then(|c| seek(&shown, app.tree_cursor, c, &named)) {
+        let mut to = None;
+        for c in letters.iter().copied() {
+            if now - typed_at > crate::dialog_view::TYPE_AHEAD {
+                typed.clear();
+            }
+            typed.push(c);
+            typed_at = now;
+            to = seek(&shown, to.or(app.tree_cursor), &typed, &named).or(to);
+        }
+        if !letters.is_empty() {
+            ui.data_mut(|d| d.insert_temp(typed_id, (typed, typed_at)));
+        }
+        if let Some(at) = to {
             app.tree_cursor = Some(at);
             app.tree_cursor_moved = true;
             ui.ctx().request_repaint();
@@ -1461,15 +1536,28 @@ mod tests {
         assert_eq!(step(&shown, &outs, at(a), Key::Enter), Step::Open(a));
         // A letter: the next row that begins with it, round the end.
         let none = |_: &ResKey| None;
-        assert_eq!(seek(&shown, Some(areas), 's', &none), Some(scripts));
-        assert_eq!(seek(&shown, Some(scripts), 'A', &none), Some(areas));
-        assert_eq!(seek(&shown, None, 'c', &none), Some(TreeAt::Group("Conversations")));
-        assert_eq!(seek(&shown, Some(areas), 'z', &none), None);
+        assert_eq!(seek(&shown, Some(areas), "s", &none), Some(scripts));
+        assert_eq!(seek(&shown, Some(scripts), "A", &none), Some(areas));
+        assert_eq!(seek(&shown, None, "c", &none), Some(TreeAt::Group("Conversations")));
+        assert_eq!(seek(&shown, Some(areas), "z", &none), None);
         // Listed by name, a row is found by its name's letter, not its
         // ResRef's.
         let named = |k: &ResKey| (*k == b).then(|| "Zhentil Keep (b)".to_string());
-        assert_eq!(seek(&shown, Some(areas), 'z', &named), at(b));
-        assert_eq!(seek(&shown, at(a), 'b', &named), None);
+        assert_eq!(seek(&shown, Some(areas), "z", &named), at(b));
+        assert_eq!(seek(&shown, at(a), "b", &named), None);
+        // Letters typed in quick succession: the row that begins with them
+        // all, case and accents aside, a space among them; from inside an
+        // area opened out, from the area's row on.
+        let names =
+            |k: &ResKey| Some(if *k == a { "Shop" } else { "Shop Thing, Árbol" }.to_string());
+        assert_eq!(seek(&shown, Some(areas), "sho", &names), at(a), "the first, itself first");
+        assert_eq!(seek(&shown, Some(areas), "shopt", &names), None);
+        assert_eq!(seek(&shown, Some(areas), "SHOP T", &names), at(b));
+        assert_eq!(seek(&shown, Some(areas), "shop thing, arb", &names), at(b));
+        assert_eq!(seek(&shown, at(a), "shop", &names), at(a));
+        assert_eq!(seek(&shown, at(a), "ss", &names), at(b), "the same letter: the next");
+        let inside = Some(TreeAt::Kind(b.resref, mg_area::ObjectKind::Creature));
+        assert_eq!(seek(&shown, inside, "sh", &names), at(b));
         assert_eq!(step(&shown, &outs, Some(scripts), Key::Enter), Step::Fold(scripts, true));
         // A row that is gone (its group closed, a filter typed): the first.
         assert_eq!(step(&shown, &outs, at(c), Key::ArrowDown), Step::To(areas));

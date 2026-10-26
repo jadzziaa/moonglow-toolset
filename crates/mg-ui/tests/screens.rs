@@ -4988,6 +4988,60 @@ fn module_tree_follows_the_tab_chosen() {
     }
 }
 
+/// The module tree with names longer than its pane (Chapter 1's areas by
+/// name, their ResRefs beside them): a builder's report that only
+/// widening the pane showed them whole. Then scrolled to their ends, and
+/// gone to by typing a name.
+#[test]
+#[ignore]
+fn module_tree_long_names() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&root.join("data/nwm/Chapter1.nwm"));
+    app.settings.area_names = true;
+    app.settings.name_resrefs = true;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        .with_step_dt(1.0 / 60.0)
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(5);
+    // (The Areas clicked, which gives the tree the keys, and opened.)
+    h.get_by_label_contains("Areas (").click();
+    h.run_steps(2);
+    h.key_press(egui::Key::ArrowRight);
+    h.run_steps(3);
+    shoot(&mut h, &dir, "tree-long-names");
+    // Scrolled right, with the pointer over the tree.
+    h.get_by_label_contains("Areas (").hover();
+    h.run_steps(2);
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(-400.0, 0.0),
+        modifiers: egui::Modifiers::NONE,
+        phase: egui::TouchPhase::Move,
+    });
+    h.run_steps(5);
+    shoot(&mut h, &dir, "tree-long-names-scrolled");
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(400.0, 0.0),
+        modifiers: egui::Modifiers::NONE,
+        phase: egui::TouchPhase::Move,
+    });
+    h.run_steps(5);
+    // A name typed: the row it begins.
+    for c in "beggar's nest: t".chars() {
+        h.event(egui::Event::Text(c.to_string()));
+        h.run_steps(2);
+    }
+    h.run_steps(5);
+    shoot(&mut h, &dir, "tree-long-names-typed");
+}
+
 /// The Talk Table editor on a nasher project's table kept as JSON in two
 /// languages: the languages' list beside its name, and opened.
 #[test]

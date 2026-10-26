@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T20:11:05Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T23:10:23Z }
 ---
 
 # The main window
@@ -149,7 +149,9 @@ names containing the text, case and accents aside (`arbol` finds `Árbol`,
 as every Filter and Find field of names does: the palettes', the
 resource browser's, a list's); it and Expand All / Collapse All stay in sight
 while the tree scrolls, and Home and End go to the tree's top and bottom
-with the pointer over it.
+with the pointer over it. A name too long for the pane goes on past
+its edge, and the tree scrolls sideways to it (Shift and the mouse
+wheel, or the scroll bar under it), as Aurora's does.
 
 Resources are listed by their ResRefs, as in Aurora. With **Tools ›
 Options › General › List areas and blueprints by name**, areas and
@@ -242,11 +244,15 @@ an area out to what is placed in it, a kind of object there), then goes
 to the first row in it; Left closes a row that is open, else goes to
 the row it is in. Enter opens the row's area, script, conversation or
 blueprint, goes to a placed object in its area's view, and opens or
-closes a group or a kind. A letter or a digit goes to the next row that begins
-with it (a group's name, or a resource's name as its row shows it: an
-area's own name where areas are listed by name, else its ResRef), with the
-pointer over the tree; the area's camera keys among them (W, A, S, D…)
-don't move the camera meanwhile. F2 renames and Delete deletes the resource of the row
+closes a group or a kind. Typing a name goes to the row it begins, with
+the pointer over the tree: the letters typed in quick succession go by all
+of them (`shopt` to `ShopThing`, a space among them as in `beggar's nest:
+t`), case and accents aside, and a pause of a second starts over; one
+letter, or the same letter again and again, goes to the next row that
+begins with it, as in Aurora's tree and the conversation tree. A row's
+name is a group's, or a resource's as its row shows it: an area's own
+name where areas are listed by name, else its ResRef. The area's camera
+keys among the letters (W, A, S, D…) don't move the camera meanwhile. F2 renames and Delete deletes the resource of the row
 under the pointer, or else of the row the keys are at (both ask first,
 as the row's menu does). Ctrl+F goes to the Filter; there, Escape
 clears what is typed, and Escape again, or Down, goes back into the
