@@ -121,7 +121,7 @@ struct Change {
 const CHANGES: usize = 256;
 
 /// A conversation's fingerprint: a hash of its bytes.
-fn fingerprint(g: &Gff) -> u64 {
+pub(crate) fn fingerprint(g: &Gff) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     g.to_bytes().unwrap_or_default().hash(&mut h);
@@ -129,6 +129,12 @@ fn fingerprint(g: &Gff) -> u64 {
 }
 
 impl DialogView {
+    /// The fingerprint of the conversation as drawn last (`None`: not
+    /// drawn yet): what a module's kept tabs check theirs against.
+    pub(crate) fn content(&self) -> Option<u64> {
+        self.seen.map(|s| s.1)
+    }
+
     /// Has what is kept by line number follow the lines, if conversation
     /// `g` (at workspace revision `revision`) changed since it was drawn
     /// last: by the changes between (a delete, its undo or redo, in any

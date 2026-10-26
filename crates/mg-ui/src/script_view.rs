@@ -49,6 +49,10 @@ pub(crate) struct ScriptBuffer {
     /// one with unsaved changes is written as it was read, then read
     /// again.
     pub(crate) codepage: mg_core::Codepage,
+    /// Where the editor was scrolled to and its cursor (characters; none
+    /// until it has had one), as drawn last: what a module's kept tabs
+    /// keep of it.
+    pub(crate) seen: Option<(egui::Vec2, Option<(usize, usize)>)>,
 }
 
 /// A script's text: what its editor holds (unsaved typing too), else the
@@ -150,6 +154,7 @@ impl ScriptBuffer {
             numbered: [None; 10],
             external: None,
             codepage,
+            seen: None,
         }
     }
 
@@ -950,8 +955,20 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let error_line = app.live_error(key).and_then(|e| e.0);
     let error_color = ui.visuals().error_fg_color;
     let mut ctrl_click = None;
-    let Moonglow { scripts, laid_out, script_tools, .. } = app;
+    let Moonglow { scripts, laid_out, script_tools, open_tabs, .. } = app;
     let buf = scripts.get_mut(&key).expect("open");
+    // Scrolled and its cursor where they were, a module's kept tabs
+    // opening it again (the cursor's not given the keys).
+    let (kept_scroll, kept_cursor) =
+        open_tabs.take_view(&crate::Tab::Script(key)).map(|v| v.script()).unwrap_or_default();
+    if let Some((a, b)) = kept_cursor {
+        let id = editor_id(key);
+        let end = buf.text.chars().count();
+        let mut state = egui::text_edit::TextEditState::load(&ctx, id).unwrap_or_default();
+        let at = |n: usize| egui::text::CCursor::new(n.min(end));
+        state.cursor.set_char_range(Some(egui::text::CCursorRange::two(at(a), at(b))));
+        state.store(&ctx, id);
+    }
     if let Some(text) = insert_text {
         let (a, b) =
             cursor(&ctx, key).unwrap_or((buf.text.chars().count(), buf.text.chars().count()));
@@ -1097,85 +1114,92 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         })
         .collect();
     let mut completion_at = None;
-    egui::ScrollArea::both().id_salt(("script-scroll", key)).auto_shrink([false, false]).show(
-        ui,
-        |ui| {
-            // The editor fills the room down to the pane under it, however
-            // short the script.
-            let room = ui.available_height();
-            if let Some(d) = page_scroll {
-                ui.scroll_with_delta(egui::vec2(0.0, -d));
+    let mut area = egui::ScrollArea::both().id_salt(("script-scroll", key));
+    if let Some(at) = kept_scroll {
+        area = area.scroll_offset(at);
+    }
+    let mut cursor_now = None;
+    let shown = area.auto_shrink([false, false]).show(ui, |ui| {
+        // The editor fills the room down to the pane under it, however
+        // short the script.
+        let room = ui.available_height();
+        if let Some(d) = page_scroll {
+            ui.scroll_with_delta(egui::vec2(0.0, -d));
+        }
+        ui.horizontal_top(|ui| {
+            ui.add(
+                egui::Label::new(egui::RichText::new(numbers).font(palette.font()).weak())
+                    .selectable(false),
+            );
+            // The selection is drawn here, not by the field: to each
+            // line's last character, where the field draws a line end
+            // that is selected as half a character more (which reads
+            // as a space the line does not have). The field's own is
+            // not drawn (no color), and the field's ground and the
+            // selection go under its text.
+            let under = ui.painter().add(egui::Shape::Noop);
+            // (Options › Script Editor's, else the theme's.)
+            let ground = palette.background.unwrap_or_else(|| ui.visuals().text_edit_bg_color());
+            let selected = std::mem::replace(
+                &mut ui.visuals_mut().selection.bg_fill,
+                egui::Color32::TRANSPARENT,
+            );
+            let out = egui::TextEdit::multiline(&mut buf.text)
+                .code_editor()
+                .desired_width(f32::INFINITY)
+                .desired_rows(1)
+                .min_size(egui::vec2(0.0, room))
+                .id(editor_id(key))
+                .background_color(egui::Color32::TRANSPARENT)
+                .layouter(&mut layouter)
+                .show(ui);
+            cursor_now = out.state.cursor.char_range();
+            ui.visuals_mut().selection.bg_fill = selected;
+            let field = out.response.response.rect;
+            let radius = ui.style().interact(&out.response.response).corner_radius;
+            let mut shapes = vec![egui::Shape::rect_filled(field, radius, ground)];
+            let rows = out.cursor_range.map(|r| selection_rects(&out.galley, &r));
+            for rect in rows.unwrap_or_default() {
+                let rect = rect.translate(out.galley_pos.to_vec2());
+                shapes.push(egui::Shape::rect_filled(rect, 0.0, selected));
             }
-            ui.horizontal_top(|ui| {
-                ui.add(
-                    egui::Label::new(egui::RichText::new(numbers).font(palette.font()).weak())
-                        .selectable(false),
-                );
-                // The selection is drawn here, not by the field: to each
-                // line's last character, where the field draws a line end
-                // that is selected as half a character more (which reads
-                // as a space the line does not have). The field's own is
-                // not drawn (no color), and the field's ground and the
-                // selection go under its text.
-                let under = ui.painter().add(egui::Shape::Noop);
-                // (Options › Script Editor's, else the theme's.)
-                let ground =
-                    palette.background.unwrap_or_else(|| ui.visuals().text_edit_bg_color());
-                let selected = std::mem::replace(
-                    &mut ui.visuals_mut().selection.bg_fill,
-                    egui::Color32::TRANSPARENT,
-                );
-                let out = egui::TextEdit::multiline(&mut buf.text)
-                    .code_editor()
-                    .desired_width(f32::INFINITY)
-                    .desired_rows(1)
-                    .min_size(egui::vec2(0.0, room))
-                    .id(editor_id(key))
-                    .background_color(egui::Color32::TRANSPARENT)
-                    .layouter(&mut layouter)
-                    .show(ui);
-                ui.visuals_mut().selection.bg_fill = selected;
-                let field = out.response.response.rect;
-                let radius = ui.style().interact(&out.response.response).corner_radius;
-                let mut shapes = vec![egui::Shape::rect_filled(field, radius, ground)];
-                let rows = out.cursor_range.map(|r| selection_rects(&out.galley, &r));
-                for rect in rows.unwrap_or_default() {
-                    let rect = rect.translate(out.galley_pos.to_vec2());
-                    shapes.push(egui::Shape::rect_filled(rect, 0.0, selected));
+            ui.painter().set(under, egui::Shape::Vec(shapes));
+            if let Some(r) = out.cursor_range {
+                let rect =
+                    out.galley.pos_from_cursor(r.primary).translate(out.galley_pos.to_vec2());
+                if script_tools.scroll == Some(key) {
+                    ui.scroll_to_rect(rect.expand(40.0), Some(egui::Align::Center));
+                    script_tools.scroll = None;
                 }
-                ui.painter().set(under, egui::Shape::Vec(shapes));
-                if let Some(r) = out.cursor_range {
-                    let rect =
-                        out.galley.pos_from_cursor(r.primary).translate(out.galley_pos.to_vec2());
-                    if script_tools.scroll == Some(key) {
-                        ui.scroll_to_rect(rect.expand(40.0), Some(egui::Align::Center));
-                        script_tools.scroll = None;
-                    }
-                    completion_at = Some(rect.left_bottom());
-                    // Help follows the identifier under the cursor.
-                    if out.response.response.changed() || out.response.response.clicked() {
-                        let word = tools::word_at(&buf.text, r.primary.index.into());
-                        if let Some(s) = word.and_then(|w| symbols.iter().find(|s| s.name == w)) {
-                            script_tools.help = Some(s.clone());
-                            // A double click on it brings its help forward
-                            // (over the compiler's messages, say), as in
-                            // Aurora.
-                            if out.response.response.double_clicked() {
-                                script_tools.info = InfoTab::Help;
-                            }
+                completion_at = Some(rect.left_bottom());
+                // Help follows the identifier under the cursor.
+                if out.response.response.changed() || out.response.response.clicked() {
+                    let word = tools::word_at(&buf.text, r.primary.index.into());
+                    if let Some(s) = word.and_then(|w| symbols.iter().find(|s| s.name == w)) {
+                        script_tools.help = Some(s.clone());
+                        // A double click on it brings its help forward
+                        // (over the compiler's messages, say), as in
+                        // Aurora.
+                        if out.response.response.double_clicked() {
+                            script_tools.info = InfoTab::Help;
                         }
                     }
-                    if out.response.response.changed() {
-                        script_tools.completion = None;
-                    }
-                    // Ctrl+click goes to the definition.
-                    if out.response.response.clicked() && ctx.input(|i| i.modifiers.command) {
-                        ctrl_click = Some(usize::from(r.primary.index));
-                    }
                 }
-            });
-        },
-    );
+                if out.response.response.changed() {
+                    script_tools.completion = None;
+                }
+                // Ctrl+click goes to the definition.
+                if out.response.response.clicked() && ctx.input(|i| i.modifiers.command) {
+                    ctrl_click = Some(usize::from(r.primary.index));
+                }
+            }
+        });
+    });
+    let cursor_now = cursor_now.map(|r| {
+        let (a, b): (usize, usize) = (r.primary.index.into(), r.secondary.index.into());
+        (a.min(b), a.max(b))
+    });
+    buf.seen = Some((shown.state.offset, cursor_now));
 
     // The completion list at the cursor.
     if let (Some(c), Some(pos)) =

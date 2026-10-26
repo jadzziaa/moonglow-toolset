@@ -107,6 +107,15 @@ pub enum Page {
     CustomContent,
 }
 
+/// The dialog's tabs and their names.
+pub(crate) const PAGES: [(Page, &str); 5] = [
+    (Page::Basic, "Basic"),
+    (Page::Events, "Events"),
+    (Page::Advanced, "Advanced"),
+    (Page::Description, "Description"),
+    (Page::CustomContent, "Custom Content"),
+];
+
 /// Module events in Aurora's order, with its labels. Aurora hides
 /// OnModuleStart; it is shown here only when set.
 pub(crate) const EVENTS: [(&str, &str); 22] = [
@@ -157,13 +166,7 @@ fn pages(app: &mut Moonglow, ui: &mut Ui) {
         }
     };
     ui.horizontal(|ui| {
-        for (page, label) in [
-            (Page::Basic, "Basic"),
-            (Page::Events, "Events"),
-            (Page::Advanced, "Advanced"),
-            (Page::Description, "Description"),
-            (Page::CustomContent, "Custom Content"),
-        ] {
+        for (page, label) in PAGES {
             ui.selectable_value(&mut app.module_page, page, label);
         }
     });

@@ -29,6 +29,20 @@ pub enum OptionsPage {
     Updates,
 }
 
+/// The Options window's pages and their names.
+pub(crate) const PAGES: [(OptionsPage, &str); 10] = [
+    (OptionsPage::Folders, "Folders"),
+    (OptionsPage::Area, "Area"),
+    (OptionsPage::General, "General"),
+    (OptionsPage::ScriptEditor, "Script Editor"),
+    (OptionsPage::ConversationEditor, "Conversation Editor"),
+    (OptionsPage::Sounds, "Sounds"),
+    (OptionsPage::Verify, "Verify"),
+    (OptionsPage::Language, "Language"),
+    (OptionsPage::Keyboard, "Keyboard"),
+    (OptionsPage::Updates, "Updates"),
+];
+
 /// The Options window's fields: folders as typed (empty to detect), and
 /// the other options.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -373,18 +387,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 .frame(egui::Frame::NONE.inner_margin(6.0))
                 .show(ui, |ui| {
                     ui.vertical(|ui| {
-                        for (page, name) in [
-                            (OptionsPage::Folders, "Folders"),
-                            (OptionsPage::Area, "Area"),
-                            (OptionsPage::General, "General"),
-                            (OptionsPage::ScriptEditor, "Script Editor"),
-                            (OptionsPage::ConversationEditor, "Conversation Editor"),
-                            (OptionsPage::Sounds, "Sounds"),
-                            (OptionsPage::Verify, "Verify"),
-                            (OptionsPage::Language, "Language"),
-                            (OptionsPage::Keyboard, "Keyboard"),
-                            (OptionsPage::Updates, "Updates"),
-                        ] {
+                        for (page, name) in PAGES {
                             ui.selectable_value(&mut draft.page, page, name);
                         }
                     });

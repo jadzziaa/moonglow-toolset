@@ -1451,7 +1451,9 @@ pub(crate) fn edit_many(
         instance_pages(restype)
     };
     let page_key = (key, path.clone());
-    let mut page = app.blueprint_pages.get(&page_key).copied().unwrap_or(pages[0]);
+    let mut page = (app.blueprint_pages.get(&page_key).copied())
+        .or_else(|| app.open_tabs.page(&tab, &pages))
+        .unwrap_or(pages[0]);
     if !pages.contains(&page) {
         page = pages[0];
     }

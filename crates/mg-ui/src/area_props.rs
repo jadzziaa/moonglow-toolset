@@ -85,7 +85,13 @@ fn pages(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResRef]) {
     let pages: &[&'static str] = if several { &SHARED_PAGES } else { &PAGES };
     // (Several areas keep a page of their own: a path no document has.)
     let page_key = (are, if several { GffPath::root().field("several") } else { GffPath::root() });
-    let mut page = app.blueprint_pages.get(&page_key).copied().unwrap_or(pages[0]);
+    let tab = match several {
+        true => crate::Tab::AreasProperties([&[area], others].concat()),
+        false => crate::Tab::AreaProperties(area),
+    };
+    let mut page = (app.blueprint_pages.get(&page_key).copied())
+        .or_else(|| app.open_tabs.page(&tab, pages))
+        .unwrap_or(pages[0]);
     if !pages.contains(&page) {
         page = pages[0];
     }

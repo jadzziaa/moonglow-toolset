@@ -19,26 +19,37 @@ a directory), nasher projects (see below) and the game's campaign files
   on the command line (`moonglow path/to/module.mod`; with `--user-dir
   FOLDER`, another user folder for that run). **A module opens with the
   tabs it had when it was closed**: its areas, scripts, blueprints,
-  conversations, placed objects' Properties and tools, in the same order
-  and places (the main pane, the palettes' pane, a pane split off the
-  main pane, the windows, each where it was and with the same tabs),
-  each pane's tab in front in front, and the one that had the keys has
-  them again. A tab whose area, script or other resource is gone from
-  the module is passed over (said in the debug log). The tabs are kept
-  in Moonglow's data folder (`open-tabs`, a file a module, by its path;
-  a module folder's and a nasher project's by its folder), never in the
-  module; they are written as they change, so that a crash loses none
-  of them (where the windows were moved to since is written when the
-  module is closed or Moonglow quits). Only the area in front is read
-  and drawn at first: those behind it are when you choose their tabs.
-  The editors of files of their own (a hak, a 2DA, a tileset), the
-  Options, References and the Placeable Gallery are not opened again,
-  nor is a view's camera or scroll put back where it was. With none
-  kept (the first time, or with Options › General's **Open a module
-  with the tabs it had when it was closed** off), a module opens on the
-  area you opened last in it; the first time, or when that area is
-  gone, on the first the module tree lists (Options › General switches
-  this off too).
+  conversations, placed objects' Properties, the editors of files of
+  their own (a hak, a 2DA, a tileset: by their files), the Options,
+  References (its search made again), the Placeable Gallery, Tile
+  Properties, a tile's view and a hak's copy of a resource, in the same
+  order and places (the main pane, the palettes' pane, a pane split off
+  the main pane, the windows, each where it was, with the same tabs,
+  and split into the same panes), each pane's tab in front in front,
+  and the one that had the keys has them again. Each shows what it
+  showed: an area's view its camera where it was, a script its scroll
+  and cursor, a conversation its selected line, bookmarks and folded
+  branches (if the conversation is as it was: changed since, outside
+  Moonglow, they would be on other lines, and are let go), a Properties
+  window (and the Options) its page. A placed object's Properties are
+  found again by the object (its tag, its blueprint and where it
+  stands), so that an area changed outside Moonglow since gives the
+  same object's, or none; Tile Properties opens once its area's view
+  is drawn. A tab whose area, script, file or other resource is gone is
+  passed over (said in the debug log). The tabs are kept in Moonglow's
+  data folder (`open-tabs`, a file a module, by its path; a module
+  folder's and a nasher project's by its folder), never in the module;
+  they are written as they change and a second after a window was
+  moved or resized, so that a crash loses neither (what the views show
+  is written with them, and when the module is closed or Moonglow
+  quits). Only the area in front is read and drawn at first: those
+  behind it are when you choose their tabs. A module opened from its
+  recovery copy (Recover Unsaved Work) opens with its tabs too. With
+  none kept (the first time, or with Options › General's **Open a
+  module with the tabs it had when it was closed** off), a module opens
+  on the area you opened last in it; the first time, or when that area
+  is gone, on the first the module tree lists (Options › General
+  switches this off too).
 - **File › Save** (Ctrl+S) writes the module where it came from, as an
   archive or a folder. **Save As…** writes it as a `.mod` elsewhere. A new
   module is offered as `<name>.mod` in the user folder's `modules`, where
@@ -786,8 +797,8 @@ every 5 minutes (Options › General sets how often, or turns it off). The
 copies live in Moonglow's own data folder, never next to the module or in
 the game's folders, and are removed when you save or discard the changes.
 If Moonglow (or the computer) stops first, the next start offers the copy
-in **Recover Unsaved Work**: open it as an unsaved module, then save it
-where you want. As in Aurora, open conversations are also backed up as
+in **Recover Unsaved Work**: open it as an unsaved module (with the tabs
+it had), then save it where you want. As in Aurora, open conversations are also backed up as
 `<name>.bak` every 5 minutes.
 
 ## Module Properties
@@ -943,7 +954,9 @@ module's talk table:
   text longer than its box scrolls in it, and the sound's row stays in
   sight. A larger window gives them more, and the line between the list
   and them is dragged up and down to share the room otherwise: the boxes
-  keep three lines, and the list three tenths of the editor.
+  keep three lines, and the list three tenths of the editor. Each table
+  keeps where its line was dragged to (with a feminine table, its own),
+  from one session to the next.
 - **Add Line** adds one at the end. **Remove Last Line** removes only the
   last, since removing another would renumber the lines after it.
 - **Undo** and **Redo** in its toolbar undo the table's changes, as do
