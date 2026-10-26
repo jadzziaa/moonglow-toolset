@@ -480,6 +480,19 @@ fn tree_keys(ui: &Ui, game: Option<&mg_rules::GameData>, g: &Gff, view: &mut Dia
                     i.events.remove(at);
                 }
             }
+            // (A letter's key, too: no command has it meanwhile.)
+            if let Some(Pressed::Typed(c)) = found {
+                let of = |key: &egui::Key| {
+                    let name = key.name();
+                    name.chars().count() == 1 && name.eq_ignore_ascii_case(&c.to_string())
+                };
+                let key = i.events.iter().position(
+                    |e| matches!(e, egui::Event::Key { key, pressed: true, .. } if of(key)),
+                );
+                if let Some(at) = key {
+                    i.events.remove(at);
+                }
+            }
             found
         });
         let Some(pressed) = pressed else { break };

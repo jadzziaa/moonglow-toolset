@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-10-26
+* **Update**: Letters typed in a tree no longer also move the area's camera: a letter or digit that the conversation tree (while it has the keys) or the module tree (under the pointer) goes to a line by is theirs alone, where W, A, S, D, Z, C and the keypad's digits went on moving the camera of the area view pointed at last while held ([Areas](manual/04-areas.md) › the camera's keys, [The main window](manual/02-main-window.md) › The keyboard in the tree, [the deferred list](deferred.md)).
 * **Update**: Sacha's reports on the conversation editor. **Bookmarks and folded branches follow their lines** across a delete that numbers the lines after it anew, and its undo and redo: a bookmark on a line deleted goes and comes back with Undo ([Conversations](manual/06-conversations.md) › Search and Bookmarks). **The rest of the tree's keys**, as Windows' tree control (Aurora's) has them: Backspace to the line the selected one is under, the keypad's + and − to open and fold, * to open everything under the line, a letter to the next line beginning with it, Ctrl+Up and Ctrl+Down to scroll without moving; folding a branch over the selection selects the line folded ([Conversations](manual/06-conversations.md) › The keyboard). [The deferred list](deferred.md) (changes Moonglow didn't make, one letter at a time, the keypad's − and *, the camera's letters, Escape).
 
 ## 2026-10-25

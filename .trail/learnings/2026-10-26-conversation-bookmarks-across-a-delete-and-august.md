@@ -25,10 +25,12 @@ touches:
 - Folding over the selection: `in_sight` walks the selected row's `up` chain in `shown_rows(g, {})` to the nearest drawn row; called after the tree is drawn whenever `collapsed` grew this frame (covers the − button, keypad −, Collapse All).
 
 ## Tried and ruled out
-- Gating letters on the pointer over the editor, as the module tree does: not needed, since the area's B/Q/E/G need the area hovered, and the pointer in an area's view takes the keys back anyway. The camera's W/A/S/D/Z/C and digits are `key_down`-based (`held_but`) and work for the last-pointed area wherever the pointer is, so consuming events can't stop them: recorded in deferred.
+- Gating letters on the pointer over the editor, as the module tree does: not needed, since the area's B/Q/E/G need the area hovered, and the pointer in an area's view takes the keys back anyway.
+- Consuming the letter's events to keep the area camera still (the coordinator's first idea): the camera's W/A/S/D/Z/C and keypad digits are read with `key_down` (`Keymap::held_but`), which consumed events don't change, and the dialog is drawn after the area anyway. Instead `held_but` takes a `keys::Taken { arrows, letters }`: `letters` is `palette_view::letters_taken` = the conversation tree has the keys, or the module tree called `take_letters` this pass (pointer over it with the tree's keys; the side panel is drawn before the dock). The module tree's type-ahead did nudge the camera before this (24.8 vs 20 in the test).
 - Matching a letter against the row's label: an NPC row begins with `[OWNER] - `, so letters would find only player lines; the line's own text is matched.
 
 ## Watch out
 - After deleting a reply's only child, its row's label gains " [END DIALOGUE]": `get_all_by_label("Who are you?")` then panics (no nodes) rather than counting 0; use `query_by_label`.
 - The Bookmarks pane labels rows `"{kind:?} {index}: {line text}"`, without the speaker.
+- In the area harness, a conversation opened with the pointer over the area loses the keys to the area at once (hovering the area view gives them back): click in the editor first.
 - In kittest, `key_press(Key::H)` sends no Text event; letters for the conversation tree are typed with `h.event(Event::Text(...))`.

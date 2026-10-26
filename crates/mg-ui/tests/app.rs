@@ -26971,3 +26971,64 @@ fn bookmarks_and_folded_lines_follow_their_lines_across_a_delete() {
     assert_eq!(marks(&h), [(e, 1), (r, 1)]);
     assert_eq!(folds(&h), [(e, 1)].into());
 }
+
+/// A letter typed to go to a line (the conversation tree's) or a row (the
+/// module tree's, under the pointer) moved the camera of the area view
+/// the pointer was in last too: W, A, S, D, Z, C and the keypad's digits
+/// are its keys wherever the pointer is. A tree that takes a letter has
+/// it alone; W moves the camera again once the area's view has the keys.
+#[test]
+fn a_letter_typed_in_a_tree_leaves_the_area_camera() {
+    use mg_module::dialog::{Kind, Parent};
+    use mg_ui::dialog_view::Row;
+    let key = ResKey::parse("talk", ResType::DLG).unwrap();
+    let prepare = |m: &mut Module, _: &mg_rules::GameData, _: ResRef| {
+        m.set_gff(key, &branching_dialog()).unwrap();
+    };
+    let Some((mut h, area)) = area_harness_with("tree-letters", "ttr01", None, 4, None, &prepare)
+    else {
+        return;
+    };
+    let target = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].orbit.unwrap().target;
+    // W held a few frames, as typed: its key, then its letter.
+    let hold = |h: &mut Harness<'_, Moonglow>, key: egui::Key, text: &str| {
+        let event = |pressed| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        };
+        h.event(event(true));
+        h.event(egui::Event::Text(text.into()));
+        h.run_steps(4);
+        h.event(event(false));
+        h.run_steps(1);
+    };
+    let centre = screen(&h, area, glam::Vec3::new(20.0, 20.0, 0.0));
+    h.hover_at(centre);
+    h.run_steps(2);
+    let start = target(&h);
+    // The conversation opened, clicked in: its tree has the keys.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Dialog(key)));
+    h.run_steps(3);
+    h.get_by_label("Root").click();
+    h.run_steps(2);
+    hold(&mut h, egui::Key::W, "w");
+    let who = Some(Row { parent: Parent::Node(Kind::Entry, 0), pos: 0 });
+    assert_eq!(h.state().dialog_views[&key].selected, who, "the tree's W");
+    assert_eq!(target(&h), start, "not the camera's");
+    // The module tree, clicked, under the pointer: its W.
+    h.get_by_label_contains("Conversations").click();
+    h.run_steps(2);
+    let row = h.get_by_label_contains("Conversations").rect().center();
+    h.hover_at(row);
+    h.run_steps(2);
+    hold(&mut h, egui::Key::W, "w");
+    assert_eq!(target(&h), start, "the module tree's, not the camera's");
+    // Back in the area's view: W is the camera's.
+    h.hover_at(centre);
+    h.run_steps(2);
+    hold(&mut h, egui::Key::W, "w");
+    assert!((target(&h) - start).length() > 0.1, "W moves the view");
+}

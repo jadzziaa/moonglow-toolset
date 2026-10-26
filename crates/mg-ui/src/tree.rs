@@ -1170,6 +1170,10 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
         // letter is a command elsewhere: W, A, S, D, Q and E in an area's
         // view): the next row that begins with it.
         let over = ui.rect_contains_pointer(ui.clip_rect());
+        if over {
+            // (Not the camera's too, held down: the area is drawn after.)
+            crate::palette_view::take_letters(ui.ctx());
+        }
         let typed = ui.input_mut(|i| {
             if !over || !i.modifiers.is_none() {
                 return None;

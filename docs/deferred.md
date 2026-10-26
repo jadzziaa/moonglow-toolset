@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T05:34:25Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T05:41:51Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -822,11 +822,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     typed in quick succession: "go" finds "Go away", not "Go" then a
     line beginning with "o"); a line's own text is matched, not its row
     as drawn (Windows matches the row's text, which for an NPC line begins
-    with `[OWNER]` or the speaker, in Aurora too, unconfirmed). Typed while
-    the tree has the keys, W, A, S, D, Z, C and the digits also move the
-    camera of the area view the pointer was in last while they are held,
-    as they do from the module tree (the camera's keys work wherever the
-    pointer is).
+    with `[OWNER]` or the speaker, in Aurora too, unconfirmed).
   - **The keypad:** egui doesn't tell the keypad's − from the one above
     the letters, nor reports the keypad's * as a key: both − fold, and *
     typed either way (Shift+8) opens everything under the line.

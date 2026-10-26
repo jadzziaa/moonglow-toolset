@@ -271,6 +271,25 @@ pub(crate) fn keys_are(ctx: &egui::Context, list: Keys) -> bool {
         && ctx.data(|d| d.get_temp::<Keys>(egui::Id::new("arrow-keys-of"))) == Some(list)
 }
 
+/// Says that the letters and digits typed this frame are a list's (the
+/// module tree's, under the pointer, which goes to a row by them):
+/// [`letters_taken`].
+pub(crate) fn take_letters(ctx: &egui::Context) {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new("letters-taken-in"), pass));
+}
+
+/// Whether the letters and digits are a list's: the conversation tree's
+/// while it has the keys, or the module tree's this frame
+/// ([`take_letters`]). The area camera's keys held down that type them
+/// (W, A, S, D, Z, C, the keypad's digits) don't move it meanwhile: a
+/// letter typed to go to a line went to the camera too.
+pub(crate) fn letters_taken(ctx: &egui::Context) -> bool {
+    keys_are(ctx, Keys::Dialog)
+        || ctx.data(|d| d.get_temp::<u64>(egui::Id::new("letters-taken-in")))
+            == Some(ctx.cumulative_pass_nr())
+}
+
 impl PaletteView {
     /// Whether the arrow keys' cursor is at a category's own row (not at
     /// a blueprint's).

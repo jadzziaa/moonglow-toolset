@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T11:15:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T05:41:52Z }
 ---
 
 # Areas
@@ -176,7 +176,9 @@ Options › Keyboard):
 
 The keys drive the area view the pointer was in last, also while the
 pointer is over the palette or the module tree (not while you type in a
-field).
+field). The letters and digits among them don't while a tree goes to its
+lines by them: the module tree under the pointer, a conversation's tree
+while it has the keys ([Conversations](06-conversations.md)).
 
 ## Selecting and arranging objects
 

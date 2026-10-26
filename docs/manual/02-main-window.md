@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T21:19:15Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T05:41:52Z }
 ---
 
 # The main window
@@ -223,7 +223,9 @@ the row it is in. Enter opens the row's area, script, conversation or
 blueprint, goes to a placed object in its area's view, and opens or
 closes a group or a kind. A letter or a digit goes to the next row that begins
 with it (a group's name, or a resource's name as its row shows it: an
-area's own name where areas are listed by name, else its ResRef). F2 renames and Delete deletes the resource of the row
+area's own name where areas are listed by name, else its ResRef), with the
+pointer over the tree; the area's camera keys among them (W, A, S, D…)
+don't move the camera meanwhile. F2 renames and Delete deletes the resource of the row
 under the pointer, or else of the row the keys are at (both ask first,
 as the row's menu does). Ctrl+F goes to the Filter; there, Escape
 clears what is typed, and Escape again, or Down, goes back into the
