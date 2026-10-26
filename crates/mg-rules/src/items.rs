@@ -112,10 +112,12 @@ impl GameData {
     }
 
     /// An armor's base armor class: its torso's parts_chest.2da `ACBONUS`,
-    /// rounded.
-    pub fn armor_class(&self, torso: u32) -> Option<u32> {
-        let ac = self.float("parts_chest", torso as usize, "ACBONUS")?;
-        Some(ac.round().max(0.0) as u32)
+    /// rounded. A torso with none (a blank cell, as most tables' row 0, or
+    /// a row the table lacks) is 0, clothing, as the engine has it: its
+    /// weight and cost are armor.2da row 0's (`engine_armor_torso.rs`).
+    pub fn armor_class(&self, torso: u32) -> u32 {
+        let ac = self.float("parts_chest", torso as usize, "ACBONUS").unwrap_or(0.0);
+        ac.round().max(0.0) as u32
     }
 
     /// Whether a base item is armor (its parts make its model).
@@ -141,7 +143,7 @@ impl GameData {
             return listed;
         }
         let torso = item.integer("ArmorPart_Torso").unwrap_or(0).max(0) as u32;
-        match self.armor_class(torso).unwrap_or(0) {
+        match self.armor_class(torso) {
             0 => Vec::new(),
             1..=3 => vec![3],
             4..=5 => vec![4],
@@ -208,9 +210,7 @@ impl GameData {
         let Ok(base_items) = self.table("baseitems") else { return 0 };
         let row = item.base_item as usize;
         let base = if self.is_armor(item.base_item) {
-            self.armor_class(item.torso)
-                .and_then(|ac| self.float("armor", ac as usize, "COST"))
-                .unwrap_or(0.0)
+            self.float("armor", self.armor_class(item.torso) as usize, "COST").unwrap_or(0.0)
         } else {
             base_items.get_float(row, "BaseCost").unwrap_or(0.0)
         };
@@ -603,7 +603,7 @@ mod tests {
         }
         mem.insert(
             ResKey::parse("parts_chest", ResType::TWODA).unwrap(),
-            &b"2DA V2.0\n\nACBONUS\n0 0.00\n1 2.40\n2 6.00\n3 4.00\n"[..],
+            &b"2DA V2.0\n\nACBONUS\n0 0.00\n1 2.40\n2 6.00\n3 4.00\n4 ****\n"[..],
         );
         mem.insert(
             ResKey::parse("armor", ResType::TWODA).unwrap(),
@@ -684,7 +684,13 @@ mod tests {
         assert_eq!(gd.item_cost(&arrows), 2 * 99);
         // Armor: the cost of its armor class (2.4 rounds to 2).
         let armor = ItemValue { base_item: 3, stack_size: 1, torso: 1, ..Default::default() };
-        assert_eq!(gd.armor_class(1), Some(2));
+        assert_eq!(gd.armor_class(1), 2);
         assert_eq!(gd.item_cost(&armor), 10);
+        // A torso with no ACBONUS (blank, or past the table) is clothing,
+        // armor class 0, as the engine prices it.
+        assert_eq!(gd.armor_class(4), 0);
+        assert_eq!(gd.armor_class(250), 0);
+        let clothing = ItemValue { torso: 4, ..armor.clone() };
+        assert_eq!(gd.item_cost(&clothing), 1);
     }
 }

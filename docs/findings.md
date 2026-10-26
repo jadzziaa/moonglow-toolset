@@ -48,7 +48,7 @@ All arithmetic is single-precision float.
 
 1. **Base cost:** `baseitems.2da BaseCost`. For armor (`ModelType` 3),
    `armor.2da COST` at the row given by `parts_chest.2da ACBONUS` of
-   `ArmorPart_Torso`, rounded.
+   `ArmorPart_Torso`, rounded (a blank one, row 0: below).
 2. **Passive properties** (all but Cast Spell, `itempropdef` row 15): each
    costs (`itempropdef Cost`, or if empty the subtype table's `Cost` at the
    property's `Subtype`) × (the cost table's `Cost` at `CostValue`; the
@@ -90,6 +90,27 @@ All arithmetic is single-precision float.
   table "iprp_charges.2da" (it is `iprp_chargecost`), and omits which rows
   are scaled, the separate truncations, AddCost per item and the minimum
   of 1.
+
+### A torso with no `ACBONUS` is clothing
+
+An armor whose `ArmorPart_Torso` names a parts_chest.2da row with a blank
+`ACBONUS` (row 0 and row 2 of the game's table) or a row the table lacks
+(250) has armor class 0, as a torso of `ACBONUS` 0.00 has: `GetItemACValue`
+0, `GetWeight` 10 (1.0 lb) and `GetGoldPieceValue` 1, its `Cost` 1, which
+are armor.2da row 0's `WEIGHT` and `COST`. A plain armor with torso 4
+(4.00) gives 4, 300 and 100. Moonglow had read a blank as no armor class:
+no weight on the General page and a base cost of 0 (a builder's report on
+2.0.0); it now reads a blank or missing row as 0.
+
+- **Checked:** engine, `engine_armor_torso.rs`
+  `an_armor_whose_torso_has_no_armor_class_is_clothing` (`nw_aarcl001`
+  with no properties, torsos 0, 1, 2, 4 and 250; 2026-10-26, EE
+  89.8193.37).
+- **Moonglow:** `crates/mg-rules/src/items.rs` (`GameData::armor_class`),
+  `crates/mg-ui/src/blueprint/item.rs` (`statistics`).
+- **Wiki:** the armor.2da page says parts_chest.2da's `ACBONUS`, rounded,
+  is the row of armor.2da the armor takes; what a blank cell or a missing
+  row gives is missing.
 
 ### Created items are priced anew
 
@@ -818,20 +839,42 @@ nwnmdlcomp, before `selfillumcolor`).
 A creature made with a single model (the game's `nw_bandit001`,
 appearance 269) keeps no `BodyPart_*` field, no `ArmorPart_RFoot` and no
 `Appearance_Head`. Given a part-based appearance (Human, row 6) and
-nothing else, the client draws its head and no body: a field that is not
-there is part 0, which is nothing. An armor's parts cover that while it
-is worn, so it shows when the armor is taken off (a builder's report,
-"unequipping an armor sets all body parts to 0"). Moonglow draws the
-same, and since 1.22.1 sets the parts (1, and no belt or shoulders, as a
-creature new in Aurora has them) in the step that gives such a creature
-a part-based appearance (`blueprint::with_a_body`).
+nothing else, the client draws no body: a field that is not there is
+part 0, which is nothing; and no head, for the same reason (below). An
+armor's parts cover that while it is worn, so it shows when the armor is
+taken off (a builder's report, "unequipping an armor sets all body parts
+to 0"). Moonglow draws the same, and since 1.22.1 sets the parts (1, and
+no belt or shoulders, as a creature new in Aurora has them, and head 1)
+in the step that gives such a creature a part-based appearance
+(`blueprint::with_a_body`).
 
 - **Checked:** by eye, in the client's picture beside Moonglow's
   (2026-10-12; `client_render.rs`'s `creatures_look` with `MG_NO_BODY=1
   MG_WORN=0 MG_APPEARANCES=6,6`): the creature without the fields beside
-  one with them. The head showed though `Appearance_Head` was gone too;
-  why was not looked into. The step, in
-  `a_part_based_appearance_brings_a_body`.
+  one with them. (A head showed there because `MG_NO_BODY` keeps
+  `Appearance_Head`; without it there is none: `heads_look`, below.) The
+  step, in `a_part_based_appearance_brings_a_body`.
+
+### A head of 0 is no head
+
+A part-based creature whose `Appearance_Head` is 0, or that has no
+`Appearance_Head` at all, has no head in the client: the neck is drawn
+alone, as for a head number with no model (254). The engine holds 0 for
+both (`GetCreatureBodyPart(CREATURE_PART_HEAD)`). It is not drawn as head
+1. Moonglow's previews, and so its area view, had drawn head 1 for
+either (a builder's report on 2.0.0); they now draw none.
+
+- **Checked:** game client, `client_render.rs`'s `heads_look`
+  (2026-10-26, EE 89.8193.37): a human man wearing nothing, one client
+  run each for head 0, 1, 2, 254 and no field (the EE twin
+  `xAppearance_Head` set with the byte); over the head, the pictures of
+  0 and of no field are within 0.4 of 255 of 254's and 2.8 or more from
+  head 1's. Moonglow's area view of the same areas is held to the same in
+  the test, and its previews in `crates/mg-preview/tests/previews.rs`
+  `a_head_of_0_is_no_head`.
+- **Moonglow:** `crates/mg-preview/src/creature.rs` (`creature`).
+- **Wiki:** the Phenotype Quick Overview calls part 000 "invalid
+  (nothing)", which the client's drawing bears out for heads.
 
 ### An armor's part 0 leaves its wearer's own part
 
@@ -1063,6 +1106,28 @@ across, each piece showing its particle's frame whole.
   `linked2` (and `MG_GRID`) and `linked4`.
 - **Moonglow:** `crates/mg-render/src/particles.rs`.
 - **Wiki:** not compared.
+
+### An upright particle turns to the eye
+
+An `Aligned_to_World_Z` particle stands upright and is turned about the
+world's Z to face the eye: seen from the north, north-east, east, south
+and west, a still 1 m quad is as wide and the same way round each time
+(103 px at the test's distance), and so is one whose emitter is turned
+a quarter about Z. It keeps no fixed side, neither the world's nor its
+emitter's. (A card fixed in the world beside it went from edge on to
+face on, so the view did turn.) Moonglow drew it so already; its area
+view matches the client's picture within 1 px each way.
+
+- **Checked:** game client, `client_render.rs`'s
+  `upright_particles_look` (2026-10-26, EE 89.8193.37), held to it there
+  and in `particles.rs`'s `an_upright_particle_turns_to_the_eye`. The
+  client's scripted camera takes effect only when set a second after
+  the player enters: `SetCameraFacing` in the module's OnClientEnter
+  itself left the client's own camera (so `particles_look`'s closer
+  camera was likely never the one drawn).
+- **Moonglow:** `crates/mg-render/src/particles.rs` (`batches`).
+- **Wiki:** MDL ASCII Emitter Nodes says the particles "face sideways
+  from ground plane"; that they turn to the camera is missing.
 
 ## Talk tables and 2DAs
 

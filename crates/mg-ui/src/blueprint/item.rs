@@ -117,7 +117,7 @@ pub(super) fn statistics(game: &GameData, item: &Struct) -> Vec<(&'static str, S
     let cost = game.item_cost(&value);
     let mut out = vec![("Total Cost", cost.to_string())];
     let armor = game.is_armor(value.base_item);
-    let ac = armor.then(|| game.armor_class(value.torso)).flatten();
+    let ac = armor.then(|| game.armor_class(value.torso));
     let armor_table = game.table("armor").ok();
     let armor_cell = |col: &str| {
         let t = armor_table.as_ref()?;

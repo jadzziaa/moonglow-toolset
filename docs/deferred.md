@@ -589,16 +589,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Blueprint editors and inventories
 
-- **An armor whose torso is 0** (or another parts_chest.2da row with a
-  blank `ACBONUS`, which the part lists now offer as 0): Moonglow's
-  General page shows no weight for it and prices it as armor class 0;
-  what armor class, weight and cost the game gives it was not measured
-  in the engine. (S) (a builder's report on 2.0.0)
-- **A head of 0:** the previews draw head 1 for `Appearance_Head` 0,
-  as the client drew a head without the field; whether the game draws
-  head 1 or nothing for a 0 that is there was not looked at. (S)
-  (a builder's report on 2.0.0)
-
 - **Text typed and its field gone before the keyboard left it:** a
   text field that sets its text when the keyboard leaves it gives the
   keyboard up at a press of the pointer anywhere else, and before a
@@ -2170,10 +2160,16 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   ribbon's pieces among other see-through things. A model with no mesh
   to draw (this fog) has no bounds of its own to frame a view by. (S)
   (from builders' reports after 1.19.1)
-- **An upright `Aligned_to_World_Z` particle** is turned about Z to the
-  eye here; whether the game turns it or keeps a fixed side was not
-  measured (a still quad looked the same from the one view taken). (S)
-  (from builders' reports after 1.19.1)
+- **Client tests' scripted cameras:** the client takes a
+  `SetCameraFacing` only when it is set a second after the player
+  enters ([findings](findings.md), "An upright particle turns to the
+  eye"; the module's `Mod_Entry_Dir_X` and `_Y` turn it too, as the
+  program-choice tests do); `particles_look`'s closer camera,
+  `grass_and_sky_look`'s
+  `MG_CLOSE` and `grass_overrides_look`'s `MG_DISTANCE` and `MG_PITCH`
+  set it at once, so their pictures were likely taken from the client's
+  own camera. Not changed: the numbers measured from them (in
+  `docs/research/notes_models.md`) would be taken again with it. (S)
 - **Builders' reports after 1.21.0:** a creature's body part can be
   set to none (0), as in Aurora; a body part whose mesh is a skin is
   drawn as the client draws it ([findings](findings.md), "A skin mesh
