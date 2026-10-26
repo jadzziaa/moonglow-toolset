@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T05:41:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:06:04Z }
 ---
 
 # Areas
@@ -897,7 +897,10 @@ Properties** on the viewer's toolbar:
 - **Visual**: the lighting scheme, day and night (or always one), the sun and moon colors,
   fog colors and amounts, shadows, the skybox, lightning, rain and snow
   chances, as Aurora's Customize Environment sets them. The schemes are
-  listed in as many columns as the page is wide. Under them:
+  listed in as many columns as the page is wide; once one is clicked
+  (or reached with Tab), the arrow keys choose another: Up and Down down
+  the columns, Left and Right to the column beside, Home and End the
+  first and last. Under them:
   - **Copy From Area** gives this area what another's Visual page holds
     (its lighting, fog, shadows, sky and weather), as one undoable step.
   - **Saved Lighting** keeps this page's settings under a name (**Save

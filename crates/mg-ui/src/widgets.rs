@@ -2261,6 +2261,14 @@ pub(crate) fn dropdown(id_salt: impl egui::AsIdSalt) -> Dropdown {
     Dropdown { combo: egui::ComboBox::from_id_salt(id_salt) }
 }
 
+/// A [`Dropdown`] with `label` after its box (and naming it).
+pub(crate) fn dropdown_labelled(
+    id_salt: impl egui::AsIdSalt,
+    label: impl Into<egui::WidgetText>,
+) -> Dropdown {
+    Dropdown { combo: egui::ComboBox::new(id_salt, label) }
+}
+
 impl Dropdown {
     /// What the box shows.
     pub(crate) fn selected_text(mut self, text: impl Into<egui::WidgetText>) -> Self {

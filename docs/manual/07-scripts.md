@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T05:37:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:06:04Z }
 ---
 
 # Scripts
@@ -78,7 +78,9 @@ name is typed too. **Open** (or Enter) opens every script selected,
 each in its tab; with none selected, Enter opens the first listed
 (typing in the name clears the selection). A double click opens that
 script alone. The game's and a hak's open to
-be read. In **Find Text**, Enter finds the next match, again and again.
+be read. In **Find Text**, Enter finds the next match, again and again;
+without Match case, accents are set aside as case is (`arbol` finds
+`Árbol` in a comment or a string).
 **Find In Currently Open Scripts** lists every match in the scripts open
 now under Search Results, and **Find In Files** searches (and replaces
 in) every script in the module. A double click on a function's or a

@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T05:36:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:06:04Z }
 ---
 
 # Blueprints
@@ -182,10 +182,16 @@ The palette's buttons:
   names' order (parts and costs keep their numbers' order, categories
   the palette's unless Options › General sorts them); one of
   more than 30 has a **Filter** field above its rows, which narrows them
-  by name or to a row's number, and opens at the row chosen. They take
+  by name (case and accents aside: `arbol` finds `Árbol`) or to a row's
+  number, and opens at the row chosen. They take
   the arrow keys once clicked or reached with Tab: Up and Down choose
   the one before and after, Page Up and Page Down ten away, Home and End
-  the first and last. A creature's and a placeable's Appearance list shows
+  the first and last. Every other dropdown takes them the same way: a
+  creature's Alignment, the Mouse Cursor and Text Bubble, and those of
+  Options, Module Properties, the conversation, NUI, 2DA and tileset
+  editors, the wizards, the resource browser and Advanced Search (not
+  the lists of commands, Add hak… and Setup Area Transition…, nor a
+  list of ticks). A creature's and a placeable's Appearance list shows
   each appearance's picture beside the row the pointer rests on, and the
   chosen one's with the pointer resting on the list's box: leave it there
   and the picture follows the arrow keys. A body or armor part's list

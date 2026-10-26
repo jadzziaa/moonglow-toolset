@@ -3,7 +3,7 @@ type: Manual Page
 title: Conversations
 description: Conversations - the conversation tree, a line's tabs, writing conversations elsewhere, the Script Wizard and backups.
 tags: [manual, conversations]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T06:47:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:06:04Z }
 ---
 
 # Conversations
@@ -65,7 +65,9 @@ tree's.
 The line selected scrolls into sight. While you type in a field (the
 line's Text, Find What), the keys are the field's: they move its text
 cursor, and letters, Backspace and − type there; once Tab has taken you
-on from the field to a button, they are the tree's again. The − above the letters
+on from the field to a button, they are the tree's again. A list of
+choices Tab reaches (Play Animation, Journal) keeps the arrow keys: they
+choose in it, and the tree's selection stays. The − above the letters
 folds too, as the keypad's does, and Shift+8 opens everything out as the
 keypad's * does (Moonglow can't tell them apart).
 
@@ -106,7 +108,8 @@ height whatever the line chosen has to show, and scrolls where it has
 more than that.
 
 **Search** finds text in this conversation or every conversation in the
-module (match case, whole words, replace); **Bookmarks** remember lines to
+module (match case, whole words, replace: without Match case, accents
+are set aside as case is, so `arbol` finds `Árbol`); **Bookmarks** remember lines to
 go back to. Bookmarks and folded branches stay with their lines when a
 delete numbers the lines after it anew (a bookmark on a line deleted goes,
 and Undo brings it back), and when something else changes the

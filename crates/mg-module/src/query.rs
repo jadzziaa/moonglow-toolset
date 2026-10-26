@@ -30,7 +30,7 @@ pub struct Found {
 pub struct Query {
     /// Blueprint types; empty: all.
     pub types: Vec<ResType>,
-    /// Tag, ignoring case; `*` matches any run of characters.
+    /// Tag, ignoring case and accents; `*` matches any run of characters.
     pub tag: Option<String>,
     /// Words the name contains, ignoring case and accents.
     pub name: Option<String>,
@@ -45,9 +45,10 @@ pub struct Query {
     pub fields: Vec<(String, Option<String>)>,
 }
 
-/// Whether `text` matches `pattern`, ignoring case, `*` matching any run.
+/// Whether `text` matches `pattern`, ignoring case and accents, `*`
+/// matching any run.
 pub fn glob(pattern: &str, text: &str) -> bool {
-    let (p, t) = (pattern.to_lowercase(), text.to_lowercase());
+    let (p, t) = (mg_core::text::fold(pattern), mg_core::text::fold(text));
     let parts: Vec<&str> = p.split('*').collect();
     if parts.len() == 1 {
         return p == t;
@@ -233,6 +234,7 @@ mod tests {
     #[test]
     fn globs() {
         assert!(glob("GUARD", "guard"));
+        assert!(glob("*arbol*", "Viejo_ÁRBOL_01"));
         assert!(glob("guard_*", "GUARD_01"));
         assert!(glob("*_01", "guard_01"));
         assert!(glob("g*d*1", "guard_01"));

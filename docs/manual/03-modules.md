@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T05:33:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:06:04Z }
 ---
 
 # Modules
@@ -116,7 +116,8 @@ back:
 module's names, descriptions, conversation lines, the journal and the rest
 (map notes and such), in every language each string has.
 - **What's searched:** choose the kinds, whether case matters and whether
-  only whole words count.
+  only whole words count. Without Match case, accents are set aside as
+  case is: `arbol` finds `Árbol`.
 - **What's found** is listed by place, as in Find References. Click one to
   go there; untick any to leave alone.
 - **Replace** changes the ticked strings as one step that **Undo** takes

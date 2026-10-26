@@ -585,7 +585,7 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
         let options: Vec<Option<String>> =
             std::iter::once(None).chain(anims.iter().map(|(name, _)| Some(name.clone()))).collect();
         let was = view.animation.clone();
-        crate::widgets::dropdown(("anim", &key)).selected_text(current).show(
+        crate::widgets::dropdown_labelled(("anim", &key), "Animation").selected_text(current).show(
             ui,
             &mut view.animation,
             &options,
@@ -594,7 +594,6 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
         if view.animation != was {
             view.time = 0.0;
         }
-        ui.label("Animation");
         if ui.button(if view.playing { "Pause" } else { "Play" }).clicked() {
             view.playing = !view.playing;
         }
