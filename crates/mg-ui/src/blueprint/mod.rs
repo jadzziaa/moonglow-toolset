@@ -789,17 +789,39 @@ impl Form<'_> {
         }
     }
 
-    /// Milliseconds (DWORD) shown and edited as seconds.
+    /// [`float`](Self::float) with Aurora's pair of arrows after the
+    /// field, a click `step` more or less.
+    pub(crate) fn spin_float(
+        &mut self,
+        ui: &mut Ui,
+        what: &str,
+        label: &str,
+        range: std::ops::RangeInclusive<f32>,
+        speed: f64,
+        step: f64,
+    ) {
+        self.mark_mixed(ui, label);
+        let current = self.root.float(label).unwrap_or(0.0);
+        if let Some(v) =
+            crate::widgets::spin_with(ui, current, range, step, |d| d.speed(speed).max_decimals(2))
+        {
+            self.set(what, label, Value::Float(v));
+        }
+    }
+
+    /// Milliseconds (DWORD) shown and edited as seconds, with Aurora's
+    /// arrows (a click `step` seconds).
     pub(crate) fn millis(
         &mut self,
         ui: &mut Ui,
         what: &str,
         label: &str,
         range: std::ops::RangeInclusive<f32>,
+        step: f64,
     ) {
         let current = self.int(label) as f32 / 1000.0;
-        if let Some(v) = crate::widgets::drag_number(ui, current, |d| {
-            d.range(range).speed(0.1).max_decimals(3).suffix(" s")
+        if let Some(v) = crate::widgets::spin_with(ui, current, range, step, |d| {
+            d.speed(0.1).max_decimals(3).suffix(" s")
         }) {
             self.set_int(what, label, (v * 1000.0).round() as i64, FieldType::Dword);
         }
@@ -859,7 +881,7 @@ impl Form<'_> {
     }
 
     /// [`number`](Self::number) with Aurora's pair of arrows after the
-    /// field (a creature's statistics).
+    /// field (`widgets::spin_number`), as Aurora's number fields have.
     pub(crate) fn spin(
         &mut self,
         ui: &mut Ui,

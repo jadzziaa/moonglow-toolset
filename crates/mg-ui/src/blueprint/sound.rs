@@ -158,7 +158,7 @@ fn positioning(f: &mut Form<'_>, ui: &mut Ui) {
     egui::Grid::new(("uts-pos", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         ui.add_enabled_ui(positional, |ui| crate::widgets::field_label(ui, "Cutoff distance (m)"));
         ui.add_enabled_ui(positional, |ui| {
-            f.float(ui, "Cutoff distance", "MaxDistance", 0.0..=32000.0, 0.5)
+            f.spin_float(ui, "Cutoff distance", "MaxDistance", 0.0..=32000.0, 0.5, 10.0)
         });
         ui.end_row();
         ui.add_enabled_ui(positional, |ui| {
@@ -171,14 +171,14 @@ fn positioning(f: &mut Form<'_>, ui: &mut Ui) {
         let rand = positional && random;
         ui.add_enabled_ui(rand, |ui| crate::widgets::field_label(ui, "West-East Random Range (m)"));
         ui.add_enabled_ui(rand, |ui| {
-            f.float(ui, "West-east random range", "RandomRangeX", 0.0..=32000.0, 0.5)
+            f.spin_float(ui, "West-east random range", "RandomRangeX", 0.0..=32000.0, 0.5, 1.0)
         });
         ui.end_row();
         ui.add_enabled_ui(rand, |ui| {
             crate::widgets::field_label(ui, "North-South Random Range (m)")
         });
         ui.add_enabled_ui(rand, |ui| {
-            f.float(ui, "North-south random range", "RandomRangeY", 0.0..=32000.0, 0.5)
+            f.spin_float(ui, "North-south random range", "RandomRangeY", 0.0..=32000.0, 0.5, 1.0)
         });
         ui.end_row();
         crate::widgets::field_label(ui, "Height (m)");
@@ -286,10 +286,10 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
             ui,
             |ui| {
                 crate::widgets::field_label(ui, "Interval between playing sounds (seconds)");
-                f.millis(ui, "Interval", "Interval", 0.0..=100.0);
+                f.millis(ui, "Interval", "Interval", 0.0..=100.0, 10.0);
                 ui.end_row();
                 crate::widgets::field_label(ui, "Interval Variation (seconds)");
-                f.millis(ui, "Interval variation", "IntervalVrtn", 0.0..=100.0);
+                f.millis(ui, "Interval variation", "IntervalVrtn", 0.0..=100.0, 10.0);
                 ui.end_row();
             },
         );

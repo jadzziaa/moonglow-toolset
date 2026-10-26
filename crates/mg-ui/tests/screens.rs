@@ -129,6 +129,10 @@ fn module_properties_haks() {
     h.run_steps(2);
     h.state_mut().hak_list.selected = [1, 2].into_iter().collect();
     shoot(&mut h, &dir, "module-properties-haks");
+    // The Advanced page's numbers, with Aurora's arrows.
+    h.get_by_label("Advanced").click();
+    h.run_steps(2);
+    shoot(&mut h, &dir, "module-properties-advanced");
 }
 
 /// The 2DA editor on a copy of the game's feat.2da kept as a file: a
@@ -963,7 +967,7 @@ fn blueprint_editors() {
         ("nw_waypoint001", ResType::UTW, &["Basic", "Advanced"][..]),
         ("animalcriesday", ResType::UTS, &["Basic", "Positioning", "Advanced"][..]),
         ("x0_trapavg_shuri", ResType::UTT, &["Basic", "Trap", "Advanced", "Visuals"][..]),
-        ("nw_mumcleric", ResType::UTC, &["Classes"][..]),
+        ("nw_mumcleric", ResType::UTC, &["Classes", "Spells"][..]),
         ("nw_verminbeet", ResType::UTE, &["Basic", "Creature List", "Advanced"][..]),
         ("nw_storebar01", ResType::UTM, &["Basic", "Inventory", "Restrictions"][..]),
         ("x2_storethief001", ResType::UTM, &["Inventory"][..]),

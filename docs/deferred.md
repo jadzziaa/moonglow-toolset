@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:02:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:03:40Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -674,13 +674,31 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Several objects edited together stay in their area's window when one
   is carried to another area (it leaves it). (S)
   (from builders' reports after 1.10.1)
-- **Spells as the Feats page is now** (those known beside those to
-  choose from): asked for, and left: the page also has levels, classes
-  and memorized counts to lay out. (M)
-  (from builders' reports after 1.16.2)
-- **Arrows after a creature's statistics** (abilities, natural AC, hit
-  points, save bonuses), as Aurora's fields have; the other number
-  fields have none. (S) (from builders' reports after 1.19.1)
+- **The Spells page against Aurora** (laid out as the Feats page now:
+  the class's spells beside those known or prepared, by level, with
+  counts and how many the class may have): Aurora's page was not driven
+  for it (its form is in the parity inventory). Not done: Aurora's
+  **Meta-Magic** list (the inventory reads it both as a filter of the
+  spells and as the chosen entry's metamagic; a spell prepared with
+  metamagic is shown and kept, but none can be prepared on the page),
+  its Casting Level column, and the words of its Spell Selection
+  Summary (Moonglow's per-level "Level 1: 2 of 3" stands for it); a
+  cleric's domain spells outside the cleric's column of `spells.2da`
+  are listed only once prepared (as a Load or the Levelup Wizard puts
+  them), not offered to choose. (S–M) (from builders' reports after
+  1.16.2)
+- **Arrows after numbers, what is left:** the blueprint editors', Module
+  Properties' and Area Properties' number fields that have them in
+  Aurora have them (a click, Up and Down in the field, a held arrow
+  repeating after 0.4 s twenty times a second, each run one step). Not
+  given them: the Creature Wizard's and Levelup Wizard's class levels,
+  Adjust Location's (an instance's position, bearing, scale, rotation and
+  translation), the Area Wizard's and Resize Area's rows and columns,
+  Options' (spawn point marker size, undo levels, backup interval) and
+  the Script Wizard's conditions. The repeat's pause and rate are
+  Moonglow's choice, not measured in Aurora; a sound's cutoff distance
+  and intervals step by ten, as Aurora's forms say. (S) (from builders'
+  reports after 1.19.1)
 - **What a store sells an item for** (a builder: Aurora lists it): each
   item of a store's pages is listed with its cost at the store's sell
   mark up. Not compared with Aurora's list (its rounding, whether it

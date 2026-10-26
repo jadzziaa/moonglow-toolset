@@ -71,10 +71,10 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         f.choice(ui, "Spawn option", "SpawnOption", &spawn, FieldType::Int);
         ui.end_row();
         crate::widgets::field_label(ui, "Minimum Creatures");
-        f.number(ui, "Minimum creatures", "RecCreatures", 1..=100);
+        f.spin(ui, "Minimum creatures", "RecCreatures", 1..=100);
         ui.end_row();
         crate::widgets::field_label(ui, "Maximum Creatures");
-        f.number(ui, "Maximum creatures", "MaxCreatures", 1..=100);
+        f.spin(ui, "Maximum creatures", "MaxCreatures", 1..=100);
         ui.end_row();
         crate::widgets::field_label(ui, "Category");
         f.category(ui, BlueprintKind::Encounter);
@@ -205,14 +205,14 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
         let respawns = f.check(ui, "Encounter Respawns", "Reset");
         ui.end_row();
         ui.add_enabled_ui(respawns, |ui| ui.label("Respawn Time (seconds)"));
-        ui.add_enabled_ui(respawns, |ui| f.number(ui, "Respawn time", "ResetTime", 0..=100_000));
+        ui.add_enabled_ui(respawns, |ui| f.spin(ui, "Respawn time", "ResetTime", 0..=100_000));
         ui.end_row();
         let count = f.int("Respawns");
         let infinite = count == -1;
         ui.add_enabled_ui(respawns, |ui| ui.label("Number of times to respawn"));
         ui.add_enabled_ui(respawns, |ui| {
             ui.horizontal(|ui| {
-                ui.add_enabled_ui(!infinite, |ui| f.number(ui, "Respawns", "Respawns", 1..=100));
+                ui.add_enabled_ui(!infinite, |ui| f.spin(ui, "Respawns", "Respawns", 1..=100));
                 let mut inf = infinite;
                 if ui.checkbox(&mut inf, "Infinite Respawn").changed() {
                     f.set_int(

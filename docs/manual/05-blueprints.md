@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T12:29:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:03:40Z }
 ---
 
 # Blueprints
@@ -324,6 +324,19 @@ Shared parts:
   is typed, sets their types and offers their values: see [Described
   variables](03-modules.md#described-variables).
 - **Comments**: notes for the builder, not seen in the game.
+- **Arrows after a number**, where Aurora's field has them (a creature's
+  statistics, class levels, challenge rating adjustment and corpse decay
+  time; placeables' and doors' hit points, hardness and saves; lock and
+  trap DCs; an item's stack size, charges and additional cost, and a
+  property's chance; encounters' creatures and respawns; stores' mark up
+  and mark down; sounds' distances and intervals; a trigger's highlight
+  height; Module Properties' starting date and time, and Area
+  Properties' weather, fog, shadow opacity, music delay and check
+  modifiers): a click makes
+  it one more or one less (a sound's cutoff distance and intervals ten),
+  within the field's limits. Held down, an arrow goes on after a moment;
+  **Up** and **Down** in the field do the same. A click, a key or a
+  whole held run is one undoable step.
 - **Advanced**: the palette category, and **Update Instances** (every
   type but waypoints; see above).
 - **Visuals** (creatures, items, placeables, doors; triggers have the
@@ -351,15 +364,15 @@ Shared parts:
 Basic (name, race, gender, portrait, appearance, conversation;
 the races are those of racialtypes.2da with a name, as in Aurora: a row
 with only a label, `DELETED` or CEP's `CEP_RESERVED`, is not listed),
-**Statistics** (abilities, saves, armor class, hit points, speed; the
-arrows after a number make it one more or one less, as Aurora's do; the
+**Statistics** (abilities, saves, armor class, hit points, speed, each
+number with Aurora's arrows; the
 saves are the game's, also past level 20 with several classes, where
 Aurora's are not, and the abilities count the epic Great feats),
 **Appearance** (body parts, colors, wings, tail, the phenotype), **Classes**
 (classes and levels, a cleric's domains and a wizard's school, the
 familiar and animal companion; **Levelup Wizard…** levels the creature up
 by the classes' packages), **Skills**, **Feats**, **Spells** (known or prepared by
-class and level), **Special Abilities**, **Inventory**, Scripts,
+class and level, as the Feats page: see below), **Special Abilities**, **Inventory**, Scripts,
 Advanced, Visuals, Comments.
 
 Moonglow recomputes the creature's hit points and challenge rating with
@@ -399,6 +412,22 @@ one (an arcane class whose `MinAssociateLevel` in `classes.2da` isn't
 (Druid, Ranger, at any level). The Classes page says when it won't.
 A domain or school left **Not set** is the game's to choose.
 
+- **Spells** is laid out as the Feats page. **Class** chooses which of
+  the creature's spellcasting classes, and **Spell Level** narrows the
+  class's spells (its column of `spells.2da`) to one level; **Find** and
+  the category narrow them too. To the right are the spells the class
+  knows (**Known**) or has prepared (**Prepared**, for a class that
+  prepares its spells), by level, each level with how many the class may
+  have of it ("Level 1: 2 of 3", as Aurora's warnings count them: its
+  spell tables, and for a class that prepares them its ability's bonus
+  spells). A class that knows its spells ticks them in the list; a
+  click on a spell of one that prepares them prepares one more, and the
+  number beside a prepared spell (with its arrows) says how many. × takes
+  a spell away. A spell prepared with metamagic, kept at its level raised
+  by it as Aurora writes it, shows its metamagic ("Bless (Empowered)")
+  and is kept as it is; the page has no Meta-Magic list to prepare one.
+  **Clear**, **Save** and **Load Class Spell List** act on the class's
+  lists as a whole.
 - On the **Spells** page, a warning names a class's first problem:
   spells of a level the class cannot cast yet, a casting ability too low
   for the spell level, or more spells than the class allows.

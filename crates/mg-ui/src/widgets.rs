@@ -1443,24 +1443,128 @@ pub(crate) fn commit_number<T: egui::emath::Numeric>(
 }
 
 /// [`commit_number`] with a pair of arrows after the field, as Aurora's
-/// number fields have: a click is one more or one less, within the range
-/// (one change each).
-pub(crate) fn spin_number(
+/// number fields have: a click is one more or one less, within the range;
+/// an arrow held down goes on stepping, as do Up and Down in the field.
+/// Each click, key or held run is one change, made when it ends.
+pub(crate) fn spin_number<T: egui::emath::Numeric>(
     ui: &mut Ui,
-    current: i64,
-    range: std::ops::RangeInclusive<i64>,
-) -> Option<i64> {
+    current: T,
+    range: std::ops::RangeInclusive<T>,
+) -> Option<T> {
+    spin_with(ui, current, range, 1.0, |d| d)
+}
+
+/// How long an arrow is held before it repeats, and how often it does
+/// then (seconds).
+const SPIN_DELAY: f64 = 0.4;
+const SPIN_RATE: f64 = 0.05;
+
+/// A run of steps not yet made a change: the number reached, the arrow
+/// held (1 up, -1 down, 0 none: keys), since when, and how many steps it
+/// has made.
+#[derive(Clone, Copy)]
+struct SpinRun {
+    value: f64,
+    arrow: i8,
+    since: f64,
+    done: u32,
+}
+
+/// [`spin_number`] by `step`, the field set up by `make` too (its speed,
+/// decimals, suffix).
+pub(crate) fn spin_with<T: egui::emath::Numeric>(
+    ui: &mut Ui,
+    current: T,
+    range: std::ops::RangeInclusive<T>,
+    step: f64,
+    make: impl for<'a> FnOnce(egui::DragValue<'a>) -> egui::DragValue<'a>,
+) -> Option<T> {
+    let (lo, hi) = (range.start().to_f64(), range.end().to_f64());
+    // A step from a number outside the range comes back into it, but
+    // never goes the other way (one less than 0 in 1 to 12 stays 0).
+    let stepped = |v: f64, by: f64| {
+        let to = (v + by).clamp(lo, hi);
+        if (to - v) * by > 0.0 { to } else { v }
+    };
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 2.0;
-        let mut set = commit_number(ui, current, range.clone());
-        for (glyph, by, tip) in [("⏶", 1, "One more"), ("⏷", -1, "One less")] {
-            let to = (current + by).clamp(*range.start(), *range.end());
-            let arrow = egui::Button::new(glyph).small();
-            if ui.add_enabled(to != current, arrow).on_hover_text(tip).clicked() {
-                set = Some(to);
+        // (The field's own id: the next widget is the field.)
+        let field = ui.next_auto_id();
+        let run_id = field.with("spin-run");
+        let mut run: Option<SpinRun> = ui.data(|d| d.get_temp(run_id));
+        let now = ui.input(|i| i.time);
+        let shown = run.map_or(current.to_f64(), |r| r.value);
+        // Up and Down in the field (before it takes them as it would).
+        let keys = [egui::Key::ArrowUp, egui::Key::ArrowDown];
+        let focused = ui.memory(|m| m.has_focus(field));
+        if focused {
+            let n = ui.input_mut(|i| {
+                i.count_and_consume_key(egui::Modifiers::NONE, keys[0]) as i64
+                    - i.count_and_consume_key(egui::Modifiers::NONE, keys[1]) as i64
+            });
+            if n != 0 {
+                let value = stepped(shown, n as f64 * step);
+                run = Some(match run {
+                    Some(r) => SpinRun { value, ..r },
+                    None => SpinRun { value, arrow: 0, since: now, done: 0 },
+                });
             }
         }
-        set
+        let shown = run.map_or(current.to_f64(), |r| r.value);
+        let (typed, _, _) =
+            drag_number_shown(ui, T::from_f64(shown), |d| make(d.range(range.clone())));
+        // (A number typed is set as it is, the arrows still drawn.)
+        if typed.is_some() {
+            run = None;
+        }
+        let mut held = focused && ui.input(|i| keys.iter().any(|k| i.key_down(*k)));
+        for (glyph, arrow, tip) in [("⏶", 1i8, "One more"), ("⏷", -1i8, "One less")] {
+            let by = f64::from(arrow) * step;
+            let can = stepped(shown, by) != shown;
+            // (A drag too: egui takes a press held past a click's time for
+            // no click, and the arrow for no longer pressed.)
+            let arrow_button =
+                egui::Button::new(glyph).small().sense(egui::Sense::click_and_drag());
+            let b = ui.add_enabled(can, arrow_button).on_hover_text(tip);
+            if !b.is_pointer_button_down_on() {
+                continue;
+            }
+            held = true;
+            match &mut run {
+                Some(r) if r.arrow == arrow => {
+                    // Held: after a pause, a step each SPIN_RATE.
+                    let held_for = now - r.since;
+                    let due = if held_for < SPIN_DELAY {
+                        1
+                    } else {
+                        2 + ((held_for - SPIN_DELAY) / SPIN_RATE) as u32
+                    };
+                    for _ in r.done..due {
+                        r.value = stepped(r.value, by);
+                    }
+                    r.done = r.done.max(due);
+                }
+                _ => {
+                    run = Some(SpinRun { value: stepped(shown, by), arrow, since: now, done: 1 });
+                }
+            }
+            ui.ctx().request_repaint();
+        }
+        if let Some(v) = typed {
+            ui.data_mut(|d| d.remove::<SpinRun>(run_id));
+            return (v.to_f64() != current.to_f64()).then_some(v);
+        }
+        match run {
+            Some(r) if !held => {
+                ui.data_mut(|d| d.remove::<SpinRun>(run_id));
+                (r.value != current.to_f64()).then(|| T::from_f64(r.value))
+            }
+            Some(r) => {
+                ui.data_mut(|d| d.insert_temp(run_id, r));
+                None
+            }
+            None => None,
+        }
     })
     .inner
 }

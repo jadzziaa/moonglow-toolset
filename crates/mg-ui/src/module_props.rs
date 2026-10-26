@@ -82,7 +82,8 @@ fn edit_field(
     }
 }
 
-/// A number with a range, committed when it changes (a drag: when released).
+/// A number with a range and Aurora's arrows, committed when it changes (a
+/// drag: when released; an arrow held: when let go).
 fn number<T: egui::emath::Numeric + GffValue>(
     app: &mut Moonglow,
     ui: &mut Ui,
@@ -91,7 +92,7 @@ fn number<T: egui::emath::Numeric + GffValue>(
     current: T,
     range: std::ops::RangeInclusive<T>,
 ) {
-    if let Some(v) = crate::widgets::commit_number(ui, current, range) {
+    if let Some(v) = crate::widgets::spin_number(ui, current, range) {
         app.actions.push(set(what, f, v));
     }
 }

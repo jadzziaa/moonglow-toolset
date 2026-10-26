@@ -11,7 +11,7 @@ use mg_rules::{Choice, ChoiceColumns};
 
 use super::Form;
 use crate::text::{decode, encode};
-use crate::widgets::commit_number;
+use crate::widgets::spin_number;
 
 /// The most Aurora takes in the fields the files keep as bytes (DCs,
 /// hardness, an object's saves): measured in Aurora, whose forms' own
@@ -57,10 +57,10 @@ pub(super) fn trap(f: &mut Form<'_>, ui: &mut Ui) {
             });
             ui.end_row();
             crate::widgets::field_label(ui, "Disarm DC");
-            f.number(ui, "Disarm DC", "DisarmDC", 0..=BYTE_MAX);
+            f.spin(ui, "Disarm DC", "DisarmDC", 0..=BYTE_MAX);
             ui.end_row();
             crate::widgets::field_label(ui, "Detection DC");
-            f.number(ui, "Detection DC", "TrapDetectDC", 0..=BYTE_MAX);
+            f.spin(ui, "Detection DC", "TrapDetectDC", 0..=BYTE_MAX);
             ui.end_row();
             crate::widgets::field_label(ui, "OnDisarm");
             f.script(ui, "OnDisarm", "OnDisarm");
@@ -487,10 +487,10 @@ pub(super) fn lock(f: &mut Form<'_>, ui: &mut Ui) {
     ui.separator();
     egui::Grid::new(("lock", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         crate::widgets::field_label(ui, "Open Lock DC");
-        f.number(ui, "Open lock DC", "OpenLockDC", 0..=BYTE_MAX);
+        f.spin(ui, "Open lock DC", "OpenLockDC", 0..=BYTE_MAX);
         ui.end_row();
         crate::widgets::field_label(ui, "Close Lock DC");
-        f.number(ui, "Close lock DC", "CloseLockDC", 0..=BYTE_MAX);
+        f.spin(ui, "Close lock DC", "CloseLockDC", 0..=BYTE_MAX);
         ui.end_row();
         crate::widgets::field_label(ui, "Key Tag");
         f.text(ui, "Key tag", "KeyName", 32);
@@ -502,7 +502,7 @@ pub(super) fn lock(f: &mut Form<'_>, ui: &mut Ui) {
 pub(super) fn durability(f: &mut Form<'_>, ui: &mut Ui) {
     crate::widgets::field_label(ui, "Hit Points");
     // The blueprint's current hit points follow its maximum.
-    if let Some(v) = commit_number(ui, f.int("HP"), 1..=10_000) {
+    if let Some(v) = spin_number(ui, f.int("HP"), 1..=10_000) {
         f.set_many(
             "Hit points",
             &[("HP", v, FieldType::Short), ("CurrentHP", v, FieldType::Short)],
@@ -510,16 +510,16 @@ pub(super) fn durability(f: &mut Form<'_>, ui: &mut Ui) {
     }
     ui.end_row();
     crate::widgets::field_label(ui, "Hardness");
-    f.number(ui, "Hardness", "Hardness", 0..=BYTE_MAX);
+    f.spin(ui, "Hardness", "Hardness", 0..=BYTE_MAX);
     ui.end_row();
     crate::widgets::field_label(ui, "Fortitude Save");
-    f.number(ui, "Fortitude save", "Fort", 0..=BYTE_MAX);
+    f.spin(ui, "Fortitude save", "Fort", 0..=BYTE_MAX);
     ui.end_row();
     crate::widgets::field_label(ui, "Reflex Save");
-    f.number(ui, "Reflex save", "Ref", 0..=BYTE_MAX);
+    f.spin(ui, "Reflex save", "Ref", 0..=BYTE_MAX);
     ui.end_row();
     crate::widgets::field_label(ui, "Will Save");
-    f.number(ui, "Will save", "Will", 0..=BYTE_MAX);
+    f.spin(ui, "Will save", "Will", 0..=BYTE_MAX);
     ui.end_row();
     crate::widgets::field_label(ui, "");
     f.check(ui, "Plot", "Plot");

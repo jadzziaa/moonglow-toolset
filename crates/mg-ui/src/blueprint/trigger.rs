@@ -94,7 +94,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
         situated::portrait(f, ui);
         ui.end_row();
         crate::widgets::field_label(ui, "Highlight Height");
-        f.float(ui, "Highlight height", "HighlightHeight", 0.0..=100.0, 0.1);
+        f.spin_float(ui, "Highlight height", "HighlightHeight", 0.0..=100.0, 0.1, 1.0);
         ui.end_row();
         crate::widgets::field_label(ui, "Variables");
         f.variables(ui);

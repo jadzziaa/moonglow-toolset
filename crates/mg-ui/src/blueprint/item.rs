@@ -18,7 +18,7 @@ use mg_rules::items::{ItemProperty, ItemValue, PropertyType, part_number, wide_l
 use mg_rules::{Choice, GameData};
 
 use super::Form;
-use crate::widgets::commit_number;
+use crate::widgets::spin_number;
 use crate::{Action, Moonglow};
 
 pub(super) const PAGES: [&str; 6] =
@@ -200,7 +200,7 @@ fn general(f: &mut Form<'_>, ui: &mut Ui) {
                     // (engine_ee_fields.rs).
                     crate::widgets::field_label(ui, "Stack Size");
                     ui.horizontal(|ui| {
-                        f.number(ui, "Stack size", "StackSize", 1..=65_535);
+                        f.spin(ui, "Stack size", "StackSize", 1..=65_535);
                         if f.int("StackSize") > i64::from(stacking) {
                             ui.weak(format!("more than the base item's {stacking}"));
                         }
@@ -208,10 +208,10 @@ fn general(f: &mut Form<'_>, ui: &mut Ui) {
                     ui.end_row();
                     // The game reads at most 250 (engine_ee_fields.rs).
                     crate::widgets::field_label(ui, "Charges");
-                    f.number(ui, "Charges", "Charges", 0..=250);
+                    f.spin(ui, "Charges", "Charges", 0..=250);
                     ui.end_row();
                     crate::widgets::field_label(ui, "Additional Cost");
-                    f.number(ui, "Additional cost", "AddCost", 0..=999_999_999);
+                    f.spin(ui, "Additional cost", "AddCost", 0..=999_999_999);
                     ui.end_row();
                     crate::widgets::field_label(ui, "");
                     ui.horizontal(|ui| {
@@ -1012,7 +1012,7 @@ fn property_editor(
                 ui.end_row();
             }
             crate::widgets::field_label(ui, "Chance of Appearing (%)");
-            if let Some(v) = commit_number(ui, i64::from(p.chance), 0..=100) {
+            if let Some(v) = spin_number(ui, i64::from(p.chance), 0..=100) {
                 changes.push(("ChanceAppear", Value::Byte(v as u8)));
             }
             ui.end_row();

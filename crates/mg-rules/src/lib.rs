@@ -30,7 +30,7 @@ pub use challenge::Challenge;
 pub use creatures::{ClassSpells, CreatureSheet, CreatureStats};
 pub use items::{ItemProperty, ItemValue};
 pub use objects::ObjectKind;
-pub use spell_warnings::SpellWarning;
+pub use spell_warnings::{SpellSlots, SpellWarning};
 
 #[derive(Debug, Error)]
 pub enum RulesError {
