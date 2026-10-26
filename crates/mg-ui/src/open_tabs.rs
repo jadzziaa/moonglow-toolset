@@ -400,6 +400,12 @@ impl Moonglow {
     /// At the end of each frame: the kept tabs opened, at the module's
     /// first; then, the tabs written whenever they change.
     pub(crate) fn open_tabs_frame(&mut self, ctx: &egui::Context) {
+        // (Not in the frame a module was opened in from a menu: its
+        // palettes' pane opens at the next, as the module tree shows.)
+        if self.open_tabs.pending.is_some() && self.open_palette && self.ws.is_some() {
+            ctx.request_repaint();
+            return;
+        }
         if let Some((panes, front)) = self.open_tabs.pending.take() {
             if self.ws.is_some() {
                 self.restore_tabs(panes, front);

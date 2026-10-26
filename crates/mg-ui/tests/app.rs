@@ -15221,13 +15221,47 @@ fn a_kept_tab_whose_resource_is_gone_is_passed_over() {
     let mut m = Module::open(&path).unwrap();
     m.remove(&hello);
     m.save().unwrap();
-    h.state_mut().open_module(&path);
+    // (Opened as File › Recent Modules opens it, within a frame.)
+    h.state_mut().actions.push(mg_ui::Action::OpenModule(path.clone()));
     h.run();
     let app = h.state();
     assert!(app.dock.find_tab(&Tab::Script(hello)).is_none(), "gone");
     assert!(app.dock.find_tab(&Tab::Script(bye)).is_some());
     assert!(app.dock.find_tab(&Tab::Factions).is_some());
     assert!(app.dock.find_tab(&Tab::Area(ResRef::from_str("start").unwrap())).is_some());
+}
+
+/// A tab docked in the palettes' pane opens there again, the module opened
+/// again from a menu (within a frame, the pane made at the next).
+#[test]
+fn a_tab_kept_in_the_palettes_pane_opens_there_again() {
+    let Some((mut h, area)) = area_harness("open-tabs-palettes") else { return };
+    let path = h.state().module_path().expect("saved");
+    let kept = mg_testkit::scratch_dir("ui-open-tabs-palettes");
+    h.state_mut().open_tabs_dir = Some(kept.clone());
+    let palette_pane = |app: &Moonglow| {
+        let at = app.dock.find_tab(&Tab::Palette).expect("the palettes are shown");
+        app.dock
+            .leaf(egui_dock::NodePath { surface: at.surface, node: at.node })
+            .unwrap()
+            .tabs
+            .clone()
+    };
+    {
+        let app = h.state_mut();
+        let at = app.dock.find_tab(&Tab::Palette).unwrap();
+        app.dock.set_focused_node_and_surface(egui_dock::NodePath {
+            surface: at.surface,
+            node: at.node,
+        });
+        app.dock.push_to_focused_leaf(Tab::Resources);
+    }
+    h.run_steps(3);
+    assert_eq!(palette_pane(h.state()), [Tab::Palette, Tab::Resources]);
+    h.state_mut().actions.push(mg_ui::Action::OpenModule(path));
+    h.run_steps(4);
+    assert!(h.state().dock.find_tab(&Tab::Area(area)).is_some());
+    assert_eq!(palette_pane(h.state()), [Tab::Palette, Tab::Resources], "in its pane again");
 }
 
 /// Make Placeables Static: those that lose nothing by it, as one command;
