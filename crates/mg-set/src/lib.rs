@@ -15,12 +15,14 @@ use thiserror::Error;
 
 pub use ini::{Ini, Section};
 
+/// Why a file is no tileset at all. Holes in one (a tile's section
+/// missing, a tile without a model, a terrain's or a rule's section
+/// missing) are not errors: the game reads it tile by tile, and so does
+/// [`Tileset::parse`], which lists them in [`Tileset::warnings`].
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum SetError {
     #[error("missing section [{0}]")]
     MissingSection(String),
-    #[error("[{section}] is missing {key}")]
-    MissingKey { section: String, key: String },
 }
 
 /// `[GENERAL]`.
@@ -90,8 +92,10 @@ pub const CORNERS: [&str; 4] = ["TopLeft", "TopRight", "BottomLeft", "BottomRigh
 pub const EDGES: [&str; 4] = ["Top", "Right", "Bottom", "Left"];
 
 /// A tile.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Tile {
+    /// Empty for a hole: a tile whose section is missing or names no
+    /// model, which the game draws as nothing and gives no walkmesh.
     pub model: String,
     pub walkmesh: Option<String>,
     /// Terrain and height at each corner, in [`CORNERS`] order.
@@ -110,6 +114,14 @@ pub struct Tile {
     pub door_visibility_node: Option<String>,
     pub door_visibility_orientation: i32,
     pub image_map_2d: Option<String>,
+}
+
+impl Tile {
+    /// Whether this is a hole: a tile whose section is missing or names
+    /// no model.
+    pub fn is_hole(&self) -> bool {
+        self.model.is_empty()
+    }
 }
 
 /// A group: a rectangle of tiles placed together (`None` cells are left as
@@ -139,6 +151,9 @@ pub struct Tileset {
     /// Inconsistencies found while parsing, which shipped tilesets have
     /// (tiles using undeclared terrains or crossers, missing door sections).
     pub warnings: Vec<String>,
+    /// The sections the counts call for that are missing (`TILE20`,
+    /// `TERRAIN1`), in the order the lists are read.
+    pub missing_sections: Vec<String>,
 }
 
 /// The most rows or columns a group may have: an area's (32 tiles a side).
@@ -187,6 +202,56 @@ impl<'a> Sections<'a> {
     fn count(&self, name: &str) -> usize {
         self.find(name).and_then(|s| s.int("Count")).unwrap_or(0).max(0) as usize
     }
+
+    /// The items of list `name` (`Count=`) whose sections are `item<i>`:
+    /// as many as the count says, up to the last one there is (a count
+    /// that is no count, `Count=1869573190`, costs nothing), and holes
+    /// among them as `None`, with a warning and their names in `gone`.
+    fn items(
+        &self,
+        list: &str,
+        item: &str,
+        warnings: &mut Vec<String>,
+        gone: &mut Vec<String>,
+    ) -> Vec<Option<&'a Section>> {
+        let count = self.count(list);
+        let last = self
+            .named
+            .keys()
+            .filter_map(|n| n.strip_prefix(item)?.parse::<usize>().ok())
+            .filter(|&i| i < count)
+            .max();
+        let n = last.map_or(0, |i| i + 1);
+        if n < count {
+            warnings.push(match last {
+                Some(i) => format!("[{list}] Count={count}, but the last [{item}n] is [{item}{i}]"),
+                None => format!("[{list}] Count={count}, but there is no [{item}n]"),
+            });
+        }
+        let mut missing = Vec::new();
+        let items = (0..n)
+            .map(|i| {
+                let s = self.find(&format!("{item}{i}"));
+                if s.is_none() {
+                    missing.push(i);
+                    gone.push(format!("{item}{i}"));
+                }
+                s
+            })
+            .collect();
+        if !missing.is_empty() {
+            let named: Vec<String> =
+                missing.iter().take(8).map(|i| format!("[{item}{i}]")).collect();
+            let more = missing.len().saturating_sub(8);
+            warnings.push(format!(
+                "no {}{} section{}",
+                named.join(", "),
+                if more > 0 { format!(" and {more} more") } else { String::new() },
+                if missing.len() == 1 { "" } else { "s" },
+            ));
+        }
+        items
+    }
 }
 
 fn strref(s: &Section, key: &str) -> StrRef {
@@ -233,44 +298,50 @@ impl Tileset {
                 diffuse: rgb("Diffuse"),
             }
         });
-        let named = |list: &str, item: &str| -> Result<Vec<NamedType>, SetError> {
-            (0..sections.count(list))
-                .map(|i| {
-                    let s = sections.get(&format!("{item}{i}"))?;
-                    Ok(NamedType {
-                        name: s.get("Name").unwrap_or_default().to_string(),
-                        strref: strref(s, "StrRef"),
-                        unlocalized_name: owned(s.text("UnlocalizedName")),
-                    })
+        let (mut warnings, mut gone) = (Vec::new(), Vec::new());
+        // A terrain's, a crosser's or a rule's section missing: it is left
+        // out (they are named, not counted, where they are used).
+        let named = |list: &str, item: &str, w: &mut Vec<String>, g: &mut Vec<String>| {
+            (sections.items(list, item, w, g).into_iter().flatten())
+                .map(|s| NamedType {
+                    name: s.get("Name").unwrap_or_default().to_string(),
+                    strref: strref(s, "StrRef"),
+                    unlocalized_name: owned(s.text("UnlocalizedName")),
                 })
-                .collect()
+                .collect::<Vec<_>>()
         };
-        let rules = |list: &str, item: &str| -> Result<Vec<Rule>, SetError> {
-            (0..sections.count(list))
-                .map(|i| {
-                    let s = sections.get(&format!("{item}{i}"))?;
+        let rules = |list: &str, item: &str, w: &mut Vec<String>, g: &mut Vec<String>| {
+            (sections.items(list, item, w, g).into_iter().flatten())
+                .map(|s| {
                     let t = |k: &str| s.get(k).unwrap_or_default().to_string();
                     let h = |k: &str| s.int(k).unwrap_or(0);
-                    Ok(Rule {
+                    Rule {
                         placed: t("Placed"),
                         placed_height: h("PlacedHeight"),
                         adjacent: t("Adjacent"),
                         adjacent_height: h("AdjacentHeight"),
                         changed: t("Changed"),
                         changed_height: h("ChangedHeight"),
-                    })
+                    }
                 })
-                .collect()
+                .collect::<Vec<_>>()
         };
-        let mut warnings = Vec::new();
-        let tiles = (0..sections.count("TILES"))
-            .map(|i| {
-                let name = format!("TILE{i}");
-                let s = sections.get(&name)?;
-                let model = s.text("Model").ok_or_else(|| SetError::MissingKey {
-                    section: name.clone(),
-                    key: "Model".into(),
-                })?;
+        let terrains = named("TERRAIN TYPES", "TERRAIN", &mut warnings, &mut gone);
+        let crossers = named("CROSSER TYPES", "CROSSER", &mut warnings, &mut gone);
+        let primary_rules = rules("PRIMARY RULES", "PRIMARY RULE", &mut warnings, &mut gone);
+        let secondary_rules = rules("SECONDARY RULES", "SECONDARY RULE", &mut warnings, &mut gone);
+        // A tile's section missing, or a tile without a model: a hole (a
+        // tile with no model) in its place, the tiles after it keeping
+        // their numbers, as the game reads it.
+        let mut modelless = Vec::new();
+        let tiles = (sections.items("TILES", "TILE", &mut warnings, &mut gone).into_iter())
+            .enumerate()
+            .map(|(i, s)| {
+                let Some(s) = s else { return Tile::default() };
+                let Some(model) = s.text("Model") else {
+                    modelless.push(i);
+                    return Tile::default();
+                };
                 // The door sections that are there, up to the count: some
                 // shipped tiles declare doors without a section, and custom
                 // tilesets have counts that are no counts at all (`Doors=`
@@ -298,7 +369,7 @@ impl Tileset {
                         doors.len()
                     ));
                 }
-                Ok(Tile {
+                Tile {
                     model: model.to_string(),
                     walkmesh: owned(s.text("WalkMesh")),
                     corners: CORNERS.map(|c| {
@@ -320,9 +391,19 @@ impl Tileset {
                     door_visibility_node: owned(s.text("DoorVisibilityNode")),
                     door_visibility_orientation: s.int("DoorVisibilityOrientation").unwrap_or(0),
                     image_map_2d: owned(s.text("ImageMap2D")),
-                })
+                }
             })
-            .collect::<Result<Vec<_>, SetError>>()?;
+            .collect::<Vec<_>>();
+        if !modelless.is_empty() {
+            let named: Vec<String> =
+                modelless.iter().take(8).map(|i| format!("[TILE{i}]")).collect();
+            let more = modelless.len().saturating_sub(8);
+            warnings.push(format!(
+                "no Model= in {}{}",
+                named.join(", "),
+                if more > 0 { format!(" and {more} more") } else { String::new() },
+            ));
+        }
         // A group whose section is missing is left out (custom tilesets
         // have such holes, and work in the game).
         let mut groups = Vec::new();
@@ -348,14 +429,15 @@ impl Tileset {
         let mut t = Tileset {
             general,
             grass,
-            terrains: named("TERRAIN TYPES", "TERRAIN")?,
-            crossers: named("CROSSER TYPES", "CROSSER")?,
-            primary_rules: rules("PRIMARY RULES", "PRIMARY RULE")?,
-            secondary_rules: rules("SECONDARY RULES", "SECONDARY RULE")?,
+            terrains,
+            crossers,
+            primary_rules,
+            secondary_rules,
             tiles,
             groups,
             ini,
             warnings,
+            missing_sections: gone,
         };
         t.check();
         Ok(t)
@@ -364,7 +446,8 @@ impl Tileset {
     /// Records references to undeclared terrains, crossers and tiles.
     fn check(&mut self) {
         let mut w = Vec::new();
-        for (i, tile) in self.tiles.iter().enumerate() {
+        // (A hole has no corners to speak of.)
+        for (i, tile) in self.tiles.iter().enumerate().filter(|(_, t)| !t.is_hole()) {
             for (terrain, _) in &tile.corners {
                 if self.terrain(terrain).is_none() {
                     w.push(format!("tile {i}: corner terrain {terrain:?} is not declared"));
@@ -478,20 +561,50 @@ mod tests {
     }
 
     #[test]
-    fn missing_sections_are_errors() {
+    fn a_file_without_general_is_no_tileset() {
         assert_eq!(
             Tileset::parse(b"[TILES]\nCount=0\n", Codepage::default()).unwrap_err(),
             SetError::MissingSection("GENERAL".into())
         );
-        let no_tile = "[GENERAL]\nName=x\n[TILES]\nCount=1\n";
         let no_door =
             "[GENERAL]\nName=x\n[TILES]\nCount=1\n[TILE0]\nModel=m\nTopLeft=Nope\nDoors=1\n";
         let t = Tileset::parse(no_door.as_bytes(), Codepage::default()).unwrap();
         assert!(t.tiles[0].doors.is_empty());
         assert_eq!(t.warnings.len(), 5, "{:?}", t.warnings);
-        assert_eq!(
-            Tileset::parse(no_tile.as_bytes(), Codepage::default()).unwrap_err(),
-            SetError::MissingSection("TILE0".into())
-        );
+    }
+
+    /// Holes, as old tilesets merged by hand have (a builder's drew no
+    /// tiles at all): read tile by tile, as the game reads them
+    /// (`engine_tileset_holes`). A tile's section missing, or a tile
+    /// without `Model=`, is a hole in its place; a terrain's, a crosser's
+    /// or a rule's section missing is left out; a count past the last
+    /// section stops there. Each is a warning.
+    #[test]
+    fn holes_are_read_tile_by_tile() {
+        let text = "[GENERAL]\nName=x\n\
+[TERRAIN TYPES]\nCount=3\n[TERRAIN0]\nName=Grass\n[TERRAIN2]\nName=Water\n\
+[CROSSER TYPES]\nCount=1\n\
+[PRIMARY RULES]\nCount=2\n[PRIMARY RULE1]\nPlaced=Water\nAdjacent=Grass\nChanged=Grass\n\
+[TILES]\nCount=1869573190\n[TILE0]\nModel=a\nTopLeft=Grass\n[TILE2]\nWalkMesh=msb01\n\
+[TILE3]\nModel=TCN01_A01_01\nTopLeft=Water\n";
+        let started = std::time::Instant::now();
+        let t = Tileset::parse(text.as_bytes(), Codepage::default()).unwrap();
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+        let models: Vec<&str> = t.tiles.iter().map(|t| t.model.as_str()).collect();
+        assert_eq!(models, ["a", "", "", "TCN01_A01_01"], "tile 3 keeps its number");
+        assert!(t.tiles[1].is_hole() && t.tiles[2].is_hole() && !t.tiles[3].is_hole());
+        let names: Vec<&str> = t.terrains.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(names, ["Grass", "Water"]);
+        assert!(t.crossers.is_empty());
+        assert_eq!(t.missing_sections, ["TERRAIN1", "PRIMARY RULE0", "TILE1"]);
+        assert_eq!(t.primary_rules.len(), 1);
+        let has = |what: &str| t.warnings.iter().any(|w| w.contains(what));
+        assert!(has("no [TILE1] section"), "{:?}", t.warnings);
+        assert!(has("no Model= in [TILE2]"), "{:?}", t.warnings);
+        assert!(has("no [TERRAIN1] section") && has("no [PRIMARY RULE0] section"));
+        assert!(has("[CROSSER TYPES] Count=1, but there is no [CROSSERn]"));
+        assert!(has("[TILES] Count=1869573190, but the last [TILEn] is [TILE3]"));
+        // (No warnings about a hole's corners.)
+        assert!(!has("tile 1:") && !has("tile 2:"), "{:?}", t.warnings);
     }
 }

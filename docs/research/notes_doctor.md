@@ -3,7 +3,7 @@ type: Research Note
 title: 'The content doctor: what it checks, and how it was calibrated'
 description: What Moonglow's content doctor checks in a module's custom content, where each check comes from, and how the checks were calibrated on shipped content.
 tags: [doctor, custom-content, checks]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T09:15:13Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T23:58:14Z }
 ---
 
 # The content doctor: what it checks, and how it was calibrated
@@ -23,8 +23,10 @@ summarized in `community_pain_points.md`. Each check names the source
 | Check | Finding | Severity |
 | --- | --- | --- |
 | `custom-tlk` | the custom talk table the module names is not in its haks, the module or the `tlk` folder (or is named with `.tlk`, or in another case on Linux) | error |
-| `set-read` | a tileset that doesn't parse (a section its counts name is missing) | error |
-| `set-count` | `[TILEn]`/`[GROUPn]` sections past the `Count` (Aurora's Range Check Error) | error |
+| `set-read` | a file that is no tileset (no `[GENERAL]`) | error |
+| `set-line-ends` | a tileset whose lines end in a bare LF, not CRLF: the game's server never finishes loading a module that uses it | error |
+| `set-count` | `[TILEn]`/`[GROUPn]` sections past the `Count` (Aurora's Range Check Error), and a `Count` past a list's last section (warning) | error |
+| `set-hole` | a section a count calls for that is missing, or a tile without `Model=`: the game reads the rest, draws such a tile as nothing and gives it no walkmesh, and leaves such a terrain, crosser or rule out (the first 50, then a count) | warning |
 | `set-model` | a tile whose model exists nowhere | error |
 | `set-group` | a group with no cells, a first tile of `-1`, a first tile shared with another group, or a tile past the list | error |
 | `set-transition` | `Transition=0` with groups (raised groups won't place) | warning |

@@ -39,7 +39,9 @@ pub enum Check {
     CustomTlk,
     ErfSize,
     SetRead,
+    SetLineEnds,
     SetCount,
+    SetHole,
     SetModel,
     SetDoor,
     SetGroup,
@@ -74,11 +76,13 @@ pub enum Check {
 }
 
 impl Check {
-    pub const ALL: [Check; 35] = [
+    pub const ALL: [Check; 37] = [
         Check::CustomTlk,
         Check::ErfSize,
         Check::SetRead,
+        Check::SetLineEnds,
         Check::SetCount,
+        Check::SetHole,
         Check::SetModel,
         Check::SetDoor,
         Check::SetGroup,
@@ -117,7 +121,9 @@ impl Check {
             Check::CustomTlk => "custom-tlk",
             Check::ErfSize => "erf-size",
             Check::SetRead => "set-read",
+            Check::SetLineEnds => "set-line-ends",
             Check::SetCount => "set-count",
+            Check::SetHole => "set-hole",
             Check::SetModel => "set-model",
             Check::SetDoor => "set-door",
             Check::SetGroup => "set-group",
@@ -158,7 +164,15 @@ impl Check {
             Check::CustomTlk => "the module's custom talk table is where the game looks for it",
             Check::ErfSize => "an archive's resources start within the 2 GiB the game can read",
             Check::SetRead => "a tileset can be read",
+            Check::SetLineEnds => {
+                "a tileset's lines end in CRLF (with a bare LF the game's server never finishes \
+                 loading a module that uses it)"
+            }
             Check::SetCount => "a tileset's tile and group counts match its sections",
+            Check::SetHole => {
+                "every tile, terrain, crosser and rule a tileset counts has its section, and every \
+                 tile a Model= (the game draws a hole as nothing, with no walkmesh)"
+            }
             Check::SetModel => "each tile's model is in the haks or the game",
             Check::SetDoor => "a tile's door types are doortypes.2da rows with a model",
             Check::SetGroup => {
@@ -237,6 +251,8 @@ impl Check {
     pub fn group(self) -> Group {
         match self {
             Check::SetRead
+            | Check::SetLineEnds
+            | Check::SetHole
             | Check::SetCount
             | Check::SetModel
             | Check::SetDoor
@@ -706,10 +722,63 @@ fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
             return;
         }
     };
+    // Lines that end in a bare LF: the game's server never finishes
+    // loading the module (`engine_tileset_holes`).
+    if data.contains(&b'\n') && !data.windows(2).any(|w| w == b"\r\n") {
+        d.push(
+            Error,
+            Check::SetLineEnds,
+            source,
+            key,
+            "",
+            "its lines end in LF, not CRLF: the game's server never finishes loading a module \
+             that uses it (save it with Windows line ends)",
+        );
+    }
+    let declared = |list: &str| {
+        set.ini.section(list).and_then(|s| s.int("Count")).unwrap_or(0).max(0) as usize
+    };
+    // Holes: what the counts call for and the file lacks. The game reads
+    // the rest (a tile without its section or a model is drawn as
+    // nothing, with no walkmesh; a terrain, crosser or rule is left out).
+    const NAMED: usize = 50;
+    for name in set.missing_sections.iter().take(NAMED) {
+        let what = if name.starts_with("TILE") {
+            "the game draws the tile as nothing, with no walkmesh"
+        } else {
+            "the game leaves it out"
+        };
+        d.push(
+            Warning,
+            Check::SetHole,
+            source,
+            key,
+            format!("[{name}]"),
+            format!("no [{name}] section: {what}"),
+        );
+    }
+    let modelless: Vec<usize> = (set.tiles.iter().enumerate())
+        .filter(|(i, t)| t.is_hole() && set.ini.section(&format!("TILE{i}")).is_some())
+        .map(|(i, _)| i)
+        .collect();
+    for i in modelless.iter().take(NAMED) {
+        d.push(
+            Warning,
+            Check::SetHole,
+            source,
+            key,
+            format!("[TILE{i}] Model"),
+            "the tile names no model: the game draws it as nothing, with no walkmesh",
+        );
+    }
+    let more =
+        set.missing_sections.len().saturating_sub(NAMED) + modelless.len().saturating_sub(NAMED);
+    if more > 0 {
+        d.push(Warning, Check::SetHole, source, key, "", format!("and {more} more holes"));
+    }
     // Sections past the counts: Aurora's Range Check Error.
-    for (list, item, n) in
-        [("TILES", "TILE", set.tiles.len()), ("GROUPS", "GROUP", set.groups.len())]
-    {
+    for (list, item) in [("TILES", "TILE"), ("GROUPS", "GROUP")] {
+        let n = declared(list);
         let extra: Vec<usize> = set
             .ini
             .sections
@@ -739,7 +808,9 @@ fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
     // models are looked for and examined in parallel, a tileset may have
     // thousands; their findings are in the order of the tiles.)
     let rm = d.rm;
-    let exists: Vec<bool> = set.tiles.par_iter().map(|t| model_exists(rm, &t.model)).collect();
+    // (A hole is not a model missing: it is named above.)
+    let exists: Vec<bool> =
+        set.tiles.par_iter().map(|t| t.is_hole() || model_exists(rm, &t.model)).collect();
     let mut checked_models = HashSet::new();
     let firsts: Vec<(usize, bool)> = (set.tiles.iter().zip(&exists).enumerate())
         .filter(|(_, (tile, exists))| {
@@ -877,11 +948,22 @@ fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
             "Transition is 0: groups with raised corners can't be placed",
         );
     }
-    // (Groups' tiles past the list are reported above.)
-    for w in
-        set.warnings.iter().filter(|w| !(w.starts_with("group ") && w.ends_with("does not exist")))
-    {
-        d.push(Warning, Check::SetData, source, key, "", w.clone());
+    // (Groups' tiles past the list and the holes are reported above; a
+    // count past a list's last section is a count's.)
+    for w in set.warnings.iter() {
+        let reported = (w.starts_with("group ") && w.ends_with("does not exist"))
+            || w.starts_with("no [")
+            || w.starts_with("no Model=");
+        if reported {
+            continue;
+        }
+        match w.split_once("] Count=").filter(|(list, _)| list.starts_with('[')) {
+            Some((list, _)) => {
+                let at = format!("{list}] Count");
+                d.push(Warning, Check::SetCount, source, key, at, format!("{w}: none past it"));
+            }
+            None => d.push(Warning, Check::SetData, source, key, "", w.clone()),
+        }
     }
 }
 
@@ -2913,10 +2995,48 @@ endmodelgeom fx\ndonemodel fx\n";
                 ("set-door", "door Type=7".into()),
                 ("set-group", "[GROUP0] Tile1".into()),
                 ("set-group", "[GROUP1] Tile0".into()),
+                ("set-line-ends", String::new()),
                 ("set-model", "[TILE0] Model".into()),
                 ("set-transition", "[GENERAL] Transition".into()),
             ]
         );
+    }
+
+    /// Holes, as old tilesets merged by hand have: each is named, and the
+    /// rest of the tileset is checked as ever (a builder's tileset drew no
+    /// tiles at all, though the game draws them: `engine_tileset_holes`).
+    /// A tile without its section or a model is no model missing.
+    #[test]
+    fn a_tileset_s_holes_are_named() {
+        let set = "[GENERAL]\nName=TST\nTransition=1\n\
+[TERRAIN TYPES]\nCount=3\n[TERRAIN0]\nName=Grass\n[TERRAIN2]\nName=Water\n\
+[TILES]\nCount=40\n[TILE0]\nModel=plc_chair\nTopLeft=Grass\nTopRight=Grass\nBottomLeft=Grass\nBottomRight=Grass\n\
+[TILE2]\nWalkMesh=msb01\n\
+[TILE3]\nModel=PLC_CHAIR\nTopLeft=Grass\nTopRight=Grass\nBottomLeft=Grass\nBottomRight=Grass\n\
+[GROUPS]\nCount=0\n"
+            .replace('\n', "\r\n");
+        let rm = resman(&[("tst", ResType::SET, set.as_bytes())]);
+        let f = examine(&Module::new(), &rm, TalkTables::default());
+        let mut got = checks(&f);
+        got.sort();
+        assert_eq!(
+            got,
+            [
+                ("set-count", "[TILES] Count".into()),
+                ("set-hole", "[TERRAIN1]".into()),
+                ("set-hole", "[TILE1]".into()),
+                ("set-hole", "[TILE2] Model".into()),
+            ],
+            "{f:#?}"
+        );
+        let said = |at: &str| f.iter().find(|f| f.at == at).unwrap().message.clone();
+        assert!(said("[TILE1]").contains("no walkmesh"), "{}", said("[TILE1]"));
+        assert!(said("[TILES] Count").contains("the last [TILEn] is [TILE3]: none past it"));
+        // With a bare LF at each line's end: the module wouldn't load.
+        let rm = resman(&[("tst", ResType::SET, set.replace("\r\n", "\n").as_bytes())]);
+        let f = examine(&Module::new(), &rm, TalkTables::default());
+        let lf = f.iter().find(|f| f.check == Check::SetLineEnds.id()).expect("line ends named");
+        assert_eq!(lf.severity, Severity::Error);
     }
 
     /// A model kept as text is read as the game would: an emitter that

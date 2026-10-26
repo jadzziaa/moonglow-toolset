@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync, long work, Verify Module and the fixes beside its findings, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T11:15:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T23:58:14Z }
 ---
 
 # Build, verify and test
@@ -113,6 +113,8 @@ crash Aurora with an access violation that names nothing:
 | Problem | Where it shows |
 | --- | --- |
 | A tileset whose `[TILES]` or `[GROUPS]` count disagrees with its sections | Aurora's "Range Check Error" when opening an area |
+| A tileset whose lines end in a bare LF instead of CRLF (as an editor on Linux or macOS may save it) | the game's server never finishes loading a module that uses it |
+| A hole in a tileset: a `[TILEn]` section its count calls for that is missing, or a tile without `Model=` (a terrain's, a crosser's or a rule's section missing too) | the game draws the tile as nothing, with no walkmesh, and reads the rest; so does Moonglow, and an area's problems name the holes it uses |
 | A tile whose model is missing | Aurora crashes painting it |
 | A group whose first tile is `-1` or shared with another group, or names a tile that doesn't exist | the group won't paint, or Aurora crashes |
 | A tileset door type that isn't a `doortypes.2da` row | the door has no appearance |

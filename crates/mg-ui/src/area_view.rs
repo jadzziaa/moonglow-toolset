@@ -324,7 +324,8 @@ pub struct AreaView {
     /// How many times the ARE's lists had been rewritten then
     /// ([`mg_edit::Workspace::rewrites`]).
     rewrites: Option<u64>,
-    tileset: Option<(ResRef, Option<Tileset>)>,
+    /// The tileset read, or why it could not be.
+    tileset: Option<(ResRef, Result<Tileset, String>)>,
     /// The tileset's tile index and rules, for painting.
     pub(crate) terrain: Option<crate::terrain_mode::Tools>,
     /// Where the pointer is, for the tileset brushes.
@@ -459,6 +460,9 @@ pub struct AreaView {
     /// What the log was told this area lacks (problems reading it, models
     /// not found): told once.
     told: Vec<String>,
+    /// Why each model the scene left out is left out: not found, or found
+    /// and not readable (worked out once a model).
+    left_out: std::collections::HashMap<String, String>,
     /// A trigger or encounter whose outline is being drawn anew.
     pub redraw: Option<(ObjectKind, usize)>,
     /// The Create Set window's name, while it is open.
@@ -512,6 +516,7 @@ impl AreaView {
     pub(crate) fn reload(&mut self) {
         self.revision = None;
         self.tileset = None;
+        self.left_out.clear();
         self.terrain = None;
         self.scene = None;
         self.ground = None;
@@ -605,6 +610,7 @@ impl AreaView {
             terrain_drag: None,
             camera_press: false,
             told: Vec::new(),
+            left_out: std::collections::HashMap::new(),
             tile_preview: Vec::new(),
             preview_seed: fastrand::u64(..),
             preview_cache: None,
@@ -1425,17 +1431,17 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView) {
     // after Reload Resources, is not.)
     let other_tileset = view.tileset.as_ref().is_some_and(|(r, _)| *r != tileset_ref);
     if view.tileset.as_ref().is_none_or(|(r, _)| *r != tileset_ref) {
-        let set = mg_area::tileset(game, tileset_ref);
+        let set = mg_area::tileset(game, tileset_ref).map_err(|e| e.to_string());
         if let Err(e) = &set {
             step(&format!("the tileset can't be read: {e}"));
         }
-        let set = set.ok();
         view.terrain = set
             .as_ref()
+            .ok()
             .map(|t| crate::terrain_mode::Tools::new(tileset_ref, std::sync::Arc::new(t.clone())));
         view.tileset = Some((tileset_ref, set));
     }
-    let tileset = view.tileset.as_ref().and_then(|(_, t)| t.as_ref());
+    let tileset = view.tileset.as_ref().and_then(|(_, t)| t.as_ref().ok());
     let model = AreaModel::read(game, &are.root, &git.root, tileset);
     step(&format!(
         "model read: {} by {} tiles, {} objects, tileset {}",
@@ -1467,8 +1473,20 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView) {
     // toolbar only counts it): a tileset or a hak the module wants and
     // this machine lacks.
     let mut lacking: Vec<String> = model.problems.clone();
+    // (A tileset that is there and can't be read is not "not found".)
+    if let Some((r, Err(e))) = &view.tileset {
+        let not_found = format!("tileset {r} not found");
+        for l in lacking.iter_mut().filter(|l| **l == not_found) {
+            *l = e.clone();
+        }
+    }
     if let Some(s) = &view.scene {
-        lacking.extend(s.missing.iter().map(|m| format!("model {m} not found")));
+        let left_out = &mut view.left_out;
+        lacking.extend(
+            s.missing.iter().map(|m| {
+                left_out.entry(m.clone()).or_insert_with(|| why_left_out(game, m)).clone()
+            }),
+        );
     }
     let new: Vec<&String> = lacking.iter().filter(|l| !view.told.contains(l)).collect();
     if !new.is_empty() {
@@ -1494,6 +1512,26 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView) {
     }
     view.error = None;
     view.model = Some(model);
+}
+
+/// Why the scene left model `name` out: not found in the haks or the
+/// game, or found (where) and not readable (why). A builder's tiles, in
+/// a hak Aurora reads, were all said to be "not found".
+fn why_left_out(game: &mg_rules::GameData, name: &str) -> String {
+    let Some(key) = ResKey::parse(name, ResType::MDL) else {
+        return format!("model {name}: no resource has such a name");
+    };
+    let Some(layer) = game.resman.find(&key) else { return format!("model {name} not found") };
+    let from = &game.resman.layers()[layer].label;
+    match game
+        .resman
+        .get(&key)
+        .map_err(|e| e.to_string())
+        .and_then(|d| mg_mdl::Model::read(&d).map(|_| ()).map_err(|e| e.to_string()))
+    {
+        Err(e) => format!("model {name} (in {from}) can't be read: {e}"),
+        Ok(()) => format!("model {name} (in {from}) can't be drawn"),
+    }
 }
 
 /// The module's clock as it starts, as the game's shaders read it
@@ -1625,8 +1663,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
             view.error,
             view.model.as_ref().map_or("none".into(), |m| format!("{} objects", m.objects.len())),
             match &view.tileset {
-                Some((r, Some(_))) => format!("{r} read"),
-                Some((r, None)) => format!("{r} NOT read"),
+                Some((r, Ok(_))) => format!("{r} read"),
+                Some((r, Err(e))) => format!("{r} NOT read: {e}"),
                 None => "none".into(),
             },
             view.ground.is_some(),

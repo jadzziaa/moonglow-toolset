@@ -151,7 +151,9 @@ impl TileIndex {
         }
         let mut fits: HashMap<Cell, Vec<Placement>> = HashMap::new();
         for (tile, cell) in cells.iter().enumerate() {
-            if grouped[tile] {
+            // (A hole in the tileset, a tile with no model, is never one
+            // to paint.)
+            if grouped[tile] || set.tiles[tile].is_hole() {
                 continue;
             }
             for orientation in 0..4 {
@@ -177,9 +179,12 @@ impl TileIndex {
         self.crossers.iter().position(|n| n.eq_ignore_ascii_case(name)).map(|i| Crosser(i as u16))
     }
 
-    /// The terrains, declared ones first, then those only tiles name.
+    /// The terrains, declared ones first, then those only tiles name (not
+    /// the nameless corners of a hole in the tileset).
     pub fn terrains(&self) -> impl Iterator<Item = Terrain> + '_ {
-        (0..self.terrains.len()).map(|i| Terrain(i as u16))
+        (0..self.terrains.len())
+            .filter(|&i| !self.terrains[i].is_empty())
+            .map(|i| Terrain(i as u16))
     }
 
     /// The crossers, declared ones first, then those only tiles name.
