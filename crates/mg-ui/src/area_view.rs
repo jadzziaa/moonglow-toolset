@@ -518,6 +518,27 @@ impl AreaView {
         self.drawn = None;
     }
 
+    /// The area's ground is now `width` × `height` tiles (or of another
+    /// tileset): the tile tools let go of the corners and tiles they held
+    /// of the ground as it was, the pointer's (until it moves), a drag's
+    /// going on, and the selected tiles past the new edges. (The preview
+    /// and the cursor are worked out before the pointer's spot is read
+    /// again: one kept from a larger area was looked up in the smaller
+    /// one's lattice, issue 31.)
+    fn ground_changed(&mut self, width: u32, height: u32) {
+        self.spot = None;
+        self.terrain_drag = None;
+        self.crossing.clear();
+        self.crossing_at = None;
+        self.crossing_outline = None;
+        self.preview_cache = None;
+        self.cursor_cache = None;
+        self.tile_preview.clear();
+        self.tile_selection.retain(|&(x, y)| x < width && y < height);
+        self.menu_tile = None;
+        self.refused = None;
+    }
+
     fn new(area: ResRef) -> AreaView {
         AreaView {
             area,
@@ -1392,6 +1413,9 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView) {
         "tileset {tileset_ref}, GIT {}",
         if ws.doc(&view.git()).is_ok() { "read" } else { "none" }
     ));
+    // (Another than the one read before; none read yet, or read again
+    // after Reload Resources, is not.)
+    let other_tileset = view.tileset.as_ref().is_some_and(|(r, _)| *r != tileset_ref);
     if view.tileset.as_ref().is_none_or(|(r, _)| *r != tileset_ref) {
         let set = mg_area::tileset(game, tileset_ref);
         if let Err(e) = &set {
@@ -1451,6 +1475,22 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView) {
     view.told = lacking;
     // Objects that went away are no longer selected.
     view.selection.retain(|&(k, i)| model.object(k, i).is_some());
+    // The ground another size (Resize Area or Rotate Area, done, undone or
+    // redone) or of another tileset: the tile tools let go of what they
+    // held of it as it was (GitHub issue 31).
+    let size = |m: &AreaModel| (m.width, m.height);
+    if other_tileset || view.model.as_ref().is_some_and(|m| size(m) != size(&model)) {
+        view.ground_changed(model.width, model.height);
+        // (Tile Properties' tiles are where they were in the list: another
+        // tile's now, or none.)
+        if app.tile_props.as_ref().is_some_and(|p| p.area == view.area) {
+            app.tile_props = None;
+            app.log.info(format!(
+                "Area {}: its size or tileset changed; Tile Properties closed",
+                view.area
+            ));
+        }
+    }
     view.error = None;
     view.model = Some(model);
 }

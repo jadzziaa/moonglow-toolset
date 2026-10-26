@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:43:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T12:56:36Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1613,6 +1613,19 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   `tile_properties_turn_turns_the_tiles_at_once`); it was so before the
   Turn changed tiles at once. (S) (the owner's report on Tile
   Properties)
+- **Tile Properties closes when its area changes size:** Undo, Redo,
+  Resize Area or Rotate Area giving the area another size while Tile
+  Properties is open on it closes the window, keeping what the area has
+  (the window holds its tiles by their place in `Tile_List`, another
+  tile's or none after the change). It could follow its tiles to their
+  new places, or take back its own step first. (S) (GitHub issue 31)
+- **Rotate Area of a square area keeps the tile tools' hold:** its size
+  stays, so the selected tiles stay selected by column and row (other
+  tiles now, turned with the area) and an open Tile Properties keeps its
+  places in `Tile_List`, which hold other tiles: its next change goes to
+  them. Nothing reads past the area (the tools let go of what they held
+  only when the size or tileset changes); turning the selection with the
+  area, or letting go of it, is not done. (S) (GitHub issue 31)
 
 ## The turning ring
 
