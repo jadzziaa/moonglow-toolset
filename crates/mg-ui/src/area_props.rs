@@ -729,7 +729,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
         // uniform): kept by the game (`engine_ee_fields.rs`).
         crate::widgets::field_label(ui, "Shader Flags").on_hover_text(
             "Area flags past the three above, for custom shaders: a shader reads them \
-             from its areaFlags uniform",
+             from its areaFlags uniform. The stock shaders read none of them.",
         );
         // Rows of their own (a wrapped row would run over the next one: the
         // form's grid sizes its rows before the wrap).

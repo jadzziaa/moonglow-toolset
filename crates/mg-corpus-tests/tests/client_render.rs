@@ -50,6 +50,8 @@ use mg_testkit::{corpus, oracle_tool, scratch_dir};
 mod common;
 use common::{SETTINGS, client_screenshot, compile, save_png};
 
+#[path = "client_render/ee_visuals.rs"]
+mod ee_visuals;
 #[path = "client_render/programs.rs"]
 mod programs;
 #[path = "client_render/uv_sets.rs"]

@@ -12374,11 +12374,19 @@ fn add_popup_text_gives_a_placeable_a_one_line_conversation() {
     assert_eq!(barrel.resref("Conversation"), Some(ResRef::from_str("mg_popup").unwrap()));
 }
 
+/// A `true` program to stand in for an external editor: the first on
+/// `PATH` (NixOS has no `/bin/true`).
+fn true_program() -> Option<String> {
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|d| d.join("true"))
+        .find(|p| p.is_file())
+        .map(|p| p.display().to_string())
+}
+
 #[test]
 fn the_external_script_editor_s_saves_come_back() {
-    let Some(editor) =
-        ["/usr/bin/true", "/bin/true"].into_iter().find(|p| std::path::Path::new(p).exists())
-    else {
+    let Some(editor) = true_program() else {
         eprintln!("skipped: no `true` program to stand in for an editor");
         return;
     };
@@ -17094,7 +17102,8 @@ fn a_script_opened_from_the_tree_goes_to_the_external_editor() {
     let key = ResKey::parse("hello", ResType::NSS).unwrap();
     let edit = mg_edit::Edit::SetResource { key, data: Some(b"void main() { }\n".to_vec()) };
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
-    h.state_mut().settings.external_editor = Some("/bin/true".into());
+    let Some(editor) = true_program() else { return };
+    h.state_mut().settings.external_editor = Some(editor.clone().into());
     h.run_steps(3);
     // (As a double click on it in the module tree does.)
     let open = |h: &mut Harness<'_, Moonglow>| {
@@ -17102,7 +17111,12 @@ fn a_script_opened_from_the_tree_goes_to_the_external_editor() {
         h.run_steps(4);
     };
     let said = |h: &Harness<'_, Moonglow>| {
-        h.state().log.entries.iter().filter(|e| e.1.contains("editing in /bin/true")).count()
+        h.state()
+            .log
+            .entries
+            .iter()
+            .filter(|e| e.1.contains(&format!("editing in {editor}")))
+            .count()
     };
     // Without the option: Moonglow's editor alone.
     open(&mut h);
@@ -24885,9 +24899,10 @@ fn a_project_s_script_opens_in_place_in_the_external_editor() {
     m.set(key, b"void main()\n{\n}\n".to_vec());
     let dir = mg_testkit::scratch_dir("ui-project-external").join("project");
     m.save_as(&ModuleLocation::Project { root: dir.clone(), target: "default".into() }).unwrap();
+    let Some(editor) = true_program() else { return };
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.settings.no_last_area = true;
-    app.settings.external_editor = Some("/bin/true".into());
+    app.settings.external_editor = Some(editor.clone().into());
     app.settings.scripts_external = true;
     app.open_module(&dir);
     let mut h = Harness::builder()
@@ -24901,7 +24916,7 @@ fn a_project_s_script_opens_in_place_in_the_external_editor() {
     h.run_steps(4);
     let file = dir.join("src/hello.nss");
     assert!(file.is_file(), "the project's own file");
-    assert_eq!(said(&h, &format!("editing {} in /bin/true", file.display())), 1);
+    assert_eq!(said(&h, &format!("editing {} in {editor}", file.display())), 1);
     // Saved there by the editor: read again as a file changed outside is.
     std::fs::write(&file, "void main()\n{\n    int n = 1;\n}\n").unwrap();
     h.state_mut().reload_project_files();
@@ -25967,6 +25982,7 @@ fn a_project_s_script_opens_in_the_external_editor_alone() {
     use mg_module::ModuleLocation;
     use mg_module::new::new_module;
     let Some(root) = mg_testkit::nwn_root() else { return };
+    let Some(editor) = true_program() else { return };
     let install = mg_resman::GameInstall::new(&root, None, "en");
     let game = mg_rules::GameData::open(&install).unwrap();
     let mut m = new_module(&game, "Alone", &mut fastrand::Rng::with_seed(7)).unwrap();
@@ -25983,7 +25999,7 @@ fn a_project_s_script_opens_in_the_external_editor_alone() {
         }
         let mut app = Moonglow::new(Some(install.clone()), Box::new(NoDialogs::default()));
         app.settings.no_last_area = true;
-        app.settings.external_editor = Some("/bin/true".into());
+        app.settings.external_editor = Some(editor.clone().into());
         app.settings.scripts_external = true;
         app.settings.scripts_external_only = true;
         app.open_module(module);
@@ -25993,7 +26009,13 @@ fn a_project_s_script_opens_in_the_external_editor_alone() {
         h.run_steps(3);
         h.state_mut().actions.push(mg_ui::Action::OpenResource(key));
         h.run_steps(4);
-        let said = h.state().log.entries.iter().filter(|(_, m)| m.contains("in /bin/true")).count();
+        let said = h
+            .state()
+            .log
+            .entries
+            .iter()
+            .filter(|(_, m)| m.contains(&format!("in {editor}")))
+            .count();
         assert_eq!(said, 1, "{:?}", h.state().log.entries);
         assert_eq!(h.state().dock.find_tab(&Tab::Script(key)).is_some(), tab_opens, "{module:?}");
     }

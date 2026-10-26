@@ -3,7 +3,7 @@ type: Research Note
 title: The EE data Aurora has no fields for
 description: The data Enhanced Edition added to the game's objects that Aurora has no fields for - what the game stores and reads - and what Moonglow leaves undone.
 tags: [ee, gff, fields, aurora]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T11:57:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T12:29:16Z }
 ---
 
 # The EE data Aurora has no fields for
@@ -47,6 +47,17 @@ at the game's defaults.
 **In Moonglow:**
 - **Editors:** a Visuals page in those editors. A changed `MiscVisuals`
   field keeps the struct's others.
+- **In the client:** `ee_visuals_in_the_client` (`client_render`) sets
+  each field in the module, with no script, and the client draws it: a
+  texture replaced, a chest's `default` animation played as `open`, an
+  object with a visible distance of 1 m not drawn, a shader parameter
+  read by a patched shader. The client hands a material's parameters
+  only to a mesh whose MTR names its own shader pair (`customshadervs`,
+  `customshaderfs`): with a stock mesh, or an MTR without the pair, the
+  shader reads 0, even with the MTR's own `parameter int` set; set by
+  `SetMaterialShaderUniformInt` instead, the same. The highlight color,
+  cursor, text bubble and discovery mask show on mouse-over and with
+  Tab, which no test drives: only the server's reading them is checked.
 - **Drawing:** the area view and model viewer draw texture replacements
   (`mg_preview::replaced`). PLT textures keep their coloring, since the
   game doesn't replace those. An idle animation that's replaced plays
@@ -57,7 +68,10 @@ at the game's defaults.
 **Area flags:** the game keeps `Flags` bits past interior (1),
 underground (2) and natural (4). An area with `0x109` still reads as
 interior, and `ObjectToJson` returns 265. Custom shaders read them from
-their `areaFlags` uniform (nwn.wiki *Shaders and Area Flags*). Area
+their `areaFlags` uniform (nwn.wiki *Shaders and Area Flags*): the
+client passed 0x8109 through whole (`ee_visuals_in_the_client`). No
+stock shader reads `areaFlags`: `inc_uniforms` and `inc_water` declare
+it, and no program uses it. Area
 Properties › Advanced has checkboxes for bits 8 to 32768, and keeps any
 higher bits.
 
