@@ -2177,6 +2177,27 @@ pub(crate) fn arrow_pick(ui: &Ui, r: &egui::Response, rows: &[i64], current: i64
     rows.get(to as usize).copied().filter(|&row| row != current)
 }
 
+/// [`arrow_pick`] for an egui combo box of a few fixed `options` (not a
+/// table's rows, which [`row_choice`] lists: the area's toolbar, a
+/// dialog's filters), its box `r`: once clicked or reached with Tab, the
+/// arrow keys step `current` through them, in the order shown. Whether
+/// it changed.
+pub(crate) fn arrow_step<T: PartialEq + Clone>(
+    ui: &Ui,
+    r: &egui::Response,
+    options: &[T],
+    current: &mut T,
+) -> bool {
+    let rows: Vec<i64> = (0..options.len() as i64).collect();
+    // (A value none of them is, as a turn typed under Other: the first.)
+    let at = options.iter().position(|o| o == current).map_or(-1, |i| i as i64);
+    let Some(to) = arrow_pick(ui, r, &rows, at).and_then(|i| options.get(i as usize)) else {
+        return false;
+    };
+    *current = to.clone();
+    true
+}
+
 /// Says on the system's clipboard what Moonglow has copied of its own
 /// (objects, tiles, a conversation's lines: kept in Moonglow, not there).
 /// Without text there, Windows gives Ctrl+V nothing to paste and the key

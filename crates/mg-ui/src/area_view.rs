@@ -1721,6 +1721,9 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
                  (roofs, upper walls), to see and place what is under them: never, while \
                  working on objects (not with Select Tiles or a terrain brush), or always",
             );
+        // (The arrow keys step through it once it is clicked, as through
+        // every list of choices.)
+        crate::widgets::arrow_step(ui, &r, &Fade::ALL, &mut view.fade);
         fits.after(ui, &r);
         if view.fade != before {
             app.settings.fade_geometry = view.fade as u8;
@@ -1791,22 +1794,25 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             v.map_or("Snap: off".to_string(), |cm| format!("Snap: {} m", f32::from(cm) / 100.0))
         };
         let fits = Fits::before(ui, "snap-grid", &grid(app.settings.snap_grid));
+        let grids = [None, Some(25), Some(50), Some(100), Some(250), Some(500)];
         let r = egui::ComboBox::from_id_salt("snap-grid")
             .selected_text(grid(app.settings.snap_grid))
             .show_ui(ui, |ui| {
-                for g in [None, Some(25), Some(50), Some(100), Some(250), Some(500)] {
+                for g in grids {
                     ui.selectable_value(&mut app.settings.snap_grid, g, grid(g));
                 }
             })
             .response
             .on_hover_text("Moved and placed objects snap to this grid");
+        crate::widgets::arrow_step(ui, &r, &grids, &mut app.settings.snap_grid);
         fits.after(ui, &r);
         let angle = |v: Option<u16>| v.map_or("Turn: free".to_string(), |a| format!("Turn: {a}°"));
         let fits = Fits::before(ui, "snap-angle", &angle(app.settings.snap_angle));
+        let angles = [None, Some(5), Some(15), Some(45), Some(90)];
         let r = egui::ComboBox::from_id_salt("snap-angle")
             .selected_text(angle(app.settings.snap_angle))
             .show_ui(ui, |ui| {
-                for a in [None, Some(5), Some(15), Some(45), Some(90)] {
+                for a in angles {
                     ui.selectable_value(&mut app.settings.snap_angle, a, angle(a));
                 }
                 // Any other angle, in whole degrees.
@@ -1821,6 +1827,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             })
             .response
             .on_hover_text("Turned objects snap to this angle; Q and E turn by it (15° when free)");
+        crate::widgets::arrow_step(ui, &r, &angles, &mut app.settings.snap_angle);
         fits.after(ui, &r);
         ui.toggle_value(&mut app.settings.turn_together, "Together").on_hover_text(
             "Several objects selected turn about their middle as one, keeping their places \

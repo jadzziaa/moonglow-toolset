@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T05:29:48Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T05:33:28Z }
 ---
 
 # Modules
@@ -843,7 +843,9 @@ it is there, or taken off the list.
   Shift + click chooses from the last one clicked to this one.
 - **Move** what is chosen by dragging a row (by its name or the dots
   before it) to where the line shows, with the arrows under the list, or
-  with Alt + Up and Alt + Down. Rows chosen together move together.
+  with Alt + Up and Alt + Down. Rows chosen together move together. A
+  row dragged to the top or bottom edge of a list longer than its frame
+  scrolls it, faster the nearer the edge.
 - **Remove** takes the rows chosen off the list; so does Delete.
 - **The keys** work after a click in the list, with the pointer over it:
   Up and Down choose the row above or below (with Shift, more), Home and
@@ -938,7 +940,9 @@ module's talk table:
   sound spoken with it and its length. **Copy** copies its StrRef, to put
   in a 2DA or a script. The text boxes take the room under the list; a
   text longer than its box scrolls in it, and the sound's row stays in
-  sight. A larger window gives them more.
+  sight. A larger window gives them more, and the line between the list
+  and them is dragged up and down to share the room otherwise: the boxes
+  keep three lines, and the list three tenths of the editor.
 - **Add Line** adds one at the end. **Remove Last Line** removes only the
   last, since removing another would renumber the lines after it.
 - **Undo** and **Redo** in its toolbar undo the table's changes, as do

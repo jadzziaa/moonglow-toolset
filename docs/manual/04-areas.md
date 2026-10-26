@@ -34,7 +34,11 @@ looking straight down at their middle, north up, as in Aurora.
   place what is under them (Aurora's Environment › Fade Geometry):
   **Never**, **Object Mode Only** (while you work on objects: not with
   Select Tiles on or a terrain brush chosen) or **Always**. The choice
-  is kept for the areas opened after.
+  is kept for the areas opened after. This list, **Snap** and **Turn**
+  take the arrow keys once clicked or reached with Tab, as every list
+  of choices does (Up and Down choose; the camera stays where it is
+  meanwhile, and Escape gives the keys back to the view); so do the
+  lists of Resize Area, Find Instance and Edit Areas Together.
 - **Night**, **Fog**, **Grid**: show the area at night, with its fog, and
   the tile grid. The grid is faint from above; as the view comes down to
   look along the ground from the area's edge it turns Aurora's red, to

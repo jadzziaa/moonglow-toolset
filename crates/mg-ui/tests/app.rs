@@ -1780,6 +1780,70 @@ fn a_talk_table_s_row_is_clicked_anywhere() {
     assert!(h.state().talk.as_ref().unwrap().line(0).text.contains('!'));
 }
 
+/// The line between the talk table's list and the chosen line's text is
+/// dragged up and down (GitHub issue 24), held between the text boxes'
+/// three lines and seven tenths of the tab.
+#[test]
+fn the_talk_table_s_split_is_dragged() {
+    use mg_module::talk::{Line, Table};
+    let dir = mg_testkit::scratch_dir("ui-talk-split");
+    let mut h = Harness::builder().with_size(egui::vec2(1000.0, 800.0)).build_ui_state(
+        |ui, app: &mut Moonglow| app.ui(ui),
+        Moonglow::new(None, Box::new(NoDialogs::default())),
+    );
+    let mut table = Table::create("split", &dir, mg_core::Language::ENGLISH, false);
+    for row in 0..60 {
+        let text = format!("Text {row}");
+        table
+            .add_line(&Line { text, feminine: None, sound: String::new(), sound_length: 0.0 })
+            .unwrap();
+    }
+    h.state_mut().talk = Some(table);
+    h.state_mut().talk_view.outside = true;
+    h.state_mut().talk_view.selected = Some(5);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
+    h.run_steps(8);
+    let strref = |h: &Harness<'_, Moonglow>| h.get_by_label("StrRef 16777221").rect().top();
+    let top = h.get_by_label("Text 0").rect().top();
+    let drag = |h: &mut Harness<'_, Moonglow>, by: f32| {
+        // (The line is just above the chosen line's StrRef.)
+        let from = egui::pos2(500.0, strref(h) - 5.0);
+        let button = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        h.hover_at(from);
+        h.run_steps(1);
+        h.event(button(from, true));
+        h.run_steps(1);
+        for k in 1..=6 {
+            h.hover_at(from + egui::vec2(0.0, by * k as f32 / 6.0));
+            h.run_steps(1);
+        }
+        h.event(button(from + egui::vec2(0.0, by), false));
+        h.run_steps(3);
+    };
+    let before = strref(&h);
+    drag(&mut h, -80.0);
+    let after = strref(&h);
+    assert!((before - 80.0 - after).abs() < 1.0, "dragged up: {before} to {after}");
+    // Up to seven tenths of the tab: the list keeps its room.
+    drag(&mut h, -2000.0);
+    let highest = strref(&h);
+    assert!(highest < after - 20.0 && highest > top + 150.0, "held: {highest}, {top}");
+    drag(&mut h, -300.0);
+    assert!((strref(&h) - highest).abs() < 1.0, "no higher");
+    // Down to the text box's three lines, the sound's row still in sight.
+    drag(&mut h, 2000.0);
+    let lowest = strref(&h);
+    assert!(lowest > before + 50.0, "dragged down: {lowest}");
+    assert!(h.get_by_label("Sound").rect().bottom() < 800.0);
+    drag(&mut h, 300.0);
+    assert!((strref(&h) - lowest).abs() < 1.0, "no lower");
+}
+
 #[test]
 fn a_talk_table_line_with_crlf_shows_and_keeps_plain_line_ends() {
     // Jasperre's report: a `\r` kept in the field is a stop of the caret
@@ -2286,6 +2350,92 @@ fn the_hak_list_is_reordered_by_keys_buttons_and_a_drag() {
     h.get_by_label("Remove").click();
     h.run();
     assert_eq!(haks(&mut h), ["charlie", "alpha", "gone"]);
+}
+
+/// A hak dragged to the bottom edge of a list longer than its frame
+/// scrolls the list (GitHub issue 17), and is let go among the rows that
+/// came into sight.
+#[test]
+fn a_hak_dragged_to_the_list_s_edge_scrolls_it() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-hak-list-scroll");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let path = sample_module(&dir);
+    let install = mg_resman::GameInstall::new(&root, Some(user), "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let info = ResKey::parse("module", ResType::IFO).unwrap();
+    let names: Vec<String> = (1..=30).map(|n| format!("hak{n:02}")).collect();
+    let items = names
+        .iter()
+        .map(|n| {
+            let mut item = ifo::MOD_HAK_LIST.new_item();
+            item.write(&ifo::mod_hak_list::MOD_HAK, ExoString::from(n.as_str()));
+            item
+        })
+        .collect();
+    let edit = mg_edit::Edit::SetField {
+        key: info,
+        path: mg_edit::GffPath::root(),
+        label: ifo::MOD_HAK_LIST.label.to_string(),
+        value: Some(mg_gff::Value::List(items)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Haks", vec![edit])));
+    h.run();
+    h.get_by_label("Custom Content").click();
+    h.run();
+    let haks = |h: &mut Harness<'_, Moonglow>| -> Vec<String> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let root = ws.doc(&info).unwrap().root.clone();
+        root.items(&ifo::MOD_HAK_LIST)
+            .iter()
+            .map(|i| {
+                String::from_utf8_lossy(i.read(&ifo::mod_hak_list::MOD_HAK).as_bytes()).into_owned()
+            })
+            .collect()
+    };
+    // The frame shows 14 rows: the last ones are out of sight, below.
+    let last = |h: &Harness<'_, Moonglow>| h.get_by_label("hak28").rect().top();
+    let hidden = last(&h);
+    let edge = h.get_by_label("hak14").rect().bottom();
+    assert!(hidden > edge + 100.0, "out of sight: {hidden}, {edge}");
+    // hak02 dragged by its name down to the frame's bottom edge, and held
+    // there: the list scrolls up under it.
+    let from = h.get_by_label("hak02").rect().center();
+    let to = egui::pos2(from.x, edge - 4.0);
+    let button = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    h.hover_at(from);
+    h.run_steps(1);
+    h.event(button(from, true));
+    for k in 1..=6 {
+        h.hover_at(from + (to - from) * (k as f32 / 6.0));
+        h.run_steps(1);
+    }
+    h.run_steps(60);
+    let scrolled = last(&h);
+    assert!(scrolled < hidden - 100.0, "the list scrolled: {hidden} to {scrolled}");
+    // Let go above hak28, now in sight.
+    let at = egui::pos2(from.x, h.get_by_label("hak28").rect().top() + 2.0);
+    h.hover_at(at);
+    h.run_steps(1);
+    h.event(button(at, false));
+    h.run();
+    let order = haks(&mut h);
+    let place = order.iter().position(|n| n == "hak02").unwrap();
+    assert!(place > 20, "let go among the rows that came into sight: {order:?}");
+    assert_eq!(order[place + 1], "hak28", "{order:?}");
 }
 
 /// Files added to a hak that has some of them already are asked about
@@ -22756,6 +22906,89 @@ fn arrow_keys_step_through_a_list_of_choices() {
     h.hover_at(at);
     h.run_steps(90);
     assert_eq!(pictures(&h), without + 1, "the chosen appearance's picture");
+}
+
+/// The lists outside the blueprint editors take the arrow keys as theirs
+/// do once clicked (GitHub issue 7): the area's toolbar (Fade Geometry,
+/// Snap, Turn), without the camera moving, and Area Properties' (a
+/// table's rows, and the grass's surface material).
+#[test]
+fn arrow_keys_step_through_the_area_s_lists() {
+    use mg_area::grass::{AreaGrass, GrassOverride};
+    let Some((mut h, area)) = area_harness("area-list-arrows") else { return };
+    h.run_steps(3);
+    let combo = egui::accesskit::Role::ComboBox;
+    let click = |h: &mut Harness<'_, Moonglow>, value: &str| {
+        h.get_all_by_role(combo)
+            .find(|n| n.accesskit_node().value().as_deref() == Some(value))
+            .unwrap_or_else(|| panic!("the list showing {value:?}"))
+            .click();
+        h.run_steps(2);
+    };
+    let key = |h: &mut Harness<'_, Moonglow>, key: egui::Key| {
+        h.key_press(key);
+        h.run_steps(2);
+    };
+    let camera = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].orbit;
+    let before = camera(&h);
+    click(&mut h, "Fade Geometry: Never");
+    key(&mut h, egui::Key::ArrowDown);
+    assert_eq!(h.state().settings.fade_geometry, 1, "the next, while working on objects");
+    key(&mut h, egui::Key::Escape);
+    click(&mut h, "Snap: off");
+    key(&mut h, egui::Key::ArrowDown);
+    assert_eq!(h.state().settings.snap_grid, Some(25));
+    key(&mut h, egui::Key::Escape);
+    click(&mut h, "Turn: free");
+    key(&mut h, egui::Key::ArrowDown);
+    key(&mut h, egui::Key::ArrowDown);
+    assert_eq!(h.state().settings.snap_angle, Some(15));
+    key(&mut h, egui::Key::ArrowUp);
+    assert_eq!(h.state().settings.snap_angle, Some(5));
+    key(&mut h, egui::Key::Escape);
+    assert_eq!(camera(&h), before, "the arrows were the lists', not the camera's");
+
+    // Area Properties › Audio: a table's rows (soundeax.2da).
+    let git = ResKey::new(area, ResType::GIT);
+    let props = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&git).unwrap().root.child("AreaProperties").unwrap().clone()
+    };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AreaProperties(area)));
+    h.run_steps(5);
+    h.get_all_by_label("Audio").last().unwrap().click();
+    h.run_steps(3);
+    let eax = |h: &mut Harness<'_, Moonglow>| props(h).integer("EnvAudio");
+    let was = eax(&mut h);
+    let line = h.get_by_label("Environmental Audio Effects").rect().center().y;
+    h.get_all_by_role(combo).find(|n| (n.rect().center().y - line).abs() < 6.0).unwrap().click();
+    h.run_steps(2);
+    // (The area's may be the last row: then Up is the one to try.)
+    key(&mut h, egui::Key::ArrowDown);
+    if eax(&mut h) == was {
+        key(&mut h, egui::Key::ArrowUp);
+    }
+    assert_ne!(eax(&mut h), was, "another audio environment");
+    key(&mut h, egui::Key::Escape);
+
+    // Area Properties › Grass: the surface material of the area's own.
+    let root = h.state_mut().ws.as_mut().unwrap().doc(&git).unwrap().root.clone();
+    let edits = mg_area::grass::add_override(git, &root, &GrassOverride::new(1, None));
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Grass", edits)));
+    h.run_steps(2);
+    h.get_all_by_label("Grass").last().unwrap().click();
+    h.run_steps(3);
+    let material = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        AreaGrass::read(&ws.doc(&git).unwrap().root).overrides[0].material
+    };
+    assert_eq!(material(&mut h), 1);
+    click(&mut h, "Dirt (1)");
+    key(&mut h, egui::Key::ArrowDown);
+    if material(&mut h) == 1 {
+        key(&mut h, egui::Key::ArrowUp);
+    }
+    assert_ne!(material(&mut h), 1, "another surface material");
 }
 
 #[test]

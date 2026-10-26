@@ -329,6 +329,23 @@ pub struct HakList {
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct HakDrag(usize);
 
+/// How fast (points a second; up positive, as `Ui::scroll_with_delta`
+/// takes it) a list seen over `seen` scrolls for a row dragged with the
+/// pointer at `y`: within a row's height of an edge, faster the nearer,
+/// and fastest a few rows past it; elsewhere not at all.
+pub(crate) fn edge_scroll(seen: egui::Rangef, y: f32, row: f32) -> f32 {
+    // (Eight rows a second at the edge.)
+    let rows_a_second = 8.0 * row;
+    let depth = |into: f32| (into / row).clamp(0.0, 3.0);
+    if y < seen.min + row {
+        rows_a_second * depth(seen.min + row - y)
+    } else if y > seen.max - row {
+        -rows_a_second * depth(y - (seen.max - row))
+    } else {
+        0.0
+    }
+}
+
 /// The order of `n` rows with those `chosen` moved together to stand
 /// before row `before` (as the rows are numbered now; `n`: at the end),
 /// in their order among themselves; and where they stand then.
@@ -455,6 +472,20 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
                     }
                 });
                 rects.push(row.response.rect);
+            }
+            // A row dragged near the list's top or bottom edge, or past
+            // it, scrolls the list, faster the nearer (as list controls
+            // do): to put it among rows out of sight.
+            if egui::DragAndDrop::has_payload_of_type::<HakDrag>(ui.ctx())
+                && let Some(pointer) = ui.ctx().pointer_latest_pos()
+            {
+                let seen = ui.clip_rect();
+                let speed = edge_scroll(seen.y_range(), pointer.y, row_height);
+                if speed != 0.0 && seen.x_range().contains(pointer.x) {
+                    let dt = ui.input(|i| i.stable_dt).min(0.1);
+                    ui.scroll_with_delta(egui::vec2(0.0, speed * dt));
+                    ui.ctx().request_repaint();
+                }
             }
             // A row dragged: the line where it would go, and there when
             // it is let go.
@@ -807,5 +838,21 @@ mod tests {
         assert_eq!(super::moved(4, &set(&[1, 2]), 2).0, [0, 1, 2, 3]);
         assert_eq!(super::moved(4, &set(&[1]), 1).0, [0, 1, 2, 3]);
         assert_eq!(super::moved(4, &set(&[1]), 2).0, [0, 1, 2, 3]);
+    }
+
+    /// A row dragged near an edge of the list scrolls it that way, faster
+    /// the nearer and past it, up to a most.
+    #[test]
+    fn a_drag_near_an_edge_scrolls() {
+        let seen = egui::Rangef::new(100.0, 400.0);
+        let speed = |y| super::edge_scroll(seen, y, 20.0);
+        assert_eq!(speed(250.0), 0.0, "in the middle");
+        assert_eq!(speed(120.0), 0.0, "a row from the top");
+        assert!(speed(110.0) > 0.0, "near the top: up");
+        assert!(speed(395.0) < 0.0, "near the bottom: down");
+        assert!(speed(100.0) > speed(110.0), "faster at the edge");
+        assert!(speed(60.0) > speed(100.0), "and past it");
+        assert_eq!(speed(0.0), speed(-500.0), "up to a most");
+        assert_eq!(speed(395.0), -speed(105.0));
     }
 }

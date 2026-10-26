@@ -1175,9 +1175,10 @@ impl Form<'_> {
             .map(|(id, text)| Choice { row: usize::from(id), text })
             .collect();
         // In the palette's order (its tree's, as Palette › Categories…
-        // sets it), or alphabetical (Options › General).
+        // sets it), or alphabetical (Options › General): group by group,
+        // case and accents aside.
         let categories = if self.app.settings.categories_by_name {
-            mg_rules::by_name(categories)
+            mg_rules::by_path(categories, " / ")
         } else {
             categories
         };

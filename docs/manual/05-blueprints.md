@@ -178,7 +178,7 @@ The palette's buttons:
   window with them chosen, as File › Export.
 - **Lists of choices** (an appearance, a race, a part, a palette
   category, an item property's spell) work alike everywhere, the 2DA
-  editor's and Advanced Search's too. One of more than 12 rows is in its
+  editor's, Area Properties' and Advanced Search's too. One of more than 12 rows is in its
   names' order (parts and costs keep their numbers' order, categories
   the palette's unless Options › General sorts them); one of
   more than 30 has a **Filter** field above its rows, which narrows them

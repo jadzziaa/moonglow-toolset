@@ -1,7 +1,8 @@
 //! Core types shared by every Moonglow crate: resource names ([`ResRef`]) and
 //! types ([`ResType`]), languages and codepages, talk-table references
 //! ([`StrRef`]), localized strings ([`LocString`]) and little-endian binary
-//! readers and writers for the game's file formats.
+//! readers and writers for the game's file formats, and the order names are
+//! listed in ([`text`]).
 
 pub mod bin;
 pub mod lang;
@@ -11,6 +12,7 @@ pub mod restype;
 pub mod sha1;
 pub mod sha256;
 pub mod strref;
+pub mod text;
 
 pub use lang::{Codepage, Gender, Language};
 pub use locstring::{LocString, LocStringKey};

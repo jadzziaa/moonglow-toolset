@@ -245,7 +245,8 @@ fn area_contents(ws: &mut Workspace, game: Option<&GameData>, area: ResRef) -> A
                 })
                 .collect();
             let mut order: Vec<usize> = (0..rows.len()).collect();
-            let keys: Vec<String> = rows.iter().map(|r| r.text.to_lowercase()).collect();
+            // (Case and accents aside: `Árbol` beside `arbol`, not after `z`.)
+            let keys: Vec<_> = rows.iter().map(|r| mg_core::text::sort_key(&r.text)).collect();
             // (Stable: alike rows keep the area's order.)
             order.sort_by(|&a, &b| keys[a].cmp(&keys[b]));
             KindContents { kind, rows, order }
@@ -746,7 +747,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                 }
                 let shown =
                     |k: &ResKey| names.get(k).map_or_else(|| k.resref.to_string(), String::clone);
-                keys.sort_by_cached_key(|k| (shown(k).to_lowercase(), *k));
+                keys.sort_by_cached_key(|k| (mg_core::text::sort_key(&shown(k)), *k));
             }
             lists.push((keys, names));
         }

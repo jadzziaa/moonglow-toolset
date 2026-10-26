@@ -675,12 +675,21 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   mark up. Not compared with Aurora's list (its rounding, whether it
   counts a stack); the buy price (mark down) is not shown. (S)
   (GitHub issues 10 to 24, after 1.20.0)
-- **Arrow keys on lists of choices:** the blueprint editors' 2DA lists
-  and part lists take them while the list has the focus (clicked, open
-  or after a choice; Tab). Escape gives the focus up, as everywhere in
-  the interface, so after closing a list with Escape it is clicked
-  again. The lists outside the blueprint editors (Area Properties, the
-  area's toolbar) don't take them. (S) (GitHub issue 7)
+- **Arrow keys on lists of choices:** the lists of a table's rows
+  (`widgets::row_choice`: the blueprint editors', Area Properties', the
+  2DA editor's) and the area's lists (the toolbar's Fade Geometry, Snap
+  and Turn; Resize Area's, Find Instance's and Edit Areas Together's:
+  `widgets::arrow_step`) take them while the list has the focus
+  (clicked, open or after a choice; Tab). Escape gives the focus up, as
+  everywhere in the interface, so after closing a list with Escape it is
+  clicked again. Not done: the plain lists of other windows (Options,
+  Module Properties, the conversation and NUI editors, the wizards, the
+  resource browser, Advanced Search's kinds and fields) and the blueprint
+  editors' few lists that are not a table's rows (a creature's alignment,
+  the mouse cursor, a text bubble's mode) don't take them; Resize
+  Area's, Find Instance's and Edit Areas Together's are not under test;
+  Area Properties' Lighting Scheme is a grid of buttons, not a list.
+  (S) (GitHub issue 7)
 - **Pictures in the Appearance list:** a creature's (a plain male body
   of the appearance) and a placeable's, beside the row the pointer rests
   on; a door's and an item's lists have none. (S) (GitHub issue 7)
@@ -852,12 +861,16 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Palettes
 
-- **Category lists alphabetical, by lower case:** Options › General ›
-  List a blueprint's categories alphabetically sorts by the names in
-  lower case, character by character, as the module tree does: an
-  accented first letter (`Árboles`) comes after `z`, not beside `a`; a
-  group's path (`Oficios / Herrero`) sorts by its group first. (S)
-  (Sacha's report, October 2026)
+- **Names in order, accents aside** (Sacha's report, October 2026):
+  the Category lists (Options › General), the module tree, the lists of
+  a table's rows and the palettes' own order (Windows' word sort) fold
+  case and the accents of Latin letters (`mg_core::text`), so `Árboles`
+  stands beside `arboles`. Not done: the Filter fields still match as
+  typed (`arbol` does not find `Árbol`); only Latin-1 and Latin
+  Extended-A letters are folded (not Vietnamese's, nor Greek's or
+  Cyrillic's accents); names that fold alike are ordered by their bytes
+  (`Arboles`, `arboles`, `Árboles`), not compared with how Windows ties
+  them. (S)
 
 - **The palette's header, not as drawn in the issue:** "More" is a
   word, and the clear button "×" and the Gallery's "⊞" are the glyphs
@@ -1100,8 +1113,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   StrRef or a line's number; the text boxes share the room under the
   list and scroll; the whole row chooses its line and shows the pointer
   over it, the arrow keys choose from there, and Enter or a double
-  click goes to the text. Not done: the split between the list and the
-  boxes cannot be dragged. (S) (GitHub issues 10 to 24, after 1.20.0)
+  click goes to the text; the line between the list and the boxes is
+  dragged (the boxes keep three lines, the list three tenths). Not
+  done: the share dragged to is kept in egui's memory, as the other
+  editors' panes are, not in Moonglow's settings, and one share serves
+  every table, with or without a feminine one. (S) (GitHub issues 10
+  to 24, after 1.20.0)
 
 ## Haks in the GUI
 
@@ -1134,14 +1151,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   hasn't. (S)
 - **ERF version:** haks are saved as `V1.0`; EE's compressed `E1.0` is
   read but not written. (S–M)
-- **The hak list of Module Properties** (GitHub issue 17) is the
-  issue's recommended layout: a framed list numbered from the top, rows
-  chosen (Ctrl and Shift for more) and moved by a drag, the arrows under
-  the list or Alt + Up and Down, removed with Remove or Delete, one undo
-  each (so nothing asks before a removal, as the issue has it); haks
-  not in the hak folders flagged; the talk table in a section of its
-  own. Not done: a drag does not scroll a list longer than its frame.
-  (S) (from builders' reports after 1.19.1)
 
 ## Raw fields
 
@@ -2344,9 +2353,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   opened with the tree over the whole window: a long name widened it,
   and it could not be dragged back). Docked panes' splits are held
   between 12% and 88% (the palettes'), and the lower halves of the
-  script, conversation and journal editors to a share of their editor.
-  A tree name cut short shows whole only where the row already had a
-  tooltip; the limits on the editors' lower halves aren't under test.
+  script, conversation and journal editors to a share of their editor,
+  and the talk table editor's to seven tenths. A tree name cut short
+  shows whole only where the row already had a tooltip; the limits on
+  the script, conversation and journal editors' lower halves aren't
+  under test (the talk table's are).
   (S)
 - **Windows' sizes and Maximize:** a window's size is remembered by the
   kind of editor, not its place on screen; Maximize is a double click on
