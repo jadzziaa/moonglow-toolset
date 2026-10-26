@@ -508,7 +508,7 @@ pub(super) fn item_list(
                     .min_size(egui::vec2(width, 0.0))
                     .truncate()
                     .sense(egui::Sense::click_and_drag());
-                    let r = ui.add(label).on_hover_text(resref.to_string());
+                    let r = ui.add(label).on_hover_text(format!("{n} ({resref})"));
                     if r.clicked() {
                         clicked = Some(i);
                     }

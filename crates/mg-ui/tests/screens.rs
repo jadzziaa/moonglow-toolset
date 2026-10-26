@@ -1301,6 +1301,89 @@ fn creature_inventory_options() {
     shoot(&mut h, &dir, "creature-inventory-options-selected");
 }
 
+/// The Inventory pages in a window as narrow as one opens beside the
+/// area (about 480 points): a placed creature's, the creature
+/// blueprint's, a placed store's and a placed chest's
+/// (`inventory-narrow-*.png`; `-middle` at 620, `-wide` at the window's own size). At
+/// that width the slots' items once were scrolled out of sight to the
+/// right (seen testing Sacha's report on 2.5.4).
+#[test]
+#[ignore]
+fn inventory_pages_narrow() {
+    use mg_module::instances::{Placement, Placing, instance};
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    use mg_module::{Module, ModuleLocation};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let install = GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let dir = mg_testkit::output_dir("screens");
+    let mut rng = fastrand::Rng::with_seed(5);
+    let mut m: Module = new_module(&game, "Inventory", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Camp".into(),
+        tileset: mg_core::ResRef::from_str("ttr01").unwrap(),
+        width: 2,
+        height: 2,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let read = |r: mg_core::ResRef, t: ResType| {
+        let data = game.resman.get(&ResKey::new(r, t)).ok()?;
+        Some(mg_gff::Gff::read(&data).ok()?.root)
+    };
+    let named = |name: &str, t| read(mg_core::ResRef::from_str(name).unwrap(), t).unwrap();
+    let items = |r: mg_core::ResRef| read(r, ResType::UTI);
+    let placing = Placing { game: &game, item: &items };
+    let at = Placement { position: [5.0, 5.0, 0.0], rotation: 0.0 };
+    let bandit = instance(&placing, ResType::UTC, &named("nw_bandit001", ResType::UTC), at, &[]);
+    let store = instance(&placing, ResType::UTM, &named("nw_storebar01", ResType::UTM), at, &[]);
+    let mut chest =
+        instance(&placing, ResType::UTP, &named("plc_chest1", ResType::UTP), at, &[]).unwrap();
+    let mut sword = named("nw_wswls001", ResType::UTI);
+    sword.set("Repos_PosX", mg_gff::Value::Word(0));
+    sword.set("Repos_Posy", mg_gff::Value::Word(0));
+    chest.set("HasInventory", mg_gff::Value::Byte(1));
+    chest.set("ItemList", mg_gff::Value::List(vec![sword]));
+    let git = ResKey::new(area, ResType::GIT);
+    let mut g = m.gff(&git).unwrap().unwrap();
+    g.root.set("Creature List", mg_gff::Value::List(vec![bandit.unwrap()]));
+    g.root.set("StoreList", mg_gff::Value::List(vec![store.unwrap()]));
+    g.root.set("Placeable List", mg_gff::Value::List(vec![chest]));
+    m.set_gff(git, &g).unwrap();
+    let bandit = ResKey::parse("nw_bandit001", ResType::UTC).unwrap();
+    m.set(bandit, game.resman.get(&bandit).unwrap().into_owned());
+    let path = mg_testkit::scratch_dir("screens-inventory-narrow").join("inventory.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let placed = |list: &str| mg_ui::Tab::Instance { area, path: GffPath::root().item(list, 0) };
+    for (name, tab) in [
+        ("creature", placed("Creature List")),
+        ("creature-blueprint", mg_ui::Tab::Blueprint(bandit)),
+        ("store", placed("StoreList")),
+        ("chest", placed("Placeable List")),
+    ] {
+        let mut app = Moonglow::new(Some(install.clone()), Box::new(NoDialogs::default()));
+        app.settings.no_inventory_warning = true;
+        app.open_module(&path);
+        app.open_palette = false;
+        let (key, at) = match &tab {
+            mg_ui::Tab::Instance { path, .. } => (git, path.clone()),
+            _ => (bandit, GffPath::root()),
+        };
+        app.blueprint_pages.insert((key, at), "Inventory");
+        app.actions.push(mg_ui::Action::OpenTab(tab.clone()));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1000.0, 760.0))
+            .wgpu()
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run_steps(3);
+        for (size, width) in [("narrow", 480.0), ("middle", 620.0), ("wide", 820.0)] {
+            place(&mut h, &tab, (20.0, 60.0), (width, 672.0));
+            h.run_steps(3);
+            shoot(&mut h, &dir, &format!("inventory-{size}-{name}"));
+        }
+    }
+}
+
 #[test]
 #[ignore]
 fn store_chosen_item() {

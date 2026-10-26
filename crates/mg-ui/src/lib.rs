@@ -2876,9 +2876,16 @@ impl Moonglow {
                     return;
                 }
                 let Some(ws) = &mut self.ws else { return };
+                let next = if action == Action::Undo { ws.peek_undo() } else { ws.peek_redo() };
+                // (Where what the open Properties windows show goes.)
+                let edits =
+                    next.map(|c| blueprint::follow::list_edits(&c.edits)).unwrap_or_default();
+                let followed = blueprint::follow::followed(self, &edits);
+                let Some(ws) = &mut self.ws else { return };
                 let r = if action == Action::Undo { ws.undo() } else { ws.redo() };
                 match r {
                     Ok(Some(label)) => {
+                        blueprint::follow::retarget(self, followed);
                         self.scripts.clear();
                         self.sync_haks();
                         self.log.info(format!(
@@ -3223,6 +3230,8 @@ impl Moonglow {
         self.warn_shadowing(&cmd);
         // Claimed areas kept read-only, protected names asked about.
         claims::gate(self, &cmd)?;
+        // (Where what the open Properties windows show goes.)
+        let followed = blueprint::follow::followed(self, &cmd.edits);
         let Some(ws) = &mut self.ws else { return Ok(()) };
         // One of the game's blueprints, open to look at: nothing changes it.
         let viewed = |e: &mg_edit::Edit| match e {
@@ -3239,6 +3248,7 @@ impl Moonglow {
         );
         let derived = blueprint::derived_of(&cmd);
         ws.apply(cmd)?;
+        blueprint::follow::retarget(self, followed);
         blueprint::after_apply(self, derived);
         if custom_tlk && self.ws.as_mut().is_some_and(|ws| ws.flush().is_ok()) {
             self.load_custom_tlk();

@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T21:19:15Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T05:36:26Z }
 ---
 
 # Blueprints
@@ -398,9 +398,17 @@ A domain or school left **Not set** is the game's to choose.
   such slot is taken; the Equip beside a slot puts it in that one. With
   an item selected, **Equip** takes it from the backpack to a free slot,
   **To Backpack** unequips it into the backpack, and **Properties**
-  opens the item's properties: for a placed object, the item as that
-  object holds it, to change there as in Aurora; for a blueprint, the
-  item's blueprint (the module's to edit, the game's to look at). Items are
+  opens the item's properties: for a placed object (a creature, a
+  placeable, a store), the item as that object holds it, to change there
+  as in Aurora; for a blueprint, the item's blueprint (the module's to
+  edit, the game's to look at). A held item's window stays on its item
+  while items are added, removed or moved before it in that inventory
+  (Undo and Redo too), and closes when the item is removed, as a placed
+  object's does when the object is deleted. In a narrow window (as one
+  opens beside the area), each slot shows its name over the item's,
+  beside a smaller icon, with Equip over Remove, so the item's name stays
+  in sight; a name too long for the room is cut short, and whole in its
+  tip. Items are
   dragged, too: from the palette onto a slot (equipped there, if it goes
   in it) or onto the backpack (added); from the backpack onto a slot;
   from a slot onto the backpack, or onto another slot it goes in. A

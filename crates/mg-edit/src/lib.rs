@@ -288,6 +288,17 @@ impl Workspace {
         self.redo.last().map(|c| c.label.as_str())
     }
 
+    /// The edits [`Workspace::undo`] would run next (the last command's
+    /// inverse), to see what they move before they are run.
+    pub fn peek_undo(&self) -> Option<&Command> {
+        self.undo.last()
+    }
+
+    /// The edits [`Workspace::redo`] would run next.
+    pub fn peek_redo(&self) -> Option<&Command> {
+        self.redo.last()
+    }
+
     /// Applies a command; on failure nothing is changed.
     pub fn apply(&mut self, cmd: Command) -> Result<(), EditError> {
         let inverse = self.run(&cmd)?;
@@ -667,6 +678,22 @@ mod tests {
         assert!(!ws.is_modified(), "undone back to the saved state");
         ws.redo().unwrap();
         assert_eq!(ws.doc(&ifo_key).unwrap().root.read(&ifo::MOD_XP_SCALE), 50);
+    }
+
+    /// What Undo and Redo will run is seen before they run it: the
+    /// inverse, then the command again.
+    #[test]
+    fn the_next_undo_and_redo_are_seen_before_they_run() {
+        let mut ws = workspace();
+        let k = key("area", ResType::GIT);
+        assert!(ws.peek_undo().is_none() && ws.peek_redo().is_none());
+        let added = Edit::insert_item(k, GffPath::root(), "Creature List", 0, Struct::new(4));
+        ws.apply(Command::new("Add", vec![added.clone()])).unwrap();
+        let removal = Edit::remove_item(k, GffPath::root(), "Creature List", 0);
+        assert_eq!(ws.peek_undo().map(|c| &c.edits[..]), Some(&[removal][..]));
+        ws.undo().unwrap();
+        assert!(ws.peek_undo().is_none());
+        assert_eq!(ws.peek_redo().map(|c| &c.edits[..]), Some(&[added][..]));
     }
 
     #[test]

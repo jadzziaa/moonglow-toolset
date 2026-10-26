@@ -25,6 +25,7 @@ pub(crate) use creature::with_a_body;
 mod creature_lists;
 mod door;
 pub(crate) mod encounter;
+pub(crate) mod follow;
 mod inventory;
 mod item;
 pub(crate) mod picker;
