@@ -542,6 +542,29 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   0 regards a player, or a player it, was not measured (no player joins
   a headless server); an encounter's creatures were not looked at. (S)
   (Jasperre's report, October 2026)
+- **The Visuals page's texture and animation pickers, what's left:**
+  the page lists the textures of the object's models (their meshes'
+  `bitmap`) and picks replacements in Select Texture; animations are
+  picked from the model's and its supermodels'. Not done or not
+  measured:
+  - Whether the game replaces a PLT texture by name (the page and the
+    preview take it that it doesn't, from `ReplaceObjectTexture`'s
+    comment that the new one must be simple); and whether a creature's
+    replacement reaches what it holds, its helmet or cloak (left out of
+    its list).
+  - A mesh drawn with a material (`materialname`, an MTR) lists only
+    its `bitmap`, not the material's textures; emitters' and other
+    nodes' textures aren't listed; a texture name longer than 16
+    characters can't be written (the field is a resref) and the row
+    gives no reason.
+  - Select Texture stretches a texture that isn't square into its
+    square, and lists the GUI's own textures with the rest. The
+    textures are listed anew each time it opens (29,567 in the game:
+    15 ms on the click, release build).
+  - The Appearance Gallery's scroll to the current row adds the gallery's
+    own spacing per row rather than the scroll area's (the same mistake
+    put Select Texture rows away from the one chosen, fixed there). (S)
+  (GitHub issue 32)
 
 - **A tile's replacement texture, out of Tile Properties:** the form
   had a Replacement Texture (`Tile_ReplaceTex`, a `replacetexture.2da`

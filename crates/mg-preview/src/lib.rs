@@ -22,6 +22,7 @@ mod creature;
 pub mod files;
 mod item;
 mod object;
+pub mod replaceable;
 
 pub use creature::{CreatureLook, creature, creature_look};
 pub use item::{ground_turn, item, item_on, item_placed};

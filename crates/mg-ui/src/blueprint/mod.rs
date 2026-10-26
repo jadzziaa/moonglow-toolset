@@ -30,6 +30,7 @@ mod inventory;
 mod item;
 pub(crate) mod picker;
 mod placeable;
+mod replacements;
 mod situated;
 mod sound;
 pub(crate) mod store;

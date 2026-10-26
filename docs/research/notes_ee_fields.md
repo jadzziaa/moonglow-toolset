@@ -3,7 +3,7 @@ type: Research Note
 title: The EE data Aurora has no fields for
 description: The data Enhanced Edition added to the game's objects that Aurora has no fields for - what the game stores and reads - and what Moonglow leaves undone.
 tags: [ee, gff, fields, aurora]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T12:29:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:06:34Z }
 ---
 
 # The EE data Aurora has no fields for
@@ -46,7 +46,11 @@ at the game's defaults.
 
 **In Moonglow:**
 - **Editors:** a Visuals page in those editors. A changed `MiscVisuals`
-  field keeps the struct's others.
+  field keeps the struct's others. Texture replacements are picked for
+  the textures the object's models list (`mg_preview::replaceable`), in
+  a gallery of the DDS and TGA textures; animation replacements from the
+  model's and its supermodels' animations. An entry is edited in place,
+  a new one goes at the end (GitHub issue 32).
 - **In the client:** `ee_visuals_in_the_client` (`client_render`) sets
   each field in the module, with no script, and the client draws it: a
   texture replaced, a chest's `default` animation played as `open`, an

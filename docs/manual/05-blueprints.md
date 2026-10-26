@@ -351,9 +351,29 @@ Shared parts:
   game reads them when it loads the object, so no script is needed: a
   field set here works as the script call would.
   - **Texture replacements**: a texture of the object's model drawn with
-    another (not PLT textures, which keep their colors). The area view
-    and the model viewer show them.
-  - **Animation replacements**: an animation played as another.
+    another. The page lists the textures its models' meshes use, each
+    with its picture and what it is drawn as. **Select Texture…** opens
+    a gallery of the game's, the haks' and the module's DDS and TGA
+    textures, with **Find** to search them by name and their pictures
+    made as they come into sight; a click chooses one, **OK** or a
+    double-click takes it. The name can also be typed after **Drawn as**.
+    **Reset** removes a replacement. PLT textures are listed but have
+    nothing to pick: the game keeps their colors and doesn't replace
+    them. A replacement of a texture the model lacks is kept and shown
+    *(not in the model)*; **Any name** adds one for any two names. The
+    area view and the model viewer show them.
+    - A placeable's or a door's textures are its model's; an item's,
+      those of the models its base item and parts give it.
+    - A creature's are its own body's: its appearance's model, or, for
+      a body of parts, the parts its armor (or, without one, its own
+      fields) names, its head, wings and tail. Body parts and heads are
+      mostly PLTs. What it holds and its helmet and cloak are items'
+      models, not listed.
+  - **Animation replacements**: an animation played as another. Both
+    are picked from the animations of the object's model and its
+    supermodels (a list with **Filter** when there are many); **Add**
+    adds the pair, **Reset** removes one. Names the model lacks are kept
+    and shown *(not in the model)*, and **Any name** adds any two.
   - **Shader parameters**: an integer or four numbers a material's shader
     reads (`SetMaterialShaderUniformInt` and `…Vec4`). They do nothing
     with the stock shaders. The material is an MTR's name, and the game

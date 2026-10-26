@@ -7787,8 +7787,8 @@ fn visuals_page_sets_replacements_and_misc_visuals() {
     let game = h.state().game.as_deref().unwrap();
     let preview = mg_preview::replaced(mg_preview::placeable(game, &chest).unwrap(), &chest);
     assert_eq!(preview.base.textures.get("plc_chest1").map(String::as_str), Some("mg_gold"));
-    // Removed: the field goes.
-    h.get_all_by_label("Remove").next().unwrap().click();
+    // Reset: the field goes.
+    h.get_all_by_label("Reset").next().unwrap().click();
     h.run();
     assert!(field(&mut h, &key).get("TextureReplace").is_none());
     // MiscVisuals: what shows, set apart from the game's choice; the other
@@ -7807,6 +7807,309 @@ fn visuals_page_sets_replacements_and_misc_visuals() {
         field(&mut h, &key).child("MiscVisuals").unwrap().integer("UiDiscoverMask"),
         Some(15)
     );
+}
+
+/// A replacement: old, new, and whether the entry kept its extra field.
+type Entry = (String, String, bool);
+
+/// An object's replacements as the Visuals page writes them: its list's
+/// entries (old, new) and the extra field a test puts on the list's
+/// struct and on each entry.
+fn replacements(
+    h: &mut Harness<'_, Moonglow>,
+    key: &ResKey,
+    (outer, list, old, new): (&str, &str, &str, &str),
+) -> Option<(Vec<Entry>, bool)> {
+    let root = field(h, key);
+    let s = root.child(outer)?;
+    let items = s.list(list).unwrap_or(&[]);
+    let pairs = items
+        .iter()
+        .map(|e| {
+            let r = |l: &str| e.resref(l).map(|r| r.to_string()).unwrap_or_default();
+            (r(old), r(new), e.get("MgKept").is_some())
+        })
+        .collect();
+    Some((pairs, s.get("MgKept").is_some()))
+}
+
+const TEXTURES: (&str, &str, &str, &str) =
+    ("TextureReplace", "TextureReplaceLi", "OldTexture", "NewTexture");
+const ANIMATIONS: (&str, &str, &str, &str) =
+    ("AnimationReplace", "AnimationReplace", "OldAnimation", "NewAnimation");
+
+/// Puts a replacement list on the blueprint: one entry `old` → `new`, the
+/// list's struct and the entry each with a field of their own (kept).
+fn put_replacement(
+    h: &mut Harness<'_, Moonglow>,
+    key: ResKey,
+    (outer, list, old_label, new_label): (&str, &str, &str, &str),
+    id: u32,
+    (old, new): (&str, &str),
+) {
+    use mg_gff::{Struct, Value};
+    let mut e = Struct::new(0);
+    e.set(old_label, Value::resref(ResRef::from_str(old).unwrap()));
+    e.set(new_label, Value::resref(ResRef::from_str(new).unwrap()));
+    e.set("MgKept", Value::Int(1));
+    let mut s = Struct::new(id);
+    s.set(list, Value::List(vec![e]));
+    s.set("MgKept", Value::Int(1));
+    let mut g = Gff::new(*b"UTP ");
+    g.root = field(h, &key);
+    g.root.set(outer, Value::Struct(s));
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "replacement",
+        vec![mg_edit::Edit::SetResource { key, data: Some(g.to_bytes().unwrap()) }],
+    )));
+    h.run();
+}
+
+/// Frames until the UI stops asking for more (a gallery makes its pictures
+/// a few milliseconds' worth a frame).
+fn settle(h: &mut Harness<'_, Moonglow>) {
+    for _ in 0..100 {
+        if h.try_run().is_ok() {
+            return;
+        }
+    }
+    panic!("the UI keeps repainting");
+}
+
+/// GitHub issue 32: the Visuals page lists the textures of the object's
+/// model, each with its picture. One picked in Select Texture (searched by
+/// name, among the game's textures) is written as the game writes it:
+/// after the entries there (one for a texture the model lacks, shown so
+/// and kept, with the fields it has), and Reset takes each out again.
+#[test]
+fn visuals_page_picks_a_texture_in_the_gallery_and_resets_it() {
+    let Some((mut h, key)) = blueprint_harness("plc_chest1", "chest_gallery", ResType::UTP) else {
+        return;
+    };
+    h.run();
+    let (own, pick) = {
+        let chest = field(&mut h, &key);
+        let game = h.state().game.as_deref().unwrap();
+        let p = mg_preview::placeable(game, &chest).unwrap();
+        let own = mg_preview::replaceable::textures(game, &p);
+        // A texture of the game's to draw it with.
+        let mut all = game.resman.list(ResType::DDS);
+        all.sort();
+        let pick = all
+            .iter()
+            .map(|r| r.to_lowercase().to_string())
+            .find(|n| n.starts_with("plc_") && !own.iter().any(|t| t.name == *n))
+            .expect("a placeable's texture");
+        (own, pick)
+    };
+    let first = own.first().expect("the chest's model has textures");
+    assert!(!first.plt);
+    put_replacement(&mut h, key, TEXTURES, 9, ("mg_absent", "mg_other"));
+    h.get_by_label("Visuals").click();
+    h.run();
+    // The model's textures, and the entry for one it lacks.
+    for t in own.iter().map(|t| t.name.as_str()).chain(["mg_absent"]) {
+        assert!(h.query_all_by_label(t).next().is_some(), "{t} is listed");
+    }
+    h.get_by_label("(not in the model)");
+    // Select Texture for the model's first texture: its pictures made over
+    // a few frames, found by its name, picked.
+    h.get_all_by_label("Select Texture…").next().unwrap().click();
+    settle(&mut h);
+    h.get_by_label("Select Texture");
+    let by_hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Find");
+    h.get(egui_kittest::kittest::by().predicate(by_hint)).click();
+    settle(&mut h);
+    h.get(egui_kittest::kittest::by().predicate(by_hint)).type_text(&pick);
+    settle(&mut h);
+    h.get_by_label(&pick).click();
+    settle(&mut h);
+    h.get_all_by_label("OK").last().unwrap().click();
+    h.run();
+    assert!(h.query_by_label("Select Texture").is_none(), "closed");
+    let (pairs, kept) = replacements(&mut h, &key, TEXTURES).unwrap();
+    assert_eq!(
+        pairs,
+        [
+            ("mg_absent".to_string(), "mg_other".to_string(), true),
+            (first.name.clone(), pick.clone(), false),
+        ]
+    );
+    assert!(kept, "the list's struct keeps its fields");
+    assert_eq!(field(&mut h, &key).child("TextureReplace").unwrap().id, 9);
+    // Opened again and cancelled: nothing changes.
+    h.get_all_by_label("Select Texture…").next().unwrap().click();
+    settle(&mut h);
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run();
+    assert_eq!(replacements(&mut h, &key, TEXTURES).unwrap().0.len(), 2);
+    // Reset, the model's texture's (first), then the other's.
+    h.get_all_by_label("Reset").next().unwrap().click();
+    h.run();
+    let (pairs, _) = replacements(&mut h, &key, TEXTURES).unwrap();
+    assert_eq!(pairs, [("mg_absent".to_string(), "mg_other".to_string(), true)]);
+    h.get_all_by_label("Reset").next().unwrap().click();
+    h.run();
+    assert!(field(&mut h, &key).get("TextureReplace").is_none());
+}
+
+/// GitHub issue 32: an animation replacement picked from the animations of
+/// the object's model and its supermodels, after an entry for one the
+/// model lacks (shown so, kept), and Reset.
+#[test]
+fn visuals_page_picks_an_animation_replacement_and_resets_it() {
+    let Some((mut h, key)) = blueprint_harness("plc_chest1", "chest_anims", ResType::UTP) else {
+        return;
+    };
+    h.run();
+    let anims = {
+        let chest = field(&mut h, &key);
+        let game = h.state().game.as_deref().unwrap();
+        let p = mg_preview::placeable(game, &chest).unwrap();
+        mg_preview::replaceable::animations(game, &p)
+    };
+    assert!(anims.len() >= 2, "{anims:?}");
+    put_replacement(&mut h, key, ANIMATIONS, 11, ("mg_gone", &anims[0]));
+    h.get_by_label("Visuals").click();
+    h.run();
+    h.get_by_value("mg_gone (not in the model)");
+    // A new one: the model's first animation played as its second.
+    h.get_by_value("Choose an animation").click();
+    h.run();
+    h.get_all_by_label(&anims[0]).last().unwrap().click();
+    h.run();
+    h.get_by_value("Choose the one to play").click();
+    h.run();
+    h.get_all_by_label(&anims[1]).last().unwrap().click();
+    h.run();
+    h.get_all_by_label("Add").nth(1).unwrap().click();
+    h.run();
+    let (pairs, kept) = replacements(&mut h, &key, ANIMATIONS).unwrap();
+    assert_eq!(
+        pairs,
+        [
+            ("mg_gone".to_string(), anims[0].clone(), true),
+            (anims[0].clone(), anims[1].clone(), false),
+        ]
+    );
+    assert!(kept);
+    assert_eq!(field(&mut h, &key).child("AnimationReplace").unwrap().id, 11);
+    // Reset: the entry the model lacks, then the other.
+    h.get_all_by_label("Reset").next().unwrap().click();
+    h.run();
+    let (pairs, _) = replacements(&mut h, &key, ANIMATIONS).unwrap();
+    assert_eq!(pairs, [(anims[0].clone(), anims[1].clone(), false)]);
+    h.get_all_by_label("Reset").next().unwrap().click();
+    h.run();
+    assert!(field(&mut h, &key).get("AnimationReplace").is_none());
+}
+
+/// A creature of body parts lists its parts' textures, mostly PLTs, which
+/// the game doesn't replace: shown, with no Select Texture to pick one (the
+/// game's hands have a simple texture, which has one). Its animations are
+/// its skeleton's and their supermodels'.
+#[test]
+fn visuals_page_lists_a_creature_s_plt_textures_without_a_gallery() {
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_vis", ResType::UTC) else {
+        return;
+    };
+    h.run();
+    // A human (appearance.2da row 6: a body of parts), wearing nothing:
+    // its own parts, number 1.
+    let mut g = Gff::new(*b"UTC ");
+    g.root = field(&mut h, &key);
+    g.root.set("Appearance_Type", mg_gff::Value::Word(6));
+    g.root.set("Equip_ItemList", mg_gff::Value::List(Vec::new()));
+    for part in [
+        "Torso", "Pelvis", "Belt", "Neck", "LThigh", "RThigh", "LShin", "RShin", "LFoot", "LFArm",
+        "RFArm", "LBicep", "RBicep", "LHand", "RHand",
+    ] {
+        g.root.set(&format!("BodyPart_{part}"), mg_gff::Value::Byte(1));
+    }
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "human",
+        vec![mg_edit::Edit::SetResource { key, data: Some(g.to_bytes().unwrap()) }],
+    )));
+    h.run();
+    h.get_by_label("Visuals").click();
+    h.run();
+    let (textures, anims) = {
+        let c = field(&mut h, &key);
+        let game = h.state().game.as_deref().unwrap();
+        let p = mg_preview::creature(game, &c, &|_| None).unwrap();
+        let t = mg_preview::replaceable::textures(game, &p);
+        (t, mg_preview::replaceable::animations(game, &p))
+    };
+    let plts = textures.iter().filter(|t| t.plt).count();
+    assert!(textures.len() > 5 && plts * 2 > textures.len(), "{textures:?}");
+    assert!(textures.iter().any(|t| t.name.contains("chest")), "{textures:?}");
+    assert!(anims.len() > 50, "a skeleton's animations: {}", anims.len());
+    for t in &textures {
+        assert!(h.query_all_by_label(&t.name).next().is_some(), "{} is listed", t.name);
+    }
+    let buttons: Vec<bool> =
+        h.get_all_by_label("Select Texture…").map(|b| b.accesskit_node().is_disabled()).collect();
+    let plt: Vec<bool> = textures.iter().map(|t| t.plt).collect();
+    assert_eq!(buttons, plt, "a PLT has none to pick");
+}
+
+/// A placed placeable's Properties have the same pickers: Reset on its
+/// replacement edits the area's GIT entry.
+#[test]
+fn visuals_page_of_a_placed_placeable_lists_its_model_s_textures() {
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("placed-visuals") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let own = {
+        let app = h.state_mut();
+        let game = app.game.as_deref().unwrap();
+        let data = game.resman.get(&ResKey::parse("plc_chest1", ResType::UTP).unwrap()).unwrap();
+        let chest = Gff::read(&data).unwrap().root;
+        let p = mg_preview::placeable(game, &chest).unwrap();
+        let own = mg_preview::replaceable::textures(game, &p);
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let at = Placement { position: [12.0, 30.0, 0.0], rotation: 0.0 };
+        let mut item = instance(&placing, ResType::UTP, &chest, at, &[]).unwrap();
+        let mut e = mg_gff::Struct::new(0);
+        e.set("OldTexture", mg_gff::Value::resref(ResRef::from_str(&own[0].name).unwrap()));
+        e.set("NewTexture", mg_gff::Value::resref(ResRef::from_str("mg_gold").unwrap()));
+        let mut s = mg_gff::Struct::new(9);
+        s.set("TextureReplaceLi", mg_gff::Value::List(vec![e]));
+        item.set("TextureReplace", mg_gff::Value::Struct(s));
+        let edit = mg_edit::Edit::InsertItem {
+            key: git,
+            path: mg_edit::GffPath::root(),
+            list: "Placeable List".into(),
+            index: 0,
+            item,
+        };
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
+        let path = mg_edit::GffPath::root().item("Placeable List", 0);
+        app.blueprint_pages.insert((git, path.clone()), "Visuals");
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Instance { area, path: path.clone() }));
+        (own, path)
+    };
+    let (own, path) = own;
+    h.run_steps(4);
+    // (A window clear of the area's own panes.)
+    let at = h.state().dock.find_tab(&Tab::Instance { area, path }).unwrap();
+    if let Some(w) = h.state_mut().dock.get_window_state_mut(at.surface) {
+        w.set_position(egui::pos2(20.0, 60.0)).set_size(egui::vec2(1000.0, 700.0));
+    }
+    h.run_steps(4);
+    for t in &own {
+        assert!(h.query_all_by_label(&t.name).next().is_some(), "{} is listed", t.name);
+    }
+    assert_eq!(h.query_all_by_label("Select Texture…").count(), own.len());
+    let placed = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&git).unwrap().root.list("Placeable List").unwrap()[0].clone()
+    };
+    assert!(placed(&mut h).get("TextureReplace").is_some());
+    h.get_all_by_label("Reset").next().unwrap().click();
+    h.run_steps(3);
+    assert!(placed(&mut h).get("TextureReplace").is_none());
 }
 
 #[test]
