@@ -186,15 +186,12 @@ pub(crate) fn from_windows_1252(text: &str) -> String {
     Codepage::WINDOWS_1252.spelled_in(text, game_codepage()).into_owned()
 }
 
-/// Text for an editor: CRLF line ends shown as plain newlines. Returns
-/// whether the original used CRLF, to restore it with [`from_editor`].
+/// Text for an editor: CRLF line ends shown as plain newlines (a `\r`
+/// the field kept would be a stop of the caret no one sees, and End put
+/// what is typed after it). Returns whether the original used CRLF. What
+/// is typed goes back with the original's line ends by [`with_line_ends`].
 pub(crate) fn to_editor(text: &str) -> (String, bool) {
     (text.replace("\r\n", "\n"), text.contains("\r\n"))
-}
-
-/// Editor text back in the original's line-end style.
-pub(crate) fn from_editor(text: &str, crlf: bool) -> String {
-    if crlf { text.replace("\r\n", "\n").replace('\n', "\r\n") } else { text.to_string() }
 }
 
 /// Whether a text's line ends are CRLF, as most of its are (BioWare's
@@ -205,50 +202,110 @@ pub(crate) fn uses_crlf(text: &str) -> bool {
 }
 
 /// An editor's text (plain newlines, [`to_editor`]) with the line ends of
-/// `original`, the file's text it was read from: the lines before and
-/// after those changed keep their own ends, and the others take the
-/// file's ([`uses_crlf`]). An untouched text is the original again, byte
-/// for byte, whatever its line ends; a file with both kinds keeps them
-/// but on the lines changed.
+/// `original`, the text it was read from (a file's, a GFF field's): every
+/// line not changed keeps its own end, found by a diff of the lines; a
+/// line changed in place (between two kept, as many as there were) keeps
+/// the end it had; a line added takes the text's ([`uses_crlf`]: most of
+/// its lines', CRLF with none, as Aurora writes). An untouched text is the
+/// original again, byte for byte, whatever its line ends.
 pub(crate) fn with_line_ends(text: &str, original: &str) -> String {
-    let crlf = uses_crlf(original);
+    with_line_ends_or(text, original, true)
+}
+
+/// [`with_line_ends`], with `crlf` the line end of a text that has none
+/// yet: plain for a talk table's (the game's own `dialog.tlk` has no CRLF
+/// at all), CRLF for a file's or a GFF field's.
+pub(crate) fn with_line_ends_or(text: &str, original: &str, crlf: bool) -> String {
+    let crlf = if original.contains('\n') { uses_crlf(original) } else { crlf };
     let old: Vec<&str> = original.split('\n').collect();
     let new: Vec<&str> = text.split('\n').collect();
-    let (m, n) = (old.len(), new.len());
+    let m = old.len();
     // (Each segment but the last ends a line: its "\r", if any, is the
     // line end's, as `to_editor` took it.)
-    let content =
-        |k: usize| if k + 1 < m { old[k].strip_suffix('\r').unwrap_or(old[k]) } else { old[k] };
+    let content: Vec<&str> = (old.iter().enumerate())
+        .map(|(k, s)| if k + 1 < m { s.strip_suffix('\r').unwrap_or(s) } else { s })
+        .collect();
+    let kept = kept_lines(&content, &new);
+    let mut out = String::with_capacity(text.len() + new.len());
+    for (k, line) in new.iter().enumerate() {
+        out.push_str(line);
+        if k + 1 == new.len() {
+            break;
+        }
+        // (The old last line had no end of its own.)
+        let end_crlf = match kept[k] {
+            Some(o) if o + 1 < m => old[o].ends_with('\r'),
+            _ => crlf,
+        };
+        out.push_str(if end_crlf { "\r\n" } else { "\n" });
+    }
+    out
+}
+
+/// The most cells of [`kept_lines`]'s table: a change of more lines than
+/// that (thousands each side, a script rewritten whole) is taken as the
+/// lines changed in place, from the first changed to the last.
+const DIFF_CELLS: usize = 4_000_000;
+
+/// For each line of `new`, the line of `old` it is: the same text, by a
+/// diff of the lines (their longest common subsequence), or among the lines
+/// changed between two kept ones, the old line in its place (the first
+/// lines of the run, as many as both have). `None`: a line added.
+fn kept_lines(old: &[&str], new: &[&str]) -> Vec<Option<usize>> {
+    let (m, n) = (old.len(), new.len());
     let mut prefix = 0;
-    while prefix + 1 < n && prefix + 1 < m && new[prefix] == content(prefix) {
+    while prefix < m && prefix < n && old[prefix] == new[prefix] {
         prefix += 1;
     }
     let mut suffix = 0;
-    while suffix < n - prefix
-        && suffix < m - prefix
-        && new[n - 1 - suffix] == content(m - 1 - suffix)
-    {
+    while suffix < m - prefix && suffix < n - prefix && old[m - 1 - suffix] == new[n - 1 - suffix] {
         suffix += 1;
     }
-    let mut out = String::with_capacity(text.len() + n);
-    for (k, line) in new.iter().enumerate() {
-        out.push_str(line);
-        if k + 1 == n {
-            break;
+    let (a, b) = (&old[prefix..m - suffix], &new[prefix..n - suffix]);
+    // The lines of the changed run that are the same in both, in order.
+    let mut same = Vec::new();
+    let w = b.len() + 1;
+    if (a.len() + 1).saturating_mul(w) <= DIFF_CELLS {
+        // (Each cell: the longest common subsequence of a[i..] and b[j..].)
+        let mut len = vec![0u32; (a.len() + 1) * w];
+        for i in (0..a.len()).rev() {
+            for j in (0..b.len()).rev() {
+                len[i * w + j] = if a[i] == b[j] {
+                    len[(i + 1) * w + j + 1] + 1
+                } else {
+                    len[(i + 1) * w + j].max(len[i * w + j + 1])
+                };
+            }
         }
-        let kept = if k < prefix {
-            Some(k)
-        } else if k >= n - suffix {
-            Some(k + m - n)
-        } else if n == m {
-            // (Lines changed in place, as many as there were: each keeps
-            // the end it had, in a file of mixed ends too.)
-            Some(k)
-        } else {
-            None
-        };
-        let end_crlf = kept.map_or(crlf, |o| old[o].ends_with('\r'));
-        out.push_str(if end_crlf { "\r\n" } else { "\n" });
+        let (mut i, mut j) = (0, 0);
+        while i < a.len() && j < b.len() {
+            if a[i] == b[j] {
+                same.push((i, j));
+                (i, j) = (i + 1, j + 1);
+            } else if len[(i + 1) * w + j] >= len[i * w + j + 1] {
+                i += 1;
+            } else {
+                j += 1;
+            }
+        }
+    }
+    same.push((a.len(), b.len()));
+    let mut out = vec![None; n];
+    for (k, o) in out.iter_mut().enumerate().take(prefix) {
+        *o = Some(k);
+    }
+    for k in 0..suffix {
+        out[n - 1 - k] = Some(m - 1 - k);
+    }
+    let (mut i0, mut j0) = (0, 0);
+    for (i, j) in same {
+        for d in 0..(i - i0).min(j - j0) {
+            out[prefix + j0 + d] = Some(prefix + i0 + d);
+        }
+        if j < b.len() {
+            out[prefix + j] = Some(prefix + i);
+        }
+        (i0, j0) = (i + 1, j + 1);
     }
     out
 }
@@ -296,8 +353,8 @@ mod tests {
     fn line_ends() {
         let (shown, crlf) = to_editor("a\r\nb");
         assert_eq!((shown.as_str(), crlf), ("a\nb", true));
-        assert_eq!(from_editor("a\nb\nc", true), "a\r\nb\r\nc");
-        assert_eq!(from_editor("a\nb", false), "a\nb");
+        assert_eq!(with_line_ends("a\nb\nc", "a\r\nb"), "a\r\nb\r\nc");
+        assert_eq!(with_line_ends("a\nb", "a\nb"), "a\nb");
     }
 
     /// An editor's text goes back with the file's line ends: untouched,
@@ -334,6 +391,53 @@ mod tests {
         // No line ends at all: CRLF, as Aurora writes.
         assert!(uses_crlf("void main() {}"));
         assert!(!uses_crlf("a\nb\r\nc\n"));
+    }
+
+    /// In a file of both kinds, every line not changed keeps its own line
+    /// end, wherever the changes are (Jasperre's report): those between
+    /// two changes too, a line added or taken away among them.
+    #[test]
+    fn unchanged_lines_between_changes_keep_their_ends() {
+        let mixed = "a\r\nb\nc\r\nd\r\n";
+        // A line changed, an LF line kept, a line added at the end.
+        assert_eq!(with_line_ends("A\nb\nc\nd\nE\n", mixed), "A\r\nb\nc\r\nd\r\nE\r\n");
+        // A line added between two kept ones takes the file's.
+        assert_eq!(with_line_ends("a\nb\nnew\nc\nd\n", mixed), "a\r\nb\nnew\r\nc\r\nd\r\n");
+        // Lines taken away: those left keep theirs.
+        let five = "a\r\nb\nc\r\nd\ne\r\n";
+        assert_eq!(with_line_ends("b\nc\ne\n", five), "b\nc\r\ne\r\n");
+        // A line changed and one added in its place: the changed one keeps
+        // the end it had, the added one takes the file's.
+        assert_eq!(with_line_ends("a\nB\nB2\nc\nd\n", mixed), "a\r\nB\nB2\r\nc\r\nd\r\n");
+        // Two lines swapped: the diff keeps one (`c`, its own end), and
+        // the other is taken for added (the file's).
+        assert_eq!(with_line_ends("a\nc\nb\nd\n", mixed), "a\r\nc\r\nb\r\nd\r\n");
+        // The last line, which had no end, gets the file's once one follows.
+        assert_eq!(with_line_ends("a\nb\nc", "a\nb"), "a\nb\nc");
+        assert_eq!(with_line_ends("x\ny\nz", "x\r\ny"), "x\r\ny\r\nz");
+    }
+
+    /// The line ends of a text with none yet: CRLF for a file's or a
+    /// GFF field's ([`with_line_ends`]), plain for a talk table's.
+    #[test]
+    fn a_text_without_line_ends_takes_its_kind_s() {
+        assert_eq!(with_line_ends("a\nb", "a"), "a\r\nb");
+        assert_eq!(with_line_ends_or("a\nb", "a", false), "a\nb");
+        assert_eq!(with_line_ends_or("a\nb\nc", "a\r\nb", false), "a\r\nb\r\nc");
+        assert_eq!(with_line_ends_or("one\ntwo", "one\ntwo", false), "one\ntwo");
+    }
+
+    /// A text changed past what the diff takes on (a script rewritten
+    /// whole) still keeps the ends of the lines before and after the
+    /// changes, and of those changed in place.
+    #[test]
+    fn a_large_change_keeps_the_ends_around_it() {
+        let old: String = (0..3000).map(|k| format!("{k}{}", ["\r\n", "\n"][k % 2])).collect();
+        let new: String = (0..3000).map(|k| format!("x{k}\n")).collect();
+        let out = with_line_ends(&new, &old);
+        let expected: String =
+            (0..3000).map(|k| format!("x{k}{}", ["\r\n", "\n"][k % 2])).collect();
+        assert_eq!(out, expected);
     }
 
     #[test]

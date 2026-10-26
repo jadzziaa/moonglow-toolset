@@ -172,7 +172,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     ui.heading("Conversation");
                     ui.label("Enter the conversation text for the shopkeeper.");
                     ui.label("What does the shopkeeper say when the conversation begins?");
-                    let field = ui.add(egui::TextEdit::multiline(&mut w.greeting).desired_rows(2));
+                    let field = egui::TextEdit::multiline(&mut w.greeting).desired_rows(2);
+                    let id = egui::Id::new("store-wizard-greeting");
+                    let field = crate::widgets::text_area(ui, id, field).response.response;
                     crate::widgets::autofocus(ui, &field);
                     ui.label("What does the player say when the player wishes to see the store?");
                     ui.text_edit_singleline(&mut w.yes);
@@ -389,8 +391,9 @@ fn build(
         data: Some(
             {
                 // (Its lines in the module's own letters, if it has a
-                // table of them.)
-                let line = crate::text::for_windows_1252;
+                // table of them, and with CRLF line ends, as Aurora's.)
+                let line =
+                    |t: &str| crate::text::for_windows_1252(&crate::text::with_line_ends(t, ""));
                 store_setup::conversation(&line(&w.greeting), &line(&w.yes), &line(&w.no), script)
             }
             .to_bytes()
@@ -481,7 +484,9 @@ pub(crate) fn popup_window(app: &mut Moonglow, ctx: &egui::Context) {
         .resizable(false)
         .show(ctx, |ui| {
             ui.label("Popup Text");
-            let field = ui.add(egui::TextEdit::multiline(&mut p.text).desired_rows(4));
+            let field = egui::TextEdit::multiline(&mut p.text).desired_rows(4);
+            let field =
+                crate::widgets::text_area(ui, egui::Id::new("popup-text"), field).response.response;
             crate::widgets::autofocus(ui, &field);
             ui.label("Conversation File");
             ui.add(egui::TextEdit::singleline(&mut p.name).char_limit(16));
@@ -504,7 +509,8 @@ pub(crate) fn popup_window(app: &mut Moonglow, ctx: &egui::Context) {
         });
     if ok && let Some(name) = name {
         let git = ResKey::new(p.area, ResType::GIT);
-        match store_setup::popup(&crate::text::for_windows_1252(&p.text)).to_bytes() {
+        let text = crate::text::with_line_ends(&p.text, "");
+        match store_setup::popup(&crate::text::for_windows_1252(&text)).to_bytes() {
             Ok(data) => {
                 let edits = vec![
                     Edit::SetResource { key: ResKey::new(name, ResType::DLG), data: Some(data) },

@@ -20,8 +20,9 @@ pub struct TalkView {
     /// Bumped on every change to the table, for the cached search.
     revision: u64,
     found: Option<(String, u64, Vec<usize>)>,
-    /// The selected line as edited, and as the table had it when last
-    /// applied (an undo changes the table under it).
+    /// The selected line as edited (with plain line ends:
+    /// [`shown_line`]), and as the table had it when last applied (an undo
+    /// changes the table under it).
     edit: Option<(usize, Line, Line)>,
     error: Option<String>,
     /// New Talk Table: its name and whether it has a feminine table.
@@ -366,6 +367,23 @@ fn no_table(app: &mut Moonglow, ui: &mut Ui, name: Option<String>) {
             Err(e) => app.log.error(format!("Talk table: {e}")),
         }
     }
+}
+
+/// A line as its fields show it: with plain line ends
+/// ([`crate::text::to_editor`]).
+fn shown_line(line: &Line) -> Line {
+    let plain = |s: &str| crate::text::to_editor(s).0;
+    Line { text: plain(&line.text), feminine: line.feminine.as_deref().map(plain), ..line.clone() }
+}
+
+/// A line as typed in its fields, to set where the table has `stored`:
+/// with the line ends of the stored text, those of its lines kept, plain
+/// for a text that had none (the game's own talk table has no CRLF).
+fn stored_line(typed: &Line, stored: &Line) -> Line {
+    let ends = |typed: &str, stored: &str| crate::text::with_line_ends_or(typed, stored, false);
+    let feminine = (typed.feminine.as_deref())
+        .map(|f| ends(f, stored.feminine.as_deref().unwrap_or_default()));
+    Line { text: ends(&typed.text, &stored.text), feminine, ..typed.clone() }
 }
 
 fn table(app: &mut Moonglow, ui: &mut Ui) {
@@ -733,7 +751,7 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
     };
     let current = t.line(row);
     if v.edit.as_ref().is_none_or(|(r, _, applied)| *r != row || *applied != current) {
-        v.edit = Some((row, current.clone(), current));
+        v.edit = Some((row, shown_line(&current), current));
         v.error = None;
     }
     let (_, line, applied) = v.edit.as_mut().expect("set");
@@ -757,12 +775,11 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
             .auto_shrink(false);
         area.show(ui, |ui| {
             let edit = egui::TextEdit::multiline(text)
-                .id(egui::Id::new(salt))
                 .desired_rows(3)
                 .desired_width(f32::INFINITY)
                 .min_size(egui::vec2(0.0, box_height))
                 .hint_text(hint);
-            ui.add(edit).changed()
+            crate::widgets::text_area(ui, egui::Id::new(salt), edit).response.changed()
         })
         .inner
     };
@@ -789,7 +806,7 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
         });
     });
     if *line != before {
-        match t.set_line(row, line, typing) {
+        match t.set_line(row, &stored_line(line, applied), typing) {
             Ok(()) => {
                 *applied = t.line(row);
                 v.error = None;

@@ -25,6 +25,7 @@ pub struct HakDoc {
     anchor: Option<ResKey>,
     /// The resource being renamed, and its new name as typed.
     pub rename: Option<(ResKey, String)>,
+    /// The description as typed (with plain line ends).
     description: Option<String>,
     /// Bumped on every change, for the cached rows.
     revision: u64,
@@ -318,16 +319,17 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
     });
     ui.horizontal(|ui| {
         ui.label("Description");
-        let text = doc.description.get_or_insert_with(|| doc.hak.description.clone());
-        let r = ui.add(
-            egui::TextEdit::multiline(text)
-                .desired_rows(2)
-                .desired_width(480.0)
-                .hint_text("for people: the game doesn't show it"),
-        );
+        let stored = &doc.hak.description;
+        let text = doc.description.get_or_insert_with(|| crate::text::to_editor(stored).0);
+        let field = egui::TextEdit::multiline(text)
+            .desired_rows(2)
+            .desired_width(480.0)
+            .hint_text("for people: the game doesn't show it");
+        let r =
+            crate::widgets::text_area(ui, ui.id().with("hak-description"), field).response.response;
         crate::widgets::leaves_at_a_press(ui.ctx(), &r);
-        if r.lost_focus() && *text != doc.hak.description {
-            let t = text.clone();
+        if r.lost_focus() && *text != crate::text::to_editor(stored).0 {
+            let t = crate::text::with_line_ends(text, stored);
             doc.hak.set_description(&t);
             changed = true;
         }

@@ -1541,13 +1541,12 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     "Try the plugin API on the open module: mg and ctx are at hand; what the code \
                  returns is shown, and its edits go in as one step.",
                 );
-                ui.add(
-                    egui::TextEdit::multiline(&mut app.plugins.console)
-                        .code_editor()
-                        .desired_rows(4)
-                        .desired_width(f32::INFINITY)
-                        .hint_text("return ctx.module:resources(\"utc\")"),
-                );
+                let field = egui::TextEdit::multiline(&mut app.plugins.console)
+                    .code_editor()
+                    .desired_rows(4)
+                    .desired_width(f32::INFINITY)
+                    .hint_text("return ctx.module:resources(\"utc\")");
+                crate::widgets::text_area(ui, egui::Id::new("plugin-console"), field);
                 run_console = ui.add_enabled(app.ws.is_some(), egui::Button::new("Run")).clicked();
                 for (l, line) in &app.plugins.console_output {
                     ui.label(egui::RichText::new(line).monospace().color(l.color(ui)));

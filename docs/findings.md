@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T21:19:15Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T05:37:20Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -968,6 +968,29 @@ sound-only entry (`0x2`) and a row past the end. Custom StrRefs are
 - **Checked:** engine, `engine_tlk.rs`.
 - **Moonglow:** `crates/mg-tlk/src/lib.rs`.
 - **Wiki:** missing (the TLK page also calls TLK "a GFF file").
+
+### Line ends: plain in talk tables, mostly CRLF in GFF text
+
+Every talk table of the install is plain LF: of the strings with a line
+end, English `dialog.tlk` has 2,408, German 3,714 (3,731 in
+`dialogf.tlk`), French 2,056, Spanish 2,012, Italian 2,006, Polish 2,267,
+and not one `\r` among them. GFF text is mostly CRLF, as Aurora's
+Windows edit fields write it: of the 15,116 CExoString and CExoLocString
+texts with a line end in the base game's blueprints (BIFs) and the
+official campaigns' `.nwm` modules, 13,925 are CRLF and 1,191 LF
+(conversations 3,721 to 248, `.gic` comments 9,129 to 0; item
+descriptions 140 to 256 and module descriptions 0 to 14 the other way).
+No one text mixes the two, and none has a lone `\r`. The game shows both
+kinds.
+
+- **Checked:** the install (89.8193.37), each string's bytes counted, by
+  a script reading the TLK entries and the GFF fields of every
+  extracted blueprint and `.nwm` resource.
+- **Moonglow:** text fields show plain line ends and store the text's
+  own (`crates/mg-ui/src/text.rs` `with_line_ends_or`); a text without
+  one gets CRLF in a GFF field, LF in a talk table.
+- **Wiki:** missing. The 1.87.8193.35 notes say carriage returns had
+  been drawn as question marks (among the NUI fixes).
 
 ### An empty quoted 2DA cell keeps its place
 

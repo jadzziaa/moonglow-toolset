@@ -720,7 +720,9 @@ fn header(app: &mut Moonglow, ui: &mut Ui, name: &str, checked: &Checked) {
                      void main()\n{{\n    Open_{name}(GetEnteringObject());\n}}\n"
                 );
                 ui.label("Open it from a script of yours, for example the module's OnClientEnter:");
-                ui.add(egui::TextEdit::multiline(&mut code.as_str()).code_editor().desired_rows(6));
+                let mut shown = code.as_str();
+                let field = egui::TextEdit::multiline(&mut shown).code_editor().desired_rows(6);
+                crate::widgets::text_area(ui, ui.id().with("nui-open-code"), field);
                 if ui.button("Copy").clicked() {
                     ui.ctx().copy_text(code.clone());
                     ui.close();
@@ -1238,13 +1240,12 @@ fn source_field(
         typed: false,
     });
     let draft = held.insert(draft);
-    let field = ui.add(
-        egui::TextEdit::multiline(&mut draft.text)
-            .id(ui.id().with(("nui-source-field", of)))
-            .code_editor()
-            .desired_width(f32::INFINITY)
-            .desired_rows(rows),
-    );
+    let field = egui::TextEdit::multiline(&mut draft.text)
+        .code_editor()
+        .desired_width(f32::INFINITY)
+        .desired_rows(rows);
+    let id = ui.id().with(("nui-source-field", of));
+    let field = crate::widgets::text_area(ui, id, field).response.response;
     crate::widgets::leaves_at_a_press(ui.ctx(), &field);
     draft.typed |= field.changed();
     if crate::widgets::has_keys(&field) {
