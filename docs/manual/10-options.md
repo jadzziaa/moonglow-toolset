@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T06:56:43Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T14:09:46Z }
 ---
 
 # Options
@@ -95,6 +95,12 @@ the module is opened again from its file.
   the module tree and goes to its row there, as Aurora does; off, the
   tree goes to it only where its area is opened out already (the arrow
   beside the area's row), and an area left closed stays closed.
+- **Show the tab chosen in the module tree**: on by default. A tab
+  clicked, reached by the keys or opened marks its resource (a script,
+  conversation, blueprint, area…) in the module tree, opens its group
+  and brings its row into view; the keys stay with the tab. Off, the
+  tree stays where it is and marks only the area in front, as Aurora's
+  does. Show in Module Tree on a tab's menu goes to it either way.
 - **Open Properties as tabs of one window**: on by default. A
   blueprint's or a placed object's Properties open as a tab of the window
   Properties are open in already; off, each in a window of its own. A

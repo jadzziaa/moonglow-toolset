@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:43:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T14:09:46Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1331,6 +1331,25 @@ no `Faction`.
 
 ## What Aurora writes
 
+### The module tree and the window in front
+
+Aurora's module tree doesn't follow the window brought to the front: a
+click on an area's tab, or Ctrl+Tab between areas, leaves the tree's
+selection, open folders and scroll as they were, and only turns the
+area in front's row blue (a mark of its own, apart from the selection).
+Areas are the only windows to choose between: the script and
+conversation editors and Properties are modal dialogs. A script opened
+from an area's Events (Edit) isn't selected in the tree; a double click
+on an area selects the Areas folder, not the area. Ctrl+F6 does
+nothing, and there is no Window menu.
+
+- **Checked:** Aurora under Wine on *The Dark Ranger's Treasure*
+  (2026-10-26), by screenshots.
+- **Moonglow:** follows the tab chosen by default (a builders' request);
+  Options › General › Show the tab chosen in the module tree off is
+  Aurora's way (`crates/mg-ui/src/tree.rs`, `reveal_tab`).
+- **Wiki:** missing.
+
 ### Placing a blueprint
 
 Palette fields (`PaletteID`, `Comment`, a store's `ID`) are dropped; old
@@ -1488,6 +1507,40 @@ gains `Mod_UUID`; `nss`, `ndb` and `gic` are left out.
   against the game.
 - **Moonglow:** `crates/mg-module/src/nwsync.rs`, `crates/mg-erf`.
 - **Wiki:** "NWSync technical guide" shows only the folders.
+
+### Talk tables as `nwn_tlk`'s JSON (nasher's)
+
+`nwn_tlk` writes `{"language":N,"entries":[{"id":…,"text":…,"sound":…,"soundLen":…}]}`,
+compact with no line end after it (`-p`: two-space indents, `"key": value`,
+still no line end; nasher passes neither unless `tlkFlags` does). An entry
+is written when its text or sound is not empty, whatever its flags say;
+`text` always, `sound` up to its last non-NUL byte, `soundLen` when the
+length rounded to four places (in 64 bits) is above 0, as the 32-bit float
+that rounding gives, printed as Nim prints a 64-bit float: shortest
+digits, ties to the even one (2.4235000610351562, not …563), fixed while
+the point is at most 17 digits in, else `d.ddde+NN`, `.0` after a whole
+number. Strings are escaped as Nim's `escapeJson`: `\b \t \n \f \r`,
+`\u000b` (lower case), `\u0000`–`\u0007`, `\u000E`–`\u001F` (upper case);
+DEL and `/` as they are. Text is read and written in `--nwn-encoding`
+(windows-1252 by default), never by the table's language: a byte the
+codepage has no character for goes out as the raw byte (so the file isn't
+UTF-8), a character it can't write comes in as its UTF-8 bytes, C1
+controls included. Read back: flags are text 1, sound 2|4 (with or
+without a length), a length alone none; the table has max `id` + 1
+entries (one when there are none); a repeated `id` takes the later entry
+whole; `language`, `entries`, `id` and `text` are required, `soundLen`
+must be a float literal and not negative (otherwise an assertion). An
+entry with flags and no text points at the running string offset, one
+without flags at 0. A tlk target packs `<file's name>.tlk.json` from its
+sources and fails on any other name.
+
+- **Checked:** every shipped `dialog.tlk`/`dialogf.tlk` (ten tables, five
+  languages), both ways and pretty, byte for byte
+  (`tlk::shipped_talk_tables_as_json_as_nwn_tlk_has_them`); `nasher unpack`
+  and `nasher pack` of a tlk target (`nasher::a_talk_table_kept_as_nasher_keeps_it`);
+  probes of the edges with `-k debug`.
+- **Moonglow:** `crates/mg-tlk/src/json.rs`, `crates/mg-module/src/nasher/tlk.rs`.
+- **Wiki:** missing.
 
 ### The compiler's debug file (`.ndb`)
 

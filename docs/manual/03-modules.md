@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:06:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T14:09:46Z }
 ---
 
 # Modules
@@ -247,6 +247,34 @@ unpacking or packing between the toolset and git.
 - **Build › Pack** *file* writes the module the project builds, as `nasher
   pack` does. **Test Module** (F9) packs it into the game's `modules`
   folder and starts the game on it.
+- **A talk table kept in the project** is the module's. nasher keeps a
+  custom talk table as JSON (`nwn_tlk`'s, as `nasher unpack` writes it)
+  in a target of its own, one that packs a `.tlk`:
+
+  ```ini
+  [target]
+  name = "tlk"
+  file = "mytlk.tlk"
+    [target.sources]
+    include = "src/tlk/mytlk.tlk.json"
+  ```
+
+  The target packs `<name>.tlk.json` from its sources, and the module
+  target's sources leave it out (`exclude = "**/*.tlk.json"`), as
+  nasher's own example has it. Where the module names that table
+  (Custom TLK in Module Properties), Moonglow reads it from the project,
+  not from the tlk folder (where `nasher install` puts what it makes of
+  it): the strings the module names show its text, the [talk table
+  editor](#the-talk-table-editor) edits it, and **Save** writes it back
+  as `nwn_tlk` writes it (a table untouched, or edited and taken back,
+  is the file it was, to the byte). A table kept in several languages,
+  a target each (`file = "de/mytlk.tlk"`, its JSON's `language` German),
+  opens in the game's language, and the editor chooses another. The
+  project's `tlkFlags` are used as nasher uses them (`--nwn-encoding`,
+  `--pretty`); a project that keeps its tables as CSV (`tlkFormat =
+  "csv"`) is told it isn't read. `mg build PROJECT --target tlk` makes
+  the `.tlk` as nasher does, and `mg serve` and `mg test` make it for the
+  server from the project.
 - **Compiled scripts are build output.** A project keeps scripts as `.nss`
   only, and Moonglow compiles them when it packs. A compiled script
   without its source can't be kept in a project; Moonglow names any it
@@ -971,8 +999,11 @@ module's talk table:
   can be read, and one Undo takes the import back.
 - **Export JSON…** and **Import JSON…** do the same with the JSON that
   neverwinter.nim's `nwn_tlk` writes and a nasher repository keeps: the
-  table's language and the lines that have text, each with its `id` (the
-  line's number in the table). An import sets the lines the file has and
+  table's language and the lines that have text or a sound, each with
+  its `id` (the line's number in the table), written as `nwn_tlk
+  --pretty` writes them. (A nasher project's own table is edited where
+  it is: see [nasher projects](#nasher-projects-version-control).) An
+  import sets the lines the file has and
   leaves the others; the feminine table is a file of its own there and
   is not touched. (A line's sound length is `soundLen`, as `nwn_tlk` has
   it; files written before 1.20.5 named it `soundLength` and are still
@@ -990,6 +1021,9 @@ module's talk table:
 With no talk table, the editor makes one in the user folder's `tlk` (with
 a feminine table if you ask) and names it in Module Properties. A table in
 a hak or in the module is shown read-only: change it where it is built.
+A nasher project's table kept as JSON is edited in its file, and where
+the project keeps it in several languages, the box beside its name
+chooses the one edited (with no unsaved changes).
 
 **Move to Talk Table** in the String Edit window (the **…** beside a name
 or description) adds the text to the talk table as a new line and puts its
