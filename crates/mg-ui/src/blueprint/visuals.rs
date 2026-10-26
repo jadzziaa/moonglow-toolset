@@ -114,7 +114,10 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, full: bool) {
         pairs(f, ui, Pairs::ANIMATIONS);
         ui.add_space(crate::widgets::SECTION_GAP);
         crate::widgets::section_heading(ui, "Shader parameters");
-        ui.weak("Values a material's shader reads (uniforms).");
+        ui.weak(
+            "Values a material's shader reads (uniforms): only an MTR that names its own \
+             shaders (customshadervs, customshaderfs) gets them.",
+        );
         shader_params(f, ui);
         ui.separator();
     }

@@ -916,7 +916,9 @@ Properties** on the viewer's toolbar:
   music, the environment's sound effects.
 - **Events**, **Advanced** (the tag, the loading screen, Variables; flags
   such as interior, underground, natural, no rest, PvP; **Shader Flags**, the area flags past those three, which
-  custom shaders read from their `areaFlags` uniform), **Comments**.
+  custom shaders read from their `areaFlags` uniform: they do nothing
+  with the stock shaders, and each bit means what a hak's shader makes
+  of it), **Comments**.
 - An area's **Variables** are kept in its GIT, where the game reads them
   (a script's `GetLocalInt` on the area). Before 1.34.3 Moonglow wrote
   them into its ARE, which the game does not read, so they read 0:

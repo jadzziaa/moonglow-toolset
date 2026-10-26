@@ -328,14 +328,19 @@ Shared parts:
   type but waypoints; see above).
 - **Visuals** (creatures, items, placeables, doors; triggers have the
   last part only): what Enhanced Edition's scripts can change about an
-  object's look, set from the start. Aurora has no fields for these; the
-  game reads them when it loads the object.
+  object's look, set from the start. Aurora has no fields for these. The
+  game reads them when it loads the object, so no script is needed: a
+  field set here works as the script call would.
   - **Texture replacements**: a texture of the object's model drawn with
     another (not PLT textures, which keep their colors). The area view
     and the model viewer show them.
   - **Animation replacements**: an animation played as another.
   - **Shader parameters**: an integer or four numbers a material's shader
-    reads, for custom shaders.
+    reads (`SetMaterialShaderUniformInt` and `…Vec4`). They do nothing
+    with the stock shaders. The material is an MTR's name, and the game
+    passes the values only to a mesh drawn with that MTR when the MTR
+    names its own shaders (`customshadervs`, `customshaderfs`); declare
+    each parameter in it too (`parameter int Name 0`).
   - The highlight color, the mouse cursor over the object, its text
     bubble (its name, or text that replaces it or goes before or after
     it), whether it is highlighted and named on mouse-over and with Tab,
