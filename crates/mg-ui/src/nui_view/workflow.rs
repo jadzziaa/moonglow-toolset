@@ -108,14 +108,9 @@ pub(super) fn create_bind(
                 widgets::autofocus(ui, &name_edit);
                 let before = draft.kind;
                 let kind = widgets::field_label(ui, "Type");
-                egui::ComboBox::from_id_salt("bind-type")
+                widgets::dropdown("bind-type")
                     .selected_text(draft.kind.label())
-                    .show_ui(ui, |ui| {
-                        for kind in BindType::ALL {
-                            ui.selectable_value(&mut draft.kind, kind, kind.label());
-                        }
-                    })
-                    .response
+                    .show(ui, &mut draft.kind, &BindType::ALL, |k| k.label())
                     .labelled_by(kind.id);
                 if before != draft.kind {
                     draft.value = draft.kind.value();
@@ -289,7 +284,7 @@ pub(super) fn images(
                 .id(filter)
                 .hint_text("Find a picture…"),
         );
-        let query = state.asset_search.to_lowercase();
+        let query = mg_core::text::fold(state.asset_search.trim());
         let names: Vec<_> =
             assets.catalog.iter().filter(|n| n.contains(&query)).take(24).cloned().collect();
         assets.request_images(ui.ctx(), names.iter().cloned().collect());

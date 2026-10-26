@@ -89,6 +89,7 @@ pub fn clock() -> String {
 /// Find / Replace options.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SearchOptions {
+    /// Off, case and accents are set aside: `arbol` finds `Árbol`.
     pub match_case: bool,
     pub whole_word: bool,
     pub backwards: bool,
@@ -461,33 +462,41 @@ pub fn word_at(text: &str, chars: usize) -> Option<String> {
 }
 
 /// The next match of `needle` from a character index (wrapping around),
-/// as a character range.
+/// as a character range. Without Match case, letter by letter with case
+/// and accents aside ([`mg_core::text::same_letter`]), so what is found
+/// is as long as `needle`.
 pub fn find(text: &str, needle: &str, from: usize, o: &SearchOptions) -> Option<(usize, usize)> {
     if needle.is_empty() {
         return None;
     }
-    let (hay, pat) = if o.match_case {
-        (text.to_string(), needle.to_string())
-    } else {
-        (text.to_lowercase(), needle.to_lowercase())
-    };
-    // Lower-casing can change byte lengths; fall back to exact case then.
-    let (hay, pat) =
-        if hay.len() == text.len() { (hay, pat) } else { (text.to_string(), needle.to_string()) };
-    let whole = |b: usize| {
-        let before = hay[..b].chars().next_back().is_none_or(|c| !is_ident(c));
-        let after = hay[b + pat.len()..].chars().next().is_none_or(|c| !is_ident(c));
+    let hay: Vec<char> = text.chars().collect();
+    let pat: Vec<char> = needle.chars().collect();
+    let last = hay.len().checked_sub(pat.len())?;
+    let same =
+        |a: char, b: char| if o.match_case { a == b } else { mg_core::text::same_letter(a, b) };
+    let whole = |s: usize| {
+        let before = s == 0 || !is_ident(hay[s - 1]);
+        let after = hay.get(s + pat.len()).is_none_or(|&c| !is_ident(c));
         !o.whole_word || (before && after)
     };
-    let matches: Vec<usize> =
-        hay.match_indices(&pat).map(|(b, _)| b).filter(|b| whole(*b)).collect();
-    let from_b = byte_index(text, from);
+    // (Matches don't overlap, from the text's start: as Replace All
+    // replaces them.)
+    let mut matches = Vec::new();
+    let mut s = 0;
+    while s <= last {
+        if hay[s..s + pat.len()].iter().zip(&pat).all(|(&h, &p)| same(h, p)) && whole(s) {
+            matches.push(s);
+            s += pat.len();
+        } else {
+            s += 1;
+        }
+    }
     let pick = if o.backwards {
-        matches.iter().rev().find(|b| **b < from_b).or(matches.last())
+        matches.iter().rev().find(|s| **s < from).or(matches.last())
     } else {
-        matches.iter().find(|b| **b >= from_b).or(matches.first())
+        matches.iter().find(|s| **s >= from).or(matches.first())
     };
-    pick.map(|b| (char_index(text, *b), char_index(text, b + pat.len())))
+    pick.map(|&s| (s, s + pat.len()))
 }
 
 /// Whether the characters `start..end` of `text` are a match of `needle`
@@ -669,6 +678,15 @@ mod tests {
         assert!(!is_match_at(t, "foo", 8, 11, &SearchOptions { whole_word: true, ..o }), "food");
         assert!(is_match_at(t, "foo", 8, 11, &o));
         assert!(!is_match_at(t, "foo", 0, 3, &SearchOptions { match_case: true, ..o }));
+        // Without Match case, accents are set aside as case is; with it,
+        // both kept.
+        let tree = "// Árbol, arbol";
+        assert_eq!(find(tree, "arbol", 0, &o), Some((3, 8)));
+        assert_eq!(find(tree, "ARBOL", 4, &o), Some((10, 15)));
+        let exact = SearchOptions { match_case: true, ..o };
+        assert_eq!(find(tree, "arbol", 0, &exact), Some((10, 15)));
+        assert_eq!(replace_all(tree, "arbol", "roble", &o), ("// roble, roble".into(), 2));
+        assert_eq!(find_lines("Árbol\nx\narbol", "arbol", &o).len(), 2);
     }
 
     #[test]

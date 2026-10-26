@@ -279,13 +279,11 @@ pub(super) fn editor(
 }
 
 fn palette(ui: &mut Ui, v: &mut Value, s: &mut Settings, state: &mut State) {
-    let query = state.search.to_lowercase();
+    let query = mg_core::text::Needle::new(&state.search);
     let can_add = state.resize.is_none() && insertion_parent(v, &state.selected).is_some();
     for (category, items) in PALETTE {
-        let matches: Vec<_> = items
-            .iter()
-            .filter(|(ty, name, _)| format!("{ty} {name}").to_lowercase().contains(&query))
-            .collect();
+        let matches: Vec<_> =
+            items.iter().filter(|(ty, name, _)| query.finds(&format!("{ty} {name}"))).collect();
         if matches.is_empty() {
             continue;
         }
@@ -425,8 +423,8 @@ fn layer(ui: &mut Ui, node: &Value, path: &str, state: &mut State, depth: usize,
     if depth > 64 {
         return;
     }
-    let search = state.layer_search.to_lowercase();
-    if !search.is_empty() && !node.to_string().to_lowercase().contains(&search) {
+    let search = mg_core::text::Needle::new(&state.layer_search);
+    if !search.finds(&node.to_string()) {
         return;
     }
     layer_row(ui, node, path, state, depth, tree);

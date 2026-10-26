@@ -30,9 +30,9 @@ pub struct Found {
 pub struct Query {
     /// Blueprint types; empty: all.
     pub types: Vec<ResType>,
-    /// Tag, ignoring case; `*` matches any run of characters.
+    /// Tag, ignoring case and accents; `*` matches any run of characters.
     pub tag: Option<String>,
-    /// Words the name contains, ignoring case.
+    /// Words the name contains, ignoring case and accents.
     pub name: Option<String>,
     /// Resref (a placed object's blueprint), ignoring case; `*` as in tags.
     pub resref: Option<String>,
@@ -45,9 +45,10 @@ pub struct Query {
     pub fields: Vec<(String, Option<String>)>,
 }
 
-/// Whether `text` matches `pattern`, ignoring case, `*` matching any run.
+/// Whether `text` matches `pattern`, ignoring case and accents, `*`
+/// matching any run.
 pub fn glob(pattern: &str, text: &str) -> bool {
-    let (p, t) = (pattern.to_lowercase(), text.to_lowercase());
+    let (p, t) = (mg_core::text::fold(pattern), mg_core::text::fold(text));
     let parts: Vec<&str> = p.split('*').collect();
     if parts.len() == 1 {
         return p == t;
@@ -132,8 +133,8 @@ fn describe(s: &Struct, restype: ResType, placed: Option<(ResRef, usize)>) -> Fo
 fn matches(q: &Query, s: &Struct, f: &Found) -> bool {
     q.tag.as_ref().is_none_or(|t| glob(t, &f.tag))
         && q.name.as_ref().is_none_or(|n| {
-            let name = f.name.to_lowercase();
-            n.split_whitespace().all(|w| name.contains(&w.to_lowercase()))
+            let name = mg_core::text::fold(&f.name);
+            n.split_whitespace().all(|w| name.contains(&mg_core::text::fold(w)))
         })
         && q.resref.as_ref().is_none_or(|r| f.resref.is_some_and(|x| glob(r, &x.to_string())))
         && q.fields.iter().all(|(label, want)| match (s.get(label), want) {
@@ -233,6 +234,7 @@ mod tests {
     #[test]
     fn globs() {
         assert!(glob("GUARD", "guard"));
+        assert!(glob("*arbol*", "Viejo_ÁRBOL_01"));
         assert!(glob("guard_*", "GUARD_01"));
         assert!(glob("*_01", "guard_01"));
         assert!(glob("g*d*1", "guard_01"));

@@ -288,7 +288,8 @@ pub(crate) fn search(app: &mut Moonglow, f: &FindInstance) -> Vec<Found> {
     let mut areas: Vec<ResRef> = ws.module.keys_of(ResType::ARE).map(|k| k.resref).collect();
     areas.sort();
     areas.retain(|a| f.area.is_none_or(|only| only == *a));
-    let (tag, template) = (f.tag.to_lowercase(), f.template.to_lowercase());
+    // (A tag case and accents aside, as a Filter finds a name.)
+    let (tag, template) = (mg_core::text::Needle::new(&f.tag), f.template.to_lowercase());
     let mut out = Vec::new();
     for area in areas {
         let Ok(git) = ws.doc(&ResKey::new(area, ResType::GIT)) else { continue };
@@ -300,7 +301,7 @@ pub(crate) fn search(app: &mut Moonglow, f: &FindInstance) -> Vec<Found> {
             for (index, s) in git.root.list(kind.list()).unwrap_or(&[]).iter().enumerate() {
                 let t = crate::text::decode(s.string("Tag").unwrap_or_default());
                 let bp = s.resref(field).map(|r| r.to_string()).unwrap_or_default();
-                if t.to_lowercase().contains(&tag) && bp.contains(&template) {
+                if tag.finds(&t) && bp.contains(&template) {
                     out.push(Found { kind, index, area, tag: t, template: bp });
                 }
             }
@@ -335,18 +336,14 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
             egui::Grid::new("find").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
                 crate::widgets::field_label(ui, "In Area");
                 let shown = f.area.map_or_else(|| "(all areas)".to_string(), |a| label(&a));
-                let r = egui::ComboBox::from_id_salt("find-area").selected_text(shown).show_ui(
-                    ui,
-                    |ui| {
-                        ui.selectable_value(&mut f.area, None, "(all areas)");
-                        for a in &areas {
-                            ui.selectable_value(&mut f.area, Some(*a), label(a));
-                        }
-                    },
-                );
                 let options: Vec<Option<ResRef>> =
                     std::iter::once(None).chain(areas.iter().copied().map(Some)).collect();
-                crate::widgets::arrow_step(ui, &r.response, &options, &mut f.area);
+                crate::widgets::dropdown("find-area").selected_text(shown).show(
+                    ui,
+                    &mut f.area,
+                    &options,
+                    |a| a.map_or_else(|| "(all areas)".to_string(), |a| label(&a)),
+                );
                 ui.end_row();
                 crate::widgets::field_label(ui, "From Blueprint");
                 let field = ui

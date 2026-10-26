@@ -330,19 +330,24 @@ fn name_key(
     none: bool,
 ) {
     let current = d.file.get(section, key).unwrap_or_default().to_string();
-    let mut chosen = None;
-    egui::ComboBox::from_id_salt(("set-name", d.id, section, key))
+    // (The tileset's own name for the one set, as it may be written in
+    // another case.)
+    let named = names.iter().find(|n| n.eq_ignore_ascii_case(&current));
+    let was = named.cloned().unwrap_or_else(|| current.clone());
+    let options: Vec<String> =
+        none.then(String::new).into_iter().chain(names.iter().cloned()).collect();
+    let mut pick = was.clone();
+    crate::widgets::dropdown(("set-name", d.id, section, key))
         .selected_text(if current.is_empty() { "(none)".to_string() } else { current.clone() })
-        .show_ui(ui, |ui| {
-            if none && ui.selectable_label(current.is_empty(), "(none)").clicked() {
-                chosen = Some(String::new());
-            }
-            for n in names {
-                if ui.selectable_label(n.eq_ignore_ascii_case(&current), n).clicked() {
-                    chosen = Some(n.clone());
-                }
-            }
-        });
+        .show(
+            ui,
+            &mut pick,
+            &options,
+            |n| {
+                if n.is_empty() { "(none)".to_string() } else { n.clone() }
+            },
+        );
+    let chosen = (pick != was).then_some(pick);
     if let Some(v) = chosen.filter(|v| *v != current) {
         d.change(|f| f.set(section, key, &v));
     }
@@ -485,14 +490,13 @@ fn tiles(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
             });
         }
     });
-    let filter = d.filter.trim().to_lowercase();
+    let filter = mg_core::text::Needle::new(&d.filter);
     let rows: Vec<usize> = (0..t.tiles.len())
         .filter(|&i| {
             let tile = &t.tiles[i];
-            filter.is_empty()
-                || tile.model.to_lowercase().contains(&filter)
-                || tile.corners.iter().any(|(c, _)| c.to_lowercase().contains(&filter))
-                || tile.edges.iter().any(|e| e.to_lowercase().contains(&filter))
+            filter.finds(&tile.model)
+                || tile.corners.iter().any(|(c, _)| filter.finds(c))
+                || tile.edges.iter().any(|e| filter.finds(e))
         })
         .collect();
     let row_height = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
@@ -564,13 +568,9 @@ fn tiles(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
             .and_then(|v| v.trim().parse::<i32>().ok())
             .unwrap_or(0);
         let mut chosen = current;
-        egui::ComboBox::from_id_salt(("set-orientation", d.id, i))
+        crate::widgets::dropdown(("set-orientation", d.id, i))
             .selected_text(format!("{current}°"))
-            .show_ui(ui, |ui| {
-                for a in [0, 90, 180, 270] {
-                    ui.selectable_value(&mut chosen, a, format!("{a}°"));
-                }
-            });
+            .show(ui, &mut chosen, &[0, 90, 180, 270], |a| format!("{a}°"));
         if chosen != current {
             d.change(|f| f.set(&section, "Orientation", &chosen.to_string()));
         }

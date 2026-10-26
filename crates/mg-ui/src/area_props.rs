@@ -306,16 +306,34 @@ fn visual(f: &mut Form<'_>, ui: &mut Ui) {
     let column = widest + 2.0 * ui.spacing().button_padding.x + 16.0;
     let columns = ((ui.available_width() / column) as usize).clamp(1, schemes.len().max(1));
     let rows = schemes.len().div_ceil(columns);
+    // The arrow keys move the choice while a scheme has the keys, as in a
+    // list of choices: Up and Down down the columns, Left and Right to the
+    // column beside (the one chosen so takes the keys in the next frame).
+    let focus_id = egui::Id::new(("schemes-focus", f.key));
+    let refocus: Option<usize> = ui.data_mut(|d| d.remove_temp(focus_id));
+    let mut stepped = None;
     egui::Grid::new(("schemes", f.key)).spacing([16.0, 2.0]).min_col_width(widest).show(ui, |ui| {
         for row in 0..rows {
-            for c in (0..columns).filter_map(|col| schemes.get(col * rows + row)) {
-                if ui.selectable_label(c.row as i64 == current, &c.text).clicked() {
+            for col in 0..columns {
+                let at = col * rows + row;
+                let Some(c) = schemes.get(at) else { continue };
+                let r = ui.selectable_label(c.row as i64 == current, &c.text);
+                if refocus == Some(at) {
+                    r.request_focus();
+                }
+                if r.clicked() {
                     picked = Some(c.row);
                 }
+                stepped =
+                    stepped.or(crate::widgets::grid_arrow_pick(ui, &r, at, schemes.len(), rows));
             }
             ui.end_row();
         }
     });
+    if let Some(at) = stepped {
+        picked = Some(schemes[at].row);
+        ui.data_mut(|d| d.insert_temp(focus_id, at));
+    }
     if let Some(row) = picked {
         apply_scheme(f, row);
     }
@@ -822,10 +840,8 @@ impl AreaChooser {
 
     /// Whether an area passes the filters.
     pub(crate) fn shows(&self, area: ResRef, info: &crate::tree::AreaInfo) -> bool {
-        let text = self.filter.trim().to_lowercase();
-        (text.is_empty()
-            || area.to_string().contains(&text)
-            || info.name.to_lowercase().contains(&text))
+        let text = mg_core::text::Needle::new(&self.filter);
+        (text.finds(&area.to_string()) || text.finds(&info.name))
             && self.tileset.is_none_or(|t| t == info.tileset)
             && FLAG_FILTERS
                 .iter()
@@ -888,19 +904,15 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
                     );
                     ui.end_row();
                     crate::widgets::field_label(ui, "Tileset");
-                    let r = egui::ComboBox::from_id_salt("area-chooser-tileset")
-                        .width(260.0)
-                        .selected_text(c.tileset.map_or("Any".to_string(), tileset_label))
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut c.tileset, None, "Any");
-                            for (t, _) in &tilesets {
-                                ui.selectable_value(&mut c.tileset, Some(*t), tileset_label(*t));
-                            }
-                        });
                     let options: Vec<_> = std::iter::once(None)
                         .chain(tilesets.iter().map(|(t, _)| Some(*t)))
                         .collect();
-                    crate::widgets::arrow_step(ui, &r.response, &options, &mut c.tileset);
+                    crate::widgets::dropdown("area-chooser-tileset")
+                        .width(260.0)
+                        .selected_text(c.tileset.map_or("Any".to_string(), tileset_label))
+                        .show(ui, &mut c.tileset, &options, |t| {
+                            t.map_or("Any".to_string(), tileset_label)
+                        });
                     ui.end_row();
                     for (k, (_, either, yes, no)) in FLAG_FILTERS.iter().enumerate() {
                         crate::widgets::field_label(ui, *yes);
@@ -910,15 +922,10 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
                             Some(false) => *no,
                         };
                         let options = [None, Some(true), Some(false)];
-                        let r = egui::ComboBox::from_id_salt(("area-chooser-flag", k))
+                        crate::widgets::dropdown(("area-chooser-flag", k))
                             .width(260.0)
                             .selected_text(text(c.flags[k]))
-                            .show_ui(ui, |ui| {
-                                for v in options {
-                                    ui.selectable_value(&mut c.flags[k], v, text(v));
-                                }
-                            });
-                        crate::widgets::arrow_step(ui, &r.response, &options, &mut c.flags[k]);
+                            .show(ui, &mut c.flags[k], &options, |v| text(*v));
                         ui.end_row();
                     }
                 },

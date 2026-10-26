@@ -88,7 +88,8 @@ pub fn list_in(m: &Module, game: mg_core::Codepage) -> Vec<AreaInfo> {
 pub struct Filter {
     /// These areas only (none: any).
     pub only: Vec<ResRef>,
-    /// Text in the name, the tag or the ResRef, whatever its case.
+    /// Text in the name, the tag or the ResRef, whatever its case and
+    /// accents.
     pub text: Option<String>,
     pub tileset: Option<ResRef>,
     pub interior: Option<bool>,
@@ -103,8 +104,8 @@ impl Filter {
     }
 
     pub fn matches(&self, a: &AreaInfo) -> bool {
-        let text = self.text.as_deref().map(|t| t.trim().to_lowercase());
-        let has = |s: &str| text.as_deref().is_none_or(|t| s.to_lowercase().contains(t));
+        let text = self.text.as_deref().map(mg_core::text::Needle::new);
+        let has = |s: &str| text.as_ref().is_none_or(|t| t.finds(s));
         (self.only.is_empty() || self.only.contains(&a.resref))
             && (has(&a.name) || has(&a.tag) || has(&a.resref.to_string()))
             && self.tileset.is_none_or(|t| t == a.tileset)

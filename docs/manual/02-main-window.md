@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T06:48:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:06:04Z }
 ---
 
 # The main window
@@ -145,7 +145,9 @@ The left pane lists what the module holds, by kind: Areas, Conversations,
 Scripts, the blueprints (Creatures, Doors, Encounters, Items,
 Placeables, Sounds, Stores, Triggers, Waypoints) and the journal and factions;
 **Module Properties** is at the top. **Filter** narrows every group to the
-names containing the text; it and Expand All / Collapse All stay in sight
+names containing the text, case and accents aside (`arbol` finds `Árbol`,
+as every Filter and Find field of names does: the palettes', the
+resource browser's, a list's); it and Expand All / Collapse All stay in sight
 while the tree scrolls, and Home and End go to the tree's top and bottom
 with the pointer over it.
 

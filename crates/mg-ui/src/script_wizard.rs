@@ -365,11 +365,11 @@ fn move_lists(
     filter: Option<&str>,
     height: f32,
 ) {
-    let filter = filter.map(str::to_lowercase).unwrap_or_default();
+    let filter = mg_core::text::Needle::new(filter.unwrap_or_default());
     let left: Vec<(usize, &str)> = all
         .iter()
         .filter(|e| !chosen.contains(&e.row))
-        .filter(|e| filter.is_empty() || e.name.to_lowercase().contains(&filter))
+        .filter(|e| filter.finds(&e.name))
         .map(|e| (e.row, e.name.as_str()))
         .collect();
     let right: Vec<(usize, &str)> =
@@ -461,11 +461,9 @@ fn combo<T: Copy + PartialEq>(
     options: &[T],
     label: impl Fn(T) -> String,
 ) {
-    egui::ComboBox::from_id_salt(id).selected_text(label(*value)).show_ui(ui, |ui| {
-        for &o in options {
-            ui.selectable_value(value, o, label(o));
-        }
-    });
+    crate::widgets::dropdown(id)
+        .selected_text(label(*value))
+        .show(ui, value, options, |o| label(*o));
 }
 
 fn local_draft(ui: &mut Ui, w: &mut ScriptWizard, condition: bool) -> Option<(String, Operand)> {

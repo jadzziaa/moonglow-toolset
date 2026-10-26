@@ -442,8 +442,8 @@ fn found(
         .blueprints()
         .into_iter()
         .map(|(_, b)| {
-            let tag = tags.get(&b.resref).map(|t| t.to_lowercase()).unwrap_or_default();
-            (b.resref, [b.name.text(game).to_lowercase(), b.resref.to_string(), tag])
+            let tag = tags.get(&b.resref).map(|t| mg_core::text::fold(t)).unwrap_or_default();
+            (b.resref, [mg_core::text::fold(&b.name.text(game)), b.resref.to_string(), tag])
         })
         .collect();
     let mut find = Find::new(&app.palette.filter);
@@ -657,16 +657,19 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             });
         } else {
             let shown = types.iter().find(|t| t.0 == now).expect("one of them");
-            egui::ComboBox::from_id_salt("palette-type")
+            let all: Vec<_> = types.iter().map(|t| t.0).collect();
+            let mut pick = now;
+            crate::widgets::dropdown("palette-type")
                 .selected_text(labelled(shown.1, shown.2))
                 .width(ui.available_width())
-                .show_ui(ui, |ui| {
-                    for (t, glyph, name, _) in &types {
-                        if ui.selectable_label(now == *t, labelled(glyph, name)).clicked() {
-                            chosen = Some(*t);
-                        }
-                    }
+                .show(ui, &mut pick, &all, |t| {
+                    let (_, glyph, name, _) =
+                        types.iter().find(|x| x.0 == *t).expect("one of them");
+                    labelled(glyph, name)
                 });
+            if pick != now {
+                chosen = Some(pick);
+            }
         }
         match chosen {
             Some(Type::Tiles) => {
@@ -1186,8 +1189,8 @@ fn new_blueprint(app: &mut Moonglow, kind: BlueprintKind) {
 }
 
 /// A palette search: words, each found in a blueprint's name, resref or
-/// tag; or, when nothing has every word, letters in order (`lngswd` finds
-/// Longsword).
+/// tag, case and accents aside (`arbol` finds `Árbol`); or, when nothing
+/// has every word, letters in order (`lngswd` finds Longsword).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Find {
     words: Vec<String>,
@@ -1196,14 +1199,15 @@ pub(crate) struct Find {
 
 impl Find {
     fn new(filter: &str) -> Find {
-        Find { words: filter.split_whitespace().map(str::to_lowercase).collect(), fuzzy: false }
+        Find { words: filter.split_whitespace().map(mg_core::text::fold).collect(), fuzzy: false }
     }
 
     fn is_empty(&self) -> bool {
         self.words.is_empty()
     }
 
-    /// Whether a blueprint with these (lower-case) fields matches.
+    /// Whether a blueprint with these ([`mg_core::text::fold`]ed) fields
+    /// matches.
     fn hit(&self, fields: &[&str]) -> bool {
         self.words.iter().all(|w| {
             fields.iter().any(|f| if self.fuzzy { in_order(f, w) } else { f.contains(w.as_str()) })

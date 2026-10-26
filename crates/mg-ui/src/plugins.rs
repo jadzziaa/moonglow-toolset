@@ -1239,13 +1239,9 @@ pub(crate) fn question_ui(app: &mut Moonglow, ui: &mut egui::Ui) -> bool {
                         }
                         FieldKind::Choice { choices, .. } => {
                             let mut chosen = value.as_str().unwrap_or_default().to_string();
-                            egui::ComboBox::from_id_salt(("plugin-form", &f.id))
+                            crate::widgets::dropdown(("plugin-form", &f.id))
                                 .selected_text(chosen.clone())
-                                .show_ui(ui, |ui| {
-                                    for c in choices {
-                                        ui.selectable_value(&mut chosen, c.clone(), c);
-                                    }
-                                });
+                                .show(ui, &mut chosen, choices, Clone::clone);
                             *value = serde_json::json!(chosen);
                         }
                     }
@@ -1829,13 +1825,12 @@ fn setting_field(
             ui.add(egui::DragValue::new(n).range(range));
         }
         (SettingKind::Choice(choices), SettingValue::Text(chosen)) => {
-            egui::ComboBox::from_id_salt(("plugin-setting", &d.id))
-                .selected_text(chosen.clone())
-                .show_ui(ui, |ui| {
-                    for c in choices {
-                        ui.selectable_value(chosen, c.clone(), c);
-                    }
-                });
+            crate::widgets::dropdown(("plugin-setting", &d.id)).selected_text(chosen.clone()).show(
+                ui,
+                chosen,
+                choices,
+                Clone::clone,
+            );
         }
         (SettingKind::Path, SettingValue::Text(path)) => {
             ui.horizontal(|ui| {

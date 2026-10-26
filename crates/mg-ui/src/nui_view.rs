@@ -756,13 +756,9 @@ fn navigation(app: &mut Moonglow, ui: &mut Ui, name: &str, checked: &Checked, st
                     });
                 }
                 if state.page == Page::Design {
-                    egui::ComboBox::from_id_salt("nui-layout-mode")
+                    widgets::dropdown("nui-layout-mode")
                         .selected_text(state.view_mode.label())
-                        .show_ui(ui, |ui| {
-                            for mode in ViewMode::ALL {
-                                ui.selectable_value(&mut state.view_mode, mode, mode.label());
-                            }
-                        });
+                        .show(ui, &mut state.view_mode, &ViewMode::ALL, |m| m.label());
                 }
                 ui.menu_button("Advanced", |ui| {
                     if ui.selectable_label(state.page == Page::JuiSource, "JUI source").clicked() {
@@ -2001,14 +1997,10 @@ fn property(
     {
         // The NUI_* constants of nw_inc_nui, by name.
         let mut n = n;
-        egui::ComboBox::from_id_salt(key)
+        let all: Vec<i64> = (0..names.len() as i64).collect();
+        widgets::dropdown(key)
             .selected_text(names.get(n as usize).copied().unwrap_or("Other"))
-            .show_ui(ui, |ui| {
-                for (i, name) in names.iter().enumerate() {
-                    ui.selectable_value(&mut n, i as i64, *name);
-                }
-            })
-            .response
+            .show(ui, &mut n, &all, |i| names[*i as usize])
             .labelled_by(heading.id);
         *value = json!(n);
     } else if !value.is_boolean()

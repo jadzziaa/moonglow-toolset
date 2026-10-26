@@ -111,7 +111,7 @@ impl Browser {
     }
 
     fn filtered(&mut self) -> &[usize] {
-        let query = (self.restype, self.filter.to_ascii_lowercase(), self.show_copies);
+        let query = (self.restype, mg_core::text::fold(self.filter.trim()), self.show_copies);
         if self.query.as_ref() != Some(&query) {
             self.shown = self
                 .entries
@@ -120,7 +120,8 @@ impl Browser {
                 .filter(|(_, r)| {
                     (query.2 || r.over.is_none())
                         && query.0.is_none_or(|t| r.key.restype == t)
-                        && (query.1.is_empty() || r.key.resref.to_string().contains(&query.1))
+                        && (query.1.is_empty()
+                            || mg_core::text::fold(&r.key.resref.to_string()).contains(&query.1))
                 })
                 .map(|(i, _)| i)
                 .collect();
@@ -146,12 +147,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     }
     ui.horizontal(|ui| {
         let current = browser.restype.and_then(|t| t.extension()).unwrap_or("all types");
-        egui::ComboBox::from_id_salt("browser-type").selected_text(current).show_ui(ui, |ui| {
-            ui.selectable_value(&mut browser.restype, None, "all types");
-            for t in &browser.types {
-                ui.selectable_value(&mut browser.restype, Some(*t), t.extension().unwrap_or("?"));
-            }
-        });
+        let types: Vec<Option<ResType>> =
+            std::iter::once(None).chain(browser.types.iter().copied().map(Some)).collect();
+        crate::widgets::dropdown("browser-type").selected_text(current).show(
+            ui,
+            &mut browser.restype,
+            &types,
+            |t| t.map_or("all types", |t| t.extension().unwrap_or("?")),
+        );
         crate::widgets::field_label(ui, "Name");
         // The Filter's keys, as the side panes have them (GitHub issue
         // 12): Ctrl+F with the pointer over the browser goes to it,
@@ -805,14 +808,14 @@ fn two_da(
                 Some(i) => format!("Rows from {}", l.copies[i].0),
             };
             browser.rows_from = browser.rows_from.filter(|&i| i < l.copies.len());
-            egui::ComboBox::from_id_salt("2da-rows-from")
-                .selected_text(label(browser.rows_from))
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut browser.rows_from, None, label(None));
-                    for i in 0..l.copies.len() {
-                        ui.selectable_value(&mut browser.rows_from, Some(i), label(Some(i)));
-                    }
-                });
+            let options: Vec<Option<usize>> =
+                std::iter::once(None).chain((0..l.copies.len()).map(Some)).collect();
+            crate::widgets::dropdown("2da-rows-from").selected_text(label(browser.rows_from)).show(
+                ui,
+                &mut browser.rows_from,
+                &options,
+                |i| label(*i),
+            );
         }
     });
     if layered {

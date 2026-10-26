@@ -64,15 +64,10 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
     egui::CollapsingHeader::new("Property binding").default_open(true).show(ui, |ui| {
         ui.weak("A bound property takes its value from a bind, which a script can change.");
         let property = widgets::field_label(ui, "Property");
-        egui::ComboBox::from_id_salt("bind-property")
+        widgets::dropdown("bind-property")
             .selected_text(label(&state.binding_property, &ty))
             .width(ui.available_width().max(0.0))
-            .show_ui(ui, |ui| {
-                for key in &keys {
-                    ui.selectable_value(&mut state.binding_property, key.clone(), label(key, &ty));
-                }
-            })
-            .response
+            .show(ui, &mut state.binding_property, &keys, |key| label(key, &ty))
             .labelled_by(property.id);
         let key = state.binding_property.clone();
         let Some(current) = doc.pointer(&path).map(|n| n[&key].clone()) else { return };
@@ -83,20 +78,22 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
             let mut draft = ui.ctx().data_mut(|d| d.get_temp::<Draft>(draft_id));
             let mut chosen = bound.clone().unwrap_or_default();
             widgets::field_label(ui, "Value from");
-            egui::ComboBox::from_id_salt("property-bind-source")
+            // Checked only while the list is used (open, or with the keys).
+            let choices = || -> Vec<String> {
+                (settings.bindings.iter())
+                    .filter(|(_, b)| compatible(doc, &path, &key, settings, &b.value))
+                    .map(|(n, _)| n.clone())
+                    .collect()
+            };
+            let options = || std::iter::once(String::new()).chain(choices()).collect();
+            widgets::dropdown("property-bind-source")
                 .selected_text(bound.as_deref().unwrap_or("Constant (no bind)"))
                 .width(ui.available_width().max(0.0))
-                .show_ui(ui, |ui| {
-                    // Checked only while the list is open.
-                    let choices: Vec<_> = settings
-                        .bindings
-                        .iter()
-                        .filter(|(_, b)| compatible(doc, &path, &key, settings, &b.value))
-                        .map(|(n, _)| n.clone())
-                        .collect();
-                    ui.selectable_value(&mut chosen, String::new(), "Constant (no bind)");
+                .show_with(ui, &mut chosen, options, |ui, chosen| {
+                    let choices = choices();
+                    ui.selectable_value(chosen, String::new(), "Constant (no bind)");
                     for name in &choices {
-                        ui.selectable_value(&mut chosen, name.clone(), name);
+                        ui.selectable_value(chosen, name.clone(), name);
                     }
                     if choices.is_empty() {
                         ui.weak("No bind holds a value of this kind: make one below.");

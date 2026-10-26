@@ -211,11 +211,8 @@ pub(crate) fn grid(
         ui.weak(format!("{} appearances ({name}.2da)", all.len()));
     });
     let side = tile_side(app);
-    let needle = state.filter.to_lowercase();
-    let rows: Vec<&mg_rules::Choice> = all
-        .iter()
-        .filter(|c| needle.is_empty() || c.text.to_lowercase().contains(&needle))
-        .collect();
+    let needle = mg_core::text::Needle::new(&state.filter);
+    let rows: Vec<&mg_rules::Choice> = all.iter().filter(|c| needle.finds(&c.text)).collect();
     let ready = app.thumbnails.every();
     let (mut shown, mut pick) = (Vec::new(), None);
     let gap = 4.0;

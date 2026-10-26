@@ -417,12 +417,13 @@ fn page(
             egui::Grid::new("cw-look").num_columns(2).show(ui, |ui| {
                 crate::widgets::field_label(ui, "Gender");
                 let before = w.gender;
-                egui::ComboBox::from_id_salt("cw-gender")
-                    .selected_text(if w.gender == 1 { "Female" } else { "Male" })
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut w.gender, 0, "Male");
-                        ui.selectable_value(&mut w.gender, 1, "Female");
-                    });
+                let name = |g: &u8| if *g == 1 { "Female" } else { "Male" };
+                crate::widgets::dropdown("cw-gender").selected_text(name(&w.gender)).show(
+                    ui,
+                    &mut w.gender,
+                    &[0, 1],
+                    name,
+                );
                 if w.gender != before {
                     w.portrait = None;
                 }
@@ -444,11 +445,9 @@ fn page(
                         .desired_width(160.0),
                 );
             });
-            let needle = w.appearance_find.to_lowercase();
-            let shown: Vec<&Choice> = appearances
-                .iter()
-                .filter(|c| needle.is_empty() || c.text.to_lowercase().contains(&needle))
-                .collect();
+            let needle = mg_core::text::Needle::new(&w.appearance_find);
+            let shown: Vec<&Choice> =
+                appearances.iter().filter(|c| needle.finds(&c.text)).collect();
             let gap = 4.0;
             let room = ui.available_width() - ui.spacing().scroll.bar_width - 10.0;
             let (per_row, side) = crate::appearance_gallery::fitted(room, 96.0, gap);

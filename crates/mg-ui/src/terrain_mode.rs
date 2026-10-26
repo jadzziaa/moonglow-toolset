@@ -1324,7 +1324,7 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     // The row over the list, as the blueprint palettes have it: every
     // heading opened or closed, how many there are (of the search, if
     // any), names or pictures, and the pictures' size.
-    let filter = app.palette.filter.trim().to_lowercase();
+    let filter = mg_core::text::fold(app.palette.filter.trim());
     let gallery = app.settings.palette_gallery;
     let shown = {
         let Some(tools) = app.area_views.get(&area).and_then(|v| v.terrain.as_ref()) else {
@@ -1535,9 +1535,10 @@ fn count(items: &[PaletteItem], tools: &Tools, filter: &str, gallery: bool) -> u
         .sum()
 }
 
-/// Whether `label` has the search in it (everything matches no search).
+/// Whether `label` has the search in it (everything matches no search),
+/// `filter` [`mg_core::text::fold`]ed: case and accents aside.
 fn matches(label: &str, filter: &str) -> bool {
-    filter.is_empty() || label.to_lowercase().contains(filter)
+    filter.is_empty() || mg_core::text::fold(label).contains(filter)
 }
 
 /// The tiles of a brush the search finds: all of them where the brush's

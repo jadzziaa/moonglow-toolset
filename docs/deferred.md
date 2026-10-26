@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T06:48:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:06:04Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -654,21 +654,24 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   mark up. Not compared with Aurora's list (its rounding, whether it
   counts a stack); the buy price (mark down) is not shown. (S)
   (GitHub issues 10 to 24, after 1.20.0)
-- **Arrow keys on lists of choices:** the lists of a table's rows
-  (`widgets::row_choice`: the blueprint editors', Area Properties', the
-  2DA editor's) and the area's lists (the toolbar's Fade Geometry, Snap
-  and Turn; Resize Area's, Find Instance's and Edit Areas Together's:
-  `widgets::arrow_step`) take them while the list has the focus
-  (clicked, open or after a choice; Tab). Escape gives the focus up, as
-  everywhere in the interface, so after closing a list with Escape it is
-  clicked again. Not done: the plain lists of other windows (Options,
-  Module Properties, the conversation and NUI editors, the wizards, the
-  resource browser, Advanced Search's kinds and fields) and the blueprint
-  editors' few lists that are not a table's rows (a creature's alignment,
-  the mouse cursor, a text bubble's mode) don't take them; Resize
-  Area's, Find Instance's and Edit Areas Together's are not under test;
-  Area Properties' Lighting Scheme is a grid of buttons, not a list.
-  (S) (GitHub issue 7)
+- **Arrow keys on lists of choices:** every dropdown is drawn by
+  `widgets::dropdown` (a test reads the sources for an egui combo box
+  made elsewhere) or, for a table's rows, `widgets::row_choice`, and
+  takes them while it has the focus (clicked, open or after a choice;
+  Tab), as does Area Properties' Lighting Scheme grid (Left and Right
+  across its columns); a list with the keyboard keeps them from the
+  conversation tree. Escape gives the focus up, as everywhere in the
+  interface, so after closing a list with Escape it is clicked again.
+  Not done: the lists of commands (Module Properties' Add hak…, a
+  trigger's Setup Area Transition…), the 2DA editor's list of flags (a
+  set of ticks) and the Variables window's ▾ menu of a value's
+  suggestions take none; under test are the area's lists and dialogs,
+  Options' Interface size, Advanced Search's kinds and variable types, a
+  creature's Alignment, a conversation's Play Animation and the
+  Lighting Scheme, the others by the source rule alone. A list whose
+  options are read only while it is used (Module Properties' movies and
+  talk tables, a conversation's speaker tags, the NUI editor's targets
+  and binds) reads them every frame it has the focus. (S) (GitHub issue 7)
 - **Pictures in the Appearance list:** a creature's (a plain male body
   of the appearance) and a placeable's, beside the row the pointer rests
   on; a door's and an item's lists have none. (S) (GitHub issue 7)
@@ -821,13 +824,17 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Names in order, accents aside** (Sacha's report, October 2026):
   the Category lists (Options › General), the module tree, the lists of
   a table's rows and the palettes' own order (Windows' word sort) fold
-  case and the accents of Latin letters (`mg_core::text`), so `Árboles`
-  stands beside `arboles`. Not done: the Filter fields still match as
-  typed (`arbol` does not find `Árbol`); only Latin-1 and Latin
-  Extended-A letters are folded (not Vietnamese's, nor Greek's or
-  Cyrillic's accents); names that fold alike are ordered by their bytes
-  (`Arboles`, `arboles`, `Árboles`), not compared with how Windows ties
-  them. (S)
+  case and the accents of Latin letters (Latin-1, Extended-A and B,
+  Extended Additional: Vietnamese) and Greek's tonos (`mg_core::text`),
+  so `Árboles` stands beside `arboles`; every Filter and Find of names
+  (`mg_core::text::Needle`: the module tree, the palettes, the lists of
+  rows, the resource browser, the 2DA editor, the script side list, the
+  wizards, Edit Areas Together, `mg`'s area and object filters) finds
+  `Árbol` for `arbol`, and the searches of text (Find and Replace Text,
+  a script's Find, the conversation Search) set accents aside only
+  without Match case; tags and `*` patterns (Find Instance, Advanced
+  Search, `mg find`) too. Not done: Cyrillic's (ё for е) and polytonic
+  Greek's marks (Greek Extended) are not folded. (S)
 
 - **The palette's header, not as drawn in the issue:** "More" is a
   word, and the clear button "×" and the Gallery's "⊞" are the glyphs
@@ -3789,6 +3796,14 @@ is not taken for a new gap.
   `NumpadSubtract` both to `Key::Minus`, has no key for `NumpadMultiply`
   (the keypad's * comes only as the text `*`) and drops a key's location
   on the keyboard (`location: _` in its key event).
+- **Names that fold alike, against Windows:** `Arboles`, `arboles` and
+  `Árboles` are put in order by their text after the folded name ties
+  (`mg_core::text::sort_key`), not as Windows' `CompareString` ties them
+  (by accents, then case, at its second and third levels). Aurora's
+  order of such names can't be watched here: it runs under Wine, whose
+  `CompareString` is Wine's own collation, not Windows'. One order,
+  the same whatever the names came in, is what the lists need. (Sacha's
+  report, October 2026)
 - **Escape in the conversation tree** hands its keys back, as the module
   tree's Escape does; Aurora's Escape does nothing in its tree (watched,
   2026-10-26). Moonglow's lists keep the keys from the area's view, which

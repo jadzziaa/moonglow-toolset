@@ -656,7 +656,8 @@ pub fn property_parts(game: &GameData, property: u16, subtype: Option<u16>) -> P
 }
 
 /// A row of a table, given as its number or its name (the game's name or
-/// the label, ignoring case; else the one row whose name contains it).
+/// the label, ignoring case and accents; else the one row whose name
+/// contains it).
 pub fn row_named(choices: &[Choice], table: &str, text: &str) -> Result<usize, String> {
     let text = text.trim();
     if let Ok(n) = text.parse::<usize>() {
@@ -665,12 +666,13 @@ pub fn row_named(choices: &[Choice], table: &str, text: &str) -> Result<usize, S
     if choices.is_empty() {
         return Err(format!("{text}: give a row number of {table}.2da (no game data to name it)"));
     }
-    let lower = text.to_lowercase();
-    if let Some(c) = choices.iter().find(|c| c.text.to_lowercase() == lower) {
+    // (Case and accents aside.)
+    let lower = mg_core::text::fold(text);
+    if let Some(c) = choices.iter().find(|c| mg_core::text::fold(&c.text) == lower) {
         return Ok(c.row);
     }
     let some: Vec<&Choice> =
-        choices.iter().filter(|c| c.text.to_lowercase().contains(&lower)).collect();
+        choices.iter().filter(|c| mg_core::text::fold(&c.text).contains(&lower)).collect();
     match some.as_slice() {
         [one] => Ok(one.row),
         [] => Err(format!("{text}: no row of {table}.2da is named so")),

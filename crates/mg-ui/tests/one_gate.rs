@@ -1,8 +1,10 @@
 //! Every change to the open module goes through `Moonglow::apply` (edits,
 //! undoable) or `Workspace::derive` (what is made from the module at save
 //! or build): the warnings, the derived values, the hak list and the
-//! revision that views watch all hang on that. This reads the sources, so
-//! that a new way round fails here instead of being found later.
+//! revision that views watch all hang on that. Every dropdown is drawn
+//! by `widgets`, so that every one takes the arrow keys. This reads the
+//! sources, so that a new way round fails here instead of being found
+//! later.
 
 use std::path::Path;
 
@@ -20,10 +22,40 @@ fn sources(dir: &Path, out: &mut Vec<(String, String)>) {
     }
 }
 
-#[test]
-fn the_module_changes_only_through_the_one_gate() {
+/// The crate's sources without their tests, as (file, code).
+fn crate_sources() -> Vec<(String, String)> {
     let mut files = Vec::new();
     sources(&Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut files);
+    files
+}
+
+/// Every dropdown is drawn by `widgets` (`widgets::dropdown`, the lists of
+/// a table's rows), so that every one takes the arrow keys as a list of
+/// choices does: an egui combo box made elsewhere would not.
+#[test]
+fn every_dropdown_goes_through_the_widgets() {
+    let files = crate_sources();
+    assert!(files.len() > 40, "the sources were found");
+    let elsewhere: Vec<String> = files
+        .iter()
+        .filter(|(file, _)| !file.ends_with("src/widgets.rs"))
+        .flat_map(|(file, code)| {
+            code.lines()
+                .enumerate()
+                .filter(|(_, l)| l.contains("ComboBox") && !l.trim_start().starts_with("//"))
+                .map(move |(n, l)| format!("{file}:{}: {}", n + 1, l.trim()))
+        })
+        .collect();
+    assert!(
+        elsewhere.is_empty(),
+        "draw a dropdown with widgets::dropdown, not an egui ComboBox:\n{}",
+        elsewhere.join("\n")
+    );
+}
+
+#[test]
+fn the_module_changes_only_through_the_one_gate() {
+    let files = crate_sources();
     assert!(files.len() > 40, "the sources were found");
     let lines_with = |what: &str| -> Vec<String> {
         files

@@ -210,11 +210,11 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                         ui.selectable_value(&mut w.custom, true, "Custom");
                         ui.add(egui::TextEdit::singleline(&mut w.filter).hint_text("Find"));
                     });
-                    let needle = w.filter.to_lowercase();
+                    let needle = mg_core::text::Needle::new(&w.filter);
                     egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
                         for (r, name) in &choices {
                             let label = format!("{name} ({r})");
-                            if !label.to_lowercase().contains(&needle) {
+                            if !needle.finds(&label) {
                                 continue;
                             }
                             if ui.selectable_label(w.store == Some(*r), label).clicked() {
@@ -243,14 +243,14 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                         ui.checkbox(&mut w.use_faction, "Use selected faction instead:");
                         let current =
                             faction_names.get(w.faction as usize).cloned().unwrap_or_default();
-                        egui::ComboBox::from_id_salt("store-faction")
-                            .selected_text(current)
-                            .show_ui(ui, |ui| {
-                                // (Not the PC faction: the players' alone.)
-                                for (i, name) in faction_names.iter().enumerate().skip(1) {
-                                    ui.selectable_value(&mut w.faction, i as u32, name);
-                                }
-                            });
+                        // (Not the PC faction: the players' alone.)
+                        let factions: Vec<u32> = (1..faction_names.len() as u32).collect();
+                        crate::widgets::dropdown("store-faction").selected_text(current).show(
+                            ui,
+                            &mut w.faction,
+                            &factions,
+                            |i| faction_names[*i as usize].clone(),
+                        );
                     }
                 }
             }

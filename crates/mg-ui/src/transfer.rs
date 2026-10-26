@@ -352,27 +352,28 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     Some(t) => kind_name(t),
                     None => "All".to_string(),
                 };
-                egui::ComboBox::from_id_salt("export-kind")
-                    .selected_text(shown)
-                    .width(200.0)
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut draft.kind, None, format!("All: {}", keys.len()));
-                        for (t, n) in &kinds {
-                            let text = format!("{}: {n}", kind_name(*t));
-                            ui.selectable_value(&mut draft.kind, Some(*t), text);
-                        }
-                    });
+                let options: Vec<_> =
+                    std::iter::once(None).chain(kinds.iter().map(|(t, _)| Some(*t))).collect();
+                crate::widgets::dropdown("export-kind").selected_text(shown).width(200.0).show(
+                    ui,
+                    &mut draft.kind,
+                    &options,
+                    |t| match t.and_then(|t| kinds.iter().find(|k| k.0 == t)) {
+                        Some((t, n)) => format!("{}: {n}", kind_name(*t)),
+                        None => format!("All: {}", keys.len()),
+                    },
+                );
             });
             ui.horizontal(|ui| {
                 crate::widgets::field_label(ui, "Filter");
                 let field = ui.text_edit_singleline(&mut draft.filter);
                 crate::widgets::autofocus(ui, &field);
             });
-            let filter = draft.filter.to_ascii_lowercase();
+            let filter = mg_core::text::Needle::new(&draft.filter);
             let listed: Vec<ResKey> = keys
                 .iter()
                 .filter(|k| draft.kind.is_none_or(|t| k.restype == t))
-                .filter(|k| filter.is_empty() || k.to_string().contains(&filter))
+                .filter(|k| filter.finds(&k.to_string()))
                 .copied()
                 .collect();
             // The rows: with every kind listed, each under its heading.

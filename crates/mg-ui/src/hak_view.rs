@@ -92,7 +92,7 @@ impl HakDoc {
 
     /// The items shown, in the list's order: indices into the hak's items.
     fn rows(&mut self) -> Vec<usize> {
-        let filter = self.filter.trim().to_ascii_lowercase();
+        let filter = mg_core::text::fold(self.filter.trim());
         let fresh = self
             .rows
             .as_ref()
@@ -100,7 +100,10 @@ impl HakDoc {
         if !fresh {
             let items = self.hak.items();
             let mut rows: Vec<usize> = (0..items.len())
-                .filter(|&i| filter.is_empty() || items[i].key.to_string().contains(&filter))
+                .filter(|&i| {
+                    filter.is_empty()
+                        || mg_core::text::fold(&items[i].key.to_string()).contains(&filter)
+                })
                 .collect();
             rows.sort_by_key(|&i| items[i].key.to_string());
             match self.sort {
@@ -405,18 +408,24 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
                 .desired_width(200.0)
                 .hint_text("name or .type"),
         );
-        egui::ComboBox::from_id_salt(("hak-sort", id))
+        let sorts = [Sort::Name, Sort::Type, Sort::Size];
+        crate::widgets::dropdown(("hak-sort", id))
             .selected_text(match doc.sort {
                 Sort::Name => "By name",
                 Sort::Type => "By type",
                 Sort::Size => "By size",
             })
-            .show_ui(ui, |ui| {
-                ui.selectable_value(&mut doc.sort, Sort::Name, "By name");
-                ui.selectable_value(&mut doc.sort, Sort::Type, "By type");
-                ui.selectable_value(&mut doc.sort, Sort::Size, "By size")
-                    .on_hover_text("The largest first");
-            });
+            .show_with(
+                ui,
+                &mut doc.sort,
+                || sorts.to_vec(),
+                |ui, sort| {
+                    ui.selectable_value(sort, Sort::Name, "By name");
+                    ui.selectable_value(sort, Sort::Type, "By type");
+                    ui.selectable_value(sort, Sort::Size, "By size")
+                        .on_hover_text("The largest first");
+                },
+            );
         ui.weak("Click to select, Ctrl+click to add; double-click to view; right-click for more");
     });
     if changed {
