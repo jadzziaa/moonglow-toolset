@@ -1709,6 +1709,11 @@ struct Dialogs {
     open: Vec<egui::LayerId>,
     seen: Vec<egui::LayerId>,
     escape: bool,
+    /// Whether a text field (a number's too) had the keyboard as the last
+    /// frame ended ([`dialogs_end`]), and so whether this frame's Escape
+    /// only leaves it.
+    typing: bool,
+    leaves_text: bool,
 }
 
 fn dialogs_id() -> egui::Id {
@@ -1738,7 +1743,22 @@ pub(crate) fn dialogs_begin(ctx: &egui::Context) {
     }
     d.escape = ctx.input(|i| i.key_pressed(egui::Key::Escape) && i.modifiers.is_none())
         && !egui::Popup::is_any_open(ctx);
+    d.leaves_text = d.escape && d.typing;
     ctx.data_mut(|x| x.insert_temp(dialogs_id(), d));
+}
+
+/// Once a frame, after everything is drawn: whether a text field has the
+/// keyboard. (egui gives the keyboard up at an Escape before anything of
+/// the frame is drawn, so a window can't tell then that it was typed in.)
+pub(crate) fn dialogs_end(ctx: &egui::Context) {
+    let typing = ctx.text_edit_focused();
+    ctx.data_mut(|x| x.get_temp_mut_or_default::<Dialogs>(dialogs_id()).typing = typing);
+}
+
+/// Whether this frame's Escape left a text field (a number's too), which
+/// is all it does then: a Properties window stays open.
+pub(crate) fn escape_left_text(ctx: &egui::Context) -> bool {
+    ctx.data(|x| x.get_temp::<Dialogs>(dialogs_id())).is_some_and(|d| d.leaves_text)
 }
 
 /// Escape for the dialog on `layer`: true when it was pressed and this is

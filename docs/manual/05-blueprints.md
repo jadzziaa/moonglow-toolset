@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:41:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:48:58Z }
 ---
 
 # Blueprints
@@ -463,9 +463,13 @@ A domain or school left **Not set** is the game's to choose.
   spells). A class that knows its spells ticks them in the list; a
   click on a spell of one that prepares them prepares one more, and the
   number beside a prepared spell (with its arrows) says how many. × takes
-  a spell away. A spell prepared with metamagic, kept at its level raised
-  by it as Aurora writes it, shows its metamagic ("Bless (Empowered)")
-  and is kept as it is; the page has no Meta-Magic list to prepare one.
+  a spell away. **Meta-Magic** (for a class that prepares its spells)
+  lists the metamagic feats the creature has, as Aurora's does: with one
+  chosen, each spell shows its casting level (its level raised by the
+  metamagic: Empower Spell two), a click prepares it so, at that level,
+  and the count beside it is of those so prepared. A spell prepared with
+  metamagic is named as Aurora's summary names it ("Bless (Empower
+  Spell)"). One whose casting level would pass 9 can't be prepared.
   **Clear**, **Save** and **Load Class Spell List** act on the class's
   lists as a whole.
 - On the **Spells** page, a warning names a class's first problem:

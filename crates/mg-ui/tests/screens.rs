@@ -957,6 +957,48 @@ fn palettes() {
     shoot(&mut h, &dir, "palettes");
 }
 
+/// A cleric's Spells page with Empower Spell chosen in its Meta-Magic list
+/// (the feat given first): the spells with their casting levels.
+#[test]
+#[ignore]
+fn spells_metamagic() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    let game = app.game.as_deref().unwrap();
+    let key = ResKey::parse("nw_mumcleric", ResType::UTC).unwrap();
+    let data = game.resman.get(&key).unwrap().into_owned();
+    let mut gff = mg_gff::Gff::read(&data).unwrap();
+    let mut feats = gff.root.list("FeatList").unwrap_or(&[]).to_vec();
+    let mut feat = mg_gff::Struct::new(1);
+    feat.set("Feat", mg_gff::Value::Word(11));
+    feats.push(feat);
+    gff.root.set("FeatList", mg_gff::Value::List(feats));
+    let mut m = mg_module::Module::new();
+    m.set(key, gff.to_bytes().unwrap());
+    let path = dir.join("spells-metamagic.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    app.open_module(&path);
+    app.blueprint_pages.insert((key, GffPath::root()), "Spells");
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 760.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    h.query_all(combo)
+        .find(|n| n.accesskit_node().value() == Some("None".into()))
+        .expect("the Meta-Magic list")
+        .click();
+    h.run_steps(3);
+    h.get_by_label("Empower Spell").click();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "spells-metamagic");
+}
+
 #[test]
 #[ignore]
 fn blueprint_editors() {

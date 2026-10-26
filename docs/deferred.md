@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:46:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:48:58Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -721,19 +721,23 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Several objects edited together stay in their area's window when one
   is carried to another area (it leaves it). (S)
   (from builders' reports after 1.10.1)
-- **The Spells page against Aurora** (laid out as the Feats page now:
-  the class's spells beside those known or prepared, by level, with
-  counts and how many the class may have): Aurora's page was not driven
-  for it (its form is in the parity inventory). Not done: Aurora's
-  **Meta-Magic** list (the inventory reads it both as a filter of the
-  spells and as the chosen entry's metamagic; a spell prepared with
-  metamagic is shown and kept, but none can be prepared on the page),
-  its Casting Level column, and the words of its Spell Selection
-  Summary (Moonglow's per-level "Level 1: 2 of 3" stands for it); a
-  cleric's domain spells outside the cleric's column of `spells.2da`
-  are listed only once prepared (as a Load or the Levelup Wizard puts
-  them), not offered to choose. (S–M) (from builders' reports after
-  1.16.2)
+- **The Spells page against Aurora** (watched in Aurora: see
+  [findings](findings.md), "Aurora's Spells page"; Moonglow has its
+  Meta-Magic list, casting levels and counts by metamagic now). Left
+  different on purpose: the levels show how many the class may have
+  ("Level 1: 2 of 3") where Aurora's summary has the bare level, the
+  spells known or prepared are beside the list rather than a count on
+  every row, and a spell whose casting level would pass 9 can't be
+  prepared (Aurora lists it at 10). Not seen: what Aurora writes for a
+  spell prepared with two metamagic feats, which its list can't choose.
+  (S) (from builders' reports after 1.16.2)
+- **Escape in a Properties window against Aurora:** in Aurora, Escape
+  in a field of Creature Properties (and, it seems, any modal
+  Properties) is Cancel: the window closes and what was typed is gone.
+  Moonglow's Escape in a field only leaves the field, and Escape with no
+  field typed in closes the window keeping its changes (its Cancel sets
+  them back). Whether Escape should be Cancel, as Aurora's, is the
+  builders' to say. (S) (October 2026)
 - **Arrows after numbers, what is left:** the blueprint editors', Module
   Properties' and Area Properties' number fields that have them in
   Aurora have them (a click, Up and Down in the field, a held arrow

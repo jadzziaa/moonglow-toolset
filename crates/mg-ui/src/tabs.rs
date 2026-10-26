@@ -251,7 +251,10 @@ impl Viewer<'_> {
         // changed is kept, as when its tab is closed: Undo takes it back).
         // Dialogs over it close first.
         // (Not during a drag, which Escape drops.)
+        // (Escape in a text field leaves the field, and no more: egui has
+        // taken the keyboard from it by now, `escape_left_text`.)
         let escape = crate::widgets::escape_past_dialogs(ui.ctx())
+            && !crate::widgets::escape_left_text(ui.ctx())
             && ui.memory(|m| m.focused().is_none())
             && !ui.input(|i| i.pointer.any_down());
         let model = matches!(tab, Tab::Model(_) | Tab::InstanceModel { .. } | Tab::Tile { .. })

@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:46:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:48:58Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -365,6 +365,45 @@ Unlimited does not make the uses unlimited: each entry is used up.
 - **Checked:** engine, `engine_special_abilities.rs`.
 - **Moonglow:** one switch, Ready, on a creature's Special Abilities
   page (three until 1.19.5).
+- **Wiki:** not compared.
+
+### Aurora's Spells page
+
+Aurora's Creature Properties › Spells, watched for a cleric (level 1 and,
+with domains Air and Animal, level 9), a cleric given Empower Spell, and a
+sorcerer:
+
+- **The list** is every spell of the class's column of `spells.2da`, all
+  levels 0 to 9 whatever the class's level, with Prepared (Known for a
+  class that knows its spells), Name, Spell Level and Casting Level.
+  **Spell Level** (All Levels, Level 0 to 9) narrows it by the spell's
+  own level.
+- **Meta-Magic** lists None and the metamagic feats the creature has
+  (Empower Spell, once the feat was ticked; None alone before); it is
+  off for a class that knows its spells. With one chosen, each spell's
+  Casting Level is its level raised by the metamagic (Empower: +2; Aura
+  versus Alignment, level 8, shows 10), every spell is still listed
+  (`spells.2da`'s `MetaMagic` column is not read: Animate Dead, which
+  lacks Empower's bit, is there), and Prepared counts the spell with
+  that metamagic: one Bless prepared so went in at level 3 and reads 0
+  again with None chosen.
+- **Spell Selection Summary** lists "Level 0" to "Level 9", each
+  followed by its spells as "5 x Cure Minor Wounds", a metamagic one as
+  "1 x Bless (Empower Spell)".
+- **Domain spells** outside the cleric's column are not listed: with
+  domains Air and Animal, no Call Lightning.
+- **Escape** in a field of Creature Properties (the Tag, typed into)
+  closes the window as Cancel does: what was typed is gone.
+
+- **Checked:** Aurora, by hand on the oracle (2026-10-26), with the
+  creatures of `spell-warnings/set4.mod`.
+- **Moonglow:** the Spells page has the Meta-Magic list, the casting
+  level beside the spell level with a metamagic chosen (a spell cast
+  above level 9 can't be chosen: no list keeps it), counts by metamagic,
+  and names a metamagic spell as the summary does; its levels show how
+  many the class may have rather than Aurora's bare "Level 1". Escape in
+  a field leaves the field; Escape with no field typed in closes the
+  window keeping what was changed (Cancel sets it back).
 - **Wiki:** not compared.
 
 ## Areas and tiles
