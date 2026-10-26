@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T06:47:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T06:48:54Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -157,27 +157,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **Find In Currently Open Scripts** searches the scripts whose editors
   hold their text, which includes one closed with text typed and not
   saved. (S) (from builders' reports after 1.16.2)
-- **Page keys in a NUI window's preview:** every text field of several
-  lines has Page Down and Page Up (`widgets::page_keys`), but the text
-  fields of a NUI window tried in the preview (Interact) are drawn as
-  the game's, without them; whether the game's own NUI fields take the
-  page keys was not looked at. (S) (from Sacha's report, 2026-10-21)
-- **A script with both kinds of line end, changed a lot:** every line not
-  changed keeps its own line end, by a diff of the lines; past 4 million
-  cells of the diff's table (a run of about 2,000 changed lines each
-  side, a script rewritten whole) the lines of the run are taken as
-  changed in place, keeping the ends of the lines where they were, and
-  lines added take the file's. Two lines swapped count as one kept and
-  one added. (S) (Jasperre's report, 2026-10-21)
-- **CRLF for a new line in a GFF text, from the data:** a text of one
-  line given a second gets CRLF in a GFF field (descriptions,
-  conversation lines, comments) and plain in a talk table, as the
-  game's own data has them (`docs/findings.md`, "Line ends"); that
-  Aurora writes CRLF there was read from its campaigns' files, not
-  tried by typing in Aurora. A blueprint's one-line text field (a
-  `CExoString` such as its Tag) whose stored text has a CRLF shows a
-  plain line end and, once typed in, stores one. (S) (Jasperre's
-  report, 2026-10-21)
 - **Indentation by file:** Tab's indentation (four spaces, or a tab) is
   one setting for every script; it isn't guessed from the script open
   (BioWare's use spaces and tabs both), and Enter copies the line's own
@@ -3829,3 +3808,31 @@ is not taken for a new gap.
   change further back is followed by finding the lines again, so the
   limit stays. Of two deletes that leave the same conversation (either of
   two lines alike), undo and redo follow the one done last.
+- **Page keys in a NUI window's preview:** every text field of several
+  lines has Page Down and Page Up (`widgets::page_keys`) but those of a
+  NUI window tried in the preview (Interact), drawn as the game's: the
+  game's own NUI text field of several lines takes neither (its caret
+  stays, its text doesn't scroll; the arrow keys move it), tried in the
+  client (`docs/findings.md`, "NUI text fields have no page keys").
+  (from Sacha's report, 2026-10-21)
+- **A script with both kinds of line end, changed a lot:** every line
+  not changed keeps its own line end, by a diff of the lines; a run of
+  changed lines too big for one table of the diff (2,000 lines each
+  side) is cut at the lines each side has once, and the lines between
+  are diffed the same way. Lines in a part with no line found once on
+  each side and too big for the table, or past the diff's bound of work
+  (16 million cells, so it takes a bounded time), are taken as changed
+  in place, keeping the ends where they were. Two lines swapped count as
+  one kept and one added (the added one takes the text's line end).
+  (Jasperre's report, 2026-10-21)
+- **Line ends of a line typed into a text of one line** are Aurora's by
+  the kind of field (`docs/findings.md`, "Line ends"): plain in a
+  localized string (descriptions, names, a conversation line's text,
+  journal entries), CRLF in a `CExoString` (comments) and in scripts; a
+  text that has line ends gives a line added its own (most of its
+  lines'), and a one-line field (a Tag) keeps those its text has. Aurora
+  also makes every line end of a blueprint's comment CRLF when it saves
+  the blueprint, typed in or not; Moonglow keeps the line ends of what
+  is not typed in, so that an untouched text comes back byte for byte.
+  A hak's description (the archive's, not a GFF field; Aurora writes no
+  hak) gets CRLF. (Jasperre's report, 2026-10-21)

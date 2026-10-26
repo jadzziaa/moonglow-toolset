@@ -40,7 +40,7 @@ fn set_value(what: &str, label: &str, value: Value) -> Action {
 
 /// A one-line text field that commits when focus leaves it.
 fn text_field(app: &mut Moonglow, ui: &mut Ui, id: &str, current: &str) -> Option<String> {
-    edit_field(app, ui, id, current, false)
+    edit_field(app, ui, id, current, false, false)
 }
 
 /// [`edit_field`] for a localized string: its text in the language
@@ -54,25 +54,32 @@ fn loc_field(
     multiline: bool,
 ) -> Option<String> {
     match crate::widgets::loc_shown(app, ls) {
-        (shown, None) => edit_field(app, ui, id, &shown, multiline),
+        (shown, None) => edit_field(app, ui, id, &shown, multiline, true),
         (shown, Some((from, why))) => crate::widgets::borrowed_field(ui, &from, why, |ui| {
-            edit_field(app, ui, id, &shown, multiline)
+            edit_field(app, ui, id, &shown, multiline, true)
         }),
     }
 }
 
 /// A text field (one line or several) that commits when focus leaves it.
-/// Multi-line text keeps the line-end style it had (CRLF or LF).
+/// Multi-line text keeps the line-end style it had (CRLF or LF); a line
+/// typed into a text of one line gets a localized string's (`loc`: plain,
+/// as Aurora writes) or a `CExoString`'s (CRLF).
 fn edit_field(
     app: &mut Moonglow,
     ui: &mut Ui,
     id: &str,
     current: &str,
     multiline: bool,
+    loc: bool,
 ) -> Option<String> {
     let id = egui::Id::new(("ifo", id));
     let (rows, width) = if multiline { (Some(12), f32::INFINITY) } else { (None, 320.0) };
-    crate::widgets::commit_text_in(&mut app.buffers, ui, id, current, rows, width, None)
+    let buffers = &mut app.buffers;
+    match loc {
+        true => crate::widgets::commit_loc_text_in(buffers, ui, id, current, rows, width, None),
+        false => crate::widgets::commit_text_in(buffers, ui, id, current, rows, width, None),
+    }
 }
 
 /// A number with a range, committed when it changes (a drag: when released).

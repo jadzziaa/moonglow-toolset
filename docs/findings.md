@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T06:47:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T06:56:13Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -969,28 +969,65 @@ sound-only entry (`0x2`) and a row past the end. Custom StrRefs are
 - **Moonglow:** `crates/mg-tlk/src/lib.rs`.
 - **Wiki:** missing (the TLK page also calls TLK "a GFF file").
 
-### Line ends: plain in talk tables, mostly CRLF in GFF text
+### Line ends: plain in talk tables and localized text, CRLF in comments
 
 Every talk table of the install is plain LF: of the strings with a line
 end, English `dialog.tlk` has 2,408, German 3,714 (3,731 in
 `dialogf.tlk`), French 2,056, Spanish 2,012, Italian 2,006, Polish 2,267,
-and not one `\r` among them. GFF text is mostly CRLF, as Aurora's
-Windows edit fields write it: of the 15,116 CExoString and CExoLocString
-texts with a line end in the base game's blueprints (BIFs) and the
-official campaigns' `.nwm` modules, 13,925 are CRLF and 1,191 LF
-(conversations 3,721 to 248, `.gic` comments 9,129 to 0; item
-descriptions 140 to 256 and module descriptions 0 to 14 the other way).
-No one text mixes the two, and none has a lone `\r`. The game shows both
-kinds.
+and not one `\r` among them. GFF text in the game's data is mostly
+CRLF: of the 15,116 CExoString and CExoLocString texts with a line end
+in the base game's blueprints (BIFs) and the official campaigns' `.nwm`
+modules, 13,925 are CRLF and 1,191 LF (conversations 3,721 to 248,
+`.gic` comments 9,129 to 0; item descriptions 140 to 256 and module
+descriptions 0 to 14 the other way). No one text mixes the two, and
+none has a lone `\r`. The game shows both kinds.
+
+What Aurora (EE) writes for a line typed into a text of one line goes by
+the kind of field, not by that data: a plain LF in a localized string
+(CExoLocString: the module's description, a placeable blueprint's
+Description, a conversation line's Text), CRLF in a CExoString (a
+conversation line's Comment, a blueprint's Comment). Saving a blueprint
+also makes every line end of its comment CRLF, typed in or not (one
+stored with LF came back CRLF). Both kinds of field are the same
+control in Aurora's forms (a VCL `TMemo`, a Windows edit control, which
+gives CRLF), so the plain line end is Aurora's own doing, not Wine's.
+Aurora writes no talk table.
 
 - **Checked:** the install (89.8193.37), each string's bytes counted, by
   a script reading the TLK entries and the GFF fields of every
-  extracted blueprint and `.nwm` resource.
+  extracted blueprint and `.nwm` resource. Aurora (89.8193.37, on the
+  oracle, 2026-10-26): a line typed into each of those fields of a
+  module and saved (capture `line-ends/typed.mod`); test
+  `crates/mg-ui/src/text.rs` `a_new_line_takes_the_line_end_aurora_writes`.
+  That the fields are `TMemo`s was read from Aurora's decoded form
+  resources (the oracle's `uiinv/forms.json`); that an edit control's
+  text has CRLF line ends is Windows' documentation, not measured here.
 - **Moonglow:** text fields show plain line ends and store the text's
-  own (`crates/mg-ui/src/text.rs` `with_line_ends_or`); a text without
-  one gets CRLF in a GFF field, LF in a talk table.
+  own, line by line (`crates/mg-ui/src/text.rs` `with_line_ends_or`); a
+  line typed into a text of one line gets LF in a localized string and
+  a talk table (`with_loc_line_ends`), CRLF in a CExoString and a
+  script (`with_line_ends`). What is not typed in keeps its line ends,
+  a blueprint's comment too.
 - **Wiki:** missing. The 1.87.8193.35 notes say carriage returns had
   been drawn as question marks (among the NUI fixes).
+
+### NUI text fields have no page keys
+
+The game's NUI text field of several lines (`NuiTextEdit` with
+`bMultiline`) takes neither Page Down nor Page Up: its caret stays where
+it is and its text doesn't scroll, while the arrow keys move the caret
+a line.
+
+- **Checked:** the game client (89.8193.37, sandboxed on the off-screen
+  display, 2026-10-26): a window with a text field of 60 lines, its
+  value watched; a letter typed after each key, the bind read back in
+  the module's NUI event script, showed where the caret was.
+- **Moonglow:** the NUI Creator's preview (Interact) draws a NUI text
+  field as the game's, without page keys
+  (`crates/mg-ui/src/nui_view/preview/text_controls.rs`); Moonglow's own
+  text fields of several lines have them (`widgets::page_keys`).
+- **Wiki:** missing (the NUI pages don't name the keys a text field
+  takes).
 
 ### An empty quoted 2DA cell keeps its place
 

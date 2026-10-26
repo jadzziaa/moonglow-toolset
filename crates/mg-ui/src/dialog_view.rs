@@ -1438,8 +1438,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             let kind = input.parent.child_kind();
             let i = add_node(&mut ng, input.parent, "");
             if let Some(n) = ng.root.list_mut(kind.list()).and_then(|l| l.get_mut(i as usize)) {
-                // (With CRLF line ends, as Aurora's lines have them.)
-                let text = crate::text::with_line_ends(input.text.trim_end(), "");
+                // (With plain line ends, as Aurora writes a line's text.)
+                let text = crate::text::with_loc_line_ends(input.text.trim_end(), "");
                 let t = with_english(Default::default(), &text);
                 n.set("Text", Value::LocString(t));
             }
@@ -1778,9 +1778,9 @@ fn text_panel(
             language.name().unwrap_or("another language"),
             "This line's text is in another language: it has none in the language edited \
              (Options › Language). Typing here gives it text in that language",
-            |ui| commit_text(app, ui, id, &shown, true, width),
+            |ui| crate::widgets::commit_loc_text(app, ui, id, &shown, true, width),
         ),
-        None => commit_text(app, ui, id, &shown, true, width),
+        None => crate::widgets::commit_loc_text(app, ui, id, &shown, true, width),
     };
     if let Some(v) = typed {
         actions.push(set(

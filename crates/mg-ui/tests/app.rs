@@ -458,9 +458,10 @@ fn a_description_with_both_line_ends_keeps_each_line_s() {
 }
 
 #[test]
-fn a_description_of_one_line_gets_crlf_line_ends() {
-    // As Aurora writes them, and as most of the game's own text of several
-    // lines has them (its blueprints' and conversations').
+fn a_description_of_one_line_gets_a_plain_line_end() {
+    // As Aurora writes one typed in a localized string's text (the module's
+    // description, a blueprint's, a conversation line's: docs/findings.md,
+    // "Line ends"); its comments get CRLF.
     let mut h = module_description_harness("ui-crlf-new", "One", egui::vec2(1000.0, 700.0));
     multiline_input(&h, "One").click();
     h.run();
@@ -470,7 +471,73 @@ fn a_description_of_one_line_gets_crlf_line_ends() {
     h.run();
     h.key_press(egui::Key::Escape);
     h.run();
-    assert_eq!(module_description(&mut h), "One\r\nTwo");
+    assert_eq!(module_description(&mut h), "One\nTwo");
+}
+
+/// A blueprint's fields take Aurora's line ends: a line typed into a
+/// comment of one line gets CRLF, into a description of one line a plain
+/// one; and a one-line field whose stored text has a CRLF (its Tag) keeps
+/// it once typed in, as the fields of several lines keep theirs.
+#[test]
+fn a_blueprint_s_fields_take_aurora_s_line_ends() {
+    let Some((mut h, key)) = blueprint_harness("plc_chest1", "chest_ends", ResType::UTP) else {
+        return;
+    };
+    let set = |label: &str, value: mg_gff::Value| mg_edit::Edit::SetField {
+        key,
+        path: mg_edit::GffPath::root(),
+        label: label.into(),
+        value: Some(value),
+    };
+    let desc = LocString::from_text(Language::ENGLISH, Gender::Male, "Desc");
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "fields",
+        vec![
+            set("Tag", mg_gff::Value::String(b"AB\r\nCD".to_vec())),
+            set("Comment", mg_gff::Value::String(b"One".to_vec())),
+            set("Description", mg_gff::Value::LocString(desc)),
+        ],
+    )));
+    h.run();
+    let click = |h: &mut Harness<'_, Moonglow>, role: egui::accesskit::Role, value: &str| {
+        let is = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+            n.role() == role && n.value().as_deref() == Some(value)
+        };
+        let at = h.get(egui_kittest::kittest::by().predicate(is)).rect().center();
+        h.hover_at(at);
+        press(h, at, true, egui::Modifiers::NONE);
+        press(h, at, false, egui::Modifiers::NONE);
+        h.run_steps(2);
+    };
+    let typed = |h: &mut Harness<'_, Moonglow>, text: &str| {
+        h.key_press_modifiers(egui::Modifiers::CTRL, egui::Key::End);
+        for (k, line) in text.split('\n').enumerate() {
+            if k > 0 {
+                h.key_press(egui::Key::Enter);
+            }
+            h.event(egui::Event::Text(line.into()));
+        }
+        h.run_steps(2);
+    };
+    // The Tag, shown with a plain line end, typed in: its CRLF kept.
+    click(&mut h, egui::accesskit::Role::TextInput, "AB\nCD");
+    typed(&mut h, "X");
+    h.get_by_label("Comments").click();
+    h.run_steps(3);
+    assert_eq!(field(&mut h, &key).string("Tag"), Some(&b"AB\r\nCDX"[..]));
+    // The comment: CRLF.
+    click(&mut h, egui::accesskit::Role::MultilineTextInput, "One");
+    typed(&mut h, "\nTwo");
+    h.get_by_label("Description").click();
+    h.run_steps(3);
+    assert_eq!(field(&mut h, &key).string("Comment"), Some(&b"One\r\nTwo"[..]));
+    // The description: plain.
+    click(&mut h, egui::accesskit::Role::MultilineTextInput, "Desc");
+    typed(&mut h, "\nTwo");
+    h.get_by_label("Comments").click();
+    h.run_steps(3);
+    let desc = field(&mut h, &key).locstring("Description").cloned().unwrap();
+    assert_eq!(desc.get(Language::ENGLISH, Gender::Male), Some(&b"Desc\nTwo"[..]));
 }
 
 fn set_tag(app: &mut Moonglow, tag: &str) {

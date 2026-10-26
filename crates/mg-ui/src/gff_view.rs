@@ -103,6 +103,13 @@ impl Ctx<'_> {
         let rows = to_editor(current).0.contains('\n').then_some(3);
         crate::widgets::commit_text_in(self.buffers, ui, id, current, rows, 280.0, None)
     }
+
+    /// [`Ctx::text`] for a localized string's text (its line ends as
+    /// Aurora's: [`crate::widgets::commit_loc_text`]).
+    fn loc_text(&mut self, ui: &mut Ui, id: egui::Id, current: &str) -> Option<String> {
+        let rows = to_editor(current).0.contains('\n').then_some(3);
+        crate::widgets::commit_loc_text_in(self.buffers, ui, id, current, rows, 280.0, None)
+    }
 }
 
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
@@ -276,7 +283,7 @@ fn value_ui(ctx: &mut Ctx<'_>, ui: &mut Ui, id: egui::Id, path: &GffPath, label:
                     .text_in(Language::ENGLISH, Gender::Male, english)
                     .map(|t| t.into_owned())
                     .unwrap_or_default();
-                if let Some(t) = ctx.text(ui, id, &current) {
+                if let Some(t) = ctx.loc_text(ui, id, &current) {
                     ctx.set(path, label, Value::LocString(with_english(ls.clone(), &t)));
                 }
             });

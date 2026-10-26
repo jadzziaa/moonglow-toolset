@@ -233,6 +233,8 @@ impl Renderer<'_> {
                 job.keep_trailing_whitespace = true;
                 ui.fonts_mut(|fonts| fonts.layout_job(job))
             };
+            // (No page keys, `widgets::page_keys`: the game's NUI text
+            // field takes neither Page Down nor Page Up. docs/findings.md)
             let editor = if multiline {
                 egui::TextEdit::multiline(&mut value)
             } else {
