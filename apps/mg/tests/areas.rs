@@ -305,3 +305,73 @@ fn areas_grow_grass_of_their_own() {
     }
     assert_eq!(std::fs::read(&path).unwrap(), bytes);
 }
+
+/// `--lighting-scheme`: an environment.2da row of the game's, by label or
+/// name, gives the areas its lighting and each tile its lights, as Area
+/// Properties' Lighting Scheme does; `--set` is made after it. A scheme
+/// the table lacks changes nothing.
+#[test]
+fn a_lighting_scheme_is_given_to_the_areas() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("mg-areas-scheme");
+    let path = dir.join("caves.mod");
+    module(&path);
+    let are_key = key("cave1", ResType::ARE);
+    let mut m = Module::open(&path).unwrap();
+    let mut are = m.gff(&are_key).unwrap().unwrap();
+    let tile = || {
+        let mut t = Struct::new(1);
+        t.set("Tile_ID", Value::Int(0));
+        for l in ["Tile_MainLight1", "Tile_MainLight2", "Tile_SrcLight1", "Tile_SrcLight2"] {
+            t.set(l, Value::Byte(0));
+        }
+        t
+    };
+    are.root.set("Tile_List", Value::List(vec![tile(), tile(), tile(), tile()]));
+    m.set_gff(are_key, &are).unwrap();
+    m.save().unwrap();
+    let run = |args: &[&str]| {
+        let mut cmd = crate::mg();
+        cmd.args(["--root", root.to_str().unwrap(), "--no-user-dir", "areas"]);
+        let out = cmd.arg(&path).args(args).output().unwrap();
+        let text = |b: &[u8]| String::from_utf8_lossy(b).into_owned();
+        (out.status.success(), text(&out.stdout), text(&out.stderr))
+    };
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let env = game.table("environment").unwrap();
+    let row = (0..env.len()).find(|&r| env.get(r, "LABEL") == Some("InteriorDark")).unwrap();
+    let cell = |c: &str| i64::from(env.get_int(row, c).unwrap());
+
+    let scheme = ["cave1", "--lighting-scheme", "interiordark", "--set", "SunFogAmount=5"];
+    let (ok, out, err) = run(&scheme);
+    assert!(ok, "{err}");
+    assert!(out.contains(&format!("cave1\tLightingScheme\t(none) -> {row}")), "{out}");
+    assert!(out.contains("cave1\tlights of 4 tiles\ttheir own -> "), "{out}");
+    let are = Module::open(&path).unwrap().gff(&are_key).unwrap().unwrap().root;
+    assert_eq!(are.integer("LightingScheme"), Some(row as i64));
+    assert_eq!(are.integer("IsNight"), Some(1), "an interior's scheme is night");
+    assert_eq!(are.integer("MoonFogAmount"), Some(cell("DARK_FOG")));
+    assert_eq!(are.integer("SunFogAmount"), Some(5), "--set after the scheme");
+    let colors = |prefix: &str| (1..=4).map(|n| cell(&format!("{prefix}{n}"))).collect::<Vec<_>>();
+    for t in are.list("Tile_List").unwrap() {
+        let light = |l: &str| t.integer(l).unwrap();
+        assert!(colors("MAIN1_COLOR").contains(&light("Tile_MainLight1")), "{t:?}");
+        assert!(colors("MAIN2_COLOR").contains(&light("Tile_MainLight2")), "{t:?}");
+        assert!(colors("SECONDARY_COLOR").contains(&light("Tile_SrcLight1")), "{t:?}");
+        assert_eq!(light("Tile_SrcLight2"), light("Tile_SrcLight1"));
+    }
+    let inn = Module::open(&path).unwrap().gff(&key("inn", ResType::ARE)).unwrap().unwrap();
+    assert!(inn.root.get("LightingScheme").is_none(), "only the area named");
+
+    // By the name players read, and to all; one the table lacks: nothing.
+    let bytes = std::fs::read(&path).unwrap();
+    let (ok, out, err) = run(&["--all", "--lighting-scheme", "Exterior Overcast", "--dry-run"]);
+    assert!(ok, "{err}");
+    assert!(out.contains("inn\tLightingScheme\t(none) -> 1"), "{out}");
+    for bad in ["NoSuchScheme", "999"] {
+        let (ok, _, err) = run(&["--all", "--lighting-scheme", bad]);
+        assert!(!ok && err.contains("environment"), "{bad}: {err}");
+    }
+    assert_eq!(std::fs::read(&path).unwrap(), bytes, "a dry run and a refusal change nothing");
+}

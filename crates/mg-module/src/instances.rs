@@ -1235,19 +1235,45 @@ pub fn update(
             else {
                 continue;
             };
-            let (at, outline) = placement_of(restype, s);
-            let Some(mut made) = instance(p, restype, &bp, at, &outline) else { continue };
-            for label in KEPT {
-                if let Some(v) = s.get(label) {
-                    made.set(label, v.clone());
-                }
-            }
-            arrange_as(restype, &mut made);
+            let Some(made) = remade(p, restype, s, &bp) else { continue };
             *s = made;
             count += 1;
         }
     }
     (count > 0).then_some((out, count))
+}
+
+/// Placed object `old` (of blueprint type `restype`) made again from
+/// blueprint `bp`, as Update Instances makes it: where it stands, facing
+/// as it faces, with its outline (a trigger's or encounter's `Geometry`),
+/// its visual transform and an encounter's spawn points; everything else
+/// (tag, name, scripts, variables, a door's transition) the blueprint's.
+pub fn remade(p: &Placing<'_>, restype: ResType, old: &Struct, bp: &Struct) -> Option<Struct> {
+    let (at, outline) = placement_of(restype, old);
+    let mut made = instance(p, restype, bp, at, &outline)?;
+    for label in KEPT {
+        if let Some(v) = old.get(label) {
+            made.set(label, v.clone());
+        }
+    }
+    arrange_as(restype, &mut made);
+    Some(made)
+}
+
+/// Replace Selected with This: placed object `old` made anew from another
+/// blueprint `bp` of its type, kept as [`remade`] keeps it (Aurora has no
+/// such command; its Update Instances is the same remaking,
+/// `aurora_update_instances.rs`). A placeable the blueprint makes static
+/// takes no visual transform, as Static ticked in its Properties takes it
+/// off: the game draws a static placeable without one.
+pub fn replaced(p: &Placing<'_>, restype: ResType, old: &Struct, bp: &Struct) -> Option<Struct> {
+    let mut made = remade(p, restype, old, bp)?;
+    if restype == ResType::UTP && made.integer("Static").unwrap_or(0) != 0 {
+        for label in crate::areas::VISUAL_TRANSFORM_FIELDS {
+            made.remove(label);
+        }
+    }
+    Some(made)
 }
 
 /// Where an item is held in a GIT: each list and index down to it from
@@ -1522,6 +1548,61 @@ mod tests {
         let placed = instance(&p, ResType::UTS, &s, at, &[]).unwrap();
         assert_eq!(placed.get("Priority"), Some(&Value::Byte(20)));
         assert_eq!(placed.list("Sounds").unwrap()[0].id, 0);
+    }
+
+    /// Replace Selected with This: a trigger keeps its outline and where it
+    /// stands, an encounter its spawn points, a placeable its place,
+    /// facing and visual transform; the tag, scripts and variables are the
+    /// new blueprint's. A static placeable takes no transform.
+    #[test]
+    fn replaced_objects_keep_where_they_stand_and_their_shape() {
+        let game = game();
+        let none = |_: ResRef| None;
+        let p = Placing { game: &game, item: &none };
+        let text = |s: &str| Value::String(s.as_bytes().to_vec());
+        let blueprint = |tag: &str| {
+            let mut bp = Struct::new(0);
+            bp.set("Tag", text(tag));
+            bp.set("TemplateResRef", Value::resref(ResRef::from_str(&tag.to_lowercase()).unwrap()));
+            bp.set("OnUsed", Value::resref(ResRef::from_str("new_script").unwrap()));
+            bp
+        };
+        let mut old_bp = blueprint("OLD");
+        let mut var = Struct::new(0);
+        var.set("Name", text("nOld"));
+        old_bp.set("VarTable", Value::List(vec![var]));
+        let square = [[0.0, 0.0, 0.025], [2.0, 0.0, 0.025], [2.0, 2.0, 0.3]];
+        let at = Placement { position: [5.0, 6.0, 1.0], rotation: 0.7 };
+
+        let trigger = instance(&p, ResType::UTT, &old_bp, at, &square).unwrap();
+        let new = replaced(&p, ResType::UTT, &trigger, &blueprint("NEW")).unwrap();
+        assert_eq!(new.string("Tag"), Some(&b"NEW"[..]));
+        assert_eq!(new.list("Geometry"), trigger.list("Geometry"), "its outline");
+        assert_eq!(placement_of(ResType::UTT, &new), placement_of(ResType::UTT, &trigger));
+        assert!(!new.contains("VarTable"), "the old one's variables go");
+
+        let mut encounter = instance(&p, ResType::UTE, &old_bp, at, &square).unwrap();
+        let mut point = Struct::new(0);
+        point.set("X", Value::Float(6.0));
+        encounter.set("SpawnPointList", Value::List(vec![point]));
+        let new = replaced(&p, ResType::UTE, &encounter, &blueprint("NEW")).unwrap();
+        assert_eq!(new.list("SpawnPointList"), encounter.list("SpawnPointList"));
+        assert_eq!(new.list("Geometry"), encounter.list("Geometry"));
+
+        let mut chest = instance(&p, ResType::UTP, &old_bp, at, &[]).unwrap();
+        let mut scale = Struct::new(6);
+        scale.set("Scope", Value::Int(0));
+        chest.set("VisTransformList", Value::List(vec![scale]));
+        let mut dynamic = blueprint("NEW");
+        dynamic.set("Static", Value::Byte(0));
+        let new = replaced(&p, ResType::UTP, &chest, &dynamic).unwrap();
+        assert_eq!((new.float("X"), new.float("Bearing")), (Some(5.0), Some(0.7)));
+        assert_eq!(new.get("VisTransformList"), chest.get("VisTransformList"));
+        assert_eq!(new.resref("OnUsed").map(|r| r.to_string()).as_deref(), Some("new_script"));
+        let mut fixed = blueprint("ROCK");
+        fixed.set("Static", Value::Byte(1));
+        let new = replaced(&p, ResType::UTP, &chest, &fixed).unwrap();
+        assert!(!new.contains("VisTransformList"), "a static placeable takes no transform");
     }
 
     #[test]

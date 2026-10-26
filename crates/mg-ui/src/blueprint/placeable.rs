@@ -85,8 +85,11 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         f.category(ui, BlueprintKind::Placeable);
         ui.end_row();
         // A static placeable is scenery: it cannot be used or hold items.
+        // Ticked, its visual transform goes too, as in Aurora: the game
+        // draws a static placeable without one.
         crate::widgets::field_label(ui, "");
-        let fixed = f.check(ui, "Static", "Static");
+        let fixed =
+            f.check_taking(ui, "Static", "Static", &mg_module::areas::VISUAL_TRANSFORM_FIELDS);
         ui.end_row();
         crate::widgets::field_label(ui, "");
         ui.add_enabled_ui(!fixed, |ui| f.check(ui, "Useable", "Useable"));

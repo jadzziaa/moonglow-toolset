@@ -139,6 +139,11 @@ pub enum Change {
     RemoveGrass(u32),
     /// The tileset's grass grows (`true`) or not: `GrassDefDisabled`.
     TilesetGrass(bool),
+    /// A lighting scheme (an environment.2da row), as Area Properties'
+    /// Lighting Scheme gives it: the area's lighting, fog, shadows, day
+    /// and night and weather, and each tile's lights picked at random from
+    /// the scheme's colors.
+    LightingScheme(crate::new::Scheme),
 }
 
 impl Change {
@@ -340,12 +345,15 @@ pub fn static_plan(git: &Struct, rules: &StaticRules) -> StaticPlan {
     plan
 }
 
+/// A placed object's visual transform: EE's list, and the older struct.
+pub const VISUAL_TRANSFORM_FIELDS: [&str; 2] = ["VisTransformList", "VisualTransform"];
+
 /// The fields to change to make placeable `p` static: `Static` set, and
 /// its visual transform taken off (a static placeable has none; it would
 /// change nothing). Each with its new value (`None`: removed).
 pub fn static_fields(p: &Struct) -> Vec<(&'static str, Option<Value>)> {
     let mut out = vec![("Static", Some(Value::Byte(1)))];
-    for label in ["VisTransformList", "VisualTransform"] {
+    for label in VISUAL_TRANSFORM_FIELDS {
         if p.contains(label) {
             out.push((label, None));
         }
@@ -470,6 +478,8 @@ pub fn apply(
     let mut done = Vec::new();
     let mut write = Vec::new();
     let rules = m.project_file.make_static.clone();
+    // (A lighting scheme's colors for each tile.)
+    let mut rng = fastrand::Rng::new();
     for &area in areas {
         let are_key = ResKey::new(area, ResType::ARE);
         let git_key = ResKey::new(area, ResType::GIT);
@@ -626,6 +636,38 @@ pub fn apply(
                             }
                         }
                         _ => unreachable!(),
+                    }
+                }
+                Change::LightingScheme(scheme) => {
+                    let was = are.root.get("LightingScheme").map(|v| shown(v, codepage));
+                    let mut fields_changed = false;
+                    for (label, value) in scheme.applied_fields() {
+                        if are.root.get(label) != Some(&value) {
+                            are.root.set(label, value);
+                            fields_changed = true;
+                        }
+                    }
+                    if fields_changed {
+                        are_changed = true;
+                        note("LightingScheme".into(), was, Some(scheme.row.to_string()));
+                    }
+                    let (mut n, mut lit) = (0, 0);
+                    for tile in are.root.list_mut("Tile_List").into_iter().flatten() {
+                        let mut changed = false;
+                        for (label, value) in scheme.tile_fields(&mut rng) {
+                            changed |= tile.get(label) != Some(&value);
+                            tile.set(label, value);
+                        }
+                        (n, lit) = (n + 1, lit + usize::from(changed));
+                    }
+                    if lit > 0 {
+                        are_changed = true;
+                        let what = format!("lights of {n} tile{}", if n == 1 { "" } else { "s" });
+                        note(
+                            what,
+                            Some("their own".into()),
+                            Some(format!("scheme {}'s", scheme.row)),
+                        );
                     }
                 }
                 Change::RemoveVar(name) => {
@@ -946,5 +988,67 @@ mod tests {
         assert!(apply(&mut m, &[r("nowhere")], &[], CP).is_err());
         assert!(Change::parse_set("SunFogAmount").is_err());
         assert!(Change::parse_var("x:bool=1").is_err());
+    }
+
+    /// A lighting scheme, found by its label or its row, sets the area's
+    /// lighting and each tile's lights from its colors, as Area
+    /// Properties' Lighting Scheme does; a row past the table is refused.
+    #[test]
+    fn a_lighting_scheme_lights_the_area_and_its_tiles() {
+        use mg_resman::{LayerClass, MemContainer, ResMan, priority};
+        let mut table = MemContainer::new();
+        let colors = |prefix: &str| (1..=4).map(|n| format!("{prefix}{n}")).collect::<Vec<_>>();
+        let columns =
+            [colors("MAIN1_COLOR"), colors("MAIN2_COLOR"), colors("SECONDARY_COLOR")].concat();
+        let text = format!(
+            "2DA V2.0\n\n LABEL STRREF DAYNIGHT LIGHT_FOG {}\n0 Day **** cycle 2 1 1 1 1 2 2 2 2 \
+             3 3 3 3\n1 Crypt **** night 9 4 5 4 5 6 7 6 7 8 9 8 9\n",
+            columns.join(" ")
+        );
+        table.insert(ResKey::new(r("environment"), ResType::TWODA), text.into_bytes());
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "game", LayerClass::Key, table);
+        let game = mg_rules::GameData::new(rm, mg_tlk::Tlk::new(Language::ENGLISH));
+        assert_eq!(crate::new::Scheme::find(&game, "crypt"), Ok(1));
+        assert_eq!(crate::new::Scheme::find(&game, "0"), Ok(0));
+        assert!(crate::new::Scheme::find(&game, "7").is_err(), "past the table");
+        assert!(crate::new::Scheme::read(&game, 7).is_err());
+
+        let mut m = module();
+        let key = ResKey::new(r("cave1"), ResType::ARE);
+        let mut cave = m.gff(&key).unwrap().unwrap();
+        let tile = |main1: u8| {
+            let mut t = Struct::new(1);
+            for label in crate::new::TILE_LIGHT_FIELDS {
+                t.set(label, Value::Byte(main1));
+            }
+            t.set("Tile_ID", Value::Int(3));
+            t
+        };
+        cave.root.set("Tile_List", Value::List(vec![tile(1), tile(2), tile(3)]));
+        m.set_gff(key, &cave).unwrap();
+        let scheme = crate::new::Scheme::read(&game, 1).unwrap();
+        let done = apply(&mut m, &[r("cave1")], &[Change::LightingScheme(scheme)], CP).unwrap();
+        let said: Vec<(&str, Option<&str>, Option<&str>)> =
+            done.iter().map(|c| (c.what.as_str(), c.from.as_deref(), c.to.as_deref())).collect();
+        assert_eq!(
+            said,
+            [
+                ("LightingScheme", None, Some("1")),
+                ("lights of 3 tiles", Some("their own"), Some("scheme 1's"))
+            ]
+        );
+        let cave = are(&m, "cave1");
+        assert_eq!(cave.integer("LightingScheme"), Some(1));
+        assert_eq!(cave.integer("IsNight"), Some(1));
+        assert_eq!(cave.integer("SunFogAmount"), Some(9), "the scheme's, not the area's 2");
+        for t in cave.list("Tile_List").unwrap() {
+            let light = |l: &str| t.integer(l).unwrap();
+            assert!([4, 5].contains(&light("Tile_MainLight1")), "{t:?}");
+            assert!([6, 7].contains(&light("Tile_MainLight2")), "{t:?}");
+            assert!([8, 9].contains(&light("Tile_SrcLight1")), "{t:?}");
+            assert_eq!(light("Tile_SrcLight2"), light("Tile_SrcLight1"));
+            assert_eq!(t.integer("Tile_ID"), Some(3), "the tile itself stays");
+        }
     }
 }

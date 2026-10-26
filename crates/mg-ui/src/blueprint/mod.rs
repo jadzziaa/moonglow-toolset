@@ -866,6 +866,48 @@ impl Form<'_> {
         v
     }
 
+    /// [`check`](Self::check) whose ticking also takes the fields `gone`
+    /// off each object that has them, in the same command (unticking
+    /// leaves them as they are): Static and a placeable's visual
+    /// transform. Undo puts them back.
+    pub(crate) fn check_taking(
+        &mut self,
+        ui: &mut Ui,
+        text: &str,
+        label: &str,
+        gone: &[&str],
+    ) -> bool {
+        self.mark_mixed(ui, label);
+        let current = self.int(label) != 0;
+        let mut v = current;
+        if !ui.checkbox(&mut v, text).changed() {
+            return v;
+        }
+        let default = mg_schema::root_field_type(self.restype(), label).unwrap_or(FieldType::Byte);
+        let value = integer(self.root.get(label), i64::from(v), default);
+        let mut command = self.setting(text, label, Some(value));
+        if v {
+            let targets: Vec<(ResKey, GffPath)> =
+                self.targets().map(|(k, p)| (k, p.clone())).collect();
+            let Some(ws) = self.app.ws.as_mut() else { return v };
+            for (key, path) in targets {
+                let Some(s) = ws.doc(&key).ok().and_then(|d| path.get(&d.root).cloned()) else {
+                    continue;
+                };
+                for g in gone.iter().filter(|g| s.contains(g)) {
+                    command.edits.push(Edit::SetField {
+                        key,
+                        path: path.clone(),
+                        label: (*g).to_string(),
+                        value: None,
+                    });
+                }
+            }
+        }
+        self.app.actions.push(Action::Apply(command));
+        v
+    }
+
     /// A number in `range`.
     pub(crate) fn number(
         &mut self,

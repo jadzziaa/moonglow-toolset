@@ -710,6 +710,14 @@ enum Cmd {
         /// (`SetAreaDefaultGrassDisabled`).
         #[arg(long, value_name = "YES_OR_NO")]
         tileset_grass: Option<String>,
+        /// A lighting scheme (an environment.2da row, by number, label or
+        /// name: `Crypt`), as Area Properties' Lighting Scheme gives it:
+        /// the area's sun and moon, fog, shadows, day and night and
+        /// weather, and each tile's lights picked at random from the
+        /// scheme's colors. Reads the game's data (and the module's haks).
+        /// `--set` changes made with it are made after it.
+        #[arg(long, value_name = "SCHEME")]
+        lighting_scheme: Option<String>,
         /// Change every area of the module (needed when no area is named
         /// and no filter given).
         #[arg(long)]
@@ -2498,6 +2506,7 @@ fn run(cli: &Cli) -> Result<Output> {
             grass,
             remove_grass,
             tileset_grass,
+            lighting_scheme,
             all,
             dry_run,
         } => {
@@ -2559,6 +2568,18 @@ fn run(cli: &Cli) -> Result<Output> {
                 changes.push(Change::TilesetGrass(on));
             }
             let mut m = Module::open(module)?;
+            let mut out = Output::default();
+            // A lighting scheme, from the game's environment.2da (the
+            // module's haks' over it): before the fields `--set` sets.
+            if let Some(text) = lighting_scheme {
+                install(cli).context("--lighting-scheme reads the game's environment.2da")?;
+                let game = search::game_data(cli, &m, &mut out)
+                    .context("--lighting-scheme: the game's data can't be read")?;
+                let row = mg_module::new::Scheme::find(&game, text)
+                    .map_err(|e| anyhow::anyhow!("--lighting-scheme {e}"))?;
+                let scheme = mg_module::new::Scheme::read(&game, row)?;
+                changes.insert(0, Change::LightingScheme(scheme));
+            }
             // A variable's type, where none is given: its description's
             // (`variables.toml`), where the project describes it.
             let mut described_notes = Vec::new();
@@ -2623,7 +2644,6 @@ fn run(cli: &Cli) -> Result<Output> {
             }
             let done =
                 areas::apply(&mut m, &resrefs, &changes, codepage).map_err(anyhow::Error::msg)?;
-            let mut out = Output::default();
             project_file_notes(&m, &mut out);
             for n in described_notes {
                 out.note(n);

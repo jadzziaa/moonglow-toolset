@@ -203,13 +203,18 @@ pub fn static_note(a: &AdjustLocation) -> Option<String> {
     } else {
         format!("{} of these placeables are static", a.fixed)
     };
+    // (Ticking Static here takes the transform off: such a file was made
+    // elsewhere, or before Moonglow did so.)
     let kept = match a.fixed_shaped {
         0 => String::new(),
         1 if a.fixed == 1 => {
-            " Its file has a visual transform, which is kept but not drawn.".into()
+            " Its file has a visual transform all the same, which the game doesn't draw.".into()
         }
-        1 => " 1 has a visual transform in its file, kept but not drawn.".into(),
-        n => format!(" {n} have a visual transform in their file, kept but not drawn."),
+        1 => " 1 has a visual transform in its file all the same, which the game doesn't draw."
+            .into(),
+        n => format!(
+            " {n} have a visual transform in their file all the same, which the game doesn't draw."
+        ),
     };
     Some(format!(
         "{which}: the game draws static placeables without visual transforms, so none is \

@@ -17043,13 +17043,75 @@ fn adjust_location_s_visual_transforms_are_saved_and_reopened() {
     assert!(h.query_by_label("Visual Transforms").is_none());
     let note = mg_ui::area_tools::static_note(h.state().adjust.as_ref().unwrap()).unwrap();
     assert!(note.starts_with("This placeable is static"), "{note}");
-    assert!(note.contains("kept but not drawn"), "{note}");
+    assert!(note.contains("which the game doesn't draw"), "{note}");
     assert!(h.query_by_label(&note).is_some(), "the window says so");
     let img = h.render().expect("render");
     img.save(mg_testkit::scratch_dir("ui-adjust-static").join("window.png")).unwrap();
     h.get_by_label("Cancel").click();
     h.run_steps(2);
     assert_eq!(visual(&mut h, 1), Some(mirror), "its file's transform is kept");
+}
+
+/// Static ticked in the Properties of two placed placeables edited
+/// together takes their visual transforms off, as Aurora does: one step,
+/// which Undo takes back, transforms and all. Unticked, none comes back.
+#[test]
+fn static_ticked_takes_the_visual_transform_off() {
+    use mg_area::VisualTransform;
+    use mg_module::instances::{Placement, Placing, instance};
+    let tilted = VisualTransform {
+        scale: glam::Vec3::splat(0.46),
+        rotate: glam::Vec3::new(-50.8, 10.0, 0.0),
+        translate: glam::Vec3::ZERO,
+    };
+    let prepare = |m: &mut mg_module::Module, game: &mg_rules::GameData, area: ResRef| {
+        let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        let chest = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let chests: Vec<_> = [12.0, 28.0]
+            .map(|x| {
+                let at = Placement { position: [x, 30.0, 0.0], rotation: 0.0 };
+                let mut item = instance(&placing, ResType::UTP, &chest, at, &[]).unwrap();
+                item.set("Static", mg_gff::Value::Byte(0));
+                item.set("VisTransformList", mg_area::edit::visual_transform_list(tilted));
+                item
+            })
+            .into();
+        let git_key = ResKey::new(area, ResType::GIT);
+        let mut git = m.gff(&git_key).unwrap().unwrap();
+        git.root.set("Placeable List", mg_gff::Value::List(chests));
+        m.set_gff(git_key, &git).unwrap();
+    };
+    let Some((mut h, area)) = area_harness_with("static-ticked", "ttr01", None, 4, None, &prepare)
+    else {
+        return;
+    };
+    let git_key = ResKey::new(area, ResType::GIT);
+    let chests = |h: &mut Harness<'_, Moonglow>| -> Vec<(Option<i64>, Option<VisualTransform>)> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let list = ws.doc(&git_key).unwrap().root.list("Placeable List").unwrap().to_vec();
+        list.iter().map(|p| (p.integer("Static"), VisualTransform::read(p))).collect()
+    };
+    let paths = (0..2).map(|i| mg_edit::GffPath::root().item("Placeable List", i)).collect();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Instances { area, paths }));
+    h.run_steps(4);
+    let before = chests(&mut h);
+    assert_eq!(before, [(Some(0), Some(tilted)); 2]);
+    h.get_by_label("Static").click();
+    h.run_steps(3);
+    assert_eq!(chests(&mut h), [(Some(1), None); 2], "static, and their transforms gone");
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-static-ticked").join("properties.png")).unwrap();
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Static"));
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(3);
+    assert_eq!(chests(&mut h), before, "one undo: dynamic and tilted again");
+    h.state_mut().actions.push(mg_ui::Action::Redo);
+    h.run_steps(3);
+    h.get_by_label("Static").click();
+    h.run_steps(3);
+    assert_eq!(chests(&mut h), [(Some(0), None); 2], "unticked: no transform comes back");
 }
 
 /// From straight above, where a tilt ring is seen edge-on and the up arrow
@@ -21388,6 +21450,79 @@ fn several_areas_are_edited_together() {
     assert_eq!(names(&mut h, "cave1"), ["nDepth"]);
 }
 
+/// Give Every Area This Page's Visual Settings, on areas edited together:
+/// an area of another lighting scheme gets the first's, and its tiles'
+/// lights from that scheme's colors, as choosing the scheme gives them;
+/// one of the same scheme keeps its tiles' own. One step to undo.
+#[test]
+fn every_area_is_given_the_scheme_s_tile_lights() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-areas-scheme");
+    let path = sample_module(&dir);
+    let mut m = mg_module::Module::open(&path).unwrap();
+    let key = |name: &str, t| ResKey::parse(name, t).unwrap();
+    // ExteriorEvil (environment.2da 5): source lights 12 or 8.
+    let evil: u8 = 5;
+    for (name, title, scheme) in
+        [("cave1", "Wolf Cave", evil), ("cave2", "Bear Cave", 0), ("cave3", "Bat Cave", evil)]
+    {
+        let mut are = Gff::new(*b"ARE ");
+        let title = LocString::from_text(Language::ENGLISH, Gender::Male, title);
+        are.root.set("Name", mg_gff::Value::LocString(title));
+        are.root.set("LightingScheme", mg_gff::Value::Byte(scheme));
+        let tiles = (0..4)
+            .map(|_| {
+                let mut t = mg_gff::Struct::new(1);
+                for l in mg_module::new::TILE_LIGHT_FIELDS {
+                    t.set(l, mg_gff::Value::Byte(31));
+                }
+                t
+            })
+            .collect();
+        are.root.set("Tile_List", mg_gff::Value::List(tiles));
+        m.set(key(name, ResType::ARE), are.to_bytes().unwrap());
+        let mut git = Gff::new(*b"GIT ");
+        git.root.set("AreaProperties", mg_gff::Value::Struct(mg_gff::Struct::new(100)));
+        m.set(key(name, ResType::GIT), git.to_bytes().unwrap());
+    }
+    m.save().unwrap();
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let caves: Vec<ResRef> =
+        ["cave1", "cave2", "cave3"].map(|n| ResRef::from_str(n).unwrap()).to_vec();
+    app.actions.push(mg_ui::Action::OpenTab(Tab::AreasProperties(caves)));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let sources = |h: &mut Harness<'_, Moonglow>, name: &str| -> (Option<i64>, Vec<i64>) {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let a = ws.doc(&ResKey::parse(name, ResType::ARE).unwrap()).unwrap().root.clone();
+        let tiles = a.list("Tile_List").unwrap();
+        (
+            a.integer("LightingScheme"),
+            tiles.iter().map(|t| t.integer("Tile_SrcLight1").unwrap()).collect(),
+        )
+    };
+    let before = sources(&mut h, "cave2");
+    h.get_by_label("Visual").click();
+    h.run_steps(2);
+    h.get_by_label("Give Every Area This Page's Visual Settings").click();
+    h.run_steps(3);
+    let (scheme, lights) = sources(&mut h, "cave2");
+    assert_eq!(scheme, Some(i64::from(evil)));
+    assert!(lights.iter().all(|l| [12, 8].contains(l)), "the scheme's source lights: {lights:?}");
+    assert_eq!(
+        sources(&mut h, "cave3"),
+        (Some(i64::from(evil)), vec![31; 4]),
+        "the same scheme: its own"
+    );
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-areas-scheme").join("visual.png")).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(2);
+    assert_eq!(sources(&mut h, "cave2"), before, "one undo");
+}
+
 /// Export as Files and Copy to Scratch Folder: a script goes out with its
 /// compiled script, as it is now in the toolset (saved or not), into the
 /// folder chosen; the scratch folder is asked for once, then kept.
@@ -23208,6 +23343,123 @@ fn the_palette_replaces_the_selected_object() {
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run_steps(3);
     assert_eq!(read(&mut h, 0), first, "one undo");
+}
+
+/// Replace Selected with This keeps what Update Instances keeps (Aurora's
+/// remaking of a placed object): a trigger is replaced with its outline
+/// where it was, a tilted placeable keeps its place, facing and visual
+/// transform; the tag and the variables are the new blueprint's. Each
+/// replacement is one step to undo.
+#[test]
+fn replaced_objects_keep_their_outline_and_transform() {
+    use mg_area::{ObjectKind, VisualTransform};
+    use mg_module::instances::{Placement, Placing, instance};
+    let tilted = VisualTransform {
+        scale: glam::Vec3::splat(0.7),
+        rotate: glam::Vec3::new(30.0, 15.0, 0.0),
+        translate: glam::Vec3::ZERO,
+    };
+    let outline = [[0.0, 0.0, 0.025], [6.0, 0.0, 0.025], [6.0, 4.0, 0.025], [0.0, 4.0, 0.025]];
+    let prepare = |m: &mut mg_module::Module, game: &mg_rules::GameData, area: ResRef| {
+        let read = |name: &str, t: ResType| {
+            Gff::read(&game.resman.get(&ResKey::parse(name, t).unwrap()).unwrap()).unwrap()
+        };
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let mut var = mg_gff::Struct::new(0);
+        var.set("Name", mg_gff::Value::String(b"nOld".to_vec()));
+        var.set("Type", mg_gff::Value::Dword(1));
+        var.set("Value", mg_gff::Value::Int(1));
+        let old = |mut s: mg_gff::Struct| {
+            s.set("Tag", mg_gff::Value::String(b"OLD_ONE".to_vec()));
+            s.set("VarTable", mg_gff::Value::List(vec![var.clone()]));
+            s
+        };
+        let at = Placement { position: [10.0, 26.0, 0.0], rotation: 0.0 };
+        let trigger = read("newgeneric", ResType::UTT).root;
+        let trigger = old(instance(&placing, ResType::UTT, &trigger, at, &outline).unwrap());
+        let at = Placement { position: [28.0, 30.0, 0.0], rotation: 1.2 };
+        let chest = read("plc_chest1", ResType::UTP).root;
+        let mut chest = old(instance(&placing, ResType::UTP, &chest, at, &[]).unwrap());
+        chest.set("Static", mg_gff::Value::Byte(0));
+        chest.set("VisTransformList", mg_area::edit::visual_transform_list(tilted));
+        let git_key = ResKey::new(area, ResType::GIT);
+        let mut git = m.gff(&git_key).unwrap().unwrap();
+        git.root.set("TriggerList", mg_gff::Value::List(vec![trigger]));
+        git.root.set("Placeable List", mg_gff::Value::List(vec![chest]));
+        m.set_gff(git_key, &git).unwrap();
+        // The blueprints to replace them with, in the custom palette.
+        for (resref, from, t, name, tag) in [
+            ("mg_zone", "newgeneric", ResType::UTT, "Mg Zone", "MG_ZONE"),
+            ("mg_crate", "plc_chest1", ResType::UTP, "Mg Crate", "MG_CRATE"),
+        ] {
+            let key = ResKey::parse(resref, t).unwrap();
+            let mut g = read(from, t);
+            g.root.set("TemplateResRef", mg_gff::Value::resref(key.resref));
+            let label = if t == ResType::UTT { "LocalizedName" } else { "LocName" };
+            let ls = LocString::from_text(Language::ENGLISH, Gender::Male, name);
+            g.root.set(label, mg_gff::Value::LocString(ls));
+            g.root.set("Tag", mg_gff::Value::String(tag.as_bytes().to_vec()));
+            g.root.set("PaletteID", mg_gff::Value::Byte(0));
+            if t == ResType::UTP {
+                g.root.set("Static", mg_gff::Value::Byte(0));
+            }
+            m.set_gff(key, &g).unwrap();
+        }
+        mg_module::palette::rebuild_custom_palettes(m, game).unwrap();
+    };
+    let Some((mut h, area)) = area_harness_with("replace-kept", "ttr01", None, 4, None, &prepare)
+    else {
+        return;
+    };
+    let git_key = ResKey::new(area, ResType::GIT);
+    let placed = |h: &mut Harness<'_, Moonglow>, list: &str| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&git_key).unwrap().root.list(list).unwrap()[0].clone()
+    };
+    let (trigger, chest) = (placed(&mut h, "TriggerList"), placed(&mut h, "Placeable List"));
+    let before = h.render().expect("render");
+    before.save(mg_testkit::scratch_dir("ui-replace-kept").join("before.png")).unwrap();
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(ObjectKind::Trigger, 0), (ObjectKind::Placeable, 0)];
+    let replace = |h: &mut Harness<'_, Moonglow>, kind, name: &str| {
+        let app = h.state_mut();
+        app.palette.kind = kind;
+        (app.palette.tiles, app.palette.custom) = (false, true);
+        app.palette.filter = name.into();
+        h.run_steps(3);
+        h.get_by_label(name).click_secondary();
+        h.run_steps(2);
+        h.get_by_label("Replace Selected with This").click();
+        h.run_steps(3);
+    };
+    use mg_module::palette::BlueprintKind;
+    replace(&mut h, BlueprintKind::Trigger, "Mg Zone");
+    let zone = placed(&mut h, "TriggerList");
+    assert_eq!(zone.resref("TemplateResRef").unwrap().to_string(), "mg_zone");
+    assert_eq!(zone.string("Tag"), Some(&b"MG_ZONE"[..]), "the blueprint's tag");
+    assert!(zone.list("VarTable").unwrap_or(&[]).is_empty(), "the old one's variables go");
+    assert_eq!(zone.list("Geometry"), trigger.list("Geometry"), "its outline");
+    for f in ["XPosition", "YPosition", "ZPosition"] {
+        assert_eq!(zone.float(f), trigger.float(f), "{f}");
+    }
+    assert_eq!(placed(&mut h, "Placeable List"), chest, "the chest is another type's");
+    replace(&mut h, BlueprintKind::Placeable, "Mg Crate");
+    let crate_ = placed(&mut h, "Placeable List");
+    assert_eq!(crate_.string("Tag"), Some(&b"MG_CRATE"[..]));
+    for f in ["X", "Y", "Z", "Bearing"] {
+        assert_eq!(crate_.float(f), chest.float(f), "{f}");
+    }
+    assert_eq!(VisualTransform::read(&crate_), Some(tilted), "its visual transform");
+    let after = h.render().expect("render");
+    after.save(mg_testkit::scratch_dir("ui-replace-kept").join("after.png")).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(3);
+    assert_eq!(placed(&mut h, "Placeable List"), chest, "one undo for the chest");
+    assert_eq!(placed(&mut h, "TriggerList"), zone);
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(3);
+    assert_eq!(placed(&mut h, "TriggerList"), trigger, "and one for the trigger");
 }
 
 /// A placeable's Properties open a gallery of every appearance in
