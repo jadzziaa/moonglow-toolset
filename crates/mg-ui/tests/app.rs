@@ -8733,6 +8733,84 @@ fn item_wizard_makes_a_weapon_with_its_cost() {
     );
 }
 
+/// The Item Wizard's Magical, as Aurora's: ticked, the item level and
+/// quality are chosen before going on, and the item gets random
+/// properties its base item can have, the same for the same seed, and
+/// is written unidentified. A torch can't be made magical.
+#[test]
+fn item_wizard_makes_a_magical_item_of_a_level_and_quality() {
+    use mg_module::palette::BlueprintKind;
+    let Some(mut h) = game_harness("item-magic") else { return };
+    let make = |h: &mut Harness<'_, Moonglow>, base: &str, name: &str| {
+        let mut w = mg_ui::blueprint_wizard::BlueprintWizard::new(BlueprintKind::Item);
+        w.seed = 7;
+        h.state_mut().blueprint_wizard = Some(w);
+        h.run();
+        h.get_by_label(base).scroll_to_me();
+        h.run();
+        h.get_by_label(base).click();
+        h.run();
+        h.get_by_label("Next >").click();
+        h.run();
+        type_into_hint(h, "Name", name);
+    };
+    make(&mut h, "Longsword", "Magic Sword");
+    // The level and quality wait for Magical; with it, Next waits for
+    // them.
+    assert!(h.get_by_label("Godly").accesskit_node().is_disabled());
+    h.get_by_label("Magical").click();
+    h.run();
+    assert!(!h.get_by_label("Godly").accesskit_node().is_disabled());
+    assert!(h.get_by_label("Next >").accesskit_node().is_disabled());
+    h.get_by_label("16-20").click();
+    h.run();
+    assert!(h.get_by_label("Next >").accesskit_node().is_disabled());
+    h.get_by_label("Godly").click();
+    h.run();
+    h.get_by_label("Next >").click();
+    h.run();
+    h.get_by_label("Plot Item").click();
+    h.run();
+    h.get_by_label("Finish").click();
+    h.run();
+    let made = module_gff(&mut h, "magicsword", ResType::UTI).expect("the item");
+    let game = h.state().game.clone().unwrap();
+    let props: Vec<mg_rules::ItemProperty> = made
+        .root
+        .list("PropertiesList")
+        .unwrap()
+        .iter()
+        .map(mg_rules::ItemProperty::from_gff)
+        .collect();
+    assert!(!props.is_empty());
+    let available = game.available_properties(1);
+    assert!(props.iter().all(|p| available.iter().any(|a| a.row == p.property)), "{props:?}");
+    // 16-20, Godly: a longsword's first property is of the melee
+    // table's top tier.
+    let melee = game.table("itmwizmelee").unwrap();
+    let first = props[0];
+    let top = (0..melee.len()).any(|r| {
+        melee.get_int(r, "Value") == Some(8)
+            && melee.get_int(r, "Prop") == Some(first.property.into())
+            && melee.get_int(r, "CostVal").unwrap_or(0) == i32::from(first.cost_value)
+    });
+    assert!(top, "{first:?}");
+    assert_eq!(made.root.integer("Identified"), Some(0));
+    let cost = game.item_cost(&mg_rules::ItemValue::from_gff(&made.root));
+    assert_eq!(made.root.integer("Cost"), Some(cost.into()));
+    assert!(cost > 30000, "a magical sword's cost: {cost}");
+    // The same seed, the same properties.
+    let plain = mg_module::blueprints::item(&game, ResRef::from_str("x").unwrap(), "X", 1, 0);
+    let mut again = plain.clone();
+    let m = mg_rules::item_wizard::Magical { level: 3, quality: 3, seed: 7 };
+    mg_module::blueprints::make_magical(&game, &mut again, m);
+    assert_eq!(again.root.list("PropertiesList"), made.root.list("PropertiesList"));
+
+    // A torch: no Magical.
+    make(&mut h, "Torch", "Plain Torch");
+    assert!(h.get_by_label("Magical").accesskit_node().is_disabled());
+}
+
 /// A module with a 4 by 4 rural area holding two waypoints, at (20, 20)
 /// and (30, 20), with the game's data and a GPU (`None` without either).
 fn area_harness(name: &str) -> Option<(Harness<'static, Moonglow>, ResRef)> {
@@ -12014,6 +12092,139 @@ fn find_and_replace_text_across_the_module() {
     assert_eq!(name(&mut h, &keys[0]), "Orc camp");
 }
 
+/// Advanced Search with conditions together (fighters with a feat, a
+/// class by its levels), then what it found changed in one step (a
+/// variable set on the ticked ones, undone as one), opened in Edit
+/// Together, and its areas given to Edit Areas Together.
+#[test]
+fn advanced_search_changes_what_it_found_and_takes_conditions_together() {
+    use mg_edit::{Command, Edit};
+    use mg_gff::{Struct, Value};
+    use mg_ui::search::{Condition, Kind};
+    let dir = mg_testkit::scratch_dir("ui-advanced-search-act");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    // Two fighters placed in the area, of levels 5 and 9; the first has
+    // a feat.
+    let fighter = |tag: &str, level: i16, feat: bool| {
+        let mut class = Struct::new(2);
+        class.set("Class", Value::Int(4));
+        class.set("ClassLevel", Value::Short(level));
+        let mut c = Struct::new(4);
+        c.set("Tag", Value::String(tag.as_bytes().to_vec()));
+        c.set("ScriptSpawn", Value::resref(ResRef::from_str("x2_def_spawn").unwrap()));
+        c.set("ClassList", Value::List(vec![class]));
+        let mut f = Struct::new(1);
+        f.set("Feat", Value::Word(0));
+        c.set("FeatList", Value::List(if feat { vec![f] } else { Vec::new() }));
+        c
+    };
+    let mut git = Gff::new(*b"GIT ");
+    let creatures = vec![fighter("GUARD", 5, true), fighter("CAPTAIN", 9, false)];
+    git.root.set("Creature List", Value::List(creatures));
+    let start = ResKey::parse("start", ResType::GIT).unwrap();
+    let set = Edit::SetResource { key: start, data: Some(git.to_bytes().unwrap()) };
+    app.ws.as_mut().unwrap().apply(Command::new("setup", vec![set])).unwrap();
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AdvancedSearch));
+    h.run_steps(2);
+    let creature = |h: &mut Harness<'_, Moonglow>, i: usize| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.flush().unwrap();
+        let g = ws.module.gff(&start).unwrap().unwrap();
+        g.root.list("Creature List").unwrap()[i].clone()
+    };
+    let var = |c: &Struct| c.list("VarTable").and_then(|v| v.first().map(|v| v.integer("Value")));
+
+    // Fighters, then fighters with the feat.
+    h.state_mut().advanced_search.first =
+        Condition { kind: Kind::Class, row: Some(4), ..Default::default() };
+    h.run();
+    h.get_by_label("Find").click();
+    h.run();
+    h.get_by_label("2 found:");
+    h.get_by_label("And…").click();
+    h.run();
+    h.state_mut().advanced_search.and[0].row = Some(0);
+    h.run();
+    h.get_by_label("Find").click();
+    h.run();
+    h.get_by_label("1 found:");
+    h.get_by_label("Class: row 4, level 5 · Feat: row 0");
+    h.get_by_label("Remove").click();
+    h.run();
+    // A class by its levels.
+    h.state_mut().advanced_search.first.levels = (6, 20);
+    h.run();
+    h.get_by_label("Find").click();
+    h.run();
+    h.get_by_label("1 found:");
+    h.get_by_label("Class: row 4, level 9");
+    h.state_mut().advanced_search.first.levels = (1, 60);
+    h.run();
+    h.get_by_label("Find").click();
+    h.run();
+    h.get_by_label("2 found:");
+
+    // A variable set on the ticked one, in one step.
+    h.state_mut().advanced_search.ticked[1] = false;
+    h.run();
+    h.get_by_label("Change the 1 ticked").click();
+    h.run();
+    type_into_hint(&mut h, "its name, e.g. nQuestState", "nTest");
+    type_into_hint(&mut h, "the value", "5");
+    h.get_by_label("Change 1 Found").click();
+    h.run();
+    assert_eq!(var(&creature(&mut h, 0)), Some(Some(5)));
+    assert_eq!(var(&creature(&mut h, 1)), None, "not ticked");
+    // (Found again, everything ticked.)
+    h.get_by_label("2 found:");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(2);
+    assert_eq!(var(&creature(&mut h, 0)), None, "undone as one");
+    // An event's script, on both.
+    {
+        let a = &mut h.state_mut().advanced_search.act;
+        a.act = mg_ui::search::Act::SetScript;
+        a.value = String::new();
+    }
+    h.run();
+    h.state_mut().advanced_search.act.event = Some("ScriptSpawn".into());
+    h.run();
+    type_into_hint(&mut h, "its name (empty: none)", "my_spawn");
+    h.get_by_label("Change 2 Found").click();
+    h.run();
+    for i in 0..2 {
+        assert_eq!(
+            creature(&mut h, i).resref("ScriptSpawn"),
+            Some(ResRef::from_str("my_spawn").unwrap())
+        );
+    }
+
+    // Edit Together, and their area chosen in Edit Areas Together.
+    h.get_by_label("Edit the 2 ticked together").click();
+    h.run();
+    h.get_by_label("Edit 2 creature(s) in start Together").click();
+    h.run_steps(2);
+    let paths = vec![
+        mg_edit::GffPath::root().item("Creature List", 0),
+        mg_edit::GffPath::root().item("Creature List", 1),
+    ];
+    let area = ResRef::from_str("start").unwrap();
+    let both = Tab::Instances { area, paths };
+    assert!(h.state().dock.find_tab(&both).is_some());
+    // (Closed: in this small screen it lies over the search's.)
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(both));
+    h.run_steps(2);
+    h.get_by_label("Choose 1 Area(s)…").click();
+    h.run_steps(2);
+    // (The chooser's button: one area ticked.)
+    h.get_by_label("Edit 1 Together");
+}
+
 #[test]
 fn advanced_search_finds_objects_by_what_they_hold() {
     use mg_edit::{Command, Edit};
@@ -12097,8 +12308,8 @@ fn advanced_search_finds_objects_by_what_they_hold() {
     // Creatures by class, named as the game names them.
     {
         let d = &mut h.state_mut().advanced_search;
-        d.kind = mg_ui::search::Kind::Class;
-        d.row = Some(4);
+        d.first.kind = mg_ui::search::Kind::Class;
+        d.first.row = Some(4);
     }
     h.run();
     h.get_by_label("Find again for what's asked now.");
@@ -12107,7 +12318,7 @@ fn advanced_search_finds_objects_by_what_they_hold() {
     h.get_by_label("1 found:");
     h.get_by_label("Class: Fighter, level 5");
     // Nothing chosen: nothing to find yet.
-    h.state_mut().advanced_search.row = None;
+    h.state_mut().advanced_search.first.row = None;
     h.run();
     h.get_by_label("Choose a class");
 }
@@ -25508,7 +25719,7 @@ fn arrow_keys_step_through_every_window_s_lists() {
     h.run_steps(2);
     let kinds = mg_ui::search::Kind::ALL;
     arrow_step_list(&mut h, kinds[0].label(), kinds[1].label());
-    h.state_mut().advanced_search.kind = mg_ui::search::Kind::Variable;
+    h.state_mut().advanced_search.first.kind = mg_ui::search::Kind::Variable;
     h.run_steps(2);
     arrow_step_list(&mut h, "Any", mg_module::vars::VarType::ALL[0].name());
 }

@@ -3,7 +3,7 @@ type: Manual Page
 title: Differences from Aurora
 description: Where Moonglow deliberately departs from Aurora.
 tags: [manual, aurora, differences]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:02:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:41:32Z }
 ---
 
 # Differences from Aurora
@@ -71,9 +71,15 @@ it differs, it is on purpose:
   **Preview** button that opens the model viewer.
 - **Renaming custom blueprints in the palette** is done in the blueprint's
   editor (in Aurora 1.89 the palette's in-place rename does nothing).
-- **The Creature Template tab** is not shown (Aurora 1.89 hides it too),
-  nor the Item Wizard's Magical, Item Level and Quality (disabled in
-  Aurora).
+- **The Creature Template tab** is not shown (Aurora 1.89 hides it too).
+- **The Item Wizard's Magical** gives only properties the base item can
+  have: Aurora's tables give ranged weapons Vampiric Regeneration and
+  throwing weapons Freedom of Movement, which itemprops.2da doesn't allow
+  them. Gems and gauntlets aren't offered Magical (Aurora offers it, and
+  gives them no properties but makes them unidentified). Its random
+  choices are Moonglow's own, made as Aurora's made items show (the same
+  tables, strengths, number of properties and most an item is worth),
+  not draw for draw.
 - **The renderer** draws with the game's own shaders (the area view's
   and the model viewer's **🎨 Shaders**, on by default), compiled from the
   game and the module's haks: each mesh with the program the game would

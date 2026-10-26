@@ -1994,6 +1994,42 @@ fn creature_wizard() {
     }
 }
 
+/// The Item Wizard's Name page: Magical ticked, a level and quality
+/// chosen (as Aurora's page).
+#[test]
+#[ignore]
+fn item_wizard_magical() {
+    use egui_kittest::kittest::Queryable;
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.actions.push(mg_ui::Action::NewModule("wiz".into()));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().blueprint_wizard = Some(mg_ui::blueprint_wizard::BlueprintWizard::new(
+        mg_module::palette::BlueprintKind::Item,
+    ));
+    h.run();
+    h.get_by_label("Longsword").scroll_to_me();
+    h.run();
+    h.get_by_label("Longsword").click();
+    h.run();
+    h.get_by_label("Next >").click();
+    h.run();
+    shoot(&mut h, &dir, "item-wizard-name");
+    h.get_by_label("Magical").click();
+    h.run();
+    h.get_by_label("11-15").click();
+    h.get_by_label("High").click();
+    h.run();
+    shoot(&mut h, &dir, "item-wizard-magical");
+}
+
 #[test]
 #[ignore]
 fn references() {
@@ -3986,24 +4022,41 @@ fn advanced_search() {
     h.run_steps(3);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::AdvancedSearch));
     h.run_steps(3);
-    let mut d = mg_ui::search::AdvancedSearch {
-        kind: mg_ui::search::Kind::ItemProperty,
-        row: Some(52),
-        subtype: Some(15),
+    use mg_ui::search::{AdvancedSearch, Condition, Kind};
+    let mut d = AdvancedSearch {
+        first: Condition {
+            kind: Kind::ItemProperty,
+            row: Some(52),
+            subtype: Some(15),
+            ..Default::default()
+        },
         ..Default::default()
     };
     h.state_mut().advanced_search(&mut d);
     h.state_mut().advanced_search = d;
     shoot(&mut h, &dir, "advanced-search-property");
-    let mut d = mg_ui::search::AdvancedSearch {
-        kind: mg_ui::search::Kind::Class,
-        row: Some(4),
+    let mut d = AdvancedSearch {
+        first: Condition { kind: Kind::Class, row: Some(4), ..Default::default() },
         placed: Some(true),
         ..Default::default()
     };
     h.state_mut().advanced_search(&mut d);
     h.state_mut().advanced_search = d;
     shoot(&mut h, &dir, "advanced-search-class");
+    // Fighters of 4 to 10 levels with Alertness (feat 0), and the change
+    // to make to them open.
+    let mut d = AdvancedSearch {
+        first: Condition { kind: Kind::Class, row: Some(4), levels: (4, 10), ..Default::default() },
+        and: vec![Condition { kind: Kind::Feat, row: Some(0), ..Default::default() }],
+        placed: Some(true),
+        ..Default::default()
+    };
+    h.state_mut().advanced_search(&mut d);
+    h.state_mut().advanced_search = d;
+    h.run();
+    h.query_by_label_contains("Change the ").expect("the change").click();
+    h.run();
+    shoot(&mut h, &dir, "advanced-search-and");
 }
 
 /// Right-click menus, Properties last in each (Aurora's order): a

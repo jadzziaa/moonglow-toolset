@@ -917,7 +917,7 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
                 here.clone(),
                 "PropertiesList",
                 assigned.len(),
-                property_struct(&p),
+                p.to_gff(),
             )],
         )));
         selected = Some(assigned.len());
@@ -930,19 +930,6 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
         selected = None;
     }
     ui.data_mut(|d| d.insert_temp(state_id, (chosen, chosen_sub, selected)));
-}
-
-/// A `PropertiesList` entry.
-fn property_struct(p: &ItemProperty) -> Struct {
-    let mut s = Struct::new(0);
-    s.set("PropertyName", Value::Word(p.property));
-    s.set("Subtype", Value::Word(p.subtype));
-    s.set("CostTable", Value::Byte(p.cost_table));
-    s.set("CostValue", Value::Word(p.cost_value));
-    s.set("Param1", Value::Byte(p.param1));
-    s.set("Param1Value", Value::Byte(p.param1_value));
-    s.set("ChanceAppear", Value::Byte(p.chance));
-    s
 }
 
 /// An assigned property's parameters (Aurora's Select Property

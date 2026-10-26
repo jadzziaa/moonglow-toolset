@@ -102,12 +102,18 @@ fn list_blueprint(list: &str) -> Option<ResType> {
     })
 }
 
-fn classify(file_type: &str, list: Option<&str>, label: &str) -> Option<RefKind> {
-    let script = label.starts_with("On")
+/// Whether a field (a resref) names a script by its label: an event's
+/// (`OnEnter`, `ScriptSpawn`, `Mod_OnHeartbeat`), a conversation line's
+/// (`Active`, `Script`) or a conversation's ending.
+pub fn is_script_field(label: &str) -> bool {
+    label.starts_with("On")
         || label.starts_with("Mod_On")
         || label.starts_with("Script")
-        || matches!(label, "Active" | "EndConversation" | "EndConverAbort");
-    if script {
+        || matches!(label, "Active" | "EndConversation" | "EndConverAbort")
+}
+
+fn classify(file_type: &str, list: Option<&str>, label: &str) -> Option<RefKind> {
+    if is_script_field(label) {
         return Some(RefKind::Script);
     }
     Some(match label {

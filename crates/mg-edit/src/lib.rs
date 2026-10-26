@@ -13,6 +13,7 @@ use mg_resman::ResKey;
 use thiserror::Error;
 
 pub mod fix;
+pub mod found;
 pub mod terrain;
 pub mod wire;
 

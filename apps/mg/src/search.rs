@@ -216,6 +216,7 @@ pub(crate) fn run(cli: &Cli, a: &Args) -> Result<Output> {
     let game = game_data(cli, &m, &mut out);
     let q = Query {
         search: what(a, game.as_ref())?,
+        and: Vec::new(),
         types,
         placed: if a.placed {
             Some(true)

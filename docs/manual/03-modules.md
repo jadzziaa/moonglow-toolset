@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:11:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:41:32Z }
 ---
 
 # Modules
@@ -169,7 +169,8 @@ to look for:
 - **Item properties:** a property (Skill Bonus), and if chosen its
   subtype (Hide), value (+5) and parameter, named as the game names them.
 - **Creatures by class, feat, spell or skill:** a class (with the
-  level each has), a feat, a spell known, memorized or used as a special
+  level each has; **Levels** keeps it to creatures with so many levels
+  in it, 4 to 10), a feat, a spell known, memorized or used as a special
   ability, a skill with at least so many ranks.
 - **Appearances:** of creatures, placeables, tileset doors, generic
   doors, waypoints, or items' base types.
@@ -178,9 +179,18 @@ to look for:
   actions.
 - **Any field:** by label (`*` as in variables), by value, or both. A
   value is text that strings, resrefs and every language of names and
-  descriptions contain, or with **Whole number** ticked a number that
-  fields of every integer type hold exactly: `103` finds every field
-  holding 103, an appearance, a portrait or a conversation's link alike.
+  descriptions contain, or with **Number** ticked a number: `103` finds
+  every field of an integer type holding 103 exactly, an appearance, a
+  portrait or a conversation's link alike; `1.5` a float holding 1.5;
+  a range, `5..10` (or `5..`, `..10`), every number field in it.
+
+**And…** adds another condition, of any of these kinds: what is found
+is kept where the same object meets them all, as "Fighters with
+Alertness" (Creatures by class, and Creatures by feat). An object holding
+what a condition finds, or held by it, counts as meeting it too:
+fighters carrying an item with a property, items held by fighters,
+creatures in an area with a variable. What each condition found is told
+after the first's (`Class: Fighter, level 5 · Feat: Alertness`).
 
 **Look at** keeps the search to one kind of object (Items include
 those in inventories, equipment and stores) and to blueprints or placed
@@ -193,8 +203,26 @@ what matched beside it (`Skill Bonus: Hide +5`, `sDeidad (string) =
 "Ezra"`). Click one to go there. A creature, placeable or store
 blueprint's inventory names its items' blueprints: an item blueprint
 found is also listed where they carry it (`chest.utp › carries
-sword.uti`). The command line has the same: `mg search`
-([Command-line tools](11-command-line.md)).
+sword.uti`). The command line has the same, one condition at a time:
+`mg search` ([Command-line tools](11-command-line.md)).
+
+Each one found is ticked; untick those to leave out (**Tick All**,
+**Tick None**). Then:
+- **Change the N ticked** makes one change to each object, in one step
+  that Undo takes back: **Set a variable** (added, or its type and value
+  replaced; an area's goes to its GIT, where the game reads it),
+  **Remove a variable**, **Set an event's script** (the events the
+  objects found have; a conversation line's script where one was found)
+  or **Set a field** (by label, its value typed as the field reads it:
+  the field found where it was found, as a class's level, else the
+  object's own; an appearance's field is offered after a search of
+  appearances). What couldn't be changed (an object without that event
+  or field) is said, and the search runs again.
+- **Edit the N ticked together** opens blueprints of one type in one
+  window, and objects of one kind placed in one area in one window, as
+  the palette's and the area's Edit Together do; **Choose Areas…** opens
+  Edit Areas Together with the areas of what is ticked (areas found, or
+  those the objects found are placed in) ticked.
 
 ## nasher projects (version control)
 

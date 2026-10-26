@@ -19,6 +19,7 @@ use thiserror::Error;
 pub mod appearance;
 pub mod challenge;
 pub mod creatures;
+pub mod item_wizard;
 pub mod items;
 pub mod levelup;
 pub mod names;
