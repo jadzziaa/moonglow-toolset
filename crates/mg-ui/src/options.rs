@@ -85,6 +85,7 @@ pub struct OptionsDraft {
     pub scripts_together: bool,
     pub properties_together: bool,
     pub tree_opens_area: bool,
+    pub tree_follows_tabs: bool,
     pub dialogs_together: bool,
     pub dialog_font_size: Option<u8>,
     pub script_templates: String,
@@ -185,6 +186,7 @@ impl OptionsDraft {
             scripts_together: !s.scripts_own_windows,
             properties_together: !s.properties_own_windows,
             tree_opens_area: !s.tree_keeps_areas_closed,
+            tree_follows_tabs: !s.tree_stays,
             dialogs_together: !s.dialogs_own_windows,
             dialog_font_size: s.dialog_font_size,
             script_templates: text(&s.script_templates),
@@ -260,6 +262,7 @@ impl OptionsDraft {
             scripts_own_windows: !self.scripts_together,
             properties_own_windows: !self.properties_together,
             tree_keeps_areas_closed: !self.tree_opens_area,
+            tree_stays: !self.tree_follows_tabs,
             dialogs_own_windows: !self.dialogs_together,
             dialog_font_size: self.dialog_font_size,
             script_templates: path(&self.script_templates),
@@ -523,6 +526,17 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 "An object selected in an area's view opens its area out in the \
                                  module tree and goes to it there, as Aurora does; off, the tree \
                                  goes to it only where its area is opened out already",
+                            );
+                            ui.checkbox(
+                                &mut draft.tree_follows_tabs,
+                                "Show the tab chosen in the module tree",
+                            )
+                            .on_hover_text(
+                                "A tab chosen (clicked, reached by Ctrl+Tab, or opened) marks its \
+                                 script, conversation, blueprint or area in the module tree, its \
+                                 group opened and the row brought into view, the keys left with \
+                                 the tab; off, the tree stays where it is and marks the area in \
+                                 front only, as Aurora does",
                             );
                             ui.checkbox(
                                 &mut draft.properties_together,

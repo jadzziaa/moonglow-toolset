@@ -4529,3 +4529,103 @@ fn panes_folded() {
         shoot(&mut h, &dir, "panes-palettes-left-folded");
     }
 }
+
+/// The module tree with a script's tab chosen (one far down a long list
+/// of scripts, opened as from a script field's Edit): its row marked,
+/// the Scripts group opened and brought into view.
+#[test]
+#[ignore]
+fn module_tree_follows_the_tab_chosen() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    let mut m = mg_module::Module::new();
+    for n in 0..40 {
+        let key = ResKey::parse(&format!("script_{n:02}"), ResType::NSS).unwrap();
+        m.set(key, b"void main()\n{\n}\n".to_vec());
+    }
+    let path = dir.join("tree-follows.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        .with_step_dt(1.0 / 60.0)
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    // (Options › General's Show the Tab Chosen in the Module Tree off
+    // first: the tree as it was before, and as Aurora's is.)
+    for (stays, name) in [(true, "tree-follows-script-off"), (false, "tree-follows-script")] {
+        h.state_mut().settings.tree_stays = stays;
+        let key = ResKey::parse(&format!("script_{}", if stays { 32 } else { 33 }), ResType::NSS);
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(key.unwrap())));
+        h.run_steps(12);
+        shoot(&mut h, &dir, name);
+    }
+}
+
+/// The Talk Table editor on a nasher project's table kept as JSON in two
+/// languages: the languages' list beside its name, and opened.
+#[test]
+#[ignore]
+fn talk_table_kept_in_a_project() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens").join("talk-project");
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_CustomTlk", mg_gff::Value::String(b"mg_proj".to_vec()));
+    m.set_info(&info).unwrap();
+    let project = dir.join("project");
+    m.save_as(&mg_module::ModuleLocation::Project {
+        root: project.clone(),
+        target: "default".into(),
+    })
+    .unwrap();
+    let mut cfg = std::fs::read_to_string(project.join("nasher.cfg")).unwrap();
+    cfg.push_str(
+        "\n[target]\nname = \"tlk\"\nfile = \"mg_proj.tlk\"\n  [target.sources]\n  \
+         include = \"src/tlk/*.json\"\n\n[target]\nname = \"tlk_de\"\nfile = \"de/mg_proj.tlk\"\n  \
+         [target.sources]\n  include = \"src/tlk/de/*.json\"\n",
+    );
+    std::fs::write(project.join("nasher.cfg"), cfg).unwrap();
+    std::fs::create_dir_all(project.join("src/tlk/de")).unwrap();
+    std::fs::write(
+        project.join("src/tlk/mg_proj.tlk.json"),
+        r#"{"language":0,"entries":[{"id":0,"text":"Hello"},{"id":1,"text":"The ferry leaves at dawn."},{"id":2,"text":"","sound":"vs_x"}]}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        project.join("src/tlk/de/mg_proj.tlk.json"),
+        r#"{"language":2,"entries":[{"id":0,"text":"Hallo"}]}"#,
+    )
+    .unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&project);
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::TalkTable));
+    h.run_steps(4);
+    h.state_mut().talk_view.selected = Some(1);
+    shoot(&mut h, &dir, "talk-table-project");
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let english = (h.query_all(combo))
+        .find(|n| n.accesskit_node().value().is_some_and(|v| v == "English"))
+        .map(|n| n.rect().center());
+    if let Some(at) = english {
+        h.hover_at(at);
+        let button = egui::PointerButton::Primary;
+        for pressed in [true, false] {
+            let modifiers = egui::Modifiers::NONE;
+            h.event(egui::Event::PointerButton { pos: at, button, pressed, modifiers });
+        }
+        shoot(&mut h, &dir, "talk-table-project-languages");
+    }
+}

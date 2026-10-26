@@ -309,6 +309,11 @@ pub struct Settings {
     /// closed when an object in it is selected (off, as Aurora: the
     /// selection opens it out to show the object).
     pub tree_keeps_areas_closed: bool,
+    /// Options > General: the module tree stays where it is when a tab is
+    /// chosen, the area's row alone marked as the one in front (on, as
+    /// Aurora: its tree follows nothing else); off, it goes to the tab's
+    /// resource, whatever kind.
+    pub tree_stays: bool,
     /// Options > General: each Properties window (a blueprint's, a placed
     /// object's) opens in a window of its own (off: as a tab of the
     /// window one is open in already).

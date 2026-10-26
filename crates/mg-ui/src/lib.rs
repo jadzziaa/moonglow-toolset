@@ -695,13 +695,19 @@ pub struct Moonglow {
     /// An armor's model is shown on a woman (the item's Appearance page
     /// chooses), rather than a man.
     pub armor_on_woman: bool,
-    /// An area for the module tree to bring into view (and, if asked, to
-    /// open out to what is placed in it): the area of the tab just chosen,
-    /// or of its menu's Show in Module Tree.
-    pub tree_reveal: Option<(mg_core::ResRef, bool)>,
-    /// The area the module tree shows as the one in hand: the last one
-    /// brought into view.
+    /// A resource for the module tree to bring into view, its group
+    /// opened (and, an area, if asked, opened out to what is placed in
+    /// it): that of the tab just chosen, or of its menu's Show in Module
+    /// Tree (`tree::reveal_tab`).
+    pub tree_reveal: Option<(ResKey, bool)>,
+    /// The area the module tree last brought into view.
     pub tree_area: Option<mg_core::ResRef>,
+    /// The row the module tree marks as the one in hand: the resource of
+    /// the tab last chosen (or the area of the one in front).
+    pub tree_marked: Option<ResKey>,
+    /// The tab in front when the module tree last looked
+    /// (`tree::follow_front_tab`).
+    pub(crate) tree_front: (Option<Tab>, Vec<Tab>),
     /// The one object selected in the area in front, as the module tree
     /// shows it (its row marked): its area, kind and place in its list;
     /// and whether the tree has still to go to it.
@@ -967,6 +973,8 @@ impl Moonglow {
             armor_on_woman: false,
             tree_reveal: None,
             tree_area: None,
+            tree_marked: None,
+            tree_front: Default::default(),
             tree_object: None,
             tree_object_pending: false,
             tree_cursor: None,
@@ -1268,6 +1276,7 @@ impl Moonglow {
         self.remember_window_sizes();
         self.remember_window_places();
         self.note_recent_tabs(ui.ctx());
+        tree::follow_front_tab(self);
         self.backup_timer(ui);
         self.autosave_timer(ui);
         self.reload_timer(ui);
@@ -1912,9 +1921,6 @@ impl Moonglow {
                 surface: path.surface,
                 node: path.node,
             });
-            if let Tab::Area(area) = tab {
-                self.tree_reveal = Some((area, false));
-            }
         }
     }
 
@@ -2624,6 +2630,7 @@ impl Moonglow {
         self.start_focus = None;
         self.heard = None;
         self.tree_area = None;
+        self.tree_marked = None;
         self.tree_object = None;
         self.dock = DockState::new(vec![Tab::Welcome]);
         self.load_order_changed();
@@ -2964,11 +2971,6 @@ impl Moonglow {
                 // The area opened last is opened again with the module.
                 if let (Tab::Area(area), Some(module)) = (&tab, self.module_path()) {
                     self.settings.remember_area(&module, &area.to_string());
-                }
-                // The module tree marks the area opened, as when its tab is
-                // clicked: the one marked before is not the one in front.
-                if let Tab::Area(area) = &tab {
-                    self.tree_reveal = Some((*area, false));
                 }
                 // A tab docked in an area's pane (Module Properties, docked
                 // when the module opened) moves to a window of its own

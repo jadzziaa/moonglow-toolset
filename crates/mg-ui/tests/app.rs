@@ -25010,15 +25010,88 @@ fn the_module_tree_goes_to_the_area_of_the_tab_chosen() {
     h.state_mut().tree_area = None;
     assert!(h.query_by_label("Waypoints (2)").is_none());
     // (As a click on the area's tab asks.)
-    h.state_mut().tree_reveal = Some((area, false));
+    h.state_mut().tree_reveal = Some((ResKey::new(area, ResType::ARE), false));
     h.run_steps(2);
     assert_eq!(h.state().tree_area, Some(area));
     assert!(h.state().tree_reveal.is_none(), "done once");
     assert!(h.query_by_label("Waypoints (2)").is_none(), "not opened out");
     // Show in Module Tree: opened out too.
-    h.state_mut().tree_reveal = Some((area, true));
+    h.state_mut().tree_reveal = Some((ResKey::new(area, ResType::ARE), true));
     h.run_steps(3);
     assert!(h.query_by_label("Waypoints (2)").is_some());
+}
+
+/// Every kind of tab chosen moves the module tree to what it shows, as an
+/// area's does: a script opened marks its row, opens the Scripts group and
+/// brings the row into view; Ctrl+Tab to another script, and a click on
+/// the area's tab, move the mark with them; the keys stay with the tab.
+/// With Options › General's Show the Tab Chosen in the Module Tree off,
+/// the tree stays and marks the area in front only, as Aurora's does.
+#[test]
+fn every_kind_of_tab_chosen_moves_the_module_tree() {
+    let scripts = |m: &mut mg_module::Module, _: &mg_rules::GameData, _: ResRef| {
+        for n in 0..40 {
+            let key = ResKey::parse(&format!("script_{n:02}"), ResType::NSS).unwrap();
+            m.set(key, b"void main()\n{\n}\n".to_vec());
+        }
+    };
+    let Some((mut h, area)) = area_harness_with("tree-follows", "ttr01", None, 4, None, &scripts)
+    else {
+        return;
+    };
+    let script = |n: u32| ResKey::parse(&format!("script_{n:02}"), ResType::NSS).unwrap();
+    let area_key = ResKey::new(area, ResType::ARE);
+    let marked = |h: &Harness<'_, Moonglow>| h.state().tree_marked;
+    assert_eq!(marked(&h), Some(area_key), "the area opened");
+    // (The area's tab first in the middle, for a click on it below.)
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(Tab::ModuleProperties));
+    h.run_steps(3);
+    assert!(h.query_by_label("script_38").is_none(), "the Scripts group is closed");
+    let cursor = h.state().tree_cursor;
+    // A script opened: its row marked, its group opened, brought into
+    // view (the row beside it drawn too: rows out of sight are not).
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(script(39))));
+    // (The group opens over a few frames, then the row is gone to.)
+    h.run_steps(12);
+    assert_eq!(marked(&h), Some(script(39)));
+    assert!(h.query_by_label("script_38").is_some(), "brought into view");
+    assert_eq!(h.state().tree_cursor, cursor, "the keys stay with the tab");
+    // Another, in the same window; Ctrl+Tab back to the first.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(script(0))));
+    h.run_steps(4);
+    assert_eq!(marked(&h), Some(script(0)));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Tab);
+    h.run_steps(3);
+    assert_eq!(marked(&h), Some(script(39)), "Ctrl+Tab");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::PageDown);
+    h.run_steps(3);
+    assert_eq!(marked(&h), Some(script(0)), "Ctrl+PageDown");
+    // A click on the area's tab (the first of the middle's, in its bar).
+    let area_tab = |h: &mut Harness<'_, Moonglow>| {
+        let s = h.state();
+        let path = s.dock.find_tab(&Tab::Area(area)).expect("open");
+        let leaf = s.dock.leaf(path.node_path()).unwrap();
+        assert_eq!(leaf.tabs.iter().position(|t| *t == Tab::Area(area)), Some(0));
+        let at = egui::pos2(leaf.rect.left() + 30.0, (leaf.rect.top() + leaf.viewport.top()) / 2.0);
+        h.hover_at(at);
+        press(h, at, true, egui::Modifiers::NONE);
+        press(h, at, false, egui::Modifiers::NONE);
+        h.run_steps(3);
+    };
+    area_tab(&mut h);
+    assert_eq!(marked(&h), Some(area_key));
+    // The tab's Show in Module Tree, for a script too.
+    h.state_mut().tree_reveal = Some((script(20), true));
+    h.run_steps(3);
+    assert_eq!(marked(&h), Some(script(20)));
+    // Off: the tree stays where it is; the area in front alone is marked.
+    h.state_mut().settings.tree_stays = true;
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(script(5))));
+    h.run_steps(4);
+    assert_eq!(marked(&h), Some(script(20)), "not moved");
+    assert!(h.state().tree_reveal.is_none());
+    area_tab(&mut h);
+    assert_eq!(marked(&h), Some(area_key), "the area in front marked");
 }
 
 /// Where a text has none in the language edited, its text in another
