@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-10-26
+* **Update**: Findings: a torso with no ACBONUS is clothing, a head of 0 is no head, an upright particle turns to the eye (engine and client measurements); the three deferred entries done are removed, the client tests' scripted cameras added; manual: an armor's torso 0 and heads
 * **Update**: [The EE fields](research/notes_ee_fields.md): the game client draws the Visuals page's fields and passes the Shader Flags, set in the module with no script (`ee_visuals_in_the_client`); a shader parameter reaches only a mesh whose MTR names its own shaders. [Blueprints](manual/05-blueprints.md) › Visuals and [Areas](manual/04-areas.md) › Advanced say what they need to work.
 * **Update**: A .mod with its module folder beside it asks which to open, in Aurora's words, or opens either as Options › General says; Open Folder… on the welcome page (GitHub issue 30): the modules, options, command-line, differences and coming-from-Aurora manual pages, the parity checklist, findings (Aurora's question and save, the server reading the .mod only) and deferred
 * **Update**: [Blueprints](manual/05-blueprints.md): arrows on the editors' number fields where Aurora's have them (held, they repeat; Up and Down in the field), and a creature's Spells page laid out as the Feats page; [the deferred list](deferred.md).
