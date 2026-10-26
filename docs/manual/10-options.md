@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-23T19:43:48Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T05:29:48Z }
 ---
 
 # Options
@@ -79,6 +79,13 @@ the module is opened again from its file.
 - **Open a module on the area opened last**: on by default; the first
   time, the first area the module tree lists (see
   [Modules](03-modules.md)).
+- **Open a module with the tabs it had when it was closed**: on by
+  default. The areas, scripts, blueprints, conversations and tools open
+  when a module was closed open again with it, in their order and places,
+  the one in front in front; kept in Moonglow's data folder, not in the
+  module (see [Modules](03-modules.md)). With none kept, the module opens
+  on the area opened last, as above. Off, a module's tabs are neither
+  kept nor opened again.
 - **Show the object selected in an area in the module tree**: on by
   default. An object selected in an area's view opens its area out in
   the module tree and goes to its row there, as Aurora does; off, the

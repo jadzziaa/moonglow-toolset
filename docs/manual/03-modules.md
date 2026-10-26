@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T22:07:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T05:29:48Z }
 ---
 
 # Modules
@@ -17,10 +17,28 @@ a directory), nasher projects (see below) and the game's campaign files
 - **File › Open Module…** (Ctrl+O), **File › Open Folder…** (a module
   folder or a nasher project), **File › Recent Modules**, or a module named
   on the command line (`moonglow path/to/module.mod`; with `--user-dir
-  FOLDER`, another user folder for that run). A module opens on
-  the area you opened last in it; the first time, or when that area is
+  FOLDER`, another user folder for that run). **A module opens with the
+  tabs it had when it was closed**: its areas, scripts, blueprints,
+  conversations, placed objects' Properties and tools, in the same order
+  and places (the main pane, the palettes' pane, a pane split off the
+  main pane, the windows, each where it was and with the same tabs),
+  each pane's tab in front in front, and the one that had the keys has
+  them again. A tab whose area, script or other resource is gone from
+  the module is passed over (said in the debug log). The tabs are kept
+  in Moonglow's data folder (`open-tabs`, a file a module, by its path;
+  a module folder's and a nasher project's by its folder), never in the
+  module; they are written as they change, so that a crash loses none
+  of them (where the windows were moved to since is written when the
+  module is closed or Moonglow quits). Only the area in front is read
+  and drawn at first: those behind it are when you choose their tabs.
+  The editors of files of their own (a hak, a 2DA, a tileset), the
+  Options, References and the Placeable Gallery are not opened again,
+  nor is a view's camera or scroll put back where it was. With none
+  kept (the first time, or with Options › General's **Open a module
+  with the tabs it had when it was closed** off), a module opens on the
+  area you opened last in it; the first time, or when that area is
   gone, on the first the module tree lists (Options › General switches
-  this off).
+  this off too).
 - **File › Save** (Ctrl+S) writes the module where it came from, as an
   archive or a folder. **Save As…** writes it as a `.mod` elsewhere. A new
   module is offered as `<name>.mod` in the user folder's `modules`, where

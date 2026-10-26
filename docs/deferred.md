@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T00:42:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T05:29:48Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2273,10 +2273,20 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## The main window and its panes
 
-- **A module's open tabs are not remembered:** opened again, a module
-  has none of the areas, scripts and blueprints that were open when it
-  was closed. Asked for: kept by module (in Moonglow's data folder, not
-  in the module), an option. (M) (a builder's report, October 2026)
+- **What a module's tabs open again without:** a module opens again with
+  the tabs it had (Options › General, `crates/mg-ui/src/open_tabs.rs`),
+  but not with the side editors' (a hak's, a 2DA's, a tileset's: files
+  of their own, open by a session's ids), the Options, References, the
+  Placeable Gallery, Tile Properties, a tile's view or a hak layer's copy
+  of a resource; nor with what each view showed: an area view's camera,
+  a script's scroll and cursor, a conversation's selected line, a
+  Properties window's page. A window made of several panes comes back as
+  one pane with all their tabs; where windows were moved to is written
+  only when the module is closed or Moonglow quits (a crash keeps the
+  tabs, not the windows' new places). A placed object's Properties is
+  found again by its place in its area's list: an area changed outside
+  Moonglow may give another object's. (S each) (a builder's report,
+  October 2026)
 - **Deleting from the module tree:** Delete… removes the resource (an
   area with its GIT and GIC and its area-list entry, a script with its
   NCS) and nothing else: transitions, scripts and conversations that name

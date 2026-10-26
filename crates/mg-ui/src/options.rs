@@ -43,6 +43,7 @@ pub struct OptionsDraft {
     pub categories_by_name: bool,
     pub drag_windows_anywhere: bool,
     pub last_area: bool,
+    pub reopen_tabs: bool,
     pub tabs_by_recent: bool,
     pub ask_before_closing: bool,
     pub debug_log: bool,
@@ -143,6 +144,7 @@ impl OptionsDraft {
             categories_by_name: s.categories_by_name,
             drag_windows_anywhere: s.drag_windows_anywhere,
             last_area: !s.no_last_area,
+            reopen_tabs: !s.no_reopen_tabs,
             tabs_by_recent: s.tabs_by_recent,
             ask_before_closing: !s.close_without_asking,
             debug_log: !s.no_debug_log,
@@ -216,6 +218,7 @@ impl OptionsDraft {
             categories_by_name: self.categories_by_name,
             drag_windows_anywhere: self.drag_windows_anywhere,
             no_last_area: !self.last_area,
+            no_reopen_tabs: !self.reopen_tabs,
             tabs_by_recent: self.tabs_by_recent,
             close_without_asking: !self.ask_before_closing,
             no_debug_log: !self.debug_log,
@@ -500,6 +503,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             )
                             .on_hover_text(
                                 "The first time, on the first area the module tree lists",
+                            );
+                            ui.checkbox(
+                                &mut draft.reopen_tabs,
+                                "Open a module with the tabs it had when it was closed",
+                            )
+                            .on_hover_text(
+                                "Its areas, scripts, blueprints, conversations and tools, in \
+                                 their order and their places, the one in front in front \
+                                 (kept in Moonglow's data folder, not in the module)",
                             );
                             ui.checkbox(
                                 &mut draft.ask_before_closing,

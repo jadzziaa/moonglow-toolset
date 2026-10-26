@@ -39,6 +39,7 @@ mod manual;
 pub mod model_view;
 pub mod module_props;
 mod nui_view;
+pub mod open_tabs;
 /// NUI windows drawn off the screen: `mg nui render` and `mg nui layout`.
 pub mod nui_render {
     pub use crate::nui_view::headless::{
@@ -617,6 +618,11 @@ pub struct Moonglow {
     /// project, in Moonglow's own folder: the lock is kept out of the
     /// project's files); `None`: locks in a project last the session.
     pub locks_dir: Option<PathBuf>,
+    /// Where each module's open tabs are kept, to open again with it (a
+    /// file a module, in Moonglow's own folder: `open-tabs`); `None`: not
+    /// kept.
+    pub open_tabs_dir: Option<PathBuf>,
+    open_tabs: open_tabs::OpenTabs,
     /// Where the game's shaders, compiled, are kept from one session to the
     /// next (in the user's cache folder); `None`: compiled each session.
     pub shader_cache_dir: Option<PathBuf>,
@@ -905,6 +911,8 @@ impl Moonglow {
             script_stamps: Default::default(),
             compiled_dir: None,
             locks_dir: None,
+            open_tabs_dir: None,
+            open_tabs: Default::default(),
             shader_cache_dir: None,
             rename: None,
             copy_as: None,
@@ -1350,6 +1358,7 @@ impl Moonglow {
             // Show the result now, not at the next input event.
             ui.ctx().request_repaint();
         }
+        self.open_tabs_frame(ui.ctx());
     }
 
     /// The debug log's start of a frame: once, the settings and the
@@ -2355,7 +2364,11 @@ impl Moonglow {
                 let last =
                     self.settings.last_area(path).and_then(|a| a.parse::<mg_core::ResRef>().ok());
                 let by_name = self.settings.area_names;
-                if let Some(ws) = self.ws.as_ref().filter(|_| !self.settings.no_last_area) {
+                // (Not when the tabs it had open are opened again.)
+                let reopened = self.read_open_tabs();
+                if let Some(ws) =
+                    self.ws.as_ref().filter(|_| !self.settings.no_last_area && !reopened)
+                {
                     let has = |area: &mg_core::ResRef| {
                         ws.module.contains(&ResKey::new(*area, ResType::ARE))
                     };
@@ -2569,6 +2582,9 @@ impl Moonglow {
 
     /// Closes the module (discarding unsaved changes; the caller asks first).
     pub fn close(&mut self) {
+        // Its tabs, for the next time it is opened.
+        self.keep_open_tabs();
+        self.open_tabs = Default::default();
         // Closed (saved, or its changes discarded): no recovery copy.
         self.forget_recovery();
         self.ws = None;
@@ -3142,6 +3158,7 @@ impl Moonglow {
             Action::Quit => {
                 // Saved or discarded by now: no recovery copy.
                 self.forget_recovery();
+                self.keep_open_tabs();
                 self.quit_requested = true;
             }
         }

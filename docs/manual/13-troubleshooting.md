@@ -3,7 +3,7 @@ type: Manual Page
 title: Troubleshooting
 description: Troubleshooting - the game is not found, no GPU in the area viewer, Test Module does nothing, no sound, after a crash, and where Moonglow keeps its files.
 tags: [manual, troubleshooting]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T21:15:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T05:29:48Z }
 ---
 
 # Troubleshooting
@@ -99,7 +99,7 @@ off.)
 | What | Linux | Windows | macOS |
 | --- | --- | --- | --- |
 | Settings | `~/.local/share/moonglowtoolset` | `%APPDATA%\Moonglow Toolset\data` | `~/Library/Application Support/Moonglow-Toolset` |
-| Recovery copies, crash reports, debug logs (`logs`), prefabs (`prefabs`), plugins (`plugins`) | `~/.local/share/moonglow` | `%APPDATA%\Moonglow` | `~/Library/Application Support/Moonglow` |
+| Recovery copies, crash reports, debug logs (`logs`), prefabs (`prefabs`), plugins (`plugins`), each module's open tabs (`open-tabs`) | `~/.local/share/moonglow` | `%APPDATA%\Moonglow` | `~/Library/Application Support/Moonglow` |
 | Conversation backups | `/tmp/moonglow-backups` | `%TEMP%\moonglow-backups` | `$TMPDIR/moonglow-backups` |
 
 On Linux, `$XDG_DATA_HOME` takes the place of `~/.local/share` when set
