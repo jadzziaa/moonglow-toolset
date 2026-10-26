@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T14:09:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T20:11:05Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -745,13 +745,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   prepared (Aurora lists it at 10). Not seen: what Aurora writes for a
   spell prepared with two metamagic feats, which its list can't choose.
   (S) (from builders' reports after 1.16.2)
-- **Escape in a Properties window against Aurora:** in Aurora, Escape
-  in a field of Creature Properties (and, it seems, any modal
-  Properties) is Cancel: the window closes and what was typed is gone.
-  Moonglow's Escape in a field only leaves the field, and Escape with no
-  field typed in closes the window keeping its changes (its Cancel sets
-  them back). Whether Escape should be Cancel, as Aurora's, is the
-  builders' to say. (S) (October 2026)
+- **Escape in a field of a Properties window:** Escape is the window's
+  Cancel, as Aurora's is (the maintainer's choice, October 2026), but in
+  a text or number field the first Escape only leaves the field and a
+  second is Cancel; in Aurora the first already is (watched in Creature
+  Properties). Kept so for the filter fields in those windows (an
+  inventory's Find), whose Escape clears what is typed. (S)
 - **Arrows after numbers, what is left:** the blueprint editors', Module
   Properties' and Area Properties' number fields that have them in
   Aurora have them (a click, Up and Down in the field, a held arrow

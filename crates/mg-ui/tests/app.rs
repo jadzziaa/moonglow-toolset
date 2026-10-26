@@ -31495,7 +31495,7 @@ fn a_letter_typed_in_a_tree_leaves_the_area_camera() {
 /// leaves the field and no more: what was typed is kept and the window
 /// stays, on its page. A second Escape, with nothing typed in, closes it.
 #[test]
-fn escape_in_a_field_leaves_the_field_not_the_window() {
+fn escape_in_a_field_leaves_the_field_and_then_cancels_the_window() {
     let Some((mut h, key)) = blueprint_harness("nw_chicken", "esc_field", ResType::UTC) else {
         return;
     };
@@ -31528,8 +31528,13 @@ fn escape_in_a_field_leaves_the_field_not_the_window() {
     assert!(open(&h), "the window stays");
     assert!(h.query_by_label("Ability Scores").is_some(), "on its page");
     assert_eq!(field(&mut h, &key).integer("Str"), Some(12), "what was typed is kept");
-    // Nothing typed in now: Escape closes the window, as it did.
+    // Nothing typed in now: Escape is the window's Cancel, as Aurora's
+    // is: it closes, and what was changed in it is set back.
     h.key_press(egui::Key::Escape);
     h.run();
+    h.run();
     assert!(!open(&h));
+    let now = String::from_utf8_lossy(field(&mut h, &key).string("Tag").unwrap()).into_owned();
+    assert_eq!(now, tag, "the tag set back");
+    assert_eq!(field(&mut h, &key).integer("Str"), Some(was), "Strength set back");
 }

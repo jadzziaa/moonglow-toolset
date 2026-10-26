@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T14:09:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T20:11:05Z }
 ---
 
 # The main window
@@ -262,11 +262,12 @@ of its own over the area, sized for what it shows, so the area view stays
 put. Drag a window by its tab into the main pane, or beside another, to
 dock it; drag a tab out to float it again. The palettes keep their pane on
 the right. **Escape** closes the window in front: a dialog (as its Cancel
-or close button does), then a Properties window (what was changed there
-stays, and Undo takes it back); a model's window while the pointer is over
-it. In a text or number field, Escape only leaves the field (what was
-typed is kept; Aurora's Escape there is Cancel), and a second Escape
-closes the window. With something in hand in the area (a blueprint to place, a paste, a
+or close button does), then a Properties window as its **Cancel** does,
+as in Aurora: what was changed in it is set back (Tile Properties with
+changes asks first, as its close button does); a model's window while the
+pointer is over it. In a text or number field, Escape only leaves the
+field (what was typed stays, for now), and a second Escape is the
+window's Cancel. With something in hand in the area (a blueprint to place, a paste, a
 terrain brush) and the pointer over the area, Escape lets go of that and
 leaves the window open. Right-click a tab for **Eject** and **Close**,
 for **Close Others**, **Close Tabs to the Right** and **Close All** (the

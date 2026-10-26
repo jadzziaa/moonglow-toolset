@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-10-26
+* **Update**: Escape in a Properties window is its Cancel, as Aurora's is ([the main window](manual/02-main-window.md)): what was changed in it is set back; in a field, the first Escape leaves the field ([the deferred list](deferred.md)).
 * **Update**: [Blueprints](manual/05-blueprints.md): the Spells page's Meta-Magic list and casting levels, as Aurora's; [the main window](manual/02-main-window.md): Escape in a field leaves the field; [findings](findings.md): Aurora's Spells page and its Escape; [the deferred list](deferred.md).
 * **Update**: [Findings](findings.md): a woman's inventory icons, the base game's 182 ipf_ armor parts beside 182 ipm_, and cloaks' icons a man's alone (icloak_m_).
 * **Update**: [Blueprints](manual/05-blueprints.md): a door's Appearance Type and Generic Appearance lists and an item's model and part lists (a model, a weapon's shapes and colors, an armor's parts) show a picture of the row the pointer rests on, the item's icon beside its model (GitHub issue 7); [Options](manual/10-options.md) › General: Show armor and cloaks on a woman, kept, which Shown on changes too and inventories, stores and the palette follow; [the deferred list](deferred.md).

@@ -712,6 +712,9 @@ pub struct Moonglow {
     /// The pass in which an area view last had something in hand (a
     /// brush, a paste, a drag, a terrain tool): Escape is its then.
     pub(crate) area_tool_at: u64,
+    /// The Properties window Escape is Cancel for this frame, as Aurora's
+    /// Escape is (`blueprint::window_drawn_but` presses it).
+    pub(crate) escape_cancel: Option<Tab>,
     /// A resource for the module tree to bring into view, its group
     /// opened (and, an area, if asked, opened out to what is placed in
     /// it): that of the tab just chosen, or of its menu's Show in Module
@@ -989,6 +992,7 @@ impl Moonglow {
             picked: HashMap::new(),
             viewed: HashMap::new(),
             area_tool_at: 0,
+            escape_cancel: None,
             tree_reveal: None,
             tree_area: None,
             tree_marked: None,
@@ -1097,6 +1101,8 @@ impl Moonglow {
             talk.game = self.game.as_deref().map(GameData::codepage);
         }
         self.trace_frame(ui);
+        // (Pressed by the window it was for, in the frame it was asked.)
+        self.escape_cancel = None;
         let female = self.settings.armor_on_woman;
         self.thumbnails.begin_frame(self.ws.as_ref().map(|ws| ws.revision()), female);
         widgets::install_fonts(ui.ctx());

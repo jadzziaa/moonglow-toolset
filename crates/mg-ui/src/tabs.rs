@@ -265,9 +265,9 @@ impl Viewer<'_> {
         ui.spacing_mut().window_margin = ui.ctx().global_style().spacing.window_margin;
         // Escape closes a model's window (opened to look, and in the way
         // after), while the pointer is over it and nothing is being typed;
-        // and a Properties window, when it is the one in front (what it
-        // changed is kept, as when its tab is closed: Undo takes it back).
-        // Dialogs over it close first.
+        // and a Properties window, when it is the one in front, as its
+        // Cancel does (Aurora's Escape is its Cancel: what the window
+        // changed is set back). Dialogs over it close first.
         // (Not during a drag, which Escape drops.)
         // (Escape in a text field leaves the field, and no more: egui has
         // taken the keyboard from it by now, `escape_left_text`.)
@@ -308,11 +308,15 @@ impl Viewer<'_> {
         if escape && !recording && (model || (front && !tool)) {
             // (Tile Properties with changes not applied asks first, as
             // its X does: `may_close`.)
-            self.app.actions.push(if *tab == Tab::TileProperties {
-                crate::Action::CloseTabs(vec![tab.clone()])
+            // (Options' Cancel is its close, which drops what wasn't
+            // applied.)
+            if *tab == Tab::TileProperties {
+                self.app.actions.push(crate::Action::CloseTabs(vec![tab.clone()]));
+            } else if model || *tab == Tab::Options {
+                self.app.actions.push(crate::Action::CloseTab(tab.clone()));
             } else {
-                crate::Action::CloseTab(tab.clone())
-            });
+                self.app.escape_cancel = Some(tab.clone());
+            }
         }
         // (A side editor's Undo and Redo are its own with the pointer over
         // it.)

@@ -305,6 +305,12 @@ pub(crate) fn window_drawn_but(
     more: impl FnOnce(&mut Moonglow, &[Edit]) -> Vec<Edit>,
 ) {
     note_changes(app, pending, tab, targets, kept);
+    // (Escape, for the window in front: its Cancel, `tabs.rs`.)
+    let escaped = app.escape_cancel.as_ref() == Some(tab);
+    if escaped {
+        app.escape_cancel = None;
+    }
+    let pressed = pressed.or(escaped.then_some(Pressed::Cancel));
     let Some((pressed, first)) = pressed.zip(targets.first()) else { return };
     if pressed == Pressed::Cancel {
         // What the window asked for this frame is set first, then set
