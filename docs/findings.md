@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T05:37:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T06:47:04Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1333,6 +1333,32 @@ IMPLEMENTATION".
 
 - **Checked:** Aurora, `aurora_script_wizard.rs` (Aurora's own script fails
   with the built-in official compiler).
+- **Wiki:** missing.
+
+### The conversation tree's letters and Escape
+
+Aurora's conversation tree goes to a line by its row's text as drawn,
+and an NPC line's row begins with its speaker (`[OWNER] - Over here.`):
+from Root, `o` went past that row to the player's `Off I go.`, `h` past
+`[OWNER] - Hello there.` to `Hmm.`, and `[` to the first NPC row, the next
+one when typed again. Letters typed in quick succession go by all of them
+(`gol` to `Gold, please.`, past `Goodbye.`); a letter after a pause of two
+seconds starts over. Escape with a line selected does nothing: the window
+stays, and Down goes on from the line.
+
+Under Wine the tree is Wine's own tree control, so two things are Wine's
+and not necessarily Windows': the same letter typed again quickly (`gg`,
+`ggg`) stayed on the first row beginning with it, and how long a pause
+starts over.
+
+- **Checked:** Aurora under Wine, driven on the off-screen display
+  (2026-10-26), on a conversation made with `mg dialog-import` from a
+  Twine story; watched, not captured (no test reads it).
+- **Moonglow:** `crates/mg-ui/src/dialog_view.rs` (`row_text`,
+  `type_ahead`), test `the_conversation_tree_s_letters_typed_quickly`.
+  Moonglow goes round the rows beginning with a letter typed again and
+  starts over after a second; its Escape hands the tree's keys back
+  (`docs/deferred.md`, the Settled section).
 - **Wiki:** missing.
 
 ## Files and tools

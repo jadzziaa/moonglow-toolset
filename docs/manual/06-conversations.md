@@ -3,7 +3,7 @@ type: Manual Page
 title: Conversations
 description: Conversations - the conversation tree, a line's tabs, writing conversations elsewhere, the Script Wizard and backups.
 tags: [manual, conversations]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T05:28:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T06:47:04Z }
 ---
 
 # Conversations
@@ -26,17 +26,19 @@ every language). A line whose text is a talk-table string (as all the
 original campaign's are) shows that string in the tree and under the
 empty field; text typed in the field is said instead.
 
-With the pointer over the editor, Ctrl+A adds a line, Delete deletes the
-selected one, and Ctrl+C, Ctrl+X and Ctrl+V copy, cut and paste, as in
-Aurora (Options › Keyboard changes Add's and Delete's keys). Delete
-deletes only the line: the whole conversation is deleted from the module
-tree (its menu's Delete…, which asks first).
+While its tree has the keys (see below), or with the pointer over the
+editor, Ctrl+A adds a line, Delete deletes the selected one (on macOS the
+delete key too, which is Backspace), and Ctrl+C, Ctrl+X and Ctrl+V copy,
+cut and paste, as in Aurora (Options › Keyboard changes Add's and
+Delete's keys). Delete deletes only the line: the whole conversation is
+deleted from the module tree (its menu's Delete…, which asks first).
 
 **The keyboard.** Opening a conversation (from the module tree, or
 bringing its tab to the front) gives its tree the keys, as Aurora does, and
 so does a click in the editor (a thin outline shows it has them), as a
-click gives them to the module tree; they stay its until you click another list or point at an
-area's view. Then, as in Aurora's tree:
+click gives them to the module tree; they stay its until you click another list, point at an
+area's view or press Escape (Aurora's Escape does nothing there; Moonglow's
+hands the keys back, as in the module tree). Then, as in Aurora's tree:
 
 | Key | Does |
 | --- | --- |
@@ -45,15 +47,25 @@ area's view. Then, as in Aurora's tree:
 | Left | fold the selected line's branch; if it is folded (or has none), go to the line it is under |
 | Home, End | select Root, or the last line shown |
 | Page Up, Page Down | go up or down by as many lines as the tree has room for |
-| Backspace | go to the line the selected one is under (from a first line, Root) |
+| Backspace | go to the line the selected one is under (from a first line, Root); on macOS, where it is the delete key, it deletes the line |
 | + and − on the keypad | open or fold the selected line's branch, the selection staying |
 | * on the keypad | open everything under the selected line, branches folded further down too (from Root: the whole tree) |
-| A letter or a digit | go to the next line shown whose text begins with it, upper or lower case, round to the top after the last (an NPC line's text, not the speaker named before it; Root is "Root") |
+| A letter or a digit | go to the next line shown whose row begins with it, upper or lower case, round to the top after the last; the same letter again goes on to the next |
+| Letters typed in quick succession | go to the first line shown, from the selected one on, whose row begins with all of them (`gol` finds "Gold, please." past "Goodbye."); a pause of a second starts over |
 | Ctrl+Up, Ctrl+Down | scroll the tree a line up or down, the selection staying |
+
+Letters go by a row's text as the tree shows it, as Aurora's do: an NPC
+line's row begins with its speaker, so `[` goes to the NPC lines and
+`[owner] - g` to the owner's line beginning with G (with the speakers
+hidden, Options › Conversation Editor, by the line's own text); Root is
+"Root". A key you give one of the conversation's commands in Options ›
+Keyboard (Delete Line on Backspace, say) is the command's, not the
+tree's.
 
 The line selected scrolls into sight. While you type in a field (the
 line's Text, Find What), the keys are the field's: they move its text
-cursor, and letters, Backspace and − type there. The − above the letters
+cursor, and letters, Backspace and − type there; once Tab has taken you
+on from the field to a button, they are the tree's again. The − above the letters
 folds too, as the keypad's does, and Shift+8 opens everything out as the
 keypad's * does (Moonglow can't tell them apart).
 
@@ -97,7 +109,10 @@ more than that.
 module (match case, whole words, replace); **Bookmarks** remember lines to
 go back to. Bookmarks and folded branches stay with their lines when a
 delete numbers the lines after it anew (a bookmark on a line deleted goes,
-and Undo brings it back). With the pointer over the editor, Ctrl+F (or Ctrl+R) opens
+and Undo brings it back), and when something else changes the
+conversation (a plugin, or the file changed outside Moonglow): there they
+are found again by their text, speaker and the lines above them, and one
+whose line can't be found goes (the debug log says which). With the pointer over the editor, Ctrl+F (or Ctrl+R) opens
 Search and F3 finds again, as in Aurora, from the conversation or from
 the Search pane's Find What field.
 
