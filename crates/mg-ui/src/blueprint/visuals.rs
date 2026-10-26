@@ -285,16 +285,14 @@ fn shader_params(f: &mut Form<'_>, ui: &mut Ui) {
             }
             let kind = e.integer("Type").unwrap_or(0);
             let mut pick = kind;
-            egui::ComboBox::from_id_salt(f.id(&format!("ShaderParams#{i}#Type")))
-                .selected_text(match kind {
-                    1 => "Integer".to_string(),
-                    2 => "Vector".to_string(),
-                    k => format!("({k})"),
-                })
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut pick, 1, "Integer");
-                    ui.selectable_value(&mut pick, 2, "Vector");
-                });
+            let name = |k: &i64| match k {
+                1 => "Integer".to_string(),
+                2 => "Vector".to_string(),
+                k => format!("({k})"),
+            };
+            crate::widgets::dropdown(f.id(&format!("ShaderParams#{i}#Type")))
+                .selected_text(name(&kind))
+                .show(ui, &mut pick, &[1, 2], name);
             if pick != kind {
                 let mut all = items.clone();
                 all[i].set("Type", Value::Byte(pick as u8));
@@ -405,15 +403,19 @@ fn misc(f: &mut Form<'_>, ui: &mut Ui) {
         crate::widgets::field_label(ui, "Mouse Cursor");
         let current = int("MouseCursor", -1);
         let mut pick = current;
-        egui::ComboBox::from_id_salt(f.id("MouseCursor"))
+        let cursors = || {
+            let custom = (0..100).map(|n| 93 + 2 * n);
+            std::iter::once(-1).chain(CURSORS.iter().map(|c| c.0)).chain(custom).collect()
+        };
+        crate::widgets::dropdown(f.id("MouseCursor"))
             .selected_text(cursor_name(current))
-            .show_ui(ui, |ui| {
-                ui.selectable_value(&mut pick, -1, cursor_name(-1));
+            .show_with(ui, &mut pick, cursors, |ui, pick| {
+                ui.selectable_value(pick, -1, cursor_name(-1));
                 for (v, n) in CURSORS {
-                    ui.selectable_value(&mut pick, v, n);
+                    ui.selectable_value(pick, v, n);
                 }
                 for n in 0..100 {
-                    ui.selectable_value(&mut pick, 93 + 2 * n, format!("Custom {n:02}"));
+                    ui.selectable_value(pick, 93 + 2 * n, format!("Custom {n:02}"));
                 }
             });
         if pick != current {
@@ -425,13 +427,10 @@ fn misc(f: &mut Form<'_>, ui: &mut Ui) {
         ui.horizontal(|ui| {
             let mode = int("TextBubbleType", 0);
             let mut pick = mode;
-            egui::ComboBox::from_id_salt(f.id("TextBubbleType"))
+            let modes: Vec<i64> = (0..BUBBLE_MODES.len() as i64).collect();
+            crate::widgets::dropdown(f.id("TextBubbleType"))
                 .selected_text(BUBBLE_MODES.get(mode as usize).copied().unwrap_or("?"))
-                .show_ui(ui, |ui| {
-                    for (i, n) in BUBBLE_MODES.iter().enumerate() {
-                        ui.selectable_value(&mut pick, i as i64, *n);
-                    }
-                });
+                .show(ui, &mut pick, &modes, |m| BUBBLE_MODES[*m as usize]);
             if pick != mode {
                 f.set_misc("Text bubble", &[("TextBubbleType", Value::Int(pick as i32))]);
             }

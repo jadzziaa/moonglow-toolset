@@ -479,18 +479,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             );
                             ui.horizontal(|ui| {
                                 crate::widgets::field_label(ui, "Interface size");
-                                egui::ComboBox::from_id_salt("ui-scale")
+                                crate::widgets::dropdown("ui-scale")
                                     .selected_text(format!("{}%", draft.ui_scale))
-                                    .show_ui(ui, |ui| {
-                                        for s in UI_SCALES {
-                                            ui.selectable_value(
-                                                &mut draft.ui_scale,
-                                                s,
-                                                format!("{s}%"),
-                                            );
-                                        }
-                                    })
-                                    .response
+                                    .show(ui, &mut draft.ui_scale, &UI_SCALES, |s| format!("{s}%"))
                                     .on_hover_text(
                                         "The whole interface, text and all, larger or smaller \
                                          (set when you choose OK)",

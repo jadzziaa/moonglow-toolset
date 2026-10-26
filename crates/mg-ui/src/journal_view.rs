@@ -338,22 +338,19 @@ fn category_fields(
                     ui.end_row();
                     crate::widgets::field_label(ui, "Priority");
                     let prio = cat.read(&f::PRIORITY);
-                    egui::ComboBox::from_id_salt(("jrl-prio", c))
+                    let all: Vec<u32> = (0..PRIORITIES.len() as u32).collect();
+                    let mut pick = prio;
+                    crate::widgets::dropdown(("jrl-prio", c))
                         .selected_text(PRIORITIES.get(prio as usize).copied().unwrap_or("?"))
-                        .show_ui(ui, |ui| {
-                            for (i, p) in PRIORITIES.iter().enumerate() {
-                                if ui.selectable_label(prio == i as u32, *p).clicked()
-                                    && prio != i as u32
-                                {
-                                    actions.push(set_field(
-                                        "Category priority",
-                                        path.clone(),
-                                        f::PRIORITY.label,
-                                        Value::Dword(i as u32),
-                                    ));
-                                }
-                            }
-                        });
+                        .show(ui, &mut pick, &all, |p| PRIORITIES[*p as usize]);
+                    if pick != prio {
+                        actions.push(set_field(
+                            "Category priority",
+                            path.clone(),
+                            f::PRIORITY.label,
+                            Value::Dword(pick),
+                        ));
+                    }
                     ui.end_row();
                     crate::widgets::field_label(ui, "XP");
                     if let Some(v) = commit_number(ui, cat.read(&f::XP), 0..=u32::MAX) {

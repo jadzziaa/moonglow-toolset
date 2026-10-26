@@ -405,19 +405,13 @@ pub(super) fn page(
             // Only a module with haks has a choice to make.
             if !haks.is_empty() {
                 let label = widgets::field_label(ui, "Into");
-                egui::ComboBox::from_id_salt("nui-images-hak")
+                let options: Vec<Option<String>> =
+                    haks.iter().cloned().map(Some).chain(std::iter::once(None)).collect();
+                widgets::dropdown("nui-images-hak")
                     .selected_text(&target)
-                    .show_ui(ui, |ui| {
-                        for hak in &haks {
-                            ui.selectable_value(
-                                &mut state.images_hak,
-                                Some(hak.clone()),
-                                format!("{hak}.hak"),
-                            );
-                        }
-                        ui.selectable_value(&mut state.images_hak, None, "a new hak");
+                    .show(ui, &mut state.images_hak, &options, |hak| {
+                        hak.as_ref().map_or_else(|| "a new hak".to_string(), |h| format!("{h}.hak"))
                     })
-                    .response
                     .labelled_by(label.id);
             }
             if ui.button(format!("Add images to {target}…")).clicked() {

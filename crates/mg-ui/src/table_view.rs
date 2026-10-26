@@ -1838,21 +1838,38 @@ fn inspector(
                     (None, None) => "none".to_string(),
                 };
                 ui.weak(if *other { "one of, or another value:" } else { "one of:" });
-                egui::ComboBox::from_id_salt(("table-list-choice", id))
+                // (The value as the list writes it, when it names one of
+                // the list's.)
+                let was = match &now {
+                    Some(name) => entries.iter().find(|e| e.name == *name).map(|e| e.value.clone()),
+                    None => value.clone(),
+                };
+                let mut pick = was.clone();
+                let options = || {
+                    std::iter::once(None)
+                        .chain(entries.iter().map(|e| Some(e.value.clone())))
+                        .collect()
+                };
+                crate::widgets::dropdown(("table-list-choice", id))
                     .selected_text(shown)
                     .width(300.0)
-                    .show_ui(ui, |ui| {
+                    .show_with(ui, &mut pick, options, |ui, pick| {
                         if ui.selectable_label(value.is_none(), "none (****)").clicked() {
+                            *pick = None;
                             set = Some(None);
                         }
                         for e in entries {
                             let is = now.as_deref() == Some(e.name.as_str());
                             let label = format!("{}  ({})", e.name, e.value);
                             if ui.selectable_label(is, label).clicked() {
+                                *pick = Some(e.value.clone());
                                 set = Some(Some(e.value.clone()));
                             }
                         }
                     });
+                if set.is_none() && pick != was {
+                    set = Some(pick);
+                }
             }
             Some(kind @ Kind::Flags { entries }) => {
                 let bits = value.as_deref().and_then(mg_module::table_desc::whole).unwrap_or(0);
@@ -1863,10 +1880,11 @@ fn inspector(
                     n => format!("{n} flags"),
                 };
                 ui.weak("flags:");
-                egui::ComboBox::from_id_salt(("table-flags-choice", id))
+                // (A set of ticks, not one choice: no arrow keys.)
+                crate::widgets::dropdown(("table-flags-choice", id))
                     .selected_text(shown)
                     .width(300.0)
-                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                    .stays_open()
                     .show_ui(ui, |ui| {
                         for e in entries {
                             let Some(v) =
@@ -2121,18 +2139,24 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
             }
             ui.horizontal(|ui| {
                 ui.label("From");
-                egui::ComboBox::from_id_salt(("take-from", doc.id))
+                let labels: Vec<Option<String>> =
+                    others.iter().map(|(label, _)| Some(label.clone())).collect();
+                let mut pick = from.clone();
+                crate::widgets::dropdown(("take-from", doc.id))
                     .selected_text(from.clone().unwrap_or_default())
                     .width(260.0)
-                    .show_ui(ui, |ui| {
-                        for (label, t) in others {
-                            let text = format!("{label} ({} rows)", t.len());
-                            if ui.selectable_label(from.as_ref() == Some(label), text).clicked() {
-                                taking.from = Some(label.clone());
-                                taking.chosen.clear();
-                            }
-                        }
+                    .show(ui, &mut pick, &labels, |l| {
+                        let rows = others.iter().find(|(o, _)| Some(o) == l.as_ref());
+                        format!(
+                            "{} ({} rows)",
+                            l.as_deref().unwrap_or(""),
+                            rows.map_or(0, |o| o.1.len())
+                        )
                     });
+                if pick != from {
+                    taking.from = pick;
+                    taking.chosen.clear();
+                }
                 let count = |o: Offered| found.iter().filter(|c| c.offered == o).count();
                 ui.weak(match told {
                     true => format!(

@@ -529,15 +529,13 @@ fn value_choice(
         None => egui::RichText::new(format!("{value} (not one of its values)"))
             .color(ui.visuals().warn_fg_color),
     };
-    egui::ComboBox::from_id_salt(("var-value", row))
-        .selected_text(text)
-        .width(width)
-        .height(320.0)
-        .show_ui(ui, |ui| {
-            for x in &c.list {
-                ui.selectable_value(value, x.value.clone(), shown(x));
-            }
-        });
+    let values: Vec<String> = c.list.iter().map(|x| x.value.clone()).collect();
+    dropdown(("var-value", row)).selected_text(text).width(width).height(320.0).show(
+        ui,
+        value,
+        &values,
+        |v| c.list.iter().find(|x| x.value == *v).map_or_else(String::new, shown),
+    );
 }
 
 /// A variable's type as the window names it.
@@ -672,19 +670,17 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             for (i, (language, gender, text, _)) in edit.entries.iter_mut().enumerate() {
                 let text_id = egui::Id::new(("loc-text", i));
                 ui.horizontal(|ui| {
-                    egui::ComboBox::from_id_salt(("loc-lang", i))
-                        .selected_text(language.name().unwrap_or("?"))
-                        .show_ui(ui, |ui| {
-                            for l in Language::EE {
-                                ui.selectable_value(language, l, l.name().unwrap_or("?"));
-                            }
-                        });
-                    egui::ComboBox::from_id_salt(("loc-gender", i))
+                    dropdown(("loc-lang", i)).selected_text(language.name().unwrap_or("?")).show(
+                        ui,
+                        language,
+                        &Language::EE,
+                        |l| l.name().unwrap_or("?"),
+                    );
+                    let genders = GENDERS.map(|g| g.0);
+                    dropdown(("loc-gender", i))
                         .selected_text(GENDERS.iter().find(|g| g.0 == *gender).map_or("?", |g| g.1))
-                        .show_ui(ui, |ui| {
-                            for (g, name) in GENDERS {
-                                ui.selectable_value(gender, g, name);
-                            }
+                        .show(ui, gender, &genders, |g| {
+                            GENDERS.iter().find(|n| n.0 == *g).map_or("?", |n| n.1)
                         });
                     // The language's own tokens (Polish has more than
                     // English), put where the caret was in its text.
@@ -847,15 +843,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 let edits = VarType::of(r.kind.into())
                                     .is_some_and(|t| t.field_type().is_some());
                                 ui.add_enabled_ui(edits, |ui| {
-                                    egui::ComboBox::from_id_salt(("var-type", i))
+                                    let kinds = [VarType::Int, VarType::Float, VarType::String]
+                                        .map(VarType::code);
+                                    dropdown(("var-type", i))
                                         .selected_text(kind_name(r.kind))
-                                        .show_ui(ui, |ui| {
-                                            for t in [VarType::Int, VarType::Float, VarType::String]
-                                            {
-                                                let (k, name) = (t.code(), t.name());
-                                                ui.selectable_value(&mut r.kind, k, name);
-                                            }
-                                        });
+                                        .show(ui, &mut r.kind, &kinds, |k| kind_name(*k));
                                 });
                                 let typed = desc
                                     .is_some_and(|d| d.var_type.is_none_or(|t| t.code() == r.kind));
@@ -2177,6 +2169,49 @@ pub(crate) fn arrow_pick(ui: &Ui, r: &egui::Response, rows: &[i64], current: i64
     rows.get(to as usize).copied().filter(|&row| row != current)
 }
 
+/// The arrow keys in a grid of choices filled a column at a time, `down`
+/// to a column, `count` in all: with the choice `r` (the one at `at`) in
+/// focus (clicked, or reached with Tab), Up and Down choose the one
+/// before and after it, Left and Right the one beside it in the next
+/// column, Home and End the first and last. The index chosen so.
+pub(crate) fn grid_arrow_pick(
+    ui: &Ui,
+    r: &egui::Response,
+    at: usize,
+    count: usize,
+    down: usize,
+) -> Option<usize> {
+    if r.clicked() {
+        r.request_focus();
+    }
+    if !r.has_focus() || count == 0 {
+        return None;
+    }
+    // (Every arrow is the grid's while it has the focus.)
+    let arrows =
+        egui::EventFilter { vertical_arrows: true, horizontal_arrows: true, ..Default::default() };
+    ui.memory_mut(|m| m.set_focus_lock_filter(r.id, arrows));
+    let to = ui.input(|i| {
+        let key = |k| i.key_pressed(k) && i.modifiers.is_none();
+        if key(egui::Key::ArrowDown) {
+            at.checked_add(1)
+        } else if key(egui::Key::ArrowUp) {
+            at.checked_sub(1)
+        } else if key(egui::Key::ArrowRight) {
+            at.checked_add(down.max(1))
+        } else if key(egui::Key::ArrowLeft) {
+            at.checked_sub(down.max(1))
+        } else if key(egui::Key::Home) {
+            Some(0)
+        } else if key(egui::Key::End) {
+            Some(count - 1)
+        } else {
+            None
+        }
+    })?;
+    (to < count && to != at).then_some(to)
+}
+
 /// [`arrow_pick`] for an egui combo box of a few fixed `options` (not a
 /// table's rows, which [`row_choice`] lists: the area's toolbar, a
 /// dialog's filters), its box `r`: once clicked or reached with Tab, the
@@ -2196,6 +2231,96 @@ pub(crate) fn arrow_step<T: PartialEq + Clone>(
     };
     *current = to.clone();
     true
+}
+
+/// A dropdown: every one in the program is drawn by this (or, for a
+/// table's rows, by [`row_choice`]), so that every list of choices takes
+/// the arrow keys ([`arrow_step`]) once clicked or reached with Tab. A
+/// builder over egui's combo box, `id_salt` its id.
+pub(crate) struct Dropdown {
+    combo: egui::ComboBox,
+}
+
+/// A [`Dropdown`] with the id `id_salt`.
+pub(crate) fn dropdown(id_salt: impl egui::AsIdSalt) -> Dropdown {
+    Dropdown { combo: egui::ComboBox::from_id_salt(id_salt) }
+}
+
+impl Dropdown {
+    /// What the box shows.
+    pub(crate) fn selected_text(mut self, text: impl Into<egui::WidgetText>) -> Self {
+        self.combo = self.combo.selected_text(text);
+        self
+    }
+
+    /// The box's width.
+    pub(crate) fn width(mut self, width: f32) -> Self {
+        self.combo = self.combo.width(width);
+        self
+    }
+
+    /// The open list's greatest height.
+    pub(crate) fn height(mut self, height: f32) -> Self {
+        self.combo = self.combo.height(height);
+        self
+    }
+
+    /// Open until a click lands outside it (a list of ticks, not one choice).
+    pub(crate) fn stays_open(mut self) -> Self {
+        self.combo = self.combo.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+        self
+    }
+
+    /// A choice of `options` (in the order shown), each named by `text`,
+    /// `current` the one chosen: a click or the arrow keys change it. The
+    /// box's response.
+    pub(crate) fn show<T: PartialEq + Clone, S: Into<egui::WidgetText>>(
+        self,
+        ui: &mut Ui,
+        current: &mut T,
+        options: &[T],
+        text: impl Fn(&T) -> S,
+    ) -> egui::Response {
+        self.show_with(
+            ui,
+            current,
+            || options.to_vec(),
+            |ui, current| {
+                for o in options {
+                    ui.selectable_value(current, o.clone(), text(o));
+                }
+            },
+        )
+    }
+
+    /// [`show`](Self::show) with the list's own rows (`rows`: drawn while
+    /// it is open, choosing into `current`), the arrow keys stepping
+    /// `current` through `options` (made only while the box has the keys:
+    /// a list read only while it is used).
+    pub(crate) fn show_with<T: PartialEq + Clone>(
+        self,
+        ui: &mut Ui,
+        current: &mut T,
+        options: impl FnOnce() -> Vec<T>,
+        rows: impl FnOnce(&mut Ui, &mut T),
+    ) -> egui::Response {
+        let r = self.combo.show_ui(ui, |ui| rows(ui, current)).response;
+        if r.clicked() || r.has_focus() {
+            arrow_step(ui, &r, &options(), current);
+        }
+        r
+    }
+
+    /// A dropdown that is not a list of choices, whose arrow keys would
+    /// have nothing to step through: commands (Add hak…), a set of ticks,
+    /// a grid of colors.
+    pub(crate) fn show_ui<R>(
+        self,
+        ui: &mut Ui,
+        contents: impl FnOnce(&mut Ui) -> R,
+    ) -> egui::InnerResponse<Option<R>> {
+        self.combo.show_ui(ui, contents)
+    }
 }
 
 /// Says on the system's clipboard what Moonglow has copied of its own

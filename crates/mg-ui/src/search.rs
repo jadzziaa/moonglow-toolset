@@ -263,14 +263,10 @@ fn search_ui(ui: &mut Ui, d: &mut AdvancedSearch, game: Option<&GameData>) -> bo
     egui::Grid::new("advanced-search").num_columns(2).show(ui, |ui| {
         crate::widgets::field_label(ui, "Look for");
         let was = d.kind;
-        egui::ComboBox::from_id_salt("advanced-search-kind")
+        crate::widgets::dropdown("advanced-search-kind")
             .selected_text(d.kind.label())
             .width(260.0)
-            .show_ui(ui, |ui| {
-                for k in Kind::ALL {
-                    ui.selectable_value(&mut d.kind, k, k.label());
-                }
-            });
+            .show(ui, &mut d.kind, &Kind::ALL, |k| k.label());
         if d.kind != was {
             d.row = None;
             d.subtype = None;
@@ -284,14 +280,11 @@ fn search_ui(ui: &mut Ui, d: &mut AdvancedSearch, game: Option<&GameData>) -> bo
                 find |= text(ui, &mut d.name, "e.g. *sDeidad* (* for any characters)");
                 ui.end_row();
                 crate::widgets::field_label(ui, "Type");
-                egui::ComboBox::from_id_salt("advanced-search-var-type")
+                let types: Vec<Option<VarType>> =
+                    std::iter::once(None).chain(VarType::ALL.map(Some)).collect();
+                crate::widgets::dropdown("advanced-search-var-type")
                     .selected_text(d.var_type.map_or("Any", VarType::name))
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut d.var_type, None, "Any");
-                        for t in VarType::ALL {
-                            ui.selectable_value(&mut d.var_type, Some(t), t.name());
-                        }
-                    });
+                    .show(ui, &mut d.var_type, &types, |t| t.map_or("Any", VarType::name));
                 ui.end_row();
                 crate::widgets::field_label(ui, "Value");
                 find |= text(ui, &mut d.value, "any (* for any characters)");
@@ -343,14 +336,10 @@ fn search_ui(ui: &mut Ui, d: &mut AdvancedSearch, game: Option<&GameData>) -> bo
                 if d.kind == Kind::Appearance {
                     crate::widgets::field_label(ui, "Of");
                     let was = d.of;
-                    egui::ComboBox::from_id_salt("advanced-search-of")
+                    crate::widgets::dropdown("advanced-search-of")
                         .selected_text(d.of.label())
                         .width(260.0)
-                        .show_ui(ui, |ui| {
-                            for a in AppearanceOf::ALL {
-                                ui.selectable_value(&mut d.of, a, a.label());
-                            }
-                        });
+                        .show(ui, &mut d.of, &AppearanceOf::ALL, |a| a.label());
                     if d.of != was {
                         d.row = None;
                     }
@@ -399,27 +388,27 @@ fn search_ui(ui: &mut Ui, d: &mut AdvancedSearch, game: Option<&GameData>) -> bo
         ui.horizontal(|ui| {
             let object =
                 OBJECTS.iter().find(|(t, _)| Some(*t) == d.object).map_or("Everything", |o| o.1);
-            egui::ComboBox::from_id_salt("advanced-search-object")
+            let objects: Vec<_> =
+                std::iter::once(None).chain(OBJECTS.iter().map(|o| Some(o.0))).collect();
+            crate::widgets::dropdown("advanced-search-object")
                 .selected_text(object)
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut d.object, None, "Everything");
-                    for (t, label) in OBJECTS {
-                        ui.selectable_value(&mut d.object, Some(t), label);
-                    }
+                .show(ui, &mut d.object, &objects, |t| {
+                    OBJECTS.iter().find(|o| Some(o.0) == *t).map_or("Everything", |o| o.1)
                 })
-                .response
                 .on_hover_text("Items include those in inventories, equipment and stores");
             let placed = match d.placed {
                 None => "blueprints and placed objects",
                 Some(true) => "placed objects only",
                 Some(false) => "blueprints only",
             };
-            egui::ComboBox::from_id_salt("advanced-search-placed").selected_text(placed).show_ui(
+            crate::widgets::dropdown("advanced-search-placed").selected_text(placed).show(
                 ui,
-                |ui| {
-                    ui.selectable_value(&mut d.placed, None, "blueprints and placed objects");
-                    ui.selectable_value(&mut d.placed, Some(false), "blueprints only");
-                    ui.selectable_value(&mut d.placed, Some(true), "placed objects only");
+                &mut d.placed,
+                &[None, Some(false), Some(true)],
+                |p| match p {
+                    None => "blueprints and placed objects",
+                    Some(true) => "placed objects only",
+                    Some(false) => "blueprints only",
                 },
             );
         });

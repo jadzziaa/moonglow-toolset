@@ -567,29 +567,29 @@ pub(super) fn editor(
         ui.horizontal_wrapped(|ui| {
             widgets::field_label(ui, "Add");
             if scope.is_none() {
-                egui::ComboBox::from_id_salt("event-target")
+                // (The window, its controls and its binds, read only while
+                // the list is used.)
+                let targets = || {
+                    let mut ids = mg_nui::element_ids(doc);
+                    for v in s.views.values() {
+                        ids.extend(mg_nui::element_ids(v));
+                    }
+                    let ids = ids.into_iter().map(Target::Id);
+                    let binds = s.bindings.keys().cloned().map(Target::Bind);
+                    std::iter::once(Target::Window).chain(ids).chain(binds).map(Some).collect()
+                };
+                widgets::dropdown("event-target")
                     .selected_text(
                         target.as_ref().map_or("Choose…".into(), |t| target_name(t, doc)),
                     )
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut target, Some(Target::Window), "Window");
-                        let mut ids = mg_nui::element_ids(doc);
-                        for v in s.views.values() {
-                            ids.extend(mg_nui::element_ids(v));
-                        }
-                        for id in ids {
-                            ui.selectable_value(
-                                &mut target,
-                                Some(Target::Id(id.clone())),
-                                format!("Control: {id}"),
-                            );
-                        }
-                        for name in s.bindings.keys() {
-                            ui.selectable_value(
-                                &mut target,
-                                Some(Target::Bind(name.clone())),
-                                format!("Bind: {name}"),
-                            );
+                    .show_with(ui, &mut target, targets, |ui, target| {
+                        for t in targets() {
+                            let name = match &t {
+                                Some(Target::Id(id)) => format!("Control: {id}"),
+                                Some(Target::Bind(name)) => format!("Bind: {name}"),
+                                _ => "Window".to_string(),
+                            };
+                            ui.selectable_value(target, t, name);
                         }
                     });
             }
@@ -629,11 +629,14 @@ pub(super) fn editor(
                 event = free[0].into();
             }
             offered = now;
-            egui::ComboBox::from_id_salt("event-type").selected_text(label(&event)).show_ui(
+            let events: Vec<String> = free.iter().map(|e| (*e).to_string()).collect();
+            widgets::dropdown("event-type").selected_text(label(&event)).show_with(
                 ui,
-                |ui| {
+                &mut event,
+                || events.clone(),
+                |ui, event| {
                     for e in &free {
-                        ui.selectable_value(&mut event, (*e).into(), label(e))
+                        ui.selectable_value(event, (*e).into(), label(e))
                             .on_hover_text(explanation(e));
                     }
                 },

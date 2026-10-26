@@ -417,12 +417,13 @@ fn page(
             egui::Grid::new("cw-look").num_columns(2).show(ui, |ui| {
                 crate::widgets::field_label(ui, "Gender");
                 let before = w.gender;
-                egui::ComboBox::from_id_salt("cw-gender")
-                    .selected_text(if w.gender == 1 { "Female" } else { "Male" })
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut w.gender, 0, "Male");
-                        ui.selectable_value(&mut w.gender, 1, "Female");
-                    });
+                let name = |g: &u8| if *g == 1 { "Female" } else { "Male" };
+                crate::widgets::dropdown("cw-gender").selected_text(name(&w.gender)).show(
+                    ui,
+                    &mut w.gender,
+                    &[0, 1],
+                    name,
+                );
                 if w.gender != before {
                     w.portrait = None;
                 }

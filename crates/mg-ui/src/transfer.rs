@@ -352,16 +352,17 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     Some(t) => kind_name(t),
                     None => "All".to_string(),
                 };
-                egui::ComboBox::from_id_salt("export-kind")
-                    .selected_text(shown)
-                    .width(200.0)
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut draft.kind, None, format!("All: {}", keys.len()));
-                        for (t, n) in &kinds {
-                            let text = format!("{}: {n}", kind_name(*t));
-                            ui.selectable_value(&mut draft.kind, Some(*t), text);
-                        }
-                    });
+                let options: Vec<_> =
+                    std::iter::once(None).chain(kinds.iter().map(|(t, _)| Some(*t))).collect();
+                crate::widgets::dropdown("export-kind").selected_text(shown).width(200.0).show(
+                    ui,
+                    &mut draft.kind,
+                    &options,
+                    |t| match t.and_then(|t| kinds.iter().find(|k| k.0 == t)) {
+                        Some((t, n)) => format!("{}: {n}", kind_name(*t)),
+                        None => format!("All: {}", keys.len()),
+                    },
+                );
             });
             ui.horizontal(|ui| {
                 crate::widgets::field_label(ui, "Filter");

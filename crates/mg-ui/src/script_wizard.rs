@@ -461,11 +461,9 @@ fn combo<T: Copy + PartialEq>(
     options: &[T],
     label: impl Fn(T) -> String,
 ) {
-    egui::ComboBox::from_id_salt(id).selected_text(label(*value)).show_ui(ui, |ui| {
-        for &o in options {
-            ui.selectable_value(value, o, label(o));
-        }
-    });
+    crate::widgets::dropdown(id)
+        .selected_text(label(*value))
+        .show(ui, value, options, |o| label(*o));
 }
 
 fn local_draft(ui: &mut Ui, w: &mut ScriptWizard, condition: bool) -> Option<(String, Operand)> {

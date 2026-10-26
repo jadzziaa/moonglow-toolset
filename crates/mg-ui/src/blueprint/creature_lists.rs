@@ -113,12 +113,14 @@ fn category_filter(ui: &mut Ui, id: egui::Id, categories: &[(i32, String)]) -> O
             .find(|(n, _)| *n == c)
             .map_or_else(|| c.to_string(), |(_, name)| name.clone()),
     };
-    egui::ComboBox::from_id_salt(id).selected_text(name(chosen)).width(200.0).show_ui(ui, |ui| {
-        ui.selectable_value(&mut chosen, None, name(None));
-        for (c, text) in categories {
-            ui.selectable_value(&mut chosen, Some(*c), text);
-        }
-    });
+    let options: Vec<Option<i32>> =
+        std::iter::once(None).chain(categories.iter().map(|(c, _)| Some(*c))).collect();
+    crate::widgets::dropdown(id).selected_text(name(chosen)).width(200.0).show(
+        ui,
+        &mut chosen,
+        &options,
+        |c| name(*c),
+    );
     ui.data_mut(|d| d.insert_temp(id, chosen));
     chosen
 }

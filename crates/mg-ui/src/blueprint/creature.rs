@@ -576,15 +576,17 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
             .iter()
             .find(|(_, g, l)| *g == ge && *l == lc)
             .map_or_else(|| "(custom)".to_string(), |(n, _, _)| (*n).to_string());
-        let mut pick = None;
-        egui::ComboBox::from_id_salt(("utc-align", key)).selected_text(shown).show_ui(ui, |ui| {
-            for (name, g, l) in ALIGNMENTS {
-                if ui.selectable_label(g == ge && l == lc, name).clicked() {
-                    pick = Some((g, l));
-                }
-            }
-        });
-        if let Some((g, l)) = pick {
+        // (A custom alignment is none of them: the arrows go to the first.)
+        let mut pick = (ge, lc);
+        let presets = ALIGNMENTS.map(|(_, g, l)| (g, l));
+        crate::widgets::dropdown(("utc-align", key)).selected_text(shown).show(
+            ui,
+            &mut pick,
+            &presets,
+            |p| ALIGNMENTS.iter().find(|a| (a.1, a.2) == *p).map_or("", |a| a.0),
+        );
+        if pick != (ge, lc) {
+            let (g, l) = pick;
             f.set_many(
                 "Alignment",
                 &[("GoodEvil", g, FieldType::Byte), ("LawfulChaotic", l, FieldType::Byte)],
@@ -834,16 +836,13 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
                         let name = |v: Option<i64>, all: &str, names: &dyn Fn(i64) -> String| {
                             v.map_or(all.to_string(), names)
                         };
-                        egui::ComboBox::from_id_salt(id.with("gender"))
-                            .selected_text(name(gender, "Both", &|g| {
-                                ["Male", "Female"][g as usize].into()
-                            }))
+                        let gender_name = |g: &Option<i64>| {
+                            name(*g, "Both", &|g| ["Male", "Female"][g as usize].into())
+                        };
+                        crate::widgets::dropdown(id.with("gender"))
+                            .selected_text(gender_name(&gender))
                             .width(70.0)
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut gender, None, "Both");
-                                ui.selectable_value(&mut gender, Some(0), "Male");
-                                ui.selectable_value(&mut gender, Some(1), "Female");
-                            });
+                            .show(ui, &mut gender, &[None, Some(0), Some(1)], gender_name);
                         let list = crate::widgets::row_choice(id.with("type"), &types, kind);
                         if let Some(k) = list.none("All").width(90.0).show_optional(ui) {
                             kind = k;

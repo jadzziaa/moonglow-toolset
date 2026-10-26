@@ -399,11 +399,13 @@ fn part_colors(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
         let name = |f: &Form<'_>, p: usize| {
             if own(f, p) { format!("{} *", PARTS[p].1) } else { PARTS[p].1.to_string() }
         };
-        egui::ComboBox::from_id_salt(id).selected_text(name(f, part)).show_ui(ui, |ui| {
-            for p in 0..PARTS.len() {
-                ui.selectable_value(&mut part, p, name(f, p));
-            }
-        });
+        let parts: Vec<usize> = (0..PARTS.len()).collect();
+        crate::widgets::dropdown(id).selected_text(name(f, part)).show(
+            ui,
+            &mut part,
+            &parts,
+            |p| name(f, *p),
+        );
     })
     .response
     .on_hover_text("A part takes the armor's color where it has none of its own (*: it has).");

@@ -272,20 +272,22 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
                 }
             });
             ui.horizontal(|ui| {
-                let combo = |ui: &mut Ui, id: &str, value: &mut Option<i32>, list: &[Choice]| {
-                    let text = value
-                        .and_then(|v| list.iter().find(|c| c.row as i32 == v))
-                        .map_or("Any".to_string(), |c| c.text.clone());
-                    egui::ComboBox::from_id_salt((id, pick_id))
-                        .selected_text(text)
-                        .width(140.0)
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(value, None, "Any");
-                            for c in list {
-                                ui.selectable_value(value, Some(c.row as i32), &c.text);
-                            }
-                        });
-                };
+                let combo =
+                    |ui: &mut Ui, id: &str, value: &mut Option<i32>, list: &[Choice]| {
+                        let text = value
+                            .and_then(|v| list.iter().find(|c| c.row as i32 == v))
+                            .map_or("Any".to_string(), |c| c.text.clone());
+                        let options: Vec<Option<i32>> = std::iter::once(None)
+                            .chain(list.iter().map(|c| Some(c.row as i32)))
+                            .collect();
+                        crate::widgets::dropdown((id, pick_id))
+                            .selected_text(text)
+                            .width(140.0)
+                            .show(ui, value, &options, |v| {
+                                v.and_then(|v| list.iter().find(|c| c.row as i32 == v))
+                                    .map_or("Any".to_string(), |c| c.text.clone())
+                            });
+                    };
                 if state.mode == 1 {
                     ui.label("Category:");
                     combo(ui, "category", &mut state.category, &kinds);
@@ -432,7 +434,8 @@ pub(super) fn transition(f: &mut Form<'_>, ui: &mut Ui) {
         // Aurora's Setup Area Transition: a door or waypoint in an area
         // (gathered while the list is open: from every area's objects).
         let mut pick = None;
-        egui::ComboBox::from_id_salt(("utt-setup", f.key))
+        // (Commands, not a choice: no arrow keys.)
+        crate::widgets::dropdown(("utt-setup", f.key))
             .selected_text("Setup Area Transition…")
             .width(260.0)
             .show_ui(ui, |ui| {

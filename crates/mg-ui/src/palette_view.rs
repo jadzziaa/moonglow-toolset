@@ -657,16 +657,19 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             });
         } else {
             let shown = types.iter().find(|t| t.0 == now).expect("one of them");
-            egui::ComboBox::from_id_salt("palette-type")
+            let all: Vec<_> = types.iter().map(|t| t.0).collect();
+            let mut pick = now;
+            crate::widgets::dropdown("palette-type")
                 .selected_text(labelled(shown.1, shown.2))
                 .width(ui.available_width())
-                .show_ui(ui, |ui| {
-                    for (t, glyph, name, _) in &types {
-                        if ui.selectable_label(now == *t, labelled(glyph, name)).clicked() {
-                            chosen = Some(*t);
-                        }
-                    }
+                .show(ui, &mut pick, &all, |t| {
+                    let (_, glyph, name, _) =
+                        types.iter().find(|x| x.0 == *t).expect("one of them");
+                    labelled(glyph, name)
                 });
+            if pick != now {
+                chosen = Some(pick);
+            }
         }
         match chosen {
             Some(Type::Tiles) => {

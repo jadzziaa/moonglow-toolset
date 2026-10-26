@@ -914,44 +914,60 @@ impl Form<'_> {
                     ui.allocate_exact_size(egui::vec2(28.0, 16.0), egui::Sense::hover());
                 crate::images::swatch(ui, rect, &crate::images::tones(p, current));
             }
-            egui::ComboBox::from_id_salt(("palette-color", self.key, label))
+            // (The arrow keys step through the colors in their order.)
+            let mut chosen = current;
+            crate::widgets::dropdown(("palette-color", self.key, label))
                 .selected_text(text.map_or_else(|| current.to_string(), str::to_string))
                 .width(56.0)
                 .height(11.0 * 16.0 + 24.0)
-                .show_ui(ui, |ui| {
-                    let Some(p) = &pal else {
-                        ui.weak("No palette");
-                        return;
-                    };
-                    ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
-                    // 176 colours, 16 to a row.
-                    for row in 0..11u8 {
-                        ui.horizontal(|ui| {
-                            for i in row * 16..row * 16 + 16 {
-                                let size = egui::vec2(16.0, 14.0);
-                                let (rect, r) = ui.allocate_exact_size(size, egui::Sense::click());
-                                crate::images::swatch(ui, rect, &crate::images::tones(p, i));
-                                if i == current && text.is_none() {
-                                    let stroke = ui.visuals().selection.stroke;
-                                    ui.painter().rect_stroke(
-                                        rect,
-                                        0.0,
-                                        stroke,
-                                        egui::StrokeKind::Outside,
-                                    );
+                .show_with(
+                    ui,
+                    &mut chosen,
+                    || (0..176).collect(),
+                    |ui, chosen| {
+                        let Some(p) = &pal else {
+                            ui.weak("No palette");
+                            return;
+                        };
+                        ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
+                        // 176 colours, 16 to a row.
+                        for row in 0..11u8 {
+                            ui.horizontal(|ui| {
+                                for i in row * 16..row * 16 + 16 {
+                                    let size = egui::vec2(16.0, 14.0);
+                                    let (rect, r) =
+                                        ui.allocate_exact_size(size, egui::Sense::click());
+                                    crate::images::swatch(ui, rect, &crate::images::tones(p, i));
+                                    if i == current && text.is_none() {
+                                        let stroke = ui.visuals().selection.stroke;
+                                        ui.painter().rect_stroke(
+                                            rect,
+                                            0.0,
+                                            stroke,
+                                            egui::StrokeKind::Outside,
+                                        );
+                                    }
+                                    let name = format!("{what} {i}");
+                                    r.widget_info(|| {
+                                        egui::WidgetInfo::labeled(
+                                            egui::WidgetType::Button,
+                                            true,
+                                            &name,
+                                        )
+                                    });
+                                    if r.on_hover_text(&name).clicked() {
+                                        *chosen = i;
+                                        pick = Some(i);
+                                        ui.close();
+                                    }
                                 }
-                                let name = format!("{what} {i}");
-                                r.widget_info(|| {
-                                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name)
-                                });
-                                if r.on_hover_text(&name).clicked() {
-                                    pick = Some(i);
-                                    ui.close();
-                                }
-                            }
-                        });
-                    }
-                });
+                            });
+                        }
+                    },
+                );
+            if chosen != current {
+                pick = Some(chosen);
+            }
         });
         pick
     }

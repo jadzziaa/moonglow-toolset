@@ -79,20 +79,14 @@ fn resize_window(app: &mut Moonglow, ctx: &egui::Context) {
             });
             ui.horizontal(|ui| {
                 ui.label("Rows and columns come and go at the edges");
-                let r = egui::ComboBox::from_id_salt("resize-edges")
+                let edges: Vec<u8> = (0..EDGES.len() as u8).collect();
+                crate::widgets::dropdown("resize-edges")
                     .selected_text(EDGES[usize::from(d.edges % 4)])
-                    .show_ui(ui, |ui| {
-                        for (i, name) in EDGES.iter().enumerate() {
-                            ui.selectable_value(&mut d.edges, i as u8, *name);
-                        }
-                    })
-                    .response
+                    .show(ui, &mut d.edges, &edges, |e| EDGES[usize::from(*e % 4)])
                     .on_hover_text(
                         "North and east as in Aurora. The other two edges stay, and what is \
                          in the area keeps its place against them",
                     );
-                let edges: Vec<u8> = (0..EDGES.len() as u8).collect();
-                crate::widgets::arrow_step(ui, &r, &edges, &mut d.edges);
             });
             ui.horizontal(|ui| {
                 ok = ui.button("OK").on_hover_text("Accept changes").clicked()

@@ -269,25 +269,29 @@ fn advanced(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
         crate::widgets::field_label(ui, "Starting movie");
         let movie = root.read(&ifo::MOD_START_MOVIE);
         let shown = if movie.is_empty() { "(none)".to_string() } else { movie.to_string() };
-        egui::ComboBox::from_id_salt("ifo-movie").selected_text(shown).show_ui(ui, |ui| {
-            // (Read only while the list is open.)
-            let movies = app
-                .install
-                .as_ref()
+        // (Read only while the list is used: open, or with the keys.)
+        let movies = || {
+            let names = (app.install.as_ref())
                 .map(|i| GameInstall::file_names(&i.movie_dirs(), "bik"))
                 .unwrap_or_default();
-            if ui.selectable_label(movie.is_empty(), "(none)").clicked() && !movie.is_empty() {
-                app.actions.push(set("Starting movie", &ifo::MOD_START_MOVIE, ResRef::EMPTY));
-            }
-            for m in &movies {
-                if let Ok(r) = ResRef::from_str(m)
-                    && ui.selectable_label(r == movie, m).clicked()
-                    && r != movie
-                {
-                    app.actions.push(set("Starting movie", &ifo::MOD_START_MOVIE, r));
+            let movies = names.iter().filter_map(|m| ResRef::from_str(m).ok());
+            std::iter::once(ResRef::EMPTY).chain(movies).collect::<Vec<_>>()
+        };
+        let mut pick = movie;
+        crate::widgets::dropdown("ifo-movie").selected_text(shown).show_with(
+            ui,
+            &mut pick,
+            movies,
+            |ui, pick| {
+                for m in movies() {
+                    let name = if m.is_empty() { "(none)".to_string() } else { m.to_string() };
+                    ui.selectable_value(pick, m, name);
                 }
-            }
-        });
+            },
+        );
+        if pick != movie {
+            app.actions.push(set("Starting movie", &ifo::MOD_START_MOVIE, pick));
+        }
         ui.end_row();
 
         crate::widgets::field_label(ui, "Variables");
@@ -565,7 +569,8 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
     // The list's commands, under it: what adds to it and checks it, and
     // what is done with the rows chosen.
     ui.horizontal(|ui| {
-        egui::ComboBox::from_id_salt("ifo-add-hak").selected_text("Add hak…").show_ui(ui, |ui| {
+        // (Commands, not a choice: no arrow keys.)
+        crate::widgets::dropdown("ifo-add-hak").selected_text("Add hak…").show_ui(ui, |ui| {
             for h in &available {
                 if ui.selectable_label(false, h).clicked() {
                     let mut item = ifo::MOD_HAK_LIST.new_item();
@@ -656,12 +661,11 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
         crate::widgets::field_label(ui, "Custom TLK");
         let tlk = decode(root.read(&ifo::MOD_CUSTOM_TLK).as_bytes());
         let shown = if tlk.is_empty() { "(none)".to_string() } else { tlk.clone() };
-        egui::ComboBox::from_id_salt("ifo-tlk").selected_text(shown).show_ui(ui, |ui| {
-            // (Read only while the list is open.) The game reads talk
-            // tables from haks and the module too.
-            let mut tlks = app
-                .install
-                .as_ref()
+        // (Read only while the list is used: open, or with the keys.) The
+        // game reads talk tables from haks and the module too. The one
+        // chosen as the module names it.
+        let tlks = || {
+            let mut tlks = (app.install.as_ref())
                 .map(|i| GameInstall::file_names(&i.tlk_dirs(), "tlk"))
                 .unwrap_or_default();
             if let Some(game) = &app.game {
@@ -669,19 +673,24 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
                 tlks.sort();
                 tlks.dedup();
             }
-            let mut chosen = None;
-            if ui.selectable_label(tlk.is_empty(), "(none)").clicked() {
-                chosen = Some(String::new());
-            }
-            for t in &tlks {
-                if ui.selectable_label(t.eq_ignore_ascii_case(&tlk), t).clicked() {
-                    chosen = Some(t.clone());
+            let named = |t: String| if t.eq_ignore_ascii_case(&tlk) { tlk.clone() } else { t };
+            std::iter::once(String::new()).chain(tlks.into_iter().map(named)).collect::<Vec<_>>()
+        };
+        let mut pick = tlk.clone();
+        crate::widgets::dropdown("ifo-tlk").selected_text(shown).show_with(
+            ui,
+            &mut pick,
+            tlks,
+            |ui, pick| {
+                for t in tlks() {
+                    let name = if t.is_empty() { "(none)".to_string() } else { t.clone() };
+                    ui.selectable_value(pick, t, name);
                 }
-            }
-            if let Some(name) = chosen.filter(|n| !n.eq_ignore_ascii_case(&tlk)) {
-                app.actions.push(set("Custom TLK", &ifo::MOD_CUSTOM_TLK, ExoString(encode(&name))));
-            }
-        });
+            },
+        );
+        if !pick.eq_ignore_ascii_case(&tlk) {
+            app.actions.push(set("Custom TLK", &ifo::MOD_CUSTOM_TLK, ExoString(encode(&pick))));
+        }
         let label = if tlk.is_empty() { "New…" } else { "Edit…" };
         if ui.button(label).on_hover_text("Tools › Talk Table").clicked() {
             app.actions.push(Action::OpenTab(crate::Tab::TalkTable));

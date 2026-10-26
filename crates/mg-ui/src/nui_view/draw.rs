@@ -584,17 +584,12 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
                                 let was = value.as_i64().unwrap_or(1);
                                 let mut n = was;
                                 let label = widgets::field_label(ui, "Paint order");
-                                egui::ComboBox::from_id_salt("order")
-                                    .selected_text(if n < 0 {
-                                        "Before control"
-                                    } else {
-                                        "After control"
-                                    })
-                                    .show_ui(ui, |ui| {
-                                        ui.selectable_value(&mut n, -1, "Before control");
-                                        ui.selectable_value(&mut n, 1, "After control");
-                                    })
-                                    .response
+                                let name = |n: &i64| {
+                                    if *n < 0 { "Before control" } else { "After control" }
+                                };
+                                widgets::dropdown("order")
+                                    .selected_text(name(&n))
+                                    .show(ui, &mut n, &[-1, 1], name)
                                     .labelled_by(label.id);
                                 // Only a choice writes: looking at a layer never edits it.
                                 if n != was {
@@ -613,14 +608,10 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
                                     "Middle held",
                                 ];
                                 let label = widgets::field_label(ui, "Show when");
-                                egui::ComboBox::from_id_salt("render")
+                                let all: Vec<usize> = (0..choices.len()).collect();
+                                widgets::dropdown("render")
                                     .selected_text(*choices.get(n).unwrap_or(&"Unknown"))
-                                    .show_ui(ui, |ui| {
-                                        for (i, label) in choices.iter().enumerate() {
-                                            ui.selectable_value(&mut n, i, *label);
-                                        }
-                                    })
-                                    .response
+                                    .show(ui, &mut n, &all, |i| choices[*i])
                                     .labelled_by(label.id);
                                 if n != was {
                                     *value = json!(n);

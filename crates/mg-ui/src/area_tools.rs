@@ -335,18 +335,14 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
             egui::Grid::new("find").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
                 crate::widgets::field_label(ui, "In Area");
                 let shown = f.area.map_or_else(|| "(all areas)".to_string(), |a| label(&a));
-                let r = egui::ComboBox::from_id_salt("find-area").selected_text(shown).show_ui(
-                    ui,
-                    |ui| {
-                        ui.selectable_value(&mut f.area, None, "(all areas)");
-                        for a in &areas {
-                            ui.selectable_value(&mut f.area, Some(*a), label(a));
-                        }
-                    },
-                );
                 let options: Vec<Option<ResRef>> =
                     std::iter::once(None).chain(areas.iter().copied().map(Some)).collect();
-                crate::widgets::arrow_step(ui, &r.response, &options, &mut f.area);
+                crate::widgets::dropdown("find-area").selected_text(shown).show(
+                    ui,
+                    &mut f.area,
+                    &options,
+                    |a| a.map_or_else(|| "(all areas)".to_string(), |a| label(&a)),
+                );
                 ui.end_row();
                 crate::widgets::field_label(ui, "From Blueprint");
                 let field = ui

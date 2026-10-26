@@ -1568,7 +1568,7 @@ fn text_panel(
             let mut chosen = commit_text(app, ui, id, &speaker, false, 160.0);
             // The tags of the creatures placed in the module's areas (read
             // only while the list is open: it takes every area's objects).
-            egui::ComboBox::from_id_salt(("dlg-speaker-tags", key, index))
+            let r = crate::widgets::dropdown(("dlg-speaker-tags", key, index))
                 .selected_text("")
                 .width(24.0)
                 .show_ui(ui, |ui| {
@@ -1580,6 +1580,14 @@ fn text_panel(
                 })
                 .response
                 .on_hover_text("The tag of a creature placed in the module");
+            // (The arrow keys step through the tags, read only while the
+            // list has the keys.)
+            let mut tag = speaker.clone();
+            if (r.clicked() || r.has_focus())
+                && crate::widgets::arrow_step(ui, &r, &creature_tags(app), &mut tag)
+            {
+                chosen = Some(tag);
+            }
             if let Some(v) = chosen {
                 actions.push(set(
                     key,
@@ -1811,21 +1819,17 @@ fn other_tab(
                 .iter()
                 .find(|a| a.1 == anim)
                 .map_or_else(|| anim.to_string(), |a| a.0.to_string());
-            egui::ComboBox::from_id_salt(("dlg-anim", key, kind, index))
-                .selected_text(shown)
-                .show_ui(ui, |ui| {
-                    for (label, value) in ANIMATIONS {
-                        if ui.selectable_label(value == anim, label).clicked() && value != anim {
-                            actions.push(set(
-                                key,
-                                "Animation",
-                                path.clone(),
-                                "Animation",
-                                Value::Dword(value),
-                            ));
-                        }
-                    }
-                });
+            let mut pick = anim;
+            let values = ANIMATIONS.map(|a| a.1);
+            crate::widgets::dropdown(("dlg-anim", key, kind, index)).selected_text(shown).show(
+                ui,
+                &mut pick,
+                &values,
+                |v| ANIMATIONS.iter().find(|a| a.1 == *v).map_or("", |a| a.0),
+            );
+            if pick != anim {
+                actions.push(set(key, "Animation", path.clone(), "Animation", Value::Dword(pick)));
+            }
             ui.end_row();
 
             crate::widgets::field_label(ui, "Play Sound");
@@ -1851,42 +1855,39 @@ fn other_tab(
                 .unwrap_or_default();
             let quest = decode(n.string("Quest").unwrap_or_default());
             ui.label("Journal");
-            egui::ComboBox::from_id_salt(("dlg-quest", key, kind, index))
+            // (The row of none is the empty tag.)
+            let tags: Vec<String> = std::iter::once(String::new())
+                .chain(journal.iter().map(|c| decode(c.read(&jrl::categories::TAG).as_bytes())))
+                .collect();
+            let mut pick = quest.clone();
+            crate::widgets::dropdown(("dlg-quest", key, kind, index))
                 .selected_text(if quest.is_empty() { "(none)".into() } else { quest.clone() })
-                .show_ui(ui, |ui| {
-                    if ui.selectable_label(quest.is_empty(), "(none)").clicked()
-                        && !quest.is_empty()
-                    {
-                        actions.push(set(
-                            key,
-                            "Journal",
-                            path.clone(),
-                            "Quest",
-                            Value::String(Vec::new()),
-                        ));
-                    }
-                    for c in &journal {
-                        let tag = decode(c.read(&jrl::categories::TAG).as_bytes());
-                        if ui.selectable_label(tag == quest, &tag).clicked() && tag != quest {
-                            let mut edits = vec![Edit::SetField {
-                                key,
-                                path: path.clone(),
-                                label: "Quest".into(),
-                                value: Some(Value::String(encode(&tag))),
-                            }];
-                            let first = mg_module::journal::entries(c)
-                                .first()
-                                .map(|e| e.read(&jrl::categories::entry_list::ID));
-                            edits.push(Edit::SetField {
-                                key,
-                                path: path.clone(),
-                                label: "QuestEntry".into(),
-                                value: Some(Value::Dword(first.unwrap_or(0))),
-                            });
-                            actions.push(Action::Apply(Command::new("Journal", edits)));
-                        }
-                    }
+                .show(ui, &mut pick, &tags, |t| {
+                    if t.is_empty() { "(none)".to_string() } else { t.clone() }
                 });
+            if pick.is_empty() && !quest.is_empty() {
+                actions.push(set(key, "Journal", path.clone(), "Quest", Value::String(Vec::new())));
+            } else if pick != quest
+                && let Some(c) = (journal.iter())
+                    .find(|c| decode(c.read(&jrl::categories::TAG).as_bytes()) == pick)
+            {
+                let mut edits = vec![Edit::SetField {
+                    key,
+                    path: path.clone(),
+                    label: "Quest".into(),
+                    value: Some(Value::String(encode(&pick))),
+                }];
+                let first = mg_module::journal::entries(c)
+                    .first()
+                    .map(|e| e.read(&jrl::categories::entry_list::ID));
+                edits.push(Edit::SetField {
+                    key,
+                    path: path.clone(),
+                    label: "QuestEntry".into(),
+                    value: Some(Value::Dword(first.unwrap_or(0))),
+                });
+                actions.push(Action::Apply(Command::new("Journal", edits)));
+            }
             ui.end_row();
             if !quest.is_empty() {
                 ui.label("Journal entry");
@@ -1894,26 +1895,29 @@ fn other_tab(
                 let category = journal
                     .iter()
                     .find(|c| decode(c.read(&jrl::categories::TAG).as_bytes()) == quest);
-                egui::ComboBox::from_id_salt(("dlg-quest-entry", key, kind, index))
+                let entries = category.map(mg_module::journal::entries).unwrap_or(&[]);
+                let ids: Vec<u32> =
+                    entries.iter().map(|e| e.read(&jrl::categories::entry_list::ID)).collect();
+                let mut pick = entry;
+                crate::widgets::dropdown(("dlg-quest-entry", key, kind, index))
                     .selected_text(entry.to_string())
-                    .show_ui(ui, |ui| {
-                        for e in category.map(mg_module::journal::entries).unwrap_or(&[]) {
-                            let id = e.read(&jrl::categories::entry_list::ID);
-                            let t = e.read(&jrl::categories::entry_list::TEXT);
-                            let t = crate::text::shown_text(&t);
-                            if ui.selectable_label(id == entry, format!("{id}: {t}")).clicked()
-                                && id != entry
-                            {
-                                actions.push(set(
-                                    key,
-                                    "Journal entry",
-                                    path.clone(),
-                                    "QuestEntry",
-                                    Value::Dword(id),
-                                ));
+                    .show_with(
+                        ui,
+                        &mut pick,
+                        || ids.clone(),
+                        |ui, pick| {
+                            for e in entries {
+                                let id = e.read(&jrl::categories::entry_list::ID);
+                                let t = e.read(&jrl::categories::entry_list::TEXT);
+                                let t = crate::text::shown_text(&t);
+                                ui.selectable_value(pick, id, format!("{id}: {t}"));
                             }
-                        }
-                    });
+                        },
+                    );
+                if pick != entry {
+                    let id = Value::Dword(pick);
+                    actions.push(set(key, "Journal entry", path.clone(), "QuestEntry", id));
+                }
                 ui.end_row();
             }
         },
