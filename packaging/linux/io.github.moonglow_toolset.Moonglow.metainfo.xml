@@ -45,6 +45,12 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="2.5.6" date="2026-10-26">
+      <description>
+        <p>A conversation opened from the module tree has the keyboard at
+        once, as in Aurora.</p>
+      </description>
+    </release>
     <release version="2.5.5" date="2026-10-25">
       <description>
         <p>A crash when a window lost its last tab fixed, a recovery copy
