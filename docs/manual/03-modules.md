@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T14:09:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T14:15:07Z }
 ---
 
 # Modules
@@ -269,7 +269,9 @@ unpacking or packing between the toolset and git.
   as `nwn_tlk` writes it (a table untouched, or edited and taken back,
   is the file it was, to the byte). A table kept in several languages,
   a target each (`file = "de/mytlk.tlk"`, its JSON's `language` German),
-  opens in the game's language, and the editor chooses another. The
+  opens in the game's language, and the editor chooses another. A
+  feminine table is a target of its own (`mytlkf.tlk`, of
+  `mytlkf.tlk.json`), in the same language. The
   project's `tlkFlags` are used as nasher uses them (`--nwn-encoding`,
   `--pretty`); a project that keeps its tables as CSV (`tlkFormat =
   "csv"`) is told it isn't read. `mg build PROJECT --target tlk` makes

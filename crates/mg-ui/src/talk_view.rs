@@ -115,7 +115,12 @@ fn open(app: &mut Moonglow, name: &str) {
         }
     };
     let languages = project_languages(app, name);
-    let feminine = find(&talk::feminine(name)).ok().flatten();
+    let feminine = match &found.source {
+        talk::Source::Json { .. } => {
+            project_feminine(app, name, found.tlk().ok().map(|t| t.language))
+        }
+        _ => find(&talk::feminine(name)).ok().flatten(),
+    };
     match Table::open(name, found, feminine) {
         Ok(t) => {
             app.talk = Some(t);
@@ -139,6 +144,21 @@ fn project_languages(app: &Moonglow, name: &str) -> Vec<(mg_core::Language, std:
     if out.len() > 1 { out } else { Vec::new() }
 }
 
+/// The feminine table of the project's table `name` in `language`: its
+/// own target's (`<name>f`), or none (not a `.tlk` of the tlk folder,
+/// which `nasher install` may have left there).
+fn project_feminine(
+    app: &Moonglow,
+    name: &str,
+    language: Option<mg_core::Language>,
+) -> Option<talk::Found> {
+    let p = app.ws.as_ref()?.module.project.as_deref()?;
+    let style = p.settings.tlk_style;
+    let tables = p.talk_tables(&talk::feminine(name)).unwrap_or_default();
+    let f = tables.into_iter().find(|f| Some(f.language()) == language)?;
+    Some(talk::Found { source: talk::Source::Json { path: f.path, style }, data: f.file })
+}
+
 /// The project's table in another of its languages (its file `path`), in
 /// place of the one open (which has no unsaved changes).
 fn open_language(app: &mut Moonglow, path: &std::path::Path) {
@@ -152,9 +172,7 @@ fn open_language(app: &mut Moonglow, path: &std::path::Path) {
         Ok::<_, String>(talk::Found { source, data })
     };
     let language = languages.iter().find(|(_, p)| p == path).map(|(l, _)| *l);
-    let feminine = (p.talk_tables(&talk::feminine(&name)).unwrap_or_default().into_iter())
-        .find(|f| Some(f.language()) == language)
-        .map(|f| talk::Found { source: talk::Source::Json { path: f.path, style }, data: f.file });
+    let feminine = project_feminine(app, &name, language);
     match read(path).and_then(|f| Table::open(&name, f, feminine)) {
         Ok(t) => {
             app.log.info(format!("Talk table {} ({} lines)", t.source, t.len()));

@@ -2109,6 +2109,7 @@ fn a_projects_talk_table_kept_as_json_is_edited_there() {
     let mut stale = mg_tlk::Tlk::new(Language::ENGLISH);
     stale.entries.push(mg_tlk::TlkEntry::text("Stale"));
     std::fs::write(user.join("tlk/mg_proj.tlk"), stale.to_bytes().unwrap()).unwrap();
+    std::fs::write(user.join("tlk/mg_projf.tlk"), stale.to_bytes().unwrap()).unwrap();
     let install = mg_resman::GameInstall::new(&root, Some(user), "en");
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.settings.no_last_area = true;
@@ -2124,6 +2125,7 @@ fn a_projects_talk_table_kept_as_json_is_edited_there() {
     assert!(matches!(&t.source, mg_module::talk::Source::Json { path, .. } if *path == json));
     assert!(t.editable());
     assert_eq!((t.len(), t.line(0).text.as_str()), (3, "Hello"));
+    assert!(t.feminine.is_none(), "not the tlk folder's feminine table beside the project's");
     let game = h.state().game.as_deref().unwrap();
     assert_eq!(game.string(mg_core::StrRef(16_777_216)).as_deref(), Some("Hello"));
     // A line added and typed, saved with the module: the JSON as nwn_tlk
@@ -15621,14 +15623,15 @@ fn tabs_app(name: &str) -> (std::path::PathBuf, Moonglow, std::path::PathBuf) {
 /// middle as the module opened.
 fn open_some_tabs(h: &mut Harness<'_, Moonglow>) {
     let script = |n| Tab::Script(ResKey::parse(n, ResType::NSS).unwrap());
+    // (Steps: the module tree opens a tab's group over a few frames.)
     for tab in [Tab::Area(ResRef::from_str("start").unwrap()), Tab::Factions, script("hello")] {
         h.state_mut().actions.push(mg_ui::Action::OpenTab(tab));
-        h.run();
+        h.run_steps(8);
     }
     h.state_mut().actions.push(mg_ui::Action::OpenTab(script("bye")));
-    h.run();
+    h.run_steps(8);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(script("hello")));
-    h.run();
+    h.run_steps(8);
 }
 
 /// Each pane's tabs (a pane of the main window or not) and the one in
@@ -25593,6 +25596,9 @@ fn open_script_s_arrows_choose_among_those_listed() {
 #[test]
 fn a_script_editor_opens_other_scripts() {
     let Some((mut h, _)) = area_harness("open-script") else { return };
+    // (The module tree kept still: opened at a script, its rows would
+    // have the scripts' names too.)
+    h.state_mut().settings.tree_stays = true;
     let (hello, other) = (
         ResKey::parse("hello", ResType::NSS).unwrap(),
         ResKey::parse("other_one", ResType::NSS).unwrap(),
@@ -25650,6 +25656,9 @@ fn open_script_opens_the_scripts_selected_together() {
     }
     m.save().unwrap();
     let mut app = app_with(Vec::new());
+    // (The module tree kept still: opened at a script, its rows would
+    // have the scripts' names too.)
+    app.settings.tree_stays = true;
     app.open_module(&path);
     let hello = ResKey::parse("hello", ResType::NSS).unwrap();
     app.actions.push(mg_ui::Action::OpenTab(Tab::Script(hello)));
