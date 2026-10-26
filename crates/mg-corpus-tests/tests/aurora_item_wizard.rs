@@ -1,7 +1,7 @@
 //! The Item Wizard's magical items against Aurora's (the oracle capture
-//! `item-wizard/`: 126 items Aurora's wizard made with Magical ticked, of
-//! 33 base items at every item level and quality, listed with their level
-//! and quality in `manifest.tsv`). Aurora's choices are random; what
+//! `item-wizard/`: 127 items Aurora's wizard made with Magical ticked, of
+//! 27 base items, longswords at every item level and quality, listed with
+//! their level and quality in `manifest.tsv`). Aurora's choices are random; what
 //! `mg_rules::item_wizard` takes from them must hold for each: the
 //! table, the first property's tier, the tiers and number of the rest,
 //! the most the item is worth, the charges, the classes, and that it is

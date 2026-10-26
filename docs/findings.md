@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:41:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:46:14Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -122,8 +122,9 @@ Medium, High, Godly), and Next waits for both. The item gets random
 properties from the toolset's `itmwiz*.2da` (columns `Prop SubProp
 CostTable CostVal ParamTable Param Value`; `Value` is a tier, 0 to 8 for
 weapons and armor, 0 to 12 for potions, scrolls, wands and trap kits, 0
-to 15 for staves). 126 items Aurora made (33 base items, every level and
-quality, Longswords three times each) show:
+to 15 for staves). 127 items Aurora made (27 base items: longswords
+three times at every level and quality, the rest at two to eleven of
+them) show:
 
 - **The table** follows baseitems.2da `PropColumn`: 0 melee, 1 ranged
   (also the unenchanted wand), 2 throw, 3 staves, 4 rods, 5 ammo, 6

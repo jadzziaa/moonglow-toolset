@@ -3,7 +3,7 @@ type: Checklist
 title: Parity checklists
 description: Aurora's dialogs against Moonglow, control by control - done and tested, partly, not yet, or deliberately different with the reason - naming the test that covers each.
 tags: [aurora, parity, checklist, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:41:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:46:14Z }
 sources:
   - id: inventory
     resource: aurora-ui-inventory.md
@@ -253,7 +253,7 @@ scripts (name, picker, Edit), Comments.
 | Trigger categories: Area Transition makes a transition, the trap strengths a trap of that strength (traps.2da DCs) | the same | ✅ |
 | Sound Wizard's sound list filtered by category (`al_`/`as_` and a category name filter) | the picker opens filtered to `al_` or `as_` | ◐ |
 | Creature Wizard (race, class and level, appearance, portrait, faction, name, category; abilities, feats, skills and equipment from the class package; the CR) | Wizards › Creature Wizard… and the creature palette's New…: the same pages; the creature from `mg_module::blueprints::creature` (levelled up from nothing by the packages) | ✅ [creature_wizard_matches_aurora: 19 creatures of 17 racial types, every field and their order but three odd flags; the_creature_wizard_makes_aurora_s_creature]; random names from the race's letter tables [every_playable_race_has_random_names]; no 3D preview yet |
-| Item Wizard's Magical, Item Level and Item Quality (Level and Quality enabled by Magical; Next waits for both) | the same on the Name page; random properties from the base item's itmwiz table, by tier, number and most worth as 126 items Aurora's wizard made show; charges, class limits, unidentified | ✅ [item_wizard_makes_a_magical_item_of_a_level_and_quality; `aurora_item_wizard.rs`: every captured item holds to the rules; `item_wizard.rs`: every base item, level and quality gives valid properties] (Aurora's draws are random: the same rules, not the same items) |
+| Item Wizard's Magical, Item Level and Item Quality (Level and Quality enabled by Magical; Next waits for both) | the same on the Name page; random properties from the base item's itmwiz table, by tier, number and most worth as 127 items Aurora's wizard made show; charges, class limits, unidentified | ✅ [item_wizard_makes_a_magical_item_of_a_level_and_quality; `aurora_item_wizard.rs`: every captured item holds to the rules; `item_wizard.rs`: every base item, level and quality gives valid properties] (Aurora's draws are random: the same rules, not the same items) |
 
 ## Area viewer (`TfrmViewerArea`, the main frame's Object Filters and Preview toolbars)
 

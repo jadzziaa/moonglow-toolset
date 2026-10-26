@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:41:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:46:14Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -602,7 +602,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   pages open): what is typed goes when the field is left. (S)
   (a second builder's review, October 2026)
 - **Random item properties, what is left** (done: the Item Wizard's
-  Magical, Item Level and Item Quality, with rules fitted to 126 items
+  Magical, Item Level and Item Quality, with rules fitted to 127 items
   Aurora's wizard made, `docs/findings.md`): the rules are fitted, not
   Aurora's code: whether a later property's tier is drawn (one or two
   below the first) or tried in order, and Low items' most worth (levels
