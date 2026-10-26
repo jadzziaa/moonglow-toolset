@@ -260,6 +260,11 @@ pub struct Settings {
     /// Options > General: Show challenge ratings in the creature palette,
     /// off (the default: shown).
     pub palette_no_cr: bool,
+    /// Options > General: Show armor and cloaks on a woman (the item's
+    /// Appearance page's Shown on chooses it too): their models, and the
+    /// inventory icons of armor in inventories, the palette and the item's
+    /// page, are a woman's rather than a man's.
+    pub armor_on_woman: bool,
     /// Options > General: Light theme (the default: dark).
     pub light_theme: bool,
     /// Options > General: Interface size, per cent of the usual (`None`:

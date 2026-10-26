@@ -1245,6 +1245,186 @@ fn export_resources() {
     shoot(&mut h, &dir, "export-resources");
 }
 
+/// A blueprint's window with the game's data and a GPU (pictures are
+/// drawn), on its page `page`, `size` large.
+fn pictured_blueprint(
+    root: &std::path::Path,
+    dir: &std::path::Path,
+    (name, t): (&str, ResType),
+    page: &'static str,
+    size: egui::Vec2,
+) -> Harness<'static, Moonglow> {
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    let game = app.game.as_deref().unwrap();
+    let data = game.resman.get_named(name, t).unwrap().into_owned();
+    let mut m = mg_module::Module::new();
+    m.set(ResKey::parse(name, t).unwrap(), data);
+    let path = dir.join(format!("{name}-pictured.mod"));
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    app.open_module(&path);
+    app.open_palette = false;
+    let key = ResKey::parse(name, t).unwrap();
+    app.blueprint_pages.insert((key, GffPath::root()), page);
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
+    Harness::builder()
+        .with_size(size)
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app)
+}
+
+/// Opens the list whose value `value` accepts and rests the pointer on its
+/// row `row` (counted among those whose label `rows` accepts).
+fn hover_list_row(
+    h: &mut Harness<'_, Moonglow>,
+    value: &dyn Fn(&str) -> bool,
+    rows: &dyn Fn(&str) -> bool,
+    row: usize,
+) {
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let list = h
+        .query_all(combo)
+        .find(|n| n.accesskit_node().value().as_deref().is_some_and(value))
+        .map(|n| n.rect())
+        .expect("the list");
+    let at = list.center();
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(4);
+    let combo = egui::accesskit::Role::ComboBox;
+    // (Among the rows in sight, under the list's Filter field, whether it
+    // opened above its box or below: those scrolled out of sight are there
+    // too.)
+    // (A long list's: its Filter field, at once above or below the box.
+    // A short list's rows are all in sight.)
+    let filter = h
+        .query_all_by(|n| n.placeholder() == Some("Filter"))
+        .map(|n| n.rect())
+        .find(|r| (r.left() - list.left()).abs() < 20.0);
+    let in_sight = |r: egui::Rect| match filter {
+        Some(f) => r.top() >= f.bottom() && r.bottom() <= f.bottom() + 180.0,
+        None => r.top() > 0.0 && !r.intersects(list),
+    };
+    let at = h
+        .get_all_by(|n| n.label().is_some_and(|l| rows(&l)) && n.role() != combo)
+        .filter(|n| in_sight(n.rect()))
+        .nth(row)
+        .map(|n| n.rect().center())
+        .expect("the row");
+    h.hover_at(at);
+    // (Long enough for the tooltip, and for its picture to be drawn.)
+    h.run_steps(40);
+}
+
+/// The pictures beside the row the pointer rests on in a door's and an
+/// item's Appearance lists (GitHub issue 7): a generic door's and a
+/// tileset door's, a ring's model, a longsword's blade and an armor's
+/// torso, on a man and on a woman (`appearance-hover-*.png`).
+#[test]
+#[ignore]
+fn appearance_hover_pictures() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let size = egui::vec2(1200.0, 800.0);
+    let game = mg_rules::GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let names = |table: &str, name: &str, label: &str| {
+        let columns = mg_rules::ChoiceColumns { name: Some(name), label: Some(label) };
+        game.choices(table, columns).unwrap().into_iter().map(|c| c.text).collect::<Vec<_>>()
+    };
+    let generic = names("genericdoors", "Name", "Label");
+    let in_generic = |v: &str| generic.iter().any(|g| g == v);
+    let mut h = pictured_blueprint(&root, &dir, ("nw_door_strong", ResType::UTD), "Basic", size);
+    h.run_steps(4);
+    hover_list_row(&mut h, &in_generic, &in_generic, 3);
+    shoot(&mut h, &dir, "appearance-hover-door-generic");
+    let types = names("doortypes", "StringRefGame", "Label");
+    let in_types = |v: &str| types.iter().any(|t| v.starts_with(t.as_str()));
+    let mut h = pictured_blueprint(&root, &dir, ("nw_door_ttr_01", ResType::UTD), "Basic", size);
+    h.run_steps(4);
+    hover_list_row(&mut h, &in_types, &in_types, 4);
+    shoot(&mut h, &dir, "appearance-hover-door-type");
+    let number = |v: &str| v.parse::<u32>().is_ok();
+    for (name, value, rows, row, woman) in [
+        (
+            "nw_it_mring001",
+            &number as &dyn Fn(&str) -> bool,
+            &number as &dyn Fn(&str) -> bool,
+            2,
+            false,
+        ),
+        (
+            "nw_wswls001",
+            &|v: &str| v.starts_with("Model "),
+            &|v: &str| v.starts_with("Model "),
+            3,
+            false,
+        ),
+        ("nw_aarcl001", &|v: &str| v.contains("(AC "), &|v: &str| v.contains("(AC "), 6, false),
+        ("nw_aarcl001", &|v: &str| v.contains("(AC "), &|v: &str| v.contains("(AC "), 6, true),
+    ] {
+        let mut h = pictured_blueprint(&root, &dir, (name, ResType::UTI), "Appearance", size);
+        h.state_mut().settings.armor_on_woman = woman;
+        h.run_steps(6);
+        hover_list_row(&mut h, value, rows, row);
+        let on = if woman { "-woman" } else { "" };
+        shoot(&mut h, &dir, &format!("appearance-hover-{name}{on}"));
+    }
+}
+
+/// Armor's icons in an inventory and its pictures in the palette, on a
+/// man and with Options' Show armor and cloaks on a woman
+/// (`shown-on-{man,woman}-{inventory,palette}.png`).
+#[test]
+#[ignore]
+fn shown_on_a_woman() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let size = egui::vec2(1200.0, 800.0);
+    let mut h = pictured_blueprint(&root, &dir, ("nw_bandit001", ResType::UTC), "Inventory", size);
+    h.state_mut().settings.no_inventory_warning = true;
+    h.run_steps(4);
+    for woman in [false, true] {
+        h.state_mut().settings.armor_on_woman = woman;
+        h.run_steps(6);
+        let on = if woman { "woman" } else { "man" };
+        shoot(&mut h, &dir, &format!("shown-on-{on}-inventory"));
+    }
+    let mut h = pictured_blueprint(&root, &dir, ("nw_aarcl001", ResType::UTI), "General", size);
+    h.run_steps(2);
+    // (The palette alone: the item's window closed.)
+    let item = mg_ui::Tab::Blueprint(ResKey::parse("nw_aarcl001", ResType::UTI).unwrap());
+    let tab = h.state().dock.find_tab(&item).unwrap();
+    h.state_mut().dock.remove_tab(tab);
+    {
+        let app = h.state_mut();
+        app.settings.palette_gallery = true;
+        app.palette.kind = mg_module::palette::BlueprintKind::Item;
+        (app.palette.tiles, app.palette.custom) = (false, false);
+        app.palette.filter = "nw_aarcl0".into();
+        app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+    }
+    for woman in [false, true] {
+        h.state_mut().settings.armor_on_woman = woman;
+        h.run_steps(60);
+        let on = if woman { "woman" } else { "man" };
+        shoot(&mut h, &dir, &format!("shown-on-{on}-palette"));
+    }
+}
+
 /// A creature's Appearance list, opened: at the appearance it has, its
 /// Filter field above the rows.
 #[test]

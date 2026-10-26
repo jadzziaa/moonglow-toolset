@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:16:12Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T14:05:49Z }
 ---
 
 # Blueprints
@@ -197,10 +197,14 @@ The palette's buttons:
   Options, Module Properties, the conversation, NUI, 2DA and tileset
   editors, the wizards, the resource browser and Advanced Search (not
   the lists of commands, Add hak… and Setup Area Transition…, nor a
-  list of ticks). A creature's and a placeable's Appearance list shows
-  each appearance's picture beside the row the pointer rests on, and the
-  chosen one's with the pointer resting on the list's box: leave it there
-  and the picture follows the arrow keys. A body or armor part's list
+  list of ticks). A creature's and a placeable's Appearance list, and a
+  door's Appearance Type and Generic Appearance, show each appearance's
+  picture beside the row the pointer rests on, and the chosen one's with
+  the pointer resting on the list's box: leave it there and the picture
+  follows the arrow keys. An item's lists of its model and parts (a
+  model, a weapon's parts' shapes and colors, an armor's parts) show the
+  item as it would be with each, its inventory icon beside its model,
+  the same way (on a woman where the item is shown on one). A body or armor part's list
   takes the mouse wheel too, with the pointer resting on it: down to the
   next part, up to the one before, without opening it.
 - **Edit Copy…**: copy any blueprint, standard or custom, into the module
@@ -548,8 +552,11 @@ large as it is in the icon, a part with a model and no icon by its
 number; the item's model shows in the page and follows each
 change, beside the fields in a wide window and beside the icon in a
 narrower one; an armor or a cloak is shown on a man or, with **Shown on
-› Female**, on a woman, and its inventory icon is then the one a woman's
-inventory shows), **Properties** (the item
+› Female**, on a woman, and an armor's inventory icon is then the one a
+woman's inventory shows (the game has no woman's icon of a cloak). Shown
+on is Options › General's **Show armor and cloaks on a woman**, kept
+when Moonglow closes: inventories, a store's pages, the palette's
+pictures and its Preview show armor and cloaks so too), **Properties** (the item
 properties its base item allows, with their parameters; **Search** over the list finds a property or one of its choices, a spell of Cast Spell, by every word typed), Visuals,
 Description, Comments. Moonglow recomputes the item's cost with every
 change, as the game computes it. A stack can exceed its base item's

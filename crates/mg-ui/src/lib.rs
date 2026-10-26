@@ -712,9 +712,6 @@ pub struct Moonglow {
     /// The pass in which an area view last had something in hand (a
     /// brush, a paste, a drag, a terrain tool): Escape is its then.
     pub(crate) area_tool_at: u64,
-    /// An armor's model is shown on a woman (the item's Appearance page
-    /// chooses), rather than a man.
-    pub armor_on_woman: bool,
     /// An area for the module tree to bring into view (and, if asked, to
     /// open out to what is placed in it): the area of the tab just chosen,
     /// or of its menu's Show in Module Tree.
@@ -986,7 +983,6 @@ impl Moonglow {
             picked: HashMap::new(),
             viewed: HashMap::new(),
             area_tool_at: 0,
-            armor_on_woman: false,
             tree_reveal: None,
             tree_area: None,
             tree_object: None,
@@ -1093,7 +1089,8 @@ impl Moonglow {
             talk.game = self.game.as_deref().map(GameData::codepage);
         }
         self.trace_frame(ui);
-        self.thumbnails.begin_frame(self.ws.as_ref().map(|ws| ws.revision()));
+        let female = self.settings.armor_on_woman;
+        self.thumbnails.begin_frame(self.ws.as_ref().map(|ws| ws.revision()), female);
         widgets::install_fonts(ui.ctx());
         // (Ctrl+Insert, Shift+Delete and Shift+Insert as Copy, Cut and
         // Paste: first, before anything reads the keys.)

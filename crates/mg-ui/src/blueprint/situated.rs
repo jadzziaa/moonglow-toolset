@@ -605,9 +605,9 @@ pub(super) fn pick_ordered(
     pick_list(key, name, choices, current, 220.0).ordered().show(ui)
 }
 
-/// [`pick_sized`] for a body or armor part: the mouse wheel over it, closed,
-/// steps through its choices too (a builder's ask: to see each on the
-/// model without opening the list).
+/// [`pick_ordered`], `width` wide, for a body part: the mouse wheel over
+/// it, closed, steps through its choices too (a builder's ask: to see each
+/// on the model without opening the list).
 pub(super) fn pick_part(
     ui: &mut Ui,
     key: ResKey,
@@ -630,20 +630,8 @@ pub(super) fn part_choices(numbers: &[u16], text: impl Fn(u16) -> String) -> Vec
     std::iter::once(none).chain(some.map(|&n| Choice { row: n as usize, text: text(n) })).collect()
 }
 
-/// [`pick_ordered`], `width` wide: narrower for choices that are a word
-/// or a number (a part's model and color, in their numbers' order).
-pub(super) fn pick_sized(
-    ui: &mut Ui,
-    key: ResKey,
-    name: &str,
-    choices: &[Choice],
-    current: i64,
-    width: f32,
-) -> Option<i64> {
-    pick_list(key, name, choices, current, width).ordered().show(ui)
-}
-
-fn pick_list<'a>(
+/// The list [`pick`] and the others show, to add to (a row's picture).
+pub(super) fn pick_list<'a>(
     key: ResKey,
     name: &str,
     choices: &'a [Choice],

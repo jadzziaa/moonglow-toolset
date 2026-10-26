@@ -25218,6 +25218,168 @@ fn armor_and_cloaks_are_shown_on_a_woman_when_asked() {
     assert!(!parts(true).iter().any(|m| m.starts_with("pmh0_chest")));
 }
 
+/// The pictures shown: images, and "(no picture)" where none could be
+/// drawn (a harness without a GPU makes none).
+fn pictures_shown(h: &Harness<'_, Moonglow>) -> usize {
+    h.query_all_by_role(egui::accesskit::Role::Image).count()
+        + h.query_all_by_label("(no picture)").count()
+}
+
+/// The pointer resting on the first list whose value `value` accepts:
+/// how many more pictures that shows (the pointer moved off it first),
+/// and how many more were made.
+fn picture_on_hover(h: &mut Harness<'_, Moonglow>, value: &dyn Fn(&str) -> bool) -> (usize, usize) {
+    h.hover_at(egui::pos2(1.0, 1.0));
+    h.run_steps(10);
+    let (without, made) = (pictures_shown(h), h.state().thumbnails.drawn);
+    let at = h
+        .get_all_by_role(egui::accesskit::Role::ComboBox)
+        .find(|n| n.accesskit_node().value().as_deref().is_some_and(value))
+        .unwrap_or_else(|| panic!("no such list"))
+        .rect()
+        .center();
+    h.hover_at(at);
+    h.run_steps(90);
+    (pictures_shown(h) - without, (h.state().thumbnails.drawn - made) as usize)
+}
+
+/// A door's Appearance Type and Generic Appearance lists show the door's
+/// picture beside the row the pointer rests on, as a placeable's and a
+/// creature's do (GitHub issue 7): here the chosen one's, the pointer on
+/// the list's box.
+#[test]
+fn a_door_s_appearance_lists_show_its_picture() {
+    let Some((mut h, key)) = blueprint_harness("nw_door_strong", "door_pictures", ResType::UTD)
+    else {
+        return;
+    };
+    h.run();
+    let game = h.state().game.clone().unwrap();
+    let name = |table: &str, name: &str, label: &str, row: i64| {
+        let columns = mg_rules::ChoiceColumns { name: Some(name), label: Some(label) };
+        let choices = game.choices(table, columns).unwrap();
+        choices.into_iter().find(|c| c.row as i64 == row).unwrap().text
+    };
+    let door = field(&mut h, &key);
+    let generic = door.integer("GenericType_New").or(door.integer("GenericType")).unwrap();
+    let generic = name("genericdoors", "Name", "Label", generic);
+    let (shown, made) = picture_on_hover(&mut h, &|v| v == generic);
+    assert_eq!((shown, made), (1, 1), "the generic door's picture, made");
+    // (The tileset's door, none: the generic one has no model of its own.)
+    let kind = name("doortypes", "StringRefGame", "Label", 0);
+    let (shown, _) = picture_on_hover(&mut h, &|v| v == kind);
+    assert_eq!(shown, 1, "the door type's picture, or that it has none");
+}
+
+/// An item's Appearance lists show the item as it would be with the row
+/// the pointer rests on (GitHub issue 7): a simple item's model, a
+/// weapon's parts, an armor's parts; on a woman, where the page shows it
+/// on one, a picture of its own.
+#[test]
+fn an_item_s_appearance_lists_show_the_item_with_each() {
+    for (name, list) in [
+        ("nw_it_mring001", &(|v: &str| v.parse::<u32>().is_ok()) as &dyn Fn(&str) -> bool),
+        ("nw_wswls001", &|v: &str| v.starts_with("Model ")),
+        ("nw_aarcl001", &|v: &str| v.contains("(AC ")),
+    ] {
+        let Some((mut h, key)) = blueprint_harness(name, &format!("p{}", &name[3..]), ResType::UTI)
+        else {
+            return;
+        };
+        h.state_mut().blueprint_pages.insert((key, mg_edit::GffPath::root()), "Appearance");
+        h.run_steps(4);
+        // (Its icon too.)
+        let (shown, made) = picture_on_hover(&mut h, list);
+        assert_eq!((shown, made), (2, 1), "{name}: the item's picture, made");
+        if name == "nw_aarcl001" {
+            // On a woman: hers, made anew; on a man again, his, kept.
+            h.get_by_label("Female").click();
+            h.run_steps(4);
+            let (shown, made) = picture_on_hover(&mut h, list);
+            assert_eq!((shown, made), (2, 1), "the woman's picture, made");
+            h.get_by_label("Male").click();
+            h.run_steps(4);
+            let (shown, made) = picture_on_hover(&mut h, list);
+            assert_eq!((shown, made), (2, 0), "the man's, as it was made");
+        }
+    }
+}
+
+/// The palette's pictures of items are kept by the body armor is shown on
+/// (Options › General): on a woman, hers are made; on a man again, his are
+/// there, not made again.
+#[test]
+fn the_palette_s_item_pictures_are_kept_by_who_wears_them() {
+    let Some((mut h, _)) = blueprint_harness("nw_aarcl001", "gallery_gender", ResType::UTI) else {
+        return;
+    };
+    {
+        let app = h.state_mut();
+        app.settings.palette_gallery = true;
+        app.palette.kind = mg_module::palette::BlueprintKind::Item;
+        (app.palette.tiles, app.palette.custom) = (false, false);
+        app.palette.filter = "nw_aarcl001".into();
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    }
+    h.run_steps(30);
+    let drawn = |h: &Harness<'_, Moonglow>| h.state().thumbnails.drawn;
+    let his = drawn(&h);
+    assert!(his > 0, "the man's pictures");
+    h.state_mut().settings.armor_on_woman = true;
+    h.run_steps(30);
+    let hers = drawn(&h);
+    assert!(hers > his, "the woman's, made");
+    h.state_mut().settings.armor_on_woman = false;
+    h.run_steps(30);
+    assert_eq!(drawn(&h), hers, "the man's, kept");
+}
+
+/// Shown on (the item's Appearance page) is Options › General's Show armor
+/// and cloaks on a woman, kept in the settings, and the inventory icons of
+/// armor are a woman's while it is on (the game has none of a cloak's: a
+/// woman's inventory shows the man's).
+#[test]
+fn shown_on_a_woman_is_kept_and_the_icons_follow_it() {
+    let Some((mut h, key)) = blueprint_harness("nw_aarcl001", "shown_on_kept", ResType::UTI) else {
+        return;
+    };
+    h.state_mut().blueprint_pages.insert((key, mg_edit::GffPath::root()), "Appearance");
+    h.run_steps(4);
+    let game = h.state().game.clone().unwrap();
+    let read = |name: &str| {
+        Gff::read(&game.resman.get(&ResKey::parse(name, ResType::UTI).unwrap()).unwrap())
+            .unwrap()
+            .root
+    };
+    let (armor, cloak) = (read("nw_aarcl001"), read("nw_maarcl055"));
+    let names = |h: &mut Harness<'_, Moonglow>, item: &mg_gff::Struct| {
+        let ctx = h.ctx.clone();
+        let layers = h.state_mut().item_icon(&ctx, item);
+        layers.iter().map(|p| p.texture.name()).collect::<Vec<_>>()
+    };
+    let his = names(&mut h, &armor);
+    assert!(!his.is_empty() && his.iter().all(|n| n.starts_with("ipm_")), "{his:?}");
+    h.get_by_label("Female").click();
+    h.run_steps(4);
+    assert!(h.state().settings.armor_on_woman, "kept in the settings");
+    let hers = names(&mut h, &armor);
+    assert_eq!(hers.len(), his.len());
+    assert!(hers.iter().all(|n| n.starts_with("ipf_")), "{hers:?}");
+    let cloak_icon = names(&mut h, &cloak);
+    assert!(
+        !cloak_icon.is_empty() && cloak_icon.iter().all(|n| n.starts_with("icloak_m_")),
+        "{cloak_icon:?}"
+    );
+    // Options open with it, and set it back.
+    let mut draft = mg_ui::OptionsDraft::from_settings(&h.state().settings);
+    assert!(draft.armor_on_woman);
+    draft.armor_on_woman = false;
+    let settings = draft.apply(&h.state().settings);
+    h.state_mut().settings = settings;
+    h.run_steps(4);
+    assert!(names(&mut h, &armor).iter().all(|n| n.starts_with("ipm_")));
+}
+
 #[test]
 #[ignore = "a look at the grid from the area's edge, low"]
 fn look_grid_from_the_edge() {

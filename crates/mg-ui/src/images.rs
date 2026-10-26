@@ -322,13 +322,9 @@ impl Loader<'_> {
     }
 
     /// An item's inventory icon, its layers bottom first (PLT layers in
-    /// the item's colours), else the base item's `DefaultIcon`.
-    pub(crate) fn item_icon(&mut self, ctx: &egui::Context, item: &Struct) -> Vec<Picture> {
-        self.item_icon_on(ctx, item, false)
-    }
-
-    /// [`Loader::item_icon`], as a woman's inventory shows it where
-    /// `female` (a layer without a picture of hers is the man's).
+    /// the item's colours), else the base item's `DefaultIcon`; as a
+    /// woman's inventory shows it where `female` (a layer without a
+    /// picture of hers is the man's: the game has none of a cloak).
     pub(crate) fn item_icon_on(
         &mut self,
         ctx: &egui::Context,
@@ -393,9 +389,11 @@ impl Moonglow {
         self.loader()?.picture(ctx, name)
     }
 
-    /// An item's inventory icon, its layers bottom first.
+    /// An item's inventory icon, its layers bottom first: a woman's where
+    /// armor is shown on one (Options › General).
     pub fn item_icon(&mut self, ctx: &egui::Context, item: &Struct) -> Vec<Picture> {
-        self.loader().map(|mut l| l.item_icon(ctx, item)).unwrap_or_default()
+        let female = self.settings.armor_on_woman;
+        self.loader().map(|mut l| l.item_icon_on(ctx, item, female)).unwrap_or_default()
     }
 }
 
