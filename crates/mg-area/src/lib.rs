@@ -598,6 +598,7 @@ impl AreaModel {
                 .push(format!("Tile_List has {} tiles for a {width} by {height} area", list.len()));
         }
         let mut unknown = 0;
+        let mut holes = Vec::new();
         let replacements = game.table("replacetexture").ok();
         let tiles: Vec<AreaTile> = list
             .iter()
@@ -612,7 +613,11 @@ impl AreaModel {
                     if tile.is_none() {
                         unknown += 1;
                     }
-                    tile.map(|t| t.model.to_ascii_lowercase())
+                    // (A hole in the tileset: nothing, as in the game.)
+                    if tile.is_some_and(mg_set::Tile::is_hole) && !holes.contains(&id) {
+                        holes.push(id);
+                    }
+                    tile.filter(|t| !t.is_hole()).map(|t| t.model.to_ascii_lowercase())
                 });
                 let (column, row) = (index as u32 % width.max(1), index as u32 / width.max(1));
                 let tile_height = int("Tile_Height").clamp(-1024, 1024) as i32;
@@ -644,6 +649,14 @@ impl AreaModel {
             .collect();
         if unknown > 0 {
             problems.push(format!("{unknown} tiles are not in the tileset"));
+        }
+        if !holes.is_empty() {
+            holes.sort_unstable();
+            let named: Vec<String> = holes.iter().map(|t| format!("tile {t}")).collect();
+            problems.push(format!(
+                "the tileset names no model for {} (its section or Model= is missing)",
+                named.join(", ")
+            ));
         }
         let tileset_ref = are.resref("Tileset").filter(|r| !r.is_empty());
         if tileset.is_none() {

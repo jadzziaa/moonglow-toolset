@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T14:10:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T23:58:14Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -485,6 +485,33 @@ group out.
   game takes them; not run in the engine here); `mg-set`'s
   `counts_that_are_no_counts_cost_nothing`, `small_formats.rs`.
 - **Moonglow:** `crates/mg-set/src/lib.rs` (`Sections`).
+- **Wiki:** missing.
+
+### A tileset with holes is read tile by tile
+
+Old tilesets merged by hand from many can have holes: a `[TILEn]`
+section the count calls for missing, a tile without `Model=`, a
+terrain's, crosser's or rule's section missing. The game reads the
+rest. A tile without its section or a model has no walkmesh, as a tile
+whose model doesn't exist has none (`GetSurfaceMaterial` at its centre
+reads what it reads for those), and the tiles after it keep their
+numbers; a model named in capitals is the same model; missing terrain,
+crosser and rule sections change nothing the server reads. (A
+builder's tileset drew no tiles at all in Moonglow, which failed such a
+file whole.)
+
+A tileset whose lines end in a bare LF, not CRLF, is another matter:
+with one in a hak the server never gets past "Loading Module" (the same
+file with CRLF loads in a second). Every shipped tileset's lines end in
+CRLF. Moonglow keeps a file's line ends and writes new ones with CRLF.
+What lines ending each way in one file do was not measured.
+
+- **Checked:** engine (`engine_tileset_holes`: ttr01.set with holes cut
+  in it, in a hak, and with its CRLF turned to LF); `small_formats.rs`
+  (no shipped tileset has a hole or a bare LF).
+- **Moonglow:** `crates/mg-set/src/lib.rs` (`Sections::items`,
+  `Tile::is_hole`), the area's problems (`crates/mg-area/src/lib.rs`),
+  the doctor's `set-hole` and `set-line-ends`.
 - **Wiki:** missing.
 
 ### Aurora's terrain painting

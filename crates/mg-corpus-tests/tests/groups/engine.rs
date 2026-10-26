@@ -69,6 +69,8 @@ mod engine_static_placeables;
 mod engine_terrain;
 #[path = "../engine_test_start.rs"]
 mod engine_test_start;
+#[path = "../engine_tileset_holes.rs"]
+mod engine_tileset_holes;
 #[path = "../engine_tlk.rs"]
 mod engine_tlk;
 #[path = "../engine_transfer.rs"]

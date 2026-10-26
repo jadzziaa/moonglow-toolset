@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T20:11:05Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T23:58:14Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -3218,6 +3218,24 @@ contribution itself states as not done or not checked.
   the module uses, or in development). (M)
 - **The palette's arrangement:** it's generated flat, without the
   subfolders hand-made palettes have. (S)
+- **A tileset with holes** (a builder's report: a big old tileset,
+  merged by hand, drew no tiles at all) is read tile by tile, as the
+  game reads it: a tile without its section or a model draws nothing,
+  the area's problems and Verify (`set-hole`) name the holes, a bare-LF
+  file is an error (`set-line-ends`: the server never loads the
+  module), and a model that is there and can't be read is said to be,
+  with why, not "not found". Not done:
+  - The builder's own tileset (trf01, 2813 tiles) has no holes and CRLF
+    line ends, and Moonglow draws its tiles whose models the game has:
+    why it draws none of theirs is not known without their hak (its
+    models, or the module and the haks it lists). The log now says,
+    for each model left out, whether it was found and why it can't be
+    read. (S, once the hak is in hand)
+  - A file with lines ending both ways was not run in the engine; only
+    one whose every line ends in LF is called an error. (S)
+  - The tileset editor opens such a file now (it opened none before);
+    how its pages show a hole was not looked at. Painting never chooses
+    one. (S)
 
 ## The install, starting and crashes
 

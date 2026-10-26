@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-10-26
+* **Update**: A tileset with holes is read tile by tile, as the game reads it ([findings](findings.md): a tile without its section or a model has no walkmesh; a tileset whose lines end in a bare LF stops the module loading); Verify's set-hole and set-line-ends ([Build and test](manual/09-build-and-test.md), [the doctor's checks](research/notes_doctor.md)); [the deferred list](deferred.md): a builder's tileset that draws no tiles, still to be explained.
 * **Update**: Escape in a Properties window is its Cancel, as Aurora's is ([the main window](manual/02-main-window.md)): what was changed in it is set back; in a field, the first Escape leaves the field ([the deferred list](deferred.md)).
 * **Update**: [Blueprints](manual/05-blueprints.md): the Spells page's Meta-Magic list and casting levels, as Aurora's; [the main window](manual/02-main-window.md): Escape in a field leaves the field; [findings](findings.md): Aurora's Spells page and its Escape; [the deferred list](deferred.md).
 * **Update**: [Findings](findings.md): a woman's inventory icons, the base game's 182 ipf_ armor parts beside 182 ipm_, and cloaks' icons a man's alone (icloak_m_).

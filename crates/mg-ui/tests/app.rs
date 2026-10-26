@@ -31538,3 +31538,76 @@ fn escape_in_a_field_leaves_the_field_and_then_cancels_the_window() {
     assert_eq!(now, tag, "the tag set back");
     assert_eq!(field(&mut h, &key).integer("Str"), Some(was), "Strength set back");
 }
+
+/// A builder's report: a big old tileset, merged by hand from many, drew
+/// no tiles at all, though the game and Aurora draw them. A tileset
+/// whose file has holes (a `[TILEn]` section missing, a tile without
+/// `Model=`, a terrain's or a rule's section missing) failed whole; the
+/// game reads it tile by tile (`engine_tileset_holes`): a tile without
+/// its section or model is drawn as nothing, the others as ever, and the
+/// area's problems name the holes. The tileset is ttr01's file with holes
+/// cut in it, in a user folder's override.
+#[test]
+fn an_area_of_a_tileset_with_holes_draws_its_other_tiles() {
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let user = mg_testkit::scratch_dir("ui-tileset-holes-user");
+    let game = mg_rules::GameData::open(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+    let ttr01 = game.resman.get(&ResKey::parse("ttr01", ResType::SET).unwrap()).unwrap();
+    let ttr01 = String::from_utf8_lossy(&ttr01).into_owned();
+    drop(game);
+    let cut = |set: &str, name: &str| {
+        let header = format!("[{name}]\r\n");
+        let at = set.find(&header).unwrap();
+        let rest = at + header.len();
+        let end = set[rest..].find("\r\n[").map_or(set.len(), |e| rest + e + 2);
+        format!("{}{}", &set[..at], &set[end..])
+    };
+    let mut holed = cut(&ttr01, "TILE20");
+    holed = holed.replacen("Model=ttr01_k01_01\r\n", "", 1);
+    holed = holed.replacen("Model=ttr01_k02_01\r\n", "Model=TTR01_K02_01\r\n", 1);
+    for s in ["TERRAIN1", "CROSSER0", "PRIMARY RULE0"] {
+        holed = cut(&holed, s);
+    }
+    // And tile 103's model one that is there and can't be read.
+    holed = holed.replacen("Model=ttr01_k03_01\r\n", "Model=mg_unreadable\r\n", 1);
+    std::fs::create_dir_all(user.join("override")).unwrap();
+    std::fs::write(user.join("override/mghole.set"), holed).unwrap();
+    std::fs::write(user.join("override/mg_unreadable.mdl"), b"no model at all").unwrap();
+    // Tiles 20 (no section), 101 (no Model=), 102 (its model in capitals)
+    // and 103 among ttr01's grass.
+    let holes = [(5, 20), (6, 101), (9, 102), (10, 103)];
+    let prepare = |m: &mut mg_module::Module, _: &mg_rules::GameData, area: ResRef| {
+        let key = ResKey::new(area, ResType::ARE);
+        let mut are = m.gff(&key).unwrap().unwrap();
+        are.root.set("Tileset", mg_gff::Value::ResRef(b"mghole".to_vec()));
+        let tiles = are.root.list_mut("Tile_List").unwrap();
+        for (at, id) in holes {
+            tiles[at].set("Tile_ID", mg_gff::Value::Int(id));
+            tiles[at].set("Tile_Height", mg_gff::Value::Int(0));
+        }
+        m.set_gff(key, &are).unwrap();
+    };
+    let Some((mut h, area)) =
+        area_harness_with("tileset-holes", "ttr01", None, 4, Some(user), &prepare)
+    else {
+        return;
+    };
+    h.run_steps(10);
+    let dir = mg_testkit::output_dir("tileset-holes");
+    h.render().expect("render").save(dir.join("area.png")).unwrap();
+    let view = &h.state().area_views[&area];
+    let model = view.model.as_ref().unwrap();
+    let models: Vec<Option<&str>> = model.tiles.iter().map(|t| t.model.as_deref()).collect();
+    assert_eq!((models[5], models[6]), (None, None), "the holes have no model: {models:?}");
+    assert_eq!(models[9], Some("ttr01_k02_01"), "a model in capitals is the model");
+    let drawn = models.iter().filter(|m| m.is_some()).count();
+    assert_eq!(drawn, 14, "the other tiles keep their models: {models:?}");
+    // The log says why: the holes, and a model that can't be read is not
+    // one "not found".
+    let log: Vec<&str> = h.state().log.entries.iter().map(|e| e.1.as_str()).collect();
+    let log = log.join("\n");
+    assert!(!log.contains("not found"), "the tileset and the model are there:\n{log}");
+    assert!(log.contains("no model for tile 20, tile 101"), "{log}");
+    assert!(log.contains("model mg_unreadable (in "), "{log}");
+    assert!(log.contains("can't be read"), "{log}");
+}

@@ -61,6 +61,14 @@ fn shipped_tilesets_parse_and_their_models_exist() {
         };
         rules += t.primary_rules.len();
         warnings += t.warnings.len();
+        // (No holes, and every line ends in CRLF: what the doctor holds
+        // custom tilesets to.)
+        if !t.missing_sections.is_empty() || t.tiles.iter().any(|t| t.is_hole()) {
+            failures.push(format!("{name}: holes {:?}", t.missing_sections));
+        }
+        if bytes.windows(2).filter(|w| w[1] == b'\n').any(|w| w[0] != b'\r') {
+            failures.push(format!("{name}: a line ends in a bare LF"));
+        }
         for (i, tile) in t.tiles.iter().enumerate() {
             let key = ResKey::parse(&tile.model, ResType::MDL).unwrap();
             let known = KNOWN_MISSING_MODELS.iter().any(|m| m.eq_ignore_ascii_case(&tile.model));
