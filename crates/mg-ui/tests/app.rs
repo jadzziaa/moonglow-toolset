@@ -27720,6 +27720,51 @@ fn a_conversation_opened_from_the_tree_has_the_keys() {
     assert!(h.state().dialog_views[&key].selected.is_some(), "the tree's Down");
 }
 
+/// A list of choices in the conversation editor reached with Tab keeps the
+/// arrow keys, though the tree has the keys: Down chooses the next
+/// animation, and the tree's selection stays.
+#[test]
+fn a_conversation_s_list_reached_with_tab_keeps_the_arrows() {
+    use mg_module::dialog::ANIMATIONS;
+    let (mut h, key) = dialog_from_tree("ui-dialog-list-arrows", &branching_dialog());
+    let selected = |h: &Harness<'_, Moonglow>| h.state().dialog_views[&key].selected;
+    h.get_by_label("[OWNER] - Hello there.").click();
+    h.run();
+    let line = selected(&h);
+    assert!(line.is_some());
+    h.get_by_label("Other Actions").click();
+    h.run_steps(2);
+    let combo = egui::accesskit::Role::ComboBox;
+    let shows = |h: &Harness<'_, Moonglow>, v: &str| {
+        h.query_all_by_role(combo).any(|n| n.accesskit_node().value().as_deref() == Some(v))
+    };
+    let animation = |h: &Harness<'_, Moonglow>| {
+        h.get_all_by_role(combo)
+            .find(|n| n.accesskit_node().value().as_deref() == Some(ANIMATIONS[0].0))
+            .map(|n| n.is_focused())
+    };
+    assert_eq!(animation(&h), Some(false), "Play Animation, not in focus");
+    // From the page's button, Tab from widget to widget until the list's.
+    h.get_by_label("Other Actions").focus();
+    h.run_steps(2);
+    for _ in 0..20 {
+        if animation(&h) == Some(true) {
+            break;
+        }
+        h.key_press(egui::Key::Tab);
+        h.run_steps(2);
+    }
+    assert_eq!(animation(&h), Some(true), "Tab reached Play Animation");
+    h.key_press(egui::Key::ArrowDown);
+    h.run_steps(3);
+    assert!(shows(&h, ANIMATIONS[1].0), "Down chose the next animation");
+    assert_eq!(selected(&h), line, "and left the tree's selection");
+    h.key_press(egui::Key::ArrowUp);
+    h.run_steps(3);
+    assert!(shows(&h, ANIMATIONS[0].0), "and Up the first again");
+    assert_eq!(selected(&h), line);
+}
+
 /// Sacha's report: in Aurora the arrow keys go from line to line of a
 /// conversation; in Moonglow nothing happened (they were the module
 /// tree's). After a click in the tree, as Windows' tree control (Aurora's)

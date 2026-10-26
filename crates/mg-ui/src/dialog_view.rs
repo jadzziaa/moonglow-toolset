@@ -886,10 +886,17 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     }
     // The arrow keys and the others of the tree, once a click in the
     // editor or its opening has given it the keys; not while a field is
-    // typed in.
+    // typed in, nor while a list of choices has the keyboard (reached
+    // with Tab: its arrows are its own).
     let keys_here = has_keys(ui.ctx(), key);
     let typing = ui.ctx().text_edit_focused();
-    if keys_here && !typing && view.input.is_none() && !egui::Popup::is_any_open(ui.ctx()) {
+    let choosing = crate::widgets::choice_has_keys(ui.ctx());
+    if keys_here
+        && !typing
+        && !choosing
+        && view.input.is_none()
+        && !egui::Popup::is_any_open(ui.ctx())
+    {
         // Escape hands them back (to the area's view, as the module tree's
         // does), unless it took the keyboard from a field or closes a
         // window over the editor.

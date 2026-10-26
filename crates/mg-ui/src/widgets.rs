@@ -2136,6 +2136,7 @@ pub(crate) fn arrow_pick(ui: &Ui, r: &egui::Response, rows: &[i64], current: i64
     if !r.has_focus() || rows.is_empty() {
         return None;
     }
+    claim_arrows(ui, r);
     // (The arrows are the list's while it has the focus, not egui's way
     // from one widget to the next.)
     let arrows = egui::EventFilter { vertical_arrows: true, ..Default::default() };
@@ -2164,6 +2165,24 @@ pub(crate) fn arrow_pick(ui: &Ui, r: &egui::Response, rows: &[i64], current: i64
     rows.get(to as usize).copied().filter(|&row| row != current)
 }
 
+/// (Where the list of choices with the keyboard is kept: [`choice_has_keys`].)
+const CHOICE_WITH_KEYS: &str = "choice-with-keys";
+
+/// Says that the list of choices `r` has the keyboard (and so the arrow
+/// keys): a list beside it that takes them while it has no focus of its
+/// own (the conversation tree) leaves them to it.
+fn claim_arrows(ui: &Ui, r: &egui::Response) {
+    ui.data_mut(|d| d.insert_temp(egui::Id::new(CHOICE_WITH_KEYS), r.id));
+}
+
+/// Whether a list of choices (a dropdown, a list of a table's rows, the
+/// Lighting Scheme grid) has the keyboard now: the arrow keys are its, not
+/// those of a list that has the keys otherwise (the conversation tree).
+pub(crate) fn choice_has_keys(ctx: &egui::Context) -> bool {
+    let id = ctx.data(|d| d.get_temp::<egui::Id>(egui::Id::new(CHOICE_WITH_KEYS)));
+    id.is_some() && ctx.memory(|m| m.focused()) == id
+}
+
 /// The arrow keys in a grid of choices filled a column at a time, `down`
 /// to a column, `count` in all: with the choice `r` (the one at `at`) in
 /// focus (clicked, or reached with Tab), Up and Down choose the one
@@ -2182,6 +2201,7 @@ pub(crate) fn grid_arrow_pick(
     if !r.has_focus() || count == 0 {
         return None;
     }
+    claim_arrows(ui, r);
     // (Every arrow is the grid's while it has the focus.)
     let arrows =
         egui::EventFilter { vertical_arrows: true, horizontal_arrows: true, ..Default::default() };
