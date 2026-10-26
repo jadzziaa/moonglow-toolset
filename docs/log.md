@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-10-26
+* **Update**: [The main window](manual/02-main-window.md): letters typed go to the module tree while it has the keys, wherever the pointer is, as Aurora's tree takes them (a builder's request); [the deferred list](deferred.md).
 * **Update**: [The main window](manual/02-main-window.md): the module tree scrolls sideways to a name too long for its pane, and letters typed in quick succession go to the row whose name begins with them all, as in Aurora's tree and the conversation tree (a builder's report); [the deferred list](deferred.md): letters still go to the tree only with the pointer over it.
 * **Update**: Escape in a Properties window is its Cancel, as Aurora's is ([the main window](manual/02-main-window.md)): what was changed in it is set back; in a field, the first Escape leaves the field ([the deferred list](deferred.md)).
 * **Update**: [Blueprints](manual/05-blueprints.md): the Spells page's Meta-Magic list and casting levels, as Aurora's; [the main window](manual/02-main-window.md): Escape in a field leaves the field; [findings](findings.md): Aurora's Spells page and its Escape; [the deferred list](deferred.md).

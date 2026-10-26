@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T23:10:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T23:20:46Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2616,13 +2616,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     (Options › Keyboard lists it; the pane's wins until one is
     changed). (S)
   - Letters typed go by all of them in quick succession, as in the
-    conversation tree (a builder's report: each went to the next row
-    beginning with it alone). Not done: they go to the tree only with
-    the pointer over it (letters are commands elsewhere: the area
-    camera's), where Aurora's tree takes them while it has the focus,
-    the pointer anywhere (the builder asked for that: after a click in
-    the tree, a name typed); and to a group's name or a resource's
-    name as its row shows it: not to a kind or a placed object. (S)
+    conversation tree, and to the tree while it has the keys, wherever
+    the pointer is (a builder's report: each went to the next row
+    beginning with it alone, and only with the pointer over the tree).
+    Not done: they go to a group's name or a resource's name as its
+    row shows it, not to a kind or a placed object. (S)
   - F2 and Delete are for resources, not for a placed object the keys
     are at. (S)
   - Down from the tree's Filter goes to the first group, not the first

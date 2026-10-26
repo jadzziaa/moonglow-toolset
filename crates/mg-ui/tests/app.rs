@@ -31129,7 +31129,9 @@ fn typing_dialog() -> Gff {
 
 /// A builder's report: a name typed in the module tree went letter by
 /// letter, each to the next row beginning with it ("shopthing": an "s",
-/// then an "h", then an "o"...). Typed in quick succession the letters go
+/// then an "h", then an "o"...), and only with the pointer over the tree.
+/// Once the tree is clicked they go to it wherever the pointer is; typed
+/// in quick succession the letters go
 /// by all of them, as in Aurora's tree and the conversation tree; the same
 /// letter again goes to the next row beginning with it, and a pause
 /// starts over.
@@ -31158,6 +31160,10 @@ fn the_module_tree_s_letters_typed_quickly() {
         h.run();
     }
     h.get_by_label("sewer").click();
+    h.run();
+    // (Clicked, the tree has the keys wherever the pointer goes: the
+    // builder asked for that, as Aurora's tree has them.)
+    h.hover_at(egui::pos2(700.0, 400.0));
     h.run();
     let at = |h: &Harness<'_, Moonglow>| h.state().tree_cursor;
     let script = |name: &str| Some(TreeAt::Resource(ResKey::parse(name, ResType::NSS).unwrap()));
@@ -31490,7 +31496,7 @@ fn bookmarks_and_folded_lines_follow_their_lines_across_a_delete() {
 }
 
 /// A letter typed to go to a line (the conversation tree's) or a row (the
-/// module tree's, under the pointer) moved the camera of the area view
+/// module tree's, while it has the keys) moved the camera of the area view
 /// the pointer was in last too: W, A, S, D, Z, C and the keypad's digits
 /// are its keys wherever the pointer is. A tree that takes a letter has
 /// it alone; W moves the camera again once the area's view has the keys.
@@ -31535,7 +31541,7 @@ fn a_letter_typed_in_a_tree_leaves_the_area_camera() {
     let who = Some(Row { parent: Parent::Node(Kind::Entry, 0), pos: 0 });
     assert_eq!(h.state().dialog_views[&key].selected, who, "the tree's W");
     assert_eq!(target(&h), start, "not the camera's");
-    // The module tree, clicked, under the pointer: its W.
+    // The module tree, clicked, the pointer over it: its W.
     h.get_by_label_contains("Conversations").click();
     h.run_steps(2);
     let row = h.get_by_label_contains("Conversations").rect().center();
@@ -31543,7 +31549,16 @@ fn a_letter_typed_in_a_tree_leaves_the_area_camera() {
     h.run_steps(2);
     hold(&mut h, egui::Key::W, "w");
     assert_eq!(target(&h), start, "the module tree's, not the camera's");
-    // Back in the area's view: W is the camera's.
+    // The pointer over the conversation (its window over the area): the
+    // tree still has the keys, and W.
+    h.hover_at(centre);
+    h.run_steps(2);
+    hold(&mut h, egui::Key::W, "w");
+    assert_eq!(target(&h), start, "the module tree's, the pointer elsewhere");
+    // Back in the area's view (the conversation closed): W is the
+    // camera's.
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(Tab::Dialog(key)));
+    h.run_steps(3);
     h.hover_at(centre);
     h.run_steps(2);
     hold(&mut h, egui::Key::W, "w");

@@ -1231,11 +1231,12 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
     }
     let others = ws.module.len() - listed;
     ui.weak(format!("{others} other resources"));
-    // A click in the tree gives it the arrow keys (as the palette's):
-    // with the pointer over it, Up and Down go from row to row (Page Up
-    // and Down by ten, Home and End to the ends), Right opens a group and
-    // goes into it, Left goes back to the group and closes it, Enter
-    // opens the row's resource, Escape hands the keys back.
+    // A click in the tree gives it the arrow keys (as the palette's),
+    // wherever the pointer goes after until it is in an area's view: Up
+    // and Down go from row to row (Page Up and Down by ten, Home and End
+    // to the ends), Right opens a group and goes into it, Left goes back
+    // to the group and closes it, Enter opens the row's resource, Escape
+    // hands the keys back.
     if let Some(at) = clicked {
         app.tree_cursor = Some(at);
         crate::palette_view::give_keys(ui.ctx(), crate::palette_view::Keys::Tree);
@@ -1262,12 +1263,14 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
             app.tree_cursor = None;
             crate::palette_view::give_arrows(ui.ctx(), false);
         }
-        // Letters typed with the pointer over the tree (a letter is a
-        // command elsewhere: W, A, S, D, Q and E in an area's view) go to
-        // the row whose name begins with them, as in Aurora's (Windows')
-        // tree: a pause starts over.
-        let over = ui.rect_contains_pointer(ui.clip_rect());
-        if over {
+        // Letters typed while the tree has the keys, wherever the pointer
+        // is, go to the row whose name begins with them, as in Aurora's
+        // (Windows') tree: a pause starts over. (The pointer in an area's
+        // view gives the keys back to it, and its letters to the camera.)
+        // (Not while something is dragged: a blueprint dragged from the
+        // tree onto an area, whose view has Q and E to turn it.)
+        let dragging = ui.ctx().dragged_id().is_some();
+        if !dragging {
             // (Not the camera's too, held down: the area is drawn after.)
             crate::palette_view::take_letters(ui.ctx());
         }
@@ -1278,7 +1281,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
         let going_on = !typed.is_empty() && now - typed_at <= crate::dialog_view::TYPE_AHEAD;
         let letters = ui.input_mut(|i| {
             let m = i.modifiers;
-            if !over || m.ctrl || m.alt || m.command || m.mac_cmd {
+            if dragging || m.ctrl || m.alt || m.command || m.mac_cmd {
                 return Vec::new();
             }
             // What is typed, as a name has it ("Beggar's Nest: T"; a

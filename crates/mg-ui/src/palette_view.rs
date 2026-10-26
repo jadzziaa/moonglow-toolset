@@ -272,7 +272,7 @@ pub(crate) fn keys_are(ctx: &egui::Context, list: Keys) -> bool {
 }
 
 /// Says that the letters and digits typed this frame are a list's (the
-/// module tree's, under the pointer, which goes to a row by them):
+/// module tree's, while it has the keys, which goes to a row by them):
 /// [`letters_taken`].
 pub(crate) fn take_letters(ctx: &egui::Context) {
     let pass = ctx.cumulative_pass_nr();

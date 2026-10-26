@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T23:10:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T23:20:45Z }
 ---
 
 # The main window
@@ -244,15 +244,16 @@ an area out to what is placed in it, a kind of object there), then goes
 to the first row in it; Left closes a row that is open, else goes to
 the row it is in. Enter opens the row's area, script, conversation or
 blueprint, goes to a placed object in its area's view, and opens or
-closes a group or a kind. Typing a name goes to the row it begins, with
-the pointer over the tree: the letters typed in quick succession go by all
-of them (`shopt` to `ShopThing`, a space among them as in `beggar's nest:
+closes a group or a kind. Typing a name goes to the row it begins, while
+the tree has the keys, wherever the pointer is: the letters typed in
+quick succession go by all of them (`shopt` to `ShopThing`, a space among them as in `beggar's nest:
 t`), case and accents aside, and a pause of a second starts over; one
 letter, or the same letter again and again, goes to the next row that
 begins with it, as in Aurora's tree and the conversation tree. A row's
 name is a group's, or a resource's as its row shows it: an area's own
 name where areas are listed by name, else its ResRef. The area's camera
-keys among the letters (W, A, S, D…) don't move the camera meanwhile. F2 renames and Delete deletes the resource of the row
+keys among the letters (W, A, S, D…) don't move the camera meanwhile;
+with the pointer back in an area's view, they are the camera's again. F2 renames and Delete deletes the resource of the row
 under the pointer, or else of the row the keys are at (both ask first,
 as the row's menu does). Ctrl+F goes to the Filter; there, Escape
 clears what is typed, and Escape again, or Down, goes back into the
