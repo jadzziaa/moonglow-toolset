@@ -11,10 +11,14 @@
 mod cfg;
 pub(crate) mod glob;
 mod project;
+mod tlk;
 
 pub use cfg::{Package, Section, Settings, Target, sections};
 pub(crate) use project::scan;
 pub use project::{Outside, Project, Resources, SaveReport};
+pub use tlk::{
+    TalkTable, in_language, pack_talk_table, read_talk_table, talk_tables, write_talk_table,
+};
 
 use mg_core::{Codepage, ResType};
 use mg_gff::{Gff, TextStyle, from_json, to_json, to_json_text};

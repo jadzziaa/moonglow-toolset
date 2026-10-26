@@ -152,6 +152,14 @@ pub(crate) fn prepare(
     let target = dir.join("modules").join(format!("{name}.mod"));
     let mut m = Module::open(module).with_context(|| module.display().to_string())?;
     let (haks, tlk) = (m.haks()?, m.custom_tlk()?);
+    // A talk table the project keeps as JSON, made into the table as
+    // nasher packs it (the game's language's, where it keeps one a
+    // language): the server finds no other.
+    let language = mg_core::Language::from_short_code(&gi.language);
+    let own_tlk = match (&tlk, m.project.as_deref()) {
+        (Some(name), Some(p)) => mg_module::nasher::in_language(p.talk_tables(name)?, language),
+        _ => None,
+    };
     if matches!(m.location, Some(ModuleLocation::Archive(_))) {
         if !same(module, &target) {
             std::fs::copy(module, &target).with_context(|| target.display().to_string())?;
@@ -198,6 +206,16 @@ pub(crate) fn prepare(
     if let Some(tlk) = tlk {
         let file = format!("{tlk}.tlk");
         let to = dir.join("tlk").join(&file);
+        if let Some(own) = own_tlk {
+            let bytes = own.tlk.to_bytes_as_nwn_tlk()?;
+            if !std::fs::read(&to).is_ok_and(|had| had == bytes) {
+                // (Not through a link to the player's own folder.)
+                let _ = std::fs::remove_file(&to);
+                std::fs::write(&to, bytes).with_context(|| to.display().to_string())?;
+            }
+            notes.push(format!("talk table {tlk} made from {}", own.path.display()));
+            return Ok((name, notes));
+        }
         match gi.tlk_dirs().iter().map(|d| d.join(&file)).find(|p| p.is_file()) {
             Some(from) if !same(&from, &to) => place(&from, &to)?,
             Some(_) => {}

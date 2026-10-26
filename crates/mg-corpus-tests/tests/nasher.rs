@@ -266,6 +266,74 @@ fn edit_project(nasher: &Path, module: &Path, scratch: &Path) -> Vec<String> {
     problems
 }
 
+/// A talk table kept in a project, as `nasher unpack` of a tlk target keeps
+/// one (the game's dialog.tlk, under a custom table's name): read by
+/// Moonglow as the module's table and untouched, the file nasher wrote; a
+/// line edited and saved, what nasher packs of it is the table Moonglow
+/// packs, byte for byte, with the line changed.
+#[test]
+fn a_talk_table_kept_as_nasher_keeps_it() {
+    use mg_module::talk::{Line, Source, Table, find_for};
+    let root = corpus!();
+    let nasher = oracle_tool!("nasher");
+    let tool = |n: &str| nwn_tool(n).unwrap().display().to_string();
+    let _ = oracle_tool!("nwn_tlk");
+    let dir = scratch_dir("nasher-tlk");
+    let project = dir.join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::write(
+        project.join("nasher.cfg"),
+        "[package]\n  [package.rules]\n  \"*.tlk\" = \"src/tlk\"\n  \"*\" = \"src\"\n\n\
+         [target]\nname = \"default\"\nfile = \"m.mod\"\n  [target.sources]\n  \
+         include = \"src/**/*.{nss,json}\"\n  exclude = \"**/*.tlk.json\"\n\n\
+         [target]\nname = \"tlk\"\nfile = \"mytlk.tlk\"\n  [target.sources]\n  \
+         include = \"src/tlk/mytlk.tlk.json\"\n",
+    )
+    .unwrap();
+    let table = dir.join("mytlk.tlk");
+    std::fs::copy(root.join("lang/en/data/dialog.tlk"), &table).unwrap();
+    let run = |args: Vec<String>| {
+        let out = Command::new(&nasher)
+            .current_dir(&project)
+            .env("NWN_HOME", project.join("home"))
+            .args(args)
+            .args(["--yes".to_string(), format!("--tlkUtil:{}", tool("nwn_tlk"))])
+            .args([
+                format!("--gffUtil:{}", tool("nwn_gff")),
+                format!("--erfUtil:{}", tool("nwn_erf")),
+            ])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "nasher: {}", String::from_utf8_lossy(&out.stdout));
+    };
+    run(vec!["unpack".into(), "tlk".into(), format!("--file:{}", table.display())]);
+    let json = project.join("src/tlk/mytlk.tlk.json");
+    let unpacked = std::fs::read(&json).unwrap();
+    let m = mg_module::Module::open_project(&project, None).unwrap();
+    let rm = mg_resman::ResMan::new();
+    let found = find_for(&m, &rm, &[], "mytlk", None).unwrap().expect("the project's table");
+    assert!(matches!(&found.source, Source::Json { path, .. } if *path == json));
+    let mut t = Table::open("mytlk", found, None).unwrap();
+    t.set_line(1, &Line { text: "Changed".into(), ..t.line(1) }, None).unwrap();
+    t.undo();
+    t.save().unwrap();
+    assert!(std::fs::read(&json).unwrap() == unpacked, "untouched, the file nasher wrote");
+    t.redo();
+    t.save().unwrap();
+    run(vec!["pack".into(), "tlk".into()]);
+    let theirs = std::fs::read(project.join("mytlk.tlk")).unwrap();
+    let package = mg_module::nasher::Package::read(&project).unwrap();
+    let (_, ours) =
+        mg_module::nasher::pack_talk_table(&project, package.target("tlk").unwrap()).unwrap();
+    assert!(ours == theirs, "the table packed differs from nasher's");
+    let packed = mg_tlk::Tlk::read(&theirs).unwrap();
+    assert_eq!(packed.entries[1].text, b"Changed");
+    assert_eq!(
+        packed.entries.len(),
+        mg_tlk::Tlk::read(&std::fs::read(&table).unwrap()).unwrap().entries.len()
+    );
+}
+
 #[test]
 fn projects_save_what_nasher_unpacks() {
     let root = corpus!();

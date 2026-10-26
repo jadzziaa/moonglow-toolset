@@ -3,7 +3,10 @@
 //! (`tests/engine_tlk.rs`; the wiki says haks don't count, but they do), and
 //! looks up the feminine table, `<name>f`, the same way on its own. A file in
 //! the folder must match the name's case on Linux. A name the game can't
-//! find stops the module from loading.
+//! find stops the module from loading. A module kept in a nasher project
+//! may keep its table there too, as JSON ([`crate::nasher::talk_tables`]):
+//! it is the module's, before the `tlk/` folder's (where `nasher install`
+//! puts what it makes of it).
 //!
 //! [`Table`] is a talk table open in the editor, with undo.
 
@@ -11,6 +14,7 @@ use std::path::{Path, PathBuf};
 
 use mg_core::{Language, ResType, StrRef};
 use mg_resman::{ResKey, ResMan};
+use mg_tlk::json::JsonStyle;
 use mg_tlk::{FLAG_SOUND, FLAG_SOUND_LENGTH, FLAG_TEXT, Tlk, TlkEntry};
 
 /// Where a talk table was found.
@@ -20,13 +24,16 @@ pub enum Source {
     Layer(String),
     /// A file in a `tlk/` folder.
     File(PathBuf),
+    /// A nasher project's JSON file (`<name>.tlk.json`), written back as
+    /// `nwn_tlk` writes it.
+    Json { path: PathBuf, style: JsonStyle },
 }
 
 impl Source {
     /// The file, when the table is one (and so can be edited in place).
     pub fn file(&self) -> Option<&Path> {
         match self {
-            Source::File(p) => Some(p),
+            Source::File(p) | Source::Json { path: p, .. } => Some(p),
             Source::Layer(_) => None,
         }
     }
@@ -36,16 +43,38 @@ impl std::fmt::Display for Source {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Source::Layer(l) => f.write_str(l),
-            Source::File(p) => write!(f, "{}", p.display()),
+            Source::File(p) | Source::Json { path: p, .. } => write!(f, "{}", p.display()),
         }
     }
 }
 
-/// A talk table found where the game looks, still unparsed.
+/// A talk table found where the game looks, still unparsed: a `.tlk`
+/// file's bytes, or a project's JSON ([`Source::Json`]).
 #[derive(Debug, Clone)]
 pub struct Found {
     pub source: Source,
     pub data: Vec<u8>,
+}
+
+impl Found {
+    /// The table.
+    pub fn tlk(&self) -> Result<Tlk, String> {
+        match &self.source {
+            Source::Json { style, .. } => mg_tlk::json::from_json(&self.data, style.codepage),
+            _ => Tlk::read(&self.data).map_err(|e| e.to_string()),
+        }
+        .map_err(|e| format!("{}: {e}", self.source))
+    }
+
+    /// The table as the game reads it (a `.tlk` file's bytes).
+    pub fn tlk_bytes(&self) -> Result<Vec<u8>, String> {
+        match &self.source {
+            Source::Json { .. } => {
+                self.tlk()?.to_bytes_as_nwn_tlk().map_err(|e| format!("{}: {e}", self.source))
+            }
+            _ => Ok(self.data.clone()),
+        }
+    }
 }
 
 /// The feminine table's name for a table.
@@ -72,6 +101,44 @@ pub fn find(rm: &ResMan, tlk_dirs: &[PathBuf], name: &str) -> Option<Found> {
         let data = std::fs::read(&path).ok()?;
         Some(Found { source: Source::File(path), data })
     })
+}
+
+/// Finds the module's talk table `name` as [`find`] does, the table its
+/// nasher project keeps as JSON (in `language`, the game's, where it keeps
+/// one a language) after the haks and the module, before the `tlk/`
+/// folders. A project's table that can't be read is an error.
+pub fn find_for(
+    module: &crate::Module,
+    rm: &ResMan,
+    tlk_dirs: &[PathBuf],
+    name: &str,
+    language: Option<Language>,
+) -> Result<Option<Found>, String> {
+    if let Some(found) = find(rm, &[], name) {
+        return Ok(Some(found));
+    }
+    if let Some(project) = module.project.as_deref() {
+        let tables = project.talk_tables(name.trim()).map_err(|e| e.to_string())?;
+        if let Some(t) = crate::nasher::in_language(tables, language) {
+            return Ok(Some(Found {
+                source: Source::Json { path: t.path, style: t.style },
+                data: t.file,
+            }));
+        }
+    }
+    Ok(find(rm, tlk_dirs, name))
+}
+
+/// [`find_for`] for those that ask only whether there is one: an error is
+/// taken as none.
+pub fn find_any(
+    module: &crate::Module,
+    rm: &ResMan,
+    tlk_dirs: &[PathBuf],
+    name: &str,
+    language: Option<Language>,
+) -> Option<Found> {
+    find_for(module, rm, tlk_dirs, name, language).ok().flatten()
 }
 
 /// Why the game can't find a table of this name, beyond its not being
@@ -141,7 +208,7 @@ pub const CUSTOM: u32 = StrRef::CUSTOM_FLAG;
 impl Table {
     /// Opens a table found where the game looks.
     pub fn open(name: &str, found: Found, feminine: Option<Found>) -> Result<Table, String> {
-        let read = |f: &Found| Tlk::read(&f.data).map_err(|e| format!("{}: {e}", f.source));
+        let read = |f: &Found| f.tlk();
         let tlk = read(&found)?;
         let feminine = match feminine {
             Some(f) => Some((f.source.clone(), read(&f)?)),
@@ -175,8 +242,12 @@ impl Table {
         }
     }
 
-    /// The codepage of the table's text.
+    /// The codepage of the table's text: a project's JSON's is the one
+    /// `nwn_tlk` converts it in.
     fn codepage(&self) -> mg_core::Codepage {
+        if let Source::Json { style, .. } = &self.source {
+            return style.codepage;
+        }
         let language = self.tlk.language;
         self.game.map_or(language.codepage(), |g| g.for_language(language))
     }
@@ -478,33 +549,14 @@ impl Table {
         self.import(lines)
     }
 
-    /// The table as JSON, as neverwinter.nim's `nwn_tlk` writes one (and
-    /// nasher keeps one in a repository): its language and the lines that
-    /// have text or a sound, each with its `id` (the line's number in the
-    /// table, from 0). The feminine table is a file of its own there and
-    /// is left out.
-    pub fn to_json(&self) -> String {
-        let entries: Vec<serde_json::Value> = (0..self.len())
-            .map(|row| (row, self.line(row)))
-            .filter(|(_, l)| !l.text.is_empty() || !l.sound.is_empty())
-            .map(|(row, l)| {
-                let mut e = serde_json::Map::new();
-                e.insert("id".into(), row.into());
-                e.insert("text".into(), l.text.into());
-                if !l.sound.is_empty() {
-                    e.insert("sound".into(), l.sound.into());
-                }
-                if l.sound_length != 0.0 {
-                    // (`soundLen`, as nwn_tlk has it: `tlk_io.rs` in `apps/mg`.)
-                    e.insert("soundLen".into(), l.sound_length.into());
-                }
-                serde_json::Value::Object(e)
-            })
-            .collect();
-        let table = serde_json::json!({ "language": self.tlk.language.0, "entries": entries });
-        let mut out = serde_json::to_string_pretty(&table).expect("JSON");
-        out.push('\n');
-        out
+    /// The table as JSON, as neverwinter.nim's `nwn_tlk --pretty` writes
+    /// one (and nasher keeps one in a repository, without `--pretty`): its
+    /// language and the lines that have text or a sound, each with its
+    /// `id` (the line's number in the table, from 0). The feminine table
+    /// is a file of its own there and is left out.
+    pub fn to_json(&self) -> Vec<u8> {
+        let style = JsonStyle { codepage: self.codepage(), pretty: true };
+        mg_tlk::json::to_json(&self.tlk, style)
     }
 
     /// Reads lines from JSON as [`to_json`](Self::to_json) writes it. An
@@ -619,9 +671,14 @@ impl Table {
             .collect()
     }
 
-    /// Writes the table (and the feminine table) to their files.
+    /// Writes the table (and the feminine table) to their files: a
+    /// project's JSON as `nwn_tlk` writes it (and not at all where it has
+    /// that already).
     pub fn save(&mut self) -> Result<(), String> {
         let write = |source: &Source, tlk: &Tlk| -> Result<(), String> {
+            if let Source::Json { path, style } = source {
+                return crate::nasher::write_talk_table(path, tlk, *style).map(|_| ());
+            }
             let path = source.file().ok_or_else(|| format!("{source} is read-only here"))?;
             let data = tlk.to_bytes().map_err(|e| e.to_string())?;
             if let Some(dir) = path.parent() {
@@ -704,7 +761,7 @@ mod tests {
         t.add_line(&line("Bad Strref", "")).unwrap();
         t.add_line(&line("", "")).unwrap();
         t.add_line(&line("Hello \"there\"", "vs_hello")).unwrap();
-        let json = t.to_json();
+        let json = String::from_utf8(t.to_json()).unwrap();
         let read: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(read["language"], 0);
         let entries = read["entries"].as_array().unwrap();
@@ -721,6 +778,72 @@ mod tests {
         assert_eq!((t.len(), t.line(1).text), (3, String::new()), "one undo");
         assert!(t.import_json("{}").is_err());
         assert!(t.import_json(r#"{"entries":[{"text":"no id"}]}"#).is_err());
+    }
+
+    /// A nasher project's table kept as JSON (`nasher unpack` of a tlk
+    /// target writes it so): the module's, before the tlk folder's, edited
+    /// and written back as nwn_tlk writes it; untouched, the file it was.
+    #[test]
+    fn a_projects_table_kept_as_json() {
+        use crate::{Module, ModuleLocation};
+        let root = mg_testkit::scratch_dir("talk-project");
+        let mut m = Module::new();
+        m.save_as(&ModuleLocation::Project { root: root.clone(), target: "default".into() })
+            .unwrap();
+        let mut cfg = std::fs::read_to_string(root.join("nasher.cfg")).unwrap();
+        cfg.push_str(
+            "\n[target]\nname = \"tlk\"\nfile = \"mytlk.tlk\"\n  [target.sources]\n  \
+             include = \"src/tlk/*.json\"\n",
+        );
+        std::fs::write(root.join("nasher.cfg"), cfg).unwrap();
+        std::fs::create_dir_all(root.join("src/tlk")).unwrap();
+        // (As nwn_tlk wrote it of a table.)
+        let file = "{\"language\":0,\"entries\":[{\"id\":0,\"text\":\"Fenwick's Ferry\"},\
+            {\"id\":2,\"text\":\"A line\\nwith \\\"quotes\\\" and é\",\"sound\":\"vo_line\",\
+            \"soundLen\":1.5},{\"id\":5,\"text\":\"\",\"sound\":\"x\"}]}";
+        let json = root.join("src/tlk/mytlk.tlk.json");
+        std::fs::write(&json, file).unwrap();
+        let folder = root.join("tlk-folder");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("mytlk.tlk"), Tlk::new(Language::ENGLISH).to_bytes().unwrap())
+            .unwrap();
+        let m = Module::open_project(&root, None).unwrap();
+        let p = m.project.as_deref().unwrap();
+        assert!(p.warnings.iter().all(|w| !w.contains("tlk")), "{:?}", p.warnings);
+        let rm = ResMan::new();
+        let dirs = [folder.clone()];
+        let found = find_for(&m, &rm, &dirs, "mytlk", None).unwrap().unwrap();
+        assert!(matches!(&found.source, Source::Json { path, .. } if *path == json));
+        assert_eq!(found.tlk_bytes().unwrap(), found.tlk().unwrap().to_bytes_as_nwn_tlk().unwrap());
+        let feminine = find_for(&m, &rm, &dirs, &feminine("mytlk"), None).unwrap();
+        assert!(feminine.is_none());
+        let mut t = Table::open("mytlk", found, None).unwrap();
+        assert!(t.editable());
+        assert_eq!((t.len(), t.line(2).text.as_str()), (6, "A line\nwith \"quotes\" and é"));
+        // Edited and saved: as nwn_tlk writes it, the other lines as they were.
+        t.set_line(0, &line("Fenwick's Landing"), None).unwrap();
+        t.save().unwrap();
+        let written = std::fs::read_to_string(&json).unwrap();
+        assert_eq!(written, file.replace("Fenwick's Ferry", "Fenwick's Landing"));
+        // Taken back: the file it was, byte for byte.
+        t.undo();
+        t.save().unwrap();
+        assert_eq!(std::fs::read_to_string(&json).unwrap(), file);
+        // A hak's table comes first, as the game finds it; with no project
+        // table, the folder's.
+        let key = ResKey::parse("mytlk", ResType::TLK).unwrap();
+        let mut rm = ResMan::new();
+        let mut hak = MemContainer::new();
+        hak.insert(key, Tlk::new(Language::ENGLISH).to_bytes().unwrap());
+        rm.add(priority::HAK_USER, "my.hak", LayerClass::Erf, hak);
+        let found = find_for(&m, &rm, &dirs, "mytlk", None).unwrap().unwrap();
+        assert_eq!(found.source, Source::Layer("my.hak".into()));
+        let found = find_for(&Module::new(), &ResMan::new(), &dirs, "mytlk", None).unwrap();
+        assert_eq!(found.unwrap().source, Source::File(folder.join("mytlk.tlk")));
+        // One that can't be read is said, not passed over.
+        std::fs::write(&json, "{\"entries\":[]}").unwrap();
+        let e = find_for(&m, &ResMan::new(), &dirs, "mytlk", None).unwrap_err();
+        assert!(e.contains("mytlk.tlk.json") && e.contains("language"), "{e}");
     }
 
     #[test]

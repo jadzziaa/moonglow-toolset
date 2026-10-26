@@ -2482,14 +2482,16 @@ impl Moonglow {
             return;
         };
         let dirs = self.install.as_ref().map(|i| i.tlk_dirs()).unwrap_or_default();
-        let found = mg_module::talk::find(&game.resman, &dirs, &name);
-        let stamp = found.as_ref().and_then(|f| f.source.file()).and_then(|path| {
+        // (A nasher project's own, kept as JSON, before the tlk folder's.)
+        let found =
+            mg_module::talk::find_for(&ws.module, &game.resman, &dirs, &name, Some(game.language));
+        let file = found.as_ref().ok().and_then(Option::as_ref).and_then(|f| f.source.file());
+        let stamp = file.and_then(|path| {
             let t = std::fs::metadata(path).and_then(|m| m.modified()).ok()?;
             Some((path.to_path_buf(), t))
         });
-        let data = found.map(|f| f.data);
         self.tlk_stamp = stamp;
-        match data.map(|d| mg_tlk::Tlk::read(&d)) {
+        match found.map(|f| f.map(|f| f.tlk())).unwrap_or_else(|e| Some(Err(e))) {
             Some(Ok(tlk)) => {
                 game.set_custom_tlk(Some(tlk));
                 self.log.info(format!("Custom talk table {name} loaded"));

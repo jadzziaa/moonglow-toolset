@@ -119,11 +119,18 @@ pub fn module_contents(
         }
     }
     if let Some(name) = m.custom_tlk().map_err(|e| e.to_string())?
-        && let Some(found) = crate::talk::find(resman, &install.tlk_dirs(), &name)
+        && let Some(found) = crate::talk::find_for(
+            m,
+            resman,
+            &install.tlk_dirs(),
+            &name,
+            mg_core::Language::from_short_code(&install.language),
+        )?
         && let Some(key) = ResKey::parse(&name, ResType::TLK)
     {
-        // A table in a hak is among the hak's resources already.
-        out.push((key, Source::Bytes(found.data.into())));
+        // A table in a hak is among the hak's resources already; a
+        // project's JSON goes as the game reads it.
+        out.push((key, Source::Bytes(found.tlk_bytes()?.into())));
     }
     if with_module {
         for key in m.keys().copied() {

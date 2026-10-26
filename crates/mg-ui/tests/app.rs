@@ -2074,6 +2074,85 @@ fn a_talk_table_that_cannot_be_read_is_tried_once() {
     assert_eq!(said.len(), 1, "{said:?}");
 }
 
+/// A nasher project that keeps its talk table as JSON (a tlk target of its
+/// own, in two languages): opened, the table is the project's (not the tlk
+/// folder's copy), edited, and saved with the module as nwn_tlk writes it;
+/// the other language is chosen in the editor.
+#[test]
+fn a_projects_talk_table_kept_as_json_is_edited_there() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-talk-project");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("tlk")).unwrap();
+    let mut m = mg_module::Module::open(&sample_module(&dir)).unwrap();
+    let mut info = m.info().unwrap();
+    info.root.set("Mod_CustomTlk", mg_gff::Value::String(b"mg_proj".to_vec()));
+    m.set_info(&info).unwrap();
+    let project = dir.join("project");
+    m.save_as(&ModuleLocation::Project { root: project.clone(), target: "default".into() })
+        .unwrap();
+    let mut cfg = std::fs::read_to_string(project.join("nasher.cfg")).unwrap();
+    cfg.push_str(
+        "\n[target]\nname = \"tlk\"\nfile = \"mg_proj.tlk\"\n  [target.sources]\n  \
+         include = \"src/tlk/*.json\"\n\n[target]\nname = \"tlk_de\"\nfile = \"de/mg_proj.tlk\"\n  \
+         [target.sources]\n  include = \"src/tlk/de/*.json\"\n",
+    );
+    std::fs::write(project.join("nasher.cfg"), cfg).unwrap();
+    std::fs::create_dir_all(project.join("src/tlk/de")).unwrap();
+    let en =
+        r#"{"language":0,"entries":[{"id":0,"text":"Hello"},{"id":2,"text":"","sound":"vs_x"}]}"#;
+    let json = project.join("src/tlk/mg_proj.tlk.json");
+    std::fs::write(&json, en).unwrap();
+    let de = project.join("src/tlk/de/mg_proj.tlk.json");
+    std::fs::write(&de, r#"{"language":2,"entries":[{"id":0,"text":"Hallo"}]}"#).unwrap();
+    // (What `nasher install` put in the tlk folder once: not the one read.)
+    let mut stale = mg_tlk::Tlk::new(Language::ENGLISH);
+    stale.entries.push(mg_tlk::TlkEntry::text("Stale"));
+    std::fs::write(user.join("tlk/mg_proj.tlk"), stale.to_bytes().unwrap()).unwrap();
+    let install = mg_resman::GameInstall::new(&root, Some(user), "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&project);
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
+    h.run();
+    h.run();
+    let t = h.state().talk.as_ref().expect("the project's table is open");
+    assert!(matches!(&t.source, mg_module::talk::Source::Json { path, .. } if *path == json));
+    assert!(t.editable());
+    assert_eq!((t.len(), t.line(0).text.as_str()), (3, "Hello"));
+    let game = h.state().game.as_deref().unwrap();
+    assert_eq!(game.string(mg_core::StrRef(16_777_216)).as_deref(), Some("Hello"));
+    // A line added and typed, saved with the module: the JSON as nwn_tlk
+    // writes it, the lines there kept as they were.
+    h.get_by_label("Add Line").click();
+    h.run();
+    type_into_hint(&mut h, "the line's text", "Greetings");
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    assert!(!h.state().talk.as_ref().unwrap().is_dirty());
+    let written = std::fs::read_to_string(&json).unwrap();
+    assert_eq!(written, en.replace("]}", ",{\"id\":3,\"text\":\"Greetings\"}]}"));
+    let game = h.state().game.as_deref().unwrap();
+    assert_eq!(game.string(mg_core::StrRef(16_777_219)).as_deref(), Some("Greetings"));
+    // The table's German, its file of its own.
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    (h.query_all(combo))
+        .find(|n| n.accesskit_node().value().is_some_and(|v| v == "English"))
+        .expect("the table's languages")
+        .click();
+    h.run();
+    h.get_by_label("German").click();
+    h.run();
+    h.run();
+    let t = h.state().talk.as_ref().unwrap();
+    assert!(matches!(&t.source, mg_module::talk::Source::Json { path, .. } if *path == de));
+    assert_eq!((t.len(), t.line(0).text.as_str()), (1, "Hallo"));
+}
+
 #[test]
 fn talk_table_made_edited_saved_and_used_by_strings() {
     let root = mg_testkit::corpus!();

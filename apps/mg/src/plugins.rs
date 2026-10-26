@@ -57,9 +57,11 @@ fn layered(mut game: GameData, gi: &GameInstall, m: &Module, out: &mut Output) -
     if let Some(e) = wrong {
         out.note(format!("warning: the module's haks: {e}"));
     }
+    let language = Some(game.language);
     if let Some(name) = m.custom_tlk().ok().flatten()
-        && let Some(found) = mg_module::talk::find(&game.resman, &gi.tlk_dirs(), &name)
-        && let Ok(tlk) = mg_tlk::Tlk::read(&found.data)
+        && let Some(found) =
+            mg_module::talk::find_any(m, &game.resman, &gi.tlk_dirs(), &name, language)
+        && let Ok(tlk) = found.tlk()
     {
         game.set_custom_tlk(Some(tlk));
     }

@@ -58,3 +58,45 @@ fn init_then_build_gives_the_module_back() {
     assert!(count(&with, ResType::NDB) > 10);
     assert_eq!(count(&with, ResType::NDB), count(&with, ResType::NCS));
 }
+
+/// `mg build --target` of a target that packs a talk table: the table made
+/// of its `<name>.tlk.json` as nasher has nwn_tlk make it, byte for byte.
+#[test]
+fn a_talk_tables_target_builds_as_nasher_builds_it() {
+    let project = mg_testkit::scratch_dir("mg-nasher-tlk");
+    std::fs::create_dir_all(project.join("src/tlk")).unwrap();
+    std::fs::write(
+        project.join("nasher.cfg"),
+        "[package]\n  [package.rules]\n  \"*\" = \"src\"\n\n[target]\nname = \"default\"\n\
+         file = \"m.mod\"\n  [target.sources]\n  include = \"src/**/*.{nss,json}\"\n  \
+         exclude = \"**/*.tlk.json\"\n\n[target]\nname = \"tlk\"\nfile = \"tlk/mytlk.tlk\"\n  \
+         [target.sources]\n  include = \"src/tlk/*.json\"\n",
+    )
+    .unwrap();
+    let json = project.join("src/tlk/mytlk.tlk.json");
+    std::fs::write(
+        &json,
+        r#"{"language":0,"entries":[{"id":0,"text":"Señor"},{"id":3,"text":"","sound":"vs_x"},{"id":4,"text":"a","soundLen":1.25}]}"#,
+    )
+    .unwrap();
+    let p = project.to_str().unwrap();
+    let out = crate::mg().args(["--json", "build", p, "--target", "tlk"]).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let said: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(said["lines"], 5, "{said}");
+    let ours = std::fs::read(project.join("tlk/mytlk.tlk")).unwrap();
+    // As nwn_tlk makes it (nasher packs what it makes).
+    let tool = mg_testkit::oracle_tool!("nwn_tlk");
+    let theirs = project.join("theirs.tlk");
+    let made = std::process::Command::new(tool)
+        .args(["-i", json.to_str().unwrap(), "-o", theirs.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(made.status.success(), "{}", String::from_utf8_lossy(&made.stderr));
+    assert_eq!(ours, std::fs::read(&theirs).unwrap());
+    // A target with no table of its name among its sources says so.
+    std::fs::rename(&json, project.join("src/tlk/other.tlk.json")).unwrap();
+    let out = crate::mg().args(["build", p, "--target", "tlk"]).output().unwrap();
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("no mytlk.tlk.json"));
+}
