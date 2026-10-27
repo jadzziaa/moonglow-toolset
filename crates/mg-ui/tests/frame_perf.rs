@@ -880,6 +880,12 @@ fn frames_at_144_in_a_persistent_world() {
     h.run_steps(3);
     view(&mut h, &mut r, "store inventory with 1,000 items", Some(&store));
     close(&mut h, &store);
+    // The same store in the Preview window (its stock by page).
+    h.state_mut().palette.selected = ResKey::parse("pw_store", ResType::UTM);
+    h.state_mut().preview_window = true;
+    h.run_steps(3);
+    view(&mut h, &mut r, "Preview window, a store of 1,000 items", None);
+    h.state_mut().preview_window = false;
     tab(&mut h, &mut r, "resource browser (300,000)", Tab::Resources);
     let areas = h.state().ws.as_ref().unwrap().module.areas().unwrap();
     tab(&mut h, &mut r, "Area Properties (300 areas)", Tab::AreaProperties(areas[0]));

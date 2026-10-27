@@ -488,7 +488,15 @@ fn store_stock(app: &mut Moonglow, ui: &mut Ui, store: &mg_gff::Struct) {
         let Some(items) = items.filter(|l| !l.is_empty()) else { continue };
         ui.add_space(8.0);
         ui.strong(format!("{page} ({})", items.len()));
+        // (Only the rows in sight read their item: a store of hundreds
+        // read every blueprint each frame. The others take a row's room.)
+        let row = crate::images::ICON_MAX.y + ui.spacing().item_spacing.y;
         for entry in items {
+            let room = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(1.0, row));
+            if !ui.is_rect_visible(room) {
+                ui.add_space(row);
+                continue;
+            }
             let resref = entry.resref("InventoryRes").unwrap_or(ResRef::EMPTY);
             // A whole item (placed stores hold them) or its blueprint.
             let item = match entry.integer("BaseItem") {
