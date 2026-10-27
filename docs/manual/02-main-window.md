@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T23:20:45Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T04:47:34Z }
 ---
 
 # The main window
@@ -20,7 +20,7 @@ close it, **Palettes** on the toolbar brings it back.
 | Menu | Commands |
 | --- | --- |
 | File | New Module…, Open Module…, Open Folder…, Recent Modules, Save, Save As…, Save As nasher Project…, Project ([the project's commands](03-modules.md#the-projects-commands): its update and submit), Import…, Export…, Import Conversation…, Close, Exit |
-| Edit | Undo, Redo (each names what it undoes), Module Properties, Builder Code… ([your code](03-modules.md#your-builder-code), for a module folder or a nasher project), Resize Area…, Rotate Area…, Find Instance…, Prefabs, Edit Areas Together…, Find and Replace Text…, Find References…, Advanced Search…, Convert Indentation to Tabs, Convert Indentation to Spaces (the script in front: see [Scripts](07-scripts.md)) |
+| Edit | Undo, Redo (each names the module's step it takes; with the keyboard in a script's editor they are the script's own and say plain Undo and Redo: see [Scripts](07-scripts.md)), Module Properties, Builder Code… ([your code](03-modules.md#your-builder-code), for a module folder or a nasher project), Resize Area…, Rotate Area…, Find Instance…, Prefabs, Edit Areas Together…, Find and Replace Text…, Find References…, Advanced Search…, Convert Indentation to Tabs, Convert Indentation to Spaces (the script in front: see [Scripts](07-scripts.md)) |
 | View | Module Tree, Palettes Panel, Log (each ticked while shown), Clear Log, Hide All Panels, Reset Layout |
 | Wizards | Area Wizard…, Creature Wizard…, and a wizard for each other blueprint type (Door, Encounter, Item, Placeable, Sound, Store, Trigger, Waypoint) |
 | Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, 2DA File…, New Script…, Palettes, Appearance Gallery…, Resource Browser, Tilesets (New Tileset…, Open Tileset…), Haks (New Hak, Open Hak…, Build Hak from Folder…), Reload Resources, Options… |
@@ -368,7 +368,10 @@ The editors of files of their own (a hak, a 2DA, a tileset, the talk
 table) keep their own steps: Undo and Redo, by their keys (Ctrl+Z,
 Ctrl+Y and Ctrl+Shift+Z, or those set in Options › Keyboard), are that
 editor's with the pointer over it (and a 2DA's while the keys are in
-its grid), and never the module's last change there.
+its grid), and never the module's last change there. A script's editor
+keeps its own steps of its text: while it has the keyboard, Ctrl+Z and
+Ctrl+Y, Edit › Undo and Redo and the toolbar's are all the script's
+(see [Scripts](07-scripts.md)).
 
 **Colors.** A color's swatch (an area's lighting, a light, a NUI color,
 the Options' colors) opens a picker. Its 📋 copies the color's values

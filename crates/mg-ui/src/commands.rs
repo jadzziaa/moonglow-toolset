@@ -561,9 +561,12 @@ impl Id {
     fn label(self, app: &Moonglow) -> String {
         let ws = app.ws.as_ref();
         match self {
-            // (A side editor's step, with the keys in its grid: not the
-            // module's to name.)
-            Id::Undo | Id::Redo if app.local_can_undo(self == Id::Redo).is_some() => {
+            // (A script's step, with the keys in its editor, or a side
+            // editor's, with the keys in its grid: not the module's to
+            // name.)
+            Id::Undo | Id::Redo
+                if app.undo_script.is_some() || app.local_can_undo(self == Id::Redo).is_some() =>
+            {
                 self.text().1.into_owned()
             }
             Id::Undo => match ws.and_then(|ws| ws.can_undo()) {
@@ -636,6 +639,10 @@ impl Id {
             Id::CloseTab => app.front_tab().is_some(),
             Id::ReopenTab => !app.closed_tabs.is_empty(),
             Id::InstallPlugin => app.plugin_dir.is_some(),
+            // (A script's, with the keys in its editor: as its Ctrl+Z,
+            // which does nothing with nothing to undo. Whether its history
+            // has a step is not known without a copy of it all.)
+            Id::Undo | Id::Redo if app.undo_script.is_some() => true,
             // (A side editor's own or the talk table's, with the pointer
             // over it or the keys in its grid.)
             Id::Undo => app
@@ -698,6 +705,12 @@ impl Id {
             Id::Export => Action::ExportDialog(Vec::new()),
             Id::Close => Action::Close,
             Id::Exit => Action::Quit,
+            // (With the keys in a script's editor, or a menu opened from
+            // it, its own step: `script_view::undo_target`.)
+            Id::Undo | Id::Redo if let Some(key) = app.undo_script => {
+                crate::script_view::undo(app, ctx, key, self == Id::Redo);
+                return;
+            }
             Id::Undo => Action::Undo,
             Id::Redo => Action::Redo,
             Id::ModuleProperties => Action::OpenTab(Tab::ModuleProperties),

@@ -1926,6 +1926,44 @@ fn script_editor() {
     shoot(&mut h, &dir, "script-editor");
 }
 
+/// The Edit menu opened from a script typed in, the module's last step
+/// elsewhere: its Undo and Redo the script's, plain "Undo" and "Redo".
+#[test]
+#[ignore]
+fn script_edit_menu_undo() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-script-undo");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Name", mg_gff::Value::String(b"x".to_vec()));
+    m.set_info(&info).unwrap();
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    m.set(key, b"void main()\n{\n    int a;\n}\n".to_vec());
+    let path = dir.join("s.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 600.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let other = ResKey::parse("mg_note", ResType::NSS).unwrap();
+    let edit = mg_edit::Edit::SetResource { key: other, data: Some(b"void main() {}\n".to_vec()) };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Earlier", vec![edit])));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(key)));
+    h.run();
+    h.state_mut().script_tools.jump = Some((key, 25));
+    h.run();
+    h.key_press(egui::Key::Enter);
+    h.run();
+    h.get_by_label("Edit").click();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "script-edit-menu-undo");
+}
+
 /// The script editor with no error and with one found as you type: the
 /// error's line is there either way, so the text does not move (Jasperre's
 /// report: it jumped down as an error came and went).

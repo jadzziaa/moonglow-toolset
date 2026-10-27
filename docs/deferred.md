@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T03:55:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T04:47:34Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -186,10 +186,24 @@ Size: S (an hour or two), M (a day or so), L (several days).
   `// * text`) is kept in `mg lsp`'s hover, where a block's is not.
   Struct members and local variables have none. (S) (Jasperre's report,
   2026-10-21)
-- **Edit › Undo and the toolbar's Undo in a script:** they are the
-  module's still; only the keys are the script editor's while it has
-  the keyboard. A script's own history as steps of the module's would
-  make them one. (M) (a builder's report on 1.25.1)
+- **Edit › Undo and the toolbar's Undo in a script** are the script's
+  own while its editor has the keyboard, as Ctrl+Z is (the click on
+  the menu or button counts as in it), say plain "Undo" and "Redo",
+  and give the keys back to the editor; the module's history was not
+  given the script's typing. Left: they are not grayed with nothing in
+  the script's history (reading egui's history copies all of it, each
+  frame); a menu opened from a script and closed with nothing chosen
+  leaves the keyboard nowhere, so Ctrl+Z is the module's then, as
+  after any click outside the editor; a key given to Undo or Redo in
+  Options, other than Ctrl+Z, Ctrl+Y and Ctrl+Shift+Z, does nothing in
+  a script (read from the code, not tried); the Command Palette's Undo
+  is the module's (its field has the keys). Seen meanwhile: the
+  toolbar's Undo clicked after the pointer was over a hak's editor
+  took back the module's step, not the hak's (the pointer has left the
+  editor by then), so Edit › Undo and the toolbar's are the module's
+  for a side editor; its own Undo is Ctrl+Z with the pointer over it,
+  or with the keys in a 2DA's grid. (S each) (a builder's report on
+  1.25.1)
 
 ## nasher projects
 
