@@ -3548,7 +3548,15 @@ impl Moonglow {
     /// don't carry the lock ([`mg_module::locks`]).
     fn restore_locks(&mut self, m: &mut Module) {
         let Some(path) = self.locks_file(m) else { return };
-        let locks = mg_module::locks::read(&path);
+        // (One that can't be read is kept beside it as `.unreadable` and
+        // said: its objects come back unlocked.)
+        let locks = mg_module::locks::try_read(&path).unwrap_or_else(|e| {
+            self.log.warn(format!(
+                "The project's locked objects could not be read ({e}): none is locked; the \
+                 file is kept as .unreadable"
+            ));
+            mg_module::locks::read(&path)
+        });
         let found = m.restore_locks(&locks);
         if found < locks.len() {
             trace::note(format!("locks: {found} of {} found again", locks.len()));

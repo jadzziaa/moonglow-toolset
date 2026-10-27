@@ -31,3 +31,9 @@ touches:
 - `frame_perf reload_frames_at_144` now checks every file of the pull four times a second; "all in" is ~3.6 s.
 - A refused tile Delete is computed on a clone: copy the clone's `blocked()` back (done in `Grid::delete`).
 - `GameData::choices` copies; per-frame callers use `choice_list` (Arc). `Form::choices` returns the Arc.
+
+## Second pass (the deferred list worked through)
+- Measure before changing a per-frame cost: `frame_perf`'s persistent-world test now has views for a filtered 2DA editor, a 10,000-line log, the Export window, a store in the Preview window and an item's Properties page; the Tyrants test an area with everything selected and its walkmesh. A cache that measured no gain (blueprint category list, 0.88 to 0.87 ms) was reverted.
+- Lists drawn row by row skip rows out of sight with `ui.is_rect_visible` and `add_space` (log, Find References, store preview). For the log, keep measured heights across width changes: clearing them made the scroll bar toggle each frame (`Harness::run exceeded max_steps`).
+- Script symbols: stale only on frames with a key event (`symbols_for(.., typing, ..)`); a timer-based settle broke kittest's `run()` (repaint requests).
+- Readers charge copies to `mg_core::bin::CopyBudget`; external programs go through `process::output_within`; script stamps changed, so the first Compile after upgrading recompiles everything.

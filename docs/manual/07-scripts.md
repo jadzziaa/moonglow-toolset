@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T04:47:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T19:18:43Z }
 ---
 
 # Scripts
@@ -248,7 +248,9 @@ compiler, `nwnsc`), choose it in **Tools › Options › Script Editor ›
 External Script Compiler** (see [Options](10-options.md)); what it says
 of a script that doesn't compile shows in the Compiler messages.
 `#include` files come from the module, its haks and the game, in the
-game's order.
+game's order. It is given the scripts to compile and what they include,
+not the whole module, and nothing to read from the keyboard; a run that
+takes more than two minutes is stopped, and says so.
 
 **Build › Compile All Scripts** (F7) compiles every script in the module;
 the log lists the failures and how many changed. An include file (a

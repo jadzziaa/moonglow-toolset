@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T06:06:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T19:18:43Z }
 ---
 
 # Options
@@ -229,7 +229,8 @@ the module is opened again from its file.
   Moonglow fills in: `{files}` (the scripts to compile), `{src}` (a
   scratch folder the module's scripts are written to), `{out}` (the
   folder the compiled scripts are read from), `{game}`, `{user}` and
-  `{haks}` (the module's haks, comma-separated). An option whose place
+  `{haks}` (the module's haks, comma-separated: a hak whose path has a
+  comma in it can't be passed so, and the compile says which). An option whose place
   has nothing to give is left out. Generate Debug Information adds `-g`
   to the usual lines.
 - The editor's **font size**, syntax **colors** and **Background**
