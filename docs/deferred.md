@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T03:55:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T04:59:29Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -457,9 +457,9 @@ Size: S (an hour or two), M (a day or so), L (several days).
   rows on screen would fix it. (S–M)
 - **Where-used at scale:** the References window and Rename keep the
   module's references between questions (`rename::UsageIndex`): the
-  first Find References in the persistent world reads the module as
-  before (0.8 s), the next ones only the resources changed since
-  (7 ms). Tags and the strings in scripts are answered from it too.
+  first Find References in the persistent world reads the module, on
+  every core (0.2 s; 1.4 s on one), the next ones only the resources
+  changed since (7 ms). Tags and the strings in scripts are answered from it too.
   Not done: the first read is on the window's thread; `mg refs` reads the module each time, as a
   command run once must. (S each)
 - **Long lists opened out:** the tree's rows out of sight take their
@@ -907,11 +907,17 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     blueprint holding a bag blueprint that holds it isn't listed); a
     creature blueprint found isn't followed into the encounters that
     spawn it. (S)
-  - Each search reads every GFF of the module again, once for each of
-    its conditions, on the window's thread, and again after a change
-    (Chapter One, 5271 resources: under a second; a persistent
-    world's thousands of blueprints: longer, with the window waiting).
-    Find References keeps an index; this doesn't yet. (S)
+  - A question asked again (Find again, or found again after a change
+    made to what it found) reads only the resources changed since
+    (`search::Kept`); another question reads the module again, once
+    for all its conditions, on every core but on the window's thread
+    (Chapter One, 5,271 resources: 7 to 40 ms, where it took 70 to
+    250; the persistent world's 25,000: 0.2 s, where it took 0.7 to
+    2.1). What is found isn't drawn from Find References' index, which
+    would keep every GFF read (0.6 GB more in the persistent world).
+    The events Set an event's script offers still read the objects
+    found anew: 0.1 s of the 0.11 s a question asked again takes with
+    8,785 found in the persistent world. (S)
   - Appearance covers the 2DA rows a field names (creatures,
     placeables, doors, waypoints, items' base types); items' model
     parts and colors, portraits and sound sets are found through Any

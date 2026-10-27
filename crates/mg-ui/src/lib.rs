@@ -682,6 +682,9 @@ pub struct Moonglow {
     pub text_replace: Option<bulk::TextReplace>,
     /// The Advanced Search tab's state.
     pub advanced_search: search::AdvancedSearch,
+    /// What its last question found in each resource, for the next time
+    /// (named with the game data: forgotten with it).
+    pub(crate) search_kept: mg_module::search::Kept,
     /// Where prefabs are kept (the app sets Moonglow's data folder's
     /// `prefabs`; none: prefabs can't be saved).
     pub prefab_dir: Option<PathBuf>,
@@ -963,6 +966,7 @@ impl Moonglow {
             area_chooser: None,
             text_replace: None,
             advanced_search: Default::default(),
+            search_kept: Default::default(),
             prefab_dir: None,
             prefab_deleted: None,
             var_set_dir: None,
@@ -2665,6 +2669,7 @@ impl Moonglow {
         self.load_order_changed();
         // (Another module's haks may have other tilesets of these names.)
         self.palette.forget_game_data();
+        self.search_kept = Default::default();
         if let Some(game) = exclusive(&mut self.game) {
             let module_layers: Vec<String> = game
                 .resman
@@ -4039,6 +4044,7 @@ impl Moonglow {
         self.thumbnails.forget(self.viewport.as_ref());
         self.palettes = Default::default();
         self.palette.forget_game_data();
+        self.search_kept = Default::default();
         self.model_views.clear();
         for view in self.area_views.values_mut() {
             view.reload();
@@ -4523,6 +4529,7 @@ impl Moonglow {
                 self.area_names = Default::default();
                 self.area_contents.clear();
                 self.palette.forget_game_data();
+                self.search_kept = Default::default();
             }
             return;
         }

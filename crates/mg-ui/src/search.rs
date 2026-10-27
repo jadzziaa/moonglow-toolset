@@ -338,7 +338,8 @@ impl Moonglow {
         }
         let game = self.game.as_deref();
         let cp = game.map_or(Codepage::WINDOWS_1252, GameData::codepage);
-        draft.hits = search::search(&ws.module, &q, game, cp);
+        // (Asked again, only what changed since is read.)
+        draft.hits = self.search_kept.search(&ws.module, &q, game, cp);
         draft.ticked = vec![true; draft.hits.len()];
         draft.events = found::events(&ws.module, &draft.hits.iter().collect::<Vec<_>>());
         draft.searched = Some(q);

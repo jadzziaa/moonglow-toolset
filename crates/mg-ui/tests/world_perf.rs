@@ -147,6 +147,27 @@ fn persistent_world_stays_within_budget() {
     h.run_steps(2);
     h.get_by_label("Inventory").click();
     frames(&mut h, &mut b, "store inventory with 1,000 items", S(2), MS(50), |_| {});
+    // Its list scrolled down, a page of rows at a time.
+    let at = h.get_all_by_label("Remove").next().unwrap().rect().center() - egui::vec2(200.0, 0.0);
+    h.hover_at(at);
+    let mut scrolled = Vec::new();
+    for _ in 0..20 {
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -500.0),
+            modifiers: egui::Modifiers::NONE,
+            phase: egui::TouchPhase::Move,
+        });
+        scrolled.extend((0..3).map(|_| time(|| h.step()).1));
+    }
+    let worst = scrolled.iter().max().copied().unwrap();
+    b.check("store inventory scrolled: frame", median(scrolled), MS(50));
+    b.check("store inventory scrolled: slowest frame", worst, MS(500));
+    if std::env::var_os("WORLD_SHOTS").is_some() {
+        let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/test-output/world-shots");
+        h.render().unwrap().save(dir.join("store-inventory-scrolled.png")).unwrap();
+    }
     close(&mut h, &Tab::Blueprint(store));
     // Appearance lists over the haks' grown 2DAs.
     let game_only = mg_resman::ResMan::for_game(&GameInstall::new(&root, None, "en")).unwrap();
@@ -234,6 +255,8 @@ fn persistent_world_stays_within_budget() {
     });
     assert_eq!(again, usages);
     b.check("where-used of an item, from the index", took, MS(50));
+    // (The window keeps its own: Advanced Search asks it below.)
+    drop(index);
     let (changed, took) = time(|| game.resman.changed_layers(|_| true));
     assert!(changed.is_empty());
     b.check("look for changed haks (Reload Resources)", took, MS(100));
@@ -258,6 +281,53 @@ fn persistent_world_stays_within_budget() {
     let ((), took) = time(|| app.show_references(&decl));
     b.check("references again (indexed)", took, MS(200));
     close(&mut h, &Tab::Script(script));
+
+    // Advanced Search: a condition, the same again, three together, and
+    // a change made to what was found (which finds again).
+    {
+        use mg_ui::search::{Act, AdvancedSearch, Condition, Kind};
+        let app = h.state_mut();
+        let search = |app: &mut Moonglow, d: &mut AdvancedSearch| time(|| app.advanced_search(d)).1;
+        let variables = || AdvancedSearch {
+            first: Condition { kind: Kind::Variable, name: "*".into(), ..Default::default() },
+            ..Default::default()
+        };
+        let mut d = variables();
+        let took = search(app, &mut d);
+        b.check(format!("search: any variable, first ({} found)", d.hits.len()), took, S(1));
+        let mut d = variables();
+        let took = search(app, &mut d);
+        b.check(format!("search: the same again ({} found)", d.hits.len()), took, MS(500));
+        let mut d = AdvancedSearch {
+            first: Condition { kind: Kind::Field, value: "pw_i07".into(), ..Default::default() },
+            and: vec![
+                Condition { kind: Kind::Variable, name: "*".into(), ..Default::default() },
+                Condition {
+                    kind: Kind::Appearance,
+                    of: mg_module::search::AppearanceOf::Item,
+                    row: Some(0),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let took = search(app, &mut d);
+        b.check(format!("search: three conditions ({} found)", d.hits.len()), took, MS(500));
+        let mut d = AdvancedSearch {
+            first: Condition { kind: Kind::Field, value: "pw_i000".into(), ..Default::default() },
+            ..Default::default()
+        };
+        search(app, &mut d);
+        d.act.act = Act::SetVariable;
+        d.act.name = "nSearchPerf".into();
+        d.act.value = "1".into();
+        let ((), took) = time(|| app.change_found(&mut d));
+        assert!(d.act.said.as_deref().is_some_and(|s| s.starts_with("Set")), "{:?}", d.act.said);
+        b.check(format!("search: a change to {} found, found again", d.hits.len()), took, MS(100));
+        let mut d = variables();
+        let took = search(app, &mut d);
+        b.check(format!("search: any variable, after it ({} found)", d.hits.len()), took, S(1));
+    }
 
     let scripts = h.state().ws.as_ref().unwrap().module.keys_of(ResType::NSS).count();
     let ((), took) = time(|| {
