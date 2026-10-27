@@ -3183,6 +3183,53 @@ fn creature_appearance_inline() {
     shoot(&mut h, &dir, "creature-appearance");
 }
 
+/// The tiles palette of a Medieval City area searched for a tile's model
+/// that only a group has (Inn_2x3's `tcm02_s01_05`, #35): in the list,
+/// then in the Gallery.
+#[test]
+#[ignore]
+fn tiles_palette_group_search() {
+    use mg_module::ModuleLocation;
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let install = GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut rng = fastrand::Rng::with_seed(7);
+    let mut m = new_module(&game, "Group Search", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Street".into(),
+        tileset: mg_core::ResRef::from_str("tcm02").unwrap(),
+        width: 4,
+        height: 4,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let path = dir.join("group-search.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(5);
+    h.get_by_label("🗻").click();
+    h.run_steps(2);
+    h.state_mut().palette.filter = "tcm02_s01_05".into();
+    h.run_steps(5);
+    shoot(&mut h, &dir, "tiles-palette-group-search-list");
+    h.state_mut().settings.palette_gallery = true;
+    h.run_steps(60);
+    shoot(&mut h, &dir, "tiles-palette-group-search-gallery");
+}
+
 #[test]
 #[ignore]
 fn crosser_cursor() {

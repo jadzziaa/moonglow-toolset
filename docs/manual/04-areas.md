@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T06:29:36Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T12:02:53Z }
 ---
 
 # Areas
@@ -660,7 +660,9 @@ as Aurora's Terrain tab does:
   of wall made alike in one stroke. Tiles of another kind are left as
   they were, and the area's line says how many.
 - The Tiles palette has the blueprint palettes' tools: a **search** (a
-  brush's name, or a tile's model), **Expand All** and **Collapse All**,
+  brush's name, or a tile's model: a group or feature is found by the
+  models of its tiles too, and shows as itself, one picture in the
+  Gallery), **Expand All** and **Collapse All**,
   how many there are, and **List** (☰) or **Gallery** (⊞), the same switch
   as the blueprint palettes', with the pictures' size beside it.
 - In the **Gallery**, each terrain and crosser is a heading that opens and

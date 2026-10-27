@@ -2888,6 +2888,43 @@ fn the_tile_gallery_s_groups_are_pictures_to_choose_and_drop() {
     assert_eq!(grid(&mut h).tile(2, 1).tile, 117, "the Well where it was dropped");
 }
 
+/// The tiles palette's search finds a group by the model of one of its
+/// tiles that no terrain or crosser makes (#35: Medieval City's Inn_2x3,
+/// "Inn 1 (2x3)", whose `tcm02_s01_05` is in no other brush): in the list,
+/// and in the Gallery as the group's picture, not as a heading with its
+/// tiles.
+#[test]
+fn the_tile_search_finds_a_group_by_its_tiles_models() {
+    const INN: &str = "Inn 1 (2x3)";
+    let Some((mut h, _)) = area_harness_on("tile-group-search", "tcm02", None) else { return };
+    // (The count is the row's text: a label's value.)
+    let one_item = |h: &Harness<'_, Moonglow>, when: &str| {
+        assert!(h.query_all_by_value("1 item").next().is_some(), "{when}: the count, 1 item");
+    };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    palette_type(&mut h, "🗻", "Tiles");
+    h.run_steps(3);
+    let model = "tcm02_s01_05";
+    h.state_mut().palette.filter = model.into();
+    h.run_steps(3);
+    // The list: the group's row, alone.
+    h.get_by_label(INN);
+    one_item(&h, "the list");
+    // The Gallery: the group's picture, alone; no picture of the tile
+    // under a heading.
+    h.state_mut().settings.palette_gallery = true;
+    h.run_steps(5);
+    assert_eq!(h.get_all_by_label_contains(INN).count(), 1, "the group's picture");
+    one_item(&h, "the Gallery");
+    assert_eq!(h.query_all_by_label_contains(model).count(), 0, "no heading's tile picture");
+    // Its name finds it as before.
+    h.state_mut().palette.filter = INN.to_lowercase();
+    h.run_steps(3);
+    assert_eq!(h.get_all_by_label_contains(INN).count(), 1);
+    one_item(&h, "by its name");
+}
+
 #[test]
 fn a_terrain_drag_with_shift_fills_its_rectangle() {
     use glam::Vec3;
