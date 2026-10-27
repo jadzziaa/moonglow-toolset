@@ -7478,6 +7478,68 @@ fn store_editor_stocks_prices_and_restricts() {
     assert_eq!(s.list("WillOnlyBuy").unwrap()[0].id, 97869);
 }
 
+/// A store page of hundreds of items lays out the rows in sight only (a
+/// page of thousands took seconds to show); scrolled to its end, the
+/// last row is there, and its menu's Remove takes that item out.
+#[test]
+fn a_long_store_page_lays_out_the_rows_in_sight() {
+    use mg_gff::{Struct, Value};
+    let Some((mut h, key)) = blueprint_harness("nw_storebar01", "long_store", ResType::UTM) else {
+        return;
+    };
+    h.run();
+    let entry = |i: usize, item: &str| {
+        let mut s = Struct::new(i as u32);
+        s.set("InventoryRes", Value::resref(ResRef::from_str(item).unwrap()));
+        s.set("Repos_PosX", Value::Word((i % 10) as u16));
+        s.set("Repos_Posy", Value::Word((i / 10) as u16));
+        s.set("Infinite", Value::Byte(0));
+        s
+    };
+    let mut items: Vec<Struct> = (0..299).map(|i| entry(i, "nw_wswls001")).collect();
+    items.push(entry(299, "nw_wswss001"));
+    let mut page = Struct::new(4);
+    page.set("ItemList", Value::List(items));
+    let set = mg_edit::Edit::SetField {
+        key,
+        path: mg_edit::GffPath::root(),
+        label: "StoreList".into(),
+        value: Some(Value::List(vec![page])),
+    };
+    h.state_mut().ws.as_mut().unwrap().apply(mg_edit::Command::new("stock", vec![set])).unwrap();
+    h.get_by_label("Inventory…").click();
+    h.run();
+    let rows = |h: &Harness<'_, Moonglow>| h.query_all_by_label("Remove").count();
+    let shown = rows(&h);
+    assert!((3..40).contains(&shown), "{shown} rows laid out of 300");
+    let last = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.role() == egui::accesskit::Role::Button
+            && n.label().is_some_and(|l| l.contains("  ·  ") && !l.starts_with("Longsword"))
+    };
+    assert!(h.query(egui_kittest::kittest::by().predicate(last)).is_none());
+    // The wheel over the list, to its end.
+    let at = h.get_all_by_label("Remove").next().unwrap().rect().center() - egui::vec2(200.0, 0.0);
+    h.hover_at(at);
+    for _ in 0..20 {
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -100_000.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(10);
+    }
+    assert!(rows(&h) < 40, "{} rows laid out", rows(&h));
+    h.get(egui_kittest::kittest::by().predicate(last)).click_secondary();
+    h.run();
+    h.get_all_by_label("Remove").last().unwrap().click();
+    h.run();
+    let items =
+        field(&mut h, &key).list("StoreList").unwrap()[0].list("ItemList").unwrap().to_vec();
+    assert_eq!(items.len(), 299);
+    assert!(items.iter().all(|i| i.resref("InventoryRes").unwrap().to_string() == "nw_wswls001"));
+}
+
 #[test]
 fn showing_blueprint_editors_changes_nothing() {
     // Every page of every editor, on blueprints with values outside the

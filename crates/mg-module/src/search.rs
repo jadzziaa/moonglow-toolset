@@ -13,16 +13,18 @@
 //! blueprint carries it.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use mg_core::{Codepage, ResRef, ResType};
 use mg_gff::{FieldAt, Gff, Struct, Value};
 use mg_resman::ResKey;
 use mg_rules::rows::{RowTable, list_table, row_table};
 use mg_rules::{Choice, ChoiceColumns, GameData, ItemProperty, ObjectKind};
+use rayon::prelude::*;
 
 use crate::Module;
 use crate::query::glob;
-use crate::refs::{RefKind, gff_references};
+use crate::refs::{RefKind, Reference, gff_references};
 pub use crate::vars::VarType;
 
 /// What an appearance is of: the field and table it is a row of.
@@ -661,50 +663,72 @@ fn field_hit(
     }
 }
 
-/// What one resource holds that a search matches, in the order of its
-/// fields.
+/// What one resource holds that each of `searches` matches, in the order
+/// of its fields (one walk of them for all). A search of the scripts
+/// attached reads the resource's references.
 fn resource_hits(
-    key: ResKey,
-    gff: &Gff,
-    search: &Search,
+    read: &Read<'_>,
+    searches: &[&Search],
     game: Option<&GameData>,
     cp: Codepage,
-) -> Vec<Hit> {
+) -> Vec<Vec<Hit>> {
+    let Read { key, gff, refs } = *read;
     let file_type = gff.file_type_str();
-    let mut found: Vec<(String, String)> = Vec::new();
-    if let Search::Script(pattern) = search {
-        for r in gff_references(key, gff) {
+    let mut found: Vec<Vec<(String, String)>> = vec![Vec::new(); searches.len()];
+    for (s, found) in searches.iter().zip(&mut found) {
+        let Search::Script(pattern) = s else { continue };
+        for r in refs {
             if r.kind == RefKind::Script && glob(pattern, &r.target.to_string()) {
                 let label = r.path.rsplit('/').next().unwrap_or_default();
                 let script = r.target.to_lowercase();
                 found.push((r.path.clone(), format!("{}: {script}", event(label))));
             }
         }
-    } else {
+    }
+    if searches.iter().any(|s| !matches!(s, Search::Script(_))) {
         gff.root.walk_fields(&mut |f| {
-            if let Some(hit) = field_hit(search, &file_type, f, game, cp) {
-                found.push(hit);
+            for (s, found) in searches.iter().zip(&mut found) {
+                if let Some(hit) = field_hit(s, &file_type, f, game, cp) {
+                    found.push(hit);
+                }
             }
         });
     }
-    let mut out: Vec<Hit> = Vec::new();
-    for (path, matched) in found {
-        let steps: Vec<&str> = path.trim_start_matches('/').split('/').collect();
-        let object = object_type(key, &steps);
-        // (A struct matched by more than one of its fields once.)
-        if out.last().is_some_and(|h| h.path == path) {
-            continue;
+    let hits = |found: Vec<(String, String)>| {
+        let mut out: Vec<Hit> = Vec::new();
+        for (path, matched) in found {
+            let steps: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+            let object = object_type(key, &steps);
+            // (A struct matched by more than one of its fields once.)
+            if out.last().is_some_and(|h| h.path == path) {
+                continue;
+            }
+            out.push(Hit {
+                key,
+                place: place(key, gff, &path, cp),
+                path,
+                matched,
+                object,
+                carried: None,
+            });
         }
-        out.push(Hit {
-            key,
-            place: place(key, gff, &path, cp),
-            path,
-            matched,
-            object,
-            carried: None,
-        });
-    }
-    out
+        out
+    };
+    found.into_iter().map(hits).collect()
+}
+
+/// Whether what a search finds on an item blueprint is also found where
+/// the blueprints' inventories carry it (not for a search of fields,
+/// which finds fields).
+fn carrying(s: &Search) -> bool {
+    !matches!(s, Search::Field { .. })
+}
+
+/// Whether what `searches` find in `key` needs its references: the
+/// scripts attached, the items a blueprint carries.
+fn needs_refs(key: ResKey, searches: &[&Search]) -> bool {
+    let blueprint = ObjectKind::from_restype(key.restype).is_some();
+    searches.iter().any(|s| matches!(s, Search::Script(_)) || (blueprint && carrying(s)))
 }
 
 /// Whether a hit is in what the query looks at.
@@ -717,6 +741,16 @@ fn wanted(q: &Query, h: &Hit) -> bool {
     placed_ok && (q.types.is_empty() || q.types.contains(&h.object))
 }
 
+/// A GFF resource of the module as read: its key, its fields, and the
+/// references they make (`refs::gff_references`; left out where the
+/// searches don't need them).
+#[derive(Clone, Copy)]
+struct Read<'a> {
+    key: ResKey,
+    gff: &'a Gff,
+    refs: &'a [Reference],
+}
+
 /// Everything in the module the query matches: resource by resource (in
 /// the order of their names and types), field by field; an item
 /// blueprint found is also found in the inventories of the blueprints
@@ -724,12 +758,95 @@ fn wanted(q: &Query, h: &Hit) -> bool {
 /// With other conditions, what is found on an object that meets them
 /// all, each one's first match told after its own (`Class: Fighter,
 /// level 5 · Feat: Alertness`). `game` names what is found as the game
-/// does (else by numbers); `cp` reads the module's text.
+/// does (else by numbers); `cp` reads the module's text. Each resource
+/// is read once, for all the conditions ([`Kept`] keeps what it found).
 pub fn search(m: &Module, q: &Query, game: Option<&GameData>, cp: Codepage) -> Vec<Hit> {
-    let mut hits = search_one(m, &q.search, game, cp);
-    for extra in &q.and {
+    Kept::default().search(m, q, game, cp)
+}
+
+/// What the last question's conditions found, resource by resource, kept
+/// for the next time it is asked (Advanced Search finds again after a
+/// change, and when Find is clicked again): a resource is read again only
+/// when the module holds other bytes for it, as
+/// [`UsageIndex`](crate::rename::UsageIndex) does. Another question reads
+/// the module again, once for all its conditions, on every core. What is
+/// found is named with the game data and codepage it was asked with:
+/// with others, start anew.
+#[derive(Debug, Default)]
+pub struct Kept {
+    /// The conditions asked.
+    searches: Vec<Search>,
+    /// Each GFF resource, as read, and what they found in it (none: it
+    /// doesn't read).
+    found: HashMap<ResKey, KeptOne>,
+    /// How many resources the last search read.
+    pub read: usize,
+}
+
+/// A resource's bytes as read, and what the conditions found in it.
+type KeptOne = (Arc<[u8]>, Option<Found>);
+
+impl Kept {
+    /// [`search`], reading only the resources new or changed since the
+    /// last time `q`'s conditions were asked.
+    pub fn search(
+        &mut self,
+        m: &Module,
+        q: &Query,
+        game: Option<&GameData>,
+        cp: Codepage,
+    ) -> Vec<Hit> {
+        let searches = q.searches();
+        if !self.searches.iter().eq(searches.iter().copied()) {
+            self.searches = searches.iter().map(|s| (*s).clone()).collect();
+            self.found.clear();
+        }
+        self.found.retain(|k, _| m.contains(k));
+        let mut changed = Vec::new();
+        for key in m.keys().filter(|k| k.restype.is_gff()) {
+            let Some(data) = m.shared(key) else { continue };
+            match self.found.get_mut(key) {
+                Some((was, _)) if Arc::ptr_eq(was, data) => continue,
+                // (Set again with the same bytes, as a flush of the
+                // documents open does: nothing to read.)
+                Some((was, _)) if **was == **data => {
+                    *was = data.clone();
+                    continue;
+                }
+                _ => {}
+            }
+            changed.push((*key, data));
+        }
+        self.read = changed.len();
+        // (Each tree let go once walked: what is kept is what was found.)
+        let read: Vec<(ResKey, KeptOne)> = changed
+            .into_par_iter()
+            .map(|(key, data)| {
+                let found = Gff::read(data).ok().map(|gff| {
+                    let refs = match needs_refs(key, &searches) {
+                        true => gff_references(key, &gff),
+                        false => Vec::new(),
+                    };
+                    Found::of(&Read { key, gff: &gff, refs: &refs }, &searches, game, cp)
+                });
+                (key, (data.clone(), found))
+            })
+            .collect();
+        self.found.extend(read);
+        let mut found: Vec<(ResKey, &Found)> =
+            (self.found.iter()).filter_map(|(k, (_, f))| Some((*k, f.as_ref()?))).collect();
+        found.sort_by_key(|(k, _)| *k);
+        joined(&found, q)
+    }
+}
+
+/// What the query finds, from what each resource holds (`found`, in the
+/// order of their keys).
+fn joined(found: &[(ResKey, &Found)], q: &Query) -> Vec<Hit> {
+    let mut hits = condition_hits(found, 0, &q.search);
+    for (c, extra) in q.and.iter().enumerate() {
         // The objects it finds things on, and those holding them.
-        let theirs = search_one(m, extra, game, cp);
+        let theirs = condition_hits(found, c + 1, extra);
         let mut own: HashMap<Object, &str> = HashMap::new();
         let mut held: HashMap<Object, &str> = HashMap::new();
         for h in &theirs {
@@ -757,52 +874,70 @@ pub fn search(m: &Module, q: &Query, game: Option<&GameData>, cp: Codepage) -> V
     hits
 }
 
-/// What one search finds, before the query keeps what it looks at.
-fn search_one(m: &Module, s: &Search, game: Option<&GameData>, cp: Codepage) -> Vec<Hit> {
-    let mut keys: Vec<ResKey> = m.keys().filter(|k| k.restype.is_gff()).copied().collect();
-    keys.sort();
-    let mut by_key: Vec<(ResKey, Vec<Hit>)> = Vec::new();
-    // The item blueprints the blueprints' inventories name: where.
-    let mut carries: Vec<(ResKey, String, ResRef, String)> = Vec::new();
-    let carrying = !matches!(s, Search::Field { .. });
-    for key in keys {
-        let Some(Ok(gff)) = m.gff(&key) else { continue };
-        let hits = resource_hits(key, &gff, s, game, cp);
-        let blueprint = ObjectKind::from_restype(key.restype).is_some();
-        if carrying && blueprint {
-            for r in gff_references(key, &gff) {
+impl Query {
+    /// Its searches: the first, then the others with it.
+    fn searches(&self) -> Vec<&Search> {
+        std::iter::once(&self.search).chain(&self.and).collect()
+    }
+}
+
+/// What one resource holds for a query: each search's hits, and (a
+/// blueprint's) the item blueprints its inventory names, where.
+#[derive(Debug)]
+struct Found {
+    hits: Vec<Vec<Hit>>,
+    /// (path, item blueprint, place).
+    carries: Vec<(String, ResRef, String)>,
+}
+
+impl Found {
+    fn of(read: &Read<'_>, searches: &[&Search], game: Option<&GameData>, cp: Codepage) -> Found {
+        let hits = resource_hits(read, searches, game, cp);
+        let key = read.key;
+        let mut carries = Vec::new();
+        if ObjectKind::from_restype(key.restype).is_some() && searches.iter().any(|s| carrying(s)) {
+            for r in read.refs {
                 if r.kind == RefKind::Blueprint(ResType::UTI) {
                     let place = format!("{key} › carries {}.uti", r.target.to_lowercase());
-                    carries.push((key, r.path, r.target, place));
+                    carries.push((r.path.clone(), r.target, place));
                 }
             }
         }
-        by_key.push((key, hits));
+        Found { hits, carries }
     }
-    // The item blueprints found, and what they matched.
-    let items: Vec<(ResRef, Vec<String>)> = by_key
-        .iter()
-        .filter(|(k, h)| k.restype == ResType::UTI && !h.is_empty())
-        .map(|(k, h)| {
-            let direct = h.iter().filter(|h| h.carried.is_none() && h.object == ResType::UTI);
-            (k.resref, direct.map(|h| h.matched.clone()).collect())
-        })
-        .collect();
-    for (key, path, target, place) in carries {
-        let Some((_, matched)) = items.iter().find(|(r, _)| *r == target) else { continue };
-        let Some((_, hits)) = by_key.iter_mut().find(|(k, _)| *k == key) else { continue };
-        for m in matched {
-            hits.push(Hit {
-                key,
-                path: path.clone(),
-                place: place.clone(),
-                matched: m.clone(),
-                object: ResType::UTI,
-                carried: Some(target),
-            });
+}
+
+/// What search `c` of the query (`s`) finds, before the query keeps what
+/// it looks at: each resource's hits, an item blueprint's after them
+/// where a blueprint carries it.
+fn condition_hits(found: &[(ResKey, &Found)], c: usize, s: &Search) -> Vec<Hit> {
+    let mut by_key: Vec<Vec<Hit>> = found.iter().map(|(_, f)| f.hits[c].clone()).collect();
+    if carrying(s) {
+        // The item blueprints found, and what they matched.
+        let items: HashMap<ResRef, Vec<String>> = (found.iter().zip(&by_key))
+            .filter(|((k, _), h)| k.restype == ResType::UTI && !h.is_empty())
+            .map(|((k, _), h)| {
+                let direct = h.iter().filter(|h| h.carried.is_none() && h.object == ResType::UTI);
+                (k.resref, direct.map(|h| h.matched.clone()).collect())
+            })
+            .collect();
+        for ((key, f), hits) in found.iter().zip(&mut by_key) {
+            for (path, target, place) in &f.carries {
+                let Some(matched) = items.get(target) else { continue };
+                for m in matched {
+                    hits.push(Hit {
+                        key: *key,
+                        path: path.clone(),
+                        place: place.clone(),
+                        matched: m.clone(),
+                        object: ResType::UTI,
+                        carried: Some(*target),
+                    });
+                }
+            }
         }
     }
-    by_key.into_iter().flat_map(|(_, h)| h).collect()
+    by_key.into_iter().flatten().collect()
 }
 
 /// The choices of a table, named as the game names them: a talk-table

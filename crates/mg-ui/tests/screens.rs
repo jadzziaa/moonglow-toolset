@@ -1792,6 +1792,72 @@ fn store_chosen_item() {
     shoot(&mut h, &dir, "store-armor-added");
 }
 
+/// A store page of 300 of the game's items (every kind: tall, wide and
+/// small icons), scrolled down a little at a time with the wheel, then
+/// to its end (`store-scrolled-{top,middle,end}.png`).
+#[test]
+#[ignore]
+fn store_scrolled() {
+    use mg_gff::{Struct, Value};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let (name, t) = ("nw_storebar01", ResType::UTM);
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    let game = app.game.as_deref().unwrap();
+    let mut store = mg_gff::Gff::read(&game.resman.get_named(name, t).unwrap()).unwrap();
+    let mut items = game.resman.list(ResType::UTI);
+    items.sort();
+    let entries: Vec<Struct> = (items.iter().step_by(items.len() / 300).take(300).enumerate())
+        .map(|(i, r)| {
+            let mut s = Struct::new(i as u32);
+            s.set("InventoryRes", Value::resref(*r));
+            s.set("Repos_PosX", Value::Word((i % 10) as u16));
+            s.set("Repos_Posy", Value::Word((i / 10) as u16));
+            s.set("Infinite", Value::Byte(0));
+            s
+        })
+        .collect();
+    let mut page = Struct::new(4);
+    page.set("ItemList", Value::List(entries));
+    store.root.set("StoreList", Value::List(vec![page]));
+    let mut m = mg_module::Module::new();
+    let key = ResKey::parse(name, t).unwrap();
+    m.set_gff(key, &store).unwrap();
+    let path = mg_testkit::scratch_dir("screens-store-scrolled").join("store.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 900.0))
+        .with_step_dt(1.0 / 60.0)
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().blueprint_pages.insert((key, GffPath::root()), "Inventory");
+    h.run_steps(3);
+    place(&mut h, &mg_ui::Tab::Blueprint(key), (20.0, 60.0), (1150.0, 800.0));
+    h.run_steps(3);
+    shoot(&mut h, &dir, "store-scrolled-top");
+    let at = h.get_all_by_label("Remove").next().unwrap().rect().center() - egui::vec2(200.0, 0.0);
+    h.hover_at(at);
+    let wheel = |h: &mut Harness<'_, Moonglow>, dy: f32| {
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, dy),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(20);
+    };
+    for _ in 0..30 {
+        wheel(&mut h, -400.0);
+    }
+    shoot(&mut h, &dir, "store-scrolled-middle");
+    wheel(&mut h, -1_000_000.0);
+    shoot(&mut h, &dir, "store-scrolled-end");
+}
+
 #[test]
 #[ignore]
 fn user_manual() {

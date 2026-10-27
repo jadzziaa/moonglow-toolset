@@ -1460,17 +1460,18 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                 ui.add_space(crate::widgets::SECTION_GAP);
                 crate::widgets::section_heading(ui, "Backpack");
                 let path = base.clone();
-                let icons: Vec<_> = backpack.iter().map(|it| f.entry_icon(ui.ctx(), it)).collect();
-                let name = |it: &Struct| f.entry_name(it, &names);
                 let in_pack: Vec<usize> =
                     selected.items.iter().filter(|c| c.0 == "ItemList").map(|c| c.1).collect();
+                let copied = f.app.item_clip.len();
+                let ctx = ui.ctx().clone();
+                let mut row =
+                    |_: usize, it: &Struct| (f.entry_icon(&ctx, it), f.entry_name(it, &names));
                 let look = inventory::ItemLook {
-                    icons: &icons,
-                    name: &name,
+                    row: &mut row,
                     infinite: false,
                     selected: &in_pack,
                     equip: true,
-                    copied: f.app.item_clip.len(),
+                    copied,
                 };
                 let mut out = inventory::item_list(ui, key, &path, &backpack, look);
                 edits.extend(std::mem::take(&mut out.edits));

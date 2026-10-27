@@ -30,6 +30,7 @@ const PALETTES: Duration = Duration::from_secs(3);
 const VERIFY: Duration = Duration::from_secs(10);
 const COMPILE: Duration = Duration::from_secs(120);
 const WRITE: Duration = Duration::from_secs(5);
+const SEARCH: Duration = Duration::from_millis(200);
 
 fn median(mut v: Vec<Duration>) -> Duration {
     v.sort();
@@ -151,5 +152,78 @@ fn largest_campaigns_stay_within_budget() {
         std::fs::write(dir.join("campaign.mod"), &bytes).unwrap();
         check(format!("write the module ({} MB)", bytes.len() / 1_000_000), took, WRITE);
     }
+    assert!(over.is_empty(), "over budget:\n{}", over.join("\n"));
+}
+
+/// Advanced Search on the Original Campaign's first chapter (5,271
+/// resources): a condition, the same again, three together, any field,
+/// and a change made to what was found (which finds again). Needs the
+/// game, not a GPU; run in release:
+/// `cargo test --release -p mg-ui --test campaign_perf advanced_search -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn advanced_search_stays_within_budget() {
+    use mg_ui::search::{Act, AdvancedSearch, Condition, Kind};
+    let root = mg_testkit::corpus!();
+    let path = root.join("data/nwm/Chapter1.nwm");
+    if !path.is_file() {
+        println!("Chapter 1: not installed");
+        return;
+    }
+    let mut over = Vec::new();
+    let mut check = |what: String, took: Duration, budget: Duration| {
+        let mark = if took > budget { "OVER" } else { "ok" };
+        println!("  {what:52} {took:>12.2?}  (budget {budget:?}) {mark}");
+        if took > budget {
+            over.push(format!("{what}: {took:?} > {budget:?}"));
+        }
+    };
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    println!("Chapter 1 ({} resources)", app.ws.as_ref().unwrap().module.len());
+    let search = |app: &mut Moonglow, d: &mut AdvancedSearch| time(|| app.advanced_search(d)).1;
+    let variables = || AdvancedSearch {
+        first: Condition { kind: Kind::Variable, name: "*".into(), ..Default::default() },
+        ..Default::default()
+    };
+    let mut d = variables();
+    let took = search(&mut app, &mut d);
+    check(format!("any variable, first search ({} found)", d.hits.len()), took, SEARCH);
+    let mut d = variables();
+    let took = search(&mut app, &mut d);
+    check(format!("the same again ({} found)", d.hits.len()), took, SEARCH);
+    // Fighters of 4 to 10 levels with Alertness and a rank in a skill.
+    let mut d = AdvancedSearch {
+        first: Condition { kind: Kind::Class, row: Some(4), levels: (4, 10), ..Default::default() },
+        and: vec![
+            Condition { kind: Kind::Feat, row: Some(0), ..Default::default() },
+            Condition { kind: Kind::Skill, row: Some(0), ..Default::default() },
+        ],
+        ..Default::default()
+    };
+    let took = search(&mut app, &mut d);
+    check(format!("three conditions together ({} found)", d.hits.len()), took, SEARCH);
+    let mut d = AdvancedSearch {
+        first: Condition { kind: Kind::Field, value: "guard".into(), ..Default::default() },
+        ..Default::default()
+    };
+    let took = search(&mut app, &mut d);
+    check(format!("any field holding \"guard\" ({} found)", d.hits.len()), took, SEARCH);
+    // A variable set on every fighter, then found again.
+    let mut d = AdvancedSearch {
+        first: Condition { kind: Kind::Class, row: Some(4), ..Default::default() },
+        ..Default::default()
+    };
+    search(&mut app, &mut d);
+    d.act.act = Act::SetVariable;
+    d.act.name = "nSearchPerf".into();
+    d.act.value = "1".into();
+    let ((), took) = time(|| app.change_found(&mut d));
+    assert!(d.act.said.as_deref().is_some_and(|s| s.starts_with("Set")), "{:?}", d.act.said);
+    check(format!("a variable set on {} fighters, found again", d.hits.len()), took, SEARCH * 2);
+    let mut d = variables();
+    let took = search(&mut app, &mut d);
+    check(format!("any variable, after the change ({} found)", d.hits.len()), took, SEARCH);
     assert!(over.is_empty(), "over budget:\n{}", over.join("\n"));
 }

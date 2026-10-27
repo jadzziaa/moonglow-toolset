@@ -3,7 +3,7 @@ type: Research Note
 title: 'Persistent-world scale: budgets, and haks over 2 GiB'
 description: Persistent-world scale - where builders report Aurora slows or fails, Moonglow's measurements on a large world and what they found, and haks over 2 GiB.
 tags: [performance, scale, persistent-worlds, haks]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T05:53:59Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T05:14:21Z }
 ---
 
 # Persistent-world scale: budgets, and haks over 2 GiB
@@ -56,8 +56,8 @@ to five times the measurement and are only tightened (`PLAN.md` §7).
 | Custom item palette (8,000), first frames | 47 ms | 0.5 s |
 | …with every one of the 8,000 shown | 13 ms a frame | 33 ms |
 | Standard placeable palette, 10,000 hak blueprints shown | 16 ms a frame | 33 ms |
-| A store's inventory, 1,000 items (449 on its first page), first frames | 0.68 s | 2 s |
-| …afterwards | 6 ms a frame | 50 ms |
+| A store's inventory, 1,000 items (449 on its first page), first frames | 30 ms (0.68 s before 27 October) | 0.15 s |
+| …afterwards, and scrolled | 3 ms a frame | 33 ms |
 | A placeable's 20,500 appearances, listed | 7 ms a frame | 50 ms |
 | A creature's 17,100 appearances, listed | 5 ms a frame | 50 ms |
 | Area Properties, first frames | 8 ms | 0.5 s |
@@ -68,6 +68,8 @@ to five times the measurement and are only tightened (`PLAN.md` §7).
 | Where-used of an item blueprint | 0.8 s | 2 s |
 | Looking for changed haks (Reload Resources) | 0.6 ms | 100 ms |
 | Script references of `GetObjectByTag`, all 4,000 scripts | 78 ms | 1 s |
+| Advanced Search (any variable, 8,785 found), first | 0.22 s | 1 s |
+| …asked again, and after a change made to 300 found | 0.11 s, 12 ms | 0.5 s, 0.1 s |
 | Compile all 4,000 scripts | 1.4 s | 15 s |
 | Write the module | 27 ms | 1 s |
 
@@ -75,8 +77,10 @@ Each view was checked by a screenshot (`WORLD_SHOTS=1`) to be the one
 timed: the store on its Inventory page, the palettes open, the
 appearance lists dropped down.
 
-The store's 0.68 s is its first look at 449 item icons. Each is colored
-from its PLT once and kept, so the page shows at once after that.
+The store's 0.68 s was its first look at 449 item icons. Each is colored
+from its PLT once and kept, so the page showed at once after that; since
+27 October the list lays out only the rows in sight and builds their
+icons alone.
 
 ## What the measurements found
 
@@ -122,6 +126,7 @@ The blueprint pickers already did.
   (`campaign_perf.rs`) and the model corpus tests.
 - **Other systems.** Only the development machine was measured. The test
   needs the game and a GPU, so CI doesn't run it.
-- **Item icons:** the store and inventory lists still lay out every row,
-  so a page of thousands of items would build thousands of icons the first
-  time.
+- **Item icons** are built for the rows of a store or inventory in sight
+  only, so a page of thousands no longer builds thousands the first time;
+  the rows out of sight take a guessed height until seen
+  ([deferred](../deferred.md)).

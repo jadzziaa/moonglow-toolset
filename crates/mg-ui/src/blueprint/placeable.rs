@@ -185,15 +185,14 @@ fn contents(f: &mut Form<'_>, ui: &mut Ui) {
             return;
         }
         let ctx = ui.ctx().clone();
-        let icons: Vec<_> = items.iter().map(|it| f.entry_icon(&ctx, it)).collect();
-        let name = |it: &Struct| f.entry_name(it, &names);
+        let copied = f.app.item_clip.len();
+        let mut row = |_: usize, it: &Struct| (f.entry_icon(&ctx, it), f.entry_name(it, &names));
         let look = inventory::ItemLook {
-            icons: &icons,
-            name: &name,
+            row: &mut row,
             infinite: false,
             selected: &[],
             equip: false,
-            copied: f.app.item_clip.len(),
+            copied,
         };
         let mut out = inventory::item_list(ui, key, &base, &items, look);
         // Pasted, dragged from the palette, or dragged out of another

@@ -212,11 +212,12 @@ fn tag_fields(s: &Struct, path: &str, out: &mut Vec<(String, Vec<u8>)>) {
 }
 
 impl UsageIndex {
-    /// Reads the resources that are new or changed since the last time,
-    /// and forgets those that are gone.
+    /// Reads the resources that are new or changed since the last time
+    /// (on every core), and forgets those that are gone.
     pub fn refresh(&mut self, module: &Module) {
-        self.read = 0;
+        use rayon::prelude::*;
         self.seen.retain(|k, _| module.contains(k));
+        let mut changed = Vec::new();
         for key in module.keys() {
             let Some(data) = module.shared(key) else { continue };
             match self.seen.get_mut(key) {
@@ -229,9 +230,12 @@ impl UsageIndex {
                 }
                 _ => {}
             }
-            self.read += 1;
-            self.seen.insert(*key, Read::of(*key, data));
+            changed.push((*key, data));
         }
+        self.read = changed.len();
+        let read: Vec<(ResKey, Read)> =
+            changed.into_par_iter().map(|(key, data)| (key, Read::of(key, data))).collect();
+        self.seen.extend(read);
     }
 
     /// [`usages`] of `target`, from what [`refresh`](Self::refresh) read.

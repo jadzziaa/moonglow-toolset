@@ -95,6 +95,8 @@ pub struct PaletteView {
     toggle: Option<(Branch, bool)>,
     /// The cursor's row is to be brought into view: the keys moved it.
     reveal: bool,
+    /// Blueprints and their names as the editors read them, kept.
+    pub(crate) kept: crate::blueprint::picker::Kept,
 }
 
 /// A branch of a palette's tree: a category (by its place among the
@@ -302,6 +304,7 @@ impl PaletteView {
     pub(crate) fn forget_game_data(&mut self) {
         self.standard.clear();
         self.custom_cache.clear();
+        self.kept = Default::default();
         self.tile_palettes.clear();
         self.tileset_names.clear();
     }
@@ -333,6 +336,7 @@ impl Default for PaletteView {
             cursor: None,
             toggle: None,
             reveal: false,
+            kept: Default::default(),
         }
     }
 }
