@@ -203,28 +203,26 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         let path = base.clone().item("StoreList", index);
         let items = pages[index].list("ItemList").unwrap_or(&[]);
         let items = items.to_vec();
-        let icons: Vec<_> = items.iter().map(|it| f.entry_icon(ui.ctx(), it)).collect();
         // What the store sells each for: its cost at the store's mark up
         // (as Aurora lists it; a buyer's Appraise is the game's to add).
         let mark_up = f.root.integer("MarkUp").unwrap_or(100).max(0) as u64;
-        let prices: Vec<Option<u64>> = (items.iter())
-            .map(|it| f.entry_cost(it).map(|cost| u64::from(cost) * mark_up / 100))
-            .collect();
-        let name = |it: &Struct| {
+        let copied = f.app.item_clip.len();
+        let ctx = ui.ctx().clone();
+        let mut row = |_: usize, it: &Struct| {
+            let icon = f.entry_icon(&ctx, it);
             let name = f.entry_name(it, &names);
-            let price = items.iter().position(|i| std::ptr::eq(i, it)).and_then(|i| prices[i]);
-            match price {
+            let name = match f.entry_cost(it).map(|cost| u64::from(cost) * mark_up / 100) {
                 Some(gold) => format!("{name}  ·  {gold} gp"),
                 None => name,
-            }
+            };
+            (icon, name)
         };
         let look = inventory::ItemLook {
-            icons: &icons,
-            name: &name,
+            row: &mut row,
             infinite: true,
             selected: &[],
             equip: false,
-            copied: f.app.item_clip.len(),
+            copied,
         };
         let mut out = inventory::item_list(ui, key, &path, &items, look);
         // Pasted, dragged from the palette, or dragged out of another

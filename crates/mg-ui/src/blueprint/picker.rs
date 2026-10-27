@@ -2,11 +2,12 @@
 //! items), and what the editors need to know about the chosen ones.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use egui::Ui;
 use mg_core::ResRef;
 use mg_gff::{Gff, Struct};
-use mg_module::palette::{BlueprintKind, PaletteNode};
+use mg_module::palette::{BlueprintKind, Palette, PaletteNode};
 use mg_resman::ResKey;
 
 use super::Form;
@@ -18,9 +19,31 @@ impl Form<'_> {
         blueprint(self.app, kind, resref)
     }
 
+    /// A blueprint's fields, as [`blueprint`](Self::blueprint) reads
+    /// them, kept until the module changes ([`Kept`]).
+    pub(crate) fn kept_blueprint(
+        &mut self,
+        kind: BlueprintKind,
+        resref: ResRef,
+    ) -> Option<Arc<Struct>> {
+        let key = ResKey::new(resref, kind.restype());
+        let revision = self.app.ws.as_ref().map(mg_edit::Workspace::revision);
+        let kept = &mut self.app.palette.kept;
+        if kept.revision != revision {
+            kept.revision = revision;
+            kept.blueprints.clear();
+        }
+        if let Some(b) = kept.blueprints.get(&key) {
+            return b.clone();
+        }
+        let b = blueprint(self.app, kind, resref).map(Arc::new);
+        self.app.palette.kept.blueprints.insert(key, b.clone());
+        b
+    }
+
     /// The names of a type's blueprints, from the standard and the custom
-    /// palette.
-    pub(crate) fn blueprint_names(&mut self, kind: BlueprintKind) -> HashMap<ResRef, String> {
+    /// palette; kept while the palettes are the same.
+    pub(crate) fn blueprint_names(&mut self, kind: BlueprintKind) -> Arc<HashMap<ResRef, String>> {
         fn walk(n: &PaletteNode, game: &mg_rules::GameData, out: &mut HashMap<ResRef, String>) {
             for b in &n.blueprints {
                 out.insert(b.resref, b.name.text(game));
@@ -29,14 +52,26 @@ impl Form<'_> {
                 walk(c, game, out);
             }
         }
-        let mut out = HashMap::new();
         let palettes = [false, true].map(|custom| palette_view::palette(self.app, kind, custom));
-        let Some(game) = self.app.game.as_deref() else { return out };
+        let same = |a: &Option<Arc<Palette>>, b: &Option<Arc<Palette>>| match (a, b) {
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            (a, b) => a.is_none() && b.is_none(),
+        };
+        if let Some((from, names)) = self.app.palette.kept.names.get(&kind)
+            && same(&from[0], &palettes[0])
+            && same(&from[1], &palettes[1])
+        {
+            return names.clone();
+        }
+        let mut out = HashMap::new();
+        let Some(game) = self.app.game.as_deref() else { return Arc::new(out) };
         for p in palettes.iter().flatten() {
             for n in &p.nodes {
                 walk(n, game, &mut out);
             }
         }
+        let out = Arc::new(out);
+        self.app.palette.kept.names.insert(kind, (palettes, out.clone()));
         out
     }
 
@@ -124,6 +159,21 @@ pub(crate) fn palette_picker(
     }
     ui.data_mut(|d| d.insert_temp(state_id, (custom, filter, chosen)));
     taken
+}
+
+/// What the editors read of blueprints every frame, kept: blueprints'
+/// fields until the module changes (its revision), their names while the
+/// palettes they come from are the same; all of it until the game data
+/// changes (`PaletteView::forget_game_data`).
+#[derive(Debug, Default)]
+pub(crate) struct Kept {
+    /// The workspace revision `blueprints` were read at.
+    revision: Option<u64>,
+    blueprints: HashMap<ResKey, Option<Arc<Struct>>>,
+    /// By kind: the palettes the names were read from (standard,
+    /// custom), and the names.
+    #[allow(clippy::type_complexity)]
+    names: HashMap<BlueprintKind, ([Option<Arc<Palette>>; 2], Arc<HashMap<ResRef, String>>)>,
 }
 
 /// A blueprint's fields: the module's, else the game's.

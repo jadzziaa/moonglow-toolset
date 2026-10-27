@@ -41,7 +41,7 @@ impl Form<'_> {
         if entry.integer("BaseItem").is_some() {
             return self.app.item_icon(ctx, entry);
         }
-        match self.blueprint(BlueprintKind::Item, entry_resref(entry)) {
+        match self.kept_blueprint(BlueprintKind::Item, entry_resref(entry)) {
             Some(item) => self.app.item_icon(ctx, &item),
             None => Vec::new(),
         }
@@ -51,12 +51,16 @@ impl Form<'_> {
     /// own, else its blueprint's; nothing without the game or the
     /// blueprint.
     pub(super) fn entry_cost(&mut self, entry: &Struct) -> Option<u32> {
+        let kept;
         let item = match entry.integer("BaseItem") {
-            Some(_) => entry.clone(),
-            None => self.blueprint(BlueprintKind::Item, entry_resref(entry))?,
+            Some(_) => entry,
+            None => {
+                kept = self.kept_blueprint(BlueprintKind::Item, entry_resref(entry))?;
+                &*kept
+            }
         };
         let game = self.app.game.as_deref()?;
-        Some(game.item_cost(&mg_rules::ItemValue::from_gff(&item)))
+        Some(game.item_cost(&mg_rules::ItemValue::from_gff(item)))
     }
 
     /// An entry's name: a whole item's own, else its blueprint's.
@@ -189,7 +193,8 @@ impl Form<'_> {
     }
 
     pub(super) fn item_fit(&mut self, resref: ResRef) -> ItemFit {
-        let base = self.blueprint(BlueprintKind::Item, resref).and_then(|u| u.integer("BaseItem"));
+        let item = self.kept_blueprint(BlueprintKind::Item, resref);
+        let base = item.and_then(|u| u.integer("BaseItem"));
         // (No blueprint or no base item: no row, as a negative one.)
         self.base_item_fit(base.unwrap_or(-1))
     }
@@ -414,11 +419,15 @@ pub(super) struct ListOut {
     pub paste: bool,
 }
 
+/// A row of an item list: the item's icon layers and its name.
+pub(super) type Row = (Vec<Picture>, String);
+
 /// How an item list shows its items.
 pub(super) struct ItemLook<'a> {
-    /// Each item's icon layers.
-    pub icons: &'a [Vec<Picture>],
-    pub name: &'a dyn Fn(&Struct) -> String,
+    /// An item's icon layers and name (its index, the item): asked for
+    /// the rows in sight only, as they are drawn (a store's page may hold
+    /// thousands).
+    pub row: &'a mut dyn FnMut(usize, &Struct) -> Row,
     /// A store's Infinite column.
     pub infinite: bool,
     /// The selected items (a creature's, for their options).
@@ -443,7 +452,7 @@ pub(super) fn item_list(
     items: &[Struct],
     look: ItemLook<'_>,
 ) -> ListOut {
-    let ItemLook { icons, name, infinite, selected, equip, copied } = look;
+    let ItemLook { row: make, infinite, selected, equip, copied } = look;
     let mut clicked = None;
     let mut asked = None;
     let (mut paste, mut moved) = (false, Vec::new());
@@ -483,6 +492,15 @@ pub(super) fn item_list(
     }
     // The list fills what is left of the page's visible height.
     let height = (ui.clip_rect().bottom() - ui.cursor().top()).max(200.0);
+    // Each row's height as it was last drawn (0: not yet), for the rows
+    // out of sight, which take their room only; one never drawn takes
+    // the middle height of those that were.
+    let heights_id = egui::Id::new(("item-heights", key, path.to_string()));
+    let mut heights: Vec<f32> = ui.data(|d| d.get_temp(heights_id)).unwrap_or_default();
+    heights.resize(items.len(), 0.0);
+    let mut drawn: Vec<f32> = heights.iter().copied().filter(|h| *h > 0.0).collect();
+    drawn.sort_by(f32::total_cmp);
+    let guess = drawn.get(drawn.len() / 2).copied().unwrap_or(ICON_MAX.y / 2.0 + 4.0);
     let list = egui::ScrollArea::vertical()
         .id_salt(("items", key, path.to_string()))
         .max_height(height)
@@ -492,16 +510,21 @@ pub(super) fn item_list(
             // (Room to drop on, in an empty list too.)
             ui.set_min_height(48.0);
             for (i, it) in items.iter().enumerate() {
+                let width = ui.available_width() - gutter;
+                let known = if heights[i] > 0.0 { heights[i] } else { guess };
+                let room = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(width, known));
+                if !ui.is_rect_visible(room) {
+                    ui.allocate_space(egui::vec2(width, known));
+                    continue;
+                }
                 let resref = entry_resref(it);
-                let n = name(it);
-                let layers = icons.get(i).map_or(&[][..], |v| v);
+                let (layers, n) = make(i, it);
+                let layers = &layers[..];
                 // Each row as tall as its icon: armor at its own size, rings
                 // and potions compact.
                 let height = crate::images::icon_size(layers, ICON_MAX).y + 4.0;
-                let row = egui::vec2(
-                    ui.available_width() - gutter,
-                    height.max(ui.spacing().interact_size.y),
-                );
+                let row = egui::vec2(width, height.max(ui.spacing().interact_size.y));
+                heights[i] = row.y;
                 let (rect, _) = ui.allocate_exact_size(row, egui::Sense::hover());
                 if ui.rect_contains_pointer(rect) {
                     hovered = Some(i);
@@ -612,6 +635,7 @@ pub(super) fn item_list(
                 });
             }
         });
+    ui.data_mut(|d| d.insert_temp(heights_id, heights));
     // A row moved within the list: out of its place and in before the row
     // it was let go on.
     if let Some((from, to)) = reorder

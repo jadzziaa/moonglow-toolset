@@ -107,7 +107,7 @@ fn creatures(f: &mut Form<'_>, ui: &mut Ui) {
         .iter()
         .map(|c| {
             let r = c.resref("ResRef").unwrap_or(ResRef::EMPTY);
-            f.blueprint(BlueprintKind::Creature, r)
+            f.kept_blueprint(BlueprintKind::Creature, r)
                 .and_then(|u| u.string("Tag").map(crate::text::decode))
                 .unwrap_or_default()
         })

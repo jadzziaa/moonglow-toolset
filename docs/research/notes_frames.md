@@ -3,7 +3,7 @@ type: Research Note
 title: 'Frames at 144 a second: where a frame''s time went'
 description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, what the profile found, and what is left.
 tags: [performance, frames, renderer, area-view, galleries]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T05:29:02Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T05:14:21Z }
 sources:
   - id: frame-perf
     resource: crates/mg-ui/tests/frame_perf.rs
@@ -70,7 +70,7 @@ throughout, with 4x multisampling.
 | The palette's Gallery, scrolled (pictures being made) | 25 | 3.7; a slow picture up to 9 |
 | The Gallery over the whole window, smallest pictures, left alone | 26, without end | 1.7 |
 | Editors, palettes, the resource browser, menus (a campaign) | 0.3 to 2.0 | the same |
-| A store's inventory of 1,000 items (persistent world) | 6.1 | 5.9 |
+| A store's inventory of 1,000 items (persistent world) | 6.1 | 0.5 (6.3 until its list laid out only the rows in sight, 27 October) |
 | The module tree, 25,000 resources listed | 3.4 | 3.4 |
 
 Of the 784-tile area's picture: its draws took 13.4 ms to encode and take
@@ -223,8 +223,8 @@ In short:
   textures are read in the frame).
 - **A slow picture** (a model with large textures) still takes a frame
   of 7 to 9 ms in a gallery.
-- **The store's inventory and the module tree** at persistent-world
-  sizes are as they were.
+- **The module tree** at persistent-world sizes is as it was. (The
+  store's inventory lays out the rows in sight only since 27 October.)
 - **Pictures that differ from run to run:** 10 of 192 area pictures,
   by a few pixels to a few hundred; the cause wasn't looked for.
 - **Other machines, and the time egui takes to paint and present.**

@@ -1,5 +1,8 @@
 # Update log
 
+## 2026-10-27
+* **Update**: A store's or inventory's list lays out the rows in sight and builds their icons only, the blueprints and names it reads kept until the module changes (the persistent world's store: 30 ms to show where it took 0.4 s, 0.5 ms a frame where it took 6.3); Advanced Search reads each GFF once a question for all its conditions, on every core, and a question asked again (Find, or after a change made to what it found) only the resources changed since (Chapter One: 7 to 40 ms where it took 70 to 250; the persistent world: 0.2 s, 12 ms after a change, where it took 0.7 to 2.1 s); Find References' first read on every core (1.4 s to 0.2 s). [Frames](research/notes_frames.md), [persistent-world scale](research/notes_scale.md), [the deferred list](deferred.md): the rows out of sight take a guessed height, a new question reads the module again, the events list reads what was found.
+
 ## 2026-10-26
 * **Update**: [The deferred list](deferred.md) tidied: entries done in the shader milestones and in 2.3.0 taken out (their remainders kept), the two Direct3D 12 and Metal checks settled by CI (the game's programs drew on both for 2.8.0), the module tree no longer called cut short, a duplicate merged, and the sections named after a report filed under their areas.
 * **Update**: [The main window](manual/02-main-window.md): letters typed go to the module tree while it has the keys, wherever the pointer is, as Aurora's tree takes them (a builder's request); [the deferred list](deferred.md).

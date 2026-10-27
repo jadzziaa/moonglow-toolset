@@ -2516,6 +2516,8 @@ impl Moonglow {
             return;
         }
         self.custom_tlk = name.clone();
+        // (Blueprints' names kept by the editors may come from it.)
+        self.palette.kept = Default::default();
         let Some(name) = name else {
             game.set_custom_tlk(None);
             return;

@@ -146,7 +146,7 @@ fn persistent_world_stays_within_budget() {
     h.state_mut().actions.push(Action::OpenTab(Tab::Blueprint(store)));
     h.run_steps(2);
     h.get_by_label("Inventory").click();
-    frames(&mut h, &mut b, "store inventory with 1,000 items", S(2), MS(50), |_| {});
+    frames(&mut h, &mut b, "store inventory with 1,000 items", MS(150), MS(33), |_| {});
     // Its list scrolled down, a page of rows at a time.
     let at = h.get_all_by_label("Remove").next().unwrap().rect().center() - egui::vec2(200.0, 0.0);
     h.hover_at(at);
@@ -161,8 +161,8 @@ fn persistent_world_stays_within_budget() {
         scrolled.extend((0..3).map(|_| time(|| h.step()).1));
     }
     let worst = scrolled.iter().max().copied().unwrap();
-    b.check("store inventory scrolled: frame", median(scrolled), MS(50));
-    b.check("store inventory scrolled: slowest frame", worst, MS(500));
+    b.check("store inventory scrolled: frame", median(scrolled), MS(33));
+    b.check("store inventory scrolled: slowest frame", worst, MS(100));
     if std::env::var_os("WORLD_SHOTS").is_some() {
         let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../target/test-output/world-shots");
