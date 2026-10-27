@@ -3,7 +3,6 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
-use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -83,13 +82,8 @@ fn hash_file(h: &mut impl std::hash::Hasher, meta: &std::fs::Metadata) {
     }
 }
 
-#[allow(unsafe_code)]
-pub(crate) fn map_file(path: &Path) -> Result<Mmap, ResError> {
-    let file = File::open(path).map_err(|e| ResError::io(path, e))?;
-    // SAFETY: game archives are treated as read-only while mapped; a file
-    // truncated underneath us can fault reads, the accepted risk of
-    // memory-mapping (the game and every Aurora tool do the same).
-    unsafe { Mmap::map(&file) }.map_err(|e| ResError::io(path, e))
+fn map_file(path: &Path) -> Result<Mmap, ResError> {
+    mg_key::map_file(path).map_err(|e| ResError::io(path, e))
 }
 
 /// The base game's KEY/BIF archives.

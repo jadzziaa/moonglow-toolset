@@ -34,7 +34,7 @@
 //! against Aurora). Its package's equipment is [`GameData::new_class_gear`]'s
 //! (the caller makes the items).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 use mg_gff::{Struct, Value};
 
@@ -51,6 +51,19 @@ const SPELL_ID: u32 = 3;
 enum Pick {
     Normal,
     Bonus,
+}
+
+/// A class's feat table (`cls_feat_*.2da`) by feat: the `List` of the
+/// first row naming it, as the game looks it up. Made once a level, not
+/// once per preferred feat.
+fn class_lists(t: &mg_2da::TwoDa) -> HashMap<u16, Option<i32>> {
+    let mut lists = HashMap::new();
+    for r in 0..t.len() {
+        if let Some(f) = t.get_int(r, "FeatIndex").and_then(|f| u16::try_from(f).ok()) {
+            lists.entry(f).or_insert_with(|| t.get_int(r, "List"));
+        }
+    }
+    lists
 }
 
 /// A creature being levelled up.
@@ -331,10 +344,11 @@ impl GameData {
                     .collect()
             })
             .unwrap_or_default();
+        let lists = feats_table.as_deref().map(class_lists).unwrap_or_default();
         for (pick, count) in [(Pick::Normal, normal), (Pick::Bonus, bonus)] {
             for _ in 0..count {
                 let choice = prefs.iter().copied().find(|&f| {
-                    !s.has(f) && self.may_take(s, &before, slot, f, pick) && !taken.contains(&f)
+                    !s.has(f) && self.may_take(s, &before, &lists, f, pick) && !taken.contains(&f)
                 });
                 if let Some(f) = choice {
                     taken.insert(f);
@@ -447,7 +461,17 @@ impl GameData {
     /// Whether the creature may take `feat` this level (as a normal or the
     /// levelling class's bonus feat), meeting its prerequisites with the
     /// feats it had before the level (`before`).
-    fn may_take(&self, s: &State, before: &[u16], slot: usize, feat: u16, pick: Pick) -> bool {
+    ///
+    /// `lists` is the levelling class's `FeatsTable` by feat: the `List`
+    /// of the first row naming it ([`class_lists`]).
+    fn may_take(
+        &self,
+        s: &State,
+        before: &[u16],
+        lists: &HashMap<u16, Option<i32>>,
+        feat: u16,
+        pick: Pick,
+    ) -> bool {
         let Ok(t) = self.table("feat") else { return false };
         let row = usize::from(feat);
         if t.get(row, "FEAT").is_none() {
@@ -455,20 +479,13 @@ impl GameData {
         }
         let int = |c: &str| t.get_int(row, c);
         // The class lists: list 0 general, 1 general or bonus, 2 bonus only.
-        let classes = self.table("classes").ok();
-        let list_of = |class: u32| -> Option<i32> {
-            let name = classes.as_ref()?.get(class as usize, "FeatsTable")?.to_lowercase();
-            let ft = self.table(&name).ok()?;
-            (0..ft.len())
-                .find(|&r| ft.get_int(r, "FeatIndex") == Some(i32::from(feat)))
-                .and_then(|r| ft.get_int(r, "List"))
-        };
         // Only the levelling class's list counts, whatever ALLCLASSESCANUSE
         // says (a rogue does not take Weapon Finesse, a cleric Combat
         // Casting: neither class lists them).
+        let list = lists.get(&feat).copied().flatten();
         let allowed = match pick {
-            Pick::Normal => matches!(list_of(s.classes[slot].0), Some(0 | 1)),
-            Pick::Bonus => matches!(list_of(s.classes[slot].0), Some(1 | 2)),
+            Pick::Normal => matches!(list, Some(0 | 1)),
+            Pick::Bonus => matches!(list, Some(1 | 2)),
         };
         if !allowed {
             return false;
