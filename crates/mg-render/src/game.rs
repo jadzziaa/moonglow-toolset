@@ -198,6 +198,9 @@ pub(crate) enum Key {
     /// `blendMode`: a particle's blend (0 normal, 1 additive, 2
     /// punch-through, as `fsparticle` names them; read from the client).
     BlendMode,
+    /// `particleSoftness`: how sharply a particle fades where it meets
+    /// what lies behind it (`crate::particles::softness`).
+    ParticleSoftness,
     /// The material's MTR `parameter` of this name, else zero: the
     /// material values (`Specularity`, `Roughness`, `Metallicness`,
     /// `CustomSpecularColor`, `DisplacementOffset`…) and a custom
@@ -270,6 +273,7 @@ pub(crate) fn key(name: &str) -> Key {
         "areaWeatherType" => AreaWeatherType,
         "areaWeatherDensity" => AreaWeatherDensity,
         "blendMode" => BlendMode,
+        "particleSoftness" => ParticleSoftness,
         _ => match name.strip_prefix("texture").and_then(|n| n.strip_suffix("Bound")) {
             Some(n) if n.parse::<u8>().is_ok_and(|n| n <= 15) => {
                 TextureBound(n.parse().unwrap_or_default())
@@ -403,6 +407,8 @@ pub(crate) struct DrawValues<'a> {
     pub(crate) texture_matrix: Mat4,
     /// A particle's `blendMode` ([`Key::BlendMode`]).
     pub(crate) blend_mode: i32,
+    /// A particle's `particleSoftness` (0: no fade).
+    pub(crate) particle_softness: f32,
 }
 
 /// A value to write.
@@ -530,6 +536,7 @@ fn value<'a>(key: &Key, f: &FrameValues, d: &DrawValues<'a>, mv: &mut Option<Mat
         AreaWeatherType => Val::I(i32::from(f.environment.weather)),
         AreaWeatherDensity => Val::F(f.environment.weather_density),
         BlendMode => Val::I(d.blend_mode),
+        ParticleSoftness => Val::F(d.particle_softness),
         Param(name) => match d.params.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)) {
             Some((_, MtrParam::Int(i))) => Val::I(*i),
             Some((_, MtrParam::Float(v))) if v.len() == 1 => Val::F(v[0]),
@@ -745,7 +752,7 @@ pub(crate) fn part(m: &Member) -> Part {
     match key(&m.name) {
         Mv | Mvp | M | Normal | TextureMatrix | Skinmesh | BboxMin | BboxMax | MaterialAmbient
         | MaterialDiffuse | MaterialEmissive | GlobalColor | TextureBound(_) | AlphaDiscard
-        | EnvMapCube | TexEnvBound | TexEnvCubeBound | BlendMode => Part::Draw,
+        | EnvMapCube | TexEnvBound | TexEnvCubeBound | BlendMode | ParticleSoftness => Part::Draw,
         NumLights | LightPosition | LightColor | LightIndex => Part::Lights,
         Bones => Part::Bones,
         Param(name) if unfilled(&name) => Part::Frame,

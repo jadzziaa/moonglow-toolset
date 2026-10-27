@@ -2087,10 +2087,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     thumbnails and previews (no copies), and where `fswater` fails
     (`FRAME_OWN_WATER=1` in `frame_perf` times it beside). Still 10.9 away:
     not looked into. (S)
-  - **Soft particles** (`particleSoftness`, above 0 in the client) fade
-    where a particle meets what is behind it, through `texFBDepth`:
-    Moonglow's particles don't, by either path; its value wasn't read
-    (step 4 of [the framebuffer proposal](framebuffer-proposal.md)). (S)
+  - **Soft particles** fade as the client's with the Shaders switch on
+    (`particleSoftness` 10 over the emitter's larger size, read from the
+    client: step 4 of [the framebuffer proposal](framebuffer-proposal.md)).
+    Moonglow's own particle shader (the switch off) doesn't fade; what
+    the client gives lightning and `Linked` emitters wasn't read (Moonglow
+    gives lightning none); a Lighten particle's foot fades a little more
+    than the client's (6.2 of 255 away over its last rows). (S)
   - **The sky's fade** (the horizon's band in the fog's colour) stays
     Moonglow's: what the engine draws it with and gives it (`globalColor`,
     its blending) wasn't read; the skybox is the game's `vsvt`/`fst`. (S)

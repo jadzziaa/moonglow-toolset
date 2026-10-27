@@ -56,6 +56,8 @@ mod ee_visuals;
 mod heads;
 #[path = "client_render/programs.rs"]
 mod programs;
+#[path = "client_render/soft_particles.rs"]
+mod soft_particles;
 #[path = "client_render/upright.rs"]
 mod upright;
 #[path = "client_render/uv_sets.rs"]

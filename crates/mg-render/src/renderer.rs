@@ -413,6 +413,10 @@ pub struct Renderer {
     /// them (a picture drawn once: a thumbnail, a preview, a test). Off by
     /// default.
     pub game_background: bool,
+    /// Particles fade where they meet what lies behind them (the game's
+    /// `particleSoftness`, through the framebuffer's depth copy), as in
+    /// the client. On by default; off, for comparing.
+    pub soft_particles: bool,
     /// The draw that fills a target's framebuffer copies
     /// ([`crate::framebuffer`]), made the first time one is filled.
     copier: Option<crate::framebuffer::Copier>,
@@ -899,6 +903,7 @@ impl Renderer {
             game_shaders: false,
             game_water: GAME_WATER,
             game_background: false,
+            soft_particles: true,
             copier: None,
             water_now: false,
             game: crate::game::GameShaders::new(gpu),
@@ -1804,6 +1809,7 @@ impl Renderer {
                             material,
                             texture_matrix: texture_turn(inst, mat),
                             blend_mode: 0,
+                            particle_softness: 0.0,
                         };
                         timed += usize::from(p.timed);
                         let geometry = crate::game::Geometry::Mesh(mesh);
@@ -2151,6 +2157,9 @@ impl Renderer {
         });
         let mut particle_vertices: Vec<ParticleVertex> = Vec::new();
         let mut particle_draws = Vec::new();
+        // (Each draw's `particleSoftness`: the batch's, with
+        // `soft_particles`.)
+        let mut particle_softness: Vec<f32> = Vec::new();
         for b in &batches {
             let mut names: [Option<String>; SLOTS] = Default::default();
             names[0] = b.texture.clone();
@@ -2171,10 +2180,14 @@ impl Renderer {
                 None => particle_vertices.extend_from_slice(&b.vertices),
             }
             particle_draws.push((b.blend, group, start..particle_vertices.len() as u32, None));
+            particle_softness.push(if self.soft_particles { b.softness } else { 0.0 });
         }
         // The particles through `vsparticle`/`fsparticle` (read from the
         // client: `NO_DISCARD` 1 but for punch-through, `blendMode` the
-        // blend); where their pipeline isn't ready, Moonglow's own.
+        // blend, `particleSoftness` by the emitter's size); where their
+        // pipeline isn't ready, Moonglow's own. (A soft one reads the
+        // framebuffer's depth copy: the frame makes it.)
+        let mut soft_particles = false;
         if let Some(f) = &game_frame
             && self.debug == DebugView::Lit
         {
@@ -2216,8 +2229,12 @@ impl Renderer {
                         ParticleBlend::Lighten => 1,
                         ParticleBlend::PunchThrough => 2,
                     },
+                    // (Faded through the framebuffer's depth copy: only
+                    // where the target has copies.)
+                    particle_softness: if copies.is_some() { particle_softness[k] } else { 0.0 },
                     ..Default::default()
                 };
+                soft_particles |= d.particle_softness > 0.0;
                 if let Some(list) = &mut self.game_programs {
                     list.push(GameProgram {
                         model: "(particles)".into(),
@@ -2263,7 +2280,9 @@ impl Renderer {
         // The copies are filled where a draw reads them: the pass is cut
         // after the solid meshes, and the copy made.
         let copying = copies.filter(|_| {
-            early < game_draws.len() || game_blended.iter().any(|d| d.pipeline.wants_fb)
+            early < game_draws.len()
+                || soft_particles
+                || game_blended.iter().any(|d| d.pipeline.wants_fb)
         });
         self.game.set_framebuffer(copying.map(|c| crate::game::FbViews {
             color: c.color.clone(),
