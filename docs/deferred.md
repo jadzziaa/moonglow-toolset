@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T08:33:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T09:23:27Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1634,8 +1634,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   (`area_lighting_look`; 2.5 with either shader, measured again on
   2.5.2); what was missing in the reports' areas was the
   light of their placeables' light nodes. A builder's tileset whose
-  lights don't show would need its area to look at. (S) (Heed's report,
-  October 2026)
+  lights don't show would need its area to look at. His later pictures
+  (2.8.x: dark gray ambient 60 and diffuse 170, Always Bright; the tile
+  lights overpowered by a white ambient) were not reproduced on stock
+  content either: a `tin01` interior set as his is draws the same with
+  the Shaders switch on and off, within 0.7 to 1.5 of 255 of the
+  client's at 60/170, 60/150, 255/170 and 0/0, the white ambient as flat
+  in the client (`heed_interior_look`; findings, "An area's ambient and
+  diffuse beside its tile lights"). (S) (Heed's report, October 2026)
 - **Heed's interior washed out with the game's shaders, to confirm in
   his module:** his walls and floors are placeables whose custom vertex
   program picks a texture coordinate set by an MTR int (`nUvmap`), and
@@ -1648,8 +1654,24 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   own module, which we don't have. If his smithy still differs on the
   next release, his module and haks are what to look at. (Stock
   interiors draw the same with either shader: findings, "The game's
-  shaders and Moonglow's own in stock interiors".) (S) (Heed's report,
-  October 2026)
+  shaders and Moonglow's own in stock interiors".) On 2.8.x he saw the
+  switch's two pictures differ again, Shaders on darker and muddier
+  with his dark gray area lights: with his pair on stock tiles,
+  Moonglow's own shader lit them as `fslit` (softened past the
+  terminator) where his `fhss_skintile` lights as `fslit_nm`, brighter
+  in the dark corners by up to a tenth; it is lit as its fragment
+  program defines now (findings, "An area's ambient and diffuse beside
+  its tile lights"). That was a small difference on stock textures:
+  how far it explains his pictures, with his walls' own maps, needs his
+  area, the wall and floor placeables' models, their MTRs and textures,
+  and his haks. (S) (Heed's report, October 2026)
+- **A custom fragment program's other defines:** with the Shaders switch
+  off, a custom pair is lit as its fragment program's `NORMAL_MAP`
+  says (`fslit_nm`'s lighting or `fslit`'s); its other defines
+  (`SPECULAR_MAP`, `HEIGHT_MAP`, `ROUGHNESS_MAP` apart from
+  `NORMAL_MAP`, `LIGHT_SOFTENING_ENABLED` and the like) and what its own
+  code does are not read, and a pair whose source isn't there is lit by
+  the render hint as before. (S) (Heed's report, October 2026)
 - **Moonglow's own shader and custom vertex programs:** with the
   Shaders switch off, a mesh whose material names a custom pair is
   drawn from its `tverts`, whatever set its vertex program picks or

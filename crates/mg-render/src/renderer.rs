@@ -211,6 +211,14 @@ struct Slots {
     /// no map beyond the diffuse texture (read from the client): the maps
     /// are left out.
     normal_variant: bool,
+    /// Lit as the game's normal-mapped programs light (Moonglow's own
+    /// shader's `_nm` lighting: no light softened past the terminator, a
+    /// light the surface itself faces away from left out): as
+    /// [`Slots::normal_variant`], or for a custom pair as its fragment
+    /// program defines (`NORMAL_MAP 1`, as `fslit_nm` and Heed's
+    /// `fhss_skintile` do), with a render hint or without, as the game
+    /// lights it (`heed_interior_look` in `client_render.rs`).
+    lit_normal_mapped: bool,
     /// A known custom shader's doings.
     effect: Option<Effect>,
     /// The fragment shader the MTR names has the environment map switched
@@ -267,11 +275,14 @@ fn alpha_in(t: &mg_image::Texture) -> bool {
 
 /// Whether a fragment shader's source switches the environment map off.
 fn env_switched_off(source: &str) -> bool {
+    defines(source, "ENVIRONMENT_MAP", "0")
+}
+
+/// Whether a shader's source has `#define name value`.
+fn defines(source: &str, name: &str, value: &str) -> bool {
     source.lines().any(|l| {
         let mut words = l.split_whitespace();
-        words.next() == Some("#define")
-            && words.next() == Some("ENVIRONMENT_MAP")
-            && words.next() == Some("0")
+        words.next() == Some("#define") && words.next() == Some(name) && words.next() == Some(value)
     })
 }
 
@@ -1302,6 +1313,12 @@ impl Renderer {
         }
         out.normal_variant = mat.normal_mapped
             || mtr.as_ref().is_some_and(|m| m.renderhint != mg_image::mtr::RenderHint::None);
+        out.lit_normal_mapped = match &out.custom {
+            Some((_, fs)) => {
+                assets.shader(fs).map_or(out.normal_variant, |s| defines(&s, "NORMAL_MAP", "1"))
+            }
+            None => out.normal_variant,
+        };
         if out.effect.is_none() && out.custom.is_none() {
             // (A custom shader's own slots mean nothing to the stock ones;
             // nor do the maps to `fslit`, without a render hint.)
@@ -2153,7 +2170,7 @@ impl Renderer {
                         flag(bound[5]),
                         slots.displacement_offset,
                         slots.displacement_multiplier,
-                        flag(slots.normal_variant),
+                        flag(slots.lit_normal_mapped),
                     ],
                     spec_color: slots.specular_color.map_or([0.0; 4], |c| c.extend(1.0).to_array()),
                     // (w: which part of a see-through mesh, below; 3 a
@@ -3013,6 +3030,24 @@ impl Targets {
 
 #[cfg(test)]
 mod tests {
+    /// A program's defines, as a custom fragment program has them (Heed's
+    /// `fhss_skintile`, the stock `fslit_nm` but for keyholing): what
+    /// Moonglow's own shader lights its material as.
+    #[test]
+    fn a_fragment_programs_defines_are_read() {
+        let fs = "#define SHADER_TYPE 2\n\n#define FOG 1\n#define KEYHOLING 0\n\
+                  #define LIGHTING 1\n\n#define NORMAL_MAP\t1\n#define SPECULAR_MAP 1\n\
+                  #define ENVIRONMENT_MAP 0\n\n#include \"inc_standard\"\n";
+        assert!(super::defines(fs, "NORMAL_MAP", "1"));
+        assert!(!super::defines(fs, "NORMAL_MAP", "0"));
+        assert!(!super::defines(fs, "HEIGHT_MAP", "1"), "not defined");
+        assert!(super::env_switched_off(fs));
+        let stock = fs.replace("NORMAL_MAP\t1", "NORMAL_MAP 0");
+        assert!(!super::defines(&stock, "NORMAL_MAP", "1"));
+        // (A line that only mentions it.)
+        assert!(!super::defines("// #define NORMAL_MAP 1\n", "NORMAL_MAP", "1"));
+    }
+
     /// A component below zero is no light, not a number that is none (a
     /// power of a negative number), which the shader would spread.
     #[test]

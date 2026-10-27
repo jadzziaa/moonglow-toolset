@@ -54,6 +54,8 @@ use common::{SETTINGS, client_capture, client_screenshot, compile, save_png};
 mod ee_visuals;
 #[path = "client_render/heads.rs"]
 mod heads;
+#[path = "client_render/heed.rs"]
+mod heed;
 #[path = "client_render/programs.rs"]
 mod programs;
 #[path = "client_render/soft_particles.rs"]
@@ -357,7 +359,8 @@ fn region_report(what: &str, pictures: &[(&str, &Rgba)]) {
 
 /// Moonglow's pictures of a scene with the Shaders switch off (its own
 /// shader: `{name}.png`) and on (the game's: `{name}_on.png`), and how far
-/// each is from the client's ([`picture_difference`]), printed.
+/// each is from the client's ([`picture_difference`]), printed; the two
+/// pictures returned (off, on).
 #[allow(clippy::too_many_arguments)]
 fn off_and_on(
     gpu: &Gpu,
@@ -368,7 +371,7 @@ fn off_and_on(
     client: Option<&Rgba>,
     dir: &Path,
     name: &str,
-) {
+) -> (Rgba, Rgba) {
     let mut r = Renderer::new(gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
     let off = r.render_image(gpu, &game.resman, scene, camera, w, h);
     r.game_shaders = true;
@@ -392,6 +395,7 @@ fn off_and_on(
             region_report(name, &[("client", c), ("off", &off), ("on", &on)]);
         }
     }
+    (off, on)
 }
 
 /// Exploration (`MG_FIT=1`): the camera that matches the client's image best
@@ -2561,21 +2565,6 @@ fn area_lighting_look() {
     let area = ResRef::from_str(&area_name).unwrap();
     let read = |t| from.gff(&ResKey::new(area, t)).unwrap().unwrap();
     let (mut are, mut git) = (read(ResType::ARE), read(ResType::GIT));
-    // The module: a new one with an area of the same tileset and size,
-    // made this one (under the new area's name), its scripts left out.
-    let mut rng = fastrand::Rng::with_seed(11);
-    let mut m = new_module(&game, "MgScene", &mut rng).unwrap();
-    let spec = AreaSpec {
-        name: "Scene".into(),
-        tileset: are.root.resref("Tileset").unwrap(),
-        width: are.root.int("Width").unwrap() as u32,
-        height: are.root.int("Height").unwrap() as u32,
-    };
-    let new_area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
-    are.root.set("ResRef", Value::resref(new_area));
-    for label in ["OnEnter", "OnExit", "OnHeartbeat", "OnUserDefined"] {
-        are.root.set(label, Value::resref(ResRef::EMPTY));
-    }
     git.root.set("Creature List", Value::List(Vec::new()));
     // `MG_AREA_PLACE=row@x,y[@z][;...]`: placeables of those appearances
     // added (a builder's lamps), Illuminated as their blueprints are.
@@ -2600,16 +2589,81 @@ fn area_lighting_look() {
         }
         git.root.set("Placeable List", Value::List(list));
     }
-    let (w, h) = (spec.width as f32 * 10.0, spec.height as f32 * 10.0);
-    let pc = std::env::var("MG_AREA_PC")
-        .ok()
-        .and_then(|v| {
-            let p: Vec<f32> = v.split(',').filter_map(|s| s.trim().parse().ok()).collect();
-            (p.len() == 2).then(|| glam::Vec2::new(p[0], p[1]))
-        })
-        .unwrap_or(glam::Vec2::new(w / 2.0, h / 2.0));
-    m.set_gff(ResKey::new(new_area, ResType::ARE), &are).unwrap();
-    m.set_gff(ResKey::new(new_area, ResType::GIT), &git).unwrap();
+    let pc = env_pc().unwrap_or_else(|| area_middle(&are));
+    save_area_module(&game, &dir, &mut are, &git, pc, &haks);
+    let client = client_screenshot(&dir, "MgScene");
+    if let Some(c) = &client {
+        save_png(c, &dir.join("client.png"));
+    }
+    // Moonglow's area view of the same area.
+    if std::env::var_os("MG_MUTATE").is_some() {
+        let src = game.resman.get_named("inc_standard", ResType::SHD).unwrap();
+        let src = String::from_utf8_lossy(&src).replace(
+            "\tApplyDebugModeOutput(FragmentColor);\n}",
+            "\tApplyDebugModeOutput(FragmentColor);\n\tFragmentColor = vec4(1.0, 0.0, 1.0, 1.0);\n}",
+        );
+        std::fs::create_dir_all(dir.join("user/override")).unwrap();
+        std::fs::write(dir.join("user/override/inc_standard.shd"), src).unwrap();
+        game = GameData::open(&install).unwrap();
+        game.resman.add_haks(&install, &haks).unwrap();
+    }
+    let tileset = mg_area::tileset(&game, are.root.resref("Tileset").unwrap()).ok();
+    let model = mg_area::AreaModel::read(&game, &are.root, &git.root, tileset.as_ref());
+    let area_scene = mg_area::AreaScene::new(&gpu, &game, &model);
+    let pc = player_stood(&dir, &game, &model, pc);
+    let camera = fitted_camera(pc, FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
+    let size = client.as_ref().map_or((1280, 800), |c| (c.width, c.height));
+    for (name, lit, fog) in
+        [("lit", true, true), ("lit_nofog", true, false), ("unlit", false, false)]
+    {
+        let view = mg_area::View { lit, fog, ..mg_area::View::of(&model) };
+        let scene = area_scene.scene(&model, &view);
+        eprintln!("{name}: {} lights, area light {:?}", scene.lights.len(), scene.area);
+        off_and_on(&gpu, &game, &scene, &camera, size, client.as_ref(), &dir, name);
+    }
+    eprintln!("{}: client {}", dir.display(), client.is_some());
+}
+
+/// `MG_AREA_PC=x,y`: where the player is put, if given.
+fn env_pc() -> Option<glam::Vec2> {
+    let v = std::env::var("MG_AREA_PC").ok()?;
+    let p: Vec<f32> = v.split(',').filter_map(|s| s.trim().parse().ok()).collect();
+    (p.len() == 2).then(|| glam::Vec2::new(p[0], p[1]))
+}
+
+/// The middle of an area (its ARE), metres.
+fn area_middle(are: &Gff) -> glam::Vec2 {
+    let side = |label| are.root.int(label).unwrap_or(1) as f32 * 10.0;
+    glam::Vec2::new(side("Width") / 2.0, side("Height") / 2.0)
+}
+
+/// Saves `<dir>/user/modules/MgScene.mod`: a new module with an area of
+/// `are`'s tileset and size, made `are` and `git` (under the new area's
+/// name, which `are` takes; the area's scripts left out), the player
+/// entering at `pc` with the scripted camera ([`ENTER`]) and `haks`.
+fn save_area_module(
+    game: &GameData,
+    dir: &Path,
+    are: &mut Gff,
+    git: &Gff,
+    pc: glam::Vec2,
+    haks: &[String],
+) {
+    let mut rng = fastrand::Rng::with_seed(11);
+    let mut m = new_module(game, "MgScene", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Scene".into(),
+        tileset: are.root.resref("Tileset").unwrap(),
+        width: are.root.int("Width").unwrap() as u32,
+        height: are.root.int("Height").unwrap() as u32,
+    };
+    let new_area = add_area(&mut m, game, &spec, &mut rng).unwrap();
+    are.root.set("ResRef", Value::resref(new_area));
+    for label in ["OnEnter", "OnExit", "OnHeartbeat", "OnUserDefined"] {
+        are.root.set(label, Value::resref(ResRef::EMPTY));
+    }
+    m.set_gff(ResKey::new(new_area, ResType::ARE), are).unwrap();
+    m.set_gff(ResKey::new(new_area, ResType::GIT), git).unwrap();
     // (Where the player stands, written to the log: the engine puts it
     // on the walkmesh nearest the entry point.)
     let enter: String = ENTER
@@ -2627,37 +2681,23 @@ fn area_lighting_look() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    m.set(ResKey::parse("mg_enter", ResType::NCS).unwrap(), compile(&dir, "mg_enter", &enter));
+    m.set(ResKey::parse("mg_enter", ResType::NCS).unwrap(), compile(dir, "mg_enter", &enter));
     let mut info = m.info().unwrap();
     info.root.write(&ifo::MOD_ENTRY_X, pc.x);
     info.root.write(&ifo::MOD_ENTRY_Y, pc.y);
     info.root.write(&ifo::MOD_ENTRY_Z, 0.0);
     info.root.write(&ifo::MOD_ON_CLIENT_ENTR, ResRef::from_str("mg_enter").unwrap());
     if !haks.is_empty() {
-        let list = mg_module::attach::hak_list(&info.root, &haks);
+        let list = mg_module::attach::hak_list(&info.root, haks);
         info.root.set("Mod_HakList", list);
     }
     m.set_info(&info).unwrap();
     m.save_as(&ModuleLocation::Archive(dir.join("user/modules/MgScene.mod"))).unwrap();
-    let client = client_screenshot(&dir, "MgScene");
-    if let Some(c) = &client {
-        save_png(c, &dir.join("client.png"));
-    }
-    // Moonglow's area view of the same area.
-    if std::env::var_os("MG_MUTATE").is_some() {
-        let src = game.resman.get_named("inc_standard", ResType::SHD).unwrap();
-        let src = String::from_utf8_lossy(&src).replace(
-            "\tApplyDebugModeOutput(FragmentColor);\n}",
-            "\tApplyDebugModeOutput(FragmentColor);\n\tFragmentColor = vec4(1.0, 0.0, 1.0, 1.0);\n}",
-        );
-        std::fs::create_dir_all(dir.join("user/override")).unwrap();
-        std::fs::write(dir.join("user/override/inc_standard.shd"), src).unwrap();
-        game = GameData::open(&install).unwrap();
-        game.resman.add_haks(&install, &haks).unwrap();
-    }
-    let tileset = mg_area::tileset(&game, spec.tileset).ok();
-    let model = mg_area::AreaModel::read(&game, &are.root, &git.root, tileset.as_ref());
-    let area_scene = mg_area::AreaScene::new(&gpu, &game, &model);
+}
+
+/// Where the player of [`save_area_module`]'s module stood in the client
+/// (its log), else `pc` on the area's ground.
+fn player_stood(dir: &Path, game: &GameData, model: &mg_area::AreaModel, pc: glam::Vec2) -> Vec3 {
     let log = std::fs::read_to_string(dir.join("user/logs/nwclientLog1.txt")).unwrap_or_default();
     let stood = log.lines().find_map(|l| {
         let p: Vec<f32> =
@@ -2665,20 +2705,10 @@ fn area_lighting_look() {
         (p.len() == 3).then(|| Vec3::new(p[0], p[1], p[2]))
     });
     let pc = stood.unwrap_or_else(|| {
-        pc.extend(mg_area::walk::Ground::new(&game, &model).height(pc, 100.0).unwrap_or(0.0))
+        pc.extend(mg_area::walk::Ground::new(game, model).height(pc, 100.0).unwrap_or(0.0))
     });
     eprintln!("the player stands at {pc:?} (from the client's log: {})", stood.is_some());
-    let camera = fitted_camera(pc, FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
-    let size = client.as_ref().map_or((1280, 800), |c| (c.width, c.height));
-    for (name, lit, fog) in
-        [("lit", true, true), ("lit_nofog", true, false), ("unlit", false, false)]
-    {
-        let view = mg_area::View { lit, fog, ..mg_area::View::of(&model) };
-        let scene = area_scene.scene(&model, &view);
-        eprintln!("{name}: {} lights, area light {:?}", scene.lights.len(), scene.area);
-        off_and_on(&gpu, &game, &scene, &camera, size, client.as_ref(), &dir, name);
-    }
-    eprintln!("{}: client {}", dir.display(), client.is_some());
+    pc
 }
 
 /// A light node of an authored placeable model (ASCII, put in the scratch
