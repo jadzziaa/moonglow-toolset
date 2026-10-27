@@ -435,7 +435,7 @@ pub fn compile_named_with(
         return Vec::new();
     }
     if let Some(external) = external {
-        return compile_externally(module, external, names);
+        return compile_externally(module, resman, external, names);
     }
     let outputs: Mutex<Vec<Compiled>> = Mutex::new(Vec::new());
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get()).min(names.len());
@@ -504,9 +504,16 @@ pub fn compile_named_with(
 /// for an external one (rather than every script the module has, at each
 /// compile): those, what they include however indirectly, and the
 /// module's own `nwscript` (the compilers read the game's functions from
-/// it). An include is any quoted name after `include` on a line, a `.nss`
-/// on it dropped: more than a compiler reads, never less.
-fn sources_read(module: &Module, names: &[ResKey]) -> std::collections::HashSet<ResKey> {
+/// it). Includes are followed through the haks' and the game's scripts
+/// too (`resman`), as the compiler reads them: a game include may include
+/// one the module has its own of. An include is any quoted name after
+/// `include` on a line, a `.nss` on it dropped: more than a compiler
+/// reads, never less.
+fn sources_read(
+    module: &Module,
+    resman: &ResMan,
+    names: &[ResKey],
+) -> std::collections::HashSet<ResKey> {
     let script = |name: &str| {
         let name = name.trim();
         let name =
@@ -517,15 +524,27 @@ fn sources_read(module: &Module, names: &[ResKey]) -> std::collections::HashSet<
     };
     let mut needed: std::collections::HashSet<ResKey> = names.iter().copied().collect();
     needed.extend(script("nwscript").filter(|k| module.contains(k)));
+    // Every script looked at, the module's and the others'.
+    let mut seen = needed.clone();
     let mut todo: Vec<ResKey> = needed.iter().copied().collect();
     while let Some(key) = todo.pop() {
-        let text = String::from_utf8_lossy(module.get(&key).unwrap_or_default()).to_lowercase();
+        let source = match module.get(&key) {
+            Some(own) => std::borrow::Cow::Borrowed(own),
+            None => match resman.get(&key) {
+                Ok(other) => other,
+                Err(_) => continue,
+            },
+        };
+        let text = String::from_utf8_lossy(&source).to_lowercase();
         for line in text.lines() {
             for (at, _) in line.match_indices("include") {
                 let Some(include) = line[at..].split('"').nth(1).and_then(script) else {
                     continue;
                 };
-                if module.contains(&include) && needed.insert(include) {
+                if seen.insert(include) {
+                    if module.contains(&include) {
+                        needed.insert(include);
+                    }
                     todo.push(include);
                 }
             }
@@ -540,12 +559,13 @@ fn sources_read(module: &Module, names: &[ResKey]) -> std::collections::HashSet<
 /// once, of the first script.
 fn compile_externally(
     module: &mut Module,
+    resman: &ResMan,
     external: &ExternalCompiler,
     names: &[ResKey],
 ) -> Vec<ScriptResult> {
     let name = |k: &ResKey| k.resref.to_lowercase().to_string();
     let made = {
-        let needed = sources_read(module, names);
+        let needed = sources_read(module, resman, names);
         let sources: Vec<(String, &[u8])> = (module.keys_of(ResType::NSS))
             .filter(|k| needed.contains(*k))
             .filter_map(|k| Some((name(k), module.get(k)?)))
@@ -770,13 +790,21 @@ mod tests {
         m.set(nss("inc_c"), b"#include \"uses\"\n".to_vec());
         m.set(nss("other"), b"#include \"inc_d\"\nvoid main() {}\n".to_vec());
         m.set(nss("inc_d"), b"int D();\n".to_vec());
-        let mut read: Vec<String> =
-            sources_read(&m, &[nss("uses")]).iter().map(|k| k.resref.to_string()).collect();
-        read.sort();
-        assert_eq!(read, ["inc_a", "inc_b", "inc_c", "uses"]);
+        // The game's include includes one the module has its own of.
+        m.set(nss("x0_i0_match"), b"int Match();\n".to_vec());
+        let mut base = MemContainer::new();
+        base.insert(nss("nw_i0_generic"), &b"#include \"x0_i0_match\"\n"[..]);
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "base", LayerClass::Key, base);
+        let read = |m: &Module, name: &str| -> Vec<String> {
+            let mut read: Vec<String> =
+                (sources_read(m, &rm, &[nss(name)]).iter()).map(|k| k.resref.to_string()).collect();
+            read.sort();
+            read
+        };
+        assert_eq!(read(&m, "uses"), ["inc_a", "inc_b", "inc_c", "uses", "x0_i0_match"]);
         m.set(nss("nwscript"), b"void PrintString(string s);\n".to_vec());
-        assert!(sources_read(&m, &[nss("other")]).contains(&nss("nwscript")));
-        assert_eq!(sources_read(&m, &[nss("other")]).len(), 3);
+        assert_eq!(read(&m, "other"), ["inc_d", "nwscript", "other"]);
     }
 
     /// Includes reached by many ways (sixty layers of two includes each

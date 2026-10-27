@@ -1,7 +1,8 @@
 //! An external NWScript compiler (Options › Script Editor) in place of the
 //! built-in one: `nwn_script_comp`, `nwnsc` or another, run as a program.
 //!
-//! The scripts asked for and the module's scripts they include are
+//! The scripts asked for and the module's scripts they include (however
+//! indirectly, through the haks' and the game's includes too) are
 //! written to a scratch folder, the compiler is run on those asked for
 //! (stopped if it runs past two minutes), and what it made (`.ncs`,
 //! `.ndb`) is read back, with what it said of each script that it made
