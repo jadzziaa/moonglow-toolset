@@ -347,10 +347,17 @@ impl Workspace {
         Ok(())
     }
 
-    /// Undoes the last command; returns its label.
+    /// Undoes the last command; returns its label. On failure nothing is
+    /// changed and the command stays to be undone.
     pub fn undo(&mut self) -> Result<Option<String>, EditError> {
         let Some(inverse) = self.undo.pop() else { return Ok(None) };
-        let forward = self.run(&inverse)?;
+        let forward = match self.run(&inverse) {
+            Ok(forward) => forward,
+            Err(e) => {
+                self.undo.push(inverse);
+                return Err(e);
+            }
+        };
         let label = forward.label.clone();
         self.redo.push(forward);
         self.changes_since_save -= 1;
@@ -375,10 +382,17 @@ impl Workspace {
         Ok(Some(label))
     }
 
-    /// Redoes the last undone command; returns its label.
+    /// Redoes the last undone command; returns its label. On failure
+    /// nothing is changed and the command stays to be redone.
     pub fn redo(&mut self) -> Result<Option<String>, EditError> {
         let Some(forward) = self.redo.pop() else { return Ok(None) };
-        let inverse = self.run(&forward)?;
+        let inverse = match self.run(&forward) {
+            Ok(inverse) => inverse,
+            Err(e) => {
+                self.redo.push(forward);
+                return Err(e);
+            }
+        };
         let label = inverse.label.clone();
         self.undo.push(inverse);
         self.changes_since_save += 1;
@@ -1061,6 +1075,37 @@ mod tests {
         assert_eq!(ws.can_redo(), None, "nothing to redo");
         assert!(ws.is_modified(), "Set A is still a change");
         ws.undo().unwrap();
+        assert!(!ws.is_modified());
+    }
+
+    /// An undo (or redo) whose edits fail changes nothing and keeps the
+    /// command where it was, as a failed withdraw does: it is not lost.
+    #[test]
+    fn a_failed_undo_or_redo_keeps_its_command() {
+        let mut ws = workspace();
+        let k = key("area", ResType::GIT);
+        let bad = || {
+            Command::new(
+                "Bad",
+                vec![Edit::RemoveItem {
+                    key: k,
+                    path: GffPath::root(),
+                    list: "Creature List".into(),
+                    index: 7,
+                }],
+            )
+        };
+        let before = ws.doc(&k).unwrap().clone();
+        ws.undo.push(bad());
+        assert!(ws.undo().is_err());
+        assert_eq!(ws.can_undo(), Some("Bad"));
+        assert_eq!(ws.can_redo(), None);
+        ws.undo.clear();
+        ws.redo.push(bad());
+        assert!(ws.redo().is_err());
+        assert_eq!(ws.can_redo(), Some("Bad"));
+        assert_eq!(ws.can_undo(), None);
+        assert_eq!(ws.doc(&k).unwrap(), &before);
         assert!(!ws.is_modified());
     }
 

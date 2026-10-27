@@ -8,6 +8,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+mg-core.workspace = true
 thiserror.workspace = true
 
 [lints]

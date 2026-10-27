@@ -181,27 +181,32 @@ impl std::fmt::Debug for KeySet {
     }
 }
 
+/// Maps a game archive (a KEY, BIF, ERF or HAK) into memory, read-only.
 #[allow(unsafe_code)]
-fn map_file(path: &Path) -> Result<Mmap, KeyError> {
-    let file = File::open(path).map_err(|source| KeyError::Io { path: path.into(), source })?;
+pub fn map_file(path: &Path) -> std::io::Result<Mmap> {
+    let file = File::open(path)?;
     // SAFETY: game archives are read-only data; if another process truncates
     // one while it is mapped, reads may fault, which is the accepted risk of
-    // memory-mapping (every Aurora-engine tool does the same).
-    unsafe { Mmap::map(&file) }.map_err(|source| KeyError::Io { path: path.into(), source })
+    // memory-mapping (the game and every Aurora-engine tool do the same).
+    unsafe { Mmap::map(&file) }
+}
+
+fn map(path: &Path) -> Result<Mmap, KeyError> {
+    map_file(path).map_err(|source| KeyError::Io { path: path.into(), source })
 }
 
 impl KeySet {
     /// Opens `key` (e.g. `<install>/data/nwn_base.key`); BIF paths in the key
     /// are resolved against `install_root`.
     pub fn open(key: &Path, install_root: &Path) -> Result<KeySet, KeyError> {
-        let key_map = map_file(key)?;
+        let key_map = map(key)?;
         let table = KeyTable::read(&key_map)?;
         let bifs = table
             .bifs
             .iter()
             .map(|b| {
                 let path = install_root.join(&b.filename);
-                let map = map_file(&path)?;
+                let map = map(&path)?;
                 let table = Bif::read(&map)
                     .map_err(|e| KeyError::Bif { path: path.clone(), source: Box::new(e) })?;
                 Ok(OpenBif { map, table })

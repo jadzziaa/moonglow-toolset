@@ -98,6 +98,15 @@ pub struct ChoiceColumns<'a> {
 
 type ChoiceKey = (ResRef, Option<usize>, Option<usize>);
 
+/// What looking up a 2DA found, kept until [`GameData::invalidate`]. (A
+/// read that failed on I/O is not kept: it may succeed next time.)
+#[derive(Debug, Clone)]
+enum Looked {
+    Table(Arc<TwoDa>),
+    Missing(ResKey),
+    Unreadable(String),
+}
+
 /// The resource manager, talk tables and caches for one game install (and,
 /// once opened, one module).
 #[derive(Debug)]
@@ -106,7 +115,9 @@ pub struct GameData {
     pub language: Language,
     tlk: Tlk,
     custom_tlk: Option<Tlk>,
-    tables: RwLock<HashMap<ResRef, Arc<TwoDa>>>,
+    /// Tables looked up so far, found or not: a missing table is asked for
+    /// again and again (per candidate feat in a level-up).
+    tables: RwLock<HashMap<ResRef, Looked>>,
     /// The choice lists made so far ([`choice_list`](Self::choice_list)),
     /// by table and the two columns' places in it.
     choices: RwLock<HashMap<ChoiceKey, Arc<Vec<Choice>>>>,
@@ -234,18 +245,33 @@ impl GameData {
         self.codepage().for_language(language)
     }
 
-    /// A 2DA by name (without extension), parsed once and cached.
+    /// A 2DA by name (without extension), parsed once and cached (and a
+    /// table missing or unreadable is looked for once, until
+    /// [`invalidate`](Self::invalidate)).
     pub fn table(&self, name: &str) -> Result<Arc<TwoDa>, RulesError> {
         let resref = ResRef::from_str(name).map_err(|_| RulesError::BadName(name.into()))?;
-        if let Some(t) = self.tables.read().expect("table cache poisoned").get(&resref) {
-            return Ok(t.clone());
+        let looked = |l: &Looked| match l {
+            Looked::Table(t) => Ok(t.clone()),
+            Looked::Missing(key) => Err(RulesError::Res(ResError::NotFound(*key))),
+            Looked::Unreadable(message) => {
+                Err(RulesError::TwoDa { name: name.into(), message: message.clone() })
+            }
+        };
+        if let Some(l) = self.tables.read().expect("table cache poisoned").get(&resref) {
+            return looked(l);
         }
-        let bytes = self.resman.get(&ResKey::new(resref, ResType::TWODA))?;
-        let table = TwoDa::parse(&bytes, self.codepage())
-            .map_err(|e| RulesError::TwoDa { name: name.into(), message: e.to_string() })?;
-        let table = Arc::new(table);
-        self.tables.write().expect("table cache poisoned").insert(resref, table.clone());
-        Ok(table)
+        let key = ResKey::new(resref, ResType::TWODA);
+        let found = match self.resman.get(&key) {
+            Ok(bytes) => match TwoDa::parse(&bytes, self.codepage()) {
+                Ok(table) => Looked::Table(Arc::new(table)),
+                Err(e) => Looked::Unreadable(e.to_string()),
+            },
+            Err(ResError::NotFound(key)) => Looked::Missing(key),
+            Err(e) => return Err(e.into()),
+        };
+        let result = looked(&found);
+        self.tables.write().expect("table cache poisoned").insert(resref, found);
+        result
     }
 
     /// The text of a talk-table reference: from the custom TLK if the StrRef
@@ -457,6 +483,28 @@ mod tests {
         assert_eq!(read("0 0x0\n1 0x1\n"), None);
         let other = TwoDa::parse(b"2DA V2.0\n\n  Label\n0 0x11f\n", own).unwrap();
         assert_eq!(encoding_table(&other, own), None);
+    }
+
+    /// A table that is not there is looked for once, not on every call (a
+    /// level-up asks per candidate feat); invalidating forgets it with the
+    /// rest. A table that does not parse is likewise kept as an error.
+    #[test]
+    fn a_missing_table_is_looked_for_once() {
+        let mut gd = data();
+        let e = gd.table("later").unwrap_err();
+        assert!(matches!(e, RulesError::Res(ResError::NotFound(_))), "{e}");
+        let mut mem = MemContainer::new();
+        mem.insert(ResKey::parse("later", ResType::TWODA).unwrap(), &b"2DA V2.0\n\n A\n0 1\n"[..]);
+        mem.insert(ResKey::parse("broken", ResType::TWODA).unwrap(), &b"not a table"[..]);
+        gd.resman.add(priority::KEY, "more", LayerClass::Key, mem);
+        assert!(gd.table("later").is_err(), "the miss is kept");
+        gd.invalidate();
+        assert_eq!(gd.table("later").unwrap().get_int(0, "A"), Some(1));
+        for _ in 0..2 {
+            let e = gd.table("broken").unwrap_err();
+            assert!(matches!(e, RulesError::TwoDa { .. }), "{e}");
+        }
+        assert_eq!(gd.table("things").unwrap().len(), 4);
     }
 
     #[test]

@@ -391,6 +391,8 @@ fn with_folder(m: &Module, g: Option<GameData>, folder: Option<&Path>) -> Option
         LayerClass::Directory,
         DirContainer::open(folder),
     );
+    // (Tables looked up before, found or not, may be the folder's now.)
+    g.invalidate();
     Some(g)
 }
 

@@ -21,6 +21,12 @@ pub enum WriteError {
     TooLarge,
 }
 
+/// A length as the file holds it: checked before it is written, since a
+/// value past 4 GiB cannot be (the whole file's size is checked after).
+fn len32(len: usize) -> Result<u32, WriteError> {
+    u32::try_from(len).map_err(|_| WriteError::TooLarge)
+}
+
 #[derive(Default)]
 struct Builder {
     structs: Vec<[u32; 3]>,
@@ -141,7 +147,7 @@ impl Builder {
                 data_offset
             }
             Value::String(v) | Value::Void(v) => {
-                fd.put_u32_usize(v.len());
+                fd.put_u32(len32(v.len())?);
                 fd.put_bytes(v);
                 data_offset
             }
@@ -156,12 +162,12 @@ impl Builder {
             }
             Value::LocString(ls) => {
                 let body: usize = ls.strings.iter().map(|(_, s)| 8 + s.len()).sum();
-                fd.put_u32_usize(8 + body);
+                fd.put_u32(len32(8 + body)?);
                 fd.put_u32(ls.strref.0);
-                fd.put_u32_usize(ls.strings.len());
+                fd.put_u32(len32(ls.strings.len())?);
                 for (key, s) in &ls.strings {
                     fd.put_u32(key.0);
-                    fd.put_u32_usize(s.len());
+                    fd.put_u32(len32(s.len())?);
                     fd.put_bytes(s);
                 }
                 data_offset
@@ -171,7 +177,7 @@ impl Builder {
                 // Children first, so their indices are known.
                 let ids = list.iter().map(|s| self.add_struct(s)).collect::<Result<Vec<_>, _>>()?;
                 let offset = self.list_indices.len() as u32;
-                self.list_indices.put_u32_usize(ids.len());
+                self.list_indices.put_u32(len32(ids.len())?);
                 ids.iter().for_each(|&i| self.list_indices.put_u32(i));
                 offset
             }
@@ -253,6 +259,15 @@ mod tests {
         let mut g = Gff::new(*b"GFF ");
         g.root.set("R", Value::ResRef(vec![b'a'; 256]));
         assert!(matches!(g.to_bytes(), Err(WriteError::ResRefTooLong { .. })));
+    }
+
+    /// A value's length past 4 GiB is an error before it is written (not a
+    /// panic in `put_u32_usize`); checked by length, as a value that size
+    /// is not built in a test.
+    #[test]
+    fn a_length_past_four_gib_is_too_large() {
+        assert_eq!(len32(u32::MAX as usize), Ok(u32::MAX));
+        assert_eq!(len32(u32::MAX as usize + 1), Err(WriteError::TooLarge));
     }
 
     #[test]

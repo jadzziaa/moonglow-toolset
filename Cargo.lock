@@ -2574,6 +2574,7 @@ dependencies = [
 name = "mg-mdl"
 version = "0.0.0"
 dependencies = [
+ "mg-core",
  "thiserror 2.0.21",
 ]
 

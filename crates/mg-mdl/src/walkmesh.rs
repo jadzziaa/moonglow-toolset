@@ -239,6 +239,21 @@ endnode
         assert_eq!(w.model.nodes[1].mesh().unwrap().faces[0].material, 7);
     }
 
+    /// Every prefix of a walkmesh reads as one or is an error: never a
+    /// panic.
+    #[test]
+    fn truncated_input_is_an_error_or_a_walkmesh() {
+        let wok = "beginwalkmeshgeom T\nnode aabb w\nparent T\nverts 3\n0 0 0\n1 0 0\n0 1 0\n\
+                   faces 1\n0 1 2 1 0 0 0 4\naabb 0 0 0 1 1 0 0\nendnode\nendwalkmeshgeom T\n";
+        for (text, kind) in [(PWK, WalkmeshKind::Placeable), (wok, WalkmeshKind::Tile)] {
+            for len in 0..text.len() {
+                for kind in [kind, WalkmeshKind::Door] {
+                    let _ = Walkmesh::read(&text.as_bytes()[..len], kind);
+                }
+            }
+        }
+    }
+
     #[test]
     fn door_states() {
         let dwk = "\

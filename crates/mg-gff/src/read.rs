@@ -3,7 +3,7 @@
 //! Every offset and index in the file is checked, each struct and field may be
 //! used only once (so hostile files cannot loop), and nesting depth is capped.
 
-use mg_core::bin::{BinError, Reader, slice};
+use mg_core::bin::{BinError, CopyBudget, Reader, slice};
 use mg_core::{LocString, LocStringKey, StrRef};
 use thiserror::Error;
 
@@ -48,6 +48,8 @@ struct Tables<'a> {
     list_indices: &'a [u8],
     struct_used: Vec<bool>,
     field_used: Vec<bool>,
+    /// Bytes copied out so far: every field may point at the same data.
+    budget: CopyBudget,
 }
 
 pub(crate) fn read(data: &[u8]) -> Result<Gff, ReadError> {
@@ -81,6 +83,7 @@ pub(crate) fn read(data: &[u8]) -> Result<Gff, ReadError> {
         list_indices,
         struct_used: vec![false; structs.len() / 12],
         field_used: vec![false; fields.len() / 12],
+        budget: CopyBudget::for_input(data.len()),
     };
     if t.struct_used.is_empty() {
         return Err(ReadError::NoRoot);
@@ -92,7 +95,7 @@ pub(crate) fn read(data: &[u8]) -> Result<Gff, ReadError> {
     Ok(Gff { file_type, version, root })
 }
 
-impl Tables<'_> {
+impl<'a> Tables<'a> {
     fn read_struct(&mut self, index: u32, depth: usize) -> Result<Struct, ReadError> {
         if depth > MAX_DEPTH {
             return Err(ReadError::TooDeep);
@@ -158,7 +161,7 @@ impl Tables<'_> {
             FieldType::String => {
                 let mut r = self.data_at(data)?;
                 let len = r.u32_usize()?;
-                Value::String(r.bytes(len)?.to_vec())
+                Value::String(self.copy(r.bytes(len)?)?)
             }
             FieldType::ResRef => {
                 let mut r = self.data_at(data)?;
@@ -169,7 +172,7 @@ impl Tables<'_> {
             FieldType::Void => {
                 let mut r = self.data_at(data)?;
                 let len = r.u32_usize()?;
-                Value::Void(r.bytes(len)?.to_vec())
+                Value::Void(self.copy(r.bytes(len)?)?)
             }
             FieldType::Struct => Value::Struct(self.read_struct(data, depth + 1)?),
             FieldType::List => {
@@ -186,21 +189,95 @@ impl Tables<'_> {
         Ok(Field { label, value })
     }
 
-    fn data_at(&self, offset: u32) -> Result<Reader<'_>, ReadError> {
+    fn data_at(&self, offset: u32) -> Result<Reader<'a>, ReadError> {
         Ok(Reader::at(self.field_data, offset as usize)?)
     }
 
-    fn read_locstring(&self, offset: u32) -> Result<LocString, ReadError> {
+    /// Copies `bytes` out of the file, charged to the budget.
+    fn copy(&mut self, bytes: &[u8]) -> Result<Vec<u8>, ReadError> {
+        self.budget.charge(bytes.len())?;
+        Ok(bytes.to_vec())
+    }
+
+    fn read_locstring(&mut self, offset: u32) -> Result<LocString, ReadError> {
         let mut r = self.data_at(offset)?;
         let _total_size = r.u32()?;
         let strref = StrRef(r.u32()?);
         let count = r.u32_usize()?;
+        // Each string's key and length count too: a count of empty strings
+        // is all the file needs.
+        self.budget.charge(count.min(r.remaining() / 8).saturating_mul(32))?;
         let mut strings = Vec::with_capacity(count.min(r.remaining() / 8));
         for _ in 0..count {
             let key = LocStringKey(r.u32()?);
             let len = r.u32_usize()?;
-            strings.push((key, r.bytes(len)?.to_vec()));
+            strings.push((key, self.copy(r.bytes(len)?)?));
         }
         Ok(LocString { strref, strings })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A GFF whose root has `fields` fields of type `type_id`, every one
+    /// pointing at the same `blob` in the field data.
+    fn shared(type_id: u32, fields: u32, blob: &[u8]) -> Vec<u8> {
+        let header = 56u32;
+        let structs = header;
+        let field_table = structs + 12;
+        let labels = field_table + 12 * fields;
+        let field_data = labels + 16;
+        let field_indices = field_data + blob.len() as u32;
+        let list_indices = field_indices + 4 * fields;
+        let mut out = b"GFF V3.2".to_vec();
+        for (offset, count) in [
+            (structs, 1),
+            (field_table, fields),
+            (labels, 1),
+            (field_data, blob.len() as u32),
+            (field_indices, 4 * fields),
+            (list_indices, 0),
+        ] {
+            out.extend(offset.to_le_bytes());
+            out.extend(count.to_le_bytes());
+        }
+        out.extend(u32::MAX.to_le_bytes());
+        out.extend(0u32.to_le_bytes());
+        out.extend(fields.to_le_bytes());
+        for _ in 0..fields {
+            out.extend(type_id.to_le_bytes());
+            out.extend(0u32.to_le_bytes());
+            out.extend(0u32.to_le_bytes());
+        }
+        out.extend(*b"Shared\0\0\0\0\0\0\0\0\0\0");
+        out.extend(blob);
+        for i in 0..fields {
+            out.extend(i.to_le_bytes());
+        }
+        out
+    }
+
+    /// Many fields naming one large string (or void, or localized string)
+    /// would copy it once each: a file of 1 MiB asking for 200 MiB stops
+    /// at the copy budget.
+    #[test]
+    fn fields_sharing_one_large_value_hit_the_copy_limit() {
+        let big = 1 << 20;
+        let mut string = (big as u32).to_le_bytes().to_vec();
+        string.resize(4 + big, b'x');
+        let mut loc = Vec::new();
+        for v in [0u32, u32::MAX, 1, 0, big as u32] {
+            loc.extend(v.to_le_bytes());
+        }
+        loc.resize(20 + big, b'x');
+        for (type_id, blob) in [(10, &string), (13, &string), (12, &loc)] {
+            // A few fields read fine.
+            let gff = Gff::read(&shared(type_id, 3, blob)).unwrap();
+            assert_eq!(gff.root.fields.len(), 3);
+            let err = Gff::read(&shared(type_id, 200, blob)).unwrap_err();
+            assert!(matches!(err, ReadError::Bin(BinError::CopyLimit { .. })), "{err}");
+        }
     }
 }
