@@ -2426,6 +2426,8 @@ fn hak_editor_and_attach() {
     let tab = h.state().dock.find_tab(&mg_ui::Tab::Hak(h.state().haks[0].id)).unwrap();
     h.state_mut().dock.remove_tab(tab);
     h.state_mut().haks.clear();
+    // (Chess opens on its start area: Module Properties is opened.)
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::ModuleProperties));
     h.run();
     use egui_kittest::kittest::Queryable;
     h.get_by_label("Custom Content").click();
