@@ -3,7 +3,7 @@ type: Reference
 title: 'Moonglow Toolset: Architecture and Record of the Phases'
 description: What Moonglow Toolset reproduces of Aurora, the landscape, its principles, crate architecture and key designs, a record of the phases it was built in with the tests that hold each, the testing strategy and licensing. The plan it began as, kept as the description of what was built.
 tags: [architecture, testing, parity, phases, plan]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T05:36:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T08:33:19Z }
 ---
 
 # Moonglow Toolset: Architecture and Record of the Phases
@@ -278,7 +278,7 @@ What a phase left undone is in the [deferred list](deferred.md).
 | 2 Resource manager and rules | The engine's load order and the game's data (2DA cells, talk-table strings) | `engine_resman.rs`, `engine_2da.rs`, `engine_rules.rs` |
 | 3 Schema and module workspace | Typed field descriptors for all 19 authored GFF types, generated from the schema observed in the shipped data; the module workspace (archives and folders, atomic save with backup), reference graph, verify, hak conflict report, ERF export and import | `modules.rs`, `engine_modules.rs`, `engine_verify.rs`, `engine_transfer.rs`; `mg verify`, `mg haks`, `mg export`, `mg import` |
 | 4 Script back end | The official compiler built in (vendored C++ built with the `cc` crate, on the three systems in CI), module compile, and the NWScript front end (lexer, declaration parser, the `nwscript.nss` spec) | `scripts.rs`, `script_frontend.rs`, `script_analysis.rs`, `nwscript_spec.rs` |
-| 5 Application shell | The undoable workspace (`mg-edit`) and the application (`mg-ui`, `apps/moonglow`): menus, toolbar and keys, module tree, docked tabs, Module Properties, the script editor, a generic GFF editor, the log, the New Module and Area wizards with Aurora's defaults, settings, options, import and export, the resource browser | `crates/mg-ui/tests/app.rs` (`egui_kittest`), `aurora_new.rs`, `engine_new_module.rs` |
+| 5 Application shell | The undoable workspace (`mg-edit`) and the application (`mg-ui`, `apps/moonglow`): menus, toolbar and keys, module tree, docked tabs, Module Properties, the script editor, a generic GFF editor, the log, the New Module and Area wizards with Aurora's defaults, settings, options, import and export, the resource browser | `crates/mg-ui/tests/app/` (`egui_kittest`), `aurora_new.rs`, `engine_new_module.rs` |
 | 6 Text-and-tree editors | String Edit, Variables, resource pickers; the Faction, Journal and Conversation editors; the script editor's tools and the Script Wizard | `aurora_factions.rs`, `aurora_journal.rs`, `aurora_dialog.rs`, `aurora_script_wizard.rs`, `engine_factions.rs`, `engine_journal.rs`, `engine_dialog.rs`; `docs/parity/checklists.md` |
 | 7 Renderer and model viewer | Textures (TGA, DDS, PLT), TXI and MTR; models, binary and ASCII; the wgpu renderer with the game's lighting, material maps, animations with supermodels, skinning, animated and dangly meshes, emitters; blueprint previews (`mg-preview`); the model viewer | `textures.rs`, `models.rs`, `models_nwnmdlcomp.rs`, `crates/mg-render/tests/render.rs`, `crates/mg-preview/tests/previews.rs`, `client_render.rs` (by hand) |
 | 8 Blueprints and palettes | Standard and custom palettes, the palette pane, editors and wizards for every blueprint type, item costs as the engine computes them | `aurora_blueprints.rs`, `aurora_palette_add.rs`, `engine_blueprints.rs`, `engine_item_cost.rs`, `item_properties.rs` |
@@ -315,7 +315,7 @@ list holds what each left undone.
 | The EE fields Aurora hides | the editors' Visuals pages and others | `engine_ee_fields.rs`; `docs/research/notes_ee_fields.md` |
 | Bulk editing | Update Instances for a selection, several blueprints or areas together, Find and Replace Text, `mg update-instances`, `mg replace`, `mg areas` | `aurora_update_instances.rs`, `text_replace.rs` |
 | Conversation authoring (markers, play-through, export and import) | the Conversation Editor, `mg dialog-export`, `mg dialog-import` | `dialog_formats.rs` |
-| Palette search, favorites and recent | the palette pane | `crates/mg-ui/tests/app.rs` |
+| Palette search, favorites and recent | the palette pane | `crates/mg-ui/tests/app/palettes.rs` |
 | 2DA view and talk-table editor | the resource browser, Tools › Talk Table | `engine_tlk.rs` |
 | Haks in the GUI | Tools › Haks, `mg attach` | `hak_edit.rs` |
 | Object walkmeshes and minimap export | the area view, `mg minimap` | `object_walkmeshes.rs`, `minimaps.rs`, `client_minimap.rs` (by hand) |

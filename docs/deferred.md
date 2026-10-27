@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T07:08:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T08:33:19Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -39,10 +39,15 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **macOS:** the command-line tests' own data folder is set through
   `XDG_DATA_HOME` and `APPDATA`; on macOS it follows `HOME`, which the
   tests leave alone (it finds the game). (S)
-- **`app.rs` in one file:** 15,343 lines in chronological order; a
-  dozen subject modules under the same binary, a harness helper for the
-  47 repeated installs and 115 hand-built harnesses, and the GPU lock
-  only for tests that draw an area (a dozen take it for nothing). (L)
+- **The `app` tests' set-ups left by hand** (`crates/mg-ui/tests/app/`,
+  split by subject, with `harness`, `game_app` and `gpu` in `common.rs`):
+  81 harnesses at kittest's default size (`Harness::new_ui_state`), 26
+  installs made apart from the application (read before it, in another
+  language, or by a test's own helper), 14 scratch user folders, each
+  with its own subfolders, and 6 harnesses with a step of their own;
+  and nothing fails when a file in `tests/app/` is not named in
+  `main.rs` (its tests would not run), as the corpus groups' check does.
+  (S)
 - **`mg` builds the GPU stack by default** for `mg nui render` (drawn
   with wgpu) and `mg nui layout` (a frame of the NUI Creator's canvas,
   egui, no GPU), both of mg-ui:
