@@ -540,6 +540,13 @@ impl Module {
     /// The module as archive bytes. The build date is today's (or
     /// `SOURCE_DATE_EPOCH`'s, for reproducible builds).
     pub fn to_archive_bytes(&self) -> Result<Vec<u8>, ModuleError> {
+        self.archive_writer()?
+            .to_bytes()
+            .map_err(|e| ModuleError::Archive { path: PathBuf::new(), message: e.to_string() })
+    }
+
+    /// The module as an archive to write, its resources borrowed.
+    fn archive_writer(&self) -> Result<ErfWriter<'_>, ModuleError> {
         let mut w = ErfWriter::new(self.file_type);
         w.description = self.description.clone();
         let (year, day) = build_date();
@@ -551,27 +558,41 @@ impl Module {
                 message: e.to_string(),
             })?;
         }
-        w.to_bytes()
-            .map_err(|e| ModuleError::Archive { path: PathBuf::new(), message: e.to_string() })
+        Ok(w)
     }
 
+    /// Writes the archive beside `path`, flushed to the disk, keeps what
+    /// was at `path` as `<name>.bak`, then puts the new one in its place:
+    /// at no moment is there no module at `path`. The archive is written
+    /// as it is made (not built whole in memory first), and the backup is
+    /// a second name for the old file where the file system has them (not
+    /// a copy of it: a large module's save copied a gigabyte).
     fn write_archive(&self, path: &Path) -> Result<(), ModuleError> {
-        let bytes = self.to_archive_bytes()?;
+        let writer = self.archive_writer()?;
         if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
             std::fs::create_dir_all(parent).map_err(io(parent))?;
         }
         let tmp = sibling(path, ".moonglow-tmp");
         // Written and flushed through one handle: flushing needs write
         // access on Windows.
-        std::fs::File::create(&tmp)
-            .and_then(|mut f| {
-                std::io::Write::write_all(&mut f, &bytes)?;
-                f.sync_all()
-            })
-            .map_err(io(&tmp))?;
+        let written = std::fs::File::create(&tmp).map_err(io(&tmp)).and_then(|f| {
+            let mut out = std::io::BufWriter::new(f);
+            writer
+                .write_to(&mut out)
+                .map_err(|e| ModuleError::Archive { path: tmp.clone(), message: e.to_string() })?;
+            let f = out.into_inner().map_err(|e| e.into_error()).map_err(io(&tmp))?;
+            f.sync_all().map_err(io(&tmp))
+        });
+        if let Err(e) = written {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(e);
+        }
         if path.exists() {
             let backup = sibling(path, ".bak");
-            std::fs::copy(path, &backup).map_err(io(&backup))?;
+            let _ = std::fs::remove_file(&backup);
+            if std::fs::hard_link(path, &backup).is_err() {
+                std::fs::copy(path, &backup).map_err(io(&backup))?;
+            }
         }
         std::fs::rename(&tmp, path).map_err(io(path))
     }
@@ -602,11 +623,17 @@ impl Module {
         // as it is on disk.
         let mut conflicts: Vec<PathBuf> = Vec::new();
         let mut left: std::collections::HashSet<ResKey> = std::collections::HashSet::new();
+        // Whether a resource's file (under its own name) is already the
+        // module's, where it was read here: not read again to be written.
+        let mut on_disk: std::collections::HashMap<ResKey, bool> = Default::default();
         if let Some(known) = known {
             for (k, v) in &self.resources {
                 match (known.as_read(k), known.path(k)) {
                     (Some(read), Some(path)) => {
                         let now = disk(path);
+                        if k.path_in(dir).is_ok_and(|own| own == path) {
+                            on_disk.insert(*k, now.as_deref() == Some(&v[..]));
+                        }
                         if now.as_deref() == Some(read) || now.as_deref() == Some(&v[..]) {
                         } else if v[..] == read[..] {
                             left.insert(*k);
@@ -617,9 +644,11 @@ impl Module {
                     _ => {
                         // (New in the module: a file of its name put there
                         // meanwhile is not written over.)
-                        let path = k.path_in(dir).map_err(io(dir))?;
-                        if disk(&path).is_some_and(|now| now[..] != v[..]) {
-                            conflicts.push(path);
+                        let own = k.path_in(dir).map_err(io(dir))?;
+                        let now = disk(&own);
+                        on_disk.insert(*k, now.as_deref() == Some(&v[..]));
+                        if now.is_some_and(|now| now[..] != v[..]) {
+                            conflicts.push(own);
                         }
                     }
                 }
@@ -665,13 +694,15 @@ impl Module {
         // resource is one file; where both are there (a folder that sets
         // capitals apart), the other spelling goes.
         let named = listed()?;
+        let names: std::collections::HashSet<&str> =
+            named.iter().map(|(n, _)| n.as_str()).collect();
         for (name, key) in &named {
             let own = key.to_string();
             if *name == own || left.contains(key) || !self.resources.contains_key(key) {
                 continue;
             }
             let (from, to) = (dir.join(name), dir.join(&own));
-            if named.iter().any(|(n, _)| *n == own) {
+            if names.contains(own.as_str()) {
                 std::fs::remove_file(&from).map_err(io(&from))?;
             } else {
                 std::fs::rename(&from, &to).map_err(io(&from))?;
@@ -687,7 +718,13 @@ impl Module {
                 continue;
             }
             let p = k.path_in(dir).map_err(io(dir))?;
-            if disk(&p).as_deref() != Some(&v[..]) {
+            // (A file found the module's above is so still: only another
+            // name's file was renamed or removed since.)
+            let same = match on_disk.get(k) {
+                Some(&same) => same,
+                None => disk(&p).as_deref() == Some(&v[..]),
+            };
+            if !same {
                 let tmp = sibling(&p, ".moonglow-tmp");
                 std::fs::write(&tmp, &v[..]).map_err(io(&tmp))?;
                 std::fs::rename(&tmp, &p).map_err(io(&p))?;
@@ -809,6 +846,29 @@ pub(crate) fn sibling(path: &Path, suffix: &str) -> PathBuf {
     path.with_file_name(name)
 }
 
+/// Writes `data` to `path` whole or not at all: into a file beside it,
+/// flushed to the disk, then put in its place. A crash or a full disk
+/// leaves the file as it was, never cut short.
+pub(crate) fn write_replacing(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)?;
+    }
+    let tmp = sibling(path, ".moonglow-tmp");
+    // Written and flushed through one handle: flushing needs write access
+    // on Windows.
+    let written = std::fs::File::create(&tmp).and_then(|mut f| {
+        std::io::Write::write_all(&mut f, data)?;
+        f.sync_all()
+    });
+    match written.and_then(|()| std::fs::rename(&tmp, path)) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            Err(e)
+        }
+    }
+}
+
 /// A GFF's root from `module` as it is now, else from the game: how a
 /// blueprint is read wherever one is needed.
 pub fn gff_root(
@@ -892,10 +952,53 @@ mod tests {
         m.save().unwrap();
         assert!(dir.join("test.mod.bak").is_file(), "the previous version is kept");
         assert!(!dir.join("test.mod.moonglow-tmp").exists());
-        assert_eq!(
-            Module::open(&path).unwrap().get(&key("script", ResType::NSS)),
-            Some(&b"changed"[..])
-        );
+        let script = |p: &Path| {
+            Module::open(p).unwrap().get(&key("script", ResType::NSS)).map(<[u8]>::to_vec)
+        };
+        assert_eq!(script(&path).as_deref(), Some(&b"changed"[..]));
+        // (The backup is the old file under a second name, where the file
+        // system has them: the new one put in place leaves it as it was.)
+        assert_eq!(script(&dir.join("test.mod.bak")).as_deref(), Some(&b"void main() {}"[..]));
+        m.set(key("script", ResType::NSS), &b"again"[..]);
+        m.save().unwrap();
+        assert_eq!(script(&path).as_deref(), Some(&b"again"[..]));
+        assert_eq!(script(&dir.join("test.mod.bak")).as_deref(), Some(&b"changed"[..]));
+    }
+
+    /// Saving into the module's own folder writes only the files that
+    /// changed, each read once (not once to look for changes made outside
+    /// and again to write it).
+    #[test]
+    fn a_folder_save_writes_what_changed() {
+        let dir = mg_testkit::scratch_dir("mg-module-folder-changed");
+        let mut m = sample();
+        m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
+        let file = |n: &str| dir.join(n);
+        let modified = |n: &str| std::fs::metadata(file(n)).unwrap().modified().unwrap();
+        let before = modified("script.nss");
+        // A file of the module's under another spelling takes its own.
+        let others: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n != "script.nss")
+            .collect();
+        let other = others.first().unwrap().clone();
+        let shouted = other.to_uppercase();
+        std::fs::rename(file(&other), file(&shouted)).unwrap();
+        let mut m = Module::open(&dir).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        m.set(key("script", ResType::NSS), &b"changed"[..]);
+        m.save().unwrap();
+        assert_eq!(std::fs::read(file("script.nss")).unwrap(), b"changed");
+        assert_ne!(modified("script.nss"), before);
+        let names: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(names.contains(&other), "{names:?}");
+        assert!(!names.iter().any(|n| n.ends_with(".moonglow-tmp")));
     }
 
     /// Save As into a folder of other resources (another module's, a

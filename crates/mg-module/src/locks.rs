@@ -178,20 +178,53 @@ pub fn has_locks(git: &Gff) -> bool {
 }
 
 /// The file in `dir` (Moonglow's `locks` folder) that keeps the locks of
-/// the project at `module`.
+/// the project at `module`: named by the SHA-1 of the project's path,
+/// which stays the same from one build of Moonglow to the next. A file
+/// under the name earlier builds gave it (by Rust's own hasher, which a
+/// new Rust may change) is renamed to it, so a project keeps its locks.
 pub fn file(dir: &Path, module: &Path) -> PathBuf {
-    use std::hash::{Hash, Hasher};
     let module = crate::build::settled(module);
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    module.hash(&mut h);
     let name = module.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    dir.join(format!("{name}-{:016x}.json", h.finish()))
+    let digest = mg_core::sha1::sha1(module.as_os_str().as_encoded_bytes());
+    let path = dir.join(format!("{name}-{}.json", mg_core::sha1::hex(&digest[..8])));
+    let old = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        module.hash(&mut h);
+        dir.join(format!("{name}-{:016x}.json", h.finish()))
+    };
+    if old != path && !path.exists() && old.exists() && std::fs::rename(&old, &path).is_err() {
+        return old;
+    }
+    path
 }
 
-/// The locks kept in `path` (none if it can't be read).
+/// The locks kept in `path` (none if there is no such file); an error for
+/// a file that can't be read or is not a list of locks (cut short, or
+/// edited by hand), to be said.
+pub fn try_read(path: &Path) -> Result<Vec<Lock>, String> {
+    let data = match std::fs::read(path) {
+        Ok(data) => data,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    let v = serde_json::from_slice::<serde_json::Value>(&data)
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(locks_of(&v))
+}
+
+/// The locks kept in `path`: none if there are none or it can't be read.
+/// A file that can't be read as locks is kept beside, as
+/// `<name>.unreadable`, before what is written next replaces it (see
+/// [`try_read`] to say why).
 pub fn read(path: &Path) -> Vec<Lock> {
-    let Ok(data) = std::fs::read(path) else { return Vec::new() };
-    let Ok(v) = serde_json::from_slice::<serde_json::Value>(&data) else { return Vec::new() };
+    try_read(path).unwrap_or_else(|_| {
+        let _ = std::fs::copy(path, crate::sibling(path, ".unreadable"));
+        Vec::new()
+    })
+}
+
+fn locks_of(v: &serde_json::Value) -> Vec<Lock> {
     let locks = v.get("locks").and_then(|l| l.as_array()).cloned().unwrap_or_default();
     locks
         .iter()
@@ -229,10 +262,7 @@ pub fn write(path: &Path, module: &Path, locks: &[Lock]) -> std::io::Result<()> 
         })
         .collect();
     let v = serde_json::json!({ "module": module.display().to_string(), "locks": locks });
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    std::fs::write(path, serde_json::to_vec_pretty(&v)?)
+    crate::write_replacing(path, &serde_json::to_vec_pretty(&v)?)
 }
 
 #[cfg(test)]
@@ -382,5 +412,49 @@ mod tests {
         assert!(!path.exists());
         write(&path, &dir, &[]).unwrap();
         assert!(read(&path).is_empty());
+    }
+
+    /// The file's name is the same from one build to the next (SHA-1, not
+    /// Rust's hasher); a file under the name earlier builds gave it is
+    /// taken over, so a project keeps its locks.
+    #[test]
+    fn the_locks_file_keeps_its_name_and_an_old_one_is_taken_over() {
+        let dir = mg_testkit::scratch_dir("locks-file-name");
+        let project = dir.join("project");
+        let path = file(&dir, &project);
+        let settled = crate::build::settled(&project);
+        let digest = mg_core::sha1::sha1(settled.as_os_str().as_encoded_bytes());
+        let name = format!("project-{}.json", mg_core::sha1::hex(&digest[..8]));
+        assert_eq!(path, dir.join(name));
+        let old = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            settled.hash(&mut h);
+            dir.join(format!("project-{:016x}.json", h.finish()))
+        };
+        let locks = locks_in(ResRef::from_str("a1").unwrap(), &area(&[("tree", 1.5, true)]));
+        write(&old, &project, &locks).unwrap();
+        assert_eq!(file(&dir, &project), path);
+        assert!(!old.exists());
+        assert_eq!(read(&path), locks);
+    }
+
+    /// A file cut short (or broken by hand) is an error to say, and is
+    /// kept beside before the next write replaces it; writing leaves no
+    /// file of its own behind.
+    #[test]
+    fn a_cut_locks_file_is_said_and_kept() {
+        let dir = mg_testkit::scratch_dir("locks-file-cut");
+        let path = file(&dir, &dir.join("project"));
+        let locks = locks_in(ResRef::from_str("a1").unwrap(), &area(&[("tree", 1.5, true)]));
+        write(&path, &dir, &locks).unwrap();
+        assert!(!crate::sibling(&path, ".moonglow-tmp").exists());
+        let whole = std::fs::read(&path).unwrap();
+        std::fs::write(&path, &whole[..whole.len() / 2]).unwrap();
+        assert!(try_read(&path).is_err());
+        assert!(read(&path).is_empty());
+        let kept = crate::sibling(&path, ".unreadable");
+        assert_eq!(std::fs::read(kept).unwrap(), whole[..whole.len() / 2]);
+        assert_eq!(try_read(&dir.join("none.json")), Ok(Vec::new()));
     }
 }

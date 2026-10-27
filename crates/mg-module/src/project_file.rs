@@ -977,7 +977,7 @@ impl ProjectFile {
                 "# Each builder's own settings for Moonglow: not shared.\n*\n",
             )?;
         }
-        std::fs::write(dir.join(USER_FILE), text)
+        crate::write_replacing(&dir.join(USER_FILE), text.as_bytes())
     }
 
     /// Sets (or, `None`, takes out) the builder's code in their own file,
