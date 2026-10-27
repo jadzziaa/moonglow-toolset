@@ -28,7 +28,9 @@ mg-mdl = { path = "crates/mg-mdl" }
 mg-module = { path = "crates/mg-module" }
 mg-nui = { path = "crates/mg-nui" }
 mg-plugin = { path = "crates/mg-plugin" }
-mg-preview = { path = "crates/mg-preview" }
+# (Without the renderer by default, so that `mg` can leave it out: mg-area and
+# mg-ui ask for it.)
+mg-preview = { path = "crates/mg-preview", default-features = false }
 mg-render = { path = "crates/mg-render" }
 mg-resman = { path = "crates/mg-resman" }
 mg-rules = { path = "crates/mg-rules" }

@@ -27,7 +27,7 @@ mg-module.workspace = true
 mg-nui.workspace = true
 mg-plugin.workspace = true
 mg-preview.workspace = true
-mg-render.workspace = true
+mg-render = { workspace = true, optional = true }
 mg-resman.workspace = true
 mg-serve.workspace = true
 mg-set.workspace = true
@@ -36,10 +36,18 @@ mg-rules.workspace = true
 mg-schema.workspace = true
 mg-script.workspace = true
 mg-tlk.workspace = true
-mg-ui.workspace = true
+mg-ui = { workspace = true, optional = true }
 serde_json.workspace = true
 toml.workspace = true
 zip.workspace = true
+
+# `mg nui render` and `mg nui layout`: the NUI Creator's preview, drawn
+# on the GPU by the GUI's library (mg-ui, egui and wgpu). On by default,
+# so the packages' `mg` has every command; `--no-default-features` builds
+# `mg` without them, and without the GPU stack.
+[features]
+default = ["nui-preview"]
+nui-preview = ["dep:mg-ui", "dep:mg-render"]
 
 [dev-dependencies]
 mg-testkit.workspace = true

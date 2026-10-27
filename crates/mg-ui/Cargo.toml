@@ -29,7 +29,7 @@ mg-mdl.workspace = true
 mg-module.workspace = true
 mg-nui.workspace = true
 mg-plugin.workspace = true
-mg-preview.workspace = true
+mg-preview = { workspace = true, features = ["render"] }
 mg-render.workspace = true
 mg-resman.workspace = true
 mg-rules.workspace = true

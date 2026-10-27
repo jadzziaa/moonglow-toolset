@@ -3,9 +3,12 @@
 //! 2DAs, with their PLT colours and environment maps
 //! (`docs/research/notes_models.md` part D).
 //!
-//! A [`Preview`] names models and where they hang; [`compose::Composed`]
+//! A [`Preview`] names models and where they hang; `compose::Composed`
 //! loads them and turns them into renderer instances at a moment of an
-//! animation.
+//! animation. The renderer's half (`compose`, with mg-render and wgpu) is
+//! the feature `render`, on by default: what a preview is made of and the
+//! files it loads (`files`, `replaceable`) need no GPU, and `mg` builds
+//! with them alone.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -17,6 +20,7 @@ use mg_gff::Struct;
 use mg_mdl::{Model, NodeKind};
 use mg_rules::GameData;
 
+#[cfg(feature = "render")]
 pub mod compose;
 mod creature;
 pub mod files;

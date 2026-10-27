@@ -71,6 +71,9 @@ jobs:
         run: |
           cargo clippy -p mg-ui --test screens --test frame_perf --test world_perf --test campaign_perf --test editor_perf --test nui_perf -- -D warnings
           cargo clippy -p mg-corpus-tests --test client_render --test client_minimap --test client_nui -- -D warnings
+      - name: Clippy (mg and mg-preview without the GPU)
+        # Their default features are on in everything above.
+        run: cargo clippy -p mg -p mg-preview --no-default-features --all-targets -- -D warnings
       - name: Test
         # Corpus, differential and engine tests skip without a game install.
         # Not the examples (developer tools; a plain `cargo test` links all

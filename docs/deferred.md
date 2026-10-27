@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T05:24:41Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T05:36:28Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -43,8 +43,15 @@ Size: S (an hour or two), M (a day or so), L (several days).
   dozen subject modules under the same binary, a harness helper for the
   47 repeated installs and 115 hand-built harnesses, and the GPU lock
   only for tests that draw an area (a dozen take it for nothing). (L)
-- **`mg` links the GPU stack** through `mg-preview` and never uses it:
-  96 crates of its build. (M)
+- **`mg` builds the GPU stack by default** for `mg nui render` (drawn
+  with wgpu) and `mg nui layout` (a frame of the NUI Creator's canvas,
+  egui, no GPU), both of mg-ui:
+  229 crates, 2 min 42 s cold (`cargo build --release -p mg`, 4 jobs),
+  37.8 MB. Without the feature `nui-preview` (`--no-default-features`)
+  `mg` is 140 crates, 87 s and 22.7 MB, and has neither command (clap
+  says "unrecognized subcommand"). The canvas in a crate of its own,
+  with egui and no wgpu, would leave `render` alone behind the feature;
+  the packages keep the default. (M)
 - **Moonglow Viewer's shader cache across toolset tags:** the libraries
   are 0.0.0 and read the release from the program (`mg_core::release`),
   which the viewer doesn't set, so its compiled-shader cache is named by

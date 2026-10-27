@@ -17,7 +17,6 @@
 //! another over its `transtime`.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use glam::{Mat4, Quat, Vec3};
 use mg_mdl::{AnimMeshSets, AnimNode, Animation, Controller, Mesh, Model};
@@ -92,26 +91,9 @@ pub fn sample(c: &Controller, t: f32) -> Vec<f32> {
     a.iter().zip(b).map(|(x, y)| x + (y - x) * f).collect()
 }
 
-/// The animations a model can play: its own and its supermodels' (loaded
-/// by `load`), each name once, nearest model first.
-pub fn animations(
-    model: &Arc<Model>,
-    load: &dyn Fn(&str) -> Option<Arc<Model>>,
-) -> Vec<(String, Arc<Model>)> {
-    let mut out: Vec<(String, Arc<Model>)> = Vec::new();
-    let mut current = Some(model.clone());
-    let mut depth = 0;
-    while let Some(m) = current {
-        for a in &m.animations {
-            if !out.iter().any(|(n, _)| n.eq_ignore_ascii_case(&a.name)) {
-                out.push((a.name.clone(), m.clone()));
-            }
-        }
-        depth += 1;
-        current = if depth > 16 { None } else { m.supermodel.as_deref().and_then(load) };
-    }
-    out
-}
+// (Which animations a model plays: mg-mdl's, as blueprint previews read
+// them without a renderer.)
+pub use mg_mdl::animations;
 
 /// The model-space transform of every node of `model` playing `anim` at
 /// time `t` (seconds; see [`time_in`]).

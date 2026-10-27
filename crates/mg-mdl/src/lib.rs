@@ -469,6 +469,27 @@ pub fn axis_angle(axis: Vec3, angle: f32) -> Quat {
     [axis[0] / len * s, axis[1] / len * s, axis[2] / len * s, c]
 }
 
+/// The animations a model can play: its own and its supermodels' (loaded
+/// by `load`), each name once, nearest model first.
+pub fn animations(
+    model: &std::sync::Arc<Model>,
+    load: &dyn Fn(&str) -> Option<std::sync::Arc<Model>>,
+) -> Vec<(String, std::sync::Arc<Model>)> {
+    let mut out: Vec<(String, std::sync::Arc<Model>)> = Vec::new();
+    let mut current = Some(model.clone());
+    let mut depth = 0;
+    while let Some(m) = current {
+        for a in &m.animations {
+            if !out.iter().any(|(n, _)| n.eq_ignore_ascii_case(&a.name)) {
+                out.push((a.name.clone(), m.clone()));
+            }
+        }
+        depth += 1;
+        current = if depth > 16 { None } else { m.supermodel.as_deref().and_then(load) };
+    }
+    out
+}
+
 /// Face normals from positions, area-weighted (the cross product's length).
 pub(crate) fn face_normal(a: Vec3, b: Vec3, c: Vec3) -> Vec3 {
     let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];

@@ -6,7 +6,9 @@ the command-line tools (`mg`), the license, the third-party license notices
 and the user manual (`docs/manual`). The manual's
 [command-line chapter](../docs/manual/11-command-line.md) says how to run
 `mg` from each. Packages are built with the `dist` Cargo profile: release
-with thin LTO, keeping function names for crash reports.
+with thin LTO, keeping function names for crash reports, and `mg` with its
+default features: without `nui-preview` it has no `mg nui render` or
+`mg nui layout` (they draw with the GUI's library, on the GPU).
 
 `.github/workflows/release.yml` builds all three on a `v*` tag and drafts a
 GitHub release with them. Run by hand, it leaves them as the run's artifacts.

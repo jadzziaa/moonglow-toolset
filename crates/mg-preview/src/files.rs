@@ -56,7 +56,7 @@ impl<'a> Gatherer<'a> {
             // (Textures put in place of the model's own, and what it
             // mirrors.)
             for t in part.textures.values().chain(&part.env_map) {
-                self.texture(mg_render::assets::split_colors(t).0, 0);
+                self.texture(mg_image::plt::split_colors(t).0, 0);
             }
         }
     }
