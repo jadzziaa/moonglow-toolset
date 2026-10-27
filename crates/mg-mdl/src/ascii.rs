@@ -1242,6 +1242,22 @@ doneanim walk test
 donemodel test
 ";
 
+    /// Every prefix of a model (cut inside a keyword, a number, a list, an
+    /// animation) reads as a model or is an error: never a panic.
+    #[test]
+    fn truncated_input_is_an_error_or_a_model() {
+        let skin = "newmodel s\nbeginmodelgeom s\nnode dummy s\nparent NULL\nendnode\n\
+                    node skin hide\nparent s\nverts 2\n0 0 0\n1 0 0\nfaces 1\n0 1 1 1 0 0 0 0\n\
+                    weights 2\ns 1.0\ns 0.5 s 0.5\naabb 0 0 0 1 1 1 -1\nendnode\n\
+                    endmodelgeom s\ndonemodel s\n";
+        for text in [CUBE_ISH, skin] {
+            for len in 0..text.len() {
+                let _ = read(&text.as_bytes()[..len]);
+                let _ = read_mapped(&text.as_bytes()[..len]);
+            }
+        }
+    }
+
     #[test]
     fn a_small_model() {
         let m = read(CUBE_ISH.as_bytes()).unwrap();

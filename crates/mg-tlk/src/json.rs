@@ -17,7 +17,9 @@
 //! - Read back, an entry's flags are those of what it has: text 1, a
 //!   sound 2 and 4 (with a length or not); a length alone sets none. The
 //!   table has as many entries as the highest `id` asks for (one when it
-//!   has none); an `id` given twice takes the later entry. `language`,
+//!   has none); an `id` given twice takes the later entry. (Moonglow
+//!   refuses a table whose highest `id` would leave more than a million
+//!   lines empty, which `nwn_tlk` makes.) `language`,
 //!   `entries`, each entry's `id` and `text` must be there, a `soundLen`
 //!   must be a number with a point, not below 0.
 
@@ -130,6 +132,14 @@ pub fn from_json(text: &[u8], codepage: Codepage) -> Result<Tlk, String> {
         found.push((id as usize, entry));
     }
     let count = found.iter().map(|(id, _)| id + 1).max().unwrap_or(1);
+    if count.saturating_sub(found.len()) > MAX_EMPTY_LINES {
+        return Err(format!(
+            "its highest \"id\", {}, leaves more than {MAX_EMPTY_LINES} lines of the table \
+             empty (a table of {count} lines for {} entries)",
+            count - 1,
+            found.len()
+        ));
+    }
     let mut tlk = Tlk { language: Language(language), entries: vec![TlkEntry::default(); count] };
     for (id, e) in found {
         tlk.entries[id] = e;
@@ -171,6 +181,12 @@ fn decode(bytes: &[u8], codepage: Codepage) -> Vec<u8> {
 /// The most lines a table read holds: as many as a custom table's
 /// StrRefs can name.
 const MAX_ENTRIES: u64 = 1 << 24;
+
+/// The most empty lines a table read may have beyond those it lists: one
+/// entry with `id` 16777215 would otherwise make a table of 16 million
+/// lines (a gigabyte) from a few bytes. A table listed densely may still
+/// have up to [`MAX_ENTRIES`] lines.
+const MAX_EMPTY_LINES: usize = 1 << 20;
 
 /// Where a byte that isn't part of UTF-8 stands in text read from JSON
 /// (`with_raw_bytes`): a private-use character of its own, read back as
@@ -387,6 +403,18 @@ mod tests {
             let got = json.split_once("\"soundLen\":").map(|(_, r)| r.trim_end_matches("}]}"));
             assert_eq!(got, written, "{length}");
         }
+    }
+
+    /// One entry with the highest `id` would make a table of 16 million
+    /// lines: refused past a million empty lines, with the `id` named.
+    #[test]
+    fn a_far_id_alone_is_refused() {
+        let json = |id: usize| format!(r#"{{"language":0,"entries":[{{"id":{id},"text":"x"}}]}}"#);
+        let far = from_json(json(16_777_215).as_bytes(), Codepage::WINDOWS_1252).unwrap_err();
+        assert!(far.contains("16777215"), "{far}");
+        let t = from_json(json(MAX_EMPTY_LINES).as_bytes(), Codepage::WINDOWS_1252).unwrap();
+        assert_eq!(t.entries.len(), MAX_EMPTY_LINES + 1);
+        assert!(from_json(json(MAX_EMPTY_LINES + 1).as_bytes(), Codepage::WINDOWS_1252).is_err());
     }
 
     #[test]

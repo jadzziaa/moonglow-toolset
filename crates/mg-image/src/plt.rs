@@ -138,4 +138,19 @@ mod tests {
         // Hair, index 1 = the bottom row: red.
         assert_eq!(img.pixel(1, 0), [255, 0, 0, 255]);
     }
+
+    /// Every prefix of a PLT is an error (and never a panic); the whole
+    /// file reads.
+    #[test]
+    fn truncated_input_is_an_error_not_a_panic() {
+        let mut f = b"PLT V1  ".to_vec();
+        for v in [10u32, 0, 3, 2] {
+            f.extend_from_slice(&v.to_le_bytes());
+        }
+        f.extend((0..12u8).map(|i| i % 10));
+        assert_eq!(Plt::read(&f).unwrap().pixels.len(), 6);
+        for len in 0..f.len() {
+            assert!(Plt::read(&f[..len]).is_err(), "{len}");
+        }
+    }
 }

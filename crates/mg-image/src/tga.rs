@@ -76,7 +76,7 @@ pub fn read(data: &[u8]) -> Result<Texture, ImageError> {
     let n = width as usize * height as usize;
     // The pixels as stored, before converting.
     let raw: Vec<u8> = if rle {
-        let mut out = Vec::with_capacity(n * bpp);
+        let mut out = Vec::with_capacity(rle_capacity(n * bpp, r.remaining()));
         while out.len() < n * bpp {
             let head = r.u8()?;
             let count = (head & 0x7F) as usize + 1;
@@ -123,6 +123,14 @@ pub fn read(data: &[u8]) -> Result<Texture, ImageError> {
         Kind::Mapped => map_bits == 32,
     };
     Ok(img.into_texture(has_alpha))
+}
+
+/// What to reserve for run-length encoded pixels of `size` bytes from
+/// `remaining` bytes of data: a packet of 1 + bpp bytes makes at most 128
+/// pixels, so no more than 128 times what is left (a header alone, asking
+/// for 16384 × 16384 pixels, reserves nothing like a gigabyte).
+fn rle_capacity(size: usize, remaining: usize) -> usize {
+    size.min(remaining.saturating_mul(128))
 }
 
 #[derive(Clone, Copy)]
@@ -186,6 +194,18 @@ mod tests {
         assert_eq!(img.pixel(0, 0), [255, 0, 0, 255]);
         assert_eq!(img.pixel(0, 1), [0, 0, 255, 128]);
         assert_eq!(img.pixel(1, 1), [0, 255, 0, 64]);
+    }
+
+    /// A run-length encoded header asking for 16384 × 16384 pixels with a
+    /// few bytes after it reserves what those bytes could make (at most
+    /// 128 times them), not a gigabyte, and is an error.
+    #[test]
+    fn rle_reserves_by_the_data_present() {
+        assert_eq!(rle_capacity(16_384 * 16_384 * 4, 6), 6 * 128);
+        assert_eq!(rle_capacity(16, 6), 16);
+        let mut f = header(10, 16_384, 16_384, 32, 0);
+        f.extend_from_slice(&[0xFF, 1, 2, 3, 4, 0x81]);
+        assert!(read(&f).is_err());
     }
 
     /// As a picture: top first and left first by the origin declared,
