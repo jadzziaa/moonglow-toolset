@@ -880,6 +880,13 @@ fn frames_at_144_in_a_persistent_world() {
     h.run_steps(3);
     view(&mut h, &mut r, "store inventory with 1,000 items", Some(&store));
     close(&mut h, &store);
+    // An item's Properties page: every property it may take, by kind.
+    let item = Tab::Blueprint(ResKey::parse("pw_i00001", ResType::UTI).unwrap());
+    open(&mut h, item.clone());
+    if click(&mut h, "Properties") {
+        view(&mut h, &mut r, "item blueprint, Properties page", Some(&item));
+    }
+    close(&mut h, &item);
     // The same store in the Preview window (its stock by page).
     h.state_mut().palette.selected = ResKey::parse("pw_store", ResType::UTM);
     h.state_mut().preview_window = true;
