@@ -384,6 +384,45 @@ pub(crate) fn with_keys(app: &Moonglow, ctx: &egui::Context) -> Option<ResKey> {
     app.scripts.keys().find(|k| editor_id(**k) == focused).copied()
 }
 
+/// Notes the script Edit › Undo and Redo and the toolbar's are for this
+/// frame (`Moonglow::undo_script`): the one whose editor has the keys,
+/// as its Ctrl+Z goes, and while a menu is open the one that had them as
+/// it was opened (the click on the menu takes the keys from the editor).
+/// Drawn before the editor, the toolbar sees the keys where they were
+/// before its own click.
+pub(crate) fn undo_target(app: &mut Moonglow, ctx: &egui::Context) {
+    if app.menu_open.is_none() {
+        app.undo_script = with_keys(app, ctx);
+    }
+    app.undo_script = app.undo_script.filter(|k| app.scripts.contains_key(k));
+}
+
+/// Edit › Undo (or, `redo`, Redo) in the script's editor: a step of its
+/// own history, as Ctrl+Z takes there (with none, nothing), once the
+/// editor is drawn; the editor has the keys again after it.
+pub(crate) fn undo(app: &mut Moonglow, ctx: &egui::Context, key: ResKey, redo: bool) {
+    app.script_tools.undo = Some((key, redo));
+    ctx.request_repaint();
+}
+
+/// A step of the editor's own history taken, back or (`redo`) again, as
+/// its Ctrl+Z and Ctrl+Y take one (with none, nothing is).
+fn step_history(buf: &mut ScriptBuffer, ctx: &egui::Context, key: ResKey, redo: bool) {
+    let id = editor_id(key);
+    let Some(mut state) = egui::text_edit::TextEditState::load(ctx, id) else { return };
+    let end = egui::text::CCursorRange::one(egui::text::CCursor::new(buf.text.chars().count()));
+    let now = (state.cursor.char_range().unwrap_or(end), buf.text.clone());
+    let mut undoer = state.undoer();
+    let Some((range, text)) = (if redo { undoer.redo(&now) } else { undoer.undo(&now) }).cloned()
+    else {
+        return;
+    };
+    buf.text = text;
+    state.cursor.set_char_range(Some(range));
+    state.set_undoer(undoer);
+    state.store(ctx, id);
+}
+
 /// Moves an editor's cursor (and selection) and focuses it.
 fn set_cursor(ctx: &egui::Context, key: ResKey, from: usize, to: usize) {
     let id = editor_id(key);
@@ -1012,6 +1051,16 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         convert_indentation(buf, &ctx, key, tabs, indent.width);
         indent = tools::Indent::of_script(buf.indent, style_indent);
     }
+    // Edit › Undo or Redo, or the toolbar's: the editor's step, and the
+    // keys back in it after (below, once the click that took them is
+    // past), so that Ctrl+Z after it is the editor's too, not the
+    // module's.
+    let stepped = script_tools.undo.take_if(|(k, _)| *k == key);
+    if let Some((_, redo)) = stepped {
+        step_history(buf, &ctx, key, redo);
+        // (As typing closes it.)
+        script_tools.completion = None;
+    }
     // Scrolled and its cursor where they were, a module's kept tabs
     // opening it again (the cursor's not given the keys).
     let (kept_scroll, kept_cursor) =
@@ -1265,6 +1314,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         (a.min(b), a.max(b))
     });
     buf.seen = Some((shown.state.offset, cursor_now));
+    if stepped.is_some() {
+        ctx.memory_mut(|m| m.request_focus(editor_id(key)));
+    }
     if let Some(tabs) = convert {
         script_tools.convert_indent = Some((key, tabs));
         ctx.request_repaint();

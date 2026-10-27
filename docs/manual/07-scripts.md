@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:11:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T04:47:34Z }
 ---
 
 # Scripts
@@ -67,7 +67,7 @@ have.
 | Tab | one step of indentation at the cursor, as the script is indented: a tab, or its step of spaces (to the next multiple of it); a script with no indented line to go by, as Options › Script Editor › Indent with says (four spaces); on several selected lines, indent each one a step (empty lines stay empty) |
 | Shift+Tab | outdent the selected lines, or the cursor's line, a step: a tab, or up to the indent width in spaces |
 | Page Down, Page Up | a page down or up, the text with the cursor; with Shift, selecting |
-| Ctrl+Z, Ctrl+Y | take back and give again what was done in the editor (typing, a new line, an indent, a completion, a replacement), while it has the keyboard |
+| Ctrl+Z, Ctrl+Y | take back and give again what was done in the editor (typing, a new line, an indent, a completion, a replacement), while it has the keyboard; Edit › Undo and Redo and the toolbar's are the editor's then too (see below) |
 | F12, Ctrl+click | go to the definition of the name at the cursor |
 | Shift+F12 | list where the name at the cursor is used |
 | Ctrl+Shift+R | rename the name at the cursor everywhere |
@@ -75,6 +75,26 @@ have.
 | Ctrl+Shift+1 … 9 | set numbered bookmark 1 to 9 |
 | Ctrl+1 … 9 | go to numbered bookmark 1 to 9 |
 | F7 | compile all the module's scripts |
+
+**Undo in a script.** The editor keeps its own history of the text:
+what you type stays in the editor until **Save** (or File › Save)
+puts it into the module, and only that is a step of the module's
+history. While
+the editor has the keyboard (its cursor shows), Ctrl+Z and Ctrl+Y,
+**Edit › Undo** and **Redo** and the toolbar's ⟲ and ⟳ all take a step
+of the script's history, never the module's: the menu says plain
+"Undo" and "Redo" rather than naming a module step, and the click on
+the menu or the toolbar that takes the keyboard from the editor still
+counts as being in it. After them the editor has the keyboard again,
+so Ctrl+Z goes on in the script. With nothing to take back or give
+again in the script they do nothing (they are not grayed). With the
+keyboard anywhere else (after a click in the module tree, say), even
+with the pointer over the script, Edit › Undo and the toolbar's are
+the module's and name its step, as the Save key saves the module
+there (Ctrl+Z in a field typed in is that field's). Making each
+burst of typing a step of the module's history would have put it
+under the module's Undo from any other tab too, where it would have
+taken back typing in a script you were not looking at.
 
 **Open…** on a script editor's toolbar opens other scripts: a list of
 them found by name, of the module's alone, its haks' alone or all of
@@ -159,8 +179,8 @@ The buttons:
   script is in that file once the module is saved; for a module kept as
   a folder or a nasher project, the script's own `.nss` file there is
   written by File › Save too, not by the script's Save. Until then the
-  module has unsaved changes (the `*` in the title) and Edit › Undo
-  takes the script's Save back. Aurora's script editor has its own Save
+  module has unsaved changes (the `*` in the title) and Edit › Undo,
+  with the keyboard outside the editor, takes the script's Save back. Aurora's script editor has its own Save
   on Ctrl+S as well. A script tab with text not yet saved into the
   module says so; Moonglow's recovery copies keep that text too.
 - **Compile**: save and compile this script; errors go to the Compiler

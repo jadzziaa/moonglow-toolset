@@ -183,6 +183,11 @@ pub struct ScriptTools {
     /// A script's indentation to convert, to tabs (`true`) or spaces, once
     /// its editor is drawn (Edit › Convert Indentation…).
     pub convert_indent: Option<(ResKey, bool)>,
+    /// A step of a script's own history to take, back (`false`) or again
+    /// (`true`), once its editor is drawn: Edit › Undo or Redo, or the
+    /// toolbar's, while the script is the one worked in
+    /// (`script_view::undo_target`).
+    pub(crate) undo: Option<(ResKey, bool)>,
     /// The script whose editor had the keyboard last.
     pub(crate) last_typed: Option<ResKey>,
     /// `nwscript.nss`, parsed once.

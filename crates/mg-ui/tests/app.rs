@@ -5228,6 +5228,147 @@ fn undo_in_a_script_is_the_script_s() {
     assert_eq!(undoable(&h).as_deref(), Some("Earlier"));
 }
 
+/// A script open with a new line typed in it (Enter at the end of a line,
+/// its indent with it), the module's last step "Earlier" somewhere else
+/// (`window`: the script in a window of its own): the harness, the script
+/// and its text before and after the new line.
+fn script_with_a_new_line(
+    name: &str,
+    window: bool,
+) -> (Harness<'static, Moonglow>, ResKey, &'static str, String) {
+    let dir = mg_testkit::scratch_dir(name);
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let text = "void main()\n{\n    int a;\n}\n";
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, text.as_bytes().to_vec());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let other = ResKey::parse("mg_note", ResType::NSS).unwrap();
+    let edit = mg_edit::Edit::SetResource { key: other, data: Some(b"void main() {}\n".to_vec()) };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Earlier", vec![edit])));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    h.run();
+    if window {
+        own_window(&mut h, &Tab::Script(key), egui::pos2(400.0, 150.0), egui::vec2(600.0, 450.0));
+    }
+    h.state_mut().script_tools.jump = Some((key, text.find("a;").unwrap() + 2));
+    h.run();
+    h.key_press(egui::Key::Enter);
+    h.run();
+    let edited = h.state().script_text(key).unwrap();
+    assert!(edited.contains("int a;\n    \n}"), "{edited:?}");
+    (h, key, text, edited)
+}
+
+/// The open Edit menu's Undo or Redo row (`what`), as it reads (with its
+/// key).
+fn edit_row(h: &Harness<'_, Moonglow>, what: &str) -> String {
+    let rows: Vec<String> = h
+        .query_all_by_label_contains(what)
+        .filter_map(|n| n.accesskit_node().label())
+        .filter(|l| l.starts_with(what))
+        .collect();
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    rows[0].clone()
+}
+
+/// Whether a script's editor has the keys.
+fn script_has_keys(h: &Harness<'_, Moonglow>, key: ResKey) -> bool {
+    h.ctx.memory(|m| m.focused()) == Some(egui::Id::new(("script", key)))
+}
+
+/// A builder's report (October 2026): Edit › Undo and the toolbar's in a
+/// script were the module's, and took back a change somewhere else,
+/// where Ctrl+Z took back the script's. With the keys in the script's
+/// editor (the click on the menu or the button takes them from it), they
+/// are the script's, say plain "Undo" and "Redo", and give the keys back
+/// to the editor, so that Ctrl+Z after them is the script's too.
+#[test]
+fn the_menu_s_and_the_toolbar_s_undo_in_a_script_are_the_script_s() {
+    let (mut h, key, text, edited) = script_with_a_new_line("ui-menu-undo-in-script", false);
+    let undoable =
+        |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(str::to_owned);
+    let script = |h: &Harness<'_, Moonglow>| h.state().script_text(key).unwrap();
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    assert_eq!(edit_row(&h, "Undo"), "Undo Ctrl+Z", "not the module's step");
+    h.get_by_label("Undo Ctrl+Z").click();
+    h.run_steps(2);
+    assert_eq!(script(&h), text, "the new line is taken back");
+    assert_eq!(undoable(&h).as_deref(), Some("Earlier"), "not the module's Undo");
+    assert!(script_has_keys(&h, key), "the keys back in the editor");
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    let redo = edit_row(&h, "Redo");
+    h.get_by_label(&redo).click();
+    h.run_steps(2);
+    assert_eq!(script(&h), edited, "and Redo gives it again");
+    assert!(script_has_keys(&h, key));
+    // The toolbar's, the same.
+    h.get_by_label("⟲ Undo").click();
+    h.run_steps(2);
+    assert_eq!(script(&h), text);
+    assert!(script_has_keys(&h, key));
+    h.get_by_label("⟳ Redo").click();
+    h.run_steps(2);
+    assert_eq!(script(&h), edited);
+    assert!(script_has_keys(&h, key));
+    // Ctrl+Z after them: the script's still.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert_eq!(script(&h), text);
+    assert_eq!(undoable(&h).as_deref(), Some("Earlier"));
+    // With the keys elsewhere (a click in the module tree) and the
+    // pointer over the script, the module's, as the Save key is: the
+    // menu names the module's step.
+    h.get_by_label("Areas (1)").click();
+    h.run_steps(2);
+    assert!(!script_has_keys(&h, key));
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    assert_eq!(edit_row(&h, "Undo"), "Undo Earlier Ctrl+Z", "the module's step named");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    let editor = h.get_all_by_role(egui::accesskit::Role::MultilineTextInput).next().unwrap();
+    h.hover_at(editor.rect().center());
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_ne!(undoable(&h).as_deref(), Some("Earlier"), "the module's step undone");
+    assert_eq!(script(&h), text, "the script as it was");
+}
+
+/// The same for a script in a window of its own.
+#[test]
+fn the_menu_s_undo_in_a_script_in_a_window_of_its_own_is_the_script_s() {
+    let (mut h, key, text, edited) = script_with_a_new_line("ui-menu-undo-script-window", true);
+    let path = h.state().dock.find_tab(&Tab::Script(key)).unwrap();
+    assert!(!path.surface.is_main(), "in a window of its own");
+    let undoable =
+        |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(str::to_owned);
+    // (Two seconds on, the new line is a point of the editor's history
+    // of its own, cursor and all: one Undo still takes it back, not
+    // only the cursor.)
+    h.run_steps(8);
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    h.get_by_label(&edit_row(&h, "Undo")).click();
+    h.run_steps(2);
+    assert_eq!(h.state().script_text(key).as_deref(), Some(text));
+    assert_eq!(undoable(&h).as_deref(), Some("Earlier"), "not the module's Undo");
+    h.get_by_label("⟳ Redo").click();
+    h.run_steps(2);
+    assert_eq!(h.state().script_text(key), Some(edited));
+    assert!(script_has_keys(&h, key));
+}
+
 fn filter_type(h: &mut Harness<'_, Moonglow>, text: &str) {
     h.event(egui::Event::Text(text.into()));
     h.run_steps(2);

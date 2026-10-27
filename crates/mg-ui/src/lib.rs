@@ -572,6 +572,11 @@ pub struct Moonglow {
     /// The 2DA grid that has the keys, as drawn this frame: Undo and Redo
     /// are its, the pointer over no side editor.
     pub(crate) undo_keys: Option<Tab>,
+    /// The script whose editor has the keys, or had them when the menu
+    /// still open was opened (the click on it takes them): Edit › Undo
+    /// and Redo and the toolbar's are that editor's, as its keys are
+    /// (`script_view::undo_target`).
+    pub(crate) undo_script: Option<ResKey>,
     pub model_views: HashMap<model_view::Source, model_view::ModelView>,
     /// The Palette Categories window, when open.
     pub palette_categories: Option<palette_categories::PaletteCategories>,
@@ -930,6 +935,7 @@ impl Moonglow {
             side_closing: Default::default(),
             undo_under_pointer: None,
             undo_keys: None,
+            undo_script: None,
             model_views: HashMap::new(),
             palette_categories: None,
             area_names: Default::default(),
@@ -1181,6 +1187,9 @@ impl Moonglow {
         self.poll_job(ui.ctx());
         updates::frame(self, ui.ctx());
         self.next_plugin_event();
+        // (Before the menus and the toolbar, which are drawn before the
+        // editor: they see the keys it had.)
+        script_view::undo_target(self, ui.ctx());
         // (A running job has the window to itself.)
         if !self.busy() {
             self.shortcuts(ui);
