@@ -29,6 +29,11 @@ use mg_resman::{ErfContainer, GameInstall, LayerClass, MemContainer, ResKey, pri
 use mg_rules::GameData;
 use mg_testkit::{aurora_capture, corpus};
 
+use crate::aurora_common::{PLAIN, lines};
+
+/// How the GFFs are compared, as lines.
+const SHOWN: crate::aurora_common::Shown<'static> = PLAIN;
+
 /// The game, with the probe's hak and the override folder's blueprint.
 fn game(root: &std::path::Path) -> Option<GameData> {
     let mut game = GameData::open(&GameInstall::new(root, None, "en")).ok()?;
@@ -49,27 +54,8 @@ fn palette(m: &Module, kind: BlueprintKind) -> Gff {
     m.gff(&kind.custom_key()).unwrap().unwrap()
 }
 
-/// A palette as lines (labels, types and values, in order), for a
-/// readable difference.
-fn lines(s: &Struct, indent: &str, out: &mut Vec<String>) {
-    for f in &s.fields {
-        match &f.value {
-            Value::List(items) => {
-                out.push(format!("{indent}{} list[{}]", f.label.to_string_lossy(), items.len()));
-                for (i, item) in items.iter().enumerate() {
-                    out.push(format!("{indent}  [{i}] struct {}", item.id));
-                    lines(item, &format!("{indent}    "), out);
-                }
-            }
-            v => out.push(format!("{indent}{} {:?}", f.label.to_string_lossy(), v)),
-        }
-    }
-}
-
 fn differences(what: &str, ours: &Gff, aurora: &Gff) -> Option<String> {
-    let (mut a, mut b) = (Vec::new(), Vec::new());
-    lines(&ours.root, "", &mut a);
-    lines(&aurora.root, "", &mut b);
+    let (a, b) = (lines(&ours.root, SHOWN), lines(&aurora.root, SHOWN));
     (a != b).then(|| {
         let first = a.iter().zip(&b).position(|(x, y)| x != y).unwrap_or(a.len().min(b.len()));
         let from = first.saturating_sub(3);

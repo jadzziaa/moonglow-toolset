@@ -1,9 +1,12 @@
 //! An external NWScript compiler (Options › Script Editor) in place of the
 //! built-in one: `nwn_script_comp`, `nwnsc` or another, run as a program.
 //!
-//! The module's scripts are written to a scratch folder, the compiler is
-//! run on those asked for, and what it made (`.ncs`, `.ndb`) is read back,
-//! with what it said of each script that it made nothing for.
+//! The scripts asked for and the module's scripts they include (however
+//! indirectly, through the haks' and the game's includes too) are
+//! written to a scratch folder, the compiler is run on those asked for
+//! (stopped if it runs past two minutes), and what it made (`.ncs`,
+//! `.ndb`) is read back, with what it said of each script that it made
+//! nothing for.
 //!
 //! How it is run is a line of arguments with places for what Moonglow
 //! knows ([`PLACES`]); the two compilers builders use have theirs built in
@@ -26,6 +29,10 @@ pub const PLACES: [(&str, &str); 6] = [
 /// The most characters of script paths given to one run of the compiler
 /// (Windows takes about 32,000 in a command line).
 const FILES_AT_ONCE: usize = 16_000;
+
+/// How long one run of the compiler may take before it is stopped (one
+/// that waits on something, as a prompt under Wine, never ends).
+const TIME_LIMIT: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// An external compiler and what it is told.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -68,14 +75,26 @@ impl ExternalCompiler {
     /// The arguments of one run: the line's words (double quotes keep
     /// spaces), each place filled in. A word whose place has nothing to
     /// give (no game folder, no haks) is left out, with the option before
-    /// it.
-    fn arguments(&self, src: &Path, out: &Path, files: &[PathBuf]) -> Vec<String> {
+    /// it. An error for a hak whose path has a comma, when the line lists
+    /// the haks: the list is comma-separated, with no way to quote one
+    /// (`nwn_script_comp --erfs`).
+    fn arguments(&self, src: &Path, out: &Path, files: &[PathBuf]) -> Result<Vec<String>, String> {
         let line = if self.arguments.trim().is_empty() {
             Self::default_arguments(&self.program, self.debug)
         } else {
             self.arguments.clone()
         };
         let text = |p: &Path| p.display().to_string();
+        if line.contains("{haks}")
+            && let Some(hak) = self.haks.iter().find(|h| text(h).contains(','))
+        {
+            return Err(format!(
+                "the hak {} has a comma in its path, which the compiler's comma-separated \
+                 list of haks cannot hold: move or rename it, or leave {{haks}} out of the \
+                 compiler's arguments",
+                hak.display()
+            ));
+        }
         let haks = self.haks.iter().map(|h| text(h)).collect::<Vec<_>>().join(",");
         let values: [(&str, Option<String>); 5] = [
             ("{src}", Some(text(src))),
@@ -109,11 +128,11 @@ impl ExternalCompiler {
             }
             made.push(filled);
         }
-        made
+        Ok(made)
     }
 
-    /// Compiles `names` (resrefs, lower case) among `sources` (every script
-    /// the module has: name and text). What was made of each, in order; or
+    /// Compiles `names` (resrefs, lower case) among `sources` (the scripts
+    /// they read: name and text). What was made of each, in order; or
     /// why the compiler could not be run at all.
     pub fn compile(
         &self,
@@ -142,11 +161,15 @@ impl ExternalCompiler {
                 to += 1;
             }
             let mut command = Command::new(&self.program);
-            command.args(self.arguments(&src, &out, &files[from..to])).current_dir(&src);
+            command.args(self.arguments(&src, &out, &files[from..to])?).current_dir(&src);
             quiet(&mut command);
-            let run = command
-                .output()
-                .map_err(|e| format!("{} could not be run: {e}", self.program.display()))?;
+            let run = crate::process::output_within(&mut command, TIME_LIMIT).map_err(|e| {
+                let program = self.program.display();
+                match e.kind() {
+                    std::io::ErrorKind::TimedOut => format!("{program} {e}"),
+                    _ => format!("{program} could not be run: {e}"),
+                }
+            })?;
             said.push_str(&String::from_utf8_lossy(&run.stdout));
             said.push_str(&String::from_utf8_lossy(&run.stderr));
             if !run.status.success() && !said.ends_with('\n') {
@@ -279,15 +302,17 @@ fn find_file(line: &str, name: &str) -> Option<usize> {
     })
 }
 
-/// No console window for the compiler, on Windows.
+/// No console window for the compiler, on Windows; and nothing to read
+/// (a compiler that asks for input, as one under Wine may, ends at once
+/// rather than waiting on Moonglow's own input for ever).
 fn quiet(command: &mut Command) {
+    command.stdin(std::process::Stdio::null());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         command.creation_flags(CREATE_NO_WINDOW);
     }
-    let _ = command;
 }
 
 /// A scratch folder of this run's own, removed when done.
@@ -323,7 +348,7 @@ mod tests {
             ..Default::default()
         };
         let files = [PathBuf::from("/s/one.nss"), PathBuf::from("/s/two.nss")];
-        let args = c.arguments(Path::new("/s"), Path::new("/o"), &files);
+        let args = c.arguments(Path::new("/s"), Path::new("/o"), &files).unwrap();
         assert_eq!(
             args,
             [
@@ -345,14 +370,22 @@ mod tests {
         // nwnsc by its name; a line of one's own, with a quoted word.
         let nwnsc = ExternalCompiler { program: "C:/tools/NWNSC.exe".into(), ..c.clone() };
         assert_eq!(
-            nwnsc.arguments(Path::new("/s"), Path::new("/o"), &files)[..4],
+            nwnsc.arguments(Path::new("/s"), Path::new("/o"), &files).unwrap()[..4],
             ["-q", "-y", "-o", "-n"]
         );
-        let own = ExternalCompiler { arguments: "--x \"a b\" -o={out} {files}".into(), ..c };
+        let own =
+            ExternalCompiler { arguments: "--x \"a b\" -o={out} {files}".into(), ..c.clone() };
         assert_eq!(
-            own.arguments(Path::new("/s"), Path::new("/o"), &files[..1]),
+            own.arguments(Path::new("/s"), Path::new("/o"), &files[..1]).unwrap(),
             ["--x", "a b", "-o=/o", "/s/one.nss"]
         );
+        // A hak with a comma in its path cannot be listed: said, where the
+        // line lists the haks.
+        let comma = ExternalCompiler { haks: vec!["/haks/a,b.hak".into()], ..c };
+        let e = comma.arguments(Path::new("/s"), Path::new("/o"), &files).unwrap_err();
+        assert!(e.contains("/haks/a,b.hak") && e.contains("comma"), "{e}");
+        let own = ExternalCompiler { arguments: "{files}".into(), ..comma };
+        assert!(own.arguments(Path::new("/s"), Path::new("/o"), &files).is_ok());
     }
 
     #[test]

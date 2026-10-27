@@ -27,14 +27,18 @@ const STOPS: &str = "#include \"mg_test\"\nvoid main()\n{\n    int nNone = \
 const ENDLESS: &str = "void main() { int n = 0; while (TRUE) { n++; } }\n";
 
 fn mg(root: &Path, user: &Path, args: &[&str]) -> (bool, Value) {
-    let out = crate::mg()
-        .args(["--root", root.to_str().unwrap(), "--user-dir", user.to_str().unwrap(), "--json"])
-        .arg("test")
-        .args(args)
-        .output()
-        .unwrap();
-    let text = String::from_utf8_lossy(&out.stdout);
-    (out.status.success(), serde_json::from_str(&text).unwrap_or_else(|e| panic!("{e}: {text}")))
+    crate::json_out(
+        crate::mg()
+            .args([
+                "--root",
+                root.to_str().unwrap(),
+                "--user-dir",
+                user.to_str().unwrap(),
+                "--json",
+            ])
+            .arg("test")
+            .args(args),
+    )
 }
 
 #[test]
@@ -43,7 +47,7 @@ fn tests_run_in_the_server_and_report() {
     if mg_serve::server_binary(&root).is_none() {
         return;
     }
-    let _alone = mg_testkit::engine::one_at_a_time();
+    let _alone = mg_testkit::engine::timed_turn();
     let dir = mg_testkit::scratch_dir("mg-test");
     let user = dir.join("user");
     let tests = dir.join("tests");
@@ -115,7 +119,7 @@ fn a_module_s_own_driver_runs_its_tests() {
     if mg_serve::server_binary(&root).is_none() {
         return;
     }
-    let _alone = mg_testkit::engine::one_at_a_time();
+    let _alone = mg_testkit::engine::timed_turn();
     let dir = mg_testkit::scratch_dir("mg-test-own");
     let user = dir.join("user");
     std::fs::create_dir_all(&user).unwrap();

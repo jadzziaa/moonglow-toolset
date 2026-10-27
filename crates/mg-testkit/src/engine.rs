@@ -10,10 +10,11 @@
 
 use std::io;
 use std::path::Path;
-use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 pub use mg_serve::server_binary;
+
+use crate::places::{Places, Taken};
 
 /// What a server run logged.
 #[derive(Debug, Clone)]
@@ -39,36 +40,21 @@ impl ServerRun {
 /// on a core of its own, and the tests wait on them by the clock.
 const SERVERS_AT_ONCE: usize = 8;
 
-static RUNNING: Mutex<usize> = Mutex::new(0);
-static A_SERVER_ENDED: Condvar = Condvar::new();
+static SERVERS: Places = Places::new();
 
-/// One of the [`SERVERS_AT_ONCE`] places, held while a server runs.
-struct Turn;
+/// The most tests at once that have another program start the server and
+/// wait on it by the clock (each builds and serves a module, then runs it).
+const TIMED_AT_ONCE: usize = 3;
 
-impl Turn {
-    fn take() -> Turn {
-        let mut running = RUNNING.lock().unwrap_or_else(PoisonError::into_inner);
-        while *running >= SERVERS_AT_ONCE {
-            running = A_SERVER_ENDED.wait(running).unwrap_or_else(PoisonError::into_inner);
-        }
-        *running += 1;
-        Turn
-    }
-}
-
-impl Drop for Turn {
-    fn drop(&mut self) {
-        *RUNNING.lock().unwrap_or_else(PoisonError::into_inner) -= 1;
-        A_SERVER_ENDED.notify_one();
-    }
-}
+static TIMED: Places = Places::new();
 
 /// For a test that has another program start the server (`mg serve`, `mg
 /// test`) and waits on it by the clock: holds the others of its binary
-/// back until the returned guard is dropped.
-pub fn one_at_a_time() -> MutexGuard<'static, ()> {
-    static ONE: Mutex<()> = Mutex::new(());
-    ONE.lock().unwrap_or_else(PoisonError::into_inner)
+/// back, past [`TIMED_AT_ONCE`] of them, until the returned guard is
+/// dropped. (One at a time made the command line's tests wait 14 s on
+/// five servers.)
+pub fn timed_turn() -> Taken {
+    TIMED.take(1, TIMED_AT_ONCE)
 }
 
 /// Runs `<user_dir>/modules/<module>.mod`
@@ -84,7 +70,7 @@ pub fn run_server(
     let server = server_binary(root)
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, mg_serve::no_server(root)))?;
     // (Before the clock starts: a test waiting its turn is not timing out.)
-    let _turn = Turn::take();
+    let _turn = SERVERS.take(1, SERVERS_AT_ONCE);
     // Never listed publicly, and locked against anyone who finds the port
     // anyway: what `mg_serve` does unless asked otherwise.
     let server = mg_serve::Server::start(&mg_serve::Options {
@@ -125,7 +111,7 @@ pub fn save_game(
 ) -> io::Result<std::path::PathBuf> {
     let server = server_binary(root)
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, mg_serve::no_server(root)))?;
-    let _turn = Turn::take();
+    let _turn = SERVERS.take(1, SERVERS_AT_ONCE);
     let saves = user_dir.join("saves");
     let _ = std::fs::remove_dir_all(&saves);
     let mut server = mg_serve::Server::start(&mg_serve::Options {

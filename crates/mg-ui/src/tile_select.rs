@@ -851,7 +851,7 @@ fn open_properties(app: &mut Moonglow, view: &AreaView) {
 }
 
 /// lightcolor.2da's toolset colours (TOOLSETRED, GREEN, BLUE, 0 to 1).
-fn light_colors(app: &Moonglow) -> Vec<Color32> {
+pub(crate) fn light_colors(app: &Moonglow) -> Vec<Color32> {
     let Some(t) = app.game.as_deref().and_then(|g| g.table("lightcolor").ok()) else {
         return Vec::new();
     };

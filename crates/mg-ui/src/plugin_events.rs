@@ -118,14 +118,6 @@ impl Host for AtOnce {
     }
 }
 
-fn level(l: mg_plugin::Level) -> Level {
-    match l {
-        mg_plugin::Level::Info => Level::Info,
-        mg_plugin::Level::Warning => Level::Warning,
-        mg_plugin::Level::Error => Level::Error,
-    }
-}
-
 /// The enabled plugins with a handler of an event of `kind`, each with its
 /// settings: the plugin, the handler's id, its settings.
 fn handlers(app: &Moonglow, kind: EventKind) -> Vec<(Plugin, String, mg_plugin::Settings)> {
@@ -157,7 +149,7 @@ fn run_at_once(
     let made = run_event(plugin, id, event, input, host.clone());
     let name = &plugin.manifest.name;
     for (l, text) in host.log.take() {
-        app.log.said(level(l), format!("{name}: {text}"));
+        app.log.said(crate::plugins::level(l), format!("{name}: {text}"));
     }
     made
 }

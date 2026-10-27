@@ -551,7 +551,7 @@ impl Composed {
                 let inverse = (to * node).inverse();
                 let (o, d) = (inverse.transform_point3(origin), inverse.transform_vector3(dir));
                 // (Past its box, none of its triangles.)
-                if !ray_meets_box(o, d, m.min, m.max) {
+                if ray_box(o, d, m.min, m.max).is_none() {
                     continue;
                 }
                 let corner = |i: u32| mesh.vertices.get(i as usize).copied().map(Vec3::from);
@@ -678,13 +678,15 @@ fn skinned_places(
     Some(vertices.iter().zip(weights).map(place).collect())
 }
 
-/// Whether a ray meets the box `min`..`max`.
-fn ray_meets_box(origin: Vec3, dir: Vec3, min: Vec3, max: Vec3) -> bool {
+/// How far along a ray (from `origin` along `dir`) it meets the box
+/// `min`..`max`, if it does: 0 from inside it (the slab test; the area
+/// view's picking takes it too).
+pub fn ray_box(origin: Vec3, dir: Vec3, min: Vec3, max: Vec3) -> Option<f32> {
     let (mut near, mut far) = (f32::MIN, f32::MAX);
     for axis in 0..3 {
         if dir[axis].abs() < 1e-9 {
             if origin[axis] < min[axis] || origin[axis] > max[axis] {
-                return false;
+                return None;
             }
             continue;
         }
@@ -693,12 +695,12 @@ fn ray_meets_box(origin: Vec3, dir: Vec3, min: Vec3, max: Vec3) -> bool {
         near = near.max(a.min(b));
         far = far.min(a.max(b));
     }
-    near <= far && far >= 0.0
+    (near <= far && far >= 0.0).then_some(near.max(0.0))
 }
 
 /// How far along a ray it meets a triangle (either face), ahead of its
 /// origin (Möller–Trumbore).
-fn ray_triangle(origin: Vec3, dir: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Option<f32> {
+pub fn ray_triangle(origin: Vec3, dir: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Option<f32> {
     let (ab, ac) = (b - a, c - a);
     let p = dir.cross(ac);
     let det = ab.dot(p);
@@ -871,8 +873,10 @@ mod ray_tests {
         assert!(ray_triangle(Vec3::new(0.8, 0.8, 5.0), down, a, b, c).is_none());
         assert!(ray_triangle(Vec3::new(0.2, 0.2, -5.0), down, a, b, c).is_none());
         assert!(ray_triangle(Vec3::new(-1.0, 0.2, 0.0), Vec3::X, a, b, c).is_none());
-        assert!(ray_meets_box(Vec3::new(0.5, 0.5, 5.0), down, Vec3::ZERO, Vec3::ONE));
-        assert!(!ray_meets_box(Vec3::new(2.0, 0.5, 5.0), down, Vec3::ZERO, Vec3::ONE));
+        assert_eq!(ray_box(Vec3::new(0.5, 0.5, 5.0), down, Vec3::ZERO, Vec3::ONE), Some(4.0));
+        assert_eq!(ray_box(Vec3::new(0.5, 0.5, 0.5), down, Vec3::ZERO, Vec3::ONE), Some(0.0));
+        assert_eq!(ray_box(Vec3::new(2.0, 0.5, 5.0), down, Vec3::ZERO, Vec3::ONE), None);
+        assert_eq!(ray_box(Vec3::new(0.5, 0.5, -1.0), down, Vec3::ZERO, Vec3::ONE), None);
     }
 
     /// A standing idle missing falls back to the other; a placeable's

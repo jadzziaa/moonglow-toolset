@@ -2482,7 +2482,7 @@ fn items_show_their_icons_and_choose_appearances_by_icon() {
     // (Rendering opens a GPU device.)
     mg_testkit::gpu::hold();
     if let Ok(img) = h.render() {
-        let _ = img.save(mg_testkit::scratch_dir("ui-item-icons").join("gem.png"));
+        let _ = img.save(mg_testkit::output_dir("ui-item-icons").join("gem.png"));
     }
     // The grid offers each model by its icon; a click takes it.
     let before = field(&mut h, &key).integer("ModelPart1").unwrap();
@@ -2496,7 +2496,7 @@ fn items_show_their_icons_and_choose_appearances_by_icon() {
     let n: i64 = other.trim_start_matches("Appearance ").parse().unwrap();
     assert_eq!(field(&mut h, &key).integer("ModelPart1"), Some(n));
     // A look at a weapon's and an armor's icons.
-    let dir = mg_testkit::scratch_dir("ui-item-icons");
+    let dir = mg_testkit::output_dir("ui-item-icons");
     for (bp, name) in [("nw_wswls001", "sword"), ("nw_aarcl001", "armor"), ("nw_arhe001", "helm")] {
         let Some((mut h, _)) = blueprint_harness(bp, &format!("icon_{name}"), ResType::UTI) else {
             return;

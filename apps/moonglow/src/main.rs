@@ -141,9 +141,7 @@ fn crash_reports() {
     std::panic::set_hook(Box::new(move |info| {
         default(info);
         let Some(dir) = mg_ui::recovery::data_dir() else { return };
-        let time = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs());
+        let time = mg_core::time::unix_now();
         let plugins = match mg_ui::plugins::enabled_now().as_slice() {
             [] => "none".to_string(),
             enabled => enabled.join(", "),

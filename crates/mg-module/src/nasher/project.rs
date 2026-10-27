@@ -293,7 +293,9 @@ impl Project {
     /// `None` for one the rules discard, and for compiled scripts (build
     /// output, never written).
     fn new_file(&self, key: &ResKey) -> Option<PathBuf> {
-        if key.restype == ResType::NCS {
+        // (A name with a folder in it gets no file: it would be written
+        // outside the project.)
+        if key.restype == ResType::NCS || !key.resref.is_file_name() {
             return None;
         }
         let json = is_json_type(key.restype);
@@ -380,11 +382,16 @@ impl Project {
         let indent: String = lines[at].chars().take_while(|c| c.is_whitespace()).collect();
         let mut out: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
         out.insert(at + 1, format!("{indent}{added}"));
-        let mut written = out.join("\n");
+        // (In the file's own line ends: a Windows-written one's diff is
+        // the line added, not every line.)
+        let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
+        let mut written = out.join(newline);
         if text.ends_with('\n') {
-            written.push('\n');
+            written.push_str(newline);
         }
-        std::fs::write(&cfg, written).map_err(io(&cfg))?;
+        let tmp = crate::sibling(&cfg, ".moonglow-tmp");
+        std::fs::write(&tmp, written).map_err(io(&tmp))?;
+        std::fs::rename(&tmp, &cfg).map_err(io(&cfg))?;
         self.package = Package::read(&root)?;
         self.left_out = self.left_out();
         Ok(Some(added))
@@ -1225,10 +1232,11 @@ mod tests {
         let root = scratch("left-out");
         let dir = root.join("src/scripts/chat-commands");
         std::fs::create_dir_all(&dir).unwrap();
+        // (Written on Windows: CRLF, which the line added keeps.)
         std::fs::write(
             root.join("nasher.cfg"),
-            "[package]\n  [package.sources]\n  include = \"src/**/*.{nss,json}\"\n  \
-             exclude = \"src/old/**\"\n[target]\nname = \"m\"\nfile = \"m.mod\"\n",
+            "[package]\r\n  [package.sources]\r\n  include = \"src/**/*.{nss,json}\"\r\n  \
+             exclude = \"src/old/**\"\r\n[target]\r\nname = \"m\"\r\nfile = \"m.mod\"\r\n",
         )
         .unwrap();
         let mut m = module();
@@ -1255,10 +1263,11 @@ mod tests {
         let cfg = std::fs::read_to_string(root.join("nasher.cfg")).unwrap();
         assert!(
             cfg.contains(
-                "  include = \"src/**/*.{nss,json}\"\n  include = \"src/**/*.{jui,txt}\"\n"
+                "  include = \"src/**/*.{nss,json}\"\r\n  include = \"src/**/*.{jui,txt}\"\r\n"
             ),
             "{cfg}"
         );
+        assert_eq!(cfg.matches('\n').count(), cfg.matches("\r\n").count(), "CRLF kept: {cfg}");
         assert!(p.left_out.is_empty());
         let (changes, problems) = p.outside();
         assert!(problems.is_empty(), "{problems:?}");

@@ -57,7 +57,7 @@ pub fn export_files(
     let mut written = Vec::new();
     for k in resources {
         let Some(bytes) = module.get(k).filter(|_| seen.insert(*k)) else { continue };
-        let path = dir.join(k.to_string());
+        let path = k.path_in(dir)?;
         std::fs::write(&path, bytes)?;
         written.push(path);
     }

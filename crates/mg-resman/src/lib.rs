@@ -43,6 +43,17 @@ impl ResKey {
     pub fn parse(name: &str, restype: ResType) -> Option<ResKey> {
         ResRef::from_str(name).ok().map(|r| ResKey::new(r, restype))
     }
+
+    /// The resource's file in a folder (`name.ext`); an error for a name
+    /// that is no file's there ([`ResRef::is_file_name`]: one read from a
+    /// crafted archive may name a folder above it).
+    pub fn path_in(&self, dir: &Path) -> std::io::Result<PathBuf> {
+        if !self.resref.is_file_name() {
+            let said = format!("{self:?}: the name is not a file's (it names a folder)");
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, said));
+        }
+        Ok(dir.join(self.to_string()))
+    }
 }
 
 impl fmt::Debug for ResKey {

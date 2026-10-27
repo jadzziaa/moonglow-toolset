@@ -16,6 +16,11 @@ mg.command("reach", function(ctx)
             table.insert(found, "require " .. path)
         end
     end
+    -- Code is loaded as text only: Luau runs bytecode unchecked.
+    local _, e = pcall(require, "bytecode")
+    if not string.find(tostring(e), "binary chunk", 1, true) then
+        table.insert(found, "bytecode loaded: " .. tostring(e))
+    end
     -- The globals are fixed: a plugin cannot replace what others use.
     if pcall(function() string.upper = function() return "x" end end) then
         table.insert(found, "string.upper replaced")

@@ -389,6 +389,9 @@ pub struct Log {
     pub fixes: Vec<OfferedFix>,
     /// What those fixes were worked out on.
     pub(crate) fix_guard: mg_edit::fix::Guard,
+    /// Each line's height as the panel last drew it (0: not yet): the
+    /// lines out of sight take their room alone.
+    rows: Vec<f32>,
 }
 
 /// A fix offered beside a line of the log (a finding of Verify Module's):
@@ -410,6 +413,7 @@ impl Log {
         self.entries.clear();
         self.times.clear();
         self.fixes.clear();
+        self.rows.clear();
     }
 
     /// The fix offered beside line `line`, if one is.
@@ -1130,8 +1134,12 @@ impl Moonglow {
         widgets::dialogs_begin(ui.ctx());
         widgets::text_begin(ui.ctx());
         // Models that broke what builds or poses them, last frame: left out
-        // of what is drawn, and said so.
-        for failure in mg_render::guard::take_failures() {
+        // of what is drawn, and said so. (Only a window that draws makes
+        // them, and the list is the process's: a test's window with no GPU
+        // must not take another's.)
+        let failures =
+            if self.viewport.is_some() { mg_render::guard::take_failures() } else { Vec::new() };
+        for failure in failures {
             self.log.error(format!(
                 "A model could not be shown and is left out ({failure}). The module is unharmed; \
                  a report was written for the report of the problem (Help › User Manual, \
@@ -2358,7 +2366,39 @@ impl Moonglow {
             .min_scrolled_height(0.0)
             .show(ui, |ui| {
                 let mut clicked = None;
+                // Only the lines in sight are laid out (a Verify of a large
+                // module says thousands): the others take the room they
+                // took when last drawn, or a line's if never, together.
+                // (The heights stay when the width changes: those in sight
+                // are measured again as they are drawn, and starting over
+                // made the scroll bar come and go, each frame the width.)
+                let width = ui.available_width();
+                let mut heights = std::mem::take(&mut self.log.rows);
+                heights.resize(self.log.entries.len(), 0.0);
+                // (A line never drawn: as tall as the last one drawn, which
+                // a line of one row is; its room is then right when it is
+                // drawn, and the list doesn't move.)
+                let line =
+                    (heights.iter().rev().find(|h| **h > 0.0).copied()).unwrap_or_else(|| {
+                        ui.text_style_height(&egui::TextStyle::Monospace)
+                            + ui.spacing().item_spacing.y
+                    });
+                let mut skipped = 0.0;
                 for (i, (level, _)) in self.log.entries.iter().enumerate() {
+                    let known = if heights[i] > 0.0 { heights[i] } else { line };
+                    let top = ui.cursor().top() + skipped;
+                    let room = egui::Rect::from_min_size(
+                        egui::pos2(ui.cursor().left(), top),
+                        egui::vec2(width, known),
+                    );
+                    if !ui.is_rect_visible(room) {
+                        skipped += known;
+                        continue;
+                    }
+                    if skipped > 0.0 {
+                        ui.add_space(std::mem::take(&mut skipped));
+                    }
+                    let before = ui.cursor().top();
                     // (When it was said, before it: the Compiler tab's way.)
                     let text = self.log.shown(i);
                     let text = egui::RichText::new(text).color(level.color(ui)).monospace();
@@ -2366,6 +2406,7 @@ impl Moonglow {
                     // clicked (Verify Module).
                     let Some(offer) = self.log.fix_at(i) else {
                         ui.label(text);
+                        heights[i] = ui.cursor().top() - before;
                         continue;
                     };
                     ui.horizontal_wrapped(|ui| {
@@ -2383,7 +2424,12 @@ impl Moonglow {
                             clicked = Some(i);
                         }
                     });
+                    heights[i] = ui.cursor().top() - before;
                 }
+                if skipped > 0.0 {
+                    ui.add_space(skipped);
+                }
+                self.log.rows = heights;
                 if let Some(line) = clicked {
                     self.actions.push(Action::ApplyFix(line));
                 }
@@ -2664,6 +2710,14 @@ impl Moonglow {
         // (Another module's blueprints of these names look different.)
         self.thumbnails.forget(self.viewport.as_ref());
         self.scripts.clear();
+        // (The module's own 2DAs too: kept, the next module's Save would
+        // write them into it, and it would look changed from the start.)
+        self.tables.retain(|d| d.home != table_view::Home::Module);
+        // (`nwscript.nss` too: Options' reload closes the module, and
+        // another install has its own.)
+        self.script_tools.spec = None;
+        self.script_tools.symbols.clear();
+        self.script_tools.seen.clear();
         self.buffers.clear();
         self.properties_changed.clear();
         self.talk = None;
@@ -3494,7 +3548,15 @@ impl Moonglow {
     /// don't carry the lock ([`mg_module::locks`]).
     fn restore_locks(&mut self, m: &mut Module) {
         let Some(path) = self.locks_file(m) else { return };
-        let locks = mg_module::locks::read(&path);
+        // (One that can't be read is kept beside it as `.unreadable` and
+        // said: its objects come back unlocked.)
+        let locks = mg_module::locks::try_read(&path).unwrap_or_else(|e| {
+            self.log.warn(format!(
+                "The project's locked objects could not be read ({e}): none is locked; the \
+                 file is kept as .unreadable"
+            ));
+            mg_module::locks::read(&path)
+        });
         let found = m.restore_locks(&locks);
         if found < locks.len() {
             trace::note(format!("locks: {found} of {} found again", locks.len()));

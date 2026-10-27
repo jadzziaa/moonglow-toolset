@@ -194,9 +194,15 @@ pub struct ScriptTools {
     pub spec: Option<Arc<Spec>>,
     /// Symbols of each script (with its includes), by its text.
     pub symbols: HashMap<ResKey, (u64, Arc<Vec<Symbol>>)>,
+    /// Each script's text when its editor was last drawn, and the
+    /// workspace revision then: an include edited or the module changed
+    /// leaves other scripts' symbols and live checks out of date.
+    pub(crate) seen: HashMap<ResKey, u64>,
+    pub(crate) revision: u64,
 }
 
-fn hash(text: &str) -> u64 {
+/// A script's text as a number, to tell when it changed.
+pub(crate) fn hash(text: &str) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     text.hash(&mut h);
@@ -307,10 +313,15 @@ impl ScriptTools {
     }
 
     /// All symbols a script can use: its own and its includes' (custom),
-    /// then `nwscript.nss`'s; cached by the script's text.
+    /// then `nwscript.nss`'s; cached by the script's text (`h`, its
+    /// [`hash`]). In a frame of `typing` (a key went to the text), those
+    /// read before: read again on every key, a script of 14,000 lines took
+    /// a third of the frame; the next frame without one reads them.
     pub fn symbols_for(
         &mut self,
         key: ResKey,
+        h: u64,
+        typing: bool,
         text: &str,
         load_spec: impl FnOnce() -> Option<Spec>,
         source: &mut dyn FnMut(&str) -> Option<String>,
@@ -318,9 +329,8 @@ impl ScriptTools {
         if self.spec.is_none() {
             self.spec = Some(Arc::new(load_spec().unwrap_or_default()));
         }
-        let h = hash(text);
         if let Some((cached, symbols)) = self.symbols.get(&key)
-            && *cached == h
+            && (*cached == h || typing)
         {
             return symbols.clone();
         }

@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T06:17:45Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T18:30:43Z }
 ---
 
 # Modules
@@ -68,7 +68,10 @@ a directory), nasher projects (see below) and the game's campaign files
   too, as Aurora does: the game and its server load the `.mod`, never
   the folder.
 - **File › Save** (Ctrl+S) writes the module where it came from, as an
-  archive or a folder. **Save As…** writes it as a `.mod` elsewhere. A new
+  archive or a folder. **Save As…** writes it as a `.mod` elsewhere (a
+  name with no extension: a module folder). A folder that holds
+  resources that aren't the module's is not saved into, and nothing in
+  it is deleted: choose an empty folder or the module's own. A new
   module is offered as `<name>.mod` in the user folder's `modules`, where
   the game (and Test Module) finds it.
 - In a module folder a resource is one file, named in lower case

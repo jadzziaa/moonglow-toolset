@@ -16,6 +16,45 @@ pub enum BinError {
     UnexpectedEof { offset: usize, needed: usize, available: usize },
     #[error("offset {offset:#x} is outside the data (length {len:#x})")]
     OutOfBounds { offset: usize, len: usize },
+    #[error(
+        "the data names more than {limit} bytes in all (entries pointing at the same data \
+         many times)"
+    )]
+    CopyLimit { limit: usize },
+}
+
+/// A cap on the bytes a reader copies out of its input.
+///
+/// Formats whose entries point at shared data (GFF fields, talk-table
+/// strings, a model's vertex streams and node trees) can name one large
+/// block many times; each read copies it, so a small hostile file could ask
+/// for gigabytes. A reader charges each copy here and fails once the total
+/// passes [`FACTOR`](Self::FACTOR) times the input plus [`SLACK`](Self::SLACK),
+/// far beyond what a real file copies (about its own size).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CopyBudget {
+    left: usize,
+    limit: usize,
+}
+
+impl CopyBudget {
+    /// How many times its own size a file may copy out.
+    pub const FACTOR: usize = 64;
+    /// Bytes allowed on top, for small files.
+    pub const SLACK: usize = 64 << 20;
+
+    /// The budget for an input of `len` bytes.
+    pub fn for_input(len: usize) -> Self {
+        let limit = len.saturating_mul(Self::FACTOR).saturating_add(Self::SLACK);
+        CopyBudget { left: limit, limit }
+    }
+
+    /// Takes `n` bytes from the budget: an error once it is spent.
+    #[inline]
+    pub fn charge(&mut self, n: usize) -> Result<(), BinError> {
+        self.left = self.left.checked_sub(n).ok_or(BinError::CopyLimit { limit: self.limit })?;
+        Ok(())
+    }
 }
 
 /// A bounds-checked little-endian cursor over a byte slice.
@@ -233,6 +272,16 @@ mod tests {
         assert!(slice(&data, 2, 2).is_ok());
         assert!(slice(&data, 3, 2).is_err());
         assert!(slice(&data, usize::MAX, 2).is_err());
+    }
+
+    #[test]
+    fn copy_budget_runs_out() {
+        let mut b = CopyBudget::for_input(1);
+        let limit = CopyBudget::FACTOR + CopyBudget::SLACK;
+        assert!(b.charge(limit - 1).is_ok());
+        assert!(b.charge(1).is_ok());
+        assert_eq!(b.charge(1), Err(BinError::CopyLimit { limit }));
+        assert!(CopyBudget::for_input(usize::MAX).charge(usize::MAX).is_ok());
     }
 
     #[test]

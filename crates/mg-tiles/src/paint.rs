@@ -360,14 +360,19 @@ impl Grid {
         let mut unlocked = Vec::new();
         // (A group's tile: the whole group, where it is whole.)
         let mut all: Vec<(u32, u32)> = Vec::new();
+        let mut seen = BTreeSet::new();
         for &(x, y) in cells {
             let group = if self.free_groups { None } else { self.group_cells(index, x, y) };
-            for c in group.unwrap_or_else(|| vec![(x, y)]) {
-                if !all.contains(&c) {
-                    all.push(c);
-                }
-            }
+            all.extend(
+                group.unwrap_or_else(|| vec![(x, y)]).into_iter().filter(|c| seen.insert(*c)),
+            );
         }
+        // (Refused on the copy: what refused it is this grid's to show.)
+        let refused = |at: Vec<(u32, u32)>| {
+            *self.blocked.borrow_mut() = at;
+            None
+        };
+        let mut seen = BTreeSet::new();
         for &(x, y) in &all {
             let stroke = if index.is_grouped(grid.tile(x, y).tile) {
                 unlocked.push((x, y));
@@ -379,20 +384,24 @@ impl Grid {
                         also.extend(beside(&lattice, x, y, edge));
                     }
                 }
-                grid.stroke_unlocking(index, lattice, BTreeSet::new(), also, &unlocked)?
+                grid.stroke_unlocking(index, lattice, BTreeSet::new(), also, &unlocked)
             } else {
-                grid.erase(index, x, y)?
+                grid.erase(index, x, y)
             };
+            let Some(stroke) = stroke else { return refused(grid.blocked()) };
             // Stand-in tiles, so that the next tile sees what this one leaves.
             for &(cx, cy) in &stroke.cells {
-                let fit = *index.fits(&stroke.lattice.cell(cx, cy)).first()?;
+                let Some(&fit) = index.fits(&stroke.lattice.cell(cx, cy)).first() else {
+                    return refused(vec![(cx, cy)]);
+                };
                 grid.tiles[(cy * grid.lattice.width() + cx) as usize] = fit;
-                if !chosen.contains(&(cx, cy)) {
+                if seen.insert((cx, cy)) {
                     chosen.push((cx, cy));
                 }
             }
             grid.lattice = stroke.lattice;
         }
+        self.blocked.borrow_mut().clear();
         Some(Stroke { lattice: grid.lattice, cells: chosen, fixed: Vec::new() })
     }
 

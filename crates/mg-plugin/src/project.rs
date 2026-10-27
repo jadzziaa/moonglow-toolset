@@ -91,7 +91,7 @@ pub struct Answers {
 }
 
 /// A project's root as answers are kept under it.
-fn canonical(root: &Path) -> PathBuf {
+pub fn canonical(root: &Path) -> PathBuf {
     root.canonicalize().unwrap_or_else(|_| root.to_path_buf())
 }
 
@@ -131,7 +131,15 @@ impl Answers {
 
     /// What the builder answered for a project's plugin, as it is now.
     pub fn trust(&self, root: &Path, plugin: &Plugin) -> Trust {
-        let Some(a) = self.get(root, &plugin.manifest.id) else { return Trust::Unasked };
+        self.trust_in(&canonical(root), plugin)
+    }
+
+    /// [`Answers::trust`] for a project root already canonical (the path
+    /// looked up on disk once, not each time: the window asks every frame).
+    pub fn trust_in(&self, project: &Path, plugin: &Plugin) -> Trust {
+        let id = &plugin.manifest.id;
+        let found = self.answers.iter().find(|a| a.project == project && a.plugin == *id);
+        let Some(a) = found else { return Trust::Unasked };
         match (a.allow, plugin.digest()) {
             (false, _) => Trust::Denied,
             (true, Some(digest)) if digest == a.digest => Trust::Allowed,

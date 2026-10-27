@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T09:23:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T19:18:43Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -63,8 +63,31 @@ Size: S (an hour or two), M (a day or so), L (several days).
   the passes' `FORMAT` alone and no longer starts anew when it moves to a
   newer toolset tag. One line at the viewer's start
   (`mg_core::release::set`, its own version) names it as before. (S)
-- **Shared test fixtures written many times:** the `mg` runner's
-  wrappers (10 files), `fn lines` in the Aurora tests (6). (M)
+- **Shared test fixtures written many times, what is left:** `fn lines`
+  of the Aurora tests is one (`aurora_common`, 2026-10-27) and reading
+  `mg --json`'s answer is `json_out` and `quiet_json_out` in the command
+  line's group, but each file of `apps/mg/tests` still has its own
+  wrapper for the arguments it adds (`--root`, `--user-dir`, a home),
+  and the corpus tests' `gpu()` (`game_shaders.rs`) repeats
+  mg-render's tests'. (S)
+- **UI tests that could be one, left apart (2026-10-27):** a read of
+  the 655 UI, NUI and command-line tests found no test another wholly
+  covers; eight that nearly were, or shared a set-up and changed
+  nothing, were folded into another (the log). About twenty pairs share
+  a costly set-up (an area harness, a blueprint editor, a game install)
+  and could run as one, but each needs the state put back between its
+  parts, and a failure would no longer name one cause; at about a fifth
+  of a second each, behind four GPU places, together a few seconds.
+  Among them: `inventories.rs` the narrow window's equipment and the
+  creature's item flags; `apps/mg/tests/nui.rs` generate and a second
+  generate; `area_view.rs` Properties by double click and a drag in that
+  window, a scale handle and Ctrl+wheel, copy-paste by Ctrl+C and by
+  Insert; `plugins.rs` a finding's fix and checks with Verify; `fields.rs`
+  the chest's Appearance list four times; `blueprints.rs` the two
+  Levelup Wizard tests, the item's and the placeable's model pages;
+  `tiles.rs` the three Tile Properties tests on tile (2,2). `json.rs`'s
+  `nui` lines repeat `apps/mg/tests/nui.rs`' with one compile more. (S
+  each)
 - **CI's time with the new workflow is not measured:** its first run
   passed on the three systems from an empty cache (14 to 24 minutes);
   compare a warm run with the 8 to 10 minutes of before. (S)
@@ -3478,6 +3501,38 @@ unless it says so.
   `Reader::data` and `Reader::pos`, `Txi::alpha_mean`,
   `SetFile::is_empty`. A `pub` item of a crate Moonglow Viewer builds on
   may be in use there: `plt::LAYERS` is. (S each)
+
+### The review of 2026-10-27: what is left
+
+Six readers over the workspace and clippy's pedantic lints as a finder
+found some forty defects and costs; what was done about each is in the
+[log](log.md) (2026-10-27). The editors' costs were measured first
+(`frame_perf`, with views added at a persistent world's sizes): those
+within the 144 fps budget were left as they are (the 2DA editor filtered
+on 6,000 rows 1.7 ms a frame, a conversation 1.4, blueprint editors and
+an item's Properties page 0.6 to 1.5, palettes, the manual and the model
+viewer under 2). What is left:
+
+- **Typing in a very large script** (`nwscript.nss`, 14,000 lines) is
+  13 ms a key: egui lays out the whole text again on each change. An
+  editor that lays out the lines in sight would be needed. (L)
+- **Not measured:** the tiles palette searches its tileset two or three
+  times a frame while a search is typed; dragging objects copies the whole
+  area model each frame; the blueprint picker (inventory, store and
+  encounter pages) folds every blueprint once a level of its tree and
+  draws every match. (S each, after a measure)
+- **Skinned and vertex-animated meshes are never culled** (`renderer.rs`):
+  an off-screen creature's bones are posed and drawn. A renderer change,
+  so through CI on a branch first. (M)
+- **Placed objects posed again on each redrawn frame**, static ones too,
+  and the animation's node maps made again per pose: 0.3 ms of a frame
+  for 416 objects, so left. (S)
+- **Smaller:** the remembered-files cache (`Remembered::file`) is named by
+  Rust's own hasher (a cache, so harmless across releases);
+  `moonglow-hak-<pid>` folders left by a crashed Moonglow are not
+  cleaned up; the hak editor's Save copies the old hak to `.bak` where
+  the module's Save now links it; a temporary `.moonglow-tmp` left in a
+  project by a crash is not in a project's ignored files. (S each)
 
 ## Written more than once (the review of 2026-10-21)
 

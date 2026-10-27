@@ -22,11 +22,9 @@ const INTERIOR: u32 = 0x1;
 const UNDERGROUND: u32 = 0x2;
 const NATURAL: u32 = 0x4;
 
-fn choices(app: &Moonglow, table: &str, name: &str, label: &str) -> Vec<Choice> {
-    app.game
-        .as_ref()
-        .and_then(|g| g.choices(table, ChoiceColumns { name: Some(name), label: Some(label) }).ok())
-        .unwrap_or_default()
+fn choices(app: &Moonglow, table: &str, name: &str, label: &str) -> std::sync::Arc<Vec<Choice>> {
+    let columns = ChoiceColumns { name: Some(name), label: Some(label) };
+    app.game.as_ref().and_then(|g| g.choice_list(table, columns).ok()).unwrap_or_default()
 }
 
 /// The pages for several areas edited together: what is an area's own

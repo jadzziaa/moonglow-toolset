@@ -549,6 +549,26 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     }
     let ctx = ui.ctx().clone();
 
+    // This script edited, or the module changed: what other scripts found
+    // in their includes is looked for again (their caches go by their own
+    // text alone).
+    // (The text's hash, once a frame: the symbols and the live check
+    // go by it too, and a script may be some 600 KB.)
+    let h = tools::hash(&app.scripts[&key].text);
+    {
+        let revision = app.ws.as_ref().map_or(0, |w| w.revision());
+        let t = &mut app.script_tools;
+        let edited = t.seen.insert(key, h).is_some_and(|was| was != h);
+        if t.revision != revision {
+            t.revision = revision;
+            t.symbols.clear();
+            app.script_nav.check_again(None);
+        } else if edited {
+            t.symbols.retain(|k, _| *k == key);
+            app.script_nav.check_again(Some(key));
+        }
+    }
+
     // The symbols the script can use (its own, its includes', nwscript's).
     let symbols = {
         let text = &app.scripts[&key].text;
@@ -556,8 +576,18 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         let mut source = |name: &str| -> Option<String> {
             script_source(&app.scripts, ws.as_ref(), game.as_deref(), &tools::nss(name)?)
         };
+        // (A key typed this frame: the symbols of the frame before. The
+        // frame after a key, which egui draws, reads them.)
+        let typing = ctx.memory(|m| m.has_focus(editor_id(key)))
+            && ctx.input(|i| {
+                i.events.iter().any(|e| {
+                    matches!(e, egui::Event::Text(_) | egui::Event::Key { pressed: true, .. })
+                })
+            });
         app.script_tools.symbols_for(
             key,
+            h,
+            typing,
             text,
             || {
                 let g = game.as_ref()?;
@@ -725,7 +755,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     // one comes and goes (Jasperre's report). One line, however long the
     // message: the whole of it on hover.
     if !app.settings.no_live_check {
-        app.live_check(key, &ctx);
+        app.live_check(key, h, &ctx);
         let size = egui::vec2(ui.available_width(), ui.text_style_height(&egui::TextStyle::Body));
         let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
         if let Some((line, text)) = app.live_error(key) {
@@ -1077,6 +1107,13 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         let (a, b) =
             cursor(&ctx, key).unwrap_or((buf.text.chars().count(), buf.text.chars().count()));
         insert(buf, &ctx, key, a, b, &text);
+    }
+    // The cursor gone from the word the list completes (Home, a click
+    // elsewhere) closes it: what it would replace is no longer that word.
+    if let Some(c) = script_tools.completion.as_ref().filter(|c| c.script == key)
+        && cursor(&ctx, key).is_none_or(|(at, _)| tools::word_before(&buf.text, at).0 != c.start)
+    {
+        script_tools.completion = None;
     }
     // Completion keys go to the list, not the text.
     let mut accept = None;

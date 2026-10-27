@@ -21,6 +21,7 @@ use crate::{
     AabbEntry, AnimNode, Animation, Classification, Controller, Emitter, Light, Mesh, MeshExtra,
     Model, Node, NodeKind, Skin, Vec3,
 };
+use mg_core::bin::Reader;
 use thiserror::Error;
 
 /// Why a model cannot be written as a binary.
@@ -38,6 +39,8 @@ pub enum CompileError {
     UnknownController { node: String, name: String },
     #[error("{node}: {what}")]
     Invalid { node: String, what: String },
+    #[error("the compiled model would be larger than 4 GiB")]
+    TooLarge,
 }
 
 /// The model data section: structures placed at offsets, four bytes
@@ -298,10 +301,7 @@ impl PartNumbers {
             return None;
         }
         let m = data.get(12..)?;
-        let u32_at = |at: usize| -> Option<u32> {
-            let b = m.get(at..at.checked_add(4)?)?;
-            Some(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        };
+        let u32_at = |at: usize| Reader::at(m, at).and_then(|mut r| r.u32()).ok();
         let mut numbers = Vec::new();
         let mut stack = vec![u32_at(0x48)? as usize];
         while let Some(at) = stack.pop() {
@@ -455,6 +455,11 @@ impl Writer<'_> {
             };
             if c.values.len() != rows * c.columns {
                 return Err(invalid("its values are not its keys times its columns"));
+            }
+            // (The column count is four bits of a byte whose fifth says
+            // Bézier: 16 would read back as a Bézier key of none.)
+            if c.columns > 15 {
+                return Err(invalid("more than 15 values a key"));
             }
             if bezier && c.handles.len() != rows * c.columns * 2 {
                 return Err(invalid("its handles are not two per value"));
@@ -628,6 +633,9 @@ impl Writer<'_> {
         if !s.weights.is_empty() && s.weights.len() != count {
             return Err(invalid("weights are not one set per vertex".into()));
         }
+        if let Some(n) = s.bones.iter().find(|&&n| n > i16::MAX as usize) {
+            return Err(invalid(format!("a bone is node {n} (at most 32,767)")));
+        }
         let nodes = self.model.nodes.len();
         // Which bone each node is: a bone's node, the bones the weights use
         // first (a slot no node was given reads back as node 0's).
@@ -761,7 +769,11 @@ impl Writer<'_> {
         d.u32(at + 0xC8, u32::from(l.fading));
     }
 
-    fn emitter(&mut self, at: usize, e: &Emitter) {
+    fn emitter(&mut self, at: usize, name: &str, e: &Emitter) -> Result<(), CompileError> {
+        let render_order = u16::try_from(e.render_order).map_err(|_| CompileError::Invalid {
+            node: name.to_string(),
+            what: format!("render order {} (at most 65,535)", e.render_order),
+        })?;
         let d = &mut self.data;
         d.f32(at + 0x70, e.deadspace);
         d.f32(at + 0x74, e.blast_radius);
@@ -776,8 +788,9 @@ impl Writer<'_> {
         d.name(at + 0x128, 16, e.chunk.as_deref().unwrap_or(""));
         d.u32(at + 0x138, u32::from(e.two_sided));
         d.u32(at + 0x13C, u32::from(e.looping));
-        d.u16(at + 0x140, e.render_order as u16);
+        d.u16(at + 0x140, render_order);
         d.u32(at + 0x144, e.flags);
+        Ok(())
     }
 
     /// The node header and what its type adds; the children's place is
@@ -838,7 +851,7 @@ impl Writer<'_> {
         match &node.kind {
             NodeKind::Dummy | NodeKind::Camera => {}
             NodeKind::Light(l) => self.light(at, l),
-            NodeKind::Emitter(e) => self.emitter(at, e),
+            NodeKind::Emitter(e) => self.emitter(at, &node.name, e)?,
             NodeKind::Reference(r) => {
                 self.data.name(at + 0x70, 64, r.model.as_deref().unwrap_or(""));
                 self.data.u32(at + 0xB0, u32::from(r.reattachable));
@@ -1027,13 +1040,23 @@ pub fn write(model: &Model, parts: &PartNumbers) -> Result<Vec<u8>, CompileError
         let at = w.animation(anim)?;
         w.data.u32(animations + 4 * i, at as u32);
     }
+    // Every offset and count written is into one of the two sections, so
+    // when both fit 32 bits, so did each of them.
+    let data_len = section_len(w.data.0.len())?;
+    let raw_len = section_len(w.raw.0.len())?;
     let mut out = Vec::with_capacity(12 + w.data.0.len() + w.raw.0.len());
     out.extend_from_slice(&0u32.to_le_bytes());
-    out.extend_from_slice(&(w.data.0.len() as u32).to_le_bytes());
-    out.extend_from_slice(&(w.raw.0.len() as u32).to_le_bytes());
+    out.extend_from_slice(&data_len.to_le_bytes());
+    out.extend_from_slice(&raw_len.to_le_bytes());
     out.extend_from_slice(&w.data.0);
     out.extend_from_slice(&w.raw.0);
     Ok(out)
+}
+
+/// A section's length as the header holds it: an error past 4 GiB, which
+/// 32-bit offsets cannot reach.
+fn section_len(len: usize) -> Result<u32, CompileError> {
+    u32::try_from(len).map_err(|_| CompileError::TooLarge)
 }
 
 #[cfg(test)]
@@ -1082,6 +1105,17 @@ doneanim wave m\ndonemodel m\n";
         // And once more, byte for byte.
         let again = write(&back, &part_numbers(&back, None)).unwrap();
         assert_eq!(again, bytes);
+    }
+
+    /// A key of 16 values does not fit the byte that says how many a key
+    /// has (it read back as a Bézier key of none): an error.
+    #[test]
+    fn a_key_of_more_than_fifteen_values_is_refused() {
+        let wide = format!("      0{}\n", " 1".repeat(16));
+        let text = MODEL.replace("      0 0 0 1\n      1 0 0 2\n", &wide);
+        let model = Model::read(text.as_bytes()).unwrap();
+        let said = write(&model, &part_numbers(&model, None)).unwrap_err().to_string();
+        assert!(said.contains("more than 15 values a key"), "{said}");
     }
 
     /// A compiled model keeps all four texture coordinate sets (`tverts`,
@@ -1173,5 +1207,20 @@ doneanim wave m\ndonemodel m\n";
         model.nodes[1].controllers.push(Controller::constant("birthrate", &[1.0]));
         assert!(matches!(write(&model, &parts), Err(CompileError::UnknownController { .. })));
         assert_eq!(write(&Model::default(), &parts), Err(CompileError::Empty));
+    }
+
+    /// What 32 bits cannot hold is refused, not cut: an emitter's render
+    /// order (16 bits), a section past 4 GiB (checked by length: a model
+    /// that size is not built in a test).
+    #[test]
+    fn what_does_not_fit_its_field_is_refused() {
+        let mut model = Model::read(MODEL.as_bytes()).unwrap();
+        let parts = part_numbers(&model, None);
+        model.nodes[1].kind =
+            NodeKind::Emitter(Emitter { render_order: 70_000, ..Default::default() });
+        let e = write(&model, &parts).unwrap_err();
+        assert!(e.to_string().contains("render order 70000"), "{e}");
+        assert_eq!(section_len(u32::MAX as usize), Ok(u32::MAX));
+        assert_eq!(section_len(u32::MAX as usize + 1), Err(CompileError::TooLarge));
     }
 }

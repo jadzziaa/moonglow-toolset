@@ -328,7 +328,7 @@ pub fn set_setting(
     if own {
         ProjectFile::write_user(root, &doc.to_string())
     } else {
-        std::fs::write(path, doc.to_string())
+        crate::write_replacing(&path, doc.to_string().as_bytes())
     }
 }
 

@@ -71,24 +71,13 @@ enum Track {
     },
 }
 
-/// The struct at `path` in `s`, to change.
-fn resolve<'a>(mut s: &'a mut Struct, path: &GffPath) -> Option<&'a mut Struct> {
-    for step in &path.0 {
-        s = match step {
-            Step::Field(l) => s.child_mut(l)?,
-            Step::Item(l, i) => s.list_mut(l)?.get_mut(*i)?,
-        };
-    }
-    Some(s)
-}
-
 /// Runs `e` on the copies of the documents in `docs` (an edit that does
 /// not apply changes nothing: the command would fail as a whole).
 fn run(docs: &mut HashMap<ResKey, Struct>, e: &Edit) {
     let Some(root) = docs.get_mut(e.key()) else { return };
     match e {
         Edit::SetField { path, label, value, .. } => {
-            if let Some(s) = resolve(root, path) {
+            if let Some(s) = path.get_mut(root) {
                 match value {
                     Some(v) if mg_gff::Label::new(label).is_ok() => s.set(label, v.clone()),
                     Some(_) => {}
@@ -99,7 +88,7 @@ fn run(docs: &mut HashMap<ResKey, Struct>, e: &Edit) {
             }
         }
         Edit::InsertItem { path, list, index, item, .. } => {
-            if let Some(s) = resolve(root, path) {
+            if let Some(s) = path.get_mut(root) {
                 if s.get(list).is_none() {
                     s.set(list, Value::List(Vec::new()));
                 }
@@ -109,7 +98,7 @@ fn run(docs: &mut HashMap<ResKey, Struct>, e: &Edit) {
             }
         }
         Edit::RemoveItem { path, list, index, .. } => {
-            if let Some(items) = resolve(root, path).and_then(|s| s.list_mut(list))
+            if let Some(items) = path.get_mut(root).and_then(|s| s.list_mut(list))
                 && *index < items.len()
             {
                 items.remove(*index);
@@ -665,7 +654,7 @@ mod tests {
         // The ring was equipped; the lists set back: in the backpack again.
         let equipped = mg_module::instances::equipped_item(&pack[1], 0x100);
         let mut now = root.clone();
-        let c = resolve(&mut now, &at()).unwrap();
+        let c = at().get_mut(&mut now).unwrap();
         c.set("ItemList", Value::List(vec![pack[0].clone()]));
         c.set("Equip_ItemList", Value::List(vec![worn[0].clone(), equipped]));
         let on = at().item("Equip_ItemList", 1);
@@ -680,7 +669,7 @@ mod tests {
         let mut flagged = pack.clone();
         flagged[1].set("Dropable", Value::Byte(1));
         let mut now = root.clone();
-        resolve(&mut now, &at()).unwrap().set("ItemList", Value::List(flagged));
+        at().get_mut(&mut now).unwrap().set("ItemList", Value::List(flagged));
         assert_eq!(one(&now, key, &ring, &[set("ItemList", pack.clone())]), Some(ring.clone()));
         // Gone from the list set back: gone.
         let without = vec![pack[0].clone()];

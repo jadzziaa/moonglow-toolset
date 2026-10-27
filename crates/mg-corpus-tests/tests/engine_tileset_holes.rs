@@ -168,11 +168,15 @@ fn a_tileset_whose_lines_end_in_lf_stops_the_module_loading() {
     let dir = scratch_dir("engine_tileset_lf");
     // (The same tileset with CRLF: the module loads.)
     let sets = [("mgcrlf", ttr01.clone())];
+    let started = std::time::Instant::now();
     let (run_crlf, _) = run(&dir.join("crlf"), &sets, Duration::from_secs(120));
     assert!(run_crlf.finished, "with CRLF:\n{}", run_crlf.log);
-    // A module loads in a second here; a minute is no load at all.
+    // A module loads in a second here; three times the whole CRLF run
+    // (starting the server, loading, the probe's script) is no load at all.
+    // (A fixed minute made this the corpus tests' longest by 50 s.)
+    let no_load = (started.elapsed() * 3).max(Duration::from_secs(20));
     let sets = [("mglf", ttr01.replace("\r\n", "\n"))];
-    let (run_lf, _) = run(&dir.join("lf"), &sets, Duration::from_secs(60));
+    let (run_lf, _) = run(&dir.join("lf"), &sets, no_load);
     assert!(!run_lf.finished, "the module loaded:\n{}", run_lf.log);
     assert!(run_lf.log.contains("Loading Module"), "{}", run_lf.log);
 }

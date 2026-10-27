@@ -96,6 +96,9 @@ pub struct Plugins {
     /// What the user answered about projects' own plugins, as kept in
     /// Moonglow's own folder ([`Moonglow::plugin_answers`]).
     pub trust_answers: mg_plugin::project::Answers,
+    /// The project's root and that root canonical, as its plugins were
+    /// read (the trust answers are kept by the canonical path).
+    project_root: Option<(std::path::PathBuf, std::path::PathBuf)>,
 }
 
 /// Answers remembered, by question.
@@ -346,7 +349,8 @@ impl Host for JobHost {
     }
 }
 
-fn level(l: mg_plugin::Level) -> Level {
+/// A plugin's log level as the log's.
+pub(crate) fn level(l: mg_plugin::Level) -> Level {
     match l {
         mg_plugin::Level::Info => Level::Info,
         mg_plugin::Level::Warning => Level::Warning,
@@ -434,7 +438,9 @@ impl Moonglow {
     fn read_project_plugins(&mut self) {
         self.plugins.installed.retain(|i| !i.project);
         self.plugins.project_asking.clear();
+        self.plugins.project_root = None;
         let Some(root) = self.project_root().filter(|_| !self.no_plugins) else { return };
+        self.plugins.project_root = Some((root.clone(), mg_plugin::project::canonical(&root)));
         // What the user answered, read again (another Moonglow, or `mg`,
         // may have answered since); one that can't be read allows nothing.
         if let Some(path) = &self.plugin_answers {
@@ -490,7 +496,11 @@ impl Moonglow {
     /// it is no project's plugin, or no project is open).
     pub fn project_trust(&self, p: &Plugin) -> Option<mg_plugin::project::Trust> {
         let root = self.project_root().filter(|_| p.is_project())?;
-        Some(self.plugins.trust_answers.trust(&root, p))
+        let answers = &self.plugins.trust_answers;
+        Some(match &self.plugins.project_root {
+            Some((r, canonical)) if *r == root => answers.trust_in(canonical, p),
+            _ => answers.trust(&root, p),
+        })
     }
 
     /// The project's plugins.

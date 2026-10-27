@@ -130,8 +130,14 @@ fn module_dir(module: &Module) -> Option<PathBuf> {
     }
 }
 
+/// How long a git command may take before it is stopped (one asking for
+/// credentials, or on a hung network folder, never ends).
+const GIT_TIME_LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
+
 fn git(dir: &Path, args: &[&str]) -> Option<String> {
-    let out = Command::new("git").arg("-C").arg(dir).args(args).output().ok()?;
+    let mut command = Command::new("git");
+    command.arg("-C").arg(dir).args(args);
+    let out = crate::process::output_within(&mut command, GIT_TIME_LIMIT).ok()?;
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 

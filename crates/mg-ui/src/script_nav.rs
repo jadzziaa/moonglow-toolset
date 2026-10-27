@@ -45,13 +45,6 @@ pub struct Nav {
     pub rename: Option<(Declaration, String)>,
 }
 
-fn hash(text: &str) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    text.hash(&mut h);
-    h.finish()
-}
-
 /// Scripts by name: editors' text, then the module's, then the game's.
 fn source<'a>(
     scripts: &'a HashMap<ResKey, ScriptBuffer>,
@@ -61,6 +54,18 @@ fn source<'a>(
     move |name: &str| {
         let text = crate::script_view::script_source(scripts, ws, game, &tools::nss(name)?)?;
         Some(Arc::from(text.as_str()))
+    }
+}
+
+impl Nav {
+    /// Every script's live check but `but`'s to be made again when next
+    /// shown: an include of theirs may have changed.
+    pub(crate) fn check_again(&mut self, but: Option<ResKey>) {
+        for (k, live) in &mut self.live {
+            if Some(*k) != but {
+                live.checked = None;
+            }
+        }
     }
 }
 
@@ -75,7 +80,7 @@ impl Moonglow {
             self.script_nav.revision = Some(ws.revision());
         }
         for (k, b) in &self.scripts {
-            let h = hash(&b.text);
+            let h = crate::script_tools::hash(&b.text);
             if self.script_nav.texts.get(k) != Some(&h) {
                 self.script_nav.index.set(&k.resref.to_string(), Arc::from(b.text.as_str()));
                 self.script_nav.texts.insert(*k, h);
@@ -197,8 +202,7 @@ impl Moonglow {
 
     /// Checks a script a moment after typing stops: compiles its text (an
     /// include file needs no `main`) and keeps the first error.
-    pub(crate) fn live_check(&mut self, key: ResKey, ctx: &egui::Context) {
-        let Some(h) = self.scripts.get(&key).map(|b| hash(&b.text)) else { return };
+    pub(crate) fn live_check(&mut self, key: ResKey, h: u64, ctx: &egui::Context) {
         let live = self.script_nav.live.entry(key).or_default();
         if live.text != h {
             // A script just opened is checked at once; edits wait for a pause.

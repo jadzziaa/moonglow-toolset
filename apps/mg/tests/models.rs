@@ -79,3 +79,22 @@ fn cat_prints_a_compiled_model_as_text() {
         (mg_mdl::Model::read(&compiled).unwrap(), mg_mdl::Model::read(text.as_bytes()).unwrap());
     assert_eq!(a.nodes.len(), b.nodes.len());
 }
+
+/// A hak whose entry names a folder above (`../x`, as a crafted download
+/// may) is not unpacked there: `mg unpack` refuses it and writes nothing
+/// outside the folder asked for.
+#[test]
+fn unpack_writes_nothing_outside_its_folder() {
+    use mg_core::{ResRef, ResType};
+    let dir = mg_testkit::scratch_dir("mg-unpack-escape");
+    let mut w = mg_erf::ErfWriter::new(*b"HAK ");
+    w.add(ResRef::from_str("../escaped").unwrap(), ResType::TXT, &b"out"[..]).unwrap();
+    let mut bytes = Vec::new();
+    w.write_to(&mut bytes).unwrap();
+    std::fs::write(dir.join("crafted.hak"), bytes).unwrap();
+    let to = dir.join("in").join("here");
+    let out = mg(&["unpack", &dir.join("crafted.hak").to_string_lossy(), &to.to_string_lossy()]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("names a folder"));
+    assert!(!dir.join("in").join("escaped.txt").exists(), "written above the folder");
+}

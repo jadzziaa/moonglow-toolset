@@ -144,7 +144,7 @@ fn a_project_is_served_and_started_again_when_it_is_built_again() {
     if mg_serve::server_binary(&root).is_none() {
         return;
     }
-    let _alone = mg_testkit::engine::one_at_a_time();
+    let _alone = mg_testkit::engine::timed_turn();
     let dir = mg_testkit::scratch_dir("mg-watch-serve");
     let (project, served) = (dir.join("chess"), dir.join("served"));
     let chess = root.join("data/mod/Neverwinter Chess.mod");

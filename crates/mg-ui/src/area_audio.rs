@@ -126,6 +126,10 @@ struct Slot {
     wait_until: f64,
     next: usize,
     done: bool,
+    /// What the sound at this place in the list plays: a sound deleted
+    /// before it moves the next one into its place, which is another's
+    /// turn, not this one's.
+    sounds: Vec<ResRef>,
 }
 
 /// The area view drawn this frame: its area, where it listens from, and
@@ -203,6 +207,10 @@ pub(crate) fn update(app: &mut Moonglow, heard: Option<Heard>, now: f64) -> bool
     });
     for (i, p) in list.iter().enumerate() {
         let channel = Channel::Placed(i);
+        if state.placed.get(&i).is_some_and(|s| s.sounds != p.sounds) {
+            app.speaker.stop(channel);
+            state.placed.remove(&i);
+        }
         // (One that plays now and then first plays some way into its
         // interval, so they don't all sound together when the area opens.)
         let slot = state.placed.entry(i).or_insert_with(|| {
@@ -210,7 +218,8 @@ pub(crate) fn update(app: &mut Moonglow, heard: Option<Heard>, now: f64) -> bool
             let opening = now - since < 0.5;
             let first =
                 if p.looping || !opening { 0.0 } else { f64::from(p.interval.clamp(1.0, 10.0)) };
-            Slot { wait_until: now + fastrand::f64() * first, ..Slot::default() }
+            let sounds = p.sounds.clone();
+            Slot { wait_until: now + fastrand::f64() * first, sounds, ..Slot::default() }
         });
         let gain = p.gain(listener) * fade;
         if !p.active || !p.plays(night) || p.sounds.is_empty() || gain <= 0.0 {

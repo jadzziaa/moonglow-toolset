@@ -159,23 +159,9 @@ fn height_on(f: &WalkFace, p: Vec2) -> Option<f32> {
     (u >= e && v >= e && u + v <= 1.0 - e).then_some(a.z + u * (b.z - a.z) + v * (c.z - a.z))
 }
 
-/// Möller–Trumbore: the distance along `ray` to a triangle.
+/// The distance along `ray` to a triangle (the previews' Möller–Trumbore).
 fn hit_triangle(ray: &Ray, [a, b, c]: [Vec3; 3]) -> Option<f32> {
-    let (e1, e2) = (b - a, c - a);
-    let p = ray.dir.cross(e2);
-    let det = e1.dot(p);
-    if det.abs() < 1e-9 {
-        return None;
-    }
-    let s = ray.origin - a;
-    let u = s.dot(p) / det;
-    let q = s.cross(e1);
-    let v = ray.dir.dot(q) / det;
-    if u < 0.0 || v < 0.0 || u + v > 1.0 {
-        return None;
-    }
-    let t = e2.dot(q) / det;
-    (t >= 0.0).then_some(t)
+    mg_preview::compose::ray_triangle(ray.origin, ray.dir, a, b, c)
 }
 
 /// An area's ground: its tiles' walkmeshes, each read once per model.

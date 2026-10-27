@@ -23,24 +23,24 @@ fn key(name: &str) -> ResKey {
     ResKey::from_filename(name).unwrap()
 }
 
-fn output(root: Option<&Path>, args: &[&str]) -> std::process::Output {
+fn command(root: Option<&Path>, args: &[&str]) -> std::process::Command {
     let mut mg = crate::mg();
     if let Some(root) = root {
         mg.arg("--root").arg(root);
     }
-    mg.arg("--no-user-dir").args(args).output().unwrap()
+    mg.arg("--no-user-dir").args(args);
+    mg
+}
+
+fn output(root: Option<&Path>, args: &[&str]) -> std::process::Output {
+    command(root, args).output().unwrap()
 }
 
 /// `mg --json nui …`: whether it succeeded, and what it printed. Nothing
 /// goes to standard error.
 fn mg(root: Option<&Path>, args: &[&str]) -> (bool, Value) {
     let args: Vec<&str> = ["--json", "nui"].iter().chain(args).copied().collect();
-    let out = output(root, &args);
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.trim().is_empty(), "{args:?}: stderr {stderr}");
-    let json = serde_json::from_slice(&out.stdout)
-        .unwrap_or_else(|e| panic!("{args:?}: {e}: {}", String::from_utf8_lossy(&out.stdout)));
-    (out.status.success(), json)
+    crate::quiet_json_out(&mut command(root, &args))
 }
 
 #[test]

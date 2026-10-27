@@ -1391,7 +1391,8 @@ fn run(cli: &Cli) -> Result<Output> {
             let erf = Erf::read(&data)?;
             std::fs::create_dir_all(dir)?;
             for e in &erf.entries {
-                std::fs::write(dir.join(e.filename()), erf.data(e)?)?;
+                let path = ResKey::new(e.resref, e.restype).path_in(dir)?;
+                std::fs::write(path, erf.data(e)?)?;
             }
             let mut out =
                 Output::new(json!({ "folder": path_text(dir), "files": erf.entries.len() }));
@@ -3576,7 +3577,7 @@ fn model_files(
     }
     for f in &chosen {
         if !dry_run {
-            std::fs::write(dir.join(f.key.to_string()), game.resman.get(&f.key)?)?;
+            std::fs::write(f.key.path_in(dir)?, game.resman.get(&f.key)?)?;
         }
         out.line(format!("{}\t{}", f.key, f.origin));
     }

@@ -268,9 +268,7 @@ pub fn write(
     }
     let bytes_of_manifest = manifest(&entries);
     let digest = hex(&sha1(&bytes_of_manifest));
-    let created = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
+    let created = mg_core::time::unix_now();
     let mut json = serde_json::json!({
         "version": 3,
         "sha1": digest,

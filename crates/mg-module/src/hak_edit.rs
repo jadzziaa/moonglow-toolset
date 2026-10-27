@@ -9,6 +9,7 @@
 //! without a word).
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -69,10 +70,37 @@ pub struct Added {
     pub skipped: Vec<(PathBuf, String)>,
 }
 
-#[derive(Debug, Clone)]
-struct State {
-    items: Vec<Item>,
-    description: String,
+/// One step's change, enough to take it back and to do it again (not a
+/// copy of every item: a hak of thousands of resources kept one per
+/// step).
+#[derive(Debug, Clone, Default)]
+struct Change {
+    /// Items replaced in place: their place, before and after.
+    replaced: Vec<(usize, Item, Item)>,
+    /// Items taken out: their places (ascending) before, and what they were.
+    removed: Vec<(usize, Item)>,
+    /// Items added at the end.
+    appended: Vec<Item>,
+    /// The description before and after.
+    description: Option<(String, String)>,
+}
+
+/// Renamed resources' bytes, kept in scratch files until the hak is saved;
+/// the files go when the last copy of the hak does.
+#[derive(Debug, Default)]
+struct Stash(std::sync::Mutex<Vec<PathBuf>>);
+
+impl Drop for Stash {
+    fn drop(&mut self) {
+        let files = std::mem::take(self.0.get_mut().unwrap_or_else(|e| e.into_inner()));
+        for f in &files {
+            let _ = std::fs::remove_file(f);
+        }
+        // (The folder is the process's: gone once no hak keeps a file in it.)
+        if let Some(dir) = files.first().and_then(|f| f.parent()) {
+            let _ = std::fs::remove_dir(dir);
+        }
+    }
 }
 
 /// A hak open for editing.
@@ -82,12 +110,15 @@ pub struct Hak {
     pub path: Option<PathBuf>,
     pub header: Header,
     items: Vec<Item>,
+    /// Each item's place, by its key.
+    places: HashMap<ResKey, usize>,
     /// The English description (the header's other languages are kept).
     pub description: String,
     archive: Option<Arc<ErfContainer>>,
-    undo: Vec<(String, State)>,
-    redo: Vec<(String, State)>,
+    undo: Vec<(String, Change)>,
+    redo: Vec<(String, Change)>,
     saved: Option<usize>,
+    stash: Arc<Stash>,
 }
 
 /// Junk that file managers leave in folders.
@@ -135,11 +166,13 @@ impl Hak {
             path: None,
             header: Header { file_type: *b"HAK ", ..Default::default() },
             items: Vec::new(),
+            places: HashMap::new(),
             description: String::new(),
             archive: None,
             undo: Vec::new(),
             redo: Vec::new(),
             saved: None,
+            stash: Arc::default(),
         }
     }
 
@@ -152,16 +185,27 @@ impl Hak {
             .map(|&(key, size)| Item { key, size, source: Source::Archive })
             .collect();
         let header = archive.header.clone();
-        Ok(Hak {
+        let mut hak = Hak {
             path: Some(path.to_path_buf()),
             description: english(&header),
             header,
             items,
             archive: Some(Arc::new(archive)),
-            undo: Vec::new(),
-            redo: Vec::new(),
             saved: Some(0),
-        })
+            ..Hak::new()
+        };
+        hak.index();
+        Ok(hak)
+    }
+
+    /// Finds each item's place again.
+    fn index(&mut self) {
+        self.places = self.items.iter().enumerate().map(|(i, item)| (item.key, i)).collect();
+    }
+
+    /// The item of a key.
+    fn item(&self, key: &ResKey) -> Option<&Item> {
+        self.places.get(key).map(|&i| &self.items[i])
     }
 
     pub fn items(&self) -> &[Item] {
@@ -177,18 +221,59 @@ impl Hak {
         self.saved != Some(self.undo.len())
     }
 
-    fn state(&self) -> State {
-        State { items: self.items.clone(), description: self.description.clone() }
-    }
-
-    /// Records the state before a change, for undo.
-    fn checkpoint(&mut self, what: &str) {
+    /// Makes a change, as one step to undo.
+    fn commit(&mut self, what: &str, change: Change) {
         if self.saved.is_some_and(|s| s > self.undo.len()) {
             self.saved = None;
         }
-        let state = self.state();
-        self.undo.push((what.to_string(), state));
+        self.apply(&change);
+        self.undo.push((what.to_string(), change));
         self.redo.clear();
+    }
+
+    /// Does a change: what it replaces, then what it removes, then what it
+    /// adds at the end.
+    fn apply(&mut self, c: &Change) {
+        for (at, _, after) in &c.replaced {
+            self.places.remove(&self.items[*at].key);
+            self.items[*at] = after.clone();
+            self.places.insert(after.key, *at);
+        }
+        if !c.removed.is_empty() {
+            for (at, _) in c.removed.iter().rev() {
+                self.items.remove(*at);
+            }
+            self.index();
+        }
+        for item in &c.appended {
+            self.places.insert(item.key, self.items.len());
+            self.items.push(item.clone());
+        }
+        if let Some((_, after)) = &c.description {
+            self.description = after.clone();
+        }
+    }
+
+    /// Takes a change back, in the reverse order.
+    fn revert(&mut self, c: &Change) {
+        for item in &c.appended {
+            self.places.remove(&item.key);
+        }
+        self.items.truncate(self.items.len() - c.appended.len());
+        if !c.removed.is_empty() {
+            for (at, item) in &c.removed {
+                self.items.insert(*at, item.clone());
+            }
+            self.index();
+        }
+        for (at, before, _) in &c.replaced {
+            self.places.remove(&self.items[*at].key);
+            self.items[*at] = before.clone();
+            self.places.insert(before.key, *at);
+        }
+        if let Some((before, _)) = &c.description {
+            self.description = before.clone();
+        }
     }
 
     /// What Undo would take back.
@@ -201,40 +286,56 @@ impl Hak {
     }
 
     pub fn undo(&mut self) {
-        if let Some((what, state)) = self.undo.pop() {
-            let now = std::mem::replace(&mut self.items, state.items);
-            let desc = std::mem::replace(&mut self.description, state.description);
-            self.redo.push((what, State { items: now, description: desc }));
+        if let Some((what, change)) = self.undo.pop() {
+            self.revert(&change);
+            self.redo.push((what, change));
         }
     }
 
     pub fn redo(&mut self) {
-        if let Some((what, state)) = self.redo.pop() {
-            let now = std::mem::replace(&mut self.items, state.items);
-            let desc = std::mem::replace(&mut self.description, state.description);
-            self.undo.push((what, State { items: now, description: desc }));
+        if let Some((what, change)) = self.redo.pop() {
+            self.apply(&change);
+            self.undo.push((what, change));
         }
     }
 
     /// Sets the English description.
     pub fn set_description(&mut self, text: &str) {
         if text != self.description {
-            self.checkpoint("Description");
-            self.description = text.to_string();
+            let description = Some((self.description.clone(), text.to_string()));
+            self.commit("Description", Change { description, ..Default::default() });
         }
     }
 
-    fn put(&mut self, item: Item, out: &mut Added) {
-        match self.items.iter_mut().find(|i| i.key == item.key) {
-            Some(old) => {
-                *old = item;
-                out.replaced += 1;
-            }
-            None => {
-                self.items.push(item);
-                out.added += 1;
+    /// Puts items in, replacing those of the same name (a later of one
+    /// name replacing an earlier): one step to undo.
+    fn put(&mut self, what: &str, items: Vec<Item>, out: &mut Added) {
+        let mut change = Change::default();
+        // Where each key went in the change.
+        let mut put: HashMap<ResKey, (bool, usize)> = HashMap::new();
+        for item in items {
+            match (put.get(&item.key), self.places.get(&item.key)) {
+                (Some(&(true, i)), _) => {
+                    change.replaced[i].2 = item;
+                    out.replaced += 1;
+                }
+                (Some(&(false, i)), _) => {
+                    change.appended[i] = item;
+                    out.replaced += 1;
+                }
+                (None, Some(&at)) => {
+                    put.insert(item.key, (true, change.replaced.len()));
+                    change.replaced.push((at, self.items[at].clone(), item));
+                    out.replaced += 1;
+                }
+                (None, None) => {
+                    put.insert(item.key, (false, change.appended.len()));
+                    change.appended.push(item);
+                    out.added += 1;
+                }
             }
         }
+        self.commit(what, change);
     }
 
     /// Adds files, replacing resources of the same name; one undo step.
@@ -269,10 +370,11 @@ impl Hak {
         if found.is_empty() {
             return out;
         }
-        self.checkpoint("Add files");
-        for (key, size, path) in found {
-            self.put(Item { key, size, source: Source::File(path) }, &mut out);
-        }
+        let items = found
+            .into_iter()
+            .map(|(key, size, path)| Item { key, size, source: Source::File(path) })
+            .collect();
+        self.put("Add files", items, &mut out);
         out
     }
 
@@ -303,10 +405,7 @@ impl Hak {
             };
             items.push(Item { key, size, source });
         }
-        self.checkpoint(what);
-        for item in items {
-            self.put(item, &mut out);
-        }
+        self.put(what, items, &mut out);
         Ok(out)
     }
 
@@ -324,18 +423,22 @@ impl Hak {
             .filter_map(|p| {
                 let name = p.file_name()?.to_string_lossy().into_owned();
                 let key = key_for(&name).ok().filter(|_| !ignored(&name))?;
-                self.items.iter().any(|i| i.key == key).then(|| (p.clone(), key))
+                self.places.contains_key(&key).then(|| (p.clone(), key))
             })
             .collect()
     }
 
     /// Removes resources; one undo step.
     pub fn remove(&mut self, keys: &[ResKey]) {
-        if !self.items.iter().any(|i| keys.contains(&i.key)) {
+        let mut places: Vec<usize> =
+            keys.iter().filter_map(|k| self.places.get(k)).copied().collect();
+        if places.is_empty() {
             return;
         }
-        self.checkpoint("Remove");
-        self.items.retain(|i| !keys.contains(&i.key));
+        places.sort_unstable();
+        places.dedup();
+        let removed = places.into_iter().map(|at| (at, self.items[at].clone())).collect();
+        self.commit("Remove", Change { removed, ..Default::default() });
     }
 
     /// Renames a resource (its type stays).
@@ -344,24 +447,22 @@ impl Hak {
         if to == key {
             return Ok(key);
         }
-        if self.items.iter().any(|i| i.key == to) {
+        if self.places.contains_key(&to) {
             return Err(format!("{to} is in the hak already"));
         }
-        let i = self.items.iter().position(|i| i.key == key).ok_or("not in the hak")?;
+        let at = *self.places.get(&key).ok_or("not in the hak")?;
+        let before = self.items[at].clone();
+        let mut after = Item { key: to, ..before.clone() };
         // An archive entry keeps its bytes under the new name.
-        let bytes = match &self.items[i].source {
-            Source::Archive => Some(self.data(key)?),
-            Source::File(_) | Source::Bytes(_) => None,
-        };
-        self.checkpoint("Rename");
-        self.items[i].key = to;
-        if let Some(bytes) = bytes {
-            self.items[i].source = Source::File(self.stash(to, &bytes)?);
+        if before.source == Source::Archive {
+            after.source = Source::File(self.stash(to, &self.data(key)?)?);
         }
+        self.commit("Rename", Change { replaced: vec![(at, before, after)], ..Default::default() });
         Ok(to)
     }
 
-    /// Keeps renamed bytes in a scratch file until the hak is saved.
+    /// Keeps renamed bytes in a scratch file until the hak is saved (and
+    /// removed when the hak is closed).
     fn stash(&self, key: ResKey, bytes: &[u8]) -> Result<PathBuf, String> {
         let dir = std::env::temp_dir().join(format!("moonglow-hak-{}", std::process::id()));
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -369,12 +470,13 @@ impl Hak {
         let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let path = dir.join(format!("{n}-{key}"));
         std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+        self.stash.0.lock().unwrap_or_else(|e| e.into_inner()).push(path.clone());
         Ok(path)
     }
 
     /// A resource's bytes.
     pub fn data(&self, key: ResKey) -> Result<Vec<u8>, String> {
-        let item = self.items.iter().find(|i| i.key == key).ok_or("not in the hak")?;
+        let item = self.item(&key).ok_or("not in the hak")?;
         self.read(item)
     }
 
@@ -393,8 +495,12 @@ impl Hak {
     pub fn extract(&self, keys: &[ResKey], dir: &Path) -> Result<usize, String> {
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         let mut n = 0;
-        for item in self.items.iter().filter(|i| keys.contains(&i.key)) {
-            let path = dir.join(item.key.to_string());
+        let mut places: Vec<usize> =
+            keys.iter().filter_map(|k| self.places.get(k)).copied().collect();
+        places.sort_unstable();
+        places.dedup();
+        for item in places.into_iter().map(|at| &self.items[at]) {
+            let path = item.key.path_in(dir).map_err(|e| e.to_string())?;
             std::fs::write(&path, self.read(item)?)
                 .map_err(|e| format!("{}: {e}", path.display()))?;
             n += 1;
@@ -432,7 +538,7 @@ impl Hak {
         if !text.is_empty() {
             header.description.strings.insert(0, (Language::ENGLISH.0, text));
         }
-        let (year, day) = today();
+        let (year, day) = crate::build_date();
         header.build_year = year;
         header.build_day = day;
         let entries: Vec<_> =
@@ -492,12 +598,6 @@ impl Default for Hak {
     fn default() -> Self {
         Hak::new()
     }
-}
-
-/// Today as an ERF's build date: years since 1900 and the day of the year.
-fn today() -> (u32, u32) {
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
-    crate::year_day(now.map_or(0, |d| d.as_secs()))
 }
 
 #[cfg(test)]
@@ -604,9 +704,76 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    /// Many resources added at once are found by name (not a scan of the
+    /// hak per resource); one of a name twice in a step is the later; undo
+    /// and redo go back and forth over adds, removes, renames and the
+    /// description, each step keeping only what it changed.
+    #[test]
+    fn steps_are_undone_and_redone_by_what_they_changed() {
+        let key = |n: String| ResKey::parse(&n, ResType::TXT).unwrap();
+        let bytes = |b: &[u8]| Source::Bytes(b.into());
+        let mut hak = Hak::new();
+        let many: Vec<(ResKey, Source)> =
+            (0..20_000).map(|i| (key(format!("r{i}")), bytes(b"x"))).collect();
+        let start = std::time::Instant::now();
+        assert_eq!(hak.add_sources(many.clone()).unwrap().added, 20_000);
+        let again = hak.add_sources(many).unwrap();
+        assert_eq!((again.added, again.replaced), (0, 20_000));
+        assert!(start.elapsed() < std::time::Duration::from_secs(5));
+        let twice = vec![(key("new".into()), bytes(b"1")), (key("new".into()), bytes(b"2"))];
+        let added = hak.add_sources(twice).unwrap();
+        assert_eq!((added.added, added.replaced), (1, 1));
+        assert_eq!(hak.data(key("new".into())).unwrap(), b"2");
+        assert_eq!(hak.items().len(), 20_001);
+        let names = |h: &Hak| -> Vec<String> {
+            h.items().iter().map(|i| i.key.resref.to_string()).collect()
+        };
+        let all = names(&hak);
+        hak.remove(&[key("r5".into()), key("r1".into()), key("nothing".into())]);
+        hak.rename(key("r2".into()), "two").unwrap();
+        hak.set_description("Text");
+        let changed = names(&hak);
+        assert_eq!(changed[..3], ["r0", "two", "r3"]);
+        for _ in 0..3 {
+            hak.undo();
+        }
+        assert_eq!(names(&hak), all);
+        assert_eq!((hak.description.as_str(), hak.data(key("r1".into())).is_ok()), ("", true));
+        for _ in 0..3 {
+            hak.redo();
+        }
+        assert_eq!(names(&hak), changed);
+        assert_eq!(hak.description, "Text");
+        assert!(hak.data(key("r2".into())).is_err() && hak.data(key("two".into())).is_ok());
+        for _ in 0..6 {
+            hak.undo();
+        }
+        assert!(hak.items().is_empty(), "back to an empty hak");
+    }
+
+    /// A renamed archive entry's bytes wait in a scratch file, removed
+    /// with the hak (its last copy).
+    #[test]
+    fn renamed_bytes_are_kept_until_the_hak_is_closed() {
+        let dir = mg_testkit::scratch_dir("mg-hak-stash");
+        let path = dir.join("s.hak");
+        let key = |n: &str| ResKey::parse(n, ResType::TXT).unwrap();
+        write_into(&path, vec![(key("one"), Source::Bytes(b"1"[..].into()))]).unwrap();
+        let mut hak = Hak::open(&path).unwrap();
+        let renamed = hak.rename(key("one"), "two").unwrap();
+        let Source::File(stashed) = hak.items()[0].source.clone() else { panic!("a file") };
+        assert!(stashed.is_file());
+        let copy = hak.clone();
+        drop(hak);
+        assert!(stashed.is_file(), "a copy still has it");
+        assert_eq!(copy.data(renamed).unwrap(), b"1");
+        drop(copy);
+        assert!(!stashed.exists());
+    }
+
     #[test]
     fn build_dates() {
-        let (year, day) = today();
+        let (year, day) = crate::build_date();
         assert!(year >= 125 && day < 366);
     }
 }

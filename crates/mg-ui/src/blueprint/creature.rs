@@ -112,7 +112,7 @@ pub(crate) fn refresh_hit_points(
     }
 }
 
-fn choices(f: &Form<'_>, table: &str, name: &str, label: &str) -> Vec<Choice> {
+fn choices(f: &Form<'_>, table: &str, name: &str, label: &str) -> std::sync::Arc<Vec<Choice>> {
     f.choices(table, Some(name), Some(label))
 }
 
@@ -772,7 +772,7 @@ fn skills(f: &mut Form<'_>, ui: &mut Ui) {
                 ui.strong("Skill");
                 ui.strong("Rank");
                 ui.end_row();
-                for s in &skills {
+                for s in skills.iter() {
                     let r = ui.label(&s.text);
                     let game = described_by.as_deref();
                     super::creature_lists::described(r, game, "skills", "Description", s.row);

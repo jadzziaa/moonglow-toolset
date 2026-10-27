@@ -8,7 +8,7 @@
 pub mod diff;
 pub mod json;
 
-use mg_core::bin::{BinError, Reader, WriteLe, slice};
+use mg_core::bin::{BinError, CopyBudget, Reader, WriteLe, slice};
 use mg_core::{Language, ResRef, StrRef};
 use thiserror::Error;
 
@@ -78,6 +78,8 @@ impl Tlk {
         let count = r.u32_usize()?;
         let strings_offset = r.u32_usize()?;
         slice(data, 20, count.saturating_mul(40))?;
+        // Entries may all point at the same (large) text.
+        let mut budget = CopyBudget::for_input(data.len());
         let mut entries = Vec::with_capacity(count);
         for _ in 0..count {
             let flags = r.u32()?;
@@ -90,7 +92,9 @@ impl Tlk {
             // The game reads text only when the flag is set; some shipped
             // entries have stale offsets otherwise.
             let text = if size > 0 {
-                slice(data, strings_offset.saturating_add(offset), size)?.to_vec()
+                let text = slice(data, strings_offset.saturating_add(offset), size)?;
+                budget.charge(size)?;
+                text.to_vec()
             } else {
                 Vec::new()
             };
@@ -210,5 +214,27 @@ mod tests {
         for len in 0..bytes.len() {
             assert!(Tlk::read(&bytes[..len]).is_err());
         }
+    }
+
+    /// Entries that all point at one large text would copy it once each:
+    /// a table of 1 MiB asking for 200 MiB stops at the copy budget.
+    #[test]
+    fn entries_sharing_one_large_text_hit_the_copy_limit() {
+        let table = |entries: usize| {
+            let big = 1usize << 20;
+            let mut t = Tlk::new(Language::ENGLISH);
+            t.entries.push(TlkEntry::text(vec![b'x'; big]));
+            t.entries.extend((1..entries).map(|_| TlkEntry::text("")));
+            let mut bytes = t.to_bytes().unwrap();
+            for i in 1..entries {
+                let size_at = 20 + i * 40 + 32;
+                bytes[size_at..size_at + 4].copy_from_slice(&(big as u32).to_le_bytes());
+            }
+            bytes
+        };
+        let t = Tlk::read(&table(3)).unwrap();
+        assert_eq!(t.entries[2].text.len(), 1 << 20);
+        let err = Tlk::read(&table(200)).unwrap_err();
+        assert!(matches!(err, TlkError::Bin(BinError::CopyLimit { .. })), "{err}");
     }
 }

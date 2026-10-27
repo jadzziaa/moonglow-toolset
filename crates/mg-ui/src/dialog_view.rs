@@ -321,9 +321,11 @@ pub fn shown_rows(g: &Gff, collapsed: &HashSet<(Kind, u32)>) -> Vec<Shown> {
                 open,
             });
             let here = out.len() - 1;
+            // (A line's own lines are drawn under it once: in a file where
+            // several lines own one, not again under each, which grows as
+            // two to the power of how deep such lines go.)
             if children && open && path.insert((kind, index)) {
                 walk(g, Parent::Node(kind, index), here, collapsed, path, out);
-                path.remove(&(kind, index));
             }
         }
     }
@@ -1682,18 +1684,29 @@ fn tree(
                 ui.weak("?");
             }
         });
+        // (Once, as `shown_rows` has it.)
         if children && open && path.insert((kind, index)) {
             let under = Parent::Node(kind, index);
             tree(ui, game, key, g, under, depth + 1, view, path, hl, look, dropped);
-            path.remove(&(kind, index));
         }
     }
 }
 
 /// The tags of the creatures placed in the module's areas, sorted, each
 /// once (the Speaker Tag list).
-fn creature_tags(app: &mut Moonglow) -> Vec<String> {
-    let Some(ws) = app.ws.as_mut() else { return Vec::new() };
+fn creature_tags(app: &mut Moonglow, ctx: &egui::Context) -> std::sync::Arc<Vec<String>> {
+    let Some(ws) = app.ws.as_mut() else { return Default::default() };
+    // (Kept until the module changes: the arrow keys ask each frame the
+    // box has the keys, and every area's objects were read each time.
+    // A revision is no other workspace's.)
+    let id = egui::Id::new("dlg-creature-tags");
+    let revision = ws.revision();
+    type Kept = (u64, std::sync::Arc<Vec<String>>);
+    if let Some((r, tags)) = ctx.data(|d| d.get_temp::<Kept>(id))
+        && r == revision
+    {
+        return tags;
+    }
     let areas = ws.module.areas().unwrap_or_default();
     let mut tags = std::collections::BTreeSet::new();
     for a in areas {
@@ -1704,7 +1717,9 @@ fn creature_tags(app: &mut Moonglow) -> Vec<String> {
             }
         }
     }
-    tags.into_iter().collect()
+    let tags: std::sync::Arc<Vec<String>> = std::sync::Arc::new(tags.into_iter().collect());
+    ctx.data_mut(|d| d.insert_temp::<Kept>(id, (revision, tags.clone())));
+    tags
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1735,9 +1750,9 @@ fn text_panel(
                 .selected_text("")
                 .width(24.0)
                 .show_ui(ui, |ui| {
-                    for t in creature_tags(app) {
-                        if ui.selectable_label(t == speaker, &t).clicked() {
-                            chosen = Some(t);
+                    for t in creature_tags(app, ui.ctx()).iter() {
+                        if ui.selectable_label(*t == speaker, t).clicked() {
+                            chosen = Some(t.clone());
                         }
                     }
                 })
@@ -1747,7 +1762,7 @@ fn text_panel(
             // list has the keys.)
             let mut tag = speaker.clone();
             if (r.clicked() || r.has_focus())
-                && crate::widgets::arrow_step(ui, &r, &creature_tags(app), &mut tag)
+                && crate::widgets::arrow_step(ui, &r, &creature_tags(app, ui.ctx()), &mut tag)
             {
                 chosen = Some(tag);
             }
@@ -2532,6 +2547,31 @@ mod tests {
         // A folded line's are not drawn.
         let folded = HashSet::from([(Kind::Reply, 0)]);
         assert_eq!(shown_rows(&g, &folded).len(), 5);
+    }
+
+    /// A malformed file in which two lines own each next one (not as a
+    /// link), 40 deep: each line's are drawn under it once, not 2^40 rows.
+    #[test]
+    fn lines_owned_twice_are_drawn_once() {
+        let mut g = new_dialog();
+        let mut parents = vec![Parent::Root];
+        for depth in 0..40 {
+            let first = add_node(&mut g, parents[0], &format!("a{depth}"));
+            let second = add_node(&mut g, parents[0], &format!("b{depth}"));
+            let kind = parents[0].child_kind();
+            let under = [Parent::Node(kind, first), Parent::Node(kind, second)];
+            // Both own the next line: the second as its own, not a link.
+            let next = add_node(&mut g, under[0], &format!("c{depth}"));
+            let (list, owned) = match kind {
+                Kind::Entry => ("EntryList", "RepliesList"),
+                Kind::Reply => ("ReplyList", "EntriesList"),
+            };
+            let second_node = &mut g.root.list_mut(list).unwrap()[second as usize];
+            second_node.list_mut(owned).unwrap().push(new_link(next, under[1], false));
+            parents = vec![Parent::Node(under[0].child_kind(), next)];
+        }
+        let rows = shown_rows(&g, &HashSet::new());
+        assert!(rows.len() < 200, "{} rows", rows.len());
     }
 
     #[test]

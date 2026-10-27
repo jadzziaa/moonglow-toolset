@@ -471,7 +471,7 @@ pub(crate) fn export(app: &mut Moonglow, keys: &[ResKey]) {
         let text = (app.browser.models_as_text).then(|| model_text(*key, &data)).flatten();
         as_text += usize::from(text.is_some());
         let data = text.map_or(data, |t| t.into_bytes().into());
-        if let Err(e) = std::fs::write(dir.join(key.to_string()), &data) {
+        if let Err(e) = key.path_in(&dir).and_then(|path| std::fs::write(path, &data)) {
             app.log.error(format!("Could not write to {}: {e}", dir.display()));
             return;
         }

@@ -372,8 +372,9 @@ fn build(
     if w.rules.is_some() {
         placed.set("Tag", Value::String(crate::text::encode(&tag)));
     }
-    let tag =
-        placed.string("Tag").map(|t| String::from_utf8_lossy(t).into_owned()).unwrap_or_default();
+    // (In the game's codepage, as `store_tag` reads it: a tag of `é`
+    // read as UTF-8 named a store there is none of.)
+    let tag = placed.string("Tag").map(crate::text::decode).unwrap_or_default();
     let found = |t: ResType| {
         let key = ResKey::new(script, t);
         ws.module.contains(&key) || game.resman.contains(&key)

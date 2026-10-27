@@ -7,7 +7,10 @@
 //! §B, from nwnmdlcomp's headers, checked on every compiled model in the
 //! game.
 
+use std::cell::Cell;
 use std::collections::HashSet;
+
+use mg_core::bin::{CopyBudget, slice};
 
 use crate::ctrl::{self, flags};
 use crate::{
@@ -19,12 +22,19 @@ use crate::{
 /// The most nodes a model (or animation) may have; guards against loops.
 const MAX_NODES: usize = 100_000;
 
+/// What a node read copies besides its arrays (the node itself, its
+/// mesh's fixed fields), charged to the copy budget per node walked.
+const NODE_COST: usize = 512;
+
 struct Bin<'a> {
     data: &'a [u8],
     /// Model data base (file offset 12).
     m: usize,
     /// Raw data base.
     r: usize,
+    /// Bytes copied out so far: meshes may share one vertex stream, and
+    /// animations one node tree.
+    budget: Cell<CopyBudget>,
 }
 
 fn err(what: impl Into<String>) -> MdlError {
@@ -33,21 +43,31 @@ fn err(what: impl Into<String>) -> MdlError {
 
 impl<'a> Bin<'a> {
     fn bytes(&self, at: usize, n: usize) -> Result<&'a [u8], MdlError> {
-        at.checked_add(n)
-            .and_then(|end| self.data.get(at..end))
-            .ok_or_else(|| err(format!("{n} bytes at {at:#x} are past the end")))
+        slice(self.data, at, n).map_err(|_| err(format!("{n} bytes at {at:#x} are past the end")))
+    }
+
+    /// The `N` bytes at model offset `off`.
+    #[inline]
+    fn fixed<const N: usize>(&self, off: usize) -> Result<[u8; N], MdlError> {
+        Ok(self.bytes(self.m.saturating_add(off), N)?.try_into().expect("N bytes"))
+    }
+
+    /// Charges `n` bytes about to be copied out to the budget.
+    fn charge(&self, n: usize) -> Result<(), MdlError> {
+        let mut budget = self.budget.get();
+        budget.charge(n).map_err(|e| err(e.to_string()))?;
+        self.budget.set(budget);
+        Ok(())
     }
 
     fn u8(&self, off: usize) -> Result<u8, MdlError> {
-        Ok(self.bytes(self.m + off, 1)?[0])
+        Ok(self.fixed::<1>(off)?[0])
     }
     fn u16(&self, off: usize) -> Result<u16, MdlError> {
-        let b = self.bytes(self.m + off, 2)?;
-        Ok(u16::from_le_bytes([b[0], b[1]]))
+        Ok(u16::from_le_bytes(self.fixed(off)?))
     }
     fn u32(&self, off: usize) -> Result<u32, MdlError> {
-        let b = self.bytes(self.m + off, 4)?;
-        Ok(u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        Ok(u32::from_le_bytes(self.fixed(off)?))
     }
     fn f32(&self, off: usize) -> Result<f32, MdlError> {
         Ok(f32::from_bits(self.u32(off)?))
@@ -87,12 +107,24 @@ impl<'a> Bin<'a> {
         if count == 0 {
             return Ok((0, 0));
         }
-        self.bytes(self.m + offset, count.saturating_mul(size.max(1)))?;
+        let len = count.saturating_mul(size.max(1));
+        self.bytes(self.m + offset, len)?;
+        // Arrays may be shared (one face list for many meshes): what is
+        // read from them is charged where it is read.
+        self.charge(len)?;
         Ok((offset, count))
     }
 
+    /// `n` raw bytes at absolute offset `at`, charged to the budget (they
+    /// are about to be copied).
+    fn copied(&self, at: usize, n: usize) -> Result<&'a [u8], MdlError> {
+        let b = self.bytes(at, n)?;
+        self.charge(n)?;
+        Ok(b)
+    }
+
     fn f32s(&self, base: usize, count: usize) -> Result<Vec<f32>, MdlError> {
-        let b = self.bytes(base, count.checked_mul(4).ok_or_else(|| err("count overflow"))?)?;
+        let b = self.copied(base, count.checked_mul(4).ok_or_else(|| err("count overflow"))?)?;
         Ok(b.as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes(*c)).collect())
     }
 
@@ -175,6 +207,7 @@ impl<'a> Bin<'a> {
             if !seen.insert(off) || out.len() >= MAX_NODES {
                 return Err(err(format!("node tree loops or is too large at {off:#x}")));
             }
+            self.charge(NODE_COST)?;
             let index = out.len();
             out.push((off, parent));
             for c in self.children(off)?.into_iter().rev() {
@@ -227,7 +260,7 @@ impl<'a> Bin<'a> {
                 m.normals = self.vec3s_at(at, count)?;
             }
             if let Some(at) = self.raw(n + 0x248)? {
-                let b = self.bytes(at, count * 4)?;
+                let b = self.copied(at, count * 4)?;
                 m.colors = b.as_chunks::<4>().0.to_vec();
             }
             // With a render hint, the game's compiler stores tangents and
@@ -290,7 +323,7 @@ impl<'a> Bin<'a> {
                 return None;
             }
             let at = self.raw(lists).ok()??;
-            let b = self.bytes(at, indices.checked_mul(2)?).ok()?;
+            let b = self.copied(at, indices.checked_mul(2)?).ok()?;
             let all: Vec<u32> =
                 b.as_chunks::<2>().0.iter().map(|c| u32::from(u16::from_le_bytes(*c))).collect();
             let drawn = all.as_chunks::<3>().0;
@@ -305,7 +338,7 @@ impl<'a> Bin<'a> {
         let mut skin = Skin::default();
         let map_at = self.u32(n + 0x284)? as usize;
         let map_len = self.u32(n + 0x288)? as usize;
-        let map = self.bytes(self.m + map_at, map_len.saturating_mul(2))?;
+        let map = self.copied(self.m + map_at, map_len.saturating_mul(2))?;
         let mut mapped = Vec::new();
         for (node, c) in map.as_chunks::<2>().0.iter().enumerate() {
             let bone = i16::from_le_bytes(*c);
@@ -321,7 +354,7 @@ impl<'a> Bin<'a> {
         }
         if let (Some(w), Some(r)) = (self.raw(n + 0x27C)?, self.raw(n + 0x280)?) {
             let weights = self.f32s(w, count * 4)?;
-            let refs = self.bytes(r, count * 8)?;
+            let refs = self.copied(r, count * 8)?;
             skin.weights = (0..count)
                 .map(|v| {
                     let mut out = [(0u16, 0.0f32); 4];
@@ -357,6 +390,7 @@ impl<'a> Bin<'a> {
             if e == 0 && !out.is_empty() || !seen.insert(e) || out.len() > MAX_NODES * 4 {
                 continue;
             }
+            self.charge(std::mem::size_of::<AabbEntry>())?;
             out.push(AabbEntry {
                 min: self.vec3(e)?,
                 max: self.vec3(e + 12)?,
@@ -518,7 +552,12 @@ pub fn read(data: &[u8]) -> Result<Model, MdlError> {
         return Err(err("not a compiled model"));
     }
     let raw_offset = u32::from_le_bytes([data[4], data[5], data[6], data[7]]) as usize;
-    let b = Bin { data, m: 12, r: 12usize.saturating_add(raw_offset) };
+    let b = Bin {
+        data,
+        m: 12,
+        r: 12usize.saturating_add(raw_offset),
+        budget: Cell::new(CopyBudget::for_input(data.len())),
+    };
     let supermodel = b.resname(0xA8, 64)?;
     let mut model = Model {
         name: b.name(0x08, 64)?,
@@ -738,6 +777,43 @@ mod tests {
             assert_eq!(crate::Model::read(&marked).unwrap(), model);
         }
         assert!(!crate::is_binary(b"# ascii\nnewmodel probe\n"));
+    }
+
+    /// [`compiled_by_the_game`] with its animation listed `copies` times
+    /// and its controller's data `floats` long.
+    fn one_animation_many_times(copies: usize, floats: usize) -> Vec<u8> {
+        let file = compiled_by_the_game();
+        let model_len = u32::from_le_bytes(file[4..8].try_into().unwrap()) as usize;
+        let mut m = Out(file[12..12 + model_len].to_vec());
+        let raw = &file[12 + model_len..];
+        let data_at = m.0.len();
+        m.floats(data_at, &vec![0.5; floats]);
+        m.u32(0x660, data_at as u32);
+        m.u32(0x664, floats as u32);
+        let list_at = m.0.len();
+        for i in 0..copies {
+            m.u32(list_at + 4 * i, 0x510);
+        }
+        m.u32(0x78, list_at as u32);
+        m.u32(0x7C, copies as u32);
+        let mut out = vec![0; 4];
+        out.extend((m.0.len() as u32).to_le_bytes());
+        out.extend((raw.len() as u32).to_le_bytes());
+        out.extend(m.0);
+        out.extend(raw);
+        out
+    }
+
+    /// An animation list naming one animation (and so one node tree, with
+    /// a large controller) many times would copy it once each: a model of
+    /// 1 MiB asking for 600 MiB stops at the copy budget.
+    #[test]
+    fn one_animation_listed_many_times_hits_the_copy_limit() {
+        let model = read(&one_animation_many_times(3, 1 << 18)).unwrap();
+        assert_eq!(model.animations.len(), 3);
+        assert_eq!(model.animations[2].nodes[0].controllers[0].values, [0.5; 3]);
+        let Err(e) = read(&one_animation_many_times(300, 1 << 18)) else { panic!("read") };
+        assert!(e.to_string().contains("pointing at the same data"), "{e}");
     }
 
     #[test]

@@ -3,6 +3,7 @@
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use egui::Ui;
 use mg_core::ResType;
@@ -25,7 +26,16 @@ pub struct ExportDraft {
     pub comments: String,
     /// Add to the archive chosen, if there is one, instead of replacing it.
     pub add: bool,
+    /// The module's keys in the window's order, at a workspace revision,
+    /// and those the kind and filter then listed: made again only when
+    /// one of them changes (a module's 25,000 sorted and each named for
+    /// the filter, every frame).
+    pub(crate) listed: Option<Listed>,
 }
+
+/// [`ExportDraft::listed`]: the revision, kind and filter, the keys in
+/// order, and those listed.
+pub(crate) type Listed = (u64, Option<ResType>, String, Arc<Vec<ResKey>>, Arc<Vec<ResKey>>);
 
 /// An archive being imported and what to overwrite.
 #[derive(Debug, Clone, PartialEq)]
@@ -389,10 +399,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 None => format!(".{ext}"),
             }
         };
-        let mut keys: Vec<ResKey> = ws.module.keys().copied().collect();
-        keys.sort_by_key(|k| (rank(k.restype), k.resref));
+        let revision = ws.revision();
+        let kept = (draft.listed.as_ref()).filter(|(r, ..)| *r == revision).map(|l| l.3.clone());
+        let keys = kept.unwrap_or_else(|| {
+            let mut keys: Vec<ResKey> = ws.module.keys().copied().collect();
+            keys.sort_by_cached_key(|k| (rank(k.restype), k.resref));
+            Arc::new(keys)
+        });
         let mut kinds: Vec<(ResType, usize)> = Vec::new();
-        for k in &keys {
+        for k in keys.iter() {
             match kinds.last_mut() {
                 Some((t, n)) if *t == k.restype => *n += 1,
                 _ => kinds.push((k.restype, 1)),
@@ -433,16 +448,28 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 .response;
                 crate::widgets::autofocus(ui, &field);
             });
-            let filter = mg_core::text::Needle::new(&draft.filter);
-            let listed: Vec<ResKey> = keys
-                .iter()
-                .filter(|k| draft.kind.is_none_or(|t| k.restype == t))
-                .filter(|k| filter.finds(&k.to_string()))
-                .copied()
-                .collect();
+            let same = |(r, kind, filter, ..): &&Listed| {
+                *r == revision && *kind == draft.kind && *filter == draft.filter
+            };
+            let listed = match draft.listed.as_ref().filter(same) {
+                Some(l) => l.4.clone(),
+                None => {
+                    let filter = mg_core::text::Needle::new(&draft.filter);
+                    let listed: Vec<ResKey> = keys
+                        .iter()
+                        .filter(|k| draft.kind.is_none_or(|t| k.restype == t))
+                        .filter(|k| filter.finds(&k.to_string()))
+                        .copied()
+                        .collect();
+                    let listed = Arc::new(listed);
+                    let (kind, filter) = (draft.kind, draft.filter.clone());
+                    draft.listed = Some((revision, kind, filter, keys.clone(), listed.clone()));
+                    listed
+                }
+            };
             // The rows: with every kind listed, each under its heading.
             let mut rows: Vec<Result<ResKey, ResType>> = Vec::with_capacity(listed.len());
-            for k in &listed {
+            for k in listed.iter() {
                 let first = !matches!(rows.last(), Some(Ok(l)) if l.restype == k.restype);
                 if draft.kind.is_none() && first {
                     rows.push(Err(k.restype));
@@ -494,7 +521,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 }
                 let any = listed.iter().any(|k| draft.selected.contains(k));
                 if ui.add_enabled(any, egui::Button::new("Clear Them")).clicked() {
-                    for k in &listed {
+                    for k in listed.iter() {
                         draft.selected.remove(k);
                     }
                 }

@@ -36,12 +36,7 @@ fn tag(module: &Path) -> String {
 }
 
 fn mg(args: &[&str]) -> (bool, Json) {
-    let out = crate::mg().args(["--no-user-dir", "--json"]).args(args).output().unwrap();
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.trim().is_empty(), "{args:?}: stderr {stderr}");
-    let json = serde_json::from_slice(&out.stdout)
-        .unwrap_or_else(|e| panic!("{args:?}: {e}: {}", String::from_utf8_lossy(&out.stdout)));
-    (out.status.success(), json)
+    crate::quiet_json_out(crate::mg().args(["--no-user-dir", "--json"]).args(args))
 }
 
 #[test]
@@ -514,12 +509,7 @@ fn answers_in(home: &Path) -> std::path::PathBuf {
 }
 
 fn mg_at(home: &Path, args: &[&str]) -> (bool, Json) {
-    let out = mg_in(home).args(["--no-user-dir", "--json"]).args(args).output().unwrap();
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.trim().is_empty(), "{args:?}: stderr {stderr}");
-    let json = serde_json::from_slice(&out.stdout)
-        .unwrap_or_else(|e| panic!("{args:?}: {e}: {}", String::from_utf8_lossy(&out.stdout)));
-    (out.status.success(), json)
+    crate::quiet_json_out(mg_in(home).args(["--no-user-dir", "--json"]).args(args))
 }
 
 /// A project's plugins: listed with what the builder allowed and their

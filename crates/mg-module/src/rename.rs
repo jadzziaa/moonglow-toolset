@@ -155,8 +155,8 @@ impl Read {
             && let Ok(gff) = Gff::read(data)
         {
             read.refs = crate::refs::gff_references(key, &gff);
-            tag_fields(&gff.root, "", &mut read.tags);
-            strref_fields(&gff.root, "", &mut read.strrefs);
+            tag_fields(&gff.root, &mut String::new(), &mut read.tags);
+            strref_fields(&gff.root, &mut String::new(), &mut read.strrefs);
         } else if key.restype == ResType::TWODA
             && let Ok(table) = mg_2da::TwoDa::parse(data, mg_core::Codepage::default())
         {
@@ -174,41 +174,66 @@ impl Read {
     }
 }
 
-/// The localized strings of `s` that name a talk-table line, with their
-/// paths.
-fn strref_fields(s: &Struct, path: &str, out: &mut Vec<(String, u32)>) {
+/// Walks the fields of `s` under `path` (a buffer, each field's path
+/// made in it only as deep as the walk is): `found` says what a field
+/// that is not a struct or a list gives, kept with its path.
+fn fields_with_paths<T>(
+    s: &Struct,
+    path: &mut String,
+    found: &dyn Fn(&mg_gff::Field) -> Option<T>,
+    out: &mut Vec<(String, T)>,
+) {
+    use std::fmt::Write;
     for f in &s.fields {
-        let label = f.label.to_string_lossy();
-        let p = format!("{path}/{label}");
+        let len = path.len();
+        let enter = |path: &mut String| {
+            path.push('/');
+            path.push_str(&String::from_utf8_lossy(f.label.as_bytes()));
+        };
         match &f.value {
-            Value::LocString(v) if !v.strref.is_none() => out.push((p, v.strref.0)),
-            Value::Struct(c) => strref_fields(c, &p, out),
+            Value::Struct(c) => {
+                enter(path);
+                fields_with_paths(c, path, found, out);
+            }
             Value::List(items) => {
+                enter(path);
+                let list = path.len();
                 for (i, c) in items.iter().enumerate() {
-                    strref_fields(c, &format!("{p}[{i}]"), out);
+                    let _ = write!(path, "[{i}]");
+                    fields_with_paths(c, path, found, out);
+                    path.truncate(list);
                 }
             }
-            _ => {}
+            _ => {
+                if let Some(v) = found(f) {
+                    enter(path);
+                    out.push((path.clone(), v));
+                }
+            }
         }
+        path.truncate(len);
     }
 }
 
+/// The localized strings of `s` that name a talk-table line, with their
+/// paths.
+fn strref_fields(s: &Struct, path: &mut String, out: &mut Vec<(String, u32)>) {
+    let found = |f: &mg_gff::Field| match &f.value {
+        Value::LocString(v) if !v.strref.is_none() => Some(v.strref.0),
+        _ => None,
+    };
+    fields_with_paths(s, path, &found, out);
+}
+
 /// The fields of `s` that name a tag, with their paths.
-fn tag_fields(s: &Struct, path: &str, out: &mut Vec<(String, Vec<u8>)>) {
-    for f in &s.fields {
-        let label = f.label.to_string_lossy();
-        let p = format!("{path}/{label}");
-        match &f.value {
-            Value::String(v) if TAG_FIELDS.contains(&label.as_str()) => out.push((p, v.clone())),
-            Value::Struct(c) => tag_fields(c, &p, out),
-            Value::List(items) => {
-                for (i, c) in items.iter().enumerate() {
-                    tag_fields(c, &format!("{p}[{i}]"), out);
-                }
-            }
-            _ => {}
+fn tag_fields(s: &Struct, path: &mut String, out: &mut Vec<(String, Vec<u8>)>) {
+    let found = |f: &mg_gff::Field| match &f.value {
+        Value::String(v) if TAG_FIELDS.iter().any(|t| t.as_bytes() == f.label.as_bytes()) => {
+            Some(v.clone())
         }
-    }
+        _ => None,
+    };
+    fields_with_paths(s, path, &found, out);
 }
 
 impl UsageIndex {
@@ -323,6 +348,7 @@ impl UsageIndex {
         for key in keys {
             let read = &self.seen[key];
             let src = &read.data[..];
+            let mut lines = None;
             for &(a, b) in &read.strings {
                 let s = &src[a..b];
                 let same = match ignore_case {
@@ -330,7 +356,8 @@ impl UsageIndex {
                     false => s == name.as_bytes(),
                 };
                 if same {
-                    out.push(mention_at(*key, src, a));
+                    let lines = lines.get_or_insert_with(|| line_starts(src));
+                    out.push(mention_at(*key, src, lines, a));
                 }
             }
         }
@@ -338,10 +365,21 @@ impl UsageIndex {
     }
 }
 
-/// The mention of a string that begins at `start` of a script's source.
-fn mention_at(script: ResKey, src: &[u8], start: usize) -> Mention {
-    let line = src[..start].iter().filter(|b| **b == b'\n').count() + 1;
-    let text = String::from_utf8_lossy(src).lines().nth(line - 1).unwrap_or("").trim().to_string();
+/// Where each line of a source begins.
+fn line_starts(src: &[u8]) -> Vec<usize> {
+    std::iter::once(0)
+        .chain(src.iter().enumerate().filter(|(_, b)| **b == b'\n').map(|(i, _)| i + 1))
+        .collect()
+}
+
+/// The mention of a string that begins at `start` of a script's source
+/// (`lines`: [`line_starts`] of it, found once for all its mentions):
+/// only its own line is read.
+fn mention_at(script: ResKey, src: &[u8], lines: &[usize], start: usize) -> Mention {
+    let line = lines.partition_point(|&s| s <= start);
+    let from = lines[line - 1];
+    let to = lines.get(line).map_or(src.len(), |&next| next - 1);
+    let text = String::from_utf8_lossy(&src[from..to]).trim().to_string();
     Mention { script, line, text }
 }
 
@@ -389,8 +427,10 @@ pub fn mentions(module: &Module, name: &str, ignore_case: bool) -> Vec<Mention> 
     let mut out = Vec::new();
     for key in keys {
         let Some(src) = module.get(&key) else { continue };
+        let mut lines = None;
         for (start, _) in string_literals(src, name, ignore_case) {
-            out.push(mention_at(key, src, start));
+            let lines = lines.get_or_insert_with(|| line_starts(src));
+            out.push(mention_at(key, src, lines, start));
         }
     }
     out
@@ -786,6 +826,34 @@ mod tests {
                 .to_vec(),
         );
         m
+    }
+
+    /// A mention is its line's number and text, read from that line
+    /// alone; fields that name a tag or a talk-table line are found with
+    /// their paths, through structs and lists.
+    #[test]
+    fn mentions_and_fields_have_their_places() {
+        let src = b"a\r\n  x(\"one\"); y(\"one\");\r\nlast \"one\"";
+        let lines = line_starts(src);
+        let k = key("s", ResType::NSS);
+        let at = |n: usize| src.windows(5).enumerate().filter(|(_, w)| w == b"\"one\"").nth(n);
+        let m = |n: usize| mention_at(k, src, &lines, at(n).unwrap().0 + 1);
+        assert_eq!((m(0).line, m(0).text.as_str()), (2, "x(\"one\"); y(\"one\");"));
+        assert_eq!((m(1).line, m(2).line, m(2).text.as_str()), (2, 3, "last \"one\""));
+        let mut item = Struct::new(0);
+        item.set("Tag", Value::String(b"T".to_vec()));
+        item.set("Name", Value::LocString(mg_core::LocString::from_strref(mg_core::StrRef(7))));
+        let mut root = Struct::new(0);
+        root.set("List", Value::List(vec![Struct::new(0), item]));
+        root.set("Tag", Value::String(b"R".to_vec()));
+        let (mut tags, mut strrefs) = (Vec::new(), Vec::new());
+        tag_fields(&root, &mut String::new(), &mut tags);
+        strref_fields(&root, &mut String::new(), &mut strrefs);
+        assert_eq!(
+            tags,
+            [("/List[1]/Tag".to_string(), b"T".to_vec()), ("/Tag".into(), b"R".to_vec())]
+        );
+        assert_eq!(strrefs, [("/List[1]/Name".to_string(), 7)]);
     }
 
     #[test]

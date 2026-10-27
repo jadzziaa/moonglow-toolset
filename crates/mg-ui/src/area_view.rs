@@ -20,7 +20,7 @@ use std::f32::consts::FRAC_PI_2;
 
 use egui::{Color32, Pos2, Rect, Stroke};
 use glam::{Vec2, Vec3};
-use mg_area::pick::{Ray, pick_precisely, project};
+use mg_area::pick::{Ray, pick_precisely};
 use mg_area::walk::Ground;
 use mg_area::{AreaModel, AreaScene, ObjectKind, TILE_SIZE, View};
 use mg_core::{ResRef, ResType};
@@ -318,6 +318,10 @@ pub type CursorShapes = Vec<(Vec<Vec3>, Color32)>;
 pub struct AreaView {
     pub area: ResRef,
     pub model: Option<AreaModel>,
+    /// The camera's projection times its view, with the orbit and aspect
+    /// it was made for and the near plane: [`AreaView::screen_pos`] is
+    /// asked thousands of times a frame (an overlay's every face).
+    projection: std::cell::Cell<Option<(Orbit, f32, glam::Mat4, f32)>>,
     scene: Option<AreaScene>,
     /// The workspace revision `model` was read at.
     revision: Option<u64>,
@@ -422,7 +426,7 @@ pub struct AreaView {
     /// The blueprint about to be placed (dragged over the view, or chosen
     /// in the palette), as an object to show where it would go; `None` in
     /// it when it can't be placed.
-    ghost: Option<(ResKey, Option<mg_area::AreaObject>)>,
+    ghost: Option<(ResKey, Option<u64>, Option<mg_area::AreaObject>)>,
     /// The blueprint about to be placed as the last frame showed it.
     pub ghost_shown: Option<mg_area::AreaObject>,
     /// How far Q and E have turned the blueprint about to be placed
@@ -556,6 +560,7 @@ impl AreaView {
         AreaView {
             area,
             model: None,
+            projection: std::cell::Cell::new(None),
             scene: None,
             reading: None,
             textures_drawn: 0,
@@ -695,9 +700,24 @@ impl AreaView {
 
     /// Where a point shows on screen (last drawn view).
     pub fn screen_pos(&self, p: Vec3) -> Option<Pos2> {
-        let camera = self.camera()?;
-        let at = project(&camera, self.aspect(), p)?;
+        let (orbit, aspect) = (self.orbit?, self.aspect());
+        let (matrix, near) = match self.projection.get() {
+            Some((o, a, m, n)) if o == orbit && a == aspect => (m, n),
+            _ => {
+                let camera = orbit.camera();
+                let m = camera.projection(aspect) * camera.view();
+                self.projection.set(Some((orbit, aspect, m, camera.near)));
+                (m, camera.near)
+            }
+        };
+        let at = mg_area::pick::project_by(matrix, near, p)?;
         Some(self.rect.min + egui::vec2(at.x * self.rect.width(), at.y * self.rect.height()))
+    }
+
+    /// The selection as a set: the overlays look up every object in it
+    /// each frame (thousands selected, by Ctrl+A).
+    fn selected_set(&self) -> std::collections::HashSet<(ObjectKind, usize)> {
+        self.selection.iter().copied().collect()
     }
 
     /// A flat polygon as it shows on screen: the part of it `least` or
@@ -1598,6 +1618,12 @@ fn show(
     view.told = lacking;
     // Objects that went away are no longer selected.
     view.selection.retain(|&(k, i)| model.object(k, i).is_some());
+    // (A spawn point held by its object's place in the list: Undo while it
+    // is held may have taken an object before it away, so that place is
+    // another's now.)
+    if matches!(view.drag, Some(Drag::FaceSpawn { .. } | Drag::MoveSpawn { .. })) {
+        view.drag = None;
+    }
     // The tiles laid out anew (Resize Area or Rotate Area, done, undone or
     // redone; the list set whole by a plugin, the file read again) or of
     // another tileset: the tile tools let go of what they held of the
@@ -2439,12 +2465,14 @@ fn viewport(
         shown.to_mut().objects[i].visual = Some(v);
     }
     if let Some(Drag::FaceSpawn { object, point, facing, .. }) = view.drag
-        && let Some(f) = shown.to_mut().objects[object].spawn_facings.get_mut(point)
+        && let Some(o) = shown.to_mut().objects.get_mut(object)
+        && let Some(f) = o.spawn_facings.get_mut(point)
     {
         *f = facing;
     }
     if let Some(Drag::MoveSpawn { object, point, at, .. }) = view.drag
-        && let Some(p) = shown.to_mut().objects[object].spawn_points.get_mut(point)
+        && let Some(o) = shown.to_mut().objects.get_mut(object)
+        && let Some(p) = o.spawn_points.get_mut(point)
     {
         *p = at;
     }
@@ -2615,14 +2643,15 @@ fn sound_range_overlay(app: &mut Moonglow, ui: &egui::Ui, view: &AreaView, shown
     let Ok(doc) = ws.doc(&view.git()) else { return };
     let Some(list) = doc.root.list(ObjectKind::Sound.list()) else { return };
     let painter = ui.painter_at(view.rect);
-    for (i, o) in shown.objects.iter().enumerate().filter(|(_, o)| o.kind == ObjectKind::Sound) {
+    let chosen = view.selected_set();
+    for o in shown.objects.iter().filter(|o| o.kind == ObjectKind::Sound) {
         let Some(sound) = list.get(o.index).map(crate::area_audio::PlacedSound::from_git) else {
             continue;
         };
         if !sound.positional {
             continue;
         }
-        let alpha = if view.selected(i) { 255 } else { 150 };
+        let alpha = if chosen.contains(&(o.kind, o.index)) { 255 } else { 150 };
         // Where it may play from, if its place is random: so far each way
         // east and north of where it stands.
         if let Some(reach) = list.get(o.index).and_then(random_reach) {
@@ -2685,6 +2714,7 @@ fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     let Some(faces) = view.object_faces.as_ref() else { return };
     let mut mesh = egui::Mesh::default();
     let mut edges = Vec::new();
+    let chosen = view.selected_set();
     for (corners, object) in faces {
         let Some(o) = model.objects.get(*object) else { continue };
         if !view.show[o.kind.index()] {
@@ -2697,7 +2727,7 @@ fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
             continue;
         }
         let (r, g, b) = if o.kind == ObjectKind::Door { (70, 140, 255) } else { (255, 150, 40) };
-        let alpha = if view.selected(*object) { 150 } else { 80 };
+        let alpha = if chosen.contains(&(o.kind, o.index)) { 150 } else { 80 };
         let color = egui::Color32::from_rgba_unmultiplied(r, g, b, alpha);
         let first = mesh.vertices.len() as u32;
         for p in &points {
@@ -2848,11 +2878,12 @@ fn overlays(
         }
     };
     let scene = view.scene.as_ref();
+    let chosen = view.selected_set();
     for (i, o) in shown.objects.iter().enumerate() {
         if !view.show[o.kind.index()] {
             continue;
         }
-        let selected = view.selected(i);
+        let selected = chosen.contains(&(o.kind, o.index));
         let highlight = Stroke::new(2.0, Color32::YELLOW);
         if o.kind.has_outline() {
             // Encounters orange; triggers green, area transitions blue,
@@ -3833,7 +3864,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                 }
             }
             Some(Drag::FaceSpawn { object, point, facing, .. }) => {
-                if let Some(o) = view.model.as_ref().map(|m| &m.objects[object])
+                if let Some(o) = view.model.as_ref().and_then(|m| m.objects.get(object))
                     && o.spawn_facings.get(point).is_some_and(|was| *was != facing)
                 {
                     let path = mg_edit::GffPath::root()
@@ -3849,7 +3880,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                 }
             }
             Some(Drag::MoveSpawn { object, point, at, was }) => {
-                if let Some(o) = view.model.as_ref().map(|m| &m.objects[object])
+                if let Some(o) = view.model.as_ref().and_then(|m| m.objects.get(object))
                     && at != was
                 {
                     let path = mg_edit::GffPath::root()
@@ -4358,7 +4389,11 @@ fn ghost(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) -> Option<mg_ar
     } else {
         (view.snapped(at), None)
     };
-    if view.ghost.as_ref().is_none_or(|(k, _)| *k != key) {
+    // (Read again after the module changes too: the blueprint edited while
+    // it is the brush looks as it does now.)
+    let revision = app.ws.as_ref().map(|w| w.revision());
+    let same = view.ghost.as_ref().is_some_and(|(k, _, _)| *k == key);
+    if !same || view.ghost.as_ref().is_some_and(|(_, r, _)| *r != revision) {
         let placement = mg_module::instances::Placement { position: [0.0; 3], rotation: 0.0 };
         let item = match &appearance {
             Some(a) => appearance_item(app, a, placement),
@@ -4368,11 +4403,13 @@ fn ghost(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) -> Option<mg_ar
             let game = app.game.as_deref()?;
             Some(mg_area::AreaObject::read(game, kind, usize::MAX, &item))
         });
-        view.ghost = Some((key, object));
+        view.ghost = Some((key, revision, object));
         // A blueprint chosen anew starts unturned.
-        view.ghost_turn = 0.0;
+        if !same {
+            view.ghost_turn = 0.0;
+        }
     }
-    let mut o = view.ghost.as_ref()?.1.clone()?;
+    let mut o = view.ghost.as_ref()?.2.clone()?;
     o.position = at + Vec3::Z * lift(kind);
     // A door faces as its hook does; the others as Q and E turned them.
     o.rotation = rotation.unwrap_or(o.rotation + view.ghost_turn);
@@ -4862,6 +4899,8 @@ const ONTO_REACH: f32 = 2.0;
 fn drop_onto_objects(app: &mut Moonglow, view: &AreaView) {
     let (Some(model), Some(scene)) = (&view.model, &view.scene) else { return };
     let chosen: Vec<usize> = view.selected_indices().collect();
+    // (Looked up for every object under every one chosen: a set.)
+    let is_chosen: std::collections::HashSet<usize> = chosen.iter().copied().collect();
     let moved: Vec<(usize, Vec3, f32)> = chosen
         .iter()
         .filter_map(|&i| {
@@ -4871,7 +4910,7 @@ fn drop_onto_objects(app: &mut Moonglow, view: &AreaView) {
             }
             let ray = Ray { origin: o.position + Vec3::Z * ONTO_REACH, dir: Vec3::NEG_Z };
             let on_object = (0..model.objects.len())
-                .filter(|j| !chosen.contains(j))
+                .filter(|j| !is_chosen.contains(j))
                 .filter(|&j| {
                     let k = model.objects[j].kind;
                     matches!(k, ObjectKind::Placeable | ObjectKind::Door) && view.show[k.index()]
@@ -5466,9 +5505,8 @@ const LIGHT_HEIGHT: f32 = 1.5;
 /// hak adds in the same way.
 fn stock_lights(app: &Moonglow) -> Vec<StockLight> {
     let Some(game) = app.game.as_deref() else { return Vec::new() };
-    let (Ok(table), Ok(colors)) = (game.table("placeables"), game.table("lightcolor")) else {
-        return Vec::new();
-    };
+    let Ok(table) = game.table("placeables") else { return Vec::new() };
+    let colors = crate::tile_select::light_colors(app);
     (0..table.len())
         .filter_map(|row| {
             let model = table.get(row, "ModelName")?;
@@ -5478,12 +5516,8 @@ fn stock_lights(app: &Moonglow) -> Vec<StockLight> {
             }
             let label = table.get(row, "Label").unwrap_or("Light");
             let name = label.strip_prefix("Light, ").unwrap_or(label).to_string();
-            let c = |col: &str| {
-                let v = colors.get_float(color as usize, col).unwrap_or(0.0);
-                (v.clamp(0.0, 1.0) * 255.0) as u8
-            };
-            let color = Color32::from_rgb(c("TOOLSETRED"), c("TOOLSETGREEN"), c("TOOLSETBLUE"));
-            Some(StockLight { row, name, color })
+            let color = usize::try_from(color).ok().and_then(|c| colors.get(c).copied());
+            Some(StockLight { row, name, color: color.unwrap_or(Color32::BLACK) })
         })
         .collect()
 }

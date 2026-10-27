@@ -6,6 +6,8 @@
 
 #[path = "../aurora_blueprints.rs"]
 mod aurora_blueprints;
+#[path = "../aurora_common/mod.rs"]
+mod aurora_common;
 #[path = "../aurora_creature_wizard.rs"]
 mod aurora_creature_wizard;
 #[path = "../aurora_creatures.rs"]

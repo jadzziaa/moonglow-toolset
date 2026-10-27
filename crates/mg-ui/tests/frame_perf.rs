@@ -442,6 +442,25 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
             o.yaw += 0.01;
         }
     });
+    // Every object selected (Ctrl+A) and the ground's walkmesh shown,
+    // turning: the overlays drawn for each, each frame.
+    if let Some(v) = h.state_mut().area_views.get_mut(&area)
+        && let Some(m) = v.model.as_ref()
+    {
+        v.selection = m.objects.iter().map(|o| (o.kind, o.index)).collect();
+        v.walkmesh = true;
+    }
+    view_with(h, r, &format!("{name}, all selected, walkmesh"), Some(&tab), |app, _| {
+        if let Some(o) = app.area_views.get_mut(&area).and_then(|v| v.orbit.as_mut()) {
+            o.pitch = 0.9;
+            o.distance = 120.0;
+            o.yaw += 0.01;
+        }
+    });
+    if let Some(v) = h.state_mut().area_views.get_mut(&area) {
+        v.selection.clear();
+        v.walkmesh = false;
+    }
     close(h, &tab);
 }
 
@@ -861,9 +880,65 @@ fn frames_at_144_in_a_persistent_world() {
     h.run_steps(3);
     view(&mut h, &mut r, "store inventory with 1,000 items", Some(&store));
     close(&mut h, &store);
+    // An item's Properties page: every property it may take, by kind.
+    let item = Tab::Blueprint(ResKey::parse("pw_i00001", ResType::UTI).unwrap());
+    open(&mut h, item.clone());
+    if click(&mut h, "Properties") {
+        view(&mut h, &mut r, "item blueprint, Properties page", Some(&item));
+    }
+    close(&mut h, &item);
+    // The same store in the Preview window (its stock by page).
+    h.state_mut().palette.selected = ResKey::parse("pw_store", ResType::UTM);
+    h.state_mut().preview_window = true;
+    h.run_steps(3);
+    view(&mut h, &mut r, "Preview window, a store of 1,000 items", None);
+    h.state_mut().preview_window = false;
     tab(&mut h, &mut r, "resource browser (300,000)", Tab::Resources);
     let areas = h.state().ws.as_ref().unwrap().module.areas().unwrap();
     tab(&mut h, &mut r, "Area Properties (300 areas)", Tab::AreaProperties(areas[0]));
+
+    // placeables.2da with the haks' 4,000 rows, in the 2DA editor, a
+    // filter typed.
+    let placeables = ResKey::parse("placeables", ResType::TWODA).unwrap();
+    if let Some(id) =
+        mg_ui::table_view::edit_copy(h.state_mut(), placeables, mg_ui::table_view::Home::Module)
+    {
+        h.run_steps(3);
+        let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+        doc.filter = "plc".into();
+        let t = Tab::Table(id);
+        view(&mut h, &mut r, "2DA editor, placeables.2da (+4,000 rows) filtered", Some(&t));
+        close(&mut h, &t);
+        h.state_mut().tables.retain(|d| d.id != id);
+    }
+    // The Export window, every kind listed, a filter typed.
+    h.state_mut().actions.push(Action::ExportDialog(Vec::new()));
+    h.run_steps(3);
+    if let Some(d) = h.state_mut().export.as_mut() {
+        d.filter = "pw_i0".into();
+    }
+    view(&mut h, &mut r, "Export window (25,000 resources), filtered", None);
+    h.state_mut().export = None;
+    // The log after a Verify that found much: 10,000 lines, 2,000 with
+    // a fix beside them.
+    {
+        let log = &mut h.state_mut().log;
+        log.clear();
+        for n in 0..10_000 {
+            log.warn(format!("pw_i{n:05}.uti: a finding of Verify Module's, line {n}"));
+            if n % 5 == 0 {
+                log.fixes.push(mg_ui::OfferedFix {
+                    line: n,
+                    text: log.entries[n].1.clone(),
+                    fix: mg_edit::fix::Fix { label: "Fix".into(), edits: Vec::new() },
+                    made: false,
+                });
+            }
+        }
+    }
+    h.run_steps(2);
+    view(&mut h, &mut r, "log of 10,000 lines, 2,000 fixes", None);
+    h.state_mut().log.clear();
     println!("over the budget:\n  {}", r.over.join("\n  "));
 }
 
@@ -1036,11 +1111,6 @@ fn reload_frames_at_144() {
     // The pull, on a thread of its own, over about a second.
     reset_peak();
     let (rss_before, _) = memory();
-    // (The last of each kind written: in once the pull's end is.)
-    let last: Vec<ResKey> = [ResType::ARE, ResType::GIT, ResType::UTI, ResType::NSS]
-        .iter()
-        .filter_map(|t| expected.keys().filter(|k| k.restype == *t && **k != mine).max().copied())
-        .collect();
     let start = Instant::now();
     let pull = std::thread::spawn(move || {
         for (i, (path, text)) in plan.into_iter().enumerate() {
@@ -1060,12 +1130,19 @@ fn reload_frames_at_144() {
     };
     let mut times: Vec<(Duration, Duration)> = Vec::new();
     let (mut all_in, mut until) = (None, start + Duration::from_secs(90));
+    // (Every file looked at, a few times a second: the last of each kind
+    // in says nothing of the others when the watch's first look caught
+    // those last ones, and its next look is 3 s on.)
+    let mut looked = start;
     while Instant::now() < until {
         let f = frames(&mut h, screen, Pointer::Moves, 1, |_, _| {});
         times.push((start.elapsed(), f.ui[0] + f.tessellate[0]));
-        if all_in.is_none() && pull.is_finished() && last.iter().all(|k| is_in(h.state(), k)) {
-            all_in = Some(start.elapsed());
-            until = Instant::now() + Duration::from_secs(2);
+        if all_in.is_none() && pull.is_finished() && looked.elapsed() > Duration::from_millis(250) {
+            looked = Instant::now();
+            if expected.keys().all(|k| *k == mine || is_in(h.state(), k)) {
+                all_in = Some(start.elapsed());
+                until = Instant::now() + Duration::from_secs(2);
+            }
         }
     }
     let (rss_after, peak) = memory();

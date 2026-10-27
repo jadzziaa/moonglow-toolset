@@ -17,6 +17,11 @@ use mg_module::Module;
 use mg_resman::ResKey;
 use mg_testkit::{aurora_capture, corpus};
 
+use crate::aurora_common::{PLAIN, Shown, lines};
+
+/// How the GFFs are compared, as lines.
+const SHOWN: Shown<'static> = Shown { decimals: Some(4), ..PLAIN };
+
 /// The probes: (the placement capture they're made from, their name).
 const PROBES: [(&str, &str); 2] = [
     ("placement-defaults.mod", "update-probe-defaults"),
@@ -172,32 +177,6 @@ fn write_the_probes_for_the_oracle() {
     }
 }
 
-/// Field labels, types and values, one line each (floats to 4 places:
-/// Aurora's carry noise).
-fn lines(s: &Struct, indent: &str, out: &mut Vec<String>) {
-    for f in &s.fields {
-        let label = f.label.to_string_lossy();
-        match &f.value {
-            Value::List(items) => {
-                out.push(format!("{indent}{label} list[{}]", items.len()));
-                for (i, item) in items.iter().enumerate() {
-                    out.push(format!("{indent}  [{i}] struct {}", item.id));
-                    lines(item, &format!("{indent}    "), out);
-                }
-            }
-            Value::Struct(c) => {
-                out.push(format!("{indent}{label} struct {}", c.id));
-                lines(c, &format!("{indent}  "), out);
-            }
-            Value::Float(v) => {
-                let v = if v.abs() < 1e-6 { 0.0 } else { *v };
-                out.push(format!("{indent}{label} Float({v:.4})"))
-            }
-            v => out.push(format!("{indent}{label} {v:?}")),
-        }
-    }
-}
-
 #[test]
 fn update_instances_matches_aurora() {
     use mg_module::instances::{Placing, update};
@@ -240,9 +219,7 @@ fn update_instances_matches_aurora() {
                     if o.resref(field).is_none_or(|r| r.is_empty()) {
                         continue;
                     }
-                    let (mut a, mut b) = (Vec::new(), Vec::new());
-                    lines(o, "", &mut a);
-                    lines(t, "", &mut b);
+                    let (mut a, mut b) = (lines(o, SHOWN), lines(t, SHOWN));
                     // Aurora's quirks with blueprints lacking Comment (a
                     // creature's empty Comment, and its first skill's), not
                     // copied (`instances.rs`).

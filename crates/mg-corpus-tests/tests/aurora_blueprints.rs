@@ -6,40 +6,27 @@
 //! types, order and values, and the same resrefs.
 
 use mg_core::{ResRef, ResType};
-use mg_gff::{Gff, Struct};
+use mg_gff::Gff;
 use mg_module::Module;
 use mg_module::blueprints::{self, SoundStyle};
 use mg_resman::{GameInstall, ResKey};
 use mg_rules::GameData;
 use mg_testkit::{aurora_capture, corpus};
 
+use crate::aurora_common::{PLAIN, lines};
+
+/// How the GFFs are compared, as lines.
+const SHOWN: crate::aurora_common::Shown<'static> = PLAIN;
+
 fn r(s: &str) -> ResRef {
     ResRef::from_str(s).unwrap()
-}
-
-/// Field labels, types and values, one line each, for a readable diff.
-fn lines(s: &Struct, indent: &str, out: &mut Vec<String>) {
-    for f in &s.fields {
-        match &f.value {
-            mg_gff::Value::List(items) => {
-                out.push(format!("{indent}{} list[{}]", f.label.to_string_lossy(), items.len()));
-                for (i, item) in items.iter().enumerate() {
-                    out.push(format!("{indent}  [{i}] struct {}", item.id));
-                    lines(item, &format!("{indent}    "), out);
-                }
-            }
-            v => out.push(format!("{indent}{} {:?}", f.label.to_string_lossy(), v)),
-        }
-    }
 }
 
 fn same(name: &str, ours: &Gff, aurora: &Gff) -> Option<String> {
     if ours == aurora {
         return None;
     }
-    let (mut a, mut b) = (Vec::new(), Vec::new());
-    lines(&ours.root, "", &mut a);
-    lines(&aurora.root, "", &mut b);
+    let (a, b) = (lines(&ours.root, SHOWN), lines(&aurora.root, SHOWN));
     let diff: Vec<String> = a
         .iter()
         .zip(&b)

@@ -31,6 +31,36 @@ pub enum TwoDaError {
     DuplicateColumn(String),
     #[error("a cell value contains a double quote, which 2DA cannot express")]
     Unquotable,
+    #[error(
+        "the table's short rows would be padded with more than {0} empty cells (a header of \
+         many columns over many short lines)"
+    )]
+    TooManyCells(usize),
+}
+
+/// A cap on the empty cells short rows are padded with: a header of 200,000
+/// columns over 300,000 one-cell lines, a megabyte of text, would make 60
+/// billion cells. Real tables pad a few cells per byte at most; the cap
+/// allows [`FACTOR`](Self::FACTOR) per byte of the file plus
+/// [`SLACK`](Self::SLACK).
+struct PaddingBudget {
+    left: usize,
+    limit: usize,
+}
+
+impl PaddingBudget {
+    const FACTOR: usize = 8;
+    const SLACK: usize = 1 << 20;
+
+    fn for_input(len: usize) -> Self {
+        let limit = len.saturating_mul(Self::FACTOR).saturating_add(Self::SLACK);
+        PaddingBudget { left: limit, limit }
+    }
+
+    fn take(&mut self, cells: usize) -> Result<(), TwoDaError> {
+        self.left = self.left.checked_sub(cells).ok_or(TwoDaError::TooManyCells(self.limit))?;
+        Ok(())
+    }
 }
 
 /// A 2DA table. Cells are `None` when empty (`****`).
@@ -137,12 +167,14 @@ impl TwoDa {
         t.default = default;
         let width = t.columns.len();
         let lines: Vec<&str> = lines.skip_while(|l| l.is_empty()).collect();
+        let mut padding = PaddingBudget::for_input(data.len());
         for line in lines {
             let mut cells = split_cells(line, width + 1);
             // The first cell is the row label, which the game ignores.
             if !cells.is_empty() {
                 cells.remove(0);
             }
+            padding.take(width - cells.len())?;
             cells.resize(width, None);
             t.rows.push(cells);
         }
@@ -169,9 +201,18 @@ impl TwoDa {
         Ok(())
     }
 
-    /// The index of a column (case-insensitive).
+    /// The index of a column (case-insensitive). (Asked for on every
+    /// cell read: a name of up to 64 bytes is lowered on the stack.)
     pub fn column(&self, name: &str) -> Option<usize> {
-        self.lookup.get(&name.to_ascii_lowercase()).copied()
+        let mut buf = [0u8; 64];
+        let Some(lowered) = buf.get_mut(..name.len()) else {
+            return self.lookup.get(&name.to_ascii_lowercase()).copied();
+        };
+        lowered.copy_from_slice(name.as_bytes());
+        lowered.make_ascii_lowercase();
+        // (ASCII lowered, UTF-8 stays UTF-8.)
+        let lowered = std::str::from_utf8(lowered).ok()?;
+        self.lookup.get(lowered).copied()
     }
 
     pub fn len(&self) -> usize {
@@ -491,6 +532,36 @@ mod tests {
         assert_eq!(t.get_or_default(1, "Name"), Some("7"));
         assert_eq!(t.get(99, "Name"), None);
         assert_eq!(t.get(0, "nope"), None);
+    }
+
+    /// A header of many columns over many one-cell lines would pad to
+    /// billions of cells: refused past the cap; a table of the same shape
+    /// within it reads, padded.
+    #[test]
+    fn padding_short_rows_is_capped() {
+        let table = |columns: usize, rows: usize| {
+            let mut text = String::from("2DA V2.0\n\n");
+            text.extend((0..columns).map(|c| format!("c{c} ")));
+            text.push('\n');
+            text.extend((0..rows).map(|r| format!("{r}\n")));
+            text
+        };
+        let t = TwoDa::parse(table(1000, 10).as_bytes(), Codepage::default()).unwrap();
+        assert_eq!((t.columns().len(), t.rows.len()), (1000, 0), "trailing empty rows go");
+        let t = TwoDa::parse(format!("{}9 x\n", table(1000, 10)).as_bytes(), Codepage::default());
+        assert_eq!(t.unwrap().rows.iter().map(Vec::len).collect::<Vec<_>>(), [1000; 11]);
+        let e = TwoDa::parse(table(20_000, 30_000).as_bytes(), Codepage::default()).unwrap_err();
+        assert!(matches!(e, TwoDaError::TooManyCells(_)), "{e}");
+    }
+
+    /// Every prefix of a table reads as a table or is an error: never a
+    /// panic.
+    #[test]
+    fn truncated_input_is_an_error_or_a_table() {
+        for len in 0..SAMPLE.len() {
+            let _ = TwoDa::parse(&SAMPLE.as_bytes()[..len], Codepage::default());
+            let _ = overlong_rows(&SAMPLE.as_bytes()[..len], Codepage::default());
+        }
     }
 
     #[test]

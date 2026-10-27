@@ -498,6 +498,16 @@ mod tests {
 [TILES]\nCount=1\n[TILE0]\nModel=tst01_a01_01\nWalkMesh=msb01\nTopLeft=Grass\nTopLeftHeight=1\nTopRight=Water\nBottomLeft=Grass\nBottomRight=Grass\nTop=Road\nRight=\nMainLight1=1\nDoors=1\nOrientation=90\n[TILE0DOOR0]\nType=6\nX=5.0\nY=0\nOrientation=180\n\
 [GROUPS]\nCount=1\n[GROUP0]\nName=Big\nRows=1\nColumns=2\nTile0=0\nTile1=-1\n";
 
+    /// Every prefix of a tileset reads as one or is an error, as text and
+    /// as the editable file: never a panic.
+    #[test]
+    fn truncated_input_is_an_error_or_a_tileset() {
+        for len in 0..SAMPLE.len() {
+            let _ = Tileset::parse(&SAMPLE.as_bytes()[..len], Codepage::default());
+            let _ = edit::SetFile::parse(&SAMPLE[..len]);
+        }
+    }
+
     #[test]
     fn parses_a_tileset() {
         let t = Tileset::parse(SAMPLE.as_bytes(), Codepage::default()).unwrap();

@@ -77,6 +77,26 @@ fn mg() -> std::process::Command {
     mg
 }
 
+/// What `mg` printed as JSON (`--json` among its arguments): whether it
+/// succeeded, and the JSON.
+fn json_out(mg: &mut std::process::Command) -> (bool, serde_json::Value) {
+    read_json(mg, false)
+}
+
+/// [`json_out`], and nothing printed to standard error.
+fn quiet_json_out(mg: &mut std::process::Command) -> (bool, serde_json::Value) {
+    read_json(mg, true)
+}
+
+fn read_json(mg: &mut std::process::Command, quiet: bool) -> (bool, serde_json::Value) {
+    let out = mg.output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!quiet || stderr.trim().is_empty(), "{mg:?}: stderr {stderr}");
+    let json = serde_json::from_slice(&out.stdout)
+        .unwrap_or_else(|e| panic!("{mg:?}: {e}: {}", String::from_utf8_lossy(&out.stdout)));
+    (out.status.success(), json)
+}
+
 /// This crate's tests are not found by Cargo (`autotests = false`): a file
 /// not named above would not be compiled.
 #[test]

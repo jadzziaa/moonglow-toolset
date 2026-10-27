@@ -31,6 +31,11 @@ use crate::{
 /// The codepage of a module's text where its game is not known.
 pub(crate) const CODEPAGE: Codepage = Codepage::WINDOWS_1252;
 
+/// How a plugin's code is loaded: as text, never as bytecode (which Luau
+/// runs unverified, so a crafted file could crash out of the sandbox; left
+/// unset, mlua loads either).
+const TEXT: mlua::chunk::ChunkMode = mlua::chunk::ChunkMode::Text;
+
 thread_local! {
     /// The codepage of the text of the job this thread runs: see
     /// [`codepage`].
@@ -1148,7 +1153,8 @@ fn start(entry: Option<&str>, sh: &Rc<Shared>) -> mlua::Result<Lua> {
                 .files
                 .read(&format!("{file}.luau"))
                 .or_else(|e| fail(format!("require({name:?}): {e}")))?;
-            let value: LuaValue = lua.load(source).set_name(format!("@{file}.luau")).eval()?;
+            let value: LuaValue =
+                lua.load(source).set_mode(TEXT).set_name(format!("@{file}.luau")).eval()?;
             // (Loaded once, whatever it returns.)
             let kept = if value.is_nil() { LuaValue::Boolean(true) } else { value };
             loaded.set(file, kept.clone())?;
@@ -1189,7 +1195,7 @@ fn start(entry: Option<&str>, sh: &Rc<Shared>) -> mlua::Result<Lua> {
     lua.sandbox(true)?;
     if let Some(entry) = entry {
         let source = sh.files.read(entry).or_else(|e| fail(format!("{entry}: {e}")))?;
-        lua.load(source).set_name(format!("@{entry}")).exec()?;
+        lua.load(source).set_mode(TEXT).set_name(format!("@{entry}")).exec()?;
     }
     Ok(lua)
 }
@@ -1805,7 +1811,8 @@ pub(crate) fn run_console(
         let lua = start(None, &sh)?;
         let ctx = context(&lua, &sh, ["console", "Console", crate::API])?;
         let source = format!("local mg = require(\"@moonglow\")\nlocal ctx = ...\n{code}");
-        let made: mlua::MultiValue = lua.load(source).set_name("=console").call(ctx)?;
+        let made: mlua::MultiValue =
+            lua.load(source).set_mode(TEXT).set_name("=console").call(ctx)?;
         for v in made {
             let mut text = String::new();
             shown(&v, 0, &mut text);

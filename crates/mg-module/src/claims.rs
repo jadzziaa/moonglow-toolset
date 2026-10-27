@@ -278,16 +278,39 @@ pub fn change(
 /// Claims or releases an area in the table at `path` (made, with its
 /// folder, where there is none), today: [`change`] on the file.
 pub fn write_change(path: &Path, area: ResRef, how: Change, force: bool) -> Result<(), String> {
-    let text = match std::fs::read(path) {
-        Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+    rewrite(path, |text| change(text, area, how, &mg_core::time::today(), force))
+}
+
+/// A claims table's text: UTF-8 where it is that, else Windows-1252 (a
+/// table saved by a Windows editor: "José" read as UTF-8 was written back
+/// as "Jos\u{fffd}" for good).
+pub(crate) fn decode(bytes: &[u8]) -> (std::borrow::Cow<'_, str>, bool) {
+    match std::str::from_utf8(bytes) {
+        Ok(text) => (text.into(), true),
+        Err(_) => (mg_core::Codepage::WINDOWS_1252.decode(bytes), false),
+    }
+}
+
+/// The table at `path` (none: empty) made over by `f`, in its own
+/// encoding, written whole through a temporary file: the team's table is
+/// never left cut short.
+fn rewrite(path: &Path, f: impl FnOnce(&str) -> Result<String, String>) -> Result<(), String> {
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
         Err(e) => return Err(format!("{}: {e}", path.display())),
     };
-    let out = change(&text, area, how, &today(), force)?;
+    let (text, utf8) = decode(&bytes);
+    let out = f(&text)?;
+    let out =
+        if utf8 { out.into_bytes() } else { mg_core::Codepage::WINDOWS_1252.encode_lossy(&out) };
     if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
-    std::fs::write(path, out).map_err(|e| format!("{}: {e}", path.display()))
+    let tmp = crate::sibling(path, ".moonglow-tmp");
+    std::fs::write(&tmp, out)
+        .and_then(|()| std::fs::rename(&tmp, path))
+        .map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// A table's text with an area marked merged (in the game from now on),
@@ -319,16 +342,7 @@ pub fn merged(text: &str, area: ResRef, tag: &str, date: &str) -> Result<String,
 
 /// [`merged`] on the table at `path`, today.
 pub fn write_merged(path: &Path, area: ResRef, tag: &str) -> Result<(), String> {
-    let text = match std::fs::read(path) {
-        Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(format!("{}: {e}", path.display())),
-    };
-    let out = merged(&text, area, tag, &today())?;
-    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    }
-    std::fs::write(path, out).map_err(|e| format!("{}: {e}", path.display()))
+    rewrite(path, |text| merged(text, area, tag, &mg_core::time::today()))
 }
 
 /// The text of a table with no rows yet.
@@ -549,28 +563,6 @@ impl<'t> Table<'t> {
     }
 }
 
-/// Today's date, `YYYY-MM-DD` (UTC).
-pub fn today() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
-    date_of(secs)
-}
-
-/// A day's date from seconds since 1970 (Howard Hinnant's algorithm).
-pub fn date_of(secs: u64) -> String {
-    let z = (secs / 86_400) as i64 + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = yoe + era * 400 + i64::from(m <= 2);
-    format!("{y:04}-{m:02}-{d:02}")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -611,6 +603,24 @@ mod tests {
             assert_eq!(game.get(claim.row, "Builder").map(String::from), claim.builder);
             assert_eq!(game.get(claim.row, "Tag").map(String::from), claim.tag);
         }
+    }
+
+    /// A table saved by a Windows editor (Windows-1252, a builder named
+    /// José) keeps its bytes where a claim is written into it, and no
+    /// temporary file is left beside it.
+    #[test]
+    fn a_windows_table_keeps_its_letters() {
+        let dir = mg_testkit::scratch_dir("mg-claims-1252");
+        let path = dir.join("claims.2da");
+        let text = TABLE.replace("cd       merged", "José     merged");
+        let bytes = mg_core::Codepage::WINDOWS_1252.encode_lossy(&text);
+        assert!(std::str::from_utf8(&bytes).is_err());
+        std::fs::write(&path, &bytes).unwrap();
+        write_change(&path, r("kz_new"), Change::Claim("ab"), false).unwrap();
+        let after = std::fs::read(&path).unwrap();
+        assert!(after.windows(4).any(|w| w == b"Jos\xe9"), "{}", String::from_utf8_lossy(&after));
+        assert!(String::from_utf8_lossy(&after).contains("kz_new"));
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
     }
 
     #[test]
@@ -752,13 +762,5 @@ mod tests {
         }
         let mut w = Vec::new();
         let _ = Claims::parse("claims.2da", "2DA V2.0\n\"\n\"\"\"", &mut w);
-    }
-
-    #[test]
-    fn dates_are_days_in_utc() {
-        assert_eq!(date_of(0), "1970-01-01");
-        assert_eq!(date_of(1_792_627_200), "2026-10-22");
-        assert_eq!(date_of(951_782_400), "2000-02-29");
-        assert_eq!(today().len(), 10);
     }
 }

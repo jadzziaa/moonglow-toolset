@@ -989,8 +989,7 @@ fn walkmesh_overlay_and_area_statistics() {
     assert!(h.state().area_stats.is_none());
     if std::env::var_os("MOONGLOW_SCREENS").is_some() {
         let image = h.render().expect("render");
-        let out = mg_testkit::scratch_dir("screens-walkmesh").parent().unwrap().join("screens");
-        std::fs::create_dir_all(&out).unwrap();
+        let out = mg_testkit::output_dir("screens");
         image.save(out.join("walkmesh.png")).unwrap();
     }
 }
@@ -2033,7 +2032,7 @@ fn a_tilt_ring_tilts_a_placeable_s_model_while_shift_is_held() {
         h.run_steps(1);
         if shot {
             let img = h.render().expect("render");
-            img.save(mg_testkit::scratch_dir("ui-area-tilt-ring").join("tilt_ring.png")).unwrap();
+            img.save(mg_testkit::output_dir("ui-area-tilt-ring").join("tilt_ring.png")).unwrap();
         }
         h.event(left(at, false));
         h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
@@ -2117,7 +2116,7 @@ fn a_tilt_ring_tilts_a_placeable_s_model_while_shift_is_held() {
     }
     h.run_steps(1);
     let img = h.render().expect("render");
-    img.save(mg_testkit::scratch_dir("ui-area-tilt-ring").join("height_arrow.png")).unwrap();
+    img.save(mg_testkit::output_dir("ui-area-tilt-ring").join("height_arrow.png")).unwrap();
     h.event(left(at, false));
     h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
     h.run_steps(3);
@@ -2149,7 +2148,7 @@ fn a_tilt_ring_tilts_a_placeable_s_model_while_shift_is_held() {
     }
     h.run_steps(1);
     let img = h.render().expect("render");
-    img.save(mg_testkit::scratch_dir("ui-area-tilt-ring").join("axis_arrow.png")).unwrap();
+    img.save(mg_testkit::output_dir("ui-area-tilt-ring").join("axis_arrow.png")).unwrap();
     h.event(left(at, false));
     h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
     h.run_steps(3);
@@ -3797,7 +3796,7 @@ fn replaced_objects_keep_their_outline_and_transform() {
     };
     let (trigger, chest) = (placed(&mut h, "TriggerList"), placed(&mut h, "Placeable List"));
     let before = h.render().expect("render");
-    before.save(mg_testkit::scratch_dir("ui-replace-kept").join("before.png")).unwrap();
+    before.save(mg_testkit::output_dir("ui-replace-kept").join("before.png")).unwrap();
     h.state_mut().area_views.get_mut(&area).unwrap().selection =
         vec![(ObjectKind::Trigger, 0), (ObjectKind::Placeable, 0)];
     let replace = |h: &mut Harness<'_, Moonglow>, kind, name: &str| {
@@ -3830,7 +3829,7 @@ fn replaced_objects_keep_their_outline_and_transform() {
     }
     assert_eq!(VisualTransform::read(&crate_), Some(tilted), "its visual transform");
     let after = h.render().expect("render");
-    after.save(mg_testkit::scratch_dir("ui-replace-kept").join("after.png")).unwrap();
+    after.save(mg_testkit::output_dir("ui-replace-kept").join("after.png")).unwrap();
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run_steps(3);
     assert_eq!(placed(&mut h, "Placeable List"), chest, "one undo for the chest");
