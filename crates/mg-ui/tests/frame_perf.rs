@@ -442,6 +442,25 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
             o.yaw += 0.01;
         }
     });
+    // Every object selected (Ctrl+A) and the ground's walkmesh shown,
+    // turning: the overlays drawn for each, each frame.
+    if let Some(v) = h.state_mut().area_views.get_mut(&area)
+        && let Some(m) = v.model.as_ref()
+    {
+        v.selection = m.objects.iter().map(|o| (o.kind, o.index)).collect();
+        v.walkmesh = true;
+    }
+    view_with(h, r, &format!("{name}, all selected, walkmesh"), Some(&tab), |app, _| {
+        if let Some(o) = app.area_views.get_mut(&area).and_then(|v| v.orbit.as_mut()) {
+            o.pitch = 0.9;
+            o.distance = 120.0;
+            o.yaw += 0.01;
+        }
+    });
+    if let Some(v) = h.state_mut().area_views.get_mut(&area) {
+        v.selection.clear();
+        v.walkmesh = false;
+    }
     close(h, &tab);
 }
 
@@ -864,6 +883,41 @@ fn frames_at_144_in_a_persistent_world() {
     tab(&mut h, &mut r, "resource browser (300,000)", Tab::Resources);
     let areas = h.state().ws.as_ref().unwrap().module.areas().unwrap();
     tab(&mut h, &mut r, "Area Properties (300 areas)", Tab::AreaProperties(areas[0]));
+
+    // placeables.2da with the haks' 4,000 rows, in the 2DA editor, a
+    // filter typed.
+    let placeables = ResKey::parse("placeables", ResType::TWODA).unwrap();
+    if let Some(id) =
+        mg_ui::table_view::edit_copy(h.state_mut(), placeables, mg_ui::table_view::Home::Module)
+    {
+        h.run_steps(3);
+        let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+        doc.filter = "plc".into();
+        let t = Tab::Table(id);
+        view(&mut h, &mut r, "2DA editor, placeables.2da (+4,000 rows) filtered", Some(&t));
+        close(&mut h, &t);
+        h.state_mut().tables.retain(|d| d.id != id);
+    }
+    // The log after a Verify that found much: 10,000 lines, 2,000 with
+    // a fix beside them.
+    {
+        let log = &mut h.state_mut().log;
+        log.clear();
+        for n in 0..10_000 {
+            log.warn(format!("pw_i{n:05}.uti: a finding of Verify Module's, line {n}"));
+            if n % 5 == 0 {
+                log.fixes.push(mg_ui::OfferedFix {
+                    line: n,
+                    text: log.entries[n].1.clone(),
+                    fix: mg_edit::fix::Fix { label: "Fix".into(), edits: Vec::new() },
+                    made: false,
+                });
+            }
+        }
+    }
+    h.run_steps(2);
+    view(&mut h, &mut r, "log of 10,000 lines, 2,000 fixes", None);
+    h.state_mut().log.clear();
     println!("over the budget:\n  {}", r.over.join("\n  "));
 }
 

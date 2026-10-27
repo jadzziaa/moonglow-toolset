@@ -200,14 +200,17 @@ impl Loader<'_> {
 
     /// A palette image (`pal_cloth01`, ...) as pixels, loaded once.
     pub(crate) fn palette(&mut self, name: &str) -> Option<Arc<mg_image::Rgba>> {
-        if let Some(p) = self.palettes.get(name) {
+        // (By its name in lower case, as `picture`'s: one image, however
+        // it is asked for.)
+        let name = name.to_ascii_lowercase();
+        if let Some(p) = self.palettes.get(&name) {
             return p.clone();
         }
-        let rgba = ResRef::from_str(name).ok().and_then(|r| {
+        let rgba = ResRef::from_str(&name).ok().and_then(|r| {
             let (t, data) = self.texture(r)?;
             Some(Arc::new(mg_image::read(t, &data).ok()?.to_rgba()))
         });
-        self.palettes.insert(name.to_string(), rgba.clone());
+        self.palettes.insert(name, rgba.clone());
         rgba
     }
 
@@ -278,14 +281,11 @@ impl Loader<'_> {
         }
         let rgba = ResRef::from_str(name).ok().and_then(|r| {
             let plt = mg_image::plt::Plt::read(&self.data(ResKey::new(r, ResType::PLT))?).ok()?;
-            let palettes: Vec<Option<mg_image::Rgba>> = mg_image::plt::PALETTES
-                .iter()
-                .map(|p| {
-                    let (t, data) = self.texture(ResRef::from_str(p).ok()?)?;
-                    mg_image::read(t, &data).ok().map(|t| t.to_rgba())
-                })
-                .collect();
-            let refs: [Option<&mg_image::Rgba>; 10] = std::array::from_fn(|i| palettes[i].as_ref());
+            // (The ten palettes, read once for every colouring.)
+            let palettes: Vec<Option<Arc<mg_image::Rgba>>> =
+                mg_image::plt::PALETTES.iter().map(|p| self.palette(p)).collect();
+            let refs: [Option<&mg_image::Rgba>; 10] =
+                std::array::from_fn(|i| palettes[i].as_deref());
             Some(plt.colorize(&refs, colors))
         });
         self.keep(ctx, key, rgba)

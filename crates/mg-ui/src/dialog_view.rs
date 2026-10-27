@@ -321,9 +321,11 @@ pub fn shown_rows(g: &Gff, collapsed: &HashSet<(Kind, u32)>) -> Vec<Shown> {
                 open,
             });
             let here = out.len() - 1;
+            // (A line's own lines are drawn under it once: in a file where
+            // several lines own one, not again under each, which grows as
+            // two to the power of how deep such lines go.)
             if children && open && path.insert((kind, index)) {
                 walk(g, Parent::Node(kind, index), here, collapsed, path, out);
-                path.remove(&(kind, index));
             }
         }
     }
@@ -1682,10 +1684,10 @@ fn tree(
                 ui.weak("?");
             }
         });
+        // (Once, as `shown_rows` has it.)
         if children && open && path.insert((kind, index)) {
             let under = Parent::Node(kind, index);
             tree(ui, game, key, g, under, depth + 1, view, path, hl, look, dropped);
-            path.remove(&(kind, index));
         }
     }
 }
@@ -2532,6 +2534,31 @@ mod tests {
         // A folded line's are not drawn.
         let folded = HashSet::from([(Kind::Reply, 0)]);
         assert_eq!(shown_rows(&g, &folded).len(), 5);
+    }
+
+    /// A malformed file in which two lines own each next one (not as a
+    /// link), 40 deep: each line's are drawn under it once, not 2^40 rows.
+    #[test]
+    fn lines_owned_twice_are_drawn_once() {
+        let mut g = new_dialog();
+        let mut parents = vec![Parent::Root];
+        for depth in 0..40 {
+            let first = add_node(&mut g, parents[0], &format!("a{depth}"));
+            let second = add_node(&mut g, parents[0], &format!("b{depth}"));
+            let kind = parents[0].child_kind();
+            let under = [Parent::Node(kind, first), Parent::Node(kind, second)];
+            // Both own the next line: the second as its own, not a link.
+            let next = add_node(&mut g, under[0], &format!("c{depth}"));
+            let (list, owned) = match kind {
+                Kind::Entry => ("EntryList", "RepliesList"),
+                Kind::Reply => ("ReplyList", "EntriesList"),
+            };
+            let second_node = &mut g.root.list_mut(list).unwrap()[second as usize];
+            second_node.list_mut(owned).unwrap().push(new_link(next, under[1], false));
+            parents = vec![Parent::Node(under[0].child_kind(), next)];
+        }
+        let rows = shown_rows(&g, &HashSet::new());
+        assert!(rows.len() < 200, "{} rows", rows.len());
     }
 
     #[test]

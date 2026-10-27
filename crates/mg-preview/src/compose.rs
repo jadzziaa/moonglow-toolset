@@ -700,7 +700,7 @@ pub fn ray_box(origin: Vec3, dir: Vec3, min: Vec3, max: Vec3) -> Option<f32> {
 
 /// How far along a ray it meets a triangle (either face), ahead of its
 /// origin (Möller–Trumbore).
-fn ray_triangle(origin: Vec3, dir: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Option<f32> {
+pub fn ray_triangle(origin: Vec3, dir: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Option<f32> {
     let (ab, ac) = (b - a, c - a);
     let p = dir.cross(ac);
     let det = ab.dot(p);

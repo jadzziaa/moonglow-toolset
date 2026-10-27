@@ -42,7 +42,7 @@
 //! (`affectedByWind`), `splat` and `deadspace` are not simulated.
 
 use glam::{Mat4, Quat, Vec2, Vec3};
-use mg_mdl::{Animation, Model, NodeKind};
+use mg_mdl::{AnimNode, Animation, Model, NodeKind};
 
 use crate::anim::sample;
 
@@ -182,30 +182,45 @@ pub struct Particles {
 }
 
 /// An emitter's parameter now: keyed by the animation, else its rest value.
+/// The animation's node for an emitter, and the time in it: looked up
+/// once an emitter, not again for each of its parameters.
+fn anim_node<'a>(
+    model: &Model,
+    node: usize,
+    anim: Option<(&'a Animation, f32)>,
+) -> Option<(&'a AnimNode, f32)> {
+    let (a, t) = anim?;
+    let name = &model.nodes[node].name;
+    Some((a.nodes.iter().find(|x| x.name.eq_ignore_ascii_case(name))?, t))
+}
+
 fn param(
     model: &Model,
     node: usize,
-    anim: Option<(&Animation, f32)>,
+    anim: Option<(&AnimNode, f32)>,
     name: &str,
     default: f32,
 ) -> f32 {
-    param_v(model, node, anim, name).and_then(|v| v.first().copied()).unwrap_or(default)
+    if let Some((an, t)) = anim
+        && let Some(c) = an.controllers.iter().find(|c| c.name == name)
+    {
+        return sample(c, t).first().copied().unwrap_or(default);
+    }
+    model.nodes[node].value(name).and_then(|v| v.first().copied()).unwrap_or(default)
 }
 
 fn param_v(
     model: &Model,
     node: usize,
-    anim: Option<(&Animation, f32)>,
+    anim: Option<(&AnimNode, f32)>,
     name: &str,
 ) -> Option<Vec<f32>> {
-    let n = &model.nodes[node];
-    if let Some((a, t)) = anim
-        && let Some(an) = a.nodes.iter().find(|x| x.name.eq_ignore_ascii_case(&n.name))
+    if let Some((an, t)) = anim
         && let Some(c) = an.controllers.iter().find(|c| c.name == name)
     {
         return Some(sample(c, t));
     }
-    n.value(name).map(<[f32]>::to_vec)
+    model.nodes[node].value(name).map(<[f32]>::to_vec)
 }
 
 fn color3(v: Option<Vec<f32>>, default: Vec3) -> Vec3 {
@@ -271,6 +286,7 @@ impl Particles {
         for e in &mut self.emitters {
             let node = &model.nodes[e.node];
             let NodeKind::Emitter(em) = &node.kind else { continue };
+            let at = anim_node(model, e.node, at);
             let p = |name, default| param(model, e.node, at, name, default);
             let world = transform * pose.get(e.node).copied().unwrap_or(Mat4::IDENTITY);
             let inherit = em.flags & (0x40 | 0x100) != 0;
@@ -466,6 +482,7 @@ impl Particles {
             let node = &model.nodes[e.node];
             let NodeKind::Emitter(em) = &node.kind else { continue };
             if e.bolt.len() >= 2 {
+                let at = anim_node(model, e.node, at);
                 let p = |name, default| param(model, e.node, at, name, default);
                 let width = if p("sizestart", 0.0) > 0.0 { p("sizestart", 0.0) } else { 0.1 };
                 let c = color3(param_v(model, e.node, at, "colorstart"), Vec3::ONE);
@@ -485,6 +502,7 @@ impl Particles {
             if e.particles.is_empty() || em.chunk.is_some() {
                 continue;
             }
+            let at = anim_node(model, e.node, at);
             let p = |name, default| param(model, e.node, at, name, default);
             let softness = softness(p("sizestart", 1.0), p("sizeend", 1.0), &em.render);
             let world = transform * pose.get(e.node).copied().unwrap_or(Mat4::IDENTITY);
@@ -630,6 +648,7 @@ impl Particles {
         for e in &self.emitters {
             let NodeKind::Emitter(em) = &model.nodes[e.node].kind else { continue };
             let Some(chunk) = &em.chunk else { continue };
+            let at = anim_node(model, e.node, at);
             let p = |name, default| param(model, e.node, at, name, default);
             let world = transform * pose.get(e.node).copied().unwrap_or(Mat4::IDENTITY);
             let inherit = em.flags & (0x40 | 0x100) != 0;

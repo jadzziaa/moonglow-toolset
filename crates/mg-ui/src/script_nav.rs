@@ -202,10 +202,7 @@ impl Moonglow {
 
     /// Checks a script a moment after typing stops: compiles its text (an
     /// include file needs no `main`) and keeps the first error.
-    pub(crate) fn live_check(&mut self, key: ResKey, ctx: &egui::Context) {
-        let Some(h) = self.scripts.get(&key).map(|b| crate::script_tools::hash(&b.text)) else {
-            return;
-        };
+    pub(crate) fn live_check(&mut self, key: ResKey, h: u64, ctx: &egui::Context) {
         let live = self.script_nav.live.entry(key).or_default();
         if live.text != h {
             // A script just opened is checked at once; edits wait for a pause.
