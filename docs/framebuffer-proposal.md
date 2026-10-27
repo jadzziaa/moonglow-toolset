@@ -3,7 +3,7 @@ type: Proposal
 title: 'A framebuffer for the game''s water and particles: a proposal'
 description: Giving the game's shader programs a copy of the picture and its depth drawn so far (texFBColor, texFBDepth), so that shiny water draws as the client draws it (refraction of what lies under it, screen-space reflections) and particles fade where they meet the ground - what reads it (fswater and fsparticle only; none of The Domains of Dread's 37 programs), where the copy fits in Moonglow's frame, the spike that measured it, the waves-only alternative, portability, and the recommendation (M, five steps); steps 1 to 3 built on 2026-10-27 - the copies made with the targets and filled only in a frame that reads them, bound to the game's programs with gl_FragCoord.y counted from the bottom in IR, and shiny water drawn by fswater by default with the Shaders switch on, closer to the client than Moonglow's own water (a rural area's far water 10.9 of 255 against 12.6, TDoD's fountain 10.6 against 11.7), 0.3 to 1.3 ms more of the GPU where water fills the view; step 4 built the same day - particleSoftness read from the client (10 over the emitter's larger size, none for Billboard_to_Local_Z and Billboard_to_World_Z, the same at Performance and High Quality) and particles faded through the depth copy (a floor particle's foot 3.0 of 255 from the client's without the fade, 0.8 with it).
 tags: [proposal, rendering, shaders, water, particles, renderer, framebuffer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T07:18:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T19:25:23Z }
 stale_after: 2027-04-01T00:00:00Z
 sources:
   - id: request
@@ -19,7 +19,7 @@ sources:
     resource: crates/mg-render/src/renderer.rs (Renderer::render, Targets, GAME_WATER), crates/mg-render/src/game.rs (unit, layout, prepare, stock_pair, the frame's clipParams), crates/mg-shader/src/link.rs (gl_depth_to_wgpu), crates/mg-ui/src/area_view.rs, model_view.rs
     title: Moonglow's renderer as of develop 48f54c6b
   - id: spike
-    resource: branch framebuffer-assessment, commit 039c999b (crates/mg-render/src/framebuffer.rs, renderer.rs, game.rs, crates/mg-shader/src/assemble.rs, crates/mg-ui/tests/frame_perf.rs), run 2026-10-27 on the development machine (Radeon RX 9070, RADV)
+    resource: commit 039c999b, on no branch since 2026-10-27 (crates/mg-render/src/framebuffer.rs, renderer.rs, game.rs, crates/mg-shader/src/assemble.rs, crates/mg-ui/tests/frame_perf.rs), run 2026-10-27 on the development machine (Radeon RX 9070, RADV)
     title: The spike - the copy, fswater reading it, and its timing
   - id: frame-perf
     resource: crates/mg-ui/tests/frame_perf.rs (game_shaders_frames_at_144, area_parts, water_area, tdod_area), FRAME_FB_COPY and FRAME_GAME_WATER, run 2026-10-27
@@ -66,8 +66,8 @@ branch `framebuffer-water`[^built] (below: [Built: steps 1 to
 3](#built-steps-1-to-3-2026-10-27)); shiny water is the game's by default
 with the Shaders switch on. Step 4, soft particles, approved and built
 the same day ([Built: step 4](#built-step-4-soft-particles-2026-10-27)).
-Step 5 (Direct3D 12 and Metal in CI) is open. The spike stays on `framebuffer-assessment`
-(commit `039c999b`)[^spike].
+Step 5 (Direct3D 12 and Metal in CI) is open. The spike is commit
+`039c999b`, on no branch now[^spike].
 
 **The question.** The game's programs read a copy of the picture drawn
 so far (`texFBColor`) and of its depth (`texFBDepth`). Moonglow binds
@@ -378,7 +378,7 @@ What wgpu needs:
 
 ## 3. The spike
 
-On `framebuffer-assessment`, off by default[^spike]:
+In the spike, off by default[^spike]:
 
 - `Renderer::framebuffer` cuts the pass after the solid meshes and makes
   the copy (`crates/mg-render/src/framebuffer.rs`, one full-screen draw
@@ -570,7 +570,10 @@ not looked at.
 [^stock-shd]: The install's shader sources.
 [^tdod-shd]: TDoD's haks, its programs and materials.
 [^renderer]: Moonglow's renderer, develop 48f54c6b.
-[^spike]: The branch `framebuffer-assessment`, commit `039c999b`.
+[^spike]: Commit `039c999b`, made on the branch `framebuffer-assessment`,
+    which was deleted on 2026-10-27 once steps 1 to 4 were built on
+    `develop`. No branch or tag holds the commit, so Git keeps it only until
+    its garbage collection; a tag on it would keep it.
 [^frame-perf]: `frame_perf`, `game_shaders_frames_at_144`, run 2026-10-27.
 [^notes-frames]: Frames at 144 a second.
 [^m5]: The shaders proposal, M5.
