@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-10-26
+* **Update**: [The deferred list](deferred.md) tidied: entries done in the shader milestones and in 2.3.0 taken out (their remainders kept), the two Direct3D 12 and Metal checks settled by CI (the game's programs drew on both for 2.8.0), the module tree no longer called cut short, a duplicate merged, and the sections named after a report filed under their areas.
 * **Update**: [The main window](manual/02-main-window.md): letters typed go to the module tree while it has the keys, wherever the pointer is, as Aurora's tree takes them (a builder's request); [the deferred list](deferred.md).
 * **Update**: [The main window](manual/02-main-window.md): the module tree scrolls sideways to a name too long for its pane, and letters typed in quick succession go to the row whose name begins with them all, as in Aurora's tree and the conversation tree (a builder's report); [the deferred list](deferred.md): letters still go to the tree only with the pointer over it.
 * **Update**: A tileset with holes is read tile by tile, as the game reads it ([findings](findings.md): a tile without its section or a model has no walkmesh; a tileset whose lines end in a bare LF stops the module loading); Verify's set-hole and set-line-ends ([Build and test](manual/09-build-and-test.md), [the doctor's checks](research/notes_doctor.md)); [the deferred list](deferred.md): a builder's tileset that draws no tiles, still to be explained.

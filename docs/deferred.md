@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T23:58:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T03:55:57Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -186,6 +186,10 @@ Size: S (an hour or two), M (a day or so), L (several days).
   `// * text`) is kept in `mg lsp`'s hover, where a block's is not.
   Struct members and local variables have none. (S) (Jasperre's report,
   2026-10-21)
+- **Edit › Undo and the toolbar's Undo in a script:** they are the
+  module's still; only the keys are the script editor's while it has
+  the keyboard. A script's own history as steps of the module's would
+  make them one. (M) (a builder's report on 1.25.1)
 
 ## nasher projects
 
@@ -461,8 +465,9 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **Long lists opened out:** the tree's rows out of sight take their
   room only; its groups' names are still gathered and sorted every
   frame, which a module of tens of thousands of resources may feel. The
-  palettes laid out only what is in sight already. Not measured on the
-  reporter's module. (S–M) (from builders' reports after 1.16.2)
+  palettes laid out only what is in sight already (3.4 ms a frame with
+  25,000 resources listed; a store's 1,000 items 5.9 ms). Not measured
+  on the reporter's module. (S–M) (from builders' reports after 1.16.2)
 
 ## Frames (a steady 144 a second)
 
@@ -505,9 +510,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   order, likely among lights or an object's parts). Not looked for. (S)
 - **The frame test only times:** `frame_perf.rs` names the views over
   the budget and fails nothing. With budgets it would keep them. (S)
-- **The tree and the lists at persistent-world sizes** are as they were
-  (see above and "Long lists opened out"): 3.4 ms with 25,000 resources
-  listed, 5.9 ms for a store's 1,000 items.
 
 ## EE fields Aurora hides
 
@@ -812,6 +814,17 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   game's own modules and blueprints have them as 1 when set and left out
   when not, which is what Moonglow writes. Several items selected at once
   is Moonglow's (Aurora selects one). (S) (Sacha's report on 2.5.4)
+- **OK and Cancel where there is none yet:** the hak editor, the
+  tileset editor, the talk table, the raw field editor and a script
+  (each saved, or asked about, in its own way). In the windows that
+  have them: a text field's change set after its page was left by a key
+  (not by the pointer) is not among what Cancel sets back, and a
+  faction's removal is set back by the whole of each area and creature
+  it renumbered, as an area's sounds and music (one struct of its GIT)
+  are set back together. (S) (a builder's ask, October 2026)
+- **The model viewer's and a Properties page's view of a shield:** from
+  the back still (the galleries' pictures are from the front). (S) (from
+  the builders' reports on 1.25.1)
 
 ## Bulk editing
 
@@ -1268,6 +1281,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   module tree's resources, as before). A placed object in an area's list
   has no Export: it is not a resource; it would be written out as a
   blueprint of its own. (S) (GitHub issue 7)
+- **Export Resources lists an area as three kinds** (`.are` under Areas,
+  its `.git` and `.gic` among the rest by extension), as it did in one
+  list; exporting the `.are` takes the other two only with **Include the
+  resources they use**. (S) (from the builders' reports on 1.25.1)
 
 ## Area visibility
 
@@ -1725,7 +1742,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   issue asks). Its frame time was looked at in the UI tests only (20
   frames in 16 ms with the pictures in sight made), not on the
   builder's machine with a large hak tileset. Next and Previous Tile
-  Appearance and Rotate Tile stay fit-only by design. (S) (issue #29)
+  (S) (issue #29)
 - **Tile Properties' changes shown as they are made:** Undo in the
   module (Ctrl+Z) while the window is open takes back the window's step,
   but the window keeps showing its values and writes them again at the
@@ -1850,27 +1867,18 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   out. M2 turns it on with the Shaders switch in the area view and the
   model viewer (off by default); `mgv` and Moonglow Viewer have none (M6).
   (from M1, 2026-10-21)
-  - ~~**The WGSL port samples the environment map at the wrong
-    level**~~ Done in M4: the derivatives of the coordinates (from the
-    normal map's normal) are taken at `fs_main`'s start and scaled by
-    2^bias (`textureSampleGrad`): `_sm` 0.73 / 15 → 0.00 / 0 of 255,
-    `_nm` 1.11 / 11 → 0.08 / 2, the test's tolerance tightened. `_nm`'s
-    derivatives are the normal map's normal's before the parallax and the
-    bend of a normal facing away, which the game takes after (2 of 255 at
-    the 99th percentile). (S)
+  - **The environment map's level under a normal map:** the WGSL port
+    takes `_nm`'s derivatives from the normal map's normal before the
+    parallax and the bend of a normal facing away, which the game takes
+    after (2 of 255 at the 99th percentile). (S)
   - Solid and see-through lit meshes go through the game's programs
     (M2), decals too (`vsvt`/`fst`, M4), and since M5 additive meshes,
     the skybox, the area's grass and particles; the sky's fade, unlit
     markers, shiny water (M5's decision: "The special surfaces" below),
     rippling textures (unless their material names a pair), and skins of
     more than 64 bones stay with the WGSL shader. (S)
-  - ~~Each game draw a draw of its own, its blocks written anew every
-    frame, programs compiled on the UI thread.~~ Done in M3: blocks split
-    in IR, draws as instances of storage arrays, compiles on a worker,
-    a disk cache (see "The frame budget of the game's shaders").
-  - ~~`NO_DISCARD` is 0 for every material~~ Per material since M4, as
-    read from the client (notes §A.4). Keyholing is compiled out
-    (`KEYHOLING_ENABLED 0`): the editor has no player. (S)
+  - Keyholing is compiled out (`KEYHOLING_ENABLED 0`): the editor has no
+    player. (S)
   - `gl_FragCoord.y` counts from the top in wgpu and from the bottom in
     OpenGL: not flipped. No program the game path draws reads it: of the
     stock ones keyholing (off), `fs_shadowplane` and `fs_cg_btn_col` (not
@@ -1879,10 +1887,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     `particleSoftness` is above 0, which Moonglow leaves 0), and none of
     The Domains of Dread's 37 (checked in M4). A screen-space custom
     shader would see it upside down. (S)
-  - ~~`m_texture` is the identity~~ Done in M4: a tile's `rotatetexture`
-    meshes have their texture turned by the tile's turn, in both paths
-    (read from the client: a placeable's never). The height map's
-    parallax direction (`inc_displacement` turns it by `mat2(m_texture)`)
+  - The height map's parallax direction on a tile's `rotatetexture`
+    meshes (`inc_displacement` turns it by `mat2(m_texture)`)
     is not turned in Moonglow's own shader. (S)
   - Values the editor has no source for are the game's defaults or
     zero: `vColor`, `vStaticLightDir` (`staticLighting` 0, as the client
@@ -1911,11 +1917,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Tier A of the game's shaders (M2 of [the shaders
   proposal](shaders-proposal.md)):** what the Shaders switch leaves out
   or unchecked. (from M2, 2026-10-21)
-  - ~~Off by default until M3.~~ On by default since M3, measured with
-    `frame_perf` (see "The frame budget of the game's shaders").
-  - ~~**Water, particles, the sky** stay Moonglow's own~~ M5 draws
-    particles and the sky with the game's programs; water stays Moonglow's
-    (see "The special surfaces" below). `texFBColor`/`texFBDepth` are
+  - **No framebuffer for the game's programs:** `texFBColor`/`texFBDepth` are
     white, so a material's `sample_framebuffer` (TDoD's flow MTR has one)
     draws without what is behind it. (L: the framebuffer, out of 2.0)
   - **An instance drawn see-through** (a blueprint about to be placed, a
@@ -1982,14 +1984,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     shader draws until they are ready. Making the pipelines of the
     programs a module needs when it opens, or keeping the drivers'
     pipeline caches (wgpu's `PipelineCache`), would shorten it. (S)
-  - ~~`texNoiseBound` is zero~~ 1 since M4, as read from the client.
   - `mg` and `mgv`'s previews compile the programs each run: no shader
     cache is set outside the window (`Renderer::set_shader_cache`). (S)
-  - **Not yet run on Direct3D 12 or Metal:** the zero inputs read at
-    stride 0 as instance data, `first_instance` into the order of draws,
-    storage arrays read in the vertex stage and flat `u32` varyings.
-    `an_authored_glsl_pair_draws_on_this_platform_s_gpu` exercises each
-    and prints the adapter in CI's logs. (S, the next CI run)
   - A program whose uniforms can't be split (its block used otherwise
     than member by member: none of the 102 seen) falls back to
     Moonglow's shader, reported, rather than drawing with one block. (S)
@@ -2018,10 +2014,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     1: alpha), not read from the client: 22 of the game's 3,717
     four-channel ones have a mean of 1 (roofs, bark, flagstones) and are
     drawn solid. (S to check in the client)
-  - ~~Not read: an additive mesh's program, a decal with an environment
-    map, `fswater`~~ read in M5 (`vslit`/`fslit` as any mesh;
-    `vsvt_sm`/`fst_sm`, which Moonglow now chooses; `vswater`/`fswater`).
-    Still not read: which map an item on the ground reflects (it draws
+  - Not read in the client: which map an item on the ground reflects (it draws
     `_sm`, as Moonglow's `chrome1` has it; the band didn't reach it), what
     `cameraFocus` holds (read back as (34.31, 20, 0) once). (S)
   - **What Moonglow's own shader now draws otherwise** (both paths, as
@@ -2106,14 +2099,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - `Instance::grass`, `game::Traits`' `water`, `grass` and `sky`, and
     `Renderer::game_water`: Moonglow Viewer meets them at its next bump (a
     struct literal without `..` stops compiling). (M6)
-  - ~~**A view dense in lights over the budget with the switch on**~~
-    (`frame_perf`'s water area, 7.5 ms a frame on, 5.6 off): 6.5 ms on
-    since the game's programs read the lights by their places in the
-    frame's (`mg_shader`'s `index_lights`) and a draw's values are
-    written more cheaply ([the shaders proposal](shaders-proposal.md),
-    "After M5: the lights"). TDoD's woods seen whole are about 5% slower
-    than at M4 (the batcher's work for 30,000 see-through draws; over the
-    budget either way). What is left of the switch's cost there is below.
   - **The switch on still costs the water view about 0.9 ms of
     encoding** (3.6 ms against 2.7 off, at 6.5 ms a frame within the
     budget by 0.4): about 0.75 ms the draws' own values (the material's
@@ -2123,11 +2108,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     that the camera alone changes kept per instance and multiplied in the
     vertex program (a change to what the game's programs compute), would
     cut it. (M)
-  - **The lights read by their places not yet run on Direct3D 12 or
-    Metal:** a dynamic index into a `uvec4` of the lights' block in a
-    storage array, and a fourth storage buffer in the vertex stage.
-    `an_authored_glsl_pair_draws_on_this_platform_s_gpu` now lights its
-    instances apart through the table: the next CI run says. (S)
   - The area views saved with `FRAME_SHOTS=1` are not comparable from
     one run to the next where tiles animate: two runs of the build with
     the lights by their places differ by up to 31 of 255 over area092's
@@ -2462,17 +2442,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   had none to send): the option is a new one, so those who never asked
   for a log get one too. (S)
 - **Panes' sizes at start:** the module tree is held to two fifths of
-  the window and the log to half its height, whatever egui remembered,
-  and names too long for the tree are cut short (a builder's module
-  opened with the tree over the whole window: a long name widened it,
-  and it could not be dragged back). Docked panes' splits are held
-  between 12% and 88% (the palettes'), and the lower halves of the
-  script, conversation and journal editors to a share of their editor,
-  and the talk table editor's to seven tenths. A tree name cut short
-  shows whole only where the row already had a tooltip; the limits on
-  the script, conversation and journal editors' lower halves aren't
-  under test (the talk table's are).
-  (S)
+  the window and the log to half its height, whatever egui remembered
+  (a builder's module opened with the tree over the whole window: a
+  long name widened it, and it could not be dragged back); a name too
+  long for the tree scrolls sideways into view since 2.8.0. Docked
+  panes' splits are held between 12% and 88% (the palettes'), and the
+  lower halves of the script, conversation and journal editors to a
+  share of their editor, and the talk table editor's to seven tenths.
+  The limits on the script, conversation and journal editors' lower
+  halves aren't under test (the talk table's are). (S)
 - **Windows' sizes and Maximize:** a window's size is remembered by the
   kind of editor, not its place on screen; Maximize is a double click on
   the tab or its menu, with no button in the window's bar (egui_dock
@@ -2905,10 +2883,7 @@ contribution itself states as not done or not checked.
   (`mg nui render`, `layout`, `schema`, `import`, the `nui-sources`
   check, AccessKit, the event function; the asks are the module
   project's probe, `tdod-modulework/docs/systems/nui-creator-probe.md`):
-  - ~~*`render` has no `--state`, `--variant` or bind values from a
-    file*~~ Done after The Domains of Dread Design session's review of
-    2.1.0: `render` and `layout` take `--state STATE[:ID]`, `--binds
-    FILE.json` and `--variant NAME`. Left of it:
+  - *What `render`'s `--state`, `--binds` and `--variant` leave:*
     - *A state by ID is every row's*: a control of a list's row template
       is hovered (pressed, disabled) in every row; there is no
       `ID@ROW`. (S)
@@ -3687,6 +3662,52 @@ and duplicate tags on paste. What is left:
 - **Which object `GetObjectByTag` takes of several** was measured for
   two in one area (the second placed); across areas, and for more,
   not. (S)
+- **A variable kept against `runtime = true` has no fix:** Verify's
+  `var-runtime` names it, and taking it out is the builder's (a Remove
+  fix, as `area-variables` has its Move, would serve; two in one
+  `VarTable` would need the second fix to follow the first's indices).
+  (S) (the Domains of Dread's setup on 2.1.0)
+- **A runtime variable's `on` says, and isn't held:** `on` with `runtime
+  = true` is shown (`mg vars`) as what the scripts set it on; nothing
+  checks the scripts set only described names. (S) (the Domains of
+  Dread's setup on 2.1.0)
+- **`unique_in_area` is quiet about other areas whatever
+  `paste_warning` says:** with `"any"`, a store's tag pasted into
+  another area isn't said, as the project says it may be there; and
+  Setup Store's `{n}` still takes the first number free in the module,
+  not in the area. (S) (the Domains of Dread's setup on 2.1.0)
+- **A test's game folder has no talk table:** without a game,
+  `ctx.game:string` is nil, and a test can't bring a `dialog.tlk` (or
+  the module's custom one) of its own; nor haks of its own (the
+  fixture's haks are the machine's user folder's). (S) (the Domains of
+  Dread's setup on 2.1.0)
+- **A fixture module that is a folder named `game`** beside its test
+  file is read as the test's game folder too, unless `game = "…"` names
+  another. (S) (the Domains of Dread's setup on 2.1.0)
+- **`mg.struct_id` reads an id; no edit sets one:** an equipped item
+  moved to another slot is removed and inserted again. (S) (the Domains
+  of Dread's setup on 2.1.0)
+- **A builtin check runs one check a test:** a test names one (`builtin
+  = "var-runtime"`); the whole of what `mg verify` finds on a fixture
+  takes a test a check. (S) (the Domains of Dread's notes on 2.2.0)
+- **`left` after a builtin check's fix reads the game's data with the
+  fixture as it was:** the checks that read the module itself (tags,
+  variables) see the fix; one that reads a module's resource through the
+  game's data (a module's 2DA, for `2da-*`) does not. (S) (the Domains
+  of Dread's notes on 2.2.0)
+- **A builtin check with no game counts no talk-table strings:**
+  `2da-strref` and `custom-tlk` then find what the game would not; a
+  test's game folder brings no `dialog.tlk` (above). (S) (the Domains of
+  Dread's notes on 2.2.0)
+- **With no game and no game folder, `ctx.game` is empty, the fixture
+  not in it:** in Moonglow it is the game with the module over it, so a
+  plugin that reads the module's own 2DAs through `ctx.game` needs a
+  game folder (or a game) in its test. (S) (the Domains of Dread's notes
+  on 2.2.0)
+- **`var-runtime`'s nearest name is of entries of their own:** a typo of
+  a name a builder's glob describes (`tdod_rental_*`), taken by a glob
+  of the scripts', has no hint. (S) (the Domains of Dread's notes on
+  2.2.0)
 
 ## Claims, protected areas and the project's commands (the builders' proposal, C6 to C8)
 
@@ -3740,92 +3761,12 @@ File › Project. What is left:
   set up by a command the project names") still waits: the project's
   commands run in a shell, not as a step of a wizard. (M)
 
-## From the Domains of Dread's setup on 2.1.0
-
-The builders' notes on setting up their project (`moonglow.toml`,
-`variables.toml`, a project plugin with tests) on Moonglow 2.1.0, five
-gaps filled in 2.2.0; what they left:
-
-- **A variable kept against `runtime = true` has no fix:** Verify's
-  `var-runtime` names it, and taking it out is the builder's (a Remove
-  fix, as `area-variables` has its Move, would serve; two in one
-  `VarTable` would need the second fix to follow the first's indices).
-  (S)
-- **A runtime variable's `on` says, and isn't held:** `on` with
-  `runtime = true` is shown (`mg vars`) as what the scripts set it on;
-  nothing checks the scripts set only described names. (S)
-- **`unique_in_area` is quiet about other areas whatever
-  `paste_warning` says:** with `"any"`, a store's tag pasted into
-  another area isn't said, as the project says it may be there; and
-  Setup Store's `{n}` still takes the first number free in the module,
-  not in the area. (S)
-- **A test's game folder has no talk table:** without a game,
-  `ctx.game:string` is nil, and a test can't bring a `dialog.tlk` (or the
-  module's custom one) of its own; nor haks of its own (the fixture's
-  haks are the machine's user folder's). (S)
-- ~~**A test is told what it lacked of the game only when it fails**~~
-  Done in 2.3.0 (the Domains of Dread's notes on 2.2.0, 3): a passing
-  test is told in a note, and one with no game that lists the game's
-  resources is told what the list is of. Left: a fixture module that
-  is a folder named `game` beside its test file is read as the test's
-  game folder too, unless `game = "…"` names another. (S)
-- **`mg.struct_id` reads an id; no edit sets one:** an equipped item
-  moved to another slot is removed and inserted again. (S)
-
-## From the Domains of Dread's notes on 2.2.0
-
-The builders' notes on adopting 2.2.0's features (their module at
-8a14906): five gaps, all filled in 2.3.0 (a pattern in
-`variables.toml` as long as it needs, `root = false` for a test with no
-game, a note for what a passing test lacked, `builtin` checks in a
-plugin's tests, `var-runtime`'s nearest name). What they left:
-
-- **A builtin check runs one check a test:** a test names one
-  (`builtin = "var-runtime"`); the whole of what `mg verify` finds on a
-  fixture takes a test a check. (S)
-- **`left` after a builtin check's fix reads the game's data with the
-  fixture as it was:** the checks that read the module itself (tags,
-  variables) see the fix; one that reads a module's resource through
-  the game's data (a module's 2DA, for `2da-*`) does not. (S)
-- **A builtin check with no game counts no talk-table strings:**
-  `2da-strref` and `custom-tlk` then find what the game would not; a
-  test's game folder brings no `dialog.tlk` (above). (S)
-- **With no game and no game folder, `ctx.game` is empty, the fixture
-  not in it:** in Moonglow it is the game with the module over it, so
-  a plugin that reads the module's own 2DAs through `ctx.game` needs a
-  game folder (or a game) in its test. (S)
-- **`var-runtime`'s nearest name is of entries of their own:** a typo of
-  a name a builder's glob describes (`tdod_rental_*`), taken by a glob
-  of the scripts', has no hint. (S)
-
 ## Release and packaging
 
 - **macOS:** the app and disk image are built by CI but have never been
   run on a Mac. (S, needs a Mac)
 - **Windows signing:** the installer isn't code-signed, so SmartScreen
   warns. (S, needs a certificate)
-
-## Left from the builders' reports on 1.25.1
-
-- **Edit › Undo and the toolbar's Undo in a script:** they are the
-  module's still; only the keys are the script editor's while it has
-  the keyboard. A script's own history as steps of the module's would
-  make them one. (M) (a builder's report, October 2026)
-- **Export Resources lists an area as three kinds** (`.are` under
-  Areas, its `.git` and `.gic` among the rest by extension), as it did
-  in one list; exporting the `.are` takes the other two only with
-  **Include the resources they use**. (S)
-
-- **OK and Cancel where there is none yet:** the hak editor, the
-  tileset editor, the talk table, the raw field editor and a script
-  (each saved, or asked about, in its own way). In the windows that
-  have them: a text field's change set after its page was left by a key
-  (not by the pointer) is not among what Cancel sets back, and a
-  faction's removal is set back by the whole of each area and creature
-  it renumbered, as an area's sounds and music (one struct of its GIT)
-  are set back together. (S) (a builder's ask, October 2026)
-- **The model viewer's and a Properties page's view of a shield:** from
-  the back still (the galleries' pictures are from the front). (S)
 
 ## Questions asked, unanswered
 
@@ -3966,8 +3907,8 @@ is not taken for a new gap.
   left so).
 - **A palette's rows are one line** (a builder: names with ResRefs and
   challenge ratings wrapped onto a second line in a narrow pane), cut
-  short as the module tree's are, whole under the pointer. Not an
-  option.
+  short, whole under the pointer (the module tree scrolls sideways
+  instead, as Aurora's does). Not an option.
 - **The module tree and the object selected in the area:** the tree
   goes to it only where its area is opened out there; an area left
   closed stays closed. Asked for by the user (it was opened out and
