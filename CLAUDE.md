@@ -30,7 +30,9 @@ counts a sweep must reach. A new sweep over the install goes through
 them. Test files are grouped into a few binaries (`tests/groups/` in
 `mg-corpus-tests` and `apps/mg`): a new test file is named in its group,
 and one group runs with `--test engine` (a file's tests: `--test engine
-engine_tlk`).
+engine_tlk`). mg-ui's UI tests are one binary, `--test app`, a file a
+subject in `crates/mg-ui/tests/app/` (a new file is named in its
+`main.rs`), with the shared set-ups in `app/common.rs`.
 
 Corpus tests read the installed game: `NWN_ROOT` (or the Steam default path)
 and neverwinter.nim's tools and nasher as oracles (`NWN_TOOLS_BIN`, default
@@ -124,7 +126,7 @@ installed game; `crates/mg-corpus-tests/examples/observed_schema.rs`).
   before it is fixed.** Render the view itself and look at it, before
   and after the change: `crates/mg-ui/tests/screens.rs` for the window;
   for an area's view, a harness with a GPU render state, as
-  `area_harness` in `crates/mg-ui/tests/app.rs` sets one up; with the
+  `area_harness` in `crates/mg-ui/tests/app/common.rs` sets one up; with the
   builder's module and user directory where they are on this machine. A
   simulation of the arithmetic is not the picture: spikes across an
   area's view took three releases because the projection was simulated,
