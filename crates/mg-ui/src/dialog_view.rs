@@ -1694,8 +1694,19 @@ fn tree(
 
 /// The tags of the creatures placed in the module's areas, sorted, each
 /// once (the Speaker Tag list).
-fn creature_tags(app: &mut Moonglow) -> Vec<String> {
-    let Some(ws) = app.ws.as_mut() else { return Vec::new() };
+fn creature_tags(app: &mut Moonglow, ctx: &egui::Context) -> std::sync::Arc<Vec<String>> {
+    let Some(ws) = app.ws.as_mut() else { return Default::default() };
+    // (Kept until the module changes: the arrow keys ask each frame the
+    // box has the keys, and every area's objects were read each time.
+    // A revision is no other workspace's.)
+    let id = egui::Id::new("dlg-creature-tags");
+    let revision = ws.revision();
+    type Kept = (u64, std::sync::Arc<Vec<String>>);
+    if let Some((r, tags)) = ctx.data(|d| d.get_temp::<Kept>(id))
+        && r == revision
+    {
+        return tags;
+    }
     let areas = ws.module.areas().unwrap_or_default();
     let mut tags = std::collections::BTreeSet::new();
     for a in areas {
@@ -1706,7 +1717,9 @@ fn creature_tags(app: &mut Moonglow) -> Vec<String> {
             }
         }
     }
-    tags.into_iter().collect()
+    let tags: std::sync::Arc<Vec<String>> = std::sync::Arc::new(tags.into_iter().collect());
+    ctx.data_mut(|d| d.insert_temp::<Kept>(id, (revision, tags.clone())));
+    tags
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1737,9 +1750,9 @@ fn text_panel(
                 .selected_text("")
                 .width(24.0)
                 .show_ui(ui, |ui| {
-                    for t in creature_tags(app) {
-                        if ui.selectable_label(t == speaker, &t).clicked() {
-                            chosen = Some(t);
+                    for t in creature_tags(app, ui.ctx()).iter() {
+                        if ui.selectable_label(*t == speaker, t).clicked() {
+                            chosen = Some(t.clone());
                         }
                     }
                 })
@@ -1749,7 +1762,7 @@ fn text_panel(
             // list has the keys.)
             let mut tag = speaker.clone();
             if (r.clicked() || r.has_focus())
-                && crate::widgets::arrow_step(ui, &r, &creature_tags(app), &mut tag)
+                && crate::widgets::arrow_step(ui, &r, &creature_tags(app, ui.ctx()), &mut tag)
             {
                 chosen = Some(tag);
             }

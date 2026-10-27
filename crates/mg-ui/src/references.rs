@@ -619,37 +619,53 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         // An area's objects are said to be in the area as the rest of the
         // window names it (Options › General: Show areas by name).
-        let shown: Vec<String> = app
-            .references
-            .usages
-            .clone()
-            .iter()
-            .map(|u| {
-                let of_area = matches!(u.from.restype, ResType::ARE | ResType::GIT | ResType::GIC);
-                if !of_area || !app.settings.area_names {
-                    return u.place.clone();
-                }
-                let name = crate::tabs::area_label(app, u.from.resref);
-                u.place.replacen(&u.from.resref.to_string(), &name, 1)
-            })
-            .collect();
-        let refs = &app.references;
-        if refs.usages.is_empty() {
+        let shown = |app: &mut Moonglow, u: &Usage| {
+            let of_area = matches!(u.from.restype, ResType::ARE | ResType::GIT | ResType::GIC);
+            if !of_area || !app.settings.area_names {
+                return u.place.clone();
+            }
+            let name = crate::tabs::area_label(app, u.from.resref);
+            u.place.replacen(&u.from.resref.to_string(), &name, 1)
+        };
+        // (Only the rows in sight are named and laid out: a script that
+        // thousands of creatures use is thousands of rows. The others
+        // take a row's room.)
+        let row = ui.text_style_height(&egui::TextStyle::Body) + ui.spacing().item_spacing.y;
+        let out_of_sight = |ui: &mut Ui| {
+            let room = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(1.0, row));
+            let hidden = !ui.is_rect_visible(room);
+            if hidden {
+                ui.add_space(row);
+            }
+            hidden
+        };
+        // (Taken out while an area's name is looked up, which keeps it.)
+        let usages = std::mem::take(&mut app.references.usages);
+        if usages.is_empty() {
             ui.weak("Nothing in the module names it.");
         } else {
-            ui.label(format!("Used in {}:", places(refs.usages.len())));
-            for (i, u) in refs.usages.iter().enumerate() {
-                if ui.link(&shown[i]).on_hover_text(format!("{} {}", u.from, u.path)).clicked() {
+            ui.label(format!("Used in {}:", places(usages.len())));
+            for (i, u) in usages.iter().enumerate() {
+                if out_of_sight(ui) {
+                    continue;
+                }
+                let label = shown(app, u);
+                if ui.link(label).on_hover_text(format!("{} {}", u.from, u.path)).clicked() {
                     go = Some(i);
                 }
             }
         }
+        app.references.usages = usages;
+        let refs = &app.references;
         if !refs.mentions.is_empty() {
             ui.add_space(8.0);
             ui.label(format!("Spelled out in scripts ({}):", refs.mentions.len())).on_hover_text(
                 "Strings in scripts with this name: the script may use it, or mean something else",
             );
             for m in &refs.mentions {
+                if out_of_sight(ui) {
+                    continue;
+                }
                 if ui.link(format!("{} line {}: {}", m.script, m.line, m.text)).clicked() {
                     go_line = Some((m.script, m.line));
                 }

@@ -898,6 +898,14 @@ fn frames_at_144_in_a_persistent_world() {
         close(&mut h, &t);
         h.state_mut().tables.retain(|d| d.id != id);
     }
+    // The Export window, every kind listed, a filter typed.
+    h.state_mut().actions.push(Action::ExportDialog(Vec::new()));
+    h.run_steps(3);
+    if let Some(d) = h.state_mut().export.as_mut() {
+        d.filter = "pw_i0".into();
+    }
+    view(&mut h, &mut r, "Export window (25,000 resources), filtered", None);
+    h.state_mut().export = None;
     // The log after a Verify that found much: 10,000 lines, 2,000 with
     // a fix beside them.
     {
