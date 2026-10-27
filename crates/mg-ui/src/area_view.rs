@@ -373,6 +373,8 @@ pub struct AreaView {
     wheel_refused: Option<f64>,
     /// The tiles' walkmeshes.
     ground: Option<Ground>,
+    /// The first reading, going on ([`refresh`]).
+    reading: Option<Reading>,
     pub error: Option<String>,
     pub orbit: Option<Orbit>,
     /// Selected objects: kind and index in its GIT list.
@@ -474,6 +476,9 @@ pub struct AreaView {
     drawn: Option<(Drawn, f32)>,
     /// How many times the picture has been drawn.
     pub pictures: u64,
+    /// How many textures read apart the picture was drawn with
+    /// ([`mg_render::Renderer::textures_read`]).
+    textures_drawn: u64,
     time: f32,
     last_frame: Option<f64>,
     /// Where the view was last drawn, in points.
@@ -552,6 +557,8 @@ impl AreaView {
             area,
             model: None,
             scene: None,
+            reading: None,
+            textures_drawn: 0,
             revision: None,
             rewrites: None,
             tileset: None,
@@ -1392,9 +1399,52 @@ fn near_segment(a: Pos2, b: Pos2, pos: Pos2) -> f32 {
     (a + ab * t).distance(pos)
 }
 
-/// Reads the area again when the workspace changed.
-fn refresh(app: &mut Moonglow, view: &mut AreaView) {
-    let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_deref()) else { return };
+/// An area's first reading, on a thread of its own: its tileset, its
+/// model, the tiles' walkmeshes and its scene (models read and uploaded).
+/// A large area's took a fifth of a second and more, the window held.
+#[derive(Debug)]
+struct Reading {
+    /// What the thread hands back.
+    read: std::sync::mpsc::Receiver<Read>,
+}
+
+/// What a [`Reading`] read.
+#[derive(Debug)]
+struct Read {
+    tileset: (ResRef, Result<Tileset, String>),
+    /// The tileset's tile index and rules, for painting.
+    terrain: Option<crate::terrain_mode::Tools>,
+    model: AreaModel,
+    ground: Ground,
+    scene: AreaScene,
+}
+
+/// Reads the area again when the workspace changed. The first time, with
+/// the window kept going ([`Moonglow::background_jobs`]: the desktop
+/// app), on a thread of its own: the view shows it once it is read, its
+/// models as their textures are ([`mg_render::Renderer::textures_apart`]).
+fn refresh(app: &mut Moonglow, view: &mut AreaView, ctx: &egui::Context) {
+    // (The first reading going on: taken once done.)
+    if let Some(reading) = &view.reading {
+        match reading.read.try_recv() {
+            Ok(read) => {
+                view.reading = None;
+                let Some(game) = app.game.clone() else { return };
+                view.terrain = read.terrain;
+                view.tileset = Some(read.tileset);
+                view.ground = Some(read.ground);
+                view.scene = Some(read.scene);
+                show(app, view, &game, read.model, false, false);
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                view.reading = None;
+                view.error = Some(format!("Area {} could not be read", view.area));
+            }
+        }
+        return;
+    }
+    let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.clone()) else { return };
     if view.revision == Some(ws.revision()) {
         return;
     }
@@ -1427,11 +1477,43 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView) {
         "tileset {tileset_ref}, GIT {}",
         if ws.doc(&view.git()).is_ok() { "read" } else { "none" }
     ));
+    // The first reading, where the window is kept going: on a thread.
+    if app.background_jobs
+        && view.model.is_none()
+        && view.scene.is_none()
+        && let Some(vp) = &app.viewport
+    {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (gpu, game, ctx) = (vp.gpu.clone(), game.clone(), ctx.clone());
+        // (Kept here too, to read here if no thread can be had.)
+        let (are, git) = (are.clone(), git.clone());
+        let work = move || {
+            let set = mg_area::tileset(&game, tileset_ref).map_err(|e| e.to_string());
+            let terrain = set.as_ref().ok().map(|t| {
+                crate::terrain_mode::Tools::new(tileset_ref, std::sync::Arc::new(t.clone()))
+            });
+            let model = AreaModel::read(&game, &are.root, &git.root, set.as_ref().ok());
+            let ground = Ground::new(&game, &model);
+            // (A model that fails is left out, as on the window's thread:
+            // `mg_render::guard`.)
+            let scene = AreaScene::new(&gpu, &game, &model);
+            let _ = tx.send(Read { tileset: (tileset_ref, set), terrain, model, ground, scene });
+            ctx.request_repaint();
+        };
+        match std::thread::Builder::new().name(format!("moonglow area {area}")).spawn(work) {
+            Ok(_) => {
+                step("reading on a thread of its own");
+                view.reading = Some(Reading { read: rx });
+                return;
+            }
+            Err(e) => step(&format!("no thread to read it on ({e}): read here")),
+        }
+    }
     // (Another than the one read before; none read yet, or read again
     // after Reload Resources, is not.)
     let other_tileset = view.tileset.as_ref().is_some_and(|(r, _)| *r != tileset_ref);
     if view.tileset.as_ref().is_none_or(|(r, _)| *r != tileset_ref) {
-        let set = mg_area::tileset(game, tileset_ref).map_err(|e| e.to_string());
+        let set = mg_area::tileset(&game, tileset_ref).map_err(|e| e.to_string());
         if let Err(e) = &set {
             step(&format!("the tileset can't be read: {e}"));
         }
@@ -1442,7 +1524,7 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView) {
         view.tileset = Some((tileset_ref, set));
     }
     let tileset = view.tileset.as_ref().and_then(|(_, t)| t.as_ref().ok());
-    let model = AreaModel::read(game, &are.root, &git.root, tileset);
+    let model = AreaModel::read(&game, &are.root, &git.root, tileset);
     step(&format!(
         "model read: {} by {} tiles, {} objects, tileset {}",
         model.width,
@@ -1450,24 +1532,39 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView) {
         model.objects.len(),
         if tileset.is_some() { "read" } else { "missing" }
     ));
-    view.object_faces = None;
     match &mut view.ground {
-        Some(g) => g.update(game, &model),
-        None => view.ground = Some(Ground::new(game, &model)),
+        Some(g) => g.update(&game, &model),
+        None => view.ground = Some(Ground::new(&game, &model)),
     }
     step("ground (walkmeshes) made");
-    if view.orbit.is_none() {
-        view.orbit = Some(Orbit::overview(&model));
-        view.night = model.lighting.night_by_default();
-    }
     if let Some(vp) = &app.viewport {
         match &mut view.scene {
-            Some(s) => s.update(&vp.gpu, game, &model),
-            None => view.scene = Some(AreaScene::new(&vp.gpu, game, &model)),
+            Some(s) => s.update(&vp.gpu, &game, &model),
+            None => view.scene = Some(AreaScene::new(&vp.gpu, &game, &model)),
         }
         step("scene (models and textures) made");
     } else {
         step("no 3D viewport: no scene");
+    }
+    show(app, view, &game, model, rewritten, other_tileset);
+}
+
+/// Makes `model`, read with its ground and scene, the one the view shows:
+/// what it lacks told, the selection and the tile tools following it.
+/// (`rewritten`: its tiles were laid out anew; `other_tileset`: of
+/// another tileset than before.)
+fn show(
+    app: &mut Moonglow,
+    view: &mut AreaView,
+    game: &mg_rules::GameData,
+    model: AreaModel,
+    rewritten: bool,
+    other_tileset: bool,
+) {
+    view.object_faces = None;
+    if view.orbit.is_none() {
+        view.orbit = Some(Orbit::overview(&model));
+        view.night = model.lighting.night_by_default();
     }
     // What couldn't be read or found is named in the log, once (the
     // toolbar only counts it): a tileset or a hak the module wants and
@@ -1511,6 +1608,7 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView) {
         view.ground_changed();
     }
     view.error = None;
+    view.drawn = None;
     view.model = Some(model);
 }
 
@@ -1654,7 +1752,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
         }
         view
     });
-    refresh(app, &mut view);
+    refresh(app, &mut view, ui.ctx());
     crate::trace::changed(&format!("area {area} view"), || {
         format!(
             "in {:?}; error {:?}; model {}; tileset {}; ground {}; scene {}; camera {}; \
@@ -1709,6 +1807,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
         ui.label("No game data: the area viewer needs the game's tilesets and models.");
     } else if app.viewport.is_none() {
         ui.label("No GPU: the area viewer needs one.");
+    } else if view.reading.is_some() {
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label(format!("Reading area {}…", view.area));
+        });
     } else {
         viewport(app, ui, &mut view, start);
     }
@@ -2270,6 +2373,8 @@ fn viewport(
         || !preview_instances.is_empty()
         || !hidden.is_empty();
     let clock = module_clock(app);
+    let background = app.background_jobs;
+    let game_arc = app.game.clone();
     let (Some(model), Some(scene), Some(orbit), Some(vp), Some(game)) =
         (&view.model, &view.scene, view.orbit, app.viewport.as_mut(), app.game.as_deref())
     else {
@@ -2303,6 +2408,16 @@ fn viewport(
         && view.targets.as_ref().is_some_and(|(t, _)| t.size == (w, h))
         && view.drawn.as_ref().is_some_and(|(was, _)| *was == from)
         && since.is_some_and(|s| (0.0..ANIMATION_STEP).contains(&s));
+    // (Textures read apart since the picture was drawn: shown at the next
+    // step, a frame asked for then.)
+    if kept
+        && let Some(s) = since
+        && (vp.renderer.textures_read() != view.textures_drawn
+            || vp.renderer.drawn.textures_pending > 0)
+    {
+        let left = (ANIMATION_STEP - s).max(0.0);
+        ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(left));
+    }
 
     // The scene, with the drag applied to what it moves.
     let dragged = view.dragged();
@@ -2366,6 +2481,14 @@ fn viewport(
         // shader drawing until they are: no frame waits on them. The view
         // is drawn again as the animations step, and when one is ready.)
         vp.renderer.game_background = true;
+        // (Textures met for the first time read apart, where the window is
+        // kept going: a large area's took seconds. A model shows once its
+        // textures are read.)
+        vp.renderer.textures_apart = background;
+        if background && let Some(game) = &game_arc {
+            let from = vp.textures_from(game);
+            vp.renderer.read_textures_apart(&vp.gpu, Some(from));
+        }
         vp.renderer.render(
             &vp.gpu,
             &game.resman,
@@ -2377,6 +2500,8 @@ fn viewport(
             (w, h),
         );
         vp.renderer.game_background = false;
+        vp.renderer.textures_apart = false;
+        view.textures_drawn = vp.renderer.textures_read();
         view.drawn = Some((from, view.time));
         view.pictures += 1;
     }

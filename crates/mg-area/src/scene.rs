@@ -1055,7 +1055,10 @@ impl AreaScene {
             for mesh in &m.meshes {
                 u.meshes += 1;
                 u.triangles += mesh.index_count as usize / 3;
-                u.buffer_bytes += mesh.vertices.size() + mesh.indices.size();
+                // (Its own share of the buffers it lies in, with others.)
+                let vertex = std::mem::size_of::<mg_render::model::Vertex>() as u64;
+                u.buffer_bytes +=
+                    u64::from(mesh.vertex_count) * vertex + u64::from(mesh.index_count) * 4;
                 if let Some(t) = &mesh.material.texture {
                     textures.push(t);
                 }

@@ -313,6 +313,9 @@ struct Surface {
     /// (read from the client: its `bumpyshinytexture` cube is not bound),
     /// where Moonglow's own water reflects that cube.
     water_material: Option<(u32, bool)>,
+    /// The mesh's ambient, diffuse and self-illumination colors, linear
+    /// (worked out for every mesh of every frame, they were seen).
+    linear: [Vec3; 3],
 }
 
 /// What a model's [`Surface`]s are kept by: the model, and of the
@@ -350,10 +353,10 @@ struct Draw<'a> {
     /// Drawn with the game's shaders: which of the frame's see-through
     /// game draws it is.
     game: Option<u32>,
-    /// Its box in the scene (`None` for a mesh that leaves its box: a
-    /// skinned or animated one, and the sky), and which of the frame's
-    /// instances it is of: for putting draws of one mesh together
-    /// ([`crate::batch`]).
+    /// Its box in the scene, on the screen for a see-through one (`None`
+    /// for a mesh that leaves its box: a skinned or animated one, and the
+    /// sky), and which of the frame's instances it is of: for putting draws
+    /// of one mesh together ([`crate::batch`]).
     bounds: Option<Bounds>,
     instance: u32,
 }
@@ -416,7 +419,7 @@ pub struct Renderer {
     /// The pipelines of each mesh's slots ([`Renderer::game_pipelines`]): by
     /// the slots (their place), what chooses its stock pair, its
     /// `NO_DISCARD`, whether it is skinned, and its pass.
-    game_pipelines: HashMap<GamePipelinesKey, Option<GamePipelines>>,
+    game_pipelines: crate::game::Fast<GamePipelinesKey, Option<GamePipelines>>,
     /// Each material's key, by its place among [`Renderer::groups`].
     material_keys: Vec<MaterialKey>,
     /// Draws of one mesh are drawn as instances of one draw (on; off,
@@ -469,6 +472,17 @@ pub struct Renderer {
     uniforms: Vec<DrawUniform>,
     bones: Vec<[[f32; 4]; 4]>,
     dynamic: Vec<Vertex>,
+    /// How many draws the last frame made: Moonglow's, the game's solid
+    /// ones and its others.
+    made: (usize, usize, usize),
+    /// What reads textures apart ([`Renderer::read_textures_apart`]).
+    reader: Option<TextureReader>,
+    /// Textures met for the first time are read apart, where there is a
+    /// reader ([`Renderer::read_textures_apart`]): a large area's take
+    /// seconds, which held the window. A model is drawn once its textures
+    /// are read ([`Drawn::textures_pending`]). Off (pictures drawn once,
+    /// tests), they are read as they are met. Off by default.
+    pub textures_apart: bool,
     /// What the last frame drew.
     pub drawn: Drawn,
 }
@@ -486,6 +500,9 @@ pub struct Drawn {
     /// How many times a draw's material was another than the draw's
     /// before it.
     pub materials: usize,
+    /// How many times a draw's pipeline was another than the draw's before
+    /// it (Moonglow's own, or a program pair's of the game's).
+    pub pipelines: usize,
     /// The meshes drawn with the game's own shaders
     /// ([`Renderer::game_shaders`]), each a draw of its own (two for a
     /// see-through one).
@@ -500,6 +517,10 @@ pub struct Drawn {
     /// themselves, and a view that shows them draws them again as time
     /// passes.
     pub timed: usize,
+    /// The instances left out for textures still being read
+    /// ([`Renderer::read_textures_apart`]): a frame drawn again once they
+    /// are shows them.
+    pub textures_pending: usize,
 }
 
 /// A line's end ([`crate::Line`]), in world space.
@@ -534,6 +555,150 @@ fn custom_specular(mtr: &mg_image::mtr::Mtr) -> Option<glam::Vec3> {
 
 fn cols(m: Mat4) -> [[f32; 4]; 4] {
     m.to_cols_array_2d()
+}
+
+/// A texture read and uploaded (a cube map: a TXI with `cube 1` and six
+/// faces `name0`…`name5`), and what its TXI says of it; `None` where there
+/// is none.
+fn load_texture(gpu: &Gpu, assets: &dyn Assets, name: &str) -> Option<TextureEntry> {
+    if let Some(txi) = assets.txi(name).filter(|t| t.cube()) {
+        let faces: Option<Vec<mg_image::Texture>> =
+            (0..6).map(|i| assets.texture(&format!("{name}{i}")).map(|t| t.texture)).collect();
+        if let Some(faces) = faces.and_then(|f| <[mg_image::Texture; 6]>::try_from(f).ok()) {
+            return Some(TextureEntry {
+                gpu: GpuTexture::upload_cube(gpu, name, &faces),
+                alpha: false,
+                cut: false,
+                blending: txi.blending(),
+                env: None,
+                decal: false,
+                clamp: (true, true),
+                cube: true,
+                ripple: None,
+                water: false,
+            });
+        }
+    }
+    assets.texture(name).map(|t| {
+        let alpha = alpha_in(&t.texture);
+        TextureEntry {
+            cube: false,
+            alpha,
+            cut: t.txi.alpha_mean().map_or(alpha, |mean| mean < 1.0),
+            gpu: GpuTexture::upload(gpu, name, &t.texture, t.txi.mipmap()),
+            blending: t.txi.blending(),
+            // (Water reflects its `bumpyshinytexture`, as the game's
+            // shiny water does: Moonglow's stands in for it.)
+            env: t
+                .txi
+                .envmap()
+                .or_else(|| t.txi.water().then(|| t.txi.bumpy_shiny()).flatten())
+                .map(str::to_ascii_lowercase),
+            decal: t.txi.decal(),
+            clamp: t.txi.clamp(),
+            ripple: t.txi.ripple(),
+            water: t.txi.water(),
+        }
+    })
+}
+
+/// A texture is being read apart ([`Renderer::read_textures_apart`]).
+#[derive(Debug, Clone, Copy)]
+struct Waiting;
+
+/// What reads textures apart: threads that take names and give back what
+/// they read, uploaded.
+struct TextureReader {
+    assets: Arc<dyn Assets + Send + Sync>,
+    ask: std::sync::mpsc::Sender<String>,
+    read: std::sync::mpsc::Receiver<(String, u64, Option<Arc<TextureEntry>>)>,
+    /// The names asked for and not yet read.
+    asked: std::collections::HashSet<String>,
+    /// How many have been taken.
+    taken: u64,
+    /// Bumped as the textures are forgotten: what was read before is
+    /// dropped. (Shared with the threads.)
+    era: u64,
+    eras: Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl std::fmt::Debug for TextureReader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TextureReader").field("asked", &self.asked.len()).finish_non_exhaustive()
+    }
+}
+
+/// How many threads read textures apart: decoding a BioWare DDS or making
+/// mipmaps takes the most of a large area's opening.
+fn reader_threads() -> usize {
+    std::thread::available_parallelism().map_or(2, |n| (n.get() / 2).clamp(1, 4))
+}
+
+impl TextureReader {
+    fn new(
+        gpu: &Gpu,
+        assets: Arc<dyn Assets + Send + Sync>,
+        waker: Arc<std::sync::Mutex<Option<crate::game::Waker>>>,
+    ) -> Option<TextureReader> {
+        let (ask, asked) = std::sync::mpsc::channel::<String>();
+        let (give, read) = std::sync::mpsc::channel();
+        let asked = Arc::new(std::sync::Mutex::new(asked));
+        let eras = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let mut started = 0;
+        for n in 0..reader_threads() {
+            let (gpu, assets, asked, give) =
+                (gpu.clone(), assets.clone(), asked.clone(), give.clone());
+            let (waker, eras) = (waker.clone(), eras.clone());
+            let spawned = std::thread::Builder::new().name(format!("moonglow textures {n}")).spawn(
+                move || {
+                    loop {
+                        // (One name at a time; the threads end with the
+                        // renderer.)
+                        let name = match asked.lock() {
+                            Ok(rx) => rx.recv(),
+                            Err(_) => return,
+                        };
+                        let Ok(name) = name else { return };
+                        let era = eras.load(std::sync::atomic::Ordering::Relaxed);
+                        // (A texture that breaks what reads it is none, as
+                        // a model that does is left out.)
+                        let entry = crate::guard::guarded(&name, || {
+                            load_texture(&gpu, assets.as_ref(), &name).map(Arc::new)
+                        })
+                        .flatten();
+                        if give.send((name, era, entry)).is_err() {
+                            return;
+                        }
+                        let wake = waker.lock().ok().and_then(|w| w.clone());
+                        if let Some(w) = wake {
+                            (w.0)();
+                        }
+                    }
+                },
+            );
+            if spawned.is_err() {
+                break;
+            }
+            started += 1;
+        }
+        // (No thread to read on: textures are read as they are met.)
+        (started > 0).then(|| TextureReader {
+            assets,
+            ask,
+            read,
+            asked: Default::default(),
+            taken: 0,
+            era: 0,
+            eras,
+        })
+    }
+
+    /// Forgets what was asked: what is read of it is dropped.
+    fn forget(&mut self) {
+        self.era += 1;
+        self.eras.store(self.era, std::sync::atomic::Ordering::Relaxed);
+        self.asked.clear();
+    }
 }
 
 /// Puts `data` into `buffer`, which is made anew, larger, where it is too
@@ -893,7 +1058,7 @@ impl Renderer {
             game_water: GAME_WATER,
             game_background: false,
             game: crate::game::GameShaders::new(gpu),
-            game_pipelines: HashMap::new(),
+            game_pipelines: Default::default(),
             material_keys: Vec::new(),
             instancing: true,
             color_format,
@@ -932,6 +1097,9 @@ impl Renderer {
             uniforms: Vec::new(),
             bones: Vec::new(),
             dynamic: Vec::new(),
+            made: (0, 0, 0),
+            reader: None,
+            textures_apart: false,
             drawn: Drawn::default(),
         }
     }
@@ -942,6 +1110,9 @@ impl Renderer {
 
     /// Forgets loaded textures (after the resources change).
     pub fn clear_textures(&mut self) {
+        if let Some(r) = &mut self.reader {
+            r.forget();
+        }
         self.textures.clear();
         self.slots.clear();
         self.materials.clear();
@@ -1225,7 +1396,7 @@ impl Renderer {
         inst: &Instance,
         scene_env: Option<&str>,
         scene_env_id: u32,
-    ) -> Arc<[Surface]> {
+    ) -> Option<Arc<[Surface]>> {
         let key = SurfaceKey {
             model: inst.model.id,
             renames: inst.textures.as_deref().map_or(0, |t| self.renames_id(t)),
@@ -1234,22 +1405,25 @@ impl Renderer {
             plt: inst.plt_colors,
         };
         if let Some(surfaces) = self.surfaces.get(&key) {
-            return surfaces.clone();
+            return Some(surfaces.clone());
         }
-        let surfaces: Arc<[Surface]> = inst
+        // (A texture still being read: none of the model's, for now.)
+        let surfaces: Option<Arc<[Surface]>> = inst
             .model
             .meshes
             .iter()
             .map(|mesh| self.surface(gpu, assets, &mesh.material, inst, scene_env))
             .collect();
+        let surfaces = surfaces?;
         if self.surfaces.len() >= SURFACES_KEPT {
             self.surfaces.clear();
         }
         self.surfaces.insert(key, surfaces.clone());
-        surfaces
+        Some(surfaces)
     }
 
-    /// A mesh's surface, for an instance of its model.
+    /// A mesh's surface, for an instance of its model; `None` while a
+    /// texture of it is being read ([`Renderer::read_textures_apart`]).
     fn surface(
         &mut self,
         gpu: &Gpu,
@@ -1257,7 +1431,7 @@ impl Renderer {
         mat: &crate::model::Material,
         inst: &Instance,
         scene_env: Option<&str>,
-    ) -> Surface {
+    ) -> Option<Surface> {
         let slots = self.slots(assets, mat);
         // The instance's texture renames, and its PLT colours on the
         // diffuse texture.
@@ -1275,10 +1449,30 @@ impl Renderer {
                 }
             })
         });
-        let tex = names[0].as_deref().and_then(|t| self.texture(gpu, assets, t));
-        let bound: [bool; SLOTS] = std::array::from_fn(|i| {
-            names[i].as_deref().is_some_and(|t| self.texture(gpu, assets, t).is_some())
-        });
+        // (Each texture read, or asked for: where one is being read, the
+        // surface waits for it.)
+        let mut read: [Option<Arc<TextureEntry>>; SLOTS] = Default::default();
+        let mut waiting = false;
+        for (i, name) in names.iter().enumerate() {
+            if let Some(name) = name {
+                match self.texture_read(gpu, assets, name) {
+                    Ok(t) => read[i] = t,
+                    Err(Waiting) => waiting = true,
+                }
+            }
+        }
+        if waiting {
+            // (The environment maps it may reflect asked for with them: the
+            // area's, the object's.)
+            let area = scene_env.unwrap_or("chrome1").to_ascii_lowercase();
+            let object = inst.env_map.as_deref().filter(|e| !e.eq_ignore_ascii_case("default"));
+            for env in std::iter::once(area).chain(object.map(str::to_ascii_lowercase)) {
+                let _ = self.texture_read(gpu, assets, &env);
+            }
+            return None;
+        }
+        let tex = read[0].clone();
+        let bound: [bool; SLOTS] = std::array::from_fn(|i| read[i].is_some());
         let (blending, env, decal, clamp, has_alpha, cut) = match &tex {
             Some(t) => (t.blending, t.env.clone(), t.decal, t.clamp, t.alpha, t.cut),
             None => (Blending::Default, None, false, (false, false), false, false),
@@ -1312,18 +1506,22 @@ impl Renderer {
             has_alpha && !(env_mapped && slots.no_env && !see_through),
         );
         let env = env.unwrap_or_else(area).to_ascii_lowercase();
-        let env_cube = self.texture(gpu, assets, &env).is_some_and(|t| t.cube);
+        let env_cube = self.texture_read(gpu, assets, &env).ok()?.is_some_and(|t| t.cube);
         let key: MaterialKey =
             (std::array::from_fn(|i| if bound[i] { names[i].clone() } else { None }), env, clamp);
         let hint = slots.normal_variant;
         let water = tex.as_ref().is_some_and(|t| t.water);
-        let water_material = water.then(|| {
-            let env = area().to_ascii_lowercase();
-            let cube = self.texture(gpu, assets, &env).is_some_and(|t| t.cube);
-            (self.material_group(gpu, assets, &(key.0.clone(), env, key.2)), cube)
+        let water_env = water.then(|| area().to_ascii_lowercase());
+        let water_cube = match &water_env {
+            Some(env) => self.texture_read(gpu, assets, env).ok()?.is_some_and(|t| t.cube),
+            None => false,
+        };
+        let water_material = water_env.map(|env| {
+            (self.material_group(gpu, assets, &(key.0.clone(), env, key.2)), water_cube)
         });
-        Surface {
+        Some(Surface {
             water_material,
+            linear: [lin(mat.ambient), lin(mat.diffuse), lin(mat.emissive)],
             material: self.material_group(gpu, assets, &key),
             slots,
             bound,
@@ -1346,57 +1544,76 @@ impl Renderer {
                 sky: false,
             },
             env_cube,
-        }
+        })
     }
 
     fn texture(&mut self, gpu: &Gpu, assets: &dyn Assets, name: &str) -> Option<Arc<TextureEntry>> {
         if let Some(t) = self.textures.get(name) {
             return t.clone();
         }
-        // A cube map: a TXI with `cube 1` and six faces `name0`…`name5`.
-        if let Some(txi) = assets.txi(name).filter(|t| t.cube()) {
-            let faces: Option<Vec<mg_image::Texture>> =
-                (0..6).map(|i| assets.texture(&format!("{name}{i}")).map(|t| t.texture)).collect();
-            if let Some(faces) = faces.and_then(|f| <[mg_image::Texture; 6]>::try_from(f).ok()) {
-                let entry = Some(Arc::new(TextureEntry {
-                    gpu: GpuTexture::upload_cube(gpu, name, &faces),
-                    alpha: false,
-                    cut: false,
-                    blending: txi.blending(),
-                    env: None,
-                    decal: false,
-                    clamp: (true, true),
-                    cube: true,
-                    ripple: None,
-                    water: false,
-                }));
-                self.textures.insert(name.to_string(), entry.clone());
-                return entry;
-            }
-        }
-        let entry = assets.texture(name).map(|t| {
-            let alpha = alpha_in(&t.texture);
-            Arc::new(TextureEntry {
-                cube: false,
-                alpha,
-                cut: t.txi.alpha_mean().map_or(alpha, |mean| mean < 1.0),
-                gpu: GpuTexture::upload(gpu, name, &t.texture, t.txi.mipmap()),
-                blending: t.txi.blending(),
-                // (Water reflects its `bumpyshinytexture`, as the game's
-                // shiny water does: Moonglow's stands in for it.)
-                env: t
-                    .txi
-                    .envmap()
-                    .or_else(|| t.txi.water().then(|| t.txi.bumpy_shiny()).flatten())
-                    .map(str::to_ascii_lowercase),
-                decal: t.txi.decal(),
-                clamp: t.txi.clamp(),
-                ripple: t.txi.ripple(),
-                water: t.txi.water(),
-            })
-        });
+        let entry = load_texture(gpu, assets, name).map(Arc::new);
         self.textures.insert(name.to_string(), entry.clone());
         entry
+    }
+
+    /// A texture, as [`Renderer::texture`]; or, where textures are read
+    /// apart ([`Renderer::read_textures_apart`]) and this one isn't read
+    /// yet, asked for and `Waiting`.
+    fn texture_read(
+        &mut self,
+        gpu: &Gpu,
+        assets: &dyn Assets,
+        name: &str,
+    ) -> Result<Option<Arc<TextureEntry>>, Waiting> {
+        if let Some(t) = self.textures.get(name) {
+            return Ok(t.clone());
+        }
+        match &mut self.reader {
+            Some(r) if self.textures_apart => {
+                if r.asked.insert(name.to_string()) {
+                    let _ = r.ask.send(name.to_string());
+                }
+                Err(Waiting)
+            }
+            _ => Ok(self.texture(gpu, assets, name)),
+        }
+    }
+
+    /// Where textures are read apart from ([`Renderer::textures_apart`]):
+    /// on threads of their own, from `assets`; `None`, nowhere. The waker
+    /// ([`Renderer::set_game_waker`]) is called as each is read.
+    pub fn read_textures_apart(
+        &mut self,
+        gpu: &Gpu,
+        assets: Option<Arc<dyn Assets + Send + Sync>>,
+    ) {
+        let same = match (&self.reader, &assets) {
+            (Some(r), Some(a)) => Arc::ptr_eq(&r.assets, a),
+            (None, None) => true,
+            _ => false,
+        };
+        if !same {
+            self.reader = assets.and_then(|a| TextureReader::new(gpu, a, self.game.waker.clone()));
+        }
+    }
+
+    /// How many textures read apart have been taken so far: a view whose
+    /// picture was drawn without some draws it again as this grows.
+    pub fn textures_read(&self) -> u64 {
+        self.reader.as_ref().map_or(0, |r| r.taken)
+    }
+
+    /// Takes the textures read apart since the last frame.
+    fn take_textures(&mut self) {
+        let Some(r) = &mut self.reader else { return };
+        while let Ok((name, era, entry)) = r.read.try_recv() {
+            if era != r.era {
+                continue;
+            }
+            r.asked.remove(&name);
+            r.taken += 1;
+            self.textures.insert(name, entry);
+        }
     }
 
     fn sampler(&mut self, gpu: &Gpu, clamp: (bool, bool)) -> wgpu::Sampler {
@@ -1488,13 +1705,18 @@ impl Renderer {
             }
             .derive()
         });
-        // (What the worker made since the last frame is drawn from now.)
+        // (What the worker made since the last frame is drawn from now, and
+        // the textures read since.)
         self.game.poll();
+        self.take_textures();
         // The solid meshes drawn with the game's shaders (drawn after
         // Moonglow's own solid ones), and the see-through ones' two parts
         // (each in `draws`, sorted with the rest).
-        let mut game_draws: Vec<crate::game::GameDraw<'_>> = Vec::new();
-        let mut game_blended: Vec<crate::game::GameDraw<'_>> = Vec::new();
+        // (As many as the last frame had room for: grown a draw at a time,
+        // they were seen.)
+        let (draws_made, game_made, blended_made) = self.made;
+        let mut game_draws: Vec<crate::game::GameDraw<'_>> = Vec::with_capacity(game_made);
+        let mut game_blended: Vec<crate::game::GameDraw<'_>> = Vec::with_capacity(blended_made);
         let mut timed = 0;
 
         // Lights in view space.
@@ -1529,14 +1751,15 @@ impl Renderer {
         };
         let sky = scene.sky.as_ref().map(around);
         let fade = scene.sky_fade.as_ref().map(|(s, c)| (around(s), *c));
-        let mut draws: Vec<Draw<'_>> = Vec::new();
+        let mut draws: Vec<Draw<'_>> = Vec::with_capacity(draws_made);
         let mut uniforms = std::mem::take(&mut self.uniforms);
         let mut bones = std::mem::take(&mut self.bones);
         let mut dynamic = std::mem::take(&mut self.dynamic);
         uniforms.clear();
         bones.clear();
         dynamic.clear();
-        let frustum = Frustum::new(proj * view);
+        let on_screen = proj * view;
+        let frustum = Frustum::new(on_screen);
         let mut reach = LightGrid::new(&scene.lights);
         let mut chosen = Vec::new();
         // (The lights as a game draw's blocks take them.)
@@ -1548,7 +1771,7 @@ impl Renderer {
         let mut last_set: (Vec<u32>, u32) = (Vec::new(), u32::MAX);
         let scene_env = scene.env_map.as_deref();
         let scene_env_id = self.name_id(scene_env);
-        let mut hidden = 0;
+        let (mut hidden, mut waiting) = (0, 0);
         if let Some(list) = &mut self.game_programs {
             list.clear();
         }
@@ -1561,7 +1784,11 @@ impl Renderer {
         for (instance, (inst, is_sky, fade_color)) in all.enumerate() {
             let rest = &inst.model.rest;
             let pose: &Vec<Mat4> = inst.pose.as_deref().unwrap_or(rest);
-            let surfaces = self.surfaces(gpu, assets, inst, scene_env, scene_env_id);
+            // (A model whose textures are being read is drawn once they are.)
+            let Some(surfaces) = self.surfaces(gpu, assets, inst, scene_env, scene_env_id) else {
+                waiting += 1;
+                continue;
+            };
             for (j, (mesh, surface)) in inst.model.meshes.iter().zip(surfaces.iter()).enumerate() {
                 let replaced = inst.state.as_ref().and_then(|s| s.meshes.get(j));
                 let alpha =
@@ -1591,7 +1818,10 @@ impl Renderer {
                     }
                     bounds = Some(Bounds { min: centre - around, max: centre + around });
                 }
-                let emissive = replaced.and_then(|r| r.selfillum).unwrap_or(mesh.material.emissive);
+                // (Linear: the material's as worked out once, else as an
+                // animation has it now.)
+                let [ambient, diffuse, emissive] = surface.linear;
+                let emissive = replaced.and_then(|r| r.selfillum).map_or(emissive, lin);
                 let dynamic_range = moved.map(|v| {
                     let size = std::mem::size_of::<Vertex>() as u64;
                     let start = dynamic.len() as u64 * size;
@@ -1638,6 +1868,12 @@ impl Renderer {
                 // laid first, so that the instance's nearer surfaces hide
                 // its farther ones (a tile's water, nearer the eye by its
                 // middle, was drawn over its bridge).
+                // (A see-through mesh meets another where they do on the
+                // screen: its box there, worked out once for its two parts.)
+                let world_bounds = bounds;
+                if matches!(pass, Pass::Blend | Pass::Additive) {
+                    bounds = bounds.map(|b| screen_box(on_screen, &b));
+                }
                 let ghost_solid = pass == Pass::Blend
                     && inst.opacity < 1.0
                     && alpha / inst.opacity >= 1.0
@@ -1715,6 +1951,16 @@ impl Renderer {
                         _ => (surface.material, surface.env_cube),
                     };
                     if let Some((p, fringe)) = pipelines {
+                        // (A program that moves the mesh's vertices, a
+                        // sway, takes them out of its box: on the screen,
+                        // its box grown by as far as they go.)
+                        if p.moves && matches!(pass, Pass::Blend | Pass::Additive) {
+                            let grown = |b: Bounds| Bounds {
+                                min: b.min - Vec3::splat(MOVED),
+                                max: b.max + Vec3::splat(MOVED),
+                            };
+                            bounds = world_bounds.map(|b| screen_box(on_screen, &grown(b)));
+                        }
                         light_set.clear();
                         light_set.extend(chosen.iter().map(|(_, _, i)| *i));
                         let lights_id = if last_set.1 != u32::MAX && last_set.0 == light_set {
@@ -1735,9 +1981,9 @@ impl Renderer {
                         let d = crate::game::DrawValues {
                             world,
                             bones: &bones[bone_base as usize..],
-                            ambient: lin(mat.ambient).extend(1.0).to_array(),
-                            diffuse: lin(mat.diffuse).extend(alpha).to_array(),
-                            emissive: lin(emissive).extend(1.0).to_array(),
+                            ambient: ambient.extend(1.0).to_array(),
+                            diffuse: diffuse.extend(alpha).to_array(),
+                            emissive: emissive.extend(1.0).to_array(),
                             bound: std::array::from_fn(|i| bound.get(i).copied().unwrap_or(false)),
                             env_cube,
                             alpha_discard: ALPHA_DISCARD,
@@ -1812,10 +2058,10 @@ impl Renderer {
                     diffuse: match fade_color {
                         // The fade: its colour, gamma space.
                         Some(c) => c.extend(1.0).to_array(),
-                        None => lin(mat.diffuse).extend(alpha).to_array(),
+                        None => diffuse.extend(alpha).to_array(),
                     },
-                    ambient: lin(mat.ambient).extend(1.0).to_array(),
-                    emissive: lin(emissive).extend(1.0).to_array(),
+                    ambient: ambient.extend(1.0).to_array(),
+                    emissive: emissive.extend(1.0).to_array(),
                     params: [
                         discard,
                         flag(surface.reflects),
@@ -1925,41 +2171,59 @@ impl Renderer {
                 }
             }
         }
+        self.made = (draws.len(), game_draws.len(), game_blended.len() + 64);
         self.drawn = Drawn {
             meshes: draws.len() + game_draws.len(),
             hidden,
             game: game_draws.len() + game_blended.len(),
             timed,
             game_pending: self.game.busy(),
+            textures_pending: waiting,
             ..Drawn::default()
         };
-        // Opaque (any order), then blended back to front by hint then depth,
-        // then additive.
-        draws.sort_by(|a, b| {
-            let rank = |p: Pass| match p {
-                Pass::Sky => 0,
-                Pass::SkyFade => 1,
-                Pass::Opaque => 2,
-                Pass::Blend => 3,
-                Pass::Fringe => 4,
-                Pass::Additive => 5,
-            };
-            rank(a.pass).cmp(&rank(b.pass)).then_with(|| {
-                if matches!(a.pass, Pass::Sky | Pass::SkyFade | Pass::Opaque) {
-                    std::cmp::Ordering::Equal
+        // Opaque (in the order they came), then blended back to front by
+        // hint then depth, then additive. (Sorted by a number made of each,
+        // and its place for the order they came in: sorting the draws
+        // themselves by comparing them was a tenth of a large area's frame.)
+        let mut keys: Vec<(u64, u32)> = draws
+            .iter()
+            .enumerate()
+            .map(|(i, d)| {
+                let rank: u64 = match d.pass {
+                    Pass::Sky => 0,
+                    Pass::SkyFade => 1,
+                    Pass::Opaque => 2,
+                    Pass::Blend => 3,
+                    Pass::Fringe => 4,
+                    Pass::Additive => 5,
+                };
+                let key = if matches!(d.pass, Pass::Sky | Pass::SkyFade | Pass::Opaque) {
+                    rank << 61
                 } else {
-                    a.hint.cmp(&b.hint).then(b.depth.total_cmp(&a.depth))
-                }
+                    // (The depth's bits in `total_cmp`'s order, the farthest
+                    // first.)
+                    let bits = d.depth.to_bits();
+                    let ascending = if bits >> 31 == 1 { !bits } else { bits | 1 << 31 };
+                    let hint = u64::from(d.hint.min((1 << 29) - 1));
+                    rank << 61 | hint << 32 | u64::from(!ascending)
+                };
+                (key, i as u32)
             })
-        });
+            .collect();
+        keys.sort_unstable();
+        let mut draws: Vec<Draw<'_>> = keys.iter().map(|&(_, i)| draws[i as usize]).collect();
+        drop(keys);
 
         // Draws of one mesh become one draw of as many instances, where
         // that takes no draw past one it meets (`batch.rs`): solid meshes
         // meet where their boxes do in the scene, see-through ones where
-        // they do on the screen.
+        // they do on the screen. And see-through draws of one pipeline and
+        // material are drawn one after another where nothing between meets
+        // them: in an area seen whole they are the most of its draws, in
+        // the order of their depths, and binding a material and a pipeline
+        // anew between them was the most of what wgpu did.
         let mut batcher = std::mem::take(&mut self.batcher);
         batcher.begin();
-        let on_screen = proj * view;
         let mut batch_of = Vec::with_capacity(draws.len());
         let (mut pass, mut last) = (None, (u32::MAX, None));
         for d in &draws {
@@ -1985,19 +2249,25 @@ impl Renderer {
                 None => (std::ptr::from_ref(d.mesh) as usize, d.material, 0, d.dynamic),
             };
             let batch = if !self.instancing || matches!(game_key, Some(None)) {
-                batcher.place(key, None, None)
+                batcher.place(key, None, None, None)
             } else if solid {
                 // (A model's own meshes in the order they came in.)
                 let after = last.1.filter(|_| last.0 == d.instance);
-                let batch = batcher.place(key, d.bounds, after);
+                let batch = batcher.place(key, None, d.bounds, after);
                 last = (d.instance, Some(batch));
                 batch
             } else {
-                batcher.place(key, d.bounds.map(|b| screen_box(on_screen, &b)), None)
+                // (The pipeline: the game's, past Moonglow's four.)
+                let pipeline = match game_key {
+                    Some(Some((pipeline, _))) => pipeline + 4,
+                    _ => u32::from(d.mesh.skin.is_some()) * 2 + u32::from(d.twosided),
+                };
+                let state = (pipeline, key.1);
+                batcher.place(key, Some(state), d.bounds, None)
             };
             batch_of.push(batch);
         }
-        let (starts, order) = crate::batch::in_order(&batch_of, batcher.batches());
+        let (starts, order) = batcher.in_order(&batch_of);
         self.batcher = batcher;
         // The game's draws among them in the order they are drawn, so that
         // a batch's are instances in a row.
@@ -2091,6 +2361,17 @@ impl Renderer {
         });
         let mut particle_vertices: Vec<ParticleVertex> = Vec::new();
         let mut particle_draws = Vec::new();
+        // (Particles whose texture is being read apart: drawn once it is.)
+        if self.textures_apart && self.reader.is_some() {
+            let mut kept = Vec::with_capacity(batches.len());
+            for b in batches {
+                let read = |r: &mut Self, t: &str| r.texture_read(gpu, assets, t).is_ok();
+                if b.texture.as_deref().is_none_or(|t| read(self, t)) && read(self, "chrome1") {
+                    kept.push(b);
+                }
+            }
+            batches = kept;
+        }
         for b in &batches {
             let mut names: [Option<String>; SLOTS] = Default::default();
             names[0] = b.texture.clone();
@@ -2203,10 +2484,15 @@ impl Renderer {
             let (white, white_cube) = (self.white.clone(), self.white_cube.clone());
             let noise = self.texture(gpu, assets, "solid_noise");
             let env_sampler = self.env_sampler.clone();
+            // (Draws of one pipeline and material in a row: looked up once.)
+            let mut last = None;
             for d in game_draws.iter().chain(&game_blended) {
-                if self.game.prepared(d) {
+                let this = (d.pipeline_id(), d.material);
+                if last == Some(this) || self.game.prepared(d) {
+                    last = Some(this);
                     continue;
                 }
+                last = Some(this);
                 let key = self.material_keys[d.material as usize].clone();
                 let textures: Vec<Option<Arc<TextureEntry>>> = key
                     .0
@@ -2268,7 +2554,7 @@ impl Renderer {
             // number: binding a material and the draw's values anew for
             // every draw was a quarter of drawing a large area.)
             let (mut pipeline, mut material) = (None, None);
-            let mut materials = 0;
+            let (mut materials, mut pipelines) = (0, 0);
             // The game's shaders' draws, after the solid ones of Moonglow's.
             let mut game_drawn = game_draws.is_empty();
             // (What the game's draws left bound, and whether Moonglow's own
@@ -2297,37 +2583,39 @@ impl Renderer {
                 if own_lost {
                     pass.set_bind_group(0, &frame_group, &[]);
                     (pipeline, material) = (None, None);
-                    game_bound = crate::game::Bound3::default();
+                    // (The game's draws bind their pipeline and groups
+                    // again after; the mesh's vertices and indices stay.)
+                    game_bound.lost();
                     own_lost = false;
                 }
                 let key = (d.pass, d.mesh.skin.is_some(), d.twosided);
                 if pipeline != Some(key) {
                     pass.set_pipeline(&self.pipelines[&key]);
                     pipeline = Some(key);
-                }
-                if let Some(skin) = &d.mesh.skin {
-                    pass.set_vertex_buffer(1, skin.vertices.slice(..));
+                    pipelines += 1;
                 }
                 if material != Some(d.material) {
                     pass.set_bind_group(1, &self.groups[d.material as usize], &[]);
                     material = Some(d.material);
                     materials += 1;
                 }
-                match d.dynamic {
-                    Some((from, to)) => {
-                        pass.set_vertex_buffer(0, self.dynamic_buffer.slice(from..to))
-                    }
-                    None => pass.set_vertex_buffer(0, d.mesh.vertices.slice(..)),
-                }
-                pass.set_index_buffer(d.mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..d.mesh.index_count, 0, batch[0]..batch[1]);
+                let base = game_bound.mesh.bind(
+                    &mut pass,
+                    d.mesh,
+                    d.dynamic,
+                    &self.dynamic_buffer,
+                    Some(1),
+                );
+                let first = d.mesh.first_index;
+                pass.draw_indexed(first..first + d.mesh.index_count, base, batch[0]..batch[1]);
             }
             if !game_drawn {
                 let (dynamic, particles) = (&self.dynamic_buffer, &self.particle_buffer);
                 self.drawn.batches +=
                     self.game.draw(&mut pass, &game_draws, dynamic, particles, &mut game_bound);
             }
-            self.drawn.materials = materials;
+            self.drawn.materials = materials + game_bound.materials;
+            self.drawn.pipelines = pipelines + game_bound.pipelines;
             // (Moonglow's particle pipeline's frame and vertices, bound
             // again after a game draw.)
             let mut own_bound = false;
@@ -2343,6 +2631,9 @@ impl Renderer {
                     pass.set_bind_group(0, &self.particle_frame, &[]);
                     pass.set_vertex_buffer(0, self.particle_buffer.slice(..));
                     own_bound = true;
+                    // (The game's draws bind theirs again after.)
+                    game_bound.lost();
+                    game_bound.mesh.forget_vertices();
                 }
                 pass.set_pipeline(&self.particle_pipelines[blend]);
                 pass.set_bind_group(1, &self.groups[*group as usize], &[]);
@@ -2382,6 +2673,71 @@ impl Renderer {
             (width, height),
         );
         gpu.read_rgba(&targets.color)
+    }
+}
+
+/// The vertices and indices a pass has bound for a mesh's draws: its
+/// chunk's ([`crate::pool`]), or an animated mesh's replaced vertices;
+/// and a skinned mesh's bones and weights. Bound again only where a draw
+/// needs others.
+#[derive(Debug, Default)]
+pub(crate) struct BoundMesh {
+    vertices: Option<(u64, Option<(u64, u64)>)>,
+    indices: Option<u64>,
+    /// The slot, the chunk, and replaced vertices' first.
+    skin: Option<(u32, u64, Option<i32>)>,
+}
+
+impl BoundMesh {
+    /// A pipeline with other vertex buffers than the mesh's at its slots
+    /// past the first (the game's zeros) was set: a skinned mesh's bones
+    /// and weights are bound again.
+    pub(crate) fn forget_skin(&mut self) {
+        self.skin = None;
+    }
+
+    /// Something else than a mesh's vertices was bound at the first slot
+    /// (particles).
+    pub(crate) fn forget_vertices(&mut self) {
+        self.vertices = None;
+    }
+
+    /// Binds what a draw of `mesh` reads (its vertices replaced by those
+    /// `dynamic` names in `replaced`, if any; a skinned one's bones and
+    /// weights at vertex buffer `skin_slot`), where they aren't bound: the
+    /// draw's base vertex.
+    pub(crate) fn bind(
+        &mut self,
+        pass: &mut wgpu::RenderPass<'_>,
+        mesh: &crate::model::GpuMesh,
+        dynamic: Option<(u64, u64)>,
+        replaced: &wgpu::Buffer,
+        skin_slot: Option<u32>,
+    ) -> i32 {
+        let chunk = mesh.chunk();
+        if self.vertices != Some((chunk, dynamic)) {
+            match dynamic {
+                Some((from, to)) => pass.set_vertex_buffer(0, replaced.slice(from..to)),
+                None => pass.set_vertex_buffer(0, mesh.vertices.slice(..)),
+            }
+            self.vertices = Some((chunk, dynamic));
+        }
+        if self.indices != Some(chunk) {
+            pass.set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
+            self.indices = Some(chunk);
+        }
+        // (Replaced vertices begin at the first; a skinned mesh's bones
+        // and weights are then bound from its own.)
+        if let (Some(slot), Some(skin)) = (skin_slot, &mesh.skin) {
+            let at = dynamic.map(|_| mesh.base_vertex);
+            let key = (slot, chunk, at);
+            if self.skin != Some(key) {
+                let from = at.map_or(0, |b| b as u64 * std::mem::size_of::<SkinVertex>() as u64);
+                pass.set_vertex_buffer(slot, skin.vertices.slice(from..));
+                self.skin = Some(key);
+            }
+        }
+        if dynamic.is_some() { 0 } else { mesh.base_vertex }
     }
 }
 
@@ -2428,6 +2784,15 @@ pub fn tint_light(scene: &Scene, at: Vec3) -> Vec3 {
     }
     (gamma(scene.area.ambient) + gamma(scene.area.diffuse) + gamma(points)).min(Vec3::ONE)
 }
+
+/// How far a program of the game's that moves a mesh's vertices (a
+/// sway: [`crate::game::GamePipeline::moves`]) is taken to move them out of
+/// its box, in meters each way, when its draws are put in an order with
+/// others ([`crate::batch`]): The Domains of Dread's sway shaders move a
+/// vertex by at most `fSwayStrength` / 100 · 5 · √2 each way, 0.35 m at the
+/// strongest they use (5). Taken as its box, a leaf's soft edge was blended
+/// in another order where it swayed past it.
+const MOVED: f32 = 1.0;
 
 /// The depth buffer's format.
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;

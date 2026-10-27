@@ -491,6 +491,76 @@ impl mg_render::Assets for TestAssets {
     }
 }
 
+/// Textures read apart (on threads of their own, as the area view reads a
+/// large area's): a model whose texture is being read is left out of the
+/// frame, the waker is called once it is read, and the frame after shows
+/// the model as one drawn with its texture read in the frame.
+#[test]
+fn a_model_is_drawn_once_its_textures_are_read_apart() {
+    let Some(gpu) = gpu() else { return };
+    let assets = || {
+        let mut a = TestAssets::default();
+        let checker: Vec<u8> = (0..64u32)
+            .flat_map(
+                |i| if (i + i / 8) % 2 == 0 { [250, 40, 40, 255] } else { [20, 20, 200, 255] },
+            )
+            .collect();
+        a.textures.insert(
+            "checker".into(),
+            mg_image::Rgba { width: 8, height: 8, data: checker }.into_texture(false),
+        );
+        a
+    };
+    let mut m = quad();
+    let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind else { unreachable!() };
+    mesh.uvs[0] = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+    mesh.source_uv = vec![0, 1, 2, 3];
+    mesh.textures[0] = Some("checker".into());
+    let model = Arc::new(GpuModel::new(&gpu, Arc::new(m)));
+    let scene = Scene {
+        instances: vec![Instance::new(model, Mat4::IDENTITY)],
+        background: [0.0, 0.0, 0.0],
+        ..Default::default()
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.5, 4.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let here = r.render_image(&gpu, &assets(), &scene, &camera, 64, 64);
+
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let woken = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let w = woken.clone();
+    r.set_game_waker(move || {
+        w.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    });
+    let apart: Arc<dyn mg_render::Assets + Send + Sync> = Arc::new(assets());
+    r.read_textures_apart(&gpu, Some(apart));
+    r.textures_apart = true;
+    let first = r.render_image(&gpu, &NoAssets, &scene, &camera, 64, 64);
+    assert_eq!(r.drawn.textures_pending, 1, "left out while its texture is read");
+    assert!(first.data.chunks(4).all(|p| p[..3] == [0, 0, 0]), "nothing drawn yet");
+    let started = std::time::Instant::now();
+    while woken.load(std::sync::atomic::Ordering::Relaxed) == 0 {
+        assert!(started.elapsed() < std::time::Duration::from_secs(10), "never read");
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    // (The assets the frame is given aren't read: the textures came apart,
+    // the environment map's asked for once the texture's TXI said which.)
+    let mut read = r.render_image(&gpu, &NoAssets, &scene, &camera, 64, 64);
+    while r.drawn.textures_pending > 0 {
+        assert!(started.elapsed() < std::time::Duration::from_secs(10), "never read");
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        read = r.render_image(&gpu, &NoAssets, &scene, &camera, 64, 64);
+    }
+    assert!(r.textures_read() >= 1);
+    assert_eq!(read.data, here.data, "as read in the frame");
+}
+
 /// Material maps, as the game's normal-mapped shaders read them: a flat
 /// normal map changes nothing, a tilted one turns the surface towards or
 /// away from the light along the texture's u axis; a specular map makes

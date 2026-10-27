@@ -11,11 +11,13 @@ use mg_image::Rgba;
 pub struct Gpu {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
+    /// Where the meshes uploaded through it lie (`pool.rs`).
+    pub(crate) pool: std::sync::Arc<crate::pool::MeshPool>,
 }
 
 impl Gpu {
     pub fn new(device: wgpu::Device, queue: wgpu::Queue) -> Gpu {
-        Gpu { device, queue }
+        Gpu { device, queue, pool: Default::default() }
     }
 
     /// A headless device (any adapter, BC textures when available), or
@@ -38,7 +40,7 @@ impl Gpu {
             ..Default::default()
         }))
         .ok()?;
-        Some(Gpu { device, queue })
+        Some(Gpu::new(device, queue))
     }
 
     /// Whether BC1–BC5 textures can be uploaded as they are.
