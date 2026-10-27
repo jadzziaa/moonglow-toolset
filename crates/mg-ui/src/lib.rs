@@ -301,6 +301,9 @@ pub enum Action {
     RenameDialog(ResKey),
     /// Opens the Placeable Gallery.
     PlaceableGallery,
+    /// The palette's More › Refresh Palette: the module's custom palette
+    /// of a type made anew from the blueprints, as Aurora's is.
+    RefreshPalette(mg_module::palette::BlueprintKind),
     /// Copy…: asks for the copy's ResRef and Tag.
     CopyDialog(ResKey),
     /// Edit beside a script's name: opens the module's script, else the
@@ -3170,6 +3173,7 @@ impl Moonglow {
                 self.placeable_gallery = Some(Default::default());
                 self.run_now(Action::OpenTab(Tab::PlaceableGallery));
             }
+            Action::RefreshPalette(kind) => palette_view::refresh(self, kind),
             Action::EditScript { name, condition } => self.edit_script(name, condition),
             Action::DeleteDialog(k) => self.confirm_delete = Some(k),
             Action::DeleteResource(k) => self.delete_resource(k),
@@ -4285,6 +4289,10 @@ impl Moonglow {
         // A look at the module's files under way: taken once it is done.
         if self.take_looked() {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+        }
+        // (Whether blueprints read again changed their palettes.)
+        if self.look_at_palettes() {
+            ui.ctx().request_repaint();
         }
         // (Not under a job, which reads the game data.)
         if self.settings.no_auto_reload || self.game.is_none() || self.busy() {

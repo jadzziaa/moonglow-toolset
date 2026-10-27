@@ -249,10 +249,12 @@ impl Workspace {
     }
 
     /// The module's resources as it was opened or last saved (with the
-    /// files changed outside that were taken in since, [`Workspace::adopt`]):
-    /// what a save compares the module with, to change what is made from
-    /// it only where the builder changed something (the custom palettes,
-    /// `mg_module::palette::update_custom_palettes`).
+    /// files changed outside that were taken in since, [`Workspace::adopt`],
+    /// but blueprints): what a save compares the module with, to change
+    /// what is made from it only where something changed (the custom
+    /// palettes, `mg_module::palette::update_custom_palettes`). A blueprint
+    /// added, changed or deleted outside counts as changed, so that its
+    /// palette entry follows it.
     pub fn saved(&self) -> &Module {
         &self.saved
     }
@@ -571,7 +573,10 @@ impl Workspace {
     /// files of the module changed by another program, read again. It does
     /// not count as unsaved work. Undo could not take an earlier change
     /// to one of them back from what it is now: if the history has any,
-    /// the history is dropped, and `true` returned.
+    /// the history is dropped, and `true` returned. What a save compares
+    /// with ([`Workspace::saved`]) takes them too, but blueprints: their
+    /// entries in the custom palettes are made right as for a blueprint
+    /// changed here (shown at once, written at the next save).
     pub fn adopt(
         &mut self,
         changes: &[(ResKey, Option<std::sync::Arc<[u8]>>)],
@@ -581,8 +586,11 @@ impl Workspace {
             self.docs.remove(key);
             self.rewritten(key);
             // (Not the builder's change here: what a save compares with
-            // takes it too.)
-            for m in [&mut self.module, &mut self.saved] {
+            // takes it too. Not a blueprint: its palette entry follows it,
+            // as a builder copying one into the module expects.)
+            let blueprint = mg_rules::ObjectKind::from_restype(key.restype).is_some();
+            let saved = (!blueprint).then_some(&mut self.saved);
+            for m in std::iter::once(&mut self.module).chain(saved) {
                 match data {
                     Some(d) => m.set(*key, d.clone()),
                     None => {
@@ -657,9 +665,11 @@ mod tests {
         assert!(!ws.is_viewed(&key), "the module's own is the one edited");
     }
 
-    /// What a save compares with (the custom palettes': only what the
-    /// builder changed is made again): the resources as opened, then as
-    /// saved, with the files changed outside taken in, not the edits.
+    /// What a save compares with (the custom palettes': only what
+    /// changed is made again): the resources as opened, then as saved,
+    /// with the files changed outside taken in, not the edits; a
+    /// blueprint changed outside is not taken in (its palette entry
+    /// follows it, Troubletcat's report).
     #[test]
     fn the_saved_resources_are_those_opened_saved_or_taken_in() {
         let mut ws = workspace();
@@ -676,12 +686,21 @@ mod tests {
         assert_ne!(ws.module.get(&ifo_key).unwrap(), &opened[..]);
         assert_eq!(ws.saved().get(&ifo_key).unwrap(), &opened[..], "an edit is not saved");
         // A file changed outside: taken in as saved.
-        let outside = key("outside", ResType::UTI);
-        let data: std::sync::Arc<[u8]> = Gff::new(*b"UTI ").to_bytes().unwrap().into();
+        let outside = key("outside", ResType::NSS);
+        let data: std::sync::Arc<[u8]> = b"void main() {}\n".to_vec().into();
         ws.adopt(&[(outside, Some(data.clone()))]).unwrap();
         assert_eq!(ws.saved().get(&outside), Some(&data[..]));
         ws.adopt(&[(outside, None)]).unwrap();
         assert!(!ws.saved().contains(&outside));
+        // A blueprint: the module's, not taken in (a change, for its
+        // palette entry).
+        let item = key("outside", ResType::UTI);
+        let data: std::sync::Arc<[u8]> = Gff::new(*b"UTI ").to_bytes().unwrap().into();
+        ws.adopt(&[(item, Some(data.clone()))]).unwrap();
+        assert_eq!(ws.module.get(&item), Some(&data[..]));
+        assert!(!ws.saved().contains(&item));
+        ws.adopt(&[(item, None)]).unwrap();
+        assert!(!ws.module.contains(&item));
         // Saved: what was saved.
         let dir = std::env::temp_dir().join(format!("mg-edit-saved-{}", std::process::id()));
         ws.save_as(&mg_module::ModuleLocation::Archive(dir.join("m.mod"))).unwrap();
