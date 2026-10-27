@@ -45,6 +45,14 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="2.8.0" date="2026-10-27">
+      <description>
+        <p>The module tree scrolls sideways to a name too long for its pane,
+        and a name typed in it goes to its row once the tree is clicked; a
+        tileset with holes is drawn tile by tile, as the game draws it, and
+        Verify names its holes.</p>
+      </description>
+    </release>
     <release version="2.7.0" date="2026-10-26">
       <description>
         <p>Texture and animation pickers on the Visuals page; a .mod with its
