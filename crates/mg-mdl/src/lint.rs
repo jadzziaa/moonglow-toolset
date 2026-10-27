@@ -12,6 +12,59 @@ use std::collections::{HashMap, HashSet};
 use crate::keywords;
 use crate::outline::words;
 
+/// Every line's words, as [`words`] splits them, split once: the checks
+/// look at a line several times, and a tile model has hundreds of
+/// thousands of lines.
+struct Lines<'a> {
+    words: Vec<&'a str>,
+    /// Where each line's words end in `words`.
+    ends: Vec<usize>,
+}
+
+impl<'a> Lines<'a> {
+    fn new(text: &'a str) -> Self {
+        let mut words = Vec::with_capacity(text.len() / 8);
+        let mut ends = Vec::with_capacity(text.len() / 32);
+        // (Text all ASCII, as models are, is split by its bytes: the
+        // whitespace `split_whitespace` knows there is these six.)
+        let ascii = text.is_ascii();
+        let space = |c: u8| matches!(c, b'\t' | b'\n' | 0x0B | 0x0C | b'\r' | b' ');
+        for line in text.lines() {
+            let line = line.split('#').next().unwrap_or_default();
+            if ascii {
+                let b = line.as_bytes();
+                let mut i = 0;
+                while i < b.len() {
+                    while i < b.len() && space(b[i]) {
+                        i += 1;
+                    }
+                    let start = i;
+                    while i < b.len() && !space(b[i]) {
+                        i += 1;
+                    }
+                    if start < i {
+                        words.push(&line[start..i]);
+                    }
+                }
+            } else {
+                words.extend(line.split_whitespace());
+            }
+            ends.push(words.len());
+        }
+        Lines { words, ends }
+    }
+
+    fn len(&self) -> usize {
+        self.ends.len()
+    }
+
+    /// Line `i`'s words.
+    fn line(&self, i: usize) -> &[&'a str] {
+        let start = if i == 0 { 0 } else { self.ends[i - 1] };
+        &self.words[start..self.ends[i]]
+    }
+}
+
 /// The most bones nwnmdlcomp compiles into one skin.
 pub const NWNMDLCOMP_BONES: usize = 17;
 
@@ -77,7 +130,7 @@ fn is_number(w: &str) -> bool {
 /// Checks a model's text.
 pub fn lint(text: &str) -> Vec<Diagnostic> {
     let mut l = Lint { out: Vec::new() };
-    let lines: Vec<&str> = text.lines().collect();
+    let lines = Lines::new(text);
     let mut node: Option<Node> = None;
     let mut in_anim = false;
     let mut geometry_names: HashMap<String, usize> = HashMap::new();
@@ -86,7 +139,7 @@ pub fn lint(text: &str) -> Vec<Diagnostic> {
     let mut duplicates: Vec<(usize, usize, String)> = Vec::new();
     let mut i = 0;
     while i < lines.len() {
-        let w = words(lines[i]);
+        let w = lines.line(i);
         let at = i;
         i += 1;
         let Some(first) = w.first() else { continue };
@@ -179,7 +232,7 @@ pub fn lint(text: &str) -> Vec<Diagnostic> {
             }
             _ => {
                 let n = node.as_mut().expect("in a node");
-                i = node_line(&mut l, n, &lines, at, &w, &key, in_anim);
+                i = node_line(&mut l, n, &lines, at, w, &key, in_anim);
             }
         }
     }
@@ -188,43 +241,44 @@ pub fn lint(text: &str) -> Vec<Diagnostic> {
         nodes.push(n);
     }
 
-    // Parents: geometry parents must be earlier nodes.
+    // Parents: geometry parents must be earlier nodes. (And the last line
+    // naming each parent, animations' too, for the duplicates below.)
     let mut seen: HashSet<String> = HashSet::new();
+    let mut last_parent: HashMap<String, usize> = HashMap::new();
     let mut in_anim = false;
-    for (at, line) in lines.iter().enumerate() {
-        let w = words(line);
-        match w.first().map(|s| s.to_ascii_lowercase()).as_deref() {
-            Some("newanim") => in_anim = true,
-            Some("doneanim") => in_anim = false,
-            Some("node") if !in_anim => {
-                if let Some(n) = w.get(2) {
-                    seen.insert(n.to_ascii_lowercase());
-                }
+    for at in 0..lines.len() {
+        let w = lines.line(at);
+        let Some(first) = w.first() else { continue };
+        if first.eq_ignore_ascii_case("newanim") {
+            in_anim = true;
+        } else if first.eq_ignore_ascii_case("doneanim") {
+            in_anim = false;
+        } else if first.eq_ignore_ascii_case("node") {
+            if !in_anim && let Some(n) = w.get(2) {
+                seen.insert(n.to_ascii_lowercase());
             }
-            Some("parent") if !in_anim => {
-                if let Some(p) = w.get(1)
-                    && !p.eq_ignore_ascii_case("null")
-                    && !seen.contains(&p.to_ascii_lowercase())
-                {
-                    l.push(
-                        at,
-                        Severity::Warning,
-                        format!("parent {p} is not a node above: the node hangs from the root"),
-                    );
-                }
+        } else if first.eq_ignore_ascii_case("parent")
+            && let Some(p) = w.get(1)
+        {
+            if !duplicates.is_empty() {
+                last_parent.insert(p.to_ascii_lowercase(), at);
             }
-            _ => {}
+            if !in_anim
+                && !p.eq_ignore_ascii_case("null")
+                && !seen.contains(&p.to_ascii_lowercase())
+            {
+                l.push(
+                    at,
+                    Severity::Warning,
+                    format!("parent {p} is not a node above: the node hangs from the root"),
+                );
+            }
         }
     }
 
     // Duplicate names: harmless unless something hangs from the second.
     for (at, prev, name) in duplicates {
-        let lower = name.to_ascii_lowercase();
-        let parented = lines.iter().skip(at + 1).any(|line| {
-            let w = words(line);
-            w.first().is_some_and(|k| k.eq_ignore_ascii_case("parent"))
-                && w.get(1).is_some_and(|p| p.eq_ignore_ascii_case(&lower))
-        });
+        let parented = last_parent.get(&name.to_ascii_lowercase()).is_some_and(|&p| p > at);
         let (severity, consequence) = if parented {
             (Severity::Warning, "its children hang from the first")
         } else {
@@ -280,7 +334,7 @@ pub fn lint(text: &str) -> Vec<Diagnostic> {
 fn node_line(
     l: &mut Lint,
     n: &mut Node,
-    lines: &[&str],
+    lines: &Lines<'_>,
     at: usize,
     w: &[&str],
     key: &str,
@@ -293,18 +347,18 @@ fn node_line(
         let keyed = !keywords::LISTS.contains(&key);
         let declared = w.get(1).and_then(|c| c.parse::<usize>().ok());
         let named = keywords::NAMED_LISTS.contains(&key);
-        let mut rows: Vec<(usize, Vec<&str>)> = Vec::new();
+        let mut rows: Vec<(usize, &[&str])> = Vec::new();
         while next < lines.len() {
-            let rw = words(lines[next]);
+            let rw = lines.line(next);
             let Some(first) = rw.first() else {
                 next += 1;
                 continue;
             };
             let full = declared.is_some_and(|c| rows.len() >= c);
-            if first.eq_ignore_ascii_case("endlist")
+            if full
+                || first.eq_ignore_ascii_case("endlist")
                 || first.eq_ignore_ascii_case("endnode")
                 || (!named && !is_number(first))
-                || full
             {
                 break;
             }
@@ -312,11 +366,11 @@ fn node_line(
             next += 1;
         }
         // An `endlist` after the rows belongs to the list.
-        while next < lines.len() && words(lines[next]).is_empty() {
+        while next < lines.len() && lines.line(next).is_empty() {
             next += 1;
         }
         if next < lines.len()
-            && words(lines[next]).first().is_some_and(|w| w.eq_ignore_ascii_case("endlist"))
+            && lines.line(next).first().is_some_and(|w| w.eq_ignore_ascii_case("endlist"))
         {
             next += 1;
         }
@@ -384,7 +438,7 @@ fn node_line(
     match key {
         "aabb" => {
             // The tree: rows of 7 numbers, the first on this line.
-            while next < lines.len() && words(lines[next]).first().is_some_and(|w| is_number(w)) {
+            while next < lines.len() && lines.line(next).first().is_some_and(|w| is_number(w)) {
                 next += 1;
             }
             return next;
@@ -512,6 +566,16 @@ fn check_node(l: &mut Lint, n: &Node) {
 /// Emitters with `p2p 1` need a reference node among their children, or the
 /// game crashes; checked over the whole model.
 pub fn check_p2p(text: &str) -> Vec<Diagnostic> {
+    // (Most models have no `p2p` at all: then there is nothing to outline.)
+    let b = text.as_bytes();
+    let p2p_written = text.match_indices('2').any(|(i, _)| {
+        i > 0
+            && b[i - 1].eq_ignore_ascii_case(&b'p')
+            && b.get(i + 1).is_some_and(|c| c.eq_ignore_ascii_case(&b'p'))
+    });
+    if !p2p_written {
+        return Vec::new();
+    }
     let o = crate::outline::outline(text);
     let mut out = Vec::new();
     for n in o.geometry().filter(|n| n.ty == "emitter") {
@@ -649,5 +713,57 @@ donemodel box\n";
             "node reference target\n  parent fx\nendnode\nendmodelgeom box",
         );
         assert!(!messages(&with_ref).iter().any(|(_, _, m)| m.contains("reference node")));
+        // (Keywords in any case: the text is searched for `p2p` first.)
+        let upper = p2p.replace("  p2p 1", "  P2P 1");
+        assert!(messages(&upper).iter().any(|(_, _, m)| m.contains("reference")));
+        assert!(check_p2p(GOOD).is_empty());
+    }
+
+    /// A second node of a name is a warning when a `parent` line after it
+    /// names it, an animation's too; else a note.
+    #[test]
+    fn a_duplicate_is_parented_by_any_later_line() {
+        let dup =
+            GOOD.replace("node trimesh plane\n  parent box", "node trimesh box\n  parent NULL");
+        let severity = |text: &str| {
+            messages(text)
+                .into_iter()
+                .find(|(_, _, m)| m.contains("second node named box"))
+                .map(|f| f.1)
+        };
+        // The animation's `parent NULL` names nothing.
+        assert_eq!(severity(&dup), Some(Severity::Info));
+        let in_anim = dup.replace(
+            "node dummy box\n  parent NULL\norientationkey",
+            "node dummy box\n  parent box\norientationkey",
+        );
+        assert_ne!(in_anim, dup);
+        assert_eq!(severity(&in_anim), Some(Severity::Warning));
+        // A parent line before the second node is not after it.
+        let before = dup.replace(
+            "node dummy box\n  parent NULL\nendnode",
+            "node dummy box\n  parent box\nendnode",
+        );
+        assert_ne!(before, dup);
+        assert_eq!(severity(&before), Some(Severity::Info), "{:?}", messages(&before));
+    }
+
+    /// Words are split as `split_whitespace` splits them: a vertical tab
+    /// and a form feed too, and text that is not all ASCII by its
+    /// characters (a no-break space).
+    #[test]
+    fn words_split_at_any_whitespace() {
+        let long = |space: &str| {
+            let text =
+                GOOD.replace("  bitmap tex", &format!("{space}bitmap{space}a234567890123456789"));
+            messages(&text).into_iter().any(|(l, s, m)| {
+                l == 10 && s == Severity::Error && m.contains("resource names are at most")
+            })
+        };
+        assert!(long("\x0b"), "a vertical tab");
+        assert!(long("\x0c"), "a form feed");
+        assert!(long("\t"));
+        assert!(long("\u{a0}"), "a no-break space");
+        assert!(long("\u{3000}"), "an ideographic space");
     }
 }

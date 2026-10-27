@@ -983,18 +983,17 @@ fn tile_model(d: &mut Doctor, name: &str) {
     }
     let source = d.rm.layers()[layer].label.clone();
     let Ok(data) = d.rm.get(&key) else { return };
-    let model = match mg_mdl::Model::read(&data) {
-        Ok(m) => m,
+    // (Walkmeshes reaching past the tile were tried and left out: the
+    // game's own tiles have them, out to 10 m. A model kept as text with
+    // fewer face rows than that is not read: `faces_over`.)
+    let faces = match mg_mdl::faces_over(&data, 10_000) {
+        Ok(faces) => faces,
         Err(e) => {
             d.push(Error, Check::MdlRead, &source, key, "", format!("can't be read: {e}"));
             return;
         }
     };
-    // (Walkmeshes reaching past the tile were tried and left out: the
-    // game's own tiles have them, out to 10 m.)
-    let faces: usize =
-        model.nodes.iter().filter_map(|n| n.mesh()).map(|m| m.triangles().count()).sum();
-    if faces > 10_000 {
+    if let Some(faces) = faces {
         d.push(
             Warning,
             Check::TileFaces,
@@ -1015,10 +1014,12 @@ fn tile_model(d: &mut Doctor, name: &str) {
 /// Compiled models have nothing to read so.
 fn model_text(d: &mut Doctor, source: &str, key: ResKey) {
     const WARNINGS: usize = 5;
-    let Ok(data) = d.rm.get(&key) else { return };
-    if mg_mdl::is_binary(&data) {
+    // (Told by its first bytes: the haks' compiled models are gigabytes.)
+    let Ok(start) = d.rm.get_start(&key, 12) else { return };
+    if mg_mdl::is_binary(&start) {
         return;
     }
+    let Ok(data) = d.rm.get(&key) else { return };
     let text = String::from_utf8_lossy(&data);
     let mut warnings = 0;
     for found in mg_mdl::lint::check(&text) {
@@ -1086,22 +1087,42 @@ fn shaders(d: &mut Doctor, custom: &BTreeMap<ResKey, usize>) {
     let mut lone: BTreeMap<String, Vec<(ResKey, &str, String)>> = BTreeMap::new();
     // (Materials and shader files alone are read: the haks' textures and
     // models are most of their size.)
-    for (key, &layer) in
-        custom.iter().filter(|(k, _)| matches!(k.restype, ResType::MTR | ResType::SHD))
-    {
+    // (Each read and parsed in parallel, then taken in key order.)
+    enum Asks {
+        Programs([(Option<String>, Stage, &'static str); 2]),
+        Shader(Option<Stage>),
+    }
+    let rm = d.rm;
+    let files: Vec<(&ResKey, &usize)> =
+        (custom.iter()).filter(|(k, _)| matches!(k.restype, ResType::MTR | ResType::SHD)).collect();
+    let asks: Vec<Option<Asks>> = (files.par_iter())
+        .map(|&(key, _)| {
+            let data = rm.get(key).ok()?;
+            match key.restype {
+                ResType::MTR => {
+                    let mtr = mg_image::mtr::Mtr::parse(&data);
+                    let name = |n: Option<String>| {
+                        n.map(|n| n.trim().to_ascii_lowercase())
+                            .filter(|n| !n.is_empty() && n != "null")
+                    };
+                    Some(Asks::Programs([
+                        (name(mtr.shader_vs), Stage::Vertex, "customshaderVS"),
+                        (name(mtr.shader_fs), Stage::Fragment, "customshaderFS"),
+                    ]))
+                }
+                ResType::SHD => {
+                    let name = key.resref.to_lowercase().to_string();
+                    Some(Asks::Shader(program_stage(&name, &data)))
+                }
+                _ => None,
+            }
+        })
+        .collect();
+    for ((key, &layer), asks) in files.into_iter().zip(asks) {
         let source = &layers[layer].label;
-        let Ok(data) = d.rm.get(key) else { continue };
-        match key.restype {
-            ResType::MTR => {
-                let mtr = mg_image::mtr::Mtr::parse(&data);
-                let name = |n: Option<String>| {
-                    n.map(|n| n.trim().to_ascii_lowercase())
-                        .filter(|n| !n.is_empty() && n != "null")
-                };
-                let named = [
-                    (name(mtr.shader_vs), Stage::Vertex, "customshaderVS"),
-                    (name(mtr.shader_fs), Stage::Fragment, "customshaderFS"),
-                ];
+        let Some(asks) = asks else { continue };
+        match asks {
+            Asks::Programs(named) => {
                 match named {
                     // A pair: the game compiles both (one that doesn't
                     // compile, or isn't there, is drawn magenta).
@@ -1119,19 +1140,13 @@ fn shaders(d: &mut Doctor, custom: &BTreeMap<ResKey, usize>) {
                     _ => {}
                 }
             }
-            ResType::SHD => {
+            Asks::Shader(Some(stage)) => {
                 let name = key.resref.to_lowercase().to_string();
-                match program_stage(&name, &data) {
-                    Some(stage) => {
-                        wanted.entry((name, stage)).or_insert((source.clone(), *key, ""));
-                    }
-                    None => {
-                        replaces_stock |=
-                            layers.iter().any(|l| !is_custom(l) && l.container.contains(key))
-                    }
-                }
+                wanted.entry((name, stage)).or_insert((source.clone(), *key, ""));
             }
-            _ => {}
+            Asks::Shader(None) => {
+                replaces_stock |= layers.iter().any(|l| !is_custom(l) && l.container.contains(key))
+            }
         }
     }
     let custom_layer = |label: &str| layers.iter().any(|l| l.label == label && is_custom(l));
@@ -1153,8 +1168,13 @@ fn shaders(d: &mut Doctor, custom: &BTreeMap<ResKey, usize>) {
             found.entry((source, resource, at, dg.message)).or_default().push(program.clone());
         }
     };
-    for ((name, stage), (source, key, field)) in &wanted {
-        if let Err(e) = compile(name, *stage, &pre, d.rm) {
+    // (Compiled in parallel, recorded in the programs' order.)
+    let rm = d.rm;
+    let compiled: Vec<Option<mg_shader::ShaderError>> = (wanted.par_iter())
+        .map(|((name, stage), _)| compile(name, *stage, &pre, rm).err())
+        .collect();
+    for (((name, stage), (source, key, field)), error) in wanted.iter().zip(compiled) {
+        if let Some(e) = error {
             record(e, format!("{name} ({stage})"), (source, *key, field));
         }
     }

@@ -20,6 +20,18 @@ pub trait Container: Send + Sync + fmt::Debug {
     fn contains(&self, key: &ResKey) -> bool;
     /// The resource's bytes.
     fn read(&self, key: &ResKey) -> Result<Cow<'_, [u8]>, ResError>;
+    /// The resource's first `n` bytes (all of it, if it is shorter): what
+    /// tells a compiled model from one kept as text, without reading it
+    /// whole. An archive reads only those; other containers read it all.
+    fn read_start(&self, key: &ResKey, n: usize) -> Result<Cow<'_, [u8]>, ResError> {
+        Ok(match self.read(key)? {
+            Cow::Borrowed(b) => Cow::Borrowed(&b[..n.min(b.len())]),
+            Cow::Owned(mut v) => {
+                v.truncate(n);
+                Cow::Owned(v)
+            }
+        })
+    }
     /// Every resource in the container (any order).
     fn keys(&self) -> Box<dyn Iterator<Item = ResKey> + '_>;
     fn len(&self) -> usize;
@@ -229,6 +241,20 @@ impl Container for ErfContainer {
         mg_erf::entry_data(&raw, &stored).map(|d| Cow::Owned(d.into_owned())).map_err(|err| {
             ResError::Container { path: self.path.clone(), message: err.to_string() }
         })
+    }
+
+    fn read_start(&self, key: &ResKey, n: usize) -> Result<Cow<'_, [u8]>, ResError> {
+        let e = self.entries.get(key).ok_or(ResError::NotFound(*key))?;
+        // (A compressed resource is read whole, to be decompressed.)
+        if e.compression != mg_erf::Compression::None || u64::from(e.offset) >= ERF_READ_LIMIT {
+            let mut data = self.read(key)?.into_owned();
+            data.truncate(n);
+            return Ok(Cow::Owned(data));
+        }
+        let mut start = vec![0; n.min(e.disk_size as usize)];
+        read_exact_at(&self.file, &mut start, u64::from(e.offset))
+            .map_err(|err| ResError::io(&self.path, err))?;
+        Ok(Cow::Owned(start))
     }
 
     fn keys(&self) -> Box<dyn Iterator<Item = ResKey> + '_> {
