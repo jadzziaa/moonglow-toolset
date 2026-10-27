@@ -200,13 +200,11 @@ pub(crate) fn grid(
     }
     ui.horizontal(|ui| {
         let field = ui.id().with("gallery-filter-field");
-        crate::widgets::pane_filter_keys(ui, field, &mut state.filter);
-        ui.add(
-            egui::TextEdit::singleline(&mut state.filter)
-                .id(field)
-                .hint_text("Find")
-                .desired_width(180.0),
-        );
+        crate::widgets::SearchField::new(field, &mut state.filter)
+            .hint("Find")
+            .width(180.0)
+            .find_over()
+            .show(ui);
         size_slider(app, ui);
         ui.weak(format!("{} appearances ({name}.2da)", all.len()));
     });

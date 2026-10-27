@@ -1125,13 +1125,11 @@ fn header(
     ui.horizontal_wrapped(|ui| {
         ui.label("Find");
         let field = ui.id().with(("table-filter", doc.id));
-        crate::widgets::pane_filter_keys(ui, field, &mut doc.filter);
-        ui.add(
-            egui::TextEdit::singleline(&mut doc.filter)
-                .id(field)
-                .desired_width(170.0)
-                .hint_text("text in any cell"),
-        );
+        crate::widgets::SearchField::new(field, &mut doc.filter)
+            .hint("text in any cell")
+            .width(170.0)
+            .find_over()
+            .show(ui);
         ui.label("Go to");
         let go =
             ui.add(egui::TextEdit::singleline(&mut doc.go_to).desired_width(70.0).hint_text("row"));
@@ -1179,14 +1177,17 @@ fn shown_rows(doc: &TableDoc) -> Vec<usize> {
     let description = doc.description().filter(|_| doc.value_names);
     let kinds: Vec<Option<&Kind>> =
         t.columns().iter().map(|c| Some(&description.as_deref()?.column(c)?.kind)).collect();
+    // (Every word in one of the row's cells, or their names.)
     (0..t.len())
         .filter(|&r| {
-            (0..t.columns().len()).any(|c| {
-                t.cell(r, c).is_some_and(|v| {
-                    needle.finds(v)
-                        || kinds[c].and_then(|k| k.named(v)).is_some_and(|n| needle.finds(&n))
-                })
-            })
+            let mut fields = Vec::new();
+            for (c, kind) in kinds.iter().enumerate() {
+                if let Some(v) = t.cell(r, c) {
+                    fields.push(mg_core::text::fold(v));
+                    fields.extend(kind.and_then(|k| k.named(v)).map(|n| mg_core::text::fold(&n)));
+                }
+            }
+            needle.finds_in(&fields.iter().map(String::as_str).collect::<Vec<_>>())
         })
         .collect()
 }

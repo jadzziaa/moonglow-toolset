@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T04:47:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T04:52:09Z }
 ---
 
 # The main window
@@ -145,9 +145,10 @@ The left pane lists what the module holds, by kind: Areas, Conversations,
 Scripts, the blueprints (Creatures, Doors, Encounters, Items,
 Placeables, Sounds, Stores, Triggers, Waypoints) and the journal and factions;
 **Module Properties** is at the top. **Filter** narrows every group to the
-names containing the text, case and accents aside (`arbol` finds `Árbol`,
-as every Filter and Find field of names does: the palettes', the
-resource browser's, a list's); it and Expand All / Collapse All stay in sight
+rows with every word typed in their name or ResRef, in any order, case
+and accents aside (`arbol` finds `Árbol`, `sword iron` finds `Iron
+Sword`, as every Filter and Find field of names does: the palettes', the
+resource browser's, a list's; × clears it); it and Expand All / Collapse All stay in sight
 while the tree scrolls, and Home and End go to the tree's top and bottom
 with the pointer over it. A name too long for the pane goes on past
 its edge, and the tree scrolls sideways to it (Shift and the mouse
@@ -249,16 +250,22 @@ the tree has the keys, wherever the pointer is: the letters typed in
 quick succession go by all of them (`shopt` to `ShopThing`, a space among them as in `beggar's nest:
 t`), case and accents aside, and a pause of a second starts over; one
 letter, or the same letter again and again, goes to the next row that
-begins with it, as in Aurora's tree and the conversation tree. A row's
-name is a group's, or a resource's as its row shows it: an area's own
-name where areas are listed by name, else its ResRef. The area's camera
+begins with it, as in Aurora's tree and the conversation tree. The
+letters go by the rows in sight, as they show: a group's name, a
+resource's (an area's own name where areas are listed by name, else its
+ResRef), and in an area opened out a kind's name and, in a kind open,
+a placed object's name (a waypoint's tag). The area's camera
 keys among the letters (W, A, S, D…) don't move the camera meanwhile;
 with the pointer back in an area's view, they are the camera's again. F2 renames and Delete deletes the resource of the row
 under the pointer, or else of the row the keys are at (both ask first,
-as the row's menu does). Ctrl+F goes to the Filter; there, Escape
-clears what is typed, and Escape again, or Down, goes back into the
-rows (the palette's search has the same keys). In the rows, Escape hands
-the keys back. The row the keys are at is marked, and brought into view.
+as the row's menu does). At a placed object, Delete deletes it as its
+menu's **Delete** does (Undo brings it back), and the keys go on to the
+row after it; F2 does nothing there (its name and tag are in its
+Properties). Ctrl+F (**Find**, under Script Editor in **Options › Keyboard**) goes to the
+Filter; there, Escape clears what is typed, and Escape again goes back
+into the rows, where they were; Down goes to the first row the Filter
+finds (the palette's search has the same keys, and Down goes to its
+first row). In the rows, Escape hands the keys back. The row the keys are at is marked, and brought into view.
 
 ## Tabs and windows
 
@@ -424,8 +431,10 @@ over the browser, goes to it; Escape clears what is typed, and Escape
 again leaves it; Down goes into the list, where Up and Down (Page Up,
 Page Down, Home, End) choose a row and Enter opens it. A click on a row
 gives the list the keys too. The **Find** fields of the hak editor, the
-tileset editor and the Appearance Gallery take Ctrl+F and Escape the
-same way.
+tileset editor, the 2DA editor and the Appearance Gallery take Ctrl+F
+and Escape the same way, with the pointer over them. Ctrl+F is
+**Find** in **Options › Keyboard** (under Script Editor): the keys given to it there go to
+every search field.
 
 A 2DA shows the copy the game reads, read-only, with its StrRef columns
 (Name, Description, StrRef and the like) as their text; **StrRefs as

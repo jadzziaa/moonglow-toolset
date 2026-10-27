@@ -744,6 +744,9 @@ pub struct Moonglow {
     pub tree_cursor: Option<tree::TreeAt>,
     pub(crate) tree_cursor_moved: bool,
     pub(crate) tree_fold: Option<(tree::TreeAt, bool)>,
+    /// The keys come from the Filter by Down: to the first row it matches
+    /// once the rows are laid out.
+    pub(crate) tree_to_match: bool,
     pub import: Option<ImportDraft>,
     /// An action waiting for the answer to "save changes?".
     pub confirm_discard: Option<Action>,
@@ -1008,6 +1011,7 @@ impl Moonglow {
             tree_cursor: None,
             tree_cursor_moved: false,
             tree_fold: None,
+            tree_to_match: false,
             import: None,
             confirm_discard: None,
             module_folder: None,
@@ -2297,6 +2301,8 @@ impl Moonglow {
             plugins::register_keys(&mut self.keymap, &commands);
             self.keymap_from = self.settings.key_bindings.clone();
         }
+        // (Find's keys, for the search fields.)
+        self.keymap.share_find(ui.ctx());
         // Options › Keyboard takes the next key itself, and the Command
         // Palette what is typed into it.
         if self.options.as_ref().is_some_and(|o| o.recording.is_some())

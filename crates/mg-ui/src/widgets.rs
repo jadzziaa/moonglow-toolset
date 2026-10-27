@@ -1611,15 +1611,17 @@ pub(crate) enum FilterLeft {
     Escape,
 }
 
-/// The keys of a pane's filter field (GitHub issue 12), to be called
-/// before the field (whose id is `id`) is added: `find` (Ctrl+F in the
-/// pane) goes to it; in it, Escape clears what is typed, and Escape
-/// again or Down leaves it for the pane's list.
-pub(crate) fn filter_keys(
+/// The keys of a search field (GitHub issue 12), read before the field
+/// (whose id is `id`) is added: `find` (Find's keys where it takes them)
+/// gives it the keyboard; in it, Escape clears what is typed, and Escape
+/// again leaves it; Down leaves it for the list where `down` says so (else
+/// it is the field's own).
+fn field_keys(
     ui: &mut egui::Ui,
     id: egui::Id,
     text: &mut String,
     find: bool,
+    down: bool,
 ) -> Option<FilterLeft> {
     if find {
         ui.memory_mut(|m| m.request_focus(id));
@@ -1643,7 +1645,7 @@ pub(crate) fn filter_keys(
         ui.data_mut(|d| d.insert_temp(had_id, true));
         return None;
     }
-    if has && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)) {
+    if down && has && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown)) {
         ui.memory_mut(|m| m.surrender_focus(id));
         ui.data_mut(|d| d.insert_temp(had_id, false));
         return Some(FilterLeft::Down);
@@ -1651,19 +1653,115 @@ pub(crate) fn filter_keys(
     None
 }
 
-/// [`filter_keys`] for the filter field of a tab or a window that has no
-/// keys of its own for its list: Ctrl+F goes to the field while the
-/// pointer is over the tab (what of it shows: `ui`'s clip), and Escape
-/// clears it, then leaves it.
-pub(crate) fn pane_filter_keys(
-    ui: &mut egui::Ui,
+/// Whether Find's keys (Ctrl+F, or what Options › Keyboard gave it) were
+/// pressed for a search field that takes them `here` (its pane has the
+/// keys, the pointer is over its tab...): used up then, and not while a
+/// text field has the keyboard.
+fn find_here(ui: &egui::Ui, here: bool) -> bool {
+    here && !ui.ctx().egui_wants_keyboard_input() && crate::keys::find_pressed(ui.ctx())
+}
+
+/// A list's search field: what it looks in said in the field while it is
+/// empty (`hint`), a button to clear it, and its keys (GitHub issue 12):
+/// Find's (Ctrl+F) go to it where the caller says
+/// ([`SearchField::find_when`], [`SearchField::find_over`]); in it, Escape
+/// clears what is typed, and Escape again leaves it; Down leaves it for
+/// the list where the list has keys of its own ([`SearchField::down`]).
+/// What it finds is the caller's, by [`mg_core::text::Needle`].
+pub(crate) struct SearchField<'a> {
     id: egui::Id,
-    text: &mut String,
-) -> Option<FilterLeft> {
-    let find = ui.rect_contains_pointer(ui.clip_rect())
-        && !ui.ctx().egui_wants_keyboard_input()
-        && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::F));
-    filter_keys(ui, id, text, find)
+    text: &'a mut String,
+    hint: &'a str,
+    clear_tip: &'a str,
+    find: Option<bool>,
+    find_over: bool,
+    down: bool,
+    width: Option<f32>,
+}
+
+/// What a [`SearchField`] did: the field's response, and how its keys
+/// left it, if they did.
+pub(crate) struct Searched {
+    pub response: egui::Response,
+    pub left: Option<FilterLeft>,
+}
+
+impl<'a> SearchField<'a> {
+    pub(crate) fn new(id: egui::Id, text: &'a mut String) -> SearchField<'a> {
+        SearchField {
+            id,
+            text,
+            hint: "",
+            clear_tip: "Clear the search",
+            find: None,
+            find_over: false,
+            down: false,
+            width: None,
+        }
+    }
+
+    /// What the field says while it is empty.
+    pub(crate) fn hint(mut self, hint: &'a str) -> Self {
+        self.hint = hint;
+        self
+    }
+
+    /// What the pointer over its clear button says.
+    pub(crate) fn clear_tip(mut self, tip: &'a str) -> Self {
+        self.clear_tip = tip;
+        self
+    }
+
+    /// Find's keys go to it when `here` (a pane's: while the pane has the
+    /// keys).
+    pub(crate) fn find_when(mut self, here: bool) -> Self {
+        self.find = Some(here);
+        self
+    }
+
+    /// Find's keys go to it while the pointer is over what the `ui` it is
+    /// shown in shows (a tab's or a window's).
+    pub(crate) fn find_over(mut self) -> Self {
+        self.find_over = true;
+        self
+    }
+
+    /// Down leaves it for the list ([`FilterLeft::Down`]).
+    pub(crate) fn down(mut self) -> Self {
+        self.down = true;
+        self
+    }
+
+    /// Its width, clear button aside (else the room there is).
+    pub(crate) fn width(mut self, width: f32) -> Self {
+        self.width = Some(width);
+        self
+    }
+
+    pub(crate) fn show(self, ui: &mut egui::Ui) -> Searched {
+        let SearchField { id, text, hint, clear_tip, find, find_over, down, width } = self;
+        let here = find.unwrap_or(false) || (find_over && ui.rect_contains_pointer(ui.clip_rect()));
+        let find = find_here(ui, here);
+        let left = field_keys(ui, id, text, find, down);
+        let response = ui
+            .horizontal(|ui| {
+                let clear = !text.is_empty();
+                let button = if clear { 26.0 } else { 0.0 };
+                let room = width.unwrap_or(ui.available_width() - button).max(60.0);
+                let r = ui.add(
+                    egui::TextEdit::singleline(&mut *text)
+                        .id(id)
+                        .hint_text(hint)
+                        .desired_width(room),
+                );
+                if clear && ui.small_button("×").on_hover_text(clear_tip).clicked() {
+                    text.clear();
+                }
+                r
+            })
+            .inner;
+        Searched { response, left }
+    }
 }
 
 /// Two columns side by side where each gets at least `min` points, else one

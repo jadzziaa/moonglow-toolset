@@ -1507,8 +1507,8 @@ pub(crate) struct Row {
 /// then the rest of the Build menu). The enabled plugins' commands are
 /// among them.
 pub(crate) fn found(app: &Moonglow, filter: &str) -> Vec<Row> {
-    let words: Vec<String> = filter.split_whitespace().map(str::to_lowercase).collect();
-    let has_all = |text: &str| words.iter().all(|w| text.contains(w));
+    let needle = mg_core::text::Needle::new(filter);
+    let has_all = |text: &str| needle.finds(text);
     let window =
         Id::all().into_iter().filter(|id| *id != Id::CommandPalette && id.shown(app)).map(|id| {
             Row {

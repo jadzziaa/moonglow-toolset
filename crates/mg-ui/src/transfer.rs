@@ -422,7 +422,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             });
             ui.horizontal(|ui| {
                 crate::widgets::field_label(ui, "Filter");
-                let field = ui.text_edit_singleline(&mut draft.filter);
+                let width = ui.spacing().text_edit_width;
+                let field = crate::widgets::SearchField::new(
+                    ui.id().with("transfer-filter-field"),
+                    &mut draft.filter,
+                )
+                .width(width)
+                .find_over()
+                .show(ui)
+                .response;
                 crate::widgets::autofocus(ui, &field);
             });
             let filter = mg_core::text::Needle::new(&draft.filter);

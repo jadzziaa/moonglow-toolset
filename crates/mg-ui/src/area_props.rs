@@ -872,7 +872,7 @@ impl AreaChooser {
     /// Whether an area passes the filters.
     pub(crate) fn shows(&self, area: ResRef, info: &crate::tree::AreaInfo) -> bool {
         let text = mg_core::text::Needle::new(&self.filter);
-        (text.finds(&area.to_string()) || text.finds(&info.name))
+        text.finds_in(&[&area.to_string().to_ascii_lowercase(), &mg_core::text::fold(&info.name)])
             && self.tileset.is_none_or(|t| t == info.tileset)
             && FLAG_FILTERS
                 .iter()

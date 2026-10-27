@@ -424,13 +424,11 @@ fn gallery(f: &mut Form<'_>, ui: &mut Ui) -> Option<(Option<usize>, String, ResR
         ui.label(format!("To draw {} with", state.old));
         ui.horizontal(|ui| {
             let field = id.with("filter");
-            crate::widgets::pane_filter_keys(ui, field, &mut state.filter);
-            ui.add(
-                egui::TextEdit::singleline(&mut state.filter)
-                    .id(field)
-                    .hint_text("Find")
-                    .desired_width(180.0),
-            );
+            crate::widgets::SearchField::new(field, &mut state.filter)
+                .hint("Find")
+                .width(180.0)
+                .find_over()
+                .show(ui);
             crate::appearance_gallery::size_slider(f.app, ui);
             ui.weak(format!("{} of {} textures", shown.len(), state.names.len())).on_hover_text(
                 "DDS and TGA textures of the game, the haks and the module (no \

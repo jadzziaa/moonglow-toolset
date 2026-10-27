@@ -113,7 +113,7 @@ pub(crate) fn palette_picker(
     let list = egui::ScrollArea::vertical().id_salt(state_id.with("tree")).max_height(height);
     list.auto_shrink([false, true]).show(ui, |ui| {
         if let (Some(p), Some(game)) = (palette, game) {
-            let filter = mg_core::text::fold(filter.trim());
+            let filter = mg_core::text::Needle::new(&filter);
             for (i, node) in p.nodes.iter().enumerate() {
                 tree(ui, game, node, &filter, &mut chosen, &mut taken, state_id, &[i], (kind, add));
             }
@@ -157,20 +157,26 @@ fn tree(
     ui: &mut Ui,
     game: &mg_rules::GameData,
     node: &PaletteNode,
-    filter: &str,
+    filter: &mg_core::text::Needle,
     chosen: &mut Option<ResRef>,
     taken: &mut Option<ResRef>,
     salt: egui::Id,
     path: &[usize],
     (kind, add): (BlueprintKind, &str),
 ) {
-    fn any(n: &PaletteNode, game: &mg_rules::GameData, filter: &str) -> bool {
-        n.blueprints.iter().any(|b| {
-            mg_core::text::fold(&b.name.text(game)).contains(filter)
-                || b.resref.to_string().contains(filter)
-        }) || n.children.iter().any(|c| any(c, game, filter))
+    // (Every word in its name or its ResRef, as the palettes find them.)
+    let finds = |name: &str, resref: ResRef| {
+        filter.finds_in(&[&mg_core::text::fold(name), &resref.to_string().to_ascii_lowercase()])
+    };
+    fn any(
+        n: &PaletteNode,
+        game: &mg_rules::GameData,
+        finds: &dyn Fn(&str, ResRef) -> bool,
+    ) -> bool {
+        n.blueprints.iter().any(|b| finds(&b.name.text(game), b.resref))
+            || n.children.iter().any(|c| any(c, game, finds))
     }
-    if !filter.is_empty() && !any(node, game, filter) {
+    if !filter.is_empty() && !any(node, game, &finds) {
         return;
     }
     // While filtering, every branch with a match is open.
@@ -185,10 +191,7 @@ fn tree(
             }
             for b in &node.blueprints {
                 let name = b.name.text(game);
-                if !filter.is_empty()
-                    && !mg_core::text::fold(&name).contains(filter)
-                    && !b.resref.to_string().contains(filter)
-                {
+                if !filter.is_empty() && !finds(&name, b.resref) {
                     continue;
                 }
                 let label = match b.cr {

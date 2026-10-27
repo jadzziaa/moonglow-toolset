@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use egui::Ui;
+use mg_core::text::Needle;
 use mg_core::{ResRef, ResType};
 use mg_edit::Workspace;
 use mg_gff::Gff;
@@ -288,7 +289,7 @@ fn contents_ui(
     ui: &mut Ui,
     area: ResRef,
     contents: &AreaContents,
-    filter: &str,
+    filter: &Needle,
     go: &mut Option<(ResRef, mg_area::ObjectKind, usize, Asked)>,
     // The object in hand (its row marked), and whether to go to it.
     in_hand: Option<(mg_area::ObjectKind, usize, bool)>,
@@ -297,7 +298,7 @@ fn contents_ui(
     commands: &[crate::plugins::PluginCommand],
 ) -> bool {
     let mut went = false;
-    let matches = |row: &ObjectRow| row.sought.contains(filter);
+    let matches = |row: &ObjectRow| filter.finds_folded(&row.sought);
     let filtered = !filter.is_empty() && contents.iter().any(|c| c.rows.iter().any(&matches));
     ui.indent(("area-contents", area), |ui| {
         for KindContents { kind, rows, order } in contents {
@@ -344,7 +345,7 @@ fn contents_ui(
             } else if let Some((_, open)) = keys.fold.filter(|f| f.0 == TreeAt::Kind(area, *kind)) {
                 header = header.open(Some(open));
             }
-            let clicked = &mut keys.clicked;
+            let (clicked, hovered) = (&mut keys.clicked, &mut keys.hovered);
             let shown_header = header.show(ui, |ui| {
                 // The rows in view, and room for those above and below.
                 let font = egui::TextStyle::Button.resolve(ui.style());
@@ -388,8 +389,7 @@ fn contents_ui(
                 room(ui, first);
                 for &index in &shown[first..last] {
                     let object = &rows[index];
-                    let text =
-                        if object.text.is_empty() { "(no name)" } else { object.text.as_str() };
+                    let text = if object.text.is_empty() { NO_NAME } else { object.text.as_str() };
                     let is_marked =
                         marked.is_some_and(|m| m.1 == index) || at_object == Some(index);
                     let how = "Click to go to it in the area; double-click for its Properties; \
@@ -407,6 +407,9 @@ fn contents_ui(
                     }
                     if r.clicked() {
                         *clicked = Some(TreeAt::Object(area, *kind, index));
+                    }
+                    if r.hovered() {
+                        *hovered = Some(TreeAt::Object(area, *kind, index));
                     }
                     r.context_menu(|ui| {
                         // Variables and Properties last, as in Aurora.
@@ -452,13 +455,14 @@ fn contents_ui(
 }
 
 /// The keys' part in an area's contents: where their cursor is, whether
-/// it just moved, a kind they open or close; and back, the row clicked
-/// and what was listed.
+/// it just moved, a kind they open or close; and back, the row clicked,
+/// the object's row under the pointer and what was listed.
 struct ContentKeys {
     cursor: Option<TreeAt>,
     moved: bool,
     fold: Option<(TreeAt, bool)>,
     clicked: Option<TreeAt>,
+    hovered: Option<TreeAt>,
     listed: Vec<(mg_area::ObjectKind, bool, Vec<usize>)>,
 }
 
@@ -484,49 +488,38 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
     }
     let filter_id = egui::Id::new("tree-filter");
     let mut filter = app.buffers.get(&filter_id).cloned().unwrap_or_default();
-    // Ctrl+F, with the keys the tree's and the pointer over its pane,
-    // goes to the Filter; Down from the Filter goes into the rows.
-    let find = crate::palette_view::keys_are(ui.ctx(), crate::palette_view::Keys::Tree)
-        && app.tree_cursor.is_some()
-        && !ui.ctx().egui_wants_keyboard_input()
-        && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::F));
-    // (Escape there clears what is typed; again, or Down, back to the
-    // rows.)
-    let field_id = egui::Id::new("tree-filter-field");
-    let left = crate::widgets::filter_keys(ui, field_id, &mut filter, find);
     // As the palettes' pane: the search across the pane, with what it
     // looks in said and a button to clear it; under it the list's own
-    // small toolbar.
+    // small toolbar. Find's keys (Ctrl+F), with the keys the tree's, go to
+    // it; Escape there clears what is typed; again, back to the rows, and
+    // Down to the first row it finds.
     // (The button that folds the pane away is on its edge: GitHub issue
     // 10, `Moonglow::pane_edge`.)
-    ui.horizontal(|ui| {
-        let clear = !filter.is_empty();
-        let room = ui.available_width() - if clear { 26.0 } else { 0.0 };
-        ui.add(
-            egui::TextEdit::singleline(&mut filter)
-                .id(field_id)
-                .hint_text("🔍 Filter name, resref")
-                .desired_width(room.max(60.0)),
-        );
-        if clear && ui.small_button("×").on_hover_text("Clear the filter").clicked() {
-            filter.clear();
-        }
-    });
+    let here = crate::palette_view::keys_are(ui.ctx(), crate::palette_view::Keys::Tree)
+        && app.tree_cursor.is_some();
+    let left = crate::widgets::SearchField::new(egui::Id::new("tree-filter-field"), &mut filter)
+        .hint("🔍 Filter name, resref")
+        .clear_tip("Clear the filter")
+        .find_when(here)
+        .down()
+        .show(ui)
+        .left;
     if let Some(left) = left {
-        if left == crate::widgets::FilterLeft::Down || app.tree_cursor.is_none() {
-            app.tree_cursor = Some(TreeAt::Group(GROUPS[0].0));
+        if left == crate::widgets::FilterLeft::Down {
+            app.tree_to_match = true;
+        } else if app.tree_cursor.is_none() {
+            app.tree_cursor = Some(first_row());
         }
         app.tree_cursor_moved = true;
         crate::palette_view::give_keys(ui.ctx(), crate::palette_view::Keys::Tree);
     }
     app.buffers.insert(filter_id, filter.clone());
-    // (As the names it is looked for in are folded: case and accents
-    // aside, `arbol` finding `Árbol`.)
-    let filter = mg_core::text::fold(&filter);
+    // (Every word, case and accents aside: `arbol` finds `Árbol`.)
+    let filter = Needle::new(&filter);
     // Every group opened or closed at once (this frame). A filter typed
     // opens every group with a match, as it is typed: they can be closed
     // again after.
-    let typed = crate::widgets::text_changed(ui, filter_id, &filter) && !filter.is_empty();
+    let typed = crate::widgets::text_changed(ui, filter_id, filter.as_str()) && !filter.is_empty();
     let mut fold = None;
     ui.horizontal(|ui| {
         fold = crate::palette_view::fold_icons(ui, "group");
@@ -546,7 +539,7 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
         // (Rows out of sight are not laid out: the widest drawn since the
         // filter changed keeps the width scrolled through, which then
         // doesn't change as rows go by.)
-        let widest = egui::Id::new(("tree-widest", &filter));
+        let widest = egui::Id::new(("tree-widest", filter.as_str()));
         let drawn = ui.min_rect().right() - left;
         let width = ui.data_mut(|d| {
             let w = d.get_temp_mut_or(widest, 0.0_f32);
@@ -697,39 +690,55 @@ type Shown = Vec<(&'static str, bool, Vec<ResKey>)>;
 /// the conversation tree ([`crate::dialog_view::type_ahead`]): one
 /// letter, or the same again and again, the next row after `at` beginning
 /// with it; else the first from `at` on (itself first, round the end)
-/// whose name begins with them all, case and accents aside. A row's name
-/// is a group's, or a resource's as its row shows it (`named`: an area's
-/// or a blueprint's name where they are listed by name; else its ResRef);
-/// from inside an area opened out, its row is where the search begins.
+/// whose name begins with them all, case and accents aside. The rows are
+/// those in sight, in order ([`key_rows`]): an area opened out has its
+/// kinds' rows, and a kind open its placed objects'. A row's name is what
+/// it shows (`text`: a group's or a kind's name without its count; a
+/// resource's, an area's or a blueprint's name where they are listed by
+/// name, else its ResRef; an object's name, or a waypoint's tag).
 fn seek(
     shown: &Shown,
+    outs: &Outs,
     at: Option<TreeAt>,
     typed: &str,
-    named: &dyn Fn(&ResKey) -> Option<String>,
+    text: &dyn Fn(TreeAt) -> String,
 ) -> Option<TreeAt> {
-    let rows: Vec<(TreeAt, String)> = shown
-        .iter()
-        .flat_map(|(name, open, keys)| {
-            let inside = keys
-                .iter()
-                .filter(move |_| *open)
-                .map(|k| (TreeAt::Resource(*k), named(k).unwrap_or_else(|| k.resref.to_string())));
-            std::iter::once((TreeAt::Group(name), name.to_string())).chain(inside)
-        })
-        .collect();
-    let at = match at {
-        Some(TreeAt::Kind(area, _) | TreeAt::Object(area, ..)) => {
-            Some(TreeAt::Resource(ResKey::new(area, ResType::ARE)))
-        }
-        at => at,
-    };
+    let rows: Vec<TreeAt> = key_rows(shown, outs).into_iter().map(|r| r.0).collect();
     // (No row: from the first, itself first.)
-    let from = at.and_then(|at| rows.iter().position(|r| r.0 == at));
+    let from = at.and_then(|at| rows.iter().position(|r| *r == at));
     let from = from.unwrap_or(rows.len().saturating_sub(1));
-    let texts: Vec<String> = rows.iter().map(|r| mg_core::text::fold(&r.1)).collect();
+    let texts: Vec<String> = rows.iter().map(|r| mg_core::text::fold(&text(*r))).collect();
     let to = crate::dialog_view::type_ahead(&texts, from, &mg_core::text::fold(typed))?;
-    Some(rows[to].0)
+    Some(rows[to])
 }
+
+/// A row's text as the module tree shows it, for the letters typed
+/// ([`seek`]): `named` gives a resource's name where it is listed by name,
+/// `contents` an area's placed objects as read.
+fn row_text(
+    at: TreeAt,
+    named: &dyn Fn(&ResKey) -> Option<String>,
+    contents: &HashMap<ResRef, (u64, AreaContents)>,
+) -> String {
+    match at {
+        TreeAt::Group(name) => name.to_string(),
+        TreeAt::Resource(k) => named(&k).unwrap_or_else(|| k.resref.to_string()),
+        TreeAt::Kind(_, kind) => kind.label().to_string(),
+        TreeAt::Object(area, kind, index) => {
+            let row = (contents.get(&area).into_iter())
+                .flat_map(|(_, c)| c.iter())
+                .find(|c| c.kind == kind)
+                .and_then(|c| c.rows.get(index));
+            match row {
+                Some(r) if !r.text.is_empty() => r.text.clone(),
+                _ => NO_NAME.to_string(),
+            }
+        }
+    }
+}
+
+/// What a placed object's row says that has no name (nor tag).
+const NO_NAME: &str = "(no name)";
 
 fn step(shown: &Shown, outs: &Outs, at: Option<TreeAt>, key: egui::Key) -> Step {
     use egui::Key;
@@ -766,7 +775,30 @@ fn step(shown: &Shown, outs: &Outs, at: Option<TreeAt>, key: egui::Key) -> Step 
     }
 }
 
-fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) {
+/// Where the keys' cursor (`cursor`) is once the placed object `deleted`
+/// is deleted: at it, on the row after it among its kind's (else the one
+/// before, else its kind's row); at another of its kind's, at that one
+/// still (the objects after it move up their area's list).
+fn past_deleted(shown: &Shown, outs: &Outs, cursor: TreeAt, deleted: TreeAt) -> TreeAt {
+    let TreeAt::Object(area, kind, index) = deleted else { return cursor };
+    let moved_up = |at: TreeAt| match at {
+        TreeAt::Object(a, k, i) if a == area && k == kind && i > index => {
+            TreeAt::Object(a, k, i - 1)
+        }
+        at => at,
+    };
+    if cursor != deleted {
+        return moved_up(cursor);
+    }
+    let rows = key_rows(shown, outs);
+    let at = rows.iter().position(|r| r.0 == deleted);
+    let sibling = |r: &&(TreeAt, usize, Option<bool>)| matches!(r.0, TreeAt::Object(a, k, _) if a == area && k == kind);
+    let next = at.and_then(|at| rows.get(at + 1)).filter(sibling);
+    let before = at.and_then(|at| at.checked_sub(1)).and_then(|at| rows.get(at)).filter(sibling);
+    next.or(before).map_or(TreeAt::Kind(area, kind), |r| moved_up(r.0))
+}
+
+fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool>) {
     follow_selection(app);
     // The rows shown, for the keys; a group the keys opened or closed.
     let mut shown: Shown = Vec::new();
@@ -775,8 +807,9 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
     let cursor = app.tree_cursor;
     let cursor_moved = std::mem::take(&mut app.tree_cursor_moved);
     let mut clicked = None;
-    // The resource row under the pointer.
+    // The resource row under the pointer, and the placed object's.
     let mut pointed = None;
+    let mut pointed_object = None;
     // The plugins' commands for right-click menus, and one chosen on a
     // resource's row.
     let menu_commands = app.plugin_menu_commands();
@@ -790,7 +823,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
     // The object selected is still to be gone to, next frame.
     let mut object_waits = false;
     let (by_name, resrefs) = (app.settings.area_names, app.settings.name_resrefs);
-    let filter = filter.to_string();
+    let filter = filter.clone();
     if ui.selectable_label(false, "Module Properties").clicked() {
         app.actions.push(Action::OpenTab(Tab::ModuleProperties));
     }
@@ -837,6 +870,9 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
     // The resource to bring into view is in a group still opening: gone
     // to when it is open (its rows are where they will be then).
     let mut opening = false;
+    // The resources the filter finds by their own ResRef or name (not
+    // only by what is placed in them).
+    let mut matched: Vec<ResKey> = Vec::new();
     for ((name, types), (all, names)) in GROUPS.iter().zip(lists.iter()) {
         listed += all.len();
         // (An area opened out stays for what is placed in it, too.)
@@ -845,16 +881,25 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                 && ui.data(|d| d.get_temp(egui::Id::new(("tree-area-open", k.resref))))
                     == Some(true)
                 && app.area_contents.get(&k.resref).is_some_and(|(_, contents)| {
-                    contents.iter().any(|c| c.rows.iter().any(|r| r.sought.contains(&filter)))
+                    contents.iter().any(|c| c.rows.iter().any(|r| filter.finds_folded(&r.sought)))
                 })
         };
+        // (Every word in its ResRef or its name, in any order.)
+        let own = |k: &ResKey| {
+            let name = names.get(k).map(|n| mg_core::text::fold(n)).unwrap_or_default();
+            filter.finds_in(&[&k.to_string().to_ascii_lowercase(), &name])
+        };
         let found: Option<Vec<ResKey>> = (!filter.is_empty()).then(|| {
-            let finds = |k: &ResKey| {
-                k.to_string().contains(&filter)
-                    || names.get(k).is_some_and(|n| mg_core::text::fold(n).contains(&filter))
-                    || holds(k)
-            };
-            all.iter().copied().filter(finds).collect()
+            let mut found = Vec::new();
+            for &k in all {
+                if own(&k) {
+                    matched.push(k);
+                    found.push(k);
+                } else if holds(&k) {
+                    found.push(k);
+                }
+            }
+            found
         });
         let keys: &[ResKey] = found.as_deref().unwrap_or(all);
         // What makes a new resource of the group (its wizard, or the New
@@ -987,6 +1032,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                                     moved: cursor_moved,
                                     fold: folded,
                                     clicked: None,
+                                    hovered: None,
                                     listed: Vec::new(),
                                 };
                                 let went = contents_ui(
@@ -1008,6 +1054,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                                     ui.ctx().request_repaint();
                                 }
                                 clicked = keys.clicked.or(clicked);
+                                pointed_object = keys.hovered.or(pointed_object);
                                 outs.insert(k.resref, keys.listed);
                             }
                             None => {
@@ -1231,6 +1278,23 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
     }
     let others = ws.module.len() - listed;
     ui.weak(format!("{others} other resources"));
+    // Down from the Filter: to the first row in sight that it finds (a
+    // resource by its ResRef or name, a placed object: an area listed for
+    // its objects alone is passed over for them), else the first row.
+    // (An object listed under the filter is one it found, or one of an
+    // area found itself, which comes first.)
+    if std::mem::take(&mut app.tree_to_match) {
+        let rows = key_rows(&shown, &outs);
+        let found = |at: &TreeAt| match at {
+            TreeAt::Resource(k) => matched.contains(k),
+            TreeAt::Object(..) => true,
+            _ => false,
+        };
+        let first = rows.iter().map(|r| r.0).find(|at| !filter.is_empty() && found(at));
+        app.tree_cursor = first.or(Some(first_row()));
+        app.tree_cursor_moved = true;
+        ui.ctx().request_repaint();
+    }
     // A click in the tree gives it the arrow keys (as the palette's),
     // wherever the pointer goes after until it is in an area's view: Up
     // and Down go from row to row (Page Up and Down by ten, Home and End
@@ -1322,6 +1386,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
             letters
         });
         let named = |k: &ResKey| lists.iter().find_map(|(_, names)| names.get(k).cloned());
+        let text = |at: TreeAt| row_text(at, &named, &app.area_contents);
         let mut to = None;
         for c in letters.iter().copied() {
             if now - typed_at > crate::dialog_view::TYPE_AHEAD {
@@ -1329,7 +1394,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
             }
             typed.push(c);
             typed_at = now;
-            to = seek(&shown, to.or(app.tree_cursor), &typed, &named).or(to);
+            to = seek(&shown, &outs, to.or(app.tree_cursor), &typed, &text).or(to);
         }
         if !letters.is_empty() {
             ui.data_mut(|d| d.insert_temp(typed_id, (typed, typed_at)));
@@ -1340,18 +1405,29 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
             ui.ctx().request_repaint();
         }
         // F2 and Delete on the row under the pointer, else at the
-        // cursor's resource, as its menu's Rename… and Delete… (both ask).
-        let at_cursor = match app.tree_cursor {
-            Some(TreeAt::Resource(k)) => Some(k),
-            _ => None,
-        };
-        if let Some(k) = pointed.or(at_cursor) {
-            if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::F2)) {
-                app.actions.push(Action::RenameDialog(k));
+        // cursor's: a resource's as its menu's Rename… and Delete… (both
+        // ask); a placed object's Delete as its menu's (undone as any
+        // change; the keys go on to the row after it). F2 does nothing at
+        // a placed object: its menu has no Rename (nor has Aurora's), its
+        // name and tag are its Properties'.
+        let under = pointed.map(TreeAt::Resource).or(pointed_object).or(app.tree_cursor);
+        match under {
+            Some(TreeAt::Resource(k)) => {
+                if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::F2)) {
+                    app.actions.push(Action::RenameDialog(k));
+                }
+                if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Delete)) {
+                    app.actions.push(Action::DeleteDialog(k));
+                }
             }
-            if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Delete)) {
-                app.actions.push(Action::DeleteDialog(k));
+            Some(at @ TreeAt::Object(area, kind, index))
+                if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Delete)) =>
+            {
+                go = Some((area, kind, index, Asked::Delete));
+                app.tree_cursor = app.tree_cursor.map(|c| past_deleted(&shown, &outs, c, at));
+                ui.ctx().request_repaint();
             }
+            _ => {}
         }
         match pressed.map_or(Step::None, |key| step(&shown, &outs, app.tree_cursor, key)) {
             Step::To(at) => {
@@ -1448,6 +1524,12 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                 if let Some(view) = app.area_views.get_mut(&area) {
                     view.selection.clear();
                 }
+                // (Nor is the one marked: the keys' cursor stays where it
+                // was put, rather than follow the selection cleared.)
+                if app.tree_object.is_some_and(|(a, ..)| a == area) {
+                    app.tree_object = None;
+                    app.tree_object_pending = false;
+                }
                 crate::tabs::close_tabs(&mut app.dock, |t| {
                     !matches!(t, Tab::Instance { area: a, .. } | Tab::Instances { area: a, .. }
                         if *a == area)
@@ -1538,29 +1620,30 @@ mod tests {
         // Enter opens a resource, and opens or closes a group.
         assert_eq!(step(&shown, &outs, at(a), Key::Enter), Step::Open(a));
         // A letter: the next row that begins with it, round the end.
+        let contents = HashMap::new();
+        let by = |named: &dyn Fn(&ResKey) -> Option<String>, at, typed: &str| {
+            seek(&shown, &outs, at, typed, &|r| row_text(r, named, &contents))
+        };
         let none = |_: &ResKey| None;
-        assert_eq!(seek(&shown, Some(areas), "s", &none), Some(scripts));
-        assert_eq!(seek(&shown, Some(scripts), "A", &none), Some(areas));
-        assert_eq!(seek(&shown, None, "c", &none), Some(TreeAt::Group("Conversations")));
-        assert_eq!(seek(&shown, Some(areas), "z", &none), None);
+        assert_eq!(by(&none, Some(areas), "s"), Some(scripts));
+        assert_eq!(by(&none, Some(scripts), "A"), Some(areas));
+        assert_eq!(by(&none, None, "c"), Some(TreeAt::Group("Conversations")));
+        assert_eq!(by(&none, Some(areas), "z"), None);
         // Listed by name, a row is found by its name's letter, not its
         // ResRef's.
         let named = |k: &ResKey| (*k == b).then(|| "Zhentil Keep (b)".to_string());
-        assert_eq!(seek(&shown, Some(areas), "z", &named), at(b));
-        assert_eq!(seek(&shown, at(a), "b", &named), None);
+        assert_eq!(by(&named, Some(areas), "z"), at(b));
+        assert_eq!(by(&named, at(a), "b"), None);
         // Letters typed in quick succession: the row that begins with them
-        // all, case and accents aside, a space among them; from inside an
-        // area opened out, from the area's row on.
+        // all, case and accents aside, a space among them.
         let names =
             |k: &ResKey| Some(if *k == a { "Shop" } else { "Shop Thing, Árbol" }.to_string());
-        assert_eq!(seek(&shown, Some(areas), "sho", &names), at(a), "the first, itself first");
-        assert_eq!(seek(&shown, Some(areas), "shopt", &names), None);
-        assert_eq!(seek(&shown, Some(areas), "SHOP T", &names), at(b));
-        assert_eq!(seek(&shown, Some(areas), "shop thing, arb", &names), at(b));
-        assert_eq!(seek(&shown, at(a), "shop", &names), at(a));
-        assert_eq!(seek(&shown, at(a), "ss", &names), at(b), "the same letter: the next");
-        let inside = Some(TreeAt::Kind(b.resref, mg_area::ObjectKind::Creature));
-        assert_eq!(seek(&shown, inside, "sh", &names), at(b));
+        assert_eq!(by(&names, Some(areas), "sho"), at(a), "the first, itself first");
+        assert_eq!(by(&names, Some(areas), "shopt"), None);
+        assert_eq!(by(&names, Some(areas), "SHOP T"), at(b));
+        assert_eq!(by(&names, Some(areas), "shop thing, arb"), at(b));
+        assert_eq!(by(&names, at(a), "shop"), at(a));
+        assert_eq!(by(&names, at(a), "ss"), at(b), "the same letter: the next");
         assert_eq!(step(&shown, &outs, Some(scripts), Key::Enter), Step::Fold(scripts, true));
         // A row that is gone (its group closed, a filter typed): the first.
         assert_eq!(step(&shown, &outs, at(c), Key::ArrowDown), Step::To(areas));
@@ -1617,6 +1700,87 @@ mod tests {
         );
         assert_eq!(step(&shown, &outs, Some(doors), Key::Enter), Step::Fold(doors, true));
         assert_eq!(step(&shown, &outs, Some(area), Key::Enter), Step::Open(a));
+    }
+
+    /// An area opened out and the placed objects of a kind open, for the
+    /// keys: area `a`'s creatures Goblin (0) and Bandit (1), listed Bandit
+    /// first, its door Gate in a kind closed and its waypoint by its tag
+    /// WP_GATE; area `b` after it.
+    fn opened_out() -> (Shown, Outs, HashMap<ResRef, (u64, AreaContents)>, ResKey, ResKey) {
+        use mg_area::ObjectKind::{Creature, Door, Waypoint};
+        let key = |name: &str| ResKey::parse(name, ResType::ARE).unwrap();
+        let (a, b) = (key("a"), key("b"));
+        let shown: Shown = vec![("Areas", true, vec![a, b])];
+        let mut outs = Outs::new();
+        outs.insert(
+            a.resref,
+            vec![(Creature, true, vec![1, 0]), (Door, false, vec![0]), (Waypoint, true, vec![0])],
+        );
+        let row = |text: &str| ObjectRow {
+            text: text.to_string(),
+            sought: mg_core::text::fold(text),
+            tip: String::new(),
+        };
+        let kind = |kind, rows: Vec<ObjectRow>, order| KindContents { kind, rows, order };
+        let contents = vec![
+            kind(Creature, vec![row("Goblin"), row("Bandit")], vec![1, 0]),
+            kind(Door, vec![row("Gate")], vec![0]),
+            kind(Waypoint, vec![row("WP_GATE")], vec![0]),
+        ];
+        let contents = HashMap::from([(a.resref, (0, contents))]);
+        (shown, outs, contents, a, b)
+    }
+
+    /// Letters typed go to the rows in sight as they show, an area's kinds
+    /// and placed objects among them: a kind by its name, an object by its
+    /// name (a waypoint by its tag), in the order listed; not to one in a
+    /// kind closed.
+    #[test]
+    fn letters_go_to_kinds_and_placed_objects_in_sight() {
+        use mg_area::ObjectKind::{Creature, Door, Waypoint};
+        let (shown, outs, contents, a, b) = opened_out();
+        let none = |_: &ResKey| None;
+        let by =
+            |at, typed: &str| seek(&shown, &outs, at, typed, &|r| row_text(r, &none, &contents));
+        let areas = Some(TreeAt::Group("Areas"));
+        let object = |kind, i| Some(TreeAt::Object(a.resref, kind, i));
+        assert_eq!(by(areas, "c"), Some(TreeAt::Kind(a.resref, Creature)));
+        assert_eq!(by(areas, "goblin"), object(Creature, 0));
+        assert_eq!(by(areas, "ba"), object(Creature, 1));
+        // (The door is in a kind closed: its kind's row is found.)
+        assert_eq!(by(areas, "g"), object(Creature, 0));
+        assert_eq!(by(areas, "d"), Some(TreeAt::Kind(a.resref, Door)));
+        assert_eq!(by(areas, "wp"), object(Waypoint, 0), "a waypoint by its tag");
+        // From an object on, in the order listed, round the end.
+        assert_eq!(by(object(Creature, 1), "w"), Some(TreeAt::Kind(a.resref, Waypoint)));
+        let waypoints = Some(TreeAt::Kind(a.resref, Waypoint));
+        assert_eq!(by(waypoints, "ww"), object(Waypoint, 0), "the same letter: the next");
+        assert_eq!(by(object(Waypoint, 0), "b"), Some(TreeAt::Resource(b)));
+        assert_eq!(by(Some(TreeAt::Resource(b)), "b"), object(Creature, 1));
+    }
+
+    /// Deleted by Delete, a placed object the keys were at leaves them at
+    /// the row after it among its kind's, else the one before, else at the
+    /// kind's; at another of its kind's after it, they follow it up its
+    /// area's list.
+    #[test]
+    fn the_keys_go_past_a_placed_object_deleted() {
+        use mg_area::ObjectKind::{Creature, Waypoint};
+        let (shown, outs, _, a, _) = opened_out();
+        let object = |kind, i| TreeAt::Object(a.resref, kind, i);
+        let (bandit, goblin) = (object(Creature, 1), object(Creature, 0));
+        // Bandit, listed first: Goblin after it (still 0).
+        assert_eq!(past_deleted(&shown, &outs, bandit, bandit), goblin);
+        // Goblin, listed last: Bandit before it, now 0.
+        assert_eq!(past_deleted(&shown, &outs, goblin, goblin), object(Creature, 0));
+        // The only waypoint: its kind.
+        let wp = object(Waypoint, 0);
+        assert_eq!(past_deleted(&shown, &outs, wp, wp), TreeAt::Kind(a.resref, Waypoint));
+        // The keys at Bandit while Goblin is deleted: Bandit moves up.
+        assert_eq!(past_deleted(&shown, &outs, bandit, goblin), object(Creature, 0));
+        assert_eq!(past_deleted(&shown, &outs, goblin, bandit), goblin);
+        let group = TreeAt::Group("Areas");
+        assert_eq!(past_deleted(&shown, &outs, group, goblin), group);
     }
 
     #[test]

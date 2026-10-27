@@ -239,13 +239,10 @@ pub(super) fn editor(
             widgets::section_heading(ui, "Components");
             // (Ctrl+F with the pointer over the pane goes to it.)
             let field = ui.id().with("nui-palette-filter");
-            widgets::pane_filter_keys(ui, field, &mut state.search);
-            ui.add(
-                egui::TextEdit::singleline(&mut state.search)
-                    .id(field)
-                    .hint_text("Find a control…")
-                    .desired_width(f32::INFINITY),
-            );
+            widgets::SearchField::new(field, &mut state.search)
+                .hint("Find a control…")
+                .find_over()
+                .show(ui);
             egui::ScrollArea::vertical()
                 .id_salt("nui-palette-scroll")
                 .max_height((ui.available_height() * 0.48).max(120.0))
@@ -373,13 +370,7 @@ fn edit_actions(
 
 fn layers(ui: &mut Ui, v: &mut Value, s: &Settings, state: &mut State) {
     let field = ui.id().with("nui-layers-filter");
-    widgets::filter_keys(ui, field, &mut state.layer_search, false);
-    ui.add(
-        egui::TextEdit::singleline(&mut state.layer_search)
-            .id(field)
-            .hint_text("Find a layer or ID…")
-            .desired_width(ui.available_width()),
-    );
+    widgets::SearchField::new(field, &mut state.layer_search).hint("Find a layer or ID…").show(ui);
     if state.selected_many.len() > 1 {
         ui.weak(format!("{} selected · Delete removes selection", state.selected_many.len()));
     }

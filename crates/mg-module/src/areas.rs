@@ -104,10 +104,14 @@ impl Filter {
     }
 
     pub fn matches(&self, a: &AreaInfo) -> bool {
-        let text = self.text.as_deref().map(mg_core::text::Needle::new);
-        let has = |s: &str| text.as_ref().is_none_or(|t| t.finds(s));
+        // (Every word in its name, tag or ResRef, as the toolset's Filter
+        // finds a row.)
+        let has = self.text.as_deref().map(mg_core::text::Needle::new).is_none_or(|t| {
+            let (name, tag) = (mg_core::text::fold(&a.name), mg_core::text::fold(&a.tag));
+            t.finds_in(&[&name, &tag, &a.resref.to_string().to_ascii_lowercase()])
+        });
         (self.only.is_empty() || self.only.contains(&a.resref))
-            && (has(&a.name) || has(&a.tag) || has(&a.resref.to_string()))
+            && has
             && self.tileset.is_none_or(|t| t == a.tileset)
             && [(self.interior, INTERIOR), (self.underground, UNDERGROUND), (self.natural, NATURAL)]
                 .iter()
@@ -773,6 +777,9 @@ mod tests {
         assert_eq!(names(&natural_caves), ["cave1"]);
         let text = Filter { text: Some("APPLE".into()), ..Default::default() };
         assert_eq!(names(&text), ["inn"]);
+        // Every word, in any order, in the name, the tag or the ResRef.
+        let words = Filter { text: Some("cave1 wolf".into()), ..Default::default() };
+        assert_eq!(names(&words), ["cave1"]);
         let only =
             Filter { only: vec![r("cave2"), r("inn")], interior: Some(true), ..Default::default() };
         assert_eq!(names(&only), ["cave2", "inn"]);

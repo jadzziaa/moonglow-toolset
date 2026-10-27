@@ -2,6 +2,7 @@
 
 ## 2026-10-27
 * **Update**: [Scripts](manual/07-scripts.md) and [the main window](manual/02-main-window.md): Edit › Undo and Redo and the toolbar's are a script's own while its editor has the keyboard, as its Ctrl+Z is (a builder's report), say plain "Undo" and "Redo", and give the keys back to the editor; why the module's history was not given the script's typing. [The deferred list](deferred.md): not grayed with nothing to undo, a menu closed with nothing chosen, keys given in Options, the side editors' toolbar Undo.
+* **Update**: [The main window](manual/02-main-window.md): letters typed in the module tree go to an area's kinds and placed objects as their rows show them; Down from its Filter goes to the first row it finds; Delete at a placed object the keys are at deletes it, as its menu does. Every Filter and Find field finds a row with every word typed, in any order and in any of its fields (`sword iron` finds Iron Sword: the palettes alone did), `mg areas --match` too ([Command-line tools](manual/11-command-line.md)); one search field, its Ctrl+F the Find of Options › Keyboard. [The deferred list](deferred.md): what differs still.
 
 ## 2026-10-26
 * **Update**: [The deferred list](deferred.md) tidied: entries done in the shader milestones and in 2.3.0 taken out (their remainders kept), the two Direct3D 12 and Metal checks settled by CI (the game's programs drew on both for 2.8.0), the module tree no longer called cut short, a duplicate merged, and the sections named after a report filed under their areas.
