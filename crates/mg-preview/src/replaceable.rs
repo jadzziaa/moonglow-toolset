@@ -64,10 +64,7 @@ pub fn animations(game: &GameData, preview: &Preview) -> Vec<String> {
     let lk = Lookup { game };
     let Some(model) = lk.model(&preview.base.model) else { return Vec::new() };
     let load = |name: &str| -> Option<Arc<Model>> { lk.model(name) };
-    mg_render::anim::animations(&model, &load)
-        .into_iter()
-        .map(|(n, _)| n.to_ascii_lowercase())
-        .collect()
+    mg_mdl::animations(&model, &load).into_iter().map(|(n, _)| n.to_ascii_lowercase()).collect()
 }
 
 /// Whether a texture of this name is one a replacement can draw with: a

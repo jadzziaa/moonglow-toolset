@@ -45,19 +45,9 @@ pub trait Assets {
     }
 }
 
-/// A texture name with PLT colours (layer order), for [`Assets::texture`]:
-/// `name#c0,c1,…,c9`.
-pub fn colored_name(name: &str, colors: [u8; 10]) -> String {
-    let c: Vec<String> = colors.iter().map(u8::to_string).collect();
-    format!("{name}#{}", c.join(","))
-}
-
-/// A texture name and the PLT colours it carries, if any.
-pub fn split_colors(name: &str) -> (&str, Option<[u8; 10]>) {
-    let Some((base, list)) = name.split_once('#') else { return (name, None) };
-    let values: Vec<u8> = list.split(',').filter_map(|v| v.parse().ok()).collect();
-    (base, <[u8; 10]>::try_from(values).ok())
-}
+// (PLT colours in a texture name: mg-image's, as blueprint previews read
+// them without a renderer.)
+pub use mg_image::plt::{colored_name, split_colors};
 
 impl Assets for ResMan {
     fn texture(&self, name: &str) -> Option<LoadedTexture> {

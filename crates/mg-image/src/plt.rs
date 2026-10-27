@@ -37,6 +37,21 @@ pub const PALETTES: [&str; 10] = [
     "pal_tattoo01",
 ];
 
+/// A texture name with PLT colours (layer order), as the renderer's
+/// assets take it (`mg_render::Assets::texture`): `name#c0,c1,…,c9`.
+pub fn colored_name(name: &str, colors: [u8; 10]) -> String {
+    let c: Vec<String> = colors.iter().map(u8::to_string).collect();
+    format!("{name}#{}", c.join(","))
+}
+
+/// A texture name and the PLT colours it carries, if any
+/// ([`colored_name`]).
+pub fn split_colors(name: &str) -> (&str, Option<[u8; 10]>) {
+    let Some((base, list)) = name.split_once('#') else { return (name, None) };
+    let values: Vec<u8> = list.split(',').filter_map(|v| v.parse().ok()).collect();
+    (base, <[u8; 10]>::try_from(values).ok())
+}
+
 /// A PLT: per pixel a grey level and a layer, rows bottom first.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Plt {

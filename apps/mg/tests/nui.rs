@@ -526,6 +526,7 @@ fn window_files(test: &str, name: &str) -> PathBuf {
 /// from a file and a swap layout variant in its group; the same options
 /// give both the same layout. What doesn't fit the window is refused, or
 /// said.
+#[cfg(feature = "nui-preview")]
 #[test]
 fn layout_and_render_take_states_binds_and_a_variant() {
     let jui = window_files("mg-nui-layout-options", "cries");
@@ -597,6 +598,7 @@ fn layout_and_render_take_states_binds_and_a_variant() {
     assert_eq!(drawn["window"], "cries");
 }
 
+#[cfg(feature = "nui-preview")]
 #[test]
 fn layout_gives_each_control_s_place_in_the_window() {
     let path = module("mg-nui-layout");
@@ -627,6 +629,7 @@ fn layout_gives_each_control_s_place_in_the_window() {
     assert!(text.lines().any(|l| l.starts_with("/root/children/1\tbutton #mg_close\t")), "{text}");
 }
 
+#[cfg(feature = "nui-preview")]
 #[test]
 fn a_window_s_file_is_laid_out_with_its_settings() {
     let jui = crier_files("mg-nui-layout-file");
@@ -659,6 +662,7 @@ fn a_window_s_file_is_laid_out_with_its_settings() {
 }
 
 /// `mg nui render`'s answer, or `None` where there is no GPU to draw with.
+#[cfg(feature = "nui-preview")]
 fn render(args: &[&str]) -> Option<Value> {
     let args: Vec<&str> = ["--json", "nui", "render"].iter().chain(args).copied().collect();
     let out = output(None, &args);
@@ -673,6 +677,7 @@ fn render(args: &[&str]) -> Option<Value> {
 }
 
 /// A PNG's width and height.
+#[cfg(feature = "nui-preview")]
 fn png_size(path: &Path) -> (u32, u32) {
     let png = std::fs::read(path).unwrap();
     assert_eq!(&png[1..4], b"PNG");
@@ -680,6 +685,7 @@ fn png_size(path: &Path) -> (u32, u32) {
     (word(16), word(20))
 }
 
+#[cfg(feature = "nui-preview")]
 #[test]
 fn render_draws_a_window_into_a_png_at_its_scale() {
     mg_testkit::gpu::hold();

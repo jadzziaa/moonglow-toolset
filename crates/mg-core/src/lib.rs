@@ -7,6 +7,7 @@
 pub mod bin;
 pub mod lang;
 pub mod locstring;
+pub mod release;
 pub mod resref;
 pub mod restype;
 pub mod sha1;

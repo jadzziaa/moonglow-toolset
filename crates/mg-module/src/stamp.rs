@@ -45,7 +45,7 @@ impl Stamp {
     pub fn of(module: &Module) -> Stamp {
         let info = crate::query::info(module).ok();
         Stamp {
-            version: env!("CARGO_PKG_VERSION").to_string(),
+            version: mg_core::release::version().to_string(),
             commit: module_dir(module).and_then(|d| commit_at(&d)),
             module: info.as_ref().map(|i| i.name.clone()).unwrap_or_default(),
             tag: info.map(|i| i.tag).unwrap_or_default(),

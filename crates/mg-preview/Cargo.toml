@@ -1,7 +1,7 @@
 [package]
 name = "mg-preview"
 description = "Blueprint previews: creatures, items, placeables and doors assembled as the game shows them"
-version.workspace = true
+version = "0.0.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -14,10 +14,22 @@ mg-core.workspace = true
 mg-gff.workspace = true
 mg-image.workspace = true
 mg-mdl.workspace = true
-mg-render.workspace = true
+mg-render = { workspace = true, optional = true }
 mg-resman.workspace = true
 mg-rules.workspace = true
 thiserror.workspace = true
+
+# The renderer's half, `compose`: the models turned into mg-render's
+# instances (with wgpu). Without it, what a preview is made of and the
+# files it loads, which `mg` reads with no GPU.
+[features]
+default = ["render"]
+render = ["dep:mg-render"]
+
+# (Previews drawn on the GPU.)
+[[test]]
+name = "previews"
+required-features = ["render"]
 
 [dev-dependencies]
 mg-testkit.workspace = true

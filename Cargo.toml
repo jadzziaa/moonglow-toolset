@@ -3,6 +3,10 @@ resolver = "3"
 members = ["crates/*", "apps/*"]
 
 [workspace.package]
+# The release: the version of the two programs (apps/mg, apps/moonglow),
+# the one line a release changes (packaging/README.md). The libraries
+# keep "0.0.0", so that a release rebuilds the programs alone; what they
+# say of the release they read from the program (mg_core::release).
 version = "2.8.0"
 edition = "2024"
 rust-version = "1.98"
@@ -24,7 +28,9 @@ mg-mdl = { path = "crates/mg-mdl" }
 mg-module = { path = "crates/mg-module" }
 mg-nui = { path = "crates/mg-nui" }
 mg-plugin = { path = "crates/mg-plugin" }
-mg-preview = { path = "crates/mg-preview" }
+# (Without the renderer by default, so that `mg` can leave it out: mg-area and
+# mg-ui ask for it.)
+mg-preview = { path = "crates/mg-preview", default-features = false }
 mg-render = { path = "crates/mg-render" }
 mg-resman = { path = "crates/mg-resman" }
 mg-rules = { path = "crates/mg-rules" }

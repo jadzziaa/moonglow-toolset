@@ -65,7 +65,7 @@ impl Version {
 
     /// This program's version.
     pub fn current() -> Version {
-        Version::parse(env!("CARGO_PKG_VERSION")).expect("the package's version is semver")
+        Version::parse(mg_core::release::version()).expect("the release is semver")
     }
 
     fn key(&self) -> (u64, u64, u64, bool) {
@@ -549,7 +549,7 @@ mod tests {
         for bad in ["", "2.4", "2.4.0.1", "two.4.0", "2..0", "2.4.0-", "+2.4.0", "2.-4.0"] {
             assert_eq!(Version::parse(bad), None, "{bad:?}");
         }
-        assert_eq!(Version::current(), v(env!("CARGO_PKG_VERSION")));
+        assert_eq!(Version::current(), v(mg_core::release::version()));
         assert_eq!(v("2.10.3").to_string(), "2.10.3");
     }
 

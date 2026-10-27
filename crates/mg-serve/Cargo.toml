@@ -1,7 +1,7 @@
 [package]
 name = "mg-serve"
 description = "Runs the game's headless server (nwserver) on a module: privately unless asked, its log followed, its console on a pipe"
-version.workspace = true
+version = "0.0.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

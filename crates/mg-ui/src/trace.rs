@@ -159,7 +159,7 @@ pub fn set(on: bool) {
     if on {
         note(format!(
             "Moonglow Toolset {} on {} {}, {} UTC",
-            env!("CARGO_PKG_VERSION"),
+            mg_core::release::version(),
             std::env::consts::OS,
             std::env::consts::ARCH,
             utc(SystemTime::now()).0

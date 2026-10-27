@@ -1281,6 +1281,8 @@ fn talk_table(path: &Path, make: bool) -> Result<mg_module::talk::Table> {
 }
 
 fn main() -> ExitCode {
+    // (What the libraries write of the release reads it from there.)
+    mg_core::release::set(env!("CARGO_PKG_VERSION"));
     let cli = Cli::parse();
     let json = cli.json;
     let result = run(&cli).and_then(|out| {

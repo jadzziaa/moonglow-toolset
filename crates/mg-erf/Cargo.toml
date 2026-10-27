@@ -1,7 +1,7 @@
 [package]
 name = "mg-erf"
 description = "ERF archives (MOD, NWM, HAK, ERF, SAV): reading V1.0/E1.0 and writing V1.0"
-version.workspace = true
+version = "0.0.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

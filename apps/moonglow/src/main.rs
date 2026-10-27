@@ -212,6 +212,8 @@ impl CommandLine {
 }
 
 fn main() -> eframe::Result<()> {
+    // (What the libraries write of the release reads it from there.)
+    mg_core::release::set(env!("CARGO_PKG_VERSION"));
     crash_reports();
     let line = CommandLine::parse(std::env::args_os().skip(1));
     mg_ui::trace::by_default();

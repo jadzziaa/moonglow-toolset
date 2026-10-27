@@ -15537,7 +15537,7 @@ fn the_user_manual_opens_from_help_and_follows_its_links() {
     h.run();
     h.get_by_label("About Moonglow Toolset").click();
     h.run();
-    h.get_by_label(&format!("Version {}", env!("CARGO_PKG_VERSION")));
+    h.get_by_label(&format!("Version {}", mg_core::release::version()));
 }
 
 /// Widgets drawn over each other: pairs of named widgets in one layer (a
@@ -30527,7 +30527,7 @@ fn app_with_releases(
 #[test]
 fn check_for_updates_says_what_is_newest() {
     use std::sync::atomic::Ordering;
-    let current = env!("CARGO_PKG_VERSION");
+    let current = mg_core::release::version();
     let (mut app, asked) = app_with_releases(Ok(release_answer("v99.0.0")));
     // (No automatic check: one was made a moment ago.)
     app.settings.update_checked = Some(mg_ui::updates::now());
@@ -30583,7 +30583,7 @@ fn check_for_updates_says_what_is_newest() {
 #[test]
 fn the_update_notice_appears_and_is_dismissed() {
     use std::sync::atomic::Ordering;
-    let current = env!("CARGO_PKG_VERSION");
+    let current = mg_core::release::version();
     let told = format!("Moonglow 99.0.0 is out (you have {current}).");
     let (app, asked) = app_with_releases(Ok(release_answer("v99.0.0")));
     assert_eq!(app.settings.update_checked, None);
@@ -30706,7 +30706,7 @@ fn the_updates_option_turns_automatic_checks_off() {
 #[test]
 fn the_update_check_asks_on_its_own_thread() {
     use std::sync::atomic::Ordering;
-    let current = env!("CARGO_PKG_VERSION");
+    let current = mg_core::release::version();
     let (mut app, asked) = app_with_releases(Ok(release_answer("v99.0.0")));
     app.background_jobs = true;
     app.settings.no_update_check = true;

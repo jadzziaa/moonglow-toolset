@@ -1,7 +1,7 @@
 [package]
 name = "mg-testkit"
 description = "Test support for Moonglow: locating the game install used as the test corpus, scratch directories"
-version.workspace = true
+version = "0.0.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
