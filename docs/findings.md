@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T23:58:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T08:33:19Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1008,7 +1008,7 @@ with the game's shaders, and the client draws it so too.
   `default`, `MG_AREA_HAKS=tdod_shaders`, `MG_MUTATE` showing the game's
   programs draw), and the area view itself:
   `a_stock_interior_looks_alike_with_the_shaders_on_and_off` in
-  `crates/mg-ui/tests/app.rs`.
+  `crates/mg-ui/tests/app/drawing.rs`.
 - **Moonglow:** `crates/mg-render/src/game.rs`.
 - **Wiki:** missing.
 
