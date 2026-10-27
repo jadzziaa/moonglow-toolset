@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T06:11:45Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T06:29:36Z }
 ---
 
 # Areas
@@ -91,10 +91,11 @@ looking straight down at their middle, north up, as in Aurora.
   the game's lit shaders, as the game draws it. The sky, the area's
   grass, additive meshes and particles are drawn with the game's programs
   too (the grass a touch darker and yellower, lit at its corners as the
-  game lights it). Water stays Moonglow's: the game's water shader shows
-  what lies under the water through the picture already drawn, which the
-  editor's view doesn't give it, and without that its water is pale and
-  opaque. On by default. The programs are compiled
+  game lights it). So is shiny water: the game's water shader shows what
+  lies under the water and mirrors what is around it, through a copy of
+  the picture drawn so far, as in the game; with the switch off it is
+  Moonglow's own water. Particles fade where they meet the ground or a
+  wall, as the game's do. On by default. The programs are compiled
   while the view goes on, the first time an area needs them (a fraction
   of a second each), and kept in Moonglow's cache folder for the next
   time: until they are ready, what they draw is drawn with Moonglow's own

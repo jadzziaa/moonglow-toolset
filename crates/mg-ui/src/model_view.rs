@@ -794,16 +794,7 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
     // (Drawn again and again: the game's programs are made while it goes
     // on, Moonglow's own shader drawing until they are.)
     vp.renderer.game_background = true;
-    vp.renderer.render(
-        &vp.gpu,
-        assets,
-        &scene,
-        &camera,
-        targets.render_view(),
-        targets.resolve_view(),
-        &targets.depth,
-        (w, h),
-    );
+    vp.renderer.render_targets(&vp.gpu, assets, &scene, &camera, targets);
     vp.renderer.game_background = false;
     // A program of the game's that reads the clock moves what it draws:
     // drawn again as the area view's animations step, while the view plays;

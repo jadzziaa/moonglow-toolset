@@ -3181,3 +3181,274 @@ void main ()
     assert_eq!(a, b, "the same picture either way");
     assert!(a.iter().all(|p| p[0] > 100 && p[1] < 30), "each quad red where it is: {a:?}");
 }
+
+/// The framebuffer's copies as the game's programs read them
+/// (`docs/framebuffer-proposal.md`): shiny water drawn by an authored
+/// `vswater`/`fswater` that shows what lies behind it, read from
+/// `texFBColor` at its own `gl_FragCoord` and, in a second program, at its
+/// projected position, finds the picture drawn without the water at both:
+/// `gl_FragCoord.y` and the copy's rows count from the bottom together,
+/// as in OpenGL, whichever way a program finds its pixel. A third reads
+/// `texFBDepth` as `fswater`'s `GetDepth` does: the distance behind the
+/// water in metres. With 4x MSAA and without; without the targets'
+/// copies (`Renderer::render`), the water is Moonglow's own.
+#[test]
+fn the_framebuffer_s_copies_are_read_as_opengl_reads_them() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = clip_space_assets();
+    let txi = |text: &str| mg_image::txi::Txi::parse(text.as_bytes());
+    assets.opaque("pool", [0, 0, 255]);
+    assets.txis.insert("pool".into(), txi("bumpmaptexture shinywater\n"));
+    let vs = r#"
+#define SHADER_TYPE 1
+uniform mat4 m_mv;
+uniform mat4 m_proj;
+attribute vec4 vPos;
+varying vec4 vView;
+void main ()
+{
+    vView = m_mv * vPos;
+    gl_Position = m_proj * vView;
+}
+"#;
+    let fs = |read: &str| {
+        format!(
+            r#"
+#define SHADER_TYPE 2
+uniform mat4 m_proj;
+uniform vec3 pixelParams;
+uniform vec3 clipParams;
+uniform sampler2D texFBColor;
+uniform sampler2D texFBDepth;
+varying vec4 vView;
+void main ()
+{{
+    vec2 own = gl_FragCoord.xy * pixelParams.xy;
+    vec4 clip = m_proj * vView;
+    vec2 projected = 0.5 * clip.xy / clip.w + 0.5;
+    {read}
+}}
+"#
+        )
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -10.0, 1.0),
+        target: Vec3::new(0.0, 0.0, 1.0),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    // Behind, red above the middle and green below it, 10 m away; the
+    // water in front, across the middle.
+    let wall = [
+        standing_quad(&gpu, "red", Vec3::new(0.0, 0.0, 3.0), 2.0),
+        standing_quad(&gpu, "green", Vec3::new(0.0, 0.0, -1.0), 2.0),
+    ];
+    let water = standing_quad(&gpu, "pool", Vec3::new(0.0, -5.0, 1.0), 0.6);
+    let scene = |with_water: bool| Scene {
+        instances: wall.iter().cloned().chain(with_water.then(|| water.clone())).collect(),
+        background: [0.0, 0.0, 0.0],
+        ..Default::default()
+    };
+    let dir = mg_testkit::scratch_dir("render-framebuffer");
+    for samples in [1, 4] {
+        let mut plain = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples);
+        plain.game_shaders = true;
+        let behind = plain.render_image(&gpu, &assets, &scene(false), &camera, 64, 64);
+        // (The water's pixels: where Moonglow's own draws it.)
+        let mut own = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples);
+        own.game_shaders = true;
+        own.game_water = false;
+        let owned = own.render_image(&gpu, &assets, &scene(true), &camera, 64, 64);
+        save(&owned, &dir.join(format!("water_moonglow_{samples}x.png")));
+        let pool: Vec<(u32, u32)> = (0..64)
+            .flat_map(|y| (0..64).map(move |x| (x, y)))
+            .filter(|&(x, y)| owned.pixel(x, y) != behind.pixel(x, y))
+            .collect();
+        assert!(pool.len() > 200, "{} pixels of water", pool.len());
+        let top = pool.iter().filter(|&&(x, y)| behind.pixel(x, y)[0] > 200).count();
+        assert!(top > 50 && pool.len() - top > 50, "the water crosses the middle: {top}");
+        for (name, read) in [
+            ("own", "gl_FragColor = vec4(texture2D(texFBColor, own).rgb, 1.0);"),
+            ("projected", "gl_FragColor = vec4(texture2D(texFBColor, projected).rgb, 1.0);"),
+            (
+                "depth",
+                "float d = clipParams.x / (1.0 - texture2D(texFBDepth, own).x * clipParams.z);\n    \
+                 gl_FragColor = vec4(d / 20.0, 0.0, 0.0, 1.0);",
+            ),
+        ] {
+            assets.shaders.insert("vswater".into(), vs.into());
+            assets.shaders.insert("fswater".into(), fs(read));
+            let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples);
+            r.game_shaders = true;
+            r.game_water = true;
+            let img = r.render_image(&gpu, &assets, &scene(true), &camera, 64, 64);
+            save(&img, &dir.join(format!("water_{name}_{samples}x.png")));
+            assert_eq!(r.game_shader_failures(), &[], "{name}");
+            assert_eq!(r.drawn.game, 3, "{name}: {:?}", r.drawn);
+            let far = |&&(x, y): &&(u32, u32)| {
+                let (a, b) = (img.pixel(x, y), behind.pixel(x, y));
+                if name == "depth" {
+                    // 10 m: 0.5 of 255.
+                    a[0].abs_diff(128) > 3
+                } else {
+                    (0..3).any(|i| a[i].abs_diff(b[i]) > 8)
+                }
+            };
+            let wrong = pool.iter().filter(far).count();
+            assert!(wrong <= 4, "{name}, {samples}x: {wrong} of {} water pixels", pool.len());
+        }
+        // Without the targets' copies: Moonglow's own water.
+        let targets =
+            mg_render::Targets::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples, 64, 64);
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples);
+        r.game_shaders = true;
+        r.game_water = true;
+        r.render(
+            &gpu,
+            &assets,
+            &scene(true),
+            &camera,
+            targets.render_view(),
+            targets.resolve_view(),
+            &targets.depth,
+            (64, 64),
+        );
+        assert_eq!(r.drawn.game, 2, "{:?}", r.drawn);
+    }
+}
+
+/// Soft particles (`docs/framebuffer-proposal.md`, step 4): a particle
+/// standing half under the floor, drawn by an authored `fsparticle` that
+/// shows the game's fade (`sqr(clamp((sceneDepth − its depth) ·
+/// particleSoftness, 0, 1))`, the scene's depth from `texFBDepth`), is dark
+/// where it meets the floor and white higher up: the frame makes the
+/// framebuffer's copy for the particle alone (no water), and gives it the
+/// batch's softness. Off (`soft_particles`), or without the targets'
+/// copies, it fades nowhere.
+#[test]
+fn particles_fade_where_they_meet_the_floor() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = clip_space_assets();
+    let vs = r#"
+#define SHADER_TYPE 1
+uniform mat4 m_mv;
+uniform mat4 m_proj;
+attribute vec4 vPos;
+attribute vec2 vTcIn;
+attribute vec4 vColor;
+varying vec4 vTint;
+void main ()
+{
+    vTint = vColor + vec4(vTcIn, 0.0, 0.0) * 0.0;
+    gl_Position = m_proj * (m_mv * vPos);
+}
+"#;
+    let fs = r#"
+#define SHADER_TYPE 2
+uniform float particleSoftness;
+uniform vec3 pixelParams;
+uniform vec3 clipParams;
+uniform sampler2D texFBDepth;
+varying vec4 vTint;
+void main ()
+{
+    float scene = clipParams.x / (1.0 - texture2D(texFBDepth, gl_FragCoord.xy * pixelParams.xy).x * clipParams.z);
+    float own = clipParams.x / (1.0 - gl_FragCoord.z * clipParams.z);
+    float fade = clamp((scene - own) * particleSoftness, 0.0, 1.0);
+    fade *= fade;
+    gl_FragColor = vec4(vec3(particleSoftness > 0.0 ? fade : 1.0) * vTint.rgb, 1.0);
+}
+"#;
+    assets.shaders.insert("vsparticle".into(), vs.into());
+    assets.shaders.insert("fsparticle".into(), fs.into());
+    let camera = Camera {
+        eye: Vec3::new(0.0, -6.0, 1.5),
+        target: Vec3::new(0.0, 0.0, 0.3),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    // The floor, 20 m square; the particle, 2 m square, standing in the
+    // middle of it, half under it.
+    let floor = {
+        let mut model = quad();
+        if let NodeKind::Mesh(m) = &mut model.nodes[1].kind {
+            m.textures[0] = Some("blue".into());
+        }
+        let model = Arc::new(GpuModel::new(&gpu, Arc::new(model)));
+        Instance::new(model, Mat4::from_scale(Vec3::new(10.0, 10.0, 1.0)))
+    };
+    let v = |x: f32, z: f32| mg_render::particles::ParticleVertex {
+        pos: [x, 0.0, z],
+        uv: [0.0, 0.0],
+        color: [1.0, 1.0, 1.0, 1.0],
+    };
+    let batch = mg_render::particles::ParticleBatch {
+        texture: None,
+        blend: mg_render::particles::ParticleBlend::Normal,
+        render_order: 0,
+        vertices: vec![
+            v(-1.0, -1.0),
+            v(1.0, -1.0),
+            v(1.0, 1.0),
+            v(-1.0, -1.0),
+            v(1.0, 1.0),
+            v(-1.0, 1.0),
+        ],
+        tint: None,
+        softness: mg_render::particles::softness(2.0, 2.0, "Normal"),
+    };
+    let scene = Scene {
+        instances: vec![floor],
+        particles: vec![batch],
+        background: [0.0, 0.0, 0.0],
+        ..Default::default()
+    };
+    let dir = mg_testkit::scratch_dir("render-soft-particles");
+    // The particle's middle column, from where it meets the (blue) floor
+    // up: its grey pixels.
+    let column = |img: &mg_image::Rgba| -> Vec<u8> {
+        (0..64)
+            .rev()
+            .map(|y| img.pixel(32, y))
+            .skip_while(|p| p[2] > p[0])
+            .take_while(|p| p[0] == p[2])
+            .map(|p| p[0])
+            .collect()
+    };
+    for (soft, copies) in [(true, true), (false, true), (true, false)] {
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        r.game_shaders = true;
+        r.soft_particles = soft;
+        let img = if copies {
+            r.render_image(&gpu, &assets, &scene, &camera, 64, 64)
+        } else {
+            let targets = mg_render::Targets::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1, 64, 64);
+            r.render(
+                &gpu,
+                &assets,
+                &scene,
+                &camera,
+                targets.render_view(),
+                targets.resolve_view(),
+                &targets.depth,
+                (64, 64),
+            );
+            gpu.read_rgba(&targets.color)
+        };
+        assert_eq!(r.game_shader_failures(), &[]);
+        save(&img, &dir.join(format!("soft_{soft}_copies_{copies}.png")));
+        let c = column(&img);
+        let foot = c.first().copied().unwrap_or(255);
+        let top = c.iter().copied().max().unwrap_or(0);
+        eprintln!("soft {soft}, copies {copies}: foot {foot}, column {c:?}");
+        assert_eq!(top, 255, "white high up: {c:?}");
+        if soft && copies {
+            assert!(foot < 128, "dark where it meets the floor: {foot}, {c:?}");
+        } else {
+            // (Its foot white; above it, the background's black.)
+            assert!(foot == 255 && c.iter().all(|&r| r == 255 || r == 0), "no fade: {c:?}");
+        }
+    }
+}

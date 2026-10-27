@@ -86,6 +86,26 @@ pub struct ParticleBatch {
     /// space): the renderer multiplies the colours by the scene's light
     /// there, the same for every particle.
     pub tint: Option<Vec3>,
+    /// How sharply its particles fade where they meet what lies behind
+    /// them (the game's `particleSoftness`, a metre's inverse): read from
+    /// the client, 10 over the larger of the emitter's `sizeStart` and
+    /// `sizeEnd` (a particle fades over its last tenth), at either shader
+    /// quality; 0 for the emitters the client lays along an axis
+    /// (`Billboard_to_Local_Z`, `Billboard_to_World_Z`) and, not read,
+    /// lightning ([`softness`]).
+    pub softness: f32,
+}
+
+/// [`ParticleBatch::softness`] for an emitter of these sizes and render
+/// mode (`soft_particles_in_the_client`: 40 at 0.25 m, 20 at 0.5, 10 at
+/// 1, 5 at 2; a growing or shrinking emitter's by its larger size).
+pub fn softness(size_start: f32, size_end: f32, render: &str) -> f32 {
+    let size = size_start.max(size_end);
+    let laid = matches!(
+        render.to_ascii_lowercase().as_str(),
+        "billboard_to_local_z" | "billboard_to_world_z"
+    );
+    if laid || size <= 0.0 { 0.0 } else { 10.0 / size }
 }
 
 #[derive(Debug, Clone)]
@@ -458,6 +478,7 @@ impl Particles {
                     render_order: em.render_order,
                     vertices: strip(&points, None, eye),
                     tint: None,
+                    softness: 0.0,
                 });
                 continue;
             }
@@ -465,6 +486,7 @@ impl Particles {
                 continue;
             }
             let p = |name, default| param(model, e.node, at, name, default);
+            let softness = softness(p("sizestart", 1.0), p("sizeend", 1.0), &em.render);
             let world = transform * pose.get(e.node).copied().unwrap_or(Mat4::IDENTITY);
             let tint = (em.flags & 0x8 != 0).then(|| world.w_axis.truncate());
             let inherit = em.flags & (0x40 | 0x100) != 0;
@@ -510,6 +532,7 @@ impl Particles {
                     render_order: em.render_order,
                     vertices: strip(&points, Some(&cells), eye),
                     tint,
+                    softness,
                 });
                 continue;
             }
@@ -523,7 +546,11 @@ impl Particles {
                 let sy = if sy0 > 0.0 || sy1 > 0.0 { sy0 + (sy1 - sy0) * k } else { sx };
                 let frame = (f0 + (q.frame0 + q.age * fps).floor() % frames).min(f1.max(f0)) as u32;
                 let (uv0, uv1) = cell(frame, gx, gy);
-                let angle = q.rot + rot_speed * q.age;
+                // (Upright where it doesn't spin: the client draws a still
+                // emitter's square particles square, each of them, not each
+                // turned by a random angle; `surfaces_in_the_client`. A
+                // spinning one's starting angle wasn't read.)
+                let angle = if rot_speed == 0.0 { 0.0 } else { q.rot + rot_speed * q.age };
                 let (right, up) = match render.as_str() {
                     // Upright, turned about the world's Z to the eye (a
                     // shaft of light); `billboard_to_world_z` lies flat,
@@ -582,6 +609,7 @@ impl Particles {
                 render_order: em.render_order,
                 vertices: quads.into_iter().flat_map(|(_, q)| q).collect(),
                 tint,
+                softness,
             });
         }
         out
@@ -683,6 +711,29 @@ fn strip(
 mod tests {
     use super::*;
     use mg_mdl::{Controller, Emitter, Node};
+
+    /// The client's `particleSoftness` (`soft_particles_in_the_client`):
+    /// 10 over the larger size, none for the emitters laid along an axis.
+    #[test]
+    fn softness_is_the_client_s() {
+        for (start, end, render, want) in [
+            (0.25, 0.25, "Normal", 40.0),
+            (0.5, 0.5, "normal", 20.0),
+            (1.0, 1.0, "Normal", 10.0),
+            (2.0, 2.0, "Normal", 5.0),
+            (1.2, 1.2, "Normal", 10.0 / 1.2),
+            (0.25, 1.0, "Normal", 10.0),
+            (1.0, 0.25, "Normal", 10.0),
+            (0.5, 0.5, "Aligned_to_World_Z", 20.0),
+            (0.5, 0.5, "Motion_Blur", 20.0),
+            (0.5, 0.5, "Billboard_to_Local_Z", 0.0),
+            (0.5, 0.5, "Billboard_to_World_Z", 0.0),
+            (0.0, 0.0, "Normal", 0.0),
+        ] {
+            let got = softness(start, end, render);
+            assert!((got - want).abs() < 1e-4, "{start} {end} {render}: {got}");
+        }
+    }
 
     fn fountain() -> Model {
         let mut root = Node::new("m", NodeKind::Dummy);

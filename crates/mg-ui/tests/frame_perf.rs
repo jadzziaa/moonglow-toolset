@@ -445,10 +445,23 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
     close(h, &tab);
 }
 
-/// `FRAME_GAME_WATER=1`: shiny water by the game's `fswater` too, with the
-/// Shaders switch on.
-fn game_water() -> bool {
-    std::env::var_os("FRAME_GAME_WATER").is_some()
+/// `FRAME_HARD_PARTICLES=1`: particles without their fade too
+/// (`Renderer::soft_particles` off), with the Shaders switch on.
+fn hard_particles() -> bool {
+    std::env::var_os("FRAME_HARD_PARTICLES").is_some()
+}
+
+/// `FRAME_NO_WATER=1`: [`water_area`] without its water (its fires on
+/// grass alone).
+fn no_water() -> bool {
+    std::env::var_os("FRAME_NO_WATER").is_some()
+}
+
+/// `FRAME_OWN_WATER=1`: shiny water by Moonglow's own water too, with the
+/// Shaders switch on (by default `fswater` with the framebuffer's copies,
+/// [`mg_render::GAME_WATER`]), for comparing.
+fn own_water() -> bool {
+    std::env::var_os("FRAME_OWN_WATER").is_some()
 }
 
 /// The area viewer's frame taken apart, on a renderer of the test's own:
@@ -506,9 +519,22 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
             ("orbiting, 4x MSAA", 150.0, 0.6, 4, true),
         ]);
     }
-    for (what, distance, pitch, samples, instancing, on) in
-        configs.into_iter().flat_map(|c| shaders.iter().map(move |&g| (c.0, c.1, c.2, c.3, c.4, g)))
+    // (`FRAME_OWN_WATER`: with the switch on, Moonglow's water as well.)
+    let waters: &[bool] = if own_water() { &[true, false] } else { &[true] };
+    // (`FRAME_HARD_PARTICLES`: with the switch on, particles without their
+    // fade as well, `Renderer::soft_particles`.)
+    let softs: &[bool] = if hard_particles() { &[true, false] } else { &[true] };
+    for (what, distance, pitch, samples, instancing, on, water, soft) in configs
+        .into_iter()
+        .flat_map(|c| shaders.iter().map(move |&g| (c.0, c.1, c.2, c.3, c.4, g)))
+        .flat_map(|c| waters.iter().map(move |&w| (c.0, c.1, c.2, c.3, c.4, c.5, w)))
+        .flat_map(|c| softs.iter().map(move |&f| (c.0, c.1, c.2, c.3, c.4, c.5, c.6, f)))
     {
+        // (Moonglow's water, and hard particles, are the switch on's
+        // comparisons only, one at a time.)
+        if (!on && !(water && soft)) || (!water && !soft) {
+            continue;
+        }
         // (A draw for each mesh is the switch off's comparison only.)
         if on && !instancing {
             continue;
@@ -521,7 +547,8 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
         let mut renderer = Renderer::new(&gpu, format, samples);
         renderer.instancing = instancing;
         renderer.game_shaders = on;
-        renderer.game_water = on && game_water();
+        renderer.game_water = water;
+        renderer.soft_particles = soft;
         let mut first = Duration::ZERO;
         let targets = Targets::new(&gpu, format, samples, w, h_px);
         let mut sims = std::collections::HashMap::new();
@@ -566,16 +593,7 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
             frame.particles = scene.particles(&model, &view, &mut sims, dt, camera.view());
             let t2 = Instant::now();
             let c2 = on_cpu();
-            renderer.render(
-                &gpu,
-                &game.resman,
-                &frame,
-                &camera,
-                targets.render_view(),
-                targets.resolve_view(),
-                &targets.depth,
-                (w, h_px),
-            );
+            renderer.render_targets(&gpu, &game.resman, &frame, &camera, &targets);
             let t3 = Instant::now();
             let c3 = on_cpu();
             wait();
@@ -609,7 +627,12 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
             let solid = programs.iter().filter(|p| p.no_discard).count();
             println!("      NO_DISCARD 1 for {solid} of the game's {} meshes", programs.len());
         }
-        let what = if on { format!("{what}, Shaders on") } else { what.to_string() };
+        let what = if soft { what.to_string() } else { format!("{what}, hard particles") };
+        let what = match (on, water) {
+            (false, _) => what.to_string(),
+            (true, true) => format!("{what}, Shaders on"),
+            (true, false) => format!("{what}, Shaders on, Moonglow's water"),
+        };
         // (`FRAME_PARTS_SHOTS=<folder>`: its last frame saved there, at the
         // clock of the frames before, for comparing pictures.)
         if let Ok(dir) = std::env::var("FRAME_PARTS_SHOTS") {
@@ -1310,7 +1333,7 @@ fn water_area(root: &std::path::Path) -> (std::path::PathBuf, ResRef, i64) {
     are.root.set("WindPower", Value::Int(1));
     are.root.set("SkyBox", Value::Byte(1));
     for (i, t) in are.root.list_mut("Tile_List").unwrap().iter_mut().enumerate() {
-        if (i / side as usize) % 4 < 2 {
+        if (i / side as usize) % 4 < 2 && !no_water() {
             t.set("Tile_ID", Value::Int(20));
             t.set("Tile_Height", Value::Int(0));
         }
@@ -1432,15 +1455,25 @@ fn shaders_off_and_on(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64)
         let label = if on { ", Shaders on" } else { ", Shaders off" };
         area_views(h, r, area, tiles, label);
     }
-    // (`FRAME_GAME_WATER=1`: on again, shiny water by `fswater` too, as
-    // M5 timed it.)
-    if game_water() {
+    // (`FRAME_OWN_WATER=1`: on again, shiny water by Moonglow's own, as
+    // before the framebuffer's copies.)
+    if own_water() {
         if let Some(vp) = h.state_mut().viewport.as_mut() {
-            vp.renderer.game_water = true;
+            vp.renderer.game_water = false;
         }
-        area_views(h, r, area, tiles, ", Shaders on, the game's water");
+        area_views(h, r, area, tiles, ", Shaders on, Moonglow's water");
         if let Some(vp) = h.state_mut().viewport.as_mut() {
             vp.renderer.game_water = mg_render::GAME_WATER;
+        }
+    }
+    // (`FRAME_HARD_PARTICLES=1`: on again, particles without their fade.)
+    if hard_particles() {
+        if let Some(vp) = h.state_mut().viewport.as_mut() {
+            vp.renderer.soft_particles = false;
+        }
+        area_views(h, r, area, tiles, ", Shaders on, hard particles");
+        if let Some(vp) = h.state_mut().viewport.as_mut() {
+            vp.renderer.soft_particles = true;
         }
     }
     if !r.shots {

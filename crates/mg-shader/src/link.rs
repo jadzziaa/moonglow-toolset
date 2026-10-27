@@ -456,6 +456,25 @@ impl Program {
 }
 
 impl Program {
+    /// Counts `gl_FragCoord.y` from the bottom of the picture, as OpenGL
+    /// does (wgpu counts it from the top, on every backend): the fragment
+    /// entry point's position is stored for the program as
+    /// `(x, height − y, z, w)`, the height that of the framebuffer's copy
+    /// it reads (the picture's). For a program that reads the copies,
+    /// which Moonglow writes with OpenGL's rows, so that a pixel found from
+    /// `gl_FragCoord` and one found from the projection (y up) are the
+    /// same pixel, as in the client (`docs/framebuffer-proposal.md`).
+    /// `false`, the program unchanged, where it doesn't read the
+    /// fragment's position; an error where it does but declares no copy
+    /// ([`FRAMEBUFFER_IMAGES`]).
+    pub fn frag_coord_from_bottom(&mut self) -> Result<bool, ShaderError> {
+        let changed = frag_coord_from_bottom(&mut self.module).map_err(naga_err)?;
+        if changed {
+            self.revalidate()?;
+        }
+        Ok(changed)
+    }
+
     /// Binds the resource named `name` (a storage buffer
     /// [`Program::split_uniforms`] fills: `mg_draws`, `mg_lights`,
     /// `mg_order`) at `group` and `binding`; `false` where the program has
@@ -485,6 +504,83 @@ impl Program {
 
 /// The member a part with none holds.
 const PAD: &str = "mg_unused";
+
+/// The framebuffer's copies as a program names them (after the sampler
+/// split): the colour, the depth.
+pub const FRAMEBUFFER_IMAGES: [&str; 2] = ["texFBColor_image", "texFBDepth_image"];
+
+/// [`Program::frag_coord_from_bottom`] on a module.
+fn frag_coord_from_bottom(module: &mut Module) -> Result<bool, String> {
+    // A copy of the framebuffer the program declares: its size is the
+    // picture's.
+    let image = module
+        .global_variables
+        .iter()
+        .find(|(_, g)| g.name.as_deref().is_some_and(|n| FRAMEBUFFER_IMAGES.contains(&n)))
+        .map(|(h, _)| h);
+    let mut changed = false;
+    for ep in module.entry_points.iter_mut().filter(|e| e.stage == naga::ShaderStage::Fragment) {
+        let f = &mut ep.function;
+        let Some(arg) = f
+            .arguments
+            .iter()
+            .position(|a| matches!(a.binding, Some(Binding::BuiltIn(BuiltIn::Position { .. }))))
+        else {
+            continue;
+        };
+        let pos_ty = f.arguments[arg].ty;
+        let image = image.ok_or("it reads gl_FragCoord but no framebuffer copy")?;
+        let e = &mut f.expressions;
+        let Some(value) = e
+            .iter()
+            .find(|(_, x)| matches!(x, Expression::FunctionArgument(i) if *i as usize == arg))
+            .map(|(h, _)| h)
+        else {
+            continue;
+        };
+        // The wrapper's store of the argument into the program's variable.
+        let Some(at) = f
+            .body
+            .iter()
+            .position(|s| matches!(s, Statement::Store { value: v, .. } if *v == value))
+        else {
+            return Err("the fragment entry point doesn't store its position".into());
+        };
+        let global = e.append(Expression::GlobalVariable(image), Span::UNDEFINED);
+        let mut emitter = Emitter::default();
+        emitter.start(e);
+        let size = e.append(
+            Expression::ImageQuery { image: global, query: naga::ImageQuery::Size { level: None } },
+            Span::UNDEFINED,
+        );
+        let height = e.append(Expression::AccessIndex { base: size, index: 1 }, Span::UNDEFINED);
+        let height = e.append(
+            Expression::As { expr: height, kind: ScalarKind::Float, convert: Some(4) },
+            Span::UNDEFINED,
+        );
+        let c = |e: &mut naga::Arena<Expression>, index| {
+            e.append(Expression::AccessIndex { base: value, index }, Span::UNDEFINED)
+        };
+        let (x, y, z, w) = (c(e, 0), c(e, 1), c(e, 2), c(e, 3));
+        let y = e.append(
+            Expression::Binary { op: BinaryOperator::Subtract, left: height, right: y },
+            Span::UNDEFINED,
+        );
+        let pos = e.append(
+            Expression::Compose { ty: pos_ty, components: vec![x, y, z, w] },
+            Span::UNDEFINED,
+        );
+        let emit = emitter.finish(e).map(|(s, _)| s);
+        if let Statement::Store { value: v, .. } = &mut f.body[at] {
+            *v = pos;
+        }
+        if let Some(emit) = emit {
+            f.body.splice(at..at, Block::from_vec(vec![emit]));
+        }
+        changed = true;
+    }
+    Ok(changed)
+}
 
 /// [`Program::split_uniforms`] on a module: each part's variable and its
 /// type (an array's element's for the draw's and the lights'), or `None`
@@ -1145,6 +1241,63 @@ void main () { gl_FragColor = first(lightPosition) + lightColor[1]; }
         assert!(p.split_uniforms(part).unwrap());
         assert!(p.reflection.uniform("lightPosition").is_some());
         assert!(p.reflection.uniform(crate::LIGHT_INDEX).is_none());
+    }
+
+    /// `gl_FragCoord.y` counted from the bottom: the position stored for
+    /// the program is the copy's height less y; the program still splits;
+    /// one that never reads the position is left as it is, and one that
+    /// reads it without a copy is an error.
+    #[test]
+    fn the_fragment_s_position_is_counted_from_the_bottom() {
+        let src: BTreeMap<String, String> = [
+            (
+                "fs_coord".to_string(),
+                r#"
+#define SHADER_TYPE 2
+uniform vec2 screenParams;
+uniform vec4 materialFrontDiffuse;
+uniform sampler2D texFBColor;
+void main ()
+{
+    vec2 at = gl_FragCoord.xy / screenParams;
+    gl_FragColor = texture2D(texFBColor, at) * materialFrontDiffuse;
+}
+"#
+                .to_string(),
+            ),
+            (
+                "fs_plain".to_string(),
+                "#define SHADER_TYPE 2\nuniform vec4 c;\nvoid main () { gl_FragColor = c; }\n"
+                    .to_string(),
+            ),
+            (
+                "fs_bare".to_string(),
+                "#define SHADER_TYPE 2\nvoid main () { gl_FragColor = gl_FragCoord; }\n"
+                    .to_string(),
+            ),
+        ]
+        .into();
+        let mut p = compile("fs_coord", Stage::Fragment, &Preamble::default(), &src).unwrap();
+        assert!(p.frag_coord_from_bottom().unwrap());
+        let wgsl = naga::back::wgsl::write_string(
+            &p.module,
+            &p.info,
+            naga::back::wgsl::WriterFlags::empty(),
+        )
+        .unwrap();
+        assert!(wgsl.contains("textureDimensions(texFBColor_image)"), "{wgsl}");
+        let part = |m: &crate::Member| match m.name.as_str() {
+            "materialFrontDiffuse" => Part::Draw,
+            _ => Part::Frame,
+        };
+        assert!(p.split_uniforms(part).unwrap());
+        assert!(p.reflection.uniform("screenParams").is_some());
+        let mut plain = compile("fs_plain", Stage::Fragment, &Preamble::default(), &src).unwrap();
+        let before = format!("{:?}", plain.module);
+        assert!(!plain.frag_coord_from_bottom().unwrap());
+        assert_eq!(before, format!("{:?}", plain.module));
+        let mut bare = compile("fs_bare", Stage::Fragment, &Preamble::default(), &src).unwrap();
+        assert!(bare.frag_coord_from_bottom().is_err());
     }
 
     #[test]

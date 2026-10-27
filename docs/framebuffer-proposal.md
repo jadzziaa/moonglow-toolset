@@ -1,10 +1,9 @@
 ---
 type: Proposal
 title: 'A framebuffer for the game''s water and particles: a proposal'
-description: Whether to give the game's shader programs a copy of the picture and its depth drawn so far (texFBColor, texFBDepth), so that shiny water draws as the client draws it (refraction of what lies under it, screen-space reflections) and particles fade where they meet the ground - what reads it (fswater and fsparticle only; none of The Domains of Dread's 37 programs), where the copy fits in Moonglow's frame, a spike on the framebuffer-assessment branch that cut the pass, copied and drew fswater with it (the copy 0.0-0.2 ms of the GPU at 3000x1250 with 4x MSAA, fswater with it 1.4-2.0 ms more than Moonglow's own water where water fills the view; 4 ms when the copies landed in system memory), what the pictures gain, the waves-only alternative, portability, and a recommendation (M, five steps, gated on one comparison with the client).
+description: Giving the game's shader programs a copy of the picture and its depth drawn so far (texFBColor, texFBDepth), so that shiny water draws as the client draws it (refraction of what lies under it, screen-space reflections) and particles fade where they meet the ground - what reads it (fswater and fsparticle only; none of The Domains of Dread's 37 programs), where the copy fits in Moonglow's frame, the spike that measured it, the waves-only alternative, portability, and the recommendation (M, five steps); steps 1 to 3 built on 2026-10-27 - the copies made with the targets and filled only in a frame that reads them, bound to the game's programs with gl_FragCoord.y counted from the bottom in IR, and shiny water drawn by fswater by default with the Shaders switch on, closer to the client than Moonglow's own water (a rural area's far water 10.9 of 255 against 12.6, TDoD's fountain 10.6 against 11.7), 0.3 to 1.3 ms more of the GPU where water fills the view; step 4 built the same day - particleSoftness read from the client (10 over the emitter's larger size, none for Billboard_to_Local_Z and Billboard_to_World_Z, the same at Performance and High Quality) and particles faded through the depth copy (a floor particle's foot 3.0 of 255 from the client's without the fade, 0.8 with it).
 tags: [proposal, rendering, shaders, water, particles, renderer, framebuffer]
-status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T05:06:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T07:18:07Z }
 stale_after: 2027-04-01T00:00:00Z
 sources:
   - id: request
@@ -40,13 +39,35 @@ sources:
   - id: deferred
     resource: deferred.md (The game's shaders; The special surfaces)
     title: The deferred entries on the framebuffer, water and soft particles
+  - id: approval
+    resource: human:august (2026-10-27, through the coordinating session)
+    title: Steps 1 to 3 approved
+  - id: built
+    resource: branch framebuffer-water (crates/mg-render/src/framebuffer.rs, renderer.rs (Targets, render_targets, GAME_WATER), game.rs (FB_BINDING, set_framebuffer), particles.rs, crates/mg-shader/src/link.rs (frag_coord_from_bottom), crates/mg-render/tests/render.rs (the_framebuffer_s_copies_are_read_as_opengl_reads_them), crates/mg-ui/src/area_view.rs, model_view.rs)
+    title: Steps 1 to 3, built
+  - id: client
+    resource: crates/mg-corpus-tests/tests/client_render/programs.rs (surfaces_in_the_client, MG_RUNS=unmarked) and client_render.rs (tdod_custom_shaders_look), run 2026-10-27 in the sandboxed client (tools/nwclient/run-client.sh, the off-screen display); the client's pictures kept in ~/.local/share/moonglow-oracle/captures/client/ (surfaces_unmarked.png, tdod_fountain.png)
+    title: The client comparison of the built water
+  - id: soft-client
+    resource: crates/mg-corpus-tests/tests/client_render/soft_particles.rs (soft_particles_in_the_client, MG_RUNS read_hq, read_default, read_medium, look), run 2026-10-27 in the sandboxed client on the off-screen display; the look run's picture kept as ~/.local/share/moonglow-oracle/captures/client/soft_particles.png
+    title: Soft particles read from the client and compared
+  - id: perf-soft
+    resource: crates/mg-ui/tests/frame_perf.rs (FRAME_HARD_PARTICLES=1; FRAME_AREA=water with FRAME_NO_WATER=1, and tdod), run 2026-10-27
+    title: Soft particles' frame times
+  - id: perf-built
+    resource: crates/mg-ui/tests/frame_perf.rs (game_shaders_frames_at_144, FRAME_AREA=water and tdod, FRAME_OWN_WATER=1), this branch and develop 02a05691 back to back, run 2026-10-27
+    title: The built water's frame times
 ---
 
 # A framebuffer for the game's water and particles: a proposal
 
-Status: draft, for the owner's decision (2026-10-27).[^request] A spike
-is on the branch `framebuffer-assessment` (commit `039c999b`, labeled an
-experiment, off by default)[^spike]; nothing of it is on `develop`.
+Status: steps 1 to 3 approved (2026-10-27)[^approval] and built on the
+branch `framebuffer-water`[^built] (below: [Built: steps 1 to
+3](#built-steps-1-to-3-2026-10-27)); shiny water is the game's by default
+with the Shaders switch on. Step 4, soft particles, approved and built
+the same day ([Built: step 4](#built-step-4-soft-particles-2026-10-27)).
+Step 5 (Direct3D 12 and Metal in CI) is open. The spike stays on `framebuffer-assessment`
+(commit `039c999b`)[^spike].
 
 **The question.** The game's programs read a copy of the picture drawn
 so far (`texFBColor`) and of its depth (`texFBDepth`). Moonglow binds
@@ -63,6 +84,196 @@ GPU at 3000×1250 with 4x MSAA, no measurable processor time);
 water where water fills the view (1.0 to 1.3 of that its screen-space
 reads), within the 6.94 ms budget in the area measured. It buys the stock water and soft particles only: none
 of The Domains of Dread's 37 programs reads the framebuffer.
+
+## Built: steps 1 to 3 (2026-10-27)
+
+**What it does.**[^built]
+
+- **The copies live with the targets** (`Targets::copies`: a colour copy
+  in the target's format and an `R32Float` depth copy, made when the
+  targets are made, so that they are placed as the targets are, not left
+  in system memory as the spike's were). `Renderer::render_targets` draws
+  with them; the area view, the model viewer and `render_image` use it.
+  `Renderer::render` (given views, no targets) has no copies: there
+  shiny water stays Moonglow's.
+- **Filled only in a frame that reads them**: one with a solid draw whose
+  program reads them (shiny water through `fswater`) or a see-through
+  one that does (none known); particles don't ask for them, as
+  `particleSoftness` is 0. In such a frame the scene's pass is cut after
+  the solid meshes, one full-screen draw fills the copies (the
+  multisampled colour averaged, the depth's first sample, OpenGL's rows),
+  and a second pass draws on: the readers first, then the see-through
+  meshes, additive ones, particles and lines. Any other frame is drawn as
+  before, in one pass.
+- **Bound to the game's programs in group 1** (`FB_BINDING`, beside the
+  bones; group 0, the draws' values, is one group for every pipeline
+  since the area-frames work), made per pipeline for the frame's copies:
+  a material's bind groups don't change with the target. The depth copy is read
+  unfiltered (`R32Float`, a nearest sampler); white where there are no
+  copies.
+- **`gl_FragCoord.y` counted from the bottom in IR**
+  (`mg_shader::Program::frag_coord_from_bottom`): in a fragment program
+  that reads the copies, the entry point stores the position for the
+  program as `(x, height − y, z, w)`, the height the copy's own
+  (`textureDimensions`), so it needs no uniform. The spike's text rewrite
+  is gone. Held by `the_framebuffer_s_copies_are_read_as_opengl_reads_them`
+  (mg-render's render tests): an authored `fswater` reading `texFBColor`
+  at its `gl_FragCoord` and, in another program, at its projected
+  position, finds the picture behind the water at both (without the pass,
+  all 324 of its pixels are wrong), and `texFBDepth` gives the 10 m
+  behind it; with 4x MSAA and without.
+- **The 45° of `inc_framebuffer`** (`fFOV`, used by `GetNormalVector`, the
+  reflection's test of what it hit) is the game's constant, kept: the
+  client's own camera isn't 45° either (Moonglow's fitted camera for the
+  client's pictures has 48°), and the area view's is 40°. It bends that
+  test by the same few degrees in the client.
+- **Shiny water is the game's by default** (`GAME_WATER` true) with the
+  Shaders switch on; Moonglow's own draws it with the switch off, without
+  the targets' copies (thumbnails, previews), or where `fswater` fails.
+- **Particles upright**: a particle that doesn't spin (`particleRot` 0)
+  is no longer turned by a random angle; the client draws a still
+  emitter's square particles square (below).
+
+**Against the client.**[^client] The client's pictures were taken in the
+sandboxed client on the off-screen display and kept
+(`~/.local/share/moonglow-oracle/captures/client/`), so that Moonglow's
+side can be compared again without the client (`MG_CLIENT_CAPTURED=1`).
+Mean difference per channel, of 255:
+
+| Region | Moonglow's water | `fswater` with the copies | `fswater` without (M5) |
+|---|---|---|---|
+| a rural area's far water (`surfaces_in_the_client`) | 12.6 | **10.9** | 19.4 |
+| a standing card of shiny water | 57.1 | **14.6** | 38.3 |
+| TDoD's fountain, its 7,091 pixels (`tdod_custom_shaders_look`) | 11.7 | **10.6** | 16.4 |
+| the whole picture (away from the GUI) | 18.47 | **17.08** | 19.10 |
+
+![The client (top), Moonglow's own water (second) and fswater with the copies (third) over a rural area's water, and TDoD's fountain in the same order (bottom row)](images/framebuffer-water-client.jpg)
+
+`fswater` with the copies has the client's look: the muted green-grey,
+the darker band of the near water, the wind's long streaks, a grey basin
+in the fountain where Moonglow's was blue. The swirls the spike's close
+picture showed are the waves bending the dark bed under the water seen
+from low down; from the client's camera they read as the client's
+streaks. No difference was traced to the y convention or the field of
+view.
+
+**Particles.** A still emitter of an 8×8 white texture: the client
+draws squares, upright, 30 pixels a side in its picture; Moonglow drew
+the Normal and Punch-Through ones as jagged discs (many particles in one
+place, each turned by a random angle) and the Lighten one as a turned
+square. Now it draws them upright squares, 28 pixels a side, 1 to 3
+pixels from the client's (the fitted camera's error): their white
+pixels overlap the client's by 0.81, 0.76 and 0.69 (Normal,
+Punch-Through, Lighten). The regions' mean colours read worse than
+before (10.0, 4.5 and 12.0 against 0.5, 0.2 and 14.4: the discs
+overflowed the small regions, the squares fall a pixel short of them).
+A spinning particle's starting angle wasn't read. `particleSoftness`
+stays 0 (step 4: its value is not read).
+
+**What it costs.**[^perf-built] GPU per frame, the quickest tenth
+(`area_parts`, 3000×1250), and the area view's own frames (3440×1400
+window, the median), Shaders on:
+
+| View | develop | Moonglow's water (this branch) | `fswater` with the copies |
+|---|---|---|---|
+| water and fires, overview, 4x MSAA | 1.63 ms | 1.62 | 1.92 |
+| water and fires, close, 4x MSAA | 3.04 | 3.05 | 4.23 |
+| water and fires, the area view turning / close | 3.19 / 3.29 | 3.22 / 3.29 | 4.07 / 4.57 |
+| TDoD's woods, overview, 4x MSAA | 10.23 | 10.26 | 10.80 |
+| TDoD's woods, close, 4x MSAA | 3.55 | 3.34 | 4.14 |
+| TDoD's woods, the area view turning / close | 1.95 / 3.22 | 1.98 / 3.11 | 2.32 / 3.48 |
+
+The copies and the cut cost nothing a frame without a reader (the
+Moonglow's-water column is develop's); a frame with water pays the copy
+(0.0 to 0.2 ms) and `fswater`'s screen-space work, 0.3 to 1.3 ms, every
+view within the 6.94 ms budget. The processor's time is unchanged (the
+draws encoded in 2.9 ms in the water area, 31 in TDoD's woods, either
+way). TDoD's test area fills the card's video memory while it runs (16.8
+of 17.1 GB): the copies, made with the targets, cost no more there. The
+Shaders-off area view of the water area takes 6.6 to 8.5 ms of the GPU
+on develop as on this branch (not this work's).
+
+**Tests run**: the render test above and mg-render's render and unit
+tests; mg-shader's (the IR pass, with a program that reads `gl_FragCoord`
+without a copy refused); the corpus shader test over every stock program
+and the 102 of the installed TDoD haks, `fswater` and `fsparticle` through
+the pass; the corpus game-shader and area tests; mg-ui's app tests; the
+two client comparisons; clippy (the hand-run targets too) and fmt.
+
+**Still open**: step 5 (Direct3D 12 and Metal
+in CI; the new pass reads a multisampled depth texture and renders to
+`R32Float`); whether the client copies again after the water (a
+see-through mesh or a particle over water sees the copy of the solid
+meshes only); `sample_framebuffer`'s late drawing.
+
+## Built: step 4, soft particles (2026-10-27)
+
+**What the client gives `fsparticle`**,[^soft-client] read through a
+patched copy of the game's own `fsparticle.shd` in the scratch user
+folder's `override` that paints `particleSoftness` (and the shader
+quality it was compiled for) over each particle, one still particle an
+emitter:
+
+| Emitter | `particleSoftness` |
+|---|---|
+| size 0.25 m / 0.5 / 1 / 2 | 40 / 20 / 10 / 5 |
+| size 1.2 (the floor particles) | 8.33 |
+| growing 0.25 → 1, shrinking 1 → 0.25 | 10, 10 |
+| Normal, Punch-Through, Lighten (0.5 m) | 20, 20, 20 |
+| `Aligned_to_World_Z`, `Motion_Blur` (0.5 m) | 20, 20 |
+| `Billboard_to_Local_Z`, `Billboard_to_World_Z` | 0 |
+
+So it is the emitter's, not a setting: **10 over the larger of its
+`sizeStart` and `sizeEnd`** (a particle fades over the last tenth of its
+size before what lies behind it), and none for the two render modes that
+lay a particle along an axis (the patch notes' "disabled soft particles
+on world-aligned emitters"; "adaptive soft particle based on size" is the
+rule above). The client knows two shader qualities, "Performance" (its
+default) and "High Quality" (Moonglow's): both give these values. A
+quality it doesn't know ("Medium") compiles `fsparticle` without the
+fade. Lightning and `Linked` emitters weren't read (Moonglow gives
+lightning none and `Linked` the rule).
+
+**Moonglow** gives each particle draw that softness
+(`particles::softness`, `ParticleBatch::softness`), and a frame with a
+soft particle makes the framebuffer's copy, which the particle reads
+(drawn after it, as all particles are). `Renderer::soft_particles` turns
+it off for comparing. Moonglow's own particle shader (the Shaders switch
+off) doesn't fade.
+
+**Against the client:** three particles of 1.2 m standing half under the
+reference room's floor (Normal, Punch-Through, Lighten), the last eight
+rows of each above the floor (found in each picture by its colour, the
+fitted camera being a few pixels off), mean difference of 255:
+
+| Particle | without the fade | with it |
+|---|---|---|
+| Normal | 3.0 | **0.8** |
+| Punch-Through | 0.3 | 0.3 |
+| Lighten | 10.0 | **6.2** |
+
+![The floor particles' feet: the client (top), Moonglow without the fade (middle) and with it (bottom)](images/framebuffer-soft-particles.png)
+
+At this distance the fade is a row or two (12 cm). The Normal one now
+darkens its last rows as the client's does; the Lighten one fades a
+little more than the client's (its last row 132 of 255 in red against
+the client's 147); the Punch-Through one, cut at its alpha 0.2, shows no
+fade in either. The whole picture: 7.33 of 255 from the client's without,
+7.30 with it.
+
+**What it costs**[^perf-soft] (GPU, `area_parts` the quickest tenth at
+3000×1250 and the area view's median, Shaders on, Animations on):
+
+| View | hard particles | soft particles |
+|---|---|---|
+| 160 fires on grass (no water), overview, 4x MSAA | 1.48 ms | 1.56 |
+| …close, 4x MSAA | 2.22 | 2.34 |
+| …the area view turning / close | 2.56–2.61 / 3.10–3.14 | 2.93 / 3.19 |
+| TDoD's woods, overview / close, 4x MSAA | 11.00 / 4.46 | 10.85 / 4.27 |
+
+The copy and the fade: 0.1 ms where particles are the only reader, up to
+0.35 ms in the area view turning; nothing measurable in TDoD's woods,
+whose water makes the copy anyway. The processor's time is unchanged.
 
 ## 1. What reads the framebuffer
 
@@ -350,6 +561,12 @@ memory. Whether the area view does the same with TDoD's real areas was
 not looked at.
 
 [^request]: The request (2026-10-27).
+[^approval]: Steps 1 to 3 approved (2026-10-27).
+[^built]: The branch `framebuffer-water`.
+[^client]: `surfaces_in_the_client` and `tdod_custom_shaders_look`, run 2026-10-27.
+[^perf-built]: `frame_perf`, this branch and develop back to back, 2026-10-27.
+[^soft-client]: `soft_particles_in_the_client`, run 2026-10-27.
+[^perf-soft]: `frame_perf` with `FRAME_HARD_PARTICLES=1`, 2026-10-27.
 [^stock-shd]: The install's shader sources.
 [^tdod-shd]: TDoD's haks, its programs and materials.
 [^renderer]: Moonglow's renderer, develop 48f54c6b.

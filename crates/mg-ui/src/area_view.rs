@@ -2489,16 +2489,9 @@ fn viewport(
             let from = vp.textures_from(game);
             vp.renderer.read_textures_apart(&vp.gpu, Some(from));
         }
-        vp.renderer.render(
-            &vp.gpu,
-            &game.resman,
-            &frame,
-            &camera,
-            targets.render_view(),
-            targets.resolve_view(),
-            &targets.depth,
-            (w, h),
-        );
+        // (With the targets' framebuffer copies: shiny water by the
+        // game's `fswater`.)
+        vp.renderer.render_targets(&vp.gpu, &game.resman, &frame, &camera, targets);
         vp.renderer.game_background = false;
         vp.renderer.textures_apart = false;
         view.textures_drawn = vp.renderer.textures_read();
