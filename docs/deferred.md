@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T05:14:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T05:15:23Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -391,20 +391,22 @@ Size: S (an hour or two), M (a day or so), L (several days).
   it: the summary and the JSON's `skipped` only name it), and Build
   Module's Missing Resources has its own categories, apart from these.
   (S) (Taro49's report, October 2026)
-- **A whole Verify of a module with many ASCII haks is still 9 s:** the
-  Domains of Dread with its 144 haks (28 GB) went from 70 s to 9 s on
-  16 threads (and 73 s to 0.5 s with `--skip tilesets,models,2das`),
-  and what is left is reading models kept as text: `mg_mdl::lint` reads
-  them at about 4 MB/s (a 6 MB tile, `twcy1_s02_93`, takes 1.5 s alone),
-  95,810 models add up to 61 s of the workers' time, and the tilesets'
-  `tile-faces` reads each ASCII tile model a second time, in full, to
-  count its faces (41 s). The workers' time added up is about one and a
-  half times what one thread took (8 cores, 16 threads), so the gain is
-  sevenfold, not sixteen. A quicker text reader, one read of a tile
-  model shared by the two checks, the faces counted without building
-  the mesh, or a compiled model told by its first bytes instead of read
-  whole would each take some of it. (M) (the Domains of Dread builders' report, October
-  2026)
+- **A whole Verify of a module with many haks is still 1.4 s:** the
+  Domains of Dread with its 145 haks (28 GB) went from 70 s to 9 s on
+  16 threads, and on 27 October from 4 s to 1.4 s on 32 (70 s of the
+  workers' time to 25 s): the linter no longer looks through the whole text for
+  each node named twice (that made a 6 MB tile, `twcy1_s02_93`, take
+  1.4 s: now 15 ms), a tile model's faces are told from its `faces`
+  counts unless there are more than 10,000 rows, compiled models are
+  told by their first bytes (8.5 GB of them were read whole), and the
+  shader programs compile in parallel. What is left: linting 43,000
+  models kept as text (1.9 GB, 13 s of the workers' time, 300 to
+  400 MB/s on one thread), the tilesets' 7 to 9 s (each compiled tile
+  model read whole to count its faces, and the text tiles with more
+  than 10,000 `faces` rows, at least the 269 warned of, read in full at
+  80 MB/s, where the faces could be counted without building the
+  meshes), and the 2DAs' 2 s. (M) (the
+  Domains of Dread builders' report, October 2026)
 
 ## Test loop
 

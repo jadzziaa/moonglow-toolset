@@ -119,6 +119,25 @@ pub fn is_binary(data: &[u8]) -> bool {
     data.len() >= 12 && data[0] == 0
 }
 
+/// How many triangles a model's geometry draws (its meshes'
+/// [`Mesh::triangles`], as [`Model::read`] reads them), when that is more
+/// than `limit`; `None` when it is not. A model kept as text with fewer
+/// `faces` rows than that is told so from a pass over its words, without
+/// building its meshes (a tile model of 6 MB: 6 ms, not 80); the rest
+/// are read. An error is [`Model::read`]'s.
+pub fn faces_over(data: &[u8], limit: usize) -> Result<Option<usize>, MdlError> {
+    if !is_binary(data) {
+        let (at_most, geometry) = ascii::faces_at_most(&String::from_utf8_lossy(data));
+        if at_most <= limit && geometry {
+            return Ok(None);
+        }
+    }
+    let model = Model::read(data)?;
+    let faces: usize =
+        model.nodes.iter().filter_map(|n| n.mesh()).map(|m| m.triangles().count()).sum();
+    Ok((faces > limit).then_some(faces))
+}
+
 /// A controller: key times and, per key, `columns` values.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Controller {
@@ -507,6 +526,59 @@ mod tests {
         assert!((x[0] - 0.5f32.sin()).abs() < 1e-6 && (x[3] - 0.5f32.cos()).abs() < 1e-6);
         assert_eq!(x[1..3], [0.0, 0.0]);
         assert_eq!(axis_angle([0.0, 0.0, 0.0], 0.0), IDENTITY);
+    }
+
+    /// A plane whose `faces` list says `count` and has `rows`.
+    fn plane(count: usize, rows: &[&str]) -> String {
+        let rows: String = rows.iter().map(|r| format!("    {r}\n")).collect();
+        format!(
+            "newmodel m\nbeginmodelgeom m\nnode trimesh plane\n  parent NULL\n  verts 3\n    0 0 0\n\
+             \x20   1 0 0\n    0 1 0\n  faces {count}\n{rows}endnode\nendmodelgeom m\ndonemodel m\n"
+        )
+    }
+
+    fn read_faces(data: &[u8]) -> usize {
+        let m = Model::read(data).unwrap();
+        m.nodes.iter().filter_map(|n| n.mesh()).map(|m| m.triangles().count()).sum()
+    }
+
+    #[test]
+    fn faces_over_a_limit_are_counted_as_the_reader_counts_them() {
+        const FACE: &str = "0 1 2 1 0 0 0 0";
+        let three = plane(3, &[FACE, FACE, FACE]);
+        assert_eq!(read_faces(three.as_bytes()), 3);
+        assert_eq!(faces_over(three.as_bytes(), 2).unwrap(), Some(3));
+        assert_eq!(faces_over(three.as_bytes(), 3).unwrap(), None);
+        // A count past the rows: read, and the rows counted.
+        let short = plane(5, &[FACE, FACE]);
+        assert_eq!(faces_over(short.as_bytes(), 1).unwrap(), Some(2));
+        assert_eq!(faces_over(short.as_bytes(), 3).unwrap(), None);
+        // A count short of the rows: the reader reads as many as it says.
+        let long = plane(1, &[FACE, FACE, FACE]);
+        assert_eq!(read_faces(long.as_bytes()), 1);
+        assert_eq!(faces_over(long.as_bytes(), 0).unwrap(), Some(1));
+        assert_eq!(faces_over(long.as_bytes(), 1).unwrap(), None);
+        // A face on one vertex twice is left out; a vertex past the list too.
+        let left_out = plane(3, &["0 0 2 1 0 0 0 0", "0 1 9 1 0 0 0 0", FACE]);
+        assert_eq!(faces_over(left_out.as_bytes(), 0).unwrap(), Some(1));
+        // Compiled models are read.
+        let compiled = crate::compile::compile(three.as_bytes(), &Default::default()).unwrap();
+        assert_eq!(faces_over(&compiled.binary, 2).unwrap(), Some(read_faces(&compiled.binary)));
+    }
+
+    /// Text the reader finds no geometry in is its error, under the limit
+    /// or not: no nodes, or nodes in an animation alone.
+    #[test]
+    fn faces_over_keeps_the_reader_s_errors() {
+        assert!(matches!(faces_over(b"", 10), Err(MdlError::Empty)));
+        assert!(matches!(faces_over(b"newmodel m\ndonemodel m\n", 10), Err(MdlError::Empty)));
+        let animated = "newmodel m\nnewanim a m\nnode trimesh plane\n  parent NULL\n  faces 0\n\
+                        endnode\ndoneanim a m\ndonemodel m\n";
+        assert!(matches!(faces_over(animated.as_bytes(), 10), Err(MdlError::Empty)));
+        // (Geometry after the animation is found.)
+        let after =
+            animated.replace("donemodel m", "node dummy m\n  parent NULL\nendnode\ndonemodel m");
+        assert_eq!(faces_over(after.as_bytes(), 10).unwrap(), None);
     }
 }
 

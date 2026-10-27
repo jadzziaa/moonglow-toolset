@@ -250,6 +250,13 @@ impl ResMan {
         self.layers[i].container.read(key)
     }
 
+    /// The first `n` bytes of a resource from the highest layer that has
+    /// it ([`Container::read_start`]).
+    pub fn get_start(&self, key: &ResKey, n: usize) -> Result<Cow<'_, [u8]>, ResError> {
+        let i = self.find(key).ok_or(ResError::NotFound(*key))?;
+        self.layers[i].container.read_start(key, n)
+    }
+
     /// Convenience: [`ResMan::get`] by name and type.
     pub fn get_named(&self, name: &str, restype: ResType) -> Result<Cow<'_, [u8]>, ResError> {
         let key = ResKey::parse(name, restype).ok_or_else(|| ResError::Container {
@@ -529,6 +536,33 @@ mod tests {
         std::fs::write(&hak, b"not an archive").unwrap();
         assert!(rm.rescan("hak").is_err());
         assert!(rm.contains(&key("b", ResType::NSS)), "kept what it had");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A resource's first bytes are its bytes' first, from an archive (read
+    /// alone) and from other containers alike.
+    #[test]
+    fn a_resource_s_first_bytes() {
+        let dir = std::env::temp_dir().join(format!("mg-resman-start-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let hak = dir.join("x.hak");
+        let mut w = mg_erf::ErfWriter::new(*b"HAK ");
+        w.add(ResRef::from_str("long").unwrap(), ResType::MDL, &b"\0\0\0\0 and the rest"[..])
+            .unwrap();
+        w.add(ResRef::from_str("short").unwrap(), ResType::MDL, &b"ab"[..]).unwrap();
+        std::fs::write(&hak, w.to_bytes().unwrap()).unwrap();
+        let mut mem = MemContainer::new();
+        mem.insert(key("mem", ResType::MDL), &b"newmodel m"[..]);
+        let mut rm = ResMan::new();
+        rm.add(priority::HAK, "hak", LayerClass::Erf, ErfContainer::open(&hak).unwrap());
+        rm.add(priority::MODULE, "module", LayerClass::Erf, mem);
+        for (name, n) in [("long", 12), ("long", 1000), ("short", 12), ("mem", 3), ("mem", 0)] {
+            let k = key(name, ResType::MDL);
+            let all = rm.get(&k).unwrap();
+            assert_eq!(&rm.get_start(&k, n).unwrap()[..], &all[..n.min(all.len())], "{name} {n}");
+        }
+        assert!(rm.get_start(&key("none", ResType::MDL), 12).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

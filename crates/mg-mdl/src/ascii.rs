@@ -886,6 +886,35 @@ fn anim_node(raw: &RawNode<'_>, source_counts: &HashMap<String, (usize, usize)>)
     n
 }
 
+/// What a model's text says of its faces without reading it: at most how
+/// many faces [`read`] can find (each comes from a row of a `faces` list,
+/// and a list has no more rows than its count, besides values on its own
+/// line), and whether [`read`] is sure to find geometry (its first `node`
+/// is outside an animation: [`read`] sees every line up to it). Read so
+/// in one pass over the words, many times faster than [`read`].
+pub(crate) fn faces_at_most(text: &str) -> (usize, bool) {
+    let mut most = 0usize;
+    let mut in_anim = false;
+    let mut geometry = None;
+    for line in text.lines() {
+        let mut w = line.split('#').next().unwrap_or_default().split_whitespace();
+        let Some(first) = w.next() else { continue };
+        if first.eq_ignore_ascii_case("faces") {
+            let count = w.next().and_then(|c| c.parse::<usize>().ok()).unwrap_or(0);
+            most = most.saturating_add(count).saturating_add(w.count());
+        } else if geometry.is_none() {
+            if first.eq_ignore_ascii_case("node") {
+                geometry = Some(!in_anim);
+            } else if first.eq_ignore_ascii_case("newanim") {
+                in_anim = true;
+            } else if first.eq_ignore_ascii_case("doneanim") {
+                in_anim = false;
+            }
+        }
+    }
+    (most, geometry == Some(true))
+}
+
 /// Reads an ASCII model.
 pub fn read(data: &[u8]) -> Result<Model, MdlError> {
     read_mapped(data).map(|(m, _)| m)
