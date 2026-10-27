@@ -431,6 +431,30 @@ fn is(e: &Event, s: &KeyboardShortcut) -> bool {
         if *key == s.logical_key && modifiers.matches_exact(s.modifiers))
 }
 
+/// Where Find's keys are kept, for the search fields of the panes and the
+/// windows ([`find_pressed`]).
+fn find_keys_id() -> egui::Id {
+    egui::Id::new("keymap-find-keys")
+}
+
+/// Whether one of Find's keys (Ctrl+F, or what Options › Keyboard gave
+/// it) was pressed this frame; the press is used up. The search fields
+/// read it, which have no key map at hand: [`Keymap::share_find`] keeps
+/// its keys where they look.
+pub fn find_pressed(ctx: &egui::Context) -> bool {
+    let keys = ctx.data(|d| d.get_temp::<Vec<KeyboardShortcut>>(find_keys_id()));
+    let keys = keys.unwrap_or_else(|| Cmd::Find.defaults());
+    ctx.input_mut(|i| {
+        let mut hit = false;
+        i.events.retain(|e| {
+            let this = !hit && keys.iter().any(|s| is(e, s));
+            hit |= this;
+            !this
+        });
+        hit
+    })
+}
+
 /// A command's own keys, by the id its keys are kept under: a key
 /// command's defaults, none for any other command.
 pub fn defaults_of(id: &str) -> Vec<KeyboardShortcut> {
@@ -588,6 +612,13 @@ impl Keymap {
 
     pub fn consume(&self, i: &mut InputState, cmd: Cmd) -> bool {
         self.consume_of(i, cmd.id())
+    }
+
+    /// Keeps Find's keys where the search fields read them
+    /// ([`find_pressed`]), for this frame and the next.
+    pub fn share_find(&self, ctx: &egui::Context) {
+        let keys = self.keys(Cmd::Find);
+        ctx.data_mut(|d| d.insert_temp(find_keys_id(), keys));
     }
 
     /// [`Keymap::consume_of`] for a command of the whole window: while a

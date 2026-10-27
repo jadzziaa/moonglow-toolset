@@ -1252,7 +1252,9 @@ fn keyboard(ui: &mut Ui, draft: &mut OptionsDraft) {
     );
     ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
     let needle = mg_core::text::Needle::new(&filter);
-    rows.retain(|(group, _, name)| needle.finds(name) || needle.finds(group.name()));
+    rows.retain(|(group, _, name)| {
+        needle.finds_in(&[&mg_core::text::fold(name), &mg_core::text::fold(group.name())])
+    });
     egui::ScrollArea::vertical().max_height(350.0).show(ui, |ui| {
         let mut group = None;
         egui::Grid::new("keys").num_columns(3).striped(true).show(ui, |ui| {

@@ -39,34 +39,75 @@ pub fn compare(a: &str, b: &str) -> Ordering {
 }
 
 /// What is typed in a Filter field, [`fold`]ed once, to find names with:
-/// `arbol` finds `Árbol`, `ARBOL` and `arbol`.
+/// every word of it found, in any order, case and accents aside (`arbol`
+/// finds `Árbol`, `sword iron` finds `Iron Sword`). Every list's filter
+/// and search goes by it; a list that looks in several fields of a row (a
+/// name, a ResRef, a tag) finds a row whose fields hold the words between
+/// them ([`Needle::finds_in`]).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Needle(String);
+pub struct Needle {
+    /// The text typed, folded (the spaces around it aside).
+    text: String,
+    /// Its words.
+    words: Vec<String>,
+    /// The words' letters are looked for in order, not side by side
+    /// ([`Needle::letters_in_order`]).
+    in_order: bool,
+}
 
 impl Needle {
     /// The text typed (the spaces around it aside).
     pub fn new(typed: &str) -> Needle {
-        Needle(fold(typed.trim()))
+        let text = fold(typed.trim());
+        let words = text.split_whitespace().map(str::to_owned).collect();
+        Needle { text, words, in_order: false }
+    }
+
+    /// The same words, each found where its letters are in a name in
+    /// order, others between them (`lngswd` finds `Longsword`): what a
+    /// search falls back to when nothing has every word.
+    pub fn letters_in_order(&self) -> Needle {
+        Needle { in_order: true, ..self.clone() }
+    }
+
+    /// Whether it looks for the words' letters in order.
+    pub fn is_in_order(&self) -> bool {
+        self.in_order
     }
 
     /// Whether nothing was typed (it finds everything).
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.words.is_empty()
     }
 
     /// The text, folded.
     pub fn as_str(&self) -> &str {
-        &self.0
+        &self.text
     }
 
-    /// Whether `text` holds it, case and accents aside.
+    /// Whether `text` holds every word, case and accents aside.
     pub fn finds(&self, text: &str) -> bool {
-        self.0.is_empty() || fold(text).contains(&self.0)
+        self.is_empty() || self.finds_folded(&fold(text))
     }
 
-    /// Whether `folded` (a name already [`fold`]ed) holds it.
+    /// Whether `folded` (a name already [`fold`]ed) holds every word.
     pub fn finds_folded(&self, folded: &str) -> bool {
-        folded.contains(&self.0)
+        self.finds_in(&[folded])
+    }
+
+    /// Whether every word is in one of `fields` (each already [`fold`]ed):
+    /// a row found by its name, its ResRef and its tag together.
+    pub fn finds_in(&self, fields: &[&str]) -> bool {
+        self.words.iter().all(|w| fields.iter().any(|f| self.holds(f, w)))
+    }
+
+    fn holds(&self, field: &str, word: &str) -> bool {
+        if self.in_order {
+            let mut letters = field.chars();
+            word.chars().all(|c| letters.any(|x| x == c))
+        } else {
+            field.contains(word)
+        }
     }
 }
 
@@ -281,6 +322,26 @@ mod tests {
         assert!(needle.is_empty() && needle.finds("anything"));
         let needle = Needle::new("Élan");
         assert!(needle.finds("ELAN VITAL") && needle.finds_folded(&fold("élan")));
+    }
+
+    /// Every word typed is found, in any order and in any of a row's
+    /// fields; the palettes' fallback finds the letters in order.
+    #[test]
+    fn a_filter_finds_every_word_in_any_order() {
+        assert!(contains("Iron Sword", "sword iron"));
+        assert!(contains("Iron Sword", "  SWORD   ír "));
+        assert!(!contains("Iron Shield", "sword iron"));
+        let needle = Needle::new("Long  SWORD");
+        assert_eq!(needle.as_str(), "long  sword");
+        assert!(needle.finds_in(&["longsword +1", "nw_wswls001", ""]));
+        assert!(needle.finds_in(&["blade", "longsword", "sword_tag"]));
+        assert!(!needle.finds_in(&["short sword", "nw_wswss001", ""]));
+        let needle = Needle::new("lngswd");
+        assert!(!needle.finds("Longsword") && !needle.is_in_order());
+        let close = needle.letters_in_order();
+        assert!(close.is_in_order() && close.finds("Longsword"));
+        assert!(!close.finds("swordlong"));
+        assert!(Needle::new("  ").letters_in_order().finds("anything"));
     }
 
     #[test]

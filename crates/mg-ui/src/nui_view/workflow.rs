@@ -278,15 +278,14 @@ pub(super) fn images(
     }
     ui.collapsing("Choose image", |ui| {
         let filter = ui.id().with("nui-image-filter");
-        widgets::filter_keys(ui, filter, &mut state.asset_search, false);
-        ui.add(
-            egui::TextEdit::singleline(&mut state.asset_search)
-                .id(filter)
-                .hint_text("Find a picture…"),
-        );
-        let query = mg_core::text::fold(state.asset_search.trim());
+        let width = ui.spacing().text_edit_width;
+        widgets::SearchField::new(filter, &mut state.asset_search)
+            .hint("Find a picture…")
+            .width(width)
+            .show(ui);
+        let query = mg_core::text::Needle::new(&state.asset_search);
         let names: Vec<_> =
-            assets.catalog.iter().filter(|n| n.contains(&query)).take(24).cloned().collect();
+            assets.catalog.iter().filter(|n| query.finds(n)).take(24).cloned().collect();
         assets.request_images(ui.ctx(), names.iter().cloned().collect());
         ui.small("First 24 matches from the current module and content stack");
         let row_array = node[field]["bind"]

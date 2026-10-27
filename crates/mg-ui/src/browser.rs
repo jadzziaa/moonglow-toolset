@@ -111,7 +111,8 @@ impl Browser {
     }
 
     fn filtered(&mut self) -> &[usize] {
-        let query = (self.restype, mg_core::text::fold(self.filter.trim()), self.show_copies);
+        let needle = mg_core::text::Needle::new(&self.filter);
+        let query = (self.restype, needle.as_str().to_string(), self.show_copies);
         if self.query.as_ref() != Some(&query) {
             self.shown = self
                 .entries
@@ -120,8 +121,7 @@ impl Browser {
                 .filter(|(_, r)| {
                     (query.2 || r.over.is_none())
                         && query.0.is_none_or(|t| r.key.restype == t)
-                        && (query.1.is_empty()
-                            || mg_core::text::fold(&r.key.resref.to_string()).contains(&query.1))
+                        && needle.finds(&r.key.resref.to_string())
                 })
                 .map(|(i, _)| i)
                 .collect();
@@ -157,15 +157,17 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         );
         crate::widgets::field_label(ui, "Name");
         // The Filter's keys, as the side panes have them (GitHub issue
-        // 12): Ctrl+F with the pointer over the browser goes to it,
+        // 12): Find's (Ctrl+F) with the pointer over the browser go to it,
         // Escape clears it and then leaves it, Down goes into the list.
         let field_id = egui::Id::new("browser-filter-field");
         let over = ui.ctx().pointer_hover_pos().is_some_and(|p| pane.contains(p));
-        let find = over
-            && !ui.ctx().egui_wants_keyboard_input()
-            && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::F));
-        let left = crate::widgets::filter_keys(ui, field_id, &mut browser.filter, find);
-        ui.add(egui::TextEdit::singleline(&mut browser.filter).id(field_id));
+        let width = ui.spacing().text_edit_width;
+        let left = crate::widgets::SearchField::new(field_id, &mut browser.filter)
+            .find_when(over)
+            .down()
+            .width(width)
+            .show(ui)
+            .left;
         if left == Some(crate::widgets::FilterLeft::Down) {
             browser.cursor = Some(0);
             browser.reveal = true;

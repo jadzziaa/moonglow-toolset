@@ -69,6 +69,43 @@ fn filtering_the_tree_opens_its_groups() {
     h.get_by_label("hello");
 }
 
+/// The tree's Filter finds a row with every word typed, in any order (as
+/// every list's search does: "sword iron" finds Iron Sword), and Find's
+/// keys go to it as Options › Keyboard has them, not Ctrl+F alone.
+#[test]
+fn the_tree_s_filter_finds_every_word_and_takes_find_s_keys() {
+    let dir = mg_testkit::scratch_dir("ui-tree-filter-words");
+    let mut m = Module::new();
+    for name in ["iron_sword", "sword_shield", "longsword_iron"] {
+        m.set(ResKey::parse(name, ResType::NSS).unwrap(), b"void main() { }\n".to_vec());
+    }
+    let path = dir.join("words.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.settings.key_bindings.insert("find".into(), vec!["Ctrl+Shift+F".into()]);
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label_contains("Scripts (").click();
+    h.run_steps(2);
+    // Ctrl+F is no longer Find's: the keys stay in the rows.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::F);
+    h.run_steps(2);
+    assert!(!h.ctx.egui_wants_keyboard_input());
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::F);
+    h.run_steps(2);
+    assert!(h.ctx.egui_wants_keyboard_input(), "Find's keys go to the Filter");
+    filter_type(&mut h, "SWORD iron");
+    h.run_steps(2);
+    assert!(h.query_by_label("iron_sword").is_some());
+    assert!(h.query_by_label("longsword_iron").is_some());
+    assert!(h.query_by_label("sword_shield").is_none(), "every word, not one of them");
+    h.get_by_label_contains("Scripts (2)");
+}
+
 /// What a key pressed with `modifiers` came to in its frame (pressed in
 /// one frame, let go in the next): the text copied to the clipboard, and
 /// whether the backend was asked for the clipboard's text (a paste).
@@ -31190,6 +31227,105 @@ fn the_module_tree_s_letters_typed_quickly() {
     assert_eq!(at(&h), script("shopthing"));
     typed(&mut h, "s");
     assert_eq!(at(&h), Some(TreeAt::Group("Sounds")), "the same letter again: the next");
+}
+
+/// The module tree's keys at an area opened out: letters typed go to its
+/// kinds and its placed objects as their rows show them; Delete at a
+/// placed object the keys are at deletes it as its row's menu does
+/// (undone as any change), and the keys go on to the row after it; F2
+/// there does nothing (its menu has no Rename, nor has Aurora's). Down
+/// from the Filter goes to the first row it finds, not the first group.
+#[test]
+fn the_module_tree_s_keys_at_placed_objects() {
+    use mg_area::ObjectKind::Creature;
+    use mg_ui::TreeAt;
+    let dir = mg_testkit::scratch_dir("ui-tree-object-keys");
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    let mut git = Gff::new(*b"GIT ");
+    for tag in ["GOBLIN", "BANDIT"] {
+        let mut c = mg_schema::git::CREATURE_LIST.new_item();
+        c.set("Tag", mg_gff::Value::String(tag.as_bytes().to_vec()));
+        git.root.items_mut(&mg_schema::git::CREATURE_LIST).push(c);
+    }
+    let git_key = ResKey::parse("start", ResType::GIT).unwrap();
+    m.set_gff(git_key, &git).unwrap();
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .with_step_dt(0.25)
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let start = ResRef::from_str("start").unwrap();
+    let at = |h: &Harness<'_, Moonglow>| h.state().tree_cursor;
+    let key = |h: &mut Harness<'_, Moonglow>, key: egui::Key| {
+        h.key_press(key);
+        h.run_steps(3);
+    };
+    let typed = |h: &mut Harness<'_, Moonglow>, t: &str| {
+        for c in t.chars() {
+            h.event(egui::Event::Text(c.to_string()));
+            h.step();
+        }
+        h.run();
+        // (A pause: the next letters start over.)
+        h.run_steps(5);
+    };
+    h.get_by_label("start").click();
+    h.run();
+    // (The keys are the tree's wherever the pointer is: off its rows, so
+    // that F2 and Delete are for the keys' row, not the one under it.)
+    h.hover_at(egui::pos2(700.0, 400.0));
+    key(&mut h, egui::Key::ArrowRight);
+    h.get_by_label("Creatures (2)");
+    typed(&mut h, "c");
+    assert_eq!(at(&h), Some(TreeAt::Kind(start, Creature)), "a kind, by its name");
+    key(&mut h, egui::Key::ArrowRight);
+    typed(&mut h, "bandit");
+    assert_eq!(at(&h), Some(TreeAt::Object(start, Creature, 1)), "an object, as its row shows");
+    typed(&mut h, "g");
+    assert_eq!(at(&h), Some(TreeAt::Object(start, Creature, 0)), "the next beginning with it");
+    key(&mut h, egui::Key::ArrowUp);
+    assert_eq!(at(&h), Some(TreeAt::Object(start, Creature, 1)));
+    // F2 at a placed object: nothing to rename (not the area's Rename…).
+    key(&mut h, egui::Key::F2);
+    assert!(h.state().rename.is_none());
+    // Delete: the object deleted, as its menu's Delete does; the keys on
+    // the row after it (Goblin, still the first of the area's list).
+    key(&mut h, egui::Key::Delete);
+    assert!(h.state().confirm_delete.is_none(), "not the area's Delete…");
+    let creatures = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&git_key).unwrap();
+        let list = git.root.list("Creature List").unwrap_or(&[]);
+        list.iter()
+            .map(|c| String::from_utf8_lossy(c.string("Tag").unwrap()).into_owned())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(creatures(&mut h), ["GOBLIN"]);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Delete"));
+    assert_eq!(at(&h), Some(TreeAt::Object(start, Creature, 0)));
+    h.get_by_label("Creatures (1)");
+    // Down from the Filter: to the first row it finds (the area is listed
+    // for its object, which is found).
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::F);
+    h.run_steps(2);
+    assert!(h.ctx.egui_wants_keyboard_input(), "the Filter has the keyboard");
+    filter_type(&mut h, "gob");
+    key(&mut h, egui::Key::ArrowDown);
+    assert!(!h.ctx.egui_wants_keyboard_input());
+    assert_eq!(at(&h), Some(TreeAt::Object(start, Creature, 0)));
+    // A resource it finds by its name: that one, past the groups before.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::F);
+    h.run_steps(2);
+    key(&mut h, egui::Key::Escape);
+    filter_type(&mut h, "hel");
+    key(&mut h, egui::Key::ArrowDown);
+    let hello = ResKey::parse("hello", ResType::NSS).unwrap();
+    assert_eq!(at(&h), Some(TreeAt::Resource(hello)));
 }
 
 /// Letters typed in the tree go by its rows as drawn, as Aurora's did

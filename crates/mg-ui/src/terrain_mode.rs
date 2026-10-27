@@ -60,6 +60,7 @@ use std::sync::Arc;
 use egui::{Color32, Pos2, Stroke as Line};
 use glam::Vec3;
 use mg_area::terrain::{Brush, PaletteItem, TilesetPalette, grid, tile_edits};
+use mg_core::text::Needle;
 use mg_core::{ResRef, ResType};
 use mg_edit::Command;
 use mg_resman::ResKey;
@@ -1334,7 +1335,7 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     // The row over the list, as the blueprint palettes have it: every
     // heading opened or closed, how many there are (of the search, if
     // any), names or pictures, and the pictures' size.
-    let filter = mg_core::text::fold(app.palette.filter.trim());
+    let filter = mg_core::text::Needle::new(&app.palette.filter);
     let gallery = app.settings.palette_gallery;
     let shown = {
         let Some(tools) = app.area_views.get(&area).and_then(|v| v.terrain.as_ref()) else {
@@ -1524,18 +1525,18 @@ pub(crate) fn drop_tile(
 
 /// How many entries the palette shows under `filter`: brushes, or in the
 /// Gallery tiles.
-fn count(items: &[PaletteItem], tools: &Tools, filter: &str, gallery: bool) -> usize {
+fn count(items: &[PaletteItem], tools: &Tools, filter: &Needle, gallery: bool) -> usize {
     items
         .iter()
         .map(|i| match i {
             PaletteItem::Folder { items, .. } => count(items, tools, filter, gallery),
             PaletteItem::Brush { label, brush: Brush::Group(_) } => {
-                usize::from(matches(label, filter))
+                usize::from(filter.finds(label))
             }
             PaletteItem::Brush { label, brush } => {
                 let tiles = brush_tiles(&tools.index, *brush);
                 let found = found_tiles(tools, label, &tiles, filter);
-                match (gallery && !tiles.is_empty(), matches(label, filter)) {
+                match (gallery && !tiles.is_empty(), filter.finds(label)) {
                     (true, _) => found.len(),
                     (false, true) => 1,
                     (false, false) => usize::from(!found.is_empty()),
@@ -1545,28 +1546,25 @@ fn count(items: &[PaletteItem], tools: &Tools, filter: &str, gallery: bool) -> u
         .sum()
 }
 
-/// Whether `label` has the search in it (everything matches no search),
-/// `filter` [`mg_core::text::fold`]ed: case and accents aside.
-fn matches(label: &str, filter: &str) -> bool {
-    filter.is_empty() || mg_core::text::fold(label).contains(filter)
-}
-
 /// The tiles of a brush the search finds: all of them where the brush's
-/// name has it, else those whose model's name has it.
-fn found_tiles(tools: &Tools, label: &str, tiles: &[u32], filter: &str) -> Vec<u32> {
-    if matches(label, filter) {
+/// name has every word, else those whose model's name has the words its
+/// name has not.
+fn found_tiles(tools: &Tools, label: &str, tiles: &[u32], filter: &Needle) -> Vec<u32> {
+    let label = mg_core::text::fold(label);
+    if filter.finds_folded(&label) {
         return tiles.to_vec();
     }
-    let model = |t: u32| tools.set.tiles.get(t as usize).map(|t| t.model.to_lowercase());
-    tiles.iter().copied().filter(|t| model(*t).is_some_and(|m| m.contains(filter))).collect()
+    let model = |t: u32| tools.set.tiles.get(t as usize).map(|t| mg_core::text::fold(&t.model));
+    let finds = |m: String| filter.finds_in(&[&label, &m]);
+    tiles.iter().copied().filter(|t| model(*t).is_some_and(finds)).collect()
 }
 
 /// Whether a palette entry has something the search finds.
-fn has_found(item: &PaletteItem, tools: &Tools, filter: &str) -> bool {
+fn has_found(item: &PaletteItem, tools: &Tools, filter: &Needle) -> bool {
     match item {
         PaletteItem::Folder { items, .. } => items.iter().any(|i| has_found(i, tools, filter)),
         PaletteItem::Brush { label, brush } => {
-            matches(label, filter)
+            filter.finds(label)
                 || !found_tiles(tools, label, &brush_tiles(&tools.index, *brush), filter).is_empty()
         }
     }
@@ -1597,7 +1595,7 @@ struct Place<'a> {
     /// The Select Tiles row's name.
     select_tiles: String,
     fold: Option<bool>,
-    filter: &'a str,
+    filter: &'a Needle,
     gallery: Option<Pictures<'a>>,
     /// The Exact tile switch is on.
     exact: bool,
@@ -1646,7 +1644,7 @@ fn show_item(ui: &mut egui::Ui, item: &PaletteItem, at: &mut Place, depth: usize
                         .any(|i| matches!(i, PaletteItem::Brush { brush: Brush::Eraser, .. }));
                     if has_tools {
                         // Select Tiles first: not a brush, the view's mode.
-                        if !searching || matches(SELECT_TILES, at.filter) {
+                        if !searching || at.filter.finds(SELECT_TILES) {
                             select_tiles_row(ui, at);
                         }
                         items.extend(tools.iter());
@@ -1669,7 +1667,7 @@ fn show_item(ui: &mut egui::Ui, item: &PaletteItem, at: &mut Place, depth: usize
                             PaletteItem::Brush { label, brush: Brush::Group(g) }
                                 if at.gallery.is_some() =>
                             {
-                                if !searching || matches(label, at.filter) {
+                                if !searching || at.filter.finds(label) {
                                     groups.push((label.as_str(), *g));
                                 }
                             }

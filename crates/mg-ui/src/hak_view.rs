@@ -92,19 +92,16 @@ impl HakDoc {
 
     /// The items shown, in the list's order: indices into the hak's items.
     fn rows(&mut self) -> Vec<usize> {
-        let filter = mg_core::text::fold(self.filter.trim());
+        let needle = mg_core::text::Needle::new(&self.filter);
+        let filter = needle.as_str().to_string();
         let fresh = self
             .rows
             .as_ref()
             .is_some_and(|(f, s, r, _)| *f == filter && *s == self.sort && *r == self.revision);
         if !fresh {
             let items = self.hak.items();
-            let mut rows: Vec<usize> = (0..items.len())
-                .filter(|&i| {
-                    filter.is_empty()
-                        || mg_core::text::fold(&items[i].key.to_string()).contains(&filter)
-                })
-                .collect();
+            let mut rows: Vec<usize> =
+                (0..items.len()).filter(|&i| needle.finds(&items[i].key.to_string())).collect();
             rows.sort_by_key(|&i| items[i].key.to_string());
             match self.sort {
                 Sort::Name => {}
@@ -401,13 +398,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
     ui.horizontal(|ui| {
         ui.label("Find");
         let field = ui.id().with("hak-filter-field");
-        crate::widgets::pane_filter_keys(ui, field, &mut doc.filter);
-        ui.add(
-            egui::TextEdit::singleline(&mut doc.filter)
-                .id(field)
-                .desired_width(200.0)
-                .hint_text("name or .type"),
-        );
+        crate::widgets::SearchField::new(field, &mut doc.filter)
+            .hint("name or .type")
+            .width(200.0)
+            .find_over()
+            .show(ui);
         let sorts = [Sort::Name, Sort::Type, Sort::Size];
         crate::widgets::dropdown(("hak-sort", id))
             .selected_text(match doc.sort {

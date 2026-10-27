@@ -293,8 +293,9 @@ pub(crate) fn search(app: &mut Moonglow, f: &FindInstance) -> Vec<Found> {
     let mut areas: Vec<ResRef> = ws.module.keys_of(ResType::ARE).map(|k| k.resref).collect();
     areas.sort();
     areas.retain(|a| f.area.is_none_or(|only| only == *a));
-    // (A tag case and accents aside, as a Filter finds a name.)
-    let (tag, template) = (mg_core::text::Needle::new(&f.tag), f.template.to_lowercase());
+    // (Every word, case and accents aside, as a Filter finds a name.)
+    let (tag, template) =
+        (mg_core::text::Needle::new(&f.tag), mg_core::text::Needle::new(&f.template));
     let mut out = Vec::new();
     for area in areas {
         let Ok(git) = ws.doc(&ResKey::new(area, ResType::GIT)) else { continue };
@@ -306,7 +307,7 @@ pub(crate) fn search(app: &mut Moonglow, f: &FindInstance) -> Vec<Found> {
             for (index, s) in git.root.list(kind.list()).unwrap_or(&[]).iter().enumerate() {
                 let t = crate::text::decode(s.string("Tag").unwrap_or_default());
                 let bp = s.resref(field).map(|r| r.to_string()).unwrap_or_default();
-                if tag.finds(&t) && bp.contains(&template) {
+                if tag.finds(&t) && template.finds(&bp) {
                     out.push(Found { kind, index, area, tag: t, template: bp });
                 }
             }

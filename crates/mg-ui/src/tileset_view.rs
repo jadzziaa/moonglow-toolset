@@ -455,13 +455,11 @@ fn tiles(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
     ui.horizontal(|ui| {
         ui.label("Find");
         let field = ui.id().with("tileset-filter-field");
-        crate::widgets::pane_filter_keys(ui, field, &mut d.filter);
-        ui.add(
-            egui::TextEdit::singleline(&mut d.filter)
-                .id(field)
-                .desired_width(160.0)
-                .hint_text("model or terrain"),
-        );
+        crate::widgets::SearchField::new(field, &mut d.filter)
+            .hint("model or terrain")
+            .width(160.0)
+            .find_over()
+            .show(ui);
         let sel = d.tile;
         if ui
             .add_enabled(sel.is_some(), egui::Button::new("Duplicate Tile"))
@@ -490,13 +488,21 @@ fn tiles(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
             });
         }
     });
+    // (Every word in the tile's model or one of its terrains.)
     let filter = mg_core::text::Needle::new(&d.filter);
     let rows: Vec<usize> = (0..t.tiles.len())
         .filter(|&i| {
             let tile = &t.tiles[i];
-            filter.finds(&tile.model)
-                || tile.corners.iter().any(|(c, _)| filter.finds(c))
-                || tile.edges.iter().any(|e| filter.finds(e))
+            if filter.is_empty() {
+                return true;
+            }
+            let corners = tile.corners.iter().map(|(c, _)| c.as_str());
+            let fields: Vec<String> = std::iter::once(tile.model.as_str())
+                .chain(corners)
+                .chain(tile.edges.iter().map(String::as_str))
+                .map(mg_core::text::fold)
+                .collect();
+            filter.finds_in(&fields.iter().map(String::as_str).collect::<Vec<_>>())
         })
         .collect();
     let row_height = ui.text_style_height(&egui::TextStyle::Body) + 4.0;

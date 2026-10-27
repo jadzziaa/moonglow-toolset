@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use mg_core::ResRef;
+use mg_core::text::Needle;
 use mg_edit::{Command, Edit};
 use mg_gff::{Gff, Value};
 use mg_module::palette::{
@@ -59,9 +60,9 @@ pub struct PaletteView {
     found: Option<(
         (BlueprintKind, bool, String, Option<u64>),
         Arc<std::collections::HashSet<ResRef>>,
-        Find,
+        Needle,
     )>,
-    /// Blueprints' tags, for Find: by palette (and module revision).
+    /// Blueprints' tags, for the search: by palette (and module revision).
     tags: HashMap<(BlueprintKind, bool), (Option<u64>, Tags)>,
     /// More blueprints chosen with Ctrl+click (with `selected`): custom
     /// ones for bulk edits, placeables to paint (`paint_mode`).
@@ -429,7 +430,7 @@ fn found(
     kind: BlueprintKind,
     custom: bool,
     tags: &HashMap<ResRef, String>,
-) -> (Arc<std::collections::HashSet<ResRef>>, Find) {
+) -> (Arc<std::collections::HashSet<ResRef>>, Needle) {
     let revision = app.ws.as_ref().map(|w| w.revision());
     let key = (kind, custom, app.palette.filter.clone(), revision);
     if let Some((k, f, find)) = &app.palette.found
@@ -446,13 +447,19 @@ fn found(
             (b.resref, [mg_core::text::fold(&b.name.text(game)), b.resref.to_string(), tag])
         })
         .collect();
-    let mut find = Find::new(&app.palette.filter);
-    let search = |find: &Find| -> std::collections::HashSet<ResRef> {
-        fields.iter().filter(|(_, f)| find.hit(&[&f[0], &f[1], &f[2]])).map(|(r, _)| *r).collect()
+    // Words, each in the name, the ResRef or the tag; or, when nothing has
+    // every word, letters in order (`lngswd` finds Longsword).
+    let mut find = Needle::new(&app.palette.filter);
+    let search = |find: &Needle| -> std::collections::HashSet<ResRef> {
+        fields
+            .iter()
+            .filter(|(_, f)| find.finds_in(&[&f[0], &f[1], &f[2]]))
+            .map(|(r, _)| *r)
+            .collect()
     };
     let mut hits = search(&find);
     if hits.is_empty() {
-        find.fuzzy = true;
+        find = find.letters_in_order();
         hits = search(&find);
     }
     let hits = Arc::new(hits);
@@ -531,15 +538,17 @@ pub(crate) fn fold_icons(ui: &mut egui::Ui, what: &str) -> Option<bool> {
 
 /// The palette's search: the pane's width, with what it looks in said
 /// (`hint`), and a button to clear it. Its keys, as the module tree's
-/// Filter has them (GitHub issue 12): Ctrl+F while the keys are the
-/// palette's goes to it; Escape clears it; Escape again, or Down, goes back
-/// to the list. Whether Down left it for the list.
+/// Filter has them (GitHub issue 12): Find's keys (Ctrl+F) while the keys
+/// are the palette's go to it; Escape clears it; Escape again, or Down,
+/// goes back to the list. Whether Down left it for the list.
 fn search_row(ui: &mut egui::Ui, view: &mut PaletteView, hint: &str) -> bool {
     let search_id = egui::Id::new("palette-search-field");
-    let find = keys_are(ui.ctx(), Keys::Palette)
-        && !ui.ctx().egui_wants_keyboard_input()
-        && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::F));
-    let left = crate::widgets::filter_keys(ui, search_id, &mut view.filter, find);
+    let left = crate::widgets::SearchField::new(search_id, &mut view.filter)
+        .hint(hint)
+        .find_when(keys_are(ui.ctx(), Keys::Palette))
+        .down()
+        .show(ui)
+        .left;
     if left.is_some() {
         give_keys(ui.ctx(), Keys::Palette);
     }
@@ -547,19 +556,6 @@ fn search_row(ui: &mut egui::Ui, view: &mut PaletteView, hint: &str) -> bool {
     if entered {
         view.cursor = None;
     }
-    ui.horizontal(|ui| {
-        let clear = !view.filter.is_empty();
-        let room = ui.available_width() - if clear { 26.0 } else { 0.0 };
-        ui.add(
-            egui::TextEdit::singleline(&mut view.filter)
-                .id(search_id)
-                .hint_text(hint)
-                .desired_width(room.max(60.0)),
-        );
-        if clear && ui.small_button("×").on_hover_text("Clear the search").clicked() {
-            view.filter.clear();
-        }
-    });
     entered
 }
 
@@ -761,7 +757,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         let (f, find) = found(app, &palette, kind, custom, &tags);
         (Some(f), find)
     } else {
-        (None, Find::default())
+        (None, Needle::default())
     };
     let mut view = std::mem::take(&mut app.palette);
 
@@ -920,7 +916,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         clicked: false,
         commands: &menu_commands,
     };
-    if find.fuzzy {
+    if find.is_in_order() {
         ui.weak("No exact matches: close ones");
     }
     let mut list = egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
@@ -1186,39 +1182,6 @@ fn new_blueprint(app: &mut Moonglow, kind: BlueprintKind) {
     } else if crate::blueprint_wizard::KINDS.contains(&kind) {
         app.blueprint_wizard = Some(crate::blueprint_wizard::BlueprintWizard::new(kind));
     }
-}
-
-/// A palette search: words, each found in a blueprint's name, resref or
-/// tag, case and accents aside (`arbol` finds `Árbol`); or, when nothing
-/// has every word, letters in order (`lngswd` finds Longsword).
-#[derive(Debug, Clone, Default, PartialEq)]
-pub(crate) struct Find {
-    words: Vec<String>,
-    pub(crate) fuzzy: bool,
-}
-
-impl Find {
-    fn new(filter: &str) -> Find {
-        Find { words: filter.split_whitespace().map(mg_core::text::fold).collect(), fuzzy: false }
-    }
-
-    fn is_empty(&self) -> bool {
-        self.words.is_empty()
-    }
-
-    /// Whether a blueprint with these ([`mg_core::text::fold`]ed) fields
-    /// matches.
-    fn hit(&self, fields: &[&str]) -> bool {
-        self.words.iter().all(|w| {
-            fields.iter().any(|f| if self.fuzzy { in_order(f, w) } else { f.contains(w.as_str()) })
-        })
-    }
-}
-
-/// Whether `word`'s letters are in `text` in order.
-fn in_order(text: &str, word: &str) -> bool {
-    let mut t = text.chars();
-    word.chars().all(|c| t.any(|x| x == c))
 }
 
 /// What the palette tree is drawn with.
@@ -1984,20 +1947,6 @@ mod tests {
         assert_eq!(blueprint_label("Goblin", Some(r), None), "Goblin (nw_goblina)");
         assert_eq!(blueprint_label("Goblin", None, Some(0.5)), "Goblin  (CR 0.5)");
         assert_eq!(blueprint_label("Goblin", Some(r), Some(1.0)), "Goblin (nw_goblina)  (CR 1)");
-    }
-
-    #[test]
-    fn finds_words_anywhere_or_letters_in_order() {
-        let f = Find::new("Long  SWORD");
-        assert!(f.hit(&["longsword +1", "nw_wswls001", ""]));
-        assert!(f.hit(&["blade", "longsword", "sword_tag"]));
-        assert!(!f.hit(&["short sword", "nw_wswss001", ""]));
-        let mut f = Find::new("lngswd");
-        assert!(!f.hit(&["longsword", "", ""]));
-        f.fuzzy = true;
-        assert!(f.hit(&["longsword", "", ""]));
-        assert!(!f.hit(&["swordlong", "", ""]));
-        assert!(Find::new("  ").is_empty());
     }
 
     #[test]
