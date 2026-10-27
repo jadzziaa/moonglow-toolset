@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T06:17:45Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T06:51:16Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1103,6 +1103,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     Build alike, where the game's Special › Custom 1 (ID 0, in every
     type's palette) would show it; what Aurora's Refresh does with one
     wasn't captured. (S, an Aurora capture)
+  - *A category left with an empty `LIST`:* an entry put into a
+    category that had no `LIST` field makes one, and the entry taken
+    out again (a blueprint added, then deleted, before a save) leaves
+    it empty, where the file had none: the same palette to the game,
+    not the same bytes. (S)
   - *What moves an entry besides its blueprint:* a faction renamed
     (`repute.fac`) leaves its creatures' `FACTION` until they change; a
     hak's skeleton changed, or a hak's blueprints changed, renamed or
