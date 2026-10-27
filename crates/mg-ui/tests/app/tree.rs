@@ -36,9 +36,7 @@ fn the_tree_s_filter_finds_every_word_and_takes_find_s_keys() {
     app.settings.no_last_area = true;
     app.settings.key_bindings.insert("find".into(), vec!["Ctrl+Shift+F".into()]);
     app.open_module(&path);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 800.0);
     h.run();
     h.get_by_label_contains("Scripts (").click();
     h.run_steps(2);
@@ -112,9 +110,7 @@ fn the_module_tree_by_the_keyboard() {
     let mut app = app_with(Vec::new());
     app.settings.no_last_area = true;
     app.open_module(&path);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 800.0);
     h.run();
     let start = ResKey::parse("start", ResType::ARE).unwrap();
     let key = |h: &mut Harness<'_, Moonglow>, key: egui::Key| {

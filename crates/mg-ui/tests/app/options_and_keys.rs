@@ -137,9 +137,7 @@ fn the_command_palette_finds_a_command_and_runs_it() {
     let path = sample_module(&dir);
     let mut app = app_with(Vec::new());
     app.open_module(&path);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 900.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 900.0);
     h.run();
     let open = |h: &mut Harness<'_, Moonglow>| {
         h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
@@ -206,9 +204,7 @@ fn keys_remapped_in_options_and_used() {
     let mut app = app_with(Vec::new());
     app.settings.dialog_no_text_popup = true;
     app.open_module(&path);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 900.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 900.0);
     h.run();
     h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
     h.run();
@@ -308,9 +304,7 @@ fn menus_by_the_keyboard() {
     let mut app = app_with(Vec::new());
     app.settings.no_last_area = true;
     app.open_module(&path);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 800.0);
     h.run();
     let key = |h: &mut Harness<'_, Moonglow>, key: egui::Key| {
         h.key_press(key);
@@ -416,9 +410,7 @@ fn menus_by_the_keyboard() {
 
 #[test]
 fn the_user_manual_opens_from_help_and_follows_its_links() {
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1280.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app_with(Vec::new()));
+    let mut h = harness(app_with(Vec::new()), 1280.0, 800.0);
     h.run();
     h.get_by_label("Help").click();
     h.run();
@@ -509,9 +501,7 @@ fn check_for_updates_says_what_is_newest() {
     let (mut app, asked) = app_with_releases(Ok(release_answer("v99.0.0")));
     // (No automatic check: one was made a moment ago.)
     app.settings.update_checked = Some(mg_ui::updates::now());
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1280.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1280.0, 800.0);
     h.run();
     assert_eq!(asked.load(Ordering::SeqCst), 0, "not due");
     h.get_by_label("Help").click();
@@ -565,9 +555,7 @@ fn the_update_notice_appears_and_is_dismissed() {
     let told = format!("Moonglow 99.0.0 is out (you have {current}).");
     let (app, asked) = app_with_releases(Ok(release_answer("v99.0.0")));
     assert_eq!(app.settings.update_checked, None);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1280.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1280.0, 800.0);
     h.run();
     h.get_by_label(&told);
     h.get_by_label("Release Page");
@@ -587,17 +575,13 @@ fn the_update_notice_appears_and_is_dismissed() {
     settings.update_checked = Some(checked - mg_ui::updates::DAY);
     let (mut app, asked) = app_with_releases(Ok(release_answer("v99.0.0")));
     app.settings = settings.clone();
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1280.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1280.0, 800.0);
     h.run();
     assert_eq!(asked.load(Ordering::SeqCst), 1, "asked, a day having gone by");
     assert!(h.query_by_label(&told).is_none(), "the skipped version isn't told again");
     let (mut app, _) = app_with_releases(Ok(release_answer("v99.1.0")));
     app.settings = settings;
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1280.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1280.0, 800.0);
     h.run();
     h.get_by_label(&format!("Moonglow 99.1.0 is out (you have {current})."));
     h.get_by_label("×").click();
@@ -607,9 +591,7 @@ fn the_update_notice_appears_and_is_dismissed() {
 
     // Offline: nothing said, in the log or elsewhere.
     let (app, asked) = app_with_releases(Err("not connected to the Internet".into()));
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1280.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1280.0, 800.0);
     h.run();
     assert_eq!(asked.load(Ordering::SeqCst), 1);
     assert!(h.state().updates.notice.is_none());
@@ -624,9 +606,7 @@ fn the_updates_option_turns_automatic_checks_off() {
     use std::sync::atomic::Ordering;
     let (mut app, asked) = app_with_releases(Ok(release_answer("v99.0.0")));
     app.settings.update_checked = Some(mg_ui::updates::now());
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1280.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1280.0, 800.0);
     h.run();
     h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
     h.run();
@@ -654,9 +634,7 @@ fn the_updates_option_turns_automatic_checks_off() {
     let (mut app, asked) = app_with_releases(Ok(release_answer("v99.0.0")));
     app.settings = settings;
     app.updates.installer = Some(mg_ui::updates::Installer::Flatpak);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1280.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1280.0, 800.0);
     h.run();
     assert_eq!(asked.load(Ordering::SeqCst), 0, "a package manager updates it");
     h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
@@ -688,9 +666,7 @@ fn the_update_check_asks_on_its_own_thread() {
     let (mut app, asked) = app_with_releases(Ok(release_answer("v99.0.0")));
     app.background_jobs = true;
     app.settings.no_update_check = true;
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1280.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1280.0, 800.0);
     h.run_steps(2);
     mg_ui::updates::check_now(h.state_mut());
     h.run_steps(1);

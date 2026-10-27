@@ -25,9 +25,7 @@ fn a_nui_window_the_include_leaves_out_is_said_and_taken_in() {
     let windows = project.join("src/scripts/chat-commands");
     std::fs::write(windows.join("test.jui"), br#"{"version":1}"#).unwrap();
     std::fs::write(windows.join("test.txt"), b"settings").unwrap();
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1500.0, 1000.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app_with(Vec::new()));
+    let mut h = harness(app_with(Vec::new()), 1500.0, 1000.0);
     h.state_mut().open_module(&project);
     h.run();
     let log = format!("{:?}", h.state().log.entries);
@@ -113,13 +111,12 @@ fn a_nui_window_s_scripts_go_into_a_nasher_project() {
     let path = sample_module(&dir);
     let project = dir.join("project");
     let _ = std::fs::remove_dir_all(&project);
-    let app = Moonglow::new(
-        Some(mg_resman::GameInstall::new(&root, None, "en")),
-        Box::new(NoDialogs { folders: vec![project.clone()], ..Default::default() }),
+    let app = game_app_with(
+        &root,
+        None,
+        NoDialogs { folders: vec![project.clone()], ..Default::default() },
     );
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1500.0, 1000.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1500.0, 1000.0);
     h.state_mut().open_module(&path);
     h.run();
     h.get_by_label("File").click();
@@ -259,14 +256,11 @@ fn a_projects_talk_table_kept_as_json_is_edited_there() {
     stale.entries.push(mg_tlk::TlkEntry::text("Stale"));
     std::fs::write(user.join("tlk/mg_proj.tlk"), stale.to_bytes().unwrap()).unwrap();
     std::fs::write(user.join("tlk/mg_projf.tlk"), stale.to_bytes().unwrap()).unwrap();
-    let install = mg_resman::GameInstall::new(&root, Some(user), "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, Some(user));
     app.settings.no_last_area = true;
     app.open_module(&project);
     app.open_palette = false;
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1000.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1000.0, 800.0);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
     h.run();
     h.run();
@@ -362,9 +356,7 @@ fn setup_store_follows_the_project_file() {
     app.open_palette = false;
     assert!(app.log.entries.iter().any(|e| e.1.contains("read from moonglow.toml")));
     mg_ui::store_wizard::open(&mut app, area, "Creature List", 0);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1000.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1000.0, 800.0);
     h.run();
     let w = h.state().store_wizard.clone().unwrap();
     assert_eq!(w.store, ResRef::from_str("nw_storethief001").ok(), "the project's, chosen");
@@ -423,9 +415,7 @@ fn a_project_s_files_changed_outside_are_read_again() {
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.settings.no_last_area = true;
     app.open_module(&dir);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1100.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1100.0, 800.0);
     h.run_steps(3);
     let are = ResKey::new(area, ResType::ARE);
     let are_file = dir.join(format!("src/{area}.are.json"));
@@ -535,9 +525,7 @@ fn a_pull_s_burst_of_changes_is_read_off_the_window_s_thread() {
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.settings.no_last_area = true;
     app.open_module(&dir);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1100.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1100.0, 800.0);
     h.run_steps(3);
     // (A first look, as the watch's start makes: nothing changed.)
     h.state_mut().look_outside();
@@ -672,9 +660,7 @@ fn a_project_s_locks_stay_out_of_its_files() {
         app.settings.no_last_area = true;
         app.locks_dir = Some(scratch.join("locks"));
         app.open_module(dir);
-        let mut h = Harness::builder()
-            .with_size(egui::vec2(1100.0, 800.0))
-            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        let mut h = harness(app, 1100.0, 800.0);
         h.run_steps(3);
         h
     };
@@ -740,9 +726,7 @@ fn a_project_s_script_opens_in_place_in_the_external_editor() {
     app.settings.external_editor = Some(editor.clone().into());
     app.settings.scripts_external = true;
     app.open_module(&dir);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1100.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1100.0, 800.0);
     h.run_steps(3);
     let said = |h: &Harness<'_, Moonglow>, what: &str| {
         h.state().log.entries.iter().filter(|(_, m)| m.contains(what)).count()
@@ -804,9 +788,7 @@ fn a_described_table_is_chosen_from_its_lists() {
          [columns.Place]\nkind = \"row\"\ntable = \"places\"\n";
     let description = format!("rows = \"places\"\n\n{}", description);
     std::fs::write(dir.join("loot.2da.toml"), &description).unwrap();
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app_with(Vec::new()));
+    let mut h = harness(app_with(Vec::new()), 1200.0, 800.0);
     h.run_steps(2);
     let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
     h.run_steps(4);
@@ -934,9 +916,7 @@ fn a_project_s_script_opens_in_the_external_editor_alone() {
         app.settings.scripts_external = true;
         app.settings.scripts_external_only = true;
         app.open_module(module);
-        let mut h = Harness::builder()
-            .with_size(egui::vec2(1100.0, 800.0))
-            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        let mut h = harness(app, 1100.0, 800.0);
         h.run_steps(3);
         h.state_mut().actions.push(mg_ui::Action::OpenResource(key));
         h.run_steps(4);
@@ -964,13 +944,10 @@ fn a_builder_code_set_in_its_window_begins_the_resrefs_proposed() {
         return;
     };
     let dir = project_folder("ui-builder-code", &[]);
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, None);
     app.open_module(&dir);
     app.open_palette = false;
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1000.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1000.0, 800.0);
     h.run();
     h.get_by_label("Edit").click();
     h.run();
@@ -1092,9 +1069,7 @@ fn the_variables_window_offers_the_project_s_described_variables() {
     );
     let path = mg_edit::GffPath::root().item("Placeable List", 0);
     app.var_edit = Some(VarTableEdit::new(FieldTarget::new(git, path, "VarTable"), &[]));
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1000.0, 700.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1000.0, 700.0);
     h.run();
     h.get_by_label("Add").click();
     h.run();
@@ -1188,8 +1163,7 @@ fn verify_holds_variables_to_their_descriptions() {
         m.set_gff(ResKey::parse("start", ResType::GIT).unwrap(), &g).unwrap();
         m.save().unwrap();
     }
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, None);
     app.open_module(&dir);
     let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run();
@@ -1226,9 +1200,7 @@ fn an_area_another_builder_claimed_is_read_only_or_asked_about_before_a_save() {
         "[claims]\nfile = \"claims.2da\"\nothers = \"read-only\"\n",
         &claims_table("cd", "claimed"),
     );
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1000.0, 700.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1000.0, 700.0);
     h.run();
     // The tree's mark: whose it is.
     h.get_by_label("🔒 cd");
@@ -1312,9 +1284,7 @@ fn claim_this_area_and_release_claim_edit_the_claims_table() {
         "[claims]\nfile = \"builders/claims.2da\"\nunclaimed = \"warn\"\n",
         "",
     );
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1000.0, 700.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1000.0, 700.0);
     h.run();
     assert!(logged(&h, "the claims table builders/claims.2da is not there"));
     h.get_by_label("start").click_secondary();
@@ -1372,9 +1342,7 @@ fn a_merged_area_s_tag_and_resref_are_asked_about_before_they_change() {
         "[claims]\nfile = \"claims.2da\"\n",
         &claims_table("ab", "merged"),
     );
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1000.0, 700.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1000.0, 700.0);
     h.run();
     h.get_by_label("✔ ab 📌");
     let key = ResKey::parse("start", ResType::ARE).unwrap();
@@ -1459,9 +1427,7 @@ fn a_project_s_command_is_allowed_once_and_run_after_a_save() {
     let mut app = app_with(Vec::new());
     app.settings.no_last_area = true;
     app.open_module(&dir);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1000.0, 700.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1000.0, 700.0);
     h.run();
     h.state_mut().actions.push(rename_start("Market"));
     h.run();
@@ -1547,9 +1513,7 @@ fn commands_allowed_by_a_committed_user_file_are_still_asked_about() {
     let elsewhere = std::fs::canonicalize(elsewhere).unwrap().display().to_string();
     app.settings.allowed_commands.push((elsewhere, "update".into(), "echo said".into()));
     app.open_module(&dir);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1000.0, 700.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1000.0, 700.0);
     h.run();
     assert!(logged(&h, "[allowed_commands] is not read"), "{:?}", h.state().log.entries);
     assert_eq!(

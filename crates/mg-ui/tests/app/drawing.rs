@@ -6,27 +6,15 @@ use crate::common::*;
 #[test]
 fn model_viewer_plays_animations() {
     let root = mg_testkit::corpus!();
-    mg_testkit::gpu::hold();
-    if mg_render::Gpu::headless().is_none() {
-        eprintln!("skipped: no GPU adapter");
-        return;
-    }
-    let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
-        egui_wgpu::RendererOptions::PREDICTABLE,
-    );
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let Some(rs) = gpu() else { return };
+    let mut app = game_app(&root, None);
     app.set_render_state(rs.clone());
     // (Moonglow's own shader: the view asks for frames while the game's
     // programs are made, which `run` would wait out.)
     app.settings.game_shaders = Some(false);
     let key = ResKey::parse("plc_a01", ResType::MDL).unwrap();
     app.actions.push(mg_ui::Action::OpenTab(Tab::Model(key)));
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(900.0, 700.0))
-        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = gpu_harness(app, rs, 900.0, 700.0);
     h.run();
     h.run();
     h.get_by_label_contains(" nodes, ");
@@ -50,24 +38,12 @@ fn model_viewer_plays_animations() {
 #[test]
 fn the_model_view_s_shaders_switch_draws_with_the_game_s_shaders() {
     let root = mg_testkit::corpus!();
-    mg_testkit::gpu::hold();
-    if mg_render::Gpu::headless().is_none() {
-        eprintln!("skipped: no GPU adapter");
-        return;
-    }
-    let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
-        egui_wgpu::RendererOptions::PREDICTABLE,
-    );
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let Some(rs) = gpu() else { return };
+    let mut app = game_app(&root, None);
     app.set_render_state(rs.clone());
     let key = ResKey::parse("plc_a01", ResType::MDL).unwrap();
     app.actions.push(mg_ui::Action::OpenTab(Tab::Model(key)));
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(900.0, 700.0))
-        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = gpu_harness(app, rs, 900.0, 700.0);
     h.run_steps(1);
     assert_eq!(h.state().settings.game_shaders, None);
     assert!(h.state().settings.game_shaders());
@@ -91,25 +67,13 @@ fn the_model_view_s_shaders_switch_draws_with_the_game_s_shaders() {
 #[test]
 fn blueprint_previews_open() {
     let root = mg_testkit::corpus!();
-    mg_testkit::gpu::hold();
-    if mg_render::Gpu::headless().is_none() {
-        eprintln!("skipped: no GPU adapter");
-        return;
-    }
-    let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
-        egui_wgpu::RendererOptions::PREDICTABLE,
-    );
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let Some(rs) = gpu() else { return };
+    let mut app = game_app(&root, None);
     app.set_render_state(rs.clone());
     // A gnome with robe, cloak and crossbow: its skeleton, standing idle.
     let key = ResKey::parse("nw_hen_bod_05", ResType::UTC).unwrap();
     app.actions.push(mg_ui::Action::OpenTab(Tab::Model(key)));
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(900.0, 700.0))
-        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = gpu_harness(app, rs, 900.0, 700.0);
     // The idle animation plays from the start: step frames.
     h.run_steps(4);
     h.get_by_label_contains("pmg0: ");
@@ -548,11 +512,7 @@ fn tdod_s_wind_shaders_move_in_the_area_view() {
         eprintln!("skipped: no tdod_t_tap.hak in MOONGLOW_HAKS");
         return;
     };
-    mg_testkit::gpu::hold();
-    if mg_render::Gpu::headless().is_none() {
-        eprintln!("skipped: no GPU adapter");
-        return;
-    }
+    let Some(rs) = gpu() else { return };
     let dir = mg_testkit::scratch_dir("ui-area-tdod-shaders");
     let user = dir.join("user");
     std::fs::create_dir_all(user.join("hak")).unwrap();
@@ -591,21 +551,13 @@ fn tdod_s_wind_shaders_move_in_the_area_view() {
     let path = dir.join("wind.mod");
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
 
-    let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
-        egui_wgpu::RendererOptions::PREDICTABLE,
-    );
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.set_render_state(rs.clone());
     // (Off first, as the test compares the two.)
     app.settings.game_shaders = Some(false);
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 900.0))
-        .with_step_dt(1.0 / 60.0)
-        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = area_gpu_harness(app, rs, 1200.0, 900.0);
     h.run_steps(20);
     // Close on the trees, from low down.
     if let Some(o) = h.state_mut().area_views.get_mut(&area).and_then(|v| v.orbit.as_mut()) {
@@ -720,11 +672,7 @@ fn tdod_s_inc_lighting_changes_the_area_view_through_the_load_order() {
         app.settings.game_shaders = Some(on);
         app.open_module(path);
         app.actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
-        let mut h = Harness::builder()
-            .with_size(egui::vec2(1200.0, 900.0))
-            .with_step_dt(1.0 / 60.0)
-            .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
-            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        let mut h = area_gpu_harness(app, rs, 1200.0, 900.0);
         h.run_steps(20);
         if let Some(o) = h.state_mut().area_views.get_mut(&area).and_then(|v| v.orbit.as_mut()) {
             o.target = glam::Vec3::new(20.0, 20.0, 0.0);
@@ -817,19 +765,10 @@ fn preview_window_shows_the_chosen_blueprint() {
 #[test]
 fn a_preview_follows_its_blueprint_s_editor() {
     let root = mg_testkit::corpus!();
-    mg_testkit::gpu::hold();
-    if mg_render::Gpu::headless().is_none() {
-        eprintln!("skipped: no GPU adapter");
-        return;
-    }
-    let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
-        egui_wgpu::RendererOptions::PREDICTABLE,
-    );
+    let Some(rs) = gpu() else { return };
     let dir = mg_testkit::scratch_dir("ui-preview-live");
     let path = sample_module(&dir);
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, None);
     app.set_render_state(rs.clone());
     app.open_module(&path);
     // A human of parts, in the module, its preview open beside its editor.
@@ -852,10 +791,7 @@ fn a_preview_follows_its_blueprint_s_editor() {
     )));
     app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
     app.actions.push(mg_ui::Action::OpenTab(Tab::Model(key)));
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1000.0, 700.0))
-        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = gpu_harness(app, rs, 1000.0, 700.0);
     h.run_steps(4);
     let head = |h: &Harness<'_, Moonglow>| -> Vec<String> {
         let p = h.state().model_views[&mg_ui::model_view::Source::Resource(key)]
@@ -938,19 +874,14 @@ fn a_store_s_preview_lists_what_it_sells() {
     };
     let dir = mg_testkit::scratch_dir("ui-store-preview");
     let path = sample_module(&dir);
-    let mut app = Moonglow::new(
-        Some(mg_resman::GameInstall::new(&root, None, "en")),
-        Box::new(NoDialogs::default()),
-    );
+    let mut app = game_app(&root, None);
     app.open_module(&path);
     app.open_palette = false;
     // The thieves' store of Hordes of the Underdark (its jewelry page has
     // rings and amulets), as the palette's double click opens it.
     let key = ResKey::parse("x2_storethief001", ResType::UTM).unwrap();
     app.actions.push(mg_ui::Action::OpenTab(Tab::Model(key)));
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 900.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 900.0);
     h.run_steps(3);
     assert!(h.query_by_label_contains("no preview").is_none());
     h.get_by_label("Blueprint ResRef");
@@ -963,10 +894,7 @@ fn a_store_s_preview_lists_what_it_sells() {
 #[test]
 fn helmets_and_shields_preview_as_worn() {
     let root = mg_testkit::corpus!();
-    let mut app = Moonglow::new(
-        Some(mg_resman::GameInstall::new(&root, None, "en")),
-        Box::new(NoDialogs::default()),
-    );
+    let mut app = game_app(&root, None);
     for name in ["nw_wswls001", "nw_arhe001", "nw_ashsw001"] {
         let key = ResKey::parse(name, ResType::UTI).unwrap();
         app.actions.push(mg_ui::Action::OpenTab(Tab::Model(key)));

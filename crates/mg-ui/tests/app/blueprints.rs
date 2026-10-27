@@ -609,19 +609,10 @@ fn a_placeable_s_appearance_without_a_model_is_said() {
         return;
     };
     // (With a GPU: the preview beside the fields says it too.)
-    mg_testkit::gpu::hold();
-    if mg_render::Gpu::headless().is_none() {
-        eprintln!("skipped: no GPU adapter");
-        return;
-    }
+    let Some(rs) = gpu() else { return };
     let dir = mg_testkit::scratch_dir("ui-bp-no-model");
     let path = sample_module(&dir);
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
-        egui_wgpu::RendererOptions::PREDICTABLE,
-    );
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, None);
     app.set_render_state(rs.clone());
     // The game's placeables.2da in the module, with a row more: a model
     // no one has.
@@ -647,10 +638,7 @@ fn a_placeable_s_appearance_without_a_model_is_said() {
     app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
     close_tab(&mut app, &Tab::ModuleProperties);
     app.open_palette = false;
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1100.0, 700.0))
-        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = gpu_harness(app, rs, 1100.0, 700.0);
     h.run_steps(3);
     let shots = mg_testkit::scratch_dir("ui-bp-no-model-shot");
     h.render().expect("render").save(shots.join("chest.png")).unwrap();
@@ -1744,8 +1732,7 @@ fn several_blueprints_are_edited_together() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-edit-together");
     let path = sample_module(&dir);
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, None);
     app.open_module(&path);
     let game = app.game.as_deref().unwrap();
     let base = Gff::read(&game.resman.get_named("plc_chest1", ResType::UTP).unwrap()).unwrap();
@@ -1765,9 +1752,7 @@ fn several_blueprints_are_edited_together() {
     app.palette.tiles = false;
     app.palette.custom = true;
     app.palette.filter = "mg_box".into();
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1000.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1000.0, 800.0);
     h.run();
     let name = {
         let game = h.state().game.as_deref().unwrap();
@@ -2156,9 +2141,7 @@ fn setup_store_makes_the_conversation_script_and_store() {
     app.open_module(&path);
     app.open_palette = false;
     mg_ui::store_wizard::open(&mut app, area, "Creature List", 0);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1000.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1000.0, 800.0);
     h.run();
     // Aurora's defaults; then a standard store, and Finish.
     let w = h.state().store_wizard.clone().unwrap();
@@ -2265,15 +2248,10 @@ fn the_creature_wizard_makes_aurora_s_creature() {
     };
     let dir = mg_testkit::scratch_dir("ui-creature-wizard");
     let path = sample_module(&dir);
-    let mut app = Moonglow::new(
-        Some(mg_resman::GameInstall::new(&root, None, "en")),
-        Box::new(NoDialogs::default()),
-    );
+    let mut app = game_app(&root, None);
     app.open_module(&path);
     app.open_palette = false;
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1000.0, 900.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1000.0, 900.0);
     h.run();
     h.get_by_label("Wizards").click();
     h.run();
@@ -2830,16 +2808,11 @@ fn the_creature_wizard_offers_real_races_and_monsters_portraits() {
     };
     let dir = mg_testkit::scratch_dir("ui-creature-wizard-races");
     let path = sample_module(&dir);
-    let mut app = Moonglow::new(
-        Some(mg_resman::GameInstall::new(&root, None, "en")),
-        Box::new(NoDialogs::default()),
-    );
+    let mut app = game_app(&root, None);
     app.open_module(&path);
     app.open_palette = false;
     app.creature_wizard = Some(Default::default());
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1000.0, 900.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1000.0, 900.0);
     h.run();
     let next = |h: &mut Harness<'_, Moonglow>| {
         h.get_by_label("Next >").click();

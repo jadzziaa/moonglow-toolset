@@ -21,9 +21,7 @@ fn find_references_then_rename_everywhere() {
 
     let mut app = app_with(Vec::new());
     app.open_module(&path);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1280.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1280.0, 800.0);
     h.run();
     let hello = ResKey::parse("hello", ResType::NSS).unwrap();
     h.state_mut().actions.push(mg_ui::Action::FindReferences(hello));
@@ -83,9 +81,7 @@ fn find_references_finds_where_a_talk_table_line_is_named() {
     let mut app = app_with(Vec::new());
     app.settings.no_last_area = true;
     app.open_module(&path);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 800.0);
     h.run();
     let mut item = mg_gff::Gff::new(*b"UTI ");
     let named = mg_core::LocString { strref: mg_core::StrRef(16_777_220), strings: Vec::new() };

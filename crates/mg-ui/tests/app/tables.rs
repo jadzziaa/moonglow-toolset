@@ -14,10 +14,7 @@ fn a_talk_table_s_rows_begin_under_its_buttons() {
     // the window down.
     use mg_module::talk::{Line, Table};
     let dir = mg_testkit::scratch_dir("ui-talk-top");
-    let mut h = Harness::builder().with_size(egui::vec2(1000.0, 800.0)).build_ui_state(
-        |ui, app: &mut Moonglow| app.ui(ui),
-        Moonglow::new(None, Box::new(NoDialogs::default())),
-    );
+    let mut h = harness(Moonglow::new(None, Box::new(NoDialogs::default())), 1000.0, 800.0);
     let mut table = Table::create("top", &dir, mg_core::Language::ENGLISH, false);
     let line =
         Line { text: "Text 0".into(), feminine: None, sound: String::new(), sound_length: 0.0 };
@@ -40,10 +37,7 @@ fn a_talk_table_s_rows_begin_under_its_buttons() {
 fn a_talk_table_s_row_is_clicked_anywhere() {
     use mg_module::talk::{Line, Table};
     let dir = mg_testkit::scratch_dir("ui-talk-rows");
-    let mut h = Harness::builder().with_size(egui::vec2(1000.0, 800.0)).build_ui_state(
-        |ui, app: &mut Moonglow| app.ui(ui),
-        Moonglow::new(None, Box::new(NoDialogs::default())),
-    );
+    let mut h = harness(Moonglow::new(None, Box::new(NoDialogs::default())), 1000.0, 800.0);
     let mut table = Table::create("rows", &dir, mg_core::Language::ENGLISH, false);
     for row in 0..8 {
         let line = Line {
@@ -109,10 +103,7 @@ fn a_talk_table_s_row_is_clicked_anywhere() {
 fn the_talk_table_s_split_is_dragged() {
     use mg_module::talk::{Line, Table};
     let dir = mg_testkit::scratch_dir("ui-talk-split");
-    let mut h = Harness::builder().with_size(egui::vec2(1000.0, 800.0)).build_ui_state(
-        |ui, app: &mut Moonglow| app.ui(ui),
-        Moonglow::new(None, Box::new(NoDialogs::default())),
-    );
+    let mut h = harness(Moonglow::new(None, Box::new(NoDialogs::default())), 1000.0, 800.0);
     let mut table = Table::create("split", &dir, mg_core::Language::ENGLISH, false);
     for row in 0..60 {
         let text = format!("Text {row}");
@@ -172,10 +163,7 @@ fn a_talk_table_line_with_crlf_shows_and_keeps_plain_line_ends() {
     // no one sees; End put what was typed after it ("one\rX\r\ntwo").
     use mg_module::talk::{Line, Table};
     let dir = mg_testkit::scratch_dir("ui-talk-crlf");
-    let mut h = Harness::builder().with_size(egui::vec2(1000.0, 800.0)).build_ui_state(
-        |ui, app: &mut Moonglow| app.ui(ui),
-        Moonglow::new(None, Box::new(NoDialogs::default())),
-    );
+    let mut h = harness(Moonglow::new(None, Box::new(NoDialogs::default())), 1000.0, 800.0);
     let mut table = Table::create("crlf", &dir, mg_core::Language::ENGLISH, false);
     for text in ["one\r\ntwo", "three"] {
         let line =
@@ -227,10 +215,7 @@ fn a_talk_table_file_is_made_and_opened_on_its_own() {
     let file = dir.join("strings.tlk");
     let dialogs =
         NoDialogs { open: vec![file.clone()], save: vec![file.clone()], ..Default::default() };
-    let mut h = Harness::builder().with_size(egui::vec2(1000.0, 800.0)).build_ui_state(
-        |ui, app: &mut Moonglow| app.ui(ui),
-        Moonglow::new(None, Box::new(dialogs)),
-    );
+    let mut h = harness(Moonglow::new(None, Box::new(dialogs)), 1000.0, 800.0);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
     h.run();
     h.get_by_label("New File…").click();
@@ -308,14 +293,11 @@ fn a_talk_table_that_cannot_be_read_is_tried_once() {
     info.root.set("Mod_CustomTlk", mg_gff::Value::String(b"mg_bad".to_vec()));
     m.set_info(&info).unwrap();
     m.save().unwrap();
-    let install = mg_resman::GameInstall::new(&root, Some(user), "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, Some(user));
     app.settings.no_last_area = true;
     app.open_module(&path);
     app.open_palette = false;
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1000.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1000.0, 800.0);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
     h.run_steps(8);
     let said: Vec<&String> = h
@@ -346,9 +328,7 @@ fn talk_table_made_edited_saved_and_used_by_strings() {
     app.settings.no_last_area = true;
     app.open_module(&path);
     app.open_palette = false;
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1000.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1000.0, 800.0);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
     h.run();
     h.get_by_label("This module has no talk table of its own.");
@@ -500,12 +480,9 @@ fn two_da_view_shows_where_rows_come_from() {
     std::fs::write(user.join("override/ambientmusic.2da"), text).unwrap();
 
     let path = sample_module(&dir);
-    let install = mg_resman::GameInstall::new(&root, Some(user), "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, Some(user));
     app.open_module(&path);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1400.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1400.0, 800.0);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(key)));
     h.run();
     h.get_by_label("From");
@@ -540,11 +517,8 @@ fn a_table_s_row_list_opens_at_the_row_named() {
         .unwrap();
     let toml = "[columns.Spell]\nkind = \"row\"\ntable = \"spells\"\n";
     std::fs::write(dir.join("my_scrolls.2da.toml"), toml).unwrap();
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1280.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let app = game_app(&root, None);
+    let mut h = harness(app, 1280.0, 800.0);
     h.run_steps(3);
     let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
     h.run_steps(4);
@@ -584,10 +558,7 @@ fn premium_campaigns_find_their_talk_tables_in_the_install() {
         eprintln!("skipped: Tyrants of the Moonsea is not installed");
         return;
     }
-    let mut app = Moonglow::new(
-        Some(mg_resman::GameInstall::new(&root, None, "en")),
-        Box::new(NoDialogs::default()),
-    );
+    let mut app = game_app(&root, None);
     app.open_module(&path);
     let loaded = app.log.entries.iter().any(|(_, e)| e == "Custom talk table tyrants loaded");
     assert!(loaded, "{:?}", app.log.entries);
@@ -617,9 +588,7 @@ fn the_talk_table_s_split_is_kept_for_each_table() {
         app.talk_view.outside = true;
         app.talk_view.selected = Some(5);
         app.actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
-        let mut h = Harness::builder()
-            .with_size(egui::vec2(1000.0, 800.0))
-            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        let mut h = harness(app, 1000.0, 800.0);
         h.run_steps(8);
         h
     };
@@ -673,9 +642,7 @@ fn a_table_s_cells_are_selected_and_its_columns_changed() {
         "A table",
         vec![mg_edit::Edit::SetResource { key, data: Some(SMALL_TABLE.to_vec()) }],
     )));
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 800.0);
     h.run_steps(3);
     // The module's tables are listed to open, by name.
     mg_ui::table_view::open_table_window(h.state_mut());
@@ -840,9 +807,7 @@ fn a_rebound_undo_key_reaches_a_table_s_grid() {
         "A table",
         vec![mg_edit::Edit::SetResource { key, data: Some(SMALL_TABLE.to_vec()) }],
     )));
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1800.0, 1000.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1800.0, 1000.0);
     h.run_steps(3);
     let id = mg_ui::table_view::open_in_module(h.state_mut(), key).unwrap();
     h.run_steps(4);
@@ -887,9 +852,7 @@ fn a_module_s_table_is_edited_cell_by_cell() {
         "A table",
         vec![mg_edit::Edit::SetResource { key, data: Some(SMALL_TABLE.to_vec()) }],
     )));
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 800.0);
     h.run_steps(3);
     // (A description beside the module's file is its tables'.)
     std::fs::write(
@@ -1008,10 +971,7 @@ fn a_hak_s_table_and_a_file_s_are_saved_where_they_live() {
     let file = dir.join("loose.2da");
     std::fs::write(&file, SMALL_TABLE).unwrap();
     let dialogs = NoDialogs { open: vec![file.clone(), hak_path.clone()], ..Default::default() };
-    let mut h = Harness::builder().with_size(egui::vec2(1200.0, 800.0)).build_ui_state(
-        |ui, app: &mut Moonglow| app.ui(ui),
-        Moonglow::new(None, Box::new(dialogs)),
-    );
+    let mut h = harness(Moonglow::new(None, Box::new(dialogs)), 1200.0, 800.0);
     h.run_steps(2);
     mg_ui::hak_view::open_hak(h.state_mut());
     h.run_steps(3);
@@ -1113,9 +1073,7 @@ fn a_table_s_cells_are_checked_and_rows_taken_from_another_copy() {
     let file = dir.join("feat.2da");
     std::fs::write(&file, t.to_bytes(mg_core::Codepage::default()).unwrap()).unwrap();
     let app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1280.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1280.0, 800.0);
     h.run_steps(3);
     let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
     h.run_steps(4);
@@ -1185,9 +1143,7 @@ fn a_game_table_is_edited_as_a_copy() {
     let mut app = Moonglow::new(Some(install), Box::new(dialogs));
     app.settings.no_last_area = true;
     app.open_module(&path);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1280.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1280.0, 800.0);
     h.run_steps(3);
     let key = ResKey::parse("skills", ResType::TWODA).unwrap();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(key)));
@@ -1296,8 +1252,7 @@ fn a_table_s_column_is_widened_by_the_edge_of_its_name() {
 fn a_game_table_read_only_scrolls() {
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let app = game_app(&root, None);
     let mut h = Harness::builder()
         .with_size(egui::vec2(1280.0, 800.0))
         .with_step_dt(1.0 / 60.0)

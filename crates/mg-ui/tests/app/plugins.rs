@@ -662,9 +662,7 @@ fn a_plugin_installs_from_a_file_and_is_off() {
     // (Enabled once, and removed since: installing does not bring that back.)
     app.settings.plugins_enabled = vec!["example.tag-conventions".to_string()];
     app.load_plugins();
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 900.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 900.0);
     h.run();
     h.get_by_label("Plugins").click();
     h.run();
@@ -768,9 +766,7 @@ fn started_without_plugins_none_is_loaded() {
     app.settings.plugins_enabled = vec!["example.tag-conventions".to_string()];
     app.no_plugins = true;
     app.load_plugins();
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 900.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 900.0);
     h.run();
     assert!(h.state().plugins.installed.is_empty());
     assert!(h.state().plugin_commands().is_empty());
@@ -798,14 +794,11 @@ fn a_plugin_reads_a_chosen_folder_and_writes_a_hak() {
     std::fs::create_dir_all(&export).unwrap();
     std::fs::write(export.join("note.txt"), "from the folder").unwrap();
     let dialogs = NoDialogs { folders: vec![export], ..Default::default() };
-    let install = mg_resman::GameInstall::new(&root, Some(user.clone()), "en");
-    let mut app = Moonglow::new(Some(install), Box::new(dialogs));
+    let mut app = game_app_with(&root, Some(user.clone()), dialogs);
     app.open_module(&path);
     app.open_palette = false;
     app.background_jobs = true;
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 900.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 900.0);
     h.run();
     h.state_mut().plugins.console = r#"
         local folder = ctx.ui:open_folder({ title = "The folder to take" })
@@ -882,10 +875,7 @@ fn plugin_project(name: &str) -> std::path::PathBuf {
 fn project_harness(dir: &std::path::Path, game: bool) -> Option<Harness<'static, Moonglow>> {
     let mut app = if game {
         let root = mg_testkit::nwn_root()?;
-        Moonglow::new(
-            Some(mg_resman::GameInstall::new(&root, None, "en")),
-            Box::new(NoDialogs::default()),
-        )
+        game_app(&root, None)
     } else {
         app_with(Vec::new())
     };
@@ -896,11 +886,7 @@ fn project_harness(dir: &std::path::Path, game: bool) -> Option<Harness<'static,
     app.load_plugins();
     app.open_module(dir);
     app.open_palette = false;
-    Some(
-        Harness::builder()
-            .with_size(egui::vec2(1200.0, 900.0))
-            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app),
-    )
+    Some(harness(app, 1200.0, 900.0))
 }
 
 fn runs(h: &Harness<'_, Moonglow>, id: &str) -> bool {
@@ -1179,9 +1165,7 @@ fn house_rules_harness(name: &str) -> Harness<'static, Moonglow> {
     app.plugin_dir = Some(example_plugins());
     app.load_plugins();
     app.enable_plugin("example.house-rules", true);
-    Harness::builder()
-        .with_size(egui::vec2(1200.0, 900.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app)
+    harness(app, 1200.0, 900.0)
 }
 
 fn set_area_tag(h: &mut Harness<'_, Moonglow>, area: &str, tag: &str) {
@@ -1432,9 +1416,7 @@ fn a_save_the_claims_and_a_plugin_ask_about_is_asked_once_each() {
     app.plugin_dir = Some(example_plugins());
     app.load_plugins();
     app.enable_plugin("example.house-rules", true);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1000.0, 700.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1000.0, 700.0);
     h.run();
     // Another builder's area changed, and a new area whose tag the plugin
     // warns of.

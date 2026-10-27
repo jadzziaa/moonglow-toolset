@@ -454,9 +454,7 @@ fn undo_in_a_text_field_is_the_field_s() {
     let mut app = app_with(Vec::new());
     app.settings.no_last_area = true;
     app.open_module(&path);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 800.0);
     h.run();
     let key = ResKey::parse("mg_note", ResType::NSS).unwrap();
     let edit = mg_edit::Edit::SetResource { key, data: Some(b"void main() {}\n".to_vec()) };
@@ -692,9 +690,7 @@ fn the_editors_cancel_sets_back_what_they_changed() {
     app.open_module(&path);
     // (One window with OK and Cancel at a time.)
     close_tab(&mut app, &Tab::ModuleProperties);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 900.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 900.0);
     h.run();
     let open = |h: &mut Harness<'_, Moonglow>, tab: Tab| {
         h.state_mut().actions.push(mg_ui::Action::OpenTab(tab));
@@ -847,9 +843,7 @@ fn text_typed_in_module_properties_is_kept_when_its_page_is_left() {
     let mut app = app_with(Vec::new());
     app.settings.no_last_area = true;
     app.open_module(&path);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 800.0);
     h.run_steps(3);
     h.get_by_label("Description").click();
     h.run_steps(3);
@@ -1025,8 +1019,7 @@ fn text_is_edited_in_the_chosen_language() {
 #[test]
 fn enter_does_what_a_dialog_s_main_button_does() {
     let root = mg_testkit::corpus!();
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let app = game_app(&root, None);
     let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run();
     let is_input =
@@ -1056,8 +1049,7 @@ fn enter_does_what_a_dialog_s_main_button_does() {
 #[test]
 fn dialogs_open_with_their_main_field_ready_to_type_in() {
     let root = mg_testkit::corpus!();
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let app = game_app(&root, None);
     let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run();
     // New Module: typed straight away, no click, the name is replaced...
@@ -1325,9 +1317,7 @@ fn arrow_keys_step_through_every_window_s_lists() {
     let path = sample_module(&dir);
     let mut app = app_with(Vec::new());
     app.open_module(&path);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 900.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 900.0);
     h.run();
     h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
     h.run_steps(2);
@@ -1464,8 +1454,7 @@ fn filters_find_names_case_and_accents_aside() {
     let app = |name: &str| {
         let dir = mg_testkit::scratch_dir(name);
         let path = sample_module(&dir);
-        let install = mg_resman::GameInstall::new(&root, None, "en");
-        let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+        let mut app = game_app(&root, None);
         app.open_module(&path);
         let game = app.game.as_deref().unwrap();
         let base =
@@ -1488,9 +1477,7 @@ fn filters_find_names_case_and_accents_aside() {
         app.open_palette = false;
         // (The tree by name, Options › General.)
         app.settings.area_names = true;
-        Harness::builder()
-            .with_size(egui::vec2(900.0, 700.0))
-            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app)
+        harness(app, 900.0, 700.0)
     };
 
     // The module tree's filter, its first text field.

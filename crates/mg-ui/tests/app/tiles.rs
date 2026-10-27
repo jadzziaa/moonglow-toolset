@@ -20,13 +20,10 @@ fn tileset_made_edited_saved_with_its_palette() {
         open: vec![tic_path.clone()],
         ..Default::default()
     };
-    let mut app =
-        Moonglow::new(Some(mg_resman::GameInstall::new(&root, None, "en")), Box::new(dialogs));
+    let mut app = game_app_with(&root, None, dialogs);
     app.open_module(&sample_module(&dir));
     app.open_palette = false;
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1300.0, 900.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1300.0, 900.0);
     h.run();
     mg_ui::tileset_view::new_tileset(h.state_mut());
     h.run();
@@ -108,9 +105,7 @@ fn a_tileset_group_s_name_is_typed() {
     let mut app = Moonglow::new(None, Box::new(dialogs));
     app.open_module(&sample_module(&dir));
     app.open_palette = false;
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1300.0, 900.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1300.0, 900.0);
     h.run();
     mg_ui::tileset_view::new_tileset(h.state_mut());
     h.run();

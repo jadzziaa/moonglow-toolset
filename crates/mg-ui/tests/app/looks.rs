@@ -396,26 +396,14 @@ fn look_module_area() {
         return;
     };
     let Some(root) = mg_testkit::nwn_root() else { return };
-    mg_testkit::gpu::hold();
-    if mg_render::Gpu::headless().is_none() {
-        return;
-    }
+    let Some(rs) = gpu() else { return };
     let user = std::env::var_os("MG_TEST_USER").map(std::path::PathBuf::from);
-    let install = mg_resman::GameInstall::new(&root, user, "en");
     let area = ResRef::from_str(&area).unwrap();
-    let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
-        egui_wgpu::RendererOptions::PREDICTABLE,
-    );
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, user);
     app.set_render_state(rs.clone());
     app.open_module(std::path::Path::new(&module));
     app.actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1500.0, 1000.0))
-        .with_step_dt(1.0 / 60.0)
-        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = area_gpu_harness(app, rs, 1500.0, 1000.0);
     h.run_steps(40);
     // MG_AT: "x,y,z,distance,yaw,pitch" to look at one place.
     if let Ok(at) = std::env::var("MG_AT") {
@@ -440,17 +428,10 @@ fn look_module_area() {
 fn look_edit_together_mixed() {
     use mg_edit::{Command, Edit};
     let Some(root) = mg_testkit::nwn_root() else { return };
-    mg_testkit::gpu::hold();
+    let Some(rs) = gpu() else { return };
     let dir = mg_testkit::scratch_dir("ui-mixed-look");
     let path = sample_module(&dir);
-    let mut app = Moonglow::new(
-        Some(mg_resman::GameInstall::new(&root, None, "en")),
-        Box::new(NoDialogs::default()),
-    );
-    let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
-        egui_wgpu::RendererOptions::PREDICTABLE,
-    );
+    let mut app = game_app(&root, None);
     app.set_render_state(rs.clone());
     app.open_module(&path);
     app.open_palette = false;
@@ -474,10 +455,7 @@ fn look_edit_together_mixed() {
         .collect();
     app.ws.as_mut().unwrap().apply(Command::new("setup", edits)).unwrap();
     app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprints(keys)));
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1000.0, 800.0))
-        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = gpu_harness(app, rs, 1000.0, 800.0);
     h.run_steps(5);
     h.render().expect("render").save(dir.join("a.png")).unwrap();
 }
@@ -527,27 +505,20 @@ fn look_placeable_appearance() {
 #[ignore = "a look at the palettes with the game's data in another language (MG_LANG)"]
 fn look_palette_in_language() {
     let Some(root) = mg_testkit::nwn_root() else { return };
-    mg_testkit::gpu::hold();
+    let Some(rs) = gpu() else { return };
     let lang = std::env::var("MG_LANG").unwrap_or_else(|_| "es".into());
     let dir = mg_testkit::scratch_dir("ui-palette-language");
     let path = sample_module(&dir);
     let user = std::env::var_os("MG_TEST_USER").map(std::path::PathBuf::from);
     let install = mg_resman::GameInstall::new(&root, user, &lang);
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
-    let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
-        egui_wgpu::RendererOptions::PREDICTABLE,
-    );
     app.set_render_state(rs.clone());
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     app.palette.kind = mg_module::palette::BlueprintKind::Creature;
     app.palette.tiles = false;
     app.palette.custom = std::env::var_os("MG_CUSTOM").is_some();
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1000.0, 700.0))
-        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = gpu_harness(app, rs, 1000.0, 700.0);
     h.run_steps(6);
     h.render().expect("render").save(dir.join("a.png")).unwrap();
     let game = h.state().game.as_deref().unwrap();

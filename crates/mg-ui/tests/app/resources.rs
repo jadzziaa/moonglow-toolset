@@ -10,8 +10,7 @@ fn reload_resources_picks_up_new_files_in_override() {
     let user = dir.join("user");
     std::fs::create_dir_all(user.join("override")).unwrap();
     let path = sample_module(&dir);
-    let install = mg_resman::GameInstall::new(&root, Some(user.clone()), "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, Some(user.clone()));
     app.open_module(&path);
     let key = ResKey::parse("mg_reload_test", ResType::TWODA).unwrap();
     assert!(!app.game.as_deref().unwrap().resman.contains(&key));
@@ -33,8 +32,7 @@ fn a_file_new_to_the_override_is_seen_by_the_watch() {
     let dir = mg_testkit::scratch_dir("ui-reload-watch");
     let user = dir.join("user");
     std::fs::create_dir_all(user.join("override")).unwrap();
-    let install = mg_resman::GameInstall::new(&root, Some(user.clone()), "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, Some(user.clone()));
     let key = ResKey::parse("mg_watch_test", ResType::TWODA).unwrap();
     // (The watch begins; what it says at its start finds nothing changed.)
     app.reload_changed_content();
@@ -140,9 +138,7 @@ fn the_browser_lists_the_copies_a_higher_layer_overrides() {
     let mut app = Moonglow::new(Some(install), Box::new(dialogs));
     app.settings.no_last_area = true;
     app.open_module(&path);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 800.0);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resources));
     h.state_mut().browser.filter = "portraits".into();
     h.state_mut().browser.restype = Some(ResType::TWODA);
@@ -204,14 +200,11 @@ fn the_hak_list_is_reordered_by_keys_buttons_and_a_drag() {
         std::fs::write(user.join(format!("hak/{name}.hak")), empty).unwrap();
     }
     let path = sample_module(&dir);
-    let install = mg_resman::GameInstall::new(&root, Some(user), "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, Some(user));
     app.settings.no_last_area = true;
     app.open_module(&path);
     app.open_palette = false;
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 800.0);
     h.run();
     let info = ResKey::parse("module", ResType::IFO).unwrap();
     let set = |h: &mut Harness<'_, Moonglow>, names: &[&str]| {
@@ -349,14 +342,11 @@ fn a_hak_dragged_to_the_list_s_edge_scrolls_it() {
     let user = dir.join("user");
     std::fs::create_dir_all(user.join("hak")).unwrap();
     let path = sample_module(&dir);
-    let install = mg_resman::GameInstall::new(&root, Some(user), "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, Some(user));
     app.settings.no_last_area = true;
     app.open_module(&path);
     app.open_palette = false;
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 800.0);
     h.run();
     let info = ResKey::parse("module", ResType::IFO).unwrap();
     let names: Vec<String> = (1..=30).map(|n| format!("hak{n:02}")).collect();
@@ -446,9 +436,7 @@ fn files_a_hak_already_has_are_asked_about_before_they_are_replaced() {
         ..Default::default()
     };
     let app = Moonglow::new(None, Box::new(dialogs));
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1100.0, 760.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1100.0, 760.0);
     mg_ui::hak_view::new_hak(h.state_mut());
     h.run();
     let sizes = |h: &Harness<'_, Moonglow>| -> Vec<(String, u64)> {
@@ -498,9 +486,7 @@ fn closing_two_changed_haks_asks_of_both() {
     let file = dir.join("mg_one.2da");
     std::fs::write(&file, "2DA V2.0\n\n   Label\n0  one\n").unwrap();
     let app = Moonglow::new(None, Box::new(NoDialogs::default()));
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1400.0, 900.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1400.0, 900.0);
     for _ in 0..2 {
         mg_ui::hak_view::new_hak(h.state_mut());
         h.run();
@@ -557,9 +543,7 @@ fn undo_over_a_hak_editor_is_the_hak_s() {
         "A table",
         vec![mg_edit::Edit::SetResource { key, data: Some(SMALL_TABLE.to_vec()) }],
     )));
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1800.0, 1000.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1800.0, 1000.0);
     h.run();
     mg_ui::hak_view::new_hak(h.state_mut());
     h.run();
@@ -609,9 +593,7 @@ node dummy arm\n  parent base\nendnode\nendmodelgeom base\ndonemodel base\n";
         ..Default::default()
     };
     let app = Moonglow::new(None, Box::new(dialogs));
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1100.0, 760.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1100.0, 760.0);
     mg_ui::hak_view::new_hak(h.state_mut());
     h.run();
     h.get_by_label("Add Files…").click();
@@ -678,9 +660,7 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
     // (The module opens on its Properties, not on an area.)
     app.settings.no_last_area = true;
     app.open_module(&path);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 800.0);
     h.run();
 
     // Built from the folder: the name too long is left out, and said why.
@@ -967,12 +947,9 @@ fn the_resource_browser_s_filter_and_list_take_the_keys() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-browser-keys");
     let path = sample_module(&dir);
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, None);
     app.open_module(&path);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 800.0);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resources));
     h.run_steps(4);
     let over = h.get_by_label("Refresh").rect().center();

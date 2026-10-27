@@ -16,14 +16,9 @@ fn conversation_lines_show_their_talk_table_text() {
     let key = ResKey::parse("tlkdlg", ResType::DLG).unwrap();
     m.set_gff(key, &g).unwrap();
     m.save().unwrap();
-    let mut app = Moonglow::new(
-        Some(mg_resman::GameInstall::new(&root, None, "en")),
-        Box::new(NoDialogs::default()),
-    );
+    let mut app = game_app(&root, None);
     app.open_module(&path);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 800.0);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Dialog(key)));
     h.run();
     h.get_by_label_contains("[OWNER] - Paladin").click();
@@ -130,9 +125,7 @@ fn the_conversation_editor_s_lower_pane_keeps_its_size() {
     let mut app = app_with(Vec::new());
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Dialog(key)));
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 900.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 900.0);
     h.run_steps(3);
     // (The pane's top edge: just above its page tabs.)
     let edge = |h: &Harness<'_, Moonglow>| h.get_by_label("Data").rect().top() - 5.0;
@@ -181,9 +174,7 @@ fn conversation_script_parameters_are_saved_in_the_game_s_codepage() {
     let mut app = app_with(Vec::new());
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Dialog(key)));
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 900.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 900.0);
     h.run_steps(3);
     h.get_by_label_contains("Hello there.").click();
     h.run_steps(3);
@@ -492,9 +483,7 @@ fn conversation_lines_show_their_scripts_and_play_as_the_game_plays_them() {
     let mut app = app_with(Vec::new());
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Dialog(key)));
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1100.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1100.0, 800.0);
     h.run();
     // The lines name their scripts and journal updates.
     h.get_by_label("if c_seen");
@@ -547,9 +536,7 @@ fn conversations_export_and_import() {
     );
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Dialog(key)));
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1100.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1100.0, 800.0);
     h.run();
     for format in ["Twine (Twee)…", "CSV…"] {
         h.get_by_label("Export").click();
@@ -621,9 +608,7 @@ fn speaker_tags_come_from_the_module_s_creatures() {
     app.settings.no_last_area = true;
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Dialog(key)));
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1100.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1100.0, 800.0);
     h.run();
     h.get_by_label("[OWNER] - Hello there").click();
     h.run();
@@ -783,9 +768,7 @@ fn dialog_from_tree(name: &str, g: &Gff) -> (Harness<'static, Moonglow>, ResKey)
     let mut app = app_with(Vec::new());
     app.settings.no_last_area = true;
     app.open_module(&path);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 800.0);
     h.run();
     h.get_by_label_contains("Conversations").click();
     h.run();

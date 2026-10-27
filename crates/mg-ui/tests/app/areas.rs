@@ -11,12 +11,9 @@ fn minimap_exported_and_object_walkmeshes_shown() {
     std::fs::copy(root.join("data/mod/Neverwinter Chess.mod"), &path).unwrap();
     let png = dir.join("map.png");
     let dialogs = NoDialogs { save: vec![png.clone()], ..Default::default() };
-    let mut app =
-        Moonglow::new(Some(mg_resman::GameInstall::new(&root, None, "en")), Box::new(dialogs));
+    let mut app = game_app_with(&root, None, dialogs);
     app.open_module(&path);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 800.0);
     h.run();
     h.get_by_label("CHESS").click_secondary();
     h.run();
@@ -281,16 +278,11 @@ fn the_area_wizard_opens_at_the_top_of_its_tilesets() {
     };
     let dir = mg_testkit::scratch_dir("ui-area-wizard-top");
     let path = sample_module(&dir);
-    let mut app = Moonglow::new(
-        Some(mg_resman::GameInstall::new(&root, None, "en")),
-        Box::new(NoDialogs::default()),
-    );
+    let mut app = game_app(&root, None);
     app.open_module(&path);
     app.open_palette = false;
     let first = mg_module::new::tilesets(app.game.as_deref().unwrap())[0].name.clone();
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 900.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 900.0);
     h.run();
     let shown = |h: &Harness<'_, Moonglow>| {
         let top = h.get_by_label("Tileset").rect().bottom();
@@ -516,8 +508,7 @@ fn every_area_is_given_the_scheme_s_tile_lights() {
         m.set(key(name, ResType::GIT), git.to_bytes().unwrap());
     }
     m.save().unwrap();
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, None);
     app.open_module(&path);
     let caves: Vec<ResRef> =
         ["cave1", "cave2", "cave3"].map(|n| ResRef::from_str(n).unwrap()).to_vec();
@@ -546,6 +537,8 @@ fn every_area_is_given_the_scheme_s_tile_lights() {
         (Some(i64::from(evil)), vec![31; 4]),
         "the same scheme: its own"
     );
+    // (Rendering opens a GPU device.)
+    mg_testkit::gpu::hold();
     let img = h.render().expect("render");
     img.save(mg_testkit::scratch_dir("ui-areas-scheme").join("visual.png")).unwrap();
     h.state_mut().actions.push(mg_ui::Action::Undo);

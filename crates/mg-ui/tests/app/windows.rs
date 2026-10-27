@@ -117,9 +117,7 @@ fn tabs_by_the_keyboard() {
     for name in ["start", "second", "third"] {
         app.actions.push(mg_ui::Action::OpenTab(area(name)));
     }
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 800.0);
     h.run();
     h.run();
     // The middle's tabs, and the one in front.
@@ -622,9 +620,7 @@ fn a_tool_window_opens_where_its_kind_was_last_docked() {
     let path = sample_module(&dir);
     let mut app = app_with(Vec::new());
     app.open_module(&path);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 800.0);
     h.run();
     let open = |h: &mut Harness<'_, Moonglow>, tab: Tab| {
         h.state_mut().actions.push(mg_ui::Action::OpenTab(tab));
@@ -721,14 +717,9 @@ fn views_draw_nothing_over_anything_else() {
     let mut m = Module::open(&path).unwrap();
     m.set(talk, g.to_bytes().unwrap());
     m.save().unwrap();
-    let mut app = Moonglow::new(
-        Some(mg_resman::GameInstall::new(&root, None, "en")),
-        Box::new(NoDialogs::default()),
-    );
+    let mut app = game_app(&root, None);
     app.open_module(&path);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1280.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1280.0, 800.0);
     h.run();
     let mut found: Vec<String> = Vec::new();
     let mut look = |h: &mut Harness<'_, Moonglow>, what: &str| {
@@ -850,9 +841,7 @@ fn tabs_open_beside_the_palette_not_in_its_pane() {
     let path = sample_module(&dir);
     let mut app = app_with(Vec::new());
     app.open_module(&path);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1000.0, 700.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1000.0, 700.0);
     h.run();
     let script = Tab::Script(ResKey::parse("hello", ResType::NSS).unwrap());
     for tab in [Tab::Palette, Tab::Manual, script.clone(), Tab::Factions] {
@@ -869,9 +858,7 @@ fn tabs_open_beside_the_palette_not_in_its_pane() {
 
 #[test]
 fn the_log_shrinks_to_one_line() {
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1000.0, 700.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app_with(Vec::new()));
+    let mut h = harness(app_with(Vec::new()), 1000.0, 700.0);
     h.run();
     let line = h.ctx.global_style().text_styles[&egui::TextStyle::Monospace].size;
     let entry = |h: &Harness<'_, Moonglow>| h.get_by_label_contains("No Neverwinter Nights").rect();
@@ -912,9 +899,7 @@ fn a_window_of_tabs_moves_by_its_tab_bar_alone() {
     let path = sample_module(&dir);
     let mut app = app_with(Vec::new());
     app.open_module(&path);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 800.0);
     h.run();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Factions));
     h.run_steps(3);
@@ -1189,9 +1174,7 @@ fn tabs_session(path: &std::path::Path, kept: &std::path::Path) -> Harness<'stat
     let mut app = app_with(Vec::new());
     app.open_palette = false;
     app.open_tabs_dir = Some(kept.to_path_buf());
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1400.0, 900.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1400.0, 900.0);
     h.state_mut().open_module(path);
     h.run_steps(3);
     h
@@ -1218,9 +1201,7 @@ fn side_editors_and_tools_open_again_with_the_module() {
     let set_path = dir.join("zzz01.set");
     std::fs::write(&set_path, mg_set::edit::skeleton("zzz01").text()).unwrap();
     let hello = ResKey::parse("hello", ResType::NSS).unwrap();
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1400.0, 900.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1400.0, 900.0);
     h.state_mut().open_module(&path);
     h.run_steps(2);
     {
@@ -1635,9 +1616,7 @@ fn escape_closes_a_models_window() {
     app.open_module(&path);
     let model = Tab::Model(ResKey::parse("nothing", ResType::UTW).unwrap());
     app.actions.push(mg_ui::Action::OpenTab(model.clone()));
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 900.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 900.0);
     h.run();
     assert!(h.state().dock.find_tab(&model).is_some());
     // Away from the window: Escape is someone else's.
@@ -1814,9 +1793,7 @@ fn properties_and_conversations_open_as_tabs_of_one_window() {
     let mut app = app_with(Vec::new());
     app.settings.no_last_area = true;
     app.open_module(&path);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 800.0);
     h.run_steps(3);
     let open = |h: &mut Harness<'_, Moonglow>, tab: Tab| {
         h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
@@ -1865,9 +1842,7 @@ fn scripts_open_as_tabs_of_one_window() {
     let mut app = app_with(Vec::new());
     app.settings.no_last_area = true;
     app.open_module(&path);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 800.0);
     h.run_steps(3);
     let open = |h: &mut Harness<'_, Moonglow>, key: ResKey| {
         h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));

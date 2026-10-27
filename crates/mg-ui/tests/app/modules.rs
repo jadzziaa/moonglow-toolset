@@ -76,9 +76,7 @@ fn the_build_window_s_advanced_controls_keep_its_buttons_in_reach() {
     let mut app = app_with(Vec::new());
     app.open_module(&path);
     app.build = Some(Default::default());
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 1000.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 1000.0);
     h.run();
     h.get_by_label("Advanced Controls").click();
     h.run();
@@ -208,11 +206,8 @@ fn new_module_and_area_through_the_wizards() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-new-module");
     let path = dir.join("wizard.mod");
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let app = Moonglow::new(
-        Some(install),
-        Box::new(NoDialogs { save: vec![path.clone()], ..Default::default() }),
-    );
+    let app =
+        game_app_with(&root, None, NoDialogs { save: vec![path.clone()], ..Default::default() });
     let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run();
 
@@ -579,12 +574,9 @@ fn published_to_nwsync_from_the_build_menu() {
     info.root.set("Mod_HakList", mg_module::attach::hak_list(&info.root, &["mg_sync".into()]));
     m.set_info(&info).unwrap();
     m.save().unwrap();
-    let install = mg_resman::GameInstall::new(&root, Some(user), "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, Some(user));
     app.open_module(&path);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 800.0);
     h.run();
     h.get_by_label("Build").click();
     h.run();
@@ -735,8 +727,7 @@ fn turkish_harness(name: &str, table: bool) -> Option<(Harness<'static, Moonglow
     m.set_info(&info).unwrap();
     m.save().unwrap();
 
-    let install = mg_resman::GameInstall::new(&root, Some(user), "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, Some(user));
     app.open_module(&path);
     let game = app.game.as_deref().unwrap();
     assert_eq!(game.codepage().is_table(), table);
@@ -751,9 +742,7 @@ fn turkish_harness(name: &str, table: bool) -> Option<(Harness<'static, Moonglow
     app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
     close_tab(&mut app, &Tab::ModuleProperties);
     app.open_palette = false;
-    let h = Harness::builder()
-        .with_size(egui::vec2(1000.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let h = harness(app, 1000.0, 800.0);
     Some((h, key))
 }
 
@@ -916,10 +905,8 @@ fn an_import_warns_of_what_it_shadows() {
     let dir = mg_testkit::scratch_dir("ui-import-warning");
     let path = sample_module(&dir);
     let erf = dir.join("scripts.erf");
-    let mut app = Moonglow::new(
-        Some(mg_resman::GameInstall::new(&root, None, "en")),
-        Box::new(NoDialogs { open: vec![erf.clone()], ..Default::default() }),
-    );
+    let mut app =
+        game_app_with(&root, None, NoDialogs { open: vec![erf.clone()], ..Default::default() });
     app.open_module(&path);
     // Twelve scripts named as the game's own, and one of the module's.
     let mut names = app.game.as_deref().unwrap().resman.list(ResType::NSS);
@@ -1063,9 +1050,7 @@ fn a_build_without_game_data_says_so() {
     let dir = mg_testkit::scratch_dir("ui-build-no-game");
     let mut app = app_with(Vec::new());
     app.open_module(&sample_module(&dir));
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 900.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1200.0, 900.0);
     h.run();
     h.get_by_label("Build").click();
     h.run_steps(2);
@@ -1131,8 +1116,7 @@ fn a_script_goes_to_the_scratch_folder_compiled() {
     let path = sample_module(&dir);
     let key = ResKey::parse("hello", ResType::NSS).unwrap();
     let open = |module: &std::path::Path, scratch: &std::path::Path| {
-        let install = mg_resman::GameInstall::new(&root, None, "en");
-        let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+        let mut app = game_app(&root, None);
         // (The module opens on its Properties, not on an area.)
         app.settings.no_last_area = true;
         app.settings.scratch_dir = Some(scratch.into());
@@ -1307,9 +1291,7 @@ fn a_module_folder_s_files_changed_outside_are_read_again() {
     app.settings.no_last_area = true;
     app.settings.no_mod_beside_folder = true;
     app.open_module(&folder);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1100.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1100.0, 800.0);
     h.run_steps(3);
     let script = |h: &Harness<'_, Moonglow>, name: &str| {
         let ws = h.state().ws.as_ref().unwrap();
@@ -1375,9 +1357,7 @@ fn closing_the_window_asks_first() {
     let dir = mg_testkit::scratch_dir("ui-close-asks");
     let file = dir.join("loose.2da");
     std::fs::write(&file, SMALL_TABLE).unwrap();
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1000.0, 700.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app_with(Vec::new()));
+    let mut h = harness(app_with(Vec::new()), 1000.0, 700.0);
     h.run_steps(2);
     h.state_mut().actions.push(mg_ui::Action::CloseWindow);
     h.run_steps(3);

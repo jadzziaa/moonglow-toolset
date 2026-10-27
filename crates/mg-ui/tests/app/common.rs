@@ -34,6 +34,83 @@ pub(crate) fn app_with(open: Vec<std::path::PathBuf>) -> Moonglow {
     Moonglow::new(None, Box::new(NoDialogs { open, ..Default::default() }))
 }
 
+/// The application on the game installed at `root`, in English, with
+/// `user` as the game's user folder (`None`: none), its dialogs answered
+/// by `dialogs`.
+pub(crate) fn game_app_with(
+    root: impl Into<std::path::PathBuf>,
+    user: Option<std::path::PathBuf>,
+    dialogs: NoDialogs,
+) -> Moonglow {
+    Moonglow::new(Some(mg_resman::GameInstall::new(root, user, "en")), Box::new(dialogs))
+}
+
+/// [`game_app_with`] answering no dialogs.
+pub(crate) fn game_app(
+    root: impl Into<std::path::PathBuf>,
+    user: Option<std::path::PathBuf>,
+) -> Moonglow {
+    game_app_with(root, user, NoDialogs::default())
+}
+
+/// `app`'s window in a harness `width` by `height` points, drawn (by
+/// `render`, `snapshot`) on a GPU device of kittest's own: a test that
+/// draws takes the GPU first (`mg_testkit::gpu::hold`).
+pub(crate) fn harness(app: Moonglow, width: f32, height: f32) -> Harness<'static, Moonglow> {
+    Harness::builder()
+        .with_size(egui::vec2(width, height))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app)
+}
+
+/// The GPU for a test that draws (the area view, a model view, a
+/// preview): takes it for the rest of the test (`mg_testkit::gpu::hold`,
+/// one device open at a time in this binary) and makes a render state
+/// for the application (`Moonglow::set_render_state`) and
+/// [`gpu_harness`]; `None`, said, without a GPU adapter.
+pub(crate) fn gpu() -> Option<egui_wgpu::RenderState> {
+    mg_testkit::gpu::hold();
+    if mg_render::Gpu::headless().is_none() {
+        eprintln!("skipped: no GPU adapter");
+        return None;
+    }
+    Some(egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    ))
+}
+
+/// [`harness`] drawn on the GPU's render state `rs` (from [`gpu`], given
+/// to `app` too). Takes the GPU as well, so that no harness draws without
+/// it.
+pub(crate) fn gpu_harness(
+    app: Moonglow,
+    rs: egui_wgpu::RenderState,
+    width: f32,
+    height: f32,
+) -> Harness<'static, Moonglow> {
+    mg_testkit::gpu::hold();
+    Harness::builder()
+        .with_size(egui::vec2(width, height))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app)
+}
+
+/// [`gpu_harness`] for an area view: frames a 60th of a second apart, so
+/// that clicks can be double clicks.
+pub(crate) fn area_gpu_harness(
+    app: Moonglow,
+    rs: egui_wgpu::RenderState,
+    width: f32,
+    height: f32,
+) -> Harness<'static, Moonglow> {
+    mg_testkit::gpu::hold();
+    Harness::builder()
+        .with_size(egui::vec2(width, height))
+        .with_step_dt(1.0 / 60.0)
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app)
+}
+
 /// What a key pressed with `modifiers` came to in its frame (pressed in
 /// one frame, let go in the next): the text copied to the clipboard, and
 /// whether the backend was asked for the clipboard's text (a paste).
@@ -109,8 +186,7 @@ pub(crate) fn blueprint_harness(
     };
     let dir = mg_testkit::scratch_dir(&format!("ui-bp-{copy}"));
     let path = sample_module(&dir);
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, None);
     app.open_module(&path);
     let game = app.game.as_deref().unwrap();
     let data = game.resman.get_named(name, t).unwrap().into_owned();
@@ -124,9 +200,7 @@ pub(crate) fn blueprint_harness(
     // opened, and the palette would show beside its window).
     close_tab(&mut app, &Tab::ModuleProperties);
     app.open_palette = false;
-    let h = Harness::builder()
-        .with_size(egui::vec2(1000.0, 800.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let h = harness(app, 1000.0, 800.0);
     Some((h, key))
 }
 
@@ -202,14 +276,9 @@ pub(crate) fn game_harness(name: &str) -> Option<Harness<'static, Moonglow>> {
     };
     let dir = mg_testkit::scratch_dir(&format!("ui-wizard-{name}"));
     let path = sample_module(&dir);
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, None);
     app.open_module(&path);
-    Some(
-        Harness::builder()
-            .with_size(egui::vec2(1000.0, 800.0))
-            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app),
-    )
+    Some(harness(app, 1000.0, 800.0))
 }
 
 pub(crate) fn module_gff(h: &mut Harness<'_, Moonglow>, name: &str, t: ResType) -> Option<Gff> {
@@ -265,11 +334,7 @@ pub(crate) fn area_harness_with(
     use mg_module::instances::{Placement, Placing, instance};
     use mg_module::new::{AreaSpec, add_area, new_module};
     let root = mg_testkit::nwn_root()?;
-    mg_testkit::gpu::hold();
-    if mg_render::Gpu::headless().is_none() {
-        eprintln!("skipped: no GPU adapter");
-        return None;
-    }
+    let rs = gpu()?;
     let install = mg_resman::GameInstall::new(&root, user, "en");
     let game = mg_rules::GameData::open(&install).unwrap();
     let mut rng = fastrand::Rng::with_seed(7);
@@ -307,10 +372,6 @@ pub(crate) fn area_harness_with(
     prepare(&mut m, &game, area);
     let path = mg_testkit::scratch_dir(&format!("ui-area-{name}")).join("area.mod");
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
-    let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
-        egui_wgpu::RendererOptions::PREDICTABLE,
-    );
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.set_render_state(rs.clone());
     // (Moonglow's own shader, chosen: the area view tests' pictures don't
@@ -318,12 +379,7 @@ pub(crate) fn area_harness_with(
     app.settings.game_shaders = Some(false);
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
-    // Frames a 60th of a second apart, so that clicks can be double clicks.
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1100.0, 800.0))
-        .with_step_dt(1.0 / 60.0)
-        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = area_gpu_harness(app, rs, 1100.0, 800.0);
     h.run_steps(3);
     Some((h, area))
 }
@@ -450,10 +506,7 @@ pub(crate) fn plugin_harness(
     let path = sample_module(&dir);
     let mut app = if game {
         let root = mg_testkit::nwn_root()?;
-        Moonglow::new(
-            Some(mg_resman::GameInstall::new(&root, None, "en")),
-            Box::new(NoDialogs::default()),
-        )
+        game_app(&root, None)
     } else {
         app_with(Vec::new())
     };
@@ -468,9 +521,7 @@ pub(crate) fn plugin_harness(
     )));
     app.plugin_dir = Some(plugin_fixtures());
     app.load_plugins();
-    let h = Harness::builder()
-        .with_size(egui::vec2(1200.0, 900.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let h = harness(app, 1200.0, 900.0);
     Some((h, key))
 }
 

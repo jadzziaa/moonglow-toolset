@@ -12,8 +12,7 @@ fn a_saved_module_s_custom_palette_has_names_in_the_game_s_bytes() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-palette-bytes");
     let path = sample_module(&dir);
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, None);
     app.open_module(&path);
     let name: &[u8] = b"Hip\xf3lito <c\xfe\x81\x01>rojo</c>";
     let key = ResKey::parse("mg_book", ResType::UTI).unwrap();
@@ -118,17 +117,14 @@ fn the_custom_palette_keeps_the_entries_of_hak_blueprints() {
     std::fs::copy(&probe, &path).unwrap();
     let palcus = ResKey::parse("itempalcus", ResType::ITP).unwrap();
     let before = Module::open(&path).unwrap().gff(&palcus).unwrap().unwrap();
-    let install = mg_resman::GameInstall::new(&root, Some(user), "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, Some(user));
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     app.palette.kind = mg_module::palette::BlueprintKind::Item;
     app.palette.tiles = false;
     app.palette.custom = true;
     app.palette.filter = "Drow".into();
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(900.0, 700.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 900.0, 700.0);
     h.run_steps(4);
     // The hak's blueprint, named from the talk table (its entry's STRREF).
     // (The menu bar has a View and an Edit of its own.)
@@ -184,8 +180,7 @@ fn palette_edit_copy_and_delete() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-palette");
     let path = sample_module(&dir);
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, None);
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     // The standard waypoints: the "Tavern" waypoint (nw_wp_tavern).
@@ -193,9 +188,7 @@ fn palette_edit_copy_and_delete() {
     app.palette.kind = mg_module::palette::BlueprintKind::Waypoint;
     app.palette.tiles = false;
     app.palette.filter = "nw_wp_tavern".into();
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(900.0, 700.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 900.0, 700.0);
     h.run();
     h.get_by_label(&tavern).click_secondary();
     h.run();
@@ -261,16 +254,13 @@ fn finding_in_a_palette_opens_its_categories() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-palette-find");
     let path = sample_module(&dir);
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, None);
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     app.palette.kind = mg_module::palette::BlueprintKind::Waypoint;
     app.palette.tiles = false;
     let tavern = app.game.as_deref().unwrap().string(mg_core::StrRef(69068)).unwrap();
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(900.0, 700.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 900.0, 700.0);
     h.run();
     // Seen collapsed first, as a builder opening the palette would.
     assert!(h.query_by_label(&tavern).is_none());
@@ -285,8 +275,7 @@ fn palette_finds_by_tag_keeps_favorites_and_moves_between_categories() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-palette-more");
     let path = sample_module(&dir);
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, None);
     app.open_module(&path);
     let game = app.game.as_deref().unwrap();
     let base = Gff::read(&game.resman.get_named("nw_waypoint001", ResType::UTW).unwrap()).unwrap();
@@ -313,9 +302,7 @@ fn palette_finds_by_tag_keeps_favorites_and_moves_between_categories() {
     app.palette.kind = mg_module::palette::BlueprintKind::Waypoint;
     app.palette.tiles = false;
     app.palette.custom = true;
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(900.0, 700.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 900.0, 700.0);
     h.run();
     // Found by its tag, a word at a time.
     h.state_mut().palette.filter = "secret gate".into();
@@ -380,12 +367,9 @@ fn the_palette_s_header() {
     };
     let dir = mg_testkit::scratch_dir("ui-palette-header");
     let path = sample_module(&dir);
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, None);
     app.open_module(&path);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1800.0, 900.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1800.0, 900.0);
     h.run_steps(3);
     // The row of icons: a click on the door shows the doors, named.
     // (All of it inside the palettes' pane, at the width it has at first.)
@@ -828,8 +812,7 @@ fn palette_updates_the_instances_of_a_selection_and_a_category() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-bulk-update");
     let path = sample_module(&dir);
-    let install = mg_resman::GameInstall::new(&root, None, "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, None);
     app.open_module(&path);
     // Two trigger blueprints, each placed once with an outline.
     let game = app.game.as_deref().unwrap();
@@ -859,9 +842,7 @@ fn palette_updates_the_instances_of_a_selection_and_a_category() {
     app.palette.tiles = false;
     app.palette.custom = true;
     app.palette.filter = "mg_trig".into();
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(900.0, 700.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 900.0, 700.0);
     h.run();
     let triggers = |h: &mut Harness<'_, Moonglow>| -> Vec<mg_gff::Struct> {
         let ws = h.state_mut().ws.as_mut().unwrap();
@@ -1239,14 +1220,9 @@ fn the_palette_opens_with_a_module_as_wide_as_the_tree() {
     };
     let dir = mg_testkit::scratch_dir("ui-palette-opens");
     let path = sample_module(&dir);
-    let mut app = Moonglow::new(
-        Some(mg_resman::GameInstall::new(&root, None, "en")),
-        Box::new(NoDialogs::default()),
-    );
+    let mut app = game_app(&root, None);
     app.open_module(&path);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(1600.0, 900.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 1600.0, 900.0);
     h.run_steps(3);
     let palette_width = |h: &Harness<'_, Moonglow>| {
         let path = h.state().dock.find_tab(&Tab::Palette).expect("the palette is open");
@@ -1309,8 +1285,7 @@ fn a_blueprint_copied_into_the_folder_shows_in_its_palette(
     let dir = mg_testkit::scratch_dir(&format!("ui-palette-outside-{}", kind.name()));
     let folder = dir.join("module");
     std::fs::create_dir_all(dir.join("user")).unwrap();
-    let install = mg_resman::GameInstall::new(&root, Some(dir.join("user")), "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut app = game_app(&root, Some(dir.join("user")));
     let game = app.game.clone().unwrap();
     let original = game.resman.get_named(template, kind.restype()).unwrap().to_vec();
     let category = Gff::read(&original).unwrap().root.integer(kind.palette_field()).unwrap();
@@ -1362,9 +1337,7 @@ fn a_blueprint_copied_into_the_folder_shows_in_its_palette(
     app.palette.tiles = false;
     app.palette.custom = true;
     app.palette.filter = shown.into();
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(900.0, 700.0))
-        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let mut h = harness(app, 900.0, 700.0);
     h.run_steps(4);
     // (A creature's row has its challenge rating after the name.)
     let listed = |h: &Harness<'_, Moonglow>, name: &str| {
