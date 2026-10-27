@@ -1933,7 +1933,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   or unchecked. (from M2, 2026-10-21)
   - **No framebuffer for the game's programs:** `texFBColor`/`texFBDepth` are
     white, so a material's `sample_framebuffer` (TDoD's flow MTR has one)
-    draws without what is behind it. (L: the framebuffer, out of 2.0)
+    draws without what is behind it. (L: the framebuffer, out of 2.0;
+    assessed in [the framebuffer proposal](framebuffer-proposal.md))
   - **An instance drawn see-through** (a blueprint about to be placed, a
     tile preview) draws with Moonglow's shader even when its material
     names a pair: the ghost would need a depth-only pipeline of the game's
@@ -2085,10 +2086,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     pattern better than Moonglow's own ripples: porting `fswater`'s waves
     (`GetWavesOffset`, `areaGlobalWind`) into Moonglow's water, or giving
     the game's programs a copy of the picture and its depth drawn so far
-    (a second pass after the solid meshes), would bring it closer. (M–L)
+    (a second pass after the solid meshes), would bring it closer. (M–L;
+    [the framebuffer proposal](framebuffer-proposal.md))
   - **Soft particles** (`particleSoftness`, above 0 in the client) fade
     where a particle meets what is behind it, through `texFBDepth`:
-    Moonglow's particles don't, by either path. (with the framebuffer)
+    Moonglow's particles don't, by either path. (with the framebuffer:
+    [the framebuffer proposal](framebuffer-proposal.md))
   - **The sky's fade** (the horizon's band in the fog's colour) stays
     Moonglow's: what the engine draws it with and gives it (`globalColor`,
     its blending) wasn't read; the skybox is the game's `vsvt`/`fst`. (S)
