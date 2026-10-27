@@ -29,6 +29,12 @@ pub enum OptionsPage {
     Updates,
 }
 
+/// Options › General › Show duplicate tags warning, on hover.
+const DUPLICATE_TAGS_TIP: &str = "Warn when a paste or an area's Copy… puts a tag you set on a \
+     second object (a script finds only one object by a tag). Off as in Aurora, which has no such \
+     warning. A project whose moonglow.toml sets [tags] paste_warning follows that whatever this \
+     says, and tags the project wants unique are warned of either way";
+
 /// The Options window's pages and their names.
 pub(crate) const PAGES: [(OptionsPage, &str); 10] = [
     (OptionsPage::Folders, "Folders"),
@@ -78,6 +84,7 @@ pub struct OptionsDraft {
     pub namespace_warning: bool,
     pub spell_warning: bool,
     pub inventory_warning: bool,
+    pub duplicate_tags_warning: bool,
     pub standard_warning: bool,
     pub auto_compile: bool,
     pub live_check: bool,
@@ -181,6 +188,7 @@ impl OptionsDraft {
             namespace_warning: !s.no_namespace_warning,
             spell_warning: !s.no_spell_warning,
             inventory_warning: !s.no_inventory_warning,
+            duplicate_tags_warning: s.warn_duplicate_tags,
             standard_warning: !s.no_standard_warning,
             auto_compile: s.auto_compile,
             live_check: !s.no_live_check,
@@ -259,6 +267,7 @@ impl OptionsDraft {
             no_namespace_warning: !self.namespace_warning,
             no_spell_warning: !self.spell_warning,
             no_inventory_warning: !self.inventory_warning,
+            warn_duplicate_tags: self.duplicate_tags_warning,
             no_standard_warning: !self.standard_warning,
             auto_compile: self.auto_compile,
             no_live_check: !self.live_check,
@@ -698,6 +707,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             .on_hover_text(
                                 "Warn when a hak has a resource the module adds (the hak's wins)",
                             );
+                            ui.checkbox(
+                                &mut draft.duplicate_tags_warning,
+                                "Show duplicate tags warning after a paste or a copy",
+                            )
+                            .on_hover_text(DUPLICATE_TAGS_TIP);
                             ui.add_space(8.0);
                             ui.checkbox(
                                 &mut draft.spell_warning,
@@ -1468,6 +1482,18 @@ mod tests {
         let t = d.apply(&s);
         assert!(t.no_spell_warning && t.no_hak_warning);
         assert!(!t.no_namespace_warning && !t.no_standard_warning);
+    }
+
+    /// Duplicate tags after a paste are not warned of unless asked for, as
+    /// in Aurora (Troubletcat's report: a spawn system's waypoints share
+    /// tags on purpose).
+    #[test]
+    fn the_duplicate_tags_warning_is_off_until_asked_for() {
+        let s = Settings::default();
+        let mut d = OptionsDraft::from_settings(&s);
+        assert!(!d.duplicate_tags_warning);
+        d.duplicate_tags_warning = true;
+        assert!(d.apply(&s).warn_duplicate_tags);
     }
 
     #[test]

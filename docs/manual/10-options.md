@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T14:09:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T06:06:29Z }
 ---
 
 # Options
@@ -174,9 +174,12 @@ the module is opened again from its file.
   blueprint named like the game's, `nw_` or `x0_` to `x3_`), **Show
   standard resource overwrite warning** (the module adds a resource the
   game has), **Show resource in Hak Pak warning** (a hak has a resource
-  the module adds, and the game uses the hak's), **Show invalid creature
-  spell assignment warning** and **Show creature inventory warning**
-  (see [Blueprints](05-blueprints.md)).
+  the module adds, and the game uses the hak's), **Show duplicate tags
+  warning after a paste or a copy** (off by default, as Aurora has none:
+  a project's `moonglow.toml` that sets `[tags] paste_warning` is
+  followed whatever it says; see [Areas](04-areas.md#duplicate-tags)),
+  **Show invalid creature spell assignment warning** and **Show creature
+  inventory warning** (see [Blueprints](05-blueprints.md)).
 
 ## Script Editor
 

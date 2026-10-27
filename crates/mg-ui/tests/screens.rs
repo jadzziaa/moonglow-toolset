@@ -597,6 +597,9 @@ fn options_window() {
     shoot(&mut h, &dir, "options-folders");
     h.get_by_label("General").click();
     shoot(&mut h, &dir, "options-general");
+    // Further down: the warnings, duplicate tags' among them.
+    h.get_by_label("Show duplicate tags warning after a paste or a copy").scroll_to_me();
+    shoot(&mut h, &dir, "options-general-warnings");
     // The Area page, tiles of groups free to edit: its warning.
     h.state_mut().options.as_mut().unwrap().edit_group_tiles = true;
     h.get_by_label("Area").click();
@@ -4523,6 +4526,8 @@ fn store_wizard_by_the_project_and_duplicate_tags() {
         shoot(&mut h, &dir, &format!("setup-store-{name}-finish"));
         if name == "project" {
             h.state_mut().store_wizard = None;
+            // (Shown as the builder's option says: Don't warn again.)
+            h.state_mut().settings.warn_duplicate_tags = true;
             let made = |i: usize| mg_ui::tag_clash::Made {
                 key: git,
                 path: GffPath::root().item("WaypointList", i),
@@ -4544,6 +4549,7 @@ fn store_wizard_by_the_project_and_duplicate_tags() {
                     (made(2), "KREZK_RENTAL_DOOR".into()),
                 ],
                 others: 0,
+                from_option: true,
             });
             shoot(&mut h, &dir, "duplicate-tags");
         }

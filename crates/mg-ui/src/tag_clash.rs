@@ -3,7 +3,9 @@
 //! unique in the module, as one undoable step). A script finds one object
 //! by a tag, and a copy pasted with its original's is the one it finds
 //! (`engine_static_placeables`). The project's `moonglow.toml` says
-//! which to warn of (`[tags] paste_warning`) and which must be unique.
+//! which to warn of (`[tags] paste_warning`) and which must be unique;
+//! where it doesn't say, Options › General › Show duplicate tags warning
+//! does (off by default, as Aurora has none).
 
 use mg_core::ResType;
 use mg_edit::{Command, Edit, GffPath, Workspace};
@@ -35,6 +37,9 @@ pub struct TagClash {
     /// its objects': only the area's own and those that must be unique
     /// are), how many.
     pub others: usize,
+    /// Shown as the builder's option says (the project's moonglow.toml
+    /// doesn't set `paste_warning`): the window offers Don't warn again.
+    pub from_option: bool,
 }
 
 /// The module's objects by tag, as they are now (unsaved edits too). An
@@ -88,7 +93,9 @@ fn weigh(ws: &mut Workspace, game: Option<&mg_rules::GameData>, made: &Made) -> 
         Some(mg_edit::Step::Item(list, _)) => mg_rules::ObjectKind::from_list(list),
         _ => None,
     };
-    let blueprint = kind.zip(s.resref("TemplateResRef")).and_then(|(kind, r)| {
+    // (A store names its blueprint in ResRef, the others in TemplateResRef.)
+    let template = kind.and_then(|kind| Some((kind, s.resref(kind.resref_field())?)));
+    let blueprint = template.and_then(|(kind, r)| {
         let key = ResKey::new(r, kind.restype());
         mg_module::gff_root(Some(&ws.module), game?, &key)
     });
@@ -99,8 +106,9 @@ fn weigh(ws: &mut Workspace, game: Option<&mg_rules::GameData>, made: &Made) -> 
 }
 
 /// After a paste or a copy: says what it put on more than one object (as
-/// the project says to: by default the tags a builder set and those that
-/// must be unique, never a static placeable's), in the log and the
+/// the project says to, else as the builder's option: the tags a builder
+/// set and those that must be unique with it on, only those that must be
+/// unique with it off; never a static placeable's), in the log and the
 /// Duplicate Tags window. `whole_area`: an area copied with all it holds,
 /// whose every tag is its original's: with `paste_warning = "any"`, only
 /// the area's own and those that must be unique are listed, the others
@@ -109,7 +117,12 @@ pub(crate) fn check(app: &mut Moonglow, what: &str, made: Vec<Made>, whole_area:
     let game = app.game.clone();
     let Some(ws) = app.ws.as_mut() else { return };
     let rules = ws.module.project_file.tags.clone();
-    if rules.paste_warning == PasteWarning::Off || made.is_empty() {
+    let warning = rules.paste_warning_or(app.settings.warn_duplicate_tags);
+    let from_option = rules.paste_warning.is_none() && app.settings.warn_duplicate_tags;
+    // (Nothing to warn of: the module's tags aren't read, which in a
+    // persistent world of hundreds of areas takes a moment a paste.)
+    let none_unique = warning == PasteWarning::Unique && !rules.any_unique();
+    if warning == PasteWarning::Off || none_unique || made.is_empty() {
         return;
     }
     let weighed: Vec<(Made, Weighed)> = made
@@ -126,14 +139,14 @@ pub(crate) fn check(app: &mut Moonglow, what: &str, made: Vec<Made>, whole_area:
             is_static: w.is_static,
         })
         .collect();
-    let mut found = clashes(&index, &tags, &rules);
+    let mut found = clashes(&index, &tags, &rules, warning);
     let tagged: Vec<(Made, Vec<u8>)> = weighed
         .iter()
         .filter(|(_, w)| !w.is_static)
         .map(|(m, w)| (m.clone(), w.tag.clone()))
         .collect();
     let mut others = 0;
-    if whole_area && rules.paste_warning == PasteWarning::Any {
+    if whole_area && warning == PasteWarning::Any {
         let own = |t: &str| {
             tagged.iter().any(|(m, tag)| m.key.restype == ResType::ARE && tag == t.as_bytes())
         };
@@ -160,7 +173,8 @@ pub(crate) fn check(app: &mut Moonglow, what: &str, made: Vec<Made>, whole_area:
     if found.is_empty() {
         return;
     }
-    app.tag_clash = Some(TagClash { what: what.to_string(), clashes: found, objects, others });
+    let what = what.to_string();
+    app.tag_clash = Some(TagClash { what, clashes: found, objects, others, from_option });
 }
 
 /// The edits that give each new object with a clashing tag one of its
@@ -209,6 +223,28 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 ));
             }
             ui.weak("A script finds only one object by a tag (GetObjectByTag).");
+            if clash.from_option {
+                let mut dont = !app.settings.warn_duplicate_tags;
+                if ui
+                    .checkbox(&mut dont, "Don't warn again")
+                    .on_hover_text(
+                        "Turns off Options › General › Show duplicate tags warning after a \
+                         paste or a copy, where it can be turned on again. Tags a project's \
+                         moonglow.toml wants unique are still warned of",
+                    )
+                    .changed()
+                {
+                    app.settings.warn_duplicate_tags = !dont;
+                    if dont {
+                        app.log.info(
+                            "Duplicate tags won't be warned of: Options › General › Show \
+                             duplicate tags warning turns it back on",
+                        );
+                    }
+                }
+            } else {
+                ui.weak("The project's moonglow.toml asks for this warning ([tags]).");
+            }
             ui.separator();
             ui.horizontal(|ui| {
                 let can = !clash.objects.is_empty();

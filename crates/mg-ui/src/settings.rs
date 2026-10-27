@@ -313,6 +313,11 @@ pub struct Settings {
     pub no_hak_warning: bool,
     /// Options > General: Show standard resource overwrite warning, off.
     pub no_standard_warning: bool,
+    /// Options > General: Show duplicate tags warning (after a paste or an
+    /// area's Copy…), on. Off by default: Aurora has none, and builders
+    /// share tags on purpose (a spawn system's waypoints). A project
+    /// whose moonglow.toml sets `[tags] paste_warning` follows that.
+    pub warn_duplicate_tags: bool,
     /// Options > Script Editor: Automatically Compile Scripts on Save.
     pub auto_compile: bool,
     /// Options › Script Editor: Check for errors as you type, off (on by
