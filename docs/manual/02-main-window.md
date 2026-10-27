@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T04:46:11Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T04:52:09Z }
 ---
 
 # The main window
@@ -261,7 +261,7 @@ under the pointer, or else of the row the keys are at (both ask first,
 as the row's menu does). At a placed object, Delete deletes it as its
 menu's **Delete** does (Undo brings it back), and the keys go on to the
 row after it; F2 does nothing there (its name and tag are in its
-Properties). Ctrl+F (**Find** in **Options › Keyboard**) goes to the
+Properties). Ctrl+F (**Find**, under Script Editor in **Options › Keyboard**) goes to the
 Filter; there, Escape clears what is typed, and Escape again goes back
 into the rows, where they were; Down goes to the first row the Filter
 finds (the palette's search has the same keys, and Down goes to its
@@ -430,7 +430,7 @@ Page Down, Home, End) choose a row and Enter opens it. A click on a row
 gives the list the keys too. The **Find** fields of the hak editor, the
 tileset editor, the 2DA editor and the Appearance Gallery take Ctrl+F
 and Escape the same way, with the pointer over them. Ctrl+F is
-**Find** in **Options › Keyboard**: the keys given to it there go to
+**Find** in **Options › Keyboard** (under Script Editor): the keys given to it there go to
 every search field.
 
 A 2DA shows the copy the game reads, read-only, with its StrRef columns
