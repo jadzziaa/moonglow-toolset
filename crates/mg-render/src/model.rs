@@ -1,5 +1,5 @@
 //! A model on the GPU: each drawn mesh's vertices and indices (in the
-//! device's shared buffers, [`crate::pool`]), its material, and the node it
+//! device's shared buffers, `pool.rs`), its material, and the node it
 //! hangs from.
 
 use std::sync::Arc;
@@ -106,7 +106,7 @@ pub struct GpuMesh {
     /// The node it belongs to.
     pub node: usize,
     /// The vertices and indices of the chunk the mesh lies in, shared with
-    /// other meshes ([`crate::pool`]): the mesh's are `index_count` indices
+    /// other meshes (`pool.rs`): the mesh's are `index_count` indices
     /// from `first_index`, of vertices counted from `base_vertex`.
     pub vertices: wgpu::Buffer,
     pub indices: wgpu::Buffer,

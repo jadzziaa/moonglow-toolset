@@ -11,7 +11,7 @@ use mg_image::Rgba;
 pub struct Gpu {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
-    /// Where the meshes uploaded through it lie ([`crate::pool`]).
+    /// Where the meshes uploaded through it lie (`pool.rs`).
     pub(crate) pool: std::sync::Arc<crate::pool::MeshPool>,
 }
 

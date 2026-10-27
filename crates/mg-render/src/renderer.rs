@@ -639,11 +639,12 @@ impl TextureReader {
         gpu: &Gpu,
         assets: Arc<dyn Assets + Send + Sync>,
         waker: Arc<std::sync::Mutex<Option<crate::game::Waker>>>,
-    ) -> TextureReader {
+    ) -> Option<TextureReader> {
         let (ask, asked) = std::sync::mpsc::channel::<String>();
         let (give, read) = std::sync::mpsc::channel();
         let asked = Arc::new(std::sync::Mutex::new(asked));
         let eras = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let mut started = 0;
         for n in 0..reader_threads() {
             let (gpu, assets, asked, give) =
                 (gpu.clone(), assets.clone(), asked.clone(), give.clone());
@@ -678,8 +679,18 @@ impl TextureReader {
             if spawned.is_err() {
                 break;
             }
+            started += 1;
         }
-        TextureReader { assets, ask, read, asked: Default::default(), taken: 0, era: 0, eras }
+        // (No thread to read on: textures are read as they are met.)
+        (started > 0).then(|| TextureReader {
+            assets,
+            ask,
+            read,
+            asked: Default::default(),
+            taken: 0,
+            era: 0,
+            eras,
+        })
     }
 
     /// Forgets what was asked: what is read of it is dropped.
@@ -1582,7 +1593,7 @@ impl Renderer {
             _ => false,
         };
         if !same {
-            self.reader = assets.map(|a| TextureReader::new(gpu, a, self.game.waker.clone()));
+            self.reader = assets.and_then(|a| TextureReader::new(gpu, a, self.game.waker.clone()));
         }
     }
 
