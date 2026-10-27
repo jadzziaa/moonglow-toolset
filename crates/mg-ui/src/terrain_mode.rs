@@ -1530,8 +1530,9 @@ fn count(items: &[PaletteItem], tools: &Tools, filter: &Needle, gallery: bool) -
         .iter()
         .map(|i| match i {
             PaletteItem::Folder { items, .. } => count(items, tools, filter, gallery),
-            PaletteItem::Brush { label, brush: Brush::Group(_) } => {
-                usize::from(filter.finds(label))
+            // (A group is one entry, in the Gallery one picture.)
+            item @ PaletteItem::Brush { brush: Brush::Group(_), .. } => {
+                usize::from(has_found(item, tools, filter))
             }
             PaletteItem::Brush { label, brush } => {
                 let tiles = brush_tiles(&tools.index, *brush);
@@ -1559,15 +1560,30 @@ fn found_tiles(tools: &Tools, label: &str, tiles: &[u32], filter: &Needle) -> Ve
     tiles.iter().copied().filter(|t| model(*t).is_some_and(finds)).collect()
 }
 
-/// Whether a palette entry has something the search finds.
+/// Whether a palette entry has something the search finds: its name, or
+/// the model of a tile it makes or a group has.
 fn has_found(item: &PaletteItem, tools: &Tools, filter: &Needle) -> bool {
     match item {
         PaletteItem::Folder { items, .. } => items.iter().any(|i| has_found(i, tools, filter)),
+        PaletteItem::Brush { label, brush: Brush::Group(g) } => {
+            filter.finds(label) || group_found(tools, *g, filter)
+        }
         PaletteItem::Brush { label, brush } => {
             filter.finds(label)
                 || !found_tiles(tools, label, &brush_tiles(&tools.index, *brush), filter).is_empty()
         }
     }
+}
+
+/// Whether the search finds the model of one of group `g`'s tiles (#35: a
+/// tile only a group has is found by its group). Each model is searched
+/// alone, not with the group's name: "Inn 1" is not found in Inn 2 by its
+/// tiles' 1s. (The group stays one entry, one picture in the Gallery, and
+/// no heading of its tiles: [`brush_tiles`] has none for it.)
+fn group_found(tools: &Tools, g: usize, filter: &Needle) -> bool {
+    let Some(group) = tools.set.groups.get(g) else { return false };
+    let model = |t: u32| tools.set.tiles.get(t as usize).map(|t| t.model.as_str());
+    group.tiles.iter().flatten().filter_map(|t| model(*t)).any(|m| filter.finds(m))
 }
 
 /// The tiles palette's Gallery: its pictures' size, and those made.
@@ -1667,7 +1683,7 @@ fn show_item(ui: &mut egui::Ui, item: &PaletteItem, at: &mut Place, depth: usize
                             PaletteItem::Brush { label, brush: Brush::Group(g) }
                                 if at.gallery.is_some() =>
                             {
-                                if !searching || at.filter.finds(label) {
+                                if !searching || has_found(i, at.tools, at.filter) {
                                     groups.push((label.as_str(), *g));
                                 }
                             }
