@@ -11,6 +11,26 @@ with thin LTO, keeping function names for crash reports.
 `.github/workflows/release.yml` builds all three on a `v*` tag and drafts a
 GitHub release with them. Run by hand, it leaves them as the run's artifacts.
 
+## Making a release
+
+The release is the version of the two programs, `mg` and `moonglow`:
+the `version` line of `[workspace.package]` in the root `Cargo.toml`,
+which they take (`version.workspace`) and the package scripts read. The
+libraries keep `version = "0.0.0"` and are not touched, so a release
+rebuilds the two programs alone; what the libraries say of the release
+(an export's stamp, an NWSync manifest, the About box, the update check,
+the debug log, the compiled shaders' cache) they read from the program,
+which sets it as it starts (`mg_core::release`). A release:
+
+1. Changes that one line: `sed -i 's/^version = "2.8.0"/version = "2.9.0"/' Cargo.toml`.
+2. Brings `Cargo.lock` along (`cargo metadata --format-version 1 > /dev/null`):
+   only the `mg` and `moonglow` entries change.
+3. Adds a `<release version="…" date="…">` entry at the top of
+   `<releases>` in `linux/io.github.moonglow_toolset.Moonglow.metainfo.xml`.
+4. Is committed ("Version 2.9.0") and tagged `v2.9.0`; the tag builds the
+   packages and drafts the GitHub release.
+5. Once the release is published, the Scoop manifest follows ([Scoop](#scoop)).
+
 | Folder | What |
 | --- | --- |
 | `icons/` | The icon (`moonglow.svg`, authored for Moonglow) and what `render.sh` makes of it: PNGs from 16 to 512 pixels, `moonglow.ico`, `moonglow.icns`. The 256-pixel PNG is also the window's icon, built into the program. |

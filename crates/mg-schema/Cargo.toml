@@ -1,7 +1,7 @@
 [package]
 name = "mg-schema"
 description = "Typed, lossless access to the game's GFF resources (field descriptors per resource type)"
-version.workspace = true
+version = "0.0.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

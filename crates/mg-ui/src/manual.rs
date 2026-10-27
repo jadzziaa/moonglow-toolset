@@ -241,7 +241,7 @@ pub(crate) fn about_window(app: &mut Moonglow, ctx: &egui::Context) {
         .show(ctx, |ui| {
             ui.vertical_centered(|ui| {
                 ui.heading("Moonglow Toolset");
-                ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
+                ui.label(format!("Version {}", mg_core::release::version()));
                 if ui
                     .button("Check for Updates…")
                     .on_hover_text("Ask GitHub whether a newer Moonglow is out")

@@ -283,7 +283,7 @@ pub fn write(
         "total_bytes": bytes,
         "on_disk_bytes": on_disk,
         "created": created,
-        "created_with": format!("Moonglow Toolset {}", env!("CARGO_PKG_VERSION")),
+        "created_with": format!("Moonglow Toolset {}", mg_core::release::version()),
     });
     if o.group_id != 0 {
         json["group_id"] = o.group_id.into();

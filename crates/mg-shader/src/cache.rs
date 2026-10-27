@@ -5,7 +5,7 @@
 //! or two where glslang takes 5 to 30).
 //!
 //! An entry is named by a hash of what decides its words: the assembled
-//! text (the preamble is its first lines), the stage, this crate's version
+//! text (the preamble is its first lines), the stage, Moonglow's release
 //! and the passes' [`FORMAT`]. It is the user's machine's own: the game's
 //! shaders are read from the user's install, and what is made of them stays
 //! in the user's cache folder. An entry that is cut short, damaged, of
@@ -69,7 +69,7 @@ impl ProgramCache {
     fn key(a: &Assembled) -> u128 {
         let stage = [a.stage as u8];
         fnv128(&[
-            env!("CARGO_PKG_VERSION").as_bytes(),
+            mg_core::release::version().as_bytes(),
             &FORMAT.to_le_bytes(),
             &stage,
             a.text.as_bytes(),

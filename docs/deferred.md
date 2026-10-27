@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T04:47:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T05:24:41Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -45,9 +45,12 @@ Size: S (an hour or two), M (a day or so), L (several days).
   only for tests that draw an area (a dozen take it for nothing). (L)
 - **`mg` links the GPU stack** through `mg-preview` and never uses it:
   96 crates of its build. (M)
-- **A version bump rebuilds all 28 crates** (`version.workspace`); the
-  version in the two apps alone would keep the libraries' artifacts. The
-  viewer takes the crates by git tag, which this does not change. (S)
+- **Moonglow Viewer's shader cache across toolset tags:** the libraries
+  are 0.0.0 and read the release from the program (`mg_core::release`),
+  which the viewer doesn't set, so its compiled-shader cache is named by
+  the passes' `FORMAT` alone and no longer starts anew when it moves to a
+  newer toolset tag. One line at the viewer's start
+  (`mg_core::release::set`, its own version) names it as before. (S)
 - **Shared test fixtures written many times:** the `mg` runner's
   wrappers (10 files), `fn lines` in the Aurora tests (6). (M)
 - **CI's time with the new workflow is not measured:** its first run
