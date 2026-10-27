@@ -1,5 +1,8 @@
 # Update log
 
+## 2026-10-27
+* **Update**: [The main window](manual/02-main-window.md): letters typed in the module tree go to an area's kinds and placed objects as their rows show them; Down from its Filter goes to the first row it finds; Delete at a placed object the keys are at deletes it, as its menu does. Every Filter and Find field finds a row with every word typed, in any order and in any of its fields (`sword iron` finds Iron Sword: the palettes alone did), `mg areas --match` too ([Command-line tools](manual/11-command-line.md)); one search field, its Ctrl+F the Find of Options › Keyboard. [The deferred list](deferred.md): what differs still.
+
 ## 2026-10-26
 * **Update**: [The deferred list](deferred.md) tidied: entries done in the shader milestones and in 2.3.0 taken out (their remainders kept), the two Direct3D 12 and Metal checks settled by CI (the game's programs drew on both for 2.8.0), the module tree no longer called cut short, a duplicate merged, and the sections named after a report filed under their areas.
 * **Update**: [The main window](manual/02-main-window.md): letters typed go to the module tree while it has the keys, wherever the pointer is, as Aurora's tree takes them (a builder's request); [the deferred list](deferred.md).

@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T03:55:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T04:46:10Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2593,16 +2593,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     builder already gave F6 to is now in conflict with Next Pane
     (Options › Keyboard lists it; the pane's wins until one is
     changed). (S)
-  - Letters typed go by all of them in quick succession, as in the
-    conversation tree, and to the tree while it has the keys, wherever
-    the pointer is (a builder's report: each went to the next row
-    beginning with it alone, and only with the pointer over the tree).
-    Not done: they go to a group's name or a resource's name as its
-    row shows it, not to a kind or a placed object. (S)
-  - F2 and Delete are for resources, not for a placed object the keys
-    are at. (S)
-  - Down from the tree's Filter goes to the first group, not the first
-    match. (S)
+  - F2 at a placed object does nothing: its row's menu has no Rename,
+    nor has Aurora's object menu (the parity inventory); whether
+    Aurora's tree edits an object's label in place on F2 (its
+    `tvMainEditing` renames resources) was not watched. Delete there
+    deletes it as its menu does. (S)
   - The resource browser has them (its Name field and its list), and
     Open Script has Down and Up for Enter; the hak editor's, the
     tileset editor's and the Appearance Gallery's Find fields have
@@ -3435,15 +3430,26 @@ of truth, and does each caller's difference matter.
   `Struct::walk_fields` (`rename.rs:192`, `:209`, `text.rs:207`,
   `doctor.rs:1250`). `GffPath` into mg-gff, carried by `Reference`,
   `Usage` and `Hit`. (L, mechanical)
-- **Six ways to match a filter:** the palettes' `Find` (words, then
-  letters in order: `palette_view.rs:1150`), the Tiles tab (sharing the
-  palettes' filter text, `terrain_mode.rs:1249`), the module tree
-  (`tree.rs:504`, `:752`), the Appearance Gallery, Transfer, the tileset
-  editor, Find Instance: "sword iron" finds Iron Sword in the palettes
-  alone. Ctrl+F read by hand in four places (`palette_view.rs:497`,
-  `tree.rs:468`, `widgets.rs:1111`, `browser.rs:112`) beside the
-  keymap's `Find`; the search field with its clear button twice. One
-  matcher and a `widgets::search_field`. (M)
+- **Filters: one matcher and one search field, what is left** (built
+  2026-10-27: `mg_core::text::Needle`, every word in any order, in any
+  of a row's fields; `widgets::SearchField`, with Find's keys from
+  Options › Keyboard; every Ctrl+F read by hand is gone). What differs
+  still, by choice: the palettes alone fall back to letters in order
+  when nothing has every word; each list looks in its own fields (the
+  tree: name and ResRef, an object's name and tag; the palettes and the
+  item picker: name, ResRef, tag; Find Instance: tag and blueprint as
+  two fields, each its own words; the resource browser, the hak editor
+  and Transfer: the ResRef or the file name alone; the tileset editor:
+  model and terrains; a 2DA: every cell and its value's name; the Area
+  chooser: ResRef and name, not the tag). Down leaves a field for its
+  list only where the list has keys of its own (the tree, the palettes,
+  the resource browser); elsewhere it stays in the field. Not moved to
+  `SearchField` (plain fields, no clear button nor Find's keys, the
+  matcher already theirs): the Creature Wizard's appearances, the
+  Script and Store Wizards', the Area chooser's, a table's row list and
+  the lists' dropdown filters (`widgets.rs`), the store page's, Options
+  › Keyboard's, the creature pages' lists, the script editor's help and
+  Open Script, the Command Palette. (S)
 - **A list's click to select several, three times:**
   `widgets::select_in_list` (Open Script, from October 2026), the hak
   editor's list (`hak_view.rs:457`, the same rule) and Module
