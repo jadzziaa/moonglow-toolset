@@ -1,4 +1,4 @@
-//! The NUI Creator, driven as the other editors are (`app.rs`): a window's
+//! The NUI Creator, driven as the other editors are (`app/`): a window's
 //! tab open in the whole application, read through the accessibility tree
 //! and the module. No game install is needed but for Build and Images.
 
