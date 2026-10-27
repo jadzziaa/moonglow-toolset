@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T08:33:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T09:23:26Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -713,6 +713,54 @@ Area ambient and diffuse are uploaded as (byte/255)^2.2, and so are MDL
   material values read back, then region means within 1/255 in
   `reference_scenes_match_the_client`).
 - **Wiki:** missing (only "fog color is always gamma").
+
+### An area's ambient and diffuse beside its tile lights
+
+The area's ambient and diffuse colors are light, added to the tile and
+object lights, not a tint over them: each channel is (byte/255)^2.2 of
+white light, so a gray of 60 is 4% of white ambient light everywhere and
+170 is 41% of white from the sun's (or moon's) side, the default
+direction (towards 4000, 4500, 7000) by day and night alike; an Always
+Bright area takes the sun's colors. A white ambient is full white light
+on every surface, which drowns the tile lights in the client as well: a
+flat, bright picture. Fog of 5 with black fog darkens the far part only
+(from 25 m). The client's default settings (bloom, high contrast,
+vibrance, sharpening, ambient occlusion on, Performance) make such an
+interior more saturated and warmer, not darker (HSV saturation 0.50
+against 0.43, red 6 of 255 more, blue 3 less).
+
+A material's custom pair is lit as its fragment program says: a program
+that defines `NORMAL_MAP 1` (the game's `fslit_nm`, and Heed's
+`fhss_skintile`, which is it with keyholing off) lights as the
+normal-mapped programs do, with no light softened past the terminator
+and none from a light the surface faces away from, whether or not the
+mesh has a render hint or a normal map; one that defines it 0 lights as
+`fslit`. In a tile-lit interior drawn by Heed's pair the client's dark
+corners are about a tenth darker than `fslit` lights them.
+
+- **Checked:** game client, `heed_interior_look` in `client_render.rs`
+  (2026-10-27): a stock 4×4 `tin01` interior (`map_m1q1k002` of Chapter
+  1, its tiles' lights) set as Heed's smithy (Always Bright, the
+  Interior Bright scheme, black fog of 5, no shadows), with ambient and
+  diffuse 60/170, 60/150, 255/170 and 0/0. Moonglow's area view with
+  the Shaders switch off and on drew the same picture (0.00 of 255
+  apart), within 0.8, 0.7, 1.5 and 0.7 of 255 of the client's mean
+  color, and within 8.5 in each of a 3×3 grid of regions (the most in
+  the top right, by 6 with no area light too). With Heed's pair on every
+  texture of the tiles (`MG_HEED_SHADERS`): Moonglow's own shader was
+  0.2 to 0.8 of 255 from the game's programs, brighter in the dark
+  corners (17.8 against the client's 15.4 with tile lights alone), its
+  mean color 1.1 to 1.7 from the client's; after, 0.00 apart and 0.6 to
+  1.5 from the client's. `a_custom_pair_is_lit_as_its_fragment_program_lights`
+  in `crates/mg-render/tests/render.rs` holds Moonglow's own shader to the
+  game's `fslit_nm` and `fslit` under custom names (before, 99% within
+  7 of 255 on the `_nm` one; after, 0).
+  `light_uniforms_match_the_client` reads the uniforms themselves.
+- **Moonglow:** `crates/mg-render/src/scene.rs` (`AreaLight::from_are`),
+  `crates/mg-area/src/scene.rs` (`area_light`), `crates/mg-render/src/renderer.rs`
+  (`Slots::lit_normal_mapped`).
+- **Wiki:** "Area Lighting" gives no formula; that a custom pair is lit
+  by its own defines is missing.
 
 ### Facing
 

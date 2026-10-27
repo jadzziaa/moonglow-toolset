@@ -1941,7 +1941,7 @@ impl mg_render::Assets for WithGameShaders<'_> {
     }
 
     fn material(&self, name: &str) -> Option<mg_image::mtr::Mtr> {
-        mg_render::Assets::material(self.game, name)
+        self.own.material(name).or_else(|| mg_render::Assets::material(self.game, name))
     }
 
     fn txi(&self, name: &str) -> Option<mg_image::txi::Txi> {
@@ -1949,7 +1949,7 @@ impl mg_render::Assets for WithGameShaders<'_> {
     }
 
     fn shader(&self, name: &str) -> Option<String> {
-        mg_render::Assets::shader(self.game, name)
+        self.own.shader(name).or_else(|| mg_render::Assets::shader(self.game, name))
     }
 }
 
@@ -2292,6 +2292,94 @@ fn the_game_s_lit_shaders_match_moonglow_s() {
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// A material's custom pair is lit, by Moonglow's own shader, as its
+/// fragment program lights it: the game's `fslit_nm` under another name
+/// (as Heed's `fhss_skintile` is) without a render hint, as the normal-
+/// mapped programs light (no light softened past the terminator), and the
+/// game's `fslit` so named as the stock one does (softened); the game's
+/// programs draw the two apart. Before, Moonglow's own shader lit both as
+/// `fslit`.
+#[test]
+fn a_custom_pair_is_lit_as_its_fragment_program_lights() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let Some(gpu) = gpu() else { return };
+    let rm = mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+    let dir = mg_testkit::scratch_dir("render");
+    let source = |name: &str| mg_render::Assets::shader(&rm, name).unwrap();
+    let mut own = TestAssets::default();
+    own.solid("mgplain", [180, 160, 140, 255]);
+    // (The pairs under names of their own: custom, not the stock choice.)
+    own.shaders.insert("vsmgnm".into(), source("vslit_nm"));
+    own.shaders.insert("fsmgnm".into(), source("fslit_nm").replace("KEYHOLING 1", "KEYHOLING 0"));
+    own.shaders.insert("vsmglit".into(), source("vslit"));
+    own.shaders.insert("fsmglit".into(), source("fslit"));
+    let mtr = |text: &str| mg_image::mtr::Mtr::parse(text.as_bytes());
+    own.materials.insert("mgnm".into(), mtr("customshadervs vsmgnm\ncustomshaderfs fsmgnm\n"));
+    own.materials.insert("mglit".into(), mtr("customshadervs vsmglit\ncustomshaderfs fsmglit\n"));
+    let assets = WithGameShaders { own, game: &rm };
+    let ball = |material: &str| {
+        let mut m = sphere("mgplain", 32, 64);
+        if let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind {
+            mesh.material = Some(material.into());
+        }
+        Instance::new(
+            Arc::new(GpuModel::new(&gpu, Arc::new(m))),
+            Mat4::from_translation(Vec3::new(0.0, 0.0, 1.0)),
+        )
+    };
+    // Lit from the side, by the area and a point light, the terminator in
+    // sight; a dark ambient, as Heed's.
+    let scene = |material: &str| Scene {
+        instances: vec![ball(material)],
+        area: AreaLight {
+            ambient: Vec3::splat(0.04),
+            diffuse: Vec3::splat(0.4),
+            direction: Vec3::new(1.0, 0.2, 0.3).normalize(),
+        },
+        lights: vec![mg_render::PointLight::new(
+            Vec3::new(-2.5, -0.5, 1.5),
+            Vec3::new(1.0, 0.8, 0.6),
+            4.0,
+            false,
+            2,
+        )],
+        background: [1.0, 0.0, 1.0],
+        ..Default::default()
+    };
+    let camera =
+        Camera::orbit(Vec3::new(0.0, 0.0, 1.0), 3.5, -90f32.to_radians(), 5f32.to_radians());
+    let bg = [255, 0, 255, 255];
+    let mut pictures = Vec::new();
+    for material in ["mgnm", "mglit"] {
+        let scene = scene(material);
+        let mut theirs = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        theirs.game_shaders = true;
+        let game = theirs.render_image(&gpu, &assets, &scene, &camera, 320, 320);
+        assert_eq!(theirs.game_shader_failures(), &[], "{material}");
+        assert_eq!(theirs.drawn.game, 1, "{material}: drawn by its pair");
+        let mut ours = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        let wgsl = ours.render_image(&gpu, &assets, &scene, &camera, 320, 320);
+        let (d, picture) = difference(&game, &wgsl, bg);
+        save(&game, &dir.join(format!("custom_{material}_game.png")));
+        save(&wgsl, &dir.join(format!("custom_{material}_wgsl.png")));
+        save(&picture, &dir.join(format!("custom_{material}_diff.png")));
+        eprintln!(
+            "{material}: {} pixels: mean {:.2}, 99% within {}, at most {}",
+            d.pixels, d.mean, d.p99, d.max
+        );
+        assert!(d.pixels > 10_000, "{material}: the sphere is seen");
+        assert!(d.mean <= 0.5 && d.p99 <= 2, "{material}: mean {:.2}, 99% {}", d.mean, d.p99);
+        pictures.push(game);
+    }
+    // (The two programs light the sphere apart: what is compared shows.)
+    let (d, _) = difference(&pictures[0], &pictures[1], bg);
+    eprintln!("fslit_nm and fslit apart: mean {:.2}, at most {}", d.mean, d.max);
+    assert!(d.max >= 8, "the two light alike: {}", d.max);
 }
 
 // Materials' own programs (`docs/shaders-proposal.md`, M2): authored
