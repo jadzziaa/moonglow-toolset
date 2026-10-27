@@ -960,6 +960,59 @@ fn palettes() {
     shoot(&mut h, &dir, "palettes");
 }
 
+/// An item copied into an open module folder from elsewhere, before the
+/// folder's files are read again and after (`palette-copied-in-before`,
+/// `-after`): the Items custom palette lists it in its category
+/// (Troubletcat's report: it showed in the module's tree, not in the
+/// palette).
+#[test]
+#[ignore]
+fn palette_blueprint_copied_in() {
+    use mg_gff::{Gff, Value};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let scratch = mg_testkit::scratch_dir("screens-palette-copied-in");
+    let folder = scratch.join("module");
+    std::fs::create_dir_all(scratch.join("user")).unwrap();
+    let install = GameInstall::new(&root, Some(scratch.join("user")), "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let game = app.game.clone().unwrap();
+    let sword = game.resman.get_named("nw_wswls001", ResType::UTI).unwrap().to_vec();
+    let named = |resref: &str, name: &str| {
+        let mut g = Gff::read(&sword).unwrap();
+        let text =
+            mg_core::LocString::from_text(mg_core::Language::ENGLISH, mg_core::Gender::Male, name);
+        g.root.set("LocalizedName", Value::LocString(text));
+        g.root.set("TemplateResRef", Value::resref(mg_core::ResRef::from_str(resref).unwrap()));
+        g.to_bytes().unwrap()
+    };
+    let mut rng = fastrand::Rng::with_seed(7);
+    let mut m = mg_module::new::new_module(&game, "Copied In", &mut rng).unwrap();
+    m.set(ResKey::parse("tm_sword", ResType::UTI).unwrap(), named("tm_sword", "Team Sword"));
+    mg_module::palette::rebuild_custom_palettes(&mut m, &game).unwrap();
+    m.save_as(&mg_module::ModuleLocation::Folder(folder.clone())).unwrap();
+    drop(game);
+    app.settings.no_last_area = true;
+    app.settings.no_mod_beside_folder = true;
+    app.settings.palette_gallery = false;
+    app.open_module(&folder);
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+    app.palette.kind = mg_module::palette::BlueprintKind::Item;
+    app.palette.tiles = false;
+    app.palette.custom = true;
+    app.palette.filter = "sword".into();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(4);
+    std::fs::write(folder.join("sent_sword.uti"), named("sent_sword", "Sent Sword")).unwrap();
+    shoot(&mut h, &dir, "palette-copied-in-before");
+    h.state_mut().reload_project_files();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "palette-copied-in-after");
+}
+
 /// A cleric's Spells page with Empower Spell chosen in its Meta-Magic list
 /// (the feat given first): the spells with their casting levels.
 #[test]

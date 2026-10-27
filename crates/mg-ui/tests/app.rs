@@ -23351,6 +23351,173 @@ fn a_module_folder_s_files_changed_outside_are_read_again() {
     assert!(script(&h, "fresh").is_none());
 }
 
+/// A blueprint copied into an open module folder from elsewhere (one
+/// another builder sent, copied in as with Aurora), read again: it shows
+/// in its custom palette at once, and the palette changed is unsaved
+/// work; changed there, its entry follows; the save writes the palette
+/// with it in the category its `PaletteID` names; deleted, it leaves; the
+/// module's other entry is as it was throughout (Troubletcat's report:
+/// the item showed in the module's tree, not in the palette). One opened
+/// with the module, the palette not listing it, is put in by More ›
+/// Refresh Palette, which Undo takes back. `template`: one of the game's
+/// blueprints, copied with another name.
+fn a_blueprint_copied_into_the_folder_shows_in_its_palette(
+    kind: mg_module::palette::BlueprintKind,
+    template: &str,
+    shown: &str,
+) {
+    use mg_gff::Value;
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir(&format!("ui-palette-outside-{}", kind.name()));
+    let folder = dir.join("module");
+    std::fs::create_dir_all(dir.join("user")).unwrap();
+    let install = mg_resman::GameInstall::new(&root, Some(dir.join("user")), "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let game = app.game.clone().unwrap();
+    let original = game.resman.get_named(template, kind.restype()).unwrap().to_vec();
+    let category = Gff::read(&original).unwrap().root.integer(kind.palette_field()).unwrap();
+    let blueprint = |resref: &str, name: &str| {
+        let mut g = Gff::read(&original).unwrap();
+        let named = LocString::from_text(Language::ENGLISH, Gender::Male, name);
+        g.root.set(kind.name_field(), Value::LocString(named));
+        g.root.set(kind.resref_field(), Value::resref(ResRef::from_str(resref).unwrap()));
+        g.to_bytes().unwrap()
+    };
+    let file = |resref: &str| folder.join(format!("{resref}.{}", kind.restype()));
+    // The module's palettes made (with a blueprint of its own), then a
+    // blueprint put in while it is closed (its palette doesn't list it).
+    let mut m = Module::open(&sample_module(&dir)).unwrap();
+    let kept = format!("{shown} Kept");
+    m.set(
+        ResKey::new(ResRef::from_str("mg_kept").unwrap(), kind.restype()),
+        blueprint("mg_kept", &kept),
+    );
+    mg_module::palette::rebuild_custom_palettes(&mut m, &game).unwrap();
+    m.save_as(&ModuleLocation::Folder(folder.clone())).unwrap();
+    let palcus = folder.join(format!("{}.itp", kind.custom_key().resref));
+    fn entry_of(
+        list: &[mg_gff::Struct],
+        resref: &str,
+        id: Option<i64>,
+    ) -> Option<(Option<i64>, mg_gff::Struct)> {
+        list.iter().find_map(|node| match node.resref("RESREF") {
+            Some(r) => (r.to_string() == resref).then(|| (id, node.clone())),
+            None => entry_of(node.list("LIST").unwrap_or(&[]), resref, node.integer("ID")),
+        })
+    }
+    let entry = |resref: &str| {
+        let g = Gff::read(&std::fs::read(&palcus).unwrap()).unwrap();
+        entry_of(g.root.list("MAIN").unwrap(), resref, None)
+    };
+    let was = entry("mg_kept").expect("the module's own");
+    assert_eq!(was.0, Some(category));
+    let closed = format!("{shown} Closed");
+    std::fs::write(file("mg_closed"), blueprint("mg_closed", &closed)).unwrap();
+    // (Not held here: the window takes the game data to itself.)
+    drop(game);
+    app.settings.no_last_area = true;
+    app.settings.no_mod_beside_folder = true;
+    app.settings.palette_gallery = false;
+    app.open_module(&folder);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    app.palette.kind = kind;
+    app.palette.tiles = false;
+    app.palette.custom = true;
+    app.palette.filter = shown.into();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 700.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(4);
+    // (A creature's row has its challenge rating after the name.)
+    let listed = |h: &Harness<'_, Moonglow>, name: &str| {
+        let cr = format!("{name}  (CR");
+        (h.query_all_by_label_contains(name))
+            .filter_map(|n| n.accesskit_node().label())
+            .any(|l| l == name || l.starts_with(&cr))
+    };
+    let modified = |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().is_modified();
+    // (The search typed again, which opens the categories with a match:
+    // one that had none stays closed as the builder left it.)
+    let search = |h: &mut Harness<'_, Moonglow>| {
+        h.state_mut().palette.filter.clear();
+        h.run_steps(2);
+        h.state_mut().palette.filter = shown.into();
+        h.run_steps(4);
+    };
+    let reload = |h: &mut Harness<'_, Moonglow>| {
+        h.state_mut().reload_project_files();
+        h.run_steps(4);
+        search(h);
+    };
+    let save = |h: &mut Harness<'_, Moonglow>| {
+        h.state_mut().actions.push(mg_ui::Action::Save);
+        h.run_steps(4);
+    };
+    assert!(listed(&h, &kept));
+    assert!(!listed(&h, shown) && !listed(&h, &closed));
+    assert!(!modified(&h));
+
+    // Copied in: listed after the reload.
+    std::fs::write(file("mg_outside"), blueprint("mg_outside", shown)).unwrap();
+    reload(&mut h);
+    assert!(listed(&h, shown), "{shown} in the palette after the reload");
+    assert!(modified(&h), "the palette changed is unsaved work");
+    // Renamed there: its entry follows.
+    let renamed = format!("{shown} Renamed");
+    std::fs::write(file("mg_outside"), blueprint("mg_outside", &renamed)).unwrap();
+    reload(&mut h);
+    assert!(listed(&h, &renamed) && !listed(&h, shown), "renamed");
+    // Saved: the file has its entry, in its category.
+    save(&mut h);
+    assert!(!modified(&h));
+    let (id, saved) = entry("mg_outside").expect("written with the palette");
+    assert_eq!(id, Some(category));
+    let named = saved.string("NAME").map(|n| String::from_utf8_lossy(n).into_owned());
+    assert_eq!(named.as_deref(), Some(renamed.as_str()));
+    assert!(entry("mg_closed").is_none(), "not refreshed");
+    assert_eq!(entry("mg_kept").as_ref(), Some(&was), "the other entry as it was");
+    // Deleted there: it leaves.
+    std::fs::remove_file(file("mg_outside")).unwrap();
+    reload(&mut h);
+    assert!(!listed(&h, &renamed), "deleted");
+    assert!(listed(&h, &kept));
+    save(&mut h);
+    assert!(entry("mg_outside").is_none());
+    assert_eq!(entry("mg_kept").as_ref(), Some(&was), "the other entry as it was");
+
+    // More › Refresh Palette: the one put in while the module was closed
+    // is listed; Undo takes it out again.
+    h.get_by_label("More").click();
+    h.run_steps(2);
+    h.get_by_label("Refresh Palette").click();
+    h.run_steps(4);
+    search(&mut h);
+    assert!(listed(&h, &closed), "refreshed");
+    assert!(modified(&h), "refreshed: to be saved");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(4);
+    search(&mut h);
+    assert!(!listed(&h, &closed), "undone");
+}
+
+#[test]
+fn an_item_copied_into_the_folder_shows_in_its_palette() {
+    let kind = mg_module::palette::BlueprintKind::Item;
+    a_blueprint_copied_into_the_folder_shows_in_its_palette(kind, "nw_wswls001", "Outside Sword");
+}
+
+#[test]
+fn a_creature_copied_into_the_folder_shows_in_its_palette() {
+    let kind = mg_module::palette::BlueprintKind::Creature;
+    a_blueprint_copied_into_the_folder_shows_in_its_palette(kind, "nw_chicken", "Outside Hen");
+}
+
+#[test]
+fn a_placeable_copied_into_the_folder_shows_in_its_palette() {
+    let kind = mg_module::palette::BlueprintKind::Placeable;
+    a_blueprint_copied_into_the_folder_shows_in_its_palette(kind, "plc_chest1", "Outside Chest");
+}
+
 /// A nasher project's files changed by another program are read again
 /// while the project is open; where Moonglow has unsaved changes to one,
 /// its own is kept and the window asks.

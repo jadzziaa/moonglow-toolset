@@ -425,6 +425,37 @@ pub(crate) fn palette(
     view.custom_cache.get(&kind).map(|(_, p)| p.clone())
 }
 
+/// More › Refresh Palette (Aurora's, on a palette's right-click menu): the
+/// module's custom palette of `kind` made anew from the module's
+/// blueprints and its haks' (`rebuild_custom_palette`, as Build's
+/// Palettes makes each), as one command: Undo takes it back, and the
+/// next save writes it. Entries made stale by other means (another tool,
+/// a merge, files changed while the module was closed) are put right so;
+/// those of the override folder's blueprints and of blueprints there are
+/// no more go, as in Aurora.
+pub(crate) fn refresh(app: &mut Moonglow, kind: BlueprintKind) {
+    let label = kind.label();
+    let (Some(game), Some(ws)) = (app.game.as_deref(), app.ws.as_mut()) else { return };
+    let made = ws.flush().map_err(|e| e.to_string()).and_then(|()| {
+        let g = mg_module::palette::rebuild_custom_palette(&ws.module, game, kind)?;
+        g.to_bytes().map_err(|e| e.to_string())
+    });
+    let key = kind.custom_key();
+    match made {
+        Err(e) => app.log.error(format!("Refresh Palette ({label}): {e}")),
+        Ok(bytes) if ws.module.get(&key) == Some(&bytes[..]) => {
+            app.log.info(format!("Refresh Palette: the {label} palette was up to date"));
+        }
+        Ok(bytes) => {
+            let edit = Edit::SetResource { key, data: Some(bytes) };
+            match app.apply(Command::new(format!("Refresh {label} Palette"), vec![edit])) {
+                Ok(()) => app.log.info(format!("Refresh Palette: the {label} palette made anew")),
+                Err(e) => app.log.error(format!("Refresh Palette ({label}): {e}")),
+            }
+        }
+    }
+}
+
 /// What a search finds in a palette, kept until the search, the palette
 /// or the module changes: the blueprints, and how (by words, or by letters
 /// in order when nothing has every word).
@@ -820,6 +851,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 categories = Some(view.kind);
                 ui.close();
             }
+            if ui
+                .add_enabled(app.ws.is_some(), egui::Button::new("Refresh Palette"))
+                .on_hover_text(
+                    "The module's custom palette of this kind made anew from its blueprints and \
+                     its haks', as Aurora's Refresh Palette and Build's Palettes make it (Undo \
+                     takes it back)",
+                )
+                .clicked()
+            {
+                app.actions.push(Action::RefreshPalette(view.kind));
+                ui.close();
+            }
             // Every appearance there is, not only the blueprints'.
             if view.kind == BlueprintKind::Placeable
                 && ui
@@ -835,7 +878,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             }
         })
         .response
-        .on_hover_text("More: the module's categories, every placeable appearance");
+        .on_hover_text(
+            "More: the module's categories, Refresh Palette, every placeable appearance",
+        );
         if shown {
             // (A slider doesn't wrap of itself: on a row of its own where
             // this one has no room for it.)

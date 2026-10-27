@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T06:06:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T06:17:45Z }
 ---
 
 # Modules
@@ -87,7 +87,11 @@ a directory), nasher projects (see below) and the game's campaign files
   script read again is compiled if **Automatically Compile Scripts on
   Save** is on (Options › Script Editor), as one saved here is, and so
   are the scripts that include it (more than 24 at once are compiled
-  in the background, and the log says so). The script editor's external editor
+  in the background, and the log says so). A blueprint copied into the
+  folder (one another builder sent) shows in its custom palette as soon
+  as it is read, as after Aurora's Refresh Palette, and one deleted or
+  changed there has its entry taken out or made right (written at the
+  next save). The script editor's external editor
   opens the folder's own file.
 - Saving is safe. A module archive is written to a temporary file, then
   put in place, so a failure never leaves a half-written module. The

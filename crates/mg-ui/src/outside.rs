@@ -21,6 +21,7 @@ use mg_core::ResType;
 use mg_module::locks::Lock;
 use mg_module::nasher::Outside;
 use mg_module::outside::OutsideFound;
+use mg_module::palette::BlueprintKind;
 use mg_resman::ResKey;
 
 use crate::{Moonglow, Tab};
@@ -42,6 +43,10 @@ pub(crate) struct OutsideState {
     /// The files being read on a thread of their own, after the watch saw
     /// a change.
     looking: Option<Looking>,
+    /// Blueprints read again, of the module whose place this is, whose
+    /// custom palettes are still to be looked at
+    /// ([`Moonglow::look_at_palettes`]).
+    palettes: Option<(PathBuf, Vec<ResKey>)>,
 }
 
 /// A look at the module's files under way ([`Moonglow::look_outside`]).
@@ -331,6 +336,43 @@ impl Moonglow {
         false
     }
 
+    /// Whether the blueprints read again change their custom palettes (as
+    /// shown, and as the next save writes them): a palette changed so is
+    /// unsaved work, so that closing asks. One type a frame (a pull's 400
+    /// blueprints took 4.6 ms in one, with the rest of the frame over the
+    /// budget). With unsaved work already, nothing is looked at; else the
+    /// module is as saved but for the blueprints read again, and only they
+    /// are looked at (`update_custom_palette_for`). Returns whether any is
+    /// still to be looked at.
+    pub fn look_at_palettes(&mut self) -> bool {
+        let Some((root, keys)) = self.outside.palettes.as_mut() else { return false };
+        let (Some(ws), Some(game)) = (self.ws.as_mut(), self.game.as_deref()) else {
+            self.outside.palettes = None;
+            return false;
+        };
+        let here = (ws.module.project.as_ref().map(|p| p.root()))
+            .or_else(|| ws.module.folder.as_ref().map(|f| f.dir()));
+        if ws.is_modified() || here != Some(root.as_path()) {
+            self.outside.palettes = None;
+            return false;
+        }
+        let Some(kind) = keys.first().and_then(|k| BlueprintKind::from_restype(k.restype)) else {
+            self.outside.palettes = None;
+            return false;
+        };
+        let (these, rest): (Vec<ResKey>, Vec<ResKey>) =
+            std::mem::take(keys).into_iter().partition(|k| k.restype == kind.restype());
+        *keys = rest;
+        let update = mg_module::palette::update_custom_palette_for;
+        if matches!(update(&ws.module, game, kind, &these), Ok(Some(_))) {
+            ws.mark_modified();
+            self.outside.palettes = None;
+        } else if keys.is_empty() {
+            self.outside.palettes = None;
+        }
+        self.outside.palettes.is_some()
+    }
+
     /// Every few seconds: the haks and folders the game data reads (and the
     /// custom talk table) are looked at again
     /// ([`Moonglow::reload_resources`]) if a watch of theirs saw a change:
@@ -486,6 +528,20 @@ impl Moonglow {
         for c in changes {
             ws.module.took(c);
         }
+        // A blueprint read again has its custom palette entry made right
+        // (`Workspace::adopt`: shown at once, written at the next save, as
+        // after Aurora's Refresh Palette); whether that changes the palette
+        // is looked at in the frames after ([`Moonglow::look_at_palettes`]).
+        let keys = changes.iter().map(|c| c.key);
+        let blueprints: Vec<ResKey> =
+            keys.filter(|k| BlueprintKind::from_restype(k.restype).is_some()).collect();
+        if let Some(root) = self.module_root().filter(|_| !blueprints.is_empty()) {
+            match &mut self.outside.palettes {
+                Some((was, keys)) if *was == root => keys.extend(blueprints),
+                palettes => *palettes = Some((root, blueprints)),
+            }
+        }
+        let Some(ws) = self.ws.as_mut() else { return };
         if !locks.is_empty() {
             ws.module.restore_locks(&locks);
         }

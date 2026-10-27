@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T05:36:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T06:51:16Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1088,13 +1088,36 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     Palette write the text; a module with no `palcus.itp` gets one made
     in full at a save, where Aurora writes the categories alone, empty.
     (S, if any should follow Aurora)
-  - *An entry made stale outside stays so:* Aurora rewrites an entry at
-    Edit and OK even when nothing changed (it writes the blueprint
-    again); Moonglow when the blueprint's bytes changed since the module
-    was opened or saved. An entry left stale by another tool, a merge or
-    a file copied in is made right when its blueprint next changes, or
-    by Build. Work recovered after a crash counts as opened: its
-    blueprints' entries wait for a change too. (S)
+  - *An entry made stale outside stays so, where Moonglow didn't see the
+    blueprint change:* Aurora rewrites an entry at Edit and OK even when
+    nothing changed (it writes the blueprint again); Moonglow when the
+    blueprint's bytes changed since the module was opened or saved. A
+    blueprint added, changed or deleted in an open module folder or
+    nasher project is such a change (read again, it is not taken into
+    what the save compares with: Troubletcat's report, October 2026),
+    and the palette changed so is unsaved work. An entry left stale by
+    another tool while the module was closed, a merge, or an `mg`
+    command on an open `.mod` (no archive is watched) is made right when
+    its blueprint next changes, by the palette's More › Refresh Palette
+    (that type's, as Aurora's right-click Refresh Palette: its capture
+    changed the item palette alone) or by Build. Work recovered after a
+    crash counts as opened: its blueprints' entries wait for a change
+    too. A module's own categories (`<type>pal.itp`) changed outside are
+    taken in as they are, without remaking the palette's categories
+    (the palette pulled with them has them); a search typed doesn't open
+    the category of a blueprint that arrives after it was typed (typed
+    again, it does). (S each)
+  - *A blueprint whose category the palette lacks* (a `PaletteID`
+    another module's own categories name, or none): Moonglow leaves it
+    out of the custom palette, at a save, a reload, Refresh Palette and
+    Build alike, where the game's Special › Custom 1 (ID 0, in every
+    type's palette) would show it; what Aurora's Refresh does with one
+    wasn't captured. (S, an Aurora capture)
+  - *A category left with an empty `LIST`:* an entry put into a
+    category that had no `LIST` field makes one, and the entry taken
+    out again (a blueprint added, then deleted, before a save) leaves
+    it empty, where the file had none: the same palette to the game,
+    not the same bytes. (S)
   - *What moves an entry besides its blueprint:* a faction renamed
     (`repute.fac`) leaves its creatures' `FACTION` until they change; a
     hak's skeleton changed, or a hak's blueprints changed, renamed or

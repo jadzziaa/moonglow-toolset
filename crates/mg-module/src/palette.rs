@@ -646,17 +646,41 @@ fn elsewhere(game: &GameData, key: &mg_resman::ResKey) -> bool {
     game.resman.layers().iter().any(|l| l.priority != MODULE && l.container.contains(key))
 }
 
-/// Where the palette entries of `resref` are: each one's path from `MAIN`
-/// through the `LIST`s.
-fn entries_of(list: &[Struct], resref: ResRef, path: &mut Vec<usize>, out: &mut Vec<NodePath>) {
-    for (i, node) in list.iter().enumerate() {
-        path.push(i);
-        if node.resref("RESREF") == Some(resref) {
-            out.push(path.clone());
-        } else if let Some(children) = node.list("LIST") {
-            entries_of(children, resref, path, out);
+/// Where a palette's entries are, by ResRef (each one's path from `MAIN`
+/// through the `LIST`s), and its categories, by id (the first, as
+/// [`category_path`] finds it), from one walk.
+#[derive(Default)]
+struct Places {
+    entries: std::collections::HashMap<ResRef, Vec<NodePath>>,
+    categories: std::collections::HashMap<u8, NodePath>,
+}
+
+impl Places {
+    fn of(main: &[Struct]) -> Places {
+        fn walk(list: &[Struct], path: &mut Vec<usize>, out: &mut Places) {
+            for (i, node) in list.iter().enumerate() {
+                path.push(i);
+                match node.resref("RESREF") {
+                    Some(r) => out.entries.entry(r).or_default().push(path.clone()),
+                    None => {
+                        if let Some(id) = node.integer("ID").and_then(|v| u8::try_from(v).ok()) {
+                            out.categories.entry(id).or_insert_with(|| path.clone());
+                        }
+                        if let Some(children) = node.list("LIST") {
+                            walk(children, path, out);
+                        }
+                    }
+                }
+                path.pop();
+            }
         }
-        path.pop();
+        let mut out = Places::default();
+        walk(main, &mut Vec::new(), &mut out);
+        out
+    }
+
+    fn entries(&self, resref: ResRef) -> Vec<NodePath> {
+        self.entries.get(&resref).cloned().unwrap_or_default()
     }
 }
 
@@ -834,37 +858,81 @@ pub fn update_custom_palette(
     game: &GameData,
     kind: BlueprintKind,
 ) -> Result<Option<Gff>, String> {
+    if !module.contains(&kind.custom_key()) {
+        return rebuild_custom_palette(module, game, kind).map(Some);
+    }
+    let restype = kind.restype();
+    // (The same bytes, most often shared: compared only where they aren't,
+    // as comparing every blueprint of a large module took milliseconds.)
+    let differs = |k: &mg_resman::ResKey| match (module.shared(k), before.shared(k)) {
+        (Some(a), Some(b)) => !std::sync::Arc::ptr_eq(a, b) && a[..] != b[..],
+        (a, b) => a.is_some() != b.is_some(),
+    };
+    let skeleton_changed = differs(&kind.skeleton_key());
+    let changed: Vec<mg_resman::ResKey> = (module.keys_of(restype))
+        .chain(before.keys_of(restype))
+        .filter(|k| differs(k))
+        .copied()
+        .collect();
+    updated(module, game, kind, changed, skeleton_changed)
+}
+
+/// The module's custom palette of `kind` brought up to date with the
+/// blueprints `keys` alone ([`update_custom_palette`], every other
+/// blueprint taken as its entry has it): those just read again from
+/// outside Moonglow, to see whether they change the palette without
+/// comparing every blueprint of the module. `None`: they don't, or the
+/// module has no such palette.
+pub fn update_custom_palette_for(
+    module: &Module,
+    game: &GameData,
+    kind: BlueprintKind,
+    keys: &[mg_resman::ResKey],
+) -> Result<Option<Gff>, String> {
+    if !module.contains(&kind.custom_key()) {
+        return Ok(None);
+    }
+    let restype = kind.restype();
+    let changed = keys.iter().filter(|k| k.restype == restype).copied().collect();
+    updated(module, game, kind, changed, false)
+}
+
+/// [`update_custom_palette`] with what changed found: the blueprints
+/// `changed` (in the module, changed or added; not in it, deleted), and
+/// whether the module's categories did.
+fn updated(
+    module: &Module,
+    game: &GameData,
+    kind: BlueprintKind,
+    mut changed: Vec<mg_resman::ResKey>,
+    skeleton_changed: bool,
+) -> Result<Option<Gff>, String> {
     let key = kind.custom_key();
     let Some(data) = module.get(&key) else {
         return rebuild_custom_palette(module, game, kind).map(Some);
     };
-    let restype = kind.restype();
-    let skeleton_key = kind.skeleton_key();
-    let skeleton_changed = module.get(&skeleton_key) != before.get(&skeleton_key);
-    let mut changed: Vec<mg_resman::ResKey> = (module.keys_of(restype))
-        .chain(before.keys_of(restype))
-        .filter(|k| module.get(k) != before.get(k))
-        .copied()
-        .collect();
     changed.sort();
     changed.dedup();
     if changed.is_empty() && !skeleton_changed {
         return Ok(None);
     }
     let mut palette = Gff::read(data).map_err(|e| format!("{key}: {e}"))?;
+    // (Whether anything in it may have changed.)
+    let mut touched = skeleton_changed;
     if skeleton_changed {
         palette = restructured(&palette, module, game, kind)?;
     }
     if palette.root.list("MAIN").is_none() {
         palette.root.set("MAIN", Value::List(Vec::new()));
+        touched = true;
     }
     let main = palette.root.list_mut("MAIN").expect("just made");
     let factions = faction_names(module);
-    let find = |main: &[Struct], resref: ResRef| {
-        let mut out = Vec::new();
-        entries_of(main, resref, &mut Vec::new(), &mut out);
-        out
-    };
+    // Where the entries and categories are: found in one walk, and again
+    // only after the palette changed shape. (A pull's blueprints, read
+    // again with their names and categories as they were, change none:
+    // two walks of a large palette for each took 44 ms for 250 items.)
+    let mut places: Option<Places> = None;
     // Blueprints deleted, that the game no longer has anywhere: their
     // entries, for a renamed one to take, else to go.
     let mut gone: Vec<ResRef> = (changed.iter())
@@ -873,13 +941,17 @@ pub fn update_custom_palette(
         .collect();
     for key in changed.iter().filter(|k| module.contains(k)) {
         let Some(Ok(g)) = module.gff(key) else { continue };
-        let at = find(main, key.resref);
+        let here = places.get_or_insert_with(|| Places::of(main));
+        let at = here.entries(key.resref);
         let category = category_of(kind, &g.root)
-            .and_then(|id| category_path(main, id, &mut Vec::new()).map(|p| (id, p)));
+            .and_then(|id| here.categories.get(&id).map(|p| (id, p.clone())));
         let Some((id, category)) = category else {
             // Hidden, or in a category the palette lacks: in no palette.
             for path in at.iter().rev() {
                 take_node(main, path);
+            }
+            if !at.is_empty() {
+                (places, touched) = (None, true);
             }
             continue;
         };
@@ -889,7 +961,7 @@ pub fn update_custom_palette(
             // this category under this name.
             let shown = name_of(&wanted).text(game);
             let renamed = gone.iter().enumerate().find_map(|(i, r)| {
-                let path = find(main, *r).into_iter().find(|p| p.starts_with(&category))?;
+                let path = here.entries(*r).into_iter().find(|p| p.starts_with(&category))?;
                 let entry = node_at(main, &path)?;
                 (path.len() == category.len() + 1 && name_of(entry).text(game) == shown)
                     .then_some((i, path))
@@ -902,6 +974,7 @@ pub fn update_custom_palette(
                 }
                 None => insert_sorted(main, &category, wanted, game),
             }
+            (places, touched) = (None, true);
             continue;
         };
         let entry = node_at(main, first).expect("found");
@@ -913,11 +986,20 @@ pub fn update_custom_palette(
         // (Taken out, the category's path may have moved up by one.)
         let category = category_path(main, id, &mut Vec::new()).expect("still there");
         insert_sorted(main, &category, rewritten(old, wanted), game);
+        (places, touched) = (None, true);
     }
-    for resref in gone {
-        for path in find(main, resref).iter().rev() {
-            take_node(main, path);
-        }
+    // The entries of those gone, taken out from the last: each path still
+    // holds as those after it go.
+    let here = places.get_or_insert_with(|| Places::of(main));
+    let mut paths: Vec<NodePath> = gone.iter().flat_map(|r| here.entries(*r)).collect();
+    paths.sort();
+    paths.dedup();
+    for path in paths.iter().rev() {
+        take_node(main, path);
+    }
+    // (Nothing moved: as it was, without writing it to see.)
+    if !touched && paths.is_empty() {
+        return Ok(None);
     }
     let bytes = palette.to_bytes().map_err(|e| format!("{key}: {e}"))?;
     Ok((bytes[..] != *data).then_some(palette))

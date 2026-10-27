@@ -159,8 +159,7 @@ fn listing(g: &Gff) -> Vec<(u8, Vec<String>)> {
 }
 
 fn entry<'a>(g: &'a Gff, resref: &str) -> &'a Struct {
-    let mut found = Vec::new();
-    entries_of(g.root.list("MAIN").unwrap(), r(resref), &mut Vec::new(), &mut found);
+    let found = Places::of(g.root.list("MAIN").unwrap()).entries(r(resref));
     node_at(g.root.list("MAIN").unwrap(), &found[0]).unwrap()
 }
 
@@ -434,4 +433,66 @@ fn a_nasher_project_s_palette_file_changes_only_where_a_blueprint_did() {
     // Read back, it is the palette the save made.
     let back = Module::open(&root).unwrap();
     assert_eq!(listing(&palette_of(&back)), listing(&palette_of(&m)));
+}
+
+/// Blueprints copied into a module folder, deleted from it and changed
+/// there by another program, read again as the window reads them (into
+/// the module, not into what it was opened as: `Workspace::adopt`), have
+/// their entries made as for blueprints changed here; every other entry
+/// stays as it was (Troubletcat's report: an item copied into the folder
+/// showed in the module's tree but not in its palette).
+#[test]
+fn blueprints_changed_outside_have_their_entries_made_right() {
+    let dir = mg_testkit::scratch_dir("mg-module-palette-outside");
+    let folder = dir.join("module");
+    let game = game();
+    module().save_as(&crate::ModuleLocation::Folder(folder.clone())).unwrap();
+    let opened = Module::open(&folder).unwrap();
+    let mut now = opened.clone();
+    assert_eq!(update_custom_palette(&now, &opened, &game, BlueprintKind::Item), Ok(None));
+    // Copied in; deleted; renamed and put in another category.
+    let copied = item("md_copied", Err("Copied Sword"), LONGSWORDS);
+    std::fs::write(folder.join("md_copied.uti"), &copied).unwrap();
+    std::fs::remove_file(folder.join("md_strref.uti")).unwrap();
+    std::fs::write(folder.join("md_text.uti"), item("md_text", Err("Renamed Outside"), CLAWS))
+        .unwrap();
+    let (changes, problems) = now.outside().unwrap();
+    assert!(problems.is_empty(), "{problems:?}");
+    assert_eq!(changes.len(), 3, "{changes:?}");
+    for c in &changes {
+        match &c.resource {
+            Some(data) => now.set(c.key, data.clone()),
+            None => drop(now.remove(&c.key)),
+        }
+        now.took(c);
+    }
+    let made = update_custom_palette(&now, &opened, &game, BlueprintKind::Item).unwrap();
+    let made = made.expect("the palette changed");
+    // Looked at alone (what the window does to see whether the palette
+    // changed): the same; one read again as its entry has it, no change.
+    let keys: Vec<ResKey> = changes.iter().map(|c| c.key).collect();
+    let alone = update_custom_palette_for(&now, &game, BlueprintKind::Item, &keys).unwrap();
+    assert_eq!(alone.as_ref().map(listing), Some(listing(&made)));
+    let same = [key("md_strname")];
+    assert_eq!(update_custom_palette_for(&now, &game, BlueprintKind::Item, &same), Ok(None));
+    let longswords = ["md_copied", "hk_strref", "gh_missing", "hk_text", "md_strname", "ov_item"];
+    assert_eq!(
+        listing(&made),
+        [
+            (CLAWS, vec!["md_moved".to_string(), "md_text".into()]),
+            (LONGSWORDS, longswords.map(String::from).to_vec()),
+        ]
+    );
+    assert_eq!(entry(&made, "md_copied").string("NAME"), Some(&b"Copied Sword"[..]));
+    assert_eq!(entry(&made, "md_text").string("NAME"), Some(&b"Renamed Outside"[..]));
+    let was = palette_of(&opened);
+    for untouched in ["hk_strref", "gh_missing", "hk_text", "md_strname", "ov_item", "md_moved"] {
+        assert_eq!(entry(&made, untouched), entry(&was, untouched), "{untouched} as it was");
+    }
+    // Saved (the palette written with them), nothing more is changed.
+    now.set_gff(BlueprintKind::Item.custom_key(), &made).unwrap();
+    now.save().unwrap();
+    let reopened = Module::open(&folder).unwrap();
+    assert_eq!(listing(&palette_of(&reopened)), listing(&made));
+    assert_eq!(update_custom_palette(&reopened, &reopened, &game, BlueprintKind::Item), Ok(None));
 }
