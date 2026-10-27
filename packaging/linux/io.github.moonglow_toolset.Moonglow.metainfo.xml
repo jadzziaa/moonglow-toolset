@@ -45,6 +45,16 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="2.10.0" date="2026-10-27">
+      <description>
+        <p>The tiles palette's search finds a group by its tiles' models; a
+        custom normal-mapped tile is lit as the game lights it; the Nix
+        package's Test Module starts the game client; files are written
+        whole or not at all and nothing outside the folder chosen; hostile
+        files no longer make the readers use gigabytes; large stores, logs
+        and exports draw within the frame budget.</p>
+      </description>
+    </release>
     <release version="2.9.0" date="2026-10-27">
       <description>
         <p>Shiny water is drawn by the game's own water shader and particles
