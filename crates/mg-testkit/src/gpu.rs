@@ -1,72 +1,71 @@
-//! One GPU device at a time in a test binary.
+//! A few GPU devices at a time in a test binary.
 //!
 //! libtest runs a binary's tests on many threads; tests that each open a
 //! wgpu device (the area viewer, the renderer, previews) would otherwise
-//! have a dozen or more Vulkan devices open at once, a load that has
+//! have a dozen or more Vulkan devices open at once, a load that once
 //! brought a developer's machine down (a kernel panic during the test
 //! suite, cause unlogged). A test calls [`hold`] before it opens a device
-//! and keeps the GPU until it ends; the other GPU tests wait their turn.
-//! Tests that do not use the GPU run in parallel as before.
+//! and keeps its place until it ends; past [`places`] at once, the other
+//! GPU tests wait their turn. Tests that do not use the GPU run in
+//! parallel as before.
+//!
+//! One device at a time made the UI tests one long queue (each opens and
+//! draws in about a fifth of a second: 42 s of the UI tests' 42), so a few
+//! share the GPU now: `MG_TEST_GPUS` sets how many (1 for one at a time).
 
 use std::cell::RefCell;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::OnceLock;
 
-static GPU: Mutex<()> = Mutex::new(());
+use crate::places::{Places, Taken};
 
-thread_local! {
-    /// The lock, while this thread's test holds it; dropped when the test's
-    /// thread ends (libtest runs each test on its own thread), also when it
-    /// fails.
-    static HELD: RefCell<Option<MutexGuard<'static, ()>>> = const { RefCell::new(None) };
+static GPU: Places = Places::new();
+
+/// How many tests may hold the GPU at once: `MG_TEST_GPUS`, else 4.
+pub fn places() -> usize {
+    static PLACES: OnceLock<usize> = OnceLock::new();
+    *PLACES.get_or_init(|| {
+        let set = std::env::var("MG_TEST_GPUS").ok().and_then(|v| v.parse().ok());
+        set.filter(|&n| n > 0).unwrap_or(4)
+    })
 }
 
-/// Takes the GPU for the rest of the calling test, waiting for any other
-/// test that has it. Calling it again in the same test does nothing.
+thread_local! {
+    /// This thread's places, while its test holds them; given back when
+    /// the test's thread ends (libtest runs each test on its own thread),
+    /// also when it fails.
+    static HELD: RefCell<Option<Taken>> = const { RefCell::new(None) };
+}
+
+/// Takes a place on the GPU for the rest of the calling test, waiting while
+/// [`places`] others have one. Calling it again in the same test does
+/// nothing.
 pub fn hold() {
+    take(1);
+}
+
+/// Takes the GPU alone for the rest of the calling test, waiting for every
+/// other GPU test to end: for a test that changes what every render does
+/// (`mg_render::guard::fail_on`). Called after [`hold`], it waits for the
+/// others too.
+pub fn alone() {
+    take(places());
+}
+
+fn take(wanted: usize) {
     HELD.with(|held| {
         let mut held = held.borrow_mut();
-        if held.is_none() {
-            // A test that failed while holding it poisons it; the GPU is
-            // still free to use.
-            *held = Some(GPU.lock().unwrap_or_else(|e| e.into_inner()));
+        if held.as_ref().is_some_and(|t| t.count >= wanted) {
+            return;
         }
+        // (What it held is given back while it waits for more, so that two
+        // tests waiting to be alone do not wait for each other.)
+        *held = None;
+        *held = Some(GPU.take(wanted, places()));
     });
 }
 
-/// Gives the GPU back before the test ends (for a test whose GPU part is
-/// over); [`hold`] takes it again.
+/// Gives the places back before the test ends (for a test whose GPU part
+/// is over); [`hold`] takes one again.
 pub fn release() {
     HELD.with(|held| held.borrow_mut().take());
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    static INSIDE: AtomicUsize = AtomicUsize::new(0);
-    static MOST: AtomicUsize = AtomicUsize::new(0);
-
-    #[test]
-    fn one_test_at_a_time_holds_the_gpu() {
-        let threads: Vec<_> = (0..8)
-            .map(|_| {
-                std::thread::spawn(|| {
-                    super::hold();
-                    super::hold();
-                    let now = INSIDE.fetch_add(1, Ordering::SeqCst) + 1;
-                    MOST.fetch_max(now, Ordering::SeqCst);
-                    std::thread::sleep(std::time::Duration::from_millis(5));
-                    INSIDE.fetch_sub(1, Ordering::SeqCst);
-                    // Released when the thread ends.
-                })
-            })
-            .collect();
-        for t in threads {
-            t.join().unwrap();
-        }
-        assert_eq!(MOST.load(Ordering::SeqCst), 1);
-        // And free again afterwards.
-        super::hold();
-        super::release();
-    }
 }

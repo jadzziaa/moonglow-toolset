@@ -35,9 +35,9 @@ pub(crate) fn tried(ctx: &egui::Context, area: ResRef) -> Option<Vec<(u32, Grass
 }
 
 /// The surface materials, by row: surfacemat.2da's labels.
-fn materials(app: &Moonglow) -> Vec<Choice> {
+fn materials(app: &Moonglow) -> std::sync::Arc<Vec<Choice>> {
     let columns = ChoiceColumns { name: None, label: Some("Label") };
-    app.game.as_ref().and_then(|g| g.choices("surfacemat", columns).ok()).unwrap_or_default()
+    app.game.as_ref().and_then(|g| g.choice_list("surfacemat", columns).ok()).unwrap_or_default()
 }
 
 fn material_name(materials: &[Choice], row: u32) -> String {

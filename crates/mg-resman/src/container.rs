@@ -236,7 +236,11 @@ impl Container for ErfContainer {
         let mut raw = vec![0; e.disk_size as usize];
         read_exact_at(&self.file, &mut raw, u64::from(e.offset))
             .map_err(|err| ResError::io(&self.path, err))?;
-        // The stored bytes alone, decompressed if they are.
+        // The stored bytes alone, decompressed if they are (as read, if
+        // not: no second copy).
+        if e.compression == mg_erf::Compression::None {
+            return Ok(Cow::Owned(raw));
+        }
         let stored = Entry { offset: 0, ..e.clone() };
         mg_erf::entry_data(&raw, &stored).map(|d| Cow::Owned(d.into_owned())).map_err(|err| {
             ResError::Container { path: self.path.clone(), message: err.to_string() }

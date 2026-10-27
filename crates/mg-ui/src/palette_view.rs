@@ -307,6 +307,9 @@ impl PaletteView {
         self.kept = Default::default();
         self.tile_palettes.clear();
         self.tileset_names.clear();
+        // (The Standard palette's tags read the module's blueprint first:
+        // another module, or the game read again, has its own.)
+        self.tags.clear();
     }
 }
 

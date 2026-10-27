@@ -646,7 +646,7 @@ impl ProjectFile {
         let name = table.strip_prefix(root).unwrap_or(table).display().to_string();
         match std::fs::read(table) {
             Ok(bytes) => {
-                let text = String::from_utf8_lossy(&bytes);
+                let (text, _) = crate::claims::decode(&bytes);
                 match crate::claims::Claims::parse(&name, &text, &mut self.warnings) {
                     Ok(c) => self.claim_table = Some(c),
                     Err(e) => self.errors.push(e),

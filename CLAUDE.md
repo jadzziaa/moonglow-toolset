@@ -120,8 +120,12 @@ installed game; `crates/mg-corpus-tests/examples/observed_schema.rs`).
   labels, odd entries) and typed layers edit the raw tree in place, so an
   untouched file round-trips.
 - **Tests that open a GPU device call `mg_testkit::gpu::hold()` first**, so a
-  test binary has one device open at a time: a test suite with many at once
-  coincided with a kernel panic on the development machine.
+  test binary has a few devices open at a time (4; `MG_TEST_GPUS` sets how
+  many, 1 for one at a time): a test suite with dozens at once coincided
+  with a kernel panic on the development machine. A test that changes what
+  every render does (`mg_render::guard::fail_on`) takes the GPU alone
+  (`gpu::alone()`), and process-wide state a window reads is the window's
+  own, or other tests' windows take it.
 - **Something that looks wrong in a view is reproduced as a picture
   before it is fixed.** Render the view itself and look at it, before
   and after the change: `crates/mg-ui/tests/screens.rs` for the window;

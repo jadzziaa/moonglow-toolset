@@ -456,6 +456,11 @@ impl Writer<'_> {
             if c.values.len() != rows * c.columns {
                 return Err(invalid("its values are not its keys times its columns"));
             }
+            // (The column count is four bits of a byte whose fifth says
+            // Bézier: 16 would read back as a Bézier key of none.)
+            if c.columns > 15 {
+                return Err(invalid("more than 15 values a key"));
+            }
             if bezier && c.handles.len() != rows * c.columns * 2 {
                 return Err(invalid("its handles are not two per value"));
             }
@@ -1082,6 +1087,17 @@ doneanim wave m\ndonemodel m\n";
         // And once more, byte for byte.
         let again = write(&back, &part_numbers(&back, None)).unwrap();
         assert_eq!(again, bytes);
+    }
+
+    /// A key of 16 values does not fit the byte that says how many a key
+    /// has (it read back as a Bézier key of none): an error.
+    #[test]
+    fn a_key_of_more_than_fifteen_values_is_refused() {
+        let wide = format!("      0{}\n", " 1".repeat(16));
+        let text = MODEL.replace("      0 0 0 1\n      1 0 0 2\n", &wide);
+        let model = Model::read(text.as_bytes()).unwrap();
+        let said = write(&model, &part_numbers(&model, None)).unwrap_err().to_string();
+        assert!(said.contains("more than 15 values a key"), "{said}");
     }
 
     /// A compiled model keeps all four texture coordinate sets (`tverts`,

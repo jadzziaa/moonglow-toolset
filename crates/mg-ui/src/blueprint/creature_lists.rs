@@ -170,7 +170,7 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
     let described_by = f.app.game.clone();
     let base = f.path.clone();
     let key = f.key;
-    let all = mg_rules::by_name(f.choices("feat", Some("FEAT"), Some("LABEL")));
+    let all = mg_rules::by_name(f.choices("feat", Some("FEAT"), Some("LABEL")).to_vec());
     let list: Vec<i64> =
         f.root.list("FeatList").unwrap_or(&[]).iter().filter_map(|s| s.integer("Feat")).collect();
     let id = egui::Id::new(("utc-feats", key));
@@ -814,7 +814,7 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
     let described_by = f.app.game.clone();
     let base = f.path.clone();
     let key = f.key;
-    let names = mg_rules::by_name(f.choices("spells", Some("Name"), Some("Label")));
+    let names = mg_rules::by_name(f.choices("spells", Some("Name"), Some("Label")).to_vec());
     let name_of = |row: i64| mg_rules::choice_text(&names, row);
     let list: Vec<Struct> = f.root.list("SpecAbilityList").unwrap_or(&[]).to_vec();
     let level: i64 = f

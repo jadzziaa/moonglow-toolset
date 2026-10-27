@@ -266,24 +266,6 @@ impl ScriptWizard {
     }
 }
 
-/// Today's date, `YYYY-MM-DD` (UTC).
-fn today() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs());
-    // Days to a civil date (Howard Hinnant's algorithm).
-    let z = (secs / 86_400) as i64 + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = yoe + era * 400 + i64::from(m <= 2);
-    format!("{y:04}-{m:02}-{d:02}")
-}
-
 impl Moonglow {
     /// Opens the Script Wizard for a conversation's condition (`Active` on
     /// a link) or action (`Script` on a line).
@@ -1004,7 +986,7 @@ pub(crate) fn window(app: &mut Moonglow, ui: &mut Ui) {
 /// Writes, compiles and sets the script.
 fn finish_wizard(app: &mut Moonglow, w: &ScriptWizard) {
     let Ok(name) = ResRef::from_str(w.name.trim()) else { return };
-    let source = w.source(&today());
+    let source = w.source(&mg_core::time::today());
     let nss = ResKey::new(name, ResType::NSS);
     let mut edits = vec![
         Edit::SetResource { key: nss, data: Some(crate::text::encode_script(&source)) },
@@ -1034,7 +1016,7 @@ mod tests {
 
     #[test]
     fn the_date_is_iso() {
-        let d = today();
+        let d = mg_core::time::today();
         assert_eq!(d.len(), 10);
         assert!(d.starts_with("20"));
         assert_eq!(&d[4..5], "-");

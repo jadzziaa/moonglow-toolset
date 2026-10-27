@@ -187,8 +187,12 @@ fn palette_edit_copy_and_delete() {
     let tavern = app.game.as_deref().unwrap().string(mg_core::StrRef(69068)).unwrap();
     app.palette.kind = mg_module::palette::BlueprintKind::Waypoint;
     app.palette.tiles = false;
-    app.palette.filter = "nw_wp_tavern".into();
     let mut h = harness(app, 900.0, 700.0);
+    h.run();
+    // Seen collapsed first, as a builder opening the palette would; finding
+    // it opens its categories.
+    assert!(h.query_by_label(&tavern).is_none());
+    h.state_mut().palette.filter = "nw_wp_tavern".into();
     h.run();
     h.get_by_label(&tavern).click_secondary();
     h.run();
@@ -247,26 +251,6 @@ fn palette_edit_copy_and_delete() {
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run();
     assert!(h.state().ws.as_ref().unwrap().module.contains(&copy));
-}
-
-#[test]
-fn finding_in_a_palette_opens_its_categories() {
-    let root = mg_testkit::corpus!();
-    let dir = mg_testkit::scratch_dir("ui-palette-find");
-    let path = sample_module(&dir);
-    let mut app = game_app(&root, None);
-    app.open_module(&path);
-    app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
-    app.palette.kind = mg_module::palette::BlueprintKind::Waypoint;
-    app.palette.tiles = false;
-    let tavern = app.game.as_deref().unwrap().string(mg_core::StrRef(69068)).unwrap();
-    let mut h = harness(app, 900.0, 700.0);
-    h.run();
-    // Seen collapsed first, as a builder opening the palette would.
-    assert!(h.query_by_label(&tavern).is_none());
-    h.state_mut().palette.filter = "nw_wp_tavern".into();
-    h.run();
-    h.get_by_label(&tavern);
 }
 
 #[test]

@@ -21,6 +21,6 @@ touches:
 - Unknown/missing PaletteID: still left out (no Aurora capture); recorded in deferred.md.
 
 ## Watch out
-- frame_perf `reload_frames_at_144` fails now and then on develop too ('not read again'): when the first look catches each kind's last file, the 2 s tail ends before the watch's next look (3 s).
+- frame_perf `reload_frames_at_144` used to fail now and then ('not read again'): it waited for each kind's last file only, and when the watch's first look caught those, the 2 s tail ended before its next look (3 s). Fixed 2026-10-27: it checks every file, four times a second; the honest 'all in' is ~3.6 s, not the 1.5 s the old check printed.
 - The app harness's palette search opens categories only when the filter text changes: a blueprint arriving later stays in a closed category; tests clear and retype the filter.
 - A test holding `app.game.clone()` makes the app fail to add the module's haks (it is in use): drop it before open_module.

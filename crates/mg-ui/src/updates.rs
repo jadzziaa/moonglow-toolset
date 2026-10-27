@@ -162,9 +162,7 @@ pub fn reminded(release: &Release, skipped: Option<&str>) -> bool {
 }
 
 /// The time now, UNIX seconds.
-pub fn now() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
-}
+pub use mg_core::time::unix_now as now;
 
 /// A package manager that installed this copy, and updates it: Moonglow
 /// doesn't check by itself there.

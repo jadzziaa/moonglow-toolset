@@ -228,28 +228,28 @@ pub fn script_includes(from: ResKey, source: &[u8]) -> Vec<Reference> {
 /// indirectly (they compile differently when it changes), not `changed`
 /// themselves; sorted.
 pub fn includers(module: &crate::Module, changed: &[ResKey]) -> Vec<ResKey> {
-    let includes: Vec<(ResKey, Vec<ResRef>)> = module
-        .keys_of(ResType::NSS)
-        .map(|k| {
-            let src = module.get(k).unwrap_or_default();
-            (*k, script_includes(*k, src).into_iter().map(|r| r.target).collect())
-        })
-        .collect();
-    let mut all: Vec<ResKey> = changed.to_vec();
-    loop {
-        let more: Vec<ResKey> = includes
-            .iter()
-            .filter(|(k, inc)| {
-                !all.contains(k) && inc.iter().any(|i| all.iter().any(|r| r.resref == *i))
-            })
-            .map(|(k, _)| *k)
-            .collect();
-        if more.is_empty() {
-            break;
+    use std::collections::{HashMap, HashSet};
+    // Who includes each name, then outward from the changed ones: each
+    // script looked at once (a scan of every script for every one found
+    // took seconds of a save in a persistent world).
+    let mut by: HashMap<ResRef, Vec<ResKey>> = HashMap::new();
+    for k in module.keys_of(ResType::NSS) {
+        let src = module.get(k).unwrap_or_default();
+        for r in script_includes(*k, src) {
+            by.entry(r.target).or_default().push(*k);
         }
-        all.extend(more);
     }
-    let mut found = all.split_off(changed.len());
+    let mut seen: HashSet<ResKey> = changed.iter().copied().collect();
+    let mut next: Vec<ResRef> = changed.iter().map(|k| k.resref).collect();
+    let mut found = Vec::new();
+    while let Some(name) = next.pop() {
+        for k in by.get(&name).into_iter().flatten() {
+            if seen.insert(*k) {
+                found.push(*k);
+                next.push(k.resref);
+            }
+        }
+    }
     found.sort();
     found
 }

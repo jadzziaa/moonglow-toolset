@@ -1036,11 +1036,6 @@ fn reload_frames_at_144() {
     // The pull, on a thread of its own, over about a second.
     reset_peak();
     let (rss_before, _) = memory();
-    // (The last of each kind written: in once the pull's end is.)
-    let last: Vec<ResKey> = [ResType::ARE, ResType::GIT, ResType::UTI, ResType::NSS]
-        .iter()
-        .filter_map(|t| expected.keys().filter(|k| k.restype == *t && **k != mine).max().copied())
-        .collect();
     let start = Instant::now();
     let pull = std::thread::spawn(move || {
         for (i, (path, text)) in plan.into_iter().enumerate() {
@@ -1060,12 +1055,19 @@ fn reload_frames_at_144() {
     };
     let mut times: Vec<(Duration, Duration)> = Vec::new();
     let (mut all_in, mut until) = (None, start + Duration::from_secs(90));
+    // (Every file looked at, a few times a second: the last of each kind
+    // in says nothing of the others when the watch's first look caught
+    // those last ones, and its next look is 3 s on.)
+    let mut looked = start;
     while Instant::now() < until {
         let f = frames(&mut h, screen, Pointer::Moves, 1, |_, _| {});
         times.push((start.elapsed(), f.ui[0] + f.tessellate[0]));
-        if all_in.is_none() && pull.is_finished() && last.iter().all(|k| is_in(h.state(), k)) {
-            all_in = Some(start.elapsed());
-            until = Instant::now() + Duration::from_secs(2);
+        if all_in.is_none() && pull.is_finished() && looked.elapsed() > Duration::from_millis(250) {
+            looked = Instant::now();
+            if expected.keys().all(|k| *k == mine || is_in(h.state(), k)) {
+                all_in = Some(start.elapsed());
+                until = Instant::now() + Duration::from_secs(2);
+            }
         }
     }
     let (rss_after, peak) = memory();

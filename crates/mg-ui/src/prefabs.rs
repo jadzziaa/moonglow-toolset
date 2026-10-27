@@ -80,7 +80,7 @@ pub fn summary(dir: Option<&std::path::Path>, name: &str) -> Result<String, Stri
             *n += 1;
         }
         if let Some(Value::Struct(s)) = item.get("Object")
-            && let Some(tag) = s.string("Tag").map(|t| String::from_utf8_lossy(t).into_owned())
+            && let Some(tag) = s.string("Tag").map(crate::text::decode)
             && !tag.is_empty()
             && !tags.contains(&tag)
         {

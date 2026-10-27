@@ -540,7 +540,7 @@ fn every_area_is_given_the_scheme_s_tile_lights() {
     // (Rendering opens a GPU device.)
     mg_testkit::gpu::hold();
     let img = h.render().expect("render");
-    img.save(mg_testkit::scratch_dir("ui-areas-scheme").join("visual.png")).unwrap();
+    img.save(mg_testkit::output_dir("ui-areas-scheme").join("visual.png")).unwrap();
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run_steps(2);
     assert_eq!(sources(&mut h, "cave2"), before, "one undo");

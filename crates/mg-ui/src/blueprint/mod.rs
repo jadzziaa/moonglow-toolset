@@ -485,15 +485,17 @@ pub(crate) fn talk_table_color(ui: &Ui) -> egui::Color32 {
 impl Form<'_> {
     /// A table's rows as a dropdown's choices: each row's name (its StrRef
     /// column `name`), else its `label`. None without the game's data or
-    /// the table.
+    /// the table. (The game data's list itself, not a copy: asked for
+    /// every frame.)
     pub(crate) fn choices(
         &self,
         table: &str,
         name: Option<&str>,
         label: Option<&str>,
-    ) -> Vec<Choice> {
+    ) -> std::sync::Arc<Vec<Choice>> {
         let game = self.app.game.as_ref();
-        game.and_then(|g| g.choices(table, ChoiceColumns { name, label }).ok()).unwrap_or_default()
+        game.and_then(|g| g.choice_list(table, ChoiceColumns { name, label }).ok())
+            .unwrap_or_default()
     }
 
     /// A text field of a localized string, in the talk table's color where

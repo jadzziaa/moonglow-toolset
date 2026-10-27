@@ -1130,8 +1130,12 @@ impl Moonglow {
         widgets::dialogs_begin(ui.ctx());
         widgets::text_begin(ui.ctx());
         // Models that broke what builds or poses them, last frame: left out
-        // of what is drawn, and said so.
-        for failure in mg_render::guard::take_failures() {
+        // of what is drawn, and said so. (Only a window that draws makes
+        // them, and the list is the process's: a test's window with no GPU
+        // must not take another's.)
+        let failures =
+            if self.viewport.is_some() { mg_render::guard::take_failures() } else { Vec::new() };
+        for failure in failures {
             self.log.error(format!(
                 "A model could not be shown and is left out ({failure}). The module is unharmed; \
                  a report was written for the report of the problem (Help › User Manual, \
@@ -2664,6 +2668,14 @@ impl Moonglow {
         // (Another module's blueprints of these names look different.)
         self.thumbnails.forget(self.viewport.as_ref());
         self.scripts.clear();
+        // (The module's own 2DAs too: kept, the next module's Save would
+        // write them into it, and it would look changed from the start.)
+        self.tables.retain(|d| d.home != table_view::Home::Module);
+        // (`nwscript.nss` too: Options' reload closes the module, and
+        // another install has its own.)
+        self.script_tools.spec = None;
+        self.script_tools.symbols.clear();
+        self.script_tools.seen.clear();
         self.buffers.clear();
         self.properties_changed.clear();
         self.talk = None;

@@ -346,7 +346,8 @@ impl Host for JobHost {
     }
 }
 
-fn level(l: mg_plugin::Level) -> Level {
+/// A plugin's log level as the log's.
+pub(crate) fn level(l: mg_plugin::Level) -> Level {
     match l {
         mg_plugin::Level::Info => Level::Info,
         mg_plugin::Level::Warning => Level::Warning,

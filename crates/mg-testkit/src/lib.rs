@@ -9,6 +9,7 @@
 pub mod engine;
 pub mod erf;
 pub mod gpu;
+pub mod places;
 
 use std::collections::BTreeMap;
 use std::env;
@@ -259,5 +260,40 @@ mod tests {
         std::fs::write(d.join("x"), b"1").unwrap();
         let d = scratch_dir("mg-testkit-self");
         assert_eq!(std::fs::read_dir(d).unwrap().count(), 0);
+    }
+
+    /// A scratch folder is emptied by each call: two tests (or two calls of
+    /// one) naming the same one empty it under each other as they run side
+    /// by side. Pictures several tests add to go in an [`output_dir`].
+    #[test]
+    fn every_scratch_dir_is_named_once() {
+        fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+            for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+                let p = entry.path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else if p.extension().is_some_and(|e| e == "rs") {
+                    out.push(p);
+                }
+            }
+        }
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let (mut files, mut named) = (Vec::new(), BTreeMap::<String, Vec<String>>::new());
+        walk(&repo.join("crates"), &mut files);
+        walk(&repo.join("apps"), &mut files);
+        let call = concat!("scratch_dir", "(\"");
+        for file in files.iter().filter(|f| !f.ends_with("mg-testkit/src/lib.rs")) {
+            let text = std::fs::read_to_string(file).unwrap_or_default();
+            for (i, line) in text.lines().enumerate() {
+                for part in line.split(call).skip(1) {
+                    let name = part.split('"').next().unwrap_or_default().to_string();
+                    let at = format!("{}:{}", file.display(), i + 1);
+                    named.entry(name).or_default().push(at);
+                }
+            }
+        }
+        assert!(named.len() > 100, "{} found", named.len());
+        let twice: Vec<_> = named.iter().filter(|(_, at)| at.len() > 1).collect();
+        assert!(twice.is_empty(), "scratch folders named more than once: {twice:#?}");
     }
 }

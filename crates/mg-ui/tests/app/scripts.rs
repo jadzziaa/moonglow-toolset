@@ -36,6 +36,22 @@ fn script_editor_completion_find_bookmarks() {
     h.run();
     let edited = h.state().script_text(key).unwrap();
     assert!(edited.contains("    MyHelper(\n"), "{edited:?}");
+    // The cursor moved off the word (Home) closes the list: Enter is the
+    // editor's again (accepting there replaced backwards, and panicked).
+    let after_prefix = edited.find("MyHelper(\n").unwrap() + 4;
+    h.state_mut().script_tools.jump = Some((key, after_prefix));
+    h.run();
+    h.key_press(egui::Key::F2);
+    h.run();
+    assert!(h.state().script_tools.completion.is_some());
+    let line = edited[..after_prefix].rfind('\n').unwrap() + 1;
+    h.state_mut().script_tools.jump = Some((key, line));
+    h.run();
+    assert!(h.state().script_tools.completion.is_none(), "closed off its word");
+    h.key_press(egui::Key::Enter);
+    h.run();
+    let edited = h.state().script_text(key).unwrap();
+    assert!(edited.contains("\n\n    MyHelper(\n"), "a new line, nothing completed: {edited:?}");
 
     // Find (F3) selects the next match.
     h.state_mut().script_tools.search.find = "main".into();
@@ -103,6 +119,40 @@ fn script_editor_completion_find_bookmarks() {
 /// file as it was (El Grillo's request; Aurora's script editor's Ctrl+S).
 /// With the keyboard elsewhere it saves the module; a Save key chosen in
 /// Options › Keyboard does the same.
+/// A function added to an include in its own tab is one its includers
+/// complete, though their own text did not change.
+#[test]
+fn an_include_edited_in_its_tab_is_what_its_includers_see() {
+    let dir = mg_testkit::scratch_dir("ui-script-include-edited");
+    let path = sample_module(&dir);
+    let nss = |n: &str| ResKey::parse(n, ResType::NSS).unwrap();
+    let mut m = Module::open(&path).unwrap();
+    m.set(nss("inc_a"), b"int Old() { return 1; }\n".to_vec());
+    m.set(nss("uses_a"), b"#include \"inc_a\"\nvoid main() { }\n".to_vec());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let names = |h: &Harness<'_, Moonglow>| -> Vec<String> {
+        let symbols = h.state().script_tools.symbols.get(&nss("uses_a"));
+        symbols.map(|(_, s)| s.iter().map(|s| s.name.clone()).collect()).unwrap_or_default()
+    };
+    let open = |h: &mut Harness<'_, Moonglow>, name: &str| {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(nss(name))));
+        h.run();
+    };
+    open(&mut h, "uses_a");
+    assert!(names(&h).contains(&"Old".to_string()), "{:?}", names(&h));
+    open(&mut h, "inc_a");
+    h.state_mut().script_tools.jump = Some((nss("inc_a"), 0));
+    h.run();
+    h.event(egui::Event::Text("int New() { return 2; }\n".into()));
+    h.run();
+    assert!(h.state().script_text(nss("inc_a")).unwrap().starts_with("int New()"));
+    open(&mut h, "uses_a");
+    assert!(names(&h).contains(&"New".to_string()), "{:?}", names(&h));
+}
+
 #[test]
 fn the_save_key_in_a_script_editor_saves_the_script_not_the_module() {
     use mg_ui::keys::Cmd;
@@ -304,47 +354,6 @@ fn script_wizard_writes_compiles_and_sets_scripts() {
     assert!(g.root.list("EntryList").unwrap()[0].resref("Script").unwrap().is_empty());
 }
 
-/// In a script's editor Undo is the editor's whatever was done last: a
-/// new line (with its indent) is no typed text, and Ctrl+Z after it undid
-/// the module's last change, somewhere else, and left the script as it
-/// was.
-#[test]
-fn undo_in_a_script_is_the_script_s() {
-    let dir = mg_testkit::scratch_dir("ui-undo-in-script");
-    let path = sample_module(&dir);
-    let key = ResKey::parse("hello", ResType::NSS).unwrap();
-    let text = "void main()\n{\n    int a;\n}\n";
-    let mut m = Module::open(&path).unwrap();
-    m.set(key, text.as_bytes().to_vec());
-    m.save().unwrap();
-    let mut app = app_with(Vec::new());
-    app.settings.no_last_area = true;
-    app.open_module(&path);
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
-    h.run();
-    let other = ResKey::parse("mg_note", ResType::NSS).unwrap();
-    let edit = mg_edit::Edit::SetResource { key: other, data: Some(b"void main() {}\n".to_vec()) };
-    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Earlier", vec![edit])));
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
-    h.run();
-    let undoable =
-        |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(str::to_owned);
-    h.state_mut().script_tools.jump = Some((key, text.find("a;").unwrap() + 2));
-    h.run();
-    h.key_press(egui::Key::Enter);
-    h.run();
-    let edited = h.state().script_text(key).unwrap();
-    assert!(edited.contains("int a;\n    \n}"), "{edited:?}");
-    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
-    h.run();
-    assert_eq!(h.state().script_text(key).as_deref(), Some(text), "the new line is taken back");
-    assert_eq!(undoable(&h).as_deref(), Some("Earlier"), "not the module's Undo");
-    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Y);
-    h.run();
-    assert_eq!(h.state().script_text(key), Some(edited), "and Redo gives it again");
-    assert_eq!(undoable(&h).as_deref(), Some("Earlier"));
-}
-
 /// A script open with a new line typed in it (Enter at the end of a line,
 /// its indent with it), the module's last step "Earlier" somewhere else
 /// (`window`: the script in a window of its own): the harness, the script
@@ -405,12 +414,24 @@ fn script_has_keys(h: &Harness<'_, Moonglow>, key: ResKey) -> bool {
 /// editor (the click on the menu or the button takes them from it), they
 /// are the script's, say plain "Undo" and "Redo", and give the keys back
 /// to the editor, so that Ctrl+Z after them is the script's too.
+///
+/// Ctrl+Z alone first: a new line (with its indent) is no typed text, and
+/// Ctrl+Z after it undid the module's last change, somewhere else, and
+/// left the script as it was.
 #[test]
-fn the_menu_s_and_the_toolbar_s_undo_in_a_script_are_the_script_s() {
+fn the_keys_the_menu_s_and_the_toolbar_s_undo_in_a_script_are_the_script_s() {
     let (mut h, key, text, edited) = script_with_a_new_line("ui-menu-undo-in-script", false);
     let undoable =
         |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(str::to_owned);
     let script = |h: &Harness<'_, Moonglow>| h.state().script_text(key).unwrap();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert_eq!(script(&h), text, "the new line is taken back");
+    assert_eq!(undoable(&h).as_deref(), Some("Earlier"), "not the module's Undo");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Y);
+    h.run();
+    assert_eq!(script(&h), edited, "and Redo gives it again");
+    assert_eq!(undoable(&h).as_deref(), Some("Earlier"));
     h.get_by_label("Edit").click();
     h.run_steps(2);
     assert_eq!(edit_row(&h, "Undo"), "Undo Ctrl+Z", "not the module's step");
@@ -1618,7 +1639,7 @@ fn open_script_opens_the_scripts_selected_together() {
 /// it is started from, as Aurora does.
 #[test]
 fn a_new_line_in_a_script_is_as_far_in_as_the_last() {
-    let dir = mg_testkit::scratch_dir("ui-script-indent");
+    let dir = mg_testkit::scratch_dir("ui-script-new-line");
     let path = sample_module(&dir);
     let mut m = Module::open(&path).unwrap();
     let key = ResKey::parse("indented", ResType::NSS).unwrap();

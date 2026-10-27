@@ -414,7 +414,8 @@ script two, and the engine tests that compare a changed module with the
 original run the original once (`common::original_world`). The corpus
 tests are six binaries (`tests/groups/`), so that tests of different
 files run side by side; at most eight servers run at once
-(`mg_testkit::engine`), and GPU tests one at a time (`mg_testkit::gpu`).
+(`mg_testkit::engine`), and GPU tests four at a time (`mg_testkit::gpu`;
+`MG_TEST_GPUS`).
 How this came about, with the timings before and after, is in the
 [test review](test-review.md).
 

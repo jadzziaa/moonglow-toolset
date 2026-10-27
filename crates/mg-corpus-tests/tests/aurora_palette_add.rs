@@ -17,29 +17,13 @@ use mg_resman::{GameInstall, ResKey};
 use mg_rules::GameData;
 use mg_testkit::{aurora_capture, corpus};
 
-fn lines(s: &Struct, indent: &str, out: &mut Vec<String>) {
-    for f in &s.fields {
-        match &f.value {
-            Value::List(items) => {
-                out.push(format!("{indent}{} list[{}]", f.label.to_string_lossy(), items.len()));
-                for (i, item) in items.iter().enumerate() {
-                    out.push(format!("{indent}  [{i}] struct {}", item.id));
-                    lines(item, &format!("{indent}    "), out);
-                }
-            }
-            Value::Float(v) => {
-                let v = if v.abs() < 1e-6 { 0.0 } else { *v };
-                out.push(format!("{indent}{} Float({v:.5})", f.label.to_string_lossy()))
-            }
-            v => out.push(format!("{indent}{} {:?}", f.label.to_string_lossy(), v)),
-        }
-    }
-}
+use crate::aurora_common::{PLAIN, Shown, lines};
+
+/// How the GFFs are compared, as lines.
+const SHOWN: Shown<'static> = Shown { decimals: Some(5), ..PLAIN };
 
 fn differences(what: &str, ours: &Struct, aurora: &Struct) -> Option<String> {
-    let (mut a, mut b) = (Vec::new(), Vec::new());
-    lines(ours, "", &mut a);
-    lines(aurora, "", &mut b);
+    let (a, b) = (lines(ours, SHOWN), lines(aurora, SHOWN));
     (a != b).then(|| {
         let diff: Vec<String> = a
             .iter()

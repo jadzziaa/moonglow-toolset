@@ -314,6 +314,8 @@ fn a_model_that_fails_is_left_out_and_the_area_still_drawn() {
             mg_render::guard::fail_on(None);
         }
     }
+    // (No other test renders while a model fails on purpose.)
+    mg_testkit::gpu::alone();
     let _reset = Reset;
     mg_render::guard::fail_on(Some(&name));
     let broken = AreaScene::new(&gpu, &game, &model);

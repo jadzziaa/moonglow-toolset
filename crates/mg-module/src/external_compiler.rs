@@ -279,15 +279,17 @@ fn find_file(line: &str, name: &str) -> Option<usize> {
     })
 }
 
-/// No console window for the compiler, on Windows.
+/// No console window for the compiler, on Windows; and nothing to read
+/// (a compiler that asks for input, as one under Wine may, ends at once
+/// rather than waiting on Moonglow's own input for ever).
 fn quiet(command: &mut Command) {
+    command.stdin(std::process::Stdio::null());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         command.creation_flags(CREATE_NO_WINDOW);
     }
-    let _ = command;
 }
 
 /// A scratch folder of this run's own, removed when done.

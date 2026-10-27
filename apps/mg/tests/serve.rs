@@ -23,7 +23,7 @@ fn a_module_is_served_until_a_line_of_its_log() {
     if mg_serve::server_binary(&root).is_none() {
         return;
     }
-    let _alone = mg_testkit::engine::one_at_a_time();
+    let _alone = mg_testkit::engine::timed_turn();
     let dir = mg_testkit::scratch_dir("mg-serve");
     let user = dir.join("user");
     std::fs::create_dir_all(&user).unwrap();
@@ -86,7 +86,7 @@ fn a_module_of_sources_is_served_compiled() {
     if mg_serve::server_binary(&root).is_none() {
         return;
     }
-    let _alone = mg_testkit::engine::one_at_a_time();
+    let _alone = mg_testkit::engine::timed_turn();
     let dir = mg_testkit::scratch_dir("mg-serve-sources");
     let user = dir.join("user");
     std::fs::create_dir_all(&user).unwrap();

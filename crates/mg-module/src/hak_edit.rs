@@ -394,7 +394,7 @@ impl Hak {
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         let mut n = 0;
         for item in self.items.iter().filter(|i| keys.contains(&i.key)) {
-            let path = dir.join(item.key.to_string());
+            let path = item.key.path_in(dir).map_err(|e| e.to_string())?;
             std::fs::write(&path, self.read(item)?)
                 .map_err(|e| format!("{}: {e}", path.display()))?;
             n += 1;
@@ -432,7 +432,7 @@ impl Hak {
         if !text.is_empty() {
             header.description.strings.insert(0, (Language::ENGLISH.0, text));
         }
-        let (year, day) = today();
+        let (year, day) = crate::build_date();
         header.build_year = year;
         header.build_day = day;
         let entries: Vec<_> =
@@ -492,12 +492,6 @@ impl Default for Hak {
     fn default() -> Self {
         Hak::new()
     }
-}
-
-/// Today as an ERF's build date: years since 1900 and the day of the year.
-fn today() -> (u32, u32) {
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
-    crate::year_day(now.map_or(0, |d| d.as_secs()))
 }
 
 #[cfg(test)]
@@ -606,7 +600,7 @@ mod tests {
 
     #[test]
     fn build_dates() {
-        let (year, day) = today();
+        let (year, day) = crate::build_date();
         assert!(year >= 125 && day < 366);
     }
 }

@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T09:23:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T18:30:11Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -63,8 +63,31 @@ Size: S (an hour or two), M (a day or so), L (several days).
   the passes' `FORMAT` alone and no longer starts anew when it moves to a
   newer toolset tag. One line at the viewer's start
   (`mg_core::release::set`, its own version) names it as before. (S)
-- **Shared test fixtures written many times:** the `mg` runner's
-  wrappers (10 files), `fn lines` in the Aurora tests (6). (M)
+- **Shared test fixtures written many times, what is left:** `fn lines`
+  of the Aurora tests is one (`aurora_common`, 2026-10-27) and reading
+  `mg --json`'s answer is `json_out` and `quiet_json_out` in the command
+  line's group, but each file of `apps/mg/tests` still has its own
+  wrapper for the arguments it adds (`--root`, `--user-dir`, a home),
+  and the corpus tests' `gpu()` (`game_shaders.rs`) repeats
+  mg-render's tests'. (S)
+- **UI tests that could be one, left apart (2026-10-27):** a read of
+  the 655 UI, NUI and command-line tests found no test another wholly
+  covers; eight that nearly were, or shared a set-up and changed
+  nothing, were folded into another (the log). About twenty pairs share
+  a costly set-up (an area harness, a blueprint editor, a game install)
+  and could run as one, but each needs the state put back between its
+  parts, and a failure would no longer name one cause; at about a fifth
+  of a second each, behind four GPU places, together a few seconds.
+  Among them: `inventories.rs` the narrow window's equipment and the
+  creature's item flags; `apps/mg/tests/nui.rs` generate and a second
+  generate; `area_view.rs` Properties by double click and a drag in that
+  window, a scale handle and Ctrl+wheel, copy-paste by Ctrl+C and by
+  Insert; `plugins.rs` a finding's fix and checks with Verify; `fields.rs`
+  the chest's Appearance list four times; `blueprints.rs` the two
+  Levelup Wizard tests, the item's and the placeable's model pages;
+  `tiles.rs` the three Tile Properties tests on tile (2,2). `json.rs`'s
+  `nui` lines repeat `apps/mg/tests/nui.rs`' with one compile more. (S
+  each)
 - **CI's time with the new workflow is not measured:** its first run
   passed on the three systems from an empty cache (14 to 24 minutes);
   compare a warm run with the 8 to 10 minutes of before. (S)
@@ -3478,6 +3501,94 @@ unless it says so.
   `Reader::data` and `Reader::pos`, `Txi::alpha_mean`,
   `SetFile::is_empty`. A `pub` item of a crate Moonglow Viewer builds on
   may be in use there: `plt::LAYERS` is. (S each)
+
+### The review of 2026-10-27: found, not fixed
+
+Six readers over the workspace (the editors, the area view, scripts and
+plugins, mg-module, the formats, the renderer and the command line) and
+clippy's pedantic lints as a finder; what was fixed, with its tests, is
+in the [log](log.md). The frames of `frame_perf` were all within the
+144 fps budget before, so the costs here are of large inputs (a long
+list, a big selection, a hostile file), each found by reading; none was
+measured.
+
+- **A hostile file can still ask for much memory:** GFF fields, TLK
+  entries and a binary model's meshes may all point at one stretch of
+  the file, each read a copy of its own (a 14 MB GFF of 500,000 strings
+  at one 6 MB string, a 2 MB TLK with 25,000 entries of 1 MB at offset 0);
+  a 2DA of 200,000 columns and 300,000 short lines pads its rows to
+  6×10¹⁰ cells; a TGA's run-length path makes room for its header's size
+  before any pixel is read (to 1 GiB); a TLK as JSON of one entry at id
+  16,777,215 makes all the entries before it. A total allocated against
+  the input's size would bound them. (M)
+- **Truncation tests still missing** (CLAUDE.md asks one a format): PLT,
+  ASCII models and walkmeshes, mg-2da and mg-set (text, so a cut line,
+  not a cut table). (S)
+- **The model writer's offsets and counts** are cast to `u32`/`u16`
+  without the `TooLarge` the GFF, TLK and ERF writers have
+  (`binary_write.rs`, `render_order as u16`); `put_u32_usize` panics on a
+  value over 4 GiB where the GFF writer would say TooLarge after it. (S)
+- **The external compiler and `git` have no time limit** (now given no
+  input, so one that asks for input ends); a compiler that hangs holds the
+  compile on save. The external compiler is also handed every script of
+  the module at each compile, a file each in a scratch folder. (M)
+- **Writes in place, not through a temporary file:** a project's locks
+  (`locks.rs`; read back as no locks at all when cut), the builder's
+  project file and `moonglow.toml`; the locks file is named by
+  `DefaultHasher`, which Rust does not promise to keep across releases
+  (a toolchain update could orphan every project's locks). (S)
+- **Saving a module folder reads it twice** (the conflict check, then
+  each file again before writing), and a `.mod` is made whole in memory
+  and the old one copied to `.bak` (`write_streamed`, which the hak
+  editor uses, would stream it); the hak editor's put, remove and
+  extract scan its list for each resource, and every step clones the
+  list for undo. (M)
+- **`build::script_stamps`** caches a script's stamp only at the top of
+  a walk, so an include reached by many paths is hashed again on each:
+  heavily overlapping include families grow it fast. (S)
+- **Per frame, in the editors:** the 2DA editor builds its filtered rows
+  twice a frame, folding every cell; a conversation is cloned whole each
+  frame and every unfolded row drawn; the log draws every line and looks
+  each up among the fixes (lines × fixes after a Verify); a blueprint's
+  category list is read again (its palette parsed) each frame of every
+  blueprint editor; Speaker Tag's list walks every area's creatures while
+  the box has the keys; the palette's recent list, its own-keys set and
+  its Gallery's thumbnails are made each frame; the blueprint picker
+  folds every blueprint once a level and draws every match; Find
+  References and the Export window rebuild and draw every row; the item
+  Properties tab's property lists; a store's preview parses each stocked
+  item each frame. (M, each S to M)
+- **Per frame, in the area view:** `selected(i)` is a search of the
+  selection for every object (thousands of objects all selected:
+  millions of comparisons a frame); each point drawn on screen builds the
+  camera's matrices again (the walkmesh overlay: every ground face);
+  a drag clones the whole area model each frame; every placed object is
+  posed again on each redrawn frame, static ones too, and the animation
+  node maps are built again per pose; skinned and vertex-animated meshes
+  are never culled; particle parameters are looked up by name per
+  emitter twice a frame; the tiles palette searches two or three times a
+  frame. (M)
+- **Per frame, in the script editor and the rest:** the line-number
+  gutter is formatted line by line each frame; the Functions and
+  Constants lists filter and sort thousands of names each frame; the NUI
+  editor copies its document each frame; Advanced Search's results are
+  regrouped and every row drawn each frame; the plugin commands run
+  `canonicalize` each frame; the manual parses its chapter's Markdown
+  each frame; the model viewer draws again on every repaint. (M)
+- **Smaller:** `plt_picture` decodes the ten PLT palettes itself instead
+  of `Loader::palette`'s cache (whose key is not lowercased where
+  `picture`'s is); lightcolor.2da's TOOLSET colors are converted twice
+  (`tile_select`, `area_view`); `ray_triangle` is written twice
+  (`mg-area/src/walk.rs`, `mg_preview::compose`) with different
+  epsilons; `mg-mdl`'s `Bin` and `PartNumbers::read` read bytes by hand
+  beside `bin::Reader`; `map_file` is in both mg-key and mg-resman;
+  `hak_edit::stash` leaves its temporary folders; hak paths joined with
+  `,` for the external compiler break on a comma; `Workspace::undo`
+  drops a command whose inverse fails where `withdraw` puts it back;
+  `area_audio` keys a sound's channel by its place in the list (a sound
+  deleted moves the later ones' state); the ghost of a blueprint brush
+  keeps its look after the blueprint is edited; a conversation whose
+  nodes several entries own is drawn once per owner. (S each)
 
 ## Written more than once (the review of 2026-10-21)
 

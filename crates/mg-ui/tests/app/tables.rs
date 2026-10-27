@@ -1172,6 +1172,15 @@ fn a_game_table_is_edited_as_a_copy() {
     assert!(mg_ui::table_view::save(h.state_mut(), id));
     h.run_steps(3);
     assert!(h.state().ws.as_ref().unwrap().module.contains(&key));
+    // The module closed: its table's editor goes with it (kept, the next
+    // module's Save wrote the table into that one); the file's stays.
+    let module = |h: &Harness<'_, Moonglow>| {
+        h.state().tables.iter().any(|d| d.home == mg_ui::table_view::Home::Module)
+    };
+    assert!(module(&h));
+    h.state_mut().close();
+    assert!(!module(&h));
+    assert!(h.state().tables.iter().any(|d| d.home == mg_ui::table_view::Home::File(file.clone())));
 }
 
 fn double_click(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {

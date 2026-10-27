@@ -1598,6 +1598,12 @@ fn show(
     view.told = lacking;
     // Objects that went away are no longer selected.
     view.selection.retain(|&(k, i)| model.object(k, i).is_some());
+    // (A spawn point held by its object's place in the list: Undo while it
+    // is held may have taken an object before it away, so that place is
+    // another's now.)
+    if matches!(view.drag, Some(Drag::FaceSpawn { .. } | Drag::MoveSpawn { .. })) {
+        view.drag = None;
+    }
     // The tiles laid out anew (Resize Area or Rotate Area, done, undone or
     // redone; the list set whole by a plugin, the file read again) or of
     // another tileset: the tile tools let go of what they held of the
@@ -2439,12 +2445,14 @@ fn viewport(
         shown.to_mut().objects[i].visual = Some(v);
     }
     if let Some(Drag::FaceSpawn { object, point, facing, .. }) = view.drag
-        && let Some(f) = shown.to_mut().objects[object].spawn_facings.get_mut(point)
+        && let Some(o) = shown.to_mut().objects.get_mut(object)
+        && let Some(f) = o.spawn_facings.get_mut(point)
     {
         *f = facing;
     }
     if let Some(Drag::MoveSpawn { object, point, at, .. }) = view.drag
-        && let Some(p) = shown.to_mut().objects[object].spawn_points.get_mut(point)
+        && let Some(o) = shown.to_mut().objects.get_mut(object)
+        && let Some(p) = o.spawn_points.get_mut(point)
     {
         *p = at;
     }
@@ -3833,7 +3841,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                 }
             }
             Some(Drag::FaceSpawn { object, point, facing, .. }) => {
-                if let Some(o) = view.model.as_ref().map(|m| &m.objects[object])
+                if let Some(o) = view.model.as_ref().and_then(|m| m.objects.get(object))
                     && o.spawn_facings.get(point).is_some_and(|was| *was != facing)
                 {
                     let path = mg_edit::GffPath::root()
@@ -3849,7 +3857,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                 }
             }
             Some(Drag::MoveSpawn { object, point, at, was }) => {
-                if let Some(o) = view.model.as_ref().map(|m| &m.objects[object])
+                if let Some(o) = view.model.as_ref().and_then(|m| m.objects.get(object))
                     && at != was
                 {
                     let path = mg_edit::GffPath::root()
@@ -4862,6 +4870,8 @@ const ONTO_REACH: f32 = 2.0;
 fn drop_onto_objects(app: &mut Moonglow, view: &AreaView) {
     let (Some(model), Some(scene)) = (&view.model, &view.scene) else { return };
     let chosen: Vec<usize> = view.selected_indices().collect();
+    // (Looked up for every object under every one chosen: a set.)
+    let is_chosen: std::collections::HashSet<usize> = chosen.iter().copied().collect();
     let moved: Vec<(usize, Vec3, f32)> = chosen
         .iter()
         .filter_map(|&i| {
@@ -4871,7 +4881,7 @@ fn drop_onto_objects(app: &mut Moonglow, view: &AreaView) {
             }
             let ray = Ray { origin: o.position + Vec3::Z * ONTO_REACH, dir: Vec3::NEG_Z };
             let on_object = (0..model.objects.len())
-                .filter(|j| !chosen.contains(j))
+                .filter(|j| !is_chosen.contains(j))
                 .filter(|&j| {
                     let k = model.objects[j].kind;
                     matches!(k, ObjectKind::Placeable | ObjectKind::Door) && view.show[k.index()]

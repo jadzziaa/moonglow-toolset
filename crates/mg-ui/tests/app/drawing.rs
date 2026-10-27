@@ -274,6 +274,8 @@ fn an_area_read_apart_looks_as_one_read_in_the_frame() {
             mg_render::guard::fail_on(None);
         }
     }
+    // (No other test renders while a model fails on purpose.)
+    mg_testkit::gpu::alone();
     let _reset = Reset;
     mg_render::guard::fail_on(Some(&tile));
     open_apart(&mut h, area);

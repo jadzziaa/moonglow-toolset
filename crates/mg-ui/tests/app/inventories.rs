@@ -88,6 +88,9 @@ fn placeable_editor_fills_its_inventory() {
         modifiers: egui::Modifiers::NONE,
     });
     h.run();
+    // The row's menu ends with Properties, as Aurora's menus do (Jasperre's
+    // ask).
+    assert_eq!(menu_items(&h, "Properties"), ["Copy", "Paste", "Remove", "Properties"]);
     h.get_by_label("Copy").click();
     h.run();
     assert_eq!(h.state().item_clip.len(), 1);
@@ -1145,43 +1148,4 @@ fn an_item_dropped_on_a_taken_slot_sends_its_item_to_the_backpack() {
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run_steps(4);
     assert_eq!(creature_items(&mut h, area, &bandit), before, "undone whole");
-}
-
-/// An inventory row's right-click menu ends with Properties, as Aurora's
-/// menus do (Jasperre's ask).
-#[test]
-fn properties_is_the_last_item_of_an_inventory_row_s_menu() {
-    let Some((mut h, _)) = blueprint_harness("plc_chest1", "chest_last", ResType::UTP) else {
-        return;
-    };
-    h.run();
-    h.get_by_label("Inventory…").click();
-    h.run();
-    type_into_hint(&mut h, "Find", "nw_it_torch001");
-    let torch = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
-        n.role() == egui::accesskit::Role::Button && n.label().is_some_and(|l| l == "Torch")
-    };
-    h.get(egui_kittest::kittest::by().predicate(torch)).click();
-    h.run();
-    h.get_by_label("Add Item").click();
-    h.run();
-    // (The palette's row is the leftmost "Torch"; the list's is right of it.)
-    let row = h
-        .get_all_by_label("Torch")
-        .filter(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
-        .map(|n| n.rect())
-        .max_by(|a, b| a.left().total_cmp(&b.left()))
-        .unwrap();
-    h.hover_at(row.center());
-    for pressed in [true, false] {
-        h.event(egui::Event::PointerButton {
-            pos: row.center(),
-            button: egui::PointerButton::Secondary,
-            pressed,
-            modifiers: egui::Modifiers::NONE,
-        });
-    }
-    h.run();
-    let items = menu_items(&h, "Properties");
-    assert_eq!(items, ["Copy", "Paste", "Remove", "Properties"]);
 }

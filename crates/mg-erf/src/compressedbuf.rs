@@ -64,10 +64,16 @@ pub fn decompress(data: &[u8], magic: [u8; 4]) -> Result<Vec<u8>, CompressedBufE
                 return Err(CompressedBufError::Dictionary);
             }
             let frame = r.bytes(r.remaining())?;
-            let mut dec = ruzstd::decoding::StreamingDecoder::new(frame)
+            let dec = ruzstd::decoding::StreamingDecoder::new(frame)
                 .map_err(|e| CompressedBufError::Zstd(e.to_string()))?;
-            let mut out = Vec::with_capacity(size);
-            dec.read_to_end(&mut out).map_err(|e| CompressedBufError::Zstd(e.to_string()))?;
+            // (The header's size is the file's word: room made for no more
+            // than a frame of this length could plausibly hold, and no
+            // more read than it says, so a crafted size or a frame that
+            // expands without end runs out of nothing.)
+            let mut out = Vec::with_capacity(size.min(frame.len().saturating_mul(64)));
+            dec.take(size as u64 + 1)
+                .read_to_end(&mut out)
+                .map_err(|e| CompressedBufError::Zstd(e.to_string()))?;
             out
         }
         other => return Err(CompressedBufError::UnsupportedAlgorithm(other)),
@@ -127,6 +133,33 @@ fn with_content_size(frame: &mut Vec<u8>, size: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A cut buffer, a size header out of all proportion and a frame that
+    /// says less than it holds are errors, not a panic or a huge
+    /// allocation.
+    #[test]
+    fn bad_buffers_are_errors() {
+        let data: Vec<u8> = (0..4096u32).map(|i| (i % 7) as u8).collect();
+        let packed = compress(&data, MAGIC_XRES);
+        for n in [0, 3, 8, 15, 20, 27, packed.len() - 1] {
+            assert!(decompress(&packed[..n], MAGIC_XRES).is_err(), "cut at {n}");
+        }
+        // The header says 4 GiB: refused once the frame ends.
+        let mut huge = packed.clone();
+        huge[12..16].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(matches!(
+            decompress(&huge, MAGIC_XRES),
+            Err(CompressedBufError::SizeMismatch { actual: 4096, .. })
+        ));
+        // The header says 100 bytes of a frame that holds 4096: no more
+        // than 101 read.
+        let mut small = packed.clone();
+        small[12..16].copy_from_slice(&100u32.to_le_bytes());
+        assert!(matches!(
+            decompress(&small, MAGIC_XRES),
+            Err(CompressedBufError::SizeMismatch { expected: 100, actual: 101 })
+        ));
+    }
 
     #[test]
     fn compressed_round_trip() {

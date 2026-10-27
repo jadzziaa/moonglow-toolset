@@ -8,17 +8,19 @@ use std::path::Path;
 use serde_json::Value;
 
 fn run(root: &Path, user: &Path, args: &[&str]) -> (bool, Value) {
-    let out = crate::mg()
-        .args(["--root", root.to_str().unwrap(), "--user-dir", user.to_str().unwrap(), "--json"])
-        .args(args)
-        .output()
-        .unwrap();
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.trim().is_empty(), "{args:?}: stderr {stderr}");
-    let json: Value = serde_json::from_slice(&out.stdout)
-        .unwrap_or_else(|e| panic!("{args:?}: {e}: {}", String::from_utf8_lossy(&out.stdout)));
+    let (ok, json) = crate::quiet_json_out(
+        crate::mg()
+            .args([
+                "--root",
+                root.to_str().unwrap(),
+                "--user-dir",
+                user.to_str().unwrap(),
+                "--json",
+            ])
+            .args(args),
+    );
     assert!(json.is_object(), "{args:?}: {json}");
-    (out.status.success(), json)
+    (ok, json)
 }
 
 #[test]

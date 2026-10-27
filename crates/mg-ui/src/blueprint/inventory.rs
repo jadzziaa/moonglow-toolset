@@ -176,7 +176,9 @@ impl Form<'_> {
         ItemFit {
             panel: cell("StorePanel"),
             w: cell("InvSlotWidth").unwrap_or(1).clamp(1, GRID_WIDTH),
-            h: cell("InvSlotHeight").unwrap_or(1).max(1),
+            // (A hak's 2DA may say anything: kept within reason, so the
+            // places' sums in `place` cannot overflow.)
+            h: cell("InvSlotHeight").unwrap_or(1).clamp(1, 255),
         }
     }
 

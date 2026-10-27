@@ -11,8 +11,9 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
+use mg_core::time::unix_now as now;
 use mg_module::{Module, ModuleLocation};
 use serde::{Deserialize, Serialize};
 
@@ -63,10 +64,6 @@ impl Copy {
         let _ = std::fs::remove_file(&self.archive);
         let _ = std::fs::remove_file(self.note_path());
     }
-}
-
-fn now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
 }
 
 /// How long ago, in words.
@@ -142,6 +139,10 @@ impl Job {
 pub(crate) struct Autosave {
     last: Option<(std::time::Instant, u64)>,
     busy: Arc<AtomicBool>,
+    /// Counted up as the copy is forgotten (saved, closed): a copy being
+    /// written meanwhile removes itself when done, or the next start
+    /// offers work that was saved.
+    forgotten: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl Moonglow {
@@ -213,6 +214,7 @@ impl Moonglow {
     /// Removes the open module's recovery copy (saved, or closed without
     /// saving).
     pub(crate) fn forget_recovery(&mut self) {
+        self.autosave.forgotten.fetch_add(1, Ordering::AcqRel);
         if let Some((archive, note)) = self.recovery_archive() {
             Copy { archive, note }.remove();
         }
@@ -252,9 +254,17 @@ impl Moonglow {
         self.autosave.last = Some((now, revision));
         let busy = self.autosave.busy.clone();
         busy.store(true, Ordering::Release);
+        let (forgotten, started) =
+            (self.autosave.forgotten.clone(), self.autosave.forgotten.load(Ordering::Acquire));
         std::thread::spawn(move || {
+            let copy = Copy { archive: job.archive.clone(), note: job.note.clone() };
             if let Err(e) = job.run() {
                 eprintln!("recovery copy: {e}");
+            }
+            // (Written whole before this look: a forgetting after it
+            // removes the files itself.)
+            if forgotten.load(Ordering::Acquire) != started {
+                copy.remove();
             }
             busy.store(false, Ordering::Release);
         });
@@ -394,6 +404,17 @@ mod tests {
         // Not again for the same revision.
         app.autosave_tick(t0 + Duration::from_secs(700));
         assert!(!app.autosave.busy.load(Ordering::Acquire));
+        // Saved while a copy is being written: no copy is left, whichever
+        // finishes first (one was offered at the next start, of work
+        // saved since).
+        let edit = mg_edit::Edit::SetResource { key, data: Some(b"// again".to_vec()) };
+        app.ws.as_mut().unwrap().apply(mg_edit::Command::new("edit", vec![edit])).unwrap();
+        app.autosave_tick(t0 + Duration::from_secs(1100));
+        app.forget_recovery();
+        while app.autosave.busy.load(Ordering::Acquire) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(find(&dir.join("recovery")).is_empty());
     }
 
     #[test]

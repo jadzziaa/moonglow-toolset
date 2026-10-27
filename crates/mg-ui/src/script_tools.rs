@@ -194,9 +194,15 @@ pub struct ScriptTools {
     pub spec: Option<Arc<Spec>>,
     /// Symbols of each script (with its includes), by its text.
     pub symbols: HashMap<ResKey, (u64, Arc<Vec<Symbol>>)>,
+    /// Each script's text when its editor was last drawn, and the
+    /// workspace revision then: an include edited or the module changed
+    /// leaves other scripts' symbols and live checks out of date.
+    pub(crate) seen: HashMap<ResKey, u64>,
+    pub(crate) revision: u64,
 }
 
-fn hash(text: &str) -> u64 {
+/// A script's text as a number, to tell when it changed.
+pub(crate) fn hash(text: &str) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     text.hash(&mut h);

@@ -371,10 +371,7 @@ mod tests {
         for e in edits {
             match e {
                 Edit::SetField { path, label, value, .. } => {
-                    let s = path.0.iter().fold(&mut *root, |s, step| match step {
-                        mg_edit::Step::Field(l) => s.child_mut(l).unwrap(),
-                        mg_edit::Step::Item(l, i) => &mut s.list_mut(l).unwrap()[*i],
-                    });
+                    let s = path.get_mut(root).unwrap();
                     match value {
                         Some(v) => s.set(label, v.clone()),
                         None => {
@@ -383,17 +380,11 @@ mod tests {
                     }
                 }
                 Edit::InsertItem { path, list, index, item, .. } => {
-                    let s = path.0.iter().fold(&mut *root, |s, step| match step {
-                        mg_edit::Step::Field(l) => s.child_mut(l).unwrap(),
-                        mg_edit::Step::Item(l, i) => &mut s.list_mut(l).unwrap()[*i],
-                    });
+                    let s = path.get_mut(root).unwrap();
                     s.list_mut(list).unwrap().insert(*index, item.clone());
                 }
                 Edit::RemoveItem { path, list, index, .. } => {
-                    let s = path.0.iter().fold(&mut *root, |s, step| match step {
-                        mg_edit::Step::Field(l) => s.child_mut(l).unwrap(),
-                        mg_edit::Step::Item(l, i) => &mut s.list_mut(l).unwrap()[*i],
-                    });
+                    let s = path.get_mut(root).unwrap();
                     s.list_mut(list).unwrap().remove(*index);
                 }
                 Edit::SetResource { .. } => unreachable!(),

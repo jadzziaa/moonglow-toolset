@@ -811,28 +811,6 @@ fn deleting_a_window_takes_its_settings_and_scripts() {
     assert!(app.ws.as_ref().unwrap().module.contains(&notes));
 }
 
-/// Cancel under the editor sets the window back to what it was when the
-/// tab was opened, as one step that Undo takes back.
-#[test]
-fn cancel_sets_back_what_the_tab_changed() {
-    let mut h = harness();
-    // (What a tab changed is kept while the tab is open.)
-    let tab = Tab::Nui(key());
-    h.state_mut().run(Action::OpenTab(tab));
-    h.run();
-    let opened = document(&h);
-    h.get_all_by_label("Button · Close").next().unwrap().click();
-    h.run();
-    h.key_press(egui::Key::Delete);
-    h.run();
-    assert_ne!(document(&h), opened);
-    h.get_by_label("Cancel").click();
-    h.run();
-    assert_eq!(document(&h), opened);
-    h.state_mut().ws.as_mut().unwrap().undo().unwrap();
-    assert_ne!(document(&h), opened);
-}
-
 /// Cancel after a Build sets back what Build made with the settings that
 /// say what it made: set back alone, the settings took the opener Build
 /// left for one written by hand, and no Build went through after.
@@ -881,9 +859,11 @@ fn cancel_after_a_build_leaves_a_window_that_builds() {
 /// sections from the script editor since the tab was opened is the
 /// builder's, and the script is rebuilt around the handlers Cancel
 /// brings back. (It was set back whole, to what it was when the Creator
-/// first changed it: gone, where there had been none.)
+/// first changed it: gone, where there had been none.) The window is set
+/// back to what it was when the tab was opened, as one step that Undo
+/// takes back.
 #[test]
-fn cancel_keeps_the_code_written_in_the_event_script() {
+fn cancel_sets_back_the_window_and_keeps_the_code_written_in_the_event_script() {
     let mut h = harness();
     h.state_mut().run(Action::OpenTab(Tab::Nui(key())));
     h.run();
@@ -895,6 +875,7 @@ fn cancel_keeps_the_code_written_in_the_event_script() {
     h.run();
     h.key_press(egui::Key::Delete);
     h.run();
+    assert_ne!(document(&h), opened.0);
     let written = text(h.state(), script);
     // Code of the builder's own, in the script editor, saved.
     let mine = "void Mine() { SendMessageToPC(OBJECT_SELF, \"mine\"); }\n";
@@ -913,6 +894,8 @@ fn cancel_keeps_the_code_written_in_the_event_script() {
         let begin = format!("{}{}", mg_nui::BEGIN, mg_nui::handler_key(handler));
         assert!(after.contains(&begin), "{begin}: {after}");
     }
+    h.state_mut().ws.as_mut().unwrap().undo().unwrap();
+    assert_ne!(document(&h), opened.0, "Cancel is one step");
 }
 
 /// A window whose text reads as something other than an object (a list,
@@ -1962,8 +1945,13 @@ fn the_layout_says_what_does_not_fit() {
 /// The picture is the window at its scale, drawn in the frame the layout
 /// comes from: a button's place has its frame, the body beside the column
 /// is the window's background, and twice the scale is twice the pixels.
+/// Drawn in a state, with binds or a variant, the picture is the layout
+/// with the same options: a hovered Cancel changes Cancel's pixels and no
+/// others, and a list drawn from the binds' arrays has a row for each,
+/// each row's button drawn.
 #[test]
-fn a_window_drawn_off_the_screen_is_where_its_layout_says() {
+fn a_window_drawn_off_the_screen_is_where_its_layout_says_in_any_state() {
+    use mg_ui::nui_render::{Look, Options, layout, render};
     mg_testkit::gpu::hold();
     let Some(gpu) = mg_render::Gpu::headless() else {
         eprintln!("skipped: no GPU adapter");
@@ -1976,10 +1964,10 @@ fn a_window_drawn_off_the_screen_is_where_its_layout_says() {
     let m = crier();
     let window = mg_ui::nui_render::Window { resman: game.as_ref(), ..crier_window(&m) };
     for scale in [1.0, 2.0] {
-        let options = mg_ui::nui_render::Options { scale, ..Default::default() };
-        let picture = mg_ui::nui_render::render(&gpu, &window, &options).unwrap();
-        let layout = mg_ui::nui_render::layout(&window, &options).unwrap();
-        assert_eq!(picture.layout, layout);
+        let options = Options { scale, ..Default::default() };
+        let picture = render(&gpu, &window, &options).unwrap();
+        let laid = layout(&window, &options).unwrap();
+        assert_eq!(picture.layout, laid);
         let size = ((420.0 * scale) as u32, (300.0 * scale) as u32);
         assert_eq!((picture.width, picture.height), size);
         assert_eq!(picture.rgba.len(), (picture.width * picture.height * 4) as usize);
@@ -1994,7 +1982,7 @@ fn a_window_drawn_off_the_screen_is_where_its_layout_says() {
             assert_eq!(pixel(x, y), empty, "{x}, {y} at {scale}");
         }
         // Cancel's button is drawn where the layout puts it.
-        let cancel = layout.elements.iter().find(|e| e.id.as_deref() == Some("cancel")).unwrap();
+        let cancel = laid.elements.iter().find(|e| e.id.as_deref() == Some("cancel")).unwrap();
         let a = cancel.area;
         let drawn = (0..a.w as u32)
             .flat_map(|x| (0..a.h as u32).map(move |y| (x, y)))
@@ -2005,6 +1993,58 @@ fn a_window_drawn_off_the_screen_is_where_its_layout_says() {
         assert_eq!(&png[1..4], b"PNG");
         assert_eq!(u32::from_be_bytes(png[16..20].try_into().unwrap()), picture.width);
     }
+
+    let plain = render(&gpu, &window, &Options::default()).unwrap();
+    let o =
+        Options { states: [(Some("cancel".to_owned()), Look::Hover)].into(), ..Default::default() };
+    let hovered = render(&gpu, &window, &o).unwrap();
+    assert_eq!(hovered.layout, layout(&window, &o).unwrap());
+    let cancel =
+        hovered.layout.elements.iter().find(|e| e.id.as_deref() == Some("cancel")).unwrap();
+    let a = cancel.area;
+    let mut changed = 0;
+    for (i, (p, h)) in plain.rgba.chunks(4).zip(hovered.rgba.chunks(4)).enumerate() {
+        if p != h {
+            let (x, y) = ((i as u32 % plain.width) as f32, (i as u32 / plain.width) as f32);
+            assert!(
+                x >= a.x && x < a.x + a.w && y >= a.y && y < a.y + a.h,
+                "{x}, {y} changed, outside Cancel ({a:?})"
+            );
+            changed += 1;
+        }
+    }
+    assert!(changed > 0, "hovering Cancel changed nothing");
+
+    // The cries' list from the binds: four rows, with their buttons drawn.
+    let m = fixture("cries");
+    let window = mg_ui::nui_render::Window { resman: game.as_ref(), ..cries_window(&m) };
+    let o = Options {
+        binds: fixture_binds("cries"),
+        states: [(Some("read".to_owned()), Look::Hover)].into(),
+        ..Default::default()
+    };
+    let picture = render(&gpu, &window, &o).unwrap();
+    assert_eq!(picture.layout, layout(&window, &o).unwrap());
+    let pixel = |x: f32, y: f32| {
+        let i = ((y as u32 * picture.width + x as u32) * 4) as usize;
+        picture.rgba[i..i + 4].to_vec()
+    };
+    let buttons: Vec<_> =
+        picture.layout.elements.iter().filter(|e| e.id.as_deref() == Some("read")).collect();
+    assert_eq!(buttons.len(), 4);
+    let empty = pixel(400.0, 300.0);
+    for b in buttons {
+        let a = b.area;
+        let drawn = (0..a.w as u32)
+            .flat_map(|x| (0..a.h as u32).map(move |y| (x, y)))
+            .filter(|&(x, y)| pixel(a.x + x as f32, a.y + y as f32) != empty)
+            .count();
+        assert!(drawn as f32 > a.w * a.h * 0.1, "row {:?}: {drawn} pixels", b.row);
+    }
+    // The variant: drawn as laid out too.
+    let o = Options { variant: Some("details".into()), states: Default::default(), ..o };
+    let picture = render(&gpu, &window, &o).unwrap();
+    assert_eq!(picture.layout, layout(&window, &o).unwrap());
 }
 
 /// What `mg nui schema --layout` says of widths is how the preview lays
@@ -2074,74 +2114,4 @@ fn controls_without_a_width_are_as_the_layout_form_says() {
     let l = layout(&w, &Options::default()).unwrap();
     assert_eq!((l.width, l.elements[0].area.w, l.body.w), (420.0, l.body.w, 404.0));
     assert!(about.contains("the window's width less 20 fills its root column"));
-}
-
-/// Drawn in a state, with binds or a variant, the picture is the layout
-/// with the same options: a hovered Cancel changes Cancel's pixels and no
-/// others, and a list drawn from the binds' arrays has a row for each,
-/// each row's button drawn.
-#[test]
-fn a_window_drawn_in_a_state_with_binds_is_its_layout() {
-    use mg_ui::nui_render::{Look, Options, layout, render};
-    mg_testkit::gpu::hold();
-    let Some(gpu) = mg_render::Gpu::headless() else {
-        eprintln!("skipped: no GPU adapter");
-        return;
-    };
-    let game = mg_testkit::nwn_root().and_then(|root| {
-        mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).ok()
-    });
-    let m = crier();
-    let window = mg_ui::nui_render::Window { resman: game.as_ref(), ..crier_window(&m) };
-    let plain = render(&gpu, &window, &Options::default()).unwrap();
-    let o =
-        Options { states: [(Some("cancel".to_owned()), Look::Hover)].into(), ..Default::default() };
-    let hovered = render(&gpu, &window, &o).unwrap();
-    assert_eq!(hovered.layout, layout(&window, &o).unwrap());
-    let cancel =
-        hovered.layout.elements.iter().find(|e| e.id.as_deref() == Some("cancel")).unwrap();
-    let a = cancel.area;
-    let mut changed = 0;
-    for (i, (p, h)) in plain.rgba.chunks(4).zip(hovered.rgba.chunks(4)).enumerate() {
-        if p != h {
-            let (x, y) = ((i as u32 % plain.width) as f32, (i as u32 / plain.width) as f32);
-            assert!(
-                x >= a.x && x < a.x + a.w && y >= a.y && y < a.y + a.h,
-                "{x}, {y} changed, outside Cancel ({a:?})"
-            );
-            changed += 1;
-        }
-    }
-    assert!(changed > 0, "hovering Cancel changed nothing");
-
-    // The cries' list from the binds: four rows, with their buttons drawn.
-    let m = fixture("cries");
-    let window = mg_ui::nui_render::Window { resman: game.as_ref(), ..cries_window(&m) };
-    let o = Options {
-        binds: fixture_binds("cries"),
-        states: [(Some("read".to_owned()), Look::Hover)].into(),
-        ..Default::default()
-    };
-    let picture = render(&gpu, &window, &o).unwrap();
-    assert_eq!(picture.layout, layout(&window, &o).unwrap());
-    let pixel = |x: f32, y: f32| {
-        let i = ((y as u32 * picture.width + x as u32) * 4) as usize;
-        picture.rgba[i..i + 4].to_vec()
-    };
-    let buttons: Vec<_> =
-        picture.layout.elements.iter().filter(|e| e.id.as_deref() == Some("read")).collect();
-    assert_eq!(buttons.len(), 4);
-    let empty = pixel(400.0, 300.0);
-    for b in buttons {
-        let a = b.area;
-        let drawn = (0..a.w as u32)
-            .flat_map(|x| (0..a.h as u32).map(move |y| (x, y)))
-            .filter(|&(x, y)| pixel(a.x + x as f32, a.y + y as f32) != empty)
-            .count();
-        assert!(drawn as f32 > a.w * a.h * 0.1, "row {:?}: {drawn} pixels", b.row);
-    }
-    // The variant: drawn as laid out too.
-    let o = Options { variant: Some("details".into()), states: Default::default(), ..o };
-    let picture = render(&gpu, &window, &o).unwrap();
-    assert_eq!(picture.layout, layout(&window, &o).unwrap());
 }

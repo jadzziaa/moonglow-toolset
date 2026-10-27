@@ -616,7 +616,7 @@ impl Module {
                     _ => {
                         // (New in the module: a file of its name put there
                         // meanwhile is not written over.)
-                        let path = dir.join(k.to_string());
+                        let path = k.path_in(dir).map_err(io(dir))?;
                         if disk(&path).is_some_and(|now| now[..] != v[..]) {
                             conflicts.push(path);
                         }
@@ -627,17 +627,29 @@ impl Module {
         // Resource files no longer in the module: removed, but for one
         // that is new to the folder (left), or changed since it was read.
         let mut remove = Vec::new();
+        // (In a folder that isn't the module's, such files are another's:
+        // not deleted, and the module is not saved in among them.)
+        let mut foreign = Vec::new();
         for (name, key) in listed()? {
             if self.resources.contains_key(&key) {
                 continue;
             }
             let path = dir.join(&name);
             match known {
-                None => remove.push(path),
+                None => foreign.push(name),
                 Some(known) if !known.knows(&key) => {}
                 Some(known) if disk(&path).as_deref() == known.as_read(&key) => remove.push(path),
                 Some(_) => conflicts.push(path),
             }
+        }
+        if !foreign.is_empty() {
+            foreign.sort();
+            let message = format!(
+                "the folder holds resources that are not the module's ({}): save into an empty \
+                 folder, or one of the module's own",
+                foreign.join(", ")
+            );
+            return Err(ModuleError::Archive { path: dir.to_path_buf(), message });
         }
         if !conflicts.is_empty() {
             conflicts.sort();
@@ -673,7 +685,7 @@ impl Module {
                 }
                 continue;
             }
-            let p = dir.join(k.to_string());
+            let p = k.path_in(dir).map_err(io(dir))?;
             if disk(&p).as_deref() != Some(&v[..]) {
                 let tmp = sibling(&p, ".moonglow-tmp");
                 std::fs::write(&tmp, &v[..]).map_err(io(&tmp))?;
@@ -810,33 +822,11 @@ pub fn gff_root(
     }
 }
 
-/// (years since 1900, day of the year) for the ERF header.
-fn build_date() -> (u32, u32) {
-    let secs =
-        std::env::var("SOURCE_DATE_EPOCH").ok().and_then(|s| s.parse::<u64>().ok()).unwrap_or_else(
-            || SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_secs()),
-        );
-    year_day(secs)
-}
-
-/// Unix seconds to (years since 1900, 0-based day of the year), UTC.
-fn year_day(secs: u64) -> (u32, u32) {
-    let mut days = secs / 86_400;
-    let mut year = 1970u32;
-    loop {
-        let len =
-            if (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400) {
-                366
-            } else {
-                365
-            };
-        if days < len {
-            break;
-        }
-        days -= len;
-        year += 1;
-    }
-    (year - 1900, days as u32)
+/// (years since 1900, day of the year) for the ERF header: today, or
+/// `SOURCE_DATE_EPOCH` for a reproducible build.
+pub(crate) fn build_date() -> (u32, u32) {
+    let set = std::env::var("SOURCE_DATE_EPOCH").ok().and_then(|s| s.parse::<u64>().ok());
+    mg_core::time::year_day(set.unwrap_or_else(mg_core::time::unix_now))
 }
 
 #[cfg(test)]
@@ -905,6 +895,21 @@ mod tests {
             Module::open(&path).unwrap().get(&key("script", ResType::NSS)),
             Some(&b"changed"[..])
         );
+    }
+
+    /// Save As into a folder of other resources (another module's, a
+    /// builder's own files) deletes none of them, and says so.
+    #[test]
+    fn saving_into_another_s_folder_deletes_nothing() {
+        let dir = mg_testkit::scratch_dir("mg-module-folder-foreign");
+        let other = dir.join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(other.join("theirs.uti"), b"theirs").unwrap();
+        let mut m = sample();
+        let said = m.save_as(&ModuleLocation::Folder(other.clone())).unwrap_err().to_string();
+        assert!(said.contains("theirs.uti"), "{said}");
+        assert_eq!(std::fs::read(other.join("theirs.uti")).unwrap(), b"theirs");
+        assert!(!other.join("module.ifo").exists(), "nothing written");
     }
 
     #[test]
@@ -982,14 +987,5 @@ mod tests {
         let back = Module::open(&dir.join("m")).unwrap();
         assert_eq!(back.get(&ResKey::new(ResRef::EMPTY, ResType::RES)), Some(&b"junk"[..]));
         assert_eq!(folder_key(".hidden"), None);
-    }
-
-    #[test]
-    fn build_dates() {
-        assert_eq!(year_day(0), (70, 0));
-        // 2026-09-30T00:00:00Z is day 272 (0-based) of 2026.
-        assert_eq!(year_day(1_790_726_400), (126, 272));
-        // 2024-12-31 is day 365 of a leap year.
-        assert_eq!(year_day(1_735_603_200), (124, 365));
     }
 }

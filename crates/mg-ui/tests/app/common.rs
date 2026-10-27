@@ -64,12 +64,15 @@ pub(crate) fn harness(app: Moonglow, width: f32, height: f32) -> Harness<'static
 
 /// The GPU for a test that draws (the area view, a model view, a
 /// preview): takes it for the rest of the test (`mg_testkit::gpu::hold`,
-/// one device open at a time in this binary) and makes a render state
+/// a few devices open at a time in this binary) and makes a render state
 /// for the application (`Moonglow::set_render_state`) and
 /// [`gpu_harness`]; `None`, said, without a GPU adapter.
 pub(crate) fn gpu() -> Option<egui_wgpu::RenderState> {
     mg_testkit::gpu::hold();
-    if mg_render::Gpu::headless().is_none() {
+    // (Asked once: a device opened to ask it was a second device for
+    // every test that draws.)
+    static ADAPTER: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if !*ADAPTER.get_or_init(|| mg_render::Gpu::headless().is_some()) {
         eprintln!("skipped: no GPU adapter");
         return None;
     }

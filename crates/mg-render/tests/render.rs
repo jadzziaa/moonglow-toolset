@@ -144,7 +144,7 @@ fn game_models_render() {
     };
     let Some(gpu) = gpu() else { return };
     let rm = mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
-    let dir = mg_testkit::scratch_dir("render");
+    let dir = mg_testkit::output_dir("render");
     let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
     for name in [
         "plc_a01",
@@ -1000,7 +1000,7 @@ fn lines_hide_behind_meshes_but_not_under_the_ground_they_lie_on() {
     let (w, h) = (128, 128);
     let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
     let img = r.render_image(&gpu, &NoAssets, &scene, &camera, w, h);
-    save(&img, &mg_testkit::scratch_dir("render").join("lines.png"));
+    save(&img, &mg_testkit::output_dir("render").join("lines.png"));
     let clip = camera.projection(1.0) * camera.view();
     let red_near = |p: Vec3| {
         let ndc = clip.project_point3(p);
@@ -1702,7 +1702,7 @@ fn the_game_path_draws_opengl_s_clip_space_right() {
     let img = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
     assert_eq!(r.game_shader_failures(), &[]);
     assert_eq!(r.drawn.game, 3, "{:?}", r.drawn);
-    save(&img, &mg_testkit::scratch_dir("render").join("game_clip_space.png"));
+    save(&img, &mg_testkit::output_dir("render").join("game_clip_space.png"));
     let px = |x, y| img.pixel(x, y);
     // The middle: the blue quad, in front of the red one.
     assert_eq!(px(32, 32), [0, 0, 255, 255]);
@@ -2027,7 +2027,7 @@ fn the_game_s_lit_shaders_match_moonglow_s() {
     };
     let Some(gpu) = gpu() else { return };
     let rm = mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
-    let dir = mg_testkit::scratch_dir("render");
+    let dir = mg_testkit::output_dir("render");
     let mut own = TestAssets::default();
     // A checker of two colours with a gradient across it, no alpha.
     let (w, h) = (64u32, 64u32);
@@ -2309,7 +2309,7 @@ fn a_custom_pair_is_lit_as_its_fragment_program_lights() {
     };
     let Some(gpu) = gpu() else { return };
     let rm = mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
-    let dir = mg_testkit::scratch_dir("render");
+    let dir = mg_testkit::output_dir("render");
     let source = |name: &str| mg_render::Assets::shader(&rm, name).unwrap();
     let mut own = TestAssets::default();
     own.solid("mgplain", [180, 160, 140, 255]);
@@ -2464,8 +2464,8 @@ fn a_material_s_own_programs_draw_it_and_move_with_the_clock() {
     assert_eq!(still.pixel(32, 32), [0, 255, 0, 255]);
     // At 1.5 s it has swayed by half its width (sin 1.5 · 0.5 of its 2 m).
     let swayed = shot(&mut r, 1.5);
-    save(&still, &mg_testkit::scratch_dir("render").join("game_custom_still.png"));
-    save(&swayed, &mg_testkit::scratch_dir("render").join("game_custom_swayed.png"));
+    save(&still, &mg_testkit::output_dir("render").join("game_custom_still.png"));
+    save(&swayed, &mg_testkit::output_dir("render").join("game_custom_swayed.png"));
     let green = |img: &mg_image::Rgba| {
         (0..64)
             .flat_map(|y| (0..64).map(move |x| (x, y)))
@@ -2681,7 +2681,7 @@ fn a_see_through_mesh_is_drawn_in_two_parts_by_its_programs() {
     let (over_lava, _) = shot("lava", true);
     let (bare, _) = shot("water", false);
     let (bare_lava, _) = shot("lava", false);
-    save(&over_water, &mg_testkit::scratch_dir("render").join("game_see_through.png"));
+    save(&over_water, &mg_testkit::output_dir("render").join("game_see_through.png"));
     assert_eq!(r.game_shader_failures(), &[]);
     // Water, ground (see-through: two parts each), plant (two parts).
     assert_eq!(drawn.game, 2 + 2 + 1, "{drawn:?}");

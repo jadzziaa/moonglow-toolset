@@ -8,35 +8,20 @@
 //! values (read as set).
 
 use mg_core::{ResRef, ResType};
-use mg_gff::{Gff, Struct, Value};
+use mg_gff::{Gff, Struct};
 use mg_module::Module;
 use mg_module::blueprints::{CreatureSpec, creature};
 use mg_resman::{GameInstall, ResKey};
 use mg_rules::GameData;
 use mg_testkit::{aurora_capture, corpus};
 
+use crate::aurora_common::{PLAIN, Shown, lines};
+
+/// How the GFFs are compared, as lines.
+const SHOWN: Shown<'static> = Shown { uninitialized: &UNINITIALIZED, ..PLAIN };
+
 /// Aurora writes odd values in these (144, 95, 16; all read as set).
 const UNINITIALIZED: [&str; 3] = ["Interruptable", "NoPermDeath", "Disarmable"];
-
-fn lines(s: &Struct, indent: &str, out: &mut Vec<String>) {
-    for f in &s.fields {
-        let label = f.label.to_string_lossy();
-        if indent.is_empty() && UNINITIALIZED.contains(&label.as_str()) {
-            out.push(format!("{label} (uninitialized)"));
-            continue;
-        }
-        match &f.value {
-            Value::List(items) => {
-                out.push(format!("{indent}{label} list[{}]", items.len()));
-                for (i, item) in items.iter().enumerate() {
-                    out.push(format!("{indent}  [{i}] struct {}", item.id));
-                    lines(item, &format!("{indent}    "), out);
-                }
-            }
-            v => out.push(format!("{indent}{label} {v:?}")),
-        }
-    }
-}
 
 /// The wizard's choices, read back from what it made.
 fn spec_of(c: &Struct) -> CreatureSpec {
@@ -83,9 +68,7 @@ fn creature_wizard_matches_aurora() {
         for key in capture.keys_of(ResType::UTC) {
             let aurora = capture.gff(key).unwrap().unwrap();
             let ours = creature(&game, &spec_of(&aurora.root), &item);
-            let (mut a, mut b) = (Vec::new(), Vec::new());
-            lines(&ours.root, "", &mut a);
-            lines(&aurora.root, "", &mut b);
+            let (a, b) = (lines(&ours.root, SHOWN), lines(&aurora.root, SHOWN));
             let first = a.iter().zip(&b).position(|(x, y)| x != y);
             if let Some(i) = first.or((a.len() != b.len()).then(|| a.len().min(b.len()))) {
                 let from = i.saturating_sub(3);

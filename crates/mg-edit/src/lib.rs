@@ -74,7 +74,8 @@ impl GffPath {
         Some(s)
     }
 
-    fn resolve<'a>(&self, mut s: &'a mut Struct) -> Option<&'a mut Struct> {
+    /// The struct this path leads to from `s`, to change.
+    pub fn get_mut<'a>(&self, mut s: &'a mut Struct) -> Option<&'a mut Struct> {
         for step in &self.0 {
             s = match step {
                 Step::Field(l) => s.child_mut(l)?,
@@ -388,23 +389,25 @@ impl Workspace {
     /// Runs the edits in order and returns the command that reverses them.
     /// If one fails, the ones already run are reverted.
     fn run(&mut self, cmd: &Command) -> Result<Command, EditError> {
-        let mut inverses = Vec::with_capacity(cmd.edits.len());
+        let mut inverses: Vec<Vec<Edit>> = Vec::with_capacity(cmd.edits.len());
         for e in &cmd.edits {
             match self.run_edit(e) {
                 Ok(inv) => inverses.push(inv),
                 Err(err) => {
-                    for inv in inverses.into_iter().rev() {
+                    for inv in inverses.into_iter().rev().flatten() {
                         let _ = self.run_edit(&inv);
                     }
                     return Err(err);
                 }
             }
         }
-        inverses.reverse();
-        Ok(Command { label: cmd.label.clone(), edits: inverses })
+        let edits = inverses.into_iter().rev().flatten().collect();
+        Ok(Command { label: cmd.label.clone(), edits })
     }
 
-    fn run_edit(&mut self, e: &Edit) -> Result<Edit, EditError> {
+    /// Runs one edit; returns the edits that take it back, in the order
+    /// they run (most often one).
+    fn run_edit(&mut self, e: &Edit) -> Result<Vec<Edit>, EditError> {
         match e {
             Edit::SetResource { key, data } => {
                 // The cached document may hold edits not yet in the module;
@@ -423,7 +426,17 @@ impl Workspace {
                     }
                 }
                 self.rewritten(key);
-                Ok(Edit::SetResource { key: *key, data: old })
+                Ok(vec![Edit::SetResource { key: *key, data: old }])
+            }
+            Edit::SetField { key, path, label, value: None }
+                if let Some(back) = self.removed_in_place(key, path, label)? =>
+            {
+                let s = self.struct_at(key, path)?;
+                let old = s.remove(label);
+                if path.0.is_empty() && matches!(old, Some(Value::List(_))) {
+                    self.rewritten(key);
+                }
+                Ok(back)
             }
             Edit::SetField { key, path, label, value } => {
                 let s = self.struct_at(key, path)?;
@@ -447,16 +460,18 @@ impl Workspace {
                 if rewrites {
                     self.rewritten(key);
                 }
-                Ok(Edit::SetField {
+                Ok(vec![Edit::SetField {
                     key: *key,
                     path: path.clone(),
                     label: label.clone(),
                     value: old,
-                })
+                }])
             }
             Edit::InsertItem { key, path, list, index, item } => {
                 let s = self.struct_at(key, path)?;
-                if s.get(list).is_none() {
+                // (A list made for the item goes again with it.)
+                let made = s.get(list).is_none();
+                if made {
                     s.set(list, Value::List(Vec::new()));
                 }
                 let items = s.list_mut(list).ok_or_else(|| EditError::Invalid {
@@ -473,12 +488,16 @@ impl Workspace {
                 if path.0.is_empty() {
                     self.rewritten(key);
                 }
-                Ok(Edit::RemoveItem {
+                if made {
+                    let (path, label) = (path.clone(), list.clone());
+                    return Ok(vec![Edit::SetField { key: *key, path, label, value: None }]);
+                }
+                Ok(vec![Edit::RemoveItem {
                     key: *key,
                     path: path.clone(),
                     list: list.clone(),
                     index: *index,
-                })
+                }])
             }
             Edit::RemoveItem { key, path, list, index } => {
                 let s = self.struct_at(key, path)?;
@@ -492,20 +511,61 @@ impl Workspace {
                 if path.0.is_empty() {
                     self.rewritten(key);
                 }
-                Ok(Edit::InsertItem {
+                Ok(vec![Edit::InsertItem {
                     key: *key,
                     path: path.clone(),
                     list: list.clone(),
                     index: *index,
                     item,
-                })
+                }])
             }
         }
     }
 
+    /// What takes back the removal of field `label` from the struct at
+    /// `path` where putting the field back (appended) would not: one that
+    /// is not the struct's last, or one of several of that label. The
+    /// struct is put back whole: as its list's item, as its parent's
+    /// field, or the root with the resource. `None`: no such field, or the
+    /// plain inverse is exact.
+    fn removed_in_place(
+        &mut self,
+        key: &ResKey,
+        path: &GffPath,
+        label: &str,
+    ) -> Result<Option<Vec<Edit>>, EditError> {
+        let s = self.struct_at(key, path)?;
+        let same = |f: &&mg_gff::Field| f.label.as_bytes() == label.as_bytes();
+        let last = s.fields.last().is_some_and(|f| same(&f));
+        if s.fields.iter().filter(same).count() == usize::from(last) {
+            return Ok(None);
+        }
+        let old = s.clone();
+        let Some((step, parent)) = path.0.split_last() else {
+            let doc = self.doc_mut(key)?;
+            let bytes = doc
+                .to_bytes()
+                .map_err(|e| EditError::Invalid { key: *key, message: e.to_string() })?;
+            return Ok(Some(vec![Edit::SetResource { key: *key, data: Some(bytes) }]));
+        };
+        let parent = GffPath(parent.to_vec());
+        Ok(Some(match step {
+            Step::Field(l) => vec![Edit::SetField {
+                key: *key,
+                path: parent,
+                label: l.clone(),
+                value: Some(Value::Struct(old)),
+            }],
+            Step::Item(l, i) => vec![
+                Edit::RemoveItem { key: *key, path: parent.clone(), list: l.clone(), index: *i },
+                Edit::InsertItem { key: *key, path: parent, list: l.clone(), index: *i, item: old },
+            ],
+        }))
+    }
+
     fn struct_at(&mut self, key: &ResKey, path: &GffPath) -> Result<&mut Struct, EditError> {
         let doc = self.doc_mut(key)?;
-        path.resolve(&mut doc.root)
+        path.get_mut(&mut doc.root)
             .ok_or_else(|| EditError::BadPath { key: *key, path: path.clone() })
     }
 
@@ -729,6 +789,84 @@ mod tests {
         assert!(!ws.is_modified(), "undone back to the saved state");
         ws.redo().unwrap();
         assert_eq!(ws.doc(&ifo_key).unwrap().root.read(&ifo::MOD_XP_SCALE), 50);
+    }
+
+    /// Undo puts a removed field back where it was, with any other of its
+    /// label (as a resource that is undone back to as it was saves as it
+    /// was), whether the struct is a list's item, a field or the root; an
+    /// item put in a list it made takes the list away again.
+    #[test]
+    fn undo_puts_a_removed_field_back_in_its_place() {
+        let mut ws = workspace();
+        let k = key("area", ResType::GIT);
+        let labels = |ws: &mut Workspace, path: &GffPath| -> Vec<String> {
+            let doc = ws.doc(&k).unwrap();
+            let s = path.get(&doc.root).unwrap();
+            s.fields.iter().map(|f| f.label.to_string()).collect()
+        };
+        let item = GffPath::root().item("Creature List", 0);
+        let mut inner = Struct::new(7);
+        for (l, v) in [("A", 1), ("B", 2), ("A", 3), ("C", 4)] {
+            inner.fields.push(mg_gff::Field {
+                label: mg_gff::Label::new(l).unwrap(),
+                value: Value::Int(v),
+            });
+        }
+        let setup = vec![
+            Edit::SetField {
+                key: k,
+                path: item.clone(),
+                label: "Inner".into(),
+                value: Some(Value::Struct(inner)),
+            },
+            Edit::SetField {
+                key: k,
+                path: GffPath::root(),
+                label: "Note".into(),
+                value: Some(Value::Int(1)),
+            },
+        ];
+        ws.apply(Command::new("setup", setup)).unwrap();
+        let root_before = labels(&mut ws, &GffPath::root());
+        ws.apply(Command::new(
+            "note last",
+            vec![Edit::SetField {
+                key: k,
+                path: GffPath::root(),
+                label: "Creature List".into(),
+                value: None,
+            }],
+        ))
+        .unwrap();
+        ws.undo().unwrap();
+        assert_eq!(labels(&mut ws, &GffPath::root()), root_before, "the root's");
+        for path in [item.clone(), item.field("Inner")] {
+            let before = labels(&mut ws, &path);
+            let removed = Edit::SetField {
+                key: k,
+                path: path.clone(),
+                label: before[0].clone(),
+                value: None,
+            };
+            ws.apply(Command::new("remove", vec![removed])).unwrap();
+            assert!(!labels(&mut ws, &path).contains(&before[0]));
+            ws.undo().unwrap();
+            assert_eq!(labels(&mut ws, &path), before, "{path}");
+            ws.redo().unwrap();
+            assert!(!labels(&mut ws, &path).contains(&before[0]), "redone: {path}");
+            ws.undo().unwrap();
+        }
+        let inner = item.field("Inner");
+        let doc = ws.doc(&k).unwrap();
+        let values: Vec<_> =
+            inner.get(&doc.root).unwrap().fields.iter().map(|f| f.value.clone()).collect();
+        assert_eq!(values, [1, 2, 3, 4].map(Value::Int), "both A's, in their places");
+        // An item put in where there was no list: undone, no list.
+        let added = Edit::insert_item(k, item.clone(), "ItemList", 0, Struct::new(0));
+        let before = labels(&mut ws, &item);
+        ws.apply(Command::new("add", vec![added])).unwrap();
+        ws.undo().unwrap();
+        assert_eq!(labels(&mut ws, &item), before);
     }
 
     /// A list at a resource's root rewritten (set whole, an item put in or

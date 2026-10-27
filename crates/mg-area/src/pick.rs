@@ -44,22 +44,9 @@ impl Ray {
         let inverse = transform.inverse();
         let origin = inverse.transform_point3(self.origin);
         let dir = inverse.transform_vector3(self.dir);
-        let (mut near, mut far) = (f32::MIN, f32::MAX);
-        for axis in 0..3 {
-            if dir[axis].abs() < 1e-9 {
-                if origin[axis] < min[axis] || origin[axis] > max[axis] {
-                    return None;
-                }
-                continue;
-            }
-            let a = (min[axis] - origin[axis]) / dir[axis];
-            let b = (max[axis] - origin[axis]) / dir[axis];
-            near = near.max(a.min(b));
-            far = far.min(a.max(b));
-        }
-        // An affine map keeps the ray's parameter: `near` is a world
+        // An affine map keeps the ray's parameter: the distance is a world
         // distance even when the transform scales.
-        (near <= far && far >= 0.0).then_some(near.max(0.0))
+        mg_preview::compose::ray_box(origin, dir, min, max)
     }
 
     /// The distance to a flat outline (at its points' mean height), if the

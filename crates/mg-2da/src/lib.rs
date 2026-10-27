@@ -169,9 +169,18 @@ impl TwoDa {
         Ok(())
     }
 
-    /// The index of a column (case-insensitive).
+    /// The index of a column (case-insensitive). (Asked for on every
+    /// cell read: a name of up to 64 bytes is lowered on the stack.)
     pub fn column(&self, name: &str) -> Option<usize> {
-        self.lookup.get(&name.to_ascii_lowercase()).copied()
+        let mut buf = [0u8; 64];
+        let Some(lowered) = buf.get_mut(..name.len()) else {
+            return self.lookup.get(&name.to_ascii_lowercase()).copied();
+        };
+        lowered.copy_from_slice(name.as_bytes());
+        lowered.make_ascii_lowercase();
+        // (ASCII lowered, UTF-8 stays UTF-8.)
+        let lowered = std::str::from_utf8(lowered).ok()?;
+        self.lookup.get(lowered).copied()
     }
 
     pub fn len(&self) -> usize {

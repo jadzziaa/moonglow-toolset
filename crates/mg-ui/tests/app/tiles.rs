@@ -1517,22 +1517,6 @@ fn a_right_click_with_a_crosser_on_its_own_tile_erases_it() {
 }
 
 #[test]
-fn the_eraser_and_raise_lower_head_the_terrain_brushes() {
-    let Some((mut h, _)) = area_harness("tools-first") else { return };
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
-    h.run_steps(3);
-    palette_type(&mut h, "🗻", "Tiles");
-    h.run_steps(2);
-    // Rural lists them Eraser, Grass, Raise/Lower, Road…
-    let top = |h: &Harness<'_, Moonglow>, label: &str| h.get_by_label(label).rect().top();
-    let (eraser, raise) = (top(&h, "🗑 Eraser"), top(&h, "↕ Raise/Lower"));
-    assert!(eraser < raise);
-    for other in ["Grass", "Road", "Water"] {
-        assert!(raise < top(&h, other), "Raise/Lower is above {other}");
-    }
-}
-
-#[test]
 fn refine_tile_steps_a_tile_through_those_that_fit_and_paints_nothing() {
     use glam::Vec3;
     use mg_tiles::TileIndex;
@@ -1550,10 +1534,7 @@ fn refine_tile_steps_a_tile_through_those_that_fit_and_paints_nothing() {
     h.run_steps(3);
     palette_type(&mut h, "🗻", "Tiles");
     h.run_steps(2);
-    // Among the tools at the top: after the Eraser, before Raise/Lower.
-    let top = |h: &Harness<'_, Moonglow>, label: &str| h.get_by_label(label).rect().top();
-    let refine = top(&h, "🔁 Refine Tile");
-    assert!(top(&h, "🗑 Eraser") < refine && refine < top(&h, "↕ Raise/Lower"));
+    // (Its place among the tools: `tile_tools_change_a_tile_s_appearance_and_turn_it`.)
     h.get_by_label("🔁 Refine Tile").click();
     h.run_steps(2);
     let before = grid(&mut h);
@@ -1698,7 +1679,7 @@ fn tile_tools_change_a_tile_s_appearance_and_turn_it() {
     palette_type(&mut h, "🗻", "Tiles");
     h.run_steps(2);
     // The tools, in order: Select Tiles, the Eraser, Refine Tile, the
-    // three, Raise/Lower.
+    // three, Raise/Lower; then the terrains (Rural's Grass, Road, Water…).
     let top = |h: &Harness<'_, Moonglow>, label: &str| h.get_by_label(label).rect().top();
     let order = [
         "⛶ Select Tiles (F10)",
@@ -1711,6 +1692,9 @@ fn tile_tools_change_a_tile_s_appearance_and_turn_it() {
     ];
     for pair in order.windows(2) {
         assert!(top(&h, pair[0]) < top(&h, pair[1]), "{} above {}", pair[0], pair[1]);
+    }
+    for terrain in ["Grass", "Road", "Water"] {
+        assert!(top(&h, "↕ Raise/Lower") < top(&h, terrain), "Raise/Lower is above {terrain}");
     }
     let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
     let click = |h: &mut Harness<'_, Moonglow>| {
@@ -3194,17 +3178,6 @@ fn a_drag_previews_the_tiles_letting_go_paints() {
     check(&mut h, &[7.0, 12.0, 18.0, 24.0, 25.0].map(|x| Vec3::new(x, 5.0, 0.0)));
 }
 
-/// The view's readout names the tile under the pointer: its model, as
-/// Aurora's status bar does.
-#[test]
-fn the_area_s_readout_names_the_tile() {
-    let Some((h, area)) = area_harness("tile-name") else { return };
-    let view = &h.state().area_views[&area];
-    let named = view.tile_named(1, 2).expect("a tile there");
-    assert!(named.starts_with("ttr01_") && named.contains(" at 1, 2"), "{named}");
-    assert_eq!(view.tile_named(40, 40), None, "outside the area");
-}
-
 /// With a terrain brush in hand, a right click is the brush's (Raise/
 /// Lower lowers) though an object lies under the pointer: its menu does
 /// not open.
@@ -3311,14 +3284,25 @@ fn a_tile_s_source_light_burns() {
     assert!(lit > unlit, "the flames' particles: {unlit} → {lit}");
 }
 
-/// F10 with the pointer over an area's view is Select Tiles or Objects, as
-/// in Aurora; the menus don't take it there (they do everywhere else, and
-/// Alt opens them anywhere).
+/// Between objects and tiles without the toolbar. F10 with the pointer
+/// over an area's view is Select Tiles or Objects, as in Aurora; the menus
+/// don't take it there (they do everywhere else, and Alt opens them
+/// anywhere). A double click on the ground selects its tile (Select Tiles
+/// comes on), and a click on an object there selects it (and Select Tiles
+/// goes off). The view's readout names the tile under the pointer: its
+/// model, as Aurora's status bar does.
 #[test]
-fn f10_over_an_area_selects_tiles() {
+fn f10_and_a_click_go_between_objects_and_tiles() {
     use glam::Vec3;
-    let Some((mut h, area)) = area_harness("f10-tiles") else { return };
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("tiles-and-objects") else { return };
+    let view = &h.state().area_views[&area];
+    let named = view.tile_named(1, 2).expect("a tile there");
+    assert!(named.starts_with("ttr01_") && named.contains(" at 1, 2"), "{named}");
+    assert_eq!(view.tile_named(40, 40), None, "outside the area");
     h.run_steps(40);
+
+    // F10.
     let shown = |h: &Harness<'_, Moonglow>, label: &str| {
         h.query_all_by_label_contains(label).next().is_some()
     };
@@ -3345,17 +3329,8 @@ fn f10_over_an_area_selects_tiles() {
     h.run_steps(3);
     assert!(!shown(&h, "Save As"));
     assert!(!h.state().area_views[&area].tile_mode);
-}
 
-/// Between objects and tiles without the toolbar: a double click on the
-/// ground selects its tile (Select Tiles comes on), and a click on an
-/// object there selects it (and Select Tiles goes off).
-#[test]
-fn a_click_goes_between_objects_and_tiles() {
-    use glam::Vec3;
-    use mg_area::ObjectKind;
-    let Some((mut h, area)) = area_harness("tiles-and-objects") else { return };
-    h.run_steps(40);
+    // A click.
     let ground = screen(&h, area, Vec3::new(5.0, 5.0, 0.0));
     h.hover_at(ground);
     for _ in 0..2 {

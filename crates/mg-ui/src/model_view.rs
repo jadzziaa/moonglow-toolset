@@ -297,7 +297,7 @@ fn write_export(app: &mut Moonglow, export: &ModelExport, replace: bool) {
             continue;
         }
         let Ok(data) = game.resman.get(key) else { continue };
-        if let Err(e) = std::fs::write(dir.join(key.to_string()), &data) {
+        if let Err(e) = key.path_in(dir).and_then(|path| std::fs::write(path, &data)) {
             return app.log.error(format!("Could not write to {}: {e}", dir.display()));
         }
         written.push(format!("{key} ({origin})"));

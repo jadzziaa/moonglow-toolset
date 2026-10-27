@@ -99,6 +99,13 @@ impl ResRef {
         !self.as_bytes().iter().any(u8::is_ascii_uppercase)
     }
 
+    /// Whether the name can be a file's in a folder: no folder separator,
+    /// drive colon or control character (an archive's entry `../x` would
+    /// otherwise be written outside the folder it is unpacked into).
+    pub fn is_file_name(&self) -> bool {
+        !self.as_bytes().iter().any(|b| matches!(b, b'/' | b'\\' | b':') || b.is_ascii_control())
+    }
+
     fn folded(&self) -> impl Iterator<Item = u8> + '_ {
         self.as_bytes().iter().map(u8::to_ascii_lowercase)
     }
@@ -172,6 +179,16 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
+
+    #[test]
+    fn a_name_with_a_folder_in_it_is_no_file_name() {
+        for name in ["guard", "x..y", "...", "pl_chest_001"] {
+            assert!(ResRef::from_str(name).unwrap().is_file_name(), "{name}");
+        }
+        for name in ["../../x", "/tmp/x", "a\\b", "c:x", "a\tb"] {
+            assert!(!ResRef::from_str(name).unwrap().is_file_name(), "{name}");
+        }
+    }
 
     #[test]
     fn a_model_s_long_name_is_cut_to_a_resource_s_sixteen_characters() {
