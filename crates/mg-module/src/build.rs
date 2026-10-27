@@ -72,45 +72,104 @@ pub fn compile_scripts_with(
 /// it includes, however indirectly (those of the module: an include found
 /// only in the haks or the game counts by its name). The same number, the
 /// same compiled script, with the same compiler and game data.
+///
+/// Scripts that include each other, however indirectly, share one stamp
+/// (that of the whole family). Each script and include is looked at once,
+/// however many ways it is reached: the include graph is cut into its
+/// families (strongly connected components), each stamped after those it
+/// includes.
 pub fn script_stamps(module: &Module) -> std::collections::HashMap<ResKey, u64> {
     use std::collections::HashMap;
     use std::hash::{Hash, Hasher};
-    fn stamp(
-        key: ResKey,
-        module: &Module,
-        done: &mut HashMap<ResKey, u64>,
-        under: &mut Vec<ResKey>,
-    ) -> u64 {
-        if let Some(s) = done.get(&key) {
-            return *s;
-        }
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        let source = module.get(&key).unwrap_or_default();
+    let hasher = std::collections::hash_map::DefaultHasher::new;
+    let scripts: Vec<ResKey> = module.keys_of(ResType::NSS).copied().collect();
+    let at: HashMap<ResKey, usize> = scripts.iter().enumerate().map(|(i, k)| (*k, i)).collect();
+    // Each script's own part (its text, the names it includes in order)
+    // and the module's scripts it includes.
+    let mut local = Vec::with_capacity(scripts.len());
+    let mut edges: Vec<Vec<usize>> = Vec::with_capacity(scripts.len());
+    for key in &scripts {
+        let source = module.get(key).unwrap_or_default();
+        let mut h = hasher();
         source.hash(&mut h);
-        // (A script that includes itself, at whatever remove, ends here.)
-        if !under.contains(&key) {
-            under.push(key);
-            for r in crate::refs::script_includes(key, source) {
-                let name = r.target.to_lowercase();
-                name.to_string().hash(&mut h);
-                let include = ResKey::new(name, ResType::NSS);
-                if module.contains(&include) {
-                    stamp(include, module, done, under).hash(&mut h);
+        let mut to = Vec::new();
+        for r in crate::refs::script_includes(*key, source) {
+            let name = r.target.to_lowercase();
+            name.to_string().hash(&mut h);
+            if let Some(&i) = at.get(&ResKey::new(name, ResType::NSS)) {
+                to.push(i);
+            }
+        }
+        local.push(h.finish());
+        edges.push(to);
+    }
+    // Tarjan's components, without recursion (an include chain may be
+    // long): each is complete after every one it reaches, so is stamped
+    // after them.
+    let n = scripts.len();
+    const NONE: usize = usize::MAX;
+    let (mut index, mut low) = (vec![NONE; n], vec![0; n]);
+    let mut on_stack = vec![false; n];
+    let mut component = vec![NONE; n];
+    let mut component_stamps: Vec<u64> = Vec::new();
+    let (mut stack, mut next) = (Vec::new(), 0);
+    for root in 0..n {
+        if index[root] != NONE {
+            continue;
+        }
+        let mut calls: Vec<(usize, usize)> = Vec::new();
+        macro_rules! enter {
+            ($v:expr) => {{
+                let v = $v;
+                index[v] = next;
+                low[v] = next;
+                next += 1;
+                stack.push(v);
+                on_stack[v] = true;
+                calls.push((v, 0));
+            }};
+        }
+        enter!(root);
+        while let Some(&mut (v, ref mut edge)) = calls.last_mut() {
+            if let Some(&w) = edges[v].get(*edge) {
+                *edge += 1;
+                if index[w] == NONE {
+                    enter!(w);
+                } else if on_stack[w] {
+                    low[v] = low[v].min(index[w]);
+                }
+                continue;
+            }
+            calls.pop();
+            if let Some(&(parent, _)) = calls.last() {
+                low[parent] = low[parent].min(low[v]);
+            }
+            if low[v] != index[v] {
+                continue;
+            }
+            let mut members = Vec::new();
+            while let Some(w) = stack.pop() {
+                on_stack[w] = false;
+                component[w] = component_stamps.len();
+                members.push(w);
+                if w == v {
+                    break;
                 }
             }
-            under.pop();
+            let mut own: Vec<u64> = members.iter().map(|&m| local[m]).collect();
+            let mut below: Vec<u64> = (members.iter().flat_map(|&m| &edges[m]))
+                .filter(|&&w| component[w] != component_stamps.len())
+                .map(|&w| component_stamps[component[w]])
+                .collect();
+            own.sort_unstable();
+            below.sort_unstable();
+            below.dedup();
+            let mut h = hasher();
+            (own, below).hash(&mut h);
+            component_stamps.push(h.finish());
         }
-        let s = h.finish();
-        if under.is_empty() {
-            done.insert(key, s);
-        }
-        s
     }
-    let mut done = HashMap::new();
-    for key in module.keys_of(ResType::NSS) {
-        stamp(*key, module, &mut done, &mut Vec::new());
-    }
-    done
+    scripts.iter().enumerate().map(|(i, k)| (*k, component_stamps[component[i]])).collect()
 }
 
 /// What Compile All remembers of the scripts it compiled, to pass over
@@ -441,6 +500,40 @@ pub fn compile_named_with(
         .collect()
 }
 
+/// The module's scripts a compiler may read compiling `names`, written out
+/// for an external one (rather than every script the module has, at each
+/// compile): those, what they include however indirectly, and the
+/// module's own `nwscript` (the compilers read the game's functions from
+/// it). An include is any quoted name after `include` on a line, a `.nss`
+/// on it dropped: more than a compiler reads, never less.
+fn sources_read(module: &Module, names: &[ResKey]) -> std::collections::HashSet<ResKey> {
+    let script = |name: &str| {
+        let name = name.trim();
+        let name =
+            name.len().checked_sub(4).filter(|&at| name.is_char_boundary(at)).map_or(name, |at| {
+                if name[at..].eq_ignore_ascii_case(".nss") { &name[..at] } else { name }
+            });
+        mg_core::ResRef::from_str(name).ok().map(|r| ResKey::new(r.to_lowercase(), ResType::NSS))
+    };
+    let mut needed: std::collections::HashSet<ResKey> = names.iter().copied().collect();
+    needed.extend(script("nwscript").filter(|k| module.contains(k)));
+    let mut todo: Vec<ResKey> = needed.iter().copied().collect();
+    while let Some(key) = todo.pop() {
+        let text = String::from_utf8_lossy(module.get(&key).unwrap_or_default()).to_lowercase();
+        for line in text.lines() {
+            for (at, _) in line.match_indices("include") {
+                let Some(include) = line[at..].split('"').nth(1).and_then(script) else {
+                    continue;
+                };
+                if module.contains(&include) && needed.insert(include) {
+                    todo.push(include);
+                }
+            }
+        }
+    }
+    needed
+}
+
 /// Compiles `names` with an external compiler, storing what it made in the
 /// module. A script it made nothing of is an error with what it said,
 /// unless it is an include file. A compiler that can't be run is said
@@ -452,8 +545,11 @@ fn compile_externally(
 ) -> Vec<ScriptResult> {
     let name = |k: &ResKey| k.resref.to_lowercase().to_string();
     let made = {
-        let sources: Vec<(String, &[u8])> =
-            module.keys_of(ResType::NSS).filter_map(|k| Some((name(k), module.get(k)?))).collect();
+        let needed = sources_read(module, names);
+        let sources: Vec<(String, &[u8])> = (module.keys_of(ResType::NSS))
+            .filter(|k| needed.contains(*k))
+            .filter_map(|k| Some((name(k), module.get(k)?)))
+            .collect();
         external.compile(&sources, &names.iter().map(name).collect::<Vec<_>>())
     };
     let made = match made {
@@ -650,6 +746,68 @@ mod tests {
         }
         for same in ["alone", "loop_a", "loop_b"] {
             assert_eq!(after[&nss(same)], before[&nss(same)], "{same}");
+        }
+        assert_eq!(after[&nss("loop_a")], after[&nss("loop_b")]);
+        // Either of a loop changed changes both.
+        m.set(nss("loop_b"), b"#include \"loop_a\"\n// more\n".to_vec());
+        let looped = script_stamps(&m);
+        assert_ne!(looped[&nss("loop_a")], after[&nss("loop_a")]);
+    }
+
+    /// An external compiler is given the scripts asked for and what they
+    /// include (however written), and the module's `nwscript`: not the
+    /// module's other scripts.
+    #[test]
+    fn an_external_compiler_is_given_what_the_scripts_read() {
+        let mut m = Module::new();
+        let nss = |n: &str| key(n, ResType::NSS);
+        m.set(nss("uses"), b"#include \"inc_a\"\nvoid main() {}\n".to_vec());
+        m.set(
+            nss("inc_a"),
+            b"  #include \"INC_B.nss\" // b\n#include \"nw_i0_generic\"\n".to_vec(),
+        );
+        m.set(nss("inc_b"), b"/* #include \"inc_c\" */ int B();\n".to_vec());
+        m.set(nss("inc_c"), b"#include \"uses\"\n".to_vec());
+        m.set(nss("other"), b"#include \"inc_d\"\nvoid main() {}\n".to_vec());
+        m.set(nss("inc_d"), b"int D();\n".to_vec());
+        let mut read: Vec<String> =
+            sources_read(&m, &[nss("uses")]).iter().map(|k| k.resref.to_string()).collect();
+        read.sort();
+        assert_eq!(read, ["inc_a", "inc_b", "inc_c", "uses"]);
+        m.set(nss("nwscript"), b"void PrintString(string s);\n".to_vec());
+        assert!(sources_read(&m, &[nss("other")]).contains(&nss("nwscript")));
+        assert_eq!(sources_read(&m, &[nss("other")]).len(), 3);
+    }
+
+    /// Includes reached by many ways (sixty layers of two includes each
+    /// including both of the next: 2^60 ways down, over a loop at the
+    /// bottom) are each looked at once; a change at the bottom reaches the
+    /// top, and the stamps are the same every time.
+    #[test]
+    fn many_ways_to_one_include_are_walked_once() {
+        let mut m = Module::new();
+        let nss = |n: &str| key(n, ResType::NSS);
+        let layers = 60;
+        for l in 0..layers {
+            for side in ["a", "b"] {
+                let text = if l + 1 < layers {
+                    format!("#include \"d{}a\"\n#include \"d{}b\"\n// {l}{side}\n", l + 1, l + 1)
+                } else {
+                    format!("#include \"d{l}a\"\n#include \"d{l}b\"\n// bottom {side}\n")
+                };
+                m.set(nss(&format!("d{l}{side}")), text.into_bytes());
+            }
+        }
+        let start = std::time::Instant::now();
+        let before = script_stamps(&m);
+        assert!(start.elapsed() < std::time::Duration::from_secs(5));
+        assert_eq!(before.len(), 2 * layers);
+        assert_eq!(script_stamps(&m), before);
+        let bottom = format!("d{}a", layers - 1);
+        m.set(nss(&bottom), b"// changed\n#include \"d59b\"\n".to_vec());
+        let after = script_stamps(&m);
+        for top in ["d0a", "d0b", "d30b"] {
+            assert_ne!(after[&nss(top)], before[&nss(top)], "{top}");
         }
     }
 
