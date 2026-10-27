@@ -40,6 +40,8 @@
           buildInputs = [ pkgs.alsa-lib ];
 
           # wgpu and winit open these at run time instead of linking them.
+          # Test Module starts the game client with this environment, and the
+          # client links OpenAL.
           postFixup = ''
             wrapProgram $out/bin/moonglow \
               --prefix LD_LIBRARY_PATH : ${
@@ -52,6 +54,7 @@
                   pkgs.libxcursor
                   pkgs.libxi
                   pkgs.libxrandr
+                  pkgs.openal
                 ]
               }
           '';
