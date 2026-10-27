@@ -103,7 +103,10 @@ a directory), nasher projects (see below) and the game's campaign files
 
 Moonglow keeps everything in a module it does not understand: fields with
 no editor, unknown resources, unusual orderings. An untouched module saves
-as it was.
+as it was, and so does anything you only looked at, such as an area you
+opened, a Properties window, or the areas Update Instances checked. In a
+module folder kept in git, a save changes only the files you actually
+edited, and undoing an edit leaves its file as it was.
 
 ## Where things are used, and renaming
 

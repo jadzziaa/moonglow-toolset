@@ -649,3 +649,66 @@ fn an_area_s_variables_are_kept_in_its_git() {
     assert_eq!(vars(&mut h, git), Some(vec![var("iNoMap", 1), var("iMore", 2)]));
     assert_eq!(vars(&mut h, are), None);
 }
+
+/// Saving a module folder without changing anything must leave every
+/// file untouched, even after opening an area, its properties, the
+/// blueprint and instance editors, and reading every area as Update
+/// Instances does. Previously, every document that had been read was
+/// re-serialized on save, so git reported each one as changed.
+#[test]
+fn a_module_folder_saved_with_nothing_changed_is_as_it_was() {
+    let root = mg_testkit::corpus!();
+    let folder = mg_testkit::scratch_dir("ui-folder-untouched").join("chess");
+    let _ = std::fs::remove_dir_all(&folder);
+    // BioWare's own module, so the files have Aurora's byte layout.
+    let chess = Module::open(&root.join("data/mod/Neverwinter Chess.mod")).unwrap();
+    chess.clone().save_as(&ModuleLocation::Folder(folder.clone())).unwrap();
+    let files = || -> std::collections::BTreeMap<String, Vec<u8>> {
+        (std::fs::read_dir(&folder).unwrap().flatten())
+            .map(|e| {
+                (e.file_name().to_string_lossy().into_owned(), std::fs::read(e.path()).unwrap())
+            })
+            .collect()
+    };
+    let before = files();
+    let mut app = game_app(&root, None);
+    app.open_module(&folder);
+    let mut h = harness(app, 1200.0, 800.0);
+    h.run();
+    let area = ResRef::from_str("chess").unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AreaProperties(area)));
+    h.run();
+    // Open every blueprint's editor, and the editor for the first placed
+    // object of each kind.
+    let blueprints: Vec<ResKey> = (chess.keys())
+        .filter(|k| mg_rules::ObjectKind::from_restype(k.restype).is_some())
+        .copied()
+        .collect();
+    let git = chess.gff(&ResKey::new(area, ResType::GIT)).unwrap().unwrap();
+    let placed = mg_rules::ObjectKind::ALL
+        .map(mg_rules::ObjectKind::list)
+        .into_iter()
+        .filter(|list| git.root.list(list).is_some_and(|l| !l.is_empty()))
+        .map(|list| Tab::Instance { area, path: mg_edit::GffPath::root().item(list, 0) });
+    let tabs: Vec<Tab> = blueprints.iter().map(|k| Tab::Blueprint(*k)).chain(placed).collect();
+    assert!(tabs.len() > 3, "{tabs:?}");
+    for tab in tabs {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab));
+        h.run();
+    }
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    for area in chess.areas().unwrap() {
+        for t in [ResType::ARE, ResType::GIT, ResType::GIC] {
+            let _ = ws.doc(&ResKey::new(area, t));
+        }
+    }
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    let after = files();
+    let changed: std::collections::BTreeSet<&String> = (before.keys().chain(after.keys()))
+        .filter(|name| before.get(*name) != after.get(*name))
+        .collect();
+    assert!(changed.is_empty(), "files were rewritten although nothing changed: {changed:?}");
+}

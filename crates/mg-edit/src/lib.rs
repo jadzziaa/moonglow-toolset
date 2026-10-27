@@ -4,7 +4,7 @@
 //! so undo and redo are exact, and every editor, the CLI and the tests change
 //! modules through the same path.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use mg_gff::{Gff, Label, Struct, Value};
@@ -178,6 +178,10 @@ pub fn edits_between(before: &Module, after: &Module) -> Vec<Edit> {
 pub struct Workspace {
     pub module: Module,
     docs: HashMap<ResKey, Gff>,
+    /// Documents that have been edited since they were last written back
+    /// into the module by [`Workspace::flush`]. Any other cached document
+    /// has only been read, so it still matches the module's copy.
+    edited: HashSet<ResKey>,
     /// Documents shown that aren't the module's (the game's blueprints, to
     /// look at): [`Workspace::doc`] gives them, nothing edits or saves them.
     viewed: HashMap<ResKey, Gff>,
@@ -218,6 +222,7 @@ impl Workspace {
             saved: resources_of(&module),
             module,
             docs: HashMap::new(),
+            edited: HashSet::new(),
             viewed: HashMap::new(),
             undo: Vec::new(),
             redo: Vec::new(),
@@ -409,12 +414,8 @@ impl Workspace {
             Edit::SetResource { key, data } => {
                 // The cached document may hold edits not yet in the module;
                 // the undo copy must include them.
-                if let Some(doc) = self.docs.remove(key) {
-                    let bytes = doc
-                        .to_bytes()
-                        .map_err(|e| EditError::Invalid { key: *key, message: e.to_string() })?;
-                    self.module.set(*key, bytes);
-                }
+                self.write_back(key)?;
+                self.docs.remove(key);
                 let old = self.module.get(key).map(<[u8]>::to_vec);
                 match data {
                     Some(d) => self.module.set(*key, d.clone()),
@@ -504,21 +505,50 @@ impl Workspace {
     }
 
     fn struct_at(&mut self, key: &ResKey, path: &GffPath) -> Result<&mut Struct, EditError> {
-        let doc = self.doc_mut(key)?;
+        self.doc_mut(key)?;
+        self.edited.insert(*key);
+        let doc = self.docs.get_mut(key).expect("just read");
         path.resolve(&mut doc.root)
             .ok_or_else(|| EditError::BadPath { key: *key, path: path.clone() })
     }
 
-    /// Writes changed documents back into the module.
+    /// Writes edited documents back into the module.
+    ///
+    /// Documents that have only been read are left alone, so the module
+    /// keeps their original bytes. Re-serializing them would produce the
+    /// same data in Moonglow's own layout, which shows up as a change in a
+    /// module folder kept under source control.
     pub fn flush(&mut self) -> Result<(), EditError> {
-        for (key, gff) in &self.docs {
-            let bytes = gff
-                .to_bytes()
-                .map_err(|e| EditError::Invalid { key: *key, message: e.to_string() })?;
-            if self.module.get(key) != Some(&bytes[..]) {
-                self.module.set(*key, bytes);
-            }
+        let mut edited: Vec<ResKey> = self.edited.iter().copied().collect();
+        edited.sort();
+        for key in &edited {
+            self.write_back(key)?;
         }
+        Ok(())
+    }
+
+    /// Writes a single edited document back into the module.
+    ///
+    /// If the edits have left the document identical to the version that
+    /// was opened or last saved (for example, an edit followed by an undo),
+    /// the original bytes are restored. If it is identical to what the
+    /// module already holds, the module is left unchanged. Otherwise the
+    /// document is serialized and stored.
+    fn write_back(&mut self, key: &ResKey) -> Result<(), EditError> {
+        let Some(gff) = self.docs.get(key).filter(|_| self.edited.contains(key)) else {
+            return Ok(());
+        };
+        let bytes =
+            gff.to_bytes().map_err(|e| EditError::Invalid { key: *key, message: e.to_string() })?;
+        let holds = |data: &[u8]| data == &bytes[..] || Gff::read(data).is_ok_and(|g| g == *gff);
+        if let Some(saved) = self.saved.shared(key).filter(|d| holds(d)) {
+            if self.module.get(key) != Some(&saved[..]) {
+                self.module.set(*key, saved.clone());
+            }
+        } else if !self.module.get(key).is_some_and(holds) {
+            self.module.set(*key, bytes);
+        }
+        self.edited.remove(key);
         Ok(())
     }
 
@@ -1005,5 +1035,80 @@ mod tests {
         assert!(ws.module.contains(&script));
         ws.undo().unwrap();
         assert!(!ws.module.contains(&script));
+    }
+
+    /// A workspace holding two area GIT files whose bytes differ from what
+    /// Moonglow's writer would produce for the same data, as files saved
+    /// by Aurora do.
+    fn foreign_workspace() -> (Workspace, [(ResKey, Vec<u8>); 2]) {
+        let mut m = Module::new();
+        let files = ["one", "two"].map(|area| {
+            let mut g = Gff::new(*b"GIT ");
+            g.root.set("Creature List", Value::List(Vec::new()));
+            let mut bytes = g.to_bytes().unwrap();
+            bytes.extend_from_slice(&[0; 8]);
+            assert_eq!(
+                Gff::read(&bytes).unwrap(),
+                g,
+                "padding must not change the parsed document"
+            );
+            let k = key(area, ResType::GIT);
+            m.set(k, bytes.clone());
+            (k, bytes)
+        });
+        (Workspace::new(m), files)
+    }
+
+    fn set_extra(k: ResKey, value: Option<Value>) -> Command {
+        let label = "Extra".into();
+        Command::new("Extra", vec![Edit::SetField { key: k, path: GffPath::root(), label, value }])
+    }
+
+    #[test]
+    fn documents_only_read_keep_their_bytes() {
+        let (mut ws, files) = foreign_workspace();
+        for (k, _) in &files {
+            ws.doc(k).unwrap();
+        }
+        ws.flush().unwrap();
+        for (k, bytes) in &files {
+            assert_eq!(
+                ws.module.get(k),
+                Some(&bytes[..]),
+                "{k} should be unchanged after only being read"
+            );
+        }
+    }
+
+    #[test]
+    fn an_edit_writes_its_own_document_alone() {
+        let (mut ws, [(one, _), (two, two_bytes)]) = foreign_workspace();
+        ws.doc(&two).unwrap();
+        ws.apply(set_extra(one, Some(Value::Int(3)))).unwrap();
+        ws.flush().unwrap();
+        assert_eq!(Gff::read(ws.module.get(&one).unwrap()).unwrap().root.int("Extra"), Some(3));
+        assert_eq!(ws.module.get(&two), Some(&two_bytes[..]));
+    }
+
+    #[test]
+    fn an_edit_undone_gives_the_bytes_back() {
+        let (mut ws, [(one, one_bytes), _]) = foreign_workspace();
+        ws.apply(set_extra(one, Some(Value::Int(3)))).unwrap();
+        ws.flush().unwrap();
+        assert_ne!(ws.module.get(&one), Some(&one_bytes[..]));
+        ws.undo().unwrap();
+        ws.flush().unwrap();
+        assert_eq!(
+            ws.module.get(&one),
+            Some(&one_bytes[..]),
+            "undo should restore the original bytes"
+        );
+        // The same applies when a field is set back to its original value by
+        // hand rather than by undo.
+        ws.apply(set_extra(one, Some(Value::Int(3)))).unwrap();
+        ws.flush().unwrap();
+        ws.apply(set_extra(one, None)).unwrap();
+        ws.flush().unwrap();
+        assert_eq!(ws.module.get(&one), Some(&one_bytes[..]));
     }
 }
