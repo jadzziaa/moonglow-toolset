@@ -1888,19 +1888,19 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - Solid and see-through lit meshes go through the game's programs
     (M2), decals too (`vsvt`/`fst`, M4), and since M5 additive meshes,
     the skybox, the area's grass and particles; the sky's fade, unlit
-    markers, shiny water (M5's decision: "The special surfaces" below),
-    rippling textures (unless their material names a pair), and skins of
+    markers, shiny water without the targets' framebuffer copies (a
+    thumbnail, a preview: "The special surfaces" below), rippling textures (unless their material names a pair), and skins of
     more than 64 bones stay with the WGSL shader. (S)
   - Keyholing is compiled out (`KEYHOLING_ENABLED 0`): the editor has no
     player. (S)
   - `gl_FragCoord.y` counts from the top in wgpu and from the bottom in
-    OpenGL: not flipped. No program the game path draws reads it: of the
+    OpenGL: counted from the bottom (in IR) only in a program that reads
+    the framebuffer's copies (`fswater`, `fsparticle`;
+    [the framebuffer proposal](framebuffer-proposal.md)). Of the other
     stock ones keyholing (off), `fs_shadowplane` and `fs_cg_btn_col` (not
-    drawn), `fswater` (drawn only with `Renderer::game_water`, M5) and
-    `fsparticle` (drawn since M5, but it reads it only where
-    `particleSoftness` is above 0, which Moonglow leaves 0), and none of
-    The Domains of Dread's 37 (checked in M4). A screen-space custom
-    shader would see it upside down. (S)
+    drawn) read it, and none of The Domains of Dread's 37 (checked in
+    M4). A screen-space custom shader that reads no copy would see it
+    upside down. (S)
   - The height map's parallax direction on a tile's `rotatetexture`
     meshes (`inc_displacement` turns it by `mat2(m_texture)`)
     is not turned in Moonglow's own shader. (S)
@@ -1931,10 +1931,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Tier A of the game's shaders (M2 of [the shaders
   proposal](shaders-proposal.md)):** what the Shaders switch leaves out
   or unchecked. (from M2, 2026-10-21)
-  - **No framebuffer for the game's programs:** `texFBColor`/`texFBDepth` are
-    white, so a material's `sample_framebuffer` (TDoD's flow MTR has one)
-    draws without what is behind it. (L: the framebuffer, out of 2.0;
-    assessed in [the framebuffer proposal](framebuffer-proposal.md))
+  - **The framebuffer's copies** (`texFBColor`/`texFBDepth`, [the
+    framebuffer proposal](framebuffer-proposal.md), steps 1 to 3): made
+    after the solid meshes only. A material's `sample_framebuffer` (TDoD's
+    two flow MTRs; their programs read no copy) isn't drawn late; whether
+    the client copies again after the water (a see-through mesh or a
+    particle over water sees the solid meshes only) wasn't read; without
+    the targets' copies (`Renderer::render`) they are white. Direct3D 12
+    and Metal not yet run in CI (step 5). (S)
   - **An instance drawn see-through** (a blueprint about to be placed, a
     tile preview) draws with Moonglow's shader even when its material
     names a pair: the ghost would need a depth-only pipeline of the game's
@@ -2074,24 +2078,19 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   meshes and particles, read in the client (`surfaces_in_the_client`)
   and drawn with the game's programs or kept Moonglow's. (from M5,
   2026-10-21)
-  - **Shiny water stays Moonglow's.** The client draws it with
-    `vswater`/`fswater` (Moonglow chooses them: `game::stock_pair`), whose
-    colour is mostly the refraction of what lies under the water, read
-    from the framebuffer (`texFBColor`, `texFBDepth`), out of 2.0. Without
-    it `fswater` draws the water opaque and pale: TDoD's fountain 16.4 of
-    255 from the client against Moonglow's own 11.7, a rural lake 19.4
-    against 12.6 (a standing card of water, content no area has, 38.3
-    against 55.6: there Moonglow's own is too dark). `Renderer::game_water` draws it for comparing
-    (`FRAME_GAME_WATER=1` in `frame_perf`). Its waves match the client's
-    pattern better than Moonglow's own ripples: porting `fswater`'s waves
-    (`GetWavesOffset`, `areaGlobalWind`) into Moonglow's water, or giving
-    the game's programs a copy of the picture and its depth drawn so far
-    (a second pass after the solid meshes), would bring it closer. (M–L;
-    [the framebuffer proposal](framebuffer-proposal.md))
+  - **Shiny water is the game's** (`vswater`/`fswater` with the
+    framebuffer's copies, [the framebuffer
+    proposal](framebuffer-proposal.md)) with the Shaders switch on: a
+    rural area's far water 10.9 of 255 from the client against Moonglow's
+    own 12.6, TDoD's fountain 10.6 against 11.7, a standing card 14.6
+    against 57.1. Moonglow's own water draws it with the switch off, in
+    thumbnails and previews (no copies), and where `fswater` fails
+    (`FRAME_OWN_WATER=1` in `frame_perf` times it beside). Still 10.9 away:
+    not looked into. (S)
   - **Soft particles** (`particleSoftness`, above 0 in the client) fade
     where a particle meets what is behind it, through `texFBDepth`:
-    Moonglow's particles don't, by either path. (with the framebuffer:
-    [the framebuffer proposal](framebuffer-proposal.md))
+    Moonglow's particles don't, by either path; its value wasn't read
+    (step 4 of [the framebuffer proposal](framebuffer-proposal.md)). (S)
   - **The sky's fade** (the horizon's band in the fog's colour) stays
     Moonglow's: what the engine draws it with and gives it (`globalColor`,
     its blending) wasn't read; the skybox is the game's `vsvt`/`fst`. (S)
@@ -2099,10 +2098,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     alpha) is not read: Moonglow adds its colour whole by either path, as
     before; the same for an opaque texture. A Lighten particle is added by
     its alpha (`fsparticle` fades it by its alpha into the fog). (S)
-  - **Particles drawn as round blobs:** a still emitter of an 8×8 white
-    TGA draws a jagged disc (a Lighten one a turned square) in Moonglow,
-    by either path, and a square in the client (`surfaces_in_the_client`'s
-    pictures, `close_off.png` and `close_on.png`). Not looked into. (S)
+  - **Particles' size and turn:** a still emitter's square particles are
+    drawn upright now, as in the client (they were turned by a random
+    angle: jagged discs where many lie in one place), 28 pixels a side
+    against the client's 30 in `surfaces_in_the_client`, 1 to 3 pixels
+    off (the fitted camera's error, or the size: not told apart). A
+    spinning particle's starting angle wasn't read. (S)
   - **The grass** is the game's program on Moonglow's tufts: their places,
     sizes and count are Moonglow's (the field's mean colour 0.1 of 255
     from the client's, but per pixel 17.6 against Moonglow's own 17.0:

@@ -523,7 +523,11 @@ impl Particles {
                 let sy = if sy0 > 0.0 || sy1 > 0.0 { sy0 + (sy1 - sy0) * k } else { sx };
                 let frame = (f0 + (q.frame0 + q.age * fps).floor() % frames).min(f1.max(f0)) as u32;
                 let (uv0, uv1) = cell(frame, gx, gy);
-                let angle = q.rot + rot_speed * q.age;
+                // (Upright where it doesn't spin: the client draws a still
+                // emitter's square particles square, each of them, not each
+                // turned by a random angle; `surfaces_in_the_client`. A
+                // spinning one's starting angle wasn't read.)
+                let angle = if rot_speed == 0.0 { 0.0 } else { q.rot + rot_speed * q.age };
                 let (right, up) = match render.as_str() {
                     // Upright, turned about the world's Z to the eye (a
                     // shaft of light); `billboard_to_world_z` lies flat,

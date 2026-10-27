@@ -144,13 +144,14 @@ struct TextureEntry {
 
 /// Whether the game's shiny water is drawn with its own programs
 /// (`vswater`/`fswater`, which the client draws it with) where the game's
-/// shaders are on, or with Moonglow's water (`docs/shaders-proposal.md`,
-/// M5): Moonglow's. `fswater` sees what is under the water through the
-/// framebuffer (`texFBColor`, `texFBDepth`), which Moonglow doesn't give
-/// it; without it, the water is drawn opaque and pale, farther from the
-/// client than Moonglow's own (TDoD's fountain 16.4 of 255 against 11.7, a
-/// rural lake 19.4 against 12.6: `surfaces_in_the_client`).
-pub const GAME_WATER: bool = false;
+/// shaders are on and the target has its framebuffer copies
+/// ([`Renderer::render_targets`]; `docs/framebuffer-proposal.md`): on.
+/// `fswater` sees what lies under the water through the copies
+/// (`texFBColor`, `texFBDepth`), and is closer to the client than
+/// Moonglow's own water (`surfaces_in_the_client`'s far water 10.9 of 255
+/// against 12.6, TDoD's fountain 10.6 against 11.7). Moonglow's own draws
+/// it with the switch off, without the copies, or where `fswater` fails.
+pub const GAME_WATER: bool = true;
 
 /// Texture slots: diffuse, normal, specular, roughness, height,
 /// self-illumination; then the two a known custom shader reads
@@ -412,6 +413,12 @@ pub struct Renderer {
     /// them (a picture drawn once: a thumbnail, a preview, a test). Off by
     /// default.
     pub game_background: bool,
+    /// The draw that fills a target's framebuffer copies
+    /// ([`crate::framebuffer`]), made the first time one is filled.
+    copier: Option<crate::framebuffer::Copier>,
+    /// Shiny water is drawn by the game's programs this frame: they are
+    /// on, [`Renderer::game_water`], and the target has its copies.
+    water_now: bool,
     game: crate::game::GameShaders,
     /// The pipelines of each mesh's slots ([`Renderer::game_pipelines`]): by
     /// the slots (their place), what chooses its stock pair, its
@@ -892,6 +899,8 @@ impl Renderer {
             game_shaders: false,
             game_water: GAME_WATER,
             game_background: false,
+            copier: None,
+            water_now: false,
             game: crate::game::GameShaders::new(gpu),
             game_pipelines: HashMap::new(),
             material_keys: Vec::new(),
@@ -956,7 +965,8 @@ impl Renderer {
     /// whose material names a program pair; else one Moonglow's shader
     /// does nothing of its own for (no known custom shader's effect, no
     /// ripples, no water), with the stock pair (a decal's unlit). Shiny
-    /// water only with [`Renderer::game_water`], rippling or not (`fswater`
+    /// water only with [`Renderer::game_water`] and the target's framebuffer
+    /// copies ([`Renderer::render_targets`]), rippling or not (`fswater`
     /// reads its texture's mean colour alone); a texture that only ripples
     /// (`proceduretype arturo`, a procedure the engine runs on the CPU)
     /// stays Moonglow's, which ripples it.
@@ -965,7 +975,7 @@ impl Renderer {
             self.game.fail(g, "it is a geometry program, which wgpu has no stage for".into());
             return false;
         }
-        let own = if surface.water { !self.game_water } else { surface.ripple.is_some() };
+        let own = if surface.water { !self.water_now } else { surface.ripple.is_some() };
         slots.custom.is_some() || (slots.effect.is_none() && !own)
     }
 
@@ -1424,6 +1434,8 @@ impl Renderer {
     /// scene's depths (as `camera`'s view and projection put them), so a
     /// caller can draw over the scene tested against it (overlays: a
     /// walkmesh, a selection) in a pass that loads both.
+    /// Without the target's framebuffer copies: shiny water is Moonglow's
+    /// ([`Renderer::render_targets`] has them).
     #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
@@ -1436,6 +1448,49 @@ impl Renderer {
         depth: &wgpu::TextureView,
         size: (u32, u32),
     ) {
+        self.draw_scene(gpu, assets, scene, camera, target, resolve, depth, size, None);
+    }
+
+    /// Draws a scene into `targets`, as [`Renderer::render`] does, with
+    /// their framebuffer copies for the game's programs that read them
+    /// (shiny water through `fswater`, where [`Renderer::game_water`]).
+    pub fn render_targets(
+        &mut self,
+        gpu: &Gpu,
+        assets: &dyn Assets,
+        scene: &Scene,
+        camera: &Camera,
+        targets: &Targets,
+    ) {
+        self.draw_scene(
+            gpu,
+            assets,
+            scene,
+            camera,
+            targets.render_view(),
+            targets.resolve_view(),
+            &targets.depth,
+            targets.size,
+            Some(&targets.copies),
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_scene(
+        &mut self,
+        gpu: &Gpu,
+        assets: &dyn Assets,
+        scene: &Scene,
+        camera: &Camera,
+        target: &wgpu::TextureView,
+        resolve: Option<&wgpu::TextureView>,
+        depth: &wgpu::TextureView,
+        size: (u32, u32),
+        copies: Option<&crate::framebuffer::Copies>,
+    ) {
+        // (A target's copies of its own size only.)
+        let copies = copies.filter(|_| self.game_shaders);
+        self.water_now = self.game_water && copies.is_some();
         let view = camera.view();
         let proj = camera.projection(size.0 as f32 / size.1.max(1) as f32);
         let area_dir = view.transform_vector3(scene.area.direction).normalize_or_zero();
@@ -1752,7 +1807,12 @@ impl Renderer {
                         };
                         timed += usize::from(p.timed);
                         let geometry = crate::game::Geometry::Mesh(mesh);
-                        let draw = self.game.push(p, material, geometry, dynamic_range, f, &d);
+                        let mut draw = self.game.push(p, material, geometry, dynamic_range, f, &d);
+                        // (A solid draw that reads the framebuffer's copies,
+                        // shiny water through `fswater`: after them.)
+                        draw.late = copies.is_some()
+                            && draw.pipeline.wants_fb
+                            && game_pass == crate::game::GamePass::Opaque;
                         match fringe {
                             None if game_pass == crate::game::GamePass::Opaque => {
                                 game_draws.push(draw)
@@ -2197,7 +2257,26 @@ impl Renderer {
         );
         // The game's shaders' blocks and bind groups; the solid draws by
         // pipeline and material, each set once for its draws.
-        game_draws.sort_by_key(|d| d.order());
+        // (Those after the framebuffer's copy, last.)
+        game_draws.sort_by_key(|d| (d.late, d.order()));
+        let early = game_draws.iter().take_while(|d| !d.late).count();
+        // The copies are filled where a draw reads them: the pass is cut
+        // after the solid meshes, and the copy made.
+        let copying = copies.filter(|_| {
+            early < game_draws.len() || game_blended.iter().any(|d| d.pipeline.wants_fb)
+        });
+        self.game.set_framebuffer(copying.map(|c| crate::game::FbViews {
+            color: c.color.clone(),
+            depth: c.depth.clone(),
+            id: c.id,
+        }));
+        if copying.is_some() && self.copier.is_none() {
+            self.copier = Some(crate::framebuffer::Copier::new(
+                &gpu.device,
+                self.color_format,
+                self.sample_count,
+            ));
+        }
         if !game_draws.is_empty() || !game_blended.is_empty() {
             self.game.upload(gpu, &mut game_draws, &mut game_blended);
             let (white, white_cube) = (self.white.clone(), self.white_cube.clone());
@@ -2236,33 +2315,12 @@ impl Renderer {
         let bg = scene.background;
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
         {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("scene"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: target,
-                    resolve_target: resolve,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: f64::from(bg[0]),
-                            g: f64::from(bg[1]),
-                            b: f64::from(bg[2]),
-                            a: 1.0,
-                        }),
-                        store: wgpu::StoreOp::Store,
-                    },
-                    depth_slice: None,
-                })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: depth,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
-                ..Default::default()
-            });
+            // (Cut for the framebuffer's copy: the multisampled picture is
+            // resolved at the end of the second pass alone.)
+            let first_resolve = if copying.is_some() { None } else { resolve };
+            let mut pass = scene_pass(&mut encoder, target, first_resolve, depth, Some(bg));
             pass.set_bind_group(0, &frame_group, &[]);
+            let mut copied = copying.is_none();
             // (A pipeline or a material that is the last draw's stays as
             // it is, and a draw's own values are found by its instance
             // number: binding a material and the draw's values anew for
@@ -2280,9 +2338,22 @@ impl Renderer {
                 let d = &draws[order[batch[0] as usize] as usize];
                 if !game_drawn && !matches!(d.pass, Pass::Sky | Pass::SkyFade | Pass::Opaque) {
                     let (dynamic, particles) = (&self.dynamic_buffer, &self.particle_buffer);
+                    let solid = &game_draws[..early];
                     self.drawn.batches +=
-                        self.game.draw(&mut pass, &game_draws, dynamic, particles, &mut game_bound);
+                        self.game.draw(&mut pass, solid, dynamic, particles, &mut game_bound);
                     game_drawn = true;
+                    own_lost = true;
+                }
+                if !copied && !matches!(d.pass, Pass::Sky | Pass::SkyFade | Pass::Opaque) {
+                    drop(pass);
+                    pass =
+                        self.copy_framebuffer(gpu, &mut encoder, copying, (target, resolve, depth));
+                    let (dynamic, particles) = (&self.dynamic_buffer, &self.particle_buffer);
+                    game_bound = crate::game::Bound3::default();
+                    let late = &game_draws[early..];
+                    self.drawn.batches +=
+                        self.game.draw(&mut pass, late, dynamic, particles, &mut game_bound);
+                    copied = true;
                     own_lost = true;
                 }
                 if let Some(i) = d.game {
@@ -2324,8 +2395,18 @@ impl Renderer {
             }
             if !game_drawn {
                 let (dynamic, particles) = (&self.dynamic_buffer, &self.particle_buffer);
+                let solid = &game_draws[..early];
                 self.drawn.batches +=
-                    self.game.draw(&mut pass, &game_draws, dynamic, particles, &mut game_bound);
+                    self.game.draw(&mut pass, solid, dynamic, particles, &mut game_bound);
+            }
+            if !copied {
+                drop(pass);
+                pass = self.copy_framebuffer(gpu, &mut encoder, copying, (target, resolve, depth));
+                let (dynamic, particles) = (&self.dynamic_buffer, &self.particle_buffer);
+                game_bound = crate::game::Bound3::default();
+                let late = &game_draws[early..];
+                self.drawn.batches +=
+                    self.game.draw(&mut pass, late, dynamic, particles, &mut game_bound);
             }
             self.drawn.materials = materials;
             // (Moonglow's particle pipeline's frame and vertices, bound
@@ -2360,6 +2441,25 @@ impl Renderer {
         (self.uniforms, self.bones, self.dynamic) = (uniforms, bones, dynamic);
     }
 
+    /// Ends the scene's first pass's work: fills `copies` from what is
+    /// drawn so far and begins the second pass over it.
+    fn copy_framebuffer<'e>(
+        &self,
+        gpu: &Gpu,
+        encoder: &'e mut wgpu::CommandEncoder,
+        copies: Option<&crate::framebuffer::Copies>,
+        (target, resolve, depth): (
+            &wgpu::TextureView,
+            Option<&wgpu::TextureView>,
+            &wgpu::TextureView,
+        ),
+    ) -> wgpu::RenderPass<'e> {
+        if let (Some(copier), Some(copies)) = (&self.copier, copies) {
+            copier.copy(&gpu.device, encoder, target, depth, copies);
+        }
+        scene_pass(encoder, target, resolve, depth, None)
+    }
+
     /// Draws a scene offscreen and reads it back (rows top first).
     pub fn render_image(
         &mut self,
@@ -2371,18 +2471,47 @@ impl Renderer {
         height: u32,
     ) -> Rgba {
         let targets = Targets::new(gpu, self.color_format, self.sample_count, width, height);
-        self.render(
-            gpu,
-            assets,
-            scene,
-            camera,
-            targets.render_view(),
-            targets.resolve_view(),
-            &targets.depth,
-            (width, height),
-        );
+        self.render_targets(gpu, assets, scene, camera, &targets);
         gpu.read_rgba(&targets.color)
     }
+}
+
+/// The scene's pass: cleared to `clear` (the background; the depth far),
+/// or drawn on over what is there (`None`: after the framebuffer's copy).
+fn scene_pass<'e>(
+    encoder: &'e mut wgpu::CommandEncoder,
+    target: &wgpu::TextureView,
+    resolve: Option<&wgpu::TextureView>,
+    depth: &wgpu::TextureView,
+    clear: Option<[f32; 3]>,
+) -> wgpu::RenderPass<'e> {
+    let (color_load, depth_load) = match clear {
+        Some(bg) => (
+            wgpu::LoadOp::Clear(wgpu::Color {
+                r: f64::from(bg[0]),
+                g: f64::from(bg[1]),
+                b: f64::from(bg[2]),
+                a: 1.0,
+            }),
+            wgpu::LoadOp::Clear(1.0),
+        ),
+        None => (wgpu::LoadOp::Load, wgpu::LoadOp::Load),
+    };
+    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("scene"),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view: target,
+            resolve_target: resolve,
+            ops: wgpu::Operations { load: color_load, store: wgpu::StoreOp::Store },
+            depth_slice: None,
+        })],
+        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+            view: depth,
+            depth_ops: Some(wgpu::Operations { load: depth_load, store: wgpu::StoreOp::Store }),
+            stencil_ops: None,
+        }),
+        ..Default::default()
+    })
 }
 
 /// A box of the scene as the camera sees it (`on_screen`: its projection
@@ -2432,7 +2561,10 @@ pub fn tint_light(scene: &Scene, at: Vec3) -> Vec3 {
 /// The depth buffer's format.
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
-/// Offscreen colour (and, with MSAA, multisampled) and depth targets.
+/// Offscreen colour (and, with MSAA, multisampled) and depth targets, and
+/// their framebuffer copies (made with them: made later, in a full video
+/// memory, they were left in the system's and cost 4 ms a copy;
+/// `docs/framebuffer-proposal.md`).
 #[derive(Debug)]
 pub struct Targets {
     pub color: wgpu::Texture,
@@ -2440,6 +2572,7 @@ pub struct Targets {
     pub msaa_view: Option<wgpu::TextureView>,
     pub depth: wgpu::TextureView,
     pub size: (u32, u32),
+    pub copies: crate::framebuffer::Copies,
 }
 
 impl Targets {
@@ -2472,14 +2605,15 @@ impl Targets {
                 | wgpu::TextureUsages::COPY_SRC
                 | wgpu::TextureUsages::TEXTURE_BINDING,
         );
-        let msaa_view = (samples > 1).then(|| {
-            make("msaa", format, samples, wgpu::TextureUsages::RENDER_ATTACHMENT)
-                .create_view(&Default::default())
-        });
-        let depth = make("depth", DEPTH_FORMAT, samples, wgpu::TextureUsages::RENDER_ATTACHMENT)
-            .create_view(&Default::default());
+        // (The picture drawn and its depth are read for the framebuffer's
+        // copies.)
+        let read = wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING;
+        let msaa_view = (samples > 1)
+            .then(|| make("msaa", format, samples, read).create_view(&Default::default()));
+        let depth = make("depth", DEPTH_FORMAT, samples, read).create_view(&Default::default());
         let color_view = color.create_view(&Default::default());
-        Targets { color, color_view, msaa_view, depth, size: (width, height) }
+        let copies = crate::framebuffer::Copies::new(&gpu.device, format, (width, height));
+        Targets { color, color_view, msaa_view, depth, size: (width, height), copies }
     }
 
     /// Where to draw: the multisampled view, else the colour view.

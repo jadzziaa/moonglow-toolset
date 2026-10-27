@@ -2366,16 +2366,9 @@ fn viewport(
         // shader drawing until they are: no frame waits on them. The view
         // is drawn again as the animations step, and when one is ready.)
         vp.renderer.game_background = true;
-        vp.renderer.render(
-            &vp.gpu,
-            &game.resman,
-            &frame,
-            &camera,
-            targets.render_view(),
-            targets.resolve_view(),
-            &targets.depth,
-            (w, h),
-        );
+        // (With the targets' framebuffer copies: shiny water by the
+        // game's `fswater`.)
+        vp.renderer.render_targets(&vp.gpu, &game.resman, &frame, &camera, targets);
         vp.renderer.game_background = false;
         view.drawn = Some((from, view.time));
         view.pictures += 1;

@@ -1119,7 +1119,12 @@ fn surfaces_in_the_client() {
         git.root.set(mg_area::ObjectKind::Item.list(), Value::List(placed));
         m.set_gff(git_key, &git).unwrap();
         m.save_as(&ModuleLocation::Archive(dir.join("user/modules/MgScene.mod"))).unwrap();
-        let Some(client) = client_screenshot(&dir, "MgScene") else {
+        let client = if run == "unmarked" {
+            client_capture(&dir, "MgScene", "surfaces_unmarked")
+        } else {
+            client_screenshot(&dir, "MgScene")
+        };
+        let Some(client) = client else {
             panic!("{run}: the client did not reach the scene (see {})", dir.display());
         };
         save_png(&client, &dir.join("client.png"));
@@ -1300,12 +1305,12 @@ fn surfaces_in_moonglow(game: &GameData, are: &Gff, git: &Gff, client: &Rgba, di
     let (w, h) = (client.width, client.height);
     let mut pictures = Vec::new();
     let mut chosen = Vec::new();
-    // (Off, on, and on with the game's water: `fswater` without the
-    // framebuffer, which M5 measured and left out.)
+    // (Off, on (shiny water by `fswater` with the framebuffer's copies,
+    // `GAME_WATER`), and on with Moonglow's own water, as before.)
     for (on, water, name) in [
         (false, false, "moonglow_off"),
-        (true, false, "moonglow_on"),
-        (true, true, "moonglow_water"),
+        (true, mg_render::GAME_WATER, "moonglow_on"),
+        (true, false, "moonglow_ownwater"),
     ] {
         let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
         r.game_shaders = on;
@@ -1313,7 +1318,7 @@ fn surfaces_in_moonglow(game: &GameData, are: &Gff, git: &Gff, client: &Rgba, di
         r.game_programs = Some(Vec::new());
         let img = r.render_image(&gpu, &game.resman, &scene, &camera, w, h);
         save_png(&img, &dir.join(format!("{name}.png")));
-        if on && !water {
+        if on && water == mg_render::GAME_WATER {
             chosen = r.game_programs.take().unwrap_or_default();
             eprintln!("failures: {:?}", r.game_shader_failures());
         }
@@ -1356,14 +1361,15 @@ fn surfaces_in_moonglow(game: &GameData, are: &Gff, git: &Gff, client: &Rgba, di
         let away = |m: [f32; 3]| (0..3).map(|i| (m[i] - c[i]).abs()).sum::<f32>() / 3.0;
         report += &format!(
             "{what:24} client {c:5.1?}  off {off:5.1?} ({:.1})  on {on:5.1?} ({:.1})  \
-             the game's water {water:5.1?} ({:.1})\n",
+             on, Moonglow's water {water:5.1?} ({:.1})\n",
             away(off),
             away(on),
             away(water)
         );
     }
     report += &format!(
-        "the picture: off {:.2}, on {:.2}, the game's water {:.2} of 255 from the client's\n",
+        "the picture: off {:.2}, on {:.2}, on with Moonglow's water {:.2} of 255 from the \
+         client's\n",
         super::picture_difference(client, &pictures[0]),
         super::picture_difference(client, &pictures[1]),
         super::picture_difference(client, &pictures[2])
@@ -1379,8 +1385,8 @@ fn surfaces_in_moonglow(game: &GameData, are: &Gff, git: &Gff, client: &Rgba, di
         let node = format!("s{i}");
         pair(&|m: &str| m == "mg_surf", &move |n: &str| n.eq_ignore_ascii_case(&node))
     };
-    // (Shiny water: Moonglow's own while `GAME_WATER` is off, M5's decision:
-    // the client's pair is `vswater`/`fswater`, read in the marked runs.)
+    // (Shiny water: the client's pair, `vswater`/`fswater` (read in the
+    // marked runs), with the framebuffer's copies while `GAME_WATER`.)
     let water = mg_render::GAME_WATER.then_some(("vswater", "fswater", true));
     let expected: Vec<(&str, Option<Chosen>, Option<Chosen>)> = vec![
         ("water card", card(0), water),

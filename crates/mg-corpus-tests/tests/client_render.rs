@@ -48,7 +48,7 @@ use mg_schema::{StructExt, ifo};
 use mg_testkit::{corpus, oracle_tool, scratch_dir};
 
 mod common;
-use common::{SETTINGS, client_screenshot, compile, save_png};
+use common::{SETTINGS, client_capture, client_screenshot, compile, save_png};
 
 #[path = "client_render/ee_visuals.rs"]
 mod ee_visuals;
@@ -2421,7 +2421,7 @@ fn tdod_custom_shaders_look() {
     empty.root.set("Placeable List", Value::List(Vec::new()));
     m.set_gff(git_key, &git).unwrap();
     m.save_as(&ModuleLocation::Archive(dir.join("user/modules/MgScene.mod"))).unwrap();
-    let client = client_screenshot(&dir, "MgScene");
+    let client = client_capture(&dir, "MgScene", "tdod_fountain");
     if let Some(c) = &client {
         save_png(c, &dir.join("client.png"));
     }
@@ -2443,13 +2443,13 @@ fn tdod_custom_shaders_look() {
     };
     let (bare, _, _) = draw(&empty, false, false);
     let (off, _, _) = draw(&git, false, false);
-    let (on, drawn, failures) = draw(&git, true, false);
-    // (The basin's water by `fswater`, as the client draws it, but without
-    // the framebuffer: M5 measured it, and left it out.)
-    let (water, _, _) = draw(&git, true, true);
+    // (The basin's water by `fswater` with the framebuffer's copies, as the
+    // client draws it, while `GAME_WATER`; and by Moonglow's own water.)
+    let (on, drawn, failures) = draw(&git, true, mg_render::GAME_WATER);
+    let (water, _, _) = draw(&git, true, false);
     save_png(&off, &dir.join("moonglow_off.png"));
     save_png(&on, &dir.join("moonglow_on.png"));
-    save_png(&water, &dir.join("moonglow_water.png"));
+    save_png(&water, &dir.join("moonglow_ownwater.png"));
     eprintln!("switch on: {drawn:?}, failures {failures:?}");
     let Some(client) = client else {
         eprintln!("{}: no client picture", dir.display());
@@ -2474,7 +2474,7 @@ fn tdod_custom_shaders_look() {
     let (d_water, _) = over(&water);
     eprintln!(
         "fountain ({n} pixels): Moonglow's own shader differs from the client by {d_off:.1} of 255 \
-         on average, the game's shaders by {d_on:.1}, and with the game's water by {d_water:.1}"
+         on average, the game's shaders by {d_on:.1}, and with Moonglow's water by {d_water:.1}"
     );
     for (name, r, _) in REGIONS.iter().filter(|(n, ..)| n.contains("floor")) {
         let c = mean(&client, *r);

@@ -418,10 +418,11 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
     close(h, &tab);
 }
 
-/// `FRAME_GAME_WATER=1`: shiny water by the game's `fswater` too, with the
-/// Shaders switch on.
-fn game_water() -> bool {
-    std::env::var_os("FRAME_GAME_WATER").is_some()
+/// `FRAME_OWN_WATER=1`: shiny water by Moonglow's own water too, with the
+/// Shaders switch on (by default `fswater` with the framebuffer's copies,
+/// [`mg_render::GAME_WATER`]), for comparing.
+fn own_water() -> bool {
+    std::env::var_os("FRAME_OWN_WATER").is_some()
 }
 
 /// The area viewer's frame taken apart, on a renderer of the test's own:
@@ -477,9 +478,17 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
             ("orbiting, 4x MSAA", 150.0, 0.6, 4, true),
         ]);
     }
-    for (what, distance, pitch, samples, instancing, on) in
-        configs.into_iter().flat_map(|c| shaders.iter().map(move |&g| (c.0, c.1, c.2, c.3, c.4, g)))
+    // (`FRAME_OWN_WATER`: with the switch on, Moonglow's water as well.)
+    let waters: &[bool] = if own_water() { &[true, false] } else { &[true] };
+    for (what, distance, pitch, samples, instancing, on, water) in configs
+        .into_iter()
+        .flat_map(|c| shaders.iter().map(move |&g| (c.0, c.1, c.2, c.3, c.4, g)))
+        .flat_map(|c| waters.iter().map(move |&w| (c.0, c.1, c.2, c.3, c.4, c.5, w)))
     {
+        // (Moonglow's water is the switch on's comparison only.)
+        if !on && !water {
+            continue;
+        }
         // (A draw for each mesh is the switch off's comparison only.)
         if on && !instancing {
             continue;
@@ -487,7 +496,7 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
         let mut renderer = Renderer::new(&gpu, format, samples);
         renderer.instancing = instancing;
         renderer.game_shaders = on;
-        renderer.game_water = on && game_water();
+        renderer.game_water = water;
         let mut first = Duration::ZERO;
         let targets = Targets::new(&gpu, format, samples, w, h_px);
         let mut sims = std::collections::HashMap::new();
@@ -530,16 +539,7 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
             let t1 = Instant::now();
             frame.particles = scene.particles(&model, &view, &mut sims, dt, camera.view());
             let t2 = Instant::now();
-            renderer.render(
-                &gpu,
-                &game.resman,
-                &frame,
-                &camera,
-                targets.render_view(),
-                targets.resolve_view(),
-                &targets.depth,
-                (w, h_px),
-            );
+            renderer.render_targets(&gpu, &game.resman, &frame, &camera, &targets);
             let t3 = Instant::now();
             wait();
             let t4 = Instant::now();
@@ -566,7 +566,11 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
             let solid = programs.iter().filter(|p| p.no_discard).count();
             println!("      NO_DISCARD 1 for {solid} of the game's {} meshes", programs.len());
         }
-        let what = if on { format!("{what}, Shaders on") } else { what.to_string() };
+        let what = match (on, water) {
+            (false, _) => what.to_string(),
+            (true, true) => format!("{what}, Shaders on"),
+            (true, false) => format!("{what}, Shaders on, Moonglow's water"),
+        };
         println!(
             // (The GPU's least times too: with another program drawing,
             // the usual one is as much that program's.)
@@ -1364,13 +1368,13 @@ fn shaders_off_and_on(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64)
         let label = if on { ", Shaders on" } else { ", Shaders off" };
         area_views(h, r, area, tiles, label);
     }
-    // (`FRAME_GAME_WATER=1`: on again, shiny water by `fswater` too, as
-    // M5 timed it.)
-    if game_water() {
+    // (`FRAME_OWN_WATER=1`: on again, shiny water by Moonglow's own, as
+    // before the framebuffer's copies.)
+    if own_water() {
         if let Some(vp) = h.state_mut().viewport.as_mut() {
-            vp.renderer.game_water = true;
+            vp.renderer.game_water = false;
         }
-        area_views(h, r, area, tiles, ", Shaders on, the game's water");
+        area_views(h, r, area, tiles, ", Shaders on, Moonglow's water");
         if let Some(vp) = h.state_mut().viewport.as_mut() {
             vp.renderer.game_water = mg_render::GAME_WATER;
         }

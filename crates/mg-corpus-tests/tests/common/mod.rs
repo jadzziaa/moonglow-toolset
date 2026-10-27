@@ -325,6 +325,33 @@ pub(crate) fn client_screenshot(dir: &Path, module: &str) -> Option<Rgba> {
 }
 
 #[allow(dead_code)]
+/// [`client_screenshot`], kept as `captures/client/<name>.png` in the
+/// oracle's folder (`mg_testkit::aurora_capture`'s); with
+/// `MG_CLIENT_CAPTURED=1` the picture kept is read instead of running the
+/// client again (Moonglow's side of a comparison changed, the scene not).
+pub(crate) fn client_capture(dir: &Path, module: &str, name: &str) -> Option<Rgba> {
+    let kept = format!("client/{name}.png");
+    if std::env::var_os("MG_CLIENT_CAPTURED").is_some()
+        && let Some(p) = mg_testkit::aurora_capture(&kept)
+    {
+        eprintln!("the client's picture as captured: {}", p.display());
+        return Some(read_png(&p));
+    }
+    let shot = client_screenshot(dir, module)?;
+    let base = std::env::var_os("MOONGLOW_ORACLE").map(PathBuf::from).or_else(|| {
+        std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share/moonglow-oracle"))
+    });
+    if let Some(base) = base {
+        let to = base.join("captures").join(&kept);
+        if let Some(parent) = to.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        save_png(&shot, &to);
+    }
+    Some(shot)
+}
+
+#[allow(dead_code)]
 /// Runs the client until the scene is ready and screenshots its window
 /// `shots` times, `gap` apart: each picture with the seconds since the
 /// first was taken (the middle of each screenshot's own time, which is

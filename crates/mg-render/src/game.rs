@@ -710,8 +710,11 @@ pub(crate) enum Unit {
     Env,
     EnvCube,
     Noise,
-    /// None that Moonglow has (`texFBColor`, a custom shader's slot past
-    /// what it keeps): white.
+    /// The framebuffer's copies (bound in group 2, not as a material's).
+    FbColor,
+    FbDepth,
+    /// None that Moonglow has (a custom shader's slot past what it keeps):
+    /// white.
     White,
 }
 
@@ -721,6 +724,8 @@ pub(crate) fn unit(name: &str) -> Unit {
         "texUnitEnv" => Unit::Env,
         "texUnitEnvCube" => Unit::EnvCube,
         "texUnitNoise" => Unit::Noise,
+        "texFBColor" => Unit::FbColor,
+        "texFBDepth" => Unit::FbDepth,
         _ => match name.strip_prefix("texUnit").and_then(|n| n.parse::<usize>().ok()) {
             Some(n) if n < crate::renderer::SLOTS => Unit::Slot(n),
             _ => Unit::White,
@@ -792,6 +797,51 @@ const STORAGE: [(&str, usize, u32); 7] = [
     (mg_shader::LIGHT_TABLE, 0, 5),
     (mg_shader::LIGHT_TABLE, 1, 6),
 ];
+
+/// The framebuffer's copies as the programs name them: the colour, the
+/// depth.
+const FB_NAMES: [&str; 2] = ["texFBColor", "texFBDepth"];
+
+/// Group 2's first binding of the framebuffer's copies: the colour and its
+/// sampler, then the depth and its.
+const FB_BINDING: u32 = 7;
+
+/// The framebuffer's entries of group 2's layout: the colour filtered, the
+/// depth (`R32Float`) not.
+fn fb_layout_entries() -> [wgpu::BindGroupLayoutEntry; 4] {
+    let texture = |binding, filterable| wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Texture {
+            sample_type: wgpu::TextureSampleType::Float { filterable },
+            view_dimension: wgpu::TextureViewDimension::D2,
+            multisampled: false,
+        },
+        count: None,
+    };
+    let sampler = |binding, ty| wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Sampler(ty),
+        count: None,
+    };
+    [
+        texture(FB_BINDING, true),
+        sampler(FB_BINDING + 1, wgpu::SamplerBindingType::Filtering),
+        texture(FB_BINDING + 2, false),
+        sampler(FB_BINDING + 3, wgpu::SamplerBindingType::NonFiltering),
+    ]
+}
+
+/// The framebuffer's copies a frame's draws read
+/// ([`GameShaders::set_framebuffer`]): the colour, the depth, and a number
+/// that tells one pair from another.
+#[derive(Debug, Clone)]
+pub(crate) struct FbViews {
+    pub(crate) color: wgpu::TextureView,
+    pub(crate) depth: wgpu::TextureView,
+    pub(crate) id: u64,
+}
 
 /// A block, bound: its binding and what fills it.
 #[derive(Debug, Clone)]
@@ -969,6 +1019,14 @@ pub(crate) struct GamePipeline {
     /// A program reads the clock (`worldtimerTimeOfDay`,
     /// `sceneCurrentFrame`): what it draws moves by itself.
     pub(crate) timed: bool,
+    /// Its fragment program reads the framebuffer's copies (`texFBColor`,
+    /// `texFBDepth`; `docs/framebuffer-proposal.md`): bound in its group 2
+    /// ([`FB_BINDING`]), white without them.
+    pub(crate) reads_fb: bool,
+    /// A draw of it asks for the copies to be made: it reads them, and it
+    /// is no particle (`fsparticle` reads the depth only where
+    /// `particleSoftness` is above 0, which Moonglow leaves 0).
+    pub(crate) wants_fb: bool,
 }
 
 /// A map of small keys, hashed quickly (a frame looks its draws' values up
@@ -1055,6 +1113,9 @@ pub(crate) struct GameDraw<'a> {
     bones: Option<u32>,
     /// The instance it is drawn as: its place in the order of draws.
     instance: u32,
+    /// Drawn after the framebuffer's copy, which it reads (shiny water
+    /// through `fswater`): among the solid draws, last.
+    pub(crate) late: bool,
 }
 
 impl GameDraw<'_> {
@@ -1241,8 +1302,15 @@ pub(crate) struct GameShaders {
     /// Bumped when a buffer the groups bind is made anew.
     generation: u64,
     groups: Fast<(u32, u32), [wgpu::BindGroup; 2]>,
-    /// Each pipeline's groups 2 and 3.
+    /// Each pipeline's groups 2 and 3 (a pipeline that reads the
+    /// framebuffer: its group 2 with white for the copies).
     draw_groups: Fast<u32, [wgpu::BindGroup; 2]>,
+    /// A pipeline's group 2 with the framebuffer's copies, and which.
+    fb_groups: Fast<u32, (u64, wgpu::BindGroup)>,
+    /// The copies this frame's draws read, if any.
+    fb: Option<FbViews>,
+    /// Nearest, clamped: the depth copy's sampler.
+    nearest: wgpu::Sampler,
     groups_generation: u64,
     align: u32,
     next_id: u32,
@@ -1343,6 +1411,8 @@ struct Built {
     skin_slot: Option<u32>,
     zero_slot: Option<u32>,
     timed: bool,
+    reads_fb: bool,
+    wants_fb: bool,
 }
 
 /// What the worker made of a job.
@@ -1469,6 +1539,18 @@ impl Worker {
             vs.at_far_plane().map_err(|e| at(&key.vs, e.to_string()))?;
         }
         let particles = matches!(key.pass, GamePass::Particles(_));
+        // The framebuffer's copies, where the fragment program reads them:
+        // `gl_FragCoord.y` counted from the bottom as OpenGL counts it (the
+        // copies have OpenGL's rows), and the copies bound in group 2,
+        // with the draws' values (bound for the frame, not the material).
+        let fs_used = used(&fs);
+        let reads_fb = fs.reflection.textures.iter().any(|t| {
+            matches!(unit(&t.name), Unit::FbColor | Unit::FbDepth) && fs_used.contains(&t.binding)
+        });
+        if reads_fb {
+            fs.frag_coord_from_bottom().map_err(|e| at(&key.fs, e.to_string()))?;
+        }
+        let wants_fb = reads_fb && !particles;
         fs.set_group(1).map_err(|e| at(&key.fs, e.to_string()))?;
         // Each program's uniforms in parts: the draw's and the lights' are
         // elements of storage arrays (group 2, with the vertex program's
@@ -1480,6 +1562,16 @@ impl Worker {
         for (name, stage, binding) in STORAGE {
             let (p, pname) = if stage == 0 { (&mut vs, &key.vs) } else { (&mut fs, &key.fs) };
             p.place_named(name, DRAW_GROUP, binding).map_err(|e| at(pname, e.to_string()))?;
+        }
+        if reads_fb {
+            for (i, name) in FB_NAMES.iter().enumerate() {
+                let binding = FB_BINDING + 2 * i as u32;
+                for (part, b) in [("image", binding), ("sampler", binding + 1)] {
+                    fs.place_named(&format!("{name}_{part}"), DRAW_GROUP, b)
+                        .map_err(|e| at(&key.fs, e.to_string()))?;
+                }
+            }
+            fs.reflection.textures.retain(|t| !FB_NAMES.contains(&t.name.as_str()));
         }
         for (p, binding, name) in [(&mut vs, 0, &key.vs), (&mut fs, 1, &key.fs)] {
             if p.reflection.uniforms.iter().any(|b| b.part == Part::Bones) {
@@ -1495,7 +1587,7 @@ impl Worker {
             StagePlan::new(&fs.reflection, &used(&fs)).map_err(|e| at(&key.fs, e))?,
         ];
         let visibility = [wgpu::ShaderStages::VERTEX, wgpu::ShaderStages::FRAGMENT];
-        let storage: Vec<wgpu::BindGroupLayoutEntry> = STORAGE
+        let mut storage: Vec<wgpu::BindGroupLayoutEntry> = STORAGE
             .iter()
             .map(|&(name, stage, binding)| {
                 let size = match name {
@@ -1516,6 +1608,9 @@ impl Worker {
                 }
             })
             .collect();
+        if reads_fb {
+            storage.extend(fb_layout_entries());
+        }
         let bones: Vec<wgpu::BindGroupLayoutEntry> = stages
             .iter()
             .zip(visibility)
@@ -1654,7 +1749,7 @@ impl Worker {
                 cache: None,
             })
         })?;
-        Ok(Built { pipeline, layouts, stages, skin_slot, zero_slot, timed })
+        Ok(Built { pipeline, layouts, stages, skin_slot, zero_slot, timed, reads_fb, wants_fb })
     }
 }
 
@@ -1699,6 +1794,12 @@ impl GameShaders {
             generation: 0,
             groups: Fast::default(),
             draw_groups: Fast::default(),
+            fb_groups: Fast::default(),
+            fb: None,
+            nearest: gpu.device.create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("framebuffer depth"),
+                ..Default::default()
+            }),
             groups_generation: 0,
             align: gpu.device.limits().min_uniform_buffer_offset_alignment.max(16),
             next_id: 0,
@@ -1712,6 +1813,7 @@ impl GameShaders {
         self.pipelines.clear();
         self.groups.clear();
         self.draw_groups.clear();
+        self.fb_groups.clear();
         self.regions.clear();
         self.templates.clear();
         self.value_ids.clear();
@@ -1856,6 +1958,8 @@ impl GameShaders {
                     skin_slot: b.skin_slot,
                     zero_slot: b.zero_slot,
                     timed: b.timed,
+                    reads_fb: b.reads_fb,
+                    wants_fb: b.wants_fb,
                 }))
             }
             Err(why) => {
@@ -1948,7 +2052,7 @@ impl GameShaders {
             fill(&b.plan, f, d, &mut self.bones.bytes[at as usize..end]);
             at
         });
-        GameDraw { pipeline, material, geometry, dynamic, places, bones, instance: 0 }
+        GameDraw { pipeline, material, geometry, dynamic, places, bones, instance: 0, late: false }
     }
 
     /// The same draw through another pipeline of the same programs (a
@@ -2057,6 +2161,19 @@ impl GameShaders {
         self.groups_generation == self.generation
             && self.groups.contains_key(&(draw.pipeline.id, draw.material))
             && self.draw_groups.contains_key(&draw.pipeline.id)
+            && (!draw.pipeline.reads_fb
+                || self.fb_group(draw.pipeline.id).is_some() == self.fb.is_some())
+    }
+
+    /// The framebuffer's copies this frame's draws read (`None`: white).
+    pub(crate) fn set_framebuffer(&mut self, fb: Option<FbViews>) {
+        self.fb = fb;
+    }
+
+    /// A pipeline's group 2 with this frame's copies, where it is made.
+    fn fb_group(&self, id: u32) -> Option<&wgpu::BindGroup> {
+        let fb = self.fb.as_ref()?;
+        self.fb_groups.get(&id).filter(|(of, _)| *of == fb.id).map(|(_, g)| g)
     }
 
     /// Makes the bind groups a draw needs, where they aren't made yet.
@@ -2064,11 +2181,37 @@ impl GameShaders {
         if self.groups_generation != self.generation {
             self.groups.clear();
             self.draw_groups.clear();
+            self.fb_groups.clear();
             self.groups_generation = self.generation;
         }
         let p = &draw.pipeline;
-        if !self.draw_groups.contains_key(&p.id) {
-            let storage: Vec<wgpu::BindGroupEntry> = STORAGE
+        // (The copies: white in the pipeline's own group 2, this frame's in
+        // one made for them.)
+        let fb_entries = |color, depth| -> [wgpu::BindGroupEntry; 4] {
+            [
+                wgpu::BindGroupEntry {
+                    binding: FB_BINDING,
+                    resource: wgpu::BindingResource::TextureView(color),
+                },
+                wgpu::BindGroupEntry {
+                    binding: FB_BINDING + 1,
+                    resource: wgpu::BindingResource::Sampler(views.env_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: FB_BINDING + 2,
+                    resource: wgpu::BindingResource::TextureView(depth),
+                },
+                wgpu::BindGroupEntry {
+                    binding: FB_BINDING + 3,
+                    resource: wgpu::BindingResource::Sampler(&self.nearest),
+                },
+            ]
+        };
+        if p.reads_fb
+            && let Some(fb) = &self.fb
+            && self.fb_groups.get(&p.id).is_none_or(|(of, _)| *of != fb.id)
+        {
+            let mut entries: Vec<wgpu::BindGroupEntry> = STORAGE
                 .iter()
                 .map(|&(name, _, binding)| wgpu::BindGroupEntry {
                     binding,
@@ -2079,6 +2222,29 @@ impl GameShaders {
                     },
                 })
                 .collect();
+            entries.extend(fb_entries(&fb.color, &fb.depth));
+            let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("game draws, framebuffer"),
+                layout: &p.layouts[2],
+                entries: &entries,
+            });
+            self.fb_groups.insert(p.id, (fb.id, group));
+        }
+        if !self.draw_groups.contains_key(&p.id) {
+            let mut storage: Vec<wgpu::BindGroupEntry> = STORAGE
+                .iter()
+                .map(|&(name, _, binding)| wgpu::BindGroupEntry {
+                    binding,
+                    resource: match name {
+                        n if n == mg_shader::ORDER => self.order_buffer.as_entire_binding(),
+                        n if n == mg_shader::LIGHT_TABLE => self.light_table.as_entire_binding(),
+                        _ => self.data.as_entire_binding(),
+                    },
+                })
+                .collect();
+            if p.reads_fb {
+                storage.extend(fb_entries(views.white, views.white));
+            }
             let bones: Vec<wgpu::BindGroupEntry> = p
                 .stages
                 .iter()
@@ -2132,7 +2298,9 @@ impl GameShaders {
                     Unit::Slot(n) => (views.slots[*n].unwrap_or(views.white), views.sampler),
                     Unit::Env => (views.env, views.env_sampler),
                     Unit::Noise => (views.noise, views.sampler),
-                    Unit::EnvCube | Unit::White => (views.white, views.sampler),
+                    Unit::EnvCube | Unit::White | Unit::FbColor | Unit::FbDepth => {
+                        (views.white, views.sampler)
+                    }
                 };
                 entries.push(wgpu::BindGroupEntry {
                     binding: t.binding,
@@ -2197,7 +2365,12 @@ impl GameShaders {
                 if let Some(slot) = d.pipeline.zero_slot {
                     pass.set_vertex_buffer(slot, self.zero.slice(..));
                 }
-                pass.set_bind_group(DRAW_GROUP, &own[0], &[]);
+                let draws_group = if d.pipeline.reads_fb {
+                    self.fb_group(id).unwrap_or(&own[0])
+                } else {
+                    &own[0]
+                };
+                pass.set_bind_group(DRAW_GROUP, draws_group, &[]);
                 if !skinned {
                     let zeros: &[u32] = if has_bones { &[0] } else { &[] };
                     pass.set_bind_group(BONES_GROUP, &own[1], zeros);
@@ -2688,7 +2861,8 @@ mod tests {
         assert_eq!(unit("texUnitEnv"), Unit::Env);
         assert_eq!(unit("texUnitEnvCube"), Unit::EnvCube);
         assert_eq!(unit("texUnitNoise"), Unit::Noise);
-        assert_eq!(unit("texFBColor"), Unit::White);
+        assert_eq!(unit("texFBColor"), Unit::FbColor);
+        assert_eq!(unit("texFBDepth"), Unit::FbDepth);
         assert_eq!(key("texNoiseBound"), Key::TexNoiseBound);
         assert_eq!(key("moduleDay"), Key::ModuleDay);
     }

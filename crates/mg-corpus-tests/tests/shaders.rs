@@ -58,6 +58,14 @@ fn compile_all(rm: &ResMan, list: &[(String, Stage)]) -> Vec<String> {
             let split = compile(name, *stage, &pre, rm).and_then(|mut p| {
                 let had = !p.reflection.uniforms.is_empty();
                 let direct = mg_shader::LIGHT_ARRAYS.iter().any(|a| p.reads_uniform(a));
+                // (A program that reads the framebuffer's copies counts
+                // `gl_FragCoord.y` from the bottom, as the renderer has it:
+                // `fswater`, `fsparticle`, the post-processing ones.)
+                let fb = p.reflection.textures.iter().any(|t| t.name.starts_with("texFB"));
+                if fb && *stage == Stage::Fragment {
+                    p.frag_coord_from_bottom()?;
+                    FRAMEBUFFER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
                 let split = p.split_uniforms(part)?;
                 if p.reflection.uniform(mg_shader::LIGHT_INDEX).is_some() {
                     INDEXED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -83,6 +91,8 @@ fn compile_all(rm: &ResMan, list: &[(String, Stage)]) -> Vec<String> {
 /// The programs [`compile_all`] found reading the lights by index.
 static INDEXED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 static UNINDEXED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+/// The fragment programs [`compile_all`] found reading the framebuffer.
+static FRAMEBUFFER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// The game alone: no user directory (its `override` would win).
 fn game(root: &Path) -> ResMan {
@@ -109,13 +119,19 @@ fn every_stock_program_compiles() {
     // (`fslit` and its kind, which the area views draw most: their lights
     // read by index, in a sample too.)
     let mut list = sweep(all, ONE_IN);
-    if !list.iter().any(|(n, _)| n == "fslit") {
-        list.push(("fslit".into(), Stage::Fragment));
+    // (And the two drawn programs that read the framebuffer's copies.)
+    for name in ["fslit", "fswater", "fsparticle"] {
+        if !list.iter().any(|(n, _)| n == name) {
+            list.push((name.into(), Stage::Fragment));
+        }
     }
     use std::sync::atomic::Ordering::Relaxed;
     let (before, before_not) = (INDEXED.load(Relaxed), UNINDEXED.load(Relaxed));
+    let fb_before = FRAMEBUFFER.load(Relaxed);
     let failed = compile_all(&rm, &list);
     let indexed = INDEXED.load(Relaxed) - before;
+    let framebuffer = FRAMEBUFFER.load(Relaxed) - fb_before;
+    assert!(framebuffer >= 2, "{framebuffer} programs read the framebuffer");
     // (A program the pass passes over draws a kilobyte of lights a draw:
     // none of the stock ones.)
     assert_eq!(
