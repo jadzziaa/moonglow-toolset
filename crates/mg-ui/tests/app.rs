@@ -10391,6 +10391,8 @@ fn copy_cut_and_paste_objects() {
     use glam::Vec3;
     use mg_area::ObjectKind;
     let Some((mut h, area)) = area_harness("paste") else { return };
+    // (Options › General › Show duplicate tags warning: off by default.)
+    h.state_mut().settings.warn_duplicate_tags = true;
     let waypoints = |h: &mut Harness<'_, Moonglow>| -> Vec<(f32, f32)> {
         let ws = h.state_mut().ws.as_mut().unwrap();
         let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
@@ -13677,6 +13679,8 @@ fn a_paste_warns_of_builders_tags_not_scenery() {
     use mg_area::ObjectKind;
     use mg_module::instances::{Placement, Placing, instance};
     let Some((mut h, area)) = area_harness("paste-custom") else { return };
+    // (Options › General › Show duplicate tags warning: off by default.)
+    h.state_mut().settings.warn_duplicate_tags = true;
     let git = ResKey::new(area, ResType::GIT);
     {
         let app = h.state_mut();
@@ -13739,10 +13743,136 @@ fn a_paste_warns_of_builders_tags_not_scenery() {
     assert_eq!(clash.clashes[0].sentence(), "KREZK_RENTAL_DOOR is now on two objects");
     // "any": the barrel's too; the static rock's never.
     h.state_mut().ws.as_mut().unwrap().module.project_file.tags.paste_warning =
-        mg_module::project_file::PasteWarning::Any;
+        Some(mg_module::project_file::PasteWarning::Any);
     let clash = paste(&mut h, barrel, Vec3::new(24.0, 30.0, 0.0)).expect("any tag");
     assert!(clash.clashes[0].sentence().ends_with("is now on three objects"), "{clash:?}");
     assert!(paste(&mut h, rock, Vec3::new(28.0, 30.0, 0.0)).is_none(), "a static placeable");
+}
+
+/// Every kind is weighed alike (Troubletcat's report, October 2026: the
+/// window came up for waypoints and triggers, not for creatures): a
+/// creature, a waypoint, a trigger and a store pasted with their
+/// blueprint's tag ask nothing, each with a tag set by hand asks (a
+/// store's blueprint found by its `ResRef`). With Options › General ›
+/// Show duplicate tags warning off (the default), nothing asks unless the
+/// project's moonglow.toml says to; the window's Don't warn again turns
+/// the option off.
+#[test]
+fn a_paste_weighs_every_kind_alike_and_the_option_silences_it() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("paste-kinds") else { return };
+    assert!(!h.state().settings.warn_duplicate_tags, "off by default");
+    h.state_mut().settings.warn_duplicate_tags = true;
+    let git = ResKey::new(area, ResType::GIT);
+    {
+        let app = h.state_mut();
+        let game = app.game.as_deref().unwrap();
+        let read = |name: &str, t: ResType| {
+            Gff::read(&game.resman.get(&ResKey::parse(name, t).unwrap()).unwrap()).unwrap().root
+        };
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let at = |x: f32| Placement { position: [x, 15.0, 0.0], rotation: 0.0 };
+        let square = [[0.0, 0.0, 0.0], [3.0, 0.0, 0.0], [3.0, 3.0, 0.0], [0.0, 3.0, 0.0]];
+        // Two of each: the blueprint's tag, and one set by hand.
+        let two = |name: &str, t: ResType, x: f32, outline: &[[f32; 3]], tag: &[u8]| {
+            let bp = read(name, t);
+            let first = instance(&placing, t, &bp, at(x), outline).unwrap();
+            let mut second = instance(&placing, t, &bp, at(x + 4.0), outline).unwrap();
+            second.set("Tag", mg_gff::Value::String(tag.to_vec()));
+            [first, second]
+        };
+        let creatures = two("nw_bandit001", ResType::UTC, 6.0, &[], b"MG_BANDIT_BOSS");
+        let triggers = two("newgeneric", ResType::UTT, 14.0, &square, b"MG_AMBUSH");
+        let stores = two("nw_storethief001", ResType::UTM, 24.0, &[], b"MG_FENCE");
+        let mut edits = Vec::new();
+        for (list, items) in
+            [("Creature List", creatures), ("TriggerList", triggers), ("StoreList", stores)]
+        {
+            for (index, item) in items.into_iter().enumerate() {
+                edits.push(mg_edit::Edit::InsertItem {
+                    key: git,
+                    path: mg_edit::GffPath::root(),
+                    list: list.into(),
+                    index,
+                    item,
+                });
+            }
+        }
+        // (The harness's two waypoints have their blueprint's tag; the
+        // second one a spawn system's.)
+        edits.push(mg_edit::Edit::SetField {
+            key: git,
+            path: mg_edit::GffPath::root().item("WaypointList", 1),
+            label: "Tag".into(),
+            value: Some(mg_gff::Value::String(b"sca_kt_elite_war".to_vec())),
+        });
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
+    }
+    h.run_steps(3);
+    let paste = |h: &mut Harness<'_, Moonglow>, picked: (ObjectKind, usize), at: Vec3| {
+        h.state_mut().tag_clash = None;
+        h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![picked];
+        let over = screen(h, area, at);
+        h.hover_at(over);
+        h.run_steps(1);
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::C);
+        h.run_steps(1);
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::V);
+        h.run_steps(2);
+        let over = screen(h, area, at);
+        h.hover_at(over);
+        press(h, over, true, egui::Modifiers::NONE);
+        press(h, over, false, egui::Modifiers::NONE);
+        h.run_steps(3);
+        assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Paste"), "{picked:?}");
+        h.state().tag_clash.clone()
+    };
+    let kinds =
+        [ObjectKind::Creature, ObjectKind::Waypoint, ObjectKind::Trigger, ObjectKind::Store];
+    for (i, kind) in kinds.into_iter().enumerate() {
+        let at = Vec3::new(6.0 + 8.0 * i as f32, 26.0, 0.0);
+        assert_eq!(paste(&mut h, (kind, 0), at), None, "{kind:?} with its blueprint's tag");
+    }
+    let set = ["MG_BANDIT_BOSS", "sca_kt_elite_war", "MG_AMBUSH", "MG_FENCE"];
+    for (i, (kind, tag)) in kinds.into_iter().zip(set).enumerate() {
+        let at = Vec3::new(6.0 + 8.0 * i as f32, 34.0, 0.0);
+        let clash = paste(&mut h, (kind, 1), at).unwrap_or_else(|| panic!("{kind:?}: {tag}"));
+        let said: Vec<String> = clash.clashes.iter().map(|c| c.sentence()).collect();
+        assert_eq!(said, [format!("{tag} is now on two objects")], "{kind:?}");
+        assert!(clash.from_option);
+    }
+    // The option off: a tag set by hand asks nothing.
+    h.state_mut().settings.warn_duplicate_tags = false;
+    let creature = (ObjectKind::Creature, 1);
+    assert_eq!(paste(&mut h, creature, Vec3::new(6.0, 30.0, 0.0)), None, "the option off");
+    // On, the window's Don't warn again turns it off, and says where it is.
+    h.state_mut().settings.warn_duplicate_tags = true;
+    let waypoint = (ObjectKind::Waypoint, 1);
+    assert!(paste(&mut h, waypoint, Vec3::new(14.0, 30.0, 0.0)).is_some());
+    h.get_by_label("Don't warn again").click();
+    h.run_steps(2);
+    assert!(!h.state().settings.warn_duplicate_tags);
+    let said =
+        |h: &Harness<'_, Moonglow>, s: &str| h.state().log.entries.iter().any(|e| e.1.contains(s));
+    assert!(said(&h, "Options › General › Show duplicate tags warning turns it back on"));
+    h.get_by_label("Keep Tags").click();
+    h.run_steps(2);
+    assert!(h.state().tag_clash.is_none());
+    assert_eq!(paste(&mut h, waypoint, Vec3::new(22.0, 30.0, 0.0)), None, "not again");
+    // The project's moonglow.toml asking for it wins over the option, and
+    // the window offers no Don't warn again then.
+    h.state_mut().ws.as_mut().unwrap().module.project_file.tags.paste_warning =
+        Some(mg_module::project_file::PasteWarning::Custom);
+    let store = (ObjectKind::Store, 1);
+    let clash = paste(&mut h, store, Vec3::new(30.0, 30.0, 0.0)).expect("the project's rule");
+    assert!(!clash.from_option);
+    assert!(h.query_by_label("Don't warn again").is_none());
+    assert!(
+        h.query_by_label("The project's moonglow.toml asks for this warning ([tags]).").is_some()
+    );
 }
 
 /// A paste that puts a tag on a second object says so and offers Retag:
@@ -13753,6 +13883,8 @@ fn a_paste_that_doubles_a_tag_offers_retag() {
     use glam::Vec3;
     use mg_area::ObjectKind;
     let Some((mut h, area)) = area_harness("paste-retag") else { return };
+    // (Options › General › Show duplicate tags warning: off by default.)
+    h.state_mut().settings.warn_duplicate_tags = true;
     let git = ResKey::new(area, ResType::GIT);
     let tags = |h: &mut Harness<'_, Moonglow>| -> Vec<String> {
         let ws = h.state_mut().ws.as_mut().unwrap();
@@ -13804,7 +13936,7 @@ fn a_paste_that_doubles_a_tag_offers_retag() {
     // The project's rules: warn of the unique ones only, and none here.
     {
         let rules = &mut h.state_mut().ws.as_mut().unwrap().module.project_file.tags;
-        rules.paste_warning = mg_module::project_file::PasteWarning::Unique;
+        rules.paste_warning = Some(mg_module::project_file::PasteWarning::Unique);
         rules.unique = mg_module::project_file::Patterns::new(&["TDOD_START_*"]).unwrap();
     }
     h.state_mut().tag_clash = None;
@@ -13816,7 +13948,7 @@ fn a_paste_that_doubles_a_tag_offers_retag() {
     );
     h.state_mut().tag_clash = None;
     h.state_mut().ws.as_mut().unwrap().module.project_file.tags.paste_warning =
-        mg_module::project_file::PasteWarning::Off;
+        Some(mg_module::project_file::PasteWarning::Off);
     paste(&mut h, Vec3::new(25.0, 25.0, 0.0));
     assert!(h.state().tag_clash.is_none(), "the project wants no warning");
     assert_eq!(tags(&mut h).len(), 5);
@@ -13828,6 +13960,8 @@ fn a_paste_that_doubles_a_tag_offers_retag() {
 #[test]
 fn an_area_copied_with_its_tags_offers_retag() {
     let Some((mut h, area)) = area_harness("copy-area-tags") else { return };
+    // (Options › General › Show duplicate tags warning: off by default.)
+    h.state_mut().settings.warn_duplicate_tags = true;
     h.state_mut().ws.as_mut().unwrap().module.project_file.tags.unique =
         mg_module::project_file::Patterns::new(&["NW_*"]).unwrap();
     let key = ResKey::new(area, ResType::ARE);
@@ -19085,6 +19219,8 @@ fn placement_tools_turn_ground_arrange_lock_and_make_prefabs() {
     use glam::Vec3;
     use mg_area::ObjectKind::Waypoint;
     let Some((mut h, area)) = area_harness("placement") else { return };
+    // (Options › General › Show duplicate tags warning: off by default.)
+    h.state_mut().settings.warn_duplicate_tags = true;
     let prefabs = mg_testkit::scratch_dir("ui-prefabs");
     h.state_mut().prefab_dir = Some(prefabs.clone());
     h.run_steps(3);
@@ -30399,6 +30535,8 @@ fn a_plugin_edits_what_is_pasted_in_the_same_undo() {
     use glam::Vec3;
     use mg_area::ObjectKind;
     let Some((mut h, area)) = area_harness("ui-plugin-pasted") else { return };
+    // (Options › General › Show duplicate tags warning: off by default.)
+    h.state_mut().settings.warn_duplicate_tags = true;
     h.state_mut().plugin_dir = Some(example_plugins());
     h.state_mut().load_plugins();
     h.state_mut().enable_plugin("example.house-rules", true);

@@ -241,13 +241,19 @@ pub fn is_custom_tag(object: &Struct, blueprint: Option<&Struct>) -> bool {
 }
 
 /// The tags of `made` (those just pasted or copied) that are now on more
-/// than one object of `index` (which has them), as the project's rules
-/// say to warn of them (`custom`, the default: tags a builder set and
-/// those that must be unique). A static placeable's never. A tag the
-/// project wants unique in each area (`unique_in_area`) is counted in the
-/// area it was made in, whatever the rule: other areas' are as meant.
-pub fn clashes(index: &TagIndex, made: &[MadeTag], rules: &TagRules) -> Vec<Clash> {
-    if rules.paste_warning == PasteWarning::Off {
+/// than one object of `index` (which has them), as `warning` says to warn
+/// of them (the project's rule or the builder's option,
+/// [`TagRules::paste_warning_or`]; `custom`: tags a builder set and those
+/// that must be unique). A static placeable's never. A tag the project
+/// wants unique in each area (`unique_in_area`) is counted in the area it
+/// was made in, whatever the rule: other areas' are as meant.
+pub fn clashes(
+    index: &TagIndex,
+    made: &[MadeTag],
+    rules: &TagRules,
+    warning: PasteWarning,
+) -> Vec<Clash> {
+    if warning == PasteWarning::Off {
         return Vec::new();
     }
     let mut seen: HashSet<(&[u8], Option<ResRef>)> = HashSet::new();
@@ -267,7 +273,7 @@ pub fn clashes(index: &TagIndex, made: &[MadeTag], rules: &TagRules) -> Vec<Clas
             continue;
         }
         let unique = rule.map(|(p, _)| p.to_string());
-        let warned = match rules.paste_warning {
+        let warned = match warning {
             PasteWarning::Any => true,
             PasteWarning::Custom => m.custom || unique.is_some(),
             PasteWarning::Unique => unique.is_some(),
@@ -390,16 +396,31 @@ mod tests {
         let mut rules = TagRules::default();
         // The default: tags a builder set; a blueprint's own is quiet.
         let quiet = [made(b"LAMP", false, false), made(b"CHEST", true, false)];
-        assert!(clashes(&i, &quiet, &rules).is_empty(), "LAMP is its blueprint's, CHEST once");
+        assert!(
+            clashes(&i, &quiet, &rules, rules.paste_warning_or(true)).is_empty(),
+            "LAMP is its blueprint's, CHEST once"
+        );
         let made_custom = [made(b"LAMP", false, false), made(b"LAMP", true, false)];
-        let got = clashes(&i, &made_custom, &rules);
+        let got = clashes(&i, &made_custom, &rules, rules.paste_warning_or(true));
         assert_eq!(got, [Clash { tag: "LAMP".into(), count: 2, unique: None, area: None }]);
         assert_eq!(got[0].sentence(), "LAMP is now on two objects");
+        // The builder's option off (Options › General), the project saying
+        // nothing and wanting no tag unique: none.
+        assert!(clashes(&i, &made_custom, &rules, rules.paste_warning_or(false)).is_empty());
         // A static placeable never.
-        assert!(clashes(&i, &[made(b"LAMP", true, true)], &rules).is_empty());
-        rules.paste_warning = PasteWarning::Any;
-        assert_eq!(clashes(&i, &[made(b"LAMP", false, false)], &rules).len(), 1);
-        assert!(clashes(&i, &[made(b"LAMP", false, true)], &rules).is_empty());
+        assert!(
+            clashes(&i, &[made(b"LAMP", true, true)], &rules, rules.paste_warning_or(true))
+                .is_empty()
+        );
+        rules.paste_warning = Some(PasteWarning::Any);
+        assert_eq!(
+            clashes(&i, &[made(b"LAMP", false, false)], &rules, rules.paste_warning_or(true)).len(),
+            1
+        );
+        assert!(
+            clashes(&i, &[made(b"LAMP", false, true)], &rules, rules.paste_warning_or(true))
+                .is_empty()
+        );
         let made: [MadeTag; 4] = [
             made(b"LAMP", false, false),
             made(b"LAMP", false, false),
@@ -414,17 +435,17 @@ mod tests {
         });
         rules.unique = Patterns::new(&["TDOD_START_*"]).unwrap();
         // The unique ones always, the blueprint's own tag or not.
-        rules.paste_warning = PasteWarning::Custom;
-        assert_eq!(clashes(&more, &made, &rules).len(), 1);
-        rules.paste_warning = PasteWarning::Unique;
-        let got = clashes(&more, &made, &rules);
+        rules.paste_warning = Some(PasteWarning::Custom);
+        assert_eq!(clashes(&more, &made, &rules, rules.paste_warning_or(true)).len(), 1);
+        rules.paste_warning = Some(PasteWarning::Unique);
+        let got = clashes(&more, &made, &rules, rules.paste_warning_or(true));
         assert_eq!(got.len(), 1);
         assert_eq!(
             got[0].sentence(),
             "TDOD_START_KREZK is now on two objects (the project wants TDOD_START_* unique)"
         );
-        rules.paste_warning = PasteWarning::Off;
-        assert!(clashes(&more, &made, &rules).is_empty());
+        rules.paste_warning = Some(PasteWarning::Off);
+        assert!(clashes(&more, &made, &rules, rules.paste_warning_or(true)).is_empty());
     }
 
     /// The Domains of Dread's notes on their setup, 5: a store's tag is
@@ -442,7 +463,7 @@ mod tests {
         let mut rules = TagRules {
             unique: Patterns::new(&["KZ_*"]).unwrap(),
             unique_in_area: Patterns::new(&["*_STORE_*"]).unwrap(),
-            paste_warning: PasteWarning::Unique,
+            paste_warning: Some(PasteWarning::Unique),
         };
         assert_eq!(i.count_in(b"KZ_STORE_1", r("cave")), 1);
         // Two areas, one each: as meant, though KZ_* takes the tag in too.
@@ -450,12 +471,15 @@ mod tests {
         assert!(i.breaches(&rules).is_empty());
         let in_mill =
             MadeTag { tag: b"KZ_STORE_1", area: r("mill"), custom: true, is_static: false };
-        assert!(clashes(&i, &[in_mill], &rules).is_empty());
-        rules.paste_warning = PasteWarning::Any;
-        assert!(clashes(&i, &[in_mill], &rules).is_empty(), "other areas' are as meant");
+        assert!(clashes(&i, &[in_mill], &rules, rules.paste_warning_or(true)).is_empty());
+        rules.paste_warning = Some(PasteWarning::Any);
+        assert!(
+            clashes(&i, &[in_mill], &rules, rules.paste_warning_or(true)).is_empty(),
+            "other areas' are as meant"
+        );
         // A second in the mill: said, with the area.
         i.add_git(r("mill"), &store("KZ_STORE_1"));
-        let got = clashes(&i, &[in_mill, in_mill], &rules);
+        let got = clashes(&i, &[in_mill, in_mill], &rules, rules.paste_warning_or(true));
         assert_eq!(
             got,
             [Clash {
@@ -480,7 +504,7 @@ mod tests {
         let b = i.breaches(&rules);
         assert_eq!(b.len(), 1);
         assert_eq!((b[0].scope, b[0].places.len()), (Scope::Module, 3));
-        let got = clashes(&i, &[in_mill], &rules);
+        let got = clashes(&i, &[in_mill], &rules, rules.paste_warning_or(true));
         assert_eq!((got[0].count, got[0].area), (3, None));
         assert!(TagIndex::default().breaches(&TagRules::default()).is_empty());
     }

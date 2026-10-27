@@ -13,6 +13,7 @@
 //! unique = ["TDOD_START_*"]           # on one object only (Verify says where not)
 //! unique_in_area = ["*_STORE_*"]      # on one object of each area (wins over unique)
 //! paste_warning = "custom"            # builders' tags and unique ones; "any", "unique", "off"
+//!                                    # (left out: as the builder's Options say)
 //!
 //! [store]                             # Setup Store
 //! open_script = "tdod_vendor_open"    # the reply that opens the store runs this
@@ -126,12 +127,11 @@ impl Default for StaticRules {
 
 /// Which duplicate tags a paste or a copy says it made (never a static
 /// placeable's: scenery).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PasteWarning {
     /// Tags a builder set (an object's tag that isn't its blueprint's
     /// own, or one whose blueprint isn't found), and those `[tags]
     /// unique` names: copies of a rock tagged as its blueprint are quiet.
-    #[default]
     Custom,
     /// Every tag the paste puts on a second object.
     Any,
@@ -149,7 +149,9 @@ pub struct TagRules {
     /// a script looks for in its own area): another area may have one too.
     /// A tag these name is held to them, though `unique` names it too.
     pub unique_in_area: Patterns,
-    pub paste_warning: PasteWarning,
+    /// `paste_warning`, where the file says (the team's rule, which wins
+    /// over the builder's option: [`TagRules::paste_warning_or`]).
+    pub paste_warning: Option<PasteWarning>,
 }
 
 /// Where the project wants a tag on one object only.
@@ -169,6 +171,19 @@ impl TagRules {
     pub fn unique_for(&self, tag: &str) -> Option<(&str, Scope)> {
         (self.unique_in_area.matching(tag).map(|p| (p, Scope::Area)))
             .or_else(|| self.unique.matching(tag).map(|p| (p, Scope::Module)))
+    }
+
+    /// What a paste warns of: the project's `paste_warning` where it
+    /// says, else as the builder's option (Options › General › Show
+    /// duplicate tags warning): on, the tags a builder set
+    /// ([`PasteWarning::Custom`]); off, those the project wants unique
+    /// only, its own rule (none without `unique` and `unique_in_area`).
+    pub fn paste_warning_or(&self, builder_warns: bool) -> PasteWarning {
+        self.paste_warning.unwrap_or(if builder_warns {
+            PasteWarning::Custom
+        } else {
+            PasteWarning::Unique
+        })
     }
 
     /// Whether the project wants any tag unique.
@@ -713,10 +728,14 @@ impl ProjectFile {
                                 }
                             }
                             "paste_warning" => match r.text(e).as_deref() {
-                                Some("custom") => self.tags.paste_warning = PasteWarning::Custom,
-                                Some("any") => self.tags.paste_warning = PasteWarning::Any,
-                                Some("unique") => self.tags.paste_warning = PasteWarning::Unique,
-                                Some("off") => self.tags.paste_warning = PasteWarning::Off,
+                                Some("custom") => {
+                                    self.tags.paste_warning = Some(PasteWarning::Custom);
+                                }
+                                Some("any") => self.tags.paste_warning = Some(PasteWarning::Any),
+                                Some("unique") => {
+                                    self.tags.paste_warning = Some(PasteWarning::Unique);
+                                }
+                                Some("off") => self.tags.paste_warning = Some(PasteWarning::Off),
                                 Some(other) => r.warn(
                                     e.1.span().start,
                                     format!(
@@ -1103,7 +1122,8 @@ keeper_variable = "tdod_store"
         assert_eq!(p.tags.unique_for("KZ_SQUARE_STORE_1"), Some(("*_STORE_*", Scope::Area)));
         assert_eq!(p.tags.unique_for("KZ_SQUARE"), Some(("KZ_*", Scope::Module)));
         assert_eq!(p.tags.unique_for("LAMP"), None);
-        assert_eq!(p.tags.paste_warning, PasteWarning::Unique);
+        assert_eq!(p.tags.paste_warning, Some(PasteWarning::Unique));
+        assert_eq!(p.tags.paste_warning_or(true), PasteWarning::Unique, "the team's rule wins");
         let store = p.store.unwrap();
         assert_eq!(store.open_script, ResRef::from_str("tdod_vendor_open").ok());
         assert_eq!(store.tag.as_deref(), Some("{area}_STORE_{n}"));
@@ -1132,7 +1152,10 @@ keeper_variable = "tdod_store"
         assert_eq!(p, ProjectFile::default());
         assert!(p.make_static.keep_variables.matches("anything"), "a variable keeps it dynamic");
         assert!(p.make_static.keep_tags.is_empty() && p.tags.unique.is_empty());
-        assert_eq!(p.tags.paste_warning, PasteWarning::Custom);
+        // (A paste warns as the builder's option says.)
+        assert_eq!(p.tags.paste_warning, None);
+        assert_eq!(p.tags.paste_warning_or(true), PasteWarning::Custom);
+        assert_eq!(p.tags.paste_warning_or(false), PasteWarning::Unique);
         assert!(p.store.is_none());
         // And `[]`: variables don't keep a placeable dynamic.
         let p = read("[make_static]\nkeep_variables = []\n");

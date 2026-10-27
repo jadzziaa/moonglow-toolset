@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T13:16:12Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T06:11:45Z }
 ---
 
 # Areas
@@ -482,14 +482,30 @@ its tag (`GetObjectByTag`) finds only one of them: in the game, the copy
 placed later. A copied start waypoint, rental door or store then takes
 its original's place, or the original its copy's, with no error.
 
-After a paste (Ctrl+V, a prefab placed) that puts a tag on more than one
-object of the module (its areas and the objects placed in them), the log
-and the **Duplicate Tags** window say which: "KREZK_RENTAL_DOOR is now
-on two objects". They say it of the tags a builder set: a tag that isn't
-the object's blueprint's own (as the module, its haks or the game have
-the blueprint; one whose blueprint isn't found counts as set), and those
-the project wants unique. Copies of a rock with its blueprint's tag ask
-nothing, and a static placeable (scenery) never does.
+With **Options › General › Show duplicate tags warning after a paste
+or a copy** on, a paste (Ctrl+V, a prefab placed) that puts a tag on
+more than one object of the module (its areas and the objects placed in
+them) is said in the log and the **Duplicate Tags** window:
+"KREZK_RENTAL_DOOR is now on two objects". They say it of the tags a
+builder set: a tag that isn't the object's blueprint's own (as the
+module, its haks or the game have the blueprint; one whose blueprint
+isn't found counts as set), and those the project wants unique. Every
+kind of object is weighed so: a creature, a waypoint, a trigger or a
+store pasted with its blueprint's tag asks nothing, and any of them with
+a tag typed in asks. A spawn system's waypoints, whose tags are typed
+in, ask; the creatures placed from their blueprints don't. A static
+placeable (scenery) never asks.
+
+The option is **off by default**: Aurora has no such warning, and
+builders put one tag on many objects on purpose (a spawn system's
+waypoints, generic triggers). **Don't warn again** in the window turns
+it off (Options › General turns it back on). A project that wants the
+warning says so in its project file (below), which wins over the
+option: its `paste_warning` is followed whatever the option says, and
+the window then offers no Don't warn again. Where the project file
+doesn't set `paste_warning`, the option on warns as above, and off warns
+only of the tags the project wants unique (`unique`, `unique_in_area`),
+the team's own rule; without those, nothing.
 
 - **Retag** gives each pasted object with such a tag one of its own, the
   tag with a number that no object has (`LAMP_2`; `STORE_7` becomes
@@ -497,12 +513,13 @@ nothing, and a static placeable (scenery) never does.
 - **Keep Tags** leaves them (objects that no script looks up).
 
 An area copied with **Copy…** in the module tree has every tag of its
-original's objects: the window lists the area's own tag (an area has no
-blueprint), the tags a builder set and those the project wants unique.
+original's objects: with the option on, the window lists the area's own
+tag (an area has no blueprint), the tags a builder set and those the
+project wants unique.
 
 The [project file](03-modules.md#the-project-file-moonglowtoml) says
-which to warn of (`[tags] paste_warning`: `"custom"`, as above and by
-default; `"any"` for every tag but a static placeable's, an area copy's
+which to warn of (`[tags] paste_warning`: `"custom"`, as above;
+`"any"` for every tag but a static placeable's, an area copy's
 then listing only its own tag and the unique ones and counting the
 rest; `"unique"` for only the tags it names in `unique` and
 `unique_in_area`; or `"off"`), and Verify Module warns of a tag it wants
