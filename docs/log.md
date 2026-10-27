@@ -1,5 +1,8 @@
 # Update log
 
+## 2026-10-27
+* **Update**: [The frames note](research/notes_frames.md) (a dense area seen whole, and opening an area): meshes in shared buffers, see-through draws put together by pipeline and material where they meet nothing, the game's material groups bound last, an area read on a thread of its own and its textures apart; TDoD's woods seen whole from 26 to 13 ms a frame (34 to 16 with the game's shaders), opening it no longer holds the window (3.8 s); pictures the same. [The deferred list](deferred.md): what is left of both.
+
 ## 2026-10-26
 * **Update**: [The deferred list](deferred.md) tidied: entries done in the shader milestones and in 2.3.0 taken out (their remainders kept), the two Direct3D 12 and Metal checks settled by CI (the game's programs drew on both for 2.8.0), the module tree no longer called cut short, a duplicate merged, and the sections named after a report filed under their areas.
 * **Update**: [The main window](manual/02-main-window.md): letters typed go to the module tree while it has the keys, wherever the pointer is, as Aurora's tree takes them (a builder's request); [the deferred list](deferred.md).

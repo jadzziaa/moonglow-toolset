@@ -9001,6 +9001,89 @@ fn area_harness_with(
     Some((h, area))
 }
 
+/// Opens `area` again as the desktop app opens one (the window kept going:
+/// read on a thread of its own, its textures apart, read anew), and runs
+/// frames until it is drawn whole: whether a frame went by before it was
+/// read.
+fn open_apart(h: &mut Harness<'_, Moonglow>, area: ResRef) -> bool {
+    h.state_mut().area_views.remove(&area);
+    if let Some(vp) = h.state_mut().viewport.as_mut() {
+        vp.renderer.clear_textures();
+    }
+    h.state_mut().background_jobs = true;
+    h.run_steps(1);
+    let waited = h.state().area_views.get(&area).is_some_and(|v| v.model.is_none());
+    let started = std::time::Instant::now();
+    loop {
+        let app = h.state();
+        let view = &app.area_views[&area];
+        let pending = app.viewport.as_ref().map_or(0, |v| v.renderer.drawn.textures_pending);
+        if view.model.is_some() && view.pictures > 0 && pending == 0 {
+            break;
+        }
+        assert!(started.elapsed() < std::time::Duration::from_secs(30), "not read");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        h.run_steps(1);
+    }
+    // (Drawn again at the animations' next step.)
+    h.run_steps(6);
+    h.state_mut().background_jobs = false;
+    waited
+}
+
+/// The area view's part of the window's picture.
+fn view_picture(h: &mut Harness<'_, Moonglow>, area: ResRef) -> image::RgbaImage {
+    h.run_steps(1);
+    let rect = h.state().area_views[&area].rect;
+    let img = h.render().expect("render");
+    let ppp = h.ctx.pixels_per_point();
+    let (x, y) = ((rect.min.x * ppp) as u32, (rect.min.y * ppp) as u32);
+    let (w, hh) = ((rect.width() * ppp) as u32, (rect.height() * ppp) as u32);
+    image::imageops::crop_imm(&img, x, y, w.min(img.width() - x), hh.min(img.height() - y))
+        .to_image()
+}
+
+/// An area opened as the desktop app opens one is read on a thread of its
+/// own and its textures apart (a large area's held the window for seconds):
+/// frames go on meanwhile, and once read it looks as one read in the frame.
+/// A model that fails as it is read there is left out and said so, as on
+/// the window's thread (`mg_render::guard`).
+#[test]
+fn an_area_read_apart_looks_as_one_read_in_the_frame() {
+    let Some((mut h, area)) = area_harness("read-apart") else { return };
+    h.run_steps(6);
+    let here = view_picture(&mut h, area);
+    assert!(open_apart(&mut h, area), "a frame went by while the area was read");
+    let apart = view_picture(&mut h, area);
+    assert_eq!(here.dimensions(), apart.dimensions());
+    let differ = here.pixels().zip(apart.pixels()).filter(|(a, b)| a != b).count();
+    assert_eq!(differ, 0, "{differ} pixels differ");
+
+    // A tile's model failing as it is read: left out, the area drawn.
+    let tile = h.state().area_views[&area].model.as_ref().unwrap().tiles[0]
+        .model
+        .clone()
+        .expect("a tile model");
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            mg_render::guard::fail_on(None);
+        }
+    }
+    let _reset = Reset;
+    mg_render::guard::fail_on(Some(&tile));
+    open_apart(&mut h, area);
+    // (Told in the log, as the window takes the failures.)
+    let told = |h: &Harness<'_, Moonglow>| {
+        h.state().log.entries.iter().any(|(_, m)| m.contains("left out") && m.contains(&tile))
+    };
+    assert!(told(&h), "{:?}", h.state().log.entries);
+    let failed = view_picture(&mut h, area);
+    let differ = here.pixels().zip(failed.pixels()).filter(|(a, b)| a != b).count();
+    assert!(differ > 0, "the tile is left out");
+    assert!(h.state().area_views[&area].error.is_none());
+}
+
 /// Another module with an area of the same name shows its own area, not
 /// the one of the module open before (Jasperre's report: both modules'
 /// `area001`, the first's shown and edited in the second, until Moonglow

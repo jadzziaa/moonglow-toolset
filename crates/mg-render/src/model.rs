@@ -1,12 +1,12 @@
-//! A model on the GPU: a vertex and index buffer per drawn mesh, its
-//! material, and the node it hangs from.
+//! A model on the GPU: each drawn mesh's vertices and indices (in the
+//! device's shared buffers, [`crate::pool`]), its material, and the node it
+//! hangs from.
 
 use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Quat, Vec3};
 use mg_mdl::{Mesh, MeshExtra, Model, NodeKind};
-use wgpu::util::DeviceExt;
 
 use crate::Gpu;
 
@@ -71,6 +71,8 @@ pub struct GpuSkin {
     /// pose. Compiled models store it (and a few bind in a pose other than
     /// the rest pose); for ASCII models it comes from the rest pose.
     pub inverse_bind: Vec<Mat4>,
+    /// The bones and weights of the mesh's chunk: the mesh's at its
+    /// vertices' places ([`GpuMesh::base_vertex`]).
     pub vertices: wgpu::Buffer,
 }
 
@@ -103,9 +105,16 @@ pub struct Material {
 pub struct GpuMesh {
     /// The node it belongs to.
     pub node: usize,
+    /// The vertices and indices of the chunk the mesh lies in, shared with
+    /// other meshes ([`crate::pool`]): the mesh's are `index_count` indices
+    /// from `first_index`, of vertices counted from `base_vertex`.
     pub vertices: wgpu::Buffer,
     pub indices: wgpu::Buffer,
     pub index_count: u32,
+    pub first_index: u32,
+    pub base_vertex: i32,
+    /// How many vertices it has.
+    pub vertex_count: u32,
     pub material: Material,
     /// Local bounds.
     pub min: Vec3,
@@ -114,6 +123,17 @@ pub struct GpuMesh {
     /// The model has no tangents for it: they were made from its texture
     /// coordinates ([`made_tangents`]).
     pub tangents_made: bool,
+    /// Its place in its chunk, given back when the last mesh drawing from
+    /// it is dropped.
+    slot: Arc<crate::pool::Slot>,
+}
+
+impl GpuMesh {
+    /// The chunk its vertices and indices lie in: draws of one chunk in a
+    /// row bind its buffers once.
+    pub(crate) fn chunk(&self) -> u64 {
+        self.slot.chunk.id
+    }
 }
 
 /// A model's meshes on the GPU.
@@ -169,23 +189,16 @@ impl GpuModel {
                 continue;
             }
             let vertices = mesh_vertices(m);
-            let indices: Vec<u32> = m.triangles().flatten().collect();
+            // (A face naming a vertex the mesh hasn't would draw another
+            // mesh's, in the shared buffers: left out.)
+            let n = vertices.len() as u32;
+            let indices: Vec<u32> =
+                m.triangles().filter(|t| t.iter().all(|&i| i < n)).flatten().collect();
             let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
             for p in &m.vertices {
                 min = min.min(Vec3::from(*p));
                 max = max.max(Vec3::from(*p));
             }
-            let label = format!("{}:{}", model.name, node.name);
-            let vb = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(&label),
-                contents: bytemuck::cast_slice(&vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-            let ib = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(&label),
-                contents: bytemuck::cast_slice(&indices),
-                usage: wgpu::BufferUsages::INDEX,
-            });
             let emissive = node.value("selfillumcolor").map_or(Vec3::ZERO, |v| {
                 Vec3::new(
                     v.first().copied().unwrap_or(0.0),
@@ -205,26 +218,24 @@ impl GpuModel {
                             weights: w.map(|(_, x)| x),
                         })
                         .collect();
-                    let inverse_bind = inverse_binds(s, &rest, i);
-                    Some(GpuSkin {
-                        bones: s.bones.clone(),
-                        inverse_bind,
-                        vertices: gpu.device.create_buffer_init(
-                            &wgpu::util::BufferInitDescriptor {
-                                label: Some(&label),
-                                contents: bytemuck::cast_slice(&data),
-                                usage: wgpu::BufferUsages::VERTEX,
-                            },
-                        ),
-                    })
+                    Some((s, data))
                 }
                 _ => None,
             };
+            let slot = gpu.pool.put(gpu, &vertices, &indices, skin.as_ref().map(|(_, d)| &d[..]));
+            let skin = skin.map(|(s, _)| GpuSkin {
+                bones: s.bones.clone(),
+                inverse_bind: inverse_binds(s, &rest, i),
+                vertices: slot.chunk.skin.clone().expect("a skinned chunk"),
+            });
             meshes.push(GpuMesh {
                 node: i,
-                vertices: vb,
-                indices: ib,
-                index_count: indices.len() as u32,
+                vertices: slot.chunk.vertices.clone(),
+                indices: slot.chunk.indices.clone(),
+                index_count: slot.index_count,
+                first_index: slot.first_index,
+                base_vertex: slot.base_vertex as i32,
+                vertex_count: slot.vertex_count,
                 material: Material {
                     texture: m.textures[0].clone(),
                     maps: [m.textures[1].clone(), m.textures[2].clone(), m.textures[3].clone()],
@@ -242,6 +253,7 @@ impl GpuModel {
                 max,
                 tangents_made: m.tangents.is_empty(),
                 skin,
+                slot: Arc::new(slot),
             });
         }
         let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -260,11 +272,15 @@ impl GpuModel {
                 vertices: m.vertices.clone(),
                 indices: m.indices.clone(),
                 index_count: count(m).min(m.index_count),
+                first_index: m.first_index,
+                base_vertex: m.base_vertex,
+                vertex_count: m.vertex_count,
                 material: m.material.clone(),
                 min: m.min,
                 max: m.max,
                 skin: m.skin.clone(),
                 tangents_made: m.tangents_made,
+                slot: m.slot.clone(),
             })
             .collect();
         let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

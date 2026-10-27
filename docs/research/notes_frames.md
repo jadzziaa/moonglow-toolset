@@ -1,9 +1,9 @@
 ---
 type: Research Note
 title: 'Frames at 144 a second: where a frame''s time went'
-description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, what the profile found, and what is left.
+description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, a dense area seen whole and an area's opening (27 October), what the profile found, and what is left.
 tags: [performance, frames, renderer, area-view, galleries]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T05:29:02Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T07:08:40Z }
 sources:
   - id: frame-perf
     resource: crates/mg-ui/tests/frame_perf.rs
@@ -14,6 +14,9 @@ sources:
   - id: metal-ci
     resource: https://github.com/jadzziaa/moonglow-toolset/actions/runs/37715321115
     title: The macOS job of a CI run that drew one scene with six variants of the lit shader (8 October 2026)
+  - id: woods
+    resource: crates/mg-ui/tests/frame_perf.rs
+    title: 'game_shaders_frames_at_144 with the builder''s haks: TDoD''s woods, area092 and the water area, before and after (27 October 2026)'
 ---
 
 # Frames at 144 a second: where a frame's time went
@@ -211,16 +214,130 @@ own frames. Its times are to be taken with nothing else drawing.)
   (`area_audio.rs`): now only its sound properties and placed sounds.
 - The debug log's per-frame lines cost nothing measurable.
 
+## A dense area seen whole, and opening an area (27 October 2026)
+
+M3 of [the shaders proposal](../shaders-proposal.md) left two views over
+the budget with either shader: The Domains of Dread's synthetic woods
+(24 by 24 `mst04` tiles and 400 of its placeables, `frame_perf`'s
+`tdod_area`) seen whole, 33,000 meshes in sight, and an area's opening,
+which held the window while its models and textures were read.[^woods]
+
+**Measured** back to back in one session (release build, the builder's
+haks, other sessions building beside it; `game_shaders_frames_at_144`,
+the median of the processor's time a frame with the wheel turning, the
+GPU's in brackets). The harness now opens each area afresh from its
+overview, its textures read anew: before, the switch-on pass began where
+the switch-off pass had left the camera, close up.
+
+| View (TDoD's woods) | Off, before | Off, after | On, before | On, after |
+| --- | --- | --- | --- | --- |
+| overview, wheel | 25.6 (7.3) | **13.1** (3.5) | 34.3 (6.1) | **15.8** (3.7) |
+| turning, wheel | 36.0 (23.9) | **21.4** (7.7) | 50.6 (21.8) | **28.1** (9.5) |
+| turning, pointer | 4.3 | 2.7 | 5.5 | 3.5 |
+| close, pointer | 2.5 | 1.8 | 3.1 | 2.3 |
+
+| Taken apart (`area_parts`, 3000×1250, 4× MSAA): encoded / GPU, ms | Off, before | Off, after | On, before | On, after |
+| --- | --- | --- | --- | --- |
+| woods, overview | 24.1 / 11.8 | **10.9 / 7.8** | 30.0 / 10.8 | **14.3 / 7.2** |
+| woods, turned (pitch 0.9, a new view) | 34.3 / 28.4 | **17.0 / 9.6** | 47.0 / 24.7 | **23.1 / 15.3** |
+| woods, close | 1.9 / 3.6 | 1.1 / 2.9 | 2.6 / 3.6 | 1.7 / 3.2 |
+| area092, overview | 1.9 / 1.1 | 1.5 / 1.1 | 2.3 / 0.9 | 2.1 / 0.9 |
+| water area, overview | 2.5 / 1.7 | 2.2 / 1.7 | 2.8 / 1.7 | 2.6 / 1.6 |
+
+The woods' overview: 26,965 draws of 6,616 materials in turn before,
+25,023 of 1,778 (and 349 pipelines) after; with the switch on, 26,263
+draws of 1,898 materials and 796 pipelines. The stock and water views
+were within the budget and stay so, a little quicker.
+
+| Opening (cold: textures read anew) | Before | After |
+| --- | --- | --- |
+| TDoD's woods | one frame of 3.8 s (3.9 s on) | shown after 0.33 s, whole after 1.4 s; no frame over 22 ms (30 on) |
+| area092 (784 tiles) | one frame of 189 ms (157 on) | shown after 95 ms, whole after 178 ms; frames of 4.5 ms at most (8.9 on) |
+| the water area | one frame of 49 ms | shown after 37 ms, whole after 63 ms; one frame of 23 ms |
+
+**What was done,** for both shaders where not said:
+
+- **Meshes in shared buffers** (`mg-render/src/pool.rs`). Each mesh had
+  a vertex and an index buffer of its own, which every draw bound: wgpu's
+  work for binding them (the buffers looked up, their uses tracked and
+  merged, their initialized ranges checked, the driver's calls) was a
+  third of a frame of 30,000 draws. Meshes now lie in chunks shared by
+  many (`GpuMesh::first_index`, `base_vertex`); a draw binds its chunk's
+  buffers where the draw before was of another. Chunks grow to the size
+  of those before them, within the device's largest buffer: the woods
+  take ten. Encoding 25.5 to 17 ms off, 31.6 to 24.2 on.
+- **See-through draws by state.** In an area seen whole most draws are
+  see-through, in the order of their depths, and their materials and
+  pipelines changed every few draws. The batcher (`batch.rs`) now puts a
+  draw that can't join its mesh's batch at the end of the latest run of
+  draws of its pipeline and material, where that takes it past no draw
+  it meets on the screen, as it already did for a mesh's batch. wgpu's
+  `finish` went from 7 to 4 ms. A program of the game's that moves its
+  vertices (it reads the clock or the wind, or samples a texture: a
+  sway) takes them out of its box, so its box is grown by a meter
+  (`MOVED`) first: with the box as it was, a swaying leaf's soft edge was
+  blended in another order in 226 pixels of the woods close up.
+- **The game's draws** bind their material groups last (groups 2 and 3;
+  a group bound anew has wgpu bind those after it anew), share one group
+  of the draws' values across pipelines (it stays bound as they change),
+  write a draw's transforms and colors a matrix or a vector at a time
+  (`Own`), and look a pipeline's groups up once for draws of it in a row.
+- **Less of the renderer's own work a draw**: draws sorted by a number
+  (`(u64, u32)`) rather than by comparing them, a material's linear
+  colors worked out once (`Surface::linear`), a see-through mesh's screen
+  box once for its two parts, a vertex's buffers kept bound across
+  pipelines and between Moonglow's draws and the game's.
+- **An area's first reading on a thread of its own** (`area_view.rs`,
+  `Reading`: its tileset and tile tools, its model, the walkmeshes and the
+  scene's models, read and uploaded; a model that fails is left out and
+  told, as on the window's thread), the view saying it is reading the
+  area meanwhile; and **textures read apart** on up to four threads
+  (`Renderer::read_textures_apart`, `textures_apart`): a model is drawn
+  once its textures are read (`Drawn::textures_pending`), the view drawn
+  again at the next animation step after textures arrive. Only where the
+  window is kept going (`Moonglow::background_jobs`: the desktop app);
+  tests and pictures drawn once read as before.
+
+**Pictures compared.** `area_parts`' last frames (`FRAME_PARTS_SHOTS`, a
+fixed clock): 27 pictures of the three areas, each config with either
+shader, before and after. All the same to the bit but area092's with the
+switch on, by 1 to 5 pixels of 3.75 million at most 4 of 255, as two
+runs of the same build before differ (base against base: 5 pixels).
+`an_area_read_apart_looks_as_one_read_in_the_frame` (mg-ui) holds an
+area read apart to the picture of one read in the frame, and
+`a_model_is_drawn_once_its_textures_are_read_apart` (mg-render) the
+renderer's part.
+
+**What is left** (in [the deferred list](../deferred.md)):
+
+- **Over the budget still**, seen whole: the woods' overview 13 ms off and
+  16 on while zooming, 21 and 28 turning. The switch on is still slower
+  than off there: its draws bind two groups a material and more
+  pipelines, and write their values through the programs' plans. What is
+  left is per draw: some 25,000 draws whose meshes are mostly of one
+  instance each (the area has each tile model four times), each a draw
+  call; and the chunks the draws switch between.
+- **While an area fills in,** its picture is drawn again as textures
+  arrive: those frames cost what the view costs drawn whole (13 to 22 ms
+  for the woods). The frame an area is first shown in looks up its
+  materials (MTRs) on the window's thread: 19 to 30 ms for the woods,
+  23 ms for the water area, not taken apart.
+- A program that moves its vertices farther than a meter (TDoD's grass
+  lifted by `fTilesetMeshOffsetZ`, 2 m) may be blended in another order
+  where it reaches past its grown box.
+
 ## Not covered
 
 What is left is in [the deferred list](../deferred.md), under "Frames".
 In short:
 
-- **The largest areas in full view.** 4.1 ms for 784 tiles: a 32 by 32
-  area of a tileset with more meshes a tile is near the budget when all of
-  it is in sight. Close up it is not.
-- **Opening an area** holds the window for 0.2 s (its models and
-  textures are read in the frame).
+- **The largest areas in full view.** 784 stock tiles take 2.5 ms
+  zooming out; TDoD's woods, 33,000 meshes in sight, 13 ms (16 with the
+  game's shaders) and 21 (28) turned to the horizon. Close up they are
+  within it.
+- **Opening an area** no longer holds the window; the frames that draw
+  it as it fills in cost what the view costs, and the frame it is first
+  shown in looks its materials up (19 to 30 ms for the woods).
 - **A slow picture** (a model with large textures) still takes a frame
   of 7 to 9 ms in a gallery.
 - **The store's inventory and the module tree** at persistent-world
@@ -231,3 +348,4 @@ In short:
 
 [^frame-perf]: The frame-time test (release build, Tyrants of the Moonsea and the persistent world)
 [^budget]: The budget: a steady 144 frames a second on the development machine (7 October 2026)
+[^woods]: game_shaders_frames_at_144 with the builder's haks: TDoD's woods, area092 and the water area, before and after (27 October 2026)

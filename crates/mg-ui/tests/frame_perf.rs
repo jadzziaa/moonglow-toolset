@@ -358,23 +358,42 @@ fn render_state() -> egui_wgpu::RenderState {
 /// is printed (the Shaders switch, say).
 fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: &str) {
     let tab = Tab::Area(area);
+    // (A view of its own, from the overview: the view of the area opened
+    // before keeps its camera where its last views left it, close up.)
+    h.state_mut().area_views.remove(&area);
+    // Its opening, as the desktop app opens it (the window kept going: the
+    // area read on a thread of its own, its textures apart): the frames
+    // from the tab's opening until it is drawn whole, a 144th of a second
+    // apart.
+    let background = h.state().background_jobs;
+    h.state_mut().background_jobs = true;
+    // (Its textures read anew, as the first time an area is opened: the
+    // area a module opens itself was drawn as it opened.)
+    if let Some(vp) = h.state_mut().viewport.as_mut() {
+        vp.renderer.clear_textures();
+    }
     h.state_mut().actions.push(Action::OpenTab(tab.clone()));
-    // Its opening: the frames in which its models are read and its
-    // textures first drawn, each a frame the window waits for.
     let mut opening = Vec::new();
-    for _ in 0..10 {
+    let begun = Instant::now();
+    let (mut shown, mut whole) = (None, None);
+    while begun.elapsed() < Duration::from_secs(120) {
         let t = Instant::now();
         h.run_steps(1);
-        opening.push(t.elapsed());
-        if h.state().area_views.get(&area).is_some_and(|v| v.model.is_some()) {
+        let took = t.elapsed();
+        opening.push(took);
+        let app = h.state();
+        let view = app.area_views.get(&area);
+        if shown.is_none() && view.is_some_and(|v| v.model.is_some()) {
+            shown = Some(begun.elapsed());
+        }
+        let pending = app.viewport.as_ref().map_or(0, |v| v.renderer.drawn.textures_pending);
+        if shown.is_some() && view.is_some_and(|v| v.pictures > 0) && pending == 0 {
+            whole = Some(begun.elapsed());
             break;
         }
+        std::thread::sleep(Duration::from_secs_f64(1.0 / FPS).saturating_sub(took));
     }
-    for _ in 0..2 {
-        let t = Instant::now();
-        h.run_steps(1);
-        opening.push(t.elapsed());
-    }
+    h.state_mut().background_jobs = background;
     // (The game's programs, made while the frames go on: what is timed
     // after is the view as it stays.)
     let start = Instant::now();
@@ -387,12 +406,20 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
     if !r.shots {
         let longest = opening.iter().max().copied().unwrap_or_default();
         let all: Duration = opening.iter().sum();
+        let over = opening.iter().filter(|f| **f > BUDGET).count();
         println!(
-            "  area {area}{label}: opening, its longest frame {:.0} ms ({} frames, {:.0} ms in all)",
+            "  area {area}{label}: opening, its longest frame {:.1} ms ({} frames, {over} over \
+             the budget, {:.0} ms of them in all); shown after {:.0} ms, whole after {:.0} ms",
             ms(longest),
             opening.len(),
-            ms(all)
+            ms(all),
+            shown.map_or(f64::NAN, ms),
+            whole.map_or(f64::NAN, ms),
         );
+        if r.detail {
+            let each: Vec<String> = opening.iter().map(|d| format!("{:.1}", ms(*d))).collect();
+            println!("      frames: {}", each.join(" "));
+        }
     }
     let objects = h
         .state()
@@ -468,6 +495,8 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
         ("overview, 4x MSAA", span * 1.45, 1.5695, 4, true),
         ("…a draw for each mesh", span * 1.45, 1.5695, 4, false),
         ("overview, no MSAA", span * 1.45, 1.5695, 1, true),
+        // (As the turning view sees it zoomed out: the area from the side.)
+        ("turned, 4x MSAA", span * 1.45, 0.9, 4, true),
         ("close, 4x MSAA", 25.0, 0.7, 4, true),
     ];
     if grass {
@@ -484,6 +513,11 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
         if on && !instancing {
             continue;
         }
+        // (`FRAME_PARTS=<a name>`: only that one, for a profiler.)
+        let named = if on { format!("{what}, Shaders on") } else { what.to_string() };
+        if std::env::var("FRAME_PARTS").is_ok_and(|p| p != named) {
+            continue;
+        }
         let mut renderer = Renderer::new(&gpu, format, samples);
         renderer.instancing = instancing;
         renderer.game_shaders = on;
@@ -493,6 +527,7 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
         let mut sims = std::collections::HashMap::new();
         let (mut build, mut particles, mut encode, mut drawn) =
             (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let mut encode_cpu = Vec::new();
         let mut counts = (0, 0, 0, 0);
         let mut yaw = -std::f32::consts::FRAC_PI_2;
         for n in 0..count + 4 {
@@ -530,6 +565,7 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
             let t1 = Instant::now();
             frame.particles = scene.particles(&model, &view, &mut sims, dt, camera.view());
             let t2 = Instant::now();
+            let c2 = on_cpu();
             renderer.render(
                 &gpu,
                 &game.resman,
@@ -541,6 +577,7 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
                 (w, h_px),
             );
             let t3 = Instant::now();
+            let c3 = on_cpu();
             wait();
             let t4 = Instant::now();
             if n == 0 {
@@ -551,6 +588,9 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
                 build.push(t1 - t0);
                 particles.push(t2 - t1);
                 encode.push(t3 - t2);
+                if let (Some(a), Some(b)) = (c2, c3) {
+                    encode_cpu.push(b.saturating_sub(a));
+                }
                 drawn.push(t4 - t3);
             }
             counts = (
@@ -561,34 +601,62 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
             );
         }
         let (instances, meshes, lights, quads) = counts;
+        if encode_cpu.is_empty() {
+            encode_cpu.push(Duration::ZERO);
+        }
         let did = renderer.drawn;
         if let Some(programs) = renderer.game_programs.take() {
             let solid = programs.iter().filter(|p| p.no_discard).count();
             println!("      NO_DISCARD 1 for {solid} of the game's {} meshes", programs.len());
         }
         let what = if on { format!("{what}, Shaders on") } else { what.to_string() };
+        // (`FRAME_PARTS_SHOTS=<folder>`: its last frame saved there, at the
+        // clock of the frames before, for comparing pictures.)
+        if let Ok(dir) = std::env::var("FRAME_PARTS_SHOTS") {
+            let img = gpu.read_rgba(&targets.color);
+            let name: String = format!("{area}-{what}")
+                .chars()
+                .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+                .collect();
+            std::fs::create_dir_all(&dir).unwrap();
+            let path = std::path::Path::new(&dir).join(format!("{name}.png"));
+            image::RgbaImage::from_raw(img.width, img.height, img.data)
+                .unwrap()
+                .save(path)
+                .unwrap();
+        }
         println!(
             // (The GPU's least times too: with another program drawing,
             // the usual one is as much that program's.)
             "    {what:32} first frame {:6.0} ms, scene {:5.2} ms, particles {:5.2} ms, draws \
-             encoded {:5.2} ms (worst {:5.2}), GPU {:5.2} ms (the quickest tenth {:5.2}) \
+             encoded {:5.2} ms (worst {:5.2}; on the processor {:5.2}), GPU {:5.2} ms (the quickest tenth {:5.2}) \
              ({instances} instances, {meshes} meshes, {lights} lights, {quads} particles; {} \
-             meshes in {} draws of {} materials in turn, {} of the game's, {} meshes out of \
-             sight)",
+             meshes in {} draws of {} materials and {} pipelines in turn, {} of the game's, {} \
+             meshes out of sight)",
             ms(first),
             ms(pick(build, 0.5)),
             ms(pick(particles, 0.5)),
             ms(pick(encode.clone(), 0.5)),
             ms(pick(encode, 0.99)),
+            ms(pick(encode_cpu, 0.5)),
             ms(pick(drawn.clone(), 0.5)),
             ms(pick(drawn, 0.1)),
             did.meshes,
             did.batches,
             did.materials,
+            did.pipelines,
             did.game,
             did.hidden,
         );
     }
+}
+
+/// How long this thread has been on the processor (Linux's
+/// `/proc/thread-self/schedstat`): with other programs running, the time a
+/// step took less the time it waited for the processor.
+fn on_cpu() -> Option<Duration> {
+    let stat = std::fs::read_to_string("/proc/thread-self/schedstat").ok()?;
+    stat.split_whitespace().next()?.parse().ok().map(Duration::from_nanos)
 }
 
 /// A campaign's views: the module with nothing else open, each editor on

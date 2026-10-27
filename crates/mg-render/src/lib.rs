@@ -11,6 +11,7 @@ mod gpu;
 pub mod guard;
 pub mod model;
 pub mod particles;
+mod pool;
 mod reach;
 mod renderer;
 pub mod scene;

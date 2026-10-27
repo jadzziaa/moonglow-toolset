@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T03:55:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T07:08:40Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -479,20 +479,27 @@ its number, what is out of sight left out, tiles of one model posed
 once, meshes of one model drawn as instances of one draw), the
 galleries' pictures made for 2 ms a frame and kept while in sight.
 
-- **The largest areas in full view:** a 784-tile area's picture takes
-  4.1 ms with all of it in sight (1.9 close up). An area of 32 by 32 tiles
-  of a tileset with more meshes a tile is near the budget in full view.
-  What is left is each mesh's own work, instances or not: its lights
-  chosen (0.7 ms of 2.7) and its values written. Kept from frame to frame
-  for what doesn't move, with the camera's part worked out in the shader,
-  it would be done once. (M–L)
+- **The largest areas in full view:** a 784-tile stock area takes 2.5 ms
+  a frame zooming out; TDoD's synthetic woods (33,000 meshes in sight)
+  13 ms (21 turned to the horizon), 25,000 draws of meshes mostly drawn
+  once each. What is left is each draw's own work: wgpu's call and the
+  chunk of shared buffers it switches to (a large area spans ten), each
+  mesh's lights chosen and its values written. Fewer, larger chunks, and
+  values kept from frame to frame for what doesn't move, would cut it.
+  ([the frames note](research/notes_frames.md), 27 October) (M–L)
 - **Animations step 25 times a second** (`ANIMATION_STEP`, 40 ms) while
   only they move; before, they stepped with every frame the window drew
   (20 a second left alone, 144 with the pointer moving). A setting, or
   every frame once the picture is cheap enough. (S)
-- **Opening an area holds the window** for 0.2 s on a large one: its
-  models and textures are read and uploaded in the frame. In a job, with
-  the view filling in. (M)
+- **An area filling in as it opens:** read on a thread and its textures
+  apart (no frame holds it: TDoD's woods held the window 3.8 s), its
+  picture is drawn again as textures arrive, each such frame costing what
+  the view costs drawn whole (13 to 22 ms for the woods); and the frame it
+  is first shown in looks its materials (MTRs) up on the window's thread
+  (19 to 30 ms for the woods, 23 for a water area of 160 fires: not taken
+  apart). Its models show all at once, once the area is read, not one by
+  one. Edits, Reload Resources and tests still read in the
+  frame. (S–M)
 - **A slow picture in a gallery** (a model with large textures) takes a
   frame of 7 to 9 ms: a picture's models and textures are read on the
   window's thread. Read on another. (M)
@@ -1963,20 +1970,25 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **The frame budget of the game's shaders (M3 of [the shaders
   proposal](shaders-proposal.md)):** what the Shaders switch, on by
   default, leaves over the budget or unchecked. (from M3, 2026-10-21)
-  - **A dense area seen whole is slower with the switch on.** TDoD's
-    synthetic woods (24 by 24 `mst04` tiles, 400 placeables, 33,000
-    meshes on screen) zoomed out: 54 ms a frame on, 29 off, and the GPU
-    17.6 ms against 5.7 (at the fixed overview of `area_parts` the GPU is
-    9.75 against 9.50, so it is the count of what is drawn, not the
-    pixels). The bar to clear: on no slower than about off where off is
-    over the budget. Where to look: `NO_DISCARD` 0 for every material
-    (notes §M.10: no early depth for opaque meshes), the CPU's ~1.2 µs a
-    game draw against ~1 µs a draw of Moonglow's (`fill`'s member by
-    member writing; draws of a mesh in a row are merged only when solid
-    and unskinned; see-through draws are one call each). (M)
-  - **Moonglow's own shader is over the budget there too** (29 ms zoomed
-    out, 45 ms turning while zooming): 28,000 draws, a quarter of them
-    batched. Not M3's; the WGSL path's. (M)
+  - **A dense area seen whole is still slower with the switch on.**
+    TDoD's synthetic woods (24 by 24 `mst04` tiles, 400 placeables,
+    33,000 meshes on screen) zoomed out: 15.8 ms a frame on against 13.1
+    off (was 34 and 26), turning 28 against 21 (was 51 and 36); the GPU
+    3.7 against 3.5 (was 6.1 and 7.3). Both over the budget; the bar (on
+    no slower than off) not cleared. The game's draws bind two groups a
+    material change and more pipelines (796 changes against 349), write
+    their values through each program's plan, and are more draws (a
+    swaying program's box grown by a meter joins fewer). `NO_DISCARD` 0
+    for every material (notes §M.10) not looked at. ([the frames
+    note](research/notes_frames.md), 27 October) (M)
+  - **A program that moves its vertices farther than a meter** is batched
+    by its box grown by `MOVED` (1 m): TDoD's grass lifted by
+    `fTilesetMeshOffsetZ` (2 m) could be blended in another order where
+    it reaches past it. Its MTR's parameters could say how far. (S)
+  - **Renderer changes not yet on Direct3D 12 and Metal:** meshes in
+    shared buffers drawn at a base vertex, the game's groups in another
+    order and one group of the draws' values for every pipeline, textures
+    read on threads. Need a CI run on a branch. (S)
   - **An area changes its look a moment after it opens**, the first time
     its programs are compiled (stock: 50–113 ms of the worker's; TDoD:
     250–277 ms) and, with them cached, while naga reads them and the

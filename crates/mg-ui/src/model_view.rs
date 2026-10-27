@@ -39,6 +39,30 @@ pub struct Viewport3d {
     /// The renderer has its shader cache and waker
     /// ([`crate::Moonglow::shader_cache_dir`]).
     pub(crate) configured: bool,
+    /// The game data the area view's textures are read apart from, as the
+    /// renderer takes it ([`mg_render::Renderer::read_textures_apart`]).
+    textures_from: Option<(Arc<mg_rules::GameData>, Arc<dyn mg_render::Assets + Send + Sync>)>,
+}
+
+/// The game data as a source of textures read apart.
+struct GameAssets(Arc<mg_rules::GameData>);
+
+impl mg_render::Assets for GameAssets {
+    fn texture(&self, name: &str) -> Option<mg_render::LoadedTexture> {
+        mg_render::Assets::texture(&self.0.resman, name)
+    }
+
+    fn material(&self, name: &str) -> Option<mg_image::mtr::Mtr> {
+        mg_render::Assets::material(&self.0.resman, name)
+    }
+
+    fn txi(&self, name: &str) -> Option<mg_image::txi::Txi> {
+        mg_render::Assets::txi(&self.0.resman, name)
+    }
+
+    fn shader(&self, name: &str) -> Option<String> {
+        mg_render::Assets::shader(&self.0.resman, name)
+    }
 }
 
 impl std::fmt::Debug for Viewport3d {
@@ -51,7 +75,24 @@ impl Viewport3d {
     pub fn new(render_state: egui_wgpu::RenderState) -> Viewport3d {
         let gpu = Gpu::new(render_state.device.clone(), render_state.queue.clone());
         let renderer = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, SAMPLES);
-        Viewport3d { render_state, gpu, renderer, configured: false }
+        Viewport3d { render_state, gpu, renderer, configured: false, textures_from: None }
+    }
+
+    /// `game` as the renderer reads textures apart from it: the same while
+    /// the game data is.
+    pub(crate) fn textures_from(
+        &mut self,
+        game: &Arc<mg_rules::GameData>,
+    ) -> Arc<dyn mg_render::Assets + Send + Sync> {
+        match &self.textures_from {
+            Some((g, from)) if Arc::ptr_eq(g, game) => from.clone(),
+            _ => {
+                let from: Arc<dyn mg_render::Assets + Send + Sync> =
+                    Arc::new(GameAssets(game.clone()));
+                self.textures_from = Some((game.clone(), from.clone()));
+                from
+            }
+        }
     }
 
     /// Makes the targets a view of `w` by `h` pixels renders into, and the
