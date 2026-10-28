@@ -501,6 +501,31 @@ fn reader(lua: &Lua, sh: &Rc<Shared>, game: bool) -> mlua::Result<Table> {
             lua.create_string(s.bytes(&key_of(&name)?, game)?)
         })?,
     )?;
+    if !game {
+        // A name for a new resource, as the window proposes one: the
+        // builder's code where the team's pattern puts it, the first free.
+        let s = sh.clone();
+        t.set(
+            "new_name",
+            lua.create_function(move |_, (_, name, ext): (This, String, String)| {
+                use mg_core::ResType;
+                let Some(restype) = ResType::from_extension(ext.trim_start_matches('.')) else {
+                    return fail(format!("{ext:?} is not a kind of resource (utc, dlg, are…)"));
+                };
+                let ws = s.ws.borrow();
+                let m = &ws.module;
+                let naming = m.project_file.naming_for(restype);
+                let taken = |r: &ResRef| m.contains(&ResKey::new(*r, restype));
+                // (An area's as the Area Wizard's, the others' as a
+                // blueprint wizard's.)
+                let resref = match restype {
+                    ResType::ARE => mg_module::new::resref_for_named(&name, &naming, taken),
+                    _ => mg_module::blueprints::resref_named(&name, &naming, taken),
+                };
+                Ok(ResKey::new(resref, restype).to_string())
+            })?,
+        )?;
+    }
     if game {
         let s = sh.clone();
         t.set(

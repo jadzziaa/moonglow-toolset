@@ -2403,6 +2403,7 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
     use crate::widgets::{NameWindow, Named};
     if let Some((from, mut name)) = app.script_save_as.clone() {
         let window = NameWindow {
+            new: false,
             title: "Save Script As",
             label: "New name (up to 16 characters)",
             restype: ResType::NSS,
@@ -2434,6 +2435,7 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
 
     if let Some(mut name) = app.new_script.clone() {
         let window = NameWindow {
+            new: true,
             title: "New Script",
             label: "Name (up to 16 characters)",
             restype: ResType::NSS,

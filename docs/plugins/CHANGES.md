@@ -154,6 +154,32 @@ says `api = "0.4"` runs as it did, and its tests read as they did):
   `left`, `[[test.field]]`). The `tag-conventions` example has one.
 - From the Domains of Dread's notes on 2.2.0.
 
+Since Moonglow 2.13.0, still as API 0.4 (only additions: a plugin that
+says `api = "0.4"` runs as it did; of its tests, those that held what
+changed, below, to what it was):
+
+- `mg.vars.describe(name)` and `mg.vars.described()`: the variables the
+  module's project describes (`variables.toml`), each a table (`name`,
+  `pattern`, `type`, `on`, `values`, `help`, `runtime`…), as the
+  Variables window and `mg vars` read them.
+- `ctx.module:new_name(name, kind)`: a name for a new resource as the
+  window proposes one, with the builder's code in the project's pattern,
+  the first free (`ab_gateguard.utc`).
+- A test's `builtin` takes a list of Moonglow's checks, or `"all"`.
+- A test's game folder may bring a `dialog.tlk`, the fixture's custom
+  talk table and, in its `hak/`, the fixture's haks; with no talk table
+  to count by, `2da-strref`, `custom-tlk` and `2da-described` say
+  nothing of strings they can't count (a test that names one of the
+  first two is told it can't test it, one that runs them as part of
+  more, in a note).
+- With no game and no game folder, a test's `ctx.game` is the fixture
+  (it was empty), as Moonglow's is the game with the module over it.
+- What is `left` after a test's fixes is found on the module as fixed
+  through the game's data too (a fixed 2DA of the module's, read with
+  `ctx.game:table`), not only through `ctx.module`.
+- From the Domains of Dread's notes on 2.1.0 and 2.2.0, and their
+  builder proposal (C1).
+
 ## 0.3
 
 In Moonglow 1.21.0. Only additions: a plugin written for 0.1 or 0.2 runs

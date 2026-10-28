@@ -5450,12 +5450,7 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
     if let Some((ObjectKind::Placeable, index)) = single
         && ui.button("Add Popup Text…").clicked()
     {
-        app.popup_text = Some(crate::store_wizard::PopupText {
-            area: view.area,
-            placeable: index,
-            text: String::new(),
-            name: String::new(),
-        });
+        app.popup_text = Some(crate::store_wizard::PopupText::of(app, view.area, index));
         ui.close();
     }
     if all(ObjectKind::Waypoint) && ui.button("Create Set…").clicked() {

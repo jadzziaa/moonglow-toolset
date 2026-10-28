@@ -457,7 +457,7 @@ fn the_type_file_has_the_whole_api() {
             Some((ctx, member)) => {
                 // `ctx.module:gff` is `gff` of the type of `ctx.module`.
                 let of = match ctx {
-                    "ctx.module" => "Reader",
+                    "ctx.module" => "Module",
                     "ctx.game" => "Game",
                     "ctx.edit" => "Edit",
                     "ctx.log" => "Log",
@@ -477,7 +477,8 @@ fn the_type_file_has_the_whole_api() {
                 };
                 let field = format!(" {member}:");
                 type_block(&types, of).contains(&field)
-                    || (of == "Game" && type_block(&types, "Reader").contains(&field))
+                    || (matches!(of, "Game" | "Module")
+                        && type_block(&types, "Reader").contains(&field))
             }
             // (Luau's own: require, print.)
             None => true,

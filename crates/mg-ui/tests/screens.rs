@@ -6021,3 +6021,49 @@ fn main_window_log_and_tree() {
     h.run_steps(3);
     shoot(&mut h, &dir, "w3-tree-several-menu");
 }
+
+/// The names typed for new resources in a project with a builder code
+/// (`ab`): New Script… as it opened before (empty) and as it opens now
+/// (with the code), and the Store Wizard's Name page with a ResRef typed
+/// without the code, and the button that puts it in.
+#[test]
+#[ignore]
+fn names_with_the_builder_code() {
+    use egui_kittest::kittest::Queryable;
+    use mg_module::{Module, ModuleLocation};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let out = mg_testkit::output_dir("screens");
+    let dir = mg_testkit::scratch_dir("screens-builder-code").join("project");
+    let mut m = Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
+    mg_module::project_file::ProjectFile::set_builder_code(&dir, Some("ab")).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.open_module(&dir);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 700.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().new_script = Some(String::new());
+    shoot(&mut h, &out, "new-script-name-before");
+    h.state_mut().new_script = None;
+    h.run();
+    h.get_by_label("Tools").click();
+    h.run();
+    h.get_by_label_contains("New Script…").click();
+    shoot(&mut h, &out, "new-script-name-builder-code");
+    h.state_mut().new_script = None;
+    h.state_mut().blueprint_wizard = Some(mg_ui::blueprint_wizard::BlueprintWizard::new(
+        mg_module::palette::BlueprintKind::Store,
+    ));
+    h.run();
+    h.get_by_label("Merchants").click();
+    h.run();
+    h.get_by_label("Next >").click();
+    h.run();
+    h.state_mut().blueprint_wizard.as_mut().unwrap().resref = "shop".into();
+    shoot(&mut h, &out, "store-wizard-resref-without-code");
+}

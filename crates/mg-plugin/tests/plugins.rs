@@ -1152,7 +1152,8 @@ fn a_plugin_s_tests_run_moonglow_s_own_checks() {
         source.join("plugin.cfg"),
         "[plugin]\nid = \"test.rules\"\nname = \"Rules\"\nversion = \"1\"\napi = \"0.4\"\n\
          license = \"GPL-3.0-or-later\"\n[check]\nid = \"listed\"\ntitle = \"Listed\"\n\
-         [check]\nid = \"vars\"\ntitle = \"Vars\"\n",
+         [check]\nid = \"vars\"\ntitle = \"Vars\"\n\
+         [command]\nid = \"names\"\ntitle = \"Names\"\n",
     )
     .unwrap();
     std::fs::write(
@@ -1161,6 +1162,16 @@ fn a_plugin_s_tests_run_moonglow_s_own_checks() {
         local mg = require("@moonglow")
         mg.check("listed", function(ctx)
             return { { resource = "module.ifo", message = `{#ctx.game:resources()}` } }
+        end)
+        -- Names for new resources, as the window proposes them (the
+        -- builder proposal's C1: plugins' new resources had no code).
+        mg.command("names", function(ctx)
+            local guard = ctx.module:new_name("Gate Guard", "utc")
+            ctx.edit:write_bytes(guard, "")
+            ctx.log:info(`{guard} {ctx.module:new_name("Gate Guard", "utc")}`)
+            ctx.log:info(`{ctx.module:new_name("market", "are")} {ctx.module:new_name("kz_hello", ".nss")}`)
+            local ok, why = pcall(function() return ctx.module:new_name("x", "zzz") end)
+            ctx.log:info(`{tostring(ok)} {why}`)
         end)
         -- The project's descriptions (the notes on 2.2.0: no API read them).
         mg.check("vars", function(ctx)
@@ -1208,7 +1219,11 @@ fn a_plugin_s_tests_run_moonglow_s_own_checks() {
     );
     m.set_gff(key("krezk.git"), &git).unwrap();
     m.save_as(&ModuleLocation::Folder(fixture.clone())).unwrap();
-    std::fs::write(fixture.join("moonglow.toml"), "[tags]\nunique = [\"TDOD_START_*\"]\n").unwrap();
+    std::fs::write(
+        fixture.join("moonglow.toml"),
+        "[tags]\nunique = [\"TDOD_START_*\"]\n[resrefs]\npattern = \"kz_{name}\"\n",
+    )
+    .unwrap();
     std::fs::write(
         fixture.join("variables.toml"),
         "colour = 3\n\
@@ -1291,6 +1306,15 @@ fn a_plugin_s_tests_run_moonglow_s_own_checks() {
         builtin = []
 
         [[test]]
+        name = "names for new resources"
+        command = "names"
+        log = [
+            "kz_gateguard.utc kz_gateguard001.utc",
+            "kz_market.are kz_hello.nss",
+            "false ",
+        ]
+
+        [[test]]
         name = "the project's descriptions"
         check = "vars"
         [[test.finding]]
@@ -1335,6 +1359,7 @@ fn a_plugin_s_tests_run_moonglow_s_own_checks() {
         "all of Moonglow's checks",
         "all, fixed",
         "the project's descriptions",
+        "names for new resources",
     ] {
         assert_eq!(result(name).problems, Vec::<String>::new(), "{name}");
     }

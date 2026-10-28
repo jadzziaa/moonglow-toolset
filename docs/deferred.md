@@ -3070,14 +3070,6 @@ The Domains of Dread's builder proposal (its section 3): the project file
 (`moonglow.toml`), Make Placeables Static and Setup Store following it,
 and duplicate tags on paste. What is left:
 
-- **The builder code is not proposed everywhere** (C1): New Script…, New
-  Conversation…, New NUI Window…, Add Popup Text… and Import
-  Conversation start from an empty name or the file's (the code isn't
-  put in the empty field); a ResRef typed in a wizard is taken as typed
-  (the Creature Wizard's, where the module has it, becomes the next free
-  from it, without the code);
-  plugins' `ctx.terrain:new_area` gets the code (it is the Area
-  Wizard's), plugins' other new resources don't. (S)
 - **A builder code isn't checked against the team's:** two builders who
   choose one code aren't told; a claims table (C6) could list the codes.
   (S)

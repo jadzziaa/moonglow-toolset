@@ -69,6 +69,12 @@ export type Tlk = {
     write: (self: Tlk) -> string,
 }
 
+-- The module: its resources, and a name for a new one as the window
+-- proposes it (the builder's code in the team's pattern, the first free).
+export type Module = Reader & {
+    new_name: (self: Module, name: string, kind: string) -> string,
+}
+
 export type Game = Reader & {
     table: (self: Game, name: string) -> TwoDa,
     string: (self: Game, strref: number) -> string?,
@@ -251,7 +257,7 @@ export type Context = {
     selection: { Selected },
     -- The area or editor in front, if any (API 0.4).
     open: Selected?,
-    module: Reader,
+    module: Module,
     game: Game,
     edit: Edit,
     hak: Hak,

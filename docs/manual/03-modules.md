@@ -621,10 +621,23 @@ kinds`: `tdod_n_guard` for a creature). The pattern is used by:
 - **Setup Store**'s conversation and script (`ab_store001`,
   `ab_openstore001`);
 - **Copy…** and **Edit Copy…** (`ab_nw_chicken001`);
-- the Script Wizard's names (`ab_sc_001`, `ab_at_001`).
+- the Script Wizard's names (`ab_sc_001`, `ab_at_001`);
+- **New Script…**, **New Conversation…**, **New NUI Window…** and **Add
+  Popup Text…**, whose name starts with the code, the cursor where the
+  name goes (after `ab_`, or before `_ab` with a pattern `{name}_{code}`;
+  since Moonglow 2.13.0);
+- **Import Conversation**'s conversation, named after its file
+  (`ab_night_watch`; since 2.13.0);
+- plugins, which ask for a name with `ctx.module:new_name`
+  ([Plugin API](17-plugin-api.md)); `ctx.terrain:new_area`'s area is the
+  Area Wizard's.
 
-A name typed in a wizard's ResRef field, or in **New Script…** and the
-other windows that start with an empty name, is taken as typed.
+What is typed is taken as typed: a name in those windows (the code can
+be erased, for a script that must have a name of its own) and a ResRef
+typed in a wizard's ResRef field. Where a typed ResRef hasn't the code,
+the wizard offers a button that puts it in (**Use ab_shop**), and the
+Creature Wizard, where the module has the ResRef typed already, makes
+the next free one from it with the code (`ab_guard`; since 2.13.0).
 
 ### Described variables
 

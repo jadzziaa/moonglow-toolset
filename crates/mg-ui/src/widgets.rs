@@ -2322,9 +2322,37 @@ pub(crate) fn copy_cut_paste(ui: &egui::Ui) -> (bool, bool, bool) {
     })
 }
 
+/// What the name of a new resource of type `t` starts with, where it is
+/// typed (New Script…, New Conversation…): the builder's code where the
+/// team's pattern puts it (`ab_`; `_ab` with `{name}_{code}`), the
+/// team's prefix without one, nothing in a module with neither (The
+/// Domains of Dread's builder proposal, C1).
+pub(crate) fn code_start(app: &crate::Moonglow, t: mg_core::ResType) -> String {
+    app.ws.as_ref().map(|ws| ws.module.project_file.naming_for(t).fit("", "")).unwrap_or_default()
+}
+
+/// Puts a text field's cursor at `at` (characters), from the next frame.
+pub(crate) fn place_cursor(ui: &egui::Ui, field: &egui::Response, at: usize) {
+    let mut state = egui::TextEdit::load_state(ui.ctx(), field.id).unwrap_or_default();
+    let at = egui::text::CCursor::new(at);
+    state.cursor.set_char_range(Some(egui::text::CCursorRange::one(at)));
+    state.store(ui.ctx(), field.id);
+}
+
+/// Whether a field is shown for the first time (since it was last away):
+/// [`autofocus`] focuses it then.
+fn first_shown(ui: &egui::Ui, field: &egui::Response) -> bool {
+    let seen = field.id.with("autofocus");
+    let last: Option<u64> = ui.data(|d| d.get_temp(seen));
+    last.is_none_or(|l| l + 1 < ui.ctx().cumulative_pass_nr())
+}
+
 /// A window that asks for a new resource's name (New Script, New
 /// Conversation, Save Script As).
 pub(crate) struct NameWindow<'a> {
+    /// It names a new resource, whose name starts with the builder's code
+    /// ([`code_start`]): the cursor is put where the name goes.
+    pub new: bool,
     pub title: &'a str,
     pub label: &'a str,
     pub restype: mg_core::ResType,
@@ -2361,6 +2389,17 @@ impl NameWindow<'_> {
             .show(ctx, |ui| {
                 ui.label(self.label);
                 let field = ui.add(egui::TextEdit::singleline(name).char_limit(16));
+                // (Where the name goes: after `ab_`, before a code that goes after
+                // it, `{name}_ab`.)
+                if self.new
+                    && first_shown(ui, &field)
+                    && let Some(m) = module
+                {
+                    let naming = m.project_file.naming_for(self.restype);
+                    if !naming.is_plain() && *name == naming.fit("", "") {
+                        place_cursor(ui, &field, naming.before().chars().count());
+                    }
+                }
                 autofocus(ui, &field);
                 let key = mg_core::ResRef::from_str(name.trim())
                     .ok()
