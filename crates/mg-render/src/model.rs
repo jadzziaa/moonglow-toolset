@@ -123,6 +123,9 @@ pub struct GpuMesh {
     /// The model has no tangents for it: they were made from its texture
     /// coordinates ([`made_tangents`]).
     pub tangents_made: bool,
+    /// It casts the sun's and moon's shadows: its node's `shadow` flag (on
+    /// unless a model says otherwise).
+    pub casts: bool,
     /// Its place in its chunk, given back when the last mesh drawing from
     /// it is dropped.
     slot: Arc<crate::pool::Slot>,
@@ -144,6 +147,9 @@ pub struct GpuModel {
     pub id: u64,
     pub model: Arc<Model>,
     pub meshes: Vec<GpuMesh>,
+    /// The meshes that only cast shadows (`render 0`, `shadow 1`: a
+    /// low-poly stand-in for what is drawn), never drawn.
+    pub shadow_only: Vec<GpuMesh>,
     /// The rest pose (model-space node transforms).
     pub rest: Vec<Mat4>,
 }
@@ -176,15 +182,19 @@ fn inverse_binds(skin: &mg_mdl::Skin, rest: &[Mat4], skin_node: usize) -> Vec<Ma
 }
 
 impl GpuModel {
-    /// Uploads the meshes that render (walkmeshes and `render 0` shadow
-    /// meshes are skipped).
+    /// Uploads the meshes that render, and apart those that only cast
+    /// shadows (`render 0`, `shadow 1`); walkmeshes and meshes neither
+    /// drawn nor shadowing are skipped.
     pub fn new(gpu: &Gpu, model: Arc<Model>) -> GpuModel {
         crate::guard::fail_if_asked(&model.name);
         let rest = rest_pose(&model);
         let mut meshes = Vec::new();
+        let mut shadow_only = Vec::new();
         for (i, node) in model.nodes.iter().enumerate() {
             let NodeKind::Mesh(m) = &node.kind else { continue };
-            if !m.render || m.triangles().next().is_none() || matches!(m.extra, MeshExtra::Aabb(_))
+            if !(m.render || m.shadow)
+                || m.triangles().next().is_none()
+                || matches!(m.extra, MeshExtra::Aabb(_))
             {
                 continue;
             }
@@ -228,7 +238,7 @@ impl GpuModel {
                 inverse_bind: inverse_binds(s, &rest, i),
                 vertices: slot.chunk.skin.clone().expect("a skinned chunk"),
             });
-            meshes.push(GpuMesh {
+            let mesh = GpuMesh {
                 node: i,
                 vertices: slot.chunk.vertices.clone(),
                 indices: slot.chunk.indices.clone(),
@@ -252,12 +262,14 @@ impl GpuModel {
                 min,
                 max,
                 tangents_made: m.tangents.is_empty(),
+                casts: m.shadow,
                 skin,
                 slot: Arc::new(slot),
-            });
+            };
+            if m.render { meshes.push(mesh) } else { shadow_only.push(mesh) }
         }
         let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        GpuModel { id, model, meshes, rest }
+        GpuModel { id, model, meshes, shadow_only, rest }
     }
 
     /// This model drawing only the first `count(mesh)` of each mesh's
@@ -280,11 +292,14 @@ impl GpuModel {
                 max: m.max,
                 skin: m.skin.clone(),
                 tangents_made: m.tangents_made,
+                casts: m.casts,
                 slot: m.slot.clone(),
             })
             .collect();
         let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        GpuModel { id, model: self.model.clone(), meshes, rest: self.rest.clone() }
+        // (Grass casts no shadow.)
+        let (model, rest) = (self.model.clone(), self.rest.clone());
+        GpuModel { id, model, meshes, shadow_only: Vec::new(), rest }
     }
 }
 

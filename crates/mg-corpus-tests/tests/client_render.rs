@@ -58,6 +58,8 @@ mod heads;
 mod heed;
 #[path = "client_render/programs.rs"]
 mod programs;
+#[path = "client_render/shadows.rs"]
+mod shadows;
 #[path = "client_render/soft_particles.rs"]
 mod soft_particles;
 #[path = "client_render/upright.rs"]

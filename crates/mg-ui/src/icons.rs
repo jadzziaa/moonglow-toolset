@@ -17,6 +17,8 @@ pub(crate) const ROTATE: &str = "↺";
 pub(crate) const START: &str = "🏁";
 pub(crate) const NIGHT: &str = "🌙";
 pub(crate) const FOG: &str = "☁";
+/// The area view's Shadows switch.
+pub(crate) const SHADOWS: &str = "◑";
 pub(crate) const GRID: &str = "⊞";
 pub(crate) const GRASS: &str = "🌿";
 /// The game's own shaders (the area and model views' Shaders switch).
@@ -60,4 +62,18 @@ pub(crate) fn blueprint(kind: BlueprintKind) -> &'static str {
 /// `text` after `glyph`.
 pub(crate) fn labelled(glyph: &str, text: &str) -> String {
     format!("{glyph} {text}")
+}
+
+#[cfg(test)]
+mod tests {
+    /// The Shadows switch shows its glyph: egui's fonts have it
+    /// ("◐" they haven't, "◑" they have).
+    #[test]
+    fn the_shadows_glyph_is_in_egui_s_fonts() {
+        let ctx = egui::Context::default();
+        let mut out = ctx.run_ui(Default::default(), |_| {});
+        out.textures_delta.clear();
+        let font = egui::FontId::proportional(14.0);
+        assert!(ctx.fonts_mut(|f| f.has_glyphs(&font, super::SHADOWS)));
+    }
 }

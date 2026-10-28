@@ -17,6 +17,7 @@ mod pool;
 mod reach;
 mod renderer;
 pub mod scene;
+mod shadow;
 pub mod texture;
 
 pub use assets::{Assets, LoadedTexture, NoAssets, colored_name, split_colors};
@@ -30,5 +31,5 @@ pub use renderer::{
 };
 pub use scene::{
     AreaLight, Camera, Environment, Fog, Instance, Line, MeshOverride, MeshState, ModuleClock,
-    PointLight, Scene,
+    PointLight, Scene, SunShadows,
 };

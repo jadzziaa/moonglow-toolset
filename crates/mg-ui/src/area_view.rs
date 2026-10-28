@@ -389,6 +389,8 @@ pub struct AreaView {
     pub fade: Fade,
     /// Lit by the area's lighting (off: an even working light).
     pub lit: bool,
+    /// The sun's or moon's shadows, where the area has them.
+    pub shadows: bool,
     /// Circles where each placed sound is heard at full volume and where
     /// it stops.
     pub sound_ranges: bool,
@@ -595,6 +597,7 @@ impl AreaView {
             fog: false,
             fade: Fade::Never,
             lit: true,
+            shadows: true,
             sound_ranges: false,
             grid: true,
             show: [true; 9],
@@ -1767,6 +1770,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
         let mut view = AreaView::new(area);
         (view.show, view.show_start) = shown_of(&app.settings.hidden_in_areas);
         view.lit = !app.settings.unlit_areas;
+        view.shadows = !app.settings.no_shadows;
         view.sound_ranges = app.settings.sound_ranges;
         view.fade = Fade::of(app.settings.fade_geometry);
         // (Where its camera was, if a module's kept tabs opened it again.)
@@ -1918,6 +1922,18 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             .changed()
         {
             app.settings.unlit_areas = !view.lit;
+        }
+        if ui
+            .toggle_value(&mut view.shadows, labelled(icons::SHADOWS, "Shadows"))
+            .on_hover_text(
+                "Draw the sun's shadows by day and the moon's at night, where the area has them \
+                 (Area Properties › Sun and Moon Shadows, as dark as its Shadow Opacity), as \
+                 the game draws them: cast by tiles, placeables and doors, falling on the tiles \
+                 and static placeables",
+            )
+            .changed()
+        {
+            app.settings.no_shadows = !view.shadows;
         }
         ui.toggle_value(&mut view.fog, labelled(icons::FOG, "Fog"));
         let before = view.fade;
@@ -2300,6 +2316,7 @@ fn viewport(
         night: view.night,
         fog: view.fog,
         lit: view.lit,
+        shadows: view.shadows,
         show: view.show,
         animate: !app.settings.still_objects,
         fade: view.fade.now(view.tile_mode || crate::terrain_mode::active(app, view).is_some()),

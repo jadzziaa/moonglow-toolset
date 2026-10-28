@@ -81,6 +81,9 @@ pub struct View {
     /// Grass is drawn wherever this camera sees it ([`Sight`]); `None`:
     /// none.
     pub grass: Option<Sight>,
+    /// The sun's or moon's shadows are drawn where the area has them
+    /// ([`View::shadows_of`]).
+    pub shadows: bool,
 }
 
 impl View {
@@ -96,7 +99,24 @@ impl View {
             animate: true,
             fade: false,
             grass: None,
+            shadows: true,
         }
+    }
+
+    /// The sun's or moon's shadows `area` shows in this view: the sun's
+    /// by day, if its Sun Shadows are on, the moon's at night, if its Moon
+    /// Shadows are (the client draws none for the other, read from its
+    /// pictures: `shadows_look` in `client_render.rs`), as opaque as its
+    /// Shadow Opacity; none with the lighting off, or with the view's
+    /// shadows switched off.
+    pub fn shadows_of(&self, area: &AreaModel) -> Option<mg_render::SunShadows> {
+        let l = &area.lighting;
+        (self.shadows && self.lit && l.sky(self.night).shadows && l.shadow_opacity > 0).then(|| {
+            mg_render::SunShadows {
+                opacity: f32::from(l.shadow_opacity) / 100.0,
+                fade_limit: l.fog_clip,
+            }
+        })
     }
 
     pub fn shows(&self, kind: ObjectKind) -> bool {
@@ -901,7 +921,16 @@ impl AreaScene {
                 self.failed.borrow_mut().insert(key);
                 continue;
             };
-            instances.extend(drawn.into_iter().map(|i| Instance { unlit, ..i }));
+            // The sun's shadows: cast by placeables and doors (a creature's
+            // are left for later), falling on static placeables, as the
+            // client has them.
+            let casts = matches!(o.kind, ObjectKind::Placeable | ObjectKind::Door);
+            instances.extend(drawn.into_iter().map(|i| Instance {
+                unlit,
+                casts_shadows: casts && i.casts_shadows,
+                receives_shadows: o.is_static,
+                ..i
+            }));
             lights.extend(lit);
         }
         if !view.lit {
@@ -933,6 +962,7 @@ impl AreaScene {
             // as the tiles' animations go on.)
             time: view.time,
             environment: mg_render::Environment::from_are(l.flags, l.wind_power),
+            shadows: view.shadows_of(area),
         }
     }
 
@@ -1026,6 +1056,7 @@ impl AreaScene {
             state: posed.state.clone(),
             textures,
             tile: true,
+            receives_shadows: true,
             ..Instance::new(loaded.gpu.clone(), transform)
         });
     }
