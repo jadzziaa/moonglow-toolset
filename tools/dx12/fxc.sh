@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Compiles HLSL with Microsoft's FXC (d3dcompiler_47.dll) under Wine, as
 # wgpu's Direct3D 12 backend compiles it on a Windows machine without
-# dxcompiler.dll (Moonglow ships none): shader model 5.1, strictness on.
+# dxcompiler.dll (Moonglow ships one beside its programs and takes FXC
+# where it is missing: mg_render::dx12; DXC is tools/dx12/dxc.sh): shader
+# model 5.1, strictness on.
 #
 #   tools/dx12/fxc.sh D3DCOMPILER_DLL MANIFEST
 #

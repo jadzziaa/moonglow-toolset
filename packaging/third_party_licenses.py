@@ -8,7 +8,12 @@ for one target, not build or dev ones) with its license, followed by the
 license files each ships, the same text printed once for all the crates
 that share it.
 
-    packaging/third_party_licenses.py [--target TRIPLE] --output THIRD-PARTY-LICENSES.txt
+    packaging/third_party_licenses.py [--target TRIPLE] [--dxc DIR] --output THIRD-PARTY-LICENSES.txt
+
+--dxc names the folder of the license texts of Microsoft's DirectX Shader
+Compiler, which the Windows packages ship as dxcompiler.dll
+(packaging/windows/dxc.ps1 -Licenses puts them there, with VERSION.txt):
+they are said and given too.
 
 The file is UTF-8 (license files name their authors in every script),
 whatever the system's code page.
@@ -54,6 +59,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--target", help="target triple (default: the host's)")
     ap.add_argument("--output", help="file to write (default: standard output)")
+    ap.add_argument("--dxc", help="folder of DXC's license texts (Windows packages)")
     args = ap.parse_args()
     target = args.target or host()
     meta = json.loads(subprocess.check_output(
@@ -93,8 +99,20 @@ def main():
               "Font Licence 1.0, copyright Canonical Ltd) for its labels, Luau (MIT,\n"
               "copyright Roblox Corporation and Lua.org, PUC-Rio) for plugins, and\n"
               "glslang (BSD-3-Clause and others, copyright The Khronos Group and\n"
-              "others: its LICENSE.txt, with glslang-sys) for the game's shaders. It\n"
-              f"is built from these crates, under their own licenses (target {target}):\n\n")
+              "others: its LICENSE.txt, with glslang-sys) for the game's shaders.\n")
+    dxc = []
+    if args.dxc:
+        d = pathlib.Path(args.dxc)
+        version = (d / "VERSION.txt").read_text(encoding="utf-8").strip()
+        dxc = [f for f in sorted(d.iterdir()) if f.is_file() and f.name != "VERSION.txt"]
+        if not dxc:
+            sys.exit(f"no license texts in {d}")
+        out.write(f"Beside it lies Microsoft's DirectX Shader Compiler {version}\n"
+                  "(dxcompiler.dll, https://github.com/microsoft/DirectXShaderCompiler),\n"
+                  "which Direct3D 12 compiles shaders with: the University of\n"
+                  "Illinois/NCSA Open Source License (LLVM's), Microsoft's own code\n"
+                  "under MIT, and the notices of what it incorporates, given below.\n")
+    out.write(f"It is built from these crates, under their own licenses (target {target}):\n\n")
     for p in crates:
         out.write(f"  {p['name']} {p['version']}: {p['license'] or p.get('license_file') or '?'}\n")
     texts = {}
@@ -131,6 +149,9 @@ def main():
                 if f.is_file() and f.name.lower().endswith(".txt"):
                     text = f.read_text(encoding="utf-8", errors="replace").strip()
                     texts.setdefault(text, []).append(f"{p['name']} ({b}/{f.name})")
+    for f in dxc:
+        text = f.read_text(encoding="utf-8", errors="replace").strip()
+        texts.setdefault(text, []).append(f"DirectX Shader Compiler, dxcompiler.dll ({f.name})")
     for text, users in texts.items():
         out.write("\n" + "=" * 78 + "\n")
         out.write("".join(f"{u}\n" for u in users))

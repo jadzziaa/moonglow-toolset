@@ -98,12 +98,14 @@ impl Gpu {
 /// The adapter a headless device is opened on ([`Gpu::headless`]): the
 /// window's on Automatic ([`crate::backend::pick_adapter`]: wgpu's, but an
 /// AMD GPU on Windows through Direct3D 12), of the backends `WGPU_BACKEND`
-/// names if it is set; `None` without one.
+/// names if it is set; `None` without one. Direct3D 12 compiles with the
+/// compiler [`crate::dx12`] chose.
 pub fn headless_adapter() -> Option<wgpu::Adapter> {
     let from_environment = wgpu::Backends::from_env();
     let backends = from_environment.unwrap_or(wgpu::Backends::PRIMARY | wgpu::Backends::GL);
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends,
+        backend_options: crate::dx12::backend_options(),
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let adapters = pollster::block_on(instance.enumerate_adapters(backends));

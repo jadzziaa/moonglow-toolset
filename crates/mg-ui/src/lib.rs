@@ -104,6 +104,8 @@ use mg_rules::GameData;
 pub use browser::Browser;
 pub use dialogs::{Dialogs, FileKind, NoDialogs};
 pub use mg_render::backend as graphics;
+/// Direct3D 12's shader compiler (DXC beside the program, else FXC).
+pub use mg_render::dx12;
 /// Carrying on when one model fails (for the application's panic hook).
 pub use mg_render::guard as model_guard;
 pub use options::{OptionsDraft, OptionsPage};
@@ -112,6 +114,17 @@ pub use tabs::Tab;
 pub use text::set_edit_language;
 pub use transfer::{ExportDraft, ImportDraft};
 pub use wizards::{AreaWizard, Wizard};
+
+/// `setup` (egui-wgpu's: the window's, or a test's) with the backend
+/// options every wgpu instance Moonglow makes takes: Direct3D 12 compiles
+/// with the compiler `mg_render::dx12` chose (the DXC beside the program,
+/// else FXC).
+pub fn graphics_setup(mut setup: egui_wgpu::WgpuSetup) -> egui_wgpu::WgpuSetup {
+    if let egui_wgpu::WgpuSetup::CreateNew(new) = &mut setup {
+        new.instance_descriptor.backend_options = mg_render::dx12::backend_options();
+    }
+    setup
+}
 
 /// Where a tool window is, or opens: a window of its own over the area
 /// (as each does at first), a tab of the main pane beside the areas, or a

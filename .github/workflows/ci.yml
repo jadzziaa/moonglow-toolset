@@ -74,10 +74,20 @@ jobs:
       - name: Clippy (mg and mg-preview without the GPU)
         # Their default features are on in everything above.
         run: cargo clippy -p mg -p mg-preview --no-default-features --all-targets -- -D warnings
+      - name: DXC beside the test binaries
+        # The pinned dxcompiler.dll the Windows packages ship, where the
+        # test binaries run (target\debug\deps): Direct3D 12 compiles
+        # shaders with it there as beside moonglow.exe (mg_render::dx12).
+        # MOONGLOW_REQUIRE_DXC, below, fails the compiler check in
+        # mg-render's render tests unless Direct3D 12 took it.
+        if: runner.os == 'Windows'
+        run: packaging\windows\dxc.ps1 -Destination target\debug\deps
       - name: Test
         # Corpus, differential and engine tests skip without a game install.
         # Not the examples (developer tools; a plain `cargo test` links all
         # 22 of them; clippy has checked them above).
+        env:
+          MOONGLOW_REQUIRE_DXC: ${{ runner.os == 'Windows' && '1' || '' }}
         run: cargo test --workspace --lib --bins --tests
       - name: Documentation tests
         run: cargo test --workspace --doc

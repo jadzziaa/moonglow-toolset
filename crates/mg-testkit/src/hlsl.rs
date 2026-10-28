@@ -1,19 +1,24 @@
 //! Shaders written in HLSL as wgpu's Direct3D 12 backend writes them, and
-//! compiled by FXC as it compiles them, on a machine without Direct3D 12
-//! (`feature = "hlsl"`).
+//! compiled by FXC or DXC as it compiles them, on a machine without
+//! Direct3D 12 (`feature = "hlsl"`).
 //!
 //! wgpu 30 (`wgpu-hal`'s `dx12/device.rs`) writes each pipeline stage with
-//! naga's HLSL backend at shader model 5.1 where it compiles with FXC (its
-//! `Dx12Compiler::Auto` takes FXC where no `dxcompiler.dll` is found, and
-//! Moonglow ships none): [`options`] repeats its options, the binding map
-//! of the pipeline's layout included (CBV, SRV and UAV registers in order
-//! across the groups, in space 0; each group's samplers through the
-//! sampler heap and an index buffer of its own; the special constants of
-//! the first vertex and instance after them). [`write`] writes a stage as
-//! it does, the vertex stage with the fragment stage's inputs (naga drops
-//! the outputs the fragment program doesn't read). [`fxc`] compiles what
-//! was written with Microsoft's `d3dcompiler_47.dll` under Wine
-//! (`tools/dx12/fxc.sh`), where `MOONGLOW_D3DCOMPILER` names one.
+//! naga's HLSL backend at the shader model it compiles at: 5.1 with FXC,
+//! and with DXC the lower of the driver's and DXC's own (6.0 at least).
+//! Moonglow takes the `dxcompiler.dll` it ships beside its programs
+//! (`mg_render::dx12`), and FXC where there is none. [`options_at`]
+//! repeats wgpu's options, the binding map of the pipeline's layout
+//! included (CBV, SRV and UAV registers in order across the groups, in
+//! space 0; each group's samplers through the sampler heap and an index
+//! buffer of its own; the special constants of the first vertex and
+//! instance after them). [`write`] writes a stage as it does, the vertex
+//! stage with the fragment stage's inputs (naga drops the outputs the
+//! fragment program doesn't read). [`fxc`] compiles what was written with
+//! Microsoft's `d3dcompiler_47.dll` under Wine (`tools/dx12/fxc.sh`),
+//! where `MOONGLOW_D3DCOMPILER` names one; [`dxc`] with DXC's `dxc.exe`
+//! and `dxcompiler.dll` (`tools/dx12/dxc.sh`) and the arguments wgpu gives
+//! `dxcompiler.dll`, where `MOONGLOW_DXC` names the folder holding them
+//! (a release's `bin/x64`).
 
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
@@ -25,6 +30,19 @@ use wgpu_types as wgt;
 /// with, for a pipeline of bind groups laid out as `groups` (each group's
 /// entries, in the pipeline's order), at shader model 5.1 (FXC's).
 pub fn options(groups: &[Vec<wgt::BindGroupLayoutEntry>]) -> hlsl::Options {
+    options_at(groups, hlsl::ShaderModel::V5_1)
+}
+
+/// The shader models a stage is written and compiled at with DXC: the
+/// lowest wgpu takes (6.0), and two that current drivers offer.
+pub const DXC_SHADER_MODELS: &[hlsl::ShaderModel] =
+    &[hlsl::ShaderModel::V6_0, hlsl::ShaderModel::V6_6, hlsl::ShaderModel::V6_8];
+
+/// [`options`] at `shader_model` (DXC's: 6.0 and on).
+pub fn options_at(
+    groups: &[Vec<wgt::BindGroupLayoutEntry>],
+    shader_model: hlsl::ShaderModel,
+) -> hlsl::Options {
     let mut binding_map = hlsl::BindingMap::default();
     let mut sampler_buffer_binding_map = hlsl::SamplerIndexBufferBindingMap::default();
     let mut dynamic_storage_buffer_offsets_targets = std::collections::BTreeMap::new();
@@ -120,7 +138,7 @@ pub fn options(groups: &[Vec<wgt::BindGroupLayoutEntry>]) -> hlsl::Options {
     }
     let heap = |register| hlsl::BindTarget { space: 0, register, ..Default::default() };
     hlsl::Options {
-        shader_model: hlsl::ShaderModel::V5_1,
+        shader_model,
         binding_map,
         fake_missing_bindings: false,
         special_constants_binding: Some(cbv),
@@ -257,14 +275,27 @@ pub fn profile(stage: naga::ShaderStage) -> &'static str {
     }
 }
 
+/// The profile wgpu compiles a stage with at `shader_model` (`ps_6_6`).
+pub fn profile_at(stage: naga::ShaderStage, shader_model: hlsl::ShaderModel) -> String {
+    format!("{}_{}", hlsl::shader_stage_to_hlsl_str(stage), shader_model.to_str())
+}
+
 /// Microsoft's `d3dcompiler_47.dll`, where `MOONGLOW_D3DCOMPILER` names it
 /// (Wine's builtin one is vkd3d's compiler, not FXC).
 pub fn d3dcompiler() -> Option<PathBuf> {
     std::env::var_os("MOONGLOW_D3DCOMPILER").map(PathBuf::from).filter(|p| p.is_file())
 }
 
-/// What FXC made of a shader: its file, whether it compiled, how long it
-/// took (milliseconds) and what it said.
+/// The folder of DXC's `dxc.exe` and `dxcompiler.dll` (a release's
+/// `bin/x64`), where `MOONGLOW_DXC` names it.
+pub fn dxc_dir() -> Option<PathBuf> {
+    std::env::var_os("MOONGLOW_DXC")
+        .map(PathBuf::from)
+        .filter(|d| d.join("dxc.exe").is_file() && d.join("dxcompiler.dll").is_file())
+}
+
+/// What FXC or DXC made of a shader: its file, whether it compiled, how
+/// long it took (milliseconds) and what it said.
 #[derive(Debug, Clone)]
 pub struct Compiled {
     pub file: PathBuf,
@@ -281,18 +312,42 @@ pub fn fxc(
     dir: &Path,
     shaders: &[(PathBuf, String, String)],
 ) -> Result<Vec<Compiled>, String> {
+    run("fxc", dll, dir, shaders)
+}
+
+/// Compiles each of `shaders` (a file, its entry point and its profile, at
+/// shader model 6.0 or later) with DXC through `tools/dx12/dxc.sh`, in
+/// `dir`, with the `dxc.exe` and `dxcompiler.dll` of the folder `dxc`
+/// alone (no `dxil.dll`, as Moonglow ships it): a shader compiled but not
+/// signed fails.
+pub fn dxc(
+    dxc: &Path,
+    dir: &Path,
+    shaders: &[(PathBuf, String, String)],
+) -> Result<Vec<Compiled>, String> {
+    run("dxc", dxc, dir, shaders)
+}
+
+/// Runs `tools/dx12/<tool>.sh` with `with` (FXC's DLL, or DXC's folder) on
+/// `shaders`, and reads what it said of each.
+fn run(
+    tool: &str,
+    with: &Path,
+    dir: &Path,
+    shaders: &[(PathBuf, String, String)],
+) -> Result<Vec<Compiled>, String> {
     let windows = |p: &Path| format!("Z:{}", p.display()).replace('/', "\\");
     let manifest: String =
         shaders.iter().map(|(f, e, p)| format!("{}\t{e}\t{p}\n", windows(f))).collect();
-    let list = dir.join("manifest.txt");
+    let list = dir.join(format!("manifest-{tool}.txt"));
     std::fs::write(&list, manifest).map_err(|e| e.to_string())?;
-    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/dx12/fxc.sh");
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../tools/dx12/{tool}.sh"));
     let out = std::process::Command::new(script)
-        .arg(dll)
+        .arg(with)
         .arg(&list)
-        .env("MOONGLOW_FXC_DIR", dir.join("bin"))
+        .env(format!("MOONGLOW_{}_DIR", tool.to_uppercase()), dir.join(format!("bin-{tool}")))
         .output()
-        .map_err(|e| format!("tools/dx12/fxc.sh: {e}"))?;
+        .map_err(|e| format!("tools/dx12/{tool}.sh: {e}"))?;
     let text = String::from_utf8_lossy(&out.stdout);
     let by_name: std::collections::HashMap<String, &PathBuf> =
         shaders.iter().map(|(f, _, _)| (windows(f), f)).collect();
@@ -317,7 +372,8 @@ pub fn fxc(
     }
     if done.len() != shaders.len() {
         return Err(format!(
-            "FXC gave {} answers for {} shaders: {}{}",
+            "{} gave {} answers for {} shaders: {}{}",
+            tool.to_uppercase(),
             done.len(),
             shaders.len(),
             String::from_utf8_lossy(&out.stderr),
