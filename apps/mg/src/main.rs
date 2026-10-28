@@ -1346,6 +1346,22 @@ fn client_codepage(settings: &str) -> Option<Codepage> {
     Some(lang.codepage())
 }
 
+/// `--types`: each a file extension (`utc` or `.utc`) of a type that
+/// `fits`, else an error saying it is not `what`.
+pub(crate) fn parse_types(
+    given: &[String],
+    fits: impl Fn(ResType) -> bool,
+    what: &str,
+) -> Result<Vec<ResType>> {
+    (given.iter())
+        .map(|t| {
+            ResType::from_extension(t.trim_start_matches('.'))
+                .filter(|t| fits(*t))
+                .with_context(|| format!("{t}: not {what}"))
+        })
+        .collect()
+}
+
 fn resource_key(name: &str) -> Result<ResKey> {
     ResKey::from_filename(name)
         .with_context(|| format!("{name:?} is not a resource name like classes.2da"))
@@ -1956,22 +1972,14 @@ fn run(cli: &Cli) -> Result<Output> {
                     _ => None,
                 };
                 let marked = line.and_then(|l| marker.iter().find(|m| l.contains(m.as_str())));
-                let mut out = io::stdout().lock();
-                let _ = match (cli.json, serve::json(e), serve::text(e)) {
-                    (true, Some(mut v), _) => {
-                        if let Some(m) = marked {
-                            v["event"] = json!("marker");
-                            v["marker"] = json!(m);
-                        }
-                        writeln!(out, "{v}")
+                if let (Some(mut v), Some(t)) = (serve::json(e), serve::text(e)) {
+                    if let Some(m) = marked {
+                        v["event"] = json!("marker");
+                        v["marker"] = json!(m);
                     }
-                    (false, _, Some(t)) if marked.is_some() && bold => {
-                        writeln!(out, "\x1b[1m{t}\x1b[0m")
-                    }
-                    (false, _, Some(t)) => writeln!(out, "{t}"),
-                    _ => Ok(()),
-                };
-                let _ = out.flush();
+                    let t = if marked.is_some() && bold { format!("\x1b[1m{t}\x1b[0m") } else { t };
+                    serve::say(cli.json, &v, &[t]);
+                }
                 if line.is_some_and(|l| until.as_ref().is_some_and(|u| l.contains(u.as_str()))) {
                     reached = true;
                     return serve::Flow::Stop;
@@ -1989,15 +1997,9 @@ fn run(cli: &Cli) -> Result<Output> {
             };
             let said = match end {
                 serve::End::Stopped if late && !reached => "stopped at the timeout".to_string(),
-                serve::End::Stopped => "stopped".to_string(),
-                serve::End::NotLoaded => "the server could not load the module".to_string(),
-                serve::End::Exited(code) => format!("the server ended ({code:?})"),
+                other => serve::how(other),
             };
-            if cli.json {
-                println!("{}", json!({ "event": "ended", "how": said, "failed": failed }));
-            } else {
-                println!("mg: {said}");
-            }
+            serve::say_ended(cli.json, &said, failed);
             Output { done: true, failed, ..Default::default() }
         }
         Cmd::Test {
@@ -2165,8 +2167,12 @@ fn run(cli: &Cli) -> Result<Output> {
         } => {
             let gi = install(cli)?;
             let name = serve::module_name(project);
+            // (Held while it runs: another server of the project takes
+            // another.)
+            let scratch = (*serve && dir.is_none()).then(|| serve::scratch_dir("serve", project));
             let server_dir = serve.then(|| {
-                let dir = dir.clone().unwrap_or_else(|| serve::scratch_dir(project));
+                let dir = dir.clone().or_else(|| scratch.as_ref().map(|s| s.dir.clone()));
+                let dir = dir.expect("one or the other");
                 std::path::absolute(&dir).unwrap_or(dir)
             });
             let dev_dir = match (dev_dir, &server_dir) {
@@ -2177,14 +2183,7 @@ fn run(cli: &Cli) -> Result<Output> {
             std::fs::create_dir_all(&dev_dir).with_context(|| path_text(&dev_dir))?;
             let served = server_dir.as_ref().map(|d| d.join("modules").join(format!("{name}.mod")));
             let build_to = served.clone().or(r#mod.clone());
-            let say = |v: serde_json::Value, lines: Vec<String>| {
-                let mut out = io::stdout().lock();
-                let _ = match cli.json {
-                    true => writeln!(out, "{v}"),
-                    false => lines.iter().try_for_each(|l| writeln!(out, "{l}")),
-                };
-                let _ = out.flush();
-            };
+            let say = |v: serde_json::Value, lines: Vec<String>| serve::say(cli.json, &v, &lines);
             let resman = |m: &Module| -> Result<ResMan> {
                 let mut notes = Output::default();
                 let rm = module_resman(&gi, m, &mut notes)?;
@@ -2269,7 +2268,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 return Err(e);
             }
             let failed = !matches!(end, serve::End::Stopped);
-            say(json!({ "event": "ended", "failed": failed }), vec!["mg: stopped".into()]);
+            serve::say_ended(cli.json, &serve::how(end), failed);
             Output { done: true, failed, ..Default::default() }
         }
         Cmd::Lsp { codepage } => {
@@ -2282,11 +2281,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 // (The user directory as `mg` finds it, without the game
                 // too: the language server works without one.)
                 None => (cli.user_dir.clone())
-                    .or_else(|| {
-                        let env = std::env::var_os("NWN_HOME")
-                            .or_else(|| std::env::var_os("NWN_USER_DIRECTORY"));
-                        env.map(PathBuf::from).or_else(mg_resman::default_user_dir)
-                    })
+                    .or_else(GameInstall::detect_user_dir)
                     .filter(|_| !cli.no_user_dir)
                     .and_then(|u| std::fs::read_to_string(u.join("settings.tml")).ok())
                     .and_then(|t| client_codepage(&t))
@@ -3012,14 +3007,11 @@ fn run(cli: &Cli) -> Result<Output> {
         }
         Cmd::Find { module, types, tag, name, resref, area, placed, blueprints, fields } => {
             let m = Module::open(module)?;
-            let types = types
-                .iter()
-                .map(|t| {
-                    ResType::from_extension(t.trim_start_matches('.'))
-                        .filter(|t| mg_rules::ObjectKind::from_restype(*t).is_some())
-                        .with_context(|| format!("{t}: not a blueprint type (utc, utp, …)"))
-                })
-                .collect::<Result<Vec<_>>>()?;
+            let types = parse_types(
+                types,
+                |t| mg_rules::ObjectKind::from_restype(t).is_some(),
+                "a blueprint type (utc, utp, …)",
+            )?;
             // (Names are matched and shown in the module's own letters.)
             let cp = module_codepage(cli, &m);
             let q = mg_module::query::Query {

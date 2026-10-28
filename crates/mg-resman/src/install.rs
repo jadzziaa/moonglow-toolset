@@ -97,11 +97,7 @@ impl GameInstall {
     /// default), in English.
     pub fn detect() -> Option<GameInstall> {
         let root = Self::find_root()?;
-        let user_dir = env::var_os("NWN_HOME")
-            .or_else(|| env::var_os("NWN_USER_DIRECTORY"))
-            .map(PathBuf::from)
-            .or_else(default_user_dir)
-            .filter(|p| p.is_dir());
+        let user_dir = Self::detect_user_dir();
         Some(GameInstall {
             root,
             user_dir,
@@ -109,6 +105,17 @@ impl GameInstall {
             workshop: false,
             userpatch: false,
         })
+    }
+
+    /// The user directory as [`GameInstall::detect`] finds it, with or
+    /// without the game: `NWN_HOME`, `NWN_USER_DIRECTORY`, then the
+    /// platform default; a folder that is there.
+    pub fn detect_user_dir() -> Option<PathBuf> {
+        env::var_os("NWN_HOME")
+            .or_else(|| env::var_os("NWN_USER_DIRECTORY"))
+            .map(PathBuf::from)
+            .or_else(default_user_dir)
+            .filter(|p| p.is_dir())
     }
 
     /// `lang/<language>/data`.

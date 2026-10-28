@@ -276,7 +276,8 @@ place of the one in your tlk folder.
   not.
 - **Its own user directory.** The server's vault, database, settings and
   logs go in a scratch folder in the system's temporary folder, the same
-  one for each run of a module, with the module's haks and talk table
+  one for each run of a module (a second server of the module started
+  while the first runs gets one of its own), with the module's haks and talk table
   linked in from your NWN folder (which is only read). `--dir FOLDER`
   names another; your own NWN folder is refused without
   `--real-user-dir`.
@@ -288,7 +289,9 @@ place of the one in your tlk folder.
   is loaded. `--marker TEXT` marks the log lines with that text.
 - **What you type** goes to the server's console (`status`, `say`,
   `exit`, and the commands NWNX adds). `/restart` starts the server
-  again, and `/quit` stops it.
+  again, and `/quit` stops it. So does Ctrl+C: the server is told to
+  `exit` (it closes its database and logs in order) rather than ending
+  with `mg`.
 - **Until.** `--until TEXT` stops the server at the first log line with
   that text and `--timeout SECONDS` after that long: a failure if
   `--until` was not seen. `--restart-on-change` starts the server again
@@ -300,7 +303,8 @@ place of the one in your tlk folder.
   -servervault 1`).
 - **`--json`** prints each of these as a line of JSON (`event`:
   `started`, `passwords`, `ready`, `log`, `marker`, `console`, `engine`,
-  `note`, `changed`, `ended`).
+  `note`, `changed`, `ended`, the last with `how` it ended and whether
+  it `failed`, as `mg watch --serve` ends too).
 
 ## Testing scripts in the server
 

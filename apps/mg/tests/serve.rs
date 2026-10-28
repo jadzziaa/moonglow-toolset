@@ -115,6 +115,82 @@ fn a_module_of_sources_is_served_compiled() {
     assert!(notes.iter().any(|n| n.starts_with("compiled ")), "{events:?}");
     assert!(notes.iter().any(|n| n.contains("mg_broken.nss did not compile")), "{events:?}");
     assert!(!folder.join("mg_hello.ncs").exists());
+
+    // Compiled in the folder, then changed: served as it is now, not as
+    // its older compiled script.
+    let _ = crate::mg()
+        .args(["--root", root.to_str().unwrap(), "--user-dir", user.to_str().unwrap()])
+        .args(["compile", f])
+        .output()
+        .unwrap();
+    assert!(folder.join("mg_hello.ncs").is_file());
+    let changed = "void main() { WriteTimestampedLogEntry(\"MG_SERVED_CHANGED\"); }\n";
+    std::fs::write(folder.join("mg_hello.nss"), changed).unwrap();
+    let (ok, _, text) =
+        serve(&root, &user, &[f, "--dir", s, "--until", "MG_SERVED_CHANGED", "--timeout", "90"]);
+    assert!(ok, "{text}");
+}
+
+/// Ctrl+C stops the server as `exit` on its console does (it closes its
+/// database and logs in order), not by its death with `mg`: the run ends
+/// well, and the server has gone. (Ctrl+C in a terminal goes to every
+/// process of its group, as here.)
+#[cfg(unix)]
+#[test]
+fn ctrl_c_stops_the_server_with_exit() {
+    use std::io::{BufRead, BufReader};
+    use std::os::unix::process::CommandExt;
+    let root = mg_testkit::corpus!();
+    if mg_serve::server_binary(&root).is_none() {
+        return;
+    }
+    let _alone = mg_testkit::engine::timed_turn();
+    let dir = mg_testkit::scratch_dir("mg-serve-ctrl-c");
+    let user = dir.join("user");
+    std::fs::create_dir_all(&user).unwrap();
+    let chess = dir.join("chess.mod");
+    std::fs::copy(root.join("data/mod/Neverwinter Chess.mod"), &chess).unwrap();
+    let served = dir.join("served");
+    let mut child = crate::mg()
+        .args(["--root", root.to_str().unwrap(), "--user-dir", user.to_str().unwrap(), "--json"])
+        .args(["serve", chess.to_str().unwrap(), "--dir", served.to_str().unwrap()])
+        .args(["--timeout", "90"])
+        .process_group(0)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let lines = BufReader::new(child.stdout.take().unwrap()).lines().map_while(Result::ok);
+    let mut events = lines.filter_map(|l| serde_json::from_str::<Value>(&l).ok());
+    let mut seen = Vec::new();
+    let mut until = |kind: &str, seen: &mut Vec<Value>| loop {
+        let e = events.next().unwrap_or_else(|| panic!("no {kind}: {seen:?}"));
+        seen.push(e.clone());
+        if e["event"] == kind {
+            break e;
+        }
+    };
+    let server = until("started", &mut seen)["pid"].as_u64().unwrap().to_string();
+    until("ready", &mut seen);
+    let sent = std::process::Command::new("kill")
+        .args(["-INT", "--", &format!("-{}", child.id())])
+        .status()
+        .unwrap();
+    assert!(sent.success());
+    let ended = until("ended", &mut seen);
+    assert_eq!((&ended["how"], &ended["failed"]), (&"stopped".into(), &false.into()), "{seen:?}");
+    let said = |what: &str| seen.iter().any(|e| e.to_string().contains(what));
+    assert!(said("Ctrl+C: stopping the server"), "{seen:?}");
+    assert!(child.wait().unwrap().success());
+    // (Gone: not even a process to signal.)
+    let alive = std::process::Command::new("kill")
+        .args(["-0", &server])
+        .stderr(std::process::Stdio::null())
+        .status()
+        .unwrap();
+    assert!(!alive.success(), "the server {server} is still running");
+    let exiting = seen.iter().any(|e| e["event"] == "console" && e["line"] == "Server: Exiting...");
+    assert!(exiting, "the server was not told to exit: {seen:?}");
 }
 
 /// `path` as seen from `from` (both absolute).

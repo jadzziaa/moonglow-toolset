@@ -17,6 +17,7 @@ path = "tests/groups/cli.rs"
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+ctrlc.workspace = true
 mg-2da.workspace = true
 mg-core.workspace = true
 mg-edit.workspace = true

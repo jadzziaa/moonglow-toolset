@@ -2,7 +2,7 @@
 //! scratch copy of the module that gets the driver; the builder's module
 //! is only read.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
@@ -34,17 +34,6 @@ pub(crate) struct Run {
     pub notes: Vec<String>,
     /// How the server ended, where that is why the run was cut short.
     pub ended: Option<String>,
-}
-
-/// The scratch copy's folder: one for a module, used again by its next
-/// run.
-fn scratch_dir(module: &Path) -> PathBuf {
-    use std::hash::{Hash, Hasher};
-    let module = std::fs::canonicalize(module).unwrap_or_else(|_| module.to_path_buf());
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    module.hash(&mut h);
-    let stem = module.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    std::env::temp_dir().join("moonglow-test").join(format!("{stem}-{:08x}", h.finish() as u32))
 }
 
 pub(crate) fn run(
@@ -155,7 +144,11 @@ pub(crate) fn run(
         let report = Report::default();
         return Ok(Run { report, seconds, name, compile_errors, notes, ended: None });
     }
-    let dir = c.serve.dir.clone().unwrap_or_else(|| scratch_dir(&c.module));
+    // The scratch copy's folder: one for a module, used again by its next
+    // run (held while this one lasts: another at once takes another).
+    let scratch = c.serve.dir.is_none().then(|| serve::scratch_dir("test", &c.module));
+    let dir = c.serve.dir.clone().or_else(|| scratch.as_ref().map(|s| s.dir.clone()));
+    let dir = dir.expect("one or the other");
     let dir = std::path::absolute(&dir).unwrap_or(dir);
     std::fs::create_dir_all(dir.join("modules"))?;
     let copy = dir.join("modules").join(format!("{name}.mod"));
