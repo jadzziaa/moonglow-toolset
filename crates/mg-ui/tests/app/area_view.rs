@@ -101,6 +101,167 @@ fn a_sideways_scroll_pans_the_area_view() {
     assert!((shifted.target - before.target).length() < 0.05, "not panned");
 }
 
+/// A middle click on the area view, with `modifiers` held.
+fn middle_click(h: &mut Harness<'_, Moonglow>, pos: egui::Pos2, modifiers: egui::Modifiers) {
+    let button = egui::PointerButton::Middle;
+    h.event(egui::Event::ModifiersChanged(modifiers));
+    h.hover_at(pos);
+    h.run_steps(1);
+    // (Held through the frame: `event_modifiers` lets go after the event.)
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton { pos, button, pressed, modifiers });
+    }
+    h.run_steps(2);
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    h.run_steps(1);
+}
+
+/// The area view's camera set to `orbit`, drawn once.
+fn set_orbit(h: &mut Harness<'_, Moonglow>, area: ResRef, orbit: mg_ui::area_view::Orbit) {
+    h.state_mut().area_views.get_mut(&area).unwrap().orbit = Some(orbit);
+    h.run_steps(2);
+}
+
+/// El Grillo's ask (Blender's Alt + middle click): Alt + middle click on
+/// the ground puts the camera's focus there, at the ground's height, at
+/// once; the distance, the turn and the tilt stay. A plain middle click
+/// (the middle button has no click of its own) does the same.
+#[test]
+fn a_middle_click_puts_the_focus_on_the_ground() {
+    use glam::Vec3;
+    // Tile 5 (column 1, row 1: 10 to 20 m each way) raised a step.
+    let prepare = |m: &mut mg_module::Module, _: &mg_rules::GameData, area: ResRef| {
+        let key = ResKey::new(area, ResType::ARE);
+        let mut are = m.gff(&key).unwrap().unwrap();
+        are.root.list_mut("Tile_List").unwrap()[5].set("Tile_Height", mg_gff::Value::Int(1));
+        m.set_gff(key, &are).unwrap();
+    };
+    let Some((mut h, area)) = area_harness_with("middle-focus", "ttr01", None, 4, None, &prepare)
+    else {
+        return;
+    };
+    let orbit = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].orbit.unwrap();
+    // Looking at the area's middle from the south-west, tilted.
+    let at = Vec3::new(20.0, 20.0, 0.0);
+    set_orbit(
+        &mut h,
+        area,
+        mg_ui::area_view::Orbit { target: at, yaw: -2.2, pitch: 0.7, distance: 45.0 },
+    );
+    let raised = h.state().area_views[&area].model.as_ref().unwrap().tiles[5].position.z;
+    assert!(raised > 0.5, "tile 5 is raised: {raised}");
+    let before = orbit(&h);
+    // Alt + middle click on the raised tile's middle.
+    let on = screen(&h, area, Vec3::new(15.0, 15.0, raised));
+    let picked = h.state().area_views[&area].focus_at(on).expect("ground under the pointer");
+    assert!((picked - Vec3::new(15.0, 15.0, raised)).length() < 0.6, "on its walkmesh: {picked:?}");
+    middle_click(&mut h, on, egui::Modifiers::ALT);
+    let after = orbit(&h);
+    assert!((after.target - picked).length() < 1e-3, "the focus at {:?}", after.target);
+    assert!(after.target.z > 0.5, "at the ground's height: {}", after.target.z);
+    assert_eq!(
+        (after.distance, after.yaw, after.pitch),
+        (before.distance, before.yaw, before.pitch),
+        "the distance, the turn and the tilt kept"
+    );
+    // The point clicked is now the view's middle.
+    let rect = h.state().area_views[&area].rect;
+    assert!((screen(&h, area, picked) - rect.center()).length() < 1.0);
+    // A plain middle click on the flat ground beside it: there, at its
+    // height.
+    let on = screen(&h, area, Vec3::new(30.0, 25.0, 0.0));
+    // (With Ctrl or Shift held it is not this: those are the middle
+    // drag's, up and down.)
+    for held in [egui::Modifiers::SHIFT, egui::Modifiers::COMMAND | egui::Modifiers::CTRL] {
+        middle_click(&mut h, on, held);
+        assert_eq!(orbit(&h), after, "{held:?} + middle click");
+    }
+    let picked = h.state().area_views[&area].focus_at(on).unwrap();
+    assert!(
+        picked.z.abs() < 0.6 && (picked.truncate() - glam::Vec2::new(30.0, 25.0)).length() < 0.6
+    );
+    middle_click(&mut h, on, egui::Modifiers::NONE);
+    let again = orbit(&h);
+    assert!((again.target - picked).length() < 1e-3, "the focus at {:?}", again.target);
+    assert_eq!((again.distance, again.yaw, again.pitch), (after.distance, after.yaw, after.pitch));
+    // Nothing in the area changed.
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), None);
+}
+
+/// A middle click on the sky, or on the ground past the area's edge,
+/// leaves the camera where it was.
+#[test]
+fn a_middle_click_off_the_ground_leaves_the_camera() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("middle-sky") else { return };
+    let orbit = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].orbit.unwrap();
+    // Low over the area's south edge, looking north: the sky above, the
+    // ground past the north edge in sight.
+    let low = mg_ui::area_view::Orbit {
+        target: Vec3::new(20.0, 10.0, 0.0),
+        yaw: -std::f32::consts::FRAC_PI_2,
+        pitch: 0.25,
+        distance: 20.0,
+    };
+    set_orbit(&mut h, area, low);
+    let rect = h.state().area_views[&area].rect;
+    let sky = egui::pos2(rect.center().x, rect.min.y + 20.0);
+    assert_eq!(h.state().area_views[&area].focus_at(sky), None, "the sky");
+    middle_click(&mut h, sky, egui::Modifiers::ALT);
+    assert_eq!(orbit(&h), low, "a click on the sky");
+    middle_click(&mut h, sky, egui::Modifiers::NONE);
+    assert_eq!(orbit(&h), low);
+    // Past the area's edge, on the ground's plane (the area is 40 m).
+    let beyond = screen(&h, area, Vec3::new(20.0, 70.0, 0.0));
+    assert!(rect.contains(beyond), "in sight: {beyond:?}");
+    assert_eq!(h.state().area_views[&area].focus_at(beyond), None, "off the area");
+    middle_click(&mut h, beyond, egui::Modifiers::ALT);
+    assert_eq!(orbit(&h), low, "a click off the area");
+}
+
+/// A middle drag still turns the camera and Alt + middle drag still moves
+/// it: neither puts the focus where it began.
+#[test]
+fn a_middle_drag_turns_and_moves_the_camera_as_before() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("middle-drag") else { return };
+    let orbit = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].orbit.unwrap();
+    let start = mg_ui::area_view::Orbit {
+        target: Vec3::new(20.0, 20.0, 0.0),
+        yaw: -std::f32::consts::FRAC_PI_2,
+        pitch: 1.0,
+        distance: 40.0,
+    };
+    let drag = |h: &mut Harness<'_, Moonglow>, modifiers: egui::Modifiers| {
+        let from = screen(h, area, Vec3::new(14.0, 14.0, 0.0));
+        let to = from + egui::vec2(-90.0, 0.0);
+        let button = egui::PointerButton::Middle;
+        h.event(egui::Event::ModifiersChanged(modifiers));
+        h.hover_at(from);
+        h.run_steps(1);
+        h.event(egui::Event::PointerButton { pos: from, button, pressed: true, modifiers });
+        for k in 1..=6 {
+            h.hover_at(from + (to - from) * (k as f32 / 6.0));
+            h.run_steps(1);
+        }
+        h.event(egui::Event::PointerButton { pos: to, button, pressed: false, modifiers });
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+        h.run_steps(3);
+    };
+    set_orbit(&mut h, area, start);
+    drag(&mut h, egui::Modifiers::NONE);
+    let turned = orbit(&h);
+    assert!((turned.yaw - start.yaw).abs() > 0.3, "turned: {}", turned.yaw);
+    assert_eq!((turned.target, turned.distance), (start.target, start.distance), "not moved");
+    set_orbit(&mut h, area, start);
+    drag(&mut h, egui::Modifiers::ALT);
+    let moved = orbit(&h);
+    assert_eq!((moved.yaw, moved.pitch, moved.distance), (start.yaw, start.pitch, start.distance));
+    // Looking north, the ground follows the pointer west: the focus east.
+    let by = moved.target - start.target;
+    assert!(by.x > 2.0 && by.y.abs() < 0.6 && by.z == 0.0, "moved: {by:?}");
+}
+
 #[test]
 fn area_viewer_selects_moves_and_deletes() {
     use glam::Vec3;
