@@ -2840,6 +2840,88 @@ fn tile_properties_cancel_takes_the_changes_back() {
     assert_eq!(undo_label(&h).as_deref(), Some("Cancel Tile Properties"));
 }
 
+/// Undo in the module (Ctrl+Z) while Tile Properties is open (the
+/// owner's report): the window's step goes and the window reads the
+/// tiles again, showing them as they are; a change in it after writes
+/// that change alone (it wrote its old values again with it). Redo
+/// (Ctrl+Y) brings its step back as its own, which Cancel takes back.
+#[test]
+fn tile_properties_read_the_tiles_again_after_an_undo() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("tile-live-undo") else { return };
+    let (list, git, before) = (tile_list(&mut h, area), git_root(&mut h, area), undo_label(&h));
+    let key = |h: &mut Harness<'_, Moonglow>, k: egui::Key| {
+        h.key_press_modifiers(egui::Modifiers::COMMAND, k);
+        h.run_steps(3);
+    };
+    let at = Vec3::new(25.0, 25.0, 0.0);
+    tile_properties_of(&mut h, area, &[at]);
+    let props = h.state().tile_props.clone().expect("open");
+    let (was, light) = (props.height.unwrap(), props.main[0]);
+    assert!(props.has_main[0], "ttr01's tiles have main light 1");
+    h.get_by_label("Raise Height").click();
+    h.run_steps(2);
+    {
+        let p = h.state_mut().tile_props.as_mut().unwrap();
+        p.main[0] = (light + 3) % 32;
+        p.touched[0] = true;
+    }
+    h.run_steps(2);
+    assert_eq!(tile_list(&mut h, area)[10].integer("Tile_Height"), Some(i64::from(was + 1)));
+    assert_eq!(undo_label(&h).as_deref(), Some("Tile Properties"));
+    props_aside(&mut h);
+    let shots = mg_testkit::scratch_dir("ui-tile-live-undo");
+    h.render().unwrap().save(shots.join("changed.png")).unwrap();
+
+    // Ctrl+Z: the tiles as they were, and the window shows them so.
+    key(&mut h, egui::Key::Z);
+    assert_eq!(tile_list(&mut h, area), list, "undone");
+    let p = h.state().tile_props.clone().expect("the window stays open");
+    assert_eq!((p.height, p.main[0]), (Some(was), light), "the window read them again");
+    assert!(!p.draft().set.iter().any(|s| *s) && p.draft().height.is_none(), "nothing set");
+    h.run_steps(3);
+    assert_eq!(tile_list(&mut h, area), list, "and wrote nothing again");
+    h.render().unwrap().save(shots.join("undone.png")).unwrap();
+
+    // A light chosen now: that light alone, the height left as it is.
+    let other = (light + 9) % 32;
+    {
+        let p = h.state_mut().tile_props.as_mut().unwrap();
+        p.main[0] = other;
+        p.touched[0] = true;
+    }
+    h.run_steps(2);
+    let now = tile_list(&mut h, area);
+    assert_eq!(now[10].integer("Tile_MainLight1"), Some(i64::from(other)));
+    assert_eq!(now[10].integer("Tile_Height"), list[10].integer("Tile_Height"), "not raised");
+    only_changed(&list, &now, &[10]);
+    assert_eq!(git_root(&mut h, area), git, "nothing moved");
+    assert_eq!(undo_label(&h).as_deref(), Some("Tile Properties"));
+    // Cancel: as the window opened, one step taken back.
+    h.get_by_label("Cancel").click();
+    h.run_steps(3);
+    assert!(h.state().tile_props.is_none());
+    assert_eq!(tile_list(&mut h, area), list);
+    assert_eq!(undo_label(&h), before);
+
+    // Raised, Ctrl+Z, Ctrl+Y: the window shows the height again, its step
+    // its own, which Cancel takes back with nothing left to redo.
+    tile_properties_of(&mut h, area, &[at]);
+    h.get_by_label("Raise Height").click();
+    h.run_steps(2);
+    key(&mut h, egui::Key::Z);
+    assert_eq!(h.state().tile_props.as_ref().unwrap().height, Some(was));
+    key(&mut h, egui::Key::Y);
+    assert_eq!(tile_list(&mut h, area)[10].integer("Tile_Height"), Some(i64::from(was + 1)));
+    assert_eq!(h.state().tile_props.as_ref().unwrap().height, Some(was + 1), "read again");
+    h.get_by_label("Cancel").click();
+    h.run_steps(3);
+    assert_eq!(tile_list(&mut h, area), list, "Cancel took the redone step back");
+    assert_eq!(git_root(&mut h, area), git);
+    assert_eq!(undo_label(&h), before);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_redo(), None, "nothing to redo");
+}
+
 /// All tiles' Turn turns the tiles chosen at once, each its own tile (its
 /// lights kept), as it is: no neighbor changes; one step to undo a turn.
 /// The pictures show the turn chosen, for the next one clicked.

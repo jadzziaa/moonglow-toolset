@@ -907,6 +907,11 @@ another change is made in the module while the window is open (an
 object moved, a tile painted), Cancel still puts back what the window
 changed, in a step of its own, **Cancel Tile Properties**, where those
 tiles still have the window's values; what the other change did stays.
+**Undo** (Ctrl+Z) while the window is open takes its step back, and the
+window reads its tiles again: it shows them as they are now, and what
+you change in it after is written from there, that change alone (Redo
+brings its step back, which Cancel still takes back). So it does after
+any other change to its tiles (a brush, a paste, a plugin).
 
 **Height** (Moonglow's own) is the tiles' `Tile_Height`, in the
 tileset's height steps (the meters are written beside it): **-** and

@@ -1357,22 +1357,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   frames in 16 ms with the pictures in sight made), not on the
   builder's machine with a large hak tileset. Next and Previous Tile
   (S) (issue #29)
-- **Tile Properties' changes shown as they are made:** Undo in the
-  module (Ctrl+Z) while the window is open takes back the window's step,
-  but the window keeps showing its values and writes them again at the
-  next change in it (it doesn't read the tiles back). Each change takes
-  the window's step back and writes it again, and the area is read anew
-  (its model, walkmesh and scene) on the next frame: a height dragged is
-  that each step of it, timed in the UI tests' 4 by 4 area only, not on
-  a builder's large area. A Cancel after another command (its own
-  "Cancel Tile Properties" step) puts back a value only where the tile
-  still has the window's, by field; a tile put in from the pictures
-  after a step of the window's was buried takes the window's opening
-  values for the fields the window set. With several tiles chosen, only
-  the controls set are written (2.4.0's OK wrote every shown value, the
-  first tile's, into all of them); how Aurora writes them for several
-  tiles was not looked at on the oracle. (S) (the owner's report on
-  Tile Properties)
+- **Tile Properties on several tiles, in Aurora:** Moonglow writes only
+  the controls set into every tile chosen (2.4.0's OK wrote every shown
+  value, the first tile's, into all of them); how Aurora writes them for
+  several tiles was not looked at on the oracle: it waits on a session
+  driving Aurora. (S) (the owner's report on Tile Properties)
 
 ## The turning ring
 

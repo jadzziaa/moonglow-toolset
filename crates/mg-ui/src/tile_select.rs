@@ -130,6 +130,20 @@ pub struct TileProps {
     pub turn: u8,
     /// Every tile of the tileset, with its model's name.
     pub every: Vec<(u32, String)>,
+    /// The tiles' `Tile_List` structs as the window last read or wrote
+    /// them, and the workspace's revision then: where they are otherwise
+    /// now (the window's own step undone with Ctrl+Z, or redone; a brush,
+    /// a paste or a plugin on them), the window reads them again
+    /// ([`reread`]).
+    pub seen: Vec<mg_gff::Struct>,
+    pub seen_at: u64,
+    /// Every value the window has written into the tiles (the latest of
+    /// each control), across its readings again: what Cancel takes back
+    /// where the tiles still have it.
+    pub wrote: Option<Draft>,
+    /// The tiles as the window's own step left them, the last time it
+    /// wrote one: that step redone (Ctrl+Y after Ctrl+Z) is its own again.
+    pub own: Option<Vec<mg_gff::Struct>>,
 }
 
 /// The most height steps up or down Tile Properties' Height sets (the
@@ -161,6 +175,17 @@ pub struct Draft {
 }
 
 impl Draft {
+    /// This draft with what `later` sets over it (a control `later` sets,
+    /// at `later`'s value; the others as here).
+    fn and(&self, later: &Draft) -> Draft {
+        let pick = |k: usize| if later.set[k] { later.values[k] } else { self.values[k] };
+        Draft {
+            values: std::array::from_fn(pick),
+            set: std::array::from_fn(|k| self.set[k] || later.set[k]),
+            height: later.height.or(self.height),
+        }
+    }
+
     /// The value of control `k` and whether a tile with features `has`
     /// takes it.
     fn field(&self, k: usize, has: &mg_area::TileFeatures) -> Option<Value> {
@@ -817,7 +842,12 @@ fn open_properties(app: &mut Moonglow, view: &AreaView) {
     // (A loop the tiles don't have shows unchecked, as Aurora shows it.)
     let loops = [0, 1, 2].map(|k| first.loops[k] && has.loops[k]);
     let (main, source) = (first.main, first.source);
+    let seen_at = app.ws.as_ref().map_or(0, mg_edit::Workspace::revision);
     app.tile_props = Some(TileProps {
+        seen: base.clone(),
+        seen_at,
+        wrote: None,
+        own: None,
         area: view.area,
         variants,
         variant,
@@ -905,10 +935,11 @@ fn tiles_moved(app: &mut Moonglow, props: &TileProps) -> bool {
 
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let ctx = &ui.ctx().clone();
-    let Some(mut props) = app.tile_props.take() else { return };
+    let Some(props) = app.tile_props.take() else { return };
     if tiles_moved(app, &props) {
         return;
     }
+    let mut props = reread(app, props);
     let mut picked = None;
     let mut pick = None;
     let colors = light_colors(app);
@@ -1510,6 +1541,7 @@ fn carry_draft(was: &TileProps, now: &mut TileProps) {
     }
     (now.all_tiles, now.turn) = (was.all_tiles, was.turn);
     (now.live, now.buried) = (was.live, was.buried);
+    (now.wrote, now.own) = (was.wrote.clone(), was.own.clone());
     // (Where a step of the window's is under another command, the tiles
     // as they were before it, for Cancel.)
     if was.buried || was.live.is_some() {
@@ -1647,17 +1679,80 @@ fn write_draft(app: &mut Moonglow, props: &mut TileProps) {
     withdraw_own(app, props);
     let edits = draft_edits(app, props, &draft);
     props.written = Some(draft);
-    if edits.is_empty() {
-        return;
-    }
-    match app.apply(Command::new("Tile Properties", edits)) {
-        Ok(()) => props.live = app.ws.as_ref().map(mg_edit::Workspace::revision),
-        Err(e) => {
-            if !std::mem::take(&mut app.claims.held) {
-                app.log.error(e.to_string());
+    if !edits.is_empty() {
+        match app.apply(Command::new("Tile Properties", edits)) {
+            Ok(()) => {
+                props.live = app.ws.as_ref().map(mg_edit::Workspace::revision);
+                let draft = props.written.clone().expect("just set");
+                props.wrote = Some(match props.wrote.take() {
+                    Some(was) => was.and(&draft),
+                    None => draft,
+                });
+                props.own = Some(tiles_now(app, props));
+            }
+            Err(e) => {
+                if !std::mem::take(&mut app.claims.held) {
+                    app.log.error(e.to_string());
+                }
             }
         }
     }
+    // (What the window made of the tiles is what it has seen.)
+    note_seen(app, props);
+}
+
+/// The tiles' structs as the workspace has them now, by `tiles`' order.
+fn tiles_now(app: &mut Moonglow, props: &TileProps) -> Vec<mg_gff::Struct> {
+    let key = ResKey::new(props.area, ResType::ARE);
+    let Some(are) = app.ws.as_mut().and_then(|ws| ws.doc(&key).ok()) else { return Vec::new() };
+    let list = are.root.list("Tile_List").unwrap_or(&[]);
+    props.tiles.iter().filter_map(|&i| list.get(i).cloned()).collect()
+}
+
+/// Records the tiles as they are now as what the window has seen.
+fn note_seen(app: &mut Moonglow, props: &mut TileProps) {
+    props.seen = tiles_now(app, props);
+    props.seen_at = app.ws.as_ref().map_or(0, mg_edit::Workspace::revision);
+}
+
+/// Tile Properties' tiles changed by something other than the window
+/// (its own step undone with Ctrl+Z, or redone; a brush, a paste or a
+/// plugin on them): the window reads them again and shows what they are
+/// now, and what is changed in it after is written from there (it kept
+/// showing its own values and wrote them all again at its next change).
+/// What Cancel puts back stays the tiles as the window opened; whether
+/// the window has a step of its own in the area is worked out again.
+fn reread(app: &mut Moonglow, props: TileProps) -> TileProps {
+    let revision = app.ws.as_ref().map_or(0, mg_edit::Workspace::revision);
+    if revision == props.seen_at {
+        return props;
+    }
+    let mut props = props;
+    let now = tiles_now(app, &props);
+    if now == props.seen {
+        props.seen_at = revision;
+        return props;
+    }
+    let Some(mut view) = app.area_views.remove(&props.area) else { return props };
+    let cells = props.cells.clone();
+    properties_of(app, &mut view, &cells);
+    app.area_views.insert(props.area, view);
+    let Some(mut again) = app.tile_props.take() else { return props };
+    // Its own step: the last command again (redone, the tiles as it left
+    // them), taken back (undone: next in the redo list), or under another
+    // command (a change in the window then writes a step over that one).
+    let own = |c: Option<&Command>| c.is_some_and(|c| c.label == "Tile Properties");
+    let ws = app.ws.as_ref();
+    let redone = own(ws.and_then(|ws| ws.peek_undo())) && props.own.as_ref() == Some(&now);
+    let undone = props.live.is_some() && own(ws.and_then(|ws| ws.peek_redo()));
+    again.live = redone.then_some(revision);
+    again.buried = !redone && (props.buried || (props.live.is_some() && !undone));
+    (again.base, again.wrote, again.own) = (props.base, props.wrote, props.own);
+    (again.all_tiles, again.turn) = (props.all_tiles, props.turn);
+    (again.closing, again.picking) = (props.closing, props.picking);
+    // (Read as they are: nothing to write until a control is changed.)
+    again.written = Some(again.draft());
+    again
 }
 
 /// Cancel (and the close question's Don't Save): the tiles as they were
@@ -1673,7 +1768,9 @@ fn take_back(app: &mut Moonglow, props: &mut TileProps) {
     if !props.buried && props.live.is_none() {
         return;
     }
-    let draft = props.written.clone().unwrap_or_else(|| props.draft());
+    // (Every value the window wrote, across its readings again.)
+    let draft = props.wrote.clone().or_else(|| props.written.clone());
+    let draft = draft.unwrap_or_else(|| props.draft());
     let key = ResKey::new(props.area, ResType::ARE);
     let Some(ws) = app.ws.as_mut() else { return };
     let Ok(are) = ws.doc(&key) else { return };
