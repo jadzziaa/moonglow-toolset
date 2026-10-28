@@ -94,6 +94,65 @@ fn shipped_talk_tables_as_json_as_nwn_tlk_has_them() {
     assert!(checked > 0);
 }
 
+/// Shipped talk tables as CSV, as `nwn_tlk -k csv` writes them (a nasher
+/// project's `tlkFormat = "csv"`): byte for byte, both ways. A sample of
+/// the tables on an everyday run (English's always), all in a full one.
+#[test]
+fn shipped_talk_tables_as_csv_as_nwn_tlk_has_them() {
+    use mg_tlk::csv::{from_csv, to_csv};
+    let root = corpus!();
+    let tool = mg_testkit::oracle_tool!("nwn_tlk");
+    let mut tables: Vec<std::path::PathBuf> = std::fs::read_dir(root.join("lang"))
+        .unwrap()
+        .flatten()
+        .flat_map(|l| ["dialog.tlk", "dialogf.tlk"].map(|n| l.path().join("data").join(n)))
+        .filter(|p| p.is_file())
+        .collect();
+    tables.sort_by_key(|p| !p.starts_with(root.join("lang/en")));
+    let dir = mg_testkit::scratch_dir("tlk-csv");
+    let mut checked = 0;
+    for path in mg_testkit::sweep(tables, 2) {
+        let name = path.strip_prefix(&root).unwrap().display().to_string();
+        let tlk = Tlk::read(&std::fs::read(&path).unwrap()).unwrap();
+        let theirs = std::process::Command::new(&tool)
+            .args(["-i", &path.display().to_string(), "-k", "csv"])
+            .output()
+            .unwrap();
+        assert!(theirs.status.success(), "{name}: {}", String::from_utf8_lossy(&theirs.stderr));
+        let ours = to_csv(&tlk, Codepage::WINDOWS_1252);
+        if ours != theirs.stdout {
+            let at = ours.iter().zip(&theirs.stdout).position(|(a, b)| a != b).unwrap_or(0);
+            let around = |b: &[u8]| {
+                String::from_utf8_lossy(&b[at.saturating_sub(80)..(at + 80).min(b.len())])
+                    .into_owned()
+            };
+            panic!(
+                "{name}: differs at byte {at}:\nours   {}\ntheirs {}",
+                around(&ours),
+                around(&theirs.stdout)
+            );
+        }
+        // Back from that CSV: the file nwn_tlk makes of it.
+        let csv = dir.join("table.csv");
+        std::fs::write(&csv, &ours).unwrap();
+        let made = dir.join("made.tlk");
+        let out = std::process::Command::new(&tool)
+            .args(["-i", &csv.display().to_string(), "-o", &made.display().to_string()])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{name}: {}", String::from_utf8_lossy(&out.stderr));
+        let back = from_csv(&ours, Codepage::WINDOWS_1252).unwrap();
+        let theirs = std::fs::read(&made).unwrap();
+        assert!(
+            back.to_bytes_as_nwn_tlk().unwrap() == theirs,
+            "{name}: the table made of the CSV differs from nwn_tlk's"
+        );
+        checked += 1;
+    }
+    eprintln!("checked {checked} talk tables as CSV");
+    assert!(checked > 0);
+}
+
 /// Talk tables in the codepages of more than a byte a character (Korean,
 /// Chinese, Japanese: a project's `tlkFlags = "--nwn-encoding cp949"`),
 /// as JSON both ways, as `nwn_tlk` has them: a table made here in each,

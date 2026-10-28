@@ -24,8 +24,9 @@ pub enum Source {
     Layer(String),
     /// A file in a `tlk/` folder.
     File(PathBuf),
-    /// A nasher project's JSON file (`<name>.tlk.json`), written back as
-    /// `nwn_tlk` writes it.
+    /// A nasher project's JSON file (`<name>.tlk.json`; `<name>.tlk.csv`
+    /// where it keeps its tables as CSV), written back as `nwn_tlk` writes
+    /// it.
     Json { path: PathBuf, style: JsonStyle },
 }
 
@@ -60,7 +61,10 @@ impl Found {
     /// The table.
     pub fn tlk(&self) -> Result<Tlk, String> {
         match &self.source {
-            Source::Json { style, .. } => mg_tlk::json::from_json(&self.data, style.codepage),
+            Source::Json { path, style } => {
+                let format = crate::nasher::format_of(path);
+                mg_tlk::csv::read(&self.data, format, style.codepage)
+            }
             _ => Tlk::read(&self.data).map_err(|e| e.to_string()),
         }
         .map_err(|e| format!("{}: {e}", self.source))

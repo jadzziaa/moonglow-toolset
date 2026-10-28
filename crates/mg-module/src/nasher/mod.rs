@@ -17,7 +17,8 @@ pub use cfg::{Package, Section, Settings, Target, sections};
 pub(crate) use project::scan;
 pub use project::{Outside, Project, Resources, SaveReport};
 pub use tlk::{
-    TalkTable, in_language, pack_talk_table, read_talk_table, talk_tables, write_talk_table,
+    TalkTable, format_of, in_language, kept_as, pack_talk_table, read_talk_table, talk_tables,
+    write_talk_table,
 };
 
 use mg_core::{Codepage, ResType};

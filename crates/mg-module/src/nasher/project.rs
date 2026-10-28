@@ -48,6 +48,10 @@ pub struct Project {
     /// file, which the next save makes the resource's own (the other
     /// spelling's, read, written there), as nasher's pack does.
     spellings: HashMap<ResKey, PathBuf>,
+    /// The talk tables' JSON files (`<name>.tlk.json`) the target takes in
+    /// (no `exclude = "**/*.tlk.json"`): nasher packs each into the module,
+    /// as `nwn_tlk` converts it ([`Project::packed`]).
+    tables_packed: Vec<PathBuf>,
 }
 
 /// Whether `key` is a compiled script whose source the module has: build
@@ -220,6 +224,7 @@ impl Project {
             warnings: Vec::new(),
             left_out: Vec::new(),
             spellings: HashMap::new(),
+            tables_packed: Vec::new(),
         };
         let conv = project.conversion();
         let mut resources = IndexMap::new();
@@ -234,14 +239,12 @@ impl Project {
                 project.warnings.push(format!("{}: not a resource; left alone", path.display()));
                 continue;
             };
-            // (A talk table's JSON a target of its own packs: read with
-            // the module's talk table, `nasher::talk_tables`.)
-            let talk_table = || {
-                key.restype == ResType::TLK
-                    && (project.package.targets.iter())
-                        .any(|t| t.is_talk_table() && t.covers(root, &path))
-            };
-            if json && !is_json_type(key.restype) && talk_table() {
+            // (A talk table's JSON the target takes in: nasher converts it
+            // and packs the table into the module, as `packed` does. A
+            // target of its own that packs it too has it read with the
+            // module's talk table, `nasher::talk_tables`.)
+            if json && key.restype == ResType::TLK {
+                project.tables_packed.push(path);
                 continue;
             }
             if json && !is_json_type(key.restype) {
@@ -301,12 +304,12 @@ impl Project {
             resources.insert(key, resource.clone());
             project.sources.insert(key, Source { path: path.into(), json, file, resource, stamp });
         }
-        if project.settings.tlk_format != "json"
+        if super::kept_as(&project.settings).is_none()
             && project.package.targets.iter().any(Target::is_talk_table)
         {
             project.warnings.push(format!(
-                "the project keeps its talk tables as {}: Moonglow reads JSON ones only, and \
-                 leaves them alone",
+                "the project keeps its talk tables as {}: Moonglow reads JSON and CSV ones \
+                 only, and leaves them alone",
                 project.settings.tlk_format
             ));
         }
@@ -925,6 +928,22 @@ impl Project {
                     Arc::from(info.to_bytes().map_err(|e| ModuleError::BadInfo(e.to_string()))?);
             }
             out.insert(*key, bytes);
+        }
+        // The talk tables the target takes in as JSON, as nasher packs
+        // them: converted as `nwn_tlk` converts them (as they are on disk:
+        // the talk table editor saves into them).
+        for path in &self.tables_packed {
+            let name = path.file_name().unwrap_or_default().to_string_lossy();
+            let Some((key, _)) = resource_of(&name.to_ascii_lowercase()) else { continue };
+            if t.filtered(&key.to_string()) {
+                continue;
+            }
+            let (_, tlk) = super::read_talk_table(path, self.settings.tlk_style)?;
+            let bytes = tlk.to_bytes_as_nwn_tlk().map_err(|e| ModuleError::Source {
+                name: path.display().to_string(),
+                message: e.to_string(),
+            })?;
+            out.insert(key, Arc::from(bytes));
         }
         Ok(out)
     }
@@ -1574,6 +1593,41 @@ mod tests {
         assert!(!file.exists());
         let m = Module::open(&root).unwrap();
         assert!(!m.contains(&key("old_one", ResType::NCS)));
+    }
+
+    /// A module target that takes a talk table's JSON in (no `exclude =
+    /// "**/*.tlk.json"`): the module packed holds the table, as nasher
+    /// packs it (`nwn_tlk`'s conversion), and the JSON is no warning.
+    #[test]
+    fn a_talk_table_the_module_target_takes_in_is_packed() {
+        let root = scratch("tlk-in-module");
+        module().save_as(&project_location(&root)).unwrap();
+        let json = r#"{"language":0,"entries":[{"id":0,"text":"Hello"},{"id":2,"text":"","sound":"vs_x"}]}"#;
+        std::fs::create_dir_all(root.join("src/tlk")).unwrap();
+        std::fs::write(root.join("src/tlk/mytlk.tlk.json"), json).unwrap();
+        let m = Module::open(&root).unwrap();
+        let said = &m.project.as_ref().unwrap().warnings;
+        assert!(said.is_empty(), "{said:?}");
+        assert!(!m.contains(&key("mytlk", ResType::TLK)), "the table, not a resource to edit");
+        let (_, bytes) = m.target_archive().unwrap().unwrap();
+        let erf = mg_erf::Erf::read(&bytes).unwrap();
+        let entry = erf.entries.iter().find(|e| e.restype == ResType::TLK).expect("packed");
+        assert_eq!(entry.resref.to_string(), "mytlk");
+        let tlk =
+            mg_tlk::json::from_json(json.as_bytes(), mg_core::Codepage::WINDOWS_1252).unwrap();
+        assert_eq!(&erf.data(entry).unwrap()[..], &tlk.to_bytes_as_nwn_tlk().unwrap()[..]);
+        // Left out by the target's exclude: not packed.
+        let cfg = std::fs::read_to_string(root.join("nasher.cfg")).unwrap();
+        let cfg = cfg.replacen(
+            "  [package.rules]",
+            "  exclude = \"**/*.tlk.json\"\n  [package.rules]",
+            1,
+        );
+        std::fs::write(root.join("nasher.cfg"), cfg).unwrap();
+        let m = Module::open(&root).unwrap();
+        let (_, bytes) = m.target_archive().unwrap().unwrap();
+        let erf = mg_erf::Erf::read(&bytes).unwrap();
+        assert!(erf.entries.iter().all(|e| e.restype != ResType::TLK));
     }
 
     /// The JSON of an item, tagged `tag`.
