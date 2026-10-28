@@ -61,7 +61,10 @@ pub(crate) fn lit_check(app: &mut Moonglow) {
         }
         app.lit_check.started = true;
         let (gpu, assets) = (vp.gpu.clone(), vp.textures_from(&game));
-        let cache = app.shader_cache_dir.clone();
+        // (No shader cache: the window's worker may be writing the same
+        // programs to it, and its files are written apart by process, not
+        // by thread. Compiled each run, 40 ms on the development machine.)
+        let cache = None;
         let (tx, rx) = std::sync::mpsc::channel();
         let spawned =
             std::thread::Builder::new().name("moonglow lit check".into()).spawn(move || {

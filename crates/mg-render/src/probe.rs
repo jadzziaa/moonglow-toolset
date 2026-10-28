@@ -16,8 +16,9 @@
 //! draws a lit, textured mesh (its texture BC1, as the game's are) by
 //! Moonglow's own shader and by the game's `vslit`/`fslit` once the
 //! game's data is read, apart from the window's thread (25 ms and 40 ms on
-//! the development machine with no shader cache, 7 ms for the game's
-//! cached); and the area view's watch ([`crate::watch`]) looks at what is
+//! the development machine; the window runs it with no shader cache, which
+//! the window's worker may be writing); and the area view's watch
+//! ([`crate::watch`]) looks at what is
 //! drawn as it is.
 
 use std::fmt;
