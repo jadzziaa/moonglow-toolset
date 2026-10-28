@@ -518,7 +518,7 @@ impl Index {
         let mut chain = Vec::new();
         let mut next = Some(at);
         let start = loop {
-            let Some(k) = next else { return None };
+            let k = next?;
             let f = self.file(file, sources)?;
             let m = f.members.get(k)?;
             chain.push((f.word(&m.span).to_string(), m.span.clone()));
