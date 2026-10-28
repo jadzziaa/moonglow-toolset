@@ -88,10 +88,16 @@ pub(crate) fn watch_failed(app: &mut Moonglow, failure: mg_render::watch::Failur
     }
     check.watch_failed = true;
     let drawing = check.drawing();
-    let said = format!(
-        "The area view stopped drawing the area through {drawing}: {failure}. The game's \
-         shaders (the Shaders button) or the graphics driver may be at fault."
-    );
+    let fault = if failure.failed > 0 {
+        "Tiles whose models couldn't be built (named in the log) or the graphics driver may be \
+         at fault."
+    } else if failure.waiting.is_some() {
+        "Textures that are never read, or the graphics driver, may be at fault."
+    } else {
+        "The game's shaders (the Shaders button) or the graphics driver may be at fault."
+    };
+    let said =
+        format!("The area view stopped drawing the area through {drawing}: {failure}. {fault}");
     app.log.warn(format!("Graphics: {said}"));
     crate::trace::note(format!("graphics watch: failed, {failure} ({drawing})"));
     let check = &mut app.renderer_check;

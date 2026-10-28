@@ -225,6 +225,85 @@ fn the_watch_waits_out_the_game_s_shaders_and_catches_their_path_drawing_nothing
     assert!(h.state().renderer_check.trouble.is_some());
 }
 
+/// Tiles whose model breaks as it is built (made to fail, as a renderer
+/// that fails every model would) are left out of the frame and expected
+/// all the same: nothing of the area is drawn, and the watch fails,
+/// saying that the tiles failed. (They were once left out of the
+/// expectation too: nothing expected, no verdict.)
+#[test]
+fn tiles_left_out_as_they_failed_are_expected() {
+    struct Unfail;
+    impl Drop for Unfail {
+        fn drop(&mut self) {
+            mg_render::guard::fail_on(None);
+        }
+    }
+    // (Every tile's model made to fail: no other test renders meanwhile.)
+    mg_testkit::gpu::alone();
+    let model = std::cell::RefCell::new(String::new());
+    let one = |m: &mut mg_module::Module, game: &mg_rules::GameData, area: ResRef| {
+        let set = mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap();
+        let (id, tile) = set.tiles.iter().enumerate().find(|(_, t)| !t.model.is_empty()).unwrap();
+        *model.borrow_mut() = tile.model.to_ascii_lowercase();
+        let key = ResKey::new(area, ResType::ARE);
+        let mut are = m.gff(&key).unwrap().unwrap();
+        for t in are.root.list_mut("Tile_List").unwrap() {
+            t.set("Tile_ID", mg_gff::Value::Int(id as i32));
+        }
+        m.set_gff(key, &are).unwrap();
+    };
+    let Some((app, rs, area)) = area_app("watch-failed-tiles", "ttr01", None, 4, None, &one) else {
+        return;
+    };
+    let _unfail = Unfail;
+    mg_render::guard::fail_on(Some(&model.borrow()));
+    let mut h = watched(app, rs);
+    let verdicts = watch_for(&mut h, area, 12.0, |_, _| {});
+    eprintln!("failed tiles: {verdicts:?}");
+    picture(&mut h, "failed_tiles");
+    let Some(Verdict::Failed(f)) = verdicts.last().copied() else { panic!("{verdicts:?}") };
+    assert!(f.failed > 0 && f.failed == f.expected && f.drawn * 50 < f.expected, "{f:?}");
+    let said = h.state().renderer_check.trouble.clone().expect("the notice").said;
+    assert!(said.contains("of tiles that failed and were left out"), "{said}");
+}
+
+/// Textures that never come (read apart, as the window reads them, and
+/// made never to come back): the tiles wait for them, left out, and the
+/// frames are never ready. The watch waits, and once nothing has been
+/// finished for `PATIENCE` it judges them all the same, and fails, saying
+/// what it waited for. (Before, it waited for ever, and said nothing.)
+#[test]
+fn frames_that_never_get_ready_are_judged_after_a_while() {
+    struct Unstall;
+    impl Drop for Unstall {
+        fn drop(&mut self) {
+            mg_render::guard::stall_textures(false);
+        }
+    }
+    use mg_render::watch::PATIENCE;
+    // (Every texture held back: no other test renders meanwhile.)
+    mg_testkit::gpu::alone();
+    let Some((mut app, rs, area)) = area_app("watch-stuck", "ttr01", None, 4, None, &|_, _, _| {})
+    else {
+        return;
+    };
+    app.background_jobs = true;
+    let _unstall = Unstall;
+    mg_render::guard::stall_textures(true);
+    let mut h = watched(app, rs);
+    let verdicts = watch_for(&mut h, area, PATIENCE as f32 + 10.0, |_, _| {});
+    eprintln!("never ready: {verdicts:?}");
+    picture(&mut h, "never_ready");
+    let pending = h.state().viewport.as_ref().unwrap().renderer.drawn.textures_pending;
+    assert!(pending > 0, "the tiles wait for their textures");
+    let waited = verdicts.iter().take_while(|v| **v == Verdict::Quiet(Quiet::NotReady)).count();
+    assert!(waited as f64 >= PATIENCE - 2.0, "{verdicts:?}");
+    let Some(Verdict::Failed(f)) = verdicts.last().copied() else { panic!("{verdicts:?}") };
+    assert!(f.waiting.is_some_and(|w| w >= PATIENCE), "{f:?}");
+    let said = h.state().renderer_check.trouble.clone().expect("the notice").said;
+    assert!(said.contains("none finished for"), "{said}");
+}
+
 /// The adapter Heed's machine draws with on Automatic, as Windows lists
 /// it, and its other backend: Moonglow can't run Direct3D 12 here, so the
 /// app is told this one (the picture is Vulkan's, blanked).

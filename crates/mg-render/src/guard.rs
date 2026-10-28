@@ -89,6 +89,42 @@ pub(crate) fn fail_if_asked(name: &str) {
     }
 }
 
+/// The game's program whose pipelines are made to fail (tests).
+static FAILING_PROGRAM: Mutex<Option<String>> = Mutex::new(None);
+
+/// Makes making a pipeline with the game's program `name` fail (`None`:
+/// none), as wgpu fails it (a pipeline it refuses), to test what falls
+/// back from it: as Direct3D 12 would where FXC can't compile a program.
+#[doc(hidden)]
+pub fn fail_program(name: Option<&str>) {
+    if let Ok(mut failing) = FAILING_PROGRAM.lock() {
+        *failing = name.map(str::to_ascii_lowercase);
+    }
+}
+
+/// Whether [`fail_program`] names `name`.
+pub(crate) fn program_made_to_fail(name: &str) -> bool {
+    let asked = FAILING_PROGRAM.lock().ok().and_then(|f| f.clone());
+    asked.is_some_and(|a| a == name.to_ascii_lowercase())
+}
+
+/// Textures read apart are never given back ([`stall_textures`]).
+static STALLED: AtomicBool = AtomicBool::new(false);
+
+/// Makes the textures read apart never come back (`false`: they come
+/// again; those asked for meanwhile are lost), to test what tells a frame
+/// that waits for ever: its instances are left out, and it is never
+/// ready. Process-wide: a test that sets it takes the GPU alone.
+#[doc(hidden)]
+pub fn stall_textures(on: bool) {
+    STALLED.store(on, Ordering::SeqCst);
+}
+
+/// Whether [`stall_textures`] is on.
+pub(crate) fn textures_stalled() -> bool {
+    STALLED.load(Ordering::SeqCst)
+}
+
 /// Makes every scene pass draw nothing (`false`: draw again), to test
 /// what tells a renderer that draws nothing: each pass's draws are cut to
 /// its first pixel (a scissor of one pixel at its top left corner), the

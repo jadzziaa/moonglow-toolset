@@ -2688,6 +2688,7 @@ version = "0.0.0"
 dependencies = [
  "bytemuck",
  "glam",
+ "log",
  "mg-core",
  "mg-image",
  "mg-mdl",

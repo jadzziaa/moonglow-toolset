@@ -691,6 +691,10 @@ impl TextureReader {
                             Err(_) => return,
                         };
                         let Ok(name) = name else { return };
+                        // (Made never to come back, in a test.)
+                        if crate::guard::textures_stalled() {
+                            continue;
+                        }
                         let era = eras.load(std::sync::atomic::Ordering::Relaxed);
                         // (A texture that breaks what reads it is none, as
                         // a model that does is left out.)
@@ -1644,6 +1648,16 @@ impl Renderer {
     /// picture was drawn without some draws it again as this grows.
     pub fn textures_read(&self) -> u64 {
         self.reader.as_ref().map_or(0, |r| r.taken)
+    }
+
+    /// How much of what frames wait for has been finished so far: the
+    /// textures read apart and the game's pipelines made (or found that
+    /// they can't be). It grows as they are: a frame that waits while it
+    /// stays put waits for something that doesn't come
+    /// ([`crate::watch::Observation::progress`]).
+    pub fn progress(&self) -> u64 {
+        let s = &self.game.stats;
+        self.textures_read() + (s.pipelines + s.failed) as u64
     }
 
     /// Takes the textures read apart since the last frame.

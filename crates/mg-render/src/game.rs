@@ -1476,14 +1476,24 @@ impl Sources for AssetSources<'_> {
     }
 }
 
-/// Runs `f` and returns its value, or the validation error wgpu raised.
-fn checked<T>(gpu: &Gpu, f: impl FnOnce() -> T) -> Result<T, String> {
-    let scope = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
+/// Runs `f` and returns its value, or the error wgpu raised: a validation
+/// error, an internal one or running out of memory. (Direct3D 12 makes a
+/// pipeline's programs as it makes the pipeline, naga writing HLSL and
+/// FXC or DXC compiling it: what fails there is an internal error, which
+/// a scope of validation errors alone let through, to the device's
+/// handler, a panic by default.)
+pub(crate) fn checked<T>(gpu: &Gpu, f: impl FnOnce() -> T) -> Result<T, String> {
+    let scopes = [wgpu::ErrorFilter::Validation, wgpu::ErrorFilter::Internal]
+        .map(|filter| gpu.device.push_error_scope(filter));
+    let memory = gpu.device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
     let value = f();
-    match pollster::block_on(scope.pop()) {
-        Some(e) => Err(e.to_string()),
-        None => Ok(value),
-    }
+    // (Popped as they were pushed, the last first.)
+    let mut errors = vec![pollster::block_on(memory.pop())];
+    let [validation, internal] = scopes;
+    errors.push(pollster::block_on(internal.pop()));
+    errors.push(pollster::block_on(validation.pop()));
+    let errors: Vec<String> = errors.into_iter().flatten().map(|e| e.to_string()).collect();
+    if errors.is_empty() { Ok(value) } else { Err(errors.join("; ")) }
 }
 
 /// A pair's program assembled where the assets are (the UI's thread), for
@@ -1823,7 +1833,12 @@ impl Worker {
             (make(&key.vs, &vs), make(&key.fs, &fs))
         })?;
         let entry = |p: &Program| p.module.entry_points.first().map(|e| e.name.clone());
-        let (vs_entry, fs_entry) = (entry(&vs), entry(&fs));
+        let (vs_entry, mut fs_entry) = (entry(&vs), entry(&fs));
+        // (Made to fail, in a test: an entry point the module hasn't, which
+        // wgpu refuses as it makes the pipeline.)
+        if crate::guard::program_made_to_fail(&key.fs) {
+            fs_entry = Some("made_to_fail".into());
+        }
         let pipeline = checked(gpu, || {
             let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("game"),
@@ -1962,9 +1977,8 @@ impl GameShaders {
 
     pub(crate) fn fail(&mut self, what: &str, why: String) {
         if !self.failures.iter().any(|(w, _)| w == what) {
-            eprintln!(
-                "moonglow: the game's shader {what} is drawn with Moonglow's own instead: {why}"
-            );
+            // (A warning: in the debug log, where Windows has no console.)
+            log::warn!("the game's shader {what} is drawn with Moonglow's own instead: {why}");
             self.failures.push((what.to_string(), why));
         }
     }

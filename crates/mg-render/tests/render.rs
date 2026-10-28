@@ -544,6 +544,7 @@ fn a_model_is_drawn_once_its_textures_are_read_apart() {
     let first = r.render_image(&gpu, &NoAssets, &scene, &camera, 64, 64);
     assert_eq!(r.drawn.textures_pending, 1, "left out while its texture is read");
     assert!(first.data.chunks(4).all(|p| p[..3] == [0, 0, 0]), "nothing drawn yet");
+    assert_eq!(r.progress(), 0, "nothing finished yet (the area view's watch waits on it)");
     let started = std::time::Instant::now();
     while woken.load(std::sync::atomic::Ordering::Relaxed) == 0 {
         assert!(started.elapsed() < std::time::Duration::from_secs(10), "never read");
@@ -558,6 +559,7 @@ fn a_model_is_drawn_once_its_textures_are_read_apart() {
         read = r.render_image(&gpu, &NoAssets, &scene, &camera, 64, 64);
     }
     assert!(r.textures_read() >= 1);
+    assert_eq!(r.progress(), r.textures_read(), "each texture read is progress");
     assert_eq!(read.data, here.data, "as read in the frame");
 }
 
@@ -2549,6 +2551,113 @@ fn the_game_s_programs_are_made_while_frames_go_on() {
     assert_eq!(img.data, then.data);
 }
 
+/// What `log` is told in this test binary, kept ([`logged`]).
+struct Kept(std::sync::Mutex<Vec<String>>);
+
+impl log::Log for Kept {
+    fn enabled(&self, m: &log::Metadata<'_>) -> bool {
+        m.level() <= log::Level::Warn
+    }
+    fn log(&self, r: &log::Record<'_>) {
+        if self.enabled(r.metadata())
+            && let Ok(mut kept) = self.0.lock()
+        {
+            kept.push(r.args().to_string());
+        }
+    }
+    fn flush(&self) {}
+}
+
+static KEPT: Kept = Kept(std::sync::Mutex::new(Vec::new()));
+
+/// The warnings logged so far in this test binary.
+fn logged() -> Vec<String> {
+    let _ = log::set_logger(&KEPT).map(|()| log::set_max_level(log::LevelFilter::Warn));
+    KEPT.0.lock().map(|k| k.clone()).unwrap_or_default()
+}
+
+/// A pipeline of the game's programs that the backend refuses (made to
+/// fail as wgpu fails it, as Direct3D 12 fails one FXC can't compile):
+/// the mesh is drawn with Moonglow's own shader instead, made while the
+/// frames go on (the area view's) or waited for (a picture drawn once),
+/// the failure told once, by `game_shader_failures` and in the log (the
+/// debug log, in the window).
+#[test]
+fn a_game_pipeline_the_backend_refuses_falls_back_to_moonglow_s_own() {
+    struct Unfail;
+    impl Drop for Unfail {
+        fn drop(&mut self) {
+            mg_render::guard::fail_program(None);
+        }
+    }
+    let Some(gpu) = gpu() else { return };
+    logged();
+    let mut assets = clip_space_assets();
+    authored_custom_pair(&mut assets);
+    // (A program of its own: no other test's pipeline is made to fail.)
+    let fs = assets.shaders["fs_tint"].clone();
+    assets.shaders.insert("fs_refused".into(), fs);
+    assets.opaque("refused", [255, 0, 0]);
+    let mtr = "customshadervs vs_sway\ncustomshaderfs fs_refused\n\
+        parameter float vOverrideColor 0.0 1.0 0.0 1.0\nparameter int iForceOverrideColor 1\n";
+    assets.materials.insert("refused".into(), mg_image::mtr::Mtr::parse(mtr.as_bytes()));
+    let camera = Camera {
+        eye: Vec3::new(0.0, -10.0, 1.0),
+        target: Vec3::new(0.0, 0.0, 1.0),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let scene = Scene {
+        instances: vec![standing_quad(&gpu, "refused", Vec3::new(0.0, 0.0, 1.0), 1.0)],
+        background: [0.0, 0.0, 0.0],
+        ..Default::default()
+    };
+    let _unfail = Unfail;
+    mg_render::guard::fail_program(Some("fs_refused"));
+    // While the frames go on.
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    r.game_shaders = true;
+    r.game_background = true;
+    let first = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    assert_eq!((r.drawn.game, r.drawn.game_pending), (0, 1), "{:?}", r.drawn);
+    let start = std::time::Instant::now();
+    while r.game_shader_failures().is_empty() {
+        assert!(start.elapsed().as_secs() < 60, "never made");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    }
+    let then = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    assert_eq!((r.drawn.game, r.drawn.game_pending), (0, 0), "{:?}", r.drawn);
+    // (Moonglow's own: the texture's red, not the programs' green.)
+    let p = then.pixel(32, 32);
+    assert!(p[0] > 60 && p[1] < 40, "{p:?}");
+    assert_eq!(then.data, first.data);
+    let failures = r.game_shader_failures().to_vec();
+    assert_eq!(failures.len(), 1, "{failures:?}");
+    assert_eq!(failures[0].0, "vs_sway/fs_refused");
+    assert!(failures[0].1.contains("made_to_fail"), "{failures:?}");
+    let stats = r.game_shader_stats();
+    assert_eq!((stats.pipelines, stats.failed), (0, 1), "{stats:?}");
+    assert_eq!(r.progress(), 1, "a pipeline that can't be made is progress all the same");
+    // Told once, however many frames draw it.
+    let told = |log: &[String]| {
+        log.iter()
+            .filter(|l| l.contains("vs_sway/fs_refused") && l.contains("made_to_fail"))
+            .count()
+    };
+    r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    assert_eq!(told(&logged()), 1, "{:?}", logged());
+    // Waited for: the same, at once.
+    let mut once = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    once.game_shaders = true;
+    let img = once.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    assert_eq!((once.drawn.game, once.drawn.game_pending), (0, 0));
+    assert_eq!(img.data, first.data);
+    assert_eq!(once.game_shader_failures().len(), 1);
+    assert_eq!(told(&logged()), 2, "each renderer tells its own");
+}
+
 /// A material that names one program alone is drawn with the stock pair
 /// (the engine takes a pair or neither); one whose program is of the other
 /// stage (`customshaderVS fslit`) falls back to Moonglow's own shader and is
@@ -3951,7 +4060,7 @@ fn the_watch_reads_what_the_gpu_drew_where_it_was_expected() {
         let started = std::time::Instant::now();
         let expected = watch::expected(&tiles, &camera, w as f32 / h as f32);
         let expecting = started.elapsed();
-        sampler.look(&gpu, &targets.depth, expected);
+        sampler.look(&gpu, &targets, expected, 0.0);
         let looking = started.elapsed() - expecting;
         let _ = gpu.device.poll(wgpu::PollType::wait_indefinitely());
         let taking = std::time::Instant::now();
@@ -3967,7 +4076,8 @@ fn the_watch_reads_what_the_gpu_drew_where_it_was_expected() {
         times.push(t);
         last = Some(got);
     }
-    let (expected, drawn) = last.unwrap();
+    let seen = last.unwrap();
+    let (expected, drawn) = (seen.expected.clone(), seen.drawn.clone());
     let median = |k: usize| {
         let mut each: Vec<f64> = times.iter().map(|t| t[k].as_secs_f64() * 1000.0).collect();
         each.sort_by(f64::total_cmp);
@@ -3997,6 +4107,19 @@ fn the_watch_reads_what_the_gpu_drew_where_it_was_expected() {
         mg_render::guard::blank_draws(true);
         look(&mut sampler).0
     };
-    let (count, of) = watch::counted(&blanked.0, &blanked.1);
+    let (count, of) = blanked.counted();
     assert_eq!((of, count > 0), (0, true), "nothing drawn where the draws are blanked");
+    // The picture's colour at the points: the ground's (white, lit) where
+    // it is drawn, the background's (black) elsewhere.
+    let colored = seen.colored(scene.background);
+    assert!(colored as f32 >= 0.97 * of as f32, "{colored} of {of} drawn points colored");
+    assert_eq!(seen.colors[0], [0.0; 3], "the sky's corner: the background");
+    assert_eq!(blanked.colored(scene.background), 0);
+    // A look the GPU never gives back is given up after a while, and the
+    // next is taken.
+    sampler.look(&gpu, &targets, seen.expected.clone(), 100.0);
+    assert!(sampler.busy());
+    assert!(!sampler.give_up(100.0 + watch::LOST - 0.5));
+    assert!(sampler.give_up(100.0 + watch::LOST));
+    assert!(!sampler.busy());
 }

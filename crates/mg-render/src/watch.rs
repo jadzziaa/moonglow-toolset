@@ -11,20 +11,32 @@
 //!   over the picture ([`COLUMNS`] by [`ROWS`]), those whose line of sight
 //!   meets the ground of a tile drawn (its 10 m square at its height). The
 //!   tiles alone: Fade Geometry leaves out roofs, not the ground, and the
-//!   view's object switches hide objects, never tiles; a tile left out
-//!   (its model missing, failed or hidden by a brush's preview) isn't in
-//!   the frame, and so isn't expected. The sky, an empty area, or an area
-//!   seen from far off expects little.
+//!   view's object switches hide objects, never tiles. A tile whose model
+//!   is missing or hidden by a brush's preview isn't in the frame, and so
+//!   isn't expected; one whose model was read and failed (as it was built
+//!   or posed) is: on a renderer that fails every model they are all there
+//!   is ([`Observation::failed`]). A tile whose pipeline of the game's
+//!   programs failed is drawn by Moonglow's own shader, and expected as
+//!   any. The sky, an empty area, or an area seen from far off expects
+//!   little.
 //! - **The measurement** ([`Sampler`]): the depth drawn at the same points
-//!   (the sky writes none), copied into a small texture by one draw and
-//!   read back a frame or more later without waiting for it, paired with
-//!   the expectation of the frame it was taken from (a zoom since doesn't
-//!   matter).
+//!   (the sky writes none), and the picture's colour there, copied into a
+//!   small texture by one draw and read back a frame or more later
+//!   without waiting for it, paired with the expectation of the frame it
+//!   was taken from (a zoom since doesn't matter). A look the GPU doesn't
+//!   give back is given up after [`LOST`] seconds. (The colour is for the
+//!   debug log, [`Look::colored`]: a dark area's tiles may be drawn black.)
 //! - **The verdict** ([`Watch::judge`]): a failure only when the
 //!   pipelines and textures are ready (the game's programs are made on a
-//!   worker and appear late) and have been for a while, the expectation
-//!   is above a floor, and fewer than a fifth of the expected points have
-//!   been drawn at every look for several seconds.
+//!   worker and appear late) and have been for a while, or have been
+//!   waited for [`PATIENCE`] seconds with none of them finished (what they
+//!   wait for doesn't come); the expectation is above a floor; and fewer
+//!   than a fifth of the expected points have been drawn at every look for
+//!   several seconds.
+//!
+//! The start location's ring and the doors' arrows are not in the
+//! picture: egui draws them over it. They are neither expected nor
+//! measured (Heed's view showed them, and nothing else).
 
 use std::collections::HashSet;
 use std::sync::mpsc::{Receiver, channel};
@@ -98,7 +110,7 @@ pub fn expected(tiles: &[Vec3], camera: &Camera, aspect: f32) -> Expected {
 }
 
 /// A look at the view, for [`Watch::judge`].
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Observation {
     /// The grid's points expected drawn, and of those, the points drawn.
     pub expected: usize,
@@ -106,6 +118,16 @@ pub struct Observation {
     /// The frame's pipelines and textures were ready: no mesh waited for a
     /// pipeline of the game's programs, nor for its textures.
     pub ready: bool,
+    /// How much of what is waited for had been finished by then (textures
+    /// read and pipelines made, counted from the start: any number that
+    /// grows as they are): a frame not ready whose count stays put for
+    /// [`PATIENCE`] is waiting for something that doesn't come.
+    pub progress: u64,
+    /// Of the points expected, those where a tile was left out of the
+    /// frame as it failed (its model couldn't be built or posed): expected
+    /// all the same, as on a renderer that fails every tile they are all
+    /// there is.
+    pub failed: usize,
     /// When (seconds, of any clock that only goes forward).
     pub at: f64,
 }
@@ -113,7 +135,8 @@ pub struct Observation {
 /// Why a look found nothing wrong.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Quiet {
-    /// Pipelines or textures still being made or read.
+    /// Pipelines or textures still being made or read (for less than
+    /// [`PATIENCE`] since the last was finished).
     NotReady,
     /// Ready, but not yet for [`WARM_UP`] seconds.
     WarmingUp,
@@ -142,6 +165,12 @@ pub struct Failure {
     pub expected: usize,
     pub drawn: usize,
     pub seconds: f64,
+    /// Of the points expected, those of tiles left out as they failed
+    /// ([`Observation::failed`]).
+    pub failed: usize,
+    /// Judged while textures or pipelines were still waited for: for how
+    /// long nothing of them had been finished, seconds.
+    pub waiting: Option<f64>,
 }
 
 impl std::fmt::Display for Failure {
@@ -150,7 +179,18 @@ impl std::fmt::Display for Failure {
             f,
             "{} of {} points of the area's ground drawn, for {:.0} seconds",
             self.drawn, self.expected, self.seconds
-        )
+        )?;
+        if self.failed > 0 {
+            write!(f, " ({} of them of tiles that failed and were left out)", self.failed)?;
+        }
+        if let Some(w) = self.waiting {
+            write!(
+                f,
+                ", with textures or the game's programs waited for and none finished for {w:.0} \
+                 seconds"
+            )?;
+        }
+        Ok(())
     }
 }
 
@@ -164,13 +204,30 @@ pub const SUSTAINED: f64 = 5.0;
 pub const LOOKS: u32 = 4;
 /// How long the pipelines must have been ready before a look counts.
 pub const WARM_UP: f64 = 2.0;
+/// How long a frame may wait for textures or the game's programs with
+/// none of them finished before it is judged all the same, seconds. On the
+/// development machine all of an area's textures are read in 1.4 s at the
+/// most (The Domains of Dread's woods; area092, 784 tiles, in 0.18 s:
+/// `docs/research/notes_frames.md`) and its programs made in under 0.3 s
+/// with no shader cache; each of them finishes in far less. A slow
+/// machine, or Direct3D 12's FXC making a program, takes several times
+/// that, and a program waited for leaves nothing out (Moonglow's own
+/// shader draws its mesh meanwhile): a texture is what leaves a tile out
+/// until it is read. Twenty seconds with nothing finished is something
+/// that doesn't come (Heed's Direct3D 12 drew nothing, and its frames may
+/// never have been ready), and no wait of the frames this machine draws
+/// comes near it.
+pub const PATIENCE: f64 = 20.0;
 
 /// The watch's state across looks: when the pipelines became ready, when
-/// a collapse began and how many looks it has lasted, and the failure
-/// once there is one (said once: it stays).
+/// a frame not ready last saw something finished, when a collapse began
+/// and how many looks it has lasted, and the failure once there is one
+/// (said once: it stays).
 #[derive(Debug, Clone, Default)]
 pub struct Watch {
     ready_since: Option<f64>,
+    /// Waiting: since when, and the progress then.
+    waiting: Option<(f64, u64)>,
     collapse: Option<(f64, u32)>,
     failed: Option<Failure>,
 }
@@ -185,13 +242,29 @@ impl Watch {
             w.collapse = None;
             Verdict::Quiet(why)
         };
-        if !o.ready {
+        // Not ready: nothing counts, unless nothing it waits for has been
+        // finished for long enough (then it is judged as it is: what it
+        // waits for doesn't come).
+        let mut waiting = None;
+        if o.ready {
+            self.waiting = None;
+            let since = *self.ready_since.get_or_insert(o.at);
+            if o.at - since < WARM_UP {
+                return quiet(self, Quiet::WarmingUp);
+            }
+        } else {
             self.ready_since = None;
-            return quiet(self, Quiet::NotReady);
-        }
-        let since = *self.ready_since.get_or_insert(o.at);
-        if o.at - since < WARM_UP {
-            return quiet(self, Quiet::WarmingUp);
+            let (since, progress) = *self.waiting.get_or_insert((o.at, o.progress));
+            let since = if progress == o.progress {
+                since
+            } else {
+                self.waiting = Some((o.at, o.progress));
+                o.at
+            };
+            if o.at - since < PATIENCE {
+                return quiet(self, Quiet::NotReady);
+            }
+            waiting = Some(o.at - since);
         }
         let grid = (COLUMNS * ROWS) as f32;
         if (o.expected as f32) < FLOOR * grid {
@@ -204,7 +277,13 @@ impl Watch {
         *looks += 1;
         let (began, looks) = (*began, *looks);
         if o.at - began >= SUSTAINED && looks >= LOOKS {
-            let f = Failure { expected: o.expected, drawn: o.drawn, seconds: o.at - began };
+            let f = Failure {
+                expected: o.expected,
+                drawn: o.drawn,
+                seconds: o.at - began,
+                failed: o.failed,
+                waiting,
+            };
             self.failed = Some(f);
             return Verdict::Failed(f);
         }
@@ -220,17 +299,23 @@ impl Watch {
     /// the next look starts again, warming up. A failure stays.
     pub fn restart(&mut self) {
         self.ready_since = None;
+        self.waiting = None;
         self.collapse = None;
     }
 }
 
-/// The depth copy's format.
-const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Float;
+/// The look's format: the depth, and the picture's colour (as drawn,
+/// resolved) at each point.
+const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba32Float;
+
+/// How long a look may wait for the GPU before it is given up, seconds.
+pub const LOST: f64 = 5.0;
 
 fn source(samples: u32) -> String {
     let depth = if samples > 1 { "texture_depth_multisampled_2d" } else { "texture_depth_2d" };
     format!(
         "@group(0) @binding(0) var depth: {depth};
+@group(0) @binding(1) var color: texture_2d<f32>;
 @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {{
     let uv = vec2<f32>(f32((i << 1u) & 2u), f32(i & 2u));
     return vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
@@ -238,24 +323,61 @@ fn source(samples: u32) -> String {
 @fragment fn fs(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {{
     let size = vec2<f32>(textureDimensions(depth));
     let at = vec2<i32>(p.xy / vec2<f32>({COLUMNS}.0, {ROWS}.0) * size);
-    return vec4<f32>(textureLoad(depth, at, 0), 0.0, 0.0, 1.0);
+    return vec4<f32>(textureLoad(depth, at, 0), textureLoad(color, at, 0).rgb);
 }}
 "
     )
 }
 
-/// A look under way: its buffer, its mapping's answer and what was
-/// expected of its frame.
+/// A look under way: its buffer, its mapping's answer, what was expected
+/// of its frame, and when it was taken.
 #[derive(Debug)]
 struct Pending {
     buffer: wgpu::Buffer,
     mapped: Receiver<Result<(), wgpu::BufferAsyncError>>,
     expected: Expected,
+    at: f64,
 }
 
-/// What looks at a target's depth: one draw into a small texture (a texel
-/// for each point of the grid), copied into a buffer read when the GPU
-/// is done, a look at a time.
+/// A look the GPU has done ([`Sampler::take`]): the expectation of its
+/// frame, and at each point of the grid (row by row), whether something
+/// was drawn there (a depth nearer than the far plane's) and the
+/// picture's colour (0 to 1, as the target holds it).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Look {
+    pub expected: Expected,
+    pub drawn: Vec<bool>,
+    pub colors: Vec<[f32; 3]>,
+}
+
+impl Look {
+    /// The points expected, and of those the points drawn.
+    pub fn counted(&self) -> (usize, usize) {
+        counted(&self.expected, &self.drawn)
+    }
+
+    /// Of the points expected and drawn, those whose colour isn't the
+    /// frame's `background` (what its picture was cleared to, 0 to 1):
+    /// a renderer that lays the depth of what it draws and none of its
+    /// colour (or only the background's) is seen drawing nothing, though
+    /// the depth says it drew. (For the debug log: a dark area's tiles may
+    /// be drawn black on a black background.)
+    pub fn colored(&self, background: [f32; 3]) -> usize {
+        let apart =
+            |c: &[f32; 3]| c.iter().zip(background).any(|(a, b)| (a - b).abs() > 2.5 / 255.0);
+        self.expected
+            .0
+            .iter()
+            .zip(&self.drawn)
+            .zip(&self.colors)
+            .filter(|((e, d), c)| **e && **d && apart(c))
+            .count()
+    }
+}
+
+/// What looks at a target: one draw into a small texture (a texel for
+/// each point of the grid: the depth and the colour there), copied into a
+/// buffer read when the GPU is done, a look at a time.
 #[derive(Debug)]
 pub struct Sampler {
     pipeline: wgpu::RenderPipeline,
@@ -276,16 +398,28 @@ impl Sampler {
         });
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("watch"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Depth,
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: samples > 1,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: samples > 1,
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+            ],
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("watch"),
@@ -337,10 +471,10 @@ impl Sampler {
         self.pending.is_some()
     }
 
-    /// Takes a look at `depth` (a target's depth as just drawn), what
-    /// `expected` says of its frame kept with it. Nothing while a look is
-    /// under way.
-    pub fn look(&mut self, gpu: &Gpu, depth: &wgpu::TextureView, expected: Expected) {
+    /// Takes a look at `targets` as just drawn (their depth, and the
+    /// colour of their picture), what `expected` says of its frame kept
+    /// with it, at `now` (seconds). Nothing while a look is under way.
+    pub fn look(&mut self, gpu: &Gpu, targets: &crate::Targets, expected: Expected, now: f64) {
         if self.pending.is_some() {
             return;
         }
@@ -348,13 +482,20 @@ impl Sampler {
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("watch"),
             layout: &self.layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(depth),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&targets.depth),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&targets.color_view),
+                },
+            ],
         });
-        // (A row of 64 four-byte texels is 256 bytes: the copy's alignment.)
-        let row = COLUMNS * 4;
+        // (A row of 64 sixteen-byte texels is 1024 bytes: of the copy's
+        // alignment.)
+        let row = COLUMNS * 16;
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("watch"),
             size: u64::from(row * ROWS),
@@ -395,13 +536,11 @@ impl Sampler {
         gpu.queue.submit([encoder.finish()]);
         let (tx, rx) = channel();
         buffer.slice(..).map_async(wgpu::MapMode::Read, move |r| drop(tx.send(r)));
-        self.pending = Some(Pending { buffer, mapped: rx, expected });
+        self.pending = Some(Pending { buffer, mapped: rx, expected, at: now });
     }
 
-    /// The look under way, once the GPU has done it (never waiting): the
-    /// expectation of its frame and the points drawn (of the grid, row by
-    /// row: those with a depth nearer than the far plane's).
-    pub fn take(&mut self, gpu: &Gpu) -> Option<(Expected, Vec<bool>)> {
+    /// The look under way, once the GPU has done it (never waiting).
+    pub fn take(&mut self, gpu: &Gpu) -> Option<Look> {
         let pending = self.pending.as_ref()?;
         let _ = gpu.device.poll(wgpu::PollType::Poll);
         match pending.mapped.try_recv() {
@@ -414,12 +553,36 @@ impl Sampler {
             Ok(Ok(())) => {}
         }
         let pending = self.pending.take()?;
-        let drawn = {
+        let texels: Vec<[f32; 4]> = {
             let data = pending.buffer.slice(..).get_mapped_range().ok()?;
-            data.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b) < 1.0).collect()
+            data.as_chunks::<16>()
+                .0
+                .iter()
+                .map(|t| {
+                    std::array::from_fn(|i| {
+                        f32::from_le_bytes([t[4 * i], t[4 * i + 1], t[4 * i + 2], t[4 * i + 3]])
+                    })
+                })
+                .collect()
         };
         pending.buffer.unmap();
-        Some((pending.expected, drawn))
+        Some(Look {
+            expected: pending.expected,
+            drawn: texels.iter().map(|t| t[0] < 1.0).collect(),
+            colors: texels.iter().map(|t| [t[1], t[2], t[3]]).collect(),
+        })
+    }
+
+    /// Gives up the look under way if the GPU hasn't done it in [`LOST`]
+    /// seconds since it was taken (at `now`): whether it did. (A look that
+    /// never came back would keep the next from being taken: the watch
+    /// would look no more.)
+    pub fn give_up(&mut self, now: f64) -> bool {
+        if self.pending.as_ref().is_some_and(|p| now - p.at >= LOST) {
+            self.pending = None;
+            return true;
+        }
+        false
     }
 }
 
@@ -437,7 +600,7 @@ mod tests {
     const GRID: usize = (COLUMNS * ROWS) as usize;
 
     fn look(expected: usize, drawn: usize, at: f64) -> Observation {
-        Observation { expected, drawn, ready: true, at }
+        Observation { expected, drawn, ready: true, at, ..Default::default() }
     }
 
     /// Looks every second from `from` to `to`, all the same.
@@ -459,7 +622,7 @@ mod tests {
         assert_eq!(looks(&mut w, look(1000, 990, 0.0), 0.0, 4.0), Verdict::Quiet(Quiet::Drawn));
         assert_eq!(w.judge(look(1000, 0, 5.0)), Verdict::Doubt { since: 5.0 });
         let v = looks(&mut w, look(1000, 0, 0.0), 6.0, 10.0);
-        let f = Failure { expected: 1000, drawn: 0, seconds: 5.0 };
+        let f = Failure { expected: 1000, drawn: 0, seconds: 5.0, failed: 0, waiting: None };
         assert_eq!(v, Verdict::Failed(f));
         assert_eq!(w.judge(look(1000, 1000, 11.0)), Verdict::Failed(f), "kept");
         assert_eq!(f.to_string(), "0 of 1000 points of the area's ground drawn, for 5 seconds");
@@ -469,13 +632,20 @@ mod tests {
     }
 
     /// Guard: the pipelines ready. While the game's programs are made
-    /// (or textures read), nothing counts, and once ready, not for the
-    /// first seconds.
+    /// (or textures read), one after another, nothing counts, however
+    /// long, and once ready, not for the first seconds.
     #[test]
     fn nothing_counts_before_the_pipelines_are_ready_and_warm() {
         let mut w = Watch::default();
-        let waiting = Observation { ready: false, ..look(1000, 0, 0.0) };
-        assert_eq!(looks(&mut w, waiting, 0.0, 30.0), Verdict::Quiet(Quiet::NotReady));
+        for second in 0..=30 {
+            // (A texture or a program finished every few seconds.)
+            let waiting = Observation {
+                ready: false,
+                progress: second / 5,
+                ..look(1000, 0, f64::from(second as u32))
+            };
+            assert_eq!(w.judge(waiting), Verdict::Quiet(Quiet::NotReady), "second {second}");
+        }
         assert_eq!(w.judge(look(1000, 0, 31.0)), Verdict::Quiet(Quiet::WarmingUp));
         assert_eq!(w.judge(look(1000, 0, 32.0)), Verdict::Quiet(Quiet::WarmingUp));
         assert_eq!(w.judge(look(1000, 0, 33.0)), Verdict::Doubt { since: 33.0 });
@@ -484,6 +654,55 @@ mod tests {
         assert_eq!(w.judge(again), Verdict::Quiet(Quiet::NotReady));
         assert_eq!(w.judge(look(1000, 0, 35.0)), Verdict::Quiet(Quiet::WarmingUp));
         assert!(matches!(looks(&mut w, look(1000, 0, 0.0), 36.0, 50.0), Verdict::Failed(_)));
+    }
+
+    /// A frame that stays not ready with nothing it waits for finished
+    /// (a texture never read, a program never made: Heed's Direct3D 12
+    /// may never have been ready) is judged after [`PATIENCE`]: drawn,
+    /// quiet; drawing nothing, a failure that says it was waiting. A wait
+    /// that finishes something now and then starts again each time.
+    #[test]
+    fn a_frame_that_never_gets_ready_is_judged_after_a_while() {
+        let stuck = |at: f64| Observation { ready: false, progress: 7, ..look(1000, 0, at) };
+        let mut w = Watch::default();
+        assert_eq!(looks(&mut w, stuck(0.0), 0.0, PATIENCE - 1.0), Verdict::Quiet(Quiet::NotReady));
+        assert_eq!(w.judge(stuck(PATIENCE)), Verdict::Doubt { since: PATIENCE });
+        let v = looks(&mut w, stuck(0.0), PATIENCE + 1.0, PATIENCE + 10.0);
+        let Verdict::Failed(f) = v else { panic!("{v:?}") };
+        assert_eq!(f.waiting, Some(PATIENCE + SUSTAINED));
+        assert!(f.to_string().ends_with("none finished for 25 seconds"), "{f}");
+        // Drawn, not ready all the while: quiet.
+        let mut w = Watch::default();
+        let drawn = |at: f64| Observation { drawn: 900, ..stuck(at) };
+        assert_eq!(looks(&mut w, drawn(0.0), 0.0, 60.0), Verdict::Quiet(Quiet::Drawn));
+        // Something finished every 15 seconds: the wait starts again.
+        let mut w = Watch::default();
+        for second in 0..90u32 {
+            let o = Observation { progress: u64::from(second / 15), ..stuck(f64::from(second)) };
+            assert_eq!(w.judge(o), Verdict::Quiet(Quiet::NotReady), "second {second}");
+        }
+        // Ready a moment between waits (a frame ready, then a texture met):
+        // each wait starts again, and a stuck one is judged in its turn.
+        let mut w = Watch::default();
+        assert_eq!(looks(&mut w, stuck(0.0), 0.0, 15.0), Verdict::Quiet(Quiet::NotReady));
+        assert_eq!(w.judge(look(1000, 0, 16.0)), Verdict::Quiet(Quiet::WarmingUp));
+        assert_eq!(looks(&mut w, stuck(0.0), 17.0, 36.0), Verdict::Quiet(Quiet::NotReady));
+        assert_eq!(w.judge(stuck(37.0)), Verdict::Doubt { since: 37.0 });
+    }
+
+    /// Tiles left out as they failed are expected: a failure counts them,
+    /// and says so.
+    #[test]
+    fn a_failure_names_the_tiles_that_failed() {
+        let mut w = Watch::default();
+        let o = |at| Observation { failed: 1000, ..look(1000, 0, at) };
+        let Verdict::Failed(f) = looks(&mut w, o(0.0), 0.0, 10.0) else { panic!() };
+        assert_eq!(f.failed, 1000);
+        assert_eq!(
+            f.to_string(),
+            "0 of 1000 points of the area's ground drawn, for 5 seconds (1000 of them of tiles \
+             that failed and were left out)"
+        );
     }
 
     /// Guard: the expectation above a floor. An empty area, the sky, or an
