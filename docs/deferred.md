@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T00:11:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T00:16:13Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -3420,6 +3420,12 @@ contribution itself states as not done or not checked.
     to it: `pick_adapter` repeats wgpu 30's order of adapter kinds and
     the app checks the surface. A later wgpu that orders otherwise is
     not followed by itself: look at it at the next wgpu bump. (S)
+  - **OpenGL draws wrong.** It is offered (with `WGPU_BACKEND=gl` too),
+    but `WGPU_BACKEND=gl cargo test -p mg-render --test render` fails 20
+    of its 44 tests on the development machine (no visible particles,
+    the game's programs, the framebuffer's copies, animations...): the
+    renderer was never made for wgpu's GL backend, which Vulkan always
+    beat before. Make it draw right there, or stop offering it. (M)
   - `mg` and the other headless renderers take Automatic (or
     `WGPU_BACKEND`), not the GUI's setting; Moonglow Viewer, which builds
     on mg-render, doesn't use `pick_adapter` yet. (S each)

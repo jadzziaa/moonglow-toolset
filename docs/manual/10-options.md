@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general with the graphics backend, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T00:11:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T00:16:13Z }
 ---
 
 # Options
@@ -90,7 +90,9 @@ the module is opened again from its file.
   areas' tiles wrong (see [Troubleshooting](13-troubleshooting.md#tiles-disappear-on-an-amd-gpu-under-windows)).
   Or choose one: **Vulkan**, **Direct3D 12** or **OpenGL** on Windows,
   **Vulkan** or **OpenGL** on Linux, **Metal** on macOS (the only one
-  there); only the platform's are offered. It takes effect the next time
+  there); only the platform's are offered. OpenGL is a last resort:
+  Moonglow's renderer is not made for it, and draws particles, the
+  game's shaders and more wrong there. It takes effect the next time
   Moonglow starts, and the page says what this run draws with. A backend
   with no adapter on this machine falls back to Automatic, and the log
   says so. The `WGPU_BACKEND` environment variable (`vulkan`, `dx12`,
