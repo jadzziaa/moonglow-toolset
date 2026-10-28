@@ -45,6 +45,13 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="2.11.0" date="2026-10-28">
+      <description>
+        <p>A graphics backend in Options (Automatic, Vulkan, Direct3D 12,
+        Metal); on an AMD GPU under Windows, Automatic draws through
+        Direct3D 12, where AMD's Vulkan driver lost an area's tiles.</p>
+      </description>
+    </release>
     <release version="2.10.0" date="2026-10-27">
       <description>
         <p>The tiles palette's search finds a group by its tiles' models; a
