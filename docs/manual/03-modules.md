@@ -263,6 +263,21 @@ unpacking or packing between the toolset and git.
   nasher.cfg** adds a line for their kinds beside the include they lie
   under (`include = "src/**/*.{jui,txt}"`), and they are read: nasher
   packs them from then on too.
+- **A file that can't be read** (JSON broken by a merge's conflict
+  markers, say) is left out of the module, and the log says so: the rest
+  of the project opens. Mend or delete it; a save never writes over it,
+  and once mended it is read as a file added.
+- **One resource under two spellings** in a folder (`bread.UTI.json`, as
+  Aurora names a new item, beside `bread.uti.json`) is the one nasher
+  packs: its pack renames the spelling that isn't lower case over the
+  other, whichever is newer. Moonglow reads that one, the log says so,
+  and the next save leaves it alone, as `bread.uti.json`. (A module
+  folder takes the file changed last, [above](#opening-and-saving):
+  Aurora's own folders never hold both.) The same resource in two
+  folders of the project is
+  packed by nasher from one of them, in no fixed order: Moonglow reads
+  the first it finds, names the other, and leaves both for you to keep
+  one.
 - **Changes made elsewhere are picked up while the project is open.**
   Every few seconds (Options › General, the reloading switch) Moonglow
   looks for source files that another program changed, added or deleted:

@@ -44,6 +44,33 @@ pub struct Project {
     /// Files in the source folders that the target's include leaves out
     /// and Moonglow would read ([`Project::left_out`]), as last looked.
     pub left_out: Vec<PathBuf>,
+    /// Resources found in one folder under two spellings: the lower-case
+    /// file, which the next save makes the resource's own (the other
+    /// spelling's, read, written there), as nasher's pack does.
+    spellings: HashMap<ResKey, PathBuf>,
+}
+
+/// Whether a file's name is in lower case (as nasher's pack renames
+/// every source file).
+fn is_lower(path: &Path) -> bool {
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    name == name.to_ascii_lowercase()
+}
+
+/// The warning for a resource in one folder under two spellings, `taken`
+/// read and `lower` the lower-case file.
+fn two_spellings(key: &ResKey, taken: &Path, lower: &Path) -> String {
+    let name = |p: &Path| p.file_name().unwrap_or_default().to_string_lossy().to_string();
+    format!(
+        "{key} is in {} as {} and {}: nasher's pack renames {} over {}, so it is the one read, \
+         and at the next save it alone is left, as {}",
+        taken.parent().unwrap_or(Path::new("")).display(),
+        name(taken),
+        name(lower),
+        name(taken),
+        name(lower),
+        name(lower)
+    )
 }
 
 use crate::outside::{Known, OutsideFound, OutsideScan, Stamp, stamp};
@@ -184,6 +211,7 @@ impl Project {
             sources: HashMap::new(),
             warnings: Vec::new(),
             left_out: Vec::new(),
+            spellings: HashMap::new(),
         };
         let conv = project.conversion();
         let mut resources = IndexMap::new();
@@ -215,27 +243,53 @@ impl Project {
                 ));
                 continue;
             }
-            if resources.contains_key(&key) {
-                project.warnings.push(format!(
-                    "{}: {key} is already read from {}; this copy is left alone",
-                    path.display(),
-                    project.sources[&key].path.display()
-                ));
-                continue;
+            // A resource found twice. In one folder under two spellings
+            // (`x.UTI.json` and `x.uti.json`), nasher's pack renames the
+            // one not in lower case over the other, whichever is newer:
+            // that one is read, and the next save leaves it alone, under
+            // the lower-case name. In two folders nasher packs one of
+            // them, in no fixed order: the first here.
+            let mut twin = None;
+            if let Some(had) = project.sources.get(&key) {
+                let (had, here) = (had.path.to_path_buf(), path.clone());
+                let one_folder = had.parent() == here.parent();
+                if one_folder && is_lower(&had) && !is_lower(&here) {
+                    project.warnings.push(two_spellings(&key, &here, &had));
+                    twin = Some(had);
+                } else if one_folder && !is_lower(&had) && is_lower(&here) {
+                    project.warnings.push(two_spellings(&key, &had, &here));
+                    project.spellings.insert(key, here);
+                    continue;
+                } else {
+                    project.warnings.push(format!(
+                        "{}: {key} is already read from {}; this copy is left alone (nasher \
+                         packs one of the two too, in no fixed order: keep one)",
+                        here.display(),
+                        had.display()
+                    ));
+                    continue;
+                }
             }
             // (Its time and size before it is read: a later look reads
             // only the files changed since.)
             let stamp = stamp(&path);
             let file: Arc<[u8]> = Arc::from(std::fs::read(&path).map_err(io(&path))?);
-            let resource: Arc<[u8]> = if json {
-                let gff = conv.from_source(&path.display().to_string(), &file)?;
-                Arc::from(gff.to_bytes().map_err(|e| ModuleError::Source {
-                    name: path.display().to_string(),
-                    message: e.to_string(),
-                })?)
-            } else {
-                file.clone()
+            // A file that can't be read (JSON broken by a merge, say) is
+            // left out, and said: the rest of the project opens.
+            let resource = match resource_from(conv, &path, json, &file) {
+                Ok(resource) => resource,
+                Err(e) => {
+                    project.warnings.push(format!(
+                        "{}: can't be read, and is left out of the module ({e}). Mend or \
+                         delete it: a save doesn't write over it",
+                        path.display()
+                    ));
+                    continue;
+                }
             };
+            if let Some(twin) = twin {
+                project.spellings.insert(key, twin);
+            }
             resources.insert(key, resource.clone());
             project.sources.insert(key, Source { path: path.into(), json, file, resource, stamp });
         }
@@ -779,6 +833,32 @@ impl Project {
                     report.removed.push(path);
                 }
             }
+        }
+        // A resource read from one of two spellings in a folder: its file
+        // is the lower-case one now, as nasher's pack leaves it, and the
+        // other goes (both, for a resource the module no longer has).
+        let mut spellings: Vec<(ResKey, PathBuf)> = self.spellings.drain().collect();
+        spellings.sort_by(|a, b| a.1.cmp(&b.1));
+        for (key, lower) in spellings {
+            let Some(src) = self.sources.get(&key).filter(|s| *s.path != *lower) else {
+                if !self.sources.contains_key(&key) && lower.exists() {
+                    std::fs::remove_file(&lower).map_err(io(&lower))?;
+                    report.removed.push(lower);
+                }
+                continue;
+            };
+            let other = src.path.to_path_buf();
+            let tmp = crate::sibling(&lower, ".moonglow-tmp");
+            std::fs::write(&tmp, &src.file).map_err(io(&tmp))?;
+            std::fs::rename(&tmp, &lower).map_err(io(&lower))?;
+            if other.exists() {
+                std::fs::remove_file(&other).map_err(io(&other))?;
+            }
+            let src = self.sources.get_mut(&key).expect("looked up");
+            src.path = lower.as_path().into();
+            src.stamp = None;
+            report.written.push(lower);
+            report.removed.push(other);
         }
         // (Now on disk where the include doesn't look: Build › Add Left-Out
         // Files to nasher.cfg can take them in.)
@@ -1448,5 +1528,121 @@ mod tests {
         std::fs::write(root.join("src/module.ifo.nwnt"), "x").unwrap();
         let err = Module::open(&root).unwrap_err().to_string();
         assert!(err.contains("NWNT"), "{err}");
+    }
+
+    /// The JSON of an item, tagged `tag`.
+    fn item_json(tag: &str) -> String {
+        format!(
+            "{{\n  \"__data_type\": \"UTI \",\n  \"Tag\": {{\n    \"type\": \"cexostring\",\n    \
+             \"value\": \"{tag}\"\n  }}\n}}\n"
+        )
+    }
+
+    fn tag_of(m: &Module, name: &str) -> String {
+        let gff = m.gff(&key(name, ResType::UTI)).unwrap().unwrap();
+        String::from_utf8_lossy(gff.root.string("Tag").unwrap()).into_owned()
+    }
+
+    /// One item in one folder under two spellings (`x.UTI.json`, as
+    /// Aurora's names come, and `x.uti.json`): nasher's pack renames the
+    /// one not in lower case over the other, newer or older (measured with
+    /// nasher 1.1.3), so the project reads that one, says so, and the next
+    /// save leaves it alone, as `x.uti.json`. In two folders nasher packs
+    /// one of them, in no fixed order: the first is read, and both stay.
+    #[test]
+    fn a_resource_under_two_spellings_is_the_one_nasher_packs() {
+        let root = scratch("two-spellings");
+        module().save_as(&project_location(&root)).unwrap();
+        let src = root.join("src");
+        std::fs::write(src.join("bread.UTI.json"), item_json("AURORA")).unwrap();
+        std::fs::write(src.join("bread.uti.json"), item_json("MOONGLOW")).unwrap();
+        if !src.join("bread.UTI.json").exists() || !src.join("bread.uti.json").exists() {
+            return; // (A file system that doesn't set capitals apart.)
+        }
+        let mut m = Module::open(&root).unwrap();
+        assert_eq!(tag_of(&m, "bread"), "AURORA");
+        let said = &m.project.as_ref().unwrap().warnings;
+        assert!(
+            said.iter().any(|w| w.contains(
+                "as bread.UTI.json and bread.uti.json: nasher's pack \
+                renames bread.UTI.json over bread.uti.json"
+            )),
+            "{said:?}"
+        );
+        m.save().unwrap();
+        let items: Vec<String> = (std::fs::read_dir(&src).unwrap().flatten())
+            .map(|e| e.file_name().into_string().unwrap())
+            .filter(|n| n.to_ascii_lowercase().starts_with("bread."))
+            .collect();
+        assert_eq!(items, ["bread.uti.json"]);
+        assert!(std::fs::read_to_string(src.join("bread.uti.json")).unwrap().contains("AURORA"));
+        let mut m = Module::open(&root).unwrap();
+        assert_eq!(tag_of(&m, "bread"), "AURORA");
+        assert!(m.project.as_ref().unwrap().warnings.is_empty());
+        // Changed and saved again: the one file.
+        let mut gff = m.gff(&key("bread", ResType::UTI)).unwrap().unwrap();
+        gff.root.set("Tag", Value::String(b"EDITED".to_vec()));
+        m.set_gff(key("bread", ResType::UTI), &gff).unwrap();
+        m.save().unwrap();
+        assert!(std::fs::read_to_string(src.join("bread.uti.json")).unwrap().contains("EDITED"));
+        // Two spellings of an item the module then deletes: both go.
+        std::fs::write(src.join("bread.UTI.json"), item_json("AGAIN")).unwrap();
+        let mut m = Module::open(&root).unwrap();
+        assert_eq!(tag_of(&m, "bread"), "AGAIN");
+        m.remove(&key("bread", ResType::UTI));
+        m.save().unwrap();
+        assert!(!src.join("bread.UTI.json").exists() && !src.join("bread.uti.json").exists());
+        // In two folders: the first read, the other said and left.
+        std::fs::create_dir_all(src.join("a")).unwrap();
+        std::fs::create_dir_all(src.join("b")).unwrap();
+        std::fs::write(src.join("b/cake.uti.json"), item_json("IN_B")).unwrap();
+        std::fs::write(src.join("a/cake.uti.json"), item_json("IN_A")).unwrap();
+        let mut m = Module::open(&root).unwrap();
+        let other = if tag_of(&m, "cake") == "IN_A" { "b" } else { "a" };
+        let said = &m.project.as_ref().unwrap().warnings;
+        let left = src.join(other).join("cake.uti.json").display().to_string();
+        assert!(
+            said.iter().any(|w| w.starts_with(&left) && w.contains("in no fixed order")),
+            "{said:?}"
+        );
+        m.save().unwrap();
+        assert!(src.join("a/cake.uti.json").exists() && src.join("b/cake.uti.json").exists());
+    }
+
+    /// A source file that can't be read (JSON broken by a merge's markers)
+    /// is left out of the module and said: the project opens. A resource
+    /// of its name made in the module doesn't write over it.
+    #[test]
+    fn a_file_that_can_t_be_read_is_left_out_and_said() {
+        let root = scratch("broken-file");
+        module().save_as(&project_location(&root)).unwrap();
+        let broken = root.join("src/bread.uti.json");
+        let text = "<<<<<<< HEAD\n{\"__data_type\": \"UTI \"}\n=======\n{}\n>>>>>>> theirs\n";
+        std::fs::write(&broken, text).unwrap();
+        let mut m = Module::open(&root).unwrap();
+        assert!(!m.contains(&key("bread", ResType::UTI)));
+        assert!(m.contains(&key("a1", ResType::ARE)), "the rest is read");
+        let said = &m.project.as_ref().unwrap().warnings;
+        assert!(
+            said.iter().any(|w| w.contains("bread.uti.json: can't be read, and is left out")),
+            "{said:?}"
+        );
+        // Saved with other changes: the file stays as it is.
+        m.set(key("other", ResType::NSS), b"void main() {}\n".to_vec());
+        m.save().unwrap();
+        assert_eq!(std::fs::read_to_string(&broken).unwrap(), text);
+        // A resource of its name made here: not written over it.
+        let mut item = Gff::new(*b"UTI ");
+        item.root.set("Tag", Value::String(b"NEW".to_vec()));
+        m.set_gff(key("bread", ResType::UTI), &item).unwrap();
+        let err = m.save().unwrap_err();
+        assert!(matches!(&err, ModuleError::ChangedOnDisk(p) if p == &[broken.clone()]), "{err}");
+        assert_eq!(std::fs::read_to_string(&broken).unwrap(), text);
+        // Mended outside: read as a file added.
+        std::fs::write(&broken, item_json("MENDED")).unwrap();
+        let (changes, problems) = m.project.as_mut().unwrap().outside();
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].key, key("bread", ResType::UTI));
     }
 }
