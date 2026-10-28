@@ -369,6 +369,32 @@ impl TwoDa {
     /// space between cells (a smaller file, with less for the game to
     /// pass over as it reads).
     pub fn to_bytes_as(&self, codepage: Codepage, layout: Layout) -> Result<Vec<u8>, TwoDaError> {
+        self.write(codepage, layout, &Widths::default())
+    }
+
+    /// Serializes the table as the file it was read from (`original`) is
+    /// laid out: that file itself where the table is as it reads; else in
+    /// its layout, its columns at least as wide as they are there, its rows'
+    /// numbers too, with its line ends.
+    pub fn to_bytes_like(
+        &self,
+        codepage: Codepage,
+        original: &[u8],
+    ) -> Result<Vec<u8>, TwoDaError> {
+        if TwoDa::parse(original, codepage).is_ok_and(|t| t == *self) {
+            return Ok(original.to_vec());
+        }
+        let layout = Layout::of(original);
+        let widths = Widths::of(original, codepage);
+        self.write(codepage, layout, &widths)
+    }
+
+    fn write(
+        &self,
+        codepage: Codepage,
+        layout: Layout,
+        at_least: &Widths,
+    ) -> Result<Vec<u8>, TwoDaError> {
         let esc = |c: &Option<String>| -> Result<String, TwoDaError> {
             match c {
                 None => Ok("****".into()),
@@ -379,21 +405,26 @@ impl TwoDa {
         };
         let rows: Vec<Vec<String>> =
             self.rows.iter().map(|r| r.iter().map(esc).collect()).collect::<Result<_, _>>()?;
+        // (Each column as wide as its widest cell, and as the file read had
+        // it, by its name.)
         let widths: Vec<usize> = (0..self.columns.len())
             .map(|i| {
+                let had = at_least.column(&self.columns[i]).map_or(0, |w| w.saturating_sub(1));
                 rows.iter()
                     .filter_map(|r| r.get(i).map(|c| c.chars().count()))
-                    .chain([self.columns[i].chars().count()])
+                    .chain([self.columns[i].chars().count(), had])
                     .max()
                     .unwrap_or(0)
             })
             .collect();
-        let id_width = rows.len().saturating_sub(1).to_string().len().max(1) + 2;
-        let mut out = String::from("2DA V2.0\r\n");
+        let id_width =
+            (rows.len().saturating_sub(1).to_string().len().max(1) + 2).max(at_least.numbers);
+        let end = if at_least.lf { "\n" } else { "\r\n" };
+        let mut out = format!("2DA V2.0{end}");
         if let Some(d) = &self.default {
             out += &format!("DEFAULT: {}", esc(&Some(d.clone()))?);
         }
-        out += "\r\n";
+        out += end;
         let line = |label: &str, cells: &[String]| {
             if layout == Layout::Compact {
                 // (The column names' line begins with a space, as the
@@ -403,7 +434,7 @@ impl TwoDa {
                     l.push(' ');
                     l += c;
                 }
-                return l + "\r\n";
+                return l + end;
             }
             let mut l = format!("{label:id_width$}");
             for (i, c) in cells.iter().enumerate() {
@@ -414,13 +445,58 @@ impl TwoDa {
                 }
             }
             l.truncate(l.trim_end().len());
-            l + "\r\n"
+            l + end
         };
         out += &line("", &self.columns);
         for (i, r) in rows.iter().enumerate() {
             out += &line(&i.to_string(), r);
         }
         codepage.encode(&out).map(|b| b.into_owned()).ok_or(TwoDaError::Unquotable)
+    }
+}
+
+/// How wide a file's columns are: by the offsets of their names on the
+/// line that names them (the width up to the next name), the rows'
+/// numbers as wide as the space before the first; and whether its lines
+/// end with LF alone.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct Widths {
+    columns: Vec<(String, usize)>,
+    numbers: usize,
+    lf: bool,
+}
+
+impl Widths {
+    fn of(data: &[u8], codepage: Codepage) -> Widths {
+        let text = codepage.decode(data);
+        let lf = !text.contains("\r\n") && text.contains('\n');
+        let header = text
+            .lines()
+            .skip(1)
+            .find(|l| !l.trim().is_empty() && !l.trim_start().starts_with("DEFAULT:"))
+            .unwrap_or("");
+        let mut starts = Vec::new();
+        let mut was_blank = true;
+        for (i, c) in header.chars().enumerate() {
+            let blank = c == ' ' || c == '\t';
+            if was_blank && !blank {
+                starts.push(i);
+            }
+            was_blank = blank;
+        }
+        let names: Vec<&str> = header.split_whitespace().collect();
+        let columns = names
+            .iter()
+            .enumerate()
+            .filter_map(|(i, n)| Some((n.to_string(), starts.get(i + 1)? - starts.get(i)?)))
+            .collect();
+        Widths { columns, numbers: starts.first().copied().unwrap_or(0), lf }
+    }
+
+    /// A column's width, its name's and the space after it, where the file
+    /// read had one (the last has none: nothing comes after it).
+    fn column(&self, name: &str) -> Option<usize> {
+        self.columns.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, w)| *w)
     }
 }
 
@@ -569,6 +645,42 @@ mod tests {
         let t = TwoDa::parse(b"2DA V2.0\n A B\n0 1 2\n", Codepage::default()).unwrap();
         assert_eq!(t.columns(), ["A", "B"]);
         assert_eq!(t.get(0, "b"), Some("2"));
+    }
+
+    /// A table written as the file it was read from: that file where it
+    /// is unchanged, else with its widths, its rows' numbers and its line
+    /// ends (a plugin's `twoda:write`).
+    #[test]
+    fn a_table_is_written_like_the_file_it_was_read_from() {
+        let cp = Codepage::default();
+        let wide =
+            b"2DA V2.0\n\n      Label        Cost\n0     Sword        10\n1     Axe          5\n";
+        let mut t = TwoDa::parse(wide, cp).unwrap();
+        assert_eq!(t.to_bytes_like(cp, wide).unwrap(), wide.to_vec(), "as it was");
+        t.set(1, 1, Some("7".into())).unwrap();
+        let written = String::from_utf8(t.to_bytes_like(cp, wide).unwrap()).unwrap();
+        assert_eq!(
+            written,
+            "2DA V2.0\n\n      Label        Cost\n0     Sword        10\n1     Axe          7\n"
+        );
+        // A cell wider than the file's column widens it; a new column is
+        // as wide as its cells.
+        t.set(0, 0, Some("Greatsword_of_Kings".into())).unwrap();
+        t.add_column("Weight").unwrap();
+        let written = String::from_utf8(t.to_bytes_like(cp, wide).unwrap()).unwrap();
+        assert_eq!(
+            written,
+            "2DA V2.0\n\n      Label               Cost Weight\n\
+             0     Greatsword_of_Kings 10   ****\n1     Axe                 7    ****\n"
+        );
+        // One space between cells stays so, with CRLF.
+        let compact = b"2DA V2.0\r\n\r\n Label Cost\r\n0 Sword 10\r\n";
+        let mut t = TwoDa::parse(compact, cp).unwrap();
+        t.set(0, 1, Some("12".into())).unwrap();
+        assert_eq!(
+            t.to_bytes_like(cp, compact).unwrap(),
+            b"2DA V2.0\r\n\r\n Label Cost\r\n0 Sword 12\r\n"
+        );
     }
 
     #[test]

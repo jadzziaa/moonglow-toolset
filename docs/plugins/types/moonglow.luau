@@ -63,6 +63,9 @@ export type TlkLine = { text: string, sound: string?, sound_length: number? }
 
 export type Tlk = {
     lines: number,
+    -- Its language's two-letter code ("en", "fr", "de", "it", "es", "pl").
+    language: string,
+    set_language: (self: Tlk, code: string) -> (),
     get: (self: Tlk, line: number) -> TlkLine?,
     set: (self: Tlk, line: number, value: (string | TlkLine)?) -> (),
     add: (self: Tlk, value: string | TlkLine) -> number,
@@ -344,7 +347,9 @@ export type Described = {
 mg.twoda = {
     parse = function(bytes: string): TwoDa return nil :: any end,
     new = function(columns: { string }): TwoDa return nil :: any end,
-    kinds = function(name: string): { [string]: string } return {} end,
+    -- A column's kind, or for a row chosen by another column's value
+    -- (a class's requirement), { by = column, rows = { value = table } }.
+    kinds = function(name: string): { [string]: string | { by: string, rows: { [string]: string } } } return {} end,
     describe = function(text: string, scripts: { [string]: string }?): Described return nil :: any end,
 }
 
@@ -377,7 +382,7 @@ mg.vars = {
 -- Talk tables made, read and written.
 mg.tlk = {
     parse = function(bytes: string): Tlk return nil :: any end,
-    new = function(): Tlk return nil :: any end,
+    new = function(language: string?): Tlk return nil :: any end,
 }
 
 return mg

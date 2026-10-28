@@ -630,6 +630,79 @@ fn tables_are_made_and_written() {
     assert_eq!(log, ["0", "4", "\"Cleave\"", "nil", "\"vs_hide\"", "1.5"]);
 }
 
+/// What the tables for plugins did not do (the deferred list's "Tables
+/// for plugins"): `kinds` knows a class's requirements, the tables a
+/// column names and the item properties' (and a table by the column that
+/// names it, with the game's data); a table is written as the file it
+/// was read from; a talk table has its language.
+#[test]
+fn tables_know_more_kinds_keep_their_layout_and_have_a_language() {
+    use mg_plugin::run_console;
+    let host = Rc::new(TestHost::default());
+    let mut rm = mg_resman::ResMan::new();
+    let mut base = mg_resman::MemContainer::new();
+    base.insert(
+        key("itempropdef.2da"),
+        b"2DA V2.0\n\n   Name Label SubTypeResRef\n0 649 Ability my_abilities\n".to_vec(),
+    );
+    rm.add(mg_resman::priority::KEY, "base", mg_resman::LayerClass::Key, base);
+    let game = std::sync::Arc::new(mg_rules::GameData::new(
+        rm,
+        mg_tlk::Tlk::new(mg_core::Language::ENGLISH),
+    ));
+    let code = r#"
+        local mg = require("@moonglow")
+        local pres = mg.twoda.kinds("cls_pres_wm").ReqParam1
+        local wide = "2DA V2.0\n\n      Label        Cost\n0     Sword        10\n1     Axe          5\n"
+        local t = mg.twoda.parse(wide)
+        local same = t:write() == wide
+        t:set(1, "Cost", 7)
+        return mg.twoda.kinds("classes").FeatsTable, pres.by, pres.rows.FEAT, pres.rows.SKILL,
+            mg.twoda.kinds("itempropdef").CostTableResRef, mg.twoda.kinds("my_abilities").Name,
+            same, t:write()
+    "#;
+    run_console(code, Input::new(module(), Some(game.clone())), host.clone()).unwrap();
+    let log: Vec<String> = host.log.borrow().iter().map(|(_, m)| m.clone()).collect();
+    assert_eq!(
+        log,
+        [
+            "\"table\"",
+            "\"ReqType\"",
+            "\"feat\"",
+            "\"skills\"",
+            "\"row:iprp_costtable\"",
+            "\"strref\"",
+            "true",
+            "\"2DA V2.0\\n\\n      Label        Cost\\n0     Sword        10\\n1     Axe          7\\n\"",
+        ]
+    );
+    // Without the game's data, a table is known by its name alone.
+    host.log.borrow_mut().clear();
+    let code = r#"
+        local mg = require("@moonglow")
+        return mg.twoda.kinds("my_abilities").Name
+    "#;
+    run_console(code, Input::new(module(), None), host.clone()).unwrap();
+    assert_eq!(host.log.borrow()[0].1, "nil");
+
+    // A talk table in Polish, its text in the language's codepage.
+    host.log.borrow_mut().clear();
+    let code = r#"
+        local mg = require("@moonglow")
+        local t = mg.tlk.new("pl")
+        t:add("Łódź")
+        local again = mg.tlk.parse(t:write())
+        local english = mg.tlk.new()
+        local ok = pcall(function() english:add("Łódź") end)
+        english:set_language("fr")
+        local bad = pcall(function() mg.tlk.new("xx") end)
+        return again.language, again:get(0).text, english.language, ok, bad
+    "#;
+    run_console(code, Input::new(module(), None), host.clone()).unwrap();
+    let log: Vec<String> = host.log.borrow().iter().map(|(_, m)| m.clone()).collect();
+    assert_eq!(log, ["\"pl\"", "\"Łódź\"", "\"fr\"", "false", "false"]);
+}
+
 /// `mg.twoda.describe`: a table's description read, a value named, and a
 /// table held to it.
 #[test]

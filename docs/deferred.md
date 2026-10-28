@@ -2421,7 +2421,7 @@ contribution itself states as not done or not checked.
   chooses, haks written with their leave, areas and terrain, pictures;
   0.3 files written into a chosen folder, 2DAs and talk tables as
   values, and events, whose own gaps are below, under "Plugins writing
-  into a folder" and "Tables for plugins"; 0.4 what is selected and
+  into a folder"; 0.4 what is selected and
   open, commands in right-click menus, fixes for findings, a plugin's
   own tests, settings, a project's own plugins, a resource's own events
   and the after-create hook):
@@ -2597,20 +2597,6 @@ contribution itself states as not done or not checked.
     harness. On Windows and macOS the tests pass in CI, but nobody has
     used plugins in the window there; and the file dialog of Install
     from File was not driven anywhere (the harness answers for it). (S)
-- **Tables for plugins** (`mg.twoda`, `mg.tlk`, plugin API 0.3): a 2DA
-  and a talk table as values to change and write; `mg.twoda.kinds`
-  says what Verify Module's tables say (ten columns that hold a
-  talk-table string, four that name a model, sixty-one that name a row
-  of another table, and the feat, skill and spell lists a class, a race
-  or a package names). Not done: a class's other tables (`cls_pres_*`,
-  whose row depends on the requirement's kind; `cls_bfeat_*`,
-  `cls_spgn_*`), the `iprp` tables, columns the game's own tables
-  break (`appearance.FOOTSTEPTYPE`); that the table a column names is
-  there at all is not checked; `mg.twoda.kinds` knows a named list by
-  its name only (`cls_feat_*`), not by the column that names it; a row that is
-  there but blank (a padding row) counts as there; a written 2DA is laid out as the game's are, not with the
-  widths of the file it was read from; a talk table's language is
-  English and its feminine table is another file. (S each)
 - **`mg roundtrip`** (a builder asked what keeps work from being
   corrupted): a module saved, read back and each GFF and 2DA written
   anew, compared with what it was. It does not ask the game or Aurora
@@ -3665,3 +3651,8 @@ is not taken for a new gap.
   scheme the first's tiles' lights picked anew; an area of the same
   scheme keeps its own, and the first area's own picks aren't copied
   tile by tile (the areas' tiles differ). (S) (Settled in the triage of 2026-10-28.)
+- **A plugin's talk table and its feminine table** are two files, as the
+  game keeps them (`dialogf.tlk`, `NAMEf.tlk`): `mg.tlk` reads and
+  writes each as a talk table of its own, and nothing pairs a line with
+  its feminine line. (S) (Settled with the rest of "Tables for plugins",
+  done in the deferred sprint of 2026-10-28: it is the game's format.)

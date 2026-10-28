@@ -541,7 +541,8 @@ fn reader(lua: &Lua, sh: &Rc<Shared>, game: bool) -> mlua::Result<Table> {
                     s.host.not_in_game(&file);
                 }
                 let table = data.table(&name).or_else(fail)?;
-                crate::tables::twoda(lua, table.clone())
+                let file = ResKey::from_filename(&file).and_then(|k| data.resman.get(&k).ok());
+                crate::tables::twoda(lua, table.clone(), file.map(|f| f.into_owned()))
             })?,
         )?;
         let s = sh.clone();
@@ -1092,7 +1093,7 @@ fn api(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
         )?;
     }
     mg.set("image", lua.create_function(crate::files::image)?)?;
-    mg.set("twoda", crate::tables::twoda_api(lua)?)?;
+    mg.set("twoda", crate::tables::twoda_api(lua, sh.game.clone())?)?;
     mg.set("tlk", crate::tables::tlk_api(lua)?)?;
     mg.set("vars", vars_api(lua, sh)?)?;
     // Where a struct read with `gff` is: its path, for the edits.

@@ -177,6 +177,17 @@ changed, below, to what it was):
 - What is `left` after a test's fixes is found on the module as fixed
   through the game's data too (a fixed 2DA of the module's, read with
   `ctx.game:table`), not only through `ctx.module`.
+- `mg.twoda.kinds` knows more: `"table"` (a column naming another
+  table, `classes.FeatsTable`), a class's requirements (`cls_pres_*`'s
+  `ReqParam1`, a table `{ by, rows }`: a row of the table its `ReqType`
+  chooses), the item property tables (`itempropdef.2da`'s strings and
+  rows, the `Name` of the tables it names), `appearance.FOOTSTEPTYPE`,
+  and, with the game's data, a table by the column that names it.
+- `twoda:write()` of a table read from a file keeps that file's layout
+  (the file itself, where the table is unchanged).
+- `mg.tlk.new(language?)`, `tlk.language` and `tlk:set_language(code)`:
+  a talk table in another language than English, its text in that
+  language's codepage.
 - From the Domains of Dread's notes on 2.1.0 and 2.2.0, and their
   builder proposal (C1).
 

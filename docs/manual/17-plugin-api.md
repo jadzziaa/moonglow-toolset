@@ -313,19 +313,34 @@ an empty one:
 | `twoda:set(row, column, value)` | Sets a cell: text, or a number; nil empties it. The row and the column must be there. |
 | `twoda:add_row(cells?)` | Adds a row at the end and returns its number; `cells` are its values by column (`{ Label = "x", Cost = 5 }`), the others empty. |
 | `twoda:add_column(name)` | Adds a column at the end, its cells empty. |
-| `twoda:write()` | The table as a file's bytes, laid out as the game's own tables are, for `ctx.hak:write`. |
+| `twoda:write()` | The table as a file's bytes, for `ctx.hak:write`: one read from a file (`ctx.game:table`, `mg.twoda.parse`) as that file is laid out, the file itself where the table is unchanged, its columns at least as wide as there, its line ends (since Moonglow 2.13.0); one made with `mg.twoda.new` as the game's own tables are. |
 
 `mg.twoda.kinds(name)` says what the columns of one of the game's tables
 hold, where Verify Module checks them: a table by column name, `"strref"`
 (a talk-table string's number: `kinds("feat").FEAT`), `"model"` (a
 model's name: `kinds("placeables").ModelName`) or `"row:"` and a table's
 name (a row's number in that table: `kinds("feat").MASTERFEAT` is
-`"row:masterfeats"`; since Moonglow 1.21.2). A table it knows nothing
-of gives an empty one. The lists a class, a race or a package names are
-known by how the game's own are named (`cls_feat_*`, `cls_skill_*`,
-`race_feat_*`, `packft*`, `packsk*`, `packsp*`). A cell that names a row holds `****` or a
-negative number for none, and a spell's `FeatID` keeps the feat in its
-low 16 bits.
+`"row:masterfeats"`; since Moonglow 1.21.2), `"table"` (another
+table's name, without `.2da`: `kinds("classes").FeatsTable`; since
+Moonglow 2.13.0), or, for a column whose cells name a row of the table
+another column's value chooses (a class's requirements,
+`cls_pres_*`'s `ReqParam1` by its `ReqType`; since 2.13.0), a table
+`{ by = "ReqType", rows = { FEAT = "feat", SKILL = "skills", … } }`: a
+value not in `rows` names no row. A table it knows nothing of gives an
+empty one. The lists a class, a race or a package names are known by
+how the game's own are named (`cls_feat_*`, `cls_skill_*`, `cls_pres_*`,
+`race_feat_*`, `packft*`, `packsk*`, `packsp*`), and, with the game's
+data, by the column that names them, whatever their names (since
+Moonglow 2.13.0): so are the tables an item property names
+(`itempropdef.2da`'s `SubTypeResRef`, `iprp_costtable.2da`'s `Name` and
+`iprp_paramtable.2da`'s `TableResRef`), whose `Name` is a string. Of the
+item properties' own, `itempropdef.2da`'s `Name`, `GameStrRef` and
+`Description` are strings and its `CostTableResRef` and `Param1ResRef`
+rows of `iprp_costtable.2da` and `iprp_paramtable.2da`. The tables a
+class names for its bonus feats, spells, saves, attack bonus and
+ability gains hold numbers alone: `kinds` has nothing to say of them. A
+cell that names a row holds `****` or a negative number for none, and a
+spell's `FeatID` keeps the feat in its low 16 bits.
 
 `mg.twoda.describe(text, scripts)` reads
 [a table's description](03-modules.md#a-tables-description) from the
@@ -341,12 +356,20 @@ script's source by its name (`{ my_inc = source }`). It gives:
 | `d:name(column, value)` | A value's name in a list, or the names of the flags it has; nil where it has none. |
 | `d:faults(twoda, lengths)` | The cells of `twoda` that are not what the description says, each `{ row, column, value, message }`. `lengths` gives how many rows the tables it names have (`{ classes = 42 }`); a table not given is not held to. Strings are not looked up. |
 
-A `tlk`, from `mg.tlk.parse(bytes)` or `mg.tlk.new()`; lines count from 0
-as in the file (a custom table's line 0 is the game's string 16777216):
+A `tlk`, from `mg.tlk.parse(bytes)` or `mg.tlk.new(language?)` (a
+language's two-letter code, `"fr"`; English if none; since Moonglow
+2.13.0); lines count from 0 as in the file (a custom table's line 0 is
+the game's string 16777216). Its text is written in its language's
+codepage (Windows-1250 for Polish), so a letter the language's
+codepage lacks fails. A feminine table is a file of its own, as the
+game keeps it (`dialogf.tlk`, `mytablef.tlk`): read and write it as
+another `tlk`.
 
 | | |
 | --- | --- |
 | `tlk.lines` | How many lines it has. |
+| `tlk.language` | Its language's two-letter code (`"en"`, `"fr"`, `"de"`, `"it"`, `"es"`, `"pl"`), as its file says (since Moonglow 2.13.0). |
+| `tlk:set_language(code)` | Makes it a table of another language (since Moonglow 2.13.0). |
 | `tlk:get(line)` | A line as `{ text, sound, sound_length }`; nil for none. |
 | `tlk:set(line, value)` | Sets a line (the table grows to hold it): its text, or a table with `text`, `sound` and `sound_length`; nil empties it. |
 | `tlk:add(value)` | Adds a line at the end and returns its number. |

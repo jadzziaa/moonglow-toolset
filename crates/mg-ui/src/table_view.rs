@@ -635,14 +635,12 @@ fn faults(app: &mut Moonglow, at: usize) -> Arc<Vec<CellFault>> {
     let name = doc.name();
     let kinds = kinds(app, &name);
     let game = app.game.as_deref();
-    let rows_of = |n: &str| game.and_then(|g| g.table(n).ok()).map(|t| t.len());
-    let mut found = mg_module::doctor::table_faults(
-        &name,
-        doc.edit.table(),
-        &kinds,
-        &rows_of,
-        talk_tables(app),
-    );
+    let read = |n: &str| game.and_then(|g| g.table(n).ok());
+    let rows_of = |n: &str| read(n).map(|t| t.len());
+    // (With no game, no table is known to be there or not.)
+    let tables: Option<&mg_module::doctor::TableOf> = game.map(|_| &read as _);
+    let mut found =
+        mg_module::doctor::table_faults(&name, doc.edit.table(), &kinds, tables, talk_tables(app));
     // And by the table's own description: a table it names is this one
     // as it is now, one of its repository's, or the game's.
     if let Some(d) = &doc.described
@@ -694,11 +692,17 @@ pub fn references(app: &Moonglow, name: &str, own: &TwoDa, row: usize) -> Vec<Re
     names.sort();
     for table in names {
         let kinds = column_kinds(&table);
-        let wanted: Vec<&str> = kinds
-            .iter()
-            .filter(|(_, k)| matches!(k, ColumnKind::Row(t) if t.eq_ignore_ascii_case(name)))
-            .map(|(c, _)| *c)
-            .collect();
+        // (A column whose table another cell chooses: where it may be
+        // this one.)
+        let names_it = |k: &ColumnKind| match k {
+            ColumnKind::Row(t) => t.eq_ignore_ascii_case(name),
+            ColumnKind::RowBy { tables, .. } => {
+                tables.iter().any(|(_, t)| t.eq_ignore_ascii_case(name))
+            }
+            _ => false,
+        };
+        let wanted: Vec<(&str, ColumnKind)> =
+            kinds.iter().filter(|(_, k)| names_it(k)).copied().collect();
         if wanted.is_empty() {
             continue;
         }
@@ -714,10 +718,11 @@ pub fn references(app: &Moonglow, name: &str, own: &TwoDa, row: usize) -> Vec<Re
                 Err(_) => continue,
             }
         };
-        for column in wanted {
+        for (column, kind) in wanted {
             for r in 0..t.len() {
+                let here = kind.row_table(t, r).is_some_and(|n| n.eq_ignore_ascii_case(name));
                 let named = t.get_int(r, column).and_then(|v| row_named(&table, column, v));
-                if named == Some(row) {
+                if here && named == Some(row) {
                     out.push(Reference { table: table.clone(), row: r, column: column.into() });
                 }
             }
@@ -1484,6 +1489,17 @@ fn grid(
                             }
                             (None, Some(ColumnKind::Model)) => format!("{c}: a model's name"),
                             (None, Some(ColumnKind::Row(t))) => format!("{c}: a row of {t}.2da"),
+                            (None, Some(ColumnKind::RowBy { by, tables })) => {
+                                let of: Vec<String> =
+                                    tables.iter().map(|(v, t)| format!("{v}: {t}.2da")).collect();
+                                format!(
+                                    "{c}: a row of the table its {by} chooses ({})",
+                                    of.join(", ")
+                                )
+                            }
+                            (None, Some(ColumnKind::Table)) => {
+                                format!("{c}: a table's name, without .2da")
+                            }
                             (None, None) => c.clone(),
                         };
                         r.on_hover_text(
@@ -1937,11 +1953,24 @@ fn inspector(
             Some(ColumnKind::Model) => {
                 ui.weak("a model's name");
             }
-            Some(ColumnKind::Row(target)) => {
-                let now = value.as_deref().and_then(mg_2da::parse_int);
-                let named = now.and_then(|v| mg_module::doctor::row_named(&name, &column_name, v));
-                let other = game.as_deref().and_then(|g| g.table(target).ok());
-                row_choice(ui, id, (&name, table), (target, other.as_deref()), named, &mut set);
+            Some(k @ (ColumnKind::Row(_) | ColumnKind::RowBy { .. })) => {
+                // (Of a requirement, the table its kind names, if any.)
+                match k.row_table(table, row) {
+                    Some(target) => {
+                        let now = value.as_deref().and_then(mg_2da::parse_int);
+                        let named =
+                            now.and_then(|v| mg_module::doctor::row_named(&name, &column_name, v));
+                        let other = game.as_deref().and_then(|g| g.table(target).ok());
+                        let other = (target, other.as_deref());
+                        row_choice(ui, id, (&name, table), other, named, &mut set);
+                    }
+                    None => {
+                        ui.weak("not a row, for this row's kind");
+                    }
+                }
+            }
+            Some(ColumnKind::Table) => {
+                ui.weak("a table's name, without .2da");
             }
             None => {}
         }

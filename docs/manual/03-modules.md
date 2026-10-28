@@ -1264,10 +1264,11 @@ numbers at the left as it scrolls.
   goes to it, Escape clears it); **Go to** takes a row's number.
 
 **Cells are checked as you type**, as Verify Module checks a hak's
-tables: a cell that names a row of another table which isn't there (a
-feat's required feat, a spell's feat, a package's class, and the like),
-or a talk-table string that isn't, is outlined in red and says why
-under the pointer; the count above the grid goes to each in turn. Under
+tables: a cell that names a row of another table which isn't there or
+is blank (a feat's required feat, a spell's feat, a package's class, a
+class's requirement by its kind, and the like), a table which isn't
+there (a class's feat list; with the game's data), or a talk-table
+string that isn't, is outlined in red and says why under the pointer; the count above the grid goes to each in turn. Under
 the grid, the selected cell is shown by what its column holds: a
 talk-table string as its text (**Strings as text** shows them so in the
 grid too), a row of another table as that row's name, with a list to
