@@ -228,8 +228,12 @@ pub fn pick_adapter(
         }
     }
     let recorded = |a: &AdapterInfo| failed.iter().any(|f| f.names(a));
-    // (Every adapter recorded: as though none were.)
-    let skip = !wgpu_order(adapters, power, |a| !recorded(a)).is_empty();
+    // (No adapter left that Automatic would draw with: as though none
+    // were recorded. Not OpenGL, nor a software adapter, in their place.)
+    let worth = |a: &AdapterInfo| {
+        platform.backends().contains(&a.backend) && a.device_type != DeviceType::Cpu
+    };
+    let skip = !wgpu_order(adapters, power, |a| worth(a) && !recorded(a)).is_empty();
     let kept = |a: &AdapterInfo| !(skip && recorded(a));
     let mut passed_over: Vec<Backend> = Vec::new();
     for a in adapters.iter().filter(|a| !kept(a)) {
@@ -658,6 +662,17 @@ mod tests {
         let all: Vec<Failed> = list.iter().map(Failed::of).collect();
         let p = pick_adapter(&list, None, false, HIGH, Platform::Windows, &all).unwrap();
         assert_eq!(p, picked(1, Why::AmdOnWindows, None));
+        // Both of the GPU's backends recorded (both failed the check one
+        // start): not OpenGL, nor Microsoft's software adapter, which are
+        // left; as though none were.
+        let both = [Failed::of(&list[0]), Failed::of(&list[1])];
+        let p = pick_adapter(&list, None, false, HIGH, Platform::Windows, &both).unwrap();
+        assert_eq!(p, picked(1, Why::AmdOnWindows, None));
+        // Another GPU left: taken.
+        let mut two = list.clone();
+        two.push(adapter(Backend::Vulkan, NVIDIA, 0x2520, DeviceType::DiscreteGpu));
+        let p = pick_adapter(&two, None, false, HIGH, Platform::Windows, &both).unwrap();
+        assert_eq!((p.index, p.why), (4, Why::Automatic));
     }
 
     /// The other backend is the same GPU's: not the software adapter, nor
