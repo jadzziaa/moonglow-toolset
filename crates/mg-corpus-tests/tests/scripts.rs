@@ -101,7 +101,9 @@ fn compare(
             // compile warns of it. Settled by Aurora's own output
             // (`aurora_scripts`), by the game (`engine_return_types`) and
             // by the compiled scripts shipped beside these.
-            (Some((x, warnings)), None) if !warnings.is_empty() => {
+            (Some((x, warnings)), None)
+                if warnings.iter().any(|w| w.message.contains("Aurora compiles it so")) =>
+            {
                 tally.mismatched += 1;
                 for w in warnings {
                     let kind = w.message.split_once("WARNING: ").map_or("", |(_, k)| k);
