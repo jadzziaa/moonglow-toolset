@@ -256,28 +256,41 @@ pub fn rename_type(f: &mut SetFile, crosser: bool, index: usize, to: &str) -> Op
             .strip_prefix(prefix)
             .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
     };
-    let sections: Vec<String> =
-        f.lines.iter().filter_map(|l| header(l)).map(String::from).collect();
     let tile_keys: &[&str] = if crosser { &crate::EDGES } else { &crate::CORNERS };
     // (Rules and the general names are of terrains.)
     let rule_keys: &[&str] = if crosser { &[] } else { &["Placed", "Adjacent", "Changed"] };
     let general_keys: &[&str] = if crosser { &[] } else { &["Border", "Default", "Floor"] };
+    // One pass over the lines (a large tileset has thousands of tiles):
+    // in each section, the first line of each key, as `get` reads it.
     let mut changed = 0;
-    for section in sections {
-        let keys = if numbered(&section, "TILE") {
-            tile_keys
-        } else if numbered(&section, "PRIMARY RULE") || numbered(&section, "SECONDARY RULE") {
-            rule_keys
-        } else if section.eq_ignore_ascii_case("GENERAL") {
-            general_keys
-        } else {
+    let mut keys: &[&str] = &[];
+    let mut seen: Vec<&str> = Vec::new();
+    for line in &mut f.lines {
+        if let Some(section) = header(line) {
+            keys = if numbered(section, "TILE") {
+                tile_keys
+            } else if numbered(section, "PRIMARY RULE") || numbered(section, "SECONDARY RULE") {
+                rule_keys
+            } else if section.eq_ignore_ascii_case("GENERAL") {
+                general_keys
+            } else {
+                &[]
+            };
+            seen.clear();
+            continue;
+        }
+        let Some(key) = key_of(line).and_then(|k| keys.iter().find(|x| x.eq_ignore_ascii_case(k)))
+        else {
             continue;
         };
-        for key in keys {
-            if f.get(&section, key).is_some_and(|v| v.eq_ignore_ascii_case(&from)) {
-                f.set(&section, key, to);
-                changed += 1;
-            }
+        if seen.contains(key) {
+            continue;
+        }
+        seen.push(key);
+        let (written, value) = line.split_once('=').expect("a key's line");
+        if value.trim().eq_ignore_ascii_case(&from) {
+            *line = format!("{written}={to}");
+            changed += 1;
         }
     }
     Some(changed)
