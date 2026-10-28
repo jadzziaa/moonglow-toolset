@@ -246,8 +246,13 @@ pub(crate) fn save(app: &mut Moonglow) -> bool {
     match t.save() {
         Ok(()) => {
             app.log.info(format!("Saved talk table {} ({} lines)", t.source, t.len()));
-            // (Written here: not a change made outside, for `read_again`.)
-            app.talk_view.stamps = None;
+            // (Written here: not a change made outside, for `read_again`:
+            // its files' times now are the ones known.)
+            let files = std::iter::once(&t.source).chain(t.feminine.as_ref().map(|(s, _)| s));
+            let stamps = (files.filter_map(|s| s.file()))
+                .map(|p| (p.to_path_buf(), std::fs::metadata(p).and_then(|m| m.modified()).ok()))
+                .collect();
+            app.talk_view.stamps = Some(stamps);
             app.reload_custom_tlk();
             true
         }

@@ -48,10 +48,6 @@ pub struct Project {
     /// file, which the next save makes the resource's own (the other
     /// spelling's, read, written there), as nasher's pack does.
     spellings: HashMap<ResKey, PathBuf>,
-    /// The talk tables' JSON files (`<name>.tlk.json`) the target takes in
-    /// (no `exclude = "**/*.tlk.json"`): nasher packs each into the module,
-    /// as `nwn_tlk` converts it ([`Project::packed`]).
-    tables_packed: Vec<PathBuf>,
 }
 
 /// Adds the line `exclude` to the sources of the target named `target` in
@@ -279,7 +275,6 @@ impl Project {
             warnings: Vec::new(),
             left_out: Vec::new(),
             spellings: HashMap::new(),
-            tables_packed: Vec::new(),
         };
         let conv = project.conversion();
         let mut resources = IndexMap::new();
@@ -299,7 +294,6 @@ impl Project {
             // target of its own that packs it too has it read with the
             // module's talk table, `nasher::talk_tables`.)
             if json && key.restype == ResType::TLK {
-                project.tables_packed.push(path);
                 continue;
             }
             if json && !is_json_type(key.restype) {
@@ -1103,16 +1097,25 @@ impl Project {
             }
             out.insert(*key, bytes);
         }
-        // The talk tables the target takes in as JSON, as nasher packs
-        // them: converted as `nwn_tlk` converts them (as they are on disk:
-        // the talk table editor saves into them).
-        for path in &self.tables_packed {
-            let name = path.file_name().unwrap_or_default().to_string_lossy();
-            let Some((key, _)) = resource_of(&name.to_ascii_lowercase()) else { continue };
+        // The talk tables the target takes in as JSON (no `exclude =
+        // "**/*.tlk.json"`), as nasher packs them: converted as `nwn_tlk`
+        // converts them, as they are on disk when packed (the talk table
+        // editor saves into them; one added since the project was opened
+        // is one).
+        let bad = |message: String| ModuleError::Source {
+            name: Package::config_path(self.root()).display().to_string(),
+            message,
+        };
+        for path in t.source_files(self.root()).map_err(bad)? {
+            let name = path.file_name().unwrap_or_default().to_string_lossy().to_ascii_lowercase();
+            let Some((key, true)) = resource_of(&name) else { continue };
+            if key.restype != ResType::TLK {
+                continue;
+            }
             if t.filtered(&key.to_string()) {
                 continue;
             }
-            let (_, tlk) = super::read_talk_table(path, self.settings.tlk_style)?;
+            let (_, tlk) = super::read_talk_table(&path, self.settings.tlk_style)?;
             let bytes = tlk.to_bytes_as_nwn_tlk().map_err(|e| ModuleError::Source {
                 name: path.display().to_string(),
                 message: e.to_string(),
@@ -1790,6 +1793,17 @@ mod tests {
         let tlk =
             mg_tlk::json::from_json(json.as_bytes(), mg_core::Codepage::WINDOWS_1252).unwrap();
         assert_eq!(&erf.data(entry).unwrap()[..], &tlk.to_bytes_as_nwn_tlk().unwrap()[..]);
+        // One added while the project is open: packed too, as it is then.
+        std::fs::write(root.join("src/tlk/later.tlk.json"), json).unwrap();
+        let (_, bytes) = m.target_archive().unwrap().unwrap();
+        let erf = mg_erf::Erf::read(&bytes).unwrap();
+        let mut tables: Vec<String> = (erf.entries.iter())
+            .filter(|e| e.restype == ResType::TLK)
+            .map(|e| e.resref.to_string())
+            .collect();
+        tables.sort();
+        assert_eq!(tables, ["later", "mytlk"]);
+        std::fs::remove_file(root.join("src/tlk/later.tlk.json")).unwrap();
         // Left out by the target's exclude: not packed.
         let cfg = std::fs::read_to_string(root.join("nasher.cfg")).unwrap();
         let cfg = cfg.replacen(
