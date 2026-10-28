@@ -158,7 +158,10 @@ installed game; `crates/mg-corpus-tests/examples/observed_schema.rs`).
   `nwn_gff` keeps fields in hash order and cannot read back JSON with an empty
   label (BioWare palettes have one); `nwn_twoda` drops `""` cells (the engine
   reads them as empty cells in place) and crashes on tables with no non-empty
-  rows.
+  rows; `nwn_script_comp` 2.3.1 refuses a function declared with one return
+  type and defined with another, which Aurora compiles (Moonglow patches its
+  vendored compiler and warns): `--test scripts` allows exactly the scripts
+  that warn of it.
 - Moonglow is GPL-3.0: GPL code (the official NWScript compiler, GPL crates)
   may be built in. Game assets, including Beamdog's shaders, are only ever
   loaded from the user's install.
