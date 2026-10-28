@@ -169,10 +169,8 @@ pub fn beside_mod(path: &Path) -> Option<PathBuf> {
 /// other way), else `<folder>.mod`.
 pub fn mod_beside(dir: &Path) -> PathBuf {
     let name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    // (Read from the folder, not tried by its name, as in `beside_mod`.)
     let own = dir.with_file_name(format!("{name}.mod"));
-    if own.is_file() {
-        return own;
-    }
     let wanted = format!("{name}.mod");
     let parent = dir.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
     let mut found: Vec<PathBuf> = (std::fs::read_dir(parent).into_iter().flatten().flatten())
@@ -181,7 +179,10 @@ pub fn mod_beside(dir: &Path) -> PathBuf {
         .filter(|p| p.is_file())
         .collect();
     found.sort();
-    found.into_iter().next().unwrap_or(own)
+    match found.iter().position(|p| *p == own) {
+        Some(i) => found.swap_remove(i),
+        None => found.into_iter().next().unwrap_or(own),
+    }
 }
 
 /// [`OutsideScan::run`] for a module folder: its known files, and the
