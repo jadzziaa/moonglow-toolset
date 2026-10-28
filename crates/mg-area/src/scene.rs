@@ -103,14 +103,13 @@ impl View {
         }
     }
 
-    /// The sun's or moon's shadows `area` shows in this view: the sun's
+    /// The sun's or moon's shadows an area lit as `l` shows in this view: the sun's
     /// by day, if its Sun Shadows are on, the moon's at night, if its Moon
     /// Shadows are (the client draws none for the other, read from its
     /// pictures: `shadows_look` in `client_render.rs`), as opaque as its
     /// Shadow Opacity; none with the lighting off, or with the view's
     /// shadows switched off.
-    pub fn shadows_of(&self, area: &AreaModel) -> Option<mg_render::SunShadows> {
-        let l = &area.lighting;
+    pub fn shadows_of(&self, l: &Lighting) -> Option<mg_render::SunShadows> {
         (self.shadows && self.lit && l.sky(self.night).shadows && l.shadow_opacity > 0).then(|| {
             mg_render::SunShadows {
                 opacity: f32::from(l.shadow_opacity) / 100.0,
@@ -962,7 +961,7 @@ impl AreaScene {
             // as the tiles' animations go on.)
             time: view.time,
             environment: mg_render::Environment::from_are(l.flags, l.wind_power),
-            shadows: view.shadows_of(area),
+            shadows: view.shadows_of(l),
         }
     }
 
@@ -1228,5 +1227,49 @@ mod tests {
         assert_eq!(off, area_light(red, false));
         assert!(off.ambient.min_element() > 0.5 && off.ambient.x == off.ambient.z);
         assert!(off.diffuse.min_element() > 0.0);
+    }
+
+    /// The sun's shadows by day where Sun Shadows are on, the moon's at
+    /// night where Moon Shadows are, as opaque as Shadow Opacity, ending
+    /// their fade at the fog clip; none for the other, at no opacity, with
+    /// the lighting or the view's shadows off.
+    #[test]
+    fn shadows_follow_the_time_of_day_s_flag_and_the_opacity() {
+        let l = Lighting {
+            sun: crate::Sky { shadows: true, ..Default::default() },
+            moon: crate::Sky { shadows: false, ..Default::default() },
+            is_night: false,
+            day_night_cycle: false,
+            fog_clip: 60.0,
+            sky_box: 0,
+            env_map: None,
+            shadow_opacity: 30,
+            flags: 0,
+            wind_power: 0,
+        };
+        let day = View {
+            time: 0.0,
+            night: false,
+            fog: false,
+            lit: true,
+            show: [true; 9],
+            animate: false,
+            fade: false,
+            grass: None,
+            shadows: true,
+        };
+        let s = day.shadows_of(&l).unwrap();
+        assert_eq!((s.opacity, s.fade_limit), (0.3, 60.0));
+        let night = View { night: true, ..day };
+        assert_eq!(night.shadows_of(&l), None);
+        let moonlit = Lighting {
+            sun: crate::Sky { shadows: false, ..l.sun },
+            moon: crate::Sky { shadows: true, ..l.moon },
+            ..l.clone()
+        };
+        assert!(night.shadows_of(&moonlit).is_some() && day.shadows_of(&moonlit).is_none());
+        assert_eq!(day.shadows_of(&Lighting { shadow_opacity: 0, ..l.clone() }), None);
+        assert_eq!(View { lit: false, ..day }.shadows_of(&l), None);
+        assert_eq!(View { shadows: false, ..day }.shadows_of(&l), None);
     }
 }

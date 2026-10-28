@@ -3540,3 +3540,95 @@ void main ()
         }
     }
 }
+
+/// [`quad`] as a mesh that only casts shadows (`render 0`, `shadow 1`).
+fn shadow_plate() -> Model {
+    let mut m = quad();
+    if let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind {
+        mesh.render = false;
+        mesh.shadow = true;
+    }
+    m
+}
+
+/// The sun's shadows: a plate that only casts (`render 0`, `shadow 1`)
+/// a metre over a ground that receives, the sun straight above, seen
+/// from straight above (where the game's shadow plane fades nothing): the
+/// ground under the plate darkened by the opacity (black laid over it so
+/// opaque), the ground beside it not; none without shadows, nor on a
+/// ground that doesn't receive them; with one sample a pixel and four,
+/// Moonglow's shader and (with the game installed) the game's.
+#[test]
+fn shadows_darken_what_receives_them_by_the_opacity() {
+    let Some(gpu) = gpu() else { return };
+    let dir = mg_testkit::output_dir("render");
+    let ground = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let plate = Arc::new(GpuModel::new(&gpu, Arc::new(shadow_plate())));
+    assert!(plate.meshes.is_empty() && plate.shadow_only.len() == 1);
+    let scene = |receives: bool, shadows: Option<f32>| Scene {
+        instances: vec![
+            Instance {
+                receives_shadows: receives,
+                ..Instance::new(ground.clone(), Mat4::from_scale(Vec3::splat(5.0)))
+            },
+            Instance::new(
+                plate.clone(),
+                Mat4::from_scale_rotation_translation(
+                    Vec3::splat(0.5),
+                    glam::Quat::IDENTITY,
+                    Vec3::new(0.0, 0.0, 1.0),
+                ),
+            ),
+        ],
+        area: AreaLight {
+            ambient: Vec3::splat(0.2),
+            diffuse: Vec3::splat(0.6),
+            direction: Vec3::Z,
+        },
+        shadows: shadows.map(|opacity| mg_render::SunShadows { opacity, fade_limit: 45.0 }),
+        ..Default::default()
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 12.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let game = mg_testkit::nwn_root().and_then(|root| {
+        mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).ok()
+    });
+    let grey = |p: [u8; 4]| (f32::from(p[0]) + f32::from(p[1]) + f32::from(p[2])) / 3.0;
+    for samples in [1, 4] {
+        for shaders in [false, true] {
+            let assets: &dyn mg_render::Assets = match (&game, shaders) {
+                (Some(rm), true) => rm,
+                (None, true) => continue,
+                _ => &NoAssets,
+            };
+            let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples);
+            r.game_shaders = shaders;
+            let mut draw = |s: &Scene| r.render_image(&gpu, assets, s, &camera, 64, 64);
+            let bare = draw(&scene(true, None));
+            let half = draw(&scene(true, Some(0.5)));
+            let whole = draw(&scene(true, Some(1.0)));
+            let elsewhere = draw(&scene(false, Some(0.5)));
+            save(&half, &dir.join(format!("shadows_{samples}_{shaders}.png")));
+            // (The plate's shadow is the middle of the picture; the ground
+            // reaches past it.)
+            let (under, beside) = ((32, 32), (32, 6));
+            let lit = grey(bare.pixel(under.0, under.1));
+            assert!(lit > 40.0, "the ground is lit: {lit}");
+            let at = |img: &mg_image::Rgba, (x, y): (u32, u32)| grey(img.pixel(x, y));
+            let context = format!("{samples} samples, game shaders {shaders}");
+            assert!(
+                (at(&half, under) - lit * 0.5).abs() <= 2.0,
+                "{context}: {} of {lit}",
+                at(&half, under)
+            );
+            assert!(at(&whole, under) <= 1.0, "{context}: {}", at(&whole, under));
+            assert!((at(&half, beside) - at(&bare, beside)).abs() <= 1.0, "{context}: beside");
+            assert!((at(&elsewhere, under) - lit).abs() <= 1.0, "{context}: not received");
+        }
+    }
+}

@@ -760,6 +760,35 @@ mod tests {
         assert!(fade(farthest, 0.25) > 0.3, "{}", fade(farthest, 0.25));
     }
 
+    /// The map covers what the camera sees of the receivers: from above,
+    /// the patch under it (not the whole area); looking at the horizon,
+    /// as far as the receivers go; nothing for a camera looking away.
+    #[test]
+    fn the_map_covers_what_the_camera_sees_of_the_receivers() {
+        let area = (Vec3::ZERO, Vec3::new(320.0, 320.0, 3.0));
+        let above = Camera {
+            eye: Vec3::new(100.0, 99.99, 30.0),
+            target: Vec3::new(100.0, 100.0, 0.0),
+            fov_y: 0.8,
+            near: 0.1,
+            far: 500.0,
+        };
+        let (min, max) = seen(&above, 1.5, area).unwrap();
+        // (30 m up, 0.8 rad across: about 25 m high and 37 m wide.)
+        assert!(min.x > 70.0 && max.x < 130.0 && min.y > 75.0 && max.y < 125.0, "{min} {max}");
+        assert!(min.x < 85.0 && max.x > 115.0, "{min} {max}");
+        let horizon =
+            Camera { eye: Vec3::new(10.0, 10.0, 2.0), target: Vec3::new(20.0, 20.0, 2.0), ..above };
+        let (min, max) = seen(&horizon, 1.5, area).unwrap();
+        assert!(min.cmpge(area.0).all() && max.cmple(area.1).all() && max.x > 300.0, "{min} {max}");
+        let away = Camera {
+            eye: Vec3::new(-10.0, -10.0, 2.0),
+            target: Vec3::new(-20.0, -20.0, 2.0),
+            ..above
+        };
+        assert_eq!(seen(&away, 1.5, area), None);
+    }
+
     /// The light's view looks down along the light: a point towards the
     /// light is nearer it (higher Z in its view), whatever the direction.
     #[test]
