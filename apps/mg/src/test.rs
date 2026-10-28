@@ -132,7 +132,8 @@ pub(crate) fn run(
             _ => String::new(),
         };
         notes.push(format!(
-            "{} of the module's scripts changed since they were compiled, and were compiled \
+            "{} of the module's scripts have a compiled script other than their source \
+             compiles to now (changed since, or made by another compiler), and were compiled \
              for the run: {}{more} (`mg compile` compiles them in the module)",
             older.len(),
             older[..older.len().min(10)].join(", ")

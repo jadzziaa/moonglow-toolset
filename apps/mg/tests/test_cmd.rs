@@ -161,7 +161,8 @@ fn a_script_changed_since_it_was_compiled_runs_as_it_is_now() {
     let (ok, r) = mg(&root, &user, &args);
     assert!(ok && r["passed"] == 1, "the new code ran: {r}");
     assert!(
-        notes(&r).contains("changed since they were compiled") && notes(&r).contains("mg_value")
+        notes(&r).contains("other than their source compiles to now")
+            && notes(&r).contains("mg_value")
     );
     let m = mg_module::Module::open(&chess).unwrap();
     assert_eq!(m.get(&ncs).unwrap(), &old[..], "the builder's module is only read");
@@ -176,7 +177,7 @@ fn a_script_changed_since_it_was_compiled_runs_as_it_is_now() {
     assert_eq!(compiled["scripts"], 1, "mg_value alone: {compiled}");
     let (ok, r) = mg(&root, &user, &args);
     assert!(ok && r["passed"] == 1, "{r}");
-    assert!(!notes(&r).contains("changed since"), "{r}");
+    assert!(!notes(&r).contains("other than their source"), "{r}");
 }
 
 /// `--driver none`: a module that runs its tests itself (its own script

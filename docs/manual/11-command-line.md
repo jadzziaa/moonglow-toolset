@@ -341,8 +341,9 @@ void main()
   tests run your scripts as they are: the copy gets each script
   compiled that has no compiled script or changed since it was last
   compiled (by `mg compile` or the window: what they remember), and the
-  run names those whose compiled script in your module is older than
-  their source (`mg compile` compiles them there). One that does not
+  run names those whose compiled script in your module is not what their
+  source compiles to now: changed since, or made by another compiler
+  (`mg compile` compiles them there). One that does not
   compile stops the run, as a test that does not compile does. It
   starts each test as an event of its own, half a second after the
   module's own OnModuleLoad script, which it runs too. A test that runs
