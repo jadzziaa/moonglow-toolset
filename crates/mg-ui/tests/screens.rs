@@ -5325,3 +5325,77 @@ fn talk_table_kept_in_a_project() {
         shoot(&mut h, &dir, "talk-table-project-languages");
     }
 }
+
+/// Area Properties › Audio with Ambient Sound, Day open, after a few
+/// frames and after many (a builder's report: the open list grew to the
+/// window's right edge over a few seconds).
+#[test]
+#[ignore]
+fn area_properties_audio_dropdown() {
+    use mg_module::ModuleLocation;
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let install = GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut rng = fastrand::Rng::with_seed(7);
+    let mut m = new_module(&game, "Props", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Field".into(),
+        tileset: mg_core::ResRef::from_str("ttr01").unwrap(),
+        width: 4,
+        height: 4,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let path = dir.join("audio.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    app.open_palette = false;
+    let are = ResKey::new(area, ResType::ARE);
+    app.blueprint_pages.insert((are, GffPath::root()), "Audio");
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::AreaProperties(area)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    place(&mut h, &mg_ui::Tab::AreaProperties(area), (260.0, 70.0), (700.0, 600.0));
+    h.run_steps(3);
+    let line = h.get_by_label("Ambient Sound, Day").rect().center().y;
+    let combo = egui::accesskit::Role::ComboBox;
+    let at = h
+        .get_all_by_role(combo)
+        .find(|n| (n.rect().center().y - line).abs() < 6.0)
+        .expect("the Ambient Sound, Day dropdown")
+        .rect()
+        .center();
+    h.hover_at(at);
+    let button = egui::PointerButton::Primary;
+    let modifiers = egui::Modifiers::NONE;
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton { pos: at, button, pressed, modifiers });
+    }
+    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    // The Filter field's width, and the widest row's under it.
+    let widths = |h: &Harness<'_, Moonglow>| {
+        let filter = h.get(egui_kittest::kittest::by().predicate(hint)).rect();
+        let row = h
+            .query_all(egui_kittest::kittest::by().role(egui::accesskit::Role::Button))
+            .map(|n| n.rect())
+            .filter(|r| r.top() > filter.bottom() && r.left() >= filter.left() - 20.0)
+            .map(|r| r.width())
+            .fold(0.0, f32::max);
+        (filter.width(), row)
+    };
+    h.run_steps(3);
+    eprintln!("after 3 frames: {:?}", widths(&h));
+    shoot(&mut h, &dir, "area-audio-dropdown-early");
+    for i in 0..500 {
+        // (The pointer moves over the list, as a builder's does.)
+        h.hover_at(egui::pos2(at.x + (i % 7) as f32, at.y + 60.0));
+        h.step();
+    }
+    eprintln!("after 500 more: {:?}", widths(&h));
+    shoot(&mut h, &dir, "area-audio-dropdown-late");
+}

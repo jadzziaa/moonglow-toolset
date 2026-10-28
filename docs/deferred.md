@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T00:19:15Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T04:03:19Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2753,6 +2753,18 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   is); Expand All and Collapse All have no keys, and an area opened out
   to its objects, and the kinds under it, keep their own state. (S
   each) (from builders' reports and the owner's notes after 1.21.0)
+- **A long dropdown that grew to the window's edge, not seen growing
+  here:** the open list of a dropdown with a Filter field (Area
+  Properties › Audio › Ambient Sound, Day) widened over 5 to 10 seconds
+  under Windows. On Linux it grew once, by its scroll bar's width, on the
+  frame after the one that measures it, and never again (100% to 175%
+  interface sizes, frames of 1/144 s, the window at fractional
+  positions, the pointer moving and the wheel turning over it); its
+  width is now set when it opens, the same every frame, which closes
+  the way any growth took. To check under Windows at the builder's
+  interface size. The other dropdowns (no Filter field, no list of
+  their own inside) keep egui's sizing, which can grow by the scroll
+  bar's width once. (S) (Troubletcat's report, October 2026)
 
 ## Languages, tokens and loading screens
 

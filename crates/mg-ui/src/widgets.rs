@@ -2298,11 +2298,41 @@ impl<'a> RowChoice<'a> {
         // at its top (a long list was searched for it every time).
         let opened = !ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
         let list = combo.show_ui(ui, |ui| {
+            let width_id = open_id.with("width");
             if opened {
+                // Its width, set once while open: the box's, or the widest
+                // row's (and the list's scroll bar) if wider. egui's popup
+                // takes the width its contents had the frame before; with
+                // the rows filling it, and a scroll area that follows its
+                // rows, any part of a point more there grew the list every
+                // frame, until it reached the window's edge (a builder's
+                // report).
+                let pad = 2.0 * ui.spacing().button_padding.x;
+                let bar = if long { ui.spacing().scroll.allocated_width() } else { 0.0 };
+                let widest = (none.map(std::borrow::Cow::from).into_iter())
+                    .chain(in_order().iter().map(|c| text(c, numbered)))
+                    .map(|t| {
+                        egui::WidgetText::from(t.as_ref())
+                            .into_galley(
+                                ui,
+                                Some(egui::TextWrapMode::Extend),
+                                f32::INFINITY,
+                                egui::TextStyle::Button,
+                            )
+                            .size()
+                            .x
+                    })
+                    .fold(0.0, f32::max);
+                let most = ui.ctx().content_rect().width() - 40.0;
+                let width = ui.available_width().max((widest + pad + bar).min(most));
                 ui.data_mut(|d| {
                     d.remove_temp::<String>(filter_id);
                     d.insert_temp(open_id.with("go"), true);
+                    d.insert_temp(width_id, width);
                 });
+            }
+            if let Some(width) = ui.data(|d| d.get_temp::<f32>(width_id)) {
+                ui.set_width(width);
             }
             // (A popup's first pass only measures it: the list is brought
             // to the chosen row in the first pass that draws it.)
