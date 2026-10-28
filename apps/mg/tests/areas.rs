@@ -343,7 +343,9 @@ fn a_lighting_scheme_is_given_to_the_areas() {
     let row = (0..env.len()).find(|&r| env.get(r, "LABEL") == Some("InteriorDark")).unwrap();
     let cell = |c: &str| i64::from(env.get_int(row, c).unwrap());
 
-    let scheme = ["cave1", "--lighting-scheme", "interiordark", "--set", "SunFogAmount=5"];
+    // (A seed, so that the tiles' lights picked are not by chance their own.)
+    let scheme =
+        ["cave1", "--lighting-scheme", "interiordark", "--seed", "1", "--set", "SunFogAmount=5"];
     let (ok, out, err) = run(&scheme);
     assert!(ok, "{err}");
     assert!(out.contains(&format!("cave1\tLightingScheme\t(none) -> {row}")), "{out}");
