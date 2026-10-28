@@ -344,7 +344,20 @@ impl Described {
                         let has = |c: &str| t.columns().iter().any(|x| x.eq_ignore_ascii_case(c));
                         ["Label", "LABEL", "Name"].into_iter().find(|c| has(c)).map(String::from)
                     });
+                    // (A String's value is a cell: of its column, else
+                    // the row's own label.)
+                    let string = self.var_type == Some(VarType::String);
+                    let column = match (column, &label) {
+                        (None, Some(l)) if string => Some(l),
+                        _ => column.as_ref(),
+                    };
                     match column {
+                        None if string => {
+                            c.problem = Some(format!(
+                                "{table}.2da has no Label column: a String's values are a \
+                                 column's cells (column = \"…\")"
+                            ));
+                        }
                         Some(col) if !t.columns().iter().any(|x| x.eq_ignore_ascii_case(col)) => {
                             c.problem = Some(format!("{table}.2da has no column {col}"));
                         }
@@ -498,6 +511,8 @@ pub struct Variables {
     /// described one, most likely).
     pub undescribed: Vec<String>,
     undescribed_rx: Vec<RegexEq>,
+    /// The file's name, as messages say it (none: [`FILE_NAME`]).
+    file: Option<String>,
 }
 
 /// A regular expression compared by its text.
@@ -529,6 +544,12 @@ pub enum Unknown<'a> {
 impl Variables {
     pub fn is_empty(&self) -> bool {
         self.described.is_empty() && self.undescribed.is_empty()
+    }
+
+    /// The file's name, as messages say it: `variables.toml`, or beside a
+    /// `.mod` the module's (`krezk.variables.toml`).
+    pub fn file(&self) -> &str {
+        self.file.as_deref().unwrap_or(FILE_NAME)
     }
 
     /// The description of a variable so named: of that very name, else
@@ -564,23 +585,36 @@ impl Variables {
         Some(Unknown::Undescribed { pattern: &self.undescribed[at], nearest })
     }
 
-    /// The described name (not a pattern) nearest to `name`, of those
-    /// `keep` takes, where it is near enough to be a typo of it (a letter
-    /// or two added, dropped, changed or swapped), and not `name` itself.
+    /// The described name nearest to `name`, of those `keep` takes, where
+    /// it is near enough to be a typo of it (a letter or two added,
+    /// dropped, changed or swapped), and not `name` itself: a name, or a
+    /// builder's glob (not one of the scripts', `runtime`) that a name so
+    /// near would match (`tdod_rentl_term`, for `tdod_rental_*`). Of two
+    /// as near, a name.
     pub fn nearest(&self, name: &str, keep: impl Fn(&Described) -> bool) -> Option<&Described> {
+        let most = 2.max(name.len() / 5);
         self.described
             .iter()
-            .filter(|d| !d.is_pattern() && d.name != name && keep(d))
-            .map(|d| (distance(&d.name, name), d))
-            .filter(|(n, _)| *n <= 2.max(name.len() / 5))
-            .min_by_key(|(n, d)| (*n, d.name.as_str()))
+            .filter(|d| keep(d))
+            .filter_map(|d| match &d.matcher {
+                None => (d.name != name).then(|| (distance(&d.name, name), d)),
+                // (A glob held to little, `*_x`, is near too much.)
+                Some(_) if d.runtime => None,
+                Some(_) => {
+                    let (n, fixed) = glob_distance(&d.name, name)?;
+                    (n > 0 && n * 3 <= fixed).then_some((n, d))
+                }
+            })
+            .filter(|(n, _)| *n <= most)
+            .min_by_key(|(n, d)| (*n, d.is_pattern(), d.name.as_str()))
             .map(|(_, d)| d)
     }
 
     /// For a variable a `runtime = true` pattern takes (one the scripts
-    /// set), a name of its own entry that it is near: a typo of that one,
-    /// most likely a builder's (`tdod_lore_txt` for `tdod_lore_text`,
-    /// which `tdod_lore_*` takes).
+    /// set), a name of its own entry, or a builder's glob, that it is
+    /// near: a typo of that one, most likely a builder's (`tdod_lore_txt`
+    /// for `tdod_lore_text`, which `tdod_lore_*` takes; `tdod_rentl_term`
+    /// for `tdod_rental_*`).
     pub fn runtime_typo(&self, name: &str) -> Option<&Described> {
         let desc = self.describe(name)?;
         if !desc.runtime || !desc.is_pattern() {
@@ -602,6 +636,7 @@ impl Variables {
             format!("{name}:{line}: {}", e.message().trim())
         })?;
         let mut r = Reader { name, source, warnings: Vec::new() };
+        self.file = (name != FILE_NAME).then(|| name.to_string());
         for entry in in_order(table.get_ref()) {
             let (key, value) = entry;
             let at = key.span().start;
@@ -665,6 +700,114 @@ fn distance(a: &str, b: &str) -> usize {
         }
     }
     d[a.len()][b.len()]
+}
+
+/// One place of a glob, for [`glob_distance`].
+#[derive(Debug, Clone, PartialEq)]
+enum Place {
+    /// A character, `?` (none: any) or a set (`[abc]`, `[!abc]`).
+    One(Option<char>),
+    Set(Vec<char>, bool),
+    /// `*`: any characters, none too.
+    Any,
+}
+
+impl Place {
+    fn takes(&self, c: char) -> bool {
+        match self {
+            Place::One(None) => true,
+            Place::One(Some(x)) => *x == c,
+            Place::Set(set, not) => set.contains(&c) != *not,
+            Place::Any => true,
+        }
+    }
+}
+
+/// A glob's places (one alternative of it: no `{a,b}` group).
+fn places(glob: &str) -> Vec<Place> {
+    let mut out = Vec::new();
+    let mut chars = glob.chars().peekable();
+    while let Some(c) = chars.next() {
+        out.push(match c {
+            '\\' => Place::One(chars.next()),
+            '*' => {
+                while chars.peek() == Some(&'*') {
+                    chars.next();
+                }
+                Place::Any
+            }
+            '?' => Place::One(None),
+            '[' => {
+                // (`[!a]` is the negation; `[^a]` takes `^`, as the
+                // glob's regex has it.)
+                let not = chars.next_if(|c| *c == '!').is_some();
+                let mut set: Vec<char> = Vec::new();
+                while let Some(c) = chars.next() {
+                    if c == ']' && !set.is_empty() {
+                        break;
+                    }
+                    if c == '-'
+                        && let (Some(&from), Some(&to)) = (set.last(), chars.peek())
+                        && to != ']'
+                    {
+                        chars.next();
+                        set.extend((from..=to).skip(1));
+                        continue;
+                    }
+                    set.push(c);
+                }
+                Place::Set(set, not)
+            }
+            c => Place::One(Some(c)),
+        });
+    }
+    out
+}
+
+/// How few typo's edits (a letter added, dropped, changed or two
+/// swapped) make `name` one that `glob` matches, and how many characters
+/// the glob holds a name to (its places but `*`): of the alternative
+/// nearest, none where it has too many alternatives to try.
+fn glob_distance(glob: &str, name: &str) -> Option<(usize, usize)> {
+    let mut alts = alternatives(glob, 64);
+    if alts.is_empty() {
+        if glob.contains('{') {
+            return None;
+        }
+        alts.push(glob.to_string());
+    }
+    let b: Vec<char> = name.chars().collect();
+    alts.iter()
+        .map(|alt| {
+            let a = places(alt);
+            let fixed = a.iter().filter(|p| **p != Place::Any).count();
+            let mut d = vec![vec![0usize; b.len() + 1]; a.len() + 1];
+            d[0] = (0..=b.len()).collect();
+            for i in 1..=a.len() {
+                let any = a[i - 1] == Place::Any;
+                d[i][0] = d[i - 1][0] + usize::from(!any);
+                for j in 1..=b.len() {
+                    d[i][j] = if any {
+                        d[i - 1][j].min(d[i][j - 1])
+                    } else {
+                        let cost = usize::from(!a[i - 1].takes(b[j - 1]));
+                        let mut n =
+                            (d[i - 1][j] + 1).min(d[i][j - 1] + 1).min(d[i - 1][j - 1] + cost);
+                        if i > 1
+                            && j > 1
+                            && a[i - 2] != Place::Any
+                            && a[i - 1].takes(b[j - 2])
+                            && a[i - 2].takes(b[j - 1])
+                        {
+                            n = n.min(d[i - 2][j - 2] + 1);
+                        }
+                        n
+                    };
+                }
+            }
+            (d[a.len()][b.len()], fixed)
+        })
+        .min()
 }
 
 /// A value written in the file, as a variable's value is written (a
@@ -1081,6 +1224,7 @@ on = ["creature", "placeable"]
                 "classes" => {
                     b"2DA V2.0\n\n   Label Key\n0  Barbarian barb\n1  ****  ****\n2  Bard bard\n"
                 }
+                "keys" => b"2DA V2.0\n\n   Key\n0  barb\n",
                 _ => return None,
             };
             TwoDa::parse(text, Codepage::default()).ok()
@@ -1174,6 +1318,32 @@ on = ["creature", "placeable"]
         let values: Vec<&str> = c.list.iter().map(|c| c.value.as_str()).collect();
         assert_eq!(values, ["barb", "bard"]);
         assert!(k.value_problem("bard", &c).is_none() && k.value_problem("monk", &c).is_some());
+        // Without one, the row's own label.
+        let (v, w) = read("[k]\ntype = \"string\"\ntable = \"classes\"\n");
+        assert_eq!(w, Vec::<String>::new());
+        let k = v.describe("k").unwrap();
+        let c = k.choices(&Fake);
+        let values: Vec<(&str, Option<&str>)> =
+            c.list.iter().map(|c| (c.value.as_str(), c.note.as_deref())).collect();
+        assert_eq!(values, [("Barbarian", Some("row 0")), ("Bard", Some("row 2"))]);
+        assert_eq!(c.rows, None);
+        assert_eq!(k.value_problem("Bard", &c), None);
+        assert_eq!(
+            k.value_problem("2", &c).unwrap(),
+            "\"2\" is none of its values (\"Barbarian\", \"Bard\")"
+        );
+        // (A table with no label: said, and nothing is wrong by it.)
+        let (v, _) = read("[k]\ntype = \"string\"\ntable = \"keys\"\n");
+        let k = v.describe("k").unwrap();
+        let c = k.choices(&Fake);
+        assert_eq!(
+            c.problem.as_deref(),
+            Some(
+                "keys.2da has no Label column: a String's values are a column's cells (column = \
+                 \"…\")"
+            )
+        );
+        assert_eq!(k.value_problem("anything", &c), None);
         // What isn't there is said, and nothing is wrong by it.
         let (v, _) = read("[k]\ntype = \"int\"\ntable = \"nothing\"\n");
         let k = v.describe("k").unwrap();
@@ -1318,6 +1488,47 @@ on = ["creature", "placeable"]
         );
         assert_eq!(v.runtime_typo("tdod_lore_seen"), None, "near no name");
         assert_eq!(v.runtime_typo("tdod_lore_text"), None, "its own entry");
+    }
+
+    /// A typo of a name a builder's glob describes, that a glob of the
+    /// scripts' takes, is said with the builder's glob (the Domains of
+    /// Dread's notes on 2.2.0); a glob holding a name to little, or one of
+    /// the scripts' own, is near nothing.
+    #[test]
+    fn a_typo_of_a_name_of_a_builder_s_glob_is_said_with_the_glob() {
+        let (v, _) = read(
+            "[tdod_lore_text]\ntype = \"string\"\n\n\
+             [\"tdod_rental_*\"]\ntype = \"string\"\n\n\
+             [\"tdod_{d6,d20}_[abc]?\"]\ntype = \"int\"\n\n\
+             [\"*_x\"]\ntype = \"int\"\n\n\
+             [\"tdod_*\"]\nruntime = true\n",
+        );
+        let near = |name: &str| v.runtime_typo(name).map(|d| d.name.as_str());
+        assert_eq!(v.describe("tdod_rentl_term").map(|d| d.runtime), Some(true));
+        assert_eq!(near("tdod_rentl_term"), Some("tdod_rental_*"), "a letter dropped");
+        assert_eq!(near("tdod_rnetal_term"), Some("tdod_rental_*"), "two swapped");
+        assert_eq!(near("tdod_rental"), Some("tdod_rental_*"), "the _ dropped");
+        assert_eq!(near("tdod_d20_z1"), Some("tdod_{d6,d20}_[abc]?"), "an alternative");
+        assert_eq!(near("tdod_lore_txt"), Some("tdod_lore_text"), "a name first");
+        assert_eq!(near("tdod_lore_seen"), None, "near no name");
+        assert_eq!(near("tdod_x_y"), None, "*_x holds a name to too little");
+        assert_eq!(glob_distance("tdod_rental_*", "tdod_rental_term"), Some((0, 12)));
+        assert_eq!(glob_distance("[a-c]x", "bx"), Some((0, 2)));
+        assert_eq!(glob_distance("[!a-c]x", "bx"), Some((1, 2)));
+        // var-name's nearest takes the builders' globs too.
+        let (v, _) = read(
+            "undescribed = [\"tdod_*\"]\n\n[\"tdod_rental_*\"]\ntype = \"string\"\n\n\
+             [\"tdod_*_d20\"]\nruntime = true\n",
+        );
+        assert_eq!(
+            v.unknown("tdod_retnal_term"),
+            Some(Unknown::Undescribed { pattern: "tdod_*", nearest: Some("tdod_rental_*") })
+        );
+        assert_eq!(
+            v.unknown("tdod_skill_d02"),
+            Some(Unknown::Undescribed { pattern: "tdod_*", nearest: None }),
+            "never one of the scripts'"
+        );
     }
 
     #[test]

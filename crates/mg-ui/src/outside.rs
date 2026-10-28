@@ -217,6 +217,17 @@ impl Moonglow {
         let Some(root) = self.module_root() else {
             self.outside.watch = None;
             self.outside.looking = None;
+            // (A module kept in one file: its own project files beside it,
+            // `krezk.moonglow.toml`, looked at as they are, a few small
+            // files.)
+            if let Some(ws) = self.ws.as_mut()
+                && matches!(ws.module.location, Some(mg_module::ModuleLocation::Archive(_)))
+            {
+                let had = ws.module.project_file.found;
+                if ws.module.reread_project_file() {
+                    self.log_project_file(true, had);
+                }
+            }
             return;
         };
         // (And the builder's own project file, in a hidden folder the

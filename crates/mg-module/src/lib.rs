@@ -151,16 +151,17 @@ impl Module {
     /// Reads the project file again if it changed (made, edited or
     /// deleted) since it was read: whether it did.
     pub fn reread_project_file(&mut self) -> bool {
-        let Some(root) = self.location.as_ref().and_then(project_file::ProjectFile::root_of) else {
+        let Some(place) = self.location.as_ref().and_then(project_file::ProjectFile::place_of)
+        else {
             let had = self.project_file.path.is_some();
             self.project_file = project_file::ProjectFile::default();
             return had;
         };
-        let here = self.project_file.path.as_deref() == Some(&root.join(project_file::FILE_NAME));
+        let here = self.project_file.place() == Some(&place);
         if here && !self.project_file.changed() {
             return false;
         }
-        self.project_file = project_file::ProjectFile::read(root);
+        self.project_file = project_file::ProjectFile::read_at(&place);
         true
     }
 
@@ -197,6 +198,8 @@ impl Module {
             m.resources.insert(key, Arc::from(bytes.as_ref()));
         }
         m.location = Some(ModuleLocation::Archive(path.into()));
+        // (Its own project file beside it, `NAME.moonglow.toml`, if any.)
+        m.reread_project_file();
         Ok(m)
     }
 

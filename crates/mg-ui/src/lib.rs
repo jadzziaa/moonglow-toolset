@@ -568,6 +568,9 @@ pub struct Moonglow {
     /// were read from.
     pub keymap: keys::Keymap,
     keymap_from: std::collections::BTreeMap<String, Vec<String>>,
+    /// The open project's commands' names and own keys the keymap was
+    /// made with.
+    project_keys_from: Vec<(String, Option<String>)>,
     /// Haks open in the hak editor.
     pub haks: Vec<hak_view::HakDoc>,
     /// The 2DAs open in the table editor.
@@ -980,6 +983,7 @@ impl Moonglow {
             haks_layered: Vec::new(),
             keymap: Default::default(),
             keymap_from: Default::default(),
+            project_keys_from: Vec::new(),
             haks: Vec::new(),
             next_hak: 0,
             tables: Vec::new(),
@@ -2384,12 +2388,21 @@ impl Moonglow {
 
     fn shortcuts(&mut self, ui: &mut egui::Ui) {
         // The keys as Options › Keyboard last set them.
-        if std::mem::take(&mut self.keymap_stale) || self.keymap_from != self.settings.key_bindings
+        // (And the open project's commands' own keys, as they read: a
+        // project opened, or its file changed, takes the keys anew.)
+        let project = project_commands::commands(self).map(|(_, c)| c).unwrap_or_default();
+        let project_keys: Vec<(String, Option<String>)> =
+            project.iter().map(|c| (c.name.clone(), c.key.clone())).collect();
+        if std::mem::take(&mut self.keymap_stale)
+            || self.keymap_from != self.settings.key_bindings
+            || self.project_keys_from != project_keys
         {
             self.keymap = keys::Keymap::new(&self.settings.key_bindings);
             let commands = self.plugin_commands();
             plugins::register_keys(&mut self.keymap, &commands);
+            project_commands::register_keys(&mut self.keymap, &project);
             self.keymap_from = self.settings.key_bindings.clone();
+            self.project_keys_from = project_keys;
         }
         // (Find's keys, for the search fields.)
         self.keymap.share_find(ui.ctx());
@@ -3081,6 +3094,10 @@ impl Moonglow {
                     .into_iter()
                     .map(|c| (c.key_id, format!("{}: {}", c.plugin_name, c.title)))
                     .collect();
+                // And the project's.
+                let project = project_commands::commands(self).map(|(_, c)| c);
+                project_commands::register_keys(&mut draft.keymap, &project.unwrap_or_default());
+                draft.project_commands = project_commands::key_rows(self);
                 self.options = Some(draft);
             }
             Action::ApplyOptions(draft) => self.apply_options(*draft),
@@ -3733,7 +3750,9 @@ impl Moonglow {
     pub(crate) fn log_project_file(&mut self, again: bool, had: bool) {
         let Some(ws) = &self.ws else { return };
         let p = &ws.module.project_file;
-        let name = mg_module::project_file::FILE_NAME;
+        // (Beside a .mod, the module's own: `krezk.moonglow.toml`.)
+        let name = (p.place().map(|place| place.team_name()))
+            .unwrap_or_else(|| mg_module::project_file::FILE_NAME.into());
         match (p.found, again && had) {
             (true, false) => self.log.info(format!("The project's rules are read from {name}")),
             (true, true) => self.log.info(format!("{name} changed: its rules are read again")),
@@ -3741,7 +3760,7 @@ impl Moonglow {
             (false, false) => {}
         }
         let described = p.variables.described.len();
-        let file = mg_module::var_desc::FILE_NAME;
+        let file = p.variables.file();
         if p.variables_found {
             self.log.info(format!(
                 "{described} variable{} described in {file}",
@@ -4560,11 +4579,15 @@ impl Moonglow {
     fn apply_fix(&mut self, line: usize) {
         let Some(offer) = self.log.fix_at(line).filter(|o| !o.made).cloned() else { return };
         let Some(ws) = self.ws.as_mut() else { return };
-        if let Err(why) = self.log.fix_guard.check(ws, &offer.fix) {
-            self.log.error(format!("{}: {why}", offer.fix.label));
-            return;
-        }
-        if let Err(e) = self.apply(offer.fix.command()) {
+        // (Its paths following what other fixes took out.)
+        let now = match self.log.fix_guard.check(ws, &offer.fix) {
+            Ok(now) => now,
+            Err(why) => {
+                self.log.error(format!("{}: {why}", offer.fix.label));
+                return;
+            }
+        };
+        if let Err(e) = self.apply(now.command()) {
             self.log.error(format!("{}: {e}", offer.fix.label));
             return;
         }

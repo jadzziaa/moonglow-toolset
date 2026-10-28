@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:24:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:50:21Z }
 ---
 
 # Areas
@@ -378,7 +378,8 @@ Aurora):
   untick **Static** in its Properties to transform it. Ticking Static
   (in Properties, or Make Static) takes the transform off, as Aurora
   does, so a static placeable with one in its file was made elsewhere:
-  the window says so, and Verify warns of it (`static-transform`).
+  the window says so, and Verify warns of it (`static-transform`), with
+  a **Take the transform off** button (since Moonglow 2.13.0).
 - **Random Facing**: turns each selected object to face a way of its
   own, at random (by the snap angle, if one is set): for trees and rocks
   placed in numbers.

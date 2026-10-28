@@ -17,10 +17,11 @@ use mg_rules::item_wizard::{self, Magical};
 use crate::{Action, Moonglow, Tab};
 use mg_module::project_file::Naming;
 
-/// How new ResRefs are made in the open module: by the builder's code,
-/// in a project with one (Edit › Builder Code…).
-pub(crate) fn naming(app: &Moonglow) -> Naming {
-    app.ws.as_ref().map(|ws| ws.module.project_file.naming()).unwrap_or_default()
+/// How new ResRefs of type `t` are made in the open module: by the
+/// builder's code, in a project with one (Edit › Builder Code…), or the
+/// team's prefix (of the kind, `[resrefs] kinds`).
+pub(crate) fn naming(app: &Moonglow, t: ResType) -> Naming {
+    app.ws.as_ref().map(|ws| ws.module.project_file.naming_for(t)).unwrap_or_default()
 }
 
 /// A wizard's ResRef field's tip: where the ResRef left empty comes from.
@@ -345,7 +346,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         let key_taken = |app: &Moonglow, r: &ResRef| {
             app.ws.as_ref().is_some_and(|ws| ws.module.contains(&ResKey::new(*r, w.kind.restype())))
         };
-        let naming = naming(app);
+        let naming = naming(app, w.kind.restype());
         match w.page() {
             Step::ItemType => {
                 ui.heading("Item Type");
@@ -583,7 +584,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         let taken = |r: &ResRef| {
             app.ws.as_ref().is_some_and(|ws| ws.module.contains(&ResKey::new(*r, w.kind.restype())))
         };
-        let naming = naming(app);
+        let naming = naming(app, w.kind.restype());
         let (resref, g) = w.build(app.game.as_deref().expect("checked"), &naming, taken);
         let key = ResKey::new(resref, w.kind.restype());
         match g.to_bytes() {

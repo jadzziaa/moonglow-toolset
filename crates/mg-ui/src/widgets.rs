@@ -260,7 +260,7 @@ impl VarHelp {
     /// What is wrong with a row by the descriptions, for the note under
     /// the list (none where nothing is, or nothing is described).
     fn note(&self, r: &VarRow) -> Option<String> {
-        let file = mg_module::var_desc::FILE_NAME;
+        let file = self.variables.file();
         let name = r.name.trim();
         if name.is_empty() {
             return None;

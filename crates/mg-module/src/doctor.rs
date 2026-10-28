@@ -1942,7 +1942,7 @@ fn described_variables(d: &mut Doctor, module: &Module) {
     if vars.is_empty() {
         return;
     }
-    let file = var_desc::FILE_NAME;
+    let file = vars.file();
     let lookup = ModuleLookup::new(module, Some(d.rm));
     let mut choices: HashMap<String, Choices> = HashMap::new();
     let mut unread: HashSet<String> = HashSet::new();

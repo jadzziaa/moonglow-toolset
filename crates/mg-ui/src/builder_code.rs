@@ -7,7 +7,8 @@
 
 use std::path::PathBuf;
 
-use mg_module::project_file::{DEFAULT_PATTERN, MAX_CODE, Naming, ProjectFile, code_problem};
+use mg_core::ResType;
+use mg_module::project_file::{DEFAULT_PATTERN, MAX_CODE, ProjectFile, code_problem};
 
 use crate::Moonglow;
 
@@ -64,11 +65,18 @@ pub(crate) fn set(app: &mut Moonglow, root: &std::path::Path, code: Option<&str>
 
 pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(mut draft) = app.builder_code.take() else { return };
-    let pattern = app
-        .ws
-        .as_ref()
-        .and_then(|ws| ws.module.project_file.resref_pattern.clone())
-        .unwrap_or_else(|| DEFAULT_PATTERN.to_string());
+    let rules = app.ws.as_ref().map(|ws| ws.module.project_file.clone()).unwrap_or_default();
+    let pattern = rules.resref_pattern.clone().unwrap_or_else(|| DEFAULT_PATTERN.to_string());
+    // (What the team's pattern, of each kind, makes of a code.)
+    let example = |code: Option<&str>| {
+        let mut rules = rules.clone();
+        rules.user.builder_code = code.map(String::from);
+        format!(
+            "A new area named Market: {}. A copy of nw_chicken: {}.",
+            rules.naming_for(ResType::ARE).fit("market", ""),
+            rules.naming_for(ResType::UTC).fit("nw_chicken", "001")
+        )
+    };
     let mut open = true;
     let (mut ok, mut clear, mut cancel) = (false, false, false);
     crate::widgets::dialog(ctx, "Builder Code", &mut open)
@@ -98,16 +106,20 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 Some(p) => {
                     ui.colored_label(ui.visuals().warn_fg_color, p);
                 }
-                None if code.is_empty() => {
+                None if code.is_empty() && pattern.contains("{code}") => {
                     ui.weak("None: ResRefs are made from names alone, as Aurora makes them.");
                 }
-                None => {
-                    let naming = Naming::new(&code, &pattern);
+                None if code.is_empty() => {
+                    ui.weak(format!("None: the team's pattern alone. {}", example(None)));
+                }
+                None if !pattern.contains("{code}") => {
                     ui.weak(format!(
-                        "A new area named Market: {}. A copy of nw_chicken: {}.",
-                        naming.fit("market", ""),
-                        naming.fit("nw_chicken", "001")
+                        "The team's pattern has no {{code}}: yours isn't put in. {}",
+                        example(Some(&code))
                     ));
+                }
+                None => {
+                    ui.weak(example(Some(&code)));
                 }
             }
             ui.weak(format!(

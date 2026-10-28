@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:35:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:50:22Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1221,12 +1221,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   and at full size in Aurora, which was not run on it: whether Aurora
   draws a visual transform at all, and its rotations as the game does,
   is unchecked (an Aurora capture would settle it). (S) (xtul's report,
-  October 2026)
-- **No fix for `static-transform`:** Verify warns of a static placeable
-  whose file has a visual transform (made elsewhere: Static ticked in
-  Properties, Make Static and `mg areas --static-placeables` take it
-  off, as Aurora does) but offers no button; taking the transform off
-  or unticking Static is the builder's choice. (S) (xtul's report,
   October 2026)
 - **Static and the transform elsewhere:** ticking Static takes a placed
   placeable's visual transform off in its Properties (with others
@@ -2569,14 +2563,17 @@ contribution itself states as not done or not checked.
     fix asks nothing (no form: "retag to what?" is a command's); it is
     worked out when Verify runs and refused once a resource it changes is
     not as Verify read it (compared as bytes) or was changed by another
-    fix that did more than set fields, so after Undo or a second fix
+    fix that did more than set fields and take items out, so after
+    Undo or a second fix
     there, Verify runs again; Undo of a fix leaves its button saying
     Fixed; the buttons are in Verify Module's log alone (not Build
     Module's results, the 2DA editor's faults or the tileset editor's),
     for the last Verify, with no "fix all of this check" in the window
     (`mg verify --fix CHECK` is that); the doctor has fixes for
     `tag-unique` (the others retagged `TAG_2`…, scripts that look for
-    the tag not followed) and `area-variables` (moved to the GIT) only:
+    the tag not followed), `area-variables` (moved to the GIT),
+    `var-runtime` (removed) and `static-transform` (the transform off)
+    only:
     `pc-faction` has none (the builder chooses the faction), nor do the
     references, models, 2DAs and tilesets; the fixes of different
     plugins' findings are made one at a time in the window; `mg verify
@@ -3125,8 +3122,6 @@ The Domains of Dread's builder proposal (its section 3): the project file
 (`moonglow.toml`), Make Placeables Static and Setup Store following it,
 and duplicate tags on paste. What is left:
 
-- **A module kept in one file has no project file:** a `.mod`'s folder
-  holds other modules (a `NAME.moonglow.toml` beside it would serve). (S)
 - **The builder code is not proposed everywhere** (C1): New Script…, New
   Conversation…, New NUI Window…, Add Popup Text… and Import
   Conversation start from an empty name or the file's (the code isn't
@@ -3135,9 +3130,6 @@ and duplicate tags on paste. What is left:
   from it, without the code);
   plugins' `ctx.terrain:new_area` gets the code (it is the Area
   Wizard's), plugins' other new resources don't. (S)
-- **A team prefix without a builder's code:** `[resrefs] pattern` must
-  have `{code}`, so a team's own prefix (`tdod_{name}`) for everyone, or
-  one by kind (`tdod_n_` for people, `{kind}`), isn't there. (S)
 - **A builder code isn't checked against the team's:** two builders who
   choose one code aren't told; a claims table (C6) could list the codes.
   (S)
@@ -3154,10 +3146,6 @@ and duplicate tags on paste. What is left:
 - **No `mg vars --undescribed`** listing the module's variables that no
   description names, nor a plugin API to read the descriptions
   (`mg.vars.describe`). (S)
-- **A table's rows for a String are a column's cells;** the row's own
-  label (`Label`) as a String's value, or a 2DA from a hak the module
-  lists, in `mg vars` (which reads the game's and the project's, not the
-  haks'), isn't there. (S)
 - **The project file is read again only with reloading on** (Options ›
   General), when the folder's watch sees a change; a window open then
   (Setup Store) keeps the rules it opened with. (S)
@@ -3179,11 +3167,6 @@ and duplicate tags on paste. What is left:
 - **Which object `GetObjectByTag` takes of several** was measured for
   two in one area (the second placed); across areas, and for more,
   not. (S)
-- **A variable kept against `runtime = true` has no fix:** Verify's
-  `var-runtime` names it, and taking it out is the builder's (a Remove
-  fix, as `area-variables` has its Move, would serve; two in one
-  `VarTable` would need the second fix to follow the first's indices).
-  (S) (the Domains of Dread's setup on 2.1.0)
 - **`unique_in_area` is quiet about other areas whatever
   `paste_warning` says:** with `"any"`, a store's tag pasted into
   another area isn't said, as the project says it may be there; and
@@ -3211,10 +3194,6 @@ and duplicate tags on paste. What is left:
   plugin that reads the module's own 2DAs through `ctx.game` needs a
   game folder (or a game) in its test. (S) (the Domains of Dread's notes
   on 2.2.0)
-- **`var-runtime`'s nearest name is of entries of their own:** a typo of
-  a name a builder's glob describes (`tdod_rental_*`), taken by a glob
-  of the scripts', has no hint. (S) (the Domains of Dread's notes on
-  2.2.0)
 
 ## Claims, protected areas and the project's commands (the builders' proposal, C6 to C8)
 
@@ -3238,17 +3217,9 @@ File › Project. What is left:
   Anyway" lets one change of that area through; a Rename window opened
   by "Rename It Anyway" and then closed leaves that one pass for the
   area's next change. (S)
-- **A project's command closes and opens the haks every time,** even
-  for one that writes nothing (a submit): the open areas are drawn
-  again after. No per-command setting says it needn't. (S)
-- **Cancel stops the shell, not what it started:** on Linux and macOS a
-  `git` the script started may run on (no process group is killed); on
-  Windows `cmd`'s children likewise. (S)
 - **A project's command's output is in the log only:** no window of its
   own to read a long output in, and no input (a command that asks for
   a password waits until canceled; its stdin is closed). (S)
-- **The project's commands are not in the Command Palette** nor given
-  keys (Options › Keyboard): only File › Project. (S)
 - **The project's commands on Windows** (`cmd /C` with the command's
   text as written, no console window) are tested by CI's runs of the
   UI tests, not on a builder's machine with a real update script. (S,

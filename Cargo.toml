@@ -84,6 +84,9 @@ regex-lite = "0.1"
 # (eframe's settings file, read before the window opens: the version
 # eframe writes it with.)
 ron = "0.12"
+# (A project's command canceled: its shell's process group stopped, by
+# signals sent without `unsafe`. Already in the tree, by zbus.)
+rustix = { version = "1.1", default-features = false, features = ["std", "process"] }
 ruzstd = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }

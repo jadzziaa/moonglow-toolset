@@ -8,12 +8,20 @@
 //! areas as any save is) and its files let go: the look at the project's
 //! files changed outside stops, and the module's haks are closed, so that
 //! a checkout may write over any of them (Windows refuses to replace a
-//! file another program has open). The command runs in the project's
+//! file another program has open); a command that writes none of the
+//! module's files (`writes = false`, a submit) keeps them open, and the
+//! open areas aren't drawn again after. The command runs in the project's
 //! folder, by the system's shell (`sh -c` on Linux and macOS, `cmd /C` on
-//! Windows), its output in the log as it comes, and its exit code said.
-//! Then the haks are opened again and the project's files read again, as
-//! for any change made outside Moonglow: what the command changed is in
-//! the module, and the claims table and the project file are read anew.
+//! Windows), its output in the log as it comes, and its exit code said;
+//! Cancel stops the shell and what it started (its process group, or
+//! tree of processes on Windows). Then the haks are opened again and the
+//! project's files read again, as for any change made outside Moonglow:
+//! what the command changed is in the module, and the claims table and
+//! the project file are read anew.
+//!
+//! A command is in File › Project, the Command Palette and Options ›
+//! Keyboard (the keys it asks for, `key`, until the builder chooses
+//! others), and runs the same way from each.
 //!
 //! A command named by a file that came with a checkout is a program the
 //! builder did not choose: the first time it is run, and whenever its
@@ -26,7 +34,7 @@
 
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 
 use mg_module::project_file::{ProjectCommand, ProjectFile};
@@ -65,6 +73,31 @@ pub(crate) struct Ask {
     pub label: String,
     pub run: String,
     pub root: PathBuf,
+    pub writes: bool,
+}
+
+/// The id a project's command's keys are kept under (Options ›
+/// Keyboard): by its name, so that a team's `update` keeps its key from
+/// one project to the next. (A plugin's id has no `:`.)
+pub(crate) fn key_id(name: &str) -> String {
+    format!("project:{name}")
+}
+
+/// The keys the open project's commands ask for (`key`), as their own
+/// until the builder chooses others; and those of each, with its name in
+/// Options › Keyboard.
+pub(crate) fn register_keys(keymap: &mut crate::keys::Keymap, commands: &[ProjectCommand]) {
+    for c in commands {
+        let keys = c.key.as_deref().and_then(crate::keys::from_text).into_iter().collect();
+        keymap.set_default(&key_id(&c.name), keys);
+    }
+}
+
+/// The open project's commands as Options › Keyboard lists them: the id
+/// of each one's keys, and its name.
+pub(crate) fn key_rows(app: &Moonglow) -> Vec<(String, String)> {
+    let commands = commands(app).map(|(_, c)| c).unwrap_or_default();
+    commands.into_iter().map(|c| (key_id(&c.name), c.label)).collect()
 }
 
 /// The project's commands, with its root, where the module open is a
@@ -96,10 +129,11 @@ pub(crate) fn run(app: &mut Moonglow, name: &str) {
         return;
     };
     if !allowed(app, &root, &c.name, &text) {
-        app.project_commands.ask = Some(Ask { name: c.name, label: c.label, run: text, root });
+        let ask = Ask { name: c.name, label: c.label, run: text, root, writes: c.writes };
+        app.project_commands.ask = Some(ask);
         return;
     }
-    start(app, &c.label, &text, &root);
+    start(app, &c.label, &text, &root, c.writes);
 }
 
 /// Allows a command as it reads (in Moonglow's settings, for this
@@ -109,7 +143,7 @@ fn allow_and_run(app: &mut Moonglow, ask: &Ask) {
     // (One text a command: the one allowed before is forgotten.)
     app.settings.allowed_commands.retain(|(p, n, _)| !(*p == project && *n == ask.name));
     app.settings.allowed_commands.push((project, ask.name.clone(), ask.run.clone()));
-    start(app, &ask.label, &ask.run, &ask.root);
+    start(app, &ask.label, &ask.run, &ask.root, ask.writes);
 }
 
 /// The shell command that runs `text`, in `root`.
@@ -124,12 +158,54 @@ fn shell(text: &str, root: &Path) -> Command {
     };
     #[cfg(not(windows))]
     let mut c = {
+        use std::os::unix::process::CommandExt;
         let mut c = Command::new("sh");
-        c.arg("-c").arg(text);
+        // (A process group of its own, the shell its leader: Cancel stops
+        // what the script started with it.)
+        c.arg("-c").arg(text).process_group(0);
         c
     };
     c.current_dir(root).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     c
+}
+
+/// Stops a command and what it started: on Linux and macOS its shell's
+/// process group ([`shell`] makes the shell its leader), asked to end
+/// (TERM: a `git` takes its lock files off) and, still there after two
+/// seconds, made to (KILL); on Windows the shell's tree of processes
+/// (`taskkill /T /F`). Then the shell is waited for.
+fn stop(child: &mut Child) {
+    #[cfg(unix)]
+    {
+        use rustix::process::{Pid, Signal, kill_process_group, test_kill_process_group};
+        use std::time::{Duration, Instant};
+        if let Some(group) = i32::try_from(child.id()).ok().and_then(Pid::from_raw) {
+            let _ = kill_process_group(group, Signal::TERM);
+            let until = Instant::now() + Duration::from_secs(2);
+            // (The shell is waited for meanwhile: a group is there while
+            // a process of it is, its leader's end not yet waited for
+            // too.)
+            while test_kill_process_group(group).is_ok() && Instant::now() < until {
+                let _ = child.try_wait();
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            let _ = kill_process_group(group, Signal::KILL);
+        }
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // (Before the shell ends: the tree is found from it.)
+        let _ = Command::new("taskkill")
+            .args(["/PID", &child.id().to_string(), "/T", "/F"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .creation_flags(0x0800_0000)
+            .status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 /// How a command ended.
@@ -141,8 +217,9 @@ enum Ended {
 }
 
 /// Runs a command as a job (the window takes nothing else meanwhile),
-/// the module's files let go, and reads them again after.
-fn start(app: &mut Moonglow, label: &str, text: &str, root: &Path) {
+/// the module's files let go (its haks only where it `writes`), and reads
+/// them again after.
+fn start(app: &mut Moonglow, label: &str, text: &str, root: &Path, writes: bool) {
     // (Another job under way: nothing is let go for one that can't start.)
     if let Some(job) = &app.job {
         app.log.warn(format!("{label}: waiting for {} to finish", job.title));
@@ -150,7 +227,9 @@ fn start(app: &mut Moonglow, label: &str, text: &str, root: &Path) {
     }
     app.log.info(format!("{label}: {text} (in {})", root.display()));
     app.pause_outside();
-    let released = app.release_haks();
+    // (A command that writes none of the module's files has its haks
+    // left open: nothing to draw again after.)
+    let released = writes && app.release_haks();
     let output = app.project_commands.output.clone();
     let mut command = shell(text, root);
     command.env("MOONGLOW_PROJECT", root);
@@ -188,8 +267,7 @@ fn start(app: &mut Moonglow, label: &str, text: &str, root: &Path) {
                 match child.try_wait() {
                     Ok(Some(status)) => break Ended::Exited(status.code()),
                     Ok(None) if cx.progress.cancelled() => {
-                        let _ = child.kill();
-                        let _ = child.wait();
+                        stop(&mut child);
                         break Ended::Canceled;
                     }
                     Ok(None) => std::thread::sleep(std::time::Duration::from_millis(50)),
@@ -254,6 +332,10 @@ fn take_output(app: &mut Moonglow) {
 /// What File › Project's entry for a command says on hover.
 pub(crate) fn tip(c: &ProjectCommand) -> String {
     match &c.run {
+        Some(run) if !c.writes => format!(
+            "Saves the module, runs {run} in the project's folder (the haks kept open: the \
+             project says it writes none of the module's files), and reads its files again"
+        ),
         Some(run) => format!(
             "Saves the module, runs {run} in the project's folder, and reads its files again"
         ),
@@ -304,5 +386,83 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         allow_and_run(app, &ask);
     } else if cancel || !open {
         app.project_commands.ask = None;
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    /// Cancel stops what the shell started, not the shell alone: a
+    /// program it left running (a `git`) is stopped with it.
+    #[test]
+    fn stopping_a_command_stops_what_its_shell_started() {
+        use rustix::process::{Pid, test_kill_process};
+        let mut child = shell("sleep 60 & echo $!; wait", Path::new(".")).spawn().unwrap();
+        let mut line = String::new();
+        let mut out = std::io::BufReader::new(child.stdout.take().unwrap());
+        out.read_line(&mut line).unwrap();
+        let sleeper = Pid::from_raw(line.trim().parse().unwrap()).unwrap();
+        assert!(test_kill_process(sleeper).is_ok(), "running");
+        let began = Instant::now();
+        stop(&mut child);
+        assert!(child.try_wait().unwrap().is_some(), "the shell ended");
+        // (Ended, it is waited for by whoever took it on: a moment.)
+        let until = Instant::now() + Duration::from_secs(10);
+        while test_kill_process(sleeper).is_ok() && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(test_kill_process(sleeper).is_err(), "what it started ended with it");
+        assert!(began.elapsed() < Duration::from_secs(2), "asked, it ended at once");
+    }
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    /// What the shell starts, for the test below: this test binary again,
+    /// saying its process id and waiting.
+    #[test]
+    #[ignore = "started by stopping_a_command_stops_what_its_shell_started"]
+    fn a_program_the_shell_started() {
+        println!("started {}", std::process::id());
+        std::thread::sleep(Duration::from_secs(60));
+    }
+
+    /// Cancel stops what the shell started, not the shell alone: a
+    /// program `cmd` left running (a `git`) is stopped with it.
+    #[test]
+    fn stopping_a_command_stops_what_its_shell_started() {
+        let exe = std::env::current_exe().unwrap();
+        let text = format!(
+            "\"{}\" --ignored --exact --nocapture \
+             project_commands::tests::a_program_the_shell_started",
+            exe.display()
+        );
+        let mut child = shell(&text, Path::new(".")).spawn().unwrap();
+        let out = std::io::BufReader::new(child.stdout.take().unwrap());
+        let started = out
+            .lines()
+            .map_while(Result::ok)
+            .find_map(|l| l.strip_prefix("started ").and_then(|p| p.trim().parse::<u32>().ok()));
+        let started = started.expect("the program said its id");
+        let running = |pid: u32| {
+            let list = Command::new("tasklist")
+                .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+                .output()
+                .unwrap();
+            String::from_utf8_lossy(&list.stdout).contains(&pid.to_string())
+        };
+        assert!(running(started), "running");
+        stop(&mut child);
+        assert!(child.try_wait().unwrap().is_some(), "the shell ended");
+        let until = Instant::now() + Duration::from_secs(10);
+        while running(started) && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        assert!(!running(started), "what it started ended with it");
     }
 }

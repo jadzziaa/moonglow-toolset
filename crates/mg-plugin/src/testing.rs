@@ -1009,7 +1009,7 @@ fn fixes_made(
     let mut guard = Guard::new(module, fixes.iter().copied());
     for fix in fixes {
         let made =
-            guard.check(ws, fix).and_then(|()| ws.apply(fix.command()).map_err(|e| e.to_string()));
+            guard.check(ws, fix).and_then(|now| ws.apply(now.command()).map_err(|e| e.to_string()));
         match made {
             Ok(()) => guard.made(ws, fix),
             Err(why) => problems.push(format!("the fix {label:?} is not made: {why}")),

@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync, long work, Verify Module and the fixes beside its findings, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T23:58:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:50:22Z }
 ---
 
 # Build, verify and test
@@ -81,12 +81,19 @@ corner, empties the log before a second run.
 **Fixes.** A problem whose right change is plain has a button beside it
 in the log that says what it does: **Retag the other as …** for a tag
 the project wants unique, **Move the variables to the GIT** for an
-area's variables in its ARE, and whatever a plugin's check offers.
+area's variables in its ARE, **Remove the variable** for one only the
+scripts set kept in a file (`var-runtime`), **Take the transform off**
+for a static placeable's visual transform, which the game doesn't draw
+(`static-transform`; to have it drawn transformed, untick Static in its
+Properties instead), and whatever a plugin's check offers.
 Nothing changes until you click it; then the change goes in as one step,
 which **Undo** takes back, and the button says **Fixed**. A fix is
 worked out when Verify runs, on the module as it was then: if what it
 would change has changed since (by hand, or by another fix that did more
-than set fields), the log says so, and Verify run again offers it anew.
+than set fields and take items out), the log says so, and Verify run
+again offers it anew. Fixes that take items out follow one another: of
+two variables of one object removed, the second is removed from where
+it is after the first (since Moonglow 2.13.0).
 Only the last Verify's fixes are offered, and Clear takes them away with
 the lines.
 

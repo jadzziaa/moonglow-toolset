@@ -89,7 +89,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 // The ResRef the name gives, where the builder's code
                 // makes it other than the name (as Create makes it).
                 if let Some(module) = app.ws.as_ref().map(|ws| &ws.module) {
-                    let naming = module.project_file.naming();
+                    let naming = module.project_file.naming_for(mg_core::ResType::ARE);
                     if !naming.is_plain() {
                         let taken = |r: &mg_core::ResRef| {
                             module.contains(&mg_resman::ResKey::new(*r, mg_core::ResType::ARE))

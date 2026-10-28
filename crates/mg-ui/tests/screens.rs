@@ -632,6 +632,65 @@ fn options_window() {
     shoot(&mut h, &dir, "options-keyboard");
 }
 
+/// A project's commands in File › Project (with their keys), the Command
+/// Palette and Options › Keyboard; and the Builder Code window of a team
+/// prefix without a code (`project-commands-menu`, `-palette`,
+/// `-keyboard`, `team-prefix-builder-code`).
+#[test]
+#[ignore]
+fn project_commands_and_team_prefix() {
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("screens-project-commands");
+    let project = dir.join("project");
+    let mut m = mg_module::Module::new();
+    let mut ifo = mg_gff::Gff::new(*b"IFO ");
+    ifo.root.set("Mod_Tag", mg_gff::Value::String(b"KREZK".to_vec()));
+    m.set_info(&ifo).unwrap();
+    m.save_as(&mg_module::ModuleLocation::Folder(project.clone())).unwrap();
+    std::fs::write(
+        project.join("moonglow.toml"),
+        "[resrefs]\npattern = \"tdod_{kind}{name}\"\nkinds = { creature = \"n_\" }\n\n\
+         [commands]\nupdate = { run = \"bin/update\", key = \"Ctrl+Shift+U\" }\n\
+         submit = { run = \"bin/submit\", label = \"Submit for Review\", writes = false }\n",
+    )
+    .unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&project);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("File").click();
+    h.run();
+    h.get_by_label("Project").hover();
+    h.run();
+    h.get_by_label("Project").click();
+    shoot(&mut h, &dir, "project-commands-menu");
+    h.key_press(egui::Key::Escape);
+    h.key_press(egui::Key::Escape);
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
+    h.run();
+    h.event(egui::Event::Text("pro".into()));
+    shoot(&mut h, &dir, "project-commands-palette");
+    h.key_press(egui::Key::Escape);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    h.run();
+    h.get_by_label("Keyboard").click();
+    h.run();
+    h.get_by_label("Update").scroll_to_me();
+    shoot(&mut h, &dir, "project-commands-keyboard");
+    h.state_mut().options = None;
+    h.run();
+    h.get_by_label("Edit").click();
+    h.run();
+    h.get_by_label("Builder Code…").click();
+    shoot(&mut h, &dir, "team-prefix-builder-code");
+}
+
 #[test]
 #[ignore]
 fn model_viewer() {
