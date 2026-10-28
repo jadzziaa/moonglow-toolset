@@ -4,15 +4,15 @@ title: 'The deferred sprint: a quarter of the list addressed'
 description: The sprint of late October 2026 that triages the whole deferred list and addresses at least a quarter of its open entries (110 of 440, at least 50 by code) - what counts, the rule that the list may not grow, the triage pass and its verdicts, the waves in their order, and the count after each.
 tags: [plan, deferred, backlog, sprint]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T08:00:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T08:04:17Z }
 stale_after: 2026-11-30T00:00:00Z
 sources:
   - id: owner
     resource: conversation with the owner, 2026-10-28
-    title: "The owner's scope: a quarter or more of the entries addressed, at least 50 by code; the triage pass approved"
+    title: 'The owner''s scope: a quarter or more of the entries addressed, at least 50 by code; the triage pass approved'
   - id: deferred
     resource: deferred.md
-    title: "Deferred: what was left out, for a decision later"
+    title: 'Deferred: what was left out, for a decision later'
 ---
 
 # The deferred sprint: a quarter of the list addressed
@@ -42,7 +42,11 @@ least a quarter of it.[^owner]
 
 ## The rule: the list does not grow
 
-For the sprint, every merge into `develop` closes at least as many
+Work is deferred only when doing it would have real unintended
+consequences or would over-implement what was asked (the owner's rule
+of 2026-10-28, first of `CLAUDE.md`'s Rules): edge cases, tests, the
+manual and checks that can be run here are the work, not entries. For
+the sprint, every merge into `develop` closes at least as many
 entries as it adds. An agent's brief says so; its report lists the
 entries it adds and the ones it closes; the merge review accepts the new
 ones or sends the work back. The count is taken before and after each

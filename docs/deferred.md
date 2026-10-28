@@ -3,14 +3,16 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T06:11:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T08:04:17Z }
 ---
 
 # Deferred: what was left out, for a decision later
 
 What finished work left undone or unchecked, in one place: each entry
-awaits a verdict (fix, add, or drop), and new gaps are added as work
-finishes. The list is filed by area of the program, one entry a gap, in
+awaits a verdict (fix, add, or drop). Work is deferred only when doing
+it would have real unintended consequences or would go beyond what was
+asked, and the entry says which; what can't be done or checked on the
+development machine is filed as waiting on it (`CLAUDE.md`, Rules). The list is filed by area of the program, one entry a gap, in
 the section of its area; an entry that came from a builder's report, a
 GitHub issue or a review says so in its last words. What was fixed is in
 the [log](log.md) and the release notes, what was measured in the game

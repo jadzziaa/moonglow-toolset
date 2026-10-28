@@ -98,6 +98,17 @@ installed game; `crates/mg-corpus-tests/examples/observed_schema.rs`).
 
 ## Rules
 
+- **Finish what was asked; defer only for a reason.** Work is deferred
+  (left undone and filed in `docs/deferred.md`) only when doing it would
+  have real unintended consequences, or would go beyond what was asked
+  (over-implementing it). Edge cases, tests, the manual, a sibling
+  view that needs the same change, and checks that can be run on this
+  machine are part of the work, not entries. What can't be done or
+  checked here (a builder's files, a Windows machine, an answer) is
+  said in the report and filed as waiting on it. An entry says which
+  reason it was deferred for. A piece of work closes at least as many
+  entries as it adds while the [deferred sprint](docs/deferred-sprint.md)
+  runs.
 - **Never write to the real NWN user folder** (`~/.local/share/Neverwinter
   Nights`) or the game install. Engine tests use scratch user directories under
   `target/test-output/` (`mg_testkit::engine`); the Aurora oracle runs in its
