@@ -4133,6 +4133,13 @@ impl Moonglow {
                 for f in &failed {
                     app.log.error(f.clone());
                 }
+                // (Each once: an include's is said by every includer.)
+                for (w, n) in mg_module::build::distinct_warnings(&results) {
+                    app.log.warn(match n {
+                        1 => w.message.clone(),
+                        n => format!("{} (in {n} scripts)", w.message),
+                    });
+                }
                 app.keep_compiled(now, file.as_deref());
                 let changed = edits.len();
                 if !edits.is_empty()

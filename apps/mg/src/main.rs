@@ -1541,7 +1541,9 @@ fn path_text(p: &Path) -> String {
     p.display().to_string()
 }
 
-/// Compile results: errors as lines and as JSON.
+/// Compile results: errors as lines and as JSON; warnings as notes, each
+/// once (an include's is every includer's) with how many scripts it was
+/// met in, and as JSON.
 fn compiled(out: &mut Output, results: &[mg_module::build::ScriptResult]) -> serde_json::Value {
     let mut errors = Vec::new();
     for r in results {
@@ -1553,7 +1555,19 @@ fn compiled(out: &mut Output, results: &[mg_module::build::ScriptResult]) -> ser
                 .push(serde_json::json!({ "script": script, "line": line, "message": e.message }));
         }
     }
-    serde_json::json!({ "scripts": results.len(), "failed": errors.len(), "errors": errors })
+    let mut warnings = Vec::new();
+    for (w, scripts) in mg_module::build::distinct_warnings(results) {
+        out.note(match scripts {
+            1 => w.message.clone(),
+            n => format!("{} (in {n} scripts)", w.message),
+        });
+        warnings.push(serde_json::json!({
+            "script": w.file, "line": w.line, "message": w.message, "scripts": scripts,
+        }));
+    }
+    serde_json::json!({
+        "scripts": results.len(), "failed": errors.len(), "errors": errors, "warnings": warnings,
+    })
 }
 
 /// What the window and `mg` remember of the scripts of `module` they

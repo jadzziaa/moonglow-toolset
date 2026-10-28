@@ -5,9 +5,10 @@ pub mod analysis;
 pub mod compiler;
 pub mod lex;
 pub mod outline;
+mod return_types;
 pub mod spec;
 
-pub use compiler::{CompileError, Compiled, Compiler};
+pub use compiler::{CompileError, CompileWarning, Compiled, Compiler};
 
 #[cfg(test)]
 mod tests {

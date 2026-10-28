@@ -1691,8 +1691,12 @@ pub(crate) fn compile_source(
 ) -> Result<Vec<u8>, mg_script::compiler::CompileError> {
     // (What Moonglow writes itself, a wizard's script: by the built-in
     // compiler.)
-    compile_with_debug(app, key, text, false, None).map(|(ncs, _)| ncs)
+    compile_with_debug(app, key, text, false, None).map(|(ncs, ..)| ncs)
 }
+
+/// A compiled script, its debug information if made, and what the compile
+/// warned of (the built-in compiler's).
+type Made = (Vec<u8>, Option<Vec<u8>>, Vec<mg_script::CompileWarning>);
 
 /// [`compile_source`], with the debug information (`.ndb`) if `debug`.
 fn compile_with_debug(
@@ -1701,7 +1705,7 @@ fn compile_with_debug(
     text: &str,
     debug: bool,
     external: Option<&mg_module::external_compiler::ExternalCompiler>,
-) -> Result<(Vec<u8>, Option<Vec<u8>>), mg_script::compiler::CompileError> {
+) -> Result<Made, mg_script::compiler::CompileError> {
     // (An editor's text in the codepage it was read in; other text in the
     // script codepage. A string's bytes go into the compiled script as
     // they are.)
@@ -1728,7 +1732,7 @@ fn compile_with_debug(
             return Err(failed(format!("{name}.nss: the external compiler made nothing")));
         };
         return match made.ncs {
-            Some(ncs) => Ok((ncs, made.ndb.filter(|_| debug))),
+            Some(ncs) => Ok((ncs, made.ndb.filter(|_| debug), Vec::new())),
             None => Err(failed(made.message)),
         };
     }
@@ -1743,7 +1747,7 @@ fn compile_with_debug(
             .or_else(|| resman?.get(&k).ok().map(|d| d.into_owned()))
     });
     c.set_debug_output(debug);
-    c.compile(&name).map(|out| (out.ncs, out.ndb))
+    c.compile(&name).map(|out| (out.ncs, out.ndb, out.warnings))
 }
 
 /// Compiles again, into the module, those of `scripts` whose compiled
@@ -1770,14 +1774,25 @@ pub(crate) fn compile_stale_into(
         return (compiled, broken);
     }
     let (mut edits, mut made) = (Vec::new(), Vec::new());
+    let mut warned: Vec<String> = Vec::new();
     let external = app.external_compiler();
     for &key in scripts {
         let Some(ws) = app.ws.as_ref() else { break };
         let Some(text) = ws.module.get(&key).map(decode) else { continue };
         let ncs = ResKey::new(key.resref, ResType::NCS);
         let old = ws.module.get(&ncs).map(<[u8]>::to_vec);
-        match compile_with_debug(app, key, &text, app.settings.debug_info, external.as_ref()) {
-            Ok((new, ndb)) if old.as_deref() != Some(&new[..]) => {
+        let result =
+            compile_with_debug(app, key, &text, app.settings.debug_info, external.as_ref());
+        // (Each warning once: an include's is said by all its includers.)
+        if let Ok((.., said)) = &result {
+            for w in said {
+                if !warned.contains(&w.message) {
+                    warned.push(w.message.clone());
+                }
+            }
+        }
+        match result {
+            Ok((new, ndb, _)) if old.as_deref() != Some(&new[..]) => {
                 made.push((key, new.clone()));
                 edits.push(Edit::SetResource { key: ncs, data: Some(new) });
                 if let Some(ndb) = ndb {
@@ -1786,7 +1801,7 @@ pub(crate) fn compile_stale_into(
                 }
                 compiled.push(key.resref.to_string());
             }
-            Ok((same, _)) => made.push((key, same)),
+            Ok((same, ..)) => made.push((key, same)),
             // (One without a compiled script is an include, or is named
             // by the caller as not compiled.)
             Err(_) if old.is_some() => broken.push(key.resref.to_string()),
@@ -1811,6 +1826,9 @@ pub(crate) fn compile_stale_into(
     }
     // (For Compile All to pass over.)
     app.note_compiled(&made);
+    for w in warned {
+        app.log.warn(w);
+    }
     (compiled, broken)
 }
 
@@ -1916,7 +1934,7 @@ fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) -> bool {
     let external = app.external_compiler();
     let result = compile_with_debug(app, key, text, app.settings.debug_info, external.as_ref());
     match result {
-        Ok((out, ndb)) => {
+        Ok((out, ndb, warnings)) => {
             let ncs = ResKey::new(key.resref, ResType::NCS);
             let made = vec![(key, out.clone())];
             let mut edits = vec![Edit::SetResource { key: ncs, data: Some(out) }];
@@ -1932,6 +1950,11 @@ fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) -> bool {
             app.log.info(format!("{key}: compiled"));
             let said = format!("{key}: compiled");
             app.script_tools.messages.push(Message::new(key, said, None, false));
+            for w in warnings {
+                app.log.warn(w.message.clone());
+                let location = Some((w.file, w.line));
+                app.script_tools.messages.push(Message::new(key, w.message, location, false));
+            }
             true
         }
         Err(e) => {

@@ -513,11 +513,21 @@ impl<'a> Parser<'a> {
 /// `StartingConditional` with a body (one in a comment or a string is
 /// none). A script without one is an include file: Aurora doesn't compile
 /// it on its own, where it may lean on what its includer brings.
+///
+/// Also where broken code before it keeps the outline from seeing it
+/// (`main() {` among the tokens): such a script is no include, and its
+/// error is the compiler's to report, as Aurora reports it.
 pub fn has_entry_point(src: &[u8]) -> bool {
-    outline(src)
-        .functions
-        .iter()
-        .any(|f| f.body.is_some() && matches!(f.name.as_str(), "main" | "StartingConditional"))
+    let entry = |name: &str| matches!(name, "main" | "StartingConditional");
+    if outline(src).functions.iter().any(|f| f.body.is_some() && entry(&f.name)) {
+        return true;
+    }
+    let text = String::from_utf8_lossy(src);
+    let toks: Vec<&str> = (tokenize(text.as_bytes()).into_iter())
+        .filter(|t| t.kind.is_significant())
+        .map(|t| &text[t.span])
+        .collect();
+    toks.windows(4).any(|w| entry(w[0]) && w[1] == "(" && w[2] == ")" && w[3] == "{")
 }
 
 /// Parses the top-level declarations of a source.
@@ -687,5 +697,19 @@ void main()
         assert_eq!(o.functions.len(), 1);
         assert_eq!(o.functions[0].name, "ok");
         assert!(o.globals.iter().any(|g| g.name == "y"));
+    }
+
+    /// An entry point is one with a body, not in a comment or a string;
+    /// one after broken code still counts (a nested block comment leaves
+    /// `still outer? */` as code: Aurora reports the script's error, so it
+    /// is no include to pass over).
+    #[test]
+    fn entry_points() {
+        assert!(has_entry_point(b"void main() {}"));
+        assert!(has_entry_point(b"int StartingConditional()\n{ return 1; }"));
+        assert!(!has_entry_point(b"void main();\nint Inc() { return 1; }"));
+        assert!(!has_entry_point(b"/*\nvoid main() {}\n*/\nint NotMain() { return 1; }\n"));
+        assert!(!has_entry_point(b"// void main() {}\nstring s = \"void main() {}\";"));
+        assert!(has_entry_point(b"/* outer /* inner */ still outer? */\nvoid main() {}\n"));
     }
 }
