@@ -441,7 +441,7 @@ struct DarkenUniform {
 
 /// The casting pass's shader: positions alone (and a skinned mesh's bones
 /// and weights), each instance its world transform and its bones' first.
-const CAST: &str = "
+pub(crate) const CAST: &str = "
 struct Light { m: mat4x4<f32> }
 struct Caster { world: mat4x4<f32>, bones: vec4<u32> }
 @group(0) @binding(0) var<uniform> light: Light;
@@ -476,7 +476,7 @@ struct CasterData {
 /// The darkening pass's shader for `samples` samples a pixel: from the
 /// sun's map (orthographic), or from the lights' (perspective, a layer
 /// each, the darkest taken).
-fn darken_source(samples: u32, lights: bool) -> String {
+pub(crate) fn darken_source(samples: u32, lights: bool) -> String {
     let (depth, sample, load) = if samples > 1 {
         (
             "texture_depth_multisampled_2d",

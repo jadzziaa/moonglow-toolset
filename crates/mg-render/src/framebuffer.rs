@@ -67,7 +67,7 @@ pub(crate) struct Copier {
     layout: wgpu::BindGroupLayout,
 }
 
-fn source(samples: u32) -> String {
+pub(crate) fn source(samples: u32) -> String {
     let (color, depth, sum) = if samples > 1 {
         (
             "texture_multisampled_2d<f32>",

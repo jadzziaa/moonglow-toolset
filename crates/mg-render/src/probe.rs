@@ -12,8 +12,13 @@
 //! GPU's other backend where it fails ([`crate::backend::start`]).
 //!
 //! The game's own shaders can't be checked here (the game's data isn't
-//! read yet): the area view's watch ([`crate::watch`]) looks at them as
-//! they draw.
+//! read yet), nor is a mesh lit or textured: the lit check ([`probe_lit`])
+//! draws a lit, textured mesh (its texture BC1, as the game's are) by
+//! Moonglow's own shader and by the game's `vslit`/`fslit` once the
+//! game's data is read, apart from the window's thread (25 ms and 40 ms on
+//! the development machine with no shader cache, 7 ms for the game's
+//! cached); and the area view's watch ([`crate::watch`]) looks at what is
+//! drawn as it is.
 
 use std::fmt;
 use std::sync::{Arc, Mutex};
@@ -22,7 +27,7 @@ use std::time::{Duration, Instant};
 use glam::{Mat4, Vec3};
 use mg_mdl::{Face, Mesh, MeshExtra, Model, Node, NodeKind, Skin};
 
-use crate::{Camera, Gpu, GpuModel, Instance, NoAssets, Renderer, Scene, Targets};
+use crate::{Assets, Camera, Gpu, GpuModel, Instance, NoAssets, Renderer, Scene, Targets};
 
 /// The picture's side, in pixels.
 const SIDE: u32 = 48;
@@ -291,5 +296,192 @@ fn compare(image: &mg_image::Rgba, camera: &Camera) -> Result<(), String> {
             (!is(p, *want)).then(|| format!("{what} is {:?} at ({x}, {y})", &p[..3]))
         })
         .collect();
+    if wrong.is_empty() { Ok(()) } else { Err(wrong.join("; ")) }
+}
+
+/// What the lit check made of the window's GPU ([`probe_lit`]): whether
+/// it draws a lit, textured mesh as a tile is drawn, through Moonglow's
+/// own shader and through the game's programs.
+#[derive(Debug, Clone)]
+pub struct Lit {
+    /// The backend and the adapter's name.
+    pub backend: wgpu::Backend,
+    pub adapter: String,
+    /// Moonglow's own shader: `Err`, what was drawn wrong.
+    pub own: Result<(), String>,
+    /// The game's programs (`vslit`/`fslit`, as a lit tile's): `Err`, what
+    /// was drawn wrong; `None`, not drawn by them (their pipeline couldn't
+    /// be made: Moonglow's own draws such a mesh, and [`Lit::fell_back`]
+    /// says why).
+    pub game: Option<Result<(), String>>,
+    pub fell_back: Option<String>,
+    /// Making the renderer and drawing with Moonglow's own; making the
+    /// game's pipeline (compiling its programs, or reading them from the
+    /// cache) and drawing with it.
+    pub own_time: Duration,
+    pub game_time: Duration,
+}
+
+impl Lit {
+    /// The game's programs draw nothing (or wrong) where Moonglow's own
+    /// draws right: Moonglow's own should draw instead.
+    pub fn game_fails(&self) -> bool {
+        self.own.is_ok() && matches!(self.game, Some(Err(_)))
+    }
+}
+
+impl fmt::Display for Lit {
+    /// `Direct3D 12 (AMD Radeon RX 580): Moonglow's own shader drew right
+    /// in 90 ms; the game's vslit/fslit drew right in 40 ms`, or what
+    /// either drew wrong.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let ms = |d: Duration| d.as_secs_f64() * 1000.0;
+        write!(f, "{} ({}): ", crate::backend::backend_name(self.backend), self.adapter)?;
+        match &self.own {
+            Ok(()) => write!(f, "Moonglow's own shader drew right")?,
+            Err(why) => write!(f, "Moonglow's own shader drew wrong ({why})")?,
+        }
+        write!(f, " in {:.0} ms; the game's vslit/fslit ", ms(self.own_time))?;
+        match (&self.game, &self.fell_back) {
+            (Some(Ok(())), _) => write!(f, "drew right")?,
+            (Some(Err(why)), _) => write!(f, "drew wrong ({why})")?,
+            (None, Some(why)) => write!(f, "couldn't be made ({why})")?,
+            (None, None) => write!(f, "weren't drawn")?,
+        }
+        write!(f, " in {:.0} ms", ms(self.game_time))
+    }
+}
+
+/// The lit check's texture (a 4 by 4 block of red, compressed as BC1 as
+/// the game's DDS textures are) over the game's assets (`game`: its
+/// programs, `.shd`).
+struct LitAssets<'a> {
+    game: &'a dyn Assets,
+}
+
+/// The lit check's texture's name: none of the game's.
+const LIT_TEXTURE: &str = "moonglow lit check";
+
+impl Assets for LitAssets<'_> {
+    fn texture(&self, name: &str) -> Option<crate::LoadedTexture> {
+        (name == LIT_TEXTURE).then(|| crate::LoadedTexture {
+            texture: mg_image::Texture {
+                width: 4,
+                height: 4,
+                format: mg_image::Format::Bc1,
+                // (Both end colours red, 5:6:5, every texel the first.)
+                mips: vec![vec![0x00, 0xF8, 0x00, 0xF8, 0, 0, 0, 0]],
+                has_alpha: false,
+                alpha_mean: None,
+            },
+            txi: Default::default(),
+            mtr: None,
+        })
+    }
+
+    fn shader(&self, name: &str) -> Option<String> {
+        self.game.shader(name)
+    }
+}
+
+/// Checks that `gpu` (the window's) draws a lit, textured mesh as the area
+/// view draws a tile: a quad lit by the area's light, its texture BC1
+/// where the GPU reads BC, drawn by Moonglow's own shader and then by the
+/// game's programs from `game` (`vslit`/`fslit`, made in the shader cache
+/// `cache` where there is one), four samples a pixel, offscreen. Never
+/// panics. Run where the game's data is read (its programs are in it),
+/// apart from the window's thread.
+pub fn probe_lit(gpu: &Gpu, game: &dyn Assets, cache: Option<std::path::PathBuf>) -> Lit {
+    let info = gpu.device.adapter_info();
+    let mut lit = Lit {
+        backend: info.backend,
+        adapter: info.name,
+        own: Err("not drawn".into()),
+        game: None,
+        fell_back: None,
+        own_time: Duration::ZERO,
+        game_time: Duration::ZERO,
+    };
+    let assets = LitAssets { game };
+    let checked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let start = Instant::now();
+        let mut renderer = Renderer::new(gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+        renderer.set_shader_cache(cache);
+        let targets = Targets::new(gpu, wgpu::TextureFormat::Rgba8Unorm, 4, SIDE, SIDE);
+        let (scene, camera) = lit_scene(gpu);
+        let draw = |r: &mut Renderer| {
+            r.render_targets(gpu, &assets, &scene, &camera, &targets);
+            gpu.try_read_rgba(&targets.color).and_then(|img| lit_compare(&img, &camera))
+        };
+        lit.own = draw(&mut renderer);
+        lit.own_time = start.elapsed();
+        let start = Instant::now();
+        renderer.game_shaders = true;
+        let drawn = draw(&mut renderer);
+        lit.game_time = start.elapsed();
+        if renderer.drawn.game > 0 {
+            lit.game = Some(drawn);
+        } else {
+            let failures = renderer.game_shader_failures();
+            lit.fell_back = Some(match failures.first() {
+                // (wgpu's errors run over lines: "Validation Error", then
+                // what.)
+                Some((what, why)) => {
+                    let why: Vec<&str> = why.split_whitespace().collect();
+                    format!("{what}: {}", why.join(" "))
+                }
+                None => "drawn by Moonglow's own".into(),
+            });
+        }
+    }));
+    if let Err(payload) = checked {
+        let why = payload
+            .downcast_ref::<&str>()
+            .map(|s| s.to_string())
+            .or_else(|| payload.downcast_ref::<String>().cloned())
+            .unwrap_or_default();
+        lit.own = Err(format!("it panicked: {why}"));
+    }
+    lit
+}
+
+/// The lit check's scene: a white quad textured red, lit by the area's
+/// default light, seen from above.
+fn lit_scene(gpu: &Gpu) -> (Scene, Camera) {
+    let mut model = quad("lit check", 6.0, 0.0, [1.0; 3], false);
+    if let NodeKind::Mesh(m) = &mut model.nodes[2].kind {
+        m.textures[0] = Some(LIT_TEXTURE.into());
+        m.uvs[0] = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+    }
+    let instance = Instance {
+        casts_shadows: false,
+        ..Instance::new(Arc::new(GpuModel::new(gpu, Arc::new(model))), Mat4::IDENTITY)
+    };
+    let scene = Scene { instances: vec![instance], background: [0.0; 3], ..Default::default() };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 12.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    (scene, camera)
+}
+
+/// The lit picture against what it must be: the quad's middle red (lit,
+/// its texture's colour), the corner the background's.
+fn lit_compare(image: &mg_image::Rgba, camera: &Camera) -> Result<(), String> {
+    let (x, y) = pixel(camera, [0.0, 0.0], 0.0);
+    let p = image.pixel(x, y);
+    let (r, g, b) = (u32::from(p[0]), u32::from(p[1]), u32::from(p[2]));
+    let mut wrong = Vec::new();
+    if !(r >= 40 && g * 2 <= r && b * 2 <= r) {
+        wrong.push(format!("the lit mesh is {:?} at ({x}, {y}), not red", &p[..3]));
+    }
+    let (cx, cy) = pixel(camera, [5.0, -5.0], 0.0);
+    let c = image.pixel(cx, cy);
+    if c[..3].iter().any(|&v| v > 50) {
+        wrong.push(format!("the background is {:?} at ({cx}, {cy})", &c[..3]));
+    }
     if wrong.is_empty() { Ok(()) } else { Err(wrong.join("; ")) }
 }

@@ -10,6 +10,12 @@ publish.workspace = true
 [dependencies]
 mg-resman.workspace = true
 mg-serve.workspace = true
+# (The `hlsl` feature: shaders written as Direct3D 12 writes them, `hlsl`.)
+naga = { workspace = true, optional = true, features = ["hlsl-out", "wgsl-in"] }
+wgpu-types = { version = "30", optional = true }
+
+[features]
+hlsl = ["dep:naga", "dep:wgpu-types"]
 
 [lints]
 workspace = true

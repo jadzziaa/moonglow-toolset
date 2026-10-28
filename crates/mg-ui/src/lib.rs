@@ -861,6 +861,9 @@ pub struct Moonglow {
     /// What the startup check and the area view's watch found of the
     /// renderer here, for the notice under the toolbar.
     pub renderer_check: renderer_check::RendererCheck,
+    /// The lit check, once the game's data is read
+    /// ([`renderer_check::lit_check`]).
+    pub lit_check: renderer_check::LitCheck,
     /// Moonglow is to be started again when it has quit (Restart with …,
     /// in the renderer's notice): the desktop app does it.
     pub relaunch: Option<renderer_check::Relaunch>,
@@ -1116,6 +1119,7 @@ impl Moonglow {
             confirm_delete: None,
             quit_requested: false,
             renderer_check: Default::default(),
+            lit_check: Default::default(),
             relaunch: None,
             minimize_requested: false,
             conversation_backups: std::env::temp_dir().join("moonglow-backups"),
@@ -1142,6 +1146,26 @@ impl Moonglow {
             command_palette: None,
             job: None,
             background_jobs: false,
+        }
+    }
+
+    /// Whether the 3D views draw with the game's shaders: the Shaders
+    /// switch, unless the lit check found that they draw nothing here
+    /// ([`renderer_check::RendererCheck::game_shaders_off`]).
+    pub fn game_shaders(&self) -> bool {
+        self.settings.game_shaders() && self.renderer_check.game_shaders_off.is_none()
+    }
+
+    /// The Shaders switch turned to `on`: on, the game's shaders again,
+    /// whatever the lit check found (the builder asked for them).
+    pub fn set_game_shaders(&mut self, on: bool) {
+        self.settings.game_shaders = Some(on);
+        if on {
+            self.renderer_check.game_shaders_off = None;
+        }
+        let shaders = self.game_shaders();
+        if let Some(vp) = self.viewport.as_mut() {
+            vp.renderer.game_shaders = shaders;
         }
     }
 
@@ -1227,8 +1251,10 @@ impl Moonglow {
         }
         // The Shaders switch, for every 3D view (they share one renderer),
         // and the game's programs that couldn't be drawn, said once each.
+        renderer_check::lit_check(self);
+        let shaders = self.game_shaders();
         if let Some(vp) = self.viewport.as_mut() {
-            vp.renderer.game_shaders = self.settings.game_shaders();
+            vp.renderer.game_shaders = shaders;
             // (Once: the programs' cache folder, and a frame asked for when
             // the worker has made a pipeline.)
             if !vp.configured {

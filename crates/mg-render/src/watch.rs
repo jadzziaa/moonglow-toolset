@@ -308,10 +308,22 @@ impl Watch {
 /// resolved) at each point.
 const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba32Float;
 
+/// Looks are waited for ([`wait_for_looks`]).
+static WAIT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Makes [`Sampler::take`] wait for the GPU to do the look under way
+/// (`false`: it never waits, as in the window), so that a test's looks
+/// are read in the frame after they are taken, whatever the GPU's load:
+/// its verdicts follow its clock alone.
+#[doc(hidden)]
+pub fn wait_for_looks(on: bool) {
+    WAIT.store(on, std::sync::atomic::Ordering::SeqCst);
+}
+
 /// How long a look may wait for the GPU before it is given up, seconds.
 pub const LOST: f64 = 5.0;
 
-fn source(samples: u32) -> String {
+pub(crate) fn source(samples: u32) -> String {
     let depth = if samples > 1 { "texture_depth_multisampled_2d" } else { "texture_depth_2d" };
     format!(
         "@group(0) @binding(0) var depth: {depth};
@@ -542,7 +554,10 @@ impl Sampler {
     /// The look under way, once the GPU has done it (never waiting).
     pub fn take(&mut self, gpu: &Gpu) -> Option<Look> {
         let pending = self.pending.as_ref()?;
-        let _ = gpu.device.poll(wgpu::PollType::Poll);
+        // (Waited for, in a test: each look read in the frame after.)
+        let wait = WAIT.load(std::sync::atomic::Ordering::SeqCst);
+        let how = if wait { wgpu::PollType::wait_indefinitely() } else { wgpu::PollType::Poll };
+        let _ = gpu.device.poll(how);
         match pending.mapped.try_recv() {
             Err(std::sync::mpsc::TryRecvError::Empty) => return None,
             Err(std::sync::mpsc::TryRecvError::Disconnected) | Ok(Err(_)) => {

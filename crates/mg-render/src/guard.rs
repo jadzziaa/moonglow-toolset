@@ -108,6 +108,23 @@ pub(crate) fn program_made_to_fail(name: &str) -> bool {
     asked.is_some_and(|a| a == name.to_ascii_lowercase())
 }
 
+/// The game's programs are held back ([`hold_programs`]).
+static HELD: AtomicBool = AtomicBool::new(false);
+
+/// Holds back the worker that makes the game's pipelines (`false`: lets
+/// it go on), to test what waits for them for as long as the test wants,
+/// whatever the machine's speed. Process-wide: a test that sets it takes
+/// the GPU alone.
+#[doc(hidden)]
+pub fn hold_programs(on: bool) {
+    HELD.store(on, Ordering::SeqCst);
+}
+
+/// Whether [`hold_programs`] is on.
+pub(crate) fn programs_held() -> bool {
+    HELD.load(Ordering::SeqCst)
+}
+
 /// Textures read apart are never given back ([`stall_textures`]).
 static STALLED: AtomicBool = AtomicBool::new(false);
 

@@ -22,9 +22,13 @@ impl Drop for Unblank {
 }
 
 /// A harness of `app` (with an area's tab asked for), a quarter of a
-/// second a frame: the watch looks once a second and fails after five.
+/// second a frame: the watch looks once a second and fails after five,
+/// each look read in the frame after it.
 fn watched(app: Moonglow, rs: egui_wgpu::RenderState) -> Harness<'static, Moonglow> {
     mg_testkit::gpu::hold();
+    // (Each look read in the frame after it: the verdicts follow the
+    // harness's clock, not the GPU's load.)
+    mg_render::watch::wait_for_looks(true);
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 800.0))
         .with_step_dt(0.25)
@@ -177,40 +181,61 @@ fn the_watch_stays_quiet_with_the_camera_to_the_sky() {
     picture(&mut h, "sky");
 }
 
-/// The game's shaders warming up (their programs compiled on a worker,
-/// from nothing: no cache) with every draw blanked meanwhile: no look
-/// counts while a mesh waits for a pipeline, nor for the first seconds
-/// after. Then, drawn by the game's programs, the area is drawn; and
-/// blanked once they are (the game's path drawing nothing), the watch
-/// fails.
+/// The game's shaders warming up (their programs made on the worker, from
+/// nothing: no cache) with every draw blanked meanwhile: no look counts
+/// while a mesh waits for a pipeline, nor for the first seconds after.
+/// Then, drawn by the game's programs, the area is drawn; and blanked once
+/// they are (the game's path drawing nothing), the watch fails. (The
+/// worker is held back for ten seconds of the harness's clock, then waited
+/// for, and each look is read in the frame after it is taken: the
+/// verdicts follow that clock alone, not the machine's load. A wall-clock
+/// wait failed it once in a run of the whole workspace.)
 #[test]
 fn the_watch_waits_out_the_game_s_shaders_and_catches_their_path_drawing_nothing() {
+    struct Unhold;
+    impl Drop for Unhold {
+        fn drop(&mut self) {
+            mg_render::guard::hold_programs(false);
+            mg_render::guard::blank_draws(false);
+        }
+    }
+    // (The programs held back and every draw blanked: no other test
+    // renders meanwhile.)
+    mg_testkit::gpu::alone();
     let Some((mut app, rs, area)) = area_app("watch-warm", "ttr01", None, 4, None, &|_, _, _| {})
     else {
         return;
     };
     app.settings.game_shaders = Some(true);
-    let mut h = watched(app, rs);
-    // (Blanking every draw: no other test renders meanwhile.)
-    mg_testkit::gpu::alone();
-    let _unblank = Unblank;
+    let _unhold = Unhold;
+    mg_render::guard::hold_programs(true);
     mg_render::guard::blank_draws(true);
-    let mut warming = Vec::new();
-    let started = std::time::Instant::now();
-    loop {
-        warming.extend(watch_for(&mut h, area, 1.0, |_, _| {}));
-        let pending = h.state().viewport.as_ref().unwrap().renderer.drawn.game_pending;
-        let ready = warming.last().is_some_and(|v| *v != Verdict::Quiet(Quiet::NotReady));
-        if pending == 0 && ready {
+    let mut h = watched(app, rs);
+    let pending = |h: &Harness<'_, Moonglow>| {
+        h.state().viewport.as_ref().unwrap().renderer.drawn.game_pending
+    };
+    // Waiting for them (for less than `PATIENCE`: slow, not stuck).
+    let warming = watch_for(&mut h, area, 10.0, |_, _| {});
+    eprintln!("warming up: {warming:?}");
+    assert!(pending(&h) > 0, "the programs are held back");
+    assert!(warming.len() >= 8, "{warming:?}");
+    assert!(warming.iter().all(|v| *v == Verdict::Quiet(Quiet::NotReady)), "{warming:?}");
+    picture(&mut h, "warming_up_blanked");
+    // Made (the frames ask for what the ones made need: the see-through
+    // meshes' second part), and the first looks after warm up.
+    mg_render::guard::hold_programs(false);
+    for _ in 0..20 {
+        h.state_mut().viewport.as_mut().unwrap().renderer.wait_for_game_programs();
+        h.step();
+        if pending(&h) == 0 {
             break;
         }
-        assert!(started.elapsed().as_secs() < 120, "the game's programs never got ready");
-        std::thread::sleep(std::time::Duration::from_millis(50));
     }
-    eprintln!("warming up: {} looks, the last {:?}", warming.len(), warming.last());
-    assert!(warming.contains(&Verdict::Quiet(Quiet::NotReady)), "{warming:?}");
-    assert!(!failed(&warming), "{warming:?}");
-    picture(&mut h, "warming_up_blanked");
+    assert_eq!(pending(&h), 0, "the programs are made");
+    let warm = watch_for(&mut h, area, 1.5, |_, _| {});
+    eprintln!("warm: {warm:?}");
+    assert!(warm.contains(&Verdict::Quiet(Quiet::WarmingUp)), "{warm:?}");
+    assert!(!failed(&warm), "{warm:?}");
     mg_render::guard::blank_draws(false);
     let drawn = watch_for(&mut h, area, 6.0, |_, _| {});
     eprintln!("the game's shaders: {drawn:?}");
@@ -291,7 +316,9 @@ fn frames_that_never_get_ready_are_judged_after_a_while() {
     let _unstall = Unstall;
     mg_render::guard::stall_textures(true);
     let mut h = watched(app, rs);
-    let verdicts = watch_for(&mut h, area, PATIENCE as f32 + 10.0, |_, _| {});
+    // (The area read on a thread of its own, as in the desktop app: its
+    // first look a few seconds in.)
+    let verdicts = watch_for(&mut h, area, PATIENCE as f32 + 20.0, |_, _| {});
     eprintln!("never ready: {verdicts:?}");
     picture(&mut h, "never_ready");
     let pending = h.state().viewport.as_ref().unwrap().renderer.drawn.textures_pending;
@@ -302,6 +329,62 @@ fn frames_that_never_get_ready_are_judged_after_a_while() {
     assert!(f.waiting.is_some_and(|w| w >= PATIENCE), "{f:?}");
     let said = h.state().renderer_check.trouble.clone().expect("the notice").said;
     assert!(said.contains("none finished for"), "{said}");
+}
+
+/// The lit check runs once the game's data is read (where jobs run in the
+/// background, as in the desktop app), apart from the window's thread,
+/// and finds both Moonglow's own shader and the game's drawing here. Told
+/// of a check where the game's programs draw nothing (as it would find
+/// them if Heed's Direct3D 12 drew nothing through them alone): Moonglow
+/// draws with its own for the rest of the run, the notice says so and
+/// offers the other backend, and the Shaders button turns the game's on
+/// again.
+#[test]
+fn the_lit_check_turns_the_game_s_shaders_off_where_they_draw_nothing() {
+    let Some((mut app, rs, _area)) = area_app("lit-check", "ttr01", None, 4, None, &|_, _, _| {})
+    else {
+        return;
+    };
+    app.settings.game_shaders = Some(true);
+    app.background_jobs = true;
+    app.renderer_check.adapter = Some(heeds(wgpu::Backend::Dx12));
+    app.renderer_check.other = Some(wgpu::Backend::Vulkan);
+    let mut h = watched(app, rs);
+    let started = std::time::Instant::now();
+    while h.state().lit_check.found.is_none() {
+        assert!(started.elapsed().as_secs() < 60, "the lit check never ended");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        h.step();
+    }
+    let lit = h.state().lit_check.found.clone().unwrap();
+    eprintln!("lit check: {lit}");
+    assert_eq!((&lit.own, &lit.game), (&Ok(()), &Some(Ok(()))), "{lit}");
+    assert!(h.state().game_shaders());
+    assert_eq!(h.state().renderer_check.trouble, None);
+    // The game's programs drawing nothing.
+    let wrong = mg_render::probe::Lit {
+        game: Some(Err("the lit mesh is [0, 0, 0] at (24, 24), not red".into())),
+        ..lit
+    };
+    mg_ui::renderer_check::lit_found(h.state_mut(), wrong);
+    h.run_steps(2);
+    let app = h.state();
+    assert!(!app.game_shaders(), "Moonglow's own for the rest of the run");
+    assert!(app.settings.game_shaders(), "the builder's setting is kept");
+    assert!(!app.viewport.as_ref().unwrap().renderer.game_shaders);
+    let trouble = app.renderer_check.trouble.clone().expect("the notice");
+    assert!(
+        trouble.said.starts_with("The game's shaders draw nothing right through"),
+        "{trouble:?}"
+    );
+    assert_eq!(trouble.offer, Some(wgpu::Backend::Vulkan));
+    picture(&mut h, "lit_check_game_off");
+    // The Shaders button, off and on: the game's again.
+    h.state_mut().set_game_shaders(false);
+    h.state_mut().set_game_shaders(true);
+    h.run_steps(2);
+    assert!(h.state().game_shaders());
+    assert!(h.state().viewport.as_ref().unwrap().renderer.game_shaders);
 }
 
 /// The adapter Heed's machine draws with on Automatic, as Windows lists

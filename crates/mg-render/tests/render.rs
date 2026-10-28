@@ -4123,3 +4123,124 @@ fn the_watch_reads_what_the_gpu_drew_where_it_was_expected() {
     assert!(sampler.give_up(100.0 + watch::LOST));
     assert!(!sampler.busy());
 }
+
+/// Moonglow's own shaders (each WGSL source the renderer makes, at one
+/// sample a pixel and the area view's four) written in HLSL as wgpu's
+/// Direct3D 12 backend writes them for FXC (shader model 5.1, its binding
+/// map), every entry point, a vertex stage with each fragment stage of
+/// its module: what naga can't write, Direct3D 12 can't draw, and this
+/// shows on every platform. Where `MOONGLOW_D3DCOMPILER` names Microsoft's
+/// `d3dcompiler_47.dll`, FXC compiles them too, under Wine
+/// (`tools/dx12/fxc.sh`). In `target/test-output/hlsl/own/`.
+#[test]
+fn moonglow_s_own_shaders_are_written_in_hlsl_as_direct3d_12_writes_them() {
+    use mg_testkit::hlsl;
+    use naga::ShaderStage;
+    let dir = mg_testkit::output_dir("hlsl/own");
+    let mut failures = Vec::new();
+    let mut written = Vec::new();
+    for (name, source) in mg_render::wgsl_sources() {
+        let module =
+            naga::front::wgsl::parse_str(&source).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let options = hlsl::options(&hlsl::groups_of(&module));
+        let entries: Vec<(ShaderStage, String)> =
+            module.entry_points.iter().map(|e| (e.stage, e.name.clone())).collect();
+        let fragments: Vec<&String> =
+            entries.iter().filter(|(s, _)| *s == ShaderStage::Fragment).map(|(_, n)| n).collect();
+        for (stage, entry) in &entries {
+            // (A vertex stage with each fragment stage it may be paired with.)
+            let with: Vec<Option<&String>> = match stage {
+                ShaderStage::Vertex if !fragments.is_empty() => {
+                    fragments.iter().map(|f| Some(*f)).collect()
+                }
+                _ => vec![None],
+            };
+            for fs in with {
+                let label = match fs {
+                    Some(f) => format!("{name}.{entry}.{f}"),
+                    None => format!("{name}.{entry}"),
+                };
+                let fragment = fs.map(|f| (&module, f.as_str()));
+                match hlsl::write(&module, *stage, entry, fragment, &options) {
+                    Ok((text, ep)) => {
+                        let file = dir.join(format!("{label}.hlsl"));
+                        std::fs::write(&file, text).unwrap();
+                        written.push((file, ep, hlsl::profile(*stage).to_string()));
+                    }
+                    Err(e) => failures.push(format!("{label}: {e}")),
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "not written in HLSL: {failures:#?}");
+    assert!(written.len() >= 20, "{} written", written.len());
+    eprintln!("{} stages written in HLSL, in {}", written.len(), dir.display());
+    let Some(dll) = hlsl::d3dcompiler() else {
+        eprintln!("not compiled: MOONGLOW_D3DCOMPILER names no d3dcompiler_47.dll");
+        return;
+    };
+    let compiled = hlsl::fxc(&dll, &dir, &written).unwrap();
+    for c in &compiled {
+        eprintln!("{} {} ms {}", if c.ok { "OK  " } else { "FAIL" }, c.ms, c.file.display());
+    }
+    let failed: Vec<String> = compiled
+        .iter()
+        .filter(|c| !c.ok)
+        .map(|c| format!("{}: {}", c.file.display(), c.message))
+        .collect();
+    assert!(failed.is_empty(), "FXC failed: {failed:#?}");
+}
+
+/// The lit check (a lit, textured quad as a tile is drawn, by Moonglow's
+/// own shader and by the game's `vslit`/`fslit`: here the ones this test
+/// writes): it passes; a game's program that draws nothing (black) fails
+/// the game's part alone; one whose pipeline the backend refuses falls
+/// back, said as such; and with every draw blanked, Moonglow's own part
+/// fails. Prints its verdicts and times.
+#[test]
+fn the_lit_check_draws_a_lit_mesh_both_ways() {
+    use std::io::Write;
+    struct Unfail;
+    impl Drop for Unfail {
+        fn drop(&mut self) {
+            mg_render::guard::fail_program(None);
+            mg_render::guard::blank_draws(false);
+        }
+    }
+    // (Programs made to fail, draws blanked: no other test renders.)
+    mg_testkit::gpu::alone();
+    let Some(gpu) = Gpu::headless() else { return };
+    let mut assets = TestAssets::default();
+    authored_lit_pair(&mut assets);
+    let lit = mg_render::probe::probe_lit(&gpu, &assets, None);
+    let _ = writeln!(std::io::stdout(), "lit check: {lit}");
+    assert_eq!(lit.own, Ok(()), "{lit}");
+    assert_eq!(lit.game, Some(Ok(())), "{lit}");
+    assert!(!lit.game_fails());
+    // The game's program drawing black: the game's part fails.
+    let mut black = TestAssets::default();
+    authored_lit_pair(&mut black);
+    let fs =
+        "#define SHADER_TYPE 2\nvoid main ()\n{\n    gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);\n}\n";
+    black.shaders.insert("fslit".into(), fs.into());
+    let wrong = mg_render::probe::probe_lit(&gpu, &black, None);
+    let _ = writeln!(std::io::stdout(), "lit check (the game's drawing black): {wrong}");
+    assert_eq!(wrong.own, Ok(()));
+    assert!(matches!(&wrong.game, Some(Err(e)) if e.contains("not red")), "{wrong}");
+    assert!(wrong.game_fails());
+    let _unfail = Unfail;
+    // Its pipeline refused: Moonglow's own draws the mesh.
+    mg_render::guard::fail_program(Some("fslit"));
+    let refused = mg_render::probe::probe_lit(&gpu, &assets, None);
+    let _ = writeln!(std::io::stdout(), "lit check (the game's refused): {refused}");
+    assert_eq!((&refused.own, &refused.game), (&Ok(()), &None));
+    assert!(refused.fell_back.as_ref().is_some_and(|w| w.contains("made_to_fail")), "{refused}");
+    assert!(!refused.game_fails());
+    mg_render::guard::fail_program(None);
+    // Nothing drawn at all.
+    mg_render::guard::blank_draws(true);
+    let blanked = mg_render::probe::probe_lit(&gpu, &assets, None);
+    let _ = writeln!(std::io::stdout(), "lit check (draws blanked): {blanked}");
+    assert!(blanked.own.as_ref().is_err_and(|e| e.contains("not red")), "{blanked}");
+    assert!(!blanked.game_fails(), "Moonglow's own fails too: not the game's to blame");
+}

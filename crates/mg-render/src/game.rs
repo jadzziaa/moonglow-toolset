@@ -1363,6 +1363,9 @@ pub(crate) struct GameShaders {
     era: u64,
     /// Where compiled programs are kept between sessions, if anywhere.
     pub(crate) cache: Option<ProgramCache>,
+    /// Where the worker puts each pipeline's modules as it makes them, if
+    /// anywhere ([`crate::Renderer::capture_game_modules`]).
+    pub(crate) capture: Option<Captured>,
     /// Called when the worker has made a pipeline (a window asks for a
     /// frame); shared with the worker.
     pub(crate) waker: Arc<std::sync::Mutex<Option<Waker>>>,
@@ -1524,6 +1527,30 @@ struct Job {
     format: wgpu::TextureFormat,
     samples: u32,
     cache: Option<ProgramCache>,
+    capture: Option<Captured>,
+}
+
+/// A pipeline's modules as they go to wgpu ([`CapturedPipeline`]), kept
+/// for a test.
+pub type Captured = Arc<std::sync::Mutex<Vec<CapturedPipeline>>>;
+
+/// A pipeline of the game's programs as the worker gives it to wgpu:
+/// its two modules, after everything the worker does to them (the
+/// uniforms split and placed, the passes' alpha kept, the framebuffer's
+/// rows), and its bind groups' layouts in the pipeline's order. What a
+/// backend makes of them (Direct3D 12's HLSL) can be tried on a machine
+/// without that backend.
+#[derive(Debug, Clone)]
+pub struct CapturedPipeline {
+    /// `vs/fs`, and the pass (`Opaque`, `Solid`...), skinned or not.
+    pub label: String,
+    pub pass: String,
+    pub skinned: bool,
+    pub vs: naga::Module,
+    pub fs: naga::Module,
+    pub vs_entry: String,
+    pub fs_entry: String,
+    pub groups: Vec<Vec<wgpu::BindGroupLayoutEntry>>,
 }
 
 /// A pipeline made, without its places in the renderer's buffers.
@@ -1579,6 +1606,11 @@ impl Worker {
     ) {
         let mut w = Worker { gpu, era: 0, programs: HashMap::new(), stats: ShaderStats::default() };
         while let Ok(job) = jobs.recv() {
+            // (Held back, in a test: the programs pending as long as it
+            // wants.)
+            while crate::guard::programs_held() {
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
             if job.era != w.era {
                 w.era = job.era;
                 w.programs.clear();
@@ -1839,6 +1871,26 @@ impl Worker {
         if crate::guard::program_made_to_fail(&key.fs) {
             fs_entry = Some("made_to_fail".into());
         }
+        // (A test's capture: the modules and layouts as they go to wgpu.)
+        if let Some(c) = &job.capture
+            && let Ok(mut c) = c.lock()
+        {
+            c.push(CapturedPipeline {
+                label: format!("{}/{}", key.vs, key.fs),
+                pass: format!("{:?}", key.pass),
+                skinned: key.skinned,
+                vs: vs.module.clone(),
+                fs: fs.module.clone(),
+                vs_entry: vs_entry.clone().unwrap_or_default(),
+                fs_entry: fs_entry.clone().unwrap_or_default(),
+                groups: vec![
+                    storage.clone(),
+                    bones.clone(),
+                    layout_entries(&stages[0], visibility[0]),
+                    layout_entries(&stages[1], visibility[1]),
+                ],
+            });
+        }
         let pipeline = checked(gpu, || {
             let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("game"),
@@ -1923,6 +1975,7 @@ impl GameShaders {
             worker: None,
             era: 0,
             cache: None,
+            capture: None,
             waker: Arc::new(std::sync::Mutex::new(None)),
             stats: ShaderStats::default(),
             failures: Vec::new(),
@@ -2010,6 +2063,7 @@ impl GameShaders {
                 format,
                 samples,
                 cache: self.cache.clone(),
+                capture: self.capture.clone(),
             };
             if self.worker.is_none() {
                 let (jobs, inbox) = std::sync::mpsc::channel();
@@ -2060,6 +2114,17 @@ impl GameShaders {
             any |= self.finish(done);
         }
         any
+    }
+
+    /// Waits for the worker to make every pipeline asked of it.
+    pub(crate) fn finish_all(&mut self) {
+        while !self.pending.is_empty() {
+            let Some(done) = self.worker.as_ref().and_then(|w| w.done.recv().ok()) else {
+                self.pending.clear();
+                return;
+            };
+            self.finish(done);
+        }
     }
 
     /// Whether pipelines are being made.
@@ -2630,6 +2695,17 @@ fn block_entry(
 /// A stage's bind group layout: its frame block, then its textures and
 /// samplers.
 fn layout(gpu: &Gpu, stage: &StagePlan, visibility: wgpu::ShaderStages) -> wgpu::BindGroupLayout {
+    gpu.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("game"),
+        entries: &layout_entries(stage, visibility),
+    })
+}
+
+/// What [`layout`] lays out.
+fn layout_entries(
+    stage: &StagePlan,
+    visibility: wgpu::ShaderStages,
+) -> Vec<wgpu::BindGroupLayoutEntry> {
     let mut entries = Vec::new();
     if let Some(b) = &stage.frame {
         entries.push(block_entry(b, visibility, false));
@@ -2658,10 +2734,7 @@ fn layout(gpu: &Gpu, stage: &StagePlan, visibility: wgpu::ShaderStages) -> wgpu:
             });
         }
     }
-    gpu.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("game"),
-        entries: &entries,
-    })
+    entries
 }
 
 /// What of a mesh decides the stock pair the engine draws it with.

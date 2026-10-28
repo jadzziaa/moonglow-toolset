@@ -1247,6 +1247,21 @@ impl Renderer {
         self.game.stats
     }
 
+    /// From now on, each pipeline of the game's programs made is kept in
+    /// what this gives back, its modules and layouts as they go to wgpu
+    /// (a test of what a backend makes of them: Direct3D 12's HLSL).
+    #[doc(hidden)]
+    /// Waits until the game's pipelines asked for are made (a test that
+    /// moves on once they are, whatever the time they take).
+    pub fn wait_for_game_programs(&mut self) {
+        self.game.finish_all();
+    }
+
+    #[doc(hidden)]
+    pub fn capture_game_modules(&mut self) -> crate::game::Captured {
+        self.game.capture.get_or_insert_with(Default::default).clone()
+    }
+
     /// The game's shaders that couldn't be drawn ([`Renderer::game_shaders`]),
     /// as `vs/fs` pairs or programs, and why: drawn with Moonglow's own.
     pub fn game_shader_failures(&self) -> &[(String, String)] {

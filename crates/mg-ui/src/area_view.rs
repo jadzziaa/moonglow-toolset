@@ -2259,7 +2259,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         {
             app.settings.no_grass = !grass;
         }
-        let mut shaders = app.settings.game_shaders();
+        let mut shaders = app.game_shaders();
         if tools
             .toggle(
                 ui,
@@ -2272,7 +2272,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             )
             .changed()
         {
-            app.settings.game_shaders = Some(shaders);
+            app.set_game_shaders(shaders);
         }
         tools.toggle(ui, &mut view.grid, icons::GRID, "Grid", "Display Grid");
         // Aurora's Play Placed Sounds, Play Ambient Sound, Play Ambient
@@ -2704,6 +2704,7 @@ fn viewport(
         || !hidden.is_empty();
     let clock = module_clock(app);
     let background = app.background_jobs;
+    let shaders = app.game_shaders();
     let game_arc = app.game.clone();
     let (Some(model), Some(scene), Some(orbit), Some(vp), Some(game)) =
         (&view.model, &view.scene, view.orbit, app.viewport.as_mut(), app.game.as_deref())
@@ -2731,7 +2732,7 @@ fn viewport(
         merchant_signs: scene.merchant_signs,
         spawn_markers: scene.spawn_markers,
         follows,
-        shaders: app.settings.game_shaders(),
+        shaders,
     };
     let since = view.drawn.as_ref().map(|(_, at)| view.time - at);
     let kept = !follows
