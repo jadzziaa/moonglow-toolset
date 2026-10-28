@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use egui::Ui;
 use mg_core::{ResRef, ResType};
 use mg_gff::{Struct, Value};
-use mg_preview::replaceable::ModelTexture;
+use mg_preview::replaceable::{ModelTexture, Source};
 use mg_rules::Choice;
 
 use super::Form;
@@ -94,6 +94,10 @@ const CHEST_SLOT: u32 = 0x2;
 /// Why a PLT texture has no replacement to pick.
 const PLT_WHY: &str = "A PLT texture: the game draws it in the object's colors and doesn't \
     replace it (ReplaceObjectTexture draws with simple textures, DDS or TGA, not PLTs)";
+
+/// Why a texture with a name longer than a resref has no replacement.
+const TOO_LONG: &str = "The model names it by more than 16 characters: a replacement names \
+    the texture by a resref, of at most 16, so it can't name this one";
 
 /// Said of an entry whose texture or animation the object's models don't have.
 const NOT_IN_THE_MODEL: &str = "not in the model";
@@ -242,6 +246,8 @@ pub(super) fn textures(f: &mut Form<'_>, ui: &mut Ui) {
         for row in &rows {
             let plt = row.of_model.filter(|t| t.plt).map(|t| t.colors.unwrap_or_default());
             small_picture(f, ui, &row.name, plt, ROW_PICTURE);
+            // (A name the replacement's field can't hold: said, not offered.)
+            let long = row.name.len() > ResRef::MAX_LEN;
             ui.horizontal(|ui| {
                 let name = ui.label(&row.name);
                 if let Some(t) = row.of_model {
@@ -255,6 +261,25 @@ pub(super) fn textures(f: &mut Form<'_>, ui: &mut Ui) {
                 } else if plt.is_some() {
                     ui.weak("PLT").on_hover_text(PLT_WHY);
                 }
+                if let Some(t) = row.of_model {
+                    match &t.source {
+                        Source::Mesh => {}
+                        Source::Material(m) => {
+                            ui.weak(format!("(material {m})")).on_hover_text(format!(
+                                "A texture of the material {m}.mtr a mesh is drawn with"
+                            ));
+                        }
+                        Source::Emitter => {
+                            ui.weak("(emitter)").on_hover_text("A particle emitter's texture");
+                        }
+                        Source::Flare => {
+                            ui.weak("(flare)").on_hover_text("A light's lens flare");
+                        }
+                    }
+                }
+                if long {
+                    ui.weak("(name too long)").on_hover_text(TOO_LONG);
+                }
             });
             let new = row.entry.map(|i| resref_text(&items[i], p.new)).unwrap_or_default();
             if new.is_empty() {
@@ -264,7 +289,10 @@ pub(super) fn textures(f: &mut Form<'_>, ui: &mut Ui) {
             }
             ui.horizontal(|ui| {
                 let id = f.id(&format!("{}#{}#{:?}#new", p.field, row.name, row.entry));
-                if plt.is_some() && row.entry.is_none() {
+                if long {
+                    ui.add_enabled(false, egui::Button::new("Select Texture…"))
+                        .on_disabled_hover_text(TOO_LONG);
+                } else if plt.is_some() && row.entry.is_none() {
                     ui.add_enabled(false, egui::Button::new("Select Texture…"))
                         .on_disabled_hover_text(PLT_WHY);
                 } else {
@@ -358,8 +386,11 @@ struct TexturePick {
     entry: Option<usize>,
     filter: String,
     chosen: Option<String>,
-    /// The textures to pick from (lower case, by name).
-    names: Arc<Vec<String>>,
+    /// The textures to pick from.
+    textures: Arc<Textures>,
+    /// The interface's pictures are listed too (icons, portraits, load
+    /// screens, maps and the GUI's own).
+    interface: bool,
     /// Scrolled to the one chosen, once.
     placed: bool,
     /// The pictures it made (their keys in the app's pictures), oldest
@@ -376,32 +407,131 @@ fn thumb_key(name: &str, side: u32) -> String {
     format!("{}#thumb{side}", name.to_ascii_lowercase())
 }
 
+/// The textures Select Texture offers, by name (lower case), each with
+/// whether it is one of the interface's pictures.
+#[derive(Default)]
+struct Textures {
+    names: Vec<String>,
+    interface: Vec<bool>,
+}
+
+impl Textures {
+    fn of(mut names: Vec<String>, icons: &[String]) -> Textures {
+        names.sort_unstable();
+        names.dedup();
+        let interface = names.iter().map(|n| is_interface(n, icons)).collect();
+        Textures { names, interface }
+    }
+
+    /// How many there are, of the interface's or not.
+    fn count(&self, interface: bool) -> usize {
+        if interface { self.names.len() } else { self.interface.iter().filter(|i| !**i).count() }
+    }
+}
+
+/// The beginnings of the names of the interface's pictures, which no
+/// model is drawn with: the GUI's own (`gui_`, `ctl_`, `pnl_`, the
+/// character maker's `cg_`, NUI's, the radial menu's `ir_`, fonts), the
+/// icons of feats, spells, effects and misc items, portraits (`po_`),
+/// load screens (`ls_`), the area map's (`mi_`) and the credits'.
+const INTERFACE_PREFIXES: [&str; 18] = [
+    "gui_",
+    "ctl_",
+    "ct_",
+    "cg_",
+    "pnl_",
+    "fnt_",
+    "nui_",
+    "ir_",
+    "ife_",
+    "ief_",
+    "is_",
+    "iss_",
+    "iit_",
+    "po_",
+    "ls_",
+    "mi_",
+    "xp1credits",
+    "xp2credits",
+];
+
+/// Whether a texture is one of the interface's pictures: one whose name
+/// begins as theirs do ([`INTERFACE_PREFIXES`]), a tile's picture on the
+/// area map (`mi`, the tileset's prefix and `_`: `mitu01_`), or an item's
+/// icon (`i`, its base item's `ItemClass` and `_`: `icons` holds those
+/// beginnings).
+fn is_interface(name: &str, icons: &[String]) -> bool {
+    if INTERFACE_PREFIXES.iter().any(|p| name.starts_with(p)) {
+        return true;
+    }
+    let b = name.as_bytes();
+    let map_tile = b.len() > 7
+        && b.starts_with(b"mi")
+        && b[2..4].iter().all(u8::is_ascii_alphabetic)
+        && b[4..6].iter().all(u8::is_ascii_digit)
+        && b[6] == b'_';
+    map_tile || icons.iter().any(|p| name.starts_with(p.as_str()))
+}
+
+/// The beginnings of item icons' names: `i`, each base item's `ItemClass`
+/// (baseitems.2da), `_`.
+fn icon_prefixes(game: &mg_rules::GameData) -> Vec<String> {
+    let Ok(t) = game.table("baseitems") else { return Vec::new() };
+    let mut out: Vec<String> = (0..t.len())
+        .filter_map(|r| t.get(r, "ItemClass"))
+        .filter(|c| !c.is_empty())
+        .map(|c| format!("i{}_", c.to_ascii_lowercase()))
+        .collect();
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
 /// The textures a replacement can draw with: the game's, the haks' and the
-/// module's DDS and TGA textures, each name once.
-fn texture_names(app: &crate::Moonglow) -> Vec<String> {
-    let mut names: Vec<String> = Vec::new();
-    if let Some(g) = &app.game {
-        for t in [ResType::DDS, ResType::TGA] {
-            names.extend(g.resman.list(t).into_iter().map(|r| r.to_lowercase().to_string()));
+/// module's DDS and TGA textures, each name once. The game's are listed
+/// once for the game data (29,567 of them took 15 ms a click), the
+/// module's each time.
+fn texture_names(app: &crate::Moonglow, ui: &Ui) -> Arc<Textures> {
+    let Some(game) = app.game.clone() else { return Arc::default() };
+    let id = egui::Id::new("select-texture-names");
+    let stamp = Arc::as_ptr(&game) as usize;
+    let cached = ui.data(|d| d.get_temp::<(usize, Arc<Textures>)>(id));
+    let listed = match cached {
+        Some((was, t)) if was == stamp => t,
+        _ => {
+            let mut names: Vec<String> = Vec::new();
+            for t in [ResType::DDS, ResType::TGA] {
+                names.extend(game.resman.list(t).into_iter().map(|r| r.to_lowercase().to_string()));
+            }
+            let t = Arc::new(Textures::of(names, &icon_prefixes(&game)));
+            ui.data_mut(|d| d.insert_temp(id, (stamp, t.clone())));
+            t
         }
+    };
+    let own: Vec<String> = app.ws.as_ref().map_or_else(Vec::new, |ws| {
+        ws.module
+            .keys()
+            .filter(|k| matches!(k.restype, ResType::DDS | ResType::TGA))
+            .map(|k| k.resref.to_lowercase().to_string())
+            .filter(|n| listed.names.binary_search(n).is_err())
+            .collect()
+    });
+    if own.is_empty() {
+        return listed;
     }
-    if let Some(ws) = &app.ws {
-        names.extend(
-            ws.module
-                .keys()
-                .filter(|k| matches!(k.restype, ResType::DDS | ResType::TGA))
-                .map(|k| k.resref.to_lowercase().to_string()),
-        );
-    }
-    names.sort_unstable();
-    names.dedup();
-    names
+    let mut names = listed.names.clone();
+    names.extend(own);
+    Arc::new(Textures::of(names, &icon_prefixes(&game)))
 }
 
 fn open_gallery(f: &mut Form<'_>, ui: &Ui, entry: Option<usize>, old: String, current: String) {
-    let names = Arc::new(texture_names(f.app));
+    let textures = texture_names(f.app, ui);
     let chosen = (!current.is_empty()).then(|| current.to_ascii_lowercase());
-    let state = TexturePick { old, entry, chosen, names, ..Default::default() };
+    // (The one it is drawn with now is shown, of the interface's or not.)
+    let interface = chosen
+        .as_ref()
+        .is_some_and(|c| textures.names.binary_search(c).is_ok_and(|i| textures.interface[i]));
+    let state = TexturePick { old, entry, chosen, textures, interface, ..Default::default() };
     ui.data_mut(|d| d.insert_temp(f.id("texture-gallery"), state));
 }
 
@@ -412,8 +542,11 @@ fn gallery(f: &mut Form<'_>, ui: &mut Ui) -> Option<(Option<usize>, String, ResR
     let id = f.id("texture-gallery");
     let mut state: TexturePick = ui.data(|d| d.get_temp(id))?;
     let needle = mg_core::text::Needle::new(&state.filter);
-    let names = state.names.clone();
-    let shown: Vec<&String> = names.iter().filter(|n| needle.finds(n)).collect();
+    let textures = state.textures.clone();
+    let shown: Vec<&String> = (textures.names.iter().zip(&textures.interface))
+        .filter(|(n, i)| (state.interface || !**i) && needle.finds(n))
+        .map(|(n, _)| n)
+        .collect();
     let (mut ok, mut cancel, mut wanted, mut in_sight) = (false, false, Vec::new(), Vec::new());
     let wide = (ui.ctx().content_rect().width() * 0.8).clamp(480.0, 960.0);
     let tall = (ui.ctx().content_rect().height() * 0.6).clamp(300.0, 700.0);
@@ -430,10 +563,22 @@ fn gallery(f: &mut Form<'_>, ui: &mut Ui) -> Option<(Option<usize>, String, ResR
                 .find_over()
                 .show(ui);
             crate::appearance_gallery::size_slider(f.app, ui);
-            ui.weak(format!("{} of {} textures", shown.len(), state.names.len())).on_hover_text(
+            let all = textures.count(state.interface);
+            ui.weak(format!("{} of {all} textures", shown.len())).on_hover_text(
                 "DDS and TGA textures of the game, the haks and the module (no \
                     PLTs: the game replaces textures with simple ones alone)",
             );
+            let interface = ui.checkbox(&mut state.interface, "Interface textures too");
+            if interface
+                .on_hover_text(
+                    "List the interface's pictures too: icons, portraits, load screens, the \
+                     area map's tiles and the GUI's own, which no model is drawn with",
+                )
+                .changed()
+            {
+                state.placed = false;
+                ui.ctx().request_repaint();
+            }
         });
         ui.separator();
         let preview = 200.0;
@@ -661,4 +806,39 @@ pub(super) fn animations(f: &mut Form<'_>, ui: &mut Ui) {
         p.set(f, all);
     }
     add_row(f, ui, &p, &items);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_interface_s_pictures_are_told_by_their_names() {
+        let icons = vec!["iwswls_".to_string(), "iit_bag_".to_string()];
+        for name in [
+            "gui_mp_arwalk",
+            "ctl_cg_btn_feats",
+            "pnl_quick_bar",
+            "ife_x2epicprot",
+            "is_fireball",
+            "po_hezrou_h",
+            "ls_tcn_01",
+            "mi_tcm02_a01_01",
+            "mitu01_a03",
+            "iwswls_b_011",
+        ] {
+            assert!(is_interface(name, &icons), "{name}");
+        }
+        // Models' textures: a weapon's part (no `i`), a tile's, a chest's,
+        // a name that only begins with `mi`.
+        for name in ["wswls_b_011", "tcm02_wall01", "plc_chest1", "mirror01", "mitd_wall"] {
+            assert!(!is_interface(name, &icons), "{name}");
+        }
+        let t = Textures::of(
+            ["plc_chest1", "po_hezrou_h", "plc_chest1", "ttr01_bark01"].map(String::from).into(),
+            &icons,
+        );
+        assert_eq!(t.names, ["plc_chest1", "po_hezrou_h", "ttr01_bark01"]);
+        assert_eq!((t.count(false), t.count(true)), (2, 3));
+    }
 }

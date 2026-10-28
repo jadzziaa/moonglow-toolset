@@ -978,6 +978,102 @@ fn visuals_page_picks_a_texture_in_the_gallery_and_resets_it() {
     assert!(field(&mut h, &key).get("TextureReplace").is_none());
 }
 
+/// The Visuals page lists the textures of a material a mesh is drawn with
+/// and an emitter's, each said so; a texture whose name is longer than a
+/// resref is listed with why nothing is offered for it.
+#[test]
+fn visuals_page_lists_materials_emitters_and_long_names() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let mut app = game_app(&root, None);
+    let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+    let game = app.game.as_deref().unwrap();
+    let chest = game.resman.get(&key).unwrap().into_owned();
+    let model = {
+        let g = Gff::read(&chest).unwrap();
+        mg_preview::placeable(game, &g.root).unwrap().base.model
+    };
+    // The chest's model, the module's own: a mesh drawn with a material,
+    // one with a long name, an emitter.
+    let mesh = |name: &str, lines: &str| {
+        format!(
+            "node trimesh {name}\n  parent {model}\n{lines}verts 3\n    0 0 0\n    1 0 0\n    \
+             0 1 0\ntverts 3\n    0 0 0\n    1 0 0\n    0 1 0\nfaces 1\n    0 1 2 1 0 1 2 \
+             0\nendnode\n"
+        )
+    };
+    let mdl = format!(
+        "newmodel {model}\nsetsupermodel {model} NULL\nclassification character\n\
+         beginmodelgeom {model}\nnode dummy {model}\n  parent NULL\nendnode\n{}{}\
+         node emitter sparks\n  parent {model}\n  texture mg_spark\nendnode\n\
+         endmodelgeom {model}\ndonemodel {model}\n",
+        mesh("lid", "  bitmap mg_lid\n  materialname mg_lidmat\n"),
+        mesh("base", "  bitmap mg_a_very_long_texture_name\n"),
+    );
+    let mut m = mg_module::Module::new();
+    m.set_info(&Gff::new(*b"IFO ")).unwrap();
+    m.set(key, chest);
+    m.set(ResKey::parse(&model, ResType::MDL).unwrap(), mdl.into_bytes());
+    m.set(ResKey::parse("mg_lidmat", ResType::MTR).unwrap(), b"texture0 mg_lidwood\n".to_vec());
+    let path = mg_testkit::scratch_dir("ui-visuals-kinds").join("kinds.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    app.open_module(&path);
+    app.blueprint_pages.insert((key, mg_edit::GffPath::root()), "Visuals");
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
+    let mut h = harness(app, 1000.0, 800.0);
+    h.run_steps(3);
+    for name in ["mg_lid", "mg_lidwood", "mg_spark", "mg_a_very_long_texture_name"] {
+        assert!(h.query_by_label(name).is_some(), "{name} is listed");
+    }
+    assert!(h.query_by_label("(material mg_lidmat)").is_some());
+    assert!(h.query_by_label("(emitter)").is_some());
+    assert!(h.query_by_label("(name too long)").is_some());
+    let disabled =
+        h.get_all_by_label("Select Texture…").filter(|b| b.accesskit_node().is_disabled()).count();
+    assert_eq!(disabled, 1, "the long one's");
+}
+
+/// Select Texture leaves the interface's pictures (a portrait here) out,
+/// unless asked for them.
+#[test]
+fn select_texture_leaves_the_interface_out() {
+    let Some((mut h, _key)) = blueprint_harness("plc_chest1", "chest_interface", ResType::UTP)
+    else {
+        return;
+    };
+    h.run();
+    h.get_by_label("Visuals").click();
+    h.run();
+    h.get_all_by_label("Select Texture…").next().unwrap().click();
+    settle(&mut h);
+    let by_hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Find");
+    h.get(egui_kittest::kittest::by().predicate(by_hint)).click();
+    settle(&mut h);
+    h.get(egui_kittest::kittest::by().predicate(by_hint)).type_text("po_hezrou_h");
+    settle(&mut h);
+    assert!(h.query_by_label("po_hezrou_h").is_none(), "a portrait, left out");
+    let count = |h: &Harness<'_, Moonglow>| -> (usize, usize) {
+        let label = (h.get_all_by_label_contains(" textures"))
+            .filter_map(|n| n.accesskit_node().value())
+            .find(|l| l.ends_with(" textures") && l.contains(" of "))
+            .expect("how many are listed");
+        let words: Vec<&str> = label.split_whitespace().collect();
+        (words[0].parse().unwrap(), words[2].parse().unwrap())
+    };
+    let (none, models) = count(&h);
+    assert_eq!(none, 0);
+    h.get_by_label("Interface textures too").click();
+    settle(&mut h);
+    assert!(h.query_by_label("po_hezrou_h").is_some(), "listed when asked for");
+    let (one, all) = count(&h);
+    assert_eq!(one, 1);
+    assert!(all > models + 5000, "{models} of the models', {all} in all");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run();
+}
+
 /// GitHub issue 32: an animation replacement picked from the animations of
 /// the object's model and its supermodels, after an entry for one the
 /// model lacks (shown so, kept), and Reset.

@@ -2886,6 +2886,21 @@ pub(crate) fn tile_label_height(ui: &Ui) -> f32 {
 /// name under it, on up to two lines. `made`: the picture (`Some(None)`: there
 /// is nothing to draw; `None`: not made yet). Its response, and whether
 /// it is in sight (to have its picture made).
+/// Where a picture of texture `id` is drawn in `room`: as large as fits,
+/// in its own shape (a texture twice as wide as tall isn't stretched to a
+/// square), centered. The whole room where its size isn't known.
+pub(crate) fn letterboxed(
+    ctx: &egui::Context,
+    id: egui::TextureId,
+    room: egui::Rect,
+) -> egui::Rect {
+    let size = ctx.tex_manager().read().meta(id).map(|m| m.size);
+    let Some([w, h]) = size.filter(|[w, h]| *w > 0 && *h > 0) else { return room };
+    let (w, h) = (w as f32, h as f32);
+    let scale = (room.width() / w).min(room.height() / h);
+    egui::Rect::from_center_size(room.center(), egui::vec2(w * scale, h * scale))
+}
+
 pub(crate) fn picture_tile(
     ui: &mut Ui,
     side: f32,
@@ -2914,7 +2929,8 @@ pub(crate) fn picture_tile(
     match made {
         Some(Some(id)) => {
             let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-            ui.painter().image(id, picture, uv, egui::Color32::WHITE);
+            let at = letterboxed(ui.ctx(), id, picture);
+            ui.painter().image(id, at, uv, egui::Color32::WHITE);
         }
         _ => {
             let mark = if made.is_none() { "…" } else { "(no picture)" };
