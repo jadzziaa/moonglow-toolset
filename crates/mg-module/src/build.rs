@@ -302,12 +302,18 @@ impl Remembered {
     }
 }
 
-/// Moonglow's data folder: `$XDG_DATA_HOME/moonglow` (else
-/// `~/.local/share/moonglow`) on Linux, `~/Library/Application
-/// Support/Moonglow` on macOS, `%APPDATA%\Moonglow` on Windows.
+/// Moonglow's data folder: `$MOONGLOW_DATA_DIR` where it is set (the
+/// folder itself, on every system: the tests' own, which on macOS can't
+/// be moved otherwise without moving the game), else
+/// `$XDG_DATA_HOME/moonglow` (else `~/.local/share/moonglow`) on Linux,
+/// `~/Library/Application Support/Moonglow` on macOS, `%APPDATA%\Moonglow`
+/// on Windows.
 pub fn data_dir() -> Option<std::path::PathBuf> {
     use std::path::PathBuf;
     let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
+    if let Some(dir) = env("MOONGLOW_DATA_DIR") {
+        return Some(dir);
+    }
     if cfg!(windows) {
         env("APPDATA").map(|d| d.join("Moonglow"))
     } else if cfg!(target_os = "macos") {
@@ -320,12 +326,17 @@ pub fn data_dir() -> Option<std::path::PathBuf> {
 }
 
 /// Moonglow's cache folder, for what it makes on the user's machine and can
-/// make again (the game's shaders compiled): `$XDG_CACHE_HOME/moonglow`
-/// (else `~/.cache/moonglow`) on Linux, `~/Library/Caches/Moonglow` on
-/// macOS, `%LOCALAPPDATA%\Moonglow\cache` on Windows.
+/// make again (the game's shaders compiled): `$MOONGLOW_CACHE_DIR` where it
+/// is set (as [`data_dir`]'s `MOONGLOW_DATA_DIR`), else
+/// `$XDG_CACHE_HOME/moonglow` (else `~/.cache/moonglow`) on Linux,
+/// `~/Library/Caches/Moonglow` on macOS, `%LOCALAPPDATA%\Moonglow\cache`
+/// on Windows.
 pub fn cache_dir() -> Option<std::path::PathBuf> {
     use std::path::PathBuf;
     let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
+    if let Some(dir) = env("MOONGLOW_CACHE_DIR") {
+        return Some(dir);
+    }
     if cfg!(windows) {
         env("LOCALAPPDATA").map(|d| d.join("Moonglow").join("cache"))
     } else if cfg!(target_os = "macos") {

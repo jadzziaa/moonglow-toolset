@@ -17,9 +17,7 @@ fn compile(root: &Path, dir: &Path, module: &Path, more: &[&str]) -> Value {
         .args(more)
         // (A data folder that starts empty: what was compiled before is
         // remembered there.)
-        .env("XDG_DATA_HOME", dir.join("data"))
-        .env("APPDATA", dir.join("data"))
-        .env("HOME", dir.join("data"))
+        .env("MOONGLOW_DATA_DIR", dir.join("data"))
         .output()
         .unwrap();
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stdout));
@@ -119,9 +117,7 @@ fn uncompiled_and_build_remember_what_they_compiled() {
             .args(["--root", root.to_str().unwrap(), "--user-dir"])
             .arg(dir.join("user"))
             .args(args)
-            .env("XDG_DATA_HOME", dir.join("data"))
-            .env("APPDATA", dir.join("data"))
-            .env("HOME", dir.join("data"))
+            .env("MOONGLOW_DATA_DIR", dir.join("data"))
             .output()
             .unwrap();
         assert!(out.status.success(), "{args:?}: {}", String::from_utf8_lossy(&out.stderr));
