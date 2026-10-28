@@ -3011,6 +3011,40 @@ fn a_placeable_s_appearance_is_chosen_from_pictures() {
     assert!(h.query_by_label_contains("A click gives my_chest.utp the appearance").is_some());
 }
 
+/// The Appearance Gallery opens scrolled to the object's own appearance,
+/// however far down its table that is: at the top of the pictures, not
+/// a pixel further per row (GitHub issue 32: the scroll took the rows'
+/// own spacing for the scroll area's).
+#[test]
+fn the_gallery_opens_at_a_far_appearance() {
+    let Some((mut h, key)) = blueprint_harness("plc_chest1", "far_chest", ResType::UTP) else {
+        return;
+    };
+    let far = {
+        let game = h.state().game.as_deref().unwrap();
+        let cols = mg_rules::ChoiceColumns { name: Some("StrRef"), label: Some("Label") };
+        let all = game.choices("placeables", cols).unwrap();
+        all[all.len() * 2 / 3].clone()
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "far",
+        vec![mg_edit::Edit::SetField {
+            key,
+            path: mg_edit::GffPath::root(),
+            label: "Appearance".into(),
+            value: Some(mg_gff::Value::Dword(far.row as u32)),
+        }],
+    )));
+    h.run();
+    h.get_by_label("Gallery…").click();
+    h.run_steps(4);
+    let tile = |n: &egui_kittest::Node<'_>| n.rect().height() > 60.0;
+    let chosen = h.get_all_by_label(&far.text).find(tile).expect("its picture, in sight").rect();
+    let find = h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().rect();
+    let below = chosen.top() - find.bottom();
+    assert!((0.0..=24.0).contains(&below), "{below} points under Find: {chosen:?}");
+}
+
 /// An item's Appearance page shows its model in the page, over the fields
 /// in a window too narrow to have it beside them.
 #[test]

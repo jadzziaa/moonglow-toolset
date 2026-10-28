@@ -218,7 +218,10 @@ pub(crate) fn grid(
     let room = ui.available_width() - ui.spacing().scroll.bar_width - 10.0;
     let (per_row, side) = fitted(room, side, gap);
     let tall = side + crate::widgets::tile_label_height(ui);
-    let height = tall + gap;
+    // A row and the space after it, as `show_rows` steps them: the scroll
+    // area's spacing, not the `gap` set inside the rows (that put the
+    // current one a pixel a row further down than it was).
+    let height = tall + ui.spacing().item_spacing.y;
     let mut area = egui::ScrollArea::vertical().id_salt(kind).auto_shrink([false, false]);
     if !state.placed {
         state.placed = true;

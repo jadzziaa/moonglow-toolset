@@ -1847,6 +1847,46 @@ fn classes_narrow() {
     }
 }
 
+/// The Appearance Gallery opened for a chest whose appearance is two
+/// thirds down placeables.2da: scrolled to it, its picture at the top
+/// (GitHub issue 32).
+#[test]
+#[ignore]
+fn gallery_far_appearance() {
+    use egui_kittest::kittest::Queryable;
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let install = GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let game = app.game.as_deref().unwrap();
+    let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+    let cols = mg_rules::ChoiceColumns { name: Some("StrRef"), label: Some("Label") };
+    let all = game.choices("placeables", cols).unwrap();
+    let far = all[all.len() * 2 / 3].clone();
+    let mut g = mg_gff::Gff::read(&game.resman.get(&key).unwrap()).unwrap();
+    g.root.set("Appearance", mg_gff::Value::Dword(far.row as u32));
+    let mut m = mg_module::Module::new();
+    m.set(key, g.to_bytes().unwrap());
+    let path = mg_testkit::scratch_dir("screens-gallery-far").join("gallery.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    app.open_module(&path);
+    app.open_palette = false;
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 760.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.get_by_label("Gallery…").click();
+    for _ in 0..200 {
+        if h.try_run().is_ok() {
+            break;
+        }
+    }
+    shoot(&mut h, &dir, "gallery-far-appearance");
+}
+
 #[test]
 #[ignore]
 fn store_chosen_item() {
