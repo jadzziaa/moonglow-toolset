@@ -70,7 +70,6 @@ pub enum GraphicsBackend {
     Automatic,
     Vulkan,
     Direct3d12,
-    OpenGl,
     Metal,
 }
 
@@ -118,11 +117,10 @@ impl<'de> Deserialize<'de> for GraphicsBackend {
 
 impl GraphicsBackend {
     /// Each one by the name it is saved as.
-    const NAMES: [(&str, GraphicsBackend); 5] = [
+    const NAMES: [(&str, GraphicsBackend); 4] = [
         ("Automatic", GraphicsBackend::Automatic),
         ("Vulkan", GraphicsBackend::Vulkan),
         ("Direct3d12", GraphicsBackend::Direct3d12),
-        ("OpenGl", GraphicsBackend::OpenGl),
         ("Metal", GraphicsBackend::Metal),
     ];
 
@@ -132,7 +130,6 @@ impl GraphicsBackend {
             GraphicsBackend::Automatic => None,
             GraphicsBackend::Vulkan => Some(wgpu::Backend::Vulkan),
             GraphicsBackend::Direct3d12 => Some(wgpu::Backend::Dx12),
-            GraphicsBackend::OpenGl => Some(wgpu::Backend::Gl),
             GraphicsBackend::Metal => Some(wgpu::Backend::Metal),
         }
     }
@@ -145,12 +142,7 @@ impl GraphicsBackend {
     /// The choices on `platform`: Automatic, then the backends wgpu
     /// offers there.
     pub fn offered(platform: mg_render::backend::Platform) -> Vec<GraphicsBackend> {
-        let all = [
-            GraphicsBackend::Vulkan,
-            GraphicsBackend::Direct3d12,
-            GraphicsBackend::OpenGl,
-            GraphicsBackend::Metal,
-        ];
+        let all = [GraphicsBackend::Vulkan, GraphicsBackend::Direct3d12, GraphicsBackend::Metal];
         let here = platform.backends();
         std::iter::once(GraphicsBackend::Automatic)
             .chain(all.into_iter().filter(|c| c.backend().is_some_and(|b| here.contains(&b))))
@@ -777,8 +769,11 @@ mod tests {
         assert_eq!((newer.graphics_backend, newer.light_theme), (GraphicsBackend::Automatic, true));
         let json: Settings = serde_json::from_str(r#"{"graphics_backend":"WebGpu"}"#).unwrap();
         assert_eq!(json.graphics_backend, GraphicsBackend::Automatic);
-        let json: Settings = serde_json::from_str(r#"{"graphics_backend":"OpenGl"}"#).unwrap();
-        assert_eq!(json.graphics_backend, GraphicsBackend::OpenGl);
+        let json: Settings = serde_json::from_str(r#"{"graphics_backend":"Metal"}"#).unwrap();
+        assert_eq!(json.graphics_backend, GraphicsBackend::Metal);
+        // (OpenGL, no longer offered, reads as Automatic.)
+        let gl: Settings = serde_json::from_str(r#"{"graphics_backend":"OpenGl"}"#).unwrap();
+        assert_eq!(gl.graphics_backend, GraphicsBackend::Automatic);
         write("(graphics_backend:");
         assert_eq!(Settings::read_eframe_file(&path, key), None);
         std::fs::write(&path, "not ron").unwrap();
@@ -790,14 +785,11 @@ mod tests {
     fn each_platform_offers_its_graphics_backends() {
         use GraphicsBackend::*;
         use mg_render::backend::Platform;
-        assert_eq!(
-            GraphicsBackend::offered(Platform::Windows),
-            [Automatic, Vulkan, Direct3d12, OpenGl]
-        );
-        assert_eq!(GraphicsBackend::offered(Platform::Linux), [Automatic, Vulkan, OpenGl]);
+        assert_eq!(GraphicsBackend::offered(Platform::Windows), [Automatic, Vulkan, Direct3d12]);
+        assert_eq!(GraphicsBackend::offered(Platform::Linux), [Automatic, Vulkan]);
         assert_eq!(GraphicsBackend::offered(Platform::MacOs), [Automatic, Metal]);
-        let names: Vec<_> = [Automatic, Vulkan, Direct3d12, OpenGl, Metal].map(|b| b.name()).into();
-        assert_eq!(names, ["Automatic", "Vulkan", "Direct3D 12", "OpenGL", "Metal"]);
+        let names: Vec<_> = [Automatic, Vulkan, Direct3d12, Metal].map(|b| b.name()).into();
+        assert_eq!(names, ["Automatic", "Vulkan", "Direct3D 12", "Metal"]);
     }
 
     #[test]

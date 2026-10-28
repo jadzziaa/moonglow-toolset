@@ -44,12 +44,15 @@ impl Platform {
         }
     }
 
-    /// The backends wgpu offers Moonglow here, in wgpu's order.
+    /// The backends that can be chosen here, in wgpu's order. (Not
+    /// OpenGL: Moonglow's renderer draws particles, the game's shaders and
+    /// more wrong on wgpu's GL backend. wgpu still falls back to it where
+    /// nothing else draws, as it did before the choice.)
     pub fn backends(self) -> &'static [Backend] {
         match self {
-            Platform::Windows => &[Backend::Vulkan, Backend::Dx12, Backend::Gl],
+            Platform::Windows => &[Backend::Vulkan, Backend::Dx12],
             Platform::MacOs => &[Backend::Metal],
-            Platform::Linux | Platform::Other => &[Backend::Vulkan, Backend::Gl],
+            Platform::Linux | Platform::Other => &[Backend::Vulkan],
         }
     }
 }
@@ -272,7 +275,7 @@ mod tests {
         assert_eq!(p, Pick { index: 0, why: Why::Chosen(Backend::Vulkan), missing: None });
         let nvidia = windows(NVIDIA, 0x2204, DeviceType::DiscreteGpu);
         assert_eq!(pick(&nvidia, Some(Backend::Dx12), Platform::Windows).index, 1);
-        assert_eq!(pick(&nvidia, Some(Backend::Gl), Platform::Windows).index, 3);
+        assert_eq!(pick(&nvidia, Some(Backend::Vulkan), Platform::Windows).index, 0);
     }
 
     /// `WGPU_BACKEND` decides over the choice and over the AMD preference:
@@ -346,8 +349,8 @@ mod tests {
     #[test]
     fn each_platform_offers_its_own_backends() {
         use Backend::*;
-        assert_eq!(Platform::Windows.backends(), [Vulkan, Dx12, Gl]);
-        assert_eq!(Platform::Linux.backends(), [Vulkan, Gl]);
+        assert_eq!(Platform::Windows.backends(), [Vulkan, Dx12]);
+        assert_eq!(Platform::Linux.backends(), [Vulkan]);
         assert_eq!(Platform::MacOs.backends(), [Metal]);
         assert!(!Platform::current().backends().is_empty());
     }

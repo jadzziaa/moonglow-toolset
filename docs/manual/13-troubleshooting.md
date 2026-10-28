@@ -3,7 +3,7 @@ type: Manual Page
 title: Troubleshooting
 description: Troubleshooting - the game is not found, no GPU in the area viewer, tiles that disappear on AMD under Windows (the graphics backend), Test Module does nothing, no sound, after a crash, and where Moonglow keeps its files.
 tags: [manual, troubleshooting]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T00:16:13Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T00:19:15Z }
 ---
 
 # Troubleshooting
@@ -27,9 +27,9 @@ flatpak override --user --filesystem="/path/to/Neverwinter Nights:ro" io.github.
 ## The area viewer says "No GPU"
 
 The area viewer and model previews need a graphics card with Vulkan or
-Direct3D 12 (Windows), Vulkan (Linux) or Metal (macOS). OpenGL can be
-chosen on Windows and Linux, but Moonglow's renderer is not made for it:
-particles, the game's shaders and more are drawn wrong there. Everything else in Moonglow works
+Direct3D 12 (Windows), Vulkan (Linux) or Metal (macOS). Where only
+OpenGL is there, Moonglow draws with it, but its renderer is not made
+for it: particles, the game's shaders and more are drawn wrong. Everything else in Moonglow works
 without one. Update the graphics driver; on Linux, install your
 distribution's Vulkan driver (Mesa's `vulkan-radeon` or `vulkan-intel`,
 or NVIDIA's). **Tools › Options… › General › Graphics backend** chooses

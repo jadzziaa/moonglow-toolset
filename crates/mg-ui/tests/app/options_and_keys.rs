@@ -471,17 +471,13 @@ fn the_graphics_backend_is_chosen_in_options() {
     h.query_all(combo).find(automatic).expect("the graphics backend's dropdown").click();
     h.run();
     let offered = GraphicsBackend::offered(mg_ui::graphics::Platform::current());
-    let all = [
-        GraphicsBackend::Vulkan,
-        GraphicsBackend::Direct3d12,
-        GraphicsBackend::OpenGl,
-        GraphicsBackend::Metal,
-    ];
+    let all = [GraphicsBackend::Vulkan, GraphicsBackend::Direct3d12, GraphicsBackend::Metal];
     for b in all {
         let shown = h.query_by_label(b.name()).is_some();
         assert_eq!(shown, offered.contains(&b), "{} offered here", b.name());
     }
-    // (The last one offered: OpenGL, or Metal on macOS.)
+    // (The last one offered: Vulkan on Linux, Direct3D 12 on Windows, Metal
+    // on macOS.)
     let last = *offered.last().unwrap();
     h.get_by_label(last.name()).click();
     h.run();
