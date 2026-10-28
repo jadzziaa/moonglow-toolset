@@ -3,7 +3,7 @@ type: Manual Page
 title: NUI Creator
 description: The NUI Creator - designing an Enhanced Edition UI window (JUI) on a canvas with the game's skin and fonts, images, keys, binds, swap layout variants, event handlers (or one event script for several windows), the settings file, building its scripts, making windows without the window (render, layout, import), and what the game refuses or does on its own.
 tags: [manual, nui, scripts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T06:48:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T10:53:37Z }
 sources:
   - id: mg-nui
     resource: crates/mg-nui
