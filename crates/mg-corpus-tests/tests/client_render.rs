@@ -2543,6 +2543,8 @@ fn area_lighting_look() {
     // `default` (the client's defaults) instead of the tests' settings
     // (the post effects Moonglow doesn't draw off); `shadows`: the tests'
     // with the shadows on.
+    // (The tests' settings have no shadows: nor has Moonglow's view then.)
+    let shadows = std::env::var_os("MG_CLIENT_SETTINGS").is_some();
     let settings = match std::env::var("MG_CLIENT_SETTINGS").as_deref() {
         Ok("owner") => common::player_settings(true),
         Ok("default") => common::player_settings(false),
@@ -2620,7 +2622,7 @@ fn area_lighting_look() {
     for (name, lit, fog) in
         [("lit", true, true), ("lit_nofog", true, false), ("unlit", false, false)]
     {
-        let view = mg_area::View { lit, fog, ..mg_area::View::of(&model) };
+        let view = mg_area::View { lit, fog, shadows, ..mg_area::View::of(&model) };
         let scene = area_scene.scene(&model, &view);
         eprintln!("{name}: {} lights, area light {:?}", scene.lights.len(), scene.area);
         off_and_on(&gpu, &game, &scene, &camera, size, client.as_ref(), &dir, name);

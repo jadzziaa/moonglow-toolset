@@ -3,7 +3,7 @@ type: Reference
 title: 'Moonglow Toolset: Architecture and Record of the Phases'
 description: What Moonglow Toolset reproduces of Aurora, the landscape, its principles, crate architecture and key designs, a record of the phases it was built in with the tests that hold each, the testing strategy and licensing. The plan it began as, kept as the description of what was built.
 tags: [architecture, testing, parity, phases, plan]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T08:33:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T04:48:31Z }
 ---
 
 # Moonglow Toolset: Architecture and Record of the Phases
@@ -227,8 +227,10 @@ normal, specular, roughness, height and self-illumination maps; environment
 maps, fog, skyboxes, emitters and water; and an area's grass, which Aurora
 draws none of, grown on the tiles' walkmeshes as the game grows it and
 drawn wherever the view shows grass ground (the client draws it within 30 m
-of its camera by default), thinned far off (`mg_area::grass_view`). Not
-drawn: shadows (see the [deferred list](deferred.md)). Editor overlays (grid, selection, trigger
+of its camera by default), thinned far off (`mg_area::grass_view`); and the sun's and moon's shadows,
+a shadow map standing in for the game's stencil volumes, laid as its shadow
+plane lays them (`mg_render::shadow`; what is left of them is on the
+[deferred list](deferred.md)). Editor overlays (grid, selection, trigger
 polygons, walkmeshes) are drawn over the scene. Toggles like Aurora's "use area lighting" and day/night stay.
 The renderer also runs offscreen for image tests (§7, L5): reference scenes are
 compared, within a tolerance, with screenshots of the same area, camera and
@@ -293,7 +295,8 @@ gaps against the original scope: the Plot Wizard is not built; spell
 checking is left out (EE ships no lexicon, and Aurora's finds nothing);
 the Conversation Editor's Scrap tab is partly done. The renderer's approximations (dangly-mesh dynamics and the
 point-to-point and lightning emitters follow the wiki's descriptions, not
-measurements) and what it does not draw (shadows) are in §5.5.
+measurements) and what it does not draw (creatures' and point lights'
+shadows) are in §5.5.
 
 ### After parity
 
