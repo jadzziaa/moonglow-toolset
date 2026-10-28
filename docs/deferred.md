@@ -994,6 +994,18 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   hover (kinds and tags), not shown as a picture; no folders. (S)
 - **Variable sets** hold int, float and string variables only, as the
   Variables window edits; object and location variables aren't kept. (S)
+  Renamed, deleted, saved to and added from files of one's choosing
+  (builders' requests, October 2026), with these gaps:
+  - Undo Delete lasts while the Variable Sets window is open, and a
+    rename has no undo (rename it back); neither is in Edit › Undo,
+    which is the module's. (S)
+  - A hand-edited file that isn't a set (bad JSON, an unknown type) is
+    said only when it is added, in the log; the menu and the Variable
+    Sets window list it by its file name as any other. (S)
+  - No preview of what a set holds before it is added (the prefab
+    palette's hover summary has no counterpart in the Add Set menu). (S)
+  - No folders inside `variable-sets`, and Add from File… takes one file
+    at a time. (S)
 - **Update Instances and held items** (a builder): an item's blueprint
   now reaches the items that placed objects hold (chests, creatures'
   packs and equipment, stores' pages, bags in them), in the window and

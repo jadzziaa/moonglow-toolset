@@ -7,7 +7,9 @@
 //! { "variables": [ { "name": "MG_LOOT", "type": "int", "value": 3 } ] }
 //! ```
 //!
-//! Types are `int`, `float` and `string`, as the toolset's variables.
+//! Types are `int`, `float` and `string`, as the toolset's variables. A
+//! set can also be saved to a file anywhere and added from one (Save to
+//! File…, Add from File…), in the same format.
 
 use std::path::{Path, PathBuf};
 
@@ -94,6 +96,54 @@ pub fn load(dir: &Path, name: &str) -> Result<Vec<VarRow>, String> {
     from_text(&text).map_err(|e| format!("{name}: {e}"))
 }
 
+/// Deletes the set named `name`: its text, to put it back with [`restore`].
+pub fn delete(dir: &Path, name: &str) -> Result<String, String> {
+    SHELF.delete(Some(dir), name)
+}
+
+/// Puts a deleted set back, unless one of its name was saved since.
+pub fn restore(dir: &Path, name: &str, text: &str) -> Result<(), String> {
+    SHELF.restore(Some(dir), name, text)
+}
+
+/// Gives a set another name: a name another set has, or one that names
+/// no file, is refused.
+pub fn rename(dir: &Path, from: &str, to: &str) -> Result<(), String> {
+    SHELF.rename(Some(dir), from, to)
+}
+
+/// What a set's file is called: `NAME.vars.json`.
+pub fn file_name(name: &str) -> String {
+    format!("{}{}", name.trim(), SHELF.suffix)
+}
+
+/// Saves variables as a set to the file `path` (anywhere), named with the
+/// sets' ending, `.vars.json`, whatever the dialog gave (Windows' adds
+/// `.json` to a name typed bare, others add nothing): so a copy put in
+/// the sets' folder is listed.
+pub fn save_file(path: &Path, rows: &[VarRow]) -> Result<PathBuf, String> {
+    let path = match path.file_name() {
+        Some(n) => {
+            let n = n.to_string_lossy();
+            let lower = n.to_lowercase();
+            let cut = [SHELF.suffix, ".json", ".vars"]
+                .iter()
+                .find(|s| lower.ends_with(*s))
+                .map_or(n.len(), |s| n.len() - s.len());
+            path.with_file_name(file_name(&n[..cut]))
+        }
+        None => path.to_path_buf(),
+    };
+    std::fs::write(&path, to_text(rows)).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(path)
+}
+
+/// Reads the set in the file `path` (anywhere).
+pub fn load_file(path: &Path) -> Result<Vec<VarRow>, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    from_text(&text).map_err(|e| format!("{}: {e}", path.display()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,5 +178,46 @@ mod tests {
                 .unwrap_err()
                 .contains("isn't int")
         );
+    }
+
+    #[test]
+    fn sets_are_renamed_deleted_and_kept_in_files_anywhere() {
+        let scratch = mg_testkit::scratch_dir("ui-var-sets-files");
+        let dir = scratch.join("variable-sets");
+        let rows = vec![VarRow::new("MG_LOOT", 1, "3"), VarRow::new("MG_SAY", 3, "Hail")];
+        save(&dir, "Loot", &rows).unwrap();
+        assert!(dir.join("Loot.vars.json").is_file());
+        // Renamed, refused over another's name or one that isn't a file's.
+        save(&dir, "Doors", &rows[..1]).unwrap();
+        rename(&dir, "Loot", "Treasure").unwrap();
+        assert_eq!(list(Some(&dir)), ["Doors", "Treasure"]);
+        assert!(rename(&dir, "Treasure", "Doors").unwrap_err().contains("variable set"));
+        assert!(rename(&dir, "Treasure", "../Doors").is_err());
+        assert_eq!(load(&dir, "Treasure").unwrap().len(), 2);
+        // Deleted and put back.
+        let text = delete(&dir, "Treasure").unwrap();
+        assert_eq!(list(Some(&dir)), ["Doors"]);
+        restore(&dir, "Treasure", &text).unwrap();
+        assert_eq!(load(&dir, "Treasure").unwrap().len(), 2);
+        // A file of one's own choosing, read back as the set.
+        let file = scratch.join("shared").join("loot.vars.json");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        assert_eq!(save_file(&file, &rows).unwrap(), file);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), to_text(&rows));
+        let back = load_file(&file).unwrap();
+        assert_eq!(back.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["MG_LOOT", "MG_SAY"]);
+        // A name given without the whole ending is given it.
+        let bare = save_file(&scratch.join("bare"), &rows).unwrap();
+        assert_eq!(bare, scratch.join("bare.vars.json"));
+        let half = save_file(&scratch.join("half.vars"), &rows).unwrap();
+        assert_eq!(half, scratch.join("half.vars.json"));
+        let plain = save_file(&scratch.join("plain.json"), &rows).unwrap();
+        assert_eq!(plain, scratch.join("plain.vars.json"), "Windows' dialog adds .json");
+        let upper = save_file(&scratch.join("Upper.VARS.JSON"), &rows).unwrap();
+        assert_eq!(upper, scratch.join("Upper.vars.json"));
+        // A file that isn't a set says which file.
+        std::fs::write(scratch.join("bad.vars.json"), "{}").unwrap();
+        let e = load_file(&scratch.join("bad.vars.json")).unwrap_err();
+        assert!(e.contains("bad.vars.json") && e.contains("no \"variables\""), "{e}");
     }
 }

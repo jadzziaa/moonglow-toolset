@@ -14,7 +14,7 @@ use mg_module::vars::VarType;
 use mg_resman::ResKey;
 
 use crate::text::{decode, encode, to_editor, with_line_ends, with_loc_line_ends};
-use crate::{Action, Moonglow};
+use crate::{Action, FileKind, Moonglow};
 
 /// A field of a GFF resource that an editor window writes back to.
 #[derive(Debug, Clone, PartialEq)]
@@ -189,9 +189,22 @@ pub struct VarTableEdit {
     pub rows: Vec<VarRow>,
     /// Save Set's name, while it's being typed.
     pub set_name: Option<String>,
+    /// The Variable Sets window (Add Set › Manage Sets…), while it's open.
+    pub sets: Option<SetsWindow>,
     /// The project's described variables (`variables.toml`), as the
     /// window offers and checks them: read when it first shows.
     pub described: Option<VarHelp>,
+}
+
+/// The Variable Sets window (Add Set › Manage Sets… in the Variables
+/// window): the sets saved in Moonglow's data folder, renamed and deleted.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct SetsWindow {
+    /// The set Rename… was chosen for, and the name typed so far.
+    pub renaming: Option<(String, String)>,
+    /// The set deleted last and its text, for Undo Delete (the file is
+    /// Moonglow's, not the module's: Edit › Undo doesn't know it).
+    pub deleted: Option<(String, String)>,
 }
 
 /// What the Variables window knows of the project's described variables
@@ -351,7 +364,14 @@ impl VarTableEdit {
             })
             .collect();
         rows.sort_by_cached_key(|r| r.name.to_lowercase());
-        VarTableEdit { target, original: list.to_vec(), rows, set_name: None, described: None }
+        VarTableEdit {
+            target,
+            original: list.to_vec(),
+            rows,
+            set_name: None,
+            sets: None,
+            described: None,
+        }
     }
 
     /// For several objects edited together: the command that sets what
@@ -594,6 +614,140 @@ const VAR_FOOT: f32 = 96.0;
 const VAR_NOTES: usize = 4;
 
 /// A window in the middle of the app's, of a size its content gives it.
+/// The Variable Sets window: the saved sets, each renamed or deleted (the
+/// one deleted last put back), and their folder opened.
+fn sets_window(app: &mut Moonglow, ctx: &egui::Context, sets: &mut Option<SetsWindow>) {
+    let (Some(w), Some(dir)) = (sets.as_mut(), app.var_set_dir.clone()) else {
+        *sets = None;
+        return;
+    };
+    let names = crate::var_sets::list(Some(&dir));
+    let mut open = true;
+    let mut close = false;
+    let window = dialog(ctx, "Variable Sets", &mut open).collapsible(false).resizable(false);
+    // (As wide as a long folder's path needs, no wider: the path is cut.)
+    window.max_width(460.0).show(ctx, |ui| {
+        ui.horizontal(|ui| {
+            field_label(ui, "Folder");
+            let path = dir.display().to_string();
+            ui.add(egui::Label::new(&path).truncate()).on_hover_text(&path);
+        });
+        if ui
+            .button("Open Folder")
+            .on_hover_text(
+                "Open the folder in the file manager (it is made if it is not there): sets \
+                 are JSON files, NAME.vars.json, to copy in or out or edit by hand",
+            )
+            .clicked()
+        {
+            open_folder(ui.ctx(), &dir, &mut app.log);
+        }
+        ui.separator();
+        if let Some((name, text)) = w.deleted.clone() {
+            let mut keep = true;
+            ui.horizontal_wrapped(|ui| {
+                ui.label(format!("Set '{name}' deleted."));
+                if ui.button("Undo Delete").on_hover_text("Put the set back").clicked() {
+                    match crate::var_sets::restore(&dir, &name, &text) {
+                        Ok(()) => app.log.info(format!("Variable set '{name}' put back")),
+                        Err(e) => app.log.error(format!("Undo Delete: {e}")),
+                    }
+                    keep = false;
+                }
+                if ui.small_button("✖").on_hover_text("Forget it").clicked() {
+                    keep = false;
+                }
+            });
+            if !keep {
+                w.deleted = None;
+            }
+            ui.separator();
+        }
+        // The name being typed for the set Rename… was chosen for.
+        if let Some((name, to)) = w.renaming.as_mut().filter(|(n, _)| names.contains(n)) {
+            let mut done = false;
+            ui.horizontal_wrapped(|ui| {
+                ui.label(format!("Rename '{name}' to"));
+                let r = ui.add(egui::TextEdit::singleline(to).desired_width(160.0));
+                autofocus(ui, &r);
+                let taken = names.iter().any(|n| n != name && n.eq_ignore_ascii_case(to.trim()));
+                let ok = crate::saved::valid_name(to) && !taken;
+                // (Enter in the name is the name's, not the Variables window's OK.)
+                let entered = r.lost_focus()
+                    && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+                if ui.add_enabled(ok, egui::Button::new("Rename")).clicked() || (ok && entered) {
+                    if to.trim() != name {
+                        match crate::var_sets::rename(&dir, name, to) {
+                            Ok(()) => app
+                                .log
+                                .info(format!("Variable set '{name}' renamed to '{}'", to.trim())),
+                            Err(e) => app.log.error(format!("Rename set: {e}")),
+                        }
+                    }
+                    done = true;
+                } else if ui.button("Cancel").clicked() {
+                    done = true;
+                }
+                if taken {
+                    ui.colored_label(ui.visuals().warn_fg_color, "Another set has that name");
+                } else if !ok && !to.trim().is_empty() {
+                    ui.colored_label(
+                        ui.visuals().warn_fg_color,
+                        "Letters, digits, spaces, -, _ and . only (64 at most)",
+                    );
+                }
+            });
+            if done {
+                w.renaming = None;
+            }
+            ui.separator();
+        } else {
+            w.renaming = None;
+        }
+        if names.is_empty() {
+            ui.weak("No variable sets saved yet: Save Set… in the Variables window keeps one.");
+        }
+        egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+            egui::Grid::new("variable-sets").num_columns(3).spacing([8.0, 4.0]).show(ui, |ui| {
+                for name in &names {
+                    ui.label(name);
+                    if ui.small_button("Rename…").clicked() {
+                        w.renaming = Some((name.clone(), name.clone()));
+                    }
+                    if ui
+                        .small_button("Delete")
+                        .on_hover_text("Delete the set's file (Undo Delete, above, puts it back)")
+                        .clicked()
+                    {
+                        match crate::var_sets::delete(&dir, name) {
+                            Ok(text) => {
+                                app.log.info(format!("Variable set '{name}' deleted"));
+                                w.deleted = Some((name.clone(), text));
+                            }
+                            Err(e) => app.log.error(format!("Delete set: {e}")),
+                        }
+                    }
+                    ui.end_row();
+                }
+            });
+        });
+        ui.separator();
+        close = ui.button("Close").clicked();
+    });
+    if !open || close {
+        *sets = None;
+    }
+}
+
+/// Opens `dir` in the system's file manager, made first if it isn't there.
+pub(crate) fn open_folder(ctx: &egui::Context, dir: &std::path::Path, log: &mut crate::Log) {
+    if let Err(e) = std::fs::create_dir_all(dir) {
+        log.error(format!("{}: {e}", dir.display()));
+        return;
+    }
+    ctx.open_url(egui::OpenUrl::new_tab(crate::script_view::file_url(dir)));
+}
+
 pub(crate) fn window(title: &str) -> egui::Window<'_> {
     egui::Window::new(title)
         .collapsible(false)
@@ -886,44 +1040,101 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         });
                     },
                 );
+                let mut add_file = false;
+                let mut save_file = false;
                 ui.horizontal(|ui| {
                     if ui.button("Add").clicked() {
                         edit.rows.push(VarRow::new("", 1, "0"));
                     }
                     ui.separator();
-                    // Variable sets, kept in Moonglow's data folder.
+                    // Variable sets, kept in Moonglow's data folder, and in
+                    // files anywhere.
                     let dir = app.var_set_dir.clone();
                     let names = crate::var_sets::list(dir.as_deref());
-                    ui.add_enabled_ui(dir.is_some(), |ui| {
-                        ui.menu_button("Add Set", |ui| {
-                            if names.is_empty() {
-                                ui.weak("No variable sets saved yet");
-                            }
-                            for n in &names {
-                                if ui.button(n).clicked() {
-                                    let dir = dir.as_deref().expect("enabled");
-                                    match crate::var_sets::load(dir, n) {
-                                        Ok(set) => crate::var_sets::merge(&mut edit.rows, set),
-                                        Err(e) => app.log.error(format!("Add Set: {e}")),
-                                    }
-                                    ui.close();
+                    ui.menu_button("Add Set", |ui| {
+                        if dir.is_none() {
+                            ui.weak("Moonglow has no data folder to keep sets in");
+                        } else if names.is_empty() {
+                            ui.weak("No variable sets saved yet");
+                        }
+                        for n in &names {
+                            if ui.button(n).clicked() {
+                                let dir = dir.as_deref().expect("listed");
+                                match crate::var_sets::load(dir, n) {
+                                    Ok(set) => crate::var_sets::merge(&mut edit.rows, set),
+                                    Err(e) => app.log.error(format!("Add Set: {e}")),
                                 }
+                                ui.close();
                             }
-                        })
-                        .response
-                        .on_hover_text("Add a saved set's variables (same names take its values)");
-                        if edit.set_name.is_none()
+                        }
+                        ui.separator();
+                        if ui
+                            .button("Add from File…")
+                            .on_hover_text("Add the variables of a set file (.vars.json) anywhere")
+                            .clicked()
+                        {
+                            add_file = true;
+                            ui.close();
+                        }
+                        if ui
+                            .add_enabled(dir.is_some(), egui::Button::new("Manage Sets…"))
+                            .on_hover_text("Rename or delete the saved sets")
+                            .clicked()
+                        {
+                            edit.sets.get_or_insert_default();
+                            ui.close();
+                        }
+                        if let Some(dir) = &dir
                             && ui
-                                .add_enabled(!edit.rows.is_empty(), egui::Button::new("Save Set…"))
+                                .button("Open Sets Folder")
                                 .on_hover_text(
-                                    "Keep these variables under a name, to add elsewhere",
+                                    "Open the folder the sets are kept in, to copy them in or out \
+                                     or edit them by hand",
                                 )
                                 .clicked()
                         {
-                            edit.set_name = Some(String::new());
+                            open_folder(ui.ctx(), dir, &mut app.log);
+                            ui.close();
                         }
-                    });
+                    })
+                    .response
+                    .on_hover_text("Add a saved set's variables (same names take its values)");
+                    if edit.set_name.is_none()
+                        && ui
+                            .add_enabled(
+                                dir.is_some() && !edit.rows.is_empty(),
+                                egui::Button::new("Save Set…"),
+                            )
+                            .on_hover_text("Keep these variables under a name, to add elsewhere")
+                            .clicked()
+                    {
+                        edit.set_name = Some(String::new());
+                    }
+                    save_file = ui
+                        .add_enabled(!edit.rows.is_empty(), egui::Button::new("Save to File…"))
+                        .on_hover_text(
+                            "Save these variables as a set file (.vars.json) where you choose: \
+                             to share, or to keep with a module",
+                        )
+                        .clicked();
                 });
+                if add_file && let Some(path) = app.dialogs.open_file(FileKind::VariableSet, None) {
+                    match crate::var_sets::load_file(&path) {
+                        Ok(set) => crate::var_sets::merge(&mut edit.rows, set),
+                        Err(e) => app.log.error(format!("Add from File: {e}")),
+                    }
+                }
+                if save_file
+                    && let Some(path) = app.dialogs.save_file(
+                        FileKind::VariableSet,
+                        Some(std::path::Path::new("variables.vars.json")),
+                    )
+                {
+                    match crate::var_sets::save_file(&path, &edit.rows) {
+                        Ok(p) => app.log.info(format!("Variable set saved: {}", p.display())),
+                        Err(e) => app.log.error(format!("Save to File: {e}")),
+                    }
+                }
                 if let Some(name) = edit.set_name.as_mut() {
                     let mut save = false;
                     let mut cancel = false;
@@ -931,7 +1142,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         ui.label("Set name");
                         let r = ui.add(egui::TextEdit::singleline(name).desired_width(180.0));
                         crate::widgets::autofocus(ui, &r);
-                        let ok = crate::prefabs::valid_name(name);
+                        let ok = crate::saved::valid_name(name);
                         // (Enter in the name is the name's, not the window's OK.)
                         let entered = r.lost_focus()
                             && ui.input_mut(|i| {
@@ -989,6 +1200,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     }
                 });
             });
+        sets_window(app, &ctx, &mut edit.sets);
         edit.described = Some(help);
         app.var_edit = if close { None } else { Some(edit) };
     }

@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T06:17:45Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T03:57:07Z }
 ---
 
 # Blueprints
@@ -346,11 +346,29 @@ Shared parts:
   were made). Ints, floats and strings are edited; an object's or a
   location's variable (which only scripts set) is shown as it is and
   kept. A placed object's opens from its right-click menu too, in
-  the area or the module tree. **Save Set…**
-  keeps them under a name. **Add Set** adds a saved set to any object's
-  or blueprint's variables, in any module; a variable of the same name
-  takes the set's value. Sets are small JSON files in Moonglow's data
-  folder (`variable-sets`), easy to share. In a project that describes
+  the area or the module tree. **Variable sets** carry variables from
+  one object to another, in any module. **Save Set…** keeps them under a
+  name; **Save to File…** saves them as a set file (`.vars.json`)
+  wherever you choose, to share or to keep beside a module. **Add Set**
+  adds a set to the variables: a saved one, chosen by its name, or a
+  file's (**Add from File…**). It adds rather than replaces, hence its
+  name: a variable of the same name takes the set's type and value, and
+  the others stay. In the same menu, **Manage Sets…** opens the Variable
+  Sets window, where a saved set is renamed (**Rename…**: a name another
+  set has, in any case, or one that can't name a file is refused) or
+  deleted (**Delete**; **Undo Delete** puts the last one back while the
+  window is open), and **Open Sets Folder** opens the folder they are
+  kept in. Saved sets are small JSON files, `NAME.vars.json`, in the
+  `variable-sets` folder of Moonglow's data folder:
+  `~/.local/share/moonglow/variable-sets` on Linux,
+  `%APPDATA%\Moonglow\variable-sets` on Windows and
+  `~/Library/Application Support/Moonglow/variable-sets` on macOS (see
+  [where Moonglow keeps its
+  files](13-troubleshooting.md#where-moonglow-keeps-its-files)). They can
+  be copied in, shared and edited by hand (the menu reads the folder
+  each time it opens): `{ "variables": [ { "name": "MG_LOOT", "type":
+  "int", "value": 3 } ] }`, each `type` one of `int`, `float` and
+  `string`; object and location variables aren't kept. In a project that describes
   its variables (`variables.toml`), the window offers their names as one
   is typed, sets their types and offers their values: see [Described
   variables](03-modules.md#described-variables).

@@ -13,6 +13,8 @@ pub enum FileKind {
     Any,
     /// A script set: `.ini`.
     ScriptSet,
+    /// A variable set: `.vars.json`.
+    VariableSet,
     /// A class spell list: `.ini`.
     SpellList,
     /// A conversation as text, CSV, Twine (Twee) or Ink.
@@ -47,6 +49,8 @@ impl FileKind {
             (FileKind::Any, true) => "Save As",
             (FileKind::ScriptSet, false) => "Load Script Set",
             (FileKind::ScriptSet, true) => "Save Script Set",
+            (FileKind::VariableSet, false) => "Add Variable Set from File",
+            (FileKind::VariableSet, true) => "Save Variable Set to File",
             (FileKind::SpellList, false) => "Load Class Spell List",
             (FileKind::SpellList, true) => "Save Class Spell List",
             (FileKind::Conversation(_), false) => "Import Lines",
@@ -72,6 +76,8 @@ impl FileKind {
             (FileKind::Erf, _) => Some(("Exported resources", &["erf"])),
             (FileKind::Any, _) => None,
             (FileKind::ScriptSet, _) => Some(("Script sets", &["ini"])),
+            // (A filter matches the last extension: .vars.json ends in json.)
+            (FileKind::VariableSet, _) => Some(("Variable sets", &["json"])),
             (FileKind::SpellList, _) => Some(("Spell lists", &["ini"])),
             (FileKind::Conversation(f), _) => Some((f.name(), f.extensions())),
             (FileKind::Story, _) => Some(("Twine or Ink stories", &["twee", "tw", "ink"])),

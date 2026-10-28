@@ -4718,6 +4718,61 @@ fn verify_fixes() {
     shoot(&mut h, &dir, "verify-fixed");
 }
 
+/// The Variables window's Add Set menu (the saved sets, Add from File…,
+/// Manage Sets…, Open Sets Folder; Save to File… beside Save Set…), and
+/// the Variable Sets window with a set being renamed and one deleted.
+#[test]
+#[ignore]
+fn variable_sets() {
+    use mg_ui::widgets::{FieldTarget, VarRow, VarTableEdit};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let scratch = mg_testkit::scratch_dir("screens-variable-sets");
+    let sets = scratch.join("variable-sets");
+    let row = |n: &str, k: u32, v: &str| VarRow::new(n, k, v);
+    for (name, rows) in [
+        ("Loot chest", vec![row("MG_LOOT", 1, "3"), row("MG_LOOT_TABLE", 3, "chest_low")]),
+        ("Locked door", vec![row("MG_LOCK_DC", 1, "25")]),
+        ("Merchant", vec![row("MG_MARKUP", 2, "1.25")]),
+    ] {
+        mg_ui::var_sets::save(&sets, name, &rows).unwrap();
+    }
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    let game = app.game.as_deref().unwrap();
+    let key = ResKey::parse("nw_waypoint001", ResType::UTW).unwrap();
+    let data = game.resman.get_named("nw_waypoint001", ResType::UTW).unwrap().into_owned();
+    let mut m = mg_module::Module::new();
+    m.set(key, data);
+    let path = scratch.join("sets.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    app.open_module(&path);
+    app.open_palette = false;
+    app.var_set_dir = Some(sets.clone());
+    let mut edit = VarTableEdit::new(FieldTarget::new(key, GffPath::root(), "VarTable"), &[]);
+    edit.rows = vec![row("MG_LOOT", 1, "9"), row("MG_GREETING", 3, "Well met")];
+    app.var_edit = Some(edit);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 640.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.get_by_label("Add Set").click();
+    shoot(&mut h, &dir, "variables-add-set-menu");
+    h.get_by_label("Manage Sets…").click();
+    h.run_steps(3);
+    h.get_all_by_label("Delete").last().unwrap().click();
+    h.run_steps(3);
+    h.get_all_by_label("Rename…").next().unwrap().click();
+    h.run_steps(3);
+    {
+        let w = h.state_mut().var_edit.as_mut().unwrap().sets.as_mut().unwrap();
+        w.renaming = Some(("Locked door".into(), "loot chest".into()));
+    }
+    shoot(&mut h, &dir, "variables-sets-window");
+}
+
 /// The Variables window without described variables and with a
 /// project's (`variables.toml`): the names offered as one is typed, a
 /// value chosen from its values, what the description finds wrong; the
