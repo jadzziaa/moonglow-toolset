@@ -402,3 +402,36 @@ fn a_lighting_scheme_is_given_to_the_areas() {
     };
     assert_eq!(tiles(&a), tiles(&b), "the same number, the same picks");
 }
+
+/// A `.mod` named to `mg` with its module folder beside it (Aurora's
+/// module directory, `Caves/` beside `caves.mod`, in any case): the
+/// command reads and changes the `.mod`, as the game's server reads it,
+/// and says that the folder is left as it is, in the JSON's notes too.
+#[test]
+fn a_mod_s_folder_beside_it_is_said() {
+    let dir = mg_testkit::scratch_dir("mg-areas-folder-beside");
+    let path = dir.join("caves.mod");
+    module(&path);
+    let run = |args: &[&str]| {
+        let out = crate::mg().args(args).output().unwrap();
+        let text = |b: &[u8]| String::from_utf8_lossy(b).into_owned();
+        (out.status.success(), text(&out.stdout), text(&out.stderr))
+    };
+    let p = path.to_str().unwrap();
+    let (ok, _, notes) = run(&["areas", p]);
+    assert!(ok && !notes.contains("module folder"), "{notes}");
+    let folder = dir.join("Caves");
+    Module::open(&path).unwrap().save_as(&ModuleLocation::Folder(folder.clone())).unwrap();
+    let (ok, _, notes) = run(&["areas", p, "--all", "--set", "SunFogAmount=5"]);
+    assert!(ok, "{notes}");
+    assert_eq!(notes.matches("has its module folder beside it").count(), 1, "{notes}");
+    assert!(notes.contains(&folder.display().to_string()), "{notes}");
+    let fog = |m: &std::path::Path| {
+        let are = Module::open(m).unwrap().gff(&key("cave1", ResType::ARE)).unwrap().unwrap();
+        are.root.integer("SunFogAmount")
+    };
+    assert_eq!((fog(&path), fog(&folder)), (Some(5), Some(2)), "the .mod changed, not the folder");
+    let (ok, json, _) = run(&["--json", "areas", p]);
+    let json: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert!(ok && json["notes"].to_string().contains("has its module folder beside it"), "{json}");
+}

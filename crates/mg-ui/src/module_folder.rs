@@ -11,18 +11,10 @@ use crate::settings::ModuleFolders;
 use crate::{Action, Moonglow};
 
 /// The folder of a `.mod`'s name beside it, if there is one that holds a
-/// module (its `module.ifo`, in any case).
+/// module (its `module.ifo`), its name in any case
+/// ([`mg_module::folder::beside_mod`]).
 pub fn folder_beside(path: &Path) -> Option<PathBuf> {
-    let is_mod = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("mod"));
-    if !is_mod || !path.is_file() {
-        return None;
-    }
-    let dir = path.with_extension("");
-    let has_info = std::fs::read_dir(&dir)
-        .ok()?
-        .flatten()
-        .any(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case("module.ifo"));
-    has_info.then_some(dir)
+    mg_module::folder::beside_mod(path)
 }
 
 /// Opens a module the user chose (File › Open Module…, Recent Modules,
@@ -40,7 +32,7 @@ pub(crate) fn open(app: &mut Moonglow, path: &Path) {
 /// The question, in Aurora's words, while one is asked.
 pub(crate) fn ui(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(path) = app.module_folder.clone() else { return };
-    let folder = path.with_extension("");
+    let folder = folder_beside(&path).unwrap_or_else(|| path.with_extension(""));
     crate::widgets::window("Open Directory as a Module").show(ctx, |ui| {
         ui.label("A directory with the same name has been found.");
         ui.label("Do you want to open this directory as a module?");

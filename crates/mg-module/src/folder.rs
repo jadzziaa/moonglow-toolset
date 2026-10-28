@@ -127,6 +127,60 @@ impl FolderFiles {
     }
 }
 
+/// The folder of a `.mod`'s name beside it (`modules/name.mod` and
+/// `modules/name/`: a module directory, as Aurora keeps one), if there is
+/// one that holds a module (its `module.ifo`). Names are matched in any
+/// case, as Aurora on Windows finds them (`Name/` beside `name.mod`); one
+/// of the very name comes first.
+pub fn beside_mod(path: &Path) -> Option<PathBuf> {
+    let is_mod = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("mod"));
+    if !is_mod || !path.is_file() {
+        return None;
+    }
+    let stem = path.file_stem()?.to_string_lossy().into_owned();
+    let holds_module = |dir: &Path| {
+        std::fs::read_dir(dir).ok().is_some_and(|entries| {
+            entries
+                .flatten()
+                .any(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case("module.ifo"))
+        })
+    };
+    let exact = path.with_extension("");
+    if exact.is_dir() && holds_module(&exact) {
+        return Some(exact);
+    }
+    let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let mut found: Vec<PathBuf> = std::fs::read_dir(parent)
+        .ok()?
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case(&stem))
+        .map(|e| e.path())
+        .filter(|p| p.is_dir() && holds_module(p))
+        .collect();
+    found.sort();
+    found.into_iter().next()
+}
+
+/// The `.mod` a module folder is written as beside it (Aurora's module
+/// directory): the one of its name there, in any case ([`beside_mod`]'s
+/// other way), else `<folder>.mod`.
+pub fn mod_beside(dir: &Path) -> PathBuf {
+    let name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let own = dir.with_file_name(format!("{name}.mod"));
+    if own.is_file() {
+        return own;
+    }
+    let wanted = format!("{name}.mod");
+    let parent = dir.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let mut found: Vec<PathBuf> = (std::fs::read_dir(parent).into_iter().flatten().flatten())
+        .filter(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case(&wanted))
+        .map(|e| e.path())
+        .filter(|p| p.is_file())
+        .collect();
+    found.sort();
+    found.into_iter().next().unwrap_or(own)
+}
+
 /// [`OutsideScan::run`] for a module folder: its known files, and the
 /// folder for files new to it.
 pub(crate) fn scan(files: &[Known], dir: &Path) -> OutsideFound {
@@ -173,4 +227,39 @@ pub(crate) fn scan(files: &[Known], dir: &Path) -> OutsideFound {
     }
     found.changes.sort_by(|a, b| a.path.cmp(&b.path));
     found
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A `.mod`'s folder beside it is found by its name in any case, as
+    /// Aurora on Windows finds it, where it holds a module; the folder of
+    /// the very name first.
+    #[test]
+    fn a_mod_s_folder_beside_it_is_found_in_any_case() {
+        let dir = mg_testkit::scratch_dir("mg-module-beside-mod");
+        let file = dir.join("castle.mod");
+        std::fs::write(&file, b"ERF").unwrap();
+        assert_eq!(beside_mod(&file), None);
+        let folder = dir.join("Castle");
+        std::fs::create_dir_all(&folder).unwrap();
+        assert_eq!(beside_mod(&file), None, "a folder without a module.ifo is no module");
+        std::fs::write(folder.join("Module.IFO"), b"IFO").unwrap();
+        let found = beside_mod(&file).unwrap();
+        assert!(found.file_name().unwrap().eq_ignore_ascii_case("castle"), "{found:?}");
+        let exact = dir.join("castle");
+        std::fs::create_dir_all(&exact).unwrap();
+        std::fs::write(exact.join("module.ifo"), b"IFO").unwrap();
+        // (Two folders where the file system sets capitals apart.)
+        if std::fs::canonicalize(&folder).ok() != std::fs::canonicalize(&exact).ok() {
+            assert_eq!(beside_mod(&file), Some(exact.clone()));
+        }
+        assert_eq!(beside_mod(&dir.join("castle.erf")), None);
+        assert_eq!(beside_mod(&dir.join("none.mod")), None);
+        // The other way: the folder's .mod, in any case, else its own name.
+        assert_eq!(mod_beside(&folder), file, "Castle/ is written as castle.mod");
+        assert_eq!(mod_beside(&exact), file);
+        assert_eq!(mod_beside(&dir.join("keep")), dir.join("keep.mod"));
+    }
 }

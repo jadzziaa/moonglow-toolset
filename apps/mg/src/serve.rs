@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use mg_core::ResType;
-use mg_module::{Module, ModuleLocation};
+use mg_module::ModuleLocation;
 use mg_resman::{GameInstall, ResKey};
 
 /// What to serve, and how.
@@ -223,7 +223,7 @@ pub(crate) fn prepare(
             .with_context(|| dir.join(sub).display().to_string())?;
     }
     let target = dir.join("modules").join(format!("{name}.mod"));
-    let mut m = Module::open(module).with_context(|| module.display().to_string())?;
+    let mut m = crate::open_module(module).with_context(|| module.display().to_string())?;
     let (haks, tlk) = (m.haks()?, m.custom_tlk()?);
     // A talk table the project keeps as JSON, made into the table as
     // nasher packs it (the game's language's, where it keeps one a
@@ -639,7 +639,7 @@ mod tests {
         std::fs::create_dir_all(user.join("tlk")).unwrap();
         std::fs::write(user.join("tlk/mytlk.tlk"), b"the player's own").unwrap();
         let gi = GameInstall::new(&root, Some(user.clone()), "en");
-        let mut m = Module::new();
+        let mut m = mg_module::Module::new();
         let mut info = mg_gff::Gff::new(*b"IFO ");
         info.root.set("Mod_CustomTlk", mg_gff::Value::String(b"mytlk".to_vec()));
         m.set_info(&info).unwrap();

@@ -45,7 +45,7 @@ pub(crate) fn run(
     let started = Instant::now();
     let mut notes = Vec::new();
     // (Changed in memory only, and saved elsewhere.)
-    let mut m = Module::open(&c.module).with_context(|| c.module.display().to_string())?;
+    let mut m = crate::open_module(&c.module).with_context(|| c.module.display().to_string())?;
     // (The module as the builder has it, before the tests go in.)
     let as_read = m.clone();
     let mut added = Vec::new();

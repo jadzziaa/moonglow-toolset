@@ -137,7 +137,8 @@ impl Watcher {
         debug: bool,
         rm: &ResMan,
     ) -> Result<(Watcher, Step)> {
-        let mut module = Module::open(project).with_context(|| project.display().to_string())?;
+        let mut module =
+            crate::open_module(project).with_context(|| project.display().to_string())?;
         let all: Vec<ResKey> = module.keys_of(ResType::NSS).copied().collect();
         let mut step = Step::default();
         compile(&mut module, rm, &all, debug, &mut step);
@@ -207,7 +208,7 @@ impl Watcher {
     /// Takes up what changed in the project's files.
     pub(crate) fn step(&mut self, rm: &ResMan) -> Result<Step> {
         let mut step = Step::default();
-        let mut module = match Module::open(&self.project) {
+        let mut module = match crate::open_module(&self.project) {
             Ok(module) => module,
             // (A file half written: the next look reads it whole.)
             Err(e) => {

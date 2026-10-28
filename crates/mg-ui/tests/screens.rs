@@ -579,6 +579,33 @@ fn talk_table_editor() {
     }
 }
 
+/// The welcome page's Recent modules: a `.mod`, the module folder beside
+/// it and a nasher project (GitHub issue 30: the folder showed as its
+/// name alone).
+#[test]
+#[ignore]
+fn welcome_recent_modules() {
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("screens-welcome");
+    let modules = dir.join("modules");
+    std::fs::create_dir_all(modules.join("castle")).unwrap();
+    std::fs::write(modules.join("castle.mod"), b"").unwrap();
+    std::fs::create_dir_all(dir.join("projects/castle-project")).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.settings.recent = vec![
+        modules.join("castle"),
+        modules.join("castle.mod"),
+        dir.join("projects/castle-project"),
+    ];
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 600.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    shoot(&mut h, &dir, "welcome-recent");
+    eprintln!("{}", dir.join("welcome-recent.png").display());
+}
+
 #[test]
 #[ignore]
 fn options_window() {

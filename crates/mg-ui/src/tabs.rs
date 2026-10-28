@@ -718,6 +718,38 @@ fn no_area(app: &mut Moonglow, ui: &mut Ui) {
     });
 }
 
+/// A recent module as the welcome page lists it: its name, a folder's
+/// (a module folder, a nasher project) with a `/` after it, and, grayed
+/// after it, the folder it is in. A module folder
+/// beside its `.mod` (GitHub issue 30) was `castle` beside `castle.mod`.
+fn recent_entry(ui: &Ui, path: &std::path::Path) -> egui::text::LayoutJob {
+    use egui::text::{LayoutJob, TextFormat};
+    let mut name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    // (Told by its name, not the disk: recent modules are `.mod` files,
+    // and folders.)
+    if !path.extension().is_some_and(|e| e.eq_ignore_ascii_case("mod")) {
+        name.push('/');
+    }
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let mut job = LayoutJob::default();
+    let own = TextFormat {
+        font_id: font.clone(),
+        color: egui::Color32::PLACEHOLDER,
+        ..Default::default()
+    };
+    job.append(&name, 0.0, own);
+    // (The folder's name alone, `in modules`: the whole path is on hover.)
+    if let Some(place) = path.parent().and_then(|p| p.file_name()) {
+        let weak = TextFormat {
+            font_id: font,
+            color: ui.visuals().weak_text_color(),
+            ..Default::default()
+        };
+        job.append(&format!("  in {}", place.to_string_lossy()), 0.0, weak);
+    }
+    job
+}
+
 fn welcome(app: &mut Moonglow, ui: &mut Ui) {
     ui.vertical_centered(|ui| {
         ui.add_space(40.0);
@@ -739,9 +771,7 @@ fn welcome(app: &mut Moonglow, ui: &mut Ui) {
             ui.add_space(20.0);
             ui.strong("Recent modules");
             for p in app.settings.recent.clone() {
-                let name =
-                    p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                if ui.link(name).on_hover_text(p.display().to_string()).clicked() {
+                if ui.link(recent_entry(ui, &p)).on_hover_text(p.display().to_string()).clicked() {
                     app.actions.push(Action::OpenModule(p));
                 }
             }

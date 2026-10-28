@@ -114,8 +114,11 @@ A module is a `.mod` archive, a module folder or a nasher project. `mg
 compile` and `mg import` write the module in place; an archive's previous
 version is kept beside it (`mymodule.mod.bak`). A `.mod` is read and
 written as the `.mod`, as the game's server reads it, even with a
-folder of its name beside it (which the window asks about): name the
-folder to work on the folder.
+folder of its name beside it (which the window asks about, its name in
+any case): the command says so in a note (in the JSON's `notes` too),
+and that the folder is left as it is. Name the folder to work on the
+folder. A command that saves a module folder leaves what another
+program changed in it meanwhile as it is, as the window does.
 
 For example, every placed creature whose tag starts `GUARD` and that has
 no OnSpawn script set, in the area `keep`:

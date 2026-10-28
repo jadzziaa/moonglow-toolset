@@ -7,7 +7,6 @@ use std::path::Path;
 
 use anyhow::{Result, bail};
 use mg_core::{ResRef, ResType};
-use mg_module::Module;
 use mg_module::claims::{self, Change, Standing};
 use mg_module::project_file::ProjectFile;
 use mg_resman::ResKey;
@@ -80,7 +79,7 @@ pub(crate) fn run(project: &Path, action: Action, areas: &[String], force: bool)
             }
         }
         Action::Merged => {
-            let m = Module::open(root)?;
+            let m = crate::open_module(root)?;
             for area in &areas {
                 let key = ResKey::new(*area, ResType::ARE);
                 let Some(Ok(are)) = m.gff(&key) else {
@@ -108,7 +107,7 @@ fn list(root: &Path, p: &ProjectFile) -> Result<Output> {
         out.note(line.clone());
     }
     // (The module's areas too, where it opens: those in no row are free.)
-    let module = Module::open(root);
+    let module = crate::open_module(root);
     let mut areas: Vec<ResRef> = table.rows.iter().map(|c| c.area).collect();
     let in_module: Vec<ResRef> = match &module {
         Ok(m) => m.keys_of(ResType::ARE).map(|k| k.resref).collect(),

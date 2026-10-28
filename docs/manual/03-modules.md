@@ -66,7 +66,13 @@ a directory), nasher projects (see below) and the game's campaign files
   The folder opened is saved into, and with **Write a .mod beside a
   module folder on save** (Options › General, on) written as the `.mod`
   too, as Aurora does: the game and its server load the `.mod`, never
-  the folder.
+  the folder. The folder is found by its name in any case, as Aurora
+  finds it on Windows (`Mymodule/` beside `mymodule.mod` on Linux), and
+  is saved as that `.mod`. The welcome page's Recent modules end a
+  folder's name in `/` and name the folder each is in (`mymodule/ in
+  modules`, `mymodule.mod in modules`); the whole path is on hover, as
+  in the File menu. `mg` opens the `.mod` it is given, as the server
+  does, and says that the folder beside it is left as it is.
 - **File › Save** (Ctrl+S) writes the module where it came from, as an
   archive or a folder. **Save As…** writes it as a `.mod` elsewhere (a
   name with no extension: a module folder). A folder that holds
