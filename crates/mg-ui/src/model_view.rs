@@ -821,8 +821,7 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
         let fwd = (cam.target - cam.eye).normalize();
         let right = fwd.cross(Vec3::Z).normalize_or_zero();
         let up = right.cross(fwd);
-        // (What is dragged follows the pointer, as the area view pans.)
-        let scale = cam.per_point(response.rect.height());
+        let scale = view.distance * 0.0015;
         view.target += (-right * d.x + up * d.y) * scale;
     }
     if response.hovered() {
