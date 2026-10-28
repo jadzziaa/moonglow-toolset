@@ -29,9 +29,12 @@
 //! labels of Options read from a bind. The warnings about what a control
 //! does when used (a Toggle button with a fixed value, a disabled slider,
 //! a text field's `max` below 4) need a mouse and a keyboard, and are not
-//! here; that Clip to control clips nothing is. The cases marked as probes record what the client does where the
-//! checks only warn: constants out of range, a root that is no row, column
-//! or group, a window ID with punctuation, the shape of an arc's center.
+//! here; that Clip to control clips nothing is. The cases marked as probes
+//! hold what the checks say of the client where it takes what `nw_inc_nui`
+//! does not make: constants out of range (warned of as slips, the window
+//! shown all the same), and a root that is no row, column or group, a
+//! window ID with punctuation or letters outside ASCII, and an arc's center
+//! as a point or a rectangle (none of them said: the client shows them).
 //!
 //! The client runs sandboxed (`tools/nwclient/run-client.sh`: no Steam, no
 //! network, no sound, a scratch user directory) on the off-screen display
@@ -338,8 +341,11 @@ fn cases() -> Vec<Case> {
     ];
     // A variant shown in place of the whole window is its last drawing.
     let mut variant = column("clip_variant", json!([mark()]), Some("when this variant"), Blank);
-    variant.settings.views.insert("cover".into(), json!({"type":"col","children":[mark(), on()]}));
-    variant.settings.view_targets.insert("cover".into(), "_window_".into());
+    variant
+        .settings
+        .variants
+        .insert("cover".into(), json!({"type":"col","children":[mark(), on()]}));
+    variant.settings.variant_targets.insert("cover".into(), "_window_".into());
     variant.swap = Some("cover");
     all.push(variant);
     all

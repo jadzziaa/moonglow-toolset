@@ -115,7 +115,7 @@ pub fn opener_source(name: &str, window: &Value, settings: &Settings) -> Result<
     }
     // Watches are enabled only after *all* initial values are installed.
     for (i, (bind, b)) in settings.bindings.iter().enumerate() {
-        if b.watch || settings.actions.iter().any(|h| h.event == "watch" && h.element == *bind) {
+        if b.watch || settings.handlers.iter().any(|h| h.event == "watch" && h.element == *bind) {
             _ = writeln!(
                 out,
                 "    NuiSetBindWatch(oPlayer, nToken, JsonGetString(JsonParse(sName{i})), TRUE);"
@@ -133,7 +133,7 @@ pub fn opener_source(name: &str, window: &Value, settings: &Settings) -> Result<
     }
     // What a script switches a swap layout to: each variant, and each swap
     // layout's initial contents, rebuilt here on every Build.
-    for (variant, layout) in &settings.views {
+    for (variant, layout) in &settings.variants {
         _ = writeln!(
             out,
             "\n// Swap layout variant {}.\njson {}()\n{{",
@@ -148,7 +148,7 @@ pub fn opener_source(name: &str, window: &Value, settings: &Settings) -> Result<
             Some(&window["root"])
         } else {
             find_group(window, &group)
-                .or_else(|| settings.views.values().find_map(|v| find_group(v, &group)))
+                .or_else(|| settings.variants.values().find_map(|v| find_group(v, &group)))
         };
         if let Some(initial) = initial {
             _ = writeln!(
@@ -167,10 +167,10 @@ pub fn opener_source(name: &str, window: &Value, settings: &Settings) -> Result<
 /// The groups variants are shown in: those the variants were made for,
 /// the swap layouts, and those the handlers name.
 pub(crate) fn swap_groups(settings: &Settings) -> BTreeSet<String> {
-    let mut groups: BTreeSet<String> = settings.view_targets.values().cloned().collect();
+    let mut groups: BTreeSet<String> = settings.variant_targets.values().cloned().collect();
     groups.extend(settings.swap_hosts.iter().cloned());
-    for handler in &settings.actions {
-        if let Action::View { group, .. } = &handler.action {
+    for handler in &settings.handlers {
+        if let Action::Variant { group, .. } = &handler.action {
             groups.insert(group.clone());
         }
     }
@@ -241,7 +241,7 @@ fn rebuilt(
         let (script, refits) =
             fit_returns(&merge_events(name, settings, Some(&text))?, settings.event_function);
         Ok((text_bytes(&script), refits))
-    } else if settings.actions.is_empty() {
+    } else if settings.handlers.is_empty() {
         Ok((b.to_vec(), Vec::new()))
     } else {
         Err(NuiError::EditedByHand(format!(
@@ -510,7 +510,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::{Binding, Route, window};
+    use crate::{Binding, Handler, window};
 
     #[test]
     fn a_fingerprint_is_the_number_the_settings_of_built_windows_carry() {
@@ -527,7 +527,7 @@ mod tests {
         w["title"] = json!("Zażółć 🐉 \"quoted\" \\ newline\n".repeat(60));
         let mut s = Settings { window_id: Some("Żółw 🐉".into()), ..Default::default() };
         s.bindings.insert("żółć".into(), Binding { value: json!(["🐉"]), ..Default::default() });
-        s.views.insert("Żółć".into(), json!({"type": "label", "value": "ż"}));
+        s.variants.insert("Żółć".into(), json!({"type": "label", "value": "ż"}));
         s.swap_hosts.push("_window_".into());
         assert!(opener_source("test_nui", &w, &s).unwrap().is_ascii());
     }
@@ -568,7 +568,7 @@ mod tests {
         let mut s = Settings::default();
         s.bindings.insert("volume".into(), Binding { value: json!(1), ..Default::default() });
         assert!(!opener_source("w", &window(), &s).unwrap().contains("NuiSetBindWatch("));
-        s.actions.push(Route::new("watch", "volume", Action::Code));
+        s.handlers.push(Handler::new("watch", "volume", Action::Code));
         assert!(opener_source("w", &window(), &s).unwrap().contains("NuiSetBindWatch("));
     }
 
@@ -579,7 +579,7 @@ mod tests {
     #[test]
     fn an_event_function_is_an_include_the_module_s_script_calls() {
         let mut s = Settings { event_function: true, ..Default::default() };
-        s.actions.push(Route::new("click", "mg_close", Action::Close));
+        s.handlers.push(Handler::new("click", "mg_close", Action::Close));
         let events = crate::event_source("shop", &s).unwrap();
         assert!(events.contains("\nint shop_OnEvent()\n{\n"), "{events}");
         assert!(!events.contains("void main("), "{events}");
@@ -609,7 +609,7 @@ mod tests {
     #[test]
     fn switching_to_an_event_function_and_back_keeps_the_code() {
         let mut s = Settings::default();
-        s.actions.push(Route::new("click", "send", Action::Code));
+        s.handlers.push(Handler::new("click", "send", Action::Code));
         let own = String::from_utf8(rebuild_events("shop", &s, None).unwrap()).unwrap();
         let mine =
             crate::insert_code(&own, "click send", "        SpeakString(\"sent\");\n").unwrap();
@@ -632,8 +632,8 @@ mod tests {
     #[test]
     fn a_handler_s_returns_fit_the_function_it_is_in() {
         let mut s = Settings::default();
-        s.actions.push(Route::new("click", "send", Action::Code));
-        s.actions.push(Route::new("click", "other", Action::Code));
+        s.handlers.push(Handler::new("click", "send", Action::Code));
+        s.handlers.push(Handler::new("click", "other", Action::Code));
         let own = String::from_utf8(rebuild_events("shop", &s, None).unwrap()).unwrap();
         let early = "        if (GetIsDM(oPlayer)) return;\n        SpeakString(\"return;\"); // return;\n        if (nRow < 0) return ;\n";
         let mine = crate::insert_code(&own, "click send", early).unwrap();
@@ -724,8 +724,8 @@ mod tests {
             {"type": "group", "id": "pages", "children": [{"type": "label", "value": "First"}]}
         ]);
         let mut s = Settings::default();
-        s.views.insert("details page".into(), json!({"type": "label", "value": "Second"}));
-        s.view_targets.insert("details page".into(), "pages".into());
+        s.variants.insert("details page".into(), json!({"type": "label", "value": "Second"}));
+        s.variant_targets.insert("details page".into(), "pages".into());
         let source = opener_source("shop", &w, &s).unwrap();
         assert!(source.contains("json Variant_shop_details_20_page()\n{"), "{source}");
         assert!(source.contains("json Initial_shop_pages()\n{"), "{source}");
@@ -758,8 +758,10 @@ mod tests {
         let mine = b"void main() { }\r\n// \xbf\xf3".as_slice();
         let none = Settings::default();
         assert_eq!(rebuild_events("w", &none, Some(mine)).unwrap(), mine);
-        let some =
-            Settings { actions: vec![Route::new("open", "", Action::Code)], ..Default::default() };
+        let some = Settings {
+            handlers: vec![Handler::new("open", "", Action::Code)],
+            ..Default::default()
+        };
         let refused = rebuild_events("w", &some, Some(mine)).unwrap_err();
         assert!(
             matches!(&refused, NuiError::EditedByHand(m) if m.starts_with("w_e.nss was written by hand")),

@@ -14,7 +14,7 @@ const TYPES: [ResType; 5] = [ResType::JPG, ResType::TGA, ResType::PNG, ResType::
 fn used(doc: &Value, s: &Settings) -> BTreeSet<String> {
     let mut names = BTreeSet::new();
     skin::names(doc, s, &mut names);
-    for view in s.views.values() {
+    for view in s.variants.values() {
         skin::names(view, s, &mut names);
     }
     names
@@ -171,6 +171,45 @@ fn origin_name(layer: &str) -> String {
     }
 }
 
+/// What Export… leaves behind of a window's pictures (`names`, those the
+/// module does not hold) that a client could miss, as a line for the log:
+/// a picture from a hak (a client needs that hak), from this machine's
+/// override, development or user folders, the Workshop, or one the game
+/// finds nowhere. The game's own pictures are on every client and go
+/// unsaid. `None` with nothing to say.
+pub(crate) fn pictures_left_behind(
+    resman: Option<&mg_resman::ResMan>,
+    names: &[String],
+) -> Option<String> {
+    let every_client = |layer: &str| {
+        layer.starts_with("key:")
+            || layer.starts_with("module")
+            || matches!(layer, "portraits" | "ambient" | "music")
+    };
+    let mut missed = Vec::new();
+    for name in names {
+        let origin = resman.and_then(|rm| {
+            TYPES.iter().find_map(|ty| rm.origin(&ResKey::parse(name, *ty)?).map(str::to_owned))
+        });
+        match origin {
+            Some(layer) if every_client(&layer) => {}
+            Some(layer) => missed.push(format!("{name} ({})", origin_name(&layer))),
+            None => missed.push(format!("{name} (found nowhere)")),
+        }
+    }
+    (!missed.is_empty()).then(|| {
+        format!(
+            "Not exported, as the module doesn't hold {}: {}. A client without {} shows the \
+             game's gui_error picture in {} place: give players the hak, or add the picture to \
+             the module (Images › Add images from disk…)",
+            if missed.len() == 1 { "it" } else { "them" },
+            missed.join(", "),
+            if missed.len() == 1 { "it" } else { "them" },
+            if missed.len() == 1 { "its" } else { "their" },
+        )
+    })
+}
+
 /// The picture the root's first draw layer stretches under the controls.
 fn current_background(doc: &Value) -> Option<&str> {
     let first = doc["root"]["draw_list"].get(0)?;
@@ -226,22 +265,51 @@ fn chosen_hak(app: &mut Moonglow, name: &str, choice: &Option<String>) -> Option
         app.log.error("Moonglow doesn't write into the game's folder: save the hak elsewhere");
         return None;
     }
-    // A hak open in the hak editor is written by its Save there: writing its
-    // file under it would be lost at that Save.
-    if app.haks.iter().any(|d| d.hak.path.as_deref() == Some(path.as_path())) {
-        let file = path.file_name().unwrap_or_default().to_string_lossy();
-        app.log.error(format!(
-            "{file} is open in the hak editor: add the pictures there, or close it first"
-        ));
-        return None;
-    }
     Some(path)
 }
 
 /// Writes pictures into the hak at `path`, at once (a hak isn't the
 /// module's: Undo doesn't take it back), and says in the log which hak was
 /// written and where the copy of what it was is kept. Whether it was written.
+///
+/// A hak open in the hak editor takes them in that document instead (its
+/// file written under it would be lost at its Save): saved at once, as the
+/// editor's Save saves it (a `.bak` kept, as here), when it had no unsaved
+/// changes; else, one step of its Undo, left for you to save there, which
+/// is said (and is not written: false).
 fn write_hak(app: &mut Moonglow, path: &Path, pictures: Vec<(ResKey, Source)>) -> bool {
+    if let Some(doc) = app.haks.iter_mut().find(|d| d.hak.path.as_deref() == Some(path)) {
+        let (id, unsaved) = (doc.id, doc.hak.is_dirty());
+        let file = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        let added = match doc.hak.add_sources_as("Add pictures", pictures) {
+            Ok(added) => added,
+            Err(e) => {
+                app.log.error(format!("Could not add the pictures to {file}: {e}"));
+                return false;
+            }
+        };
+        doc.changed();
+        let what = format!(
+            "Added {} to {file} in the hak editor, replaced {}",
+            count(added.added, "picture"),
+            added.replaced
+        );
+        if unsaved {
+            app.log.warn(format!(
+                "{what} (Undo there takes them out). It has other unsaved changes, so it isn't \
+                 saved: save it there for the game to find them"
+            ));
+            return false;
+        }
+        // (As a hak written here: the copy of what it was kept beside it.)
+        let bak = path.with_extension("hak.bak");
+        if let Err(e) = std::fs::copy(path, &bak) {
+            app.log.error(format!("Could not keep {}: {e}", bak.display()));
+            return false;
+        }
+        app.log.info(format!("{what}; the hak as it was is kept as {}", bak.display()));
+        return crate::hak_view::save(app, id, false);
+    }
     let kept = path.exists().then(|| path.with_extension("hak.bak"));
     match write_into(path, pictures) {
         Ok(added) => {
@@ -456,18 +524,63 @@ pub(super) fn page(
                     .filter_map(|k| Some((*k, Source::Bytes(ws.module.get(k)?.to_vec().into()))))
                     .collect();
                 // The module keeps its pictures unless the hak is in use.
-                if write_hak(app, &path, resources) && use_hak(app, &path, &mut edits) {
-                    edits.extend(
-                        module_images.iter().map(|k| Edit::SetResource { key: *k, data: None }),
+                if write_hak(app, &path, resources) {
+                    if use_hak(app, &path, &mut edits) {
+                        edits.extend(
+                            module_images.iter().map(|k| Edit::SetResource { key: *k, data: None }),
+                        );
+                    }
+                } else if app.haks.iter().any(|d| d.hak.path.as_deref() == Some(path.as_path())) {
+                    app.log.info(
+                        "The module keeps its pictures until the hak with them is saved: Move \
+                         them again once it is",
                     );
                 }
             }
         });
         ui.weak(
             "A hak's file is written at once, and Undo doesn't take it back: a copy of the hak \
-             as it was is kept beside it (.hak.bak). A new hak is made in the game's hak folder \
-             and added at the top of the module's haks.",
+             as it was is kept beside it (.hak.bak). A hak open in the hak editor takes them \
+             there, saved unless it has other unsaved changes. A new hak is made in the game's \
+             hak folder and added at the top of the module's haks.",
         );
     });
     edits
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mg_resman::{LayerClass, MemContainer, ResMan};
+
+    /// Export… says which pictures it leaves behind that a client could
+    /// miss: a hak's, this machine's override's, one found nowhere; the
+    /// game's own go unsaid.
+    #[test]
+    fn export_says_the_pictures_a_client_could_miss() {
+        let mut rm = ResMan::new();
+        let layer = |name: &str, ty: ResType| {
+            let mut c = MemContainer::new();
+            c.insert(ResKey::parse(name, ty).unwrap(), b"picture".to_vec());
+            c
+        };
+        rm.add(30, "hak:tdod_gui", LayerClass::Erf, layer("pic_hak", ResType::TGA));
+        rm.add(20, "override", LayerClass::Directory, layer("pic_over", ResType::PNG));
+        rm.add(10, "key:nwn_base", LayerClass::Key, layer("pic_game", ResType::DDS));
+        let names = |n: &[&str]| n.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(pictures_left_behind(Some(&rm), &names(&["pic_game"])), None);
+        let said = pictures_left_behind(
+            Some(&rm),
+            &names(&["pic_game", "pic_hak", "pic_over", "pic_gone"]),
+        )
+        .unwrap();
+        assert!(
+            said.contains(
+                "pic_hak (Hak: tdod_gui), pic_over (Override folder), pic_gone (found nowhere)"
+            ),
+            "{said}"
+        );
+        assert!(!said.contains("pic_game"), "{said}");
+        assert!(said.contains("give players the hak"), "{said}");
+    }
 }

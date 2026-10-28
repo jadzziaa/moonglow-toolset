@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:50:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T10:53:37Z }
 ---
 
 # The main window
@@ -233,8 +233,11 @@ the copy away.
 **Delete…** (or the Delete key, on the row under the pointer) asks
 first, and Undo brings back what it deleted. An area goes
 with everything placed in it and leaves the module's area list; a script
-goes with its compiled script. The area the module's start location is in
-can't be deleted: set the start location in another area first. Nothing
+goes with its compiled script, a NUI window with its settings and its two
+scripts. A script that goes whose editor holds unsaved text is named
+when it asks: the text goes as typed, and Undo brings it back so. The
+area the module's start location is in can't be deleted: set the start
+location in another area first. Nothing
 that names what is deleted is changed (check **Find References** first).
 
 A right click on a group (Areas, Scripts, Creatures…) or on one of its

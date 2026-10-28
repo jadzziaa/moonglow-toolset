@@ -133,6 +133,8 @@ pub enum Cmd {
     NuiMoveDown,
     NuiPrevious,
     NuiNext,
+    NuiFold,
+    NuiUnfold,
 }
 
 const CTRL: Modifiers = Modifiers::COMMAND;
@@ -140,7 +142,7 @@ const SHIFT: Modifiers = Modifiers::SHIFT;
 const NONE: Modifiers = Modifiers::NONE;
 
 impl Cmd {
-    pub const ALL: [Cmd; 67] = [
+    pub const ALL: [Cmd; 69] = [
         Cmd::NewModule,
         Cmd::OpenModule,
         Cmd::Save,
@@ -208,6 +210,8 @@ impl Cmd {
         Cmd::NuiMoveDown,
         Cmd::NuiPrevious,
         Cmd::NuiNext,
+        Cmd::NuiFold,
+        Cmd::NuiUnfold,
     ];
 
     /// The id the settings keep it by, its name and where it works.
@@ -281,6 +285,8 @@ impl Cmd {
             Cmd::NuiMoveDown => ("nui-move-down", "Move Element Down", Nui),
             Cmd::NuiPrevious => ("nui-previous", "Select Previous Element", Nui),
             Cmd::NuiNext => ("nui-next", "Select Next Element", Nui),
+            Cmd::NuiFold => ("nui-fold", "Fold Element or Select Its Parent", Nui),
+            Cmd::NuiUnfold => ("nui-unfold", "Unfold Element or Select Its First Child", Nui),
         }
     }
 
@@ -381,6 +387,8 @@ impl Cmd {
             Cmd::NuiMoveDown => vec![k(Modifiers::ALT, Key::ArrowDown)],
             Cmd::NuiPrevious => vec![k(NONE, Key::ArrowUp)],
             Cmd::NuiNext => vec![k(NONE, Key::ArrowDown)],
+            Cmd::NuiFold => vec![k(NONE, Key::ArrowLeft)],
+            Cmd::NuiUnfold => vec![k(NONE, Key::ArrowRight)],
         }
     }
 

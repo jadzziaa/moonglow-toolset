@@ -390,12 +390,12 @@ fn document(w: &Window<'_>, o: &Options) -> Result<(Value, Settings, Vec<String>
     let mut said = Vec::new();
     // (The binds the window and its variants read: those a script sets.)
     let mut read = mg_nui::bind_names(&window);
-    for v in settings.views.values() {
+    for v in settings.variants.values() {
         read.extend(mg_nui::bind_names(v));
     }
     if let Some(view) = &o.variant {
-        if !settings.views.contains_key(view) {
-            return Err(Error::Variant(view.clone(), settings.views.keys().cloned().collect()));
+        if !settings.variants.contains_key(view) {
+            return Err(Error::Variant(view.clone(), settings.variants.keys().cloned().collect()));
         }
         let target = layouts::target_for(&settings, view).ok_or(Error::NoGroup(view.clone()))?;
         window = layouts::context_document(&window, &settings, view, &target)

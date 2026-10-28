@@ -244,7 +244,7 @@ mod tests {
         layouts::finish_insert(&doc, &mut settings, &mut state);
         assert_eq!(doc["root"]["children"][1]["children"].as_array().unwrap().len(), 1);
         assert!(layouts::is_swap(&settings, doc.pointer(&state.selected).unwrap()));
-        assert!(settings.actions.is_empty());
+        assert!(settings.handlers.is_empty());
     }
 
     #[test]

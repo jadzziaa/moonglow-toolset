@@ -1598,7 +1598,23 @@ pub(crate) fn commit_text_in(
     width: f32,
     limit: Option<usize>,
 ) -> Option<String> {
-    let typed = commit_typed(buffers, ui, id, &to_editor(current).0, rows, width, limit);
+    commit_text_hinted(buffers, ui, id, current, rows, width, limit, "")
+}
+
+/// [`commit_text_in`] with `hint` shown in the field while it is empty.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn commit_text_hinted(
+    buffers: &mut std::collections::HashMap<egui::Id, String>,
+    ui: &mut Ui,
+    id: egui::Id,
+    current: &str,
+    rows: Option<usize>,
+    width: f32,
+    limit: Option<usize>,
+    hint: &str,
+) -> Option<String> {
+    let shown = to_editor(current).0;
+    let typed = commit_typed(buffers, ui, id, &shown, rows, width, limit, hint);
     typed.map(|text| with_line_ends(&text, current))
 }
 
@@ -1613,13 +1629,14 @@ pub(crate) fn commit_loc_text_in(
     width: f32,
     limit: Option<usize>,
 ) -> Option<String> {
-    let typed = commit_typed(buffers, ui, id, &to_editor(current).0, rows, width, limit);
+    let typed = commit_typed(buffers, ui, id, &to_editor(current).0, rows, width, limit, "");
     typed.map(|text| with_loc_line_ends(&text, current))
 }
 
 /// The field of [`commit_text_in`], `shown` its value as the field shows
-/// it ([`to_editor`]): what was typed (with plain line ends) when the
-/// keyboard leaves it changed.
+/// it ([`to_editor`]), `hint` shown while it is empty: what was typed
+/// (with plain line ends) when the keyboard leaves it changed.
+#[allow(clippy::too_many_arguments)]
 fn commit_typed(
     buffers: &mut std::collections::HashMap<egui::Id, String>,
     ui: &mut Ui,
@@ -1628,12 +1645,14 @@ fn commit_typed(
     rows: Option<usize>,
     width: f32,
     limit: Option<usize>,
+    hint: &str,
 ) -> Option<String> {
     let buf = buffers.entry(id).or_insert_with(|| shown.to_owned());
     let edit = match rows {
         Some(rows) => egui::TextEdit::multiline(buf).desired_rows(rows),
         None => egui::TextEdit::singleline(buf),
     };
+    let edit = if hint.is_empty() { edit } else { edit.hint_text(hint) };
     let edit = match limit {
         Some(n) => edit.char_limit(n),
         None => edit,

@@ -65,6 +65,11 @@ pub(crate) enum NuiCmd {
         /// change nothing.
         #[arg(long)]
         dry_run: bool,
+        /// Make each compiled script's debug file (.ndb) too, as `mg
+        /// compile --ndb` does (the NUI Creator's Build, with Generate Debug
+        /// Information on).
+        #[arg(long)]
+        ndb: bool,
     },
     /// Draw a NUI window into a PNG as the NUI Creator's preview draws it:
     /// the game's skin, pictures and fonts (from the install and the
@@ -139,7 +144,7 @@ pub(crate) fn run(cli: &Cli, cmd: &NuiCmd) -> Result<Output> {
                 mg_nui::create(&ws.module, name).with_context(|| window_text(module, name))?;
             write(ws, made, module, name, *dry_run, Output::default())
         }
-        NuiCmd::Generate { module, name, dry_run } => {
+        NuiCmd::Generate { module, name, dry_run, ndb } => {
             let ws = Workspace::new(Module::open(module)?);
             let mut out = Output::default();
             let gi = install(cli)?;
@@ -149,7 +154,7 @@ pub(crate) fn run(cli: &Cli, cmd: &NuiCmd) -> Result<Output> {
             let dir = build::compiled_dir();
             let made_with = build::made_with(Some(module), None, Some(&gi.root), &rm);
             let known = build::Remembered::kept(dir.as_deref(), Some(module), made_with);
-            let how = mg_nui::Build { known: Some(&known), ..mg_nui::Build::new(&rm) };
+            let how = mg_nui::Build { known: Some(&known), debug: *ndb, ..mg_nui::Build::new(&rm) };
             let made = mg_nui::generate(&ws.module, name, &how)
                 .with_context(|| window_text(module, name))?;
             // (A script of the module's that includes the opener and does
@@ -204,6 +209,76 @@ pub(crate) fn run(cli: &Cli, cmd: &NuiCmd) -> Result<Output> {
             preview::layout(cli, module, name.as_deref(), &drawn.options()?)
         }
     }
+}
+
+/// `mg rename MODULE NAME.jui NEW`: a NUI window renamed as the NUI
+/// Creator's Rename… renames it (`mg_nui::rename`: its settings, its two
+/// scripts and the module's scripts that open it), and built again under
+/// its new name as `mg nui generate` builds, the one with the other, and
+/// saved. A window that can't be built is renamed all the same, and said.
+pub(crate) fn rename(
+    cli: &Cli,
+    module: &Path,
+    from: &str,
+    to: &str,
+    strings: bool,
+) -> Result<Output> {
+    let mut ws = Workspace::new(Module::open(module)?);
+    let mut out = Output::default();
+    let mut made =
+        mg_nui::rename(&ws.module, from, to, strings).with_context(|| window_text(module, from))?;
+    let mut compile = json!(null);
+    let mut remembered = None;
+    if made.build {
+        let gi = install(cli)?;
+        let rm = module_resman(&gi, &ws.module, &mut out)?;
+        let dir = build::compiled_dir();
+        let made_with = build::made_with(Some(module), None, Some(&gi.root), &rm);
+        let known = build::Remembered::kept(dir.as_deref(), Some(module), made_with);
+        let how = mg_nui::Build { known: Some(&known), ..mg_nui::Build::new(&rm) };
+        match mg_nui::build_renamed(&ws.module, &mut made, to, &how) {
+            Ok(Some(built)) => {
+                compile = compiled(&mut out, &built.failed);
+                remembered = Some(built.remembered);
+            }
+            Ok(None) => {}
+            Err(e) => out.note(format!(
+                "warning: {to}'s scripts, and the scripts that open it, are not compiled under \
+                 its new name ({e}): run mg nui generate"
+            )),
+        }
+    }
+    let changed: Vec<String> = made.command.edits.iter().map(|e| e.key().to_string()).collect();
+    ws.apply(made.command).with_context(|| window_text(module, from))?;
+    ws.save()?;
+    if let (Some(now), Some(dir)) = (&remembered, build::compiled_dir())
+        && let Err(e) = now.write(&build::Remembered::file(&dir, module))
+    {
+        out.note(format!("warning: what was compiled is not remembered: {e}"));
+    }
+    for name in &made.spelled {
+        for x in mg_module::rename::mentions(&ws.module, name, true) {
+            out.note(format!(
+                "warning: {} line {} still spells {name}: {}",
+                x.script, x.line, x.text
+            ));
+        }
+    }
+    out.json = json!({
+        "from": format!("{from}.jui"),
+        "to": to,
+        "in_scripts": made.in_scripts,
+        "changed": changed,
+        "built": remembered.is_some(),
+        "compiled": compile,
+    });
+    out.note(format!(
+        "renamed the NUI window {from} to {to}, with its settings and scripts: {} places in \
+         scripts{}",
+        made.in_scripts,
+        if remembered.is_some() { ", built under its new name" } else { "" }
+    ));
+    Ok(out)
 }
 
 /// `NAME_OnEvent()`, the function a window's event script is when its

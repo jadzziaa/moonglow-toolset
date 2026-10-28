@@ -236,21 +236,21 @@ fn settings() -> Settings {
     ] {
         s.bindings.insert(name.into(), Binding { value, ..Default::default() });
     }
-    s.views.insert("other".into(), json!("not a layout"));
-    s.actions = vec![
-        mg_nui::Route {
+    s.variants.insert("other".into(), json!("not a layout"));
+    s.handlers = vec![
+        mg_nui::Handler {
             event: "open".into(),
             element: String::new(),
-            action: mg_nui::Action::View { group: "_window_".into(), view: "other".into() },
+            action: mg_nui::Action::Variant { group: "_window_".into(), variant: "other".into() },
             extra: Default::default(),
         },
-        mg_nui::Route {
+        mg_nui::Handler {
             event: "click".into(),
             element: "label".into(),
             action: mg_nui::Action::Toggle { bind: "rows".into() },
             extra: Default::default(),
         },
-        mg_nui::Route {
+        mg_nui::Handler {
             event: "watch".into(),
             element: "rows".into(),
             action: mg_nui::Action::Set { bind: "rows".into(), value: json!("again") },

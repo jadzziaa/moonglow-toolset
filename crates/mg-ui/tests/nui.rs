@@ -134,12 +134,12 @@ fn a_bind_made_for_a_property_and_its_handler_are_undone_on_the_design_page() {
     h.get_all_by_label("+ Add handler").last().unwrap().click();
     h.run();
     assert_eq!(settings(&h).bindings["label_value"].value, json!("Label"));
-    assert!(settings(&h).actions.iter().any(|r| r.event == "watch"
+    assert!(settings(&h).handlers.iter().any(|r| r.event == "watch"
         && r.element == "label_value"
         && r.action == mg_nui::Action::Code));
     h.state_mut().ws.as_mut().unwrap().undo().unwrap();
     h.run();
-    assert!(!settings(&h).actions.iter().any(|r| r.event == "watch"));
+    assert!(!settings(&h).handlers.iter().any(|r| r.event == "watch"));
     h.state_mut().ws.as_mut().unwrap().undo().unwrap();
     h.run();
     assert_eq!(document(&h), before);
@@ -166,7 +166,7 @@ fn handlers_follow_a_renamed_control_and_go_with_a_deleted_one() {
     // (Set when the field is left.)
     h.key_press(egui::Key::Tab);
     h.run();
-    assert!(settings(&h).actions.iter().any(|r| r.event == "click" && r.element == "mg_close_x"));
+    assert!(settings(&h).handlers.iter().any(|r| r.event == "click" && r.element == "mg_close_x"));
     assert!(script(&h).contains("// mg:begin click mg_close_x\n"));
     assert!(!script(&h).contains("// mg:begin click mg_close\n"));
     // The guard follows too, so the script still builds.
@@ -180,11 +180,11 @@ fn handlers_follow_a_renamed_control_and_go_with_a_deleted_one() {
     h.run();
     h.key_press(egui::Key::Delete);
     h.run();
-    assert!(!settings(&h).actions.iter().any(|r| r.event == "click"));
+    assert!(!settings(&h).handlers.iter().any(|r| r.event == "click"));
     assert!(
         mg_nui::validate(
             &document(&h),
-            &Settings { actions: settings(&h).actions, ..Default::default() }
+            &Settings { handlers: settings(&h).handlers, ..Default::default() }
         )
         .iter()
         .all(|d| !d.message.contains("Unknown element ID"))
@@ -337,16 +337,43 @@ fn images_from_disk_go_into_the_module_and_a_hak() {
     let bak = hak.with_extension("hak.bak");
     assert!(mg_module::hak_edit::Hak::open(&bak).unwrap().items().iter().all(|i| i.key == key));
     assert!(logged(&h, "nui_images.hak.bak"), "the log names the copy kept");
-    // One open in the hak editor is left to its Save there.
+    // One open in the hak editor takes them in its document, one step of
+    // its Undo, and is saved as its Save saves it.
     mg_ui::hak_view::open_at(h.state_mut(), &hak).expect("the hak opens");
     h.state_mut().actions.clear();
-    let before = std::fs::read(&hak).unwrap();
+    let third = dir.join("my_frame.tga");
+    std::fs::write(&third, &tga).unwrap();
+    let frame = ResKey::parse("my_frame", ResType::TGA).unwrap();
     h.state_mut().dialogs =
-        Box::new(NoDialogs { open_many: vec![vec![second]], ..Default::default() });
+        Box::new(NoDialogs { open_many: vec![vec![third.clone()]], ..Default::default() });
     h.get_by_label("Add images to nui_images.hak…").click();
     h.run();
-    assert_eq!(std::fs::read(&hak).unwrap(), before);
-    assert!(h.state().log.entries.iter().any(|(_, line)| line.contains("hak editor")));
+    let has = |h: &Harness<'_, Moonglow>, k: ResKey| {
+        h.state().haks[0].hak.items().iter().any(|i| i.key == k)
+    };
+    assert!(has(&h, frame), "in the hak editor's document");
+    assert!(!h.state().haks[0].hak.is_dirty(), "and saved");
+    let written = mg_module::hak_edit::Hak::open(&hak).unwrap();
+    assert!(written.items().iter().any(|i| i.key == frame), "the file has it");
+    assert!(logged(&h, "in the hak editor"), "said, with the copy kept");
+    // With unsaved changes of its own, it takes them but is not saved: said.
+    h.state_mut().haks[0].hak.remove(&[icon]);
+    let before = std::fs::read(&hak).unwrap();
+    let fourth = dir.join("my_glow.tga");
+    std::fs::write(&fourth, &tga).unwrap();
+    h.state_mut().dialogs =
+        Box::new(NoDialogs { open_many: vec![vec![fourth]], ..Default::default() });
+    h.get_by_label("Add images to nui_images.hak…").click();
+    h.run();
+    assert!(has(&h, ResKey::parse("my_glow", ResType::TGA).unwrap()));
+    assert!(h.state().haks[0].hak.is_dirty());
+    assert_eq!(h.state().haks[0].hak.undo_label(), Some("Add pictures"));
+    assert_eq!(std::fs::read(&hak).unwrap(), before, "its file is the editor's to save");
+    assert!(
+        h.state().log.entries.iter().any(|(_, line)| line.contains("other unsaved changes")),
+        "{:?}",
+        h.state().log.entries
+    );
 }
 
 #[test]
@@ -396,6 +423,73 @@ fn edit_code_leaves_a_script_written_by_hand_as_it_is() {
     h.run();
     assert_eq!(text(h.state(), script), manual);
     assert!(h.state().dock.find_tab(&Tab::Script(script)).is_some());
+}
+
+/// Code the Creator writes into an event script whose editor holds unsaved
+/// text goes in after that text is stored, as a step of its own: Undo takes
+/// back what the Creator wrote and leaves what was typed, then that.
+#[test]
+fn the_creator_writes_into_an_event_script_typed_in_after_storing_what_was_typed() {
+    let mut h = harness();
+    let script = ResKey::parse("nui_test_e", ResType::NSS).unwrap();
+    h.get_by_label("Canvas Button · Close").click();
+    h.run();
+    h.get_by_label("Edit code").click();
+    h.run();
+    let written = text(h.state(), script);
+    let at = mg_nui::handler_offset(&written, "click mg_close").unwrap();
+    h.state_mut().script_tools.jump = Some((script, at));
+    h.run();
+    h.event(egui::Event::Text("int nTyped = 1; ".into()));
+    h.run();
+    let typed = h.state().script_text(script).unwrap();
+    assert!(typed.contains("int nTyped = 1; ") && typed != written, "{typed}");
+    assert_eq!(text(h.state(), script), written, "typed, not saved");
+    close_script(&mut h, script);
+    h.get_by_label("Insert…").click();
+    h.run();
+    h.get_by_label("Close window").click();
+    h.run();
+    let now = text(h.state(), script);
+    assert!(now.contains("int nTyped = 1; "), "what was typed is kept: {now}");
+    assert_eq!(now.matches("NuiDestroy(oPlayer, nToken);").count(), 2, "{now}");
+    assert_eq!(h.state().script_text(script).as_deref(), Some(now.as_str()), "the editor shows it");
+    // One Undo takes back the insert, the next what was typed.
+    undo(&mut h);
+    assert_eq!(text(h.state(), script), typed);
+    undo(&mut h);
+    assert_eq!(text(h.state(), script), written);
+}
+
+/// A color being picked is shown and not set; it is set when the picker
+/// closes, as one Undo step, as a blueprint's colors are.
+#[test]
+fn a_color_picked_is_set_when_its_picker_closes() {
+    let mut h = harness();
+    h.get_by_label("Canvas Label · Label").click();
+    h.run();
+    h.get_by_label("+ Add property").click();
+    h.run();
+    h.get_by_label("Foreground color").click();
+    h.run();
+    let white = json!({"r":255,"g":255,"b":255,"a":255});
+    let color =
+        |h: &Harness<'_, Moonglow>| document(h)["root"]["children"][0]["foreground_color"].clone();
+    assert_eq!(color(&h), white);
+    let steps = revision(&h);
+    h.get_by(|n| n.role() == egui::accesskit::Role::ColorWell).click();
+    h.run();
+    h.get_by_label("Paste Color").click();
+    h.run();
+    h.event(egui::Event::Paste("#204060".into()));
+    h.run();
+    assert_eq!(color(&h), white, "picked, not set while the picker is open");
+    assert_eq!(revision(&h), steps);
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert_eq!(color(&h), json!({"r":32,"g":64,"b":96,"a":255}), "set as the picker closes");
+    undo(&mut h);
+    assert_eq!(color(&h), white, "one Undo step");
 }
 
 #[test]
@@ -784,6 +878,25 @@ fn two_nui_windows_are_tabs_of_one_window() {
     assert_eq!(a.node_path(), b.node_path());
 }
 
+/// A Build that failed is said by the window's Build button until the next
+/// Build, in its module only: a window of the same name in the module
+/// opened next is not said to have failed.
+#[test]
+fn a_failed_build_is_not_said_of_the_next_module_s_window() {
+    let mut h = harness();
+    // (No game: the build fails.)
+    h.state_mut().run(Action::GenerateNui { name: "nui_test".into(), export: false });
+    h.run();
+    assert!(h.query_by_label("Build failed").is_some());
+    h.state_mut().close();
+    h.state_mut().ws = Some(mg_edit::Workspace::new(mg_module::Module::new()));
+    h.state_mut().run(Action::NewNui("nui_test".into()));
+    h.run();
+    h.run();
+    assert!(h.state().dock.find_tab(&Tab::Nui(key())).is_some());
+    assert!(h.query_by_label("Build failed").is_none());
+}
+
 /// Deleting a window takes its settings and its scripts with it, as one
 /// step; a text of the same name that is not its settings stays.
 #[test]
@@ -809,6 +922,36 @@ fn deleting_a_window_takes_its_settings_and_scripts() {
     module.set(notes, b"not settings".to_vec());
     app.run(Action::DeleteResource(ResKey::parse("notes", ResType::JUI).unwrap()));
     assert!(app.ws.as_ref().unwrap().module.contains(&notes));
+}
+
+/// Delete… on a window whose event script has unsaved text in its editor
+/// says so, and Undo brings the script back as it was typed.
+#[test]
+fn deleting_a_window_says_its_script_s_unsaved_text_and_undo_brings_it_back() {
+    let mut h = harness();
+    let script = ResKey::parse("nui_test_e", ResType::NSS).unwrap();
+    h.get_by_label("Canvas Button · Close").click();
+    h.run();
+    h.get_by_label("Edit code").click();
+    h.run();
+    h.state_mut().script_tools.jump = Some((script, 0));
+    h.run();
+    h.event(egui::Event::Text("// typed\n".into()));
+    h.run();
+    let typed = h.state().script_text(script).unwrap();
+    assert!(typed.starts_with("// typed\n"), "{typed}");
+    h.state_mut().run(Action::DeleteDialog(key()));
+    h.run();
+    assert!(h.query_by_label_contains("with its settings and its scripts?").is_some());
+    h.get_by_label_contains("nui_test_e.nss has unsaved text in its editor");
+    h.get_by_label("Delete").click();
+    h.run();
+    let module = |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().module.clone();
+    assert!(!module(&h).contains(&key()) && !module(&h).contains(&script));
+    assert!(h.state().dock.find_tab(&Tab::Script(script)).is_none());
+    undo(&mut h);
+    assert!(module(&h).contains(&key()));
+    assert_eq!(text(h.state(), script), typed);
 }
 
 /// Cancel after a Build sets back what Build made with the settings that
@@ -890,7 +1033,7 @@ fn cancel_sets_back_the_window_and_keeps_the_code_written_in_the_event_script() 
     assert!(after.contains(mine.trim_end()), "the code is kept: {after}");
     // Around the handlers that are back: as Build would write it.
     assert!(!mg_nui::edited_outside("nui_test", &after));
-    for handler in &opened.1.actions {
+    for handler in &opened.1.handlers {
         let begin = format!("{}{}", mg_nui::BEGIN, mg_nui::handler_key(handler));
         assert!(after.contains(&begin), "{begin}: {after}");
     }
@@ -954,6 +1097,37 @@ fn a_key_chosen_in_options_deletes_the_selected_control() {
     h.run();
     assert_eq!(document(&h)["root"]["children"].as_array().unwrap().len(), 1);
     assert_eq!(document(&h)["root"]["children"][0]["id"], "mg_close");
+}
+
+/// Layers' Left and Right (fold, or go to the parent; unfold, or go to the
+/// first child) are Options › Keyboard's, as its other keys are.
+#[test]
+fn keys_chosen_in_options_fold_and_unfold_layers() {
+    let mut h = harness();
+    let keys = &mut h.state_mut().settings.key_bindings;
+    keys.insert("nui-fold".into(), vec!["H".into()]);
+    keys.insert("nui-unfold".into(), vec!["L".into()]);
+    h.run();
+    h.get_all_by_label("Button · Close").next().unwrap().click();
+    h.run();
+    let shown = |h: &Harness<'_, Moonglow>| {
+        h.query_all_by_label("Button · Close")
+            .any(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
+    };
+    assert!(shown(&h));
+    // Left alone does nothing now; H goes to the column, then folds it.
+    h.key_press(egui::Key::ArrowLeft);
+    h.run();
+    assert!(h.query_by_label("Collapse Column").is_some());
+    h.key_press(egui::Key::H);
+    h.run();
+    h.key_press(egui::Key::H);
+    h.run();
+    assert!(!shown(&h), "the column is folded");
+    assert!(h.query_by_label("Expand Column").is_some());
+    h.key_press(egui::Key::L);
+    h.run();
+    assert!(shown(&h), "and unfolded");
 }
 
 #[test]
@@ -1110,6 +1284,63 @@ fn source_typed_is_the_module_s_when_its_field_is_left_even_if_it_does_not_read(
     h.get_by_label_contains("The window's JSON doesn't read");
 }
 
+/// Split source's canvas shows the window as it is typed, where it reads,
+/// before its field is left; the module has it when the field is left.
+#[test]
+fn split_source_shows_on_the_canvas_what_is_typed() {
+    let mut h = harness();
+    h.get_by_value("Editor").click();
+    h.run();
+    h.get_by_label("Split source").click();
+    h.run();
+    let before = document(&h);
+    let mut typed = before.clone();
+    typed["root"]["children"][0]["value"] = json!("Typed live");
+    let field = || egui::accesskit::Role::MultilineTextInput;
+    h.get_all_by_role(field()).next().unwrap().click();
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.run();
+    h.event(egui::Event::Text(serde_json::to_string_pretty(&typed).unwrap()));
+    h.run();
+    assert!(h.query_by_label("Canvas Label · Typed live").is_some(), "shown as typed");
+    assert_eq!(document(&h), before, "the module's when the field is left");
+    // Half a window doesn't read: the canvas shows the module's.
+    h.event(egui::Event::Text("{".into()));
+    h.run();
+    assert!(h.query_by_label("Canvas Label · Label").is_some());
+    h.key_press(egui::Key::Backspace);
+    h.run();
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert_eq!(document(&h), typed);
+}
+
+/// The fields of an option's label and of a picture's name say what goes
+/// in them while they are empty.
+#[test]
+fn an_empty_option_and_picture_name_say_what_goes_in_them() {
+    let mut h = harness();
+    let mut window = document(&h);
+    window["root"]["children"] = json!([
+        {"type":"image","value":"","height":40.0},
+        {"type":"combo","id":"choice","value":0,"height":30.0,"elements":[["",0]]},
+        {"type":"button","id":"mg_close","label":"Close","height":30.0}
+    ]);
+    h.state_mut().ws.as_mut().unwrap().module.set(key(), serde_json::to_vec(&window).unwrap());
+    h.run();
+    let hinted = |h: &Harness<'_, Moonglow>, hint: &str| {
+        h.get_all_by_role(egui::accesskit::Role::TextInput)
+            .any(|n| n.accesskit_node().placeholder() == Some(hint))
+    };
+    h.get_by_label_contains("Canvas Image").click();
+    h.run();
+    assert!(hinted(&h, "Picture name"));
+    h.get_by_label_contains("Canvas Dropdown").click();
+    h.run();
+    assert!(hinted(&h, "Option label"));
+}
+
 /// A window whose name leaves no room for its scripts' suffixes, and whose
 /// settings are some other text, opens and shows its pages.
 #[test]
@@ -1181,6 +1412,69 @@ fn build_takes_the_window_s_own_scripts_as_typed() {
     let log = &h.state().log.entries;
     assert!(log.iter().any(|(_, m)| m.contains("Save other.nss")), "{log:?}");
     assert!(!log.iter().any(|(_, m)| m.contains("typed_e.nss")), "{log:?}");
+}
+
+/// What Build compiles is added to the compile memory, and kept where
+/// Compile All keeps it: the next session's Compile All passes over the
+/// window's event script.
+#[test]
+fn build_adds_what_it_compiled_to_the_compile_memory() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("nui-build-remembered");
+    let path = dir.join("keep.mod");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(
+        Some(mg_resman::GameInstall::new(root, None, "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.ws = Some(mg_edit::Workspace::new(mg_module::Module::open(&path).unwrap()));
+    let kept = dir.join("compiled");
+    std::fs::create_dir_all(&kept).unwrap();
+    app.compiled_dir = Some(kept.clone());
+    app.run(Action::NewNui("shop".into()));
+    app.run(Action::GenerateNui { name: "shop".into(), export: false });
+    let events = ResKey::parse("shop_e", ResType::NSS).unwrap();
+    assert!(app.compiled_scripts().contains(&events), "{:?}", app.compiled_scripts());
+    assert_eq!(std::fs::read_dir(&kept).unwrap().count(), 1, "a file for the module");
+    // The next session reads it: Compile All leaves the event script alone.
+    app.forget_compiled();
+    let mut h = creator(app, [1000, 700]);
+    let before = h.state().log.entries.len();
+    h.state_mut().actions.push(Action::CompileScripts);
+    h.run_steps(3);
+    let said: Vec<String> =
+        h.state().log.entries[before..].iter().map(|(_, m)| m.clone()).collect();
+    let line = said.iter().rfind(|m| m.starts_with("Compiled ")).expect("Compile All's line");
+    // (The opener, an include, is looked at and makes nothing.)
+    assert!(line.contains("0 changed; 1 as they were when last compiled, left alone"), "{said:?}");
+}
+
+/// Export… takes the pictures the module holds and says which of the rest
+/// a client could miss: the game's own go unsaid.
+#[test]
+fn export_says_the_pictures_it_leaves_behind() {
+    let root = mg_testkit::corpus!();
+    let mut app = Moonglow::new(
+        Some(mg_resman::GameInstall::new(root, None, "en")),
+        Box::new(NoDialogs::default()),
+    );
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    app.ws = Some(mg_edit::Workspace::new(m));
+    app.run(Action::NewNui("pictures".into()));
+    let jui = ResKey::parse("pictures", ResType::JUI).unwrap();
+    let mut w = mg_nui::parse(app.ws.as_ref().unwrap().module.get(&jui).unwrap()).unwrap();
+    let image = |name: &str| json!({"type":"image","value":name,"height":40.0});
+    let children = w["root"]["children"].as_array_mut().unwrap();
+    children.extend([image("nui_button_a"), image("zz_no_picture")]);
+    app.ws.as_mut().unwrap().module.set(jui, serde_json::to_vec(&w).unwrap());
+    app.run(Action::GenerateNui { name: "pictures".into(), export: true });
+    let said: Vec<&String> = app.log.entries.iter().map(|(_, m)| m).collect();
+    let line = said.iter().find(|m| m.starts_with("Not exported")).expect("the pictures said");
+    assert!(line.contains("zz_no_picture (found nowhere)"), "{line}");
+    assert!(!line.contains("nui_button_a"), "the game's own: {line}");
 }
 
 #[test]
@@ -1298,7 +1592,7 @@ fn windows_written_by_hand_reach_every_page_and_interact() {
     settings
         .bindings
         .insert("geometry".into(), Binding { value: json!("x"), ..Default::default() });
-    settings.views.insert("broken".into(), json!({"type":"group","children":7}));
+    settings.variants.insert("broken".into(), json!({"type":"group","children":7}));
     for window in windows {
         let mut app = app();
         let ws = app.ws.as_mut().unwrap();
@@ -1397,6 +1691,42 @@ fn text_typed_is_set_when_layers_selects_another_control() {
     assert!(after["root"]["children"][0]["id"].is_null(), "the label has no ID of its own");
 }
 
+/// A problem's link, pressed and released in one frame while a field of
+/// another control is typed in, sets what was typed before it selects the
+/// problem's control (the link is drawn before the form).
+#[test]
+fn text_typed_is_set_when_a_problem_s_link_selects_another_control() {
+    let mut h = harness();
+    let mut window = document(&h);
+    window["root"]["children"][0] = json!({"type":"textedit","label":"Name","max":0});
+    h.state_mut().ws.as_mut().unwrap().module.set(key(), serde_json::to_vec(&window).unwrap());
+    h.run();
+    h.get_by_label("Canvas Button · Close").click();
+    h.run();
+    h.get_by_label("Element ID").click();
+    h.run();
+    h.get_by_label("Element ID").type_text("_typed");
+    h.run();
+    assert_eq!(document(&h)["root"]["children"][1]["id"], "mg_close", "typed, not set");
+    // (A click with its press and its release in one frame.)
+    let at = h.get_by_label("Text input · Name › Max").rect().center();
+    h.event(egui::Event::PointerMoved(at));
+    h.step();
+    let button = |pressed| egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    h.event(button(true));
+    h.event(button(false));
+    h.run();
+    let after = document(&h);
+    assert_eq!(after["root"]["children"][1]["id"], "mg_close_typed", "{after}");
+    assert!(after["root"]["children"][0]["id"].is_null(), "not the text input's: {after}");
+    assert!(h.query_by_label("Placeholder").is_some(), "the text input is selected");
+}
+
 /// A drag across a number is one change, made when it is let go; the number
 /// it has reached shows meanwhile.
 #[test]
@@ -1469,7 +1799,7 @@ fn a_selection_undo_takes_away_is_cleared() {
 fn events_harness(action: mg_nui::Action) -> Harness<'static, Moonglow> {
     let mut app = app();
     let settings = Settings {
-        actions: vec![mg_nui::Route::new("click", "mg_close", action)],
+        handlers: vec![mg_nui::Handler::new("click", "mg_close", action)],
         ..Default::default()
     };
     app.ws.as_mut().unwrap().module.set(ResKey::new(key().resref, ResType::TXT), settings.bytes());
@@ -1497,7 +1827,7 @@ fn the_bindings_page_adds_a_bind_s_change_handler() {
     h.run();
     let after = settings(&h);
     assert!(
-        after.actions.iter().any(|r| r.event == "watch"
+        after.handlers.iter().any(|r| r.event == "watch"
             && r.element == "volume"
             && r.action == mg_nui::Action::Code)
     );
@@ -1529,12 +1859,12 @@ fn binds_are_renamed_and_deleted_with_their_handlers() {
     h.run();
     let renamed = settings(&h);
     assert!(renamed.bindings.contains_key("volume_2") && !renamed.bindings.contains_key("volume"));
-    assert!(renamed.actions.iter().any(|r| r.event == "watch" && r.element == "volume_2"));
+    assert!(renamed.handlers.iter().any(|r| r.event == "watch" && r.element == "volume_2"));
     h.get_by_label("Delete").click();
     h.run();
     let deleted = settings(&h);
     assert!(deleted.bindings.is_empty());
-    assert!(!deleted.actions.iter().any(|r| r.event == "watch"));
+    assert!(!deleted.handlers.iter().any(|r| r.event == "watch"));
 }
 
 /// A drag that begins on the editor's page moves nothing: the window the
@@ -1851,8 +2181,8 @@ fn a_window_is_laid_out_in_the_states_binds_and_variant_asked() {
     let mut lost = fixture("cries");
     let txt = ResKey::parse("cries", ResType::TXT).unwrap();
     let mut s = Settings::parse(lost.get(&txt).unwrap()).unwrap();
-    s.actions.clear();
-    s.view_targets.clear();
+    s.handlers.clear();
+    s.variant_targets.clear();
     lost.set(txt, s.bytes());
     let o = Options { variant: Some("details".into()), ..Default::default() };
     let e = layout(&cries_window(&lost), &o).unwrap_err().to_string();
@@ -2114,4 +2444,233 @@ fn controls_without_a_width_are_as_the_layout_form_says() {
     let l = layout(&w, &Options::default()).unwrap();
     assert_eq!((l.width, l.elements[0].area.w, l.body.w), (420.0, l.body.w, 404.0));
     assert!(about.contains("the window's width less 20 fills its root column"));
+}
+
+// Renaming a window (Rename… on its row or its tab): its settings and its
+// scripts go with it, the open tabs follow, and what was built is built
+// again under the new name.
+
+fn res(name: &str, ty: ResType) -> ResKey {
+    ResKey::parse(name, ty).unwrap()
+}
+
+/// Every resource of the module, with its bytes.
+fn resources(app: &Moonglow) -> Vec<(ResKey, Vec<u8>)> {
+    let module = &app.ws.as_ref().unwrap().module;
+    let mut all: Vec<_> = module.keys().map(|k| (*k, module.get(k).unwrap().to_vec())).collect();
+    all.sort();
+    all
+}
+
+/// `app` (with the game or not) with the window `shop` as Build leaves it
+/// (without the game, what is compiled stands in), code written in the
+/// Close button's handler, and a script of the module's that opens the
+/// window.
+fn shop(mut app: Moonglow) -> Moonglow {
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    app.ws = Some(mg_edit::Workspace::new(m));
+    app.run(Action::NewNui("shop".into()));
+    app.actions.clear();
+    let module = &mut app.ws.as_mut().unwrap().module;
+    let window = mg_nui::parse(module.get(&res("shop", ResType::JUI)).unwrap()).unwrap();
+    let settings = Settings::parse(module.get(&res("shop", ResType::TXT)).unwrap()).unwrap();
+    let opener = mg_nui::opener_source("shop", &window, &settings).unwrap();
+    let events = mg_nui::event_source("shop", &settings).unwrap();
+    let events =
+        mg_nui::insert_code(&events, "click mg_close", "        SpeakString(\"Bye\");\n").unwrap();
+    module.set(res("shop_o", ResType::NSS), opener.into_bytes());
+    module.set(res("shop_e", ResType::NSS), events.into_bytes());
+    module.set(res("shop_e", ResType::NCS), b"NCS V1.0B".to_vec());
+    module.set(
+        res("enter", ResType::NSS),
+        b"#include \"shop_o\"\nvoid main()\n{\n    Open_shop(GetEnteringObject());\n}\n".to_vec(),
+    );
+    module.set(res("enter", ResType::NCS), b"NCS V1.0B".to_vec());
+    app
+}
+
+fn without_game() -> Moonglow {
+    shop(Moonglow::new(None, Box::new(NoDialogs::default())))
+}
+
+/// The application, drawn whole, with the window's and its event script's
+/// tabs open.
+fn renaming(app: Moonglow) -> Harness<'static, Moonglow> {
+    let mut h = creator(app, [1000, 700]);
+    h.state_mut().run(Action::OpenTab(Tab::Nui(res("shop", ResType::JUI))));
+    h.state_mut().run(Action::OpenTab(Tab::Script(res("shop_e", ResType::NSS))));
+    h.run();
+    h
+}
+
+#[test]
+fn a_renamed_window_takes_its_settings_and_scripts_and_one_undo_brings_them_back() {
+    let mut h = renaming(without_game());
+    let (old_script, new_script) = (res("shop_e", ResType::NSS), res("store_e", ResType::NSS));
+    assert!(h.state().script_text(old_script).is_some());
+    let before = resources(h.state());
+    let step = |app: &Moonglow| app.ws.as_ref().unwrap().can_undo().map(str::to_owned);
+    let last = step(h.state());
+
+    let to = mg_core::ResRef::from_str("store").unwrap();
+    h.state_mut().rename_resource(res("shop", ResType::JUI), to, false);
+    h.run();
+    let app = h.state();
+    // Nothing is left under the old name, compiled or not.
+    let left: Vec<String> = resources(app)
+        .iter()
+        .map(|(k, _)| k.to_string())
+        .filter(|k| k.starts_with("shop"))
+        .collect();
+    assert!(left.is_empty(), "{left:?}");
+    let module = &app.ws.as_ref().unwrap().module;
+    for (name, ty) in [("store", ResType::JUI), ("store", ResType::TXT), ("store_o", ResType::NSS)]
+    {
+        assert!(module.contains(&res(name, ty)), "{name}");
+    }
+    // (Without the game, nothing compiled: the log says why.)
+    assert!(!module.contains(&res("store_e", ResType::NCS)));
+    assert!(
+        app.log
+            .entries
+            .iter()
+            .any(|(_, said)| said.contains("aren't compiled under its new name (no game install"))
+    );
+    // The handler's code is in the new event script, in a frame for the new name.
+    let events = text(app, new_script);
+    assert!(events.contains("        // mg:begin click mg_close\n"), "{events}");
+    assert!(events.contains("        SpeakString(\"Bye\");\n        // mg:end\n"), "{events}");
+    assert!(events.contains("#include \"store_o\"\n"), "{events}");
+    assert!(text(app, res("store_o", ResType::NSS)).contains("void Open_store(object oPlayer)"));
+    // The script that opens the window includes and calls the new one.
+    assert_eq!(
+        text(app, res("enter", ResType::NSS)),
+        "#include \"store_o\"\nvoid main()\n{\n    Open_store(GetEnteringObject());\n}\n"
+    );
+    assert!(!module.contains(&res("enter", ResType::NCS)));
+    // The tabs follow, and the script's editor shows the script as it is now.
+    assert!(app.dock.find_tab(&Tab::Nui(res("store", ResType::JUI))).is_some());
+    assert!(app.dock.find_tab(&Tab::Nui(res("shop", ResType::JUI))).is_none());
+    assert!(app.dock.find_tab(&Tab::Script(new_script)).is_some());
+    assert!(app.dock.find_tab(&Tab::Script(old_script)).is_none());
+    assert!(app.script_text(old_script).is_none());
+    assert_eq!(app.script_text(new_script).as_deref(), Some(events.as_str()));
+    assert!(
+        app.log.entries.iter().any(|(_, said)| said.starts_with("Renamed shop.jui to store.jui"))
+    );
+
+    // One Undo: every resource as it was, byte for byte.
+    assert_eq!(step(h.state()).as_deref(), Some("Rename shop.jui to store.jui"));
+    undo(&mut h);
+    assert_eq!(resources(h.state()), before);
+    assert_eq!(step(h.state()), last);
+}
+
+/// With the game, the window renamed is built under its new name in the
+/// same command: its event script and the script that opens it compiled,
+/// as the other renames compile what they changed; one Undo takes it all
+/// back.
+#[test]
+fn a_renamed_window_is_built_under_its_new_name() {
+    let root = mg_testkit::corpus!();
+    let app = Moonglow::new(
+        Some(mg_resman::GameInstall::new(root, None, "en")),
+        Box::new(NoDialogs::default()),
+    );
+    let mut app = shop(app);
+    app.run(Action::GenerateNui { name: "shop".into(), export: false });
+    let before = resources(&app);
+    let to = mg_core::ResRef::from_str("store").unwrap();
+    app.rename_resource(res("shop", ResType::JUI), to, false);
+    let module = &app.ws.as_ref().unwrap().module;
+    for (name, ty) in [("store_e", ResType::NCS), ("enter", ResType::NCS)] {
+        assert!(module.contains(&res(name, ty)), "{name} compiled");
+    }
+    let window = mg_nui::parse(module.get(&res("store", ResType::JUI)).unwrap()).unwrap();
+    let settings = Settings::parse(module.get(&res("store", ResType::TXT)).unwrap()).unwrap();
+    assert!(mg_nui::is_current(module, "store", &window, &settings), "built as Build builds");
+    assert!(
+        app.log.entries.iter().any(|(_, said)| said.contains("are compiled under its new name")),
+        "{:?}",
+        app.log.entries
+    );
+    // (What was compiled is remembered, as Build's is.)
+    assert!(app.compiled_scripts().contains(&res("store_e", ResType::NSS)));
+    assert_eq!(app.ws.as_ref().unwrap().can_undo(), Some("Rename shop.jui to store.jui"));
+    app.ws.as_mut().unwrap().undo().unwrap();
+    assert_eq!(resources(&app), before);
+}
+
+/// Rename… on a window's event script or opener renames the window: the
+/// script alone would part from it.
+#[test]
+fn rename_on_a_window_s_script_renames_the_window() {
+    let mut app = without_game();
+    app.rename_dialog(res("shop_e", ResType::NSS));
+    let draft = app.rename.clone().unwrap();
+    assert_eq!(
+        (draft.from, draft.script),
+        (res("shop", ResType::JUI), Some(res("shop_e", ResType::NSS)))
+    );
+    app.rename = None;
+    // Given as the script's new name, it is the window's with the suffix.
+    let to = mg_core::ResRef::from_str("store_o").unwrap();
+    app.rename_resource(res("shop_o", ResType::NSS), to, false);
+    let module = &app.ws.as_ref().unwrap().module;
+    assert!(
+        module.contains(&res("store", ResType::JUI))
+            && module.contains(&res("store_e", ResType::NSS))
+    );
+    // A script of the module's that is no window's is renamed as a script.
+    app.rename_dialog(res("enter", ResType::NSS));
+    assert_eq!(app.rename.as_ref().unwrap().from, res("enter", ResType::NSS));
+    assert_eq!(app.rename.as_ref().unwrap().script, None);
+}
+
+#[test]
+fn a_window_rename_is_refused_for_a_name_without_room_for_the_scripts() {
+    let mut app = without_game();
+    let before = resources(&app);
+    let revision = app.ws.as_ref().unwrap().revision();
+    // Fifteen characters: `_o` and `_e` would not fit.
+    let to = mg_core::ResRef::from_str("fifteen_charnam").unwrap();
+    app.rename_resource(res("shop", ResType::JUI), to, false);
+    assert_eq!(resources(&app), before);
+    assert_eq!(app.ws.as_ref().unwrap().revision(), revision);
+    let said = &app.log.entries.last().unwrap().1;
+    assert!(said.starts_with("Rename: \"fifteen_charnam\": use 1–14 lowercase"), "{said}");
+    // So is a name the module has a script of the window's under.
+    app.ws.as_mut().unwrap().module.set(res("store_e", ResType::NSS), b"void main() {}".to_vec());
+    let before = resources(&app);
+    app.rename_resource(
+        res("shop", ResType::JUI),
+        mg_core::ResRef::from_str("store").unwrap(),
+        false,
+    );
+    assert_eq!(resources(&app), before);
+    let said = &app.log.entries.last().unwrap().1;
+    assert_eq!(said, "Rename: Resource already exists: store_e.nss");
+}
+
+#[test]
+fn a_window_rename_leaves_a_text_that_is_not_the_window_s_settings() {
+    let mut app = without_game();
+    let module = &mut app.ws.as_mut().unwrap().module;
+    module.set(res("notes", ResType::JUI), b"{}".to_vec());
+    module.set(res("notes", ResType::TXT), b"Not settings.".to_vec());
+    module.set(res("notes_e", ResType::NSS), b"void main() {}".to_vec());
+    let before = resources(&app).len();
+    app.rename_resource(
+        res("notes", ResType::JUI),
+        mg_core::ResRef::from_str("pages").unwrap(),
+        false,
+    );
+    let module = &app.ws.as_ref().unwrap().module;
+    assert!(module.contains(&res("pages", ResType::JUI)));
+    assert!(!module.contains(&res("notes", ResType::JUI)));
+    assert_eq!(module.get(&res("notes", ResType::TXT)), Some(b"Not settings.".as_slice()));
+    assert!(module.contains(&res("notes_e", ResType::NSS)));
+    assert!(!module.contains(&res("pages", ResType::TXT)));
+    assert_eq!(resources(&app).len(), before);
 }

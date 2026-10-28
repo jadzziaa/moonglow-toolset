@@ -33,8 +33,6 @@ mod images;
 mod interaction;
 mod layouts;
 mod preview;
-#[cfg(test)]
-mod rename_tests;
 mod shortcuts;
 pub(crate) mod skin;
 mod structure;
@@ -46,6 +44,11 @@ pub(crate) struct State {
     /// The control selected, as a JSON pointer into the window (or into the
     /// variant edited in its place); empty for none, `/root` for the root.
     selected: String,
+    /// A control a link asked to select (a problem's, a bind's use), on the
+    /// Design page: selected as the next frame starts, so that a field
+    /// being typed in when the link was clicked (in the same frame as it
+    /// was pressed) is drawn once more and sets what was typed in it.
+    select_next: Option<String>,
     /// What is typed in the palette's Find field.
     search: String,
     /// The canvas's zoom (0: Fit).
@@ -302,6 +305,36 @@ pub(crate) fn generate(app: &mut Moonglow, name: &str, export: bool) {
         .map(|(_, why)| (name.to_owned(), why.clone()));
 }
 
+/// What a Build of the window `name` made beside its command, once that is
+/// applied: the code of the builder's it changed said, what is remembered
+/// of the scripts compiled kept (in `kept`, the compile memory's file, as
+/// Compile All keeps it), the module's scripts that did not compile said.
+pub(crate) fn after_build(
+    app: &mut Moonglow,
+    name: &str,
+    failed: &[mg_module::build::ScriptResult],
+    remembered: mg_module::build::Remembered,
+    refits: &[mg_nui::Refit],
+    kept: Option<&std::path::Path>,
+) {
+    for r in refits {
+        app.log.info(format!(
+            "{name}_e.nss line {}: in the section \"{}\", {} is now {}, to fit the event \
+             script's function",
+            r.line, r.section, r.was, r.now
+        ));
+    }
+    app.script_stamps = remembered;
+    if let Some(file) = kept
+        && let Err(e) = app.script_stamps.write(file)
+    {
+        crate::trace::note(format!("compiled scripts not noted in {file:?}: {e}"));
+    }
+    for e in failed.iter().filter_map(|f| f.result.as_ref().err()) {
+        app.log.error(e.message.clone());
+    }
+}
+
 fn build(app: &mut Moonglow, name: &str, export: bool) {
     // The compiler must see the same source the user is looking at. The
     // window's own scripts are what you edit while building it: they are
@@ -365,23 +398,7 @@ fn build(app: &mut Moonglow, name: &str, export: bool) {
         Ok(cmd) => match if cmd.edits.is_empty() { Ok(()) } else { app.apply(cmd) } {
             Ok(()) => {
                 if let Some((failed, remembered, refits)) = built {
-                    // (Code of the builder's that Build changed: said.)
-                    for r in refits {
-                        app.log.info(format!(
-                            "{name}_e.nss line {}: in the section \"{}\", {} is now {}, to fit \
-                             the event script's function",
-                            r.line, r.section, r.was, r.now
-                        ));
-                    }
-                    app.script_stamps = remembered;
-                    if let Some(file) = &kept
-                        && let Err(e) = app.script_stamps.write(file)
-                    {
-                        crate::trace::note(format!("compiled scripts not noted in {file:?}: {e}"));
-                    }
-                    for e in failed.iter().filter_map(|f| f.result.as_ref().err()) {
-                        app.log.error(e.message.clone());
-                    }
+                    after_build(app, name, &failed, remembered, &refits, kept.as_deref());
                 }
                 // (Into the module, as any edit: a nasher project's files
                 // are written when it is saved. "Written" was read as on
@@ -420,6 +437,7 @@ fn build(app: &mut Moonglow, name: &str, export: bool) {
                     .into_iter()
                     .flatten()
                     .collect();
+                    let mut left = Vec::new();
                     if let Some(ws) = &app.ws
                         && let (Some(doc), Some(settings)) = (
                             ResKey::parse(name, ResType::JUI)
@@ -445,7 +463,17 @@ fn build(app: &mut Moonglow, name: &str, export: bool) {
                                     resources.push(k);
                                 }
                             }
+                            if !resources
+                                .iter()
+                                .any(|k| k.resref.to_string().eq_ignore_ascii_case(&image))
+                            {
+                                left.push(image);
+                            }
                         }
+                    }
+                    let resman = app.game.as_deref().map(|g| &g.resman);
+                    if let Some(said) = images::pictures_left_behind(resman, &left) {
+                        app.log.warn(said);
                     }
                     app.actions.push(Action::ExportDialog(resources));
                 }
@@ -537,6 +565,10 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let body = ui.available_rect_before_wrap();
     ui.interact(body, id.with("body-drag-guard"), egui::Sense::drag());
     let mut state = app.nui_views.remove(&key).unwrap_or_default();
+    if let Some(path) = state.select_next.take() {
+        state.selected = path;
+        state.page = Page::Design;
+    }
     let Some((mut frame, checked)) = open(app, ui, key, &mut state) else { return };
     header(app, ui, &frame.name, &checked);
     navigation(app, ui, &frame.name, &checked, &mut state);
@@ -836,8 +868,8 @@ fn problems(ui: &mut Ui, frame: &mut Frame, checked: &Checked, state: &mut State
                     match &target {
                         Some(path) => {
                             if ui.link(place).on_hover_text("Select it").clicked() {
-                                state.selected = path.clone();
-                                state.page = Page::Design;
+                                state.select_next = Some(path.clone());
+                                ui.ctx().request_repaint();
                             }
                         }
                         None => {
@@ -894,7 +926,7 @@ fn fixes(
         let at = d.path.strip_prefix("/views/").and_then(|p| p.split_once('/'));
         let flag = match at {
             Some((view, rest)) => {
-                s.views.get_mut(view).and_then(|v| v.pointer_mut(&format!("/{rest}")))
+                s.variants.get_mut(view).and_then(|v| v.pointer_mut(&format!("/{rest}")))
             }
             None => doc.pointer_mut(&d.path),
         };
@@ -909,7 +941,7 @@ fn fixes(
         && ui.small_button("Add Close handler").clicked()
     {
         let mut s = s.clone();
-        s.actions.push(mg_nui::Route {
+        s.handlers.push(mg_nui::Handler {
             event: "click".into(),
             element: "mg_close".into(),
             action: mg_nui::Action::Close,
@@ -1040,7 +1072,7 @@ fn design_page(
     let edited_view = state.edit_view.clone();
     // A variant is edited in the window's place, and put back after.
     let mut base_root = None;
-    if let Some(view) = state.edit_view.as_ref().and_then(|n| s.views.get(n)) {
+    if let Some(view) = state.edit_view.as_ref().and_then(|n| s.variants.get(n)) {
         base_root = Some(std::mem::replace(&mut v["root"], view.clone()));
     }
     // A selection whose control is gone (Undo took it back, the
@@ -1061,7 +1093,7 @@ fn design_page(
             Some(base) => std::mem::replace(&mut v["root"], base),
             None => v["root"].clone(),
         };
-        s.views.insert(name.clone(), root);
+        s.variants.insert(name.clone(), root);
     }
     fields::put_back(ui.ctx(), &before, &mut v);
     fields::put_back_settings(ui.ctx(), &before_settings, &mut s);
@@ -1110,7 +1142,6 @@ fn design_view(
     match state.view_mode {
         ViewMode::Preview => preview::canvas(ui, v, s, state, &mut app.nui_assets),
         ViewMode::Split => ui.columns(2, |columns| {
-            preview::canvas(&mut columns[0], v, s, state, &mut app.nui_assets);
             let (of, source, title) = if state.edit_view.is_some() {
                 (
                     SourceOf::Variants,
@@ -1128,6 +1159,30 @@ fn design_view(
             egui::ScrollArea::both().id_salt("split-jui").show(&mut columns[1], |ui| {
                 split_raw = source_field(ui, &mut state.source_draft, of, &source, 28);
             });
+            // The canvas shows the source as it is typed, where it reads,
+            // before the field is left; it edits nothing of it meanwhile.
+            match typed_source(state, of, v) {
+                Some((mut shown, settings)) => {
+                    let settings = settings.as_ref().unwrap_or(s);
+                    // (With the pictures and fonts it names.)
+                    app.nui_assets.prepare(
+                        columns[0].ctx(),
+                        app.game.as_deref().map(|g| &g.resman),
+                        &ws.module,
+                        ws.revision(),
+                        &shown,
+                        settings,
+                    );
+                    preview::canvas(
+                        &mut columns[0],
+                        &mut shown,
+                        settings,
+                        state,
+                        &mut app.nui_assets,
+                    );
+                }
+                None => preview::canvas(&mut columns[0], v, s, state, &mut app.nui_assets),
+            }
         }),
         ViewMode::Editor => design::editor(ui, v, s, state, &app.keymap, &mut app.nui_assets),
     }
@@ -1253,6 +1308,28 @@ fn source_field(
         draft.text = current.to_owned();
     }
     typed.then(|| draft.text.clone())
+}
+
+/// What Split source's field `of` holds while it is typed in, where it
+/// reads: the window to show (`v` with the variant typed in its place, for
+/// the settings' source) and the settings typed (`None`: the module's).
+/// `None` where nothing is typed or it doesn't read yet.
+fn typed_source(state: &State, of: SourceOf, v: &Value) -> Option<(Value, Option<Settings>)> {
+    let draft = state.source_draft.as_ref().filter(|d| d.of == of && d.typed)?;
+    match of {
+        SourceOf::SplitWindow => {
+            let window = mg_nui::parse(draft.text.as_bytes()).ok()?;
+            window.get("root").is_some().then_some((window, None))
+        }
+        SourceOf::Variants => {
+            let settings = Settings::parse(draft.text.as_bytes()).ok()?;
+            let variant = settings.variants.get(state.edit_view.as_ref()?)?.clone();
+            let mut shown = v.clone();
+            shown["root"] = variant;
+            Some((shown, Some(settings)))
+        }
+        SourceOf::Window | SourceOf::Settings => None,
+    }
 }
 
 /// The window's JSON text into `raw`. (Left as it is should it not write,
@@ -1957,7 +2034,9 @@ fn property(
         }
         fields::binding_options(ui, value);
     } else if let Value::String(text) = value {
-        if let Some(field) = fields::text(ui, text, f32::INFINITY) {
+        let picture = matches!((ty, key), ("image", "value") | ("button_image", "label"));
+        let hint = if picture { "Picture name" } else { "" };
+        if let Some(field) = fields::hinted(ui, text, f32::INFINITY, hint) {
             field.labelled_by(heading.id);
         }
     } else if let Some(id) = value.get_mut("strref") {

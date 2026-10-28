@@ -3,7 +3,7 @@ type: Manual Page
 title: NUI Creator
 description: The NUI Creator - designing an Enhanced Edition UI window (JUI) on a canvas with the game's skin and fonts, images, keys, binds, swap layout variants, event handlers (or one event script for several windows), the settings file, building its scripts, making windows without the window (render, layout, import), and what the game refuses or does on its own.
 tags: [manual, nui, scripts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T06:48:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T10:53:37Z }
 sources:
   - id: mg-nui
     resource: crates/mg-nui
@@ -37,8 +37,14 @@ keeps it). Deleting a window
 in the module tree deletes its settings and its two scripts with it. **Rename…**
 there renames them with it: your handlers' code moves to the new event
 script, the opener is written for the new name, and the scripts of yours
-that include it are changed to the new include and function names. Nothing
-is compiled then: **Build & compile** afterwards.
+that include it are changed to the new include and function names. A
+window that was built is built again under its new name in the same step,
+its scripts and yours that open it compiled, as the other renames compile
+what they change; where it can't be (no game install, an opener changed by
+hand, code that doesn't compile), the log says why, and **Build & compile**
+does it afterwards. **Rename…** on the window's `NAME_o.nss` or
+`NAME_e.nss` renames the window. `mg rename MODULE NAME.jui NEW` does the
+same from the command line.
 
 ## Design
 
@@ -181,7 +187,10 @@ game's hak folder (one saved elsewhere is copied there) and added at the
 top of the module's haks; Undo takes it off the list and brings the pictures
 back into the module, while the hak file keeps them. A listed hak the game
 finds elsewhere (its data or the Workshop) can't take pictures: choose a
-new hak. Pictures added to the module that the window doesn't show yet are listed
+new hak. A hak open in the hak editor takes them there: it is saved at once
+(a copy of what it was kept as `.hak.bak`), unless it has other unsaved
+changes, when the log asks you to save it there (and a Move leaves the
+module its pictures until then). Pictures added to the module that the window doesn't show yet are listed
 too, ready to be the background. **Use as background**
 puts a picture under the window's controls, stretched over it: a draw layer
 of the root column, painted before it, whose rectangle and fit you can
@@ -204,7 +213,8 @@ bind remains a bind. Position and resize gestures commit on release; Esc cancels
 The layout selector offers the full editor, preview alone, or preview beside
 editable JUI source. While editing a variant, split source shows the companion
 settings JSON. The source is written to the module when you leave the field, an incomplete
-draft too: it is kept, and Undo takes it back.
+draft too: it is kept, and Undo takes it back. Meanwhile the preview beside it
+shows what you type whenever it reads as a window.
 
 ## Keys
 
@@ -221,7 +231,8 @@ With the pointer over **Design**, outside a text field or an open menu:
 | Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z) | Module Undo / Redo |
 
 On macOS, use Cmd instead of Ctrl. **Options › Keyboard › NUI Creator**
-changes the delete, duplicate, navigation and reorder keys; action menus
+changes the delete, duplicate, navigation (Up, Down, Left and Right) and
+reorder keys; action menus
 show the current bindings. Text fields retain their text editing keys.
 Window roots and a group's required child cannot be deleted. Pasting retains
 list cell settings and initial bind values, renaming conflicting binds instead
@@ -329,7 +340,10 @@ ordinary code to change. **Event script…** on the toolbar opens the whole
 script. **Remove** takes the handler away; what you wrote in it stays in the
 script, commented out after `main`, and comes back if you add the handler again.
 Code at the top section (between `// mg:begin top` and its `// mg:end`) is the
-place for `#include` lines and helper functions.
+place for `#include` lines and helper functions. When the script's editor
+holds unsaved text as the Creator writes into it (Insert…, a handler added
+or removed), that text is stored first, as a step of its own: **Undo**
+takes back what the Creator wrote and leaves what you typed.
 
 ### One event script for several windows
 
@@ -474,8 +488,11 @@ JUI to every client, for example in a HAK. Images and fonts also need to be
 available on the client. **Export…** compiles first, then opens the
 normal export dialog with JUI, settings and both source/compiled scripts
 selected together, plus referenced image/TXI resources present in the module,
-including images in swap layout variants. External HAK/game artwork is not copied into
-the module automatically; include required custom artwork in client distribution.
+including images in swap layout variants. Pictures the window takes from a hak
+or the game are not exported; the log names those a client could miss (from a
+hak, this machine's override or development folder, or found nowhere), which
+players get from the hak or which you add to the module. The game's own go
+unsaid: every client has them.
 
 Edits, including incomplete JSON drafts, participate in module Save, Undo and
 recovery. Invalid drafts cannot generate scripts. The checks describe the
@@ -613,6 +630,13 @@ and the preview follow them.
   combo's width, 23 points a choice plus 5 high, and always has a scrollbar.
 - **Encouraged** controls pulse between their normal and their hover look; the
   preview shows the hover look.
+- **What the game takes all the same.** A window whose root is a label, a
+  button or a spacer rather than a row, column or group is shown; a window
+  ID with punctuation, spaces or letters outside ASCII opens, and the
+  window is found by it; an arc's center can be a point or the rectangle
+  `nw_inc_nui` documents. The checks say nothing of these. An alignment,
+  a draw layer's **Show when** or its paint order outside the game's
+  constants is shown too: a warning says so, as it is likely a slip.
 - **Text inputs** count `max` in UTF-8 bytes. Below 4, a letter outside ASCII
   can be stored as garbage (with `max` 1, typing *Ż* stores U+0005). A warning
   says so.

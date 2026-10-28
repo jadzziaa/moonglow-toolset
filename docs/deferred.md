@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:51:25Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T10:53:37Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2258,29 +2258,6 @@ where the crates keep theirs, and a client test of what its checks say of
 the game. This is what that review left, and after it what the
 contribution itself states as not done or not checked.
 
-- **Left by the read before the release (2026-10-14):** found and not
-  changed, each with the steps that show it.
-  - *A control's ID or a bind renamed* is changed in the event script
-    where the code names it (an argument of a NUI function, a
-    comparison, a JSON string): a name passed through a function of the
-    builder's own (`SetMine("ok")`) is not followed. (S)
-  - *The event script with unsaved text in its editor* is written into
-    that text by the Creator, outside Undo and Cancel. (S)
-  - *Closing a module leaves the Creator's pages and drafts* for a
-    window of the same name in the next (`nui_views`,
-    `nui_build_error` are not cleared). (S)
-  - *Deleting a window closes its scripts' tabs unasked*, unsaved text
-    with them (as deleting a script does). (S)
-  - *Settings fields Moonglow does not know* are kept, in name order
-    after the known ones, not where they were. (S)
-  - *`mg nui generate` succeeds* where a script of the module's that
-    includes the opener does not compile (it is printed), as `mg
-    compile` does. (S)
-- **A hak open in the hak editor takes no pictures**
-  (`crates/mg-ui/src/nui_view/images.rs`): Images writes a listed hak's
-  file in place, as the hak editor's Save does (no question; the log names
-  the hak and the `.bak` kept), and refuses one that is open in the hak
-  editor rather than adding the pictures to that document. (S)
 - **A picture cache of its own** (`crates/mg-ui/src/nui_view/skin.rs`):
   `skin::Assets` keeps its textures beside `images::Loader`
   (`crates/mg-ui/src/images.rs`). The two look pictures up differently:
@@ -2291,62 +2268,6 @@ contribution itself states as not done or not checked.
   here reads them). 15- and 16-bit TGAs, which were read with the
   `image` crate before, come out of `mg-image` a level off in places
   and with their attribute bit as alpha. (M)
-- **Names from before the handlers** (`crates/mg-nui/src/actions.rs`,
-  `lib.rs`): the checks and the editor say "handler" and "variant", and
-  the names in the code stayed: a handler is a `Route`, the handlers
-  `Settings::actions`, a variant shown `Action::View` and the variants
-  `Settings::views`; the settings file's own field names (`actions`,
-  `views`, `view_targets`) stay whatever the code calls them, for the
-  files there are. (S)
-- **The canvas's tests are one file of 1,560 lines**
-  (`crates/mg-ui/src/nui_view/preview/tests/canvas.rs`): they hold the
-  canvas's own state and stay unit tests; by subject (scrolling,
-  Interact, the window's handles) they would be three files. The rename's
-  three tests (`nui_view/rename_tests.rs`) drive the application and
-  belong in `crates/mg-ui/tests/nui.rs`. The pictures
-  (`tests/screens.rs`) no longer check that the game's skin and fonts
-  were found: a picture drawn without them is seen, not failed. (S)
-- **Build with an external compiler is tested only where it fails**
-  (`crates/mg-corpus-tests/tests/nui.rs`): the test gives Build a
-  compiler that cannot be run; none builds a window with a real one.
-  `mg nui generate` has no `--ndb` as `mg compile` has, and like it
-  never takes an external compiler. What Build adds to the kept compile
-  memory (`Moonglow::remembered_scripts`) has no test. (S)
-- **What the checks say of the client is tested by hand, and not all of
-  it** (`crates/mg-nui/src/validate.rs`,
-  `crates/mg-corpus-tests/tests/client_nui.rs`): the client test (run by
-  hand, as the renderer's; 32 windows, 2 minutes) holds the errors that
-  cite the client to it (NWN EE 8193.37): the layouts it refuses, Clip to
-  control on the last draw list painted, the labels of Options from a
-  bind. No test covers the warnings about what a control does when used
-  (a Toggle button with a fixed value, a disabled slider, a text field's
-  `max` below 4): they need a mouse and a keyboard in the client. The
-  probes the checks named as open were run, and the checks still warn
-  where the client was found to accept: a window whose root is a label,
-  a button or a spacer is shown, a window is found by an ID with
-  punctuation, spaces or non-ASCII letters, an arc is drawn the same
-  with its center a point or a rectangle, and alignment, render and
-  paint order constants out of range are shown. Those warnings could go
-  or say so. (S)
-- **Small things of the editor's fields** (`crates/mg-ui/src/nui_view/`):
-  Split source shows what is typed on the canvas only once its field is
-  left; the option and picture name fields lost their hint text
-  (`widgets::commit_text_in` has none); a color being picked has no
-  test; a press and release within one frame on a check's "Select it"
-  link, drawn before the form, would select another control first and
-  lose what was being typed. Left and Right in the layer tree are
-  outside the keymap, so Options › Keyboard cannot change them. (S)
-- **Renaming a window compiles nothing** (`mg_nui::rename`,
-  `crates/mg-nui/src/rename.rs`; `Moonglow::rename_nui`,
-  `crates/mg-ui/src/references.rs`): the compiled scripts of the old
-  name, and of the scripts that open the window, are removed, and the log
-  asks for a Build; the other renames compile what they changed. A
-  window's ID in the game follows its name unless the settings give
-  another, and a script that finds the window by it
-  (`NuiFindWindow(oPlayer, "old")`) is only reported, unless the Rename
-  window's strings option is on. Rename… on `NAME_e.nss` or `NAME_o.nss`
-  alone is a script's rename, which knows nothing of the window, and
-  `mg rename` does not rename a window. (S)
 - **Where the preview is known to differ from the game** (stated in
   [the manual](manual/18-nui-creator.md);
   `crates/mg-ui/src/nui_view/preview.rs`): after a control with a width
@@ -2356,10 +2277,6 @@ contribution itself states as not done or not checked.
   from the game's by up to a pixel each (the game rounds each scaled
   size down); an encouraged control shows its hover look and does not
   pulse; numbers in text are shown to 16 digits. (S each)
-- **Export leaves pictures behind** (stated in the manual;
-  `crates/mg-ui/src/nui_view.rs`): Export… takes the pictures the
-  module holds; those a window uses from a hak or the game are not
-  copied, and nothing says which a client would miss. (S)
 - **Left by The Domains of Dread's NUI Creator asks (October 2026)**
   (`mg nui render`, `layout`, `schema`, `import`, the `nui-sources`
   check, AccessKit, the event function; the asks are the module
@@ -3698,3 +3615,12 @@ is not taken for a new gap.
   scheme the first's tiles' lights picked anew; an area of the same
   scheme keeps its own, and the first area's own picks aren't copied
   tile by tile (the areas' tiles differ). (S) (Settled in the triage of 2026-10-28.)
+- **`mg nui generate` and a script that includes the opener:** it
+  succeeds where a script of the module's that includes the opener does
+  not compile (the script is printed, and keeps the compiled script it
+  had), as `mg compile` does. (S) (Settled in the triage of 2026-10-28.)
+- **A renamed NUI window found by its ID:** a script that finds the
+  window by the ID it had (`NuiFindWindow(oPlayer, "old")`, the ID
+  following the name unless the settings give another) is only
+  reported, unless the Rename window's strings option is on: a string
+  may mean something else. (S) (Settled in the triage of 2026-10-28.)

@@ -752,7 +752,7 @@ pub(super) fn bindings(
         ui.weak("Made here, it is chosen for a control's property in Design.");
         workflow::create_bind(ui, &mut s.bindings);
         let mut used = v.as_deref().map(mg_nui::bind_names).unwrap_or_default();
-        for view in s.views.values() {
+        for view in s.variants.values() {
             used.extend(mg_nui::bind_names(view));
         }
         for name in &used {
@@ -853,13 +853,13 @@ fn bind(
             if let Some(doc) = v {
                 shortcuts::rename_binds(doc, &names);
             }
-            for view in s.views.values_mut() {
+            for view in s.variants.values_mut() {
                 shortcuts::rename_binds(view, &names);
             }
             if let Some(b) = s.bindings.remove(name) {
                 s.bindings.insert(to.clone(), b);
             }
-            for handler in s.actions.iter_mut().filter(|r| r.event == "watch" && r.element == name)
+            for handler in s.handlers.iter_mut().filter(|r| r.event == "watch" && r.element == name)
             {
                 handler.element = to.clone();
             }
@@ -876,7 +876,7 @@ fn bind(
             .clicked()
         {
             s.bindings.remove(name);
-            s.actions.retain(|r| !(r.event == "watch" && r.element == name));
+            s.handlers.retain(|r| !(r.event == "watch" && r.element == name));
         }
     });
     if in_use {
@@ -889,11 +889,11 @@ fn bind(
                 if ui.link(place).on_hover_text("Select it").clicked()
                     && let Some(target) = target
                 {
-                    state.selected = target;
-                    state.page = Page::Design;
+                    state.select_next = Some(target);
+                    ui.ctx().request_repaint();
                 }
             }
-            if s.views.values().any(|view| mg_nui::bind_names(view).contains(name)) {
+            if s.variants.values().any(|view| mg_nui::bind_names(view).contains(name)) {
                 ui.weak("a swap layout variant");
             }
         });

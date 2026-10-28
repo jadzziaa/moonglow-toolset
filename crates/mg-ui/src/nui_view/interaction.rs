@@ -165,12 +165,12 @@ impl Session {
         depth: usize,
     ) {
         if depth >= 32 {
-            self.last_event = "Action recursion stopped; inspect watch routes".into();
+            self.last_event = "Action recursion stopped; look at the watch handlers".into();
             return;
         }
         let action = self
             .settings
-            .actions
+            .handlers
             .iter()
             .find(|r| {
                 r.event == event && (matches!(event, "open" | "close") || r.element == element)
@@ -207,8 +207,8 @@ impl Session {
                     changed = Some(bind);
                 }
             }
-            mg_nui::Action::View { group, view } => {
-                if let Some(layout) = self.settings.views.get(&view) {
+            mg_nui::Action::Variant { group, variant: view } => {
+                if let Some(layout) = self.settings.variants.get(&view) {
                     fn replace(node: &mut Value, id: &str, layout: &Value) {
                         if node["type"] == "group" && node["id"] == id {
                             set(node, "children", json!([layout]));

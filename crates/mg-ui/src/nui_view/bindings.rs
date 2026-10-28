@@ -28,7 +28,7 @@ fn compatible(doc: &Value, path: &str, key: &str, settings: &Settings, candidate
     // Only the property's own diagnostics matter: actions and views would
     // repeat whole-document checks once per candidate bind, every frame.
     let mut settings =
-        Settings { actions: Vec::new(), views: Default::default(), ..settings.clone() };
+        Settings { handlers: Vec::new(), variants: Default::default(), ..settings.clone() };
     let mut name = "__creator_bind_probe".to_owned();
     while settings.bindings.contains_key(&name) {
         name.push('_');

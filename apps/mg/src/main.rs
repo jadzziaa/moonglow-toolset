@@ -567,7 +567,10 @@ enum Cmd {
     },
     /// Rename a script, area, conversation or blueprint everywhere in a
     /// module and save it: what names it follows, scripts whose source
-    /// changed are compiled again.
+    /// changed are compiled again. A NUI window (NAME.jui) goes with its
+    /// settings and its two scripts, the scripts that open it follow, and
+    /// it is built again under its new name, as the NUI Creator's Rename…
+    /// does.
     Rename {
         module: PathBuf,
         /// `name.ext` of the resource to rename.
@@ -2355,8 +2358,11 @@ fn run(cli: &Cli) -> Result<Output> {
             out
         }
         Cmd::Rename { module, from, to, strings } => {
-            let mut m = Module::open(module)?;
             let from = ResKey::from_filename(from).context("give the resource as name.ext")?;
+            if from.restype == ResType::JUI {
+                return nui::rename(cli, module, &from.resref.to_string(), to, *strings);
+            }
+            let mut m = Module::open(module)?;
             let to = mg_core::ResRef::from_str(to).map_err(|e| anyhow::anyhow!("{to}: {e}"))?;
             let report = mg_module::rename::rename(&mut m, from, to, *strings)?;
             let mut out = Output::default();

@@ -4575,6 +4575,17 @@ fn nui_creator() {
     h.run_steps(3);
     h.get_by_label("Canvas Button · Save settings").click();
     h.run();
+    // Drawn with the game's skin, pictures and fonts, or the pictures are
+    // not the editor's: Resources says where each came from, and what
+    // was not found.
+    assert!(h.query_by_label_contains("resource issue").is_none(), "the skin and fonts found");
+    h.get_by_label("Resources").click();
+    h.run();
+    for found in ["fnt_maintext.ttf —", "nui_button_a."] {
+        assert!(h.query_all_by_label_contains(found).next().is_some(), "{found} found");
+    }
+    h.get_by_label("Resources").click();
+    h.run();
     shoot(&mut h, &dir, "nui-editor");
     h.get_by_label_contains("State: ").click();
     h.run();
@@ -4651,11 +4662,11 @@ fn nui_creator() {
             {"type":0,"points":[195.0,70.0,260.0,20.0,320.0,65.0,395.0,15.0],"color":{"r":80,"g":180,"b":240,"a":255},"line_thickness":3.0}
         ]}
     ]);
-    settings.views.insert("details".into(), json!({"type":"label","value":"Details view"}));
-    settings.actions = vec![mg_nui::Route {
+    settings.variants.insert("details".into(), json!({"type":"label","value":"Details view"}));
+    settings.handlers = vec![mg_nui::Handler {
         event: "click".into(),
         element: "next".into(),
-        action: mg_nui::Action::View { group: "view_host".into(), view: "details".into() },
+        action: mg_nui::Action::Variant { group: "view_host".into(), variant: "details".into() },
         extra: Default::default(),
     }];
     set(h.state_mut(), &window, &settings);
@@ -4674,6 +4685,84 @@ fn nui_creator() {
     compact.get_by_label("Properties").click();
     compact.run();
     shoot(&mut compact, &dir, "nui-compact");
+}
+
+/// The Creator's fields: an image without a picture and a dropdown's option
+/// without a label, their fields' hints (`nui-hints-image.png`,
+/// `nui-hints-options.png`), and Split source while a window is typed in
+/// its source, the field not left (`nui-split-typing.png`): the canvas
+/// shows what is typed.
+#[test]
+#[ignore]
+fn nui_fields() {
+    use serde_json::json;
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::output_dir("screens");
+    let key = ResKey::parse("fields", ResType::JUI).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.ws = Some(mg_edit::Workspace::new(mg_module::Module::new()));
+    app.run(mg_ui::Action::NewNui("fields".into()));
+    let mut window = mg_nui::window();
+    window["root"]["children"] = json!([
+        {"type":"image","value":"","height":40.0},
+        {"type":"combo","id":"choice","value":0,"height":30.0,"elements":[["",0],["Second",1]]},
+        {"type":"button","id":"mg_close","label":"Close","height":30.0}
+    ]);
+    app.ws.as_mut().unwrap().module.set(key, serde_json::to_vec_pretty(&window).unwrap());
+    let mut h = nui_harness(app, key, (1200.0, 800.0));
+    h.get_by_label_contains("Canvas Image").click();
+    h.run();
+    shoot(&mut h, &dir, "nui-hints-image");
+    h.get_by_label_contains("Canvas Dropdown").click();
+    h.run();
+    shoot(&mut h, &dir, "nui-hints-options");
+    h.get_by_value("Editor").click();
+    h.run();
+    h.get_by_label("Split source").click();
+    h.run();
+    let typed = json!({"version":1,"title":"Typed, not yet left","geometry":{"x":-1.0,"y":-1.0,"w":360.0,"h":220.0},
+        "root":{"type":"col","children":[{"type":"label","value":"Shown as it is typed","height":40.0},
+        {"type":"button","id":"mg_close","label":"Close","height":30.0}]}});
+    let field = h
+        .get_all_by_role(egui::accesskit::Role::MultilineTextInput)
+        .find(|n| n.accesskit_node().value().is_some_and(|v| v.contains("\"version\"")))
+        .expect("the source field");
+    field.click();
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.run();
+    h.event(egui::Event::Text(serde_json::to_string_pretty(&typed).unwrap()));
+    h.run();
+    shoot(&mut h, &dir, "nui-split-typing");
+}
+
+/// Delete… on a NUI window whose event script has unsaved text in its
+/// editor (`nui-delete-unsaved.png`), and Rename… on that event script,
+/// which renames the window (`nui-rename-script.png`).
+#[test]
+#[ignore]
+fn nui_delete_and_rename() {
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::output_dir("screens");
+    let key = ResKey::parse("shop", ResType::JUI).unwrap();
+    let script = ResKey::parse("shop_e", ResType::NSS).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.ws = Some(mg_edit::Workspace::new(mg_module::Module::new()));
+    app.run(mg_ui::Action::NewNui("shop".into()));
+    let mut h = nui_harness(app, key, (1100.0, 700.0));
+    h.get_by_label("Canvas Button · Close").click();
+    h.run();
+    h.get_by_label("Edit code").click();
+    h.run();
+    h.state_mut().script_tools.jump = Some((script, 0));
+    h.run();
+    h.event(egui::Event::Text("// typed\n".into()));
+    h.run();
+    h.state_mut().run(mg_ui::Action::DeleteDialog(key));
+    shoot(&mut h, &dir, "nui-delete-unsaved");
+    h.state_mut().confirm_delete = None;
+    h.state_mut().rename_dialog(script);
+    shoot(&mut h, &dir, "nui-rename-script");
 }
 
 /// Properties on a dropdown with a long option, in the Creator's window as

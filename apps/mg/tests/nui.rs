@@ -154,6 +154,59 @@ fn generate_writes_the_scripts_and_compiles_the_event_script() {
     assert!(text.lines().last().unwrap().starts_with("shop: would change "), "{text}");
 }
 
+/// `--ndb` makes the compiled event script's debug file, as `mg compile
+/// --ndb` does.
+#[test]
+fn generate_makes_debug_files_with_ndb() {
+    let root = mg_testkit::corpus!();
+    let path = module("mg-nui-generate-ndb");
+    let p = path.to_str().unwrap();
+    assert!(mg(None, &["new", p, "shop"]).0);
+    let (ok, made) = mg(Some(&root), &["generate", p, "shop", "--ndb"]);
+    assert!(ok, "{made}");
+    assert!(made["resources"].as_array().unwrap().contains(&json!("shop_e.ndb")), "{made}");
+    let m = Module::open(&path).unwrap();
+    assert!(m.contains(&key("shop_e.ncs")) && m.contains(&key("shop_e.ndb")));
+}
+
+/// `mg rename` of a window renames its settings and scripts and the
+/// scripts that open it, and builds it again under the new name, as the
+/// other renames compile what they change.
+#[test]
+fn rename_renames_a_window_and_builds_it_under_its_new_name() {
+    let root = mg_testkit::corpus!();
+    let path = module("mg-nui-rename");
+    let p = path.to_str().unwrap();
+    assert!(mg(None, &["new", p, "shop"]).0);
+    let mut m = Module::open(&path).unwrap();
+    m.set(
+        key("my_enter.nss"),
+        b"#include \"shop_o\"\nvoid main() { Open_shop(GetEnteringObject()); }\n".to_vec(),
+    );
+    m.save().unwrap();
+    assert!(mg(Some(&root), &["generate", p, "shop"]).0);
+    let (ok, renamed) = crate::quiet_json_out(&mut command(
+        Some(&root),
+        &["--json", "rename", p, "shop.jui", "store"],
+    ));
+    assert!(ok, "{renamed}");
+    assert_eq!((&renamed["built"], &renamed["compiled"]["failed"]), (&json!(true), &json!(0)));
+    let m = Module::open(&path).unwrap();
+    let left: Vec<String> =
+        m.keys().map(ToString::to_string).filter(|k| k.starts_with("shop")).collect();
+    assert!(left.is_empty(), "{left:?}");
+    for name in ["store.jui", "store.txt", "store_o.nss", "store_e.nss", "store_e.ncs"] {
+        assert!(m.contains(&key(name)), "{name}");
+    }
+    let enter = String::from_utf8_lossy(m.get(&key("my_enter.nss")).unwrap()).into_owned();
+    assert!(enter.contains("#include \"store_o\"") && enter.contains("Open_store("), "{enter}");
+    assert!(m.contains(&key("my_enter.ncs")), "the script that opens it is compiled again");
+    // Built as generate builds: a second generate changes nothing.
+    let (ok, again) = mg(Some(&root), &["generate", p, "store"]);
+    assert!(ok, "{again}");
+    assert_eq!(again["resources"], json!([]), "{again}");
+}
+
 #[test]
 fn a_second_generate_changes_nothing() {
     let root = mg_testkit::corpus!();
