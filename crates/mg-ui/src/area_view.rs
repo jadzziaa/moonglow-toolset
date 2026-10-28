@@ -535,69 +535,226 @@ const ANIMATION_STEP: f32 = 0.04;
 
 /// The area view's watch on what the GPU draws ([`mg_render::watch`]):
 /// every [`mg_render::watch::EVERY`] seconds a picture drawn is looked at,
-/// the look read when the GPU is done, and judged.
+/// the look read when the GPU is done, and judged. What it sees goes to
+/// the debug log, sparingly ([`Watching::note`]): the first look judged,
+/// a wait on frames not ready every [`WAIT_NOTED`] seconds, a collapse as
+/// it begins and ends, a look lost, the verdict.
 #[derive(Debug, Default)]
 pub struct Watching {
     pub watch: mg_render::watch::Watch,
     sampler: Option<mg_render::watch::Sampler>,
-    /// The look under way: its frame's pipelines and textures were ready,
-    /// and when it was taken (the window's clock, seconds).
-    pending: Option<(bool, f64)>,
+    /// The look under way ([`Taken`]).
+    pending: Option<Taken>,
     last: Option<f64>,
     /// The last look's numbers and verdict, and how many there have been.
     pub seen: Option<(mg_render::watch::Observation, mg_render::watch::Verdict)>,
     pub looks: u64,
+    /// The last look's points expected, drawn and in a color other than
+    /// the background's.
+    pub colored: usize,
+    /// What the debug log has been told.
+    noted: Noted,
+}
+
+/// How often a wait on frames not ready is noted in the debug log,
+/// seconds.
+const WAIT_NOTED: f64 = 10.0;
+
+/// What a look under way was taken from: whether its frame was ready
+/// (and if not, what it waited for: textures, the game's programs), the
+/// renderer's progress, the points of tiles that failed, the frame's
+/// background, and when (the window's clock, seconds).
+#[derive(Debug, Clone)]
+struct Taken {
+    ready: bool,
+    textures: usize,
+    programs: usize,
+    progress: u64,
+    failed: mg_render::watch::Expected,
+    background: [f32; 3],
+    at: f64,
+}
+
+/// What the debug log has been told of the watch.
+#[derive(Debug, Default)]
+struct Noted {
+    judged: bool,
+    /// The last wait noted, when.
+    waiting: Option<f64>,
+    collapse: bool,
+    lost: bool,
+    failed: bool,
 }
 
 impl Watching {
     /// After a picture is drawn (`frame`, by `camera`, into `targets`, at
     /// `now`): a look at it, if one is due. The tiles expected are the
-    /// frame's drawn whole (not a brush's see-through preview).
+    /// frame's drawn whole (not a brush's see-through preview), and those
+    /// that would be drawn but failed (`failed`: their middles).
     fn after_drawing(
         &mut self,
         vp: &crate::model_view::Viewport3d,
         frame: &mg_render::Scene,
+        failed: &[glam::Vec3],
         camera: &mg_render::Camera,
         targets: &mg_render::Targets,
         now: f64,
     ) {
         use mg_render::watch;
+        // (A look the GPU never gave back: given up, and the next taken.)
+        if let Some(s) = self.sampler.as_mut()
+            && s.give_up(now)
+        {
+            self.pending = None;
+            if !std::mem::replace(&mut self.noted.lost, true) {
+                crate::trace::note(format!(
+                    "graphics watch: a look at the area view was lost (the GPU didn't give it \
+                     back in {} s)",
+                    watch::LOST
+                ));
+            }
+        }
         let busy = self.sampler.as_ref().is_some_and(watch::Sampler::busy);
         if busy || self.last.is_some_and(|t| now - t < watch::EVERY) {
             return;
         }
         let samples = crate::model_view::SAMPLES;
         let sampler = self.sampler.get_or_insert_with(|| watch::Sampler::new(&vp.gpu, samples));
-        let tiles: Vec<glam::Vec3> = frame
+        let mut tiles: Vec<glam::Vec3> = frame
             .instances
             .iter()
             .filter(|i| i.tile && !i.grass && i.opacity >= 1.0 && !i.model.meshes.is_empty())
             .map(|i| i.transform.w_axis.truncate())
             .collect();
+        tiles.extend_from_slice(failed);
         let (w, h) = targets.size;
-        let expected = watch::expected(&tiles, camera, w as f32 / h.max(1) as f32);
+        let aspect = w as f32 / h.max(1) as f32;
+        let expected = watch::expected(&tiles, camera, aspect);
+        let failed = if failed.is_empty() {
+            watch::Expected(Vec::new())
+        } else {
+            watch::expected(failed, camera, aspect)
+        };
         let drawn = &vp.renderer.drawn;
         let ready = drawn.game_pending == 0 && drawn.textures_pending == 0;
-        sampler.look(&vp.gpu, &targets.depth, expected);
-        self.pending = Some((ready, now));
+        sampler.look(&vp.gpu, targets, expected, now);
+        self.pending = Some(Taken {
+            ready,
+            textures: drawn.textures_pending,
+            programs: drawn.game_pending,
+            progress: vp.renderer.progress(),
+            failed,
+            background: frame.background,
+            at: now,
+        });
         self.last = Some(now);
     }
 
-    /// The look under way, if the GPU is done with it: judged. The
+    /// The look under way, if the GPU is done with it: judged (and told
+    /// the debug log, as [`Watching`] says; `area` names the view). The
     /// failure, the first time there is one.
-    fn read(&mut self, vp: &crate::model_view::Viewport3d) -> Option<mg_render::watch::Failure> {
-        use mg_render::watch::{self, Observation, Verdict};
-        let (expected, drawn) = self.sampler.as_mut()?.take(&vp.gpu)?;
-        let (ready, at) = self.pending.take()?;
-        let (expected, drawn) = watch::counted(&expected, &drawn);
-        let o = Observation { expected, drawn, ready, at };
+    fn read(
+        &mut self,
+        vp: &crate::model_view::Viewport3d,
+        area: &str,
+    ) -> Option<mg_render::watch::Failure> {
+        use mg_render::watch::{Observation, Verdict};
+        let look = self.sampler.as_mut()?.take(&vp.gpu)?;
+        let taken = self.pending.take()?;
+        let (expected, drawn) = look.counted();
+        let failed = taken.failed.0.iter().filter(|&&f| f).count();
+        let o = Observation {
+            expected,
+            drawn,
+            ready: taken.ready,
+            progress: taken.progress,
+            failed,
+            at: taken.at,
+        };
         let before = self.watch.failure();
         let verdict = self.watch.judge(o);
+        self.colored = look.colored(taken.background);
         self.seen = Some((o, verdict));
         self.looks += 1;
+        self.note(area, &taken, o, verdict);
         match verdict {
             Verdict::Failed(f) if before.is_none() => Some(f),
             _ => None,
+        }
+    }
+
+    /// Tells the debug log what a look found, where it is news.
+    fn note(
+        &mut self,
+        area: &str,
+        taken: &Taken,
+        o: mg_render::watch::Observation,
+        verdict: mg_render::watch::Verdict,
+    ) {
+        use mg_render::watch::{COLUMNS, Quiet, ROWS, Verdict};
+        let colored = self.colored;
+        let numbers = || {
+            let mut s = format!(
+                "{} of {} points of the ground expected, {} drawn, {colored} of them in a color \
+                 other than the background's",
+                o.expected,
+                COLUMNS * ROWS,
+                o.drawn,
+            );
+            if o.failed > 0 {
+                s += &format!(", {} expected of tiles that failed", o.failed);
+            }
+            if !o.ready {
+                s += &format!(
+                    "; not ready: {} instances waiting for textures, {} of the game's programs \
+                     being made",
+                    taken.textures, taken.programs
+                );
+            }
+            s
+        };
+        let noted = &mut self.noted;
+        match verdict {
+            Verdict::Quiet(Quiet::NotReady) => {
+                let since = *noted.waiting.get_or_insert(o.at);
+                if o.at - since >= WAIT_NOTED {
+                    noted.waiting = Some(o.at);
+                    crate::trace::note(format!("graphics watch: area {area} waits: {}", numbers()));
+                }
+                return;
+            }
+            Verdict::Quiet(Quiet::WarmingUp) => return,
+            _ => {}
+        }
+        noted.waiting = None;
+        if !std::mem::replace(&mut noted.judged, true) {
+            crate::trace::note(format!(
+                "graphics watch: area {area}, the first look judged ({verdict:?}): {}",
+                numbers()
+            ));
+        }
+        match verdict {
+            Verdict::Doubt { .. } if !noted.collapse => {
+                noted.collapse = true;
+                crate::trace::note(format!(
+                    "graphics watch: area {area}, too little drawn: {}",
+                    numbers()
+                ));
+            }
+            Verdict::Quiet(_) if noted.collapse => {
+                noted.collapse = false;
+                crate::trace::note(format!(
+                    "graphics watch: area {area} is drawn again: {}",
+                    numbers()
+                ));
+            }
+            Verdict::Failed(_) if !std::mem::replace(&mut noted.failed, true) => {
+                crate::trace::note(format!(
+                    "graphics watch: area {area}, at the verdict: {}",
+                    numbers()
+                ));
+            }
+            _ => {}
         }
     }
 }
@@ -2125,7 +2282,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         {
             app.settings.no_grass = !grass;
         }
-        let mut shaders = app.settings.game_shaders();
+        let mut shaders = app.game_shaders();
         if tools
             .toggle(
                 ui,
@@ -2138,7 +2295,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             )
             .changed()
         {
-            app.settings.game_shaders = Some(shaders);
+            app.set_game_shaders(shaders);
         }
         tools.toggle(ui, &mut view.grid, icons::GRID, "Grid", "Display Grid");
         // Aurora's Play Placed Sounds, Play Ambient Sound, Play Ambient
@@ -2570,6 +2727,7 @@ fn viewport(
         || !hidden.is_empty();
     let clock = module_clock(app);
     let background = app.background_jobs;
+    let shaders = app.game_shaders();
     let game_arc = app.game.clone();
     let (Some(model), Some(scene), Some(orbit), Some(vp), Some(game)) =
         (&view.model, &view.scene, view.orbit, app.viewport.as_mut(), app.game.as_deref())
@@ -2597,7 +2755,7 @@ fn viewport(
         merchant_signs: scene.merchant_signs,
         spawn_markers: scene.spawn_markers,
         follows,
-        shaders: app.settings.game_shaders(),
+        shaders,
     };
     let since = view.drawn.as_ref().map(|(_, at)| view.time - at);
     let kept = !follows
@@ -2691,14 +2849,15 @@ fn viewport(
         // game's `fswater`.)
         vp.renderer.render_targets(&vp.gpu, &game.resman, &frame, &camera, targets);
         // (The watch: a look at what was drawn, now and then.)
-        view.watching.after_drawing(vp, &frame, &camera, targets, now);
+        let failed = scene.failed_tiles(&shown, &hidden);
+        view.watching.after_drawing(vp, &frame, &failed, &camera, targets, now);
         vp.renderer.game_background = false;
         vp.renderer.textures_apart = false;
         view.textures_drawn = vp.renderer.textures_read();
         view.drawn = Some((from, view.time));
         view.pictures += 1;
     }
-    let watch_failed = view.watching.read(vp);
+    let watch_failed = view.watching.read(vp, &view.area.to_string());
     let response = ui.add(
         egui::Image::new(egui::load::SizedTexture::new(*id, size))
             .sense(egui::Sense::click_and_drag()),

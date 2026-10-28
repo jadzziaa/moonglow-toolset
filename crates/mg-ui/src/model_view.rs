@@ -646,7 +646,7 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
         }
         ui.checkbox(&mut view.model_lights, "Lights")
             .on_hover_text("Light the model with its own light nodes");
-        let mut shaders = app.settings.game_shaders();
+        let mut shaders = app.game_shaders();
         if ui
             .checkbox(&mut shaders, "Shaders")
             .on_hover_text(
@@ -656,10 +656,7 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
             )
             .changed()
         {
-            app.settings.game_shaders = Some(shaders);
-            if let Some(vp) = app.viewport.as_mut() {
-                vp.renderer.game_shaders = shaders;
-            }
+            app.set_game_shaders(shaders);
         }
         if embedded {
             pop_out =

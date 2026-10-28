@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Troubleshooting
-description: Troubleshooting - the game is not found, no GPU in the area viewer, an area that draws nothing or loses its tiles on AMD under Windows (the graphics backend, its startup check and the area view's watch), Test Module does nothing, no sound, after a crash, and where Moonglow keeps its files.
+description: Troubleshooting - the game is not found, no GPU in the area viewer, an area that draws nothing or loses its tiles on AMD under Windows (the graphics backend, its startup check, the lit check and the area view's watch; what to send), Test Module does nothing, no sound, after a crash, and where Moonglow keeps its files.
 tags: [manual, troubleshooting]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T12:16:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T21:48:08Z }
 ---
 
 # Troubleshooting
@@ -46,11 +46,13 @@ Two builders' AMD GPUs under Windows went wrong in opposite ways
   Direct3D 12 they stayed.
 - A Radeon RX 580 (Windows 10, since Moonglow 2.11.0), through
   **Direct3D 12**, drew nothing of an area but the start location's
-  marker and the doors' arrows; through Vulkan it drew it all.
+  marker and the doors' arrows; through Vulkan it drew it all. (The
+  marker and the arrows are drawn over the picture, not in it: they show
+  whatever the GPU draws.) Moonglow 2.13.0's checks didn't catch it.
 
 So no fixed rule serves every AMD GPU. Automatic (**Options › General
 › Graphics backend**) still takes Direct3D 12 first for AMD on Windows,
-and Moonglow now looks at what it draws:
+and Moonglow looks at what it draws:
 
 - **As it starts**, before the window opens, it draws a small scene
   offscreen and checks it. Where nothing is drawn, it takes the same
@@ -59,21 +61,43 @@ and Moonglow now looks at what it draws:
   remembered for this GPU and driver; Automatic passes over it until a
   driver update. The log says what happened, and the debug log's
   `graphics:` line what the check found on each backend.
+- **Once the game's data is read**, it draws a lit, textured mesh as a
+  tile is drawn, with Moonglow's own shader and with the game's. Where
+  Moonglow's own draws nothing, the notice offers **Restart with …**
+  (below). Where only the game's shaders draw nothing, Moonglow draws
+  with its own for the rest of the session and the notice says so (the
+  **Shaders** button turns the game's on again).
 - **While an area is open**, it looks about once a second at how much
   of the area's ground the GPU drew against what the camera should see
-  (the game's shaders included, once they are compiled). Where less than
-  a fifth of it has been drawn for five seconds, a notice under the
-  toolbar names the GPU and the backend and offers **Restart with …**
-  the other one. It closes Moonglow as File › Exit does (asking about
-  unsaved work first) and starts it again with the same module; on
-  Automatic the failing backend is remembered as above, and a backend
-  you chose in Options is changed there. The watch says nothing on an
-  empty area, while the game's shaders are being compiled, with Fade
-  Geometry, with the camera turned to the sky, or while zooming.
+  (the game's shaders included, once they are compiled; tiles whose
+  models failed included). Where less than a fifth of it has been drawn
+  for five seconds, a notice under the toolbar names the GPU and the
+  backend and offers **Restart with …** the other one. It closes
+  Moonglow as File › Exit does (asking about unsaved work first) and
+  starts it again with the same module; on Automatic the failing
+  backend is remembered as above, and a backend you chose in Options is
+  changed there. The watch says nothing on an empty area, while the
+  game's shaders are being compiled or textures read, with Fade
+  Geometry, with the camera turned to the sky, or while zooming; but
+  where an area waits twenty seconds for textures or shaders and none
+  comes, it judges what is drawn all the same.
+
+A shader of the game's that the graphics driver can't compile is drawn
+with Moonglow's own shader instead, and the log says which. Under
+Direct3D 12 that is the case of the game's normal-mapped lit shaders
+(`fslit_nm`, and copies of it in a module's haks): Direct3D 12's
+shader compiler can't compile their height-map loop.
 
 Neither builder's machine was reproduced where Moonglow is developed:
-both failures were imitated there by making every draw draw nothing,
-and the checks are waiting on the two builders to confirm them.
+both failures were imitated there, and the checks are waiting on the
+two builders to confirm them. If an area still draws nothing, a report
+helps most with these files from `%APPDATA%\Moonglow` (paste it into
+the File Explorer's address bar): the **debug log** of the session
+(`logs\debug-log-<date>-<time>.txt`; its lines starting `graphics` say
+what the checks found), and any `crash-<time>.txt` or
+`model-failure-<time>.txt` written then, even where Moonglow went on.
+Say too whether the area is drawn with the area view's **Shaders**
+button off.
 
 If you set a backend in Options yourself, it is kept even where the
 check fails (the notice offers the other). Where nothing helps, update

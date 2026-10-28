@@ -233,6 +233,11 @@ pub struct AreaScene {
     colors: Vec<Vec3>,
     /// Models named by tiles or previews that could not be loaded.
     pub missing: Vec<String>,
+    /// Of those, the tiles' models that were read and then broke what
+    /// builds them (a panic, caught): a renderer that fails every model
+    /// fails them all, and they are what the area view's watch expects
+    /// drawn all the same ([`AreaScene::failed_tiles`]).
+    broken: std::collections::HashSet<String>,
     /// The loaded tiles and objects that failed while posed (by where they
     /// are kept): left out from then on.
     failed: RefCell<std::collections::HashSet<usize>>,
@@ -352,16 +357,18 @@ impl AreaScene {
         let load = |name: &str| models.load(name);
         // (A model that is read and then breaks what builds it is left out,
         // as a missing one is: the toolset carries on.)
-        let loaded = |name: &str| -> Option<Loaded> {
+        // (`None`: it broke; `Some(None)`: not found, or not readable.)
+        let built = |name: &str| -> Option<Option<Loaded>> {
             mg_render::guard::guarded(name, || {
                 let model = load(name)?;
                 let anims = anim::animations(&model, &load);
                 Some(Loaded { gpu: Arc::new(GpuModel::new(gpu, model)), anims })
             })
-            .flatten()
         };
+        let loaded = |name: &str| built(name).flatten();
         let mut missing = Vec::new();
         let tile_cache = &mut self.tile_cache;
+        let broken = &mut self.broken;
         self.tiles = area
             .tiles
             .iter()
@@ -370,7 +377,11 @@ impl AreaScene {
                 tile_cache
                     .entry(name.clone())
                     .or_insert_with(|| {
-                        let l = loaded(name).map(Arc::new);
+                        let b = built(name);
+                        if b.is_none() {
+                            broken.insert(name.clone());
+                        }
+                        let l = b.flatten().map(Arc::new);
                         if l.is_none() {
                             missing.push(name.clone());
                         }
@@ -860,6 +871,25 @@ impl AreaScene {
 
     /// [`scene`](Self::scene) without the tiles of index `hidden` (a
     /// preview shows others there).
+    /// Where the tiles are (their middles, as their instances are placed)
+    /// that would be drawn but failed: their models read and broken while
+    /// built, or while posed. Those `hidden` (a brush's preview over them)
+    /// are not.
+    pub fn failed_tiles(&self, area: &AreaModel, hidden: &[usize]) -> Vec<Vec3> {
+        let failed = self.failed.borrow();
+        area.tiles
+            .iter()
+            .zip(&self.tiles)
+            .enumerate()
+            .filter(|(i, _)| !hidden.contains(i))
+            .filter(|(_, (tile, loaded))| match loaded {
+                Some(l) => failed.contains(&(Arc::as_ptr(l) as usize)),
+                None => tile.model.as_ref().is_some_and(|m| self.broken.contains(m)),
+            })
+            .map(|(_, (tile, _))| tile.transform().w_axis.truncate())
+            .collect()
+    }
+
     pub fn scene_hiding(&self, area: &AreaModel, view: &View, hidden: &[usize]) -> Scene {
         let mut instances = Vec::new();
         let mut lights = Vec::new();

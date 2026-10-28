@@ -2520,6 +2520,7 @@ dependencies = [
  "mg-testkit",
  "mg-tiles",
  "mg-tlk",
+ "naga",
  "png",
  "rayon",
  "serde_json",
@@ -2689,6 +2690,7 @@ version = "0.0.0"
 dependencies = [
  "bytemuck",
  "glam",
+ "log",
  "mg-core",
  "mg-image",
  "mg-mdl",
@@ -2780,6 +2782,8 @@ version = "0.0.0"
 dependencies = [
  "mg-resman",
  "mg-serve",
+ "naga",
+ "wgpu-types",
 ]
 
 [[package]]

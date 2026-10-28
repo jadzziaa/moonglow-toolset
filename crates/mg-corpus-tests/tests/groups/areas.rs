@@ -9,6 +9,8 @@ mod area_common;
 
 #[path = "../areas.rs"]
 mod areas;
+#[path = "../hlsl.rs"]
+mod hlsl;
 #[path = "../minimaps.rs"]
 mod minimaps;
 #[path = "../object_walkmeshes.rs"]

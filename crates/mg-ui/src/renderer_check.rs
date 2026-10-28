@@ -33,6 +33,94 @@ pub struct RendererCheck {
     pub trouble: Option<Trouble>,
     /// The watch has failed this run (it says so once).
     pub watch_failed: bool,
+    /// The lit check found that the game's programs draw nothing (or
+    /// wrong) where Moonglow's own draws right: why. Moonglow's own draws
+    /// for the rest of the run, unless the Shaders switch is turned on
+    /// again ([`Moonglow::game_shaders`]).
+    pub game_shaders_off: Option<String>,
+}
+
+/// The lit check ([`mg_render::probe::probe_lit`]): run once a run, apart
+/// from the window's thread, when the game's data is first read and the
+/// 3D views' GPU is there; what it found.
+#[derive(Debug, Default)]
+pub struct LitCheck {
+    started: bool,
+    pending: Option<std::sync::mpsc::Receiver<mg_render::probe::Lit>>,
+    pub found: Option<mg_render::probe::Lit>,
+}
+
+/// Starts the lit check once the game's data and the 3D views' GPU are
+/// there (in the desktop app: where jobs run in the background), and takes
+/// what it found when it is done.
+pub(crate) fn lit_check(app: &mut Moonglow) {
+    if !app.lit_check.started {
+        let (Some(vp), Some(game)) = (app.viewport.as_mut(), app.game.clone()) else { return };
+        if !app.background_jobs {
+            return;
+        }
+        app.lit_check.started = true;
+        let (gpu, assets) = (vp.gpu.clone(), vp.textures_from(&game));
+        // (No shader cache: the window's worker may be writing the same
+        // programs to it, and its files are written apart by process, not
+        // by thread. Compiled each run, 40 ms on the development machine.)
+        let cache = None;
+        let (tx, rx) = std::sync::mpsc::channel();
+        let spawned =
+            std::thread::Builder::new().name("moonglow lit check".into()).spawn(move || {
+                let _ = tx.send(mg_render::probe::probe_lit(&gpu, assets.as_ref(), cache));
+            });
+        if spawned.is_ok() {
+            app.lit_check.pending = Some(rx);
+        }
+        return;
+    }
+    let Some(rx) = &app.lit_check.pending else { return };
+    let Ok(lit) = rx.try_recv() else { return };
+    app.lit_check.pending = None;
+    lit_found(app, lit);
+}
+
+/// What the lit check found, into the app: the debug log; a notice where
+/// Moonglow's own shader draws nothing of a lit mesh (as the startup
+/// check's, with Restart with …); and where the game's programs alone
+/// draw nothing, Moonglow's own shader for the rest of the run.
+pub fn lit_found(app: &mut Moonglow, lit: mg_render::probe::Lit) {
+    crate::trace::note(format!("graphics: the lit check: {lit}"));
+    let check = &mut app.renderer_check;
+    let drawing = check.drawing();
+    if let Err(why) = &lit.own {
+        let said = format!(
+            "Moonglow's check of lit drawing found that {drawing} draws nothing of a lit, \
+             textured mesh ({why})."
+        );
+        app.log.warn(format!("Graphics: {said}"));
+        check.trouble =
+            Some(Trouble { said, offer: check.other, what: format!("the lit check: {why}") });
+    } else if lit.game_fails() {
+        let why = match &lit.game {
+            Some(Err(why)) => why.clone(),
+            _ => String::new(),
+        };
+        let said = format!(
+            "The game's shaders draw nothing right through {drawing} ({why}): Moonglow draws \
+             with its own shaders for the rest of this run (the Shaders button turns the game's \
+             on again)."
+        );
+        app.log.warn(format!("Graphics: {said}"));
+        check.game_shaders_off = Some(why.clone());
+        check.trouble = Some(Trouble {
+            said,
+            offer: check.other,
+            what: format!("the lit check, the game's shaders: {why}"),
+        });
+    } else if let Some(why) = &lit.fell_back {
+        app.log.warn(format!(
+            "Graphics: the game's lit shaders can't be made through {drawing} ({why}): Moonglow's \
+             own shader draws what they would"
+        ));
+    }
+    app.lit_check.found = Some(lit);
 }
 
 /// What the notice says, and the backend it offers.
@@ -88,10 +176,16 @@ pub(crate) fn watch_failed(app: &mut Moonglow, failure: mg_render::watch::Failur
     }
     check.watch_failed = true;
     let drawing = check.drawing();
-    let said = format!(
-        "The area view stopped drawing the area through {drawing}: {failure}. The game's \
-         shaders (the Shaders button) or the graphics driver may be at fault."
-    );
+    let fault = if failure.failed > 0 {
+        "Tiles whose models couldn't be built (named in the log) or the graphics driver may be \
+         at fault."
+    } else if failure.waiting.is_some() {
+        "Textures that are never read, or the graphics driver, may be at fault."
+    } else {
+        "The game's shaders (the Shaders button) or the graphics driver may be at fault."
+    };
+    let said =
+        format!("The area view stopped drawing the area through {drawing}: {failure}. {fault}");
     app.log.warn(format!("Graphics: {said}"));
     crate::trace::note(format!("graphics watch: failed, {failure} ({drawing})"));
     let check = &mut app.renderer_check;
