@@ -148,7 +148,7 @@ fn heed_pair(game: &GameData, are: &Gff, from: &Path, over: &Path) {
 /// client's log), kept beside its picture (`captures/client/<name>_pc.txt`)
 /// when the client ran, and put back in the log from there when its kept
 /// picture is read instead.
-fn keep_stood(dir: &Path, name: &str) {
+pub(super) fn keep_stood(dir: &Path, name: &str) {
     let log = dir.join("user/logs/nwclientLog1.txt");
     let kept = format!("client/{name}_pc.txt");
     let line = std::fs::read_to_string(&log)
@@ -176,7 +176,7 @@ fn keep_stood(dir: &Path, name: &str) {
 
 /// The picture clear of the game's GUI, and a 3×3 grid of it (fractions,
 /// top-left origin), as [`region_report`] prints them.
-fn regions() -> Vec<(String, [f32; 4])> {
+pub(super) fn regions() -> Vec<(String, [f32; 4])> {
     let mut out = vec![("whole".to_string(), [0.1, 0.1, 0.9, 0.7])];
     for row in 0..3 {
         for column in 0..3 {

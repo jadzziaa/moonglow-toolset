@@ -50,6 +50,8 @@ use mg_testkit::{corpus, oracle_tool, scratch_dir};
 mod common;
 use common::{SETTINGS, client_capture, client_screenshot, compile, save_png};
 
+#[path = "client_render/armourer.rs"]
+mod armourer;
 #[path = "client_render/ee_visuals.rs"]
 mod ee_visuals;
 #[path = "client_render/heads.rs"]
@@ -398,6 +400,69 @@ fn off_and_on(
         }
     }
     (off, on)
+}
+
+/// The view the client shows for `SetCameraFacing(f, 12, 45)` given a
+/// second after the player enters (as [`save_area_module_facing`] turns
+/// it): field of view and focus as [`fitted_camera`]'s, this distance and
+/// pitch (fitted to its pictures: [`fit_turned_camera`]).
+const TURNED_DISTANCE: f32 = 11.0;
+const TURNED_PITCH: f32 = 44.0;
+
+/// [`camera_facing`] for the camera [`save_area_module_facing`] gives the
+/// client: [`fitted_camera`]'s looking north, else turned.
+fn scripted_camera(pc: Vec3, facing: f32) -> Camera {
+    if facing == FACING {
+        fitted_camera(pc, FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH)
+    } else {
+        camera_facing(pc, facing, FIT_FOV, FIT_FOCUS, TURNED_DISTANCE, TURNED_PITCH)
+    }
+}
+
+/// Exploration (`MG_FIT=1`): the distance, pitch and focus of the camera
+/// over `pc` looking along `facing` that match the client's picture best
+/// (gray levels, outside the GUI), printed.
+fn fit_turned_camera(
+    gpu: &Gpu,
+    game: &GameData,
+    scene: &Scene,
+    client: &Rgba,
+    pc: Vec3,
+    facing: f32,
+) {
+    let mut r = Renderer::new(gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+    let grey = |img: &Rgba| -> Vec<f32> {
+        img.data
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|p| (p[0] as f32 + p[1] as f32 + p[2] as f32) / 3.0)
+            .collect()
+    };
+    let cg = grey(client);
+    let (w, h) = (client.width as usize, client.height as usize);
+    let mut best = (f32::MAX, [0.0; 3]);
+    for pitch in (36..=64).step_by(2) {
+        for focus in [0.75f32, 1.0, 1.25, 1.5] {
+            for distance in (16..=40).map(|d| d as f32 / 2.0) {
+                let cam = camera_facing(pc, facing, FIT_FOV, focus, distance, pitch as f32);
+                let img =
+                    r.render_image(gpu, &game.resman, scene, &cam, client.width, client.height);
+                let g = grey(&img);
+                let (mut err, mut n) = (0.0, 0.0);
+                for y in (h / 10..h * 7 / 10).step_by(4) {
+                    for x in (w / 10..w * 8 / 10).step_by(4) {
+                        err += (g[y * w + x] - cg[y * w + x]).abs();
+                        n += 1.0;
+                    }
+                }
+                if err / n < best.0 {
+                    best = (err / n, [distance, pitch as f32, focus]);
+                }
+            }
+        }
+    }
+    eprintln!("best fit: error {:.1}: distance, pitch, focus {:?}", best.0, best.1);
 }
 
 /// Exploration (`MG_FIT=1`): the camera that matches the client's image best
@@ -2662,6 +2727,20 @@ fn save_area_module(
     pc: glam::Vec2,
     haks: &[String],
 ) {
+    save_area_module_facing(game, dir, are, git, pc, haks, FACING);
+}
+
+/// [`save_area_module`] with the scripted camera looking along `facing`
+/// (degrees anticlockwise from east, as [`camera_facing`] takes it).
+fn save_area_module_facing(
+    game: &GameData,
+    dir: &Path,
+    are: &mut Gff,
+    git: &Gff,
+    pc: glam::Vec2,
+    haks: &[String],
+    facing: f32,
+) {
     let mut rng = fastrand::Rng::with_seed(11);
     let mut m = new_module(game, "MgScene", &mut rng).unwrap();
     let spec = AreaSpec {
@@ -2678,18 +2757,37 @@ fn save_area_module(
     m.set_gff(ResKey::new(new_area, ResType::ARE), are).unwrap();
     m.set_gff(ResKey::new(new_area, ResType::GIT), git).unwrap();
     // (Where the player stands, written to the log: the engine puts it
-    // on the walkmesh nearest the entry point.)
+    // on the walkmesh nearest the entry point.) Looking another way than
+    // north, the camera is turned a second after the player enters (at
+    // once, the client keeps its own, which looks north whichever way the
+    // player faces), and is then at [`TURNED_DISTANCE`] and
+    // [`TURNED_PITCH`].
+    let turn = |l: &str| {
+        let at_once =
+            "AssignCommand(pc, SetCameraFacing(90.0, 12.0, 45.0, CAMERA_TRANSITION_TYPE_SNAP));";
+        if facing == FACING || !l.contains(at_once) {
+            return l.to_string();
+        }
+        l.replace(
+            at_once,
+            &format!(
+                "DelayCommand(1.0, AssignCommand(pc, SetCameraFacing({facing:.1}, 12.0, 45.0, \
+                 CAMERA_TRANSITION_TYPE_SNAP)));"
+            ),
+        )
+    };
     let enter: String = ENTER
         .lines()
         .filter(|l| !l.contains("CreateObject"))
+        .map(turn)
         .map(|l| {
             if l.contains("MG_READY") {
                 "    DelayCommand(3.5, Log(\"MG_PC \" + FloatToString(GetPosition(pc).x, 0, 3) + \" \" \
                  + FloatToString(GetPosition(pc).y, 0, 3) + \" \" + FloatToString(GetPosition(pc).z, 0, 3)));\n"
                     .to_string()
-                    + l
+                    + &l
             } else {
-                l.to_string()
+                l
             }
         })
         .collect::<Vec<_>>()
@@ -2699,6 +2797,12 @@ fn save_area_module(
     info.root.write(&ifo::MOD_ENTRY_X, pc.x);
     info.root.write(&ifo::MOD_ENTRY_Y, pc.y);
     info.root.write(&ifo::MOD_ENTRY_Z, 0.0);
+    // (The player facing the way the camera looks: its back to it.)
+    if facing != FACING {
+        let (s, c) = facing.to_radians().sin_cos();
+        info.root.write(&ifo::MOD_ENTRY_DIR_X, c);
+        info.root.write(&ifo::MOD_ENTRY_DIR_Y, s);
+    }
     info.root.write(&ifo::MOD_ON_CLIENT_ENTR, ResRef::from_str("mg_enter").unwrap());
     if !haks.is_empty() {
         let list = mg_module::attach::hak_list(&info.root, haks);

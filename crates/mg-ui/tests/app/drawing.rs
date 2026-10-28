@@ -494,6 +494,147 @@ fn a_stock_interior_looks_alike_with_the_shaders_on_and_off() {
     assert!((sa - sb).abs() < 0.01, "saturation: off {sa}, on {sb}");
 }
 
+/// A builder's area (the `.are` and `.git` of the folder `MG_HEED_AREA`,
+/// by hand: Heed's armourer of October 2026; skipped without) in the area
+/// view, lit, with fog, from the cameras `heed_armourer_look` in
+/// `client_render.rs` compares with the client's pictures (where the
+/// client's player stood, looking as its camera looks, at the view's own
+/// field of view), the forge's fire burning as long as there: with the
+/// Shaders switch off and on, and drawn as the comparison draws it
+/// (`mg_area`'s scene, its particles stepped as long, and the renderer's
+/// picture). The view must draw what that draws, with either switch.
+/// Pictures in `target/test-output/ui-heed-area/`.
+#[test]
+#[ignore]
+fn a_builders_area_in_the_view_draws_as_the_comparison() {
+    let Some(folder) = std::env::var_os("MG_HEED_AREA").map(std::path::PathBuf::from) else {
+        eprintln!("skipped: MG_HEED_AREA names no folder");
+        return;
+    };
+    let read = |ext: &str| {
+        let f = mg_testkit::files_with_ext(&folder, ext).into_iter().next().expect(ext);
+        Gff::read(&std::fs::read(f).unwrap()).unwrap()
+    };
+    let (are, git) = (read("are"), read("git"));
+    let tileset = are.root.resref("Tileset").unwrap().to_string();
+    let side = are.root.int("Width").unwrap().max(are.root.int("Height").unwrap()) as u32;
+    let prepare = |m: &mut mg_module::Module, _: &mg_rules::GameData, area: ResRef| {
+        let (mut are, mut git) = (are.clone(), git.clone());
+        are.root.set("ResRef", mg_gff::Value::resref(area));
+        for label in ["OnEnter", "OnExit", "OnHeartbeat", "OnUserDefined"] {
+            are.root.set(label, mg_gff::Value::resref(ResRef::EMPTY));
+        }
+        // (No waypoints: the client shows none.)
+        git.root.set("WaypointList", mg_gff::Value::List(Vec::new()));
+        m.set_gff(ResKey::new(area, ResType::ARE), &are).unwrap();
+        m.set_gff(ResKey::new(area, ResType::GIT), &git).unwrap();
+    };
+    let Some((mut h, area)) = area_harness_with("heed-area", &tileset, None, side, None, &prepare)
+    else {
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-heed-area");
+    // (Where the client's player stood, the camera's facing, its pitch above
+    // the ground and its distance: `heed_armourer_look`'s cameras.)
+    let cameras = [
+        ("north", glam::Vec3::new(20.0, 15.5, 0.0), 90f32, 40f32, 19f32),
+        ("forge", glam::Vec3::new(23.7, 18.3, 0.0), 270.0, 46.0, 11.0),
+        ("west", glam::Vec3::new(25.0, 13.0, 0.0), 180.0, 46.0, 11.0),
+        ("east", glam::Vec3::new(16.0, 20.0, 0.0), 0.0, 46.0, 11.0),
+    ];
+    // (The view steps its animations by the harness's 1/60 s.)
+    let burning = 8.0;
+    let frames = (burning * 60.0) as usize;
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        assert!(view.lit, "lit at first");
+        (view.grid, view.fog) = (false, true);
+    }
+    let mut failures = Vec::new();
+    for (name, pc, facing, pitch, distance) in cameras {
+        let orbit = mg_ui::area_view::Orbit {
+            target: pc + glam::Vec3::Z * 1.25,
+            yaw: (facing + 180.0).to_radians(),
+            pitch: pitch.to_radians(),
+            distance,
+        };
+        let mut pictures = Vec::new();
+        for on in [false, true] {
+            h.state_mut().settings.game_shaders = Some(on);
+            {
+                let view = h.state_mut().area_views.get_mut(&area).unwrap();
+                view.orbit = Some(orbit);
+            }
+            h.hover_at(egui::pos2(5.0, 5.0));
+            h.run_steps(3);
+            if on {
+                until_the_game_draws(&mut h);
+            }
+            h.run_steps(frames);
+            let r = h.state().area_views[&area].rect;
+            let img = h.render().expect("render");
+            let img = image::imageops::crop_imm(
+                &img,
+                r.min.x as u32,
+                r.min.y as u32,
+                r.width() as u32,
+                r.height() as u32,
+            )
+            .to_image();
+            img.save(dir.join(format!("{name}_{}.png", if on { "on" } else { "off" }))).unwrap();
+            pictures.push(img);
+        }
+        // The comparison's picture of the same camera.
+        let app = h.state();
+        let (vp, game) = (app.viewport.as_ref().unwrap(), app.game.as_deref().unwrap());
+        let model = app.area_views[&area].model.as_ref().unwrap();
+        let (w, ht) = (pictures[0].width(), pictures[0].height());
+        let scene = mg_area::AreaScene::new(&vp.gpu, game, model);
+        let mut view = mg_area::View { lit: true, fog: true, ..mg_area::View::of(model) };
+        for kind in [
+            mg_rules::ObjectKind::Encounter,
+            mg_rules::ObjectKind::Sound,
+            mg_rules::ObjectKind::Store,
+            mg_rules::ObjectKind::Trigger,
+            mg_rules::ObjectKind::Waypoint,
+        ] {
+            view.show[kind.index()] = false;
+        }
+        let camera = orbit.camera();
+        let mut sims = std::collections::HashMap::new();
+        for frame in 0..frames {
+            view.time = frame as f32 / 60.0;
+            scene.particles(model, &view, &mut sims, 1.0 / 60.0, camera.view());
+        }
+        view.time = burning;
+        let mut s = scene.scene(model, &view);
+        s.particles = scene.particles(model, &view, &mut sims, 1.0 / 60.0, camera.view());
+        let mut r = mg_render::Renderer::new(&vp.gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+        let direct = r.render_image(&vp.gpu, &game.resman, &s, &camera, w, ht);
+        let direct = image::RgbaImage::from_raw(w, ht, direct.data).unwrap();
+        direct.save(dir.join(format!("{name}_comparison.png"))).unwrap();
+        // (Clear of the view's edges, where its toolbar and frame are.)
+        let inner = |img: &image::RgbaImage| {
+            let (iw, ih) = (img.width(), img.height());
+            image::imageops::crop_imm(img, iw / 10, ih / 10, iw * 8 / 10, ih * 8 / 10).to_image()
+        };
+        let (c, _) = mean_and_saturation(&inner(&direct));
+        for (switch, img) in ["off", "on"].into_iter().zip(&pictures) {
+            let (m, _) = mean_and_saturation(&inner(img));
+            eprintln!(
+                "{name} (Shaders {switch}): the view ({:.1}, {:.1}, {:.1}), the comparison's \
+                 ({:.1}, {:.1}, {:.1})",
+                m[0], m[1], m[2], c[0], c[1], c[2]
+            );
+            if (0..3).any(|k| (m[k] - c[k]).abs() > 1.5) {
+                failures.push(format!("{name} (Shaders {switch}): {m:.1?} against {c:.1?}"));
+            }
+        }
+    }
+    eprintln!("{}", dir.display());
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
 /// The area view with The Domains of Dread's tileset and shaders (its haks
 /// where `MOONGLOW_HAKS` has them, linked into a scratch user folder; the
 /// haks themselves untouched; skipped without): a field of `mst04` tiles

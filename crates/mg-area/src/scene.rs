@@ -735,9 +735,20 @@ impl AreaScene {
                         .collect(),
                     ..Animation::default()
                 });
+                let new = !sims.contains_key(&key);
                 let sim =
                     sims.entry(key).or_insert_with(|| mg_render::particles::Particles::new(model));
                 sim.ground = transform.w_axis.z;
+                // (Run ahead as an object's: a forge's fire was dark for
+                // its first seconds.)
+                if new {
+                    let mut ahead = 0.0;
+                    while ahead < PARTICLES_AHEAD {
+                        let step = PARTICLES_AHEAD_STEP;
+                        sim.update(model, keys.as_ref(), view.time, step, &pose, transform);
+                        ahead += step;
+                    }
+                }
                 sim.update(model, keys.as_ref(), view.time, dt, &pose, transform);
                 sim.batches(model, keys.as_ref(), view.time, &pose, transform, camera)
             });

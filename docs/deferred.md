@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T17:50:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T21:33:57Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1130,44 +1130,29 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   line); random scale on static placeables (the game gives them none, so
   Scale passes them by). The see-through dab is held by the tests'
   counts; the pictures show strokes laid. (S each)
-- **Heed's tile lights:** "tile lights don't show with Lighting on" was
-  not reproduced: in the stock smithy (`pensmithy1` of Chapter 1, its
-  tiles' main lights the area's only light) the area view, lit, is
-  within 2.4 of 255 of the client's picture on average
-  (`area_lighting_look`; 2.5 with either shader, measured again on
-  2.5.2); what was missing in the reports' areas was the
-  light of their placeables' light nodes. A builder's tileset whose
-  lights don't show would need its area to look at. His later pictures
-  (2.8.x: dark gray ambient 60 and diffuse 170, Always Bright; the tile
-  lights overpowered by a white ambient) were not reproduced on stock
-  content either: a `tin01` interior set as his is draws the same with
-  the Shaders switch on and off, within 0.7 to 1.5 of 255 of the
-  client's at 60/170, 60/150, 255/170 and 0/0, the white ambient as flat
-  in the client (`heed_interior_look`; findings, "An area's ambient and
-  diffuse beside its tile lights"). (S) (Heed's report, October 2026)
-- **Heed's interior washed out with the game's shaders, to confirm in
-  his module:** his walls and floors are placeables whose custom vertex
-  program picks a texture coordinate set by an MTR int (`nUvmap`), and
-  up to 2.5.3 Moonglow fed `tverts2` and `tverts3` as zeros: a wall of
-  either drew the one color at (0, 0), flat and grayish (saturation
-  0.47 against the client's 0.77 on a test card). Fixed, with his two
-  shaders on authored cards matching the client (within 0.6 of 255 for
-  a card of one stripe; findings, "What a custom shader gets of its
-  mesh"); not seen in his
-  own module, which we don't have. If his smithy still differs on the
-  next release, his module and haks are what to look at. (Stock
-  interiors draw the same with either shader: findings, "The game's
-  shaders and Moonglow's own in stock interiors".) On 2.8.x he saw the
-  switch's two pictures differ again, Shaders on darker and muddier
-  with his dark gray area lights: with his pair on stock tiles,
-  Moonglow's own shader lit them as `fslit` (softened past the
-  terminator) where his `fhss_skintile` lights as `fslit_nm`, brighter
-  in the dark corners by up to a tenth; it is lit as its fragment
-  program defines now (findings, "An area's ambient and diffuse beside
-  its tile lights"). That was a small difference on stock textures:
-  how far it explains his pictures, with his walls' own maps, needs his
-  area, the wall and floor placeables' models, their MTRs and textures,
-  and his haks. (S) (Heed's report, October 2026)
+- **Heed's interiors' lighting, waiting on Heed** (what he sees, a
+  picture of it, and his haks): every area of his reports measured
+  draws as the client draws it. His armourer (`hss_armourer`, the area
+  he sent in October 2026 as still showing it: `tni01`, 60/170 by day,
+  black fog of 5, the smithy's tile lights, no placeables) is within
+  0.1 to 1.6 of 255 of the client's picture from four cameras, the
+  Shaders switch's two pictures the same, his file and the stock one
+  built from it alike (`heed_armourer_look`; findings, "An area's
+  ambient and diffuse beside its tile lights"); the one difference seen
+  (the forge's fire dark for its first seconds after the area opened or
+  changed) is fixed. Before it: a stock smithy's tile lights within 2.4
+  (`area_lighting_look`; his "tile lights don't show" was his
+  placeables' light nodes, since lit); a `tin01` interior set as his
+  within 0.7 to 1.5 at 60/170, 60/150, 255/170 and 0/0, the white
+  ambient as flat in the client (`heed_interior_look`); his walls' custom
+  pair fed `tverts2`/`tverts3` (up to 2.5.3) and lit as `fslit_nm`
+  (findings, "What a custom shader gets of its mesh"). Since his area
+  draws as the game draws it on stock content, what he sees comes from
+  what his module loads over it (a hak's `tni01` models, textures or
+  MTRs, a `lightcolor.2da`, a shader include) or is something other than
+  the game's look: his own words for it, a picture of the view beside
+  the game's, and his haks are what is needed. (S) (Heed's reports,
+  October 2026)
 - **A custom shader's tangents, not every case read:** the client's
   rule (tangents from the model or a render hint, else zeros) was read
   with an ASCII model without tangents, with and without an MTR

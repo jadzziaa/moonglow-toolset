@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T21:26:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T21:33:57Z }
 ---
 
 # Areas
@@ -58,7 +58,9 @@ dropdowns keep their words.
   magic sparks, a portal: placeables that are only an effect show
   nothing otherwise), as do the tiles: a chimney smokes with its
   animation loop on in Tile Properties, and a torch on a wall burns where
-  its source light has a color (Tile Properties). Switched off, they hold
+  its source light has a color (Tile Properties). Particles show as they
+  do once going from the moment the area is shown, a forge's fire as
+  much as a campfire's. Switched off, they hold
   still (tiles' water and flames go on), in every area view; it stays as
   you leave it.
 - **🌿 Grass**: the grass the area grows, as the game grows it on the
