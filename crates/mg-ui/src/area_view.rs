@@ -491,6 +491,8 @@ pub struct AreaView {
     drawn: Option<(Drawn, f32)>,
     /// How many times the picture has been drawn.
     pub pictures: u64,
+    /// The watch on what the GPU draws of it ([`mg_render::watch`]).
+    pub watching: Watching,
     /// How many textures read apart the picture was drawn with
     /// ([`mg_render::Renderer::textures_read`]).
     textures_drawn: u64,
@@ -529,6 +531,75 @@ struct Drawn {
 /// frame is drawn for every move of the pointer over a menu or key typed
 /// in a window in front of the area.
 const ANIMATION_STEP: f32 = 0.04;
+
+/// The area view's watch on what the GPU draws ([`mg_render::watch`]):
+/// every [`mg_render::watch::EVERY`] seconds a picture drawn is looked at,
+/// the look read when the GPU is done, and judged.
+#[derive(Debug, Default)]
+pub struct Watching {
+    pub watch: mg_render::watch::Watch,
+    sampler: Option<mg_render::watch::Sampler>,
+    /// The look under way: its frame's pipelines and textures were ready,
+    /// and when it was taken (the window's clock, seconds).
+    pending: Option<(bool, f64)>,
+    last: Option<f64>,
+    /// The last look's numbers and verdict, and how many there have been.
+    pub seen: Option<(mg_render::watch::Observation, mg_render::watch::Verdict)>,
+    pub looks: u64,
+}
+
+impl Watching {
+    /// After a picture is drawn (`frame`, by `camera`, into `targets`, at
+    /// `now`): a look at it, if one is due. The tiles expected are the
+    /// frame's drawn whole (not a brush's see-through preview).
+    fn after_drawing(
+        &mut self,
+        vp: &crate::model_view::Viewport3d,
+        frame: &mg_render::Scene,
+        camera: &mg_render::Camera,
+        targets: &mg_render::Targets,
+        now: f64,
+    ) {
+        use mg_render::watch;
+        let busy = self.sampler.as_ref().is_some_and(watch::Sampler::busy);
+        if busy || self.last.is_some_and(|t| now - t < watch::EVERY) {
+            return;
+        }
+        let samples = crate::model_view::SAMPLES;
+        let sampler = self.sampler.get_or_insert_with(|| watch::Sampler::new(&vp.gpu, samples));
+        let tiles: Vec<glam::Vec3> = frame
+            .instances
+            .iter()
+            .filter(|i| i.tile && !i.grass && i.opacity >= 1.0 && !i.model.meshes.is_empty())
+            .map(|i| i.transform.w_axis.truncate())
+            .collect();
+        let (w, h) = targets.size;
+        let expected = watch::expected(&tiles, camera, w as f32 / h.max(1) as f32);
+        let drawn = &vp.renderer.drawn;
+        let ready = drawn.game_pending == 0 && drawn.textures_pending == 0;
+        sampler.look(&vp.gpu, &targets.depth, expected);
+        self.pending = Some((ready, now));
+        self.last = Some(now);
+    }
+
+    /// The look under way, if the GPU is done with it: judged. The
+    /// failure, the first time there is one.
+    fn read(&mut self, vp: &crate::model_view::Viewport3d) -> Option<mg_render::watch::Failure> {
+        use mg_render::watch::{self, Observation, Verdict};
+        let (expected, drawn) = self.sampler.as_mut()?.take(&vp.gpu)?;
+        let (ready, at) = self.pending.take()?;
+        let (expected, drawn) = watch::counted(&expected, &drawn);
+        let o = Observation { expected, drawn, ready, at };
+        let before = self.watch.failure();
+        let verdict = self.watch.judge(o);
+        self.seen = Some((o, verdict));
+        self.looks += 1;
+        match verdict {
+            Verdict::Failed(f) if before.is_none() => Some(f),
+            _ => None,
+        }
+    }
+}
 
 impl AreaView {
     /// Reads the area's tiles and objects again from the game data (after
@@ -647,6 +718,7 @@ impl AreaView {
             targets: None,
             drawn: None,
             pictures: 0,
+            watching: Watching::default(),
             time: 0.0,
             last_frame: None,
             rect: Rect::NOTHING,
@@ -2595,17 +2667,23 @@ fn viewport(
         // (With the targets' framebuffer copies: shiny water by the
         // game's `fswater`.)
         vp.renderer.render_targets(&vp.gpu, &game.resman, &frame, &camera, targets);
+        // (The watch: a look at what was drawn, now and then.)
+        view.watching.after_drawing(vp, &frame, &camera, targets, now);
         vp.renderer.game_background = false;
         vp.renderer.textures_apart = false;
         view.textures_drawn = vp.renderer.textures_read();
         view.drawn = Some((from, view.time));
         view.pictures += 1;
     }
+    let watch_failed = view.watching.read(vp);
     let response = ui.add(
         egui::Image::new(egui::load::SizedTexture::new(*id, size))
             .sense(egui::Sense::click_and_drag()),
     );
     view.rect = response.rect;
+    if let Some(f) = watch_failed {
+        crate::renderer_check::watch_failed(app, f);
+    }
     // Placing a door, with a click or by dragging one: the hooks show.
     let dragged = egui::DragAndDrop::payload::<crate::palette_view::Dragged>(ui.ctx());
     let door_brush =

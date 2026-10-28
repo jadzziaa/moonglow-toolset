@@ -21,6 +21,7 @@ mod options_and_keys;
 mod palettes;
 mod plugins;
 mod projects;
+mod renderer_check;
 mod resources;
 mod scripts;
 mod search;

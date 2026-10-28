@@ -334,6 +334,23 @@ pub(crate) fn area_harness_with(
     user: Option<std::path::PathBuf>,
     prepare: &dyn Fn(&mut mg_module::Module, &mg_rules::GameData, ResRef),
 ) -> Option<(Harness<'static, Moonglow>, ResRef)> {
+    let (app, rs, area) = area_app(name, tileset, tile, side, user, prepare)?;
+    let mut h = area_gpu_harness(app, rs, 1100.0, 800.0);
+    h.run_steps(3);
+    Some((h, area))
+}
+
+/// What [`area_harness_with`] puts in its harness: the application with
+/// the module open and its area's tab asked for, the GPU's render state
+/// (given to it) and the area.
+pub(crate) fn area_app(
+    name: &str,
+    tileset: &str,
+    tile: Option<i32>,
+    side: u32,
+    user: Option<std::path::PathBuf>,
+    prepare: &dyn Fn(&mut mg_module::Module, &mg_rules::GameData, ResRef),
+) -> Option<(Moonglow, egui_wgpu::RenderState, ResRef)> {
     use mg_module::instances::{Placement, Placing, instance};
     use mg_module::new::{AreaSpec, add_area, new_module};
     let root = mg_testkit::nwn_root()?;
@@ -382,9 +399,7 @@ pub(crate) fn area_harness_with(
     app.settings.game_shaders = Some(false);
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
-    let mut h = area_gpu_harness(app, rs, 1100.0, 800.0);
-    h.run_steps(3);
-    Some((h, area))
+    Some((app, rs, area))
 }
 
 /// A waypoint's position in the workspace's GIT.

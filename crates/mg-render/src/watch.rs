@@ -80,7 +80,9 @@ pub fn expected(tiles: &[Vec3], camera: &Camera, aspect: f32) -> Expected {
             let near = inverse.project_point3(ndc.extend(0.0));
             let far = inverse.project_point3(ndc.extend(1.0));
             let dir = (far - near).normalize_or_zero();
-            let seen = dir.z.abs() > 1e-6
+            // (Down onto the ground, from above it: the ground's
+            // underside is not drawn.)
+            let seen = dir.z < -1e-6
                 && levels.iter().any(|&z| {
                     let t = (z - near.z) / dir.z;
                     if t <= 0.0 || (near + dir * t - camera.eye).length() > reach {
@@ -568,6 +570,10 @@ mod tests {
         let raised = [Vec3::new(5.0, 5.0, 5.0)];
         let over = camera(Vec3::new(5.0, 4.99, 20.0), Vec3::new(5.0, 5.0, 5.0));
         assert!(expected(&raised, &over, 1.0).0[(ROWS / 2 * COLUMNS + COLUMNS / 2) as usize]);
+        // Under the ground, looking up: its underside isn't drawn, nor
+        // expected.
+        let under = camera(Vec3::new(20.0, -10.0, -5.0), middle + Vec3::new(0.0, 0.0, 10.0));
+        assert_eq!(expected(&tiles, &under, 1.6).count(), 0);
     }
 
     #[test]

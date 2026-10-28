@@ -73,6 +73,10 @@ pub struct OptionsDraft {
     pub armor_on_woman: bool,
     pub light_theme: bool,
     pub graphics_backend: crate::settings::GraphicsBackend,
+    /// The backends recorded as drawing wrong ([`Settings::graphics_failures`]),
+    /// as the page shows them, and whether OK forgets them.
+    pub graphics_failures: Vec<crate::settings::GraphicsFailure>,
+    pub forget_graphics_failures: bool,
     pub toolbar_icons_only: bool,
     /// Per cent.
     pub ui_scale: u16,
@@ -183,6 +187,8 @@ impl OptionsDraft {
             armor_on_woman: s.armor_on_woman,
             light_theme: s.light_theme,
             graphics_backend: s.graphics_backend,
+            graphics_failures: s.graphics_failures.clone(),
+            forget_graphics_failures: false,
             toolbar_icons_only: s.toolbar_icons_only,
             ui_scale: s.ui_scale.unwrap_or(100),
             minimize_on_test: s.minimize_on_test,
@@ -263,6 +269,12 @@ impl OptionsDraft {
             armor_on_woman: self.armor_on_woman,
             light_theme: self.light_theme,
             graphics_backend: self.graphics_backend,
+            // (Those recorded meanwhile kept, unless forgotten.)
+            graphics_failures: if self.forget_graphics_failures {
+                Vec::new()
+            } else {
+                s.graphics_failures.clone()
+            },
             toolbar_icons_only: self.toolbar_icons_only,
             ui_scale: (self.ui_scale != 100).then_some(self.ui_scale.clamp(UI_SCALES[0], 300)),
             minimize_on_test: self.minimize_on_test,
@@ -1159,8 +1171,10 @@ fn graphics_backend(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<
             .on_hover_text(
                 "What the area view, the previews and the window draw with. Automatic: the \
                  graphics library's choice, except that an AMD GPU on Windows draws through \
-                 Direct3D 12 rather than Vulkan (AMD's Vulkan driver there drew areas' tiles \
-                 wrong). A backend with no adapter here falls back to Automatic",
+                 Direct3D 12 rather than Vulkan; checked as Moonglow starts, and where it draws \
+                 nothing, the GPU's other backend is taken. A backend with no adapter here \
+                 falls back to Automatic. A backend chosen here is kept even where the check \
+                 finds it draws nothing (a notice says so)",
             );
     });
     let mut note = "Takes effect the next time Moonglow starts.".to_string();
@@ -1171,6 +1185,33 @@ fn graphics_backend(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<
         note.push_str(" WGPU_BACKEND is set, and decides over this.");
     }
     ui.weak(note);
+    // The backends found drawing wrong here, which Automatic passes over.
+    if draft.graphics_failures.is_empty() || draft.forget_graphics_failures {
+        return;
+    }
+    ui.horizontal_wrapped(|ui| {
+        let each: Vec<String> = draft
+            .graphics_failures
+            .iter()
+            .map(|f| format!("{} on {} (driver {})", f.backend, f.adapter, f.driver))
+            .collect();
+        ui.weak(format!(
+            "Automatic passes over {}: it drew nothing here ({}).",
+            each.join(", "),
+            draft.graphics_failures.iter().map(|f| f.what.as_str()).collect::<Vec<_>>().join(", ")
+        ));
+        if ui
+            .button("Try Again")
+            .on_hover_text(
+                "Forgets these when you choose OK: from the next start Automatic takes its \
+                 usual backend again (checked as Moonglow starts). A driver update tries it \
+                 again by itself",
+            )
+            .clicked()
+        {
+            draft.forget_graphics_failures = true;
+        }
+    });
 }
 
 /// The script editor's font size and a colour per syntax element (the

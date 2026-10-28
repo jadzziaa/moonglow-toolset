@@ -24,7 +24,7 @@ use mg_resman::ResKey;
 use crate::Moonglow;
 
 /// Multisampling for 3D views.
-const SAMPLES: u32 = 4;
+pub(crate) const SAMPLES: u32 = 4;
 
 /// How often a model the game's shaders move by the clock (wind-swayed
 /// grass, flowing water) is drawn again, seconds: as the area view's
