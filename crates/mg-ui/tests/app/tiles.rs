@@ -2746,7 +2746,8 @@ fn tile_properties_all_tiles_search_by_model_or_number() {
     let shown: Vec<String> = h
         .query_all_by_label_contains("ttr01_")
         .filter_map(|n| n.accesskit_node().label().or_else(|| n.accesskit_node().value()))
-        .filter(|l| !l.starts_with("Tile "))
+        // (Not the window's own lines: the tile's, its model's textures.)
+        .filter(|l| !l.starts_with("Tile ") && !l.starts_with("Textures of "))
         .collect();
     h.render().unwrap().save(shots.join("found.png")).unwrap();
     assert!(!shown.is_empty());
@@ -4062,4 +4063,106 @@ fn an_area_of_a_tileset_with_holes_draws_its_other_tiles() {
     assert!(log.contains("no model for tile 20, tile 101"), "{log}");
     assert!(log.contains("model mg_unreadable (in "), "{log}");
     assert!(log.contains("can't be read"), "{log}");
+}
+
+/// A tile's textures (Leoendethas' request) where a builder looks at a
+/// tile: Tile Properties of the tile chosen (folded at first, a variant
+/// put in showing its own), the tile's view, and the tileset editor's
+/// tile, whose model named a texture found nowhere shows it missing.
+#[test]
+fn a_tile_s_textures_show_where_the_tile_is_looked_at() {
+    use glam::Vec3;
+    // A model of ours in the override: a mesh drawn with a texture of the
+    // game's, one with a texture found nowhere.
+    let user = mg_testkit::scratch_dir("ui-tile-textures-user");
+    std::fs::create_dir_all(user.join("override")).unwrap();
+    let mesh = |name: &str, bitmap: &str| {
+        format!(
+            "node trimesh {name}\n  parent mg_tex\n  bitmap {bitmap}\n\
+             verts 3\n    0 0 0\n    1 0 0\n    0 1 0\n\
+             tverts 3\n    0 0 0\n    1 0 0\n    0 1 0\n\
+             faces 1\n    0 1 2 1 0 1 2 0\nendnode\n"
+        )
+    };
+    let mdl = format!(
+        "newmodel mg_tex\nsetsupermodel mg_tex NULL\nclassification tile\n\
+         beginmodelgeom mg_tex\nnode dummy mg_tex\n  parent NULL\nendnode\n{}{}\
+         endmodelgeom mg_tex\ndonemodel mg_tex\n",
+        mesh("ground", "ttr01_grass02"),
+        mesh("sign", "mg_gone"),
+    );
+    std::fs::write(user.join("override/mg_tex.mdl"), mdl).unwrap();
+    // ttr01 tile 10 (ttr01_b01_01) at column 1, row 1.
+    let Some((mut h, area)) =
+        area_harness_with("tile-textures", "ttr01", Some(10), 4, Some(user.clone()), &|_, _, _| {})
+    else {
+        return;
+    };
+    let game = h.state().game.clone().unwrap();
+    // What the listing has for the tile's model: the first texture shown.
+    let listed = |model: &str| {
+        let data = game.resman.get(&ResKey::parse(model, ResType::MDL).unwrap()).unwrap();
+        let m = mg_mdl::Model::read(&data).unwrap();
+        let mut names: Vec<String> =
+            mg_preview::replaceable::uses(&game, &m, None).into_iter().map(|u| u.name).collect();
+        names.sort();
+        names.dedup();
+        names
+    };
+    tile_properties_of(&mut h, area, &[Vec3::new(15.0, 15.0, 0.0)]);
+    assert!(h.state().tile_props.is_some(), "the window is open");
+    let header = h.get_by_label_contains("Textures of ttr01_b01_01 (");
+    // (Folded at first: the rows aren't laid out until it is opened.)
+    let first = listed("ttr01_b01_01").into_iter().next().unwrap();
+    assert!(h.query_by_label(&first).is_none(), "folded: {first} not shown");
+    header.click();
+    h.run_steps(3);
+    assert!(h.query_all_by_label(&first).next().is_some(), "{first} shown");
+    assert!(h.query_all_by_label_contains("diffuse of ").next().is_some(), "its uses");
+    // A variant put in: the textures its model draws.
+    let props = h.state().tile_props.clone().unwrap();
+    let (_, variants) = props.variants.clone().expect("one tile: its variants");
+    let other = variants.iter().find(|(p, _)| p.tile != 10).expect("another variant").clone();
+    let edit = mg_edit::Edit::SetField {
+        key: ResKey::new(area, ResType::ARE),
+        path: mg_edit::GffPath::root().item("Tile_List", 5),
+        label: "Tile_ID".into(),
+        value: Some(mg_gff::Value::Int(other.0.tile as i32)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Tile", vec![edit])));
+    h.run_steps(4);
+    h.get_by_label_contains(&format!("Textures of {} (", other.1.to_lowercase()));
+    h.get_by_label("Cancel").click();
+    h.run_steps(2);
+
+    // The tile's view.
+    let tileset = ResRef::from_str("ttr01").unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Tile { tileset, tile: 10 }));
+    h.run_steps(4);
+    h.get_by_label_contains("Textures of ttr01_b01_01 (");
+    assert!(h.query_all_by_label(&first).next().is_some(), "{first} shown");
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::Tile { tileset, tile: 10 }]));
+    h.run_steps(2);
+
+    // The tileset editor: a copy of ttr01 whose tile 10 is our model.
+    let set = game.resman.get(&ResKey::new(tileset, ResType::SET)).unwrap().into_owned();
+    let set_path = user.join("ttr01.set");
+    std::fs::write(&set_path, set).unwrap();
+    mg_ui::tileset_view::open_path(h.state_mut(), set_path);
+    h.run_steps(2);
+    {
+        let d = &mut h.state_mut().tilesets[0];
+        d.page = mg_ui::tileset_view::Page::Tiles;
+        d.tile = Some(10);
+        d.change(|f| f.set("TILE10", "Model", "mg_tex"));
+    }
+    h.run_steps(4);
+    h.get_by_label_contains("Textures of mg_tex (");
+    h.get_by_label_contains("1 missing)");
+    assert_eq!(h.query_all_by_label("ttr01_grass02").count(), 2, "its name and its picture");
+    assert_eq!(h.query_all_by_label("mg_gone").count(), 1, "missing: its name, no picture");
+    h.get_by_label("Missing: no DDS, TGA or PLT of the name in the load order");
+    h.get_by_label("diffuse of sign");
+    let shots = mg_testkit::scratch_dir("ui-tile-textures");
+    h.render().unwrap().save(shots.join("tileset-editor.png")).unwrap();
 }

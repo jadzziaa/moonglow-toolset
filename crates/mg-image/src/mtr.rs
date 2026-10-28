@@ -6,6 +6,15 @@
 /// Texture slots an MTR can bind.
 pub const SLOTS: usize = 16;
 
+/// What a texture slot is drawn as, in a builder's words: `diffuse`,
+/// `normal`, `specular`, `roughness`, `height`, `illumination`, else
+/// `texture6` and so on (a custom shader's).
+pub fn slot_name(slot: usize) -> String {
+    const NAMES: [&str; 6] =
+        ["diffuse", "normal", "specular", "roughness", "height", "illumination"];
+    NAMES.get(slot).map_or_else(|| format!("texture{slot}"), |n| (*n).to_string())
+}
+
 /// A shader parameter's value.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Param {
@@ -113,6 +122,24 @@ impl Mtr {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn slots_named() {
+        let names: Vec<String> = [0, 1, 2, 3, 4, 5, 6, 15].map(slot_name).into();
+        assert_eq!(
+            names,
+            [
+                "diffuse",
+                "normal",
+                "specular",
+                "roughness",
+                "height",
+                "illumination",
+                "texture6",
+                "texture15"
+            ]
+        );
+    }
 
     #[test]
     fn directives() {

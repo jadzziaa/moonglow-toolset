@@ -3,6 +3,7 @@
 //! (which is how players get them).
 use super::*;
 use crate::FileKind;
+use crate::images::origin_name;
 use mg_module::hak_edit::{Source, key_for, write_into};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -154,21 +155,6 @@ pub(super) fn answer_from_disk(ctx: &egui::Context, app: &mut Moonglow) -> Optio
     let (key, edit) = add_file(app, &path)?;
     ctx.data_mut(|d| d.insert_temp(field, key.resref.to_string()));
     Some(edit)
-}
-
-/// Where a picture comes from, as a builder names it.
-fn origin_name(layer: &str) -> String {
-    if let Some(hak) = layer.strip_prefix("hak:") {
-        format!("Hak: {hak}")
-    } else if let Some(key) = layer.strip_prefix("key:") {
-        format!("Game data ({key})")
-    } else if layer.starts_with("module") {
-        "Module".into()
-    } else if layer == "override" {
-        "Override folder".into()
-    } else {
-        layer.into()
-    }
 }
 
 /// What Export… leaves behind of a window's pictures (`names`, those the

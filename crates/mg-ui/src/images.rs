@@ -105,6 +105,30 @@ pub(crate) fn item_icon_names(game: &GameData, item: &Struct, female: bool) -> V
     }
 }
 
+/// Where a resource comes from in the load order, as a builder names it,
+/// by its layer's label ([`mg_resman::Layer::label`]): a hak by name, the
+/// game's own data, the module, the override and development folders, a
+/// Workshop item, a userpatch hak; any other label as it is.
+pub(crate) fn origin_name(layer: &str) -> String {
+    if let Some(hak) = layer.strip_prefix("hak:") {
+        format!("Hak: {hak}")
+    } else if let Some(key) = layer.strip_prefix("key:") {
+        format!("Game data ({key})")
+    } else if layer.starts_with("module") {
+        "Module".into()
+    } else if layer == "override" {
+        "Override folder".into()
+    } else if layer == "development" {
+        "Development folder".into()
+    } else if let Some(item) = layer.strip_prefix("workshop:") {
+        format!("Workshop item {item}")
+    } else if let Some(hak) = layer.strip_prefix("userpatch:") {
+        format!("Userpatch hak: {hak}")
+    } else {
+        layer.into()
+    }
+}
+
 /// The two halves of a loading screen's square texture (rows from the
 /// bottom, as stored), side by side.
 fn stitched(whole: &mg_image::Rgba) -> Option<mg_image::Rgba> {

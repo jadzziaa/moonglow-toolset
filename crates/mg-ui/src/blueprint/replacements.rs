@@ -275,6 +275,8 @@ pub(super) fn textures(f: &mut Form<'_>, ui: &mut Ui) {
                         Source::Flare => {
                             ui.weak("(flare)").on_hover_text("A light's lens flare");
                         }
+                        // (Not offered: `named` leaves the TXIs' maps out.)
+                        Source::Txi { .. } => {}
                     }
                 }
                 if long {
