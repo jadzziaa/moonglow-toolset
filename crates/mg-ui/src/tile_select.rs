@@ -1751,7 +1751,7 @@ pub(crate) fn overlay(ui: &egui::Ui, view: &AreaView, clip: Option<&TileClip>) {
     // tiles' heights).
     for &(x, y) in &view.tile_selection {
         let Some(t) = model.tiles.get((y * model.width + x) as usize) else { continue };
-        if let Some(screen) = view.square_on_screen(x as f32, y as f32, t.position.z) {
+        if let Some(screen) = view.square_along_ground(x as f32, y as f32, t.position.z) {
             crate::area_view::outline(&painter, &screen, egui::Stroke::new(2.0, blue));
         }
     }

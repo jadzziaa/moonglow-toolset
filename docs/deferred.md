@@ -1373,13 +1373,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   first tile's, into all of them); how Aurora writes them for several
   tiles was not looked at on the oracle. (S) (the owner's report on
   Tile Properties)
-- **The tile selection's outline on a tile that isn't flat:** drawn on
-  the ground the pointer picks, at the tile's height, it shows as a
-  thin strip on a cliff corner turned away from the view
-  (`target/test-output/ui-tile-live-turn/turn-after.angled.png`, from
-  `tile_properties_turn_turns_the_tiles_at_once`); it was so before the
-  Turn changed tiles at once. (S) (the owner's report on Tile
-  Properties)
 
 ## The turning ring
 

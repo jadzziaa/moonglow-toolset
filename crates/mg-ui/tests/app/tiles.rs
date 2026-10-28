@@ -2861,6 +2861,58 @@ fn tile_properties_turn_turns_the_tiles_at_once() {
     assert_eq!(undo_label(&h), before);
 }
 
+/// The tile selection's outline on a tile that isn't flat (the owner's
+/// report on Tile Properties): on Rural's cliff corner, turned away from
+/// the view, it showed as a thin strip, its corners joined straight across
+/// the cliff. It follows the tile's ground along each edge, seen from
+/// every side.
+#[test]
+fn the_tile_selection_s_outline_follows_a_cliff_tile() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("tile-outline-cliff") else { return };
+    // (Rural's first tile, a cliff's corner, turned as the report had it.)
+    set_tile_id(&mut h, area, 5, 0);
+    let o = tile_list(&mut h, area)[5].integer("Tile_Orientation").unwrap();
+    let turn = mg_edit::Edit::SetField {
+        key: ResKey::new(area, ResType::ARE),
+        path: mg_edit::GffPath::root().item("Tile_List", 5),
+        label: "Tile_Orientation".into(),
+        value: Some(mg_gff::Value::Int(((o + 2) % 4) as i32)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Turn", vec![turn])));
+    h.run_steps(3);
+    h.get_by_label("⛶ Select Tiles").click();
+    h.run_steps(2);
+    let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
+    click_pos(&h, at);
+    h.run_steps(3);
+    assert_eq!(h.state().area_views[&area].tile_selection, [(1, 1)]);
+    // Along the ground in half-metre steps, from the plateau down into the
+    // corner and back; a flat tile, its four corners.
+    let view = &h.state().area_views[&area];
+    let z = view.model.as_ref().unwrap().tiles[5].position.z;
+    let cliff = view.tile_outline(1.0, 1.0, z);
+    assert_eq!(cliff.len(), 80, "{cliff:?}");
+    for (a, b) in cliff.iter().zip(cliff.iter().cycle().skip(1)) {
+        assert!((a.truncate() - b.truncate()).length() < 0.51, "{a} to {b}");
+    }
+    let (low, high) = cliff.iter().fold((f32::MAX, f32::MIN), |(l, h), p| (l.min(p.z), h.max(p.z)));
+    assert!(high - low > 3.0, "down the cliff: {low} to {high}");
+    assert_eq!(view.tile_outline(0.0, 0.0, 0.0).len(), 4, "a flat tile");
+    let shots = mg_testkit::scratch_dir("ui-tile-outline-cliff");
+    let was = h.state().area_views[&area].orbit;
+    for yaw in [-120, -30, 60, 150] {
+        if let Some(o) = h.state_mut().area_views.get_mut(&area).and_then(|v| v.orbit.as_mut()) {
+            o.target = Vec3::new(15.0, 15.0, 0.0);
+            (o.distance, o.pitch, o.yaw) = (30.0, 0.55, (yaw as f32).to_radians());
+        }
+        h.hover_at(egui::pos2(960.0, 610.0));
+        h.run_steps(20);
+        h.render().unwrap().save(shots.join(format!("yaw{yaw}.png"))).unwrap();
+    }
+    h.state_mut().area_views.get_mut(&area).unwrap().orbit = was;
+}
+
 /// Refine Tile dragged: the first tile steps to the next that fits, and
 /// every tile of its kind passed becomes that tile too; with a tile chosen
 /// in the Gallery first, those it fits become it.

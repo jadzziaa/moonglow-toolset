@@ -856,6 +856,37 @@ impl AreaView {
         (screen.len() == 4).then_some(screen)
     }
 
+    /// A tile-sized square's outline laid along the ground the pointer
+    /// picks, on screen: each edge in steps of half a metre, each step on
+    /// the ground a little inside the square, so that over a cliff or a
+    /// slope the outline follows the tile's own ground rather than cutting
+    /// straight across from corner to corner (on a cliff's corner turned
+    /// away from the view, a thin strip). `None` where a point is out of
+    /// view. A tile whose corners and middle are level is its four corners
+    /// (a large selection of flat tiles asks the ground no more than that).
+    pub(crate) fn square_along_ground(&self, x: f32, y: f32, z: f32) -> Option<Vec<Pos2>> {
+        self.tile_outline(x, y, z).into_iter().map(|p| self.screen_pos(p)).collect()
+    }
+
+    /// [`square_along_ground`](Self::square_along_ground)'s points in the
+    /// area, before they are put on screen.
+    pub fn tile_outline(&self, x: f32, y: f32, z: f32) -> Vec<Vec3> {
+        const STEPS: usize = 20;
+        let corners = tile_square(x, y, z);
+        let middle = corners.iter().copied().sum::<Vec3>() / 4.0;
+        let on = |p: Vec3| p.truncate().extend(self.ground_height(p.lerp(middle, 0.02)) + 0.05);
+        let laid = corners.map(on);
+        let level = on(middle).z;
+        let steps = if laid.iter().all(|p| (p.z - level).abs() < 0.1) { 1 } else { STEPS };
+        let mut out = Vec::with_capacity(4 * steps);
+        for k in 0..4 {
+            out.push(laid[k]);
+            let (a, b) = (corners[k], corners[(k + 1) % 4]);
+            out.extend((1..steps).map(|i| on(a.lerp(b, i as f32 / steps as f32))));
+        }
+        out
+    }
+
     pub(crate) fn on_ground(&self, points: &[Vec3]) -> Vec<Vec3> {
         let middle = points.iter().copied().sum::<Vec3>() / points.len().max(1) as f32;
         points
