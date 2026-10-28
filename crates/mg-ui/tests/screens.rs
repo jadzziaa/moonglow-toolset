@@ -4218,6 +4218,132 @@ fn generated_tileset_palette() {
     }
 }
 
+/// A tile's textures (Leoendethas' request): in Tile Properties, wide and
+/// as narrow as it is beside the area, in a tile's view and in the
+/// tileset editor; on the game's own `ttr01` and, where `MOONGLOW_HAKS`
+/// has it, The Domains of Dread's (`tdod_t_dhd.hak`), whose tiles are
+/// drawn with materials (`tile-textures-*.png`).
+#[test]
+#[ignore]
+fn tile_textures() {
+    use mg_module::ModuleLocation;
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let tdod =
+        mg_testkit::builder_hak_dirs().into_iter().find(|d| d.join("tdod_t_dhd.hak").is_file());
+    // (The game's ttr01 tile 10; tile 145 of TDoD's, its brick walls and
+    // roofs drawn with materials.)
+    let mut runs = vec![("base", None, 10)];
+    if let Some(haks) = &tdod {
+        runs.push(("tdod", Some(haks.join("tdod_t_dhd.hak")), 145));
+    } else {
+        eprintln!("no tdod_t_dhd.hak in MOONGLOW_HAKS: the game's tiles alone");
+    }
+    for (name, hak, tile) in runs {
+        let user = mg_testkit::scratch_dir(&format!("screens-tile-textures-{name}"));
+        std::fs::create_dir_all(user.join("hak")).unwrap();
+        if let Some(hak) = &hak {
+            mg_testkit::link_or_copy(hak, &user.join("hak/tdod_t_dhd.hak")).unwrap();
+        }
+        let install = GameInstall::new(&root, Some(user.clone()), "en");
+        let game = mg_rules::GameData::open(&install).unwrap();
+        let mut rng = fastrand::Rng::with_seed(7);
+        let mut m = new_module(&game, "Textures", &mut rng).unwrap();
+        let tileset = mg_core::ResRef::from_str("ttr01").unwrap();
+        let spec = AreaSpec { name: "Field".into(), tileset, width: 4, height: 4 };
+        let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+        let key = ResKey::new(area, ResType::ARE);
+        let mut are = m.gff(&key).unwrap().unwrap();
+        are.root.list_mut("Tile_List").unwrap()[5].set("Tile_ID", mg_gff::Value::Int(tile));
+        m.set_gff(key, &are).unwrap();
+        if hak.is_some() {
+            let ifo_key = ResKey::parse("module", ResType::IFO).unwrap();
+            let mut ifo = m.gff(&ifo_key).unwrap().unwrap();
+            let list = mg_module::attach::hak_list(&ifo.root, &["tdod_t_dhd".to_string()]);
+            ifo.root.set("Mod_HakList", list);
+            m.set_gff(ifo_key, &ifo).unwrap();
+        }
+        let path = user.join("textures.mod");
+        m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+        let rs = egui_kittest::wgpu::create_render_state(
+            egui_kittest::wgpu::default_wgpu_setup(),
+            egui_wgpu::RendererOptions::PREDICTABLE,
+        );
+        let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+        app.set_render_state(rs.clone());
+        app.open_module(&path);
+        app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1400.0, 900.0))
+            .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run_steps(5);
+        // Tile Properties of tile (1, 1), from the tile menu, its
+        // Textures opened.
+        h.state_mut().area_views.get_mut(&area).unwrap().tile_mode = true;
+        h.run_steps(2);
+        let pos = h.state().area_views[&area].screen_pos(glam::Vec3::new(15.0, 15.0, 0.0)).unwrap();
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: Default::default(),
+            });
+        }
+        h.run_steps(2);
+        h.get_by_label("Tile Properties…").click();
+        h.run_steps(5);
+        h.get_by_label_contains("Textures of ").click();
+        h.run_steps(20);
+        place(&mut h, &mg_ui::Tab::TileProperties, (500.0, 60.0), (560.0, 760.0));
+        h.run_steps(20);
+        shoot(&mut h, &dir, &format!("tile-textures-{name}-properties"));
+        // As narrow as it stands beside the area.
+        place(&mut h, &mg_ui::Tab::TileProperties, (842.0, 60.0), (255.0, 760.0));
+        h.run_steps(20);
+        shoot(&mut h, &dir, &format!("tile-textures-{name}-properties-narrow"));
+        h.get_by_label("Cancel").click();
+        h.run_steps(2);
+        // The tile's view.
+        let view = mg_ui::Tab::Tile { tileset, tile: tile as u32 };
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(view.clone()));
+        h.run_steps(5);
+        place(&mut h, &view, (40.0, 40.0), (1300.0, 820.0));
+        for _ in 0..10 {
+            h.run_steps(2);
+        }
+        shoot(&mut h, &dir, &format!("tile-textures-{name}-tile-view"));
+        h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![view]));
+        h.run_steps(3);
+        // The tileset editor, on a copy of the tileset the game reads.
+        let set = h.state().game.as_ref().unwrap().resman.get(&ResKey::new(tileset, ResType::SET));
+        let set = set.unwrap().into_owned();
+        let set_path = user.join("ttr01.set");
+        std::fs::write(&set_path, set).unwrap();
+        mg_ui::tileset_view::open_path(h.state_mut(), set_path);
+        h.run_steps(3);
+        h.state_mut().tilesets[0].page = mg_ui::tileset_view::Page::Tiles;
+        h.state_mut().tilesets[0].tile = Some(tile as usize);
+        h.run_steps(3);
+        let editor = mg_ui::Tab::Tileset(h.state().tilesets[0].id);
+        place(&mut h, &editor, (40.0, 20.0), (900.0, 870.0));
+        h.run_steps(20);
+        shoot(&mut h, &dir, &format!("tile-textures-{name}-tileset-editor"));
+        // Its details scrolled down to the textures.
+        h.get_by_label_contains("Textures of ").scroll_to_me();
+        h.run_steps(20);
+        shoot(&mut h, &dir, &format!("tile-textures-{name}-tileset-editor-scrolled"));
+        place(&mut h, &editor, (40.0, 20.0), (420.0, 870.0));
+        h.run_steps(20);
+        h.get_by_label_contains("Textures of ").scroll_to_me();
+        h.run_steps(20);
+        shoot(&mut h, &dir, &format!("tile-textures-{name}-tileset-editor-narrow"));
+    }
+}
+
 #[test]
 #[ignore]
 fn tile_gallery() {

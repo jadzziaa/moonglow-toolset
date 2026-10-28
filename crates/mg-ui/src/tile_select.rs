@@ -920,6 +920,15 @@ fn named(r: &egui::Response, name: &str, enabled: bool) {
     r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name));
 }
 
+/// The model of Tile Properties' first tile as it was last read, and its
+/// tileset's environment map (`EnvMap`).
+fn tile_model(app: &Moonglow, props: &TileProps) -> Option<(String, Option<String>)> {
+    let tools = app.area_views.get(&props.area)?.terrain.as_ref()?;
+    let id = usize::try_from(props.seen.first()?.integer("Tile_ID")?).ok()?;
+    let tile = tools.set.tiles.get(id)?;
+    Some((tile.model.clone(), tools.set.general.env_map.clone()))
+}
+
 /// Tile Properties, in its tab, and its colour picker.
 /// Whether Tile Properties' tiles may have left their places in the list
 /// since it opened (Rotate Area, Resize Area, their undo, the list set
@@ -1033,6 +1042,20 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             // (Escape in the search field is the field's: it clears it.)
             if crate::widgets::escape_here(ui) && !crate::widgets::escape_left_search(ctx) {
                 escape = true;
+            }
+            // The textures of the tile's model (of the first, of several),
+            // as the area has it now (a variant put in shows its own).
+            if let Some((model, env)) = tile_model(app, &props) {
+                ui.separator();
+                let note = (props.tiles.len() > 1)
+                    .then(|| format!("The first of the {} tiles chosen.", props.tiles.len()));
+                let place = crate::model_textures::Place {
+                    area_env: env.as_deref(),
+                    max_height: Some((ui.available_height() * 0.45).clamp(160.0, 420.0)),
+                    open: false,
+                    note,
+                };
+                crate::model_textures::section(app, ui, "tile-props", &model, place);
             }
             if props.grouped {
                 ui.separator();

@@ -653,6 +653,15 @@ fn tiles(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
         ui.weak("Choose a tile to edit it.");
         return;
     };
+    // (Scrolled under the list: its textures may be many.)
+    egui::ScrollArea::vertical()
+        .id_salt(("set-tile-details", d.id))
+        .auto_shrink([false, false])
+        .show(ui, |ui| tile_details(app, ui, d, &t, i));
+}
+
+/// The chosen tile's fields, and the textures of its model.
+fn tile_details(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc, t: &Tileset, i: usize) {
     let section = format!("TILE{i}");
     let terrains: Vec<String> = t.terrains.iter().map(|x| x.name.clone()).collect();
     let crossers: Vec<String> = t.crossers.iter().map(|x| x.name.clone()).collect();
@@ -725,6 +734,16 @@ fn tiles(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
             flag_key(ui, d, &section, key, key);
         }
     });
+    ui.separator();
+    // What the tile's model draws, as the game data has it (as Preview
+    // shows it).
+    let place = crate::model_textures::Place {
+        area_env: t.general.env_map.as_deref(),
+        max_height: None,
+        open: true,
+        note: None,
+    };
+    crate::model_textures::section(app, ui, ("set-tile", d.id), &t.tiles[i].model, place);
 }
 
 fn groups(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {

@@ -298,12 +298,19 @@ impl ResMan {
     /// The type [`ResMan::texture`] finds for a texture (DDS or TGA),
     /// without reading it.
     pub fn texture_type(&self, resref: ResRef) -> Option<ResType> {
+        self.texture_layer(resref).map(|(t, _)| t)
+    }
+
+    /// The type [`ResMan::texture`] finds for a texture (DDS or TGA) and
+    /// the index of the layer it reads it from, without reading it.
+    pub fn texture_layer(&self, resref: ResRef) -> Option<(ResType, usize)> {
         let classes = [LayerClass::Directory, LayerClass::NwSync, LayerClass::Erf, LayerClass::Key];
         for class in classes {
             for restype in [ResType::DDS, ResType::TGA] {
                 let key = ResKey::new(resref, restype);
-                if self.layers.iter().any(|l| l.class == class && l.container.contains(&key)) {
-                    return Some(restype);
+                let has = |l: &Layer| l.class == class && l.container.contains(&key);
+                if let Some(i) = self.layers.iter().position(has) {
+                    return Some((restype, i));
                 }
             }
         }
@@ -490,10 +497,17 @@ mod tests {
         let tex = ResRef::from_str("tex").unwrap();
         let (t, d) = rm.texture(tex).unwrap();
         assert_eq!((t, d.as_ref()), (ResType::DDS, &b"dds-hak2"[..]));
+        // The layer it is read from: hak2's DDS over hak1's TGA, though
+        // hak1 is higher.
+        let label =
+            |rm: &ResMan, r| rm.texture_layer(r).map(|(t, i)| (t, rm.layers()[i].label.clone()));
+        assert_eq!(label(&rm, tex), Some((ResType::DDS, "hak2".to_string())));
         // A TGA in a directory beats a DDS in a lower class, whatever the
         // priorities.
         let other = ResRef::from_str("other").unwrap();
         assert_eq!(rm.texture(other).unwrap().0, ResType::TGA);
+        assert_eq!(label(&rm, other), Some((ResType::TGA, "override".to_string())));
+        assert_eq!(rm.texture_layer(ResRef::from_str("none").unwrap()), None);
     }
 
     #[test]

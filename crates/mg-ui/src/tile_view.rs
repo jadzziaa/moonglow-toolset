@@ -140,4 +140,12 @@ fn facts(
             d.orientation
         ));
     }
+    ui.add_space(6.0);
+    let place = crate::model_textures::Place {
+        area_env: set.general.env_map.as_deref(),
+        max_height: None,
+        open: true,
+        note: None,
+    };
+    crate::model_textures::section(app, ui, ("tile-view", tileset, tile), &t.model, place);
 }
