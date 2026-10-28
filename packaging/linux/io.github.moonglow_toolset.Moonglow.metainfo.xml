@@ -45,6 +45,16 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="2.12.0" date="2026-10-28">
+      <description>
+        <p>The area view draws shadows as the game does: the sun's and
+        moon's, creatures', and lamps', each chosen from the Shadows
+        button's menu, as dark as the area's Shadow Opacity; variable sets
+        are renamed, deleted, and saved to and added from files; the
+        toolbars can show icons only; a long dropdown no longer widens
+        while open.</p>
+      </description>
+    </release>
     <release version="2.11.0" date="2026-10-28">
       <description>
         <p>A graphics backend in Options (Automatic, Vulkan, Direct3D 12,
