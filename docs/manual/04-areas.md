@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T06:11:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:24:14Z }
 ---
 
 # Areas
@@ -417,6 +417,12 @@ Aurora):
 - **Add to Palette**: the instance as a new custom blueprint (its ResRef
   after [your builder code](03-modules.md#your-builder-code), where you
   have one).
+- **Export as Blueprint…**: the instance written into an archive (`.erf`)
+  as a blueprint of its own, made and named as Add to Palette makes one
+  (with the items it holds, each an item blueprint), but not added to the
+  module; with the module's resources it uses (its scripts, its
+  conversation), for another module's **File › Import…**. The module
+  tree's menu of a placed object has it too.
 - **Test From Here**: starts the game at the point you right-clicked,
   facing the way the camera looks, with the module as it is now (see
   [Build, verify and test](09-build-and-test.md)). **Test From Here,

@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T08:39:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:24:14Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -164,10 +164,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   front, which for scripts in windows of their own (the tab in front
   not a script) is the one whose editor had the keyboard last. (S)
   (Jasperre's report, 2026-10-21)
-- **Times in the log:** each line carries the time of day it was said
-  (no date). The log has no command to copy or save it whole: a line is
-  copied by selecting it, its time with it. (S) (Jasperre's report,
-  2026-10-21)
 - **Help for block comments:** the comments directly above a
   declaration, `//` lines and `/* … */` blocks, are its documentation;
   a comment after code on the line above is taken too (`int a; // x`
@@ -685,12 +681,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   icon names say) was not looked at in the client. The game has no
   woman's icons of cloaks (`icloak_m_` alone): a cloak's icon is the
   man's either way. (S) (from builders' reports after 1.10.1)
-- **Escape in a field of a Properties window:** Escape is the window's
-  Cancel, as Aurora's is (the maintainer's choice, October 2026), but in
-  a text or number field the first Escape only leaves the field and a
-  second is Cancel; in Aurora the first already is (watched in Creature
-  Properties). Kept so for the filter fields in those windows (an
-  inventory's Find), whose Escape clears what is typed. (S)
 - **Arrows after numbers, what is left:** the blueprint editors', Module
   Properties' and Area Properties' number fields that have them in
   Aurora have them (a click, Up and Down in the field, a held arrow
@@ -1185,21 +1175,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   selection sees a copy's tab as nothing. (S) (a builder's report on
   2.0.0)
 
-- **One at a time from the tree:** the tree exports one resource at a
-  time (the Export window takes several). The area view's To Scratch
-  copies the area alone, not the blueprints or scripts it uses. (S)
 - **Export into an archive** is a checkbox, off unless ticked; a builder
   says Aurora adds to an existing archive itself. Aurora's own behavior
   (whether it asks) was not captured. (S)
   (from builders' reports after 1.19.1)
-- **Export from a menu** is on the palette's custom blueprints (and the
-  module tree's resources, as before). A placed object in an area's list
-  has no Export: it is not a resource; it would be written out as a
-  blueprint of its own. (S) (GitHub issue 7)
-- **Export Resources lists an area as three kinds** (`.are` under Areas,
-  its `.git` and `.gic` among the rest by extension), as it did in one
-  list; exporting the `.are` takes the other two only with **Include the
-  resources they use**. (S) (from the builders' reports on 1.25.1)
 
 ## Area visibility
 
@@ -2141,24 +2120,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   when the main window is resized, and nothing shows that it is
   maximized. That a size dragged by hand is remembered is not under
   test (the tests set the size). (S–M)
-- **An area's objects in the module tree:** listed by name, kind by
-  kind, with Go To, Properties, Copy and Delete on each; one at a time
-  (no selecting several there), and the Filter finds them only in areas
-  already opened out. A copy made there stands on the ground where it is
-  pasted (its height above the ground isn't carried). (S)
 - **The light theme's own colors:** it is egui's light theme; the script
   editor's syntax colors follow it, but conversation and faction colors
   are the dark theme's (legible on both), and the area view's overlays
   are drawn for the 3D view. A pass with a builder who uses it would
   settle the rest. (S–M) (a senior builder's review, October 2026)
-- **The module tree follows the tab chosen** (every kind whose resource
-  it lists, by click, keys or opened; Options › General turns it off, as
-  Aurora's tree is). Not done: Module Properties' tab doesn't mark the
-  tree's Module Properties row; a tab of several (Properties of several
-  blueprints or areas) moves nothing; a row hidden by the tree's Filter
-  isn't shown (the filter stays); the tree scrolls only as far as it
-  must, so a row brought up from below sits at the pane's foot. (S)
-  (from builders' reports after 1.16.1)
 - **Panes folded away** (GitHub issue 10): a View menu (Module Tree,
   Palettes Panel, Log, ticked while shown; Hide All Panels; Reset
   Layout), with keys (Ctrl+Alt+1, 2, 3 and 0, in Options › Keyboard); a
@@ -2201,23 +2167,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   take Alt for its own menu; a submenu inside a submenu has no keys
   (there is none today); the bar itself is never "focused" without a
   menu open. (S each) (from builders' reports after 1.19.1)
-- **Tabs by the keyboard** (GitHub issue 15): Close Tab (Ctrl+W), Next
-  and Previous Tab (Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+Page Down and Up),
-  Reopen Closed Tab (Ctrl+Shift+T), all in Options › Keyboard and the
-  command palette; Ctrl and a digit for the main pane's tab of that
-  number (fixed keys, off while text is typed in: the script editor's
-  bookmarks are Ctrl and a digit); a middle click closes a tab; Close
-  Others, Close Tabs to the Right and Close All on a tab's menu. Ctrl+F4
-  closes the tab too, as the issue asks, and no longer the module as in
-  Aurora (the user's choice): File › Close has no key at first. Ctrl+Tab goes by when the tabs were last used where Options › General
-  says so. Not done: that order with Ctrl held over several presses is
-  not held by a test (one press and back is), and it is kept for the
-  pane the keys work on, not for a window's own tabs (which go as they
-  lie); one question
-  listing every tab with unsaved work (only a hak's and a tileset's
-  editors have work of their own to lose, and each asks for itself);
-  the keys work on the focused pane or the main one, not across
-  windows. (S each) (from builders' reports after 1.19.1)
 - **Undo in a text field** (issue 18): Ctrl+Z and Ctrl+Y with a text
   field in hand were the module's Undo and Redo, and took back an
   earlier change somewhere else, unseen. They are the field's own once
@@ -3870,3 +3819,7 @@ is not taken for a new gap.
 - **The terrain brush's cancel** leaves out the right click
   (`terrain_mode.rs:543`), where five others take it: a right click
   turns a group there. (S) (Settled in the triage of 2026-10-28.)
+- **No one question for every tab with unsaved work** (GitHub issue 15's
+  tabs by the keyboard): closing tabs together asks nothing of its own;
+  only a hak's and a tileset's editors have work of their own to lose,
+  and each asks for itself as it closes. (S) (Settled in the triage of 2026-10-28.)

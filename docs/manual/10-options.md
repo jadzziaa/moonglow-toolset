@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T03:58:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:24:14Z }
 ---
 
 # Options

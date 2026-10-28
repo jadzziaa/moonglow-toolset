@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T03:58:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:24:14Z }
 ---
 
 # The main window
@@ -179,10 +179,22 @@ row shows the other. Click an object to go to it in the area's view,
 selected (the tree stays still, so a second click makes a double click);
 double-click for its Properties; right-click for **Go To**, for
 **Preview** (creatures, doors, items and placeables, as placed),
-**Copy** (pasted in any area with Ctrl+V) and **Delete**, and last, as
+**Copy** (pasted in any area with Ctrl+V, as high above the ground as it
+stood, its area's view open or not), **Delete** and **Export as
+Blueprint…** (written into an archive as a blueprint of its own, as Add
+to Palette makes one, for another module's Import: see
+[Modules](03-modules.md#import-and-export)), and last, as
 in Aurora, **Variables…** (its variables' window, as Aurora's list has
-it) and **Properties**. The Filter
-narrows an opened area's objects to those it finds by name or tag.
+it) and **Properties**. Ctrl and a click adds an object to those chosen
+(or takes it away), Shift and a click chooses those from the one clicked
+before to it, as listed; the area's view selects them, and objects
+selected together in the view are marked in the tree too. A right click
+on one of several chosen acts on them all: **Go To** (each selected in
+the view), **Copy**, **Delete** (one step to undo), **Properties** (of
+objects of one kind, edited together) and the plugins' commands. The
+Filter finds objects by name or tag in every area, opened out or not
+(an area that holds one it finds is shown opened out to it), and narrows
+an opened area's objects to those it finds.
 **Edit** on the right-click menu of any other row (a conversation, a
 script, a blueprint) opens it, as a double click does; a blueprint's
 also has **Preview** (the model viewer).
@@ -202,6 +214,15 @@ and last, as in Aurora, **Properties** (Area Properties); on a script,
 area, conversation or blueprint, **Find References** and **Rename…** (see
 [Modules](03-modules.md)); on any resource, **Copy…**, **Delete…**,
 **Export…**, **Export as Files…** and **Copy to Scratch Folder**.
+
+**Several resources at once:** Ctrl and a click adds a row to those
+chosen (or takes it away), Shift and a click chooses those from the row
+clicked before to it, as listed; they are marked. A right click on one
+of them offers what is done to them all: **Edit N Together** (blueprints
+of one kind, or areas: one Properties window, what you change set on
+each), **Export…**, **Export as Files…**, **Copy to Scratch Folder**,
+for areas **Make Placeables Static** and **Dynamic**, and the plugins'
+commands for them. A click alone chooses one row again.
 
 **Copy…** makes a copy in the module under a ResRef you give (a free one
 is offered), and for a blueprint or an area a Tag. An area is copied with
@@ -346,15 +367,21 @@ Ctrl+Page Down, Ctrl and a digit) or opened (from the tree, a script
 field's Edit, Find References…) marks its resource's row in the tree as
 the one in hand, opens its group and brings the row into view: an area,
 a script, a conversation, a blueprint, a NUI window, the journal or the
-factions (a placed object's Properties: its area). The keys stay with
-the tab, and a row in view stays where it is. With **Show the tab
+factions (a placed object's Properties: its area); Module Properties
+marks its row at the top. A tab of several (Properties of several
+blueprints or areas) chooses each of them, as Ctrl and a click would, the
+first brought into view. The keys stay with the tab, and a row in view
+stays where it is; one out of sight comes to the middle of the pane, the
+rows after it in sight too. A tab whose row the Filter hides, chosen
+while the Filter has something typed, is listed under it all the same
+(the Filter stays as it is) until what is typed changes. With **Show the tab
 chosen in the module tree** unticked in Options › General, the tree
 stays where it is and only the area in front is marked, as in Aurora
 (whose other editors are dialogs, and whose tree marks the area in
 front alone). Where the area is opened out in the tree (the arrow beside
 its row), an object selected in the area's view is shown there too: its
-kind's list opens and its row is marked and brought into view (the tree
-scrolls only as far as it must: a row in view stays where it is). An area
+kind's list opens and its row is marked and brought into view (a row in
+view stays where it is; one out of sight comes to the middle). An area
 left closed in the tree is opened out to it, as in Aurora; with **Show
 the object selected in an area in the module tree** unticked in Options
 › General, it stays closed, and the tree goes to an object only where its
