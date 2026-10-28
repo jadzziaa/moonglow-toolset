@@ -21,27 +21,9 @@ impl Gpu {
     }
 
     /// A headless device (BC textures when available), or `None` without
-    /// a usable adapter. The adapter is the window's on Automatic
-    /// ([`crate::backend::pick_adapter`]: wgpu's, but an AMD GPU on
-    /// Windows through Direct3D 12), of the backends `WGPU_BACKEND` names
-    /// if it is set.
+    /// a usable adapter: on [`headless_adapter`].
     pub fn headless() -> Option<Gpu> {
-        let from_environment = wgpu::Backends::from_env();
-        let backends = from_environment.unwrap_or(wgpu::Backends::PRIMARY | wgpu::Backends::GL);
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends,
-            ..wgpu::InstanceDescriptor::new_without_display_handle()
-        });
-        let adapters = pollster::block_on(instance.enumerate_adapters(backends));
-        let infos: Vec<wgpu::AdapterInfo> = adapters.iter().map(|a| a.get_info()).collect();
-        let pick = crate::backend::pick_adapter(
-            &infos,
-            None,
-            from_environment.is_some(),
-            wgpu::PowerPreference::HighPerformance,
-            crate::backend::Platform::current(),
-        )?;
-        let adapter = adapters.into_iter().nth(pick.index)?;
+        let adapter = headless_adapter()?;
         let features = adapter.features() & wgpu::Features::TEXTURE_COMPRESSION_BC;
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("moonglow"),
@@ -60,6 +42,14 @@ impl Gpu {
 
     /// Reads an RGBA8 texture back (rows top first, as rendered).
     pub fn read_rgba(&self, texture: &wgpu::Texture) -> Rgba {
+        self.try_read_rgba(texture).expect("texture read back")
+    }
+
+    /// [`Gpu::read_rgba`], saying what failed rather than panicking (a GPU
+    /// that doesn't finish within 10 seconds, a buffer that can't be
+    /// mapped): for the startup check ([`crate::probe`]), on a driver that
+    /// may be what is wrong.
+    pub fn try_read_rgba(&self, texture: &wgpu::Texture) -> Result<Rgba, String> {
         let (w, h) = (texture.width(), texture.height());
         let unpadded = w as usize * 4;
         let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize;
@@ -92,13 +82,39 @@ impl Gpu {
                 submission_index: Some(index),
                 timeout: Some(Duration::from_secs(10)),
             })
-            .expect("GPU did not finish");
-        rx.recv().expect("map callback").expect("buffer mapped");
-        let data = slice.get_mapped_range().expect("mapped range");
+            .map_err(|e| format!("the GPU did not finish: {e}"))?;
+        rx.recv_timeout(Duration::from_secs(1))
+            .map_err(|_| "the read-back buffer was not mapped".to_string())?
+            .map_err(|e| format!("the read-back buffer could not be mapped: {e}"))?;
+        let data = slice.get_mapped_range().map_err(|e| format!("its mapped range: {e}"))?;
         let mut out = Vec::with_capacity(unpadded * h as usize);
         for row in data.chunks_exact(padded) {
             out.extend_from_slice(&row[..unpadded]);
         }
-        Rgba { width: w, height: h, data: out }
+        Ok(Rgba { width: w, height: h, data: out })
     }
+}
+
+/// The adapter a headless device is opened on ([`Gpu::headless`]): the
+/// window's on Automatic ([`crate::backend::pick_adapter`]: wgpu's, but an
+/// AMD GPU on Windows through Direct3D 12), of the backends `WGPU_BACKEND`
+/// names if it is set; `None` without one.
+pub fn headless_adapter() -> Option<wgpu::Adapter> {
+    let from_environment = wgpu::Backends::from_env();
+    let backends = from_environment.unwrap_or(wgpu::Backends::PRIMARY | wgpu::Backends::GL);
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends,
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    let adapters = pollster::block_on(instance.enumerate_adapters(backends));
+    let infos: Vec<wgpu::AdapterInfo> = adapters.iter().map(|a| a.get_info()).collect();
+    let pick = crate::backend::pick_adapter(
+        &infos,
+        None,
+        from_environment.is_some(),
+        wgpu::PowerPreference::HighPerformance,
+        crate::backend::Platform::current(),
+        &[],
+    )?;
+    adapters.into_iter().nth(pick.index)
 }
