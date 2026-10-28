@@ -337,16 +337,43 @@ fn images_from_disk_go_into_the_module_and_a_hak() {
     let bak = hak.with_extension("hak.bak");
     assert!(mg_module::hak_edit::Hak::open(&bak).unwrap().items().iter().all(|i| i.key == key));
     assert!(logged(&h, "nui_images.hak.bak"), "the log names the copy kept");
-    // One open in the hak editor is left to its Save there.
+    // One open in the hak editor takes them in its document, one step of
+    // its Undo, and is saved as its Save saves it.
     mg_ui::hak_view::open_at(h.state_mut(), &hak).expect("the hak opens");
     h.state_mut().actions.clear();
-    let before = std::fs::read(&hak).unwrap();
+    let third = dir.join("my_frame.tga");
+    std::fs::write(&third, &tga).unwrap();
+    let frame = ResKey::parse("my_frame", ResType::TGA).unwrap();
     h.state_mut().dialogs =
-        Box::new(NoDialogs { open_many: vec![vec![second]], ..Default::default() });
+        Box::new(NoDialogs { open_many: vec![vec![third.clone()]], ..Default::default() });
     h.get_by_label("Add images to nui_images.hak…").click();
     h.run();
-    assert_eq!(std::fs::read(&hak).unwrap(), before);
-    assert!(h.state().log.entries.iter().any(|(_, line)| line.contains("hak editor")));
+    let has = |h: &Harness<'_, Moonglow>, k: ResKey| {
+        h.state().haks[0].hak.items().iter().any(|i| i.key == k)
+    };
+    assert!(has(&h, frame), "in the hak editor's document");
+    assert!(!h.state().haks[0].hak.is_dirty(), "and saved");
+    let written = mg_module::hak_edit::Hak::open(&hak).unwrap();
+    assert!(written.items().iter().any(|i| i.key == frame), "the file has it");
+    assert!(logged(&h, "in the hak editor"), "said, with the copy kept");
+    // With unsaved changes of its own, it takes them but is not saved: said.
+    h.state_mut().haks[0].hak.remove(&[icon]);
+    let before = std::fs::read(&hak).unwrap();
+    let fourth = dir.join("my_glow.tga");
+    std::fs::write(&fourth, &tga).unwrap();
+    h.state_mut().dialogs =
+        Box::new(NoDialogs { open_many: vec![vec![fourth]], ..Default::default() });
+    h.get_by_label("Add images to nui_images.hak…").click();
+    h.run();
+    assert!(has(&h, ResKey::parse("my_glow", ResType::TGA).unwrap()));
+    assert!(h.state().haks[0].hak.is_dirty());
+    assert_eq!(h.state().haks[0].hak.undo_label(), Some("Add pictures"));
+    assert_eq!(std::fs::read(&hak).unwrap(), before, "its file is the editor's to save");
+    assert!(
+        h.state().log.entries.iter().any(|(_, line)| line.contains("other unsaved changes")),
+        "{:?}",
+        h.state().log.entries
+    );
 }
 
 #[test]

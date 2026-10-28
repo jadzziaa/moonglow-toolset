@@ -187,7 +187,10 @@ game's hak folder (one saved elsewhere is copied there) and added at the
 top of the module's haks; Undo takes it off the list and brings the pictures
 back into the module, while the hak file keeps them. A listed hak the game
 finds elsewhere (its data or the Workshop) can't take pictures: choose a
-new hak. Pictures added to the module that the window doesn't show yet are listed
+new hak. A hak open in the hak editor takes them there: it is saved at once
+(a copy of what it was kept as `.hak.bak`), unless it has other unsaved
+changes, when the log asks you to save it there (and a Move leaves the
+module its pictures until then). Pictures added to the module that the window doesn't show yet are listed
 too, ready to be the background. **Use as background**
 puts a picture under the window's controls, stretched over it: a draw layer
 of the root column, painted before it, whose rectangle and fit you can

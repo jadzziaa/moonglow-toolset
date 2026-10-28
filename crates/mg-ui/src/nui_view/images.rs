@@ -265,22 +265,51 @@ fn chosen_hak(app: &mut Moonglow, name: &str, choice: &Option<String>) -> Option
         app.log.error("Moonglow doesn't write into the game's folder: save the hak elsewhere");
         return None;
     }
-    // A hak open in the hak editor is written by its Save there: writing its
-    // file under it would be lost at that Save.
-    if app.haks.iter().any(|d| d.hak.path.as_deref() == Some(path.as_path())) {
-        let file = path.file_name().unwrap_or_default().to_string_lossy();
-        app.log.error(format!(
-            "{file} is open in the hak editor: add the pictures there, or close it first"
-        ));
-        return None;
-    }
     Some(path)
 }
 
 /// Writes pictures into the hak at `path`, at once (a hak isn't the
 /// module's: Undo doesn't take it back), and says in the log which hak was
 /// written and where the copy of what it was is kept. Whether it was written.
+///
+/// A hak open in the hak editor takes them in that document instead (its
+/// file written under it would be lost at its Save): saved at once, as the
+/// editor's Save saves it (a `.bak` kept, as here), when it had no unsaved
+/// changes; else, one step of its Undo, left for you to save there, which
+/// is said (and is not written: false).
 fn write_hak(app: &mut Moonglow, path: &Path, pictures: Vec<(ResKey, Source)>) -> bool {
+    if let Some(doc) = app.haks.iter_mut().find(|d| d.hak.path.as_deref() == Some(path)) {
+        let (id, unsaved) = (doc.id, doc.hak.is_dirty());
+        let file = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        let added = match doc.hak.add_sources_as("Add pictures", pictures) {
+            Ok(added) => added,
+            Err(e) => {
+                app.log.error(format!("Could not add the pictures to {file}: {e}"));
+                return false;
+            }
+        };
+        doc.changed();
+        let what = format!(
+            "Added {} to {file} in the hak editor, replaced {}",
+            count(added.added, "picture"),
+            added.replaced
+        );
+        if unsaved {
+            app.log.warn(format!(
+                "{what} (Undo there takes them out). It has other unsaved changes, so it isn't \
+                 saved: save it there for the game to find them"
+            ));
+            return false;
+        }
+        // (As a hak written here: the copy of what it was kept beside it.)
+        let bak = path.with_extension("hak.bak");
+        if let Err(e) = std::fs::copy(path, &bak) {
+            app.log.error(format!("Could not keep {}: {e}", bak.display()));
+            return false;
+        }
+        app.log.info(format!("{what}; the hak as it was is kept as {}", bak.display()));
+        return crate::hak_view::save(app, id, false);
+    }
     let kept = path.exists().then(|| path.with_extension("hak.bak"));
     match write_into(path, pictures) {
         Ok(added) => {
@@ -495,17 +524,25 @@ pub(super) fn page(
                     .filter_map(|k| Some((*k, Source::Bytes(ws.module.get(k)?.to_vec().into()))))
                     .collect();
                 // The module keeps its pictures unless the hak is in use.
-                if write_hak(app, &path, resources) && use_hak(app, &path, &mut edits) {
-                    edits.extend(
-                        module_images.iter().map(|k| Edit::SetResource { key: *k, data: None }),
+                if write_hak(app, &path, resources) {
+                    if use_hak(app, &path, &mut edits) {
+                        edits.extend(
+                            module_images.iter().map(|k| Edit::SetResource { key: *k, data: None }),
+                        );
+                    }
+                } else if app.haks.iter().any(|d| d.hak.path.as_deref() == Some(path.as_path())) {
+                    app.log.info(
+                        "The module keeps its pictures until the hak with them is saved: Move \
+                         them again once it is",
                     );
                 }
             }
         });
         ui.weak(
             "A hak's file is written at once, and Undo doesn't take it back: a copy of the hak \
-             as it was is kept beside it (.hak.bak). A new hak is made in the game's hak folder \
-             and added at the top of the module's haks.",
+             as it was is kept beside it (.hak.bak). A hak open in the hak editor takes them \
+             there, saved unless it has other unsaved changes. A new hak is made in the game's \
+             hak folder and added at the top of the module's haks.",
         );
     });
     edits
