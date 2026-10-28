@@ -472,18 +472,20 @@ fn set_var(
 /// name (its other flags and variables). Nothing is changed unless every
 /// change can be made to every area. Returns what changed (an area that
 /// already had a value isn't listed for it). The module isn't saved. Text
-/// is written in `codepage`, as the game reads a module's strings.
+/// is written in `codepage`, as the game reads a module's strings. A
+/// lighting scheme's colors for each tile are picked at random from
+/// `seed`: the same seed, areas and changes, the same picks.
 pub fn apply(
     m: &mut Module,
     areas: &[ResRef],
     changes: &[Change],
     codepage: Codepage,
+    seed: u64,
 ) -> Result<Vec<Changed>, String> {
     let mut done = Vec::new();
     let mut write = Vec::new();
     let rules = m.project_file.make_static.clone();
-    // (A lighting scheme's colors for each tile.)
-    let mut rng = fastrand::Rng::new();
+    let mut rng = fastrand::Rng::with_seed(seed);
     for &area in areas {
         let are_key = ResKey::new(area, ResType::ARE);
         let git_key = ResKey::new(area, ResType::GIT);
@@ -800,7 +802,7 @@ mod tests {
             Change::RemoveVar("sHost".into()),
         ];
         let caves = [r("cave1"), r("cave2")];
-        let done = apply(&mut m, &caves, &changes, CP).unwrap();
+        let done = apply(&mut m, &caves, &changes, CP, 1).unwrap();
         for name in ["cave1", "cave2"] {
             let a = are(&m, name);
             assert_eq!(a.get("SunFogAmount"), Some(&Value::Byte(9)));
@@ -839,7 +841,7 @@ mod tests {
         assert_eq!(fog.len(), 2);
         assert_eq!((fog[0].from.as_deref(), fog[0].to.as_deref()), (Some("2"), Some("9")));
         // Again: nothing to change.
-        assert!(apply(&mut m, &caves, &changes, CP).unwrap().is_empty());
+        assert!(apply(&mut m, &caves, &changes, CP, 1).unwrap().is_empty());
     }
 
     /// A placed placeable with these fields.
@@ -909,7 +911,7 @@ mod tests {
         assert_eq!(plan.left(), "1 with variables, 2 kept by the project's rules");
         // The command follows the module's project file.
         m.project_file.make_static = rules;
-        let done = apply(&mut m, &[r("inn")], &[Change::StaticPlaceables], CP).unwrap();
+        let done = apply(&mut m, &[r("inn")], &[Change::StaticPlaceables], CP, 1).unwrap();
         let what: Vec<&str> = done.iter().map(|c| c.what.as_str()).collect();
         assert_eq!(
             what,
@@ -955,7 +957,7 @@ mod tests {
         assert_eq!(plan.kept[2].1.describe(), "it has OnHeartbeat");
 
         let areas = [r("cave1"), r("inn")];
-        let done = apply(&mut m, &areas, &[Change::StaticPlaceables], CP).unwrap();
+        let done = apply(&mut m, &areas, &[Change::StaticPlaceables], CP, 1).unwrap();
         let what: Vec<&str> = done.iter().map(|c| c.what.as_str()).collect();
         assert_eq!(what, ["placeable 0 ROCK Static", "placeable 4 UPRIGHT Static"]);
         assert!(done.iter().all(|c| c.area == r("inn")), "the cave has no placeables");
@@ -966,9 +968,9 @@ mod tests {
         assert!(!list[4].contains("VisTransformList"), "a static placeable has none");
         assert!(list[3].contains("VisTransformList"), "the leaning one keeps its tilt");
         // Again: nothing left to do.
-        assert_eq!(apply(&mut m, &areas, &[Change::StaticPlaceables], CP).unwrap(), []);
+        assert_eq!(apply(&mut m, &areas, &[Change::StaticPlaceables], CP, 1).unwrap(), []);
         // And back: every static one, the wall that was static before too.
-        let done = apply(&mut m, &areas, &[Change::DynamicPlaceables], CP).unwrap();
+        let done = apply(&mut m, &areas, &[Change::DynamicPlaceables], CP, 1).unwrap();
         assert_eq!(done.len(), 3);
         let git = m.gff(&key).unwrap().unwrap();
         let list = git.root.list("Placeable List").unwrap();
@@ -988,11 +990,11 @@ mod tests {
             Change::parse_var("nDepth:int=deep").unwrap(),
         ] {
             let ok = Change::parse_set("SunFogAmount=5").unwrap();
-            let e = apply(&mut m, &all, &[ok, bad.clone()], CP);
+            let e = apply(&mut m, &all, &[ok, bad.clone()], CP, 1);
             assert!(e.is_err(), "{bad:?}");
             assert_eq!(["cave1", "cave2", "inn"].map(|n| are(&m, n)).to_vec(), before);
         }
-        assert!(apply(&mut m, &[r("nowhere")], &[], CP).is_err());
+        assert!(apply(&mut m, &[r("nowhere")], &[], CP, 1).is_err());
         assert!(Change::parse_set("SunFogAmount").is_err());
         assert!(Change::parse_var("x:bool=1").is_err());
     }
@@ -1035,7 +1037,7 @@ mod tests {
         cave.root.set("Tile_List", Value::List(vec![tile(1), tile(2), tile(3)]));
         m.set_gff(key, &cave).unwrap();
         let scheme = crate::new::Scheme::read(&game, 1).unwrap();
-        let done = apply(&mut m, &[r("cave1")], &[Change::LightingScheme(scheme)], CP).unwrap();
+        let done = apply(&mut m, &[r("cave1")], &[Change::LightingScheme(scheme)], CP, 1).unwrap();
         let said: Vec<(&str, Option<&str>, Option<&str>)> =
             done.iter().map(|c| (c.what.as_str(), c.from.as_deref(), c.to.as_deref())).collect();
         assert_eq!(

@@ -718,6 +718,11 @@ enum Cmd {
         /// `--set` changes made with it are made after it.
         #[arg(long, value_name = "SCHEME")]
         lighting_scheme: Option<String>,
+        /// The tiles' lights of `--lighting-scheme` picked as with this
+        /// number (printed by a run without it, `--dry-run` too): the same
+        /// number, the same picks.
+        #[arg(long, value_name = "NUMBER", requires = "lighting_scheme")]
+        seed: Option<u64>,
         /// Change every area of the module (needed when no area is named
         /// and no filter given).
         #[arg(long)]
@@ -1346,6 +1351,22 @@ fn client_codepage(settings: &str) -> Option<Codepage> {
     Some(lang.codepage())
 }
 
+/// `--types`: each a file extension (`utc` or `.utc`) of a type that
+/// `fits`, else an error saying it is not `what`.
+pub(crate) fn parse_types(
+    given: &[String],
+    fits: impl Fn(ResType) -> bool,
+    what: &str,
+) -> Result<Vec<ResType>> {
+    (given.iter())
+        .map(|t| {
+            ResType::from_extension(t.trim_start_matches('.'))
+                .filter(|t| fits(*t))
+                .with_context(|| format!("{t}: not {what}"))
+        })
+        .collect()
+}
+
 fn resource_key(name: &str) -> Result<ResKey> {
     ResKey::from_filename(name)
         .with_context(|| format!("{name:?} is not a resource name like classes.2da"))
@@ -1368,6 +1389,26 @@ fn compiled(out: &mut Output, results: &[mg_module::build::ScriptResult]) -> ser
         }
     }
     serde_json::json!({ "scripts": results.len(), "failed": errors.len(), "errors": errors })
+}
+
+/// What the window and `mg` remember of the scripts of `module` they
+/// compiled with what `made_with` says (`mg_module::build::Remembered`),
+/// kept in Moonglow's data folder: nothing, where none of it was made
+/// with the same.
+pub(crate) fn remembered(module: &Path, made_with: u64) -> mg_module::build::Remembered {
+    let dir = mg_module::build::compiled_dir();
+    mg_module::build::Remembered::kept(dir.as_deref(), Some(module), made_with)
+}
+
+/// Keeps what is remembered of the scripts of `module` after a compile,
+/// for the next (here or in the window) to pass over; a warning where it
+/// can't be.
+fn remember(out: &mut Output, module: &Path, now: &mg_module::build::Remembered) {
+    if let Some(dir) = mg_module::build::compiled_dir()
+        && let Err(e) = now.write(&mg_module::build::Remembered::file(&dir, module))
+    {
+        out.note(format!("warning: what was compiled is not remembered: {e}"));
+    }
 }
 
 fn run(cli: &Cli) -> Result<Output> {
@@ -1848,39 +1889,37 @@ fn run(cli: &Cli) -> Result<Output> {
             let gi = install(cli)?;
             let rm = module_resman(&gi, &m, &mut out)?;
             use mg_module::build;
-            if *uncompiled {
-                let names: Vec<ResKey> = (m.keys_of(ResType::NSS))
+            // What was compiled last, here or in the window, is passed
+            // over: both keep it in one place.
+            let made_with = build::made_with(Some(module), None, Some(&gi.root), &rm);
+            let known = match all {
+                true => build::Remembered { made_with, ..Default::default() },
+                false => remembered(module, made_with),
+            };
+            // (--uncompiled: those without a compiled script, noted as
+            // compiled for the next compile to pass over.)
+            let only = uncompiled.then(|| {
+                (m.keys_of(ResType::NSS))
                     .filter(|k| !m.contains(&ResKey::new(k.resref, ResType::NCS)))
                     .filter(|k| {
                         let target = m.project.as_ref().map(|p| p.target());
                         !target.is_some_and(|t| t.skips_compiling(&k.to_string()))
                     })
                     .copied()
-                    .collect();
-                let results = build::compile_named_with(&mut m, &rm, &names, None, *ndb);
-                out.json = compiled(&mut out, &results);
-                m.save()?;
-                let failed = out.json["failed"].as_u64().unwrap_or(0) as usize;
-                out.note(format!("compiled {} scripts, {failed} failed", results.len() - failed));
-                return Ok(out);
-            }
-            // What was compiled last, here or in the window, is passed
-            // over: both keep it in one place.
-            let dir = build::compiled_dir();
-            let made_with = build::made_with(Some(module), None, Some(&gi.root), &rm);
-            let known = match all {
-                true => build::Remembered { made_with, ..Default::default() },
-                false => build::Remembered::kept(dir.as_deref(), Some(module), made_with),
-            };
-            let pass = build::compile_changed(&mut m, &rm, None, &known, None, *ndb);
+                    .collect()
+            });
+            let pass = build::compile_changed(&mut m, &rm, None, &known, only, *ndb);
             out.json = compiled(&mut out, &pass.results);
             m.save()?;
-            if let Some(dir) = &dir
-                && let Err(e) = pass.now.write(&build::Remembered::file(dir, module))
-            {
-                out.note(format!("warning: what was compiled is not remembered: {e}"));
-            }
+            remember(&mut out, module, &pass.now);
             let failed = out.json["failed"].as_u64().unwrap_or(0) as usize;
+            if *uncompiled {
+                out.note(format!(
+                    "compiled {} scripts, {failed} failed",
+                    pass.results.len() - failed
+                ));
+                return Ok(out);
+            }
             let unchanged = pass.scripts.saturating_sub(pass.results.len());
             out.json["unchanged"] = json!(unchanged);
             let left = match unchanged {
@@ -1938,22 +1977,14 @@ fn run(cli: &Cli) -> Result<Output> {
                     _ => None,
                 };
                 let marked = line.and_then(|l| marker.iter().find(|m| l.contains(m.as_str())));
-                let mut out = io::stdout().lock();
-                let _ = match (cli.json, serve::json(e), serve::text(e)) {
-                    (true, Some(mut v), _) => {
-                        if let Some(m) = marked {
-                            v["event"] = json!("marker");
-                            v["marker"] = json!(m);
-                        }
-                        writeln!(out, "{v}")
+                if let (Some(mut v), Some(t)) = (serve::json(e), serve::text(e)) {
+                    if let Some(m) = marked {
+                        v["event"] = json!("marker");
+                        v["marker"] = json!(m);
                     }
-                    (false, _, Some(t)) if marked.is_some() && bold => {
-                        writeln!(out, "\x1b[1m{t}\x1b[0m")
-                    }
-                    (false, _, Some(t)) => writeln!(out, "{t}"),
-                    _ => Ok(()),
-                };
-                let _ = out.flush();
+                    let t = if marked.is_some() && bold { format!("\x1b[1m{t}\x1b[0m") } else { t };
+                    serve::say(cli.json, &v, &[t]);
+                }
                 if line.is_some_and(|l| until.as_ref().is_some_and(|u| l.contains(u.as_str()))) {
                     reached = true;
                     return serve::Flow::Stop;
@@ -1971,15 +2002,9 @@ fn run(cli: &Cli) -> Result<Output> {
             };
             let said = match end {
                 serve::End::Stopped if late && !reached => "stopped at the timeout".to_string(),
-                serve::End::Stopped => "stopped".to_string(),
-                serve::End::NotLoaded => "the server could not load the module".to_string(),
-                serve::End::Exited(code) => format!("the server ended ({code:?})"),
+                other => serve::how(other),
             };
-            if cli.json {
-                println!("{}", json!({ "event": "ended", "how": said, "failed": failed }));
-            } else {
-                println!("mg: {said}");
-            }
+            serve::say_ended(cli.json, &said, failed);
             Output { done: true, failed, ..Default::default() }
         }
         Cmd::Test {
@@ -2147,8 +2172,12 @@ fn run(cli: &Cli) -> Result<Output> {
         } => {
             let gi = install(cli)?;
             let name = serve::module_name(project);
+            // (Held while it runs: another server of the project takes
+            // another.)
+            let scratch = (*serve && dir.is_none()).then(|| serve::run_dir("serve", project));
             let server_dir = serve.then(|| {
-                let dir = dir.clone().unwrap_or_else(|| serve::scratch_dir(project));
+                let dir = dir.clone().or_else(|| scratch.as_ref().map(|s| s.dir.clone()));
+                let dir = dir.expect("one or the other");
                 std::path::absolute(&dir).unwrap_or(dir)
             });
             let dev_dir = match (dev_dir, &server_dir) {
@@ -2159,14 +2188,7 @@ fn run(cli: &Cli) -> Result<Output> {
             std::fs::create_dir_all(&dev_dir).with_context(|| path_text(&dev_dir))?;
             let served = server_dir.as_ref().map(|d| d.join("modules").join(format!("{name}.mod")));
             let build_to = served.clone().or(r#mod.clone());
-            let say = |v: serde_json::Value, lines: Vec<String>| {
-                let mut out = io::stdout().lock();
-                let _ = match cli.json {
-                    true => writeln!(out, "{v}"),
-                    false => lines.iter().try_for_each(|l| writeln!(out, "{l}")),
-                };
-                let _ = out.flush();
-            };
+            let say = |v: serde_json::Value, lines: Vec<String>| serve::say(cli.json, &v, &lines);
             let resman = |m: &Module| -> Result<ResMan> {
                 let mut notes = Output::default();
                 let rm = module_resman(&gi, m, &mut notes)?;
@@ -2251,7 +2273,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 return Err(e);
             }
             let failed = !matches!(end, serve::End::Stopped);
-            say(json!({ "event": "ended", "failed": failed }), vec!["mg: stopped".into()]);
+            serve::say_ended(cli.json, &serve::how(end), failed);
             Output { done: true, failed, ..Default::default() }
         }
         Cmd::Lsp { codepage } => {
@@ -2264,11 +2286,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 // (The user directory as `mg` finds it, without the game
                 // too: the language server works without one.)
                 None => (cli.user_dir.clone())
-                    .or_else(|| {
-                        let env = std::env::var_os("NWN_HOME")
-                            .or_else(|| std::env::var_os("NWN_USER_DIRECTORY"));
-                        env.map(PathBuf::from).or_else(mg_resman::default_user_dir)
-                    })
+                    .or_else(GameInstall::detect_user_dir)
                     .filter(|_| !cli.no_user_dir)
                     .and_then(|u| std::fs::read_to_string(u.join("settings.tml")).ok())
                     .and_then(|t| client_codepage(&t))
@@ -2512,6 +2530,7 @@ fn run(cli: &Cli) -> Result<Output> {
             remove_grass,
             tileset_grass,
             lighting_scheme,
+            seed,
             all,
             dry_run,
         } => {
@@ -2647,8 +2666,23 @@ fn run(cli: &Cli) -> Result<Output> {
                     }
                 }
             }
-            let done =
-                areas::apply(&mut m, &resrefs, &changes, codepage).map_err(anyhow::Error::msg)?;
+            // (The tiles' lights picked at random, as Aurora picks them,
+            // with a number that picks them again: a dry run's are a
+            // run's with it.)
+            let scheme = changes.iter().any(|c| matches!(c, Change::LightingScheme(_)));
+            let seed = seed.unwrap_or_else(|| {
+                use std::hash::{BuildHasher, Hasher};
+                let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+                h.write_u32(std::process::id());
+                h.finish() >> 16
+            });
+            let done = areas::apply(&mut m, &resrefs, &changes, codepage, seed)
+                .map_err(anyhow::Error::msg)?;
+            if scheme && !done.is_empty() {
+                out.note(format!(
+                    "the tiles' lights were picked with --seed {seed} (the same with it again)"
+                ));
+            }
             project_file_notes(&m, &mut out);
             for n in described_notes {
                 out.note(n);
@@ -2726,6 +2760,7 @@ fn run(cli: &Cli) -> Result<Output> {
                     "why": why,
                 })).collect::<Vec<_>>(),
                 "dry_run": *dry_run,
+                "seed": scheme.then_some(seed),
             });
             out
         }
@@ -2823,15 +2858,19 @@ fn run(cli: &Cli) -> Result<Output> {
                     out.note(format!("warning: {w}"));
                 }
             }
-            let rm = module_resman(&install(cli)?, &m, &mut out)?;
-            let results = mg_module::build::compile_scripts_with(
-                &mut m,
-                &rm,
-                mg_module::build::ScriptSelection::All,
-                None,
-                *ndb,
-            );
-            let compile = compiled(&mut out, &results);
+            let gi = install(cli)?;
+            let rm = module_resman(&gi, &m, &mut out)?;
+            // The scripts not as they were when last compiled, here or by
+            // `mg compile` or the window. (A project's tree keeps no
+            // compiled scripts: those it has are compiled again, unless
+            // it keeps them among its sources.)
+            let made_with = mg_module::build::made_with(Some(project), None, Some(&gi.root), &rm);
+            let known = remembered(project, made_with);
+            let pass = mg_module::build::compile_changed(&mut m, &rm, None, &known, None, *ndb);
+            let results = &pass.results;
+            let mut compile = compiled(&mut out, results);
+            compile["unchanged"] = json!(pass.scripts.saturating_sub(results.len()));
+            remember(&mut out, project, &pass.now);
             let failed = compile["failed"].as_u64().unwrap_or(0) as usize;
             if failed > 0 && !keep_going {
                 // The compiler's messages, then the failure.
@@ -2851,9 +2890,13 @@ fn run(cli: &Cli) -> Result<Output> {
                 std::fs::create_dir_all(dir)?;
             }
             std::fs::write(&path, bytes)?;
+            let left = match compile["unchanged"].as_u64().unwrap_or(0) {
+                0 => String::new(),
+                n => format!(" ({n} as they were when last compiled)"),
+            };
             out.json = json!({ "compiled": compile, "packed": path_text(&path) });
             out.note(format!(
-                "compiled {} of {} scripts; packed {}",
+                "compiled {} of {} scripts{left}; packed {}",
                 results.len() - failed,
                 results.len(),
                 path.display()
@@ -2986,14 +3029,11 @@ fn run(cli: &Cli) -> Result<Output> {
         }
         Cmd::Find { module, types, tag, name, resref, area, placed, blueprints, fields } => {
             let m = Module::open(module)?;
-            let types = types
-                .iter()
-                .map(|t| {
-                    ResType::from_extension(t.trim_start_matches('.'))
-                        .filter(|t| mg_rules::ObjectKind::from_restype(*t).is_some())
-                        .with_context(|| format!("{t}: not a blueprint type (utc, utp, …)"))
-                })
-                .collect::<Result<Vec<_>>>()?;
+            let types = parse_types(
+                types,
+                |t| mg_rules::ObjectKind::from_restype(t).is_some(),
+                "a blueprint type (utc, utp, …)",
+            )?;
             // (Names are matched and shown in the module's own letters.)
             let cp = module_codepage(cli, &m);
             let q = mg_module::query::Query {

@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T04:46:12Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:35:52Z }
 ---
 
 # Command-line tools
@@ -96,7 +96,7 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | `mg serve MODULE` | run the module in the game's headless server and print its log and console: see [Running a module in the server](#running-a-module-in-the-server) |
 | `mg test MODULE [--filter TEXT]` | run the module's `test_*` scripts in the server and report what they assert: see [Testing scripts in the server](#testing-scripts-in-the-server) |
 | `mg watch PROJECT --dev-dir FOLDER` | follow a module kept as files while you edit it, putting changed scripts (compiled) and blueprints into a development folder: see [Following a project as you edit](#following-a-project-as-you-edit) |
-| `mg compile MODULE [--uncompiled] [--all] [--ndb]` | compile the module's scripts and save it: those changed since they were last compiled, by `mg compile` or by Compile All Scripts in the window (both remember it in Moonglow's data folder, not in the module); `--all` compiles every script, `--uncompiled` only those without a compiled version; `--ndb` makes each one's debug file (`.ndb`) too, and compiles again a script that has none |
+| `mg compile MODULE [--uncompiled] [--all] [--ndb]` | compile the module's scripts and save it: those changed since they were last compiled, by `mg compile` or by Compile All Scripts in the window (both remember it in Moonglow's data folder, not in the module); `--all` compiles every script, `--uncompiled` only those without a compiled version (remembered as compiled too); `--ndb` makes each one's debug file (`.ndb`) too, and compiles again a script that has none |
 | `mg export MODULE NAME.EXT… -o OUT.erf` | export resources with what they use (`--keep-factions`, `--comment`); the archive's description says what it was made from (git commit, Moonglow's version, the module) |
 | `mg export MODULE NAME.EXT… --files -o FOLDER` | write the resources named as loose files in FOLDER (a script with its compiled `.ncs` and `.ndb`, an area with its `.git` and `.gic`): for the game's `development` or `override`, or a server's |
 | `mg import MODULE ERF [--overwrite]` | import an archive into the module and save it; says what a Moonglow export was made from, and warns when the module's git checkout is at another commit now |
@@ -211,6 +211,10 @@ mg areas mymodule.mod --interior --lighting-scheme InteriorDark --set SunFogAmou
   (the module's haks' over it), so it needs the game installed (`--root`).
   It is made before `--set`, which can change what it set. Each area is
   listed with its `LightingScheme` and how many tiles' lights changed.
+  The tiles' lights are picked with a number the command prints (a
+  `--dry-run` too; `seed` in the JSON): **`--seed NUMBER`** picks them
+  so again, so a dry run's are a run's with its number, and a run can be
+  made again the same.
 
 - **`--grass MATERIAL:TEXTURE:DENSITY:HEIGHT[:R,G,B[:R,G,B]]`**: grass of
   each area's own on a surface material (a `surfacemat.2da` row, by
@@ -253,17 +257,19 @@ mg areas mymodule.mod --interior --lighting-scheme InteriorDark --set SunFogAmou
   areas stops the command before anything is saved. The output lists each
   change (`area`, field, `from -> to`); an area that already has a value
   isn't listed for it.
-- Names, lighting schemes (which also pick each tile's lights) and list
-  fields aren't set by this command.
+- Names, tags and comments, which are each area's own, aren't set by
+  this command (`mg replace` changes text in names), nor list fields one
+  by one (a tile's own lights; variables are `--var`'s).
 
 ## Running a module in the server
 
 `mg serve MODULE` starts `nwserver` (Linux and Windows: the game has none
 for macOS) on a `.mod`, a module folder or a nasher project. A folder or
 a project is packed first: the server loads an archive only. Its
-scripts that have no compiled script are compiled for the packed copy,
-as `mg build` would (the server runs compiled scripts only), and one
-that does not compile is said; the sources are left as they are. A
+scripts that have no compiled script, or changed since they were last
+compiled (by `mg compile` or the window), are compiled for the packed
+copy, as `mg build` would (the server runs compiled scripts only), and
+one that does not compile is said; the sources are left as they are. A
 project's own talk table, kept as JSON, is made into the server's `tlk`
 folder (in the game's language, where the project keeps several), in
 place of the one in your tlk folder.
@@ -275,7 +281,8 @@ place of the one in your tlk folder.
   not.
 - **Its own user directory.** The server's vault, database, settings and
   logs go in a scratch folder in the system's temporary folder, the same
-  one for each run of a module, with the module's haks and talk table
+  one for each run of a module (a second server of the module started
+  while the first runs gets one of its own), with the module's haks and talk table
   linked in from your NWN folder (which is only read). `--dir FOLDER`
   names another; your own NWN folder is refused without
   `--real-user-dir`.
@@ -287,7 +294,9 @@ place of the one in your tlk folder.
   is loaded. `--marker TEXT` marks the log lines with that text.
 - **What you type** goes to the server's console (`status`, `say`,
   `exit`, and the commands NWNX adds). `/restart` starts the server
-  again, and `/quit` stops it.
+  again, and `/quit` stops it. So does Ctrl+C: the server is told to
+  `exit` (it closes its database and logs in order) rather than ending
+  with `mg`.
 - **Until.** `--until TEXT` stops the server at the first log line with
   that text and `--timeout SECONDS` after that long: a failure if
   `--until` was not seen. `--restart-on-change` starts the server again
@@ -299,7 +308,8 @@ place of the one in your tlk folder.
   -servervault 1`).
 - **`--json`** prints each of these as a line of JSON (`event`:
   `started`, `passwords`, `ready`, `log`, `marker`, `console`, `engine`,
-  `note`, `changed`, `ended`).
+  `note`, `changed`, `ended`, the last with `how` it ended and whether
+  it `failed`, as `mg watch --serve` ends too).
 
 ## Testing scripts in the server
 
@@ -327,7 +337,15 @@ void main()
 | `Describe(sGroup)` | a name the following results are grouped under |
 
 - **Your module is not changed.** The tests run in a copy in a scratch
-  folder: there a driver becomes the module's OnModuleLoad script. It
+  folder: there a driver becomes the module's OnModuleLoad script. The
+  tests run your scripts as they are: the copy gets each script
+  compiled that has no compiled script or changed since it was last
+  compiled (by `mg compile` or the window: what they remember), and the
+  run names those whose compiled script in your module is not what their
+  source compiles to now: changed since, or made by another compiler
+  (`mg compile` compiles them there). One that does not
+  compile now runs with the compiled script it has, and the run says so;
+  one with none stops the run, as a test that does not compile does. It
   starts each test as an event of its own, half a second after the
   module's own OnModuleLoad script, which it runs too. A test that runs
   out of instructions, or isn't there, is an error and stops no other.
@@ -455,7 +473,7 @@ mg --json verify mymodule.mod | jq '.findings[] | select(.severity == "error")'
 | Command | Does |
 | --- | --- |
 | `mg init MODULE DIR` | put a module into a nasher project in `DIR`: its resources as source files, with a `nasher.cfg` like `nasher init` writes |
-| `mg build DIR` | compile the project's scripts and pack the module, as `nasher pack` does (`--target`, `-o OUT`); `--ndb` makes each script's debug file (`.ndb`) too, packed with it. A `--target` that packs a talk table (a `.tlk`) makes it of its `<name>.tlk.json` as nasher has `nwn_tlk` make it, byte for byte |
+| `mg build DIR` | compile the project's scripts and pack the module, as `nasher pack` does (`--target`, `-o OUT`): those changed since they were last compiled, as `mg compile` does (a project keeps no compiled scripts, so those are all of them unless it keeps some among its sources); `--ndb` makes each script's debug file (`.ndb`) too, packed with it. A `--target` that packs a talk table (a `.tlk`) makes it of its `<name>.tlk.json` as nasher has `nwn_tlk` make it, byte for byte |
 | `mg merge-gff BASE OURS THEIRS` | merge two copies of a GFF resource (an area, `module.ifo`, a blueprint), both made from BASE, as a GFF or as nasher's JSON of one, and write the merge over OURS (`-o FILE` elsewhere). Placed objects merge by object, the area list as a union, variables by name and type. Two different changes to one value are a conflict: it fails, names each by its path and writes nothing, unless `--prefer ours` or `--prefer theirs`. Git runs it as its merge driver: see [Merging in git](03-modules.md#merging-in-git) |
 
 `mg build` fails if a script doesn't compile, which suits a build pipeline:

@@ -50,6 +50,9 @@ anyhow = "1"
 base64 = "0.23"
 bytemuck = { version = "1", features = ["derive"] }
 clap = { version = "4", features = ["derive"] }
+# (Ctrl+C and the end of a terminal caught, for `mg serve` to stop its
+# server with `exit`.)
+ctrlc = { version = "3.5", features = ["termination"] }
 eframe = { version = "0.36", default-features = false, features = ["accesskit", "wgpu", "default_fonts", "links", "wayland", "x11", "persistence"] }
 egui = "0.36"
 egui-wgpu = "0.36"

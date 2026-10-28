@@ -3,7 +3,7 @@ type: Manual Page
 title: Troubleshooting
 description: Troubleshooting - the game is not found, no GPU in the area viewer, tiles that disappear on AMD under Windows (the graphics backend), Test Module does nothing, no sound, after a crash, and where Moonglow keeps its files.
 tags: [manual, troubleshooting]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T03:57:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:35:52Z }
 ---
 
 # Troubleshooting
@@ -126,6 +126,11 @@ off.)
 
 On Linux, `$XDG_DATA_HOME` takes the place of `~/.local/share` when set
 (in the Flatpak: `~/.var/app/io.github.moonglow_toolset.Moonglow/data`).
+On every system, `MOONGLOW_DATA_DIR` names the second row's folder
+itself, and `MOONGLOW_CACHE_DIR` the folder of what Moonglow makes and
+can make again (the game's shaders compiled, `mg lsp`'s scripts), when
+they are set: for a run that should keep apart from yours, as the tests
+do.
 
 Moonglow never writes into the game's folder. In your user folder it
 writes only what you save there (modules, and exported archives where you

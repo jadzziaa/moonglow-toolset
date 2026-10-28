@@ -431,6 +431,8 @@ fn kind(k: DeclKind) -> u32 {
         DeclKind::Variable | DeclKind::Local | DeclKind::Parameter => 13,
         DeclKind::Constant => 14,
         DeclKind::Struct => 23,
+        // (A field.)
+        DeclKind::Member => 8,
     }
 }
 
@@ -440,6 +442,7 @@ fn completion_kind(k: DeclKind) -> u32 {
         DeclKind::Variable | DeclKind::Local | DeclKind::Parameter => 6,
         DeclKind::Constant => 21,
         DeclKind::Struct => 22,
+        DeclKind::Member => 5,
     }
 }
 
@@ -453,11 +456,11 @@ fn encode(codepage: Codepage, text: &str) -> Vec<u8> {
 
 /// Serves the protocol on standard input and output until `exit`.
 pub(crate) fn serve(game: Option<ResMan>, codepage: Codepage) -> Result<()> {
-    let cache = std::env::var_os("XDG_CACHE_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))
-        .unwrap_or_else(std::env::temp_dir)
-        .join("moonglow/scripts");
+    // (Moonglow's cache folder, as the window's: the system's temporary
+    // folder where there is none.)
+    let cache = mg_module::build::cache_dir()
+        .unwrap_or_else(|| std::env::temp_dir().join("moonglow"))
+        .join("scripts");
     let mut server = Server {
         root: None,
         files: HashMap::new(),

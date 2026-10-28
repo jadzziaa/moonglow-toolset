@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:24:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:35:52Z }
 ---
 
 # Options
@@ -251,7 +251,8 @@ the module is opened again from its file.
   `nwn_script_comp`'s (neverwinter.nim), or `nwnsc`'s. The line shows in
   the empty field, and resting the pointer on it lists the places
   Moonglow fills in: `{files}` (the scripts to compile), `{src}` (a
-  scratch folder the module's scripts are written to), `{out}` (the
+  scratch folder the scripts to compile and the module's scripts they
+  include, however indirectly, are written to), `{out}` (the
   folder the compiled scripts are read from), `{game}`, `{user}` and
   `{haks}` (the module's haks, comma-separated: a hak whose path has a
   comma in it can't be passed so, and the compile says which). An option whose place

@@ -79,26 +79,56 @@ pub fn compile_scripts_with(
 /// families (strongly connected components), each stamped after those it
 /// includes.
 pub fn script_stamps(module: &Module) -> std::collections::HashMap<ResKey, u64> {
+    let scripts: Vec<ResKey> = module.keys_of(ResType::NSS).copied().collect();
+    stamps_from(module, scripts)
+}
+
+/// [`script_stamps`] of `scripts` and of the module's scripts they include,
+/// however indirectly (a script's stamp is the same either way): those
+/// alone are read, for a few scripts compiled in a large module.
+pub fn script_stamps_of(
+    module: &Module,
+    scripts: &[ResKey],
+) -> std::collections::HashMap<ResKey, u64> {
+    stamps_from(module, scripts.iter().filter(|k| module.contains(k)).copied().collect())
+}
+
+/// The stamps of `scripts` (the module's) and of what they reach.
+fn stamps_from(
+    module: &Module,
+    mut scripts: Vec<ResKey>,
+) -> std::collections::HashMap<ResKey, u64> {
     use std::collections::HashMap;
     use std::hash::{Hash, Hasher};
     let hasher = std::collections::hash_map::DefaultHasher::new;
-    let scripts: Vec<ResKey> = module.keys_of(ResType::NSS).copied().collect();
-    let at: HashMap<ResKey, usize> = scripts.iter().enumerate().map(|(i, k)| (*k, i)).collect();
+    let mut at: HashMap<ResKey, usize> = HashMap::with_capacity(scripts.len());
+    scripts.retain(|k| at.insert(*k, at.len()).is_none());
     // Each script's own part (its text, the names it includes in order)
-    // and the module's scripts it includes.
+    // and the module's scripts it includes (those reached added as they
+    // are found).
     let mut local = Vec::with_capacity(scripts.len());
     let mut edges: Vec<Vec<usize>> = Vec::with_capacity(scripts.len());
-    for key in &scripts {
-        let source = module.get(key).unwrap_or_default();
+    let mut next_script = 0;
+    while let Some(&key) = scripts.get(next_script) {
+        next_script += 1;
+        let source = module.get(&key).unwrap_or_default();
         let mut h = hasher();
         source.hash(&mut h);
         let mut to = Vec::new();
-        for r in crate::refs::script_includes(*key, source) {
+        for r in crate::refs::script_includes(key, source) {
             let name = r.target.to_lowercase();
             name.to_string().hash(&mut h);
-            if let Some(&i) = at.get(&ResKey::new(name, ResType::NSS)) {
-                to.push(i);
-            }
+            let include = ResKey::new(name, ResType::NSS);
+            let i = match at.get(&include) {
+                Some(&i) => i,
+                None if module.contains(&include) => {
+                    at.insert(include, scripts.len());
+                    scripts.push(include);
+                    scripts.len() - 1
+                }
+                None => continue,
+            };
+            to.push(i);
         }
         local.push(h.finish());
         edges.push(to);
@@ -272,12 +302,18 @@ impl Remembered {
     }
 }
 
-/// Moonglow's data folder: `$XDG_DATA_HOME/moonglow` (else
-/// `~/.local/share/moonglow`) on Linux, `~/Library/Application
-/// Support/Moonglow` on macOS, `%APPDATA%\Moonglow` on Windows.
+/// Moonglow's data folder: `$MOONGLOW_DATA_DIR` where it is set (the
+/// folder itself, on every system: the tests' own, which on macOS can't
+/// be moved otherwise without moving the game), else
+/// `$XDG_DATA_HOME/moonglow` (else `~/.local/share/moonglow`) on Linux,
+/// `~/Library/Application Support/Moonglow` on macOS, `%APPDATA%\Moonglow`
+/// on Windows.
 pub fn data_dir() -> Option<std::path::PathBuf> {
     use std::path::PathBuf;
     let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
+    if let Some(dir) = env("MOONGLOW_DATA_DIR") {
+        return Some(dir);
+    }
     if cfg!(windows) {
         env("APPDATA").map(|d| d.join("Moonglow"))
     } else if cfg!(target_os = "macos") {
@@ -290,12 +326,17 @@ pub fn data_dir() -> Option<std::path::PathBuf> {
 }
 
 /// Moonglow's cache folder, for what it makes on the user's machine and can
-/// make again (the game's shaders compiled): `$XDG_CACHE_HOME/moonglow`
-/// (else `~/.cache/moonglow`) on Linux, `~/Library/Caches/Moonglow` on
-/// macOS, `%LOCALAPPDATA%\Moonglow\cache` on Windows.
+/// make again (the game's shaders compiled): `$MOONGLOW_CACHE_DIR` where it
+/// is set (as [`data_dir`]'s `MOONGLOW_DATA_DIR`), else
+/// `$XDG_CACHE_HOME/moonglow` (else `~/.cache/moonglow`) on Linux,
+/// `~/Library/Caches/Moonglow` on macOS, `%LOCALAPPDATA%\Moonglow\cache`
+/// on Windows.
 pub fn cache_dir() -> Option<std::path::PathBuf> {
     use std::path::PathBuf;
     let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
+    if let Some(dir) = env("MOONGLOW_CACHE_DIR") {
+        return Some(dir);
+    }
     if cfg!(windows) {
         env("LOCALAPPDATA").map(|d| d.join("Moonglow").join("cache"))
     } else if cfg!(target_os = "macos") {
@@ -330,8 +371,15 @@ pub fn user_content(l: &mg_resman::Layer) -> bool {
 }
 
 /// A module's path as both the window and `mg` know it, however it was
-/// named to them.
+/// named to them: a nasher project by its folder (named by its
+/// `nasher.cfg` or not).
 pub(crate) fn settled(module: &std::path::Path) -> std::path::PathBuf {
+    let module = match module.file_name() {
+        Some(n) if n == "nasher.cfg" => module.parent().unwrap_or(module),
+        _ => module,
+    };
+    // (`proj/nasher.cfg` given as `nasher.cfg`: the folder it is in.)
+    let module = if module.as_os_str().is_empty() { std::path::Path::new(".") } else { module };
     std::fs::canonicalize(module).unwrap_or_else(|_| module.to_path_buf())
 }
 
@@ -383,21 +431,10 @@ pub fn compile_changed(
     debug: bool,
 ) -> Pass {
     let stamps = script_stamps(module);
-    // A nasher project's target may leave some scripts uncompiled.
-    let skipped = |k: &ResKey| {
-        module.project.as_ref().is_some_and(|p| p.target().skips_compiling(&k.to_string()))
-    };
-    let scripts = module.keys_of(ResType::NSS).filter(|k| !skipped(k)).count();
-    let names: Vec<ResKey> = match only {
+    let scripts = module.keys_of(ResType::NSS).filter(|k| !skips_compiling(module, k)).count();
+    let names = match only {
         Some(names) => names,
-        None => (module.keys_of(ResType::NSS))
-            .filter(|k| {
-                let made = |t| module.contains(&ResKey::new(k.resref, t));
-                let no_debug_file = debug && made(ResType::NCS) && !made(ResType::NDB);
-                !skipped(k) && (no_debug_file || known.stale(module, &stamps, k))
-            })
-            .copied()
-            .collect(),
+        None => changed_of(module, known, &stamps, debug),
     };
     let results = compile_named_with(module, resman, &names, external, debug);
     let mut now = known.clone();
@@ -408,6 +445,36 @@ pub fn compile_changed(
         }
     }
     Pass { results, now, scripts }
+}
+
+/// The module's scripts that [`compile_changed`] compiles: those not as
+/// `known` remembers them (changed, they or what they include, or their
+/// compiled script not the one made of them), and with `debug` those
+/// without a debug file; not those a nasher project's target leaves
+/// uncompiled.
+pub fn changed(module: &Module, known: &Remembered, debug: bool) -> Vec<ResKey> {
+    changed_of(module, known, &script_stamps(module), debug)
+}
+
+fn changed_of(
+    module: &Module,
+    known: &Remembered,
+    stamps: &std::collections::HashMap<ResKey, u64>,
+    debug: bool,
+) -> Vec<ResKey> {
+    (module.keys_of(ResType::NSS))
+        .filter(|k| {
+            let made = |t| module.contains(&ResKey::new(k.resref, t));
+            let no_debug_file = debug && made(ResType::NCS) && !made(ResType::NDB);
+            !skips_compiling(module, k) && (no_debug_file || known.stale(module, stamps, k))
+        })
+        .copied()
+        .collect()
+}
+
+/// A nasher project's target leaves the script uncompiled.
+fn skips_compiling(module: &Module, k: &ResKey) -> bool {
+    module.project.as_ref().is_some_and(|p| p.target().skips_compiling(&k.to_string()))
 }
 
 /// [`compile_scripts_with`] for the scripts named.
@@ -513,6 +580,7 @@ fn sources_read(
     module: &Module,
     resman: &ResMan,
     names: &[ResKey],
+    edited: Option<(ResKey, &[u8])>,
 ) -> std::collections::HashSet<ResKey> {
     let script = |name: &str| {
         let name = name.trim();
@@ -529,6 +597,9 @@ fn sources_read(
     let mut todo: Vec<ResKey> = needed.iter().copied().collect();
     while let Some(key) = todo.pop() {
         let source = match module.get(&key) {
+            _ if edited.is_some_and(|(k, _)| k == key) => {
+                std::borrow::Cow::Borrowed(edited.expect("just matched").1)
+            }
             Some(own) => std::borrow::Cow::Borrowed(own),
             None => match resman.get(&key) {
                 Ok(other) => other,
@@ -553,6 +624,27 @@ fn sources_read(
     needed
 }
 
+/// What an external compiler is given to compile `names`: those, and the
+/// module's scripts they include however indirectly ([`sources_read`]),
+/// each by its name (lower case) with its text; with `edited` (a script
+/// and its text as in its editor, not yet the module's) that text in
+/// place of the module's, its includes read from it.
+pub fn external_sources<'a>(
+    module: &'a Module,
+    resman: &ResMan,
+    names: &[ResKey],
+    edited: Option<(ResKey, &'a [u8])>,
+) -> Vec<(String, &'a [u8])> {
+    let needed = sources_read(module, resman, names, edited);
+    let name = |k: &ResKey| k.resref.to_lowercase().to_string();
+    let mut out: Vec<(String, &[u8])> = (module.keys_of(ResType::NSS))
+        .filter(|k| needed.contains(*k) && edited.is_none_or(|(e, _)| e != **k))
+        .filter_map(|k| Some((name(k), module.get(k)?)))
+        .collect();
+    out.extend(edited.map(|(k, text)| (name(&k), text)));
+    out
+}
+
 /// Compiles `names` with an external compiler, storing what it made in the
 /// module. A script it made nothing of is an error with what it said,
 /// unless it is an include file. A compiler that can't be run is said
@@ -565,11 +657,7 @@ fn compile_externally(
 ) -> Vec<ScriptResult> {
     let name = |k: &ResKey| k.resref.to_lowercase().to_string();
     let made = {
-        let needed = sources_read(module, resman, names);
-        let sources: Vec<(String, &[u8])> = (module.keys_of(ResType::NSS))
-            .filter(|k| needed.contains(*k))
-            .filter_map(|k| Some((name(k), module.get(k)?)))
-            .collect();
+        let sources = external_sources(module, resman, names, None);
         external.compile(&sources, &names.iter().map(name).collect::<Vec<_>>())
     };
     let made = match made {
@@ -797,14 +885,107 @@ mod tests {
         let mut rm = ResMan::new();
         rm.add(priority::KEY, "base", LayerClass::Key, base);
         let read = |m: &Module, name: &str| -> Vec<String> {
-            let mut read: Vec<String> =
-                (sources_read(m, &rm, &[nss(name)]).iter()).map(|k| k.resref.to_string()).collect();
+            let mut read: Vec<String> = (sources_read(m, &rm, &[nss(name)], None).iter())
+                .map(|k| k.resref.to_string())
+                .collect();
             read.sort();
             read
         };
         assert_eq!(read(&m, "uses"), ["inc_a", "inc_b", "inc_c", "uses", "x0_i0_match"]);
         m.set(nss("nwscript"), b"void PrintString(string s);\n".to_vec());
         assert_eq!(read(&m, "other"), ["inc_d", "nwscript", "other"]);
+    }
+
+    /// The stamps of a few scripts are those of the whole module's, read
+    /// from them and what they include alone.
+    #[test]
+    fn a_few_scripts_stamps_are_the_whole_module_s() {
+        let mut m = Module::new();
+        let nss = |n: &str| key(n, ResType::NSS);
+        m.set(nss("inc_a"), b"int A() { return 1; }\n".to_vec());
+        m.set(nss("inc_b"), b"#include \"inc_a\"\nint B() { return A(); }\n".to_vec());
+        m.set(nss("uses"), b"#include \"inc_b\"\nvoid main() { B(); }\n".to_vec());
+        m.set(nss("loop_a"), b"#include \"loop_b\"\n#include \"uses\"\n".to_vec());
+        m.set(nss("loop_b"), b"#include \"loop_a\"\n".to_vec());
+        m.set(nss("alone"), b"void main() {}\n".to_vec());
+        let all = script_stamps(&m);
+        let some = script_stamps_of(&m, &[nss("loop_b"), nss("nowhere")]);
+        let mut reached: Vec<String> = some.keys().map(|k| k.resref.to_string()).collect();
+        reached.sort();
+        assert_eq!(reached, ["inc_a", "inc_b", "loop_a", "loop_b", "uses"]);
+        for (k, stamp) in &some {
+            assert_eq!(all[k], *stamp, "{k}");
+        }
+    }
+
+    /// What is remembered of a nasher project is one, whether the project
+    /// is named by its folder or by its `nasher.cfg`, however the path is
+    /// written (the window names it by its folder, `mg compile` as given).
+    #[test]
+    fn a_project_named_by_its_nasher_cfg_or_its_folder_is_one() {
+        let root = std::env::temp_dir().join(format!("mg-settled-{}", std::process::id()));
+        let project = root.join("proj");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(project.join("nasher.cfg"), "").unwrap();
+        let dir = root.join("kept");
+        let by_folder = Remembered::file(&dir, &project);
+        assert_eq!(Remembered::file(&dir, &project.join("nasher.cfg")), by_folder);
+        assert_eq!(Remembered::file(&dir, &root.join("proj/../proj/nasher.cfg")), by_folder);
+        assert!(by_folder.file_name().unwrap().to_string_lossy().starts_with("proj-"));
+        let rm = ResMan::new();
+        assert_eq!(
+            made_with(Some(&project.join("nasher.cfg")), None, None, &rm),
+            made_with(Some(&project), None, None, &rm)
+        );
+        assert_ne!(Remembered::file(&dir, &root.join("other")), by_folder);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// The scripts to compile are those not as remembered; with debug
+    /// files asked for, those compiled without one too.
+    #[test]
+    fn changed_names_the_scripts_not_as_remembered() {
+        let mut m = Module::new();
+        let nss = |n: &str| key(n, ResType::NSS);
+        let ncs = |n: &str| key(n, ResType::NCS);
+        m.set(nss("one"), b"void main() {}\n".to_vec());
+        m.set(ncs("one"), b"NCS one".to_vec());
+        m.set(nss("two"), b"void main() { int n; }\n".to_vec());
+        m.set(ncs("two"), b"NCS two".to_vec());
+        let mut known = Remembered::default();
+        let names = |m: &Module, known: &Remembered, debug| -> Vec<String> {
+            let mut out: Vec<String> =
+                changed(m, known, debug).iter().map(|k| k.resref.to_string()).collect();
+            out.sort();
+            out
+        };
+        assert_eq!(names(&m, &known, false), ["one", "two"], "nothing remembered");
+        let stamps = script_stamps(&m);
+        known.note(&m, &stamps, nss("one"));
+        known.note(&m, &stamps, nss("two"));
+        assert!(names(&m, &known, false).is_empty());
+        assert_eq!(names(&m, &known, true), ["one", "two"], "no debug files");
+        m.set(nss("two"), b"void main() { int n = 2; }\n".to_vec());
+        assert_eq!(names(&m, &known, false), ["two"], "its source changed");
+    }
+
+    /// A script compiled from its editor gives the external compiler its
+    /// editor's text, and what that text includes.
+    #[test]
+    fn an_external_compiler_is_given_an_editor_s_text() {
+        let mut m = Module::new();
+        let nss = |n: &str| key(n, ResType::NSS);
+        m.set(nss("uses"), b"#include \"inc_a\"\nvoid main() {}\n".to_vec());
+        m.set(nss("inc_a"), b"int A();\n".to_vec());
+        m.set(nss("inc_b"), b"int B();\n".to_vec());
+        m.set(nss("other"), b"void main() {}\n".to_vec());
+        let rm = ResMan::new();
+        let text = b"#include \"inc_b\"\nvoid main() { B(); }\n";
+        let given = external_sources(&m, &rm, &[nss("uses")], Some((nss("uses"), text)));
+        let mut names: Vec<&str> = given.iter().map(|(n, _)| n.as_str()).collect();
+        names.sort();
+        assert_eq!(names, ["inc_b", "uses"]);
+        assert_eq!(given.iter().find(|(n, _)| n == "uses").unwrap().1, text);
     }
 
     /// Includes reached by many ways (sixty layers of two includes each

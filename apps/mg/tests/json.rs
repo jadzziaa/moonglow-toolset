@@ -168,8 +168,13 @@ fn find_and_info() {
         assert!(ok, "{json}");
         json["found"].as_array().unwrap().clone()
     };
+    // A type that is no blueprint's is refused, as `mg search` refuses
+    // one that is no object's.
+    let (ok, refused) = run(&root, &dir, &["find", c, "--type", "nss"]);
+    let why = refused["error"].as_str().unwrap_or_default();
+    assert!(!ok && why.contains("nss: not a blueprint type"), "{refused}");
     // The pawn blueprints, by name.
-    let pawns = find(&["--type", "utc", "--name", "pawn"]);
+    let pawns = find(&["--type", ".utc", "--name", "pawn"]);
     let resrefs: Vec<&str> = pawns.iter().map(|f| f["resref"].as_str().unwrap()).collect();
     assert_eq!(resrefs, ["pawn_b", "pawn_w"]);
     assert!(pawns.iter().all(|f| f["kind"] == "blueprint"));

@@ -2174,6 +2174,50 @@ fn script_help() {
     shoot(&mut h, &dir, "script-compiler");
 }
 
+/// Help (go to definition) on a function whose comment follows a line of
+/// code with a comment of its own (that one is the code's, not the
+/// function's), and on a struct's member after `.` (its comment above it,
+/// BioWare's `// *`).
+#[test]
+#[ignore]
+fn script_help_member_and_trailing_comment() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-script-member-help");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Name", mg_gff::Value::String(b"x".to_vec()));
+    m.set_info(&info).unwrap();
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let text = "struct Mark\n{\n    // * Where it is.\n    vector vPos;\n};\n\n\
+                int nLast; // the last one\n// Returns the mark's place.\n\
+                vector Place(struct Mark m) { return m.vPos; }\n\n\
+                void main()\n{\n    struct Mark m;\n    vector v = Place(m) + m.vPos;\n}\n";
+    m.set(key, text.as_bytes().to_vec());
+    let path = dir.join("s.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(key)));
+    h.run();
+    for (needle, name) in
+        [("Place(m) +", "script-help-after-code"), ("vPos;\n}", "script-help-member")]
+    {
+        let at = text.find(needle).unwrap() + 1;
+        let d = h.state_mut().declaration_at(key, at).expect("a declaration");
+        h.state_mut().go_to_declaration(&d);
+        h.run();
+        shoot(&mut h, &dir, name);
+    }
+}
+
 /// Jasperre's script editor notes: Help on a function a `/* … */` block
 /// documents; the Compiler tab after File › Save with compiling on save
 /// off, and the log's lines with their times; the editor's context menu

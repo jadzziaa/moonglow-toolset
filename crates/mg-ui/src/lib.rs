@@ -290,6 +290,10 @@ pub enum Action {
     /// The scripts that include this one are compiled again (it was
     /// saved, with Automatically Compile Scripts on Save).
     CompileIncluders(ResKey),
+    /// Scripts compiled one by one (a script's Compile, a save), each
+    /// with the compiled script made: noted as compiled where the module
+    /// has it now, for Compile All to pass over.
+    NoteCompiled(Vec<(ResKey, Vec<u8>)>),
     /// A script editor's Save (its toolbar's, or the Save key while its
     /// text has the keyboard): the text into the module, not the module
     /// to its file.
@@ -3353,6 +3357,7 @@ impl Moonglow {
             }
             Action::ReloadResources => self.reload_resources(true),
             Action::CompileIncluders(key) => self.compile_includers(key),
+            Action::NoteCompiled(made) => self.note_compiled(&made),
             Action::SaveScript(key) => {
                 script_view::save_script(self, key, script_view::ScriptSave::Save);
             }
@@ -3826,18 +3831,33 @@ impl Moonglow {
     fn compile_uncompiled(&mut self) {
         let external = self.external_compiler();
         let debug = self.settings.debug_info;
+        // (Noted as compiled, as Compile All notes them: it passes over
+        // them next.)
+        let file = self.remembered_scripts(external.as_ref());
+        let known = self.script_stamps.clone();
         let (Some(ws), Some(game)) = (&mut self.ws, &self.game) else { return };
-        let Ok(results) = ws.derive(|module| {
-            mg_module::build::compile_scripts_with(
+        let Ok(pass) = ws.derive(|module| {
+            let uncompiled: Vec<ResKey> = (module.keys_of(ResType::NSS))
+                .filter(|k| !module.contains(&ResKey::new(k.resref, ResType::NCS)))
+                .filter(|k| {
+                    let target = module.project.as_ref().map(|p| p.target());
+                    !target.is_some_and(|t| t.skips_compiling(&k.to_string()))
+                })
+                .copied()
+                .collect();
+            mg_module::build::compile_changed(
                 module,
                 &game.resman,
-                mg_module::build::ScriptSelection::Uncompiled,
                 external.as_ref(),
+                &known,
+                Some(uncompiled),
                 debug,
             )
         }) else {
             return;
         };
+        self.keep_compiled(pass.now, file.as_deref());
+        let results = pass.results;
         let failed = results.iter().filter(|r| r.result.is_err()).count();
         if failed > 0 {
             self.log.warn(format!("{failed} script(s) didn't compile; see Build › Compile"));
@@ -3953,6 +3973,42 @@ impl Moonglow {
         self.script_stamps = Default::default();
     }
 
+    /// Makes `now` what is remembered of the compiled scripts, and keeps
+    /// it in `file` (what [`remembered_scripts`](Self::remembered_scripts)
+    /// gave) for the next session and `mg compile`.
+    fn keep_compiled(&mut self, now: mg_module::build::Remembered, file: Option<&std::path::Path>) {
+        self.script_stamps = now;
+        if let Some(file) = file
+            && let Err(e) = self.script_stamps.write(file)
+        {
+            crate::trace::note(format!("compiled scripts not noted in {file:?}: {e}"));
+        }
+    }
+
+    /// [`Action::NoteCompiled`]: scripts compiled one by one, noted as
+    /// compiled (as Compile All notes those it compiles) where the module
+    /// has the compiled script that was made of each, so that the next
+    /// Compile All, here or `mg compile`, passes over them.
+    pub(crate) fn note_compiled(&mut self, made: &[(ResKey, Vec<u8>)]) {
+        let external = self.external_compiler();
+        let file = self.remembered_scripts(external.as_ref());
+        let Some(ws) = &self.ws else { return };
+        let module = &ws.module;
+        let stored: Vec<ResKey> = (made.iter())
+            .filter(|(k, ncs)| module.get(&ResKey::new(k.resref, ResType::NCS)) == Some(&ncs[..]))
+            .map(|(k, _)| *k)
+            .collect();
+        if stored.is_empty() {
+            return;
+        }
+        let stamps = mg_module::build::script_stamps_of(module, &stored);
+        let mut now = self.script_stamps.clone();
+        for k in stored {
+            now.note(module, &stamps, k);
+        }
+        self.keep_compiled(now, file.as_deref());
+    }
+
     /// Makes `script_stamps` what is remembered of the module's compiled
     /// scripts for a compile with `external` (the built-in compiler
     /// without): what this session remembers if it was made with the same,
@@ -4032,12 +4088,7 @@ impl Moonglow {
                 for f in &failed {
                     app.log.error(f.clone());
                 }
-                app.script_stamps = now;
-                if let Some(file) = &file
-                    && let Err(e) = app.script_stamps.write(file)
-                {
-                    crate::trace::note(format!("compiled scripts not noted in {file:?}: {e}"));
-                }
+                app.keep_compiled(now, file.as_deref());
                 let changed = edits.len();
                 if !edits.is_empty()
                     && let Err(e) = app.apply(Command::new("Compile scripts", edits))

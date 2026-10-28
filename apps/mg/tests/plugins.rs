@@ -486,26 +486,17 @@ fn project_with_plugins(name: &str) -> PathBuf {
 }
 
 /// `mg` with a data folder of its own (where Moonglow keeps the answers
-/// about projects' plugins), so that tests running at once keep apart.
-/// `mg` with Moonglow's data folder in `home` on every platform
-/// (`mg_module::build::data_dir`: XDG_DATA_HOME on Linux, APPDATA on
-/// Windows, HOME's Library on macOS).
+/// about projects' plugins), so that tests running at once keep apart:
+/// `MOONGLOW_DATA_DIR`, on every platform (`mg_module::build::data_dir`).
 fn mg_in(home: &Path) -> std::process::Command {
     let mut c = crate::mg();
-    c.env("XDG_DATA_HOME", home.join("data")).env("APPDATA", home.join("data")).env("HOME", home);
+    c.env("MOONGLOW_DATA_DIR", home.join("data/moonglow"));
     c
 }
 
 /// Where `mg_in(home)` keeps the project plugins' answers.
 fn answers_in(home: &Path) -> std::path::PathBuf {
-    let data = if cfg!(windows) {
-        home.join("data/Moonglow")
-    } else if cfg!(target_os = "macos") {
-        home.join("Library/Application Support/Moonglow")
-    } else {
-        home.join("data/moonglow")
-    };
-    data.join("project-plugins.toml")
+    home.join("data/moonglow/project-plugins.toml")
 }
 
 fn mg_at(home: &Path, args: &[&str]) -> (bool, Json) {

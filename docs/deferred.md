@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:24:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:35:52Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -30,9 +30,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   `decompiled_models_compile_back` decompiles each model a second time
   (10 s of the full run's 28 s for models). nasher still unpacks each
   edited module once more, as the test is about that. (M)
-- **macOS:** the command-line tests' own data folder is set through
-  `XDG_DATA_HOME` and `APPDATA`; on macOS it follows `HOME`, which the
-  tests leave alone (it finds the game). (S)
 - **The `app` tests' set-ups left by hand** (`crates/mg-ui/tests/app/`,
   split by subject, with `harness`, `game_app` and `gpu` in `common.rs`):
   81 harnesses at kittest's default size (`Harness::new_ui_state`), 26
@@ -80,8 +77,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   a Polish letter as "�". The game reading the compiled strings in
   Windows-1250 was not seen in a Polish client: the bytes were checked
   in the compiled script. (S each)
-- **Struct members:** go to definition, references and rename don't
-  follow `p.nX` to the struct's declaration. (M)
 - **The Save key in a script editor** (El Grillo's request, October
   2026) is the script's own Save while its text has the keyboard, as its
   Undo and Redo are; with the pointer over the editor but the keyboard
@@ -109,42 +104,18 @@ Size: S (an hour or two), M (a day or so), L (several days).
   clears the selection (Enter then opens the first listed, as before);
   scripts selected and then hidden by choosing other resources to show
   stay selected but aren't opened. (S)
-- **Incremental compiles:** Compile All Scripts passes over a script
-  that, with what it includes, is as it was when this window last
-  compiled it (`mg_module::build::script_stamps`), as Arelith's
-  ARE_Compile does. What it remembers
-  (`build::Remembered`: each script's stamp and its compiled script's)
-  is kept from one session to the next in Moonglow's data folder, a
-  file a module (not beside the module: nothing is written into a
-  builder's repository or module folder), and holds only for the same
-  compiler, settings, haks and content folders, and while a compiled
-  script is the one that was made. `mg compile` reads and writes the
-  same file (`build::compile_changed`, `build::made_with`), so each
-  passes over what the other compiled. Not done: with an external
-  compiler chosen in the window the two do not share (`mg compile` is
-  always the built-in one, and what is remembered holds for one
-  compiler); a project named by its `nasher.cfg` to one and by its
-  folder to the other is two modules to them (what is remembered goes by
-  the path as given, made whole); `mg compile --uncompiled` and
-  `mg build` neither read nor write it; a script
-  compiled by
-  its own Compile or by a save is compiled once more by the next
-  Compile All (to the same bytes). (S each)
 - **Editor setups:** the manual's Neovim and Helix snippets are untried
   in those editors. On Windows, `mg lsp` is checked only by CI's
   tests. (S)
-- **The external compiler** (Options › Script Editor): run as a program
-  on the module's scripts written to a scratch folder, with what it made
-  read back. Tried with `nwn_script_comp` (its bytecode is the built-in
-  compiler's, byte for byte); `nwnsc`'s line is from its documentation,
-  not run. All of the module's scripts are written out for every
-  compile, one script's too. Scripts in haks reach it through `{haks}`
-  (nwn_script_comp's `--erfs`); nwnsc has no such option. Errors as you
-  type, the wizards' own scripts and the `mg` commands stay with the
-  built-in compiler. Its messages are matched to scripts by their file
-  names and the word "error": another compiler's wording may be missed
-  (the script is then said to have made no compiled script). (S–M)
-  (from builders' reports after 1.14.1)
+- **The external compiler with `nwnsc`** (Options › Script Editor):
+  its line of arguments (`-q -y -o -n {game} -i {src} -b {out}
+  {files}`) is from its documentation, not run, and its messages are
+  matched to scripts by their file names and the word "error":
+  nwnsc's own wording, not seen, may be missed (the script is then
+  said to have made no compiled script). `nwn_script_comp` is tried
+  (its bytecode is the built-in compiler's, byte for byte). (S) (waits
+  on a copy of nwnsc: none is on the development machine) (from
+  builders' reports after 1.14.1)
 - **A project's script in the external editor** opens in place (the
   project's own `.nss`), and its saves come back by the reading of files
   changed outside, so not at all with that turned off in Options ›
@@ -164,13 +135,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   front, which for scripts in windows of their own (the tab in front
   not a script) is the one whose editor had the keyboard last. (S)
   (Jasperre's report, 2026-10-21)
-- **Help for block comments:** the comments directly above a
-  declaration, `//` lines and `/* … */` blocks, are its documentation;
-  a comment after code on the line above is taken too (`int a; // x`
-  documents what follows), and a `//` line's leading `*` (BioWare's
-  `// * text`) is kept in `mg lsp`'s hover, where a block's is not.
-  Struct members and local variables have none. (S) (Jasperre's report,
-  2026-10-21)
 - **Edit › Undo and the toolbar's Undo in a script** are the script's
   own while its editor has the keyboard, as Ctrl+Z is (the click on
   the menu or button counts as in it), say plain "Undo" and "Redo",
@@ -385,16 +349,10 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 ## Test loop
 
-- **`mg serve`** (the server from a terminal): a scratch user directory
-  is one for a module, so two servers of the same module at once share
-  it (name one with `--dir`); Ctrl+C ends `mg` at once, and the server
-  with it without its `exit` (its database is not closed in order); a
-  nasher project is packed as it is, its scripts not compiled first
-  (`mg compile` or `mg build` before); `--restart-on-change` looks at a
-  file's size and time twice a second, and at a folder six levels deep.
-  The server looks up Beamdog's master server at its start even when not
-  listed: `mg serve` does not cut its network off. Not tried on Windows
-  (the console on pipes, the links for haks). (S each)
+- **`mg serve` on Windows:** not tried there: the server's console on
+  pipes, the links for haks, and Ctrl+C (the server in a console
+  process group of its own, `CREATE_NEW_PROCESS_GROUP`, told to `exit`
+  by `mg`). (S) (waits on a Windows machine)
 - **`mg watch`** (a project followed into a development folder): the
   project is read whole again at each change, and looked at by its
   files' sizes and times some twice a second (no file-system
@@ -407,14 +365,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   again after a change (`mg test` is a run of its own). A test holds
   the `--serve` half on Linux (a change put out, the server started
   again at its port after a build, `/quit`). (M, S, S, M, S)
-- **`mg test`**: a result reported while no test is running (a delayed
-  assertion after its test ended, a module's own driver) goes under
-  "(outside a test)", since NWScript does not say which script is
-  running; a test that needs a player in the module has none (no client
-  is started); the module's own scripts are compiled only where they
-  have no compiled script (run `mg compile` first); `--driver none` (a
-  module that runs its tests itself) is held by a test, but was not
-  tried with NWNX. (S, M, S, S)
 - **Choose Character:** Test Module, Choose Character uses the game's
   `+LoadNewModule` (from nwn.wiki), never run in the game client. (S)
 - **Test Module and Steam:** the game started for a test is told which
@@ -781,20 +731,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   given music or variable), and its choice isn't kept as a named set.
   Advanced Search finds such areas (a variable, any field's value), but
   the chooser can't take what it found. (S–M)
-- **`mg areas`, what it doesn't set:** it sets fields, flags, variables,
-  grass and a lighting scheme (`--lighting-scheme`, with the tiles'
-  lights, as Aurora's Area Properties gives one: GitHub issue 6). Not
-  names, tags and comments, which are each area's own (Edit Areas
-  Together doesn't offer them either; `mg replace` changes text in
-  names); a name in one language would need a language to be given.
-  Nor list fields: an ARE's are its tiles, `Expansion_List` and
-  `VarTable` (variables, which `--var` sets, now in the GIT where the
-  game reads them); a tile's own lights, one by one, aren't set. A
-  `--dry-run` with a scheme lists picks of its own, not those a run then
-  makes. Give Every Area This Page's Visual Settings gives an area of
-  another scheme the first's tiles' lights picked anew; an area of the
-  same scheme keeps its own, and the first area's own picks aren't
-  copied tile by tile (the areas' tiles differ). (S)
 - **Lighting of one's own:** Saved Lighting and Copy From Area give an
   area the Visual page's fields; not the tiles' lights (each tile's
   own, as a scheme picks them at random from its colors), and lighting
@@ -3174,10 +3110,6 @@ of truth, and does each caller's difference matter.
   times; `PartNumbers::read` (`binary_write.rs:296`) walks nodes beside
   `Bin`. PLT coloring twice (`mg-render assets.rs:119`,
   `images.rs:221`).
-- In `mg`: JSON-lines events three ways (`serve`'s `ended` has `how`,
-  `watch`'s doesn't), `mg lsp` finds the user folder its own way
-  (`main.rs:1799`), `scratch_dir` twice (`test.rs:41`, `serve.rs:90`),
-  `--types` parsed twice (`search.rs:208`, `main.rs:2420`).
 - The grass mutations (`mg_module::grass` and `mg_area::grass`) agree
   now but are still two (the edits wanted by the area view against the
   module's mutations). (Making placeables static is one since
@@ -3823,3 +3755,31 @@ is not taken for a new gap.
   tabs by the keyboard): closing tabs together asks nothing of its own;
   only a hak's and a tileset's editors have work of their own to lose,
   and each asks for itself as it closes. (S) (Settled in the triage of 2026-10-28.)
+- **`mg test`'s results outside a test:** a result reported while no
+  test is running (a delayed assertion after its test ended, a
+  module's own driver) goes under "(outside a test)", since NWScript
+  does not say which script is running. (S) (Settled in the triage of 2026-10-28.)
+- **`mg serve --restart-on-change`** looks at a file's size and time
+  twice a second, and at a folder six levels deep (no file-system
+  notifications). (S) (Settled in the triage of 2026-10-28.)
+- **`mg serve` and Beamdog's master server:** the server looks the
+  master server up at its start even when not listed (`-publicserver
+  0`): `mg serve` does not cut its network off, which would take a
+  sandbox of its own. (S) (Settled in the triage of 2026-10-28.)
+- **An external compiler and what is remembered:** with an external
+  compiler chosen in the window, the window and `mg compile` (always
+  the built-in compiler) do not share what they remember of the
+  scripts they compiled: it holds for one compiler. (S) (Settled in the triage of 2026-10-28.)
+- **`nwnsc` and the haks' scripts:** scripts in haks reach
+  `nwn_script_comp` through `{haks}` (its `--erfs`); nwnsc has no such
+  option. (S) (Settled in the triage of 2026-10-28.)
+- **`mg areas`, what it doesn't set:** names, tags and comments, which
+  are each area's own (Edit Areas Together doesn't offer them either;
+  `mg replace` changes text in names; a name in one language would
+  need a language to be given), nor list fields one by one (an ARE's
+  tiles and `Expansion_List`: a tile's own lights aren't set;
+  variables are `--var`'s, in the GIT where the game reads them). Give
+  Every Area This Page's Visual Settings gives an area of another
+  scheme the first's tiles' lights picked anew; an area of the same
+  scheme keeps its own, and the first area's own picks aren't copied
+  tile by tile (the areas' tiles differ). (S) (Settled in the triage of 2026-10-28.)

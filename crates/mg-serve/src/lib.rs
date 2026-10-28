@@ -73,6 +73,11 @@ pub struct Options {
     pub env: Vec<(OsString, OsString)>,
     /// More arguments for the server, after Moonglow's.
     pub args: Vec<OsString>,
+    /// In a process group of its own (a console group, on Windows): the
+    /// terminal's Ctrl+C reaches the caller alone, which stops the server
+    /// itself (with `exit`, [`Server::stop`]). Only for a caller that
+    /// catches Ctrl+C: one that doesn't would leave the server running.
+    pub own_group: bool,
 }
 
 /// What the server is started with.
@@ -155,6 +160,18 @@ impl Server {
         command.envs(o.env.iter().map(|(k, v)| (k, v)));
         let pipe = |on: bool| if on { Stdio::piped() } else { Stdio::null() };
         command.stdin(pipe(o.console)).stdout(pipe(o.console)).stderr(Stdio::null());
+        if o.own_group {
+            #[cfg(unix)]
+            std::os::unix::process::CommandExt::process_group(&mut command, 0);
+            #[cfg(windows)]
+            {
+                const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+                std::os::windows::process::CommandExt::creation_flags(
+                    &mut command,
+                    CREATE_NEW_PROCESS_GROUP,
+                );
+            }
+        }
         let mut child = command.spawn()?;
         Ok(Server {
             stdin: child.stdin.take(),
