@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T12:16:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T21:48:08Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1370,8 +1370,24 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     its hour nor its day: not worked out. (S)
   - One uniform block per stage; a program with more, storage buffers,
     3D or array textures, or more than 16 textures a stage (wgpu's
-    default limit) falls back. A failure is reported once on stderr and
-    by `Renderer::game_shader_failures`, and (M2) in the log pane. (S)
+    default limit) falls back. A failure is reported once in the log
+    (the debug log, where Windows has no console), by
+    `Renderer::game_shader_failures`, and (M2) in the log pane. (S)
+  - **FXC can't compile the normal-mapped lit programs** (`fslit_nm`,
+    `fslit_sm_nm`, and a module's copies of them, as Heed's
+    `fhss_skintile`): X3511, their height-map loop reads a texture with
+    derivatives in a loop of a varying count, which FXC must unroll and
+    can't (`hlsl.rs` in the corpus tests, `KNOWN_FXC_FAILURES`, with
+    Microsoft's d3dcompiler_47.dll under Wine; 4 of the install's 38
+    distinct stages). Direct3D 12 compiles with FXC where it finds no
+    `dxcompiler.dll`, and Moonglow ships none: those meshes are drawn by
+    Moonglow's own shader there (the internal error is caught since
+    the release after 2.13.0, and logged). Left for a decision, as either way changes what
+    is drawn: reading the height map at an explicit level (or with
+    gradients taken before the loop) in the program given to Direct3D
+    12 alone, which would need comparing with the client; or shipping
+    DXC (`dxcompiler.dll`, and `WGPU_DX12_COMPILER` to take it), which
+    takes such a loop. (M) (Heed's report, 2026-10-28)
   - Not run on Windows or macOS (the renderer's CI branch): naga's
     `discard` from the game's `discard` on Metal, where a discarded
     fragment that runs on writes its depth (`a_shader_returns_where_it_discards`
@@ -1386,7 +1402,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     the client copies again after the water (a see-through mesh or a
     particle over water sees the solid meshes only) wasn't read; without
     the targets' copies (`Renderer::render`) they are white. Direct3D 12
-    and Metal not yet run in CI (step 5). (S)
+    and Metal run in CI since (`the_framebuffer_s_copies_are_read_as_opengl_reads_them`
+    passed in 2.13.0's run on both). (S)
   - **An instance drawn see-through** (a blueprint about to be placed, a
     tile preview) draws with Moonglow's shader even when its material
     names a pair: the ghost would need a depth-only pipeline of the game's
@@ -1445,10 +1462,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     by its box grown by `MOVED` (1 m): TDoD's grass lifted by
     `fTilesetMeshOffsetZ` (2 m) could be blended in another order where
     it reaches past it. Its MTR's parameters could say how far. (S)
-  - **Renderer changes not yet on Direct3D 12 and Metal:** meshes in
-    shared buffers drawn at a base vertex, the game's groups in another
-    order and one group of the draws' values for every pipeline, textures
-    read on threads. Need a CI run on a branch. (S)
   - **An area changes its look a moment after it opens**, the first time
     its programs are compiled (stock: 50–113 ms of the worker's; TDoD:
     250–277 ms) and, with them cached, while naga reads them and the
@@ -2474,24 +2487,44 @@ contribution itself states as not done or not checked.
   Windows 10 drawing nothing of an area through Direct3D 12, right
   through Vulkan). Automatic keeps Direct3D 12 first for AMD on Windows;
   the startup check (`mg_render::probe`) takes the other backend where
-  it draws nothing, and the area view's watch (`mg_render::watch`)
-  offers Restart with … where drawing collapses later. Neither case was
-  reproduced: both are imitated with `guard::blank_draws`. Left over:
-  - Heed's machine: that the startup check fails Direct3D 12 there and
-    Moonglow opens on Vulkan (the log says so), or, if the check
-    passes, that the watch's notice appears in an area and Restart with
-    Vulkan draws it. (S, needs the builder)
-  - El Grillo's machine: that Automatic stays on Direct3D 12 and draws
-    there, and, on Vulkan chosen in Options, that the watch's notice
-    appears as the tiles go. The owner decides Automatic's order after
-    both. (S, needs the builder)
+  it draws nothing, the lit check (`probe::probe_lit`, once the game's
+  data is read) checks a lit, textured mesh by Moonglow's own shader and
+  by the game's, and the area view's watch (`mg_render::watch`) offers
+  Restart with … where drawing collapses later. Neither case was
+  reproduced: each is imitated (`guard::blank_draws`, `fail_on`,
+  `fail_program`, `stall_textures`). Left over:
+  - Heed's machine: 2.13.0 drew nothing there through Direct3D 12 on
+    Automatic and neither check said so (2026-10-28). What could get
+    past them was closed after 2.13.0 (frames that never get ready are
+    judged after 20 s with nothing finished; tiles whose models failed
+    are expected; a look the GPU doesn't give back is given up; the
+    pipelines' internal errors are caught, the FXC failures above among
+    them; the lit check; the watch writes what it sees to the debug
+    log). The startup check passed there and draws unlit meshes alone,
+    so Moonglow's own unlit pipelines draw on that driver; why the rest
+    doesn't is not known. Waiting on Heed, with the next release: the session's
+    debug log (`%APPDATA%\Moonglow\logs`: its `graphics` and
+    `graphics watch` lines, and any `[WARN` or `[ERROR` ones), any
+    `crash-*.txt` or `model-failure-*.txt` in `%APPDATA%\Moonglow` from
+    2.13.0 and the next (2.13.0 wrote one where FXC failed a program, as a
+    crash though it went on), whether a notice appeared, and whether the
+    area is drawn with the Shaders button off on Direct3D 12. (S, needs
+    the builder)
+  - El Grillo's machine: 2.13.0 renders well on his Radeon PRO
+    (2026-10-28), on Automatic's Direct3D 12: that confirms Direct3D 12
+    there, not the watch on his Vulkan case. Waiting on him: Vulkan
+    chosen in Options, whether the watch's notice appears as the tiles
+    go. The owner decides Automatic's order after both. (S, needs the
+    builder)
   - Why AMD's Vulkan driver loses the tiles isn't known: Moonglow's use
     of Vulkan may be at fault (a validation run on that driver would
     say), nor why Heed's Direct3D 12 draws nothing, and nothing was
     reported to AMD. Until then every AMD GPU on Windows takes Direct3D 12
-    first, whose renderer changes since 2.8.0 are not
-    all run there (Rendering: **Renderer changes not yet on Direct3D 12
-    and Metal**). (M, needs the hardware)
+    first (the renderer's tests run there on CI, through Microsoft's
+    Basic Render Driver, and Metal on Apple's Paravirtual device: the
+    2.13.0 run drew the shared buffers at a base vertex, textures read
+    on threads, the game's programs written for the tests and the
+    framebuffer's copies). (M, needs the hardware)
   - The window's adapter is chosen by Moonglow (egui-wgpu's adapter
     selector), which leaves wgpu's power preference and surface check
     to it: `pick_adapter` repeats wgpu 30's order of adapter kinds and
