@@ -37,32 +37,17 @@ fn file(dir: Option<&std::path::Path>, name: &str) -> Result<PathBuf, String> {
 
 /// Deletes a prefab's file: its text, to put it back with [`restore`].
 pub fn delete(dir: Option<&std::path::Path>, name: &str) -> Result<String, String> {
-    let path = file(dir, name)?;
-    let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-    std::fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-    Ok(text)
+    SHELF.delete(dir, name)
 }
 
 /// Puts a deleted prefab back, unless one of its name was saved since.
 pub fn restore(dir: Option<&std::path::Path>, name: &str, text: &str) -> Result<(), String> {
-    let path = file(dir, name)?;
-    if path.exists() {
-        return Err(format!("there is a prefab named '{name}' again"));
-    }
-    std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))
+    SHELF.restore(dir, name, text)
 }
 
 /// Gives a prefab another name. A name another prefab has is refused.
 pub fn rename(dir: Option<&std::path::Path>, from: &str, to: &str) -> Result<(), String> {
-    let (old, new) = (file(dir, from)?, file(dir, to)?);
-    if from.trim() == to.trim() {
-        return Ok(());
-    }
-    // (A change of case alone is the same file where names ignore case.)
-    if new.exists() && !from.trim().eq_ignore_ascii_case(to.trim()) {
-        return Err(format!("there is a prefab named '{}' already", to.trim()));
-    }
-    std::fs::rename(&old, &new).map_err(|e| format!("{}: {e}", old.display()))
+    SHELF.rename(dir, from, to)
 }
 
 /// What a prefab holds, in a line or two: how many objects of each kind,

@@ -1846,6 +1846,109 @@ fn variable_sets_are_saved_and_added_elsewhere() {
     assert_eq!(vars, [("MG_LOOT".to_string(), Some(3)), ("MG_SAY".to_string(), None)]);
 }
 
+/// Add Set's menu manages the saved sets (renamed, deleted and put back,
+/// their folder opened) and saves and adds sets in files anywhere.
+#[test]
+fn variable_sets_are_managed_and_kept_in_files_of_ones_choosing() {
+    use mg_ui::widgets::VarRow;
+    let Some((mut h, _)) = blueprint_harness("nw_waypoint001", "waypoint_sets", ResType::UTW)
+    else {
+        return;
+    };
+    let scratch = mg_testkit::scratch_dir("ui-var-sets-manage");
+    let sets = scratch.join("sets");
+    mg_ui::var_sets::save(&sets, "Loot", &[VarRow::new("MG_LOOT", 1, "3")]).unwrap();
+    mg_ui::var_sets::save(&sets, "Doors", &[VarRow::new("MG_LOCKED", 1, "1")]).unwrap();
+    h.state_mut().var_set_dir = Some(sets.clone());
+    h.run();
+    h.get_by_label("Advanced").click();
+    h.run();
+    h.get_by_label("Variables (0)…").click();
+    h.run();
+    // The menu: the sets, then what is done with sets.
+    h.get_by_label("Add Set").click();
+    h.run();
+    for label in ["Doors", "Loot", "Add from File…", "Manage Sets…", "Open Sets Folder"] {
+        assert!(h.query_by_label(label).is_some(), "{label}");
+    }
+    h.get_by_label("Manage Sets…").click();
+    h.run();
+    assert!(h.query_by_label("Add from File…").is_none(), "the menu closed");
+    assert!(h.query_by_label_contains(&sets.display().to_string()).is_some(), "the folder");
+    // Rename… Loot (the second): refused over Doors and a name that isn't
+    // a file's, then renamed.
+    h.get_all_by_label("Rename…").nth(1).unwrap().click();
+    h.run();
+    let renaming = |h: &mut Harness<'_, Moonglow>, to: &str| {
+        let w = h.state_mut().var_edit.as_mut().unwrap().sets.as_mut().unwrap();
+        assert_eq!(w.renaming.as_ref().map(|(n, _)| n.as_str()), Some("Loot"));
+        w.renaming = Some(("Loot".into(), to.into()));
+    };
+    renaming(&mut h, "doors");
+    h.run();
+    assert!(h.query_by_label("Another set has that name").is_some());
+    assert!(h.get_by_label("Rename").accesskit_node().is_disabled());
+    renaming(&mut h, "../Loot");
+    h.run();
+    assert!(h.query_by_label_contains("Letters, digits").is_some());
+    assert!(h.get_by_label("Rename").accesskit_node().is_disabled());
+    renaming(&mut h, "Treasure");
+    h.run();
+    h.get_by_label("Rename").click();
+    h.run();
+    assert_eq!(mg_ui::var_sets::list(Some(&sets)), ["Doors", "Treasure"]);
+    // Deleted, and put back.
+    h.get_all_by_label("Delete").next().unwrap().click();
+    h.run();
+    assert_eq!(mg_ui::var_sets::list(Some(&sets)), ["Treasure"]);
+    h.get_by_label("Undo Delete").click();
+    h.run();
+    assert_eq!(mg_ui::var_sets::list(Some(&sets)), ["Doors", "Treasure"]);
+    assert_eq!(mg_ui::var_sets::load(&sets, "Doors").unwrap()[0].name, "MG_LOCKED");
+    h.get_all_by_label("Close").last().unwrap().click();
+    h.run();
+    assert!(h.state().var_edit.as_ref().unwrap().sets.is_none(), "closed");
+    // Save to File…: where the dialog says.
+    h.state_mut().var_edit.as_mut().unwrap().rows.push(VarRow::new("MG_LOOT", 1, "9"));
+    h.run();
+    let file = scratch.join("elsewhere").join("chest.vars.json");
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    h.state_mut().dialogs =
+        Box::new(mg_ui::NoDialogs { save: vec![file.clone()], ..Default::default() });
+    h.get_by_label("Save to File…").click();
+    h.run();
+    let saved = mg_ui::var_sets::load_file(&file).unwrap();
+    assert_eq!(
+        saved.iter().map(|r| (r.name.as_str(), r.value.as_str())).collect::<Vec<_>>(),
+        [("MG_LOOT", "9")]
+    );
+    // Add from File…: merged as Add Set does.
+    std::fs::write(
+        &file,
+        "{\"variables\": [{\"name\": \"MG_LOOT\", \"type\": \"int\", \"value\": 5}, \
+         {\"name\": \"MG_SAY\", \"type\": \"string\", \"value\": \"Hail\"}]}",
+    )
+    .unwrap();
+    h.state_mut().dialogs = Box::new(mg_ui::NoDialogs { open: vec![file], ..Default::default() });
+    h.get_by_label("Add Set").click();
+    h.run();
+    h.get_by_label("Add from File…").click();
+    h.run();
+    let rows = &h.state().var_edit.as_ref().unwrap().rows;
+    assert_eq!(
+        rows.iter().map(|r| (r.name.as_str(), r.kind, r.value.as_str())).collect::<Vec<_>>(),
+        [("MG_LOOT", 1, "5"), ("MG_SAY", 3, "Hail")]
+    );
+    // Open Sets Folder makes the folder when it isn't there yet.
+    let fresh = scratch.join("fresh");
+    h.state_mut().var_set_dir = Some(fresh.clone());
+    h.get_by_label("Add Set").click();
+    h.run();
+    h.get_by_label("Open Sets Folder").click();
+    h.run();
+    assert!(fresh.is_dir());
+}
+
 #[test]
 fn script_sets_save_and_load() {
     let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_scripts", ResType::UTC)
