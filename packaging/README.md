@@ -145,8 +145,12 @@ DXC is under the University of Illinois/NCSA Open Source License
 to ship with a GPL-3.0 program. `THIRD-PARTY-LICENSES.txt` has both texts,
 from the zip, and the repository's `ThirdPartyNotices.txt` at the tag
 (`windows/dxc/`, for what DXC incorporates; `third_party_licenses.py
---dxc`). The zip's `LICENSE-MS.txt` is Microsoft's proprietary license
-for what is closed in it (`dxil.dll`, the validator), which isn't shipped.
+--dxc`). The zip also holds `LICENSE-MS.txt`, a proprietary Microsoft
+license that names no file. It is read here as covering what is closed in
+the zip (`dxil.dll`, the validator, built apart from the open source the
+repository's README puts under NCSA), which isn't shipped. That reading
+is an inference, not a statement in the zip: the owner was asked to
+confirm it.
 
 A newer DXC: change the tag, the zip's name and its hash in `windows/dxc.ps1`
 (the hash is the release asset's digest on GitHub; check it against the
