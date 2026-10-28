@@ -329,7 +329,10 @@ ordinary code to change. **Event script…** on the toolbar opens the whole
 script. **Remove** takes the handler away; what you wrote in it stays in the
 script, commented out after `main`, and comes back if you add the handler again.
 Code at the top section (between `// mg:begin top` and its `// mg:end`) is the
-place for `#include` lines and helper functions.
+place for `#include` lines and helper functions. When the script's editor
+holds unsaved text as the Creator writes into it (Insert…, a handler added
+or removed), that text is stored first, as a step of its own: **Undo**
+takes back what the Creator wrote and leaves what you typed.
 
 ### One event script for several windows
 

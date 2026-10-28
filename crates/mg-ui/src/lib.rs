@@ -2836,6 +2836,8 @@ impl Moonglow {
         self.area_contents.clear();
         self.dialog_views.clear();
         self.nui_views.clear();
+        self.nui_build_error = None;
+        self.new_nui = None;
         self.laid_out.clear();
         self.tile_props = None;
         self.area_stats = None;

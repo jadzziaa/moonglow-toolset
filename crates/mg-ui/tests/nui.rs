@@ -398,6 +398,42 @@ fn edit_code_leaves_a_script_written_by_hand_as_it_is() {
     assert!(h.state().dock.find_tab(&Tab::Script(script)).is_some());
 }
 
+/// Code the Creator writes into an event script whose editor holds unsaved
+/// text goes in after that text is stored, as a step of its own: Undo takes
+/// back what the Creator wrote and leaves what was typed, then that.
+#[test]
+fn the_creator_writes_into_an_event_script_typed_in_after_storing_what_was_typed() {
+    let mut h = harness();
+    let script = ResKey::parse("nui_test_e", ResType::NSS).unwrap();
+    h.get_by_label("Canvas Button · Close").click();
+    h.run();
+    h.get_by_label("Edit code").click();
+    h.run();
+    let written = text(h.state(), script);
+    let at = mg_nui::handler_offset(&written, "click mg_close").unwrap();
+    h.state_mut().script_tools.jump = Some((script, at));
+    h.run();
+    h.event(egui::Event::Text("int nTyped = 1; ".into()));
+    h.run();
+    let typed = h.state().script_text(script).unwrap();
+    assert!(typed.contains("int nTyped = 1; ") && typed != written, "{typed}");
+    assert_eq!(text(h.state(), script), written, "typed, not saved");
+    close_script(&mut h, script);
+    h.get_by_label("Insert…").click();
+    h.run();
+    h.get_by_label("Close window").click();
+    h.run();
+    let now = text(h.state(), script);
+    assert!(now.contains("int nTyped = 1; "), "what was typed is kept: {now}");
+    assert_eq!(now.matches("NuiDestroy(oPlayer, nToken);").count(), 2, "{now}");
+    assert_eq!(h.state().script_text(script).as_deref(), Some(now.as_str()), "the editor shows it");
+    // One Undo takes back the insert, the next what was typed.
+    undo(&mut h);
+    assert_eq!(text(h.state(), script), typed);
+    undo(&mut h);
+    assert_eq!(text(h.state(), script), written);
+}
+
 #[test]
 fn add_property_adds_a_color_and_a_window_s_size_limits() {
     let mut h = harness();
@@ -784,6 +820,25 @@ fn two_nui_windows_are_tabs_of_one_window() {
     assert_eq!(a.node_path(), b.node_path());
 }
 
+/// A Build that failed is said by the window's Build button until the next
+/// Build, in its module only: a window of the same name in the module
+/// opened next is not said to have failed.
+#[test]
+fn a_failed_build_is_not_said_of_the_next_module_s_window() {
+    let mut h = harness();
+    // (No game: the build fails.)
+    h.state_mut().run(Action::GenerateNui { name: "nui_test".into(), export: false });
+    h.run();
+    assert!(h.query_by_label("Build failed").is_some());
+    h.state_mut().close();
+    h.state_mut().ws = Some(mg_edit::Workspace::new(mg_module::Module::new()));
+    h.state_mut().run(Action::NewNui("nui_test".into()));
+    h.run();
+    h.run();
+    assert!(h.state().dock.find_tab(&Tab::Nui(key())).is_some());
+    assert!(h.query_by_label("Build failed").is_none());
+}
+
 /// Deleting a window takes its settings and its scripts with it, as one
 /// step; a text of the same name that is not its settings stays.
 #[test]
@@ -809,6 +864,36 @@ fn deleting_a_window_takes_its_settings_and_scripts() {
     module.set(notes, b"not settings".to_vec());
     app.run(Action::DeleteResource(ResKey::parse("notes", ResType::JUI).unwrap()));
     assert!(app.ws.as_ref().unwrap().module.contains(&notes));
+}
+
+/// Delete… on a window whose event script has unsaved text in its editor
+/// says so, and Undo brings the script back as it was typed.
+#[test]
+fn deleting_a_window_says_its_script_s_unsaved_text_and_undo_brings_it_back() {
+    let mut h = harness();
+    let script = ResKey::parse("nui_test_e", ResType::NSS).unwrap();
+    h.get_by_label("Canvas Button · Close").click();
+    h.run();
+    h.get_by_label("Edit code").click();
+    h.run();
+    h.state_mut().script_tools.jump = Some((script, 0));
+    h.run();
+    h.event(egui::Event::Text("// typed\n".into()));
+    h.run();
+    let typed = h.state().script_text(script).unwrap();
+    assert!(typed.starts_with("// typed\n"), "{typed}");
+    h.state_mut().run(Action::DeleteDialog(key()));
+    h.run();
+    assert!(h.query_by_label_contains("with its settings and its scripts?").is_some());
+    h.get_by_label_contains("nui_test_e.nss has unsaved text in its editor");
+    h.get_by_label("Delete").click();
+    h.run();
+    let module = |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().module.clone();
+    assert!(!module(&h).contains(&key()) && !module(&h).contains(&script));
+    assert!(h.state().dock.find_tab(&Tab::Script(script)).is_none());
+    undo(&mut h);
+    assert!(module(&h).contains(&key()));
+    assert_eq!(text(h.state(), script), typed);
 }
 
 /// Cancel after a Build sets back what Build made with the settings that

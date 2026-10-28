@@ -394,6 +394,23 @@ impl Moonglow {
             self.log.warn(why);
             return;
         }
+        // A script going with it whose editor holds unsaved text: the text
+        // is stored first, a step of its own, so that Undo brings the
+        // script back as it was typed.
+        let unsaved = self.unsaved_with(key);
+        if !unsaved.is_empty() {
+            let edits = unsaved
+                .iter()
+                .filter_map(|k| {
+                    let data = Some(self.scripts.get_mut(k)?.mark_saved());
+                    Some(Edit::SetResource { key: *k, data })
+                })
+                .collect();
+            if let Err(e) = self.apply(Command::new(format!("Edit {}", unsaved[0]), edits)) {
+                self.log.error(e.to_string());
+                return;
+            }
+        }
         let Some(ws) = self.ws.as_mut() else { return };
         let with: &[ResType] = match key.restype {
             ResType::ARE => &[ResType::GIT, ResType::GIC],
@@ -441,6 +458,19 @@ impl Moonglow {
         if let Some(area) = area {
             self.area_views.remove(&area);
         }
+    }
+
+    /// The scripts that deleting `key` takes (a script itself, a NUI
+    /// window's two) whose editors hold unsaved text.
+    pub(crate) fn unsaved_with(&self, key: ResKey) -> Vec<ResKey> {
+        let Some(ws) = &self.ws else { return Vec::new() };
+        let mut scripts = crate::nui_view::companions(&ws.module, key);
+        scripts.push(key);
+        scripts.retain(|k| {
+            k.restype == ResType::NSS && self.scripts.get(k).is_some_and(|b| b.is_dirty())
+        });
+        scripts.sort();
+        scripts
     }
 
     /// Opens what a usage names, at the place.
@@ -693,6 +723,12 @@ fn places(n: usize) -> String {
 pub(crate) fn delete_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(key) = app.confirm_delete else { return };
     let why_not = app.undeletable(key);
+    let unsaved = app.unsaved_with(key);
+    let window = key.restype == ResType::JUI
+        && app
+            .ws
+            .as_ref()
+            .is_some_and(|ws| !crate::nui_view::companions(&ws.module, key).is_empty());
     let mut open = true;
     egui::Window::new("Delete from Module")
         .collapsible(false)
@@ -711,8 +747,25 @@ pub(crate) fn delete_window(app: &mut Moonglow, ctx: &egui::Context) {
                     format!("Delete the area {} and everything placed in it?", key.resref)
                 }
                 ResType::NSS => format!("Delete {key} and its compiled script?"),
+                ResType::JUI if window => {
+                    format!("Delete the NUI window {key} with its settings and its scripts?")
+                }
                 _ => format!("Delete {key}?"),
             });
+            if !unsaved.is_empty() {
+                let names: Vec<String> = unsaved.iter().map(ToString::to_string).collect();
+                ui.colored_label(
+                    ui.visuals().warn_fg_color,
+                    format!(
+                        "{} {} unsaved text in {}: {} deleted as typed, and the {} closed.",
+                        names.join(" and "),
+                        if unsaved.len() == 1 { "has" } else { "have" },
+                        if unsaved.len() == 1 { "its editor" } else { "their editors" },
+                        if unsaved.len() == 1 { "it is" } else { "they are" },
+                        if unsaved.len() == 1 { "editor" } else { "editors" },
+                    ),
+                );
+            }
             ui.weak("Edit › Undo brings it back.");
             ui.horizontal(|ui| {
                 if ui.button("Delete").clicked() {

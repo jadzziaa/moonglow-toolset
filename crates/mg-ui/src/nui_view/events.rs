@@ -45,11 +45,23 @@ fn current_codepage(app: &Moonglow, key: &ResKey) -> mg_core::Codepage {
         .map_or_else(crate::text::script_codepage, |b| b.codepage)
 }
 
-/// The script's new text as an edit, or into an editor holding unsaved work.
+/// The script's new text as an edit. An editor holding unsaved text has it
+/// stored first, as a step of its own (as Build stores it), so that Undo
+/// takes back what the Creator wrote and leaves what was typed; the
+/// editor, saved, shows the script as the edit leaves it.
 fn write_script(app: &mut Moonglow, key: ResKey, text: String) -> Option<Edit> {
     if let Some(buf) = app.scripts.get_mut(&key).filter(|b| b.is_dirty()) {
+        let typed = Some(buf.mark_saved());
+        // (In the file's line ends and codepage, as the editor saves it.)
         buf.text = text;
-        return None;
+        let data = Some(buf.mark_saved());
+        let store =
+            Command::new(format!("Edit {key}"), vec![Edit::SetResource { key, data: typed }]);
+        if let Err(e) = app.apply(store) {
+            app.log.error(e.to_string());
+            return None;
+        }
+        return Some(Edit::SetResource { key, data });
     }
     Some(Edit::SetResource { key, data: Some(crate::text::encode_script(&text)) })
 }
