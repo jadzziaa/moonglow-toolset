@@ -738,7 +738,9 @@ fn places(glob: &str) -> Vec<Place> {
             }
             '?' => Place::One(None),
             '[' => {
-                let not = chars.next_if(|c| *c == '!' || *c == '^').is_some();
+                // (`[!a]` is the negation; `[^a]` takes `^`, as the
+                // glob's regex has it.)
+                let not = chars.next_if(|c| *c == '!').is_some();
                 let mut set: Vec<char> = Vec::new();
                 while let Some(c) = chars.next() {
                     if c == ']' && !set.is_empty() {

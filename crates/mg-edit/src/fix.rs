@@ -125,7 +125,7 @@ fn doctor_fix_with(module: &Module, f: &Finding, seen: &mut Seen) -> Option<Fix>
         }
         "area-variables" => move_variables_fix(module, f.resource),
         "var-runtime" => remove_variable_fix(module, f, nth),
-        "static-transform" => untransform_fix(module, f),
+        "static-transform" => untransform_fix(module, f, nth),
         _ => None,
     }
 }
@@ -152,17 +152,21 @@ fn remove_variable_fix(module: &Module, f: &Finding, nth: usize) -> Option<Fix> 
 }
 
 /// `static-transform`: the static placeable's visual transform off, as
-/// ticking Static takes it off ([`mg_module::areas::static_fields`]).
-fn untransform_fix(module: &Module, f: &Finding) -> Option<Fix> {
+/// ticking Static takes it off ([`mg_module::areas::static_fields`]): the
+/// `nth` of those the finding's place names (placeables of one tag are
+/// said alike).
+fn untransform_fix(module: &Module, f: &Finding, nth: usize) -> Option<Fix> {
     if f.resource.restype != ResType::GIT {
         return None;
     }
     let gff = module.gff(&f.resource)?.ok()?;
     let list = gff.root.list("Placeable List")?;
-    let at = (0..list.len()).find(|i| {
-        let path = format!("/Placeable List[{i}]/Static");
-        mg_module::rename::describe(f.resource, Some(&gff), &path) == f.at
-    })?;
+    let at = (0..list.len())
+        .filter(|i| {
+            let path = format!("/Placeable List[{i}]/Static");
+            mg_module::rename::describe(f.resource, Some(&gff), &path) == f.at
+        })
+        .nth(nth)?;
     let path = GffPath::root().item("Placeable List", at);
     let edits: Vec<Edit> = mg_module::areas::static_fields(&list[at])
         .into_iter()
@@ -673,15 +677,22 @@ mod tests {
         };
         let git = key("mill.git");
         let mut g = m.gff(&git).unwrap().unwrap();
+        // (Two of one tag, said alike: each fix its own.)
         g.root.set(
             "Placeable List",
-            Value::List(vec![tagged("PLAIN"), transformed("MIRROR"), transformed("LAMP")]),
+            Value::List(vec![
+                tagged("PLAIN"),
+                transformed("MIRROR"),
+                transformed("LAMP"),
+                transformed("LAMP"),
+            ]),
         );
         m.set_gff(git, &g).unwrap();
         let (found, mut ws) = fixed(m, "static-transform");
         let labels: Vec<_> =
             found.iter().map(|f| f.fix.as_ref().map(|f| f.label.as_str())).collect();
-        assert_eq!(labels, [Some(TAKE_TRANSFORM_OFF), Some(TAKE_TRANSFORM_OFF)]);
+        assert_eq!(labels, [Some(TAKE_TRANSFORM_OFF); 3]);
+        assert_eq!(found[1].finding.at, found[2].finding.at);
         let list = ws.doc(&git).unwrap().root.list("Placeable List").unwrap().to_vec();
         assert!(list.iter().all(|p| !p.contains("VisTransformList")), "{list:?}");
         assert_eq!(list[1].integer("Static"), Some(1), "still static");
