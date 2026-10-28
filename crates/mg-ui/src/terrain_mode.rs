@@ -271,7 +271,7 @@ pub(crate) fn tool_keys(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) 
         return;
     }
     // As a click on its row in the palette.
-    let label = tool_label(app, tileset, brush);
+    let label = tool_label(app, view, brush);
     let on = app.palette.tile_brush.as_ref().is_some_and(|b| b.label == label && b.brush == brush);
     app.palette.tile_brush =
         (!on).then(|| TileBrush { tileset, label, brush, target, exact: false });
@@ -315,8 +315,9 @@ fn tool_key_names(app: &Moonglow, ctx: &egui::Context) -> Vec<(Brush, String)> {
 }
 
 /// The name of a tile tool's row in the tiles palette (the Eraser's is
-/// the tileset palette's own, where it has been read).
-fn tool_label(app: &Moonglow, tileset: ResRef, brush: Brush) -> String {
+/// the tileset palette's own, in the game's language: read here if the
+/// palette has not been shown yet).
+fn tool_label(app: &mut Moonglow, view: &AreaView, brush: Brush) -> String {
     fn find(items: &[PaletteItem], brush: Brush) -> Option<&str> {
         items.iter().find_map(|i| match i {
             PaletteItem::Brush { label, brush: b } if *b == brush => Some(label.as_str()),
@@ -327,12 +328,16 @@ fn tool_label(app: &Moonglow, tileset: ResRef, brush: Brush) -> String {
     if let Some((label, _)) = TOOLS.iter().find(|(_, b)| *b == brush) {
         return (*label).to_string();
     }
-    app.palette
-        .tile_palettes
-        .get(&tileset)
-        .and_then(|p| find(&p.branches, brush))
-        .unwrap_or("Eraser")
-        .to_string()
+    let Some(tools) = view.terrain.as_ref() else { return "Eraser".into() };
+    let palette = match app.palette.tile_palettes.get(&tools.tileset) {
+        Some(p) => Some(p.clone()),
+        None => app.game.as_deref().map(|game| {
+            let p = Arc::new(TilesetPalette::read(game, tools.tileset, &tools.set, &tools.index));
+            app.palette.tile_palettes.insert(tools.tileset, p.clone());
+            p
+        }),
+    };
+    palette.as_ref().and_then(|p| find(&p.branches, brush)).unwrap_or("Eraser").to_string()
 }
 
 /// The tiles palette's Exact tile switch's name.

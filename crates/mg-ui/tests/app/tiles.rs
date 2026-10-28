@@ -2147,6 +2147,29 @@ fn refine_eraser_and_the_tile_tools_keys_act_on_the_selected_tiles() {
     assert_eq!(grid(&mut h), placed, "nothing changed by choosing");
 }
 
+/// The Eraser's key before the Tiles palette was ever shown: the brush
+/// chosen is the palette's own Eraser (its name, as the palette reads it
+/// from the game's strings), so its row shows it chosen.
+#[test]
+fn the_eraser_s_key_chooses_the_palette_s_eraser() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("eraser-key") else { return };
+    h.hover_at(screen(&h, area, Vec3::new(25.0, 25.0, 0.0)));
+    h.run_steps(1);
+    h.key_press(egui::Key::X);
+    h.run_steps(3);
+    let brush = h.state().palette.tile_brush.clone().expect("chosen");
+    assert_eq!(brush.brush, mg_area::terrain::Brush::Eraser);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    palette_type(&mut h, "🗻", "Tiles");
+    h.run_steps(2);
+    let name = format!("🗑 {}", brush.label);
+    let row = h.get_by_label(&name);
+    let chosen = Some(egui::accesskit::Toggled::True);
+    assert_eq!(row.accesskit_node().toggled(), chosen, "its row shows it chosen");
+}
+
 /// Tile Properties' variants' pictures take their size from their
 /// slider's setting, kept in the settings (a builder's tile feedback:
 /// tiles much alike couldn't be told apart small).

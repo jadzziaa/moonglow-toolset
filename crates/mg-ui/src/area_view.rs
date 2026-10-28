@@ -3550,7 +3550,9 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         }
     }
     // The tile tools' keys: on the tiles selected, or the tool chosen.
-    if !typing && response.hovered() && !app.paint {
+    // (Not while a tree goes to its lines by letters, as the camera's.)
+    if !typing && response.hovered() && !app.paint && !crate::palette_view::letters_taken(ui.ctx())
+    {
         crate::terrain_mode::tool_keys(app, ui, view);
     }
     if crate::terrain_mode::input(app, ui, view, response) {
