@@ -68,6 +68,10 @@ const LIGHTINGS: [Shadows; 6] = [
 /// How far a darkening of Moonglow's may be from the client's.
 const TOLERANCE: f32 = 0.08;
 
+/// Where `MG_SHADOW_CREATURE`'s creature stands: between the pairs, its
+/// shadow falling on the floor towards the left pair.
+const CREATURE_AT: [f32; 3] = [19.8, 22.6, 0.0];
+
 /// The armoires: where (x, y), and whether static.
 const ARMOIRES: [(f32, f32, bool); 4] =
     [(17.0, 24.5, false), (16.0, 23.4, false), (23.0, 24.5, false), (22.0, 23.4, true)];
@@ -79,10 +83,27 @@ const FLOOR_SHADOW: [f32; 4] = [0.288, 0.449, 0.317, 0.469];
 const FLOOR_LIT: [f32; 4] = [0.371, 0.449, 0.410, 0.469];
 const FACE_DYNAMIC: [f32; 4] = [0.317, 0.371, 0.361, 0.423];
 const FACE_STATIC: [f32; 4] = [0.557, 0.371, 0.601, 0.423];
+/// `MG_SHADOW_CREATURE`'s ogre's shadow on the floor (nw_ogre01, picked
+/// on the client's pictures) and the lit floor east of it.
+const CREATURE_SHADOW: [f32; 4] = [0.425, 0.49, 0.455, 0.515];
+const CREATURE_LIT: [f32; 4] = [0.53, 0.49, 0.56, 0.515];
 
 /// The client's settings for the comparison with its shadows on.
 pub(super) fn settings() -> String {
     grassy_settings(false)
+}
+
+/// `MG_CREATURE_SHADOWS`: the client's Creature Shadow Detail (0 Off, 1
+/// Fast, 2 Best, the default).
+fn creature_mode() -> u8 {
+    std::env::var("MG_CREATURE_SHADOWS").ok().and_then(|m| m.parse().ok()).unwrap_or(2)
+}
+
+/// `MG_SHADOW_CREATURE`: a creature blueprint of the game's placed among
+/// the armoires (where the player stands, 2 m north), its scripts taken
+/// away so that it stands still.
+fn creature() -> Option<String> {
+    std::env::var("MG_SHADOW_CREATURE").ok().filter(|c| !c.is_empty())
 }
 
 /// [`settings`], with the client's grass where `grass` (its default, mode
@@ -96,7 +117,7 @@ fn grassy_settings(grass: bool) -> String {
     settings
         .replace(
             "[graphics.shadows.creatures]\n\t\t\tmode = 0",
-            "[graphics.shadows.creatures]\n\t\t\tmode = 2",
+            &format!("[graphics.shadows.creatures]\n\t\t\tmode = {}", creature_mode()),
         )
         .replace(
             "[graphics.shadows.environment]\n\t\t\tenabled = false",
@@ -110,18 +131,24 @@ fn brightness(img: &Rgba, r: [f32; 4]) -> f32 {
     (m[0] + m[1] + m[2]) / 3.0
 }
 
-/// A picture's two ratios: the shadowed floor's brightness over the lit
-/// floor's, the static face's over the dynamic one's.
-fn ratios(img: &Rgba) -> [f32; 2] {
+/// A picture's ratios: the shadowed floor's brightness over the lit
+/// floor's, the static face's over the dynamic one's, the floor in the
+/// creature's shadow over the lit floor beside it.
+fn ratios(img: &Rgba) -> [f32; 3] {
     let over = |a: [f32; 4], b: [f32; 4]| brightness(img, a) / brightness(img, b).max(1e-3);
-    [over(FLOOR_SHADOW, FLOOR_LIT), over(FACE_STATIC, FACE_DYNAMIC)]
+    [
+        over(FLOOR_SHADOW, FLOOR_LIT),
+        over(FACE_STATIC, FACE_DYNAMIC),
+        over(CREATURE_SHADOW, CREATURE_LIT),
+    ]
 }
 
-/// How much a picture's shadows darken the floor and the static face: 1
-/// less its ratios over those of the picture with none.
-fn darkening(img: &Rgba, none: [f32; 2]) -> [f32; 2] {
+/// How much a picture's shadows darken the floor, the static face and the
+/// floor under the creature's shadow: 1 less its ratios over those of the
+/// picture with none.
+fn darkening(img: &Rgba, none: [f32; 3]) -> [f32; 3] {
     let r = ratios(img);
-    [1.0 - r[0] / none[0], 1.0 - r[1] / none[1]]
+    std::array::from_fn(|i| 1.0 - r[i] / none[i])
 }
 
 /// The area of `tileset` lit as `s` says, with the armoires, saved as the
@@ -160,6 +187,23 @@ fn module(game: &GameData, dir: &Path, tileset: &str, s: Shadows) -> (Gff, Gff) 
         })
         .collect();
     git.root.set("Placeable List", Value::List(placed));
+    if let Some(name) = creature() {
+        let utc = game.resman.get_named(&name, ResType::UTC).expect("the creature's blueprint");
+        let mut c = Gff::read(&utc).unwrap().root;
+        // (Standing still: no scripts.)
+        let scripts: Vec<String> = c
+            .fields
+            .iter()
+            .map(|f| f.label.to_string_lossy())
+            .filter(|l| l.starts_with("Script"))
+            .collect();
+        for label in scripts {
+            c.set(&label, Value::resref(ResRef::EMPTY));
+        }
+        let at = Placement { position: CREATURE_AT, rotation: std::f32::consts::PI };
+        let placed = instance(&placing, ResType::UTC, &c, at, &[]).unwrap();
+        git.root.set("Creature List", Value::List(vec![placed]));
+    }
     m.set_gff(git_key, &git).unwrap();
     m.save_as(&ModuleLocation::Archive(dir.join("user/modules/MgScene.mod"))).unwrap();
     (are, git)
@@ -179,7 +223,10 @@ fn shadows_look() {
     let only = std::env::var("MG_SHADOW_ONLY").ok();
     // (`MG_SHADOW_GRASS=1`: with the grass, in the client and the view.)
     let grass = std::env::var_os("MG_SHADOW_GRASS").is_some();
-    let label = if grass { format!("{tileset}_grass") } else { tileset.clone() };
+    let mut label = if grass { format!("{tileset}_grass") } else { tileset.clone() };
+    if let Some(c) = creature() {
+        label = format!("{label}_{c}_c{}", creature_mode());
+    }
     let mut client_none = None;
     let mut failures = Vec::new();
     for s in LIGHTINGS
@@ -212,7 +259,14 @@ fn shadows_look() {
                 std::thread::sleep(Duration::from_millis(5));
             }
         }
-        let view = mg_area::View { fog: false, grass: sight, ..mg_area::View::of(&model) };
+        // (Creatures cast as the client's Best creature shadows.)
+        let creature_shadows = creature_mode() == 2;
+        let view = mg_area::View {
+            fog: false,
+            grass: sight,
+            creature_shadows,
+            ..mg_area::View::of(&model)
+        };
         let scene = area_scene.scene(&model, &view);
         let (off, on) =
             off_and_on(&gpu, &game, &scene, &camera, (w, h), client.as_ref(), &dir, "moonglow");
@@ -228,8 +282,8 @@ fn shadows_look() {
         let theirs = client.as_ref().zip(client_none).map(|(c, none)| darkening(c, none));
         let ours = [("off", darkening(&off, ours_none)), ("on", darkening(&on, ours_none))];
         eprintln!(
-            "{}: {}: the shadows darken the floor and the static face by: client {theirs:.3?}, \
-             Moonglow {:.3?} (Shaders off), {:.3?} (on)",
+            "{}: {}: the shadows darken the floor, the static face and the creature's shadow \
+             by: client {theirs:.3?}, Moonglow {:.3?} (Shaders off), {:.3?} (on)",
             dir.display(),
             s.name,
             ours[0].1,
@@ -237,7 +291,12 @@ fn shadows_look() {
         );
         let Some(t) = theirs else { continue };
         for (switch, o) in ours {
-            for (what, i) in [("floor", 0), ("static face", 1)] {
+            let measured: &[_] = if creature().is_some() {
+                &[("floor", 0), ("static face", 1), ("creature's shadow", 2)]
+            } else {
+                &[("floor", 0), ("static face", 1)]
+            };
+            for &(what, i) in measured {
                 if (o[i] - t[i]).abs() > TOLERANCE {
                     failures.push(format!(
                         "{} (Shaders {switch}): the {what} darkened by {:.3}, the client's {:.3}",

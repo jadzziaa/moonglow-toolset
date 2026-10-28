@@ -230,6 +230,12 @@ pub struct Settings {
     /// The area view's Shadows switch is off (no sun or moon shadows), in
     /// views opened from now on.
     pub no_shadows: bool,
+    /// The area view's Creature Shadows (in the Shadows button's menu) are
+    /// off, in views opened from now on.
+    pub no_creature_shadows: bool,
+    /// The area view's Light Shadows (in the Shadows button's menu) are
+    /// on, in views opened from now on.
+    pub light_shadows: bool,
     /// The area view's Sound Ranges switch is on, in views opened from
     /// now on.
     pub sound_ranges: bool,
@@ -676,6 +682,24 @@ mod tests {
     /// Workshop items and userpatch.ini's haks are not read unless asked
     /// for, as in Aurora (builders' asks); settings saved when the
     /// Workshop was read by default (`no_workshop: false`) don't read it.
+    /// The area view's shadows by default (and for settings saved before
+    /// they were): the sun's and moon's and the creatures' on, the lights'
+    /// off; each kept as chosen.
+    #[test]
+    fn the_shadow_kinds_default_and_are_kept() {
+        let old: Settings = serde_json::from_str(r#"{"no_shadows":false}"#).unwrap();
+        assert!(!old.no_shadows && !old.no_creature_shadows && !old.light_shadows);
+        let chosen = Settings {
+            no_shadows: true,
+            no_creature_shadows: true,
+            light_shadows: true,
+            ..Settings::default()
+        };
+        let back: Settings =
+            serde_json::from_str(&serde_json::to_string(&chosen).unwrap()).unwrap();
+        assert!(back.no_shadows && back.no_creature_shadows && back.light_shadows);
+    }
+
     #[test]
     fn workshop_and_userpatch_are_off_until_asked_for() {
         let s = Settings::default();

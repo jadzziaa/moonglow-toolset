@@ -19,6 +19,7 @@
 //! lit the pixel.
 
 use glam::{Mat4, Vec3};
+use wgpu::util::DeviceExt;
 
 use crate::model::GpuMesh;
 use crate::scene::{Camera, Instance, Scene, SunShadows};
@@ -82,18 +83,69 @@ pub(crate) fn camera_fade_point(camera: &Camera, limit: f32) -> f32 {
 
 /// Whether a mesh of an instance casts a shadow: flagged `shadow`, solid
 /// (as the game's volumes are of solid models: a see-through mesh casts
-/// none), not moved by a skin (creatures' shadows are left for later), of
-/// an instance that casts at all (not a marker, a see-through ghost or
-/// grass); `alpha` is its alpha as it is drawn now.
+/// none), of an instance that casts at all (not a marker, a see-through
+/// ghost or grass); `alpha` is its alpha as it is drawn now. A skinned
+/// mesh casts as its bones pose it ([`Caster::bones`]).
 pub(crate) fn casts(inst: &Instance, mesh: &GpuMesh, alpha: f32) -> bool {
     inst.casts_shadows
         && !inst.unlit
         && !inst.grass
         && inst.opacity >= 1.0
         && mesh.casts
-        && mesh.skin.is_none()
         && alpha >= 1.0
         && mesh.material.transparency_hint == 0
+}
+
+/// A mesh drawn into a shadow map: where it is, and a skinned one's
+/// bones.
+#[derive(Clone, Copy)]
+pub(crate) struct Caster<'a> {
+    pub(crate) mesh: &'a GpuMesh,
+    /// From the mesh's node to the world.
+    pub(crate) world: Mat4,
+    /// A skinned mesh's first bone among the frame's casting bones
+    /// ([`Plan::bones`]).
+    pub(crate) bones: Option<u32>,
+}
+
+impl Caster<'_> {
+    /// What the map holds of it: its mesh, its place, its bones' first.
+    fn key(&self) -> (usize, Mat4, Option<u32>) {
+        (std::ptr::from_ref(self.mesh) as usize, self.world, self.bones)
+    }
+}
+
+/// A skinned mesh's bones as `pose` has them, each from the bind pose to
+/// the pose, in the space of the skin's node (as the renderer's draws take
+/// them), pushed onto `bones`: their first.
+fn skin_bones(mesh: &GpuMesh, pose: &[Mat4], bones: &mut Vec<Mat4>) -> Option<u32> {
+    let skin = mesh.skin.as_ref()?;
+    let first = bones.len() as u32;
+    let to_skin = pose.get(mesh.node).copied().unwrap_or(Mat4::IDENTITY).inverse();
+    for (&b, inverse_bind) in skin.bones.iter().zip(&skin.inverse_bind) {
+        let now = pose.get(b).copied().unwrap_or(Mat4::IDENTITY);
+        bones.push(to_skin * now * *inverse_bind);
+    }
+    Some(first)
+}
+
+/// A caster's box: a skinned mesh's grown by half its size each way (its
+/// bones move it out of the box it was bound in).
+fn posed_box((min, max): (Vec3, Vec3), skinned: Option<u32>) -> (Vec3, Vec3) {
+    match skinned {
+        Some(_) => {
+            let grow = (max - min).max_element() * 0.5;
+            (min - Vec3::splat(grow), max + Vec3::splat(grow))
+        }
+        None => (min, max),
+    }
+}
+
+/// Casters in the order they are drawn: rigid then skinned (a pipeline
+/// each), a mesh's together, those of a chunk in a row.
+pub(crate) fn in_drawing_order(casters: &mut [Caster<'_>]) {
+    casters
+        .sort_by_key(|c| (c.bones.is_some(), c.mesh.chunk(), std::ptr::from_ref(c.mesh) as usize));
 }
 
 /// A mesh's box as it lies in the scene, transformed by `world`.
@@ -169,7 +221,9 @@ pub(crate) struct Plan<'a> {
     /// From the world to the map (its texture coordinates from -1 to 1,
     /// its depth from 0 at the light to 1).
     pub(crate) light: Mat4,
-    pub(crate) casters: Vec<(&'a GpuMesh, Mat4)>,
+    pub(crate) casters: Vec<Caster<'a>>,
+    /// The skinned casters' bones.
+    pub(crate) bones: Vec<Mat4>,
     /// The map's depth range, metres.
     pub(crate) depth: f32,
     pub(crate) shadows: SunShadows,
@@ -180,7 +234,8 @@ pub(crate) struct Plan<'a> {
 /// or none to receive one in sight).
 pub(crate) fn plan<'a>(scene: &'a Scene, camera: &Camera, aspect: f32) -> Option<Plan<'a>> {
     let shadows = scene.shadows.filter(|s| s.opacity > 0.0)?;
-    let mut casters: Vec<(&'a GpuMesh, Mat4, (Vec3, Vec3))> = Vec::new();
+    let mut casters: Vec<(Caster<'a>, (Vec3, Vec3))> = Vec::new();
+    let mut bones = Vec::new();
     let (mut rmin, mut rmax) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
     for inst in &scene.instances {
         let pose: &[Mat4] = inst.pose.as_deref().unwrap_or(&inst.model.rest);
@@ -197,13 +252,16 @@ pub(crate) fn plan<'a>(scene: &'a Scene, camera: &Camera, aspect: f32) -> Option
                 (rmin, rmax) = (rmin.min(bounds.0), rmax.max(bounds.1));
             }
             if casts(inst, mesh, alpha) {
-                casters.push((mesh, world, bounds));
+                let skinned = skin_bones(mesh, pose, &mut bones);
+                casters.push((Caster { mesh, world, bones: skinned }, posed_box(bounds, skinned)));
             }
         }
         for mesh in &inst.model.shadow_only {
             if casts(inst, mesh, 1.0) {
                 let world = node(mesh.node);
-                casters.push((mesh, world, world_box(world, mesh)));
+                let skinned = skin_bones(mesh, pose, &mut bones);
+                let bounds = posed_box(world_box(world, mesh), skinned);
+                casters.push((Caster { mesh, world, bones: skinned }, bounds));
             }
         }
     }
@@ -225,13 +283,13 @@ pub(crate) fn plan<'a>(scene: &'a Scene, camera: &Camera, aspect: f32) -> Option
     // light, over the region; the box reaching back to the farthest
     // towards the light.
     let mut kept = Vec::with_capacity(casters.len());
-    for (mesh, world, bounds) in casters {
+    for (caster, bounds) in casters {
         let (clo, chi) = to_light(bounds);
         if chi.x < lo.x || clo.x > hi.x || chi.y < lo.y || clo.y > hi.y || chi.z < lo.z {
             continue;
         }
         hi.z = hi.z.max(chi.z);
-        kept.push((mesh, world));
+        kept.push(caster);
     }
     if kept.is_empty() {
         return None;
@@ -246,9 +304,8 @@ pub(crate) fn plan<'a>(scene: &'a Scene, camera: &Camera, aspect: f32) -> Option
     // light, a little further back.)
     let (near, far) = (-hi.z - 1.0, -lo.z + 1.0);
     let projection = Mat4::orthographic_rh(left, left + side, bottom, bottom + side, near, far);
-    // A mesh's draws together, those of a chunk in a row.
-    kept.sort_by_key(|(m, _)| (m.chunk(), std::ptr::from_ref(*m) as usize));
-    Some(Plan { light: projection * view, casters: kept, depth: far - near, shadows })
+    in_drawing_order(&mut kept);
+    Some(Plan { light: projection * view, casters: kept, bones, depth: far - near, shadows })
 }
 
 /// The frame's values the darkening pass reads (`DARKEN` below).
@@ -269,16 +326,39 @@ struct DarkenUniform {
     bias: [f32; 4],
 }
 
-/// The casting pass's shader: positions alone, each instance its world
-/// transform.
+/// The casting pass's shader: positions alone (and a skinned mesh's bones
+/// and weights), each instance its world transform and its bones' first.
 const CAST: &str = "
 struct Light { m: mat4x4<f32> }
+struct Caster { world: mat4x4<f32>, bones: vec4<u32> }
 @group(0) @binding(0) var<uniform> light: Light;
-@group(0) @binding(1) var<storage, read> worlds: array<mat4x4<f32>>;
+@group(0) @binding(1) var<storage, read> casters: array<Caster>;
+@group(0) @binding(2) var<storage, read> bones: array<mat4x4<f32>>;
 @vertex fn vs(@location(0) pos: vec3<f32>, @builtin(instance_index) i: u32) -> @builtin(position) vec4<f32> {
-    return light.m * worlds[i] * vec4<f32>(pos, 1.0);
+    return light.m * casters[i].world * vec4<f32>(pos, 1.0);
+}
+// (As the renderer's skinned draws: up to four bones, by their weights.)
+@vertex fn vs_skinned(@location(0) pos: vec3<f32>, @location(1) b: vec4<u32>, @location(2) w: vec4<f32>, @builtin(instance_index) i: u32) -> @builtin(position) vec4<f32> {
+    var p = vec3<f32>(0.0);
+    var total = 0.0;
+    for (var k = 0u; k < 4u; k = k + 1u) {
+        if (w[k] > 0.0) {
+            p = p + w[k] * (bones[casters[i].bones.x + b[k]] * vec4<f32>(pos, 1.0)).xyz;
+            total = total + w[k];
+        }
+    }
+    if (total > 0.0) { p = p / total; } else { p = pos; }
+    return light.m * casters[i].world * vec4<f32>(p, 1.0);
 }
 ";
+
+/// A caster as the casting shader reads it.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct CasterData {
+    world: [[f32; 4]; 4],
+    bones: [u32; 4],
+}
 
 /// The darkening pass's shader for `samples` samples a pixel.
 fn darken_source(samples: u32) -> String {
@@ -352,15 +432,27 @@ struct Darkener {
 pub(crate) struct ShadowMaps {
     map: wgpu::TextureView,
     sampler: wgpu::Sampler,
-    cast_pipeline: wgpu::RenderPipeline,
-    cast_layout: wgpu::BindGroupLayout,
-    light_buffer: wgpu::Buffer,
-    worlds: wgpu::Buffer,
+    casting: Casting,
     params: wgpu::Buffer,
     darkeners: std::collections::HashMap<(wgpu::TextureFormat, u32), Darkener>,
-    /// What the map holds: the light's projection and the casters' meshes
-    /// and transforms (drawn again only when they change).
-    holds: Option<(Mat4, Vec<(usize, Mat4)>)>,
+    /// What the map holds: the light's projection, the casters' meshes,
+    /// transforms and bones (drawn again only when they change).
+    holds: Option<Held>,
+}
+
+/// What a shadow map holds: its projection, its casters (mesh, transform,
+/// first bone) and their bones.
+type Held = (Mat4, Vec<(usize, Mat4, Option<u32>)>, Vec<Mat4>);
+
+/// What draws casters into a shadow map: a pipeline for rigid meshes and
+/// one for skinned, the frame's casters and bones.
+#[derive(Debug)]
+pub(crate) struct Casting {
+    rigid: wgpu::RenderPipeline,
+    skinned: wgpu::RenderPipeline,
+    layout: wgpu::BindGroupLayout,
+    casters: wgpu::Buffer,
+    bones: wgpu::Buffer,
 }
 
 impl ShadowMaps {
@@ -393,67 +485,6 @@ impl ShadowMaps {
             compare: Some(wgpu::CompareFunction::LessEqual),
             ..Default::default()
         });
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("shadow casters"),
-            source: wgpu::ShaderSource::Wgsl(CAST.into()),
-        });
-        let cast_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("shadow casters"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-        });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("shadow casters"),
-            bind_group_layouts: &[Some(&cast_layout)],
-            immediate_size: 0,
-        });
-        let cast_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("shadow casters"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &module,
-                entry_point: Some("vs"),
-                compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<crate::model::Vertex>() as u64,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x3],
-                })],
-            },
-            // (Both sides: the game's meshes are not all closed.)
-            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: MAP_FORMAT,
-                depth_write_enabled: Some(true),
-                depth_compare: Some(wgpu::CompareFunction::Less),
-                stencil: Default::default(),
-                bias: wgpu::DepthBiasState { constant: 0, slope_scale: 1.5, clamp: 0.0 },
-            }),
-            multisample: Default::default(),
-            fragment: None,
-            multiview_mask: None,
-            cache: None,
-        });
         let buffer = |label, size, usage| {
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(label),
@@ -465,10 +496,7 @@ impl ShadowMaps {
         ShadowMaps {
             map,
             sampler,
-            cast_pipeline,
-            cast_layout,
-            light_buffer: buffer("shadow light", 64, wgpu::BufferUsages::UNIFORM),
-            worlds: buffer("shadow casters", 64 * 256, wgpu::BufferUsages::STORAGE),
+            casting: Casting::new(device),
             params: buffer(
                 "shadow darkening",
                 std::mem::size_of::<DarkenUniform>() as u64,
@@ -486,73 +514,18 @@ impl ShadowMaps {
         encoder: &mut wgpu::CommandEncoder,
         plan: &Plan,
     ) {
-        let holds: Vec<(usize, Mat4)> =
-            plan.casters.iter().map(|(m, w)| (std::ptr::from_ref(*m) as usize, *w)).collect();
-        if self.holds.as_ref().is_some_and(|(l, h)| *l == plan.light && *h == holds) {
+        let holds: Vec<_> = plan.casters.iter().map(Caster::key).collect();
+        if self
+            .holds
+            .as_ref()
+            .is_some_and(|(l, h, b)| *l == plan.light && *h == holds && *b == plan.bones)
+        {
             return;
         }
-        let worlds: Vec<[[f32; 4]; 4]> =
-            plan.casters.iter().map(|(_, w)| w.to_cols_array_2d()).collect();
-        let bytes = std::mem::size_of_val(&worlds[..]) as u64;
-        if self.worlds.size() < bytes {
-            self.worlds = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("shadow casters"),
-                size: bytes.next_power_of_two(),
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-        }
-        gpu.queue.write_buffer(&self.worlds, 0, bytemuck::cast_slice(&worlds));
-        gpu.queue.write_buffer(&self.light_buffer, 0, bytemuck::cast_slice(&[plan.light]));
-        let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("shadow casters"),
-            layout: &self.cast_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.light_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry { binding: 1, resource: self.worlds.as_entire_binding() },
-            ],
-        });
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("shadow casters"),
-            color_attachments: &[],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &self.map,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(1.0),
-                    store: wgpu::StoreOp::Store,
-                }),
-                stencil_ops: None,
-            }),
-            ..Default::default()
-        });
-        pass.set_pipeline(&self.cast_pipeline);
-        pass.set_bind_group(0, &group, &[]);
-        let mut chunk = None;
-        let mut i = 0;
-        while i < plan.casters.len() {
-            let mesh = plan.casters[i].0;
-            let mut n = 1;
-            while i + n < plan.casters.len() && std::ptr::eq(plan.casters[i + n].0, mesh) {
-                n += 1;
-            }
-            if chunk != Some(mesh.chunk()) {
-                pass.set_vertex_buffer(0, mesh.vertices.slice(..));
-                pass.set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
-                chunk = Some(mesh.chunk());
-            }
-            let first = mesh.first_index;
-            pass.draw_indexed(
-                first..first + mesh.index_count,
-                mesh.base_vertex,
-                i as u32..(i + n) as u32,
-            );
-            i += n;
-        }
-        drop(pass);
-        self.holds = Some((plan.light, holds));
+        self.casting.upload(gpu, &plan.casters, &plan.bones);
+        let group = self.casting.group(gpu, plan.light);
+        self.casting.draw(encoder, &self.map, &group, &plan.casters, true);
+        self.holds = Some((plan.light, holds, plan.bones.clone()));
     }
 
     /// Lays the shadows over what is drawn in `target` (multisampled by
@@ -623,6 +596,202 @@ impl ShadowMaps {
         pass.set_pipeline(&darkener.pipeline);
         pass.set_bind_group(0, &group, &[]);
         pass.draw(0..3, 0..1);
+    }
+}
+
+impl Casting {
+    pub(crate) fn new(device: &wgpu::Device) -> Casting {
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("shadow casters"),
+            source: wgpu::ShaderSource::Wgsl(CAST.into()),
+        });
+        let storage = |binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::VERTEX,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Storage { read_only: true },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        };
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("shadow casters"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                storage(1),
+                storage(2),
+            ],
+        });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("shadow casters"),
+            bind_group_layouts: &[Some(&layout)],
+            immediate_size: 0,
+        });
+        let position = wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<crate::model::Vertex>() as u64,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &wgpu::vertex_attr_array![0 => Float32x3],
+        };
+        let skin = wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<crate::model::SkinVertex>() as u64,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &wgpu::vertex_attr_array![1 => Uint32x4, 2 => Float32x4],
+        };
+        let pipeline = |entry: &str, buffers: &[Option<wgpu::VertexBufferLayout<'_>>]| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("shadow casters"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &module,
+                    entry_point: Some(entry),
+                    compilation_options: Default::default(),
+                    buffers,
+                },
+                // (Both sides: the game's meshes are not all closed.)
+                primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: MAP_FORMAT,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::Less),
+                    stencil: Default::default(),
+                    bias: wgpu::DepthBiasState { constant: 0, slope_scale: 1.5, clamp: 0.0 },
+                }),
+                multisample: Default::default(),
+                fragment: None,
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let rigid = pipeline("vs", &[Some(position.clone())]);
+        let skinned = pipeline("vs_skinned", &[Some(position), Some(skin)]);
+        let buffer = |label, size| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            })
+        };
+        Casting {
+            rigid,
+            skinned,
+            layout,
+            casters: buffer("shadow casters", 80 * 256),
+            bones: buffer("shadow bones", 64 * 64),
+        }
+    }
+
+    /// Uploads `casters` and their `bones`.
+    pub(crate) fn upload(&mut self, gpu: &crate::Gpu, casters: &[Caster<'_>], bones: &[Mat4]) {
+        let data: Vec<CasterData> = casters
+            .iter()
+            .map(|c| CasterData {
+                world: c.world.to_cols_array_2d(),
+                bones: [c.bones.unwrap_or(0), 0, 0, 0],
+            })
+            .collect();
+        let grow = |buffer: &mut wgpu::Buffer, bytes: u64, label| {
+            if buffer.size() < bytes {
+                *buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some(label),
+                    size: bytes.next_power_of_two(),
+                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
+            }
+        };
+        grow(&mut self.casters, std::mem::size_of_val(&data[..]) as u64, "shadow casters");
+        grow(&mut self.bones, std::mem::size_of_val(bones) as u64, "shadow bones");
+        gpu.queue.write_buffer(&self.casters, 0, bytemuck::cast_slice(&data));
+        if !bones.is_empty() {
+            gpu.queue.write_buffer(&self.bones, 0, bytemuck::cast_slice(bones));
+        }
+    }
+
+    /// The bind group for drawing the uploaded casters seen through
+    /// `light` (from the world to the map's clip space).
+    pub(crate) fn group(&self, gpu: &crate::Gpu, light: Mat4) -> wgpu::BindGroup {
+        let light = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("shadow light"),
+            contents: bytemuck::cast_slice(&[light]),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("shadow casters"),
+            layout: &self.layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: light.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: self.casters.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 2, resource: self.bones.as_entire_binding() },
+            ],
+        })
+    }
+
+    /// Draws `casters` (in [`in_drawing_order`]) into `depth`, cleared
+    /// first where `clear`, with `group` (a light's, made by
+    /// [`Casting::upload`]).
+    pub(crate) fn draw(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        depth: &wgpu::TextureView,
+        group: &wgpu::BindGroup,
+        casters: &[Caster<'_>],
+        clear: bool,
+    ) {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("shadow casters"),
+            color_attachments: &[],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: depth,
+                depth_ops: Some(wgpu::Operations {
+                    load: if clear { wgpu::LoadOp::Clear(1.0) } else { wgpu::LoadOp::Load },
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
+            ..Default::default()
+        });
+        pass.set_bind_group(0, group, &[]);
+        let (mut chunk, mut skinned) = (None, None);
+        let mut i = 0;
+        while i < casters.len() {
+            let c = casters[i];
+            let mut n = 1;
+            while i + n < casters.len() && std::ptr::eq(casters[i + n].mesh, c.mesh) {
+                n += 1;
+            }
+            let skin = c.mesh.skin.as_ref().filter(|_| c.bones.is_some());
+            if skinned != Some(skin.is_some()) {
+                pass.set_pipeline(if skin.is_some() { &self.skinned } else { &self.rigid });
+                skinned = Some(skin.is_some());
+                chunk = None;
+            }
+            if chunk != Some(c.mesh.chunk()) {
+                pass.set_vertex_buffer(0, c.mesh.vertices.slice(..));
+                pass.set_index_buffer(c.mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
+                if let Some(skin) = skin {
+                    pass.set_vertex_buffer(1, skin.vertices.slice(..));
+                }
+                chunk = Some(c.mesh.chunk());
+            }
+            let first = c.mesh.first_index;
+            pass.draw_indexed(
+                first..first + c.mesh.index_count,
+                c.mesh.base_vertex,
+                i as u32..(i + n) as u32,
+            );
+            i += n;
+        }
     }
 }
 

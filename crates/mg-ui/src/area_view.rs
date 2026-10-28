@@ -389,8 +389,17 @@ pub struct AreaView {
     pub fade: Fade,
     /// Lit by the area's lighting (off: an even working light).
     pub lit: bool,
-    /// The sun's or moon's shadows, where the area has them.
+    /// The sun's or moon's shadows, where the area has them: cast by the
+    /// tiles and static placeables.
     pub shadows: bool,
+    /// Creatures, dynamic placeables and doors cast the sun's or moon's
+    /// shadows too.
+    pub creature_shadows: bool,
+    /// Point lights flagged `shadow` cast shadows.
+    pub light_shadows: bool,
+    /// The kinds of shadow the Shadows button turned off (sun and moon,
+    /// creatures, lights), which a click turns on again.
+    shadows_before: Option<[bool; 3]>,
     /// Circles where each placed sound is heard at full volume and where
     /// it stops.
     pub sound_ranges: bool,
@@ -598,6 +607,9 @@ impl AreaView {
             fade: Fade::Never,
             lit: true,
             shadows: true,
+            creature_shadows: true,
+            light_shadows: false,
+            shadows_before: None,
             sound_ranges: false,
             grid: true,
             show: [true; 9],
@@ -1771,6 +1783,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
         (view.show, view.show_start) = shown_of(&app.settings.hidden_in_areas);
         view.lit = !app.settings.unlit_areas;
         view.shadows = !app.settings.no_shadows;
+        view.creature_shadows = !app.settings.no_creature_shadows;
+        view.light_shadows = app.settings.light_shadows;
         view.sound_ranges = app.settings.sound_ranges;
         view.fade = Fade::of(app.settings.fade_geometry);
         // (Where its camera was, if a module's kept tabs opened it again.)
@@ -1928,20 +1942,11 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         {
             app.settings.unlit_areas = !view.lit;
         }
-        if tools
-            .toggle(
-                ui,
-                &mut view.shadows,
-                icons::SHADOWS,
-                "Shadows",
-                "Draw the sun's shadows by day and the moon's at night, where the area has them \
-                 (Area Properties › Sun and Moon Shadows, as dark as its Shadow Opacity), as the \
-                 game draws them: cast by tiles, placeables and doors, falling on the tiles and \
-                 static placeables",
-            )
-            .changed()
-        {
-            app.settings.no_shadows = !view.shadows;
+        shadows_button(ui, view, tools);
+        let kinds = (view.shadows, view.creature_shadows, view.light_shadows);
+        let s = &mut app.settings;
+        if kinds != (!s.no_shadows, !s.no_creature_shadows, s.light_shadows) {
+            (s.no_shadows, s.no_creature_shadows, s.light_shadows) = (!kinds.0, !kinds.1, kinds.2);
         }
         tools.toggle(ui, &mut view.fog, icons::FOG, "Fog", "");
         let before = view.fade;
@@ -2331,6 +2336,8 @@ fn viewport(
         fog: view.fog,
         lit: view.lit,
         shadows: view.shadows,
+        creature_shadows: view.creature_shadows,
+        light_shadows: view.light_shadows,
         show: view.show,
         animate: !app.settings.still_objects,
         fade: view.fade.now(view.tile_mode || crate::terrain_mode::active(app, view).is_some()),
@@ -2821,6 +2828,25 @@ fn walkmesh_button(ui: &mut egui::Ui, view: &mut AreaView, tools: crate::icons::
         "Click: the ground's walkmesh (Render AABB Nodes), walkable faces green. Hold, or \
          right-click: the ground's and the objects' to choose from",
     );
+    let (clicked, menu) = held_menu(ui, &r);
+    if clicked {
+        (view.walkmesh, view.object_walkmesh) = (!on, false);
+    }
+    menu.show(|ui| {
+        ui.checkbox(&mut view.walkmesh, "Ground Walkmesh")
+            .on_hover_text("Render AABB Nodes: the ground's walkmesh, walkable faces green");
+        ui.checkbox(&mut view.object_walkmesh, "Object Walkmeshes").on_hover_text(
+            "Where placeables (.pwk) and doors (.dwk) keep creatures out: placeables \
+             orange, doors blue (in their open or closed state)",
+        );
+    });
+}
+
+/// A toolbar button with a menu behind it (Walkmesh…, Shadows): a click
+/// is the button's own (`true` the first of the two returned), and
+/// holding it a moment (0.35 s) or a right-click opens the menu, whose
+/// release is no click; the menu, to show its choices in.
+fn held_menu<'r>(ui: &egui::Ui, r: &'r egui::Response) -> (bool, egui::Popup<'r>) {
     // Held a moment: the choice opens, and the release is no click.
     let held_id = r.id.with("held-open");
     let was_held = ui.data(|d| d.get_temp::<bool>(held_id)).unwrap_or(false);
@@ -2834,23 +2860,62 @@ fn walkmesh_button(ui: &mut egui::Ui, view: &mut AreaView, tools: crate::icons::
     if open {
         ui.data_mut(|d| d.insert_temp(held_id, true));
     }
-    if r.clicked() && !was_held && !open {
-        (view.walkmesh, view.object_walkmesh) = (!on, false);
-    }
-    if !down && was_held {
+    let clicked = r.clicked() && !was_held && !open;
+    // (The hold's release is a click outside the menu, which would close
+    // it: kept open through it.)
+    let released = !down && was_held;
+    if released {
         ui.data_mut(|d| d.insert_temp(held_id, false));
     }
-    egui::Popup::from_response(&r)
+    let close = if released {
+        egui::PopupCloseBehavior::IgnoreClicks
+    } else {
+        egui::PopupCloseBehavior::CloseOnClickOutside
+    };
+    let menu = egui::Popup::from_response(r)
         .open_memory(open.then_some(egui::SetOpenCommand::Bool(true)))
-        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-        .show(|ui| {
-            ui.checkbox(&mut view.walkmesh, "Ground Walkmesh")
-                .on_hover_text("Render AABB Nodes: the ground's walkmesh, walkable faces green");
-            ui.checkbox(&mut view.object_walkmesh, "Object Walkmeshes").on_hover_text(
-                "Where placeables (.pwk) and doors (.dwk) keep creatures out: placeables \
-                 orange, doors blue (in their open or closed state)",
-            );
-        });
+        .close_behavior(close);
+    (clicked, menu)
+}
+
+/// The Shadows button: down while any kind of shadow is drawn; a click
+/// turns them all off, or on again as they were (the sun's and the
+/// creatures' at first); held or right-clicked, the kinds to choose
+/// from.
+fn shadows_button(ui: &mut egui::Ui, view: &mut AreaView, tools: crate::icons::Tools) {
+    let kinds = [view.shadows, view.creature_shadows, view.light_shadows];
+    let on = kinds.iter().any(|&k| k);
+    let r = tools.add(
+        ui,
+        egui::Button::selectable(on, tools.label(crate::icons::SHADOWS, "Shadows")),
+        "Shadows",
+        "Click: the shadows the game draws, where the area has them (Area Properties › Sun and \
+         Moon Shadows, as dark as its Shadow Opacity), or none. Hold, or right-click: which \
+         to draw (the sun's and moon's, creatures', lights')",
+    );
+    let (clicked, menu) = held_menu(ui, &r);
+    if clicked {
+        let again = view.shadows_before.take().unwrap_or([true, true, false]);
+        if on {
+            view.shadows_before = Some(kinds);
+        }
+        [view.shadows, view.creature_shadows, view.light_shadows] =
+            if on { [false; 3] } else { again };
+    }
+    menu.show(|ui| {
+        ui.checkbox(&mut view.shadows, "Sun and Moon Shadows").on_hover_text(
+            "The sun's by day and the moon's at night, where the area has them: cast by the \
+             tiles and static placeables, falling on the tiles and static placeables",
+        );
+        ui.checkbox(&mut view.creature_shadows, "Creature Shadows").on_hover_text(
+            "Creatures, dynamic placeables and doors cast the sun's and moon's shadows too, as \
+             the game's Creature Shadow Detail at Best has them (at Fast or Off they cast none)",
+        );
+        ui.checkbox(&mut view.light_shadows, "Light Shadows").on_hover_text(
+            "Lights that cast shadows (a model's light node with `shadow 1`: the tiles' source \
+             lights, placeables' lights) cast them, as the game's three nearest do",
+        );
+    });
 }
 
 /// The corners of the tile-sized square whose low corner is at tile
