@@ -202,26 +202,15 @@ pub fn gff_references(from: ResKey, gff: &Gff) -> Vec<Reference> {
 /// The `#include "name"` of a script source, as the compiler reads them:
 /// not one in a comment (`// #include`, or a line of a `/* … */` block:
 /// code commented out includes nothing, and Verify's missing include
-/// would be none) or in a string.
+/// would be none) or in a string ([`mg_script::lex::includes`]).
 pub fn script_includes(from: ResKey, source: &[u8]) -> Vec<Reference> {
-    use mg_script::lex::{TokenKind, tokenize};
-    let toks = tokenize(source);
     let mut out = Vec::new();
     let mut line = 1;
     let mut counted = 0;
-    for (i, t) in toks.iter().enumerate() {
-        if t.kind != TokenKind::Directive || &source[t.span.clone()] != b"#include" {
-            continue;
-        }
-        let Some(name) = toks[i + 1..].iter().find(|t| t.kind != TokenKind::Whitespace) else {
-            continue;
-        };
-        if name.kind != (TokenKind::String { terminated: true }) {
-            continue;
-        }
-        let quoted = String::from_utf8_lossy(&source[name.span.start + 1..name.span.end - 1]);
-        line += source[counted..t.span.start].iter().filter(|&&b| b == b'\n').count();
-        counted = t.span.start;
+    for at in mg_script::lex::includes(source) {
+        let quoted = String::from_utf8_lossy(&source[at.name]);
+        line += source[counted..at.directive.start].iter().filter(|&&b| b == b'\n').count();
+        counted = at.directive.start;
         if let Ok(target) = ResRef::from_str(&quoted)
             && !target.is_empty()
         {

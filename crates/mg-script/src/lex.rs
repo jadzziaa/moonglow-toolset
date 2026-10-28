@@ -237,6 +237,39 @@ pub fn tokenize(src: &[u8]) -> Vec<Token> {
     out
 }
 
+/// An `#include "name"` of a source, as the compiler reads one: not in a
+/// comment (`// #include`, a line of a `/* … */` block: code commented
+/// out includes nothing) or in a string.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IncludeAt {
+    /// The `#include`.
+    pub directive: Range<usize>,
+    /// The name, inside its quotes.
+    pub name: Range<usize>,
+}
+
+/// The `#include`s of `src` ([`IncludeAt`]), in order: the one reading of
+/// them that the script tools share.
+pub fn includes(src: &[u8]) -> Vec<IncludeAt> {
+    includes_in(src, &tokenize(src))
+}
+
+/// [`includes`], of `src` already split into `toks`.
+pub fn includes_in(src: &[u8], toks: &[Token]) -> Vec<IncludeAt> {
+    let mut out = Vec::new();
+    for (i, t) in toks.iter().enumerate() {
+        if t.kind != TokenKind::Directive || &src[t.span.clone()] != b"#include" {
+            continue;
+        }
+        let Some(name) = toks[i + 1..].iter().find(|t| t.kind.is_significant()) else { continue };
+        if name.kind == (TokenKind::String { terminated: true }) {
+            let quoted = name.span.start + 1..name.span.end - 1;
+            out.push(IncludeAt { directive: t.span.clone(), name: quoted });
+        }
+    }
+    out
+}
+
 fn utf8_len(first: u8) -> usize {
     match first {
         0xC0..=0xDF => 2,
@@ -315,5 +348,16 @@ mod tests {
             ]
         );
         assert_eq!(kinds("/* open")[0].0, BlockComment { terminated: false });
+    }
+
+    /// As the compiler reads them: not in a comment or a string; after
+    /// code on the line too.
+    #[test]
+    fn includes_as_the_compiler_reads_them() {
+        let src = "// #include \"a\"\n/*\n#include \"b\"\n*/\nstring s = \"#include \\\"c\\\"\";\n\
+                   #include \"d\"\nint x; #include \"e\" // f\n#include\n";
+        let names: Vec<&str> =
+            includes(src.as_bytes()).iter().map(|i| &src[i.name.clone()]).collect();
+        assert_eq!(names, ["d", "e"]);
     }
 }

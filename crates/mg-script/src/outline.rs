@@ -7,7 +7,7 @@
 
 use std::ops::Range;
 
-use crate::lex::{Token, TokenKind, tokenize};
+use crate::lex::{Token, TokenKind, includes_in, tokenize};
 use crate::spec::Param;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -393,14 +393,8 @@ impl<'a> Parser<'a> {
             let word = self.peek();
             match (self.kind(start_k), word) {
                 (Some(TokenKind::Directive), "#include") => {
-                    let (words, end) = self.line_rest();
-                    if let Some(name) = words
-                        .first()
-                        .and_then(|w| w.strip_prefix('"'))
-                        .map(|w| w.trim_end_matches('"'))
-                    {
-                        out.includes.push(Include { name: name.to_string(), span: start..end });
-                    }
+                    // (The includes are `lex::includes`', [`outline`].)
+                    self.line_rest();
                     continue;
                 }
                 (Some(TokenKind::Directive), "#define") => {
@@ -534,9 +528,16 @@ pub fn has_entry_point(src: &[u8]) -> bool {
 pub fn outline(src: &[u8]) -> Outline {
     let text = String::from_utf8_lossy(src);
     let toks = tokenize(text.as_bytes());
+    // (Read as the other script tools read them.)
+    let includes = (includes_in(text.as_bytes(), &toks).into_iter())
+        .map(|at| Include {
+            name: text[at.name.clone()].to_string(),
+            span: at.directive.start..at.name.end + 1,
+        })
+        .collect();
     let sig =
         toks.iter().enumerate().filter(|(_, t)| t.kind.is_significant()).map(|(i, _)| i).collect();
-    Parser { text: &text, toks, sig, pos: 0 }.parse()
+    Outline { includes, ..Parser { text: &text, toks, sig, pos: 0 }.parse() }
 }
 
 #[cfg(test)]

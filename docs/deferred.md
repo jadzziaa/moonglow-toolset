@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T12:16:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T17:50:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2804,10 +2804,9 @@ of truth, and does each caller's difference matter.
   `areas.rs:249`, `query.rs:84`, `search.rs:396`); a 2DA row's name
   through the talk table (`rows.rs:146` filters `****` labels,
   `choice_list` doesn't) and some ten `game.string(StrRef(..))` by hand.
-- `#include` read three ways (`refs.rs:217` by line, `rename.rs:693` by
-  byte, `mg-script outline.rs:318` by token, the only one that knows
-  comments); `rename`'s `usages`, `tag_usages` and `mentions` restate
-  what `UsageIndex` answers.
+- `rename`'s `usages`, `tag_usages` and `mentions` restate what
+  `UsageIndex` answers. (`#include`, read three ways, is read one way
+  since 2026-10-28: `mg_script::lex::includes`, which knows comments.)
 - In mg-mdl: `compile.rs:93` `tangents` has no caller (a different
   normalize from `engine_tangents`); `sub`, `dot` and `cross` three
   times; `PartNumbers::read` (`binary_write.rs:296`) walks nodes beside
@@ -3012,7 +3011,9 @@ is not taken for a new gap.
   nothing of one that only lacks `main`, and reports "Compile Error" for
   an include that leans on what its includer brings, as Moonglow did
   before this change. Skipping includes is Moonglow's own, kinder than
-  Aurora and not like it, and kept by decision (2026-10-07). An include
+  Aurora and not like it, and kept by decision (2026-10-07); seen so
+  again on 2026-10-28 (capture `script-compile`: Compile Error for three
+  include files that don't compile alone, nothing for one that does). An include
   is still checked as you type, on its own, so one that leans on its
   includer shows an error there.
 - **The grid seen from the area's edge:** red and plain as the view

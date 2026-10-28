@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:35:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T17:40:00Z }
 ---
 
 # Scripts
@@ -252,10 +252,29 @@ is started from has.
 
 Moonglow has Beamdog's own NWScript compiler built in, the one the game
 and Aurora use, so a script compiles in Moonglow exactly as it does there.
+
+One thing newer builds of that compiler refuse, Moonglow compiles as
+Aurora does: a function declared with one return type and defined with
+another, such as the base game's `x2_inc_cutscene`, whose
+`CutCreateObjectCopy` is declared `object` and defined `void`. Every
+script that includes it compiles, whether it calls the function or not,
+and the compile says a warning instead (in the Compiler messages, at the
+line, and the log; `mg compile` says each once, with how many scripts it
+was met in): the function, the line it is declared at and the line it is
+defined at, and what the game does with it. A definition that returns
+nothing gives the declared type's empty value (`CutCreateObjectCopy`
+always returns `OBJECT_INVALID`); one that returns a value where the
+declaration says `void` overwrites a variable of the script that calls
+it; one that returns another type stops the script where the value is
+used. Make the two agree to be rid of the warning.
+
 To compile with a program of your own instead (a newer build of the
 compiler, `nwnsc`), choose it in **Tools › Options › Script Editor ›
 External Script Compiler** (see [Options](10-options.md)); what it says
 of a script that doesn't compile shows in the Compiler messages.
+`nwn_script_comp` 2.3.1 (neverwinter.nim) is such a build: as the
+external compiler it fails every script that includes `x2_inc_cutscene`
+("FUNCTION IMPLEMENTATION AND DEFINITION DIFFER").
 `#include` files come from the module, its haks and the game, in the
 game's order. It is given the scripts to compile and what they include,
 not the whole module, and nothing to read from the keyboard; a run that
@@ -267,7 +286,10 @@ script with no `main` and no `StartingConditional`; one in a comment
 doesn't count) isn't compiled on its own: it is compiled into the
 scripts that include it, and may lean on what they bring. (Aurora's
 build compiles include files too, and reports an error for one that
-doesn't compile alone.)
+doesn't compile alone.) An `#include` commented out (after `//`, or in a
+`/* … */` block) includes nothing, as for the compiler: the scripts
+compiled with an include they include, and Verify's missing includes,
+leave it out.
 Compile, in an include file's own editor, says that it is one. **Generate Debug
 Information** (Options › Script Editor) also stores a `.ndb` with each
 compiled script, for script debuggers.

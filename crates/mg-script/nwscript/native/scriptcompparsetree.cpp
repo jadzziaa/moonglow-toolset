@@ -4452,7 +4452,7 @@ int32_t CScriptCompiler::AddUserDefinedIdentifier(CScriptParseTreeNode *pFunctio
 					// the call sites, and the base game's x2_inc_cutscene
 					// (CutCreateObjectCopy: declared object, defined void)
 					// needs it. Moonglow warns of the mismatch itself
-					// (src/compiler.rs, return_type_mismatches).
+					// (src/return_types.rs).
 					bReturnTypeDifferent = FALSE;
 					// END MOONGLOW PATCH
 
