@@ -281,6 +281,45 @@ impl Table {
         self.saved != Some(self.undo.len())
     }
 
+    /// Reads the table (and the feminine table) again from its files,
+    /// changed outside Moonglow (a `git pull` of a project's JSON): where
+    /// what they hold differs, the table is theirs, and its history goes
+    /// (an undo could not take an earlier change back from it). Whether it
+    /// changed. Not with unsaved changes, which are kept (an error says
+    /// so), nor for a table that is no file of its own.
+    pub fn read_again(&mut self) -> Result<bool, String> {
+        if self.is_dirty() {
+            return Err(format!("{}: changed outside Moonglow, and here too", self.source));
+        }
+        let read = |source: &Source| -> Result<Option<Tlk>, String> {
+            let Some(path) = source.file() else { return Ok(None) };
+            let data = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+            Found { source: source.clone(), data }.tlk().map(Some)
+        };
+        let tlk = read(&self.source)?;
+        let feminine = match &self.feminine {
+            Some((source, _)) => read(source)?,
+            None => None,
+        };
+        let mut changed = false;
+        if let Some(tlk) = tlk.filter(|t| *t != self.tlk) {
+            self.tlk = tlk;
+            changed = true;
+        }
+        if let (Some(f), Some((_, had))) = (feminine, self.feminine.as_mut())
+            && f != *had
+        {
+            *had = f;
+            changed = true;
+        }
+        if changed {
+            self.undo.clear();
+            self.redo.clear();
+            self.saved = Some(0);
+        }
+        Ok(changed)
+    }
+
     /// The StrRef the game knows a line by.
     pub fn strref(row: usize) -> StrRef {
         StrRef(CUSTOM + row as u32)

@@ -170,7 +170,11 @@ pub(crate) fn run(
     m.save_as(&ModuleLocation::Archive(copy.clone()))?;
     let _ = std::fs::remove_file(copy.with_extension("mod.bak"));
 
-    let config = serve::Config { module: copy, dir: Some(dir), stdin: false, ..c.serve.clone() };
+    // (A project's own talk table is made for the server from the
+    // project, not the copy.)
+    let project = Some(c.module.clone());
+    let config =
+        serve::Config { module: copy, dir: Some(dir), stdin: false, project, ..c.serve.clone() };
     let mut report = Report::default();
     report.returns = returns;
     let mut late = false;

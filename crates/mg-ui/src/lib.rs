@@ -4272,6 +4272,8 @@ impl Moonglow {
             self.custom_tlk = None;
             self.load_custom_tlk();
         }
+        // (And the talk table editor's, from its own files.)
+        talk_view::read_again(self);
         if changed.is_empty() {
             if asked {
                 self.log.info("Reload Resources: nothing changed");

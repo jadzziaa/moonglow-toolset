@@ -2000,6 +2000,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 restart_on_change: *restart_on_change,
                 stdin: true,
                 args: server_args.clone(),
+                project: None,
             };
             let started = std::time::Instant::now();
             let bold = !cli.json && io::stdout().is_terminal();
@@ -2271,6 +2272,8 @@ fn run(cli: &Cli) -> Result<Output> {
                 preload: preload.clone(),
                 stdin: true,
                 args: server_args.clone(),
+                // (The project's own talk table, made for the server.)
+                project: Some(project.clone()),
                 ..Default::default()
             };
             let mut wrong: Option<anyhow::Error> = None;

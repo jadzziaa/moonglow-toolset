@@ -338,6 +338,21 @@ fn a_projects_talk_table_kept_as_json_is_edited_there() {
     let t = h.state().talk.as_ref().unwrap();
     assert!(matches!(&t.source, mg_module::talk::Source::Json { path, .. } if *path == de));
     assert_eq!((t.len(), t.line(0).text.as_str()), (1, "Hallo"));
+    // Changed outside Moonglow (a `git pull`): the editor reads it again;
+    // with unsaved changes here, those are kept, and said.
+    std::fs::write(&de, r#"{"language":2,"entries":[{"id":0,"text":"Servus"}]}"#).unwrap();
+    h.state_mut().reload_resources(false);
+    h.run();
+    assert_eq!(h.state().talk.as_ref().unwrap().line(0).text, "Servus");
+    assert!(!h.state().talk.as_ref().unwrap().is_dirty());
+    h.get_by_label("Add Line").click();
+    h.run();
+    std::fs::write(&de, r#"{"language":2,"entries":[{"id":0,"text":"Grüß Gott"}]}"#).unwrap();
+    h.state_mut().reload_resources(false);
+    h.run();
+    let t = h.state().talk.as_ref().unwrap();
+    assert_eq!((t.len(), t.line(0).text.as_str()), (2, "Servus"), "ours kept");
+    assert!(h.state().log.entries.iter().any(|(_, m)| m.contains("while it has unsaved changes")));
 }
 
 /// Setup Store in a project whose moonglow.toml has `[store]`: the

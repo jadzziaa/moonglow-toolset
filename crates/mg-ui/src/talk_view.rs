@@ -53,6 +53,9 @@ pub struct TalkView {
     /// The languages a nasher project keeps the table open in (as JSON, a
     /// file each), where it keeps more than one.
     languages: Vec<(mg_core::Language, std::path::PathBuf)>,
+    /// The open table's files and their times when last looked at, to
+    /// read it again when they change outside Moonglow ([`read_again`]).
+    stamps: Option<Vec<(std::path::PathBuf, Option<std::time::SystemTime>)>>,
 }
 
 impl TalkView {
@@ -186,6 +189,53 @@ fn open_language(app: &mut Moonglow, path: &std::path::Path) {
     }
 }
 
+/// The talk table open in the editor, read again from its files where
+/// they changed outside Moonglow (a pull of a project's JSON; their times
+/// are looked at, as the custom talk table's): the editor shows what the
+/// files hold now. One with unsaved changes keeps them (the next Save
+/// writes them over the files), and the log says so.
+pub(crate) fn read_again(app: &mut Moonglow) {
+    let Some(t) = app.talk.as_mut() else {
+        app.talk_view.stamps = None;
+        return;
+    };
+    let files: Vec<std::path::PathBuf> = std::iter::once(&t.source)
+        .chain(t.feminine.as_ref().map(|(s, _)| s))
+        .filter_map(|s| s.file().map(std::path::Path::to_path_buf))
+        .collect();
+    let now: Vec<_> = (files.into_iter())
+        .map(|p| {
+            let at = std::fs::metadata(&p).and_then(|m| m.modified()).ok();
+            (p, at)
+        })
+        .collect();
+    let was = app.talk_view.stamps.replace(now.clone());
+    let same_files =
+        was.as_ref().is_some_and(|w| w.iter().map(|(p, _)| p).eq(now.iter().map(|(p, _)| p)));
+    // (First looked at, the files are read to see whether they are as
+    // the table opened was: they may have changed since.)
+    let first = !same_files;
+    if !first && was.as_ref() == Some(&now) {
+        return;
+    }
+    if first && t.is_dirty() {
+        return;
+    }
+    match t.read_again() {
+        Ok(true) => {
+            app.log.info(format!("Talk table {} read again (changed outside Moonglow)", t.source));
+            app.talk_view.edit = None;
+            app.talk_view.changed();
+        }
+        Ok(false) => {}
+        Err(_) => app.log.warn(format!(
+            "Talk table {} changed outside Moonglow while it has unsaved changes here: they are \
+             kept, and Save writes them over the file",
+            t.source
+        )),
+    }
+}
+
 /// Saves the talk table if it has unsaved changes, and has the game data
 /// read it again. Returns false on an error (logged).
 pub(crate) fn save(app: &mut Moonglow) -> bool {
@@ -196,6 +246,8 @@ pub(crate) fn save(app: &mut Moonglow) -> bool {
     match t.save() {
         Ok(()) => {
             app.log.info(format!("Saved talk table {} ({} lines)", t.source, t.len()));
+            // (Written here: not a change made outside, for `read_again`.)
+            app.talk_view.stamps = None;
             app.reload_custom_tlk();
             true
         }

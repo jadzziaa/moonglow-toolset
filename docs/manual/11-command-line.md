@@ -386,6 +386,7 @@ module folder) and takes up each change as you save it:
 | A script | it and the scripts that include it are compiled, and the compiled scripts are put into the development folder |
 | A blueprint (`ut*`) or a conversation | it is put into the development folder as it is |
 | Anything else (a 2DA, an area, `module.ifo`), or a file taken away | the module is built again; with `--serve`, the server is started again on it |
+| The project's own talk table (its `<name>.tlk.json` or `.csv`) | the same: the server, started again, has the table made anew of it |
 
 A running server takes up what is in its `development` folder at the next
 use (the next time the script runs, the next creature made from the

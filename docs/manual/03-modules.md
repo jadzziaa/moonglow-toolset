@@ -351,10 +351,28 @@ unpacking or packing between the toolset and git.
   feminine table is a target of its own (`mytlkf.tlk`, of
   `mytlkf.tlk.json`), in the same language. The
   project's `tlkFlags` are used as nasher uses them (`--nwn-encoding`,
-  `--pretty`); a project that keeps its tables as CSV (`tlkFormat =
-  "csv"`) is told it isn't read. `mg build PROJECT --target tlk` makes
-  the `.tlk` as nasher does, and `mg serve` and `mg test` make it for the
-  server from the project.
+  `--pretty`; the codepages of more than a byte a character, `cp949`,
+  `cp936`, `cp932` and `cp950`, too). A project that keeps its tables as
+  CSV (`tlkFormat = "csv"`) has `<name>.tlk.csv`, as `nasher unpack`
+  writes it, read, edited and saved back as `nwn_tlk` writes CSV (which
+  keeps no language: such a table is English's); nasher's own pack
+  refuses a CSV source ("csv is not a supported source type"), and
+  Moonglow makes the table of it all the same. A line's sound length is
+  kept without a sound, as `nwn_tlk` keeps one. `mg build PROJECT
+  --target tlk` makes the `.tlk` as nasher does, and `mg serve`, `mg
+  test` and `mg watch --serve` make it for the server from the project
+  (`mg watch` builds again, and starts the server again, when the
+  table's file changes). Changed outside Moonglow while it is open (a
+  `git pull`), the table is read again in the editor; with unsaved
+  changes there, yours are kept and the log says so.
+- **A new talk table** made in the talk table editor (New Talk Table)
+  goes into the project: `<name>.tlk.json` where the project's rules put
+  `<name>.tlk`, with a target of its own in `nasher.cfg` (and the
+  feminine table's), and the module target's sources given `exclude =
+  "**/*.tlk.json"` where they would take it in.
+- **A module target that takes a table's JSON in** (no such exclude):
+  nasher packs the table into the module, converted as `nwn_tlk`
+  converts it, and so do Build › Pack and `mg build`.
 - **Compiled scripts are build output.** A project keeps scripts as `.nss`
   only, and Moonglow compiles them when it packs. A compiled script
   without its source (an old module's, whose source is lost) is kept as
