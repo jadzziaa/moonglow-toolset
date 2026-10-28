@@ -913,10 +913,22 @@ only what is there runs with no game at all, in a build pipeline say.
 `game = "folder"` in the file (or in one test) names another folder,
 from the test file's folder.
 
+The game folder may also bring the game's talk tables and the fixture's
+haks (since Moonglow 2.13.0): a `dialog.tlk` is read in place of the
+game's (`ctx.game:string`, and the checks that count its strings), a
+talk table of the name the fixture's `Mod_CustomTlk` gives is its custom
+talk table (over the one the game would find in your `tlk/` folder; a
+nasher project's own, in `src/`, is found too), and a hak the fixture
+lists, in the folder's `hak/`, is read in place of the one in your hak
+folder. With no game, a hak the fixture lists and the folder has not is
+said in a note.
+
 ```text
 tests/
   checks.toml      module = "module"
   game/            parts_chest.2da, skills.2da: what the checks read of the game
+    dialog.tlk     the game's strings, mine.tlk the fixture's
+    hak/           mine_2da.hak: the fixture's haks
   module/          the fixture
 ```
 
@@ -948,13 +960,15 @@ note	checks.toml › armor: the good module has none: it passed without parts_ch
 
 A plugin that lists the game's resources (`ctx.game:resources()`) with
 no game is told that the list is only the fixture's and its game
-folder's (or, with no game folder either, that there is none, and the
-call fails).
+folder's (or, with no game folder either, the fixture's alone).
 
 **Moonglow's own checks** (Verify's: `tag-unique`, `var-runtime`, the
 others `mg verify --json` names; since Moonglow 2.3.0) run on a
 fixture with `builtin = "id"` in place of `check`, so that a project's
-rules are tested beside its plugin's. A fixture that is a project
+rules are tested beside its plugin's. A test runs several with a list,
+`builtin = ["var-runtime", "tag-unique"]`, or every one with `builtin =
+"all"` (since Moonglow 2.13.0): their findings are held together, in the
+order Verify lists them (errors first). A fixture that is a project
 (`moonglow.toml` and `variables.toml` beside its `nasher.cfg`, or in a
 module folder) is checked by its project file, as Verify checks the
 project; what of the project file isn't understood is a note of each
@@ -993,12 +1007,23 @@ value = "GATE_POST_2"
 Moonglow's: a test says which it runs whatever checks the plugin
 declares, now or later.
 
+The checks that count talk-table strings (`2da-strref`, `custom-tlk`,
+`2da-described`) count them by the test's talk tables: the game's, or
+those of its game folder. With none (no game, and no `dialog.tlk` in the
+game folder), they say nothing of strings they can't count, nor of a
+custom talk table the test's data has not (the game may well find it in
+your `tlk/` folder), and the test is told so: in a note, of a test that
+runs them as part of more (`"all"`), and as a problem, of one that names
+`2da-strref`, or `custom-tlk` with its table not there, since that test
+can't test what it is for. Since Moonglow 2.13.0; before, they found
+every custom string missing.
+
 A test (`[[test]]`) has a `name` and runs one thing:
 
 | Key | |
 | --- | --- |
 | `check`, `command` or `event` | The id of what is run, as the manifest declares it. |
-| `builtin` | One of Moonglow's own checks, by its id (`tag-unique`), in place of the plugin's (since Moonglow 2.3.0). |
+| `builtin` | One of Moonglow's own checks, by its id (`tag-unique`), in place of the plugin's (since Moonglow 2.3.0); several, in a list, or `"all"` (since Moonglow 2.13.0). |
 | `select`, `open` | What a command is run on and what is open (`ctx.selection`, `ctx.open`), named as `mg plugin run --select` names them: `guard.utc`, `tavern.are`, `tavern.git/Placeable List[0]`. For objects placed or pasted, the objects (`ctx.event.objects`). |
 | `answers` | A form's values by field id (`answers = { sell = 200 }`); the other fields take their defaults. |
 | `yes` | The answer to `ctx.ui:confirm` (else no). |
@@ -1016,7 +1041,7 @@ and says what is to come of it (each key may be left out):
 | `[[test.finding]]` | The check's findings, all of them, in order: each with `resource`, and as wanted `message` (the whole of it), `at`, `severity` and `fix` (its fix's label; `""` for none). |
 | `findings` | How many findings, where their list is not given. |
 | `fix` | Make the fixes of this label (as Verify's buttons would), then hold the module to the keys below. |
-| `left` | How many findings the check makes once the fixes are made. |
+| `left` | How many findings the check makes once the fixes are made: on the module as fixed, which the game's data has too (a fixed 2DA of the module's is read so through `ctx.game`, and by Moonglow's checks; since Moonglow 2.13.0). |
 | `[[test.field]]` | A field after the edits: `resource`, `field` (its path, as `ctx.edit` takes it) and `value` (text, a number, a localized string's English text), or `absent = true`. `field` may be a list's item (`Equip_ItemList[2]`, `/VarTable[0]`; since Moonglow 2.2.0): it is there, or with `absent = true` it is not; an item has no `value`. |
 | `edits`, `resources` | How many edits there were, and which resources they change. |
 | `log` | Lines the log must have: each is part of one. |
@@ -1025,9 +1050,11 @@ and says what is to come of it (each key may be left out):
 | `warned`, `refused` | What a `resource-saving` handler says: its warnings and its refusals, all of them in order, each part of one as `name.ext: text` (`"cellar.are: its tag was OLD_CELLAR"`); `[]`: none. |
 
 Without a game, and with no game folder of its own, a test's
-`ctx.game` is empty: a pipeline with no game runs the tests of a plugin
-that reads only the module, and those whose tests bring what they read
-of the game. Haks and folders the plugin writes are not written, nor
+`ctx.game` is the fixture alone, as Moonglow's is the game with the
+module over it (since Moonglow 2.13.0; before, it was empty): a
+pipeline with no game runs the tests of a plugin that reads only the
+module (through `ctx.module` or `ctx.game`), and those whose tests bring
+what they read of the game. Haks and folders the plugin writes are not written, nor
 held to anything yet. `mg plugin pack` leaves the `tests` folder out of the
 archive: the tests and their fixtures are the author's.
 

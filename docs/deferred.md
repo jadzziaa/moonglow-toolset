@@ -3116,28 +3116,6 @@ and duplicate tags on paste. What is left:
   another area isn't said, as the project says it may be there; and
   Setup Store's `{n}` still takes the first number free in the module,
   not in the area. (S) (the Domains of Dread's setup on 2.1.0)
-- **A test's game folder has no talk table:** without a game,
-  `ctx.game:string` is nil, and a test can't bring a `dialog.tlk` (or
-  the module's custom one) of its own; nor haks of its own (the
-  fixture's haks are the machine's user folder's). (S) (the Domains of
-  Dread's setup on 2.1.0)
-- **A builtin check runs one check a test:** a test names one (`builtin
-  = "var-runtime"`); the whole of what `mg verify` finds on a fixture
-  takes a test a check. (S) (the Domains of Dread's notes on 2.2.0)
-- **`left` after a builtin check's fix reads the game's data with the
-  fixture as it was:** the checks that read the module itself (tags,
-  variables) see the fix; one that reads a module's resource through the
-  game's data (a module's 2DA, for `2da-*`) does not. (S) (the Domains
-  of Dread's notes on 2.2.0)
-- **A builtin check with no game counts no talk-table strings:**
-  `2da-strref` and `custom-tlk` then find what the game would not; a
-  test's game folder brings no `dialog.tlk` (above). (S) (the Domains of
-  Dread's notes on 2.2.0)
-- **With no game and no game folder, `ctx.game` is empty, the fixture
-  not in it:** in Moonglow it is the game with the module over it, so a
-  plugin that reads the module's own 2DAs through `ctx.game` needs a
-  game folder (or a game) in its test. (S) (the Domains of Dread's notes
-  on 2.2.0)
 
 ## Claims, protected areas and the project's commands (the builders' proposal, C6 to C8)
 

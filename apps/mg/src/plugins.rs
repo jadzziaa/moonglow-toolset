@@ -493,8 +493,10 @@ pub(crate) fn test(gi: Option<&GameInstall>, dir: &Path, module: Option<&Path>) 
             // for a test's own game folder.)
             if !said.notes.iter().any(|n| n.starts_with("no game install")) {
                 said.note(
-                    "no game install found: a test's game data is only its own game folder (game/ \
-                     beside it), or the game at its root = (--root, or NWN_ROOT, for all); \
+                    "no game install found: a test's game data is only its fixture and its own \
+                     game folder (game/ beside it: 2DAs and the rest, dialog.tlk, the fixture's \
+                     talk table, its haks in hak/), or the game at its root = (--root, or \
+                     NWN_ROOT, for all); \
                      root = false reads none on any machine",
                 );
             }
@@ -509,7 +511,12 @@ pub(crate) fn test(gi: Option<&GameInstall>, dir: &Path, module: Option<&Path>) 
         }
     };
     let results = mg_plugin::run_tests(&plugin, module, &game);
-    out.notes.extend(notes.into_inner().notes);
+    // (Each once: a hak not found is said of each fixture read.)
+    for n in notes.into_inner().notes {
+        if !out.notes.contains(&n) {
+            out.notes.push(n);
+        }
+    }
     let id = &plugin.manifest.id;
     for r in &results {
         match r.problems.as_slice() {

@@ -419,6 +419,14 @@ pub struct TalkTables {
     pub custom: Option<usize>,
 }
 
+impl TalkTables {
+    /// The count of a table not read, whose strings are not counted (a
+    /// plugin's test with no game and no talk table of its own): `base`
+    /// 0, `custom` `Some(UNCOUNTED)`. None of its strings is said to be
+    /// missing, nor the table.
+    pub const UNCOUNTED: usize = usize::MAX;
+}
+
 /// Whether a layer holds custom content (the user's or the module's).
 fn is_custom(layer: &Layer) -> bool {
     matches!(
@@ -2940,6 +2948,12 @@ endmodelgeom fx\ndonemodel fx\n";
         assert_eq!(checks(&f), [("custom-tlk", "Custom Tlk".into())]);
         assert!(f[0].message.contains("without .tlk"), "{}", f[0].message);
         assert!(examine(&m, &rm, TalkTables { base: 100, custom: Some(3) }).is_empty());
+        // A table not read (a plugin's test with no game): not said, nor
+        // its strings.
+        let uncounted = TalkTables { base: 0, custom: Some(TalkTables::UNCOUNTED) };
+        assert!(examine(&m, &rm, uncounted).is_empty());
+        assert_eq!(strref_problem(0x0100_0000 + 5000, uncounted), None);
+        assert_eq!(strref_problem(5000, uncounted), None);
     }
 
     /// An archive whose last resources sit past 2 GiB.
