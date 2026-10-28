@@ -265,7 +265,15 @@ mod tests {
     }
 
     fn light(position: Vec3, cutoff: f32, priority: u32) -> PointLight {
-        PointLight { position, color: Vec3::ONE, cutoff, ambient_only: false, priority }
+        PointLight {
+            position,
+            color: Vec3::ONE,
+            cutoff,
+            ambient_only: false,
+            priority,
+            casts_shadows: false,
+            shadow_lift: 0.0,
+        }
     }
 
     #[test]

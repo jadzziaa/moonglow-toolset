@@ -513,8 +513,10 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
         view.shadows = kinds.contains("sun");
         view.creature_shadows = kinds.contains("creatures");
         view.light_shadows = kinds.contains("lights");
+        // (The lights' shadows only where the area has no sun's.)
         let l = &mut model.lighting;
-        (l.sun.shadows, l.moon.shadows) = (true, true);
+        let sky = !view.light_shadows;
+        (l.sun.shadows, l.moon.shadows) = (sky, sky);
         if l.shadow_opacity == 0 {
             l.shadow_opacity = 50;
         }
@@ -694,7 +696,7 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
              encoded {:5.2} ms (worst {:5.2}; on the processor {:5.2}), GPU {:5.2} ms (the quickest tenth {:5.2}) \
              ({instances} instances, {meshes} meshes, {lights} lights, {quads} particles; {} \
              meshes in {} draws of {} materials and {} pipelines in turn, {} of the game's, {} \
-             meshes out of sight)",
+             meshes out of sight; {} casting the sun's shadows, {} creatures the lights')",
             ms(first),
             ms(pick(build, 0.5)),
             ms(pick(particles, 0.5)),
@@ -709,6 +711,8 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
             did.pipelines,
             did.game,
             did.hidden,
+            did.sun_casters,
+            did.light_shadows,
         );
     }
 }

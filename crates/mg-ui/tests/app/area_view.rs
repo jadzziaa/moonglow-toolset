@@ -4034,7 +4034,7 @@ fn the_shadows_button_held_opens_the_kinds_to_choose() {
         let v = &h.state().area_views[&area];
         [v.shadows, v.creature_shadows, v.light_shadows]
     };
-    assert_eq!(kinds(&h), [true, true, false], "the defaults");
+    assert_eq!(kinds(&h), [true; 3], "the defaults");
     // Held half a second.
     let at = h.get_by_label("◑ Shadows").rect().center();
     let button = |pressed| egui::Event::PointerButton {
@@ -4054,14 +4054,14 @@ fn the_shadows_button_held_opens_the_kinds_to_choose() {
     h.run_steps(2);
     // (Open still: the release, outside it, closed it until 2.11.0.)
     assert!(h.query_by_label("Light Shadows").is_some(), "open after the release");
-    assert_eq!(kinds(&h), [true, true, false], "the release is no click");
+    assert_eq!(kinds(&h), [true; 3], "the release is no click");
     h.get_by_label("Light Shadows").click();
     h.run();
     h.get_by_label("Creature Shadows").click();
     h.run();
-    assert_eq!(kinds(&h), [true, false, true]);
+    assert_eq!(kinds(&h), [true, false, false]);
     let s = &h.state().settings;
-    assert!(!s.no_shadows && s.no_creature_shadows && s.light_shadows);
+    assert!(!s.no_shadows && s.no_creature_shadows && s.no_light_shadows);
     // A click: none; another: as they were.
     h.key_press(egui::Key::Escape);
     h.run();
@@ -4070,5 +4070,5 @@ fn the_shadows_button_held_opens_the_kinds_to_choose() {
     assert_eq!(kinds(&h), [false; 3]);
     h.get_by_label("◑ Shadows").click();
     h.run();
-    assert_eq!(kinds(&h), [true, false, true]);
+    assert_eq!(kinds(&h), [true, false, false]);
 }

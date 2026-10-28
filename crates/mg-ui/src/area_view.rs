@@ -608,7 +608,7 @@ impl AreaView {
             lit: true,
             shadows: true,
             creature_shadows: true,
-            light_shadows: false,
+            light_shadows: true,
             shadows_before: None,
             sound_ranges: false,
             grid: true,
@@ -1784,7 +1784,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
         view.lit = !app.settings.unlit_areas;
         view.shadows = !app.settings.no_shadows;
         view.creature_shadows = !app.settings.no_creature_shadows;
-        view.light_shadows = app.settings.light_shadows;
+        view.light_shadows = !app.settings.no_light_shadows;
         view.sound_ranges = app.settings.sound_ranges;
         view.fade = Fade::of(app.settings.fade_geometry);
         // (Where its camera was, if a module's kept tabs opened it again.)
@@ -1945,8 +1945,9 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         shadows_button(ui, view, tools);
         let kinds = (view.shadows, view.creature_shadows, view.light_shadows);
         let s = &mut app.settings;
-        if kinds != (!s.no_shadows, !s.no_creature_shadows, s.light_shadows) {
-            (s.no_shadows, s.no_creature_shadows, s.light_shadows) = (!kinds.0, !kinds.1, kinds.2);
+        if kinds != (!s.no_shadows, !s.no_creature_shadows, !s.no_light_shadows) {
+            (s.no_shadows, s.no_creature_shadows, s.no_light_shadows) =
+                (!kinds.0, !kinds.1, !kinds.2);
         }
         tools.toggle(ui, &mut view.fog, icons::FOG, "Fog", "");
         let before = view.fade;
@@ -2879,9 +2880,8 @@ fn held_menu<'r>(ui: &egui::Ui, r: &'r egui::Response) -> (bool, egui::Popup<'r>
 }
 
 /// The Shadows button: down while any kind of shadow is drawn; a click
-/// turns them all off, or on again as they were (the sun's and the
-/// creatures' at first); held or right-clicked, the kinds to choose
-/// from.
+/// turns them all off, or on again as they were (all at first); held or
+/// right-clicked, the kinds to choose from.
 fn shadows_button(ui: &mut egui::Ui, view: &mut AreaView, tools: crate::icons::Tools) {
     let kinds = [view.shadows, view.creature_shadows, view.light_shadows];
     let on = kinds.iter().any(|&k| k);
@@ -2895,7 +2895,7 @@ fn shadows_button(ui: &mut egui::Ui, view: &mut AreaView, tools: crate::icons::T
     );
     let (clicked, menu) = held_menu(ui, &r);
     if clicked {
-        let again = view.shadows_before.take().unwrap_or([true, true, false]);
+        let again = view.shadows_before.take().unwrap_or([true; 3]);
         if on {
             view.shadows_before = Some(kinds);
         }
@@ -2912,8 +2912,9 @@ fn shadows_button(ui: &mut egui::Ui, view: &mut AreaView, tools: crate::icons::T
              the game's Creature Shadow Detail at Best has them (at Fast or Off they cast none)",
         );
         ui.checkbox(&mut view.light_shadows, "Light Shadows").on_hover_text(
-            "Lights that cast shadows (a model's light node with `shadow 1`: the tiles' source \
-             lights, placeables' lights) cast them, as the game's three nearest do",
+            "Where the area has no sun's or moon's shadows at the time, each creature casts one \
+             from the nearest light that casts them (a light node with `shadow 1` and a radius \
+             of 10 m or more: a placeable's light), as in the game",
         );
     });
 }

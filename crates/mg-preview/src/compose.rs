@@ -441,7 +441,9 @@ impl Composed {
             .iter()
             .filter(|l| l.on)
             .map(|l| {
+                // (`fx_placeable01`'s light: `shadow 1`, `verticaldisplacement 3`.)
                 PointLight::new(transform.transform_point3(l.offset), l.color, l.radius, false, 4)
+                    .casting(true, l.radius, 3.0)
             })
             .collect()
     }

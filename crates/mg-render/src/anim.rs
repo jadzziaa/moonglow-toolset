@@ -306,6 +306,9 @@ pub struct Lamp {
     pub multiplier: f32,
     pub ambient_only: bool,
     pub priority: u32,
+    /// Its node's `shadow` flag, and its `verticaldisplacement`.
+    pub shadow: bool,
+    pub lift: f32,
 }
 
 impl Lamp {
@@ -332,13 +335,14 @@ impl Lamp {
         if radius <= 0.0 || color == Vec3::ZERO {
             return None;
         }
-        Some(crate::scene::PointLight::new(
+        let light = crate::scene::PointLight::new(
             transform.transform_point3(self.at),
             color,
             radius,
             self.ambient_only,
             self.priority,
-        ))
+        );
+        Some(light.casting(self.shadow, radius, self.lift))
     }
 }
 
@@ -377,6 +381,8 @@ pub fn lamps_layers(model: &Model, layers: &[&Animation], t: f32, pose: &[Mat4])
             multiplier: value("multiplier").and_then(|v| v.first().copied()).unwrap_or(1.0),
             ambient_only: l.ambient_only,
             priority: l.priority.clamp(1, 5),
+            shadow: l.shadow,
+            lift: value("verticaldisplacement").and_then(|v| v.first().copied()).unwrap_or(0.0),
         });
     }
     out
@@ -502,6 +508,8 @@ mod tests {
             multiplier,
             ambient_only: false,
             priority: 2,
+            shadow: false,
+            lift: 0.0,
         }
     }
 
@@ -526,6 +534,13 @@ mod tests {
         let bright = at(lamp(Vec3::new(2.0, 1.0, 1.0), 5.0, 2.0));
         assert!((bright.color - Vec3::new(1.0, 0.2176, 0.2176)).abs().max_element() < 1e-3);
         assert_eq!(bright.cutoff, 40.0);
+        // A light flagged `shadow` casts creatures' shadows from 10 m of
+        // radius (a placeable's light; a tile's flame, 7, none), from its
+        // `verticaldisplacement` above it.
+        let casting =
+            |radius: f32| at(Lamp { shadow: true, lift: 3.0, ..lamp(Vec3::ONE, radius, 1.0) });
+        assert!(casting(10.0).casts_shadows && casting(10.0).shadow_lift == 3.0);
+        assert!(!casting(7.0).casts_shadows && !at(lamp(Vec3::ONE, 10.0, 1.0)).casts_shadows);
         // A main light keeps the engine's radius, times its multiplier (the
         // game's tiles have 1).
         let main = Lamp { main: Some(0), ..lamp(Vec3::ONE, 14.0, 1.0) };

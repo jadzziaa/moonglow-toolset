@@ -234,8 +234,8 @@ pub struct Settings {
     /// off, in views opened from now on.
     pub no_creature_shadows: bool,
     /// The area view's Light Shadows (in the Shadows button's menu) are
-    /// on, in views opened from now on.
-    pub light_shadows: bool,
+    /// off, in views opened from now on.
+    pub no_light_shadows: bool,
     /// The area view's Sound Ranges switch is on, in views opened from
     /// now on.
     pub sound_ranges: bool,
@@ -683,21 +683,20 @@ mod tests {
     /// for, as in Aurora (builders' asks); settings saved when the
     /// Workshop was read by default (`no_workshop: false`) don't read it.
     /// The area view's shadows by default (and for settings saved before
-    /// they were): the sun's and moon's and the creatures' on, the lights'
-    /// off; each kept as chosen.
+    /// they were): all three kinds on; each kept as chosen.
     #[test]
     fn the_shadow_kinds_default_and_are_kept() {
         let old: Settings = serde_json::from_str(r#"{"no_shadows":false}"#).unwrap();
-        assert!(!old.no_shadows && !old.no_creature_shadows && !old.light_shadows);
+        assert!(!old.no_shadows && !old.no_creature_shadows && !old.no_light_shadows);
         let chosen = Settings {
             no_shadows: true,
             no_creature_shadows: true,
-            light_shadows: true,
+            no_light_shadows: true,
             ..Settings::default()
         };
         let back: Settings =
             serde_json::from_str(&serde_json::to_string(&chosen).unwrap()).unwrap();
-        assert!(back.no_shadows && back.no_creature_shadows && back.light_shadows);
+        assert!(back.no_shadows && back.no_creature_shadows && back.no_light_shadows);
     }
 
     #[test]

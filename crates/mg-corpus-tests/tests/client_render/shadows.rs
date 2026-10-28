@@ -35,6 +35,18 @@
 //! The test holds Moonglow's floor and faces to the client's within
 //! [`TOLERANCE`], with both of its shaders.
 //!
+//! Creatures and lights: `MG_SHADOW_CREATURE=nw_ogre01` places an ogre
+//! between the pairs (its sun shadow measured too), `MG_CREATURE_SHADOWS`
+//! sets the client's Creature Shadow Detail (Best casts the ogre's and
+//! the dynamic armoires' shadows; Fast and Off, none), and on tic01
+//! (`MG_SHADOW_TILESET=tic01`) `MG_SHADOW_LAMP=73@19.8,25.5` stands a lamp
+//! post behind the ogre, `MG_SHADOW_SOURCES` lights the tiles' torches,
+//! `MG_SHADOW_COLORS` darkens the area and `MG_SHADOW_LIGHTS=1` draws
+//! Moonglow's lights' shadows: with the sun's and moon's off at the time
+//! (`day_off`, `day_off_30`) the ogre casts one from the nearest lamp,
+//! measured against the same lighting's capture with Creature Shadow
+//! Detail Off (made first, `MG_CREATURE_SHADOWS=0`).
+//!
 //! Needs the game, a GPU and the off-screen display; run by hand:
 //! `DISPLAY=:1 cargo test -p mg-corpus-tests --release --test client_render shadows -- --ignored --nocapture`.
 //! `MG_CLIENT_CAPTURED=1` reads the client's pictures kept from an earlier
@@ -56,8 +68,9 @@ struct Shadows {
     opacity: u8,
 }
 
-const LIGHTINGS: [Shadows; 6] = [
+const LIGHTINGS: [Shadows; 7] = [
     Shadows { name: "day_off", night: false, sun: false, moon: true, opacity: 100 },
+    Shadows { name: "day_off_30", night: false, sun: false, moon: true, opacity: 30 },
     Shadows { name: "day_100", night: false, sun: true, moon: false, opacity: 100 },
     Shadows { name: "day_60", night: false, sun: true, moon: false, opacity: 60 },
     Shadows { name: "day_30", night: false, sun: true, moon: false, opacity: 30 },
@@ -87,6 +100,10 @@ const FACE_STATIC: [f32; 4] = [0.557, 0.371, 0.601, 0.423];
 /// on the client's pictures) and the lit floor east of it.
 const CREATURE_SHADOW: [f32; 4] = [0.425, 0.49, 0.455, 0.515];
 const CREATURE_LIT: [f32; 4] = [0.53, 0.49, 0.56, 0.515];
+/// On tic01, with the lamp at (19.8, 25.5) behind the ogre: the ogre's
+/// shadow from it and the lit floor east of that.
+const LAMP_SHADOW: [f32; 4] = [0.475, 0.495, 0.51, 0.525];
+const LAMP_LIT: [f32; 4] = [0.56, 0.495, 0.595, 0.525];
 
 /// The client's settings for the comparison with its shadows on.
 pub(super) fn settings() -> String {
@@ -97,6 +114,24 @@ pub(super) fn settings() -> String {
 /// Fast, 2 Best, the default).
 fn creature_mode() -> u8 {
     std::env::var("MG_CREATURE_SHADOWS").ok().and_then(|m| m.parse().ok()).unwrap_or(2)
+}
+
+/// `MG_SHADOW_SOURCES=<value>`: every tile's source lights (`Tile_SrcLight1`
+/// and 2, the flame and its light, `shadow 1`) set to it, for the lights'
+/// shadows; `MG_SHADOW_COLORS=<ambient>,<diffuse>` (0xBBGGRR in hex) for
+/// the area's sun and moon instead of 0x606060 and 0xC0C0C0.
+fn sources() -> Option<u8> {
+    std::env::var("MG_SHADOW_SOURCES").ok().and_then(|v| v.parse().ok())
+}
+
+fn colors() -> (u32, u32) {
+    std::env::var("MG_SHADOW_COLORS")
+        .ok()
+        .and_then(|v| {
+            let (a, d) = v.split_once(',')?;
+            Some((u32::from_str_radix(a.trim(), 16).ok()?, u32::from_str_radix(d.trim(), 16).ok()?))
+        })
+        .unwrap_or((0x606060, 0xC0C0C0))
 }
 
 /// `MG_SHADOW_CREATURE`: a creature blueprint of the game's placed among
@@ -123,6 +158,30 @@ fn grassy_settings(grass: bool) -> String {
             "[graphics.shadows.environment]\n\t\t\tenabled = false",
             "[graphics.shadows.environment]\n\t\t\tenabled = true",
         )
+        // (`MG_CASTING_LIGHTS`: the client's `max-casting-lights`, 0 to 3,
+        // its default 3.)
+        .replace(
+            "\t[graphics.shadows]\n",
+            &format!("\t[graphics.shadows]\n\t\tmax-casting-lights = {}\n", casting_lights()),
+        )
+}
+
+/// `MG_SHADOW_LAMP=<row>@<x>,<y>[;...]`: lit placeables' appearances and
+/// places.
+fn lamps() -> Vec<(u32, f32, f32)> {
+    let v = std::env::var("MG_SHADOW_LAMP").unwrap_or_default();
+    v.split(';')
+        .filter_map(|l| {
+            let (row, at) = l.split_once('@')?;
+            let (x, y) = at.split_once(',')?;
+            Some((row.trim().parse().ok()?, x.trim().parse().ok()?, y.trim().parse().ok()?))
+        })
+        .collect()
+}
+
+/// `MG_CASTING_LIGHTS` (0 to 3, the client's default 3).
+fn casting_lights() -> u8 {
+    std::env::var("MG_CASTING_LIGHTS").ok().and_then(|v| v.parse().ok()).unwrap_or(3)
 }
 
 /// The mean brightness (of 255) of a rectangle (fractions of the image).
@@ -134,19 +193,20 @@ fn brightness(img: &Rgba, r: [f32; 4]) -> f32 {
 /// A picture's ratios: the shadowed floor's brightness over the lit
 /// floor's, the static face's over the dynamic one's, the floor in the
 /// creature's shadow over the lit floor beside it.
-fn ratios(img: &Rgba) -> [f32; 3] {
+fn ratios(img: &Rgba) -> [f32; 4] {
     let over = |a: [f32; 4], b: [f32; 4]| brightness(img, a) / brightness(img, b).max(1e-3);
     [
         over(FLOOR_SHADOW, FLOOR_LIT),
         over(FACE_STATIC, FACE_DYNAMIC),
         over(CREATURE_SHADOW, CREATURE_LIT),
+        over(LAMP_SHADOW, LAMP_LIT),
     ]
 }
 
-/// How much a picture's shadows darken the floor, the static face and the
-/// floor under the creature's shadow: 1 less its ratios over those of the
-/// picture with none.
-fn darkening(img: &Rgba, none: [f32; 3]) -> [f32; 3] {
+/// How much a picture's shadows darken the floor, the static face, the
+/// floor under the creature's shadow and under its lamp's: 1 less its
+/// ratios over those of the picture with none.
+fn darkening(img: &Rgba, none: [f32; 4]) -> [f32; 4] {
     let r = ratios(img);
     std::array::from_fn(|i| 1.0 - r[i] / none[i])
 }
@@ -154,8 +214,15 @@ fn darkening(img: &Rgba, none: [f32; 3]) -> [f32; 3] {
 /// The area of `tileset` lit as `s` says, with the armoires, saved as the
 /// scratch user folder's module: its ARE and GIT.
 fn module(game: &GameData, dir: &Path, tileset: &str, s: Shadows) -> (Gff, Gff) {
-    let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+    let (ambient, diffuse) = colors();
+    let light = Lighting { ambient, diffuse, main_light: 0, only_tile: None };
     let (mut m, mut are) = build_module_on(game, dir, light, tileset, 0);
+    if let Some(value) = sources() {
+        for t in are.root.list_mut("Tile_List").unwrap() {
+            t.set("Tile_SrcLight1", Value::Byte(value));
+            t.set("Tile_SrcLight2", Value::Byte(value));
+        }
+    }
     for (label, v) in [
         ("SunShadows", u8::from(s.sun)),
         ("MoonShadows", u8::from(s.moon)),
@@ -186,6 +253,16 @@ fn module(game: &GameData, dir: &Path, tileset: &str, s: Shadows) -> (Gff, Gff) 
             p
         })
         .collect();
+    let mut placed = placed;
+    // (`MG_SHADOW_LAMP=<row>@<x>,<y>`: a placeable of that appearance
+    // there, its light lit: placeables.2da's `LightColor`, a light of
+    // `shadow 1`.)
+    for (row, x, y) in lamps() {
+        let mut bp = mg_module::blueprints::placeable(ResRef::EMPTY, "Lamp", 0);
+        bp.root.set("Appearance", Value::Dword(row));
+        let at = Placement { position: [x, y, 0.0], rotation: 0.0 };
+        placed.push(instance(&placing, ResType::UTP, &bp.root, at, &[]).unwrap());
+    }
     git.root.set("Placeable List", Value::List(placed));
     if let Some(name) = creature() {
         let utc = game.resman.get_named(&name, ResType::UTC).expect("the creature's blueprint");
@@ -227,6 +304,21 @@ fn shadows_look() {
     if let Some(c) = creature() {
         label = format!("{label}_{c}_c{}", creature_mode());
     }
+    if let Some(v) = sources() {
+        label = format!("{label}_sources{v}");
+    }
+    for (row, x, y) in lamps() {
+        label = format!("{label}_lamp{row}_{x}_{y}");
+    }
+    if sources().is_some() || !lamps().is_empty() {
+        label = format!("{label}_l{}", casting_lights());
+    }
+    if std::env::var_os("MG_SHADOW_COLORS").is_some() {
+        let (a, d) = colors();
+        label = format!("{label}_{a:06x}_{d:06x}");
+    }
+    // (`MG_SHADOW_LIGHTS=1`: Moonglow's lights cast too.)
+    let light_shadows = std::env::var_os("MG_SHADOW_LIGHTS").is_some();
     let mut client_none = None;
     let mut failures = Vec::new();
     for s in LIGHTINGS
@@ -265,6 +357,7 @@ fn shadows_look() {
             fog: false,
             grass: sight,
             creature_shadows,
+            light_shadows,
             ..mg_area::View::of(&model)
         };
         let scene = area_scene.scene(&model, &view);
@@ -272,13 +365,21 @@ fn shadows_look() {
             off_and_on(&gpu, &game, &scene, &camera, (w, h), client.as_ref(), &dir, "moonglow");
         // Moonglow's measure of no shadow: the same view without.
         let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
-        let bare = Scene { shadows: None, ..scene.clone() };
+        let bare = Scene { shadows: None, light_shadows: None, ..scene.clone() };
         let none = r.render_image(&gpu, &game.resman, &bare, &camera, w, h);
         save_png(&none, &dir.join("moonglow_none.png"));
         let ours_none = ratios(&none);
         if s.name == "day_off" {
             client_none = client.as_ref().map(ratios);
         }
+        // (With lamps, the client's day_off has their shadows: its measure
+        // of none is the same lighting's capture with its creature shadows
+        // off, which takes the lights' away too, where it was made.)
+        let lamp_none = (!lamps().is_empty() && creature_mode() == 2)
+            .then(|| label.replace("_c2_", "_c0_"))
+            .and_then(|l| mg_testkit::aurora_capture(&format!("client/shadows_{l}_{}.png", s.name)))
+            .map(|p| ratios(&common::read_png(&p)));
+        let client_none = if lamps().is_empty() { client_none } else { lamp_none };
         let theirs = client.as_ref().zip(client_none).map(|(c, none)| darkening(c, none));
         let ours = [("off", darkening(&off, ours_none)), ("on", darkening(&on, ours_none))];
         eprintln!(
@@ -291,10 +392,13 @@ fn shadows_look() {
         );
         let Some(t) = theirs else { continue };
         for (switch, o) in ours {
-            let measured: &[_] = if creature().is_some() {
-                &[("floor", 0), ("static face", 1), ("creature's shadow", 2)]
-            } else {
-                &[("floor", 0), ("static face", 1)]
+            // (The regions were picked on ttr01's pictures, the lamp's on
+            // tic01's with its lamp behind the ogre.)
+            let measured: &[_] = match (tileset == "ttr01", creature().is_some(), lamps().len()) {
+                (true, true, 0) => &[("floor", 0), ("static face", 1), ("creature's shadow", 2)],
+                (true, false, 0) => &[("floor", 0), ("static face", 1)],
+                (false, true, 1) => &[("lamp's shadow", 3)],
+                _ => &[],
             };
             for &(what, i) in measured {
                 if (o[i] - t[i]).abs() > TOLERANCE {

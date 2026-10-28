@@ -105,7 +105,7 @@ impl View {
             grass: None,
             shadows: true,
             creature_shadows: true,
-            light_shadows: false,
+            light_shadows: true,
         }
     }
 
@@ -119,6 +119,22 @@ impl View {
     pub fn shadows_of(&self, l: &Lighting) -> Option<mg_render::SunShadows> {
         let casting = self.shadows || self.creature_shadows;
         (casting && self.lit && l.sky(self.night).shadows && l.shadow_opacity > 0).then(|| {
+            mg_render::SunShadows {
+                opacity: f32::from(l.shadow_opacity) / 100.0,
+                fade_limit: l.fog_clip,
+            }
+        })
+    }
+
+    /// The lights' shadows an area lit as `l` shows in this view: where
+    /// [`View::light_shadows`] asks for them and the area has no sun or moon
+    /// shadows at the time (as the client: each creature then casts one
+    /// from the nearest light that casts them, `mg_render::PointLight::casts_shadows`;
+    /// with the sun's or moon's, it casts that alone), as opaque as its
+    /// Shadow Opacity (measured in `shadows_look`).
+    pub fn light_shadows_of(&self, l: &Lighting) -> Option<mg_render::SunShadows> {
+        let sky = l.sky(self.night).shadows;
+        (self.light_shadows && self.lit && !sky && l.shadow_opacity > 0).then(|| {
             mg_render::SunShadows {
                 opacity: f32::from(l.shadow_opacity) / 100.0,
                 fade_limit: l.fog_clip,
@@ -886,6 +902,7 @@ impl AreaScene {
                 }
             }
         }
+        let lit_shadows = view.light_shadows_of(&area.lighting).is_some();
         for (o, shown) in area.objects.iter().zip(&self.objects) {
             if !view.shows(o.kind) {
                 continue;
@@ -940,9 +957,11 @@ impl AreaScene {
                 }
                 _ => false,
             };
+            let from_lights = lit_shadows && o.kind == ObjectKind::Creature;
             instances.extend(drawn.into_iter().map(|i| Instance {
                 unlit,
                 casts_shadows: casts && i.casts_shadows,
+                casts_light_shadows: from_lights && i.casts_shadows,
                 receives_shadows: o.is_static,
                 ..i
             }));
@@ -978,6 +997,7 @@ impl AreaScene {
             time: view.time,
             environment: mg_render::Environment::from_are(l.flags, l.wind_power),
             shadows: view.shadows_of(l),
+            light_shadows: view.light_shadows_of(l),
         }
     }
 
@@ -1295,5 +1315,14 @@ mod tests {
         assert!(View { shadows: false, ..day }.shadows_of(&l).is_some());
         let none = View { shadows: false, creature_shadows: false, ..day };
         assert_eq!(none.shadows_of(&l), None);
+        // The lights' only where asked, and where the area has no sun's or
+        // moon's at the time.
+        let lamps = View { light_shadows: true, ..day };
+        assert_eq!(day.light_shadows_of(&l), None);
+        assert_eq!(lamps.light_shadows_of(&l), None);
+        let s = View { night: true, ..lamps }.light_shadows_of(&l).unwrap();
+        assert_eq!((s.opacity, s.fade_limit), (0.3, 60.0));
+        assert!(lamps.light_shadows_of(&moonlit).is_some());
+        assert_eq!(View { lit: false, ..lamps }.light_shadows_of(&moonlit), None);
     }
 }
