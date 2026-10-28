@@ -1538,12 +1538,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   draws a visual transform at all, and its rotations as the game does,
   is unchecked (an Aurora capture would settle it). (S) (xtul's report,
   October 2026)
-- **No fix for `static-transform`:** Verify warns of a static placeable
-  whose file has a visual transform (made elsewhere: Static ticked in
-  Properties, Make Static and `mg areas --static-placeables` take it
-  off, as Aurora does) but offers no button; taking the transform off
-  or unticking Static is the builder's choice. (S) (xtul's report,
-  October 2026)
 - **Static and the transform elsewhere:** ticking Static takes a placed
   placeable's visual transform off in its Properties (with others
   edited together) and Make Static, as Aurora does. Not so: a plugin
@@ -3228,14 +3222,17 @@ contribution itself states as not done or not checked.
     fix asks nothing (no form: "retag to what?" is a command's); it is
     worked out when Verify runs and refused once a resource it changes is
     not as Verify read it (compared as bytes) or was changed by another
-    fix that did more than set fields, so after Undo or a second fix
+    fix that did more than set fields and take items out, so after
+    Undo or a second fix
     there, Verify runs again; Undo of a fix leaves its button saying
     Fixed; the buttons are in Verify Module's log alone (not Build
     Module's results, the 2DA editor's faults or the tileset editor's),
     for the last Verify, with no "fix all of this check" in the window
     (`mg verify --fix CHECK` is that); the doctor has fixes for
     `tag-unique` (the others retagged `TAG_2`…, scripts that look for
-    the tag not followed) and `area-variables` (moved to the GIT) only:
+    the tag not followed), `area-variables` (moved to the GIT),
+    `var-runtime` (removed) and `static-transform` (the transform off)
+    only:
     `pc-faction` has none (the builder chooses the faction), nor do the
     references, models, 2DAs and tilesets; the fixes of different
     plugins' findings are made one at a time in the window; `mg verify
@@ -3890,10 +3887,6 @@ and duplicate tags on paste. What is left:
 - **No `mg vars --undescribed`** listing the module's variables that no
   description names, nor a plugin API to read the descriptions
   (`mg.vars.describe`). (S)
-- **A table's rows for a String are a column's cells;** the row's own
-  label (`Label`) as a String's value, or a 2DA from a hak the module
-  lists, in `mg vars` (which reads the game's and the project's, not the
-  haks'), isn't there. (S)
 - **No form for the project file:** it is written by hand; Moonglow
   reads it and says what it doesn't understand. (M)
 - **The project file is read again only with reloading on** (Options ›
@@ -3919,11 +3912,6 @@ and duplicate tags on paste. What is left:
 - **Which object `GetObjectByTag` takes of several** was measured for
   two in one area (the second placed); across areas, and for more,
   not. (S)
-- **A variable kept against `runtime = true` has no fix:** Verify's
-  `var-runtime` names it, and taking it out is the builder's (a Remove
-  fix, as `area-variables` has its Move, would serve; two in one
-  `VarTable` would need the second fix to follow the first's indices).
-  (S) (the Domains of Dread's setup on 2.1.0)
 - **A runtime variable's `on` says, and isn't held:** `on` with `runtime
   = true` is shown (`mg vars`) as what the scripts set it on; nothing
   checks the scripts set only described names. (S) (the Domains of
@@ -3961,10 +3949,6 @@ and duplicate tags on paste. What is left:
   plugin that reads the module's own 2DAs through `ctx.game` needs a
   game folder (or a game) in its test. (S) (the Domains of Dread's notes
   on 2.2.0)
-- **`var-runtime`'s nearest name is of entries of their own:** a typo of
-  a name a builder's glob describes (`tdod_rental_*`), taken by a glob
-  of the scripts', has no hint. (S) (the Domains of Dread's notes on
-  2.2.0)
 
 ## Claims, protected areas and the project's commands (the builders' proposal, C6 to C8)
 

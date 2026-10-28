@@ -78,6 +78,63 @@ fn vars_lists_the_project_s_described_variables() {
     );
 }
 
+/// A String's values a table's rows, of a hak the module lists: the
+/// row's own label, without a column named (the Domains of Dread's
+/// tables are in their haks).
+#[test]
+fn vars_reads_a_table_of_the_module_s_haks() {
+    let root = mg_testkit::corpus!();
+    let dir = described_folder("mg-vars-hak");
+    let user = dir.parent().unwrap().join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let mut hak = mg_erf::ErfWriter::new(*b"HAK ");
+    let table = b"2DA V2.0\n\n   Label   Skill\n0  forge   Smithing\n1  ****    ****\n2  loom    Tailoring\n";
+    hak.add(ResRef::from_str("tdod_crafts").unwrap(), ResType::TWODA, table.to_vec()).unwrap();
+    std::fs::write(user.join("hak/tdod_craft.hak"), hak.to_bytes().unwrap()).unwrap();
+    let mut m = Module::open(&dir).unwrap();
+    let mut ifo = m.info().unwrap();
+    let mut listed = Struct::new(8);
+    listed.set("Mod_Hak", Value::String(b"tdod_craft".to_vec()));
+    ifo.root.set("Mod_HakList", Value::List(vec![listed]));
+    m.set_info(&ifo).unwrap();
+    m.save().unwrap();
+    std::fs::write(
+        dir.join("variables.toml"),
+        "[tdod_workbench]\ntype = \"string\"\ntable = \"tdod_crafts\"\n\n\
+         [tdod_skill]\ntype = \"string\"\ntable = \"tdod_crafts\"\ncolumn = \"Skill\"\n",
+    )
+    .unwrap();
+    let vars = |user: Option<&std::path::Path>| {
+        let mut c = crate::mg();
+        c.args(["--json", "--root", root.to_str().unwrap()]);
+        match user {
+            Some(u) => c.args(["--user-dir", u.to_str().unwrap()]),
+            None => c.arg("--no-user-dir"),
+        };
+        let out = c.arg("vars").arg(&dir).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        let said = json["notes"].to_string();
+        (json, said)
+    };
+    let (json, _) = vars(Some(&user));
+    let vars_of = |json: &serde_json::Value, i: usize| json["variables"][i]["values"].clone();
+    assert_eq!(
+        vars_of(&json, 0),
+        serde_json::json!([
+            { "value": "forge", "note": "row 0" },
+            { "value": "loom", "note": "row 2" },
+        ]),
+        "{json}"
+    );
+    assert_eq!(vars_of(&json, 1)[1]["value"], "Tailoring");
+    // The hak not found: said, and no values.
+    let (json, said) = vars(None);
+    assert_eq!(vars_of(&json, 0), serde_json::json!([]));
+    assert!(said.contains("hak tdod_craft not found"), "{said}");
+    assert!(said.contains("the table tdod_crafts.2da was not found"), "{said}");
+}
+
 #[test]
 fn builder_code_is_set_shown_and_taken_out() {
     let dir = described_folder("mg-builder-code");
@@ -177,6 +234,19 @@ fn verify_holds_variables_to_their_descriptions() {
             ),
         ]
     );
+    // The scripts' own taken out when asked; the rest kept.
+    let out = crate::mg()
+        .args(["--root", root.to_str().unwrap(), "--no-user-dir", "verify"])
+        .args(["--fix", "var-runtime"])
+        .arg(&dir)
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("fixed\tvar-runtime › chess.git: Remove the variable"), "{text}");
+    let g = Module::open(&dir).unwrap().gff(&git).unwrap().unwrap();
+    let names: Vec<&[u8]> =
+        g.root.list("VarTable").unwrap().iter().map(|v| v.string("Name").unwrap()).collect();
+    assert_eq!(names, [&b"tdod_settlement"[..], b"tdod_lt"]);
     let checks = crate::mg().args(["--json", "checks"]).output().unwrap();
     let checks: serde_json::Value = serde_json::from_slice(&checks.stdout).unwrap();
     for id in ["var-type", "var-value", "var-object", "var-name", "var-runtime"] {

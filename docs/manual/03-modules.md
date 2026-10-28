@@ -696,12 +696,12 @@ help = "A test's hook: the next d20 rolled (the tests set it on the module)"
 | `on` | what it goes on: `module`, `area`, `creature`, `door`, `encounter`, `item`, `placeable`, `sound`, `store`, `trigger`, `waypoint` (blueprints, placed objects and the items they hold alike) | anything |
 | `values` | the values it takes: `["herb", "ore"]`, or each with what it means, `{ forge = "Smithing" }` | any |
 | `constants`, `prefix` | its values are a script's constants whose names begin so (`constants = "tdod_kind_inc"`, `prefix = "TDOD_KIND_"`): the project's script of that name (any folder of it), the module's, else the game's | |
-| `table`, `column` | its values are a table's rows: an Int's is a row's number (named by its `Label`), a String's a cell of `column` | |
+| `table`, `column` | its values are a table's rows (the project's table of that name, the module's, its haks' or the game's): an Int's is a row's number (named by its `Label`), a String's a cell of `column`, or without one the row's own `Label` (since Moonglow 2.13.0) | |
 | `other = true` | a value not listed is right too (the list is a help) | only those listed |
 | `min`, `max` | an Int's or a Float's range | any |
 | `help` | a line of help, shown with it | |
 | `runtime = true` | the scripts set it while the server runs (their state, a test's hook), and it is never kept in a file: no `undescribed` says it, the Variables window doesn't offer it, and Verify says where one is kept (since Moonglow 2.2.0) | kept in the module's files |
-| `undescribed` (at the top) | names (globs) that are the project's: a variable so named and described nowhere is said, with the described name nearest it (a typo) | not said |
+| `undescribed` (at the top) | names (globs) that are the project's: a variable so named and described nowhere is said, with the described name (or a builder's glob) nearest it (a typo) | not said |
 
 What the file doesn't understand is said in the log by line, as for
 `moonglow.toml`, and the rest is read; it is read again when it
@@ -726,21 +726,22 @@ to the descriptions:
 | `var-value` | a value none of its values (a value in another case is named: the scripts compare as written), out of its range, or no row of its table | a warning |
 | `var-object` | a variable on another kind of object than it says | a warning |
 | `var-name` | a described name in another case, and (with `undescribed`) a variable named as the project's that is described nowhere | a warning |
-| `var-runtime` | a variable described as the scripts' own (`runtime = true`) kept in the module: there from the start, on every server (a test's hook set so fixes every roll). One that a glob of the scripts' takes and that is near a name of its own entry is said with that name, as `var-name` says one (`tdod_lore_txt`, which `["tdod_lore_*"]` takes: `tdod_lore_text?`; since Moonglow 2.3.0) | an error: Verify fails |
+| `var-runtime` | a variable described as the scripts' own (`runtime = true`) kept in the module: there from the start, on every server (a test's hook set so fixes every roll). One that a glob of the scripts' takes and that is near a name of its own entry, or a name a builder's glob takes, is said with that name or glob, as `var-name` says one (`tdod_lore_txt`, which `["tdod_lore_*"]` takes: `tdod_lore_text?`; since Moonglow 2.3.0; `tdod_rentl_term`: `tdod_rental_*?`, since Moonglow 2.13.0). Verify's **Remove the variable** takes it out | an error: Verify fails |
 
 A file's own glob of the scripts' may take a builder's typo: a name is
 described by its own entry, else by the first glob that matches it, so
 put the builders' globs before the scripts'. A typo of a builder's name
 that a glob of the scripts' takes is said as `var-runtime`, with the
-builder's name it is near.
+builder's name (or glob) it is near.
 
 A plugin's tests can run these checks, and `tag-unique`, on a fixture
 that is a project of its own: `builtin = "var-runtime"`
 ([Writing plugins](16-writing-plugins.md#a-plugins-own-tests)).
 
 `mg vars MODULE` lists the descriptions, with the values a script's
-constants and a table's rows give (`--on placeable`: those that go on
-one); `mg areas --var NAME=VALUE` gives a described variable its
+constants and a table's rows give (the game's, the project's and the
+module's haks', since Moonglow 2.13.0; `--on placeable`: those that go
+on one); `mg areas --var NAME=VALUE` gives a described variable its
 described type ([Command-line tools](11-command-line.md)).
 
 ### Claimed areas

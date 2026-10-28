@@ -1214,7 +1214,7 @@ fn a_plugin_s_tests_run_moonglow_s_own_checks() {
         resource = "module.ifo"
         at = "Module › VarTable › tdod_skill_d20"
         severity = "error"
-        fix = ""
+        fix = "Remove the variable"
         [[test.finding]]
         resource = "module.ifo"
         at = "Module › VarTable › tdod_lore_txt"

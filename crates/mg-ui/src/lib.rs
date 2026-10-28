@@ -4419,11 +4419,15 @@ impl Moonglow {
     fn apply_fix(&mut self, line: usize) {
         let Some(offer) = self.log.fix_at(line).filter(|o| !o.made).cloned() else { return };
         let Some(ws) = self.ws.as_mut() else { return };
-        if let Err(why) = self.log.fix_guard.check(ws, &offer.fix) {
-            self.log.error(format!("{}: {why}", offer.fix.label));
-            return;
-        }
-        if let Err(e) = self.apply(offer.fix.command()) {
+        // (Its paths following what other fixes took out.)
+        let now = match self.log.fix_guard.check(ws, &offer.fix) {
+            Ok(now) => now,
+            Err(why) => {
+                self.log.error(format!("{}: {why}", offer.fix.label));
+                return;
+            }
+        };
+        if let Err(e) = self.apply(now.command()) {
             self.log.error(format!("{}: {e}", offer.fix.label));
             return;
         }

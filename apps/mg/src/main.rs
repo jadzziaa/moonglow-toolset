@@ -115,7 +115,8 @@ enum Cmd {
         skip: Vec<mg_module::doctor::Group>,
         /// Make the fixes of this check's findings and save (repeatable):
         /// a check's id, as a finding's "check" with --json says it
-        /// (`tag-unique`, `example.tag-conventions/tag-case`). Only the
+        /// (`tag-unique`, `area-variables`, `var-runtime`,
+        /// `static-transform`, `example.tag-conventions/tag-case`). Only the
         /// findings that offer a fix (with --json, a finding's "fix").
         #[arg(long, value_name = "CHECK")]
         fix: Vec<String>,
@@ -1136,9 +1137,20 @@ fn vars(cli: &Cli, path: &Path, on: Option<&str>, name: Option<&str>) -> Result<
             mg_module::var_desc::FILE_NAME
         ));
     }
-    // (The game's tables and scripts, where a description names them.)
-    let game = install(cli).ok().and_then(|gi| mg_rules::GameData::open(&gi).ok());
-    let lookup = ModuleLookup::new(&m, game.as_ref().map(|g| &g.resman));
+    // (The game's tables and scripts, and the module's haks', where a
+    // description names them; a hak not found is said, as Verify says it.)
+    let rm = install(cli).ok().and_then(|gi| {
+        let mut rm = ResMan::for_game(&gi).ok()?;
+        let (missing, wrong) = m.stack_onto(&mut rm, &gi);
+        for hak in missing {
+            out.note(format!("warning: hak {hak} not found"));
+        }
+        if let Some(e) = wrong {
+            out.note(format!("warning: the module's haks: {e}"));
+        }
+        Some(rm)
+    });
+    let lookup = ModuleLookup::new(&m, rm.as_ref());
     let mut rows = Vec::new();
     for d in &p.variables.described {
         // (`--on`: what goes on one, as the Variables window offers it,
@@ -3330,7 +3342,7 @@ fn make_fixes(
             "label": fix.label,
         });
         let why = match guard.check(&mut ws, fix) {
-            Ok(()) => ws.apply(fix.command()).map_err(|e| e.to_string()),
+            Ok(now) => ws.apply(now.command()).map_err(|e| e.to_string()),
             Err(why) => Err(why),
         };
         match why {
