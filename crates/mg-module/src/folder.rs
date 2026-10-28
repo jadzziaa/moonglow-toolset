@@ -145,10 +145,10 @@ pub fn beside_mod(path: &Path) -> Option<PathBuf> {
                 .any(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case("module.ifo"))
         })
     };
+    // (Read from the folder, not tried by its name: a file system that
+    // ignores case finds `caves` for `Caves/`, and the folder is named as
+    // it is.)
     let exact = path.with_extension("");
-    if exact.is_dir() && holds_module(&exact) {
-        return Some(exact);
-    }
     let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
     let mut found: Vec<PathBuf> = std::fs::read_dir(parent)
         .ok()?
@@ -158,7 +158,10 @@ pub fn beside_mod(path: &Path) -> Option<PathBuf> {
         .filter(|p| p.is_dir() && holds_module(p))
         .collect();
     found.sort();
-    found.into_iter().next()
+    match found.iter().position(|p| *p == exact) {
+        Some(i) => Some(found.swap_remove(i)),
+        None => found.into_iter().next(),
+    }
 }
 
 /// The `.mod` a module folder is written as beside it (Aurora's module

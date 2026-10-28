@@ -117,7 +117,13 @@ pub(crate) fn run_dir(kind: &str, module: &Path) -> Scratch {
             n => parent.join(format!("{name}-{n}")),
         };
         let lock = std::fs::create_dir_all(&dir).and_then(|()| {
-            std::fs::OpenOptions::new().create(true).append(true).open(dir.join(".mg-lock"))
+            // (Written to, not appended to: Windows locks only a file
+            // opened for writing.)
+            std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(false)
+                .open(dir.join(".mg-lock"))
         });
         // (A folder that can't be locked is used unlocked, as before.)
         let Ok(file) = lock else { return Scratch { dir, _held: None } };

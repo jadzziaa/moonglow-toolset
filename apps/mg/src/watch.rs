@@ -247,7 +247,13 @@ impl Watcher {
         let mut tables_changed: Vec<String> = (tables_now.iter())
             .filter(|t| !self.tables.contains(t))
             .chain(self.tables.iter().filter(|t| !tables_now.iter().any(|n| n.0 == t.0)))
-            .map(|(p, _)| p.strip_prefix(&self.project).unwrap_or(p).display().to_string())
+            .map(|(p, _)| {
+                // (Named with `/` on every system, as the module's are.)
+                let p = p.strip_prefix(&self.project).unwrap_or(p);
+                let parts: Vec<_> =
+                    p.components().map(|c| c.as_os_str().to_string_lossy()).collect();
+                parts.join("/")
+            })
             .collect();
         tables_changed.sort();
         tables_changed.dedup();
