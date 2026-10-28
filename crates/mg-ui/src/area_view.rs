@@ -5845,7 +5845,7 @@ fn add_to_palette(app: &mut Moonglow, view: &AreaView, kind: ObjectKind, index: 
     let original = |k: ResKey| mg_module::gff_root(Some(module), game, &k);
     let taken = |k: &ResKey| module.contains(k) || game.resman.get(k).is_ok();
     // (By the builder's code, in a project with one.)
-    let naming = module.project_file.naming();
+    let naming = module.project_file.naming_for(kind.restype());
     let Some(added) = mg_module::palette_add::add_to_palette(
         game,
         kind.restype(),

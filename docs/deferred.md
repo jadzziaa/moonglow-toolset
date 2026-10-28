@@ -3864,9 +3864,6 @@ and duplicate tags on paste. What is left:
   from it, without the code);
   plugins' `ctx.terrain:new_area` gets the code (it is the Area
   Wizard's), plugins' other new resources don't. (S)
-- **A team prefix without a builder's code:** `[resrefs] pattern` must
-  have `{code}`, so a team's own prefix (`tdod_{name}`) for everyone, or
-  one by kind (`tdod_n_` for people, `{kind}`), isn't there. (S)
 - **A builder code isn't checked against the team's:** two builders who
   choose one code aren't told; a claims table (C6) could list the codes.
   (S)
@@ -3983,17 +3980,9 @@ File › Project. What is left:
   with no Tag recorded is held to its ResRef alone; the hand-back's
   check against the merge base (a Tag changed since `main`) is the
   team's CI's, as git is not Moonglow's. (S)
-- **A project's command closes and opens the haks every time,** even
-  for one that writes nothing (a submit): the open areas are drawn
-  again after. No per-command setting says it needn't. (S)
-- **Cancel stops the shell, not what it started:** on Linux and macOS a
-  `git` the script started may run on (no process group is killed); on
-  Windows `cmd`'s children likewise. (S)
 - **A project's command's output is in the log only:** no window of its
   own to read a long output in, and no input (a command that asks for
   a password waits until canceled; its stdin is closed). (S)
-- **The project's commands are not in the Command Palette** nor given
-  keys (Options › Keyboard): only File › Project. (S)
 - **The project's commands on Windows** (`cmd /C` with the command's
   text as written, no console window) are tested by CI's runs of the
   UI tests, not on a builder's machine with a real update script. (S,

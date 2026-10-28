@@ -1710,16 +1710,22 @@ fn run(cli: &Cli) -> Result<Output> {
             }
             let p = ProjectFile::read(root);
             let pattern = p.resref_pattern.clone().unwrap_or_else(|| DEFAULT_PATTERN.into());
-            let naming = p.naming();
+            let naming = p.naming_for(mg_core::ResType::ARE);
             let mut out = Output::new(json!({
                 "code": p.user.builder_code,
                 "pattern": pattern,
+                "kinds": p.resref_kinds,
                 "example": (!naming.is_plain()).then(|| naming.fit("market", "")),
             }));
+            let market = naming.fit("market", "");
             match &p.user.builder_code {
                 Some(c) => out.line(format!(
-                    "{c}: new ResRefs are made by {pattern} (a new area named Market: {})",
-                    naming.fit("market", "")
+                    "{c}: new ResRefs are made by {pattern} (a new area named Market: {market})"
+                )),
+                // (A team's prefix for everyone, `tdod_{name}`.)
+                None if !naming.is_plain() => out.line(format!(
+                    "no builder code: new ResRefs are made by {pattern} (a new area named \
+                     Market: {market})"
                 )),
                 None => out.line("no builder code: new ResRefs are made from names alone"),
             }

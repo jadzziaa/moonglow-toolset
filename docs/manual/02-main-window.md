@@ -51,8 +51,9 @@ begins with it.
 **Help › Command Palette…** (Ctrl+Shift+P) finds a command by its name:
 type part of it (or of its menu's name), choose with the arrow keys, and
 Enter runs it; Escape closes. Each command shows its menu and its key. A
-command that can't be chosen now is listed dimmed. Any command can be
-given a key in Tools › Options › Keyboard.
+command that can't be chosen now is listed dimmed. The enabled plugins'
+commands are among them, and the open project's (File › Project, under
+Project). Any command can be given a key in Tools › Options › Keyboard.
 
 **Help › Check for Updates…** (also a button in Help › About) asks
 GitHub for Moonglow's latest release and says either that yours is the

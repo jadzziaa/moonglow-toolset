@@ -161,6 +161,29 @@ fn builder_code_is_set_shown_and_taken_out() {
     assert_eq!(std::fs::read_to_string(dir.join(".moonglow/user.toml")).unwrap(), "[builder]\n");
 }
 
+/// A team's own prefix needs no builder's code (`tdod_{kind}{name}`), and
+/// goes by kind (`[resrefs] kinds`).
+#[test]
+fn builder_code_shows_a_team_s_prefix_without_a_code() {
+    let dir = described_folder("mg-builder-code-team");
+    std::fs::write(
+        dir.join("moonglow.toml"),
+        "[resrefs]\npattern = \"tdod_{kind}{name}\"\nkinds = { area = \"a_\", creature = \"n_\" }\n",
+    )
+    .unwrap();
+    let out = crate::mg().arg("builder-code").arg(&dir).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        "no builder code: new ResRefs are made by tdod_{kind}{name} (a new area named Market: \
+         tdod_a_market)"
+    );
+    let out = crate::mg().args(["--json", "builder-code"]).arg(&dir).output().unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["kinds"], serde_json::json!({ "area": "a_", "creature": "n_" }));
+    assert_eq!(json["example"], "tdod_a_market");
+}
+
 /// A described variable of another type is an error (the game reads it
 /// as that type's empty value), and Verify fails; one of a value not
 /// listed is a warning.

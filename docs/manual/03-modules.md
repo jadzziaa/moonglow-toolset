@@ -535,7 +535,8 @@ Names are matched by globs, whatever their case: `*` any characters,
 | `[store] tag` | the store's tag: `{area}` the area's tag, `{n}` the first number no object has | the blueprint's tag, with a number where another object has it (with a `[store]` section; Aurora's, the blueprint's, without one) |
 | `[store] blueprint` | the store blueprint chosen at first | none chosen |
 | `[store] keeper_variable` | a String variable set on the shopkeeper to the store's tag | none |
-| `[resrefs] pattern` | how a builder's code goes into the ResRefs Moonglow proposes: `{code}` and `{name}` once each, the rest letters, digits and `_` (`"{name}_{code}"`, `"t{code}{name}"`) | `"{code}_{name}"`, where a builder has a code |
+| `[resrefs] pattern` | how the ResRefs Moonglow proposes are made: `{name}` once, `{code}` (the builder's code) and `{kind}` (the kind's text, by `kinds`) at most once each, the rest letters, digits and `_` (`"{name}_{code}"`, `"t{code}{name}"`). Without `{code}` it is the team's prefix, for everyone, with a code or not (`"tdod_{name}"`, `"tdod_{kind}{name}"`; since Moonglow 2.13.0) | `"{code}_{name}"`, where a builder has a code |
+| `[resrefs] kinds` | the text `{kind}` stands for, by the kind of resource: `area`, `creature`, `door`, `encounter`, `item`, `placeable`, `sound`, `store`, `trigger`, `waypoint`, `script`, `conversation` (`{ creature = "n_", item = "i_" }`); a kind not named has none. Since Moonglow 2.13.0 | no `{kind}` text |
 | `[claims] file` | the team's [claims table](#claimed-areas), from the project's root | no claims |
 | `[claims] others` | an area another builder claimed: `"warn"` (it says so, and a save asks before it writes a change to it) or `"read-only"` (no change to it is taken) | `"warn"` |
 | `[claims] unclaimed` | an area no one claimed: `"edit"` (as without a table) or `"warn"` (as another's) | `"edit"` |
@@ -604,8 +605,10 @@ code kept (16 characters: `ab_areatransi001`). A name that begins with
 your code already doesn't get it twice: a copy of `ab_chicken001` is
 `ab_chicken002`; another builder's code is kept as part of the name. The
 team's `[resrefs] pattern` says where the code goes. Without a code,
-ResRefs are made from names alone, as Aurora makes them. The code is
-used by:
+ResRefs are made from names alone, as Aurora makes them, unless the
+team's pattern has no `{code}`: then it is the team's own prefix, for
+everyone (`tdod_{name}`, or by kind, `tdod_{kind}{name}` with `[resrefs]
+kinds`: `tdod_n_guard` for a creature). The pattern is used by:
 
 - the Area Wizard (which then shows the ResRef under the name), the
   Creature Wizard and every blueprint wizard (the ResRef field's hint);
@@ -833,9 +836,20 @@ Moonglow to run them in a terminal:
 
 ```toml
 [commands]
-update = "bin/update"
-submit = { run = "bin/submit", windows = "bin\\submit.cmd", label = "Submit for Review" }
+update = { run = "bin/update", key = "Ctrl+Shift+U" }
+submit = { run = "bin/submit", windows = "bin\\submit.cmd", label = "Submit for Review", writes = false }
 ```
+
+A command is its text, or a table of `run` (or `windows` and `unix`,
+each for its systems), `label` (its name in the menu; else its name in
+the file, `run_tests` as Run tests), `key` (the keys it asks for, as
+Options › Keyboard writes them) and `writes = false` (it writes none of
+the module's files, as a submit: the haks stay open while it runs). The
+commands are in the **Command Palette** too, under Project, and in
+**Options › Keyboard** under Project Commands, where the keys you choose
+take the place of `key` (kept by the command's name, so a team's
+`update` keeps its key from one project to the next; since Moonglow
+2.13.0).
 
 Choosing one:
 
@@ -856,14 +870,19 @@ Choosing one:
    made outside, and closes the module's haks, so that the command may
    write over any of them (Windows refuses to replace a file another
    program has open). Moonglow keeps no other file of the project open.
+   A command with `writes = false` leaves the haks open, so the open
+   areas aren't drawn again after it.
 4. **Runs it** in the project's folder, by the system's shell (`sh -c` on
    Linux and macOS, `cmd /C` on Windows), with `MOONGLOW_PROJECT` (the
    folder) and `MOONGLOW_BUILDER` (your code, where you have one) set.
    Its output comes into the log as it is written (its errors in the
    warning color), its last line in the window that shows while it
-   runs; **Cancel** stops it. The log says how it ended: done, or its
-   exit code.
-5. **Reads the project's files again**: the haks are opened again, and
+   runs; **Cancel** stops it, and what it started (a `git` it runs, the
+   shell's process group on Linux and macOS, asked to end and then made
+   to after two seconds; the shell's tree of processes on Windows). The
+   log says how it ended: done, or its exit code.
+5. **Reads the project's files again**: the haks are opened again (where
+   they were closed), and
    what the command changed is read as any [change made
    outside](#nasher-projects-version-control) is (a file you had changed too waits in
    **Changed Outside Moonglow**), with the project file and the claims

@@ -551,6 +551,9 @@ pub struct Moonglow {
     /// were read from.
     pub keymap: keys::Keymap,
     keymap_from: std::collections::BTreeMap<String, Vec<String>>,
+    /// The open project's commands' names and own keys the keymap was
+    /// made with.
+    project_keys_from: Vec<(String, Option<String>)>,
     /// Haks open in the hak editor.
     pub haks: Vec<hak_view::HakDoc>,
     /// The 2DAs open in the table editor.
@@ -942,6 +945,7 @@ impl Moonglow {
             haks_layered: Vec::new(),
             keymap: Default::default(),
             keymap_from: Default::default(),
+            project_keys_from: Vec::new(),
             haks: Vec::new(),
             next_hak: 0,
             tables: Vec::new(),
@@ -2331,12 +2335,21 @@ impl Moonglow {
 
     fn shortcuts(&mut self, ui: &mut egui::Ui) {
         // The keys as Options › Keyboard last set them.
-        if std::mem::take(&mut self.keymap_stale) || self.keymap_from != self.settings.key_bindings
+        // (And the open project's commands' own keys, as they read: a
+        // project opened, or its file changed, takes the keys anew.)
+        let project = project_commands::commands(self).map(|(_, c)| c).unwrap_or_default();
+        let project_keys: Vec<(String, Option<String>)> =
+            project.iter().map(|c| (c.name.clone(), c.key.clone())).collect();
+        if std::mem::take(&mut self.keymap_stale)
+            || self.keymap_from != self.settings.key_bindings
+            || self.project_keys_from != project_keys
         {
             self.keymap = keys::Keymap::new(&self.settings.key_bindings);
             let commands = self.plugin_commands();
             plugins::register_keys(&mut self.keymap, &commands);
+            project_commands::register_keys(&mut self.keymap, &project);
             self.keymap_from = self.settings.key_bindings.clone();
+            self.project_keys_from = project_keys;
         }
         // (Find's keys, for the search fields.)
         self.keymap.share_find(ui.ctx());
@@ -2987,6 +3000,10 @@ impl Moonglow {
                     .into_iter()
                     .map(|c| (c.key_id, format!("{}: {}", c.plugin_name, c.title)))
                     .collect();
+                // And the project's.
+                let project = project_commands::commands(self).map(|(_, c)| c);
+                project_commands::register_keys(&mut draft.keymap, &project.unwrap_or_default());
+                draft.project_commands = project_commands::key_rows(self);
                 self.options = Some(draft);
             }
             Action::ApplyOptions(draft) => self.apply_options(*draft),

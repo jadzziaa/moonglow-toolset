@@ -46,6 +46,9 @@ skrifa.workspace = true
 toml.workspace = true
 wgpu.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+rustix.workspace = true
+
 [dev-dependencies]
 egui_kittest = { workspace = true, features = ["wgpu", "snapshot"] }
 mg-erf.workspace = true

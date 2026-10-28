@@ -346,6 +346,10 @@ what you type (a command's name, or its group's).
 - The commands of enabled [plugins](15-plugins.md) are listed under
   **Plugins**, with the key each plugin suggests; they take keys like
   any other.
+- The open project's [commands](03-modules.md#the-projects-commands)
+  (`[commands]` in its `moonglow.toml`) are listed under **Project
+  Commands**, with the key the project gives each (`key`); the keys you
+  choose are kept by the command's name (since Moonglow 2.13.0).
 
 Save's key saves the module, but in a script editor that has the
 keyboard it is that script's own Save (see [Scripts](07-scripts.md)),

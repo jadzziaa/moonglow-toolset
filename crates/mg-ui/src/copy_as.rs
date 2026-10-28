@@ -71,7 +71,9 @@ impl Moonglow {
                 .is_none_or(|k| self.copy_taken(&k.resref, key.restype) || in_game(&k))
         };
         // (By the builder's code, in a project with one.)
-        let naming = self.ws.as_ref().map(|ws| ws.module.project_file.naming()).unwrap_or_default();
+        let naming = (self.ws.as_ref())
+            .map(|ws| ws.module.project_file.naming_for(key.restype))
+            .unwrap_or_default();
         let from = key.resref.to_string();
         let resref = crate::palette_view::copy_resref_named(&from, &naming, &taken);
         let tag = resref_field(key.restype)

@@ -968,6 +968,15 @@ pub(crate) fn keys_pressed(app: &mut Moonglow, ui: &Ui) {
             app.run_plugin_command(&c.plugin, &c.command);
         }
     }
+    // And the project's.
+    let project = crate::project_commands::commands(app).map(|(_, c)| c).unwrap_or_default();
+    for c in project {
+        let id = crate::project_commands::key_id(&c.name);
+        let pressed = ui.input_mut(|i| app.keymap.consume_outside_text(i, &id, typing));
+        if pressed && c.run.is_some() {
+            app.actions.push(Action::ProjectCommand(c.name));
+        }
+    }
 }
 
 /// The menus by the keyboard (GitHub issue 9): which row of the open menu
@@ -1382,8 +1391,13 @@ fn menu(app: &mut Moonglow, ui: &mut Ui, items: &[Item], level: usize) {
                     for c in commands {
                         let name = format!("{}…", c.label);
                         let can = c.run.is_some();
-                        let (entry, chosen) =
-                            row(app, level + 1, &name, egui::Button::new(&name), can);
+                        let mut entry = egui::Button::new(&name);
+                        let id = crate::project_commands::key_id(&c.name);
+                        let key = app.keymap.label_of(&id, ui.ctx());
+                        if !key.is_empty() {
+                            entry = entry.shortcut_text(key);
+                        }
+                        let (entry, chosen) = row(app, level + 1, &name, entry, can);
                         let tip = crate::project_commands::tip(&c);
                         let r = ui.add_enabled(can, entry);
                         let r = r.on_hover_text(&tip).on_disabled_hover_text(&tip);
@@ -1489,6 +1503,8 @@ pub(crate) enum Choice {
     Window(Id),
     /// A plugin's command: the plugin's id and the command's.
     Plugin(String, String),
+    /// A project's command (`[commands]`), by its name.
+    Project(String),
 }
 
 /// A command as the palette lists it.
@@ -1528,8 +1544,18 @@ pub(crate) fn found(app: &Moonglow, filter: &str) -> Vec<Row> {
         key_id: c.key_id,
         enabled: app.ws.is_some(),
     });
+    // (The project's commands, as File › Project has them.)
+    let project = crate::project_commands::commands(app).map(|(_, c)| c).unwrap_or_default();
+    let project = project.into_iter().map(|c| Row {
+        key_id: crate::project_commands::key_id(&c.name),
+        label: format!("{}…", c.label),
+        menu: "Project".to_string(),
+        enabled: c.run.is_some(),
+        choice: Choice::Project(c.name),
+    });
     let mut found: Vec<(bool, Row)> = window
         .chain(plugins)
+        .chain(project)
         .filter_map(|row| {
             let name = row.label.to_lowercase();
             let with_menu = format!("{} {name}", row.menu.to_lowercase());
@@ -1616,6 +1642,8 @@ pub(crate) fn palette_window(app: &mut Moonglow, ctx: &egui::Context) {
     match run {
         Some(Choice::Window(id)) => id.run(app, ctx),
         Some(Choice::Plugin(plugin, command)) => app.run_plugin_command(&plugin, &command),
+        // (Saved first, asked as from File › Project.)
+        Some(Choice::Project(name)) => app.actions.push(Action::ProjectCommand(name)),
         None if modal.should_close() => {}
         None => app.command_palette = Some(finder),
     }

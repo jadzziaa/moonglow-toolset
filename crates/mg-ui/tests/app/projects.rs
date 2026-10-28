@@ -1024,6 +1024,55 @@ fn a_builder_code_set_in_its_window_begins_the_resrefs_proposed() {
     assert_eq!(h.state().ws.as_ref().unwrap().module.project_file.naming(), Default::default());
 }
 
+/// A team's own prefix, without a builder's code and by kind (`[resrefs]
+/// pattern = "tdod_{kind}{name}"`): the wizards and a copy propose it for
+/// everyone, and the Builder Code window says so.
+#[test]
+fn a_team_s_prefix_by_kind_begins_the_resrefs_proposed() {
+    use mg_module::palette::BlueprintKind;
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let rules = "[resrefs]\npattern = \"tdod_{kind}{name}\"\n\
+                 kinds = { store = \"m_\", script = \"s_\" }\n";
+    let dir = project_folder("ui-team-prefix", &[("moonglow.toml", rules)]);
+    let mut app = game_app(&root, None);
+    app.open_module(&dir);
+    app.open_palette = false;
+    let mut h = harness(app, 1000.0, 800.0);
+    h.run();
+    h.get_by_label("Edit").click();
+    h.run();
+    h.get_by_label("Builder Code…").click();
+    h.run();
+    h.get_by_label(
+        "None: the team's pattern alone. A new area named Market: tdod_market. A copy of \
+         nw_chicken: tdod_nw_chick001.",
+    );
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run();
+    // A blueprint wizard's: the store's kind.
+    h.state_mut().blueprint_wizard =
+        Some(mg_ui::blueprint_wizard::BlueprintWizard::new(BlueprintKind::Store));
+    h.run();
+    h.get_by_label("Merchants").click();
+    h.run();
+    h.get_by_label("Next >").click();
+    h.run();
+    let hint =
+        |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("tdod_m_mercha001");
+    assert!(h.query_all(egui_kittest::kittest::by().predicate(hint)).next().is_some(), "the hint");
+    h.get_by_label("Finish").click();
+    h.run();
+    assert!(module_gff(&mut h, "tdod_m_mercha001", ResType::UTM).is_some());
+    // A copy's: a script's kind.
+    let hello = ResKey::parse("hello", ResType::NSS).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::CopyDialog(hello));
+    h.run();
+    assert_eq!(h.state().copy_as.as_ref().map(|c| c.resref.as_str()), Some("tdod_s_hello001"));
+}
+
 /// A module kept in one file has no project to keep a code in: the menu
 /// item is there, and off.
 #[test]
@@ -1529,6 +1578,145 @@ fn commands_allowed_by_a_committed_user_file_are_still_asked_about() {
     h.get_all_by_label("Cancel").last().unwrap().click();
     h.run();
     assert!(!logged(&h, "Update: done"));
+}
+
+/// The project's commands are in the Command Palette and take keys as any
+/// command does: their own (`key`) at first, those chosen in Options ›
+/// Keyboard after; each runs as from File › Project (saved first, asked
+/// about as it reads).
+#[test]
+fn a_project_s_command_is_in_the_palette_and_takes_keys() {
+    let rules = "[commands]\nupdate = { run = \"echo updated\", key = \"Ctrl+Shift+U\" }\n\
+                 submit = { run = \"echo submitted\", label = \"Submit for Review\" }\n";
+    let dir = project_folder("ui-project-commands-keys", &[("moonglow.toml", rules)]);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&dir);
+    let mut h = harness(app, 1000.0, 700.0);
+    h.run();
+    // The palette finds them, under Project, and runs one.
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
+    h.run();
+    type_into_hint(&mut h, "Type a command's name", "submit");
+    h.get_by_label("Submit for Review…").click();
+    h.run();
+    h.run();
+    h.get_by_label("Run a Project Command?");
+    h.get_by_label("echo submitted");
+    h.get_by_label("Allow and Run").click();
+    h.run();
+    h.run();
+    assert!(logged(&h, "Submit for Review: done"), "{:?}", h.state().log.entries);
+    // Its own key, shown in File › Project.
+    h.get_by_label("File").click();
+    h.run();
+    h.get_by_label("Project").click();
+    h.run();
+    let menu = h.get_by_label_contains("Update…").accesskit_node().label().unwrap_or_default();
+    assert!(menu.contains("Ctrl+Shift+U") || menu.contains("⇧⌘U"), "{menu}");
+    h.key_press(egui::Key::Escape);
+    h.run();
+    h.key_press(egui::Key::Escape);
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::U);
+    h.run();
+    h.run();
+    h.get_by_label("Run a Project Command?");
+    h.get_by_label("echo updated");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run();
+    // Options › Keyboard lists them, and another key chosen there runs it.
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    h.run();
+    h.get_by_label("Keyboard").click();
+    h.run();
+    type_into_hint(&mut h, "Find a command", "project");
+    h.get_by_label("Submit for Review");
+    h.state_mut().options.as_mut().unwrap().recording = Some("project:submit".to_string());
+    h.run();
+    h.key_press(egui::Key::F8);
+    h.run();
+    h.get_all_by_label("OK").last().unwrap().click();
+    h.run();
+    assert_eq!(
+        h.state().settings.key_bindings.get("project:submit"),
+        Some(&vec!["F8".to_string()])
+    );
+    h.key_press(egui::Key::F8);
+    h.run();
+    h.run();
+    assert_eq!(
+        h.state().log.entries.iter().filter(|(_, m)| m == "Submit for Review: done").count(),
+        2,
+        "F8 runs it (allowed: without asking)"
+    );
+}
+
+/// A command that writes none of the module's files (`writes = false`, a
+/// submit) runs with the module's haks open (the open areas aren't drawn
+/// again after); any other closes them while it runs, so that a checkout
+/// may write over them. Seen from the command: the haks Moonglow has
+/// holds open (Linux's `/proc`).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_project_s_command_that_writes_nothing_keeps_the_haks_open() {
+    let root = mg_testkit::corpus!();
+    let rules = "[commands]\n\
+                 submit = { run = \"ls -l /proc/$PPID/fd | grep -c mg_cmd_writes.hak; true\", writes = false }\n\
+                 update = \"ls -l /proc/$PPID/fd | grep -c mg_cmd_writes.hak; true\"\n";
+    let dir = project_folder("ui-project-commands-writes", &[("moonglow.toml", rules)]);
+    let user = dir.parent().unwrap().join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let mut hak = mg_erf::ErfWriter::new(*b"HAK ");
+    let table = b"2DA V2.0\n\n   Label\n0  one\n".to_vec();
+    hak.add(mg_core::ResRef::from_str("mg_cmd").unwrap(), ResType::TWODA, table).unwrap();
+    std::fs::write(user.join("hak/mg_cmd_writes.hak"), hak.to_bytes().unwrap()).unwrap();
+    let mut m = Module::open(&dir).unwrap();
+    let mut ifo = m.info().unwrap();
+    let mut listed = mg_gff::Struct::new(8);
+    listed.set("Mod_Hak", mg_gff::Value::String(b"mg_cmd_writes".to_vec()));
+    ifo.root.set("Mod_HakList", mg_gff::Value::List(vec![listed]));
+    m.set_info(&ifo).unwrap();
+    m.save().unwrap();
+    let mut app = game_app(&root, Some(user));
+    app.settings.no_last_area = true;
+    let project = std::fs::canonicalize(&dir).unwrap().display().to_string();
+    for (name, text) in [
+        ("submit", "ls -l /proc/$PPID/fd | grep -c mg_cmd_writes.hak; true"),
+        ("update", "ls -l /proc/$PPID/fd | grep -c mg_cmd_writes.hak; true"),
+    ] {
+        app.settings.allowed_commands.push((project.clone(), name.into(), text.into()));
+    }
+    app.open_module(&dir);
+    let mut h = harness(app, 1000.0, 700.0);
+    h.run();
+    let mapped = |h: &Harness<'_, Moonglow>| -> Vec<String> {
+        h.state()
+            .log
+            .entries
+            .iter()
+            .filter_map(|(_, m)| m.strip_prefix("  "))
+            .map(String::from)
+            .collect()
+    };
+    h.state_mut().actions.push(mg_ui::Action::ProjectCommand("submit".into()));
+    h.run();
+    h.run();
+    assert!(logged(&h, "Submit: done"), "{:?}", h.state().log.entries);
+    let seen = mapped(&h);
+    assert!(
+        seen.last().is_some_and(|n| n != "0"),
+        "the hak open while it ran: {seen:?} {:?}",
+        h.state().log.entries
+    );
+    h.state_mut().actions.push(mg_ui::Action::ProjectCommand("update".into()));
+    h.run();
+    h.run();
+    assert!(logged(&h, "Update: done"), "{:?}", h.state().log.entries);
+    assert_eq!(mapped(&h).last().map(String::as_str), Some("0"), "closed while it ran");
+    // (And open again after.)
+    let ws = h.state().ws.as_ref().unwrap();
+    assert_eq!(ws.module.haks().unwrap(), ["mg_cmd_writes"]);
 }
 
 /// File › Project is there and off for a project that names no commands.
