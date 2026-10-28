@@ -211,6 +211,10 @@ mg areas mymodule.mod --interior --lighting-scheme InteriorDark --set SunFogAmou
   (the module's haks' over it), so it needs the game installed (`--root`).
   It is made before `--set`, which can change what it set. Each area is
   listed with its `LightingScheme` and how many tiles' lights changed.
+  The tiles' lights are picked with a number the command prints (a
+  `--dry-run` too; `seed` in the JSON): **`--seed NUMBER`** picks them
+  so again, so a dry run's are a run's with its number, and a run can be
+  made again the same.
 
 - **`--grass MATERIAL:TEXTURE:DENSITY:HEIGHT[:R,G,B[:R,G,B]]`**: grass of
   each area's own on a surface material (a `surfacemat.2da` row, by
@@ -253,8 +257,9 @@ mg areas mymodule.mod --interior --lighting-scheme InteriorDark --set SunFogAmou
   areas stops the command before anything is saved. The output lists each
   change (`area`, field, `from -> to`); an area that already has a value
   isn't listed for it.
-- Names, lighting schemes (which also pick each tile's lights) and list
-  fields aren't set by this command.
+- Names, tags and comments, which are each area's own, aren't set by
+  this command (`mg replace` changes text in names), nor list fields one
+  by one (a tile's own lights; variables are `--var`'s).
 
 ## Running a module in the server
 

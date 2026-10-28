@@ -718,6 +718,11 @@ enum Cmd {
         /// `--set` changes made with it are made after it.
         #[arg(long, value_name = "SCHEME")]
         lighting_scheme: Option<String>,
+        /// The tiles' lights of `--lighting-scheme` picked as with this
+        /// number (printed by a run without it, `--dry-run` too): the same
+        /// number, the same picks.
+        #[arg(long, value_name = "NUMBER", requires = "lighting_scheme")]
+        seed: Option<u64>,
         /// Change every area of the module (needed when no area is named
         /// and no filter given).
         #[arg(long)]
@@ -2525,6 +2530,7 @@ fn run(cli: &Cli) -> Result<Output> {
             remove_grass,
             tileset_grass,
             lighting_scheme,
+            seed,
             all,
             dry_run,
         } => {
@@ -2660,8 +2666,23 @@ fn run(cli: &Cli) -> Result<Output> {
                     }
                 }
             }
-            let done =
-                areas::apply(&mut m, &resrefs, &changes, codepage).map_err(anyhow::Error::msg)?;
+            // (The tiles' lights picked at random, as Aurora picks them,
+            // with a number that picks them again: a dry run's are a
+            // run's with it.)
+            let scheme = changes.iter().any(|c| matches!(c, Change::LightingScheme(_)));
+            let seed = seed.unwrap_or_else(|| {
+                use std::hash::{BuildHasher, Hasher};
+                let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+                h.write_u32(std::process::id());
+                h.finish() >> 16
+            });
+            let done = areas::apply(&mut m, &resrefs, &changes, codepage, seed)
+                .map_err(anyhow::Error::msg)?;
+            if scheme && !done.is_empty() {
+                out.note(format!(
+                    "the tiles' lights were picked with --seed {seed} (the same with it again)"
+                ));
+            }
             project_file_notes(&m, &mut out);
             for n in described_notes {
                 out.note(n);
@@ -2739,6 +2760,7 @@ fn run(cli: &Cli) -> Result<Output> {
                     "why": why,
                 })).collect::<Vec<_>>(),
                 "dry_run": *dry_run,
+                "seed": scheme.then_some(seed),
             });
             out
         }
