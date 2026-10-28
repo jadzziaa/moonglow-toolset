@@ -171,6 +171,13 @@ pub enum Action {
         dependencies: bool,
         scratch: bool,
     },
+    /// Export as Blueprint…: a placed object written into an archive as a
+    /// blueprint of its own (`transfer::run_export_object`).
+    ExportObject {
+        area: mg_core::ResRef,
+        kind: mg_area::ObjectKind,
+        index: usize,
+    },
     Export(ExportDraft),
     ImportDialog,
     Import(ImportDraft),
@@ -597,9 +604,10 @@ pub struct Moonglow {
     /// The areas' names as last read (Options › General: Show areas by
     /// name).
     pub(crate) area_names: tree::AreaNames,
-    /// What is placed in the areas opened out in the module tree, each as
-    /// read at a revision of the workspace.
-    pub(crate) area_contents: HashMap<mg_core::ResRef, (u64, tree::AreaContents)>,
+    /// What is placed in the areas opened out in the module tree (in
+    /// every area, while its Filter has something typed), each with what
+    /// it was read from (`tree::Read`).
+    pub(crate) area_contents: HashMap<mg_core::ResRef, (tree::Read, tree::AreaContents)>,
     /// Open area viewers, by area.
     pub area_views: HashMap<mg_core::ResRef, area_view::AreaView>,
     /// The Adjust Location window.
@@ -755,6 +763,26 @@ pub struct Moonglow {
     /// and whether the tree has still to go to it.
     pub tree_object: Option<(mg_core::ResRef, mg_area::ObjectKind, usize)>,
     pub tree_object_pending: bool,
+    /// The resources chosen together in the module tree (Ctrl and Shift
+    /// with a click, or the resources of a tab of several), and the row
+    /// a Shift+click goes from. Marked, and what a menu acts on, when
+    /// there are several.
+    pub tree_selected: std::collections::BTreeSet<ResKey>,
+    pub(crate) tree_anchor: Option<ResKey>,
+    /// The rows of the tab chosen while the module tree's Filter had this
+    /// text typed: listed under it, which would hide them, until it is
+    /// changed.
+    pub(crate) tree_kept: Option<(Vec<ResKey>, String)>,
+    /// The placed objects chosen together in the module tree, those of
+    /// one area: as the area view's selection, or by Ctrl and Shift with a
+    /// click there; and the row a Shift+click goes from.
+    pub tree_objects: Option<(mg_core::ResRef, std::collections::BTreeSet<tree::Placed>)>,
+    pub(crate) tree_objects_anchor: Option<tree::Placed>,
+    /// The area view's selection as the module tree last saw it.
+    pub(crate) tree_seen_selection: Option<(mg_core::ResRef, Vec<tree::Placed>)>,
+    /// Objects to select in an area's view once it is open (the module
+    /// tree's Go To on several).
+    pub(crate) area_select: Option<(mg_core::ResRef, Vec<tree::Placed>)>,
     /// The module tree's row the arrow keys are at (a click puts them
     /// there), whether it is to be brought into view, and a group to open
     /// or close at the next frame.
@@ -1033,6 +1061,13 @@ impl Moonglow {
             tree_front: Default::default(),
             tree_object: None,
             tree_object_pending: false,
+            tree_selected: Default::default(),
+            tree_anchor: None,
+            tree_kept: None,
+            tree_objects: None,
+            tree_objects_anchor: None,
+            tree_seen_selection: None,
+            area_select: None,
             tree_cursor: None,
             tree_cursor_moved: false,
             tree_fold: None,
@@ -2810,6 +2845,13 @@ impl Moonglow {
         self.tree_area = None;
         self.tree_marked = None;
         self.tree_object = None;
+        self.tree_selected.clear();
+        self.tree_anchor = None;
+        self.tree_kept = None;
+        self.tree_objects = None;
+        self.tree_objects_anchor = None;
+        self.tree_seen_selection = None;
+        self.area_select = None;
         self.dock = DockState::new(vec![Tab::Welcome]);
         self.load_order_changed();
         // (Another module's haks may have other tilesets of these names.)
@@ -3020,6 +3062,7 @@ impl Moonglow {
             Action::ExportFiles { keys, dependencies, scratch } => {
                 self.run_export_files(keys, dependencies, scratch);
             }
+            Action::ExportObject { area, kind, index } => self.run_export_object(area, kind, index),
             Action::ImportDialog => self.open_import(),
             Action::Import(draft) => self.run_import(draft),
             Action::HakReport => self.hak_report(),

@@ -854,7 +854,7 @@ fn the_whole_log_is_copied_and_saved() {
             _ => None,
         })
         .collect();
-    assert_eq!(copied, [whole.clone()]);
+    assert_eq!(copied, std::slice::from_ref(&whole));
     h.run();
     // Save…: into the file asked for, and said so (after what was saved).
     h.get_by_label("Save Log").click();

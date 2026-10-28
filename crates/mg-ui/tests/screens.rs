@@ -5697,6 +5697,7 @@ fn main_window_log_and_tree() {
     let click = |h: &mut Harness<'_, Moonglow>, label: &str, m: egui::Modifiers| {
         let at = h.get_by_label(label).rect().center();
         h.hover_at(at);
+        h.event(egui::Event::ModifiersChanged(m));
         for pressed in [true, false] {
             h.event(egui::Event::PointerButton {
                 pos: at,
@@ -5705,6 +5706,8 @@ fn main_window_log_and_tree() {
                 modifiers: m,
             });
         }
+        h.run_steps(2);
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
         h.run_steps(20);
     };
     click(&mut h, "estate", egui::Modifiers::NONE);

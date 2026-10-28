@@ -325,6 +325,96 @@ impl Moonglow {
         }
     }
 
+    /// Export as Blueprint… (a placed object's menu, in the area view and
+    /// the module tree): the object written into an archive as a blueprint
+    /// of its own, with the items it holds as item blueprints, made as Add
+    /// to Palette makes them (named so, its place in the area left out) but
+    /// not added to the module; with the module's resources it uses (its
+    /// scripts, its conversation), and stamped as an export is, for
+    /// another module's Import (GitHub issue 7).
+    pub(crate) fn run_export_object(
+        &mut self,
+        area: mg_core::ResRef,
+        kind: mg_area::ObjectKind,
+        index: usize,
+    ) {
+        let (Some(game), Some(ws)) = (self.game.as_deref(), self.ws.as_mut()) else {
+            self.log.error("Export as Blueprint: the game's data is needed to make a blueprint");
+            return;
+        };
+        if let Err(e) = ws.flush() {
+            self.log.error(e.to_string());
+            return;
+        }
+        let git = ResKey::new(area, ResType::GIT);
+        let placed = ws.doc(&git).ok().and_then(|g| g.root.list(kind.list())?.get(index).cloned());
+        let Some(placed) = placed else { return };
+        let module = &ws.module;
+        let original = |k: ResKey| mg_module::gff_root(Some(module), game, &k);
+        let taken = |k: &ResKey| module.contains(k) || game.resman.get(k).is_ok();
+        let naming = module.project_file.naming();
+        let restype = kind.restype();
+        let made = mg_module::palette_add::add_to_palette(
+            game, restype, &placed, &original, &taken, &naming,
+        );
+        let Some(made) = made else {
+            self.log.error("Export as Blueprint: no blueprint name is free");
+            return;
+        };
+        // (Made in a copy of the module, which then has what it uses.)
+        let mut staged = module.clone();
+        for (key, gff) in &made.blueprints {
+            match gff.to_bytes() {
+                Ok(bytes) => staged.set(*key, bytes),
+                Err(e) => {
+                    self.log.error(format!("{key}: {e}"));
+                    return;
+                }
+            }
+        }
+        let roots: Vec<ResKey> = made.blueprints.iter().map(|(k, _)| *k).collect();
+        let plan = plan_export(&staged, &roots, &game.resman);
+        for r in &plan.missing {
+            self.log
+                .warn(format!("Not exported, not found: {} → {:?} {}", r.from, r.kind, r.target));
+        }
+        let stamp = mg_module::stamp::Stamp::of(module);
+        let comments = mg_module::stamp::describe("", &stamp);
+        let bytes = mg_module::transfer::export_erf(&staged, &plan.resources, &comments, false);
+        let first = roots[0];
+        let suggested = (self.module_path())
+            .and_then(|p| p.parent().map(|d| d.join(format!("{}.erf", first.resref))));
+        let Some(path) = self.dialogs.save_file(FileKind::Erf, suggested.as_deref()) else {
+            return;
+        };
+        match bytes
+            .map_err(|e| e.to_string())
+            .and_then(|b| std::fs::write(&path, b).map_err(|e| format!("{}: {e}", path.display())))
+        {
+            Ok(()) => {
+                let held = roots.len() - 1;
+                let others = plan.resources.len() - roots.len();
+                let mut with = Vec::new();
+                if held > 0 {
+                    with.push(format!("the {held} items it holds"));
+                }
+                if others > 0 {
+                    with.push(format!("{others} resources it uses"));
+                }
+                let with = if with.is_empty() {
+                    String::new()
+                } else {
+                    format!(", with {}", with.join(" and "))
+                };
+                self.log.info(format!(
+                    "Exported {first}, a blueprint of the placed object{with}, to {}",
+                    path.display()
+                ));
+            }
+            Err(e) => self.log.error(format!("Export failed: {e}")),
+        }
+    }
+
     pub(crate) fn run_export(&mut self, draft: ExportDraft) {
         let Some(ws) = &mut self.ws else { return };
         if let Err(e) = ws.flush() {

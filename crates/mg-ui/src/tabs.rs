@@ -228,6 +228,19 @@ impl Tab {
         }
     }
 
+    /// The resources the tab shows that the module tree lists:
+    /// [`Tab::tree_key`]'s, or each of a tab of several (Properties of
+    /// several blueprints or areas).
+    pub fn tree_keys(&self) -> Vec<ResKey> {
+        match self {
+            Tab::Blueprints(keys) => keys.clone(),
+            Tab::AreasProperties(areas) => {
+                areas.iter().map(|a| ResKey::new(*a, ResType::ARE)).collect()
+            }
+            _ => self.tree_key().into_iter().collect(),
+        }
+    }
+
     pub fn renamable(&self) -> Option<ResKey> {
         match self {
             Tab::Script(k) | Tab::Dialog(k) | Tab::Blueprint(k) | Tab::Gff(k) | Tab::Nui(k) => {

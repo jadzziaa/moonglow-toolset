@@ -728,7 +728,7 @@ fn a_tree_object_s_menu_opens_its_variables_listed_by_name() {
 #[test]
 fn the_module_tree_shows_the_object_selected_in_the_area() {
     use mg_area::ObjectKind;
-    let Some((mut h, area)) = area_harness("tree-follows") else { return };
+    let Some((mut h, area)) = area_harness("tree-shows-selected") else { return };
     h.state_mut().settings.tree_keeps_areas_closed = true;
     h.run_steps(3);
     assert!(h.query_by_label("Waypoints (2)").is_none());
@@ -1023,4 +1023,291 @@ fn the_module_tree_s_keys_at_placed_objects() {
     key(&mut h, egui::Key::ArrowDown);
     let hello = ResKey::parse("hello", ResType::NSS).unwrap();
     assert_eq!(at(&h), Some(TreeAt::Resource(hello)));
+}
+
+/// Several resources chosen in the module tree: a click chooses one, Shift
+/// and a click those from it to another, as listed, Ctrl and a click adds
+/// one or takes it away; they are marked, and a right click on one of them
+/// acts on them all (Export…, Export as Files…; Edit Together for
+/// blueprints of one kind). A click alone chooses one again, whose menu is
+/// its own.
+#[test]
+fn several_resources_are_chosen_in_the_tree_and_exported_together() {
+    let dir = mg_testkit::scratch_dir("ui-tree-several");
+    let mut m = Module::new();
+    for name in ["s1", "s2", "s3", "s4", "s5"] {
+        m.set(ResKey::parse(name, ResType::NSS).unwrap(), b"void main() { }\n".to_vec());
+    }
+    let path = dir.join("several.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let out = dir.join("out");
+    let _ = std::fs::remove_dir_all(&out);
+    let dialogs = NoDialogs { folders: vec![out.clone()], ..Default::default() };
+    let mut app = Moonglow::new(None, Box::new(dialogs));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = harness(app, 1200.0, 800.0);
+    h.run();
+    h.get_by_label_contains("Scripts (").click();
+    h.run_steps(3);
+    let s = |name: &str| ResKey::parse(name, ResType::NSS).unwrap();
+    let chosen = |h: &Harness<'_, Moonglow>| -> Vec<ResKey> {
+        h.state().tree_selected.iter().copied().collect()
+    };
+    h.get_by_label("s1").click();
+    h.run_steps(2);
+    assert_eq!(chosen(&h), [s("s1")]);
+    h.get_by_label("s3").click_modifiers(egui::Modifiers::SHIFT);
+    h.run_steps(2);
+    assert_eq!(chosen(&h), [s("s1"), s("s2"), s("s3")], "from the one clicked to this one");
+    h.get_by_label("s5").click_modifiers(egui::Modifiers::COMMAND);
+    h.run_steps(2);
+    h.get_by_label("s2").click_modifiers(egui::Modifiers::COMMAND);
+    h.run_steps(2);
+    assert_eq!(chosen(&h), [s("s1"), s("s3"), s("s5")], "s5 added, s2 taken away");
+    // Their menu: for them all.
+    h.get_by_label("s3").click_secondary();
+    h.run_steps(2);
+    h.get_by_label("3 resources chosen");
+    assert!(h.query_by_label("Rename…").is_none(), "not one's own menu");
+    h.get_by_label("Export as Files…").click();
+    h.run_steps(3);
+    let mut written: Vec<String> = std::fs::read_dir(&out)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    written.sort();
+    assert_eq!(written, ["s1.nss", "s3.nss", "s5.nss"]);
+    h.get_by_label("s5").click_secondary();
+    h.run_steps(2);
+    h.get_by_label("Export…").click();
+    h.run_steps(2);
+    let export = h.state().export.as_ref().expect("the Export window");
+    let wanted: std::collections::BTreeSet<ResKey> = [s("s1"), s("s3"), s("s5")].into();
+    assert_eq!(export.selected, wanted);
+    h.state_mut().export = None;
+    h.run();
+    // A click alone: that one, and its own menu.
+    h.get_by_label("s4").click();
+    h.run_steps(2);
+    assert_eq!(chosen(&h), [s("s4")]);
+    h.get_by_label("s4").click_secondary();
+    h.run_steps(2);
+    assert!(h.query_by_label("Rename…").is_some());
+}
+
+/// The module tree follows Module Properties' tab (its row marked) and a
+/// tab of several (Properties of two blueprints: both marked, as chosen
+/// together); a row gone to from below is brought to the middle of the
+/// pane, not left at its foot; and a tab whose row the Filter hides
+/// chosen while it has something typed: the row is listed under it, the
+/// Filter as it was, until what is typed changes.
+#[test]
+fn the_module_tree_follows_module_properties_tabs_of_several_and_the_filter() {
+    let dir = mg_testkit::scratch_dir("ui-tree-follows-more");
+    let mut m = Module::new();
+    for n in 0..80 {
+        let key = ResKey::parse(&format!("script_{n:02}"), ResType::NSS).unwrap();
+        m.set(key, b"void main()\n{\n}\n".to_vec());
+    }
+    let utc = |name: &str| ResKey::parse(name, ResType::UTC).unwrap();
+    for name in ["c1", "c2"] {
+        m.set(utc(name), Gff::new(*b"UTC ").to_bytes().unwrap());
+    }
+    let path = dir.join("follows.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = harness(app, 1100.0, 760.0);
+    h.run_steps(3);
+    let open = |h: &mut Harness<'_, Moonglow>, tab: Tab| {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab));
+        h.run_steps(12);
+    };
+    let script = |n: u32| ResKey::parse(&format!("script_{n:02}"), ResType::NSS).unwrap();
+    // (Module Properties' tab was opened with the module: away first.)
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(Tab::ModuleProperties));
+    h.run_steps(3);
+    open(&mut h, Tab::Script(script(40)));
+    assert_eq!(h.state().tree_marked, Some(script(40)));
+    // In the middle of the pane: the rows after it in sight too.
+    let row = h.get_by_label("script_40").rect();
+    assert!(h.query_by_label("script_45").is_some(), "the rows after it are in sight");
+    let above = h.query_by_label("script_35").map(|n| n.rect().top());
+    assert!(above.is_some_and(|t| t < row.top()), "and those before it");
+    // Module Properties: its row marked.
+    open(&mut h, Tab::ModuleProperties);
+    let module = ResKey::parse("module", ResType::IFO).unwrap();
+    assert_eq!(h.state().tree_marked, Some(module));
+    // Two blueprints' Properties: both chosen, the first marked.
+    open(&mut h, Tab::Blueprints(vec![utc("c1"), utc("c2")]));
+    assert_eq!(h.state().tree_marked, Some(utc("c1")));
+    let both: std::collections::BTreeSet<ResKey> = [utc("c1"), utc("c2")].into();
+    assert_eq!(h.state().tree_selected, both);
+    // The Filter typed, then a script it hides chosen: listed under it.
+    // (The windows closed, which lie over the tree's Filter; it is found
+    // by what it says while empty.)
+    let tabs = vec![
+        Tab::Script(script(40)),
+        Tab::ModuleProperties,
+        Tab::Blueprints(vec![utc("c1"), utc("c2")]),
+    ];
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(tabs));
+    h.run_steps(3);
+    let hint = "🔍 Filter name, resref";
+    type_into_hint(&mut h, hint, "script_0");
+    h.run_steps(3);
+    assert!(h.query_by_label("script_50").is_none(), "hidden by the Filter");
+    open(&mut h, Tab::Script(script(50)));
+    assert!(h.query_by_label("script_50").is_some(), "listed under the Filter");
+    assert!(h.query_by_label("script_03").is_some(), "with what it finds");
+    assert!(h.query_by_label("script_60").is_none());
+    let is_input =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
+    assert!(h.get_all_by_value("script_0").any(|n| is_input(&n)), "the Filter stays");
+    // Something else typed: the Filter's own again.
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(Tab::Script(script(50))));
+    h.run_steps(3);
+    h.get_all_by_value("script_0").find(is_input).unwrap().click();
+    h.run_steps(2);
+    h.key_press(egui::Key::End);
+    filter_type(&mut h, "1");
+    h.run_steps(3);
+    assert!(h.query_by_label("script_01").is_some());
+    assert!(h.query_by_label("script_50").is_none());
+}
+
+/// Placed objects chosen together in the module tree (Ctrl and a click):
+/// the area's view selects them, they are marked, and a right click on one
+/// of them copies or deletes them all (one step to undo). The Filter finds
+/// what is placed in an area not opened out (it reads every area's).
+#[test]
+fn placed_objects_are_chosen_together_and_found_in_areas_not_opened_out() {
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("tree-objects-several") else { return };
+    assert!(h.query_by_label("NW_WAYPOINT001").is_none(), "not opened out");
+    // The Filter: what is placed there, without opening the area out.
+    let filter = h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap();
+    filter.click();
+    h.run_steps(2);
+    filter_type(&mut h, "nw_waypoint001");
+    // (Its kind's list opening.)
+    h.run_steps(30);
+    assert_eq!(h.query_all_by_label("NW_WAYPOINT001").count(), 2, "found in the area closed");
+    h.get_by_label("Waypoints (2 of 2)");
+    h.get_all_by_label("×").next().expect("the Filter's clear button").click();
+    h.run_steps(4);
+    assert!(h.query_by_label("NW_WAYPOINT001").is_none(), "closed again");
+    // Opened out (its waypoints open still, as the Filter opened them):
+    // one clicked, another with Ctrl.
+    h.get_by_label("⏵").click();
+    h.run_steps(30);
+    let rows: Vec<egui::Pos2> =
+        h.query_all_by_label("NW_WAYPOINT001").map(|n| n.rect().center()).collect();
+    assert_eq!(rows.len(), 2);
+    h.hover_at(rows[0]);
+    press(&h, rows[0], true, egui::Modifiers::NONE);
+    press(&h, rows[0], false, egui::Modifiers::NONE);
+    h.run_steps(40);
+    let second = h.query_all_by_label("NW_WAYPOINT001").nth(1).unwrap();
+    second.click_modifiers(egui::Modifiers::COMMAND);
+    h.run_steps(3);
+    let both = vec![(ObjectKind::Waypoint, 0), (ObjectKind::Waypoint, 1)];
+    let mut selection = h.state().area_views[&area].selection.clone();
+    selection.sort();
+    assert_eq!(selection, both, "the area's view selects them");
+    assert_eq!(h.state().tree_objects.as_ref().map(|(a, s)| (*a, s.len())), Some((area, 2)));
+    // Their menu: copied together, then deleted together.
+    h.query_all_by_label("NW_WAYPOINT001").nth(1).unwrap().click_secondary();
+    h.run_steps(3);
+    h.get_by_label("2 objects chosen");
+    assert!(h.query_by_label("Variables…").is_none(), "one object's alone");
+    h.get_by_label("Copy").click();
+    h.run_steps(3);
+    assert_eq!(h.state().object_clip.as_ref().map(|c| c.objects.len()), Some(2));
+    h.query_all_by_label("NW_WAYPOINT001").next().unwrap().click_secondary();
+    h.run_steps(3);
+    h.get_by_label("Delete").click();
+    h.run_steps(4);
+    // (The kind's, and the Waypoints group of blueprints.)
+    assert_eq!(h.query_all_by_label("Waypoints (0)").count(), 2);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Delete"));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(4);
+    h.get_by_label("Waypoints (2)");
+}
+
+/// A placed object copied from the module tree with its area's view not
+/// open is as high above the ground as it stood (its area's ground read
+/// for it), as one copied with the view open is.
+#[test]
+fn a_placed_object_copied_with_its_area_closed_keeps_its_height() {
+    let Some((mut h, area)) = area_harness("tree-copy-closed") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let z = ws.doc(&git).unwrap().root.list("WaypointList").unwrap()[0].float("ZPosition").unwrap();
+    let path = mg_edit::GffPath::root().item("WaypointList", 0);
+    let edit = mg_edit::Edit::SetField {
+        key: git,
+        path,
+        label: "ZPosition".into(),
+        value: Some(mg_gff::Value::Float(z + 2.0)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Lift", vec![edit])));
+    h.run_steps(3);
+    // The area's tab closed, and its view let go.
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(Tab::Area(area)));
+    h.run_steps(3);
+    h.state_mut().area_views.remove(&area);
+    h.get_by_label("⏵").click();
+    h.run_steps(3);
+    h.get_by_label("Waypoints (2)").click();
+    h.run_steps(3);
+    let lifted = h.query_all_by_label("NW_WAYPOINT001").next().unwrap();
+    lifted.click_secondary();
+    h.run_steps(3);
+    h.get_by_label("Copy").click();
+    h.run_steps(3);
+    assert!(!h.state().area_views.contains_key(&area), "no view open");
+    let clip = h.state().object_clip.as_ref().expect("copied");
+    let lifts: Vec<f32> = clip.objects.iter().map(|o| o.2).collect();
+    // (Listed by tag, alike: the first listed is the first placed.)
+    assert!((lifts[0] - 2.0).abs() < 0.05, "lift {lifts:?}");
+}
+
+/// Export as Blueprint… on a placed object (the module tree's menu, and
+/// the area view's): written into an archive as a blueprint of its own,
+/// named as Add to Palette names one, without where it stood, and not
+/// added to the module (GitHub issue 7).
+#[test]
+fn a_placed_object_is_exported_as_a_blueprint() {
+    let Some((mut h, area)) = area_harness("tree-export-object") else { return };
+    let erf = mg_testkit::scratch_dir("ui-tree-export-object").join("waypoint.erf");
+    let _ = std::fs::remove_file(&erf);
+    h.state_mut().dialogs = Box::new(NoDialogs { save: vec![erf.clone()], ..Default::default() });
+    let before = h.state().ws.as_ref().unwrap().module.keys().count();
+    h.get_by_label("⏵").click();
+    h.run_steps(3);
+    h.get_by_label("Waypoints (2)").click();
+    h.run_steps(3);
+    h.query_all_by_label("NW_WAYPOINT001").next().unwrap().click_secondary();
+    h.run_steps(3);
+    h.get_by_label("Export as Blueprint…").click();
+    h.run_steps(3);
+    let bytes = std::fs::read(&erf).expect("the archive written");
+    let archive = mg_erf::Erf::read(&bytes).unwrap();
+    let blueprints: Vec<_> = archive.entries.iter().filter(|e| e.restype == ResType::UTW).collect();
+    assert_eq!(blueprints.len(), 1, "{:?}", archive.entries);
+    let entry = blueprints[0];
+    let key = ResKey::new(entry.resref, entry.restype);
+    assert!(!h.state().ws.as_ref().unwrap().module.contains(&key), "not added to the module");
+    assert_ne!(entry.resref.to_string(), "nw_waypoint001", "a blueprint of its own");
+    let gff = Gff::read(&archive.data(entry).unwrap()).unwrap();
+    assert!(gff.root.float("XPosition").is_none(), "where it stood left out");
+    assert_eq!(gff.root.resref("TemplateResRef"), Some(entry.resref));
+    assert_eq!(h.state().ws.as_ref().unwrap().module.keys().count(), before);
+    let said = &h.state().log.entries.last().unwrap().1;
+    assert!(said.starts_with(&format!("Exported {key}")), "{said}");
+    let _ = area;
 }
