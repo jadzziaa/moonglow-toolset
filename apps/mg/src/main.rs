@@ -3213,11 +3213,9 @@ fn run(cli: &Cli) -> Result<Output> {
             let path =
                 output.clone().unwrap_or_else(|| set.with_file_name(format!("{stem}palstd.itp")));
             std::fs::write(&path, gff.to_bytes()?)?;
+            // (Leaves, in the folders a terrain too.)
             let count = |id: usize| match gff.root.get("MAIN") {
-                Some(mg_gff::Value::List(c)) => match c.get(id).and_then(|c| c.get("LIST")) {
-                    Some(mg_gff::Value::List(l)) => l.len(),
-                    _ => 0,
-                },
+                Some(mg_gff::Value::List(c)) => c.get(id).map_or(0, mg_module::tileset::leaves),
                 _ => 0,
             };
             let mut out = Output::new(json!({

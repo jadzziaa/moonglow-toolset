@@ -3858,6 +3858,81 @@ fn area_dropped_cloaks() {
     }
 }
 
+/// The tiles palette of a tileset whose palette is the one Moonglow makes
+/// of its `.set` (Tileset › Make Palette, `mg tileset-palette`), in the
+/// module over the game's: as it was made before (flat) and now
+/// (features and groups in a folder a terrain).
+#[test]
+#[ignore]
+fn generated_tileset_palette() {
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let install = GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let set_key = ResKey::parse("tcm02", ResType::SET).unwrap();
+    let set = mg_set::Tileset::parse(&game.resman.get(&set_key).unwrap(), Default::default());
+    let (palette, _) = mg_module::tileset::palette(&set.unwrap());
+    // (As the generator made it before: every leaf in its category.)
+    let mut flat = palette.clone();
+    if let Some(mg_gff::Value::List(main)) = flat.root.get_mut("MAIN") {
+        for category in main.iter_mut() {
+            fn leaves(s: &mg_gff::Struct, out: &mut Vec<mg_gff::Struct>) {
+                for i in s.list("LIST").unwrap_or(&[]) {
+                    if i.get("LIST").is_some() { leaves(i, out) } else { out.push(i.clone()) }
+                }
+            }
+            let mut out = Vec::new();
+            leaves(category, &mut out);
+            category.set("LIST", mg_gff::Value::List(out));
+        }
+    }
+    for (name, itp) in [("flat", flat), ("folders", palette)] {
+        let mut rng = fastrand::Rng::with_seed(7);
+        let mut m = new_module(&game, "Palette", &mut rng).unwrap();
+        let spec = AreaSpec {
+            name: "Keep".into(),
+            tileset: mg_core::ResRef::from_str("tcm02").unwrap(),
+            width: 4,
+            height: 4,
+        };
+        let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+        m.set_gff(ResKey::parse("tcm02palstd", ResType::ITP).unwrap(), &itp).unwrap();
+        let path = mg_testkit::scratch_dir(&format!("screens-palette-{name}")).join("p.mod");
+        m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+        let rs = egui_kittest::wgpu::create_render_state(
+            egui_kittest::wgpu::default_wgpu_setup(),
+            egui_wgpu::RendererOptions::PREDICTABLE,
+        );
+        let mut app = Moonglow::new(Some(install.clone()), Box::new(NoDialogs::default()));
+        app.set_render_state(rs.clone());
+        app.settings.game_shaders = Some(false);
+        app.open_module(&path);
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1200.0, 900.0))
+            .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run_steps(3);
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+        h.run_steps(5);
+        h.state_mut().palette.tiles = true;
+        for _ in 0..10 {
+            h.run_steps(2);
+        }
+        shoot(&mut h, &dir, &format!("tileset-palette-{name}"));
+        // Its first features folder opened.
+        if name == "folders" {
+            h.get_by_label("Features").click();
+            h.run_steps(3);
+            // (The folder, above the terrain brush of its name.)
+            h.get_all_by_label("Cobble").next().unwrap().click();
+            h.run_steps(3);
+            shoot(&mut h, &dir, "tileset-palette-folders-open");
+        }
+    }
+}
+
 #[test]
 #[ignore]
 fn tile_gallery() {
