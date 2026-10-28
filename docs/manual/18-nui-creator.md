@@ -213,7 +213,8 @@ bind remains a bind. Position and resize gestures commit on release; Esc cancels
 The layout selector offers the full editor, preview alone, or preview beside
 editable JUI source. While editing a variant, split source shows the companion
 settings JSON. The source is written to the module when you leave the field, an incomplete
-draft too: it is kept, and Undo takes it back.
+draft too: it is kept, and Undo takes it back. Meanwhile the preview beside it
+shows what you type whenever it reads as a window.
 
 ## Keys
 
@@ -230,7 +231,8 @@ With the pointer over **Design**, outside a text field or an open menu:
 | Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z) | Module Undo / Redo |
 
 On macOS, use Cmd instead of Ctrl. **Options › Keyboard › NUI Creator**
-changes the delete, duplicate, navigation and reorder keys; action menus
+changes the delete, duplicate, navigation (Up, Down, Left and Right) and
+reorder keys; action menus
 show the current bindings. Text fields retain their text editing keys.
 Window roots and a group's required child cannot be deleted. Pasting retains
 list cell settings and initial bind values, renaming conflicting binds instead

@@ -889,8 +889,8 @@ fn bind(
                 if ui.link(place).on_hover_text("Select it").clicked()
                     && let Some(target) = target
                 {
-                    state.selected = target;
-                    state.page = Page::Design;
+                    state.select_next = Some(target);
+                    ui.ctx().request_repaint();
                 }
             }
             if s.variants.values().any(|view| mg_nui::bind_names(view).contains(name)) {

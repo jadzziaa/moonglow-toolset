@@ -621,7 +621,7 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
                                 widgets::field_label(ui, "Image");
                                 let Value::String(picture) = value else { return };
                                 ui.horizontal(|ui| {
-                                    fields::text(ui, picture, 140.0);
+                                    fields::hinted(ui, picture, 140.0, "Picture name");
                                     if let Some(name) = images::from_disk(ui) {
                                         *picture = name;
                                     }

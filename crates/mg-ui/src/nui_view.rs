@@ -44,6 +44,11 @@ pub(crate) struct State {
     /// The control selected, as a JSON pointer into the window (or into the
     /// variant edited in its place); empty for none, `/root` for the root.
     selected: String,
+    /// A control a link asked to select (a problem's, a bind's use), on the
+    /// Design page: selected as the next frame starts, so that a field
+    /// being typed in when the link was clicked (in the same frame as it
+    /// was pressed) is drawn once more and sets what was typed in it.
+    select_next: Option<String>,
     /// What is typed in the palette's Find field.
     search: String,
     /// The canvas's zoom (0: Fit).
@@ -560,6 +565,10 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let body = ui.available_rect_before_wrap();
     ui.interact(body, id.with("body-drag-guard"), egui::Sense::drag());
     let mut state = app.nui_views.remove(&key).unwrap_or_default();
+    if let Some(path) = state.select_next.take() {
+        state.selected = path;
+        state.page = Page::Design;
+    }
     let Some((mut frame, checked)) = open(app, ui, key, &mut state) else { return };
     header(app, ui, &frame.name, &checked);
     navigation(app, ui, &frame.name, &checked, &mut state);
@@ -859,8 +868,8 @@ fn problems(ui: &mut Ui, frame: &mut Frame, checked: &Checked, state: &mut State
                     match &target {
                         Some(path) => {
                             if ui.link(place).on_hover_text("Select it").clicked() {
-                                state.selected = path.clone();
-                                state.page = Page::Design;
+                                state.select_next = Some(path.clone());
+                                ui.ctx().request_repaint();
                             }
                         }
                         None => {
@@ -1133,7 +1142,6 @@ fn design_view(
     match state.view_mode {
         ViewMode::Preview => preview::canvas(ui, v, s, state, &mut app.nui_assets),
         ViewMode::Split => ui.columns(2, |columns| {
-            preview::canvas(&mut columns[0], v, s, state, &mut app.nui_assets);
             let (of, source, title) = if state.edit_view.is_some() {
                 (
                     SourceOf::Variants,
@@ -1151,6 +1159,30 @@ fn design_view(
             egui::ScrollArea::both().id_salt("split-jui").show(&mut columns[1], |ui| {
                 split_raw = source_field(ui, &mut state.source_draft, of, &source, 28);
             });
+            // The canvas shows the source as it is typed, where it reads,
+            // before the field is left; it edits nothing of it meanwhile.
+            match typed_source(state, of, v) {
+                Some((mut shown, settings)) => {
+                    let settings = settings.as_ref().unwrap_or(s);
+                    // (With the pictures and fonts it names.)
+                    app.nui_assets.prepare(
+                        columns[0].ctx(),
+                        app.game.as_deref().map(|g| &g.resman),
+                        &ws.module,
+                        ws.revision(),
+                        &shown,
+                        settings,
+                    );
+                    preview::canvas(
+                        &mut columns[0],
+                        &mut shown,
+                        settings,
+                        state,
+                        &mut app.nui_assets,
+                    );
+                }
+                None => preview::canvas(&mut columns[0], v, s, state, &mut app.nui_assets),
+            }
         }),
         ViewMode::Editor => design::editor(ui, v, s, state, &app.keymap, &mut app.nui_assets),
     }
@@ -1276,6 +1308,28 @@ fn source_field(
         draft.text = current.to_owned();
     }
     typed.then(|| draft.text.clone())
+}
+
+/// What Split source's field `of` holds while it is typed in, where it
+/// reads: the window to show (`v` with the variant typed in its place, for
+/// the settings' source) and the settings typed (`None`: the module's).
+/// `None` where nothing is typed or it doesn't read yet.
+fn typed_source(state: &State, of: SourceOf, v: &Value) -> Option<(Value, Option<Settings>)> {
+    let draft = state.source_draft.as_ref().filter(|d| d.of == of && d.typed)?;
+    match of {
+        SourceOf::SplitWindow => {
+            let window = mg_nui::parse(draft.text.as_bytes()).ok()?;
+            window.get("root").is_some().then_some((window, None))
+        }
+        SourceOf::Variants => {
+            let settings = Settings::parse(draft.text.as_bytes()).ok()?;
+            let variant = settings.variants.get(state.edit_view.as_ref()?)?.clone();
+            let mut shown = v.clone();
+            shown["root"] = variant;
+            Some((shown, Some(settings)))
+        }
+        SourceOf::Window | SourceOf::Settings => None,
+    }
 }
 
 /// The window's JSON text into `raw`. (Left as it is should it not write,
@@ -1980,7 +2034,9 @@ fn property(
         }
         fields::binding_options(ui, value);
     } else if let Value::String(text) = value {
-        if let Some(field) = fields::text(ui, text, f32::INFINITY) {
+        let picture = matches!((ty, key), ("image", "value") | ("button_image", "label"));
+        let hint = if picture { "Picture name" } else { "" };
+        if let Some(field) = fields::hinted(ui, text, f32::INFINITY, hint) {
             field.labelled_by(heading.id);
         }
     } else if let Some(id) = value.get_mut("strref") {

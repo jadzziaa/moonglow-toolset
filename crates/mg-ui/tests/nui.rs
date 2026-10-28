@@ -461,6 +461,37 @@ fn the_creator_writes_into_an_event_script_typed_in_after_storing_what_was_typed
     assert_eq!(text(h.state(), script), written);
 }
 
+/// A color being picked is shown and not set; it is set when the picker
+/// closes, as one Undo step, as a blueprint's colors are.
+#[test]
+fn a_color_picked_is_set_when_its_picker_closes() {
+    let mut h = harness();
+    h.get_by_label("Canvas Label · Label").click();
+    h.run();
+    h.get_by_label("+ Add property").click();
+    h.run();
+    h.get_by_label("Foreground color").click();
+    h.run();
+    let white = json!({"r":255,"g":255,"b":255,"a":255});
+    let color =
+        |h: &Harness<'_, Moonglow>| document(h)["root"]["children"][0]["foreground_color"].clone();
+    assert_eq!(color(&h), white);
+    let steps = revision(&h);
+    h.get_by(|n| n.role() == egui::accesskit::Role::ColorWell).click();
+    h.run();
+    h.get_by_label("Paste Color").click();
+    h.run();
+    h.event(egui::Event::Paste("#204060".into()));
+    h.run();
+    assert_eq!(color(&h), white, "picked, not set while the picker is open");
+    assert_eq!(revision(&h), steps);
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert_eq!(color(&h), json!({"r":32,"g":64,"b":96,"a":255}), "set as the picker closes");
+    undo(&mut h);
+    assert_eq!(color(&h), white, "one Undo step");
+}
+
 #[test]
 fn add_property_adds_a_color_and_a_window_s_size_limits() {
     let mut h = harness();
@@ -1068,6 +1099,37 @@ fn a_key_chosen_in_options_deletes_the_selected_control() {
     assert_eq!(document(&h)["root"]["children"][0]["id"], "mg_close");
 }
 
+/// Layers' Left and Right (fold, or go to the parent; unfold, or go to the
+/// first child) are Options › Keyboard's, as its other keys are.
+#[test]
+fn keys_chosen_in_options_fold_and_unfold_layers() {
+    let mut h = harness();
+    let keys = &mut h.state_mut().settings.key_bindings;
+    keys.insert("nui-fold".into(), vec!["H".into()]);
+    keys.insert("nui-unfold".into(), vec!["L".into()]);
+    h.run();
+    h.get_all_by_label("Button · Close").next().unwrap().click();
+    h.run();
+    let shown = |h: &Harness<'_, Moonglow>| {
+        h.query_all_by_label("Button · Close")
+            .any(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
+    };
+    assert!(shown(&h));
+    // Left alone does nothing now; H goes to the column, then folds it.
+    h.key_press(egui::Key::ArrowLeft);
+    h.run();
+    assert!(h.query_by_label("Collapse Column").is_some());
+    h.key_press(egui::Key::H);
+    h.run();
+    h.key_press(egui::Key::H);
+    h.run();
+    assert!(!shown(&h), "the column is folded");
+    assert!(h.query_by_label("Expand Column").is_some());
+    h.key_press(egui::Key::L);
+    h.run();
+    assert!(shown(&h), "and unfolded");
+}
+
 #[test]
 fn keys_are_left_to_a_text_field_a_menu_and_what_is_outside_the_editor() {
     let mut h = harness();
@@ -1220,6 +1282,63 @@ fn source_typed_is_the_module_s_when_its_field_is_left_even_if_it_does_not_read(
     h.get_by_label("Design").click();
     h.run();
     h.get_by_label_contains("The window's JSON doesn't read");
+}
+
+/// Split source's canvas shows the window as it is typed, where it reads,
+/// before its field is left; the module has it when the field is left.
+#[test]
+fn split_source_shows_on_the_canvas_what_is_typed() {
+    let mut h = harness();
+    h.get_by_value("Editor").click();
+    h.run();
+    h.get_by_label("Split source").click();
+    h.run();
+    let before = document(&h);
+    let mut typed = before.clone();
+    typed["root"]["children"][0]["value"] = json!("Typed live");
+    let field = || egui::accesskit::Role::MultilineTextInput;
+    h.get_all_by_role(field()).next().unwrap().click();
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.run();
+    h.event(egui::Event::Text(serde_json::to_string_pretty(&typed).unwrap()));
+    h.run();
+    assert!(h.query_by_label("Canvas Label · Typed live").is_some(), "shown as typed");
+    assert_eq!(document(&h), before, "the module's when the field is left");
+    // Half a window doesn't read: the canvas shows the module's.
+    h.event(egui::Event::Text("{".into()));
+    h.run();
+    assert!(h.query_by_label("Canvas Label · Label").is_some());
+    h.key_press(egui::Key::Backspace);
+    h.run();
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert_eq!(document(&h), typed);
+}
+
+/// The fields of an option's label and of a picture's name say what goes
+/// in them while they are empty.
+#[test]
+fn an_empty_option_and_picture_name_say_what_goes_in_them() {
+    let mut h = harness();
+    let mut window = document(&h);
+    window["root"]["children"] = json!([
+        {"type":"image","value":"","height":40.0},
+        {"type":"combo","id":"choice","value":0,"height":30.0,"elements":[["",0]]},
+        {"type":"button","id":"mg_close","label":"Close","height":30.0}
+    ]);
+    h.state_mut().ws.as_mut().unwrap().module.set(key(), serde_json::to_vec(&window).unwrap());
+    h.run();
+    let hinted = |h: &Harness<'_, Moonglow>, hint: &str| {
+        h.get_all_by_role(egui::accesskit::Role::TextInput)
+            .any(|n| n.accesskit_node().placeholder() == Some(hint))
+    };
+    h.get_by_label_contains("Canvas Image").click();
+    h.run();
+    assert!(hinted(&h, "Picture name"));
+    h.get_by_label_contains("Canvas Dropdown").click();
+    h.run();
+    assert!(hinted(&h, "Option label"));
 }
 
 /// A window whose name leaves no room for its scripts' suffixes, and whose
@@ -1570,6 +1689,42 @@ fn text_typed_is_set_when_layers_selects_another_control() {
     // (The label is selected now: its text is in Properties.)
     h.get_by_label("Text");
     assert!(after["root"]["children"][0]["id"].is_null(), "the label has no ID of its own");
+}
+
+/// A problem's link, pressed and released in one frame while a field of
+/// another control is typed in, sets what was typed before it selects the
+/// problem's control (the link is drawn before the form).
+#[test]
+fn text_typed_is_set_when_a_problem_s_link_selects_another_control() {
+    let mut h = harness();
+    let mut window = document(&h);
+    window["root"]["children"][0] = json!({"type":"textedit","label":"Name","max":0});
+    h.state_mut().ws.as_mut().unwrap().module.set(key(), serde_json::to_vec(&window).unwrap());
+    h.run();
+    h.get_by_label("Canvas Button · Close").click();
+    h.run();
+    h.get_by_label("Element ID").click();
+    h.run();
+    h.get_by_label("Element ID").type_text("_typed");
+    h.run();
+    assert_eq!(document(&h)["root"]["children"][1]["id"], "mg_close", "typed, not set");
+    // (A click with its press and its release in one frame.)
+    let at = h.get_by_label("Text input · Name › Max").rect().center();
+    h.event(egui::Event::PointerMoved(at));
+    h.step();
+    let button = |pressed| egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    h.event(button(true));
+    h.event(button(false));
+    h.run();
+    let after = document(&h);
+    assert_eq!(after["root"]["children"][1]["id"], "mg_close_typed", "{after}");
+    assert!(after["root"]["children"][0]["id"].is_null(), "not the text input's: {after}");
+    assert!(h.query_by_label("Placeholder").is_some(), "the text input is selected");
 }
 
 /// A drag across a number is one change, made when it is let go; the number

@@ -180,7 +180,7 @@ pub(super) fn keys(
     let branch = v.pointer(&state.selected).is_some_and(|n| {
         state.selected.is_empty() || n["children"].is_array() || n["row_template"].is_array()
     });
-    if ui.input(|i| i.modifiers.is_none() && i.key_pressed(egui::Key::ArrowLeft)) {
+    if ui.input(|i| keymap.pressed(i, Cmd::NuiFold)) {
         if branch && !state.collapsed.contains(&state.selected) {
             state.collapsed.insert(state.selected.clone());
         } else if let Some((parent, _, _)) = array_position(&state.selected) {
@@ -189,7 +189,7 @@ pub(super) fn keys(
             state.selected.clear();
         }
     }
-    if ui.input(|i| i.modifiers.is_none() && i.key_pressed(egui::Key::ArrowRight))
+    if ui.input(|i| keymap.pressed(i, Cmd::NuiUnfold))
         && branch
         && !state.collapsed.remove(&state.selected)
     {

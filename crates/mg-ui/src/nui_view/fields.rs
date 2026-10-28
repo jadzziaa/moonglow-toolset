@@ -114,14 +114,25 @@ pub(super) fn put_back_settings(ctx: &egui::Context, was: &Settings, now: &mut S
 /// set when the field is left, and shows what is typed until then. The
 /// field's response, to label it.
 pub(super) fn text(ui: &mut Ui, text: &mut String, width: f32) -> Option<egui::Response> {
-    scoped(ui, |ui| text_field(ui, text, width))
+    hinted(ui, text, width, "")
 }
 
-fn text_field(ui: &mut Ui, text: &mut String, width: f32) -> Option<egui::Response> {
+/// [`text`] with `hint` shown in the field while it is empty.
+pub(super) fn hinted(
+    ui: &mut Ui,
+    text: &mut String,
+    width: f32,
+    hint: &str,
+) -> Option<egui::Response> {
+    scoped(ui, |ui| text_field(ui, text, width, hint))
+}
+
+fn text_field(ui: &mut Ui, text: &mut String, width: f32, hint: &str) -> Option<egui::Response> {
     let id = ui.next_auto_id().with("nui-text");
     let held = egui::Id::new("nui-fields-typed");
     let mut typed = ui.data_mut(|d| d.remove_temp::<Typed>(held)).unwrap_or_default();
-    let set = crate::widgets::commit_text_in(&mut typed.0, ui, id, text, None, width, None);
+    let set =
+        crate::widgets::commit_text_hinted(&mut typed.0, ui, id, text, None, width, None, hint);
     let has_keys = ui.memory(|m| m.has_focus(id));
     match set {
         Some(set) => *text = set,
@@ -210,7 +221,7 @@ pub(super) fn options(ui: &mut Ui, elements: &mut Vec<Value>, combo: bool) {
         ui.push_id(i, |ui| {
             let entry = if element.is_array() { element.get_mut(0) } else { Some(&mut *element) };
             if let Some(Value::String(label)) = entry
-                && let Some(field) = text(ui, label, ui.available_width())
+                && let Some(field) = hinted(ui, label, ui.available_width(), "Option label")
             {
                 field.widget_info(|| {
                     egui::WidgetInfo::labeled(
