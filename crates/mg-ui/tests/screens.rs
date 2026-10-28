@@ -4937,7 +4937,8 @@ fn described_variables_and_the_builder_code() {
          [tdod_harvest_dc]\ntype = \"int\"\non = [\"placeable\"]\nmin = 1\nmax = 60\n\n\
          [tdod_light]\ntype = \"int\"\nvalues = { 1 = \"lit\" }\nhelp = \"A natural light against delirium, within 3.33 m\"\n\n\
          [tdod_lit]\ntype = \"int\"\non = [\"placeable\"]\nvalues = { 1 = \"lit\" }\n\n\
-         [tdod_banker]\ntype = \"int\"\non = [\"creature\", \"placeable\"]\nvalues = { 1 = \"a banker\" }\n",
+         [tdod_banker]\ntype = \"int\"\non = [\"creature\", \"placeable\"]\nvalues = { 1 = \"a banker\" }\n\n\
+         [\"tdod_rental_*\"]\ntype = \"int\"\non = [\"placeable\"]\nhelp = \"A room's rent\"\n",
     )
     .unwrap();
     let rows = || {
@@ -4966,6 +4967,11 @@ fn described_variables_and_the_builder_code() {
         h.run_steps(3);
         shoot(&mut h, &dir, &format!("variables-{name}-typed"));
         if name == "described" {
+            // Down twice: the third offered, marked.
+            h.key_press(egui::Key::ArrowDown);
+            h.key_press(egui::Key::ArrowDown);
+            h.run_steps(3);
+            shoot(&mut h, &dir, "variables-described-offer-keys");
             h.get_all_by_value("tdod_").next().unwrap().type_text("w");
             h.run_steps(2);
             h.get_by_label("tdod_workbench").click();

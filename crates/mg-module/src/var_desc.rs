@@ -232,6 +232,29 @@ impl Described {
         self.matcher.is_some()
     }
 
+    /// What the names a pattern takes begin with: each alternative's text
+    /// up to its first wildcard (`tdod_rental_` of `tdod_rental_*`;
+    /// `tdod_shop_` and `tdod_inn_` of `tdod_{shop,inn}_*`), each once,
+    /// none empty. A name's, itself.
+    pub fn beginnings(&self) -> Vec<String> {
+        if !self.is_pattern() {
+            return vec![self.name.clone()];
+        }
+        let mut all = alternatives(&self.name, 64);
+        if all.is_empty() {
+            all.push(self.name.clone());
+        }
+        let mut out: Vec<String> = Vec::new();
+        for a in all {
+            let cut = a.find(['*', '?', '[', '\\', '{']).unwrap_or(a.len());
+            let b = a[..cut].to_string();
+            if !b.is_empty() && !out.contains(&b) {
+                out.push(b);
+            }
+        }
+        out
+    }
+
     /// Its name to quote beside a variable it takes: of a pattern with
     /// alternatives, the one alternative that takes it
     /// (`tdod_*_{d6,d20}` for `tdod_skill_d20`: `tdod_*_d20`); and no
@@ -545,6 +568,16 @@ impl Variables {
         self.described
             .iter()
             .filter(move |d| !d.is_pattern() && !d.runtime && owner.is_none_or(|o| d.belongs_on(o)))
+    }
+
+    /// The patterns that may go on `owner`, in the file's order: those the
+    /// Variables window offers after the names, by what the names they
+    /// take begin with ([`Described::beginnings`]; never one only the
+    /// scripts set).
+    pub fn patterns_for(&self, owner: Option<Owner>) -> impl Iterator<Item = &Described> {
+        self.described
+            .iter()
+            .filter(move |d| d.is_pattern() && !d.runtime && owner.is_none_or(|o| d.belongs_on(o)))
     }
 
     /// What is wrong with an undescribed variable's name, if anything.
@@ -1118,6 +1151,26 @@ on = ["creature", "placeable"]
         let offered: Vec<&str> =
             v.names_for(Some(Owner::Creature)).map(|d| d.name.as_str()).collect();
         assert_eq!(offered, ["tdod_lore_dc", "tdod_kind", "tdod_class"], "no patterns");
+        let patterns: Vec<&str> =
+            v.patterns_for(Some(Owner::Creature)).map(|d| d.name.as_str()).collect();
+        assert_eq!(patterns, ["tdod_rental_*"]);
+        assert!(v.patterns_for(Some(Owner::Door)).next().is_none());
+        assert_eq!(rental.beginnings(), ["tdod_rental_"]);
+        assert_eq!(bench.beginnings(), ["tdod_workbench"]);
+    }
+
+    /// A pattern's names begin with each alternative's text up to its
+    /// first wildcard.
+    #[test]
+    fn a_pattern_s_names_begin_with_its_text_before_a_wildcard() {
+        let mut v = Variables::default();
+        let text = "[\"tdod_{shop,inn}_*\"]\ntype = \"int\"\n\n[\"tdod_*_{d6,d20}\"]\n\
+                    type = \"int\"\n\n[\"*_count\"]\ntype = \"int\"\n";
+        v.apply("variables.toml", text, &mut Vec::new()).unwrap();
+        let begins: Vec<Vec<String>> = v.described.iter().map(Described::beginnings).collect();
+        assert_eq!(begins[0], ["tdod_shop_", "tdod_inn_"]);
+        assert_eq!(begins[1], ["tdod_"]);
+        assert!(begins[2].is_empty(), "nothing to begin with");
     }
 
     /// The manual's example (Modules, the project file) reads whole.
