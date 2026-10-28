@@ -249,7 +249,8 @@ the module is opened again from its file.
   `nwn_script_comp`'s (neverwinter.nim), or `nwnsc`'s. The line shows in
   the empty field, and resting the pointer on it lists the places
   Moonglow fills in: `{files}` (the scripts to compile), `{src}` (a
-  scratch folder the module's scripts are written to), `{out}` (the
+  scratch folder the scripts to compile and the module's scripts they
+  include, however indirectly, are written to), `{out}` (the
   folder the compiled scripts are read from), `{game}`, `{user}` and
   `{haks}` (the module's haks, comma-separated: a hak whose path has a
   comma in it can't be passed so, and the compile says which). An option whose place

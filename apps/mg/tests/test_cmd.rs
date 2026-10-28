@@ -108,6 +108,77 @@ fn tests_run_in_the_server_and_report() {
     assert!(r["tests"].as_array().unwrap().is_empty());
 }
 
+/// A module's own script changed since it was compiled runs as it is
+/// now, not as its older compiled script: the tests test the code as it
+/// is. The run says so (the builder's module keeps its older compiled
+/// script); after `mg compile`, nothing is said, and the script is
+/// passed over (remembered, as `mg compile` and the window remember it).
+#[test]
+fn a_script_changed_since_it_was_compiled_runs_as_it_is_now() {
+    use mg_core::ResType;
+    use mg_resman::ResKey;
+    let root = mg_testkit::corpus!();
+    if mg_serve::server_binary(&root).is_none() {
+        return;
+    }
+    let _alone = mg_testkit::engine::timed_turn();
+    let dir = mg_testkit::scratch_dir("mg-test-changed");
+    let (user, tests) = (dir.join("user"), dir.join("tests"));
+    std::fs::create_dir_all(&user).unwrap();
+    std::fs::create_dir_all(&tests).unwrap();
+    let test = "#include \"mg_test\"\nvoid main()\n{\n    ExecuteScript(\"mg_value\", \
+                GetModule());\n    AssertEqualInt(GetLocalInt(GetModule(), \"value\"), 2, \
+                \"the value\");\n}\n";
+    std::fs::write(tests.join("test_value.nss"), test).unwrap();
+    let chess = dir.join("chess.mod");
+    std::fs::copy(root.join("data/mod/Neverwinter Chess.mod"), &chess).unwrap();
+    let value = ResKey::parse("mg_value", ResType::NSS).unwrap();
+    let ncs = ResKey::parse("mg_value", ResType::NCS).unwrap();
+    let set_value = |n: u32| {
+        format!("void main() {{ SetLocalInt(GetModule(), \"value\", {n}); }}\n").into_bytes()
+    };
+    // Compiled setting 1, then changed to set 2 and not compiled.
+    let mut m = mg_module::Module::open(&chess).unwrap();
+    m.set(value, set_value(1));
+    m.save().unwrap();
+    let compile = crate::mg()
+        .args(["--root", root.to_str().unwrap(), "--user-dir", user.to_str().unwrap()])
+        .args(["compile", chess.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(compile.status.success(), "{}", String::from_utf8_lossy(&compile.stderr));
+    let mut m = mg_module::Module::open(&chess).unwrap();
+    let old = m.get(&ncs).expect("compiled").to_vec();
+    m.set(value, set_value(2));
+    m.save().unwrap();
+
+    let (c, t, served) = (chess.to_str().unwrap(), tests.to_str().unwrap(), dir.join("served"));
+    let args = [c, "--tests", t, "--dir", served.to_str().unwrap()];
+    let notes = |r: &Value| -> String {
+        let notes = r["notes"].as_array().cloned().unwrap_or_default();
+        notes.iter().filter_map(Value::as_str).collect::<Vec<_>>().join("\n")
+    };
+    let (ok, r) = mg(&root, &user, &args);
+    assert!(ok && r["passed"] == 1, "the new code ran: {r}");
+    assert!(
+        notes(&r).contains("changed since they were compiled") && notes(&r).contains("mg_value")
+    );
+    let m = mg_module::Module::open(&chess).unwrap();
+    assert_eq!(m.get(&ncs).unwrap(), &old[..], "the builder's module is only read");
+
+    // Compiled in the module: nothing said, and the test still passes.
+    let compile = crate::mg()
+        .args(["--root", root.to_str().unwrap(), "--user-dir", user.to_str().unwrap(), "--json"])
+        .args(["compile", c])
+        .output()
+        .unwrap();
+    let compiled: Value = serde_json::from_slice(&compile.stdout).unwrap();
+    assert_eq!(compiled["scripts"], 1, "mg_value alone: {compiled}");
+    let (ok, r) = mg(&root, &user, &args);
+    assert!(ok && r["passed"] == 1, "{r}");
+    assert!(!notes(&r).contains("changed since"), "{r}");
+}
+
 /// `--driver none`: a module that runs its tests itself (its own script
 /// at its load, which says when they are done) is run as it is.
 #[test]

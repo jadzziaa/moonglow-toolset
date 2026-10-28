@@ -165,22 +165,24 @@ pub(crate) fn prepare(
             std::fs::copy(module, &target).with_context(|| target.display().to_string())?;
         }
     } else {
-        // A project or a folder: its scripts that have no compiled script
-        // are compiled, as `mg build` would (the server runs compiled
-        // scripts only, and a module packed without them loads and does
-        // nothing).
-        let uncompiled: Vec<ResKey> = (m.keys_of(ResType::NSS))
-            .filter(|k| !m.contains(&ResKey::new(k.resref, ResType::NCS)))
-            .copied()
-            .collect();
-        if !uncompiled.is_empty() {
-            let mut rm = mg_resman::ResMan::for_game(gi)?;
-            let _ = m.stack_onto(&mut rm, gi);
-            let results = mg_module::build::compile_named_scripts(&mut m, &rm, &uncompiled, None);
-            let compiled =
-                uncompiled.iter().filter(|k| m.contains(&ResKey::new(k.resref, ResType::NCS)));
+        // A project or a folder: its scripts that have no compiled script,
+        // or are not as they were when last compiled (by `mg compile` or
+        // the window: what they remember), are compiled, as `mg build`
+        // would (the server runs compiled scripts only, and a module
+        // packed without them loads and does nothing). The folder or
+        // project itself is not written.
+        let mut rm = mg_resman::ResMan::for_game(gi)?;
+        let _ = m.stack_onto(&mut rm, gi);
+        let made_with = mg_module::build::made_with(Some(module), None, Some(&gi.root), &rm);
+        let changed = mg_module::build::changed(&m, &crate::remembered(module, made_with), false);
+        if !changed.is_empty() {
+            let results = mg_module::build::compile_named_scripts(&mut m, &rm, &changed, None);
+            let compiled = (results.iter())
+                .filter(|r| r.result.is_ok())
+                .filter(|r| m.contains(&ResKey::new(r.script.resref, ResType::NCS)));
             notes.push(format!(
-                "compiled {} of the module's scripts that had no compiled script",
+                "compiled {} of the module's scripts that had no compiled script or changed \
+                 since they were compiled",
                 compiled.count()
             ));
             for r in &results {

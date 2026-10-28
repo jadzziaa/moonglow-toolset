@@ -1370,6 +1370,26 @@ fn compiled(out: &mut Output, results: &[mg_module::build::ScriptResult]) -> ser
     serde_json::json!({ "scripts": results.len(), "failed": errors.len(), "errors": errors })
 }
 
+/// What the window and `mg` remember of the scripts of `module` they
+/// compiled with what `made_with` says (`mg_module::build::Remembered`),
+/// kept in Moonglow's data folder: nothing, where none of it was made
+/// with the same.
+pub(crate) fn remembered(module: &Path, made_with: u64) -> mg_module::build::Remembered {
+    let dir = mg_module::build::compiled_dir();
+    mg_module::build::Remembered::kept(dir.as_deref(), Some(module), made_with)
+}
+
+/// Keeps what is remembered of the scripts of `module` after a compile,
+/// for the next (here or in the window) to pass over; a warning where it
+/// can't be.
+fn remember(out: &mut Output, module: &Path, now: &mg_module::build::Remembered) {
+    if let Some(dir) = mg_module::build::compiled_dir()
+        && let Err(e) = now.write(&mg_module::build::Remembered::file(&dir, module))
+    {
+        out.note(format!("warning: what was compiled is not remembered: {e}"));
+    }
+}
+
 fn run(cli: &Cli) -> Result<Output> {
     use serde_json::json;
     let out = match &cli.cmd {
@@ -1848,39 +1868,37 @@ fn run(cli: &Cli) -> Result<Output> {
             let gi = install(cli)?;
             let rm = module_resman(&gi, &m, &mut out)?;
             use mg_module::build;
-            if *uncompiled {
-                let names: Vec<ResKey> = (m.keys_of(ResType::NSS))
+            // What was compiled last, here or in the window, is passed
+            // over: both keep it in one place.
+            let made_with = build::made_with(Some(module), None, Some(&gi.root), &rm);
+            let known = match all {
+                true => build::Remembered { made_with, ..Default::default() },
+                false => remembered(module, made_with),
+            };
+            // (--uncompiled: those without a compiled script, noted as
+            // compiled for the next compile to pass over.)
+            let only = uncompiled.then(|| {
+                (m.keys_of(ResType::NSS))
                     .filter(|k| !m.contains(&ResKey::new(k.resref, ResType::NCS)))
                     .filter(|k| {
                         let target = m.project.as_ref().map(|p| p.target());
                         !target.is_some_and(|t| t.skips_compiling(&k.to_string()))
                     })
                     .copied()
-                    .collect();
-                let results = build::compile_named_with(&mut m, &rm, &names, None, *ndb);
-                out.json = compiled(&mut out, &results);
-                m.save()?;
-                let failed = out.json["failed"].as_u64().unwrap_or(0) as usize;
-                out.note(format!("compiled {} scripts, {failed} failed", results.len() - failed));
-                return Ok(out);
-            }
-            // What was compiled last, here or in the window, is passed
-            // over: both keep it in one place.
-            let dir = build::compiled_dir();
-            let made_with = build::made_with(Some(module), None, Some(&gi.root), &rm);
-            let known = match all {
-                true => build::Remembered { made_with, ..Default::default() },
-                false => build::Remembered::kept(dir.as_deref(), Some(module), made_with),
-            };
-            let pass = build::compile_changed(&mut m, &rm, None, &known, None, *ndb);
+                    .collect()
+            });
+            let pass = build::compile_changed(&mut m, &rm, None, &known, only, *ndb);
             out.json = compiled(&mut out, &pass.results);
             m.save()?;
-            if let Some(dir) = &dir
-                && let Err(e) = pass.now.write(&build::Remembered::file(dir, module))
-            {
-                out.note(format!("warning: what was compiled is not remembered: {e}"));
-            }
+            remember(&mut out, module, &pass.now);
             let failed = out.json["failed"].as_u64().unwrap_or(0) as usize;
+            if *uncompiled {
+                out.note(format!(
+                    "compiled {} scripts, {failed} failed",
+                    pass.results.len() - failed
+                ));
+                return Ok(out);
+            }
             let unchanged = pass.scripts.saturating_sub(pass.results.len());
             out.json["unchanged"] = json!(unchanged);
             let left = match unchanged {
@@ -2823,15 +2841,19 @@ fn run(cli: &Cli) -> Result<Output> {
                     out.note(format!("warning: {w}"));
                 }
             }
-            let rm = module_resman(&install(cli)?, &m, &mut out)?;
-            let results = mg_module::build::compile_scripts_with(
-                &mut m,
-                &rm,
-                mg_module::build::ScriptSelection::All,
-                None,
-                *ndb,
-            );
-            let compile = compiled(&mut out, &results);
+            let gi = install(cli)?;
+            let rm = module_resman(&gi, &m, &mut out)?;
+            // The scripts not as they were when last compiled, here or by
+            // `mg compile` or the window. (A project's tree keeps no
+            // compiled scripts: those it has are compiled again, unless
+            // it keeps them among its sources.)
+            let made_with = mg_module::build::made_with(Some(project), None, Some(&gi.root), &rm);
+            let known = remembered(project, made_with);
+            let pass = mg_module::build::compile_changed(&mut m, &rm, None, &known, None, *ndb);
+            let results = &pass.results;
+            let mut compile = compiled(&mut out, results);
+            compile["unchanged"] = json!(pass.scripts.saturating_sub(results.len()));
+            remember(&mut out, project, &pass.now);
             let failed = compile["failed"].as_u64().unwrap_or(0) as usize;
             if failed > 0 && !keep_going {
                 // The compiler's messages, then the failure.
@@ -2851,9 +2873,13 @@ fn run(cli: &Cli) -> Result<Output> {
                 std::fs::create_dir_all(dir)?;
             }
             std::fs::write(&path, bytes)?;
+            let left = match compile["unchanged"].as_u64().unwrap_or(0) {
+                0 => String::new(),
+                n => format!(" ({n} as they were when last compiled)"),
+            };
             out.json = json!({ "compiled": compile, "packed": path_text(&path) });
             out.note(format!(
-                "compiled {} of {} scripts; packed {}",
+                "compiled {} of {} scripts{left}; packed {}",
                 results.len() - failed,
                 results.len(),
                 path.display()

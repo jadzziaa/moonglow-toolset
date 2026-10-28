@@ -195,9 +195,13 @@ The buttons:
   alone. It remembers from one session to the next (in Moonglow's own
   data folder, not in the module), and compiles them all again when the
   haks, the content folders, the compiler or its settings change, or
-  where a compiled script is no longer the one it made. `mg compile`
-  remembers in the same place, so each passes over what the other
-  compiled (with the built-in compiler).
+  where a compiled script is no longer the one it made. A script
+  compiled on its own (its Compile, a save that compiles it, the
+  scripts compiled with one that they include) counts as compiled too:
+  the next Compile All passes over it. `mg compile`, `mg build` and
+  `mg test` remember in the same place, so each passes over what the
+  others compiled (with the built-in compiler; a nasher project is one
+  module to them whether named by its folder or its `nasher.cfg`).
 - **Save As…**: save the script under another name.
 - **Print…**: open the script, highlighted, in your browser to print it
   from there.

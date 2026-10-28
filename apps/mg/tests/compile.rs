@@ -86,6 +86,56 @@ fn a_second_compile_passes_over_what_is_unchanged() {
     assert_eq!(again["scripts"], 0, "{again}");
 }
 
+/// `mg compile --uncompiled` and `mg build` remember what they compiled
+/// where `mg compile` (and the window) do: the next compile passes over
+/// it. A project is one to them whether named by its folder or by its
+/// `nasher.cfg`.
+#[test]
+fn uncompiled_and_build_remember_what_they_compiled() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("mg-compile-remembered");
+    std::fs::create_dir_all(dir.join("user")).unwrap();
+    let chess = dir.join("chess.mod");
+    std::fs::copy(root.join("data/mod/Neverwinter Chess.mod"), &chess).unwrap();
+    let mut m = mg_module::Module::open(&chess).unwrap();
+    m.set(ResKey::parse("fresh", ResType::NSS).unwrap(), b"void main() {}\n".to_vec());
+    m.save().unwrap();
+    // (Those without a compiled script: the new one, and include files.)
+    let none = (m.keys_of(ResType::NSS))
+        .filter(|k| !m.contains(&ResKey::new(k.resref, ResType::NCS)))
+        .count() as u64;
+
+    let first = compile(&root, &dir, &chess, &["--uncompiled"]);
+    assert_eq!(first["scripts"], none, "{first}");
+    // The others were never compiled here: all but those just compiled.
+    let next = compile(&root, &dir, &chess, &[]);
+    assert_eq!(next["unchanged"], none, "{next}");
+
+    let kept = || walk(&dir.join("data")).into_iter().filter(|p| is_json(p)).count();
+    assert_eq!(kept(), 1);
+    let project = dir.join("project");
+    let mg = |args: &[&str]| {
+        let out = crate::mg()
+            .args(["--root", root.to_str().unwrap(), "--user-dir"])
+            .arg(dir.join("user"))
+            .args(args)
+            .env("XDG_DATA_HOME", dir.join("data"))
+            .env("APPDATA", dir.join("data"))
+            .env("HOME", dir.join("data"))
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    };
+    mg(&["init", chess.to_str().unwrap(), project.to_str().unwrap()]);
+    let built = dir.join("built.mod");
+    mg(&["build", project.to_str().unwrap(), "-o", built.to_str().unwrap()]);
+    assert_eq!(kept(), 2, "mg build remembers what it compiled");
+    // (A project's tree keeps no compiled scripts: they are made again.)
+    let by_cfg = compile(&root, &dir, &project.join("nasher.cfg"), &[]);
+    assert!(by_cfg["scripts"].as_u64().unwrap() > 10, "{by_cfg}");
+    assert_eq!(kept(), 2, "named by its nasher.cfg, the same project");
+}
+
 fn is_json(p: &Path) -> bool {
     p.extension().is_some_and(|e| e == "json")
 }

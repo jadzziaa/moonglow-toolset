@@ -96,7 +96,7 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | `mg serve MODULE` | run the module in the game's headless server and print its log and console: see [Running a module in the server](#running-a-module-in-the-server) |
 | `mg test MODULE [--filter TEXT]` | run the module's `test_*` scripts in the server and report what they assert: see [Testing scripts in the server](#testing-scripts-in-the-server) |
 | `mg watch PROJECT --dev-dir FOLDER` | follow a module kept as files while you edit it, putting changed scripts (compiled) and blueprints into a development folder: see [Following a project as you edit](#following-a-project-as-you-edit) |
-| `mg compile MODULE [--uncompiled] [--all] [--ndb]` | compile the module's scripts and save it: those changed since they were last compiled, by `mg compile` or by Compile All Scripts in the window (both remember it in Moonglow's data folder, not in the module); `--all` compiles every script, `--uncompiled` only those without a compiled version; `--ndb` makes each one's debug file (`.ndb`) too, and compiles again a script that has none |
+| `mg compile MODULE [--uncompiled] [--all] [--ndb]` | compile the module's scripts and save it: those changed since they were last compiled, by `mg compile` or by Compile All Scripts in the window (both remember it in Moonglow's data folder, not in the module); `--all` compiles every script, `--uncompiled` only those without a compiled version (remembered as compiled too); `--ndb` makes each one's debug file (`.ndb`) too, and compiles again a script that has none |
 | `mg export MODULE NAME.EXT… -o OUT.erf` | export resources with what they use (`--keep-factions`, `--comment`); the archive's description says what it was made from (git commit, Moonglow's version, the module) |
 | `mg export MODULE NAME.EXT… --files -o FOLDER` | write the resources named as loose files in FOLDER (a script with its compiled `.ncs` and `.ndb`, an area with its `.git` and `.gic`): for the game's `development` or `override`, or a server's |
 | `mg import MODULE ERF [--overwrite]` | import an archive into the module and save it; says what a Moonglow export was made from, and warns when the module's git checkout is at another commit now |
@@ -261,9 +261,10 @@ mg areas mymodule.mod --interior --lighting-scheme InteriorDark --set SunFogAmou
 `mg serve MODULE` starts `nwserver` (Linux and Windows: the game has none
 for macOS) on a `.mod`, a module folder or a nasher project. A folder or
 a project is packed first: the server loads an archive only. Its
-scripts that have no compiled script are compiled for the packed copy,
-as `mg build` would (the server runs compiled scripts only), and one
-that does not compile is said; the sources are left as they are. A
+scripts that have no compiled script, or changed since they were last
+compiled (by `mg compile` or the window), are compiled for the packed
+copy, as `mg build` would (the server runs compiled scripts only), and
+one that does not compile is said; the sources are left as they are. A
 project's own talk table, kept as JSON, is made into the server's `tlk`
 folder (in the game's language, where the project keeps several), in
 place of the one in your tlk folder.
@@ -327,7 +328,13 @@ void main()
 | `Describe(sGroup)` | a name the following results are grouped under |
 
 - **Your module is not changed.** The tests run in a copy in a scratch
-  folder: there a driver becomes the module's OnModuleLoad script. It
+  folder: there a driver becomes the module's OnModuleLoad script. The
+  tests run your scripts as they are: the copy gets each script
+  compiled that has no compiled script or changed since it was last
+  compiled (by `mg compile` or the window: what they remember), and the
+  run names those whose compiled script in your module is older than
+  their source (`mg compile` compiles them there). One that does not
+  compile stops the run, as a test that does not compile does. It
   starts each test as an event of its own, half a second after the
   module's own OnModuleLoad script, which it runs too. A test that runs
   out of instructions, or isn't there, is an error and stops no other.
@@ -455,7 +462,7 @@ mg --json verify mymodule.mod | jq '.findings[] | select(.severity == "error")'
 | Command | Does |
 | --- | --- |
 | `mg init MODULE DIR` | put a module into a nasher project in `DIR`: its resources as source files, with a `nasher.cfg` like `nasher init` writes |
-| `mg build DIR` | compile the project's scripts and pack the module, as `nasher pack` does (`--target`, `-o OUT`); `--ndb` makes each script's debug file (`.ndb`) too, packed with it. A `--target` that packs a talk table (a `.tlk`) makes it of its `<name>.tlk.json` as nasher has `nwn_tlk` make it, byte for byte |
+| `mg build DIR` | compile the project's scripts and pack the module, as `nasher pack` does (`--target`, `-o OUT`): those changed since they were last compiled, as `mg compile` does (a project keeps no compiled scripts, so those are all of them unless it keeps some among its sources); `--ndb` makes each script's debug file (`.ndb`) too, packed with it. A `--target` that packs a talk table (a `.tlk`) makes it of its `<name>.tlk.json` as nasher has `nwn_tlk` make it, byte for byte |
 | `mg merge-gff BASE OURS THEIRS` | merge two copies of a GFF resource (an area, `module.ifo`, a blueprint), both made from BASE, as a GFF or as nasher's JSON of one, and write the merge over OURS (`-o FILE` elsewhere). Placed objects merge by object, the area list as a union, variables by name and type. Two different changes to one value are a conflict: it fails, names each by its path and writes nothing, unless `--prefer ours` or `--prefer theirs`. Git runs it as its merge driver: see [Merging in git](03-modules.md#merging-in-git) |
 
 `mg build` fails if a script doesn't compile, which suits a build pipeline:
