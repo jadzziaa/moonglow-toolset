@@ -274,7 +274,7 @@ pub(crate) fn tool_keys(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) 
     let label = tool_label(app, view, brush);
     let on = app.palette.tile_brush.as_ref().is_some_and(|b| b.label == label && b.brush == brush);
     app.palette.tile_brush =
-        (!on).then(|| TileBrush { tileset, label, brush, target, exact: false });
+        (!on).then_some(TileBrush { tileset, label, brush, target, exact: false });
     if brush != Brush::Refine {
         app.palette.tile_choice = None;
     }
