@@ -2122,12 +2122,13 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         }
         let tip = crate::transfer::scratch_tip(
             app.settings.scratch_dir.as_deref(),
-            "the area as it is now (its .are, .git and .gic)",
+            "the area as it is now (its .are, .git and .gic), with the module's blueprints, \
+             scripts and conversations it uses",
         );
         if ui.button("To Scratch").on_hover_text(tip).clicked() {
             app.actions.push(Action::ExportFiles {
                 keys: vec![ResKey::new(view.area, ResType::ARE)],
-                dependencies: false,
+                dependencies: true,
                 scratch: true,
             });
         }

@@ -28,7 +28,7 @@ it, with its key.
 | --- | --- |
 | File | New Module…, Open Module…, Open Folder…, Recent Modules, Save, Save As…, Save As nasher Project…, Project ([the project's commands](03-modules.md#the-projects-commands): its update and submit), Import…, Export…, Import Conversation…, Close, Exit |
 | Edit | Undo, Redo (each names the module's step it takes; with the keyboard in a script's editor they are the script's own and say plain Undo and Redo: see [Scripts](07-scripts.md)), Module Properties, Builder Code… ([your code](03-modules.md#your-builder-code), for a module folder or a nasher project), Resize Area…, Rotate Area…, Find Instance…, Prefabs, Edit Areas Together…, Find and Replace Text…, Find References…, Advanced Search…, Convert Indentation to Tabs, Convert Indentation to Spaces (the script in front: see [Scripts](07-scripts.md)) |
-| View | Module Tree, Palettes Panel, Log (each ticked while shown), Clear Log, Hide All Panels, Reset Layout |
+| View | Module Tree, Palettes Panel, Log (each ticked while shown), Copy Log, Save Log…, Clear Log, Hide All Panels, Reset Layout |
 | Wizards | Area Wizard…, Creature Wizard…, and a wizard for each other blueprint type (Door, Encounter, Item, Placeable, Sound, Store, Trigger, Waypoint) |
 | Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, 2DA File…, New Script…, Palettes, Appearance Gallery…, Resource Browser, Tilesets (New Tileset…, Open Tileset…), Haks (New Hak, Open Hak…, Build Hak from Folder…), Reload Resources, Options… |
 | Build | Compile All Scripts, Compile Models, Build Module…, Publish to NWSync…, Verify Module, Test Module, Test Module, Choose Character, Pack *file* (nasher projects), Area Statistics |
@@ -480,9 +480,11 @@ Messages go to the log at the bottom: what was opened or saved, compiler
 errors, warnings about missing resources. Warnings are yellow, errors red.
 Each line begins with the time it was written (`14:03:27`), as the
 script editor's Compiler messages do; a line selected and copied from
-the log takes its time with it.
-**Clear**, in its right corner (or View › Clear Log), empties it: a
-second Verify's report isn't then mistaken for the first's.
+the log takes its time with it. In its right corner, **Copy** (or View ›
+Copy Log) puts the whole log on the clipboard and **Save…** (View › Save
+Log…) writes it into a text file, each line with its time;
+**Clear** (View › Clear Log) empties it: a second Verify's report isn't
+then mistaken for the first's.
 
 ## Screen readers and desktop agents
 

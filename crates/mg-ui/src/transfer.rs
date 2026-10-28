@@ -344,7 +344,9 @@ impl Moonglow {
             }
             plan.resources
         } else {
-            roots.clone()
+            // (An area's .git and .gic make it whole: Import of its .are
+            // alone brings no objects. Export as Files takes them too.)
+            mg_module::transfer::with_companions(&ws.module, &roots)
         };
         let suggested = self
             .module_path()

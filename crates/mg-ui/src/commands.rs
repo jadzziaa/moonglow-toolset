@@ -103,6 +103,10 @@ pub enum Id {
     ViewTree,
     ViewPalettes,
     ViewLog,
+    /// View › Copy Log and Save Log…: the whole log, each line with its
+    /// time, to the clipboard or into a text file (Jasperre's report).
+    CopyLog,
+    SaveLog,
     /// View › Clear Log: the log emptied.
     ClearLog,
     HidePanels,
@@ -181,6 +185,8 @@ pub const MENUS: [(&str, &[Item]); 8] = [
             Do(Id::ViewTree),
             Do(Id::ViewPalettes),
             Do(Id::ViewLog),
+            Do(Id::CopyLog),
+            Do(Id::SaveLog),
             Do(Id::ClearLog),
             Separator,
             Do(Id::GoToStart),
@@ -489,6 +495,10 @@ impl Id {
                 ("view-palettes", "Palettes Panel", "Show the palettes, or fold them away")
             }
             Id::ViewLog => ("view-log", "Log", "Show the log, or fold it away"),
+            Id::CopyLog => {
+                ("copy-log", "Copy Log", "The whole log to the clipboard, each line with its time")
+            }
+            Id::SaveLog => ("save-log", "Save Log…", "The whole log into a text file"),
             Id::ClearLog => ("clear-log", "Clear Log", "Empty the log"),
             Id::HidePanels => (
                 "hide-panels",
@@ -635,7 +645,7 @@ impl Id {
             | Id::PreviousTab => true,
             Id::NextPane | Id::PreviousPane => open,
             Id::ViewLog | Id::ResetLayout => true,
-            Id::ClearLog => !app.log.entries.is_empty(),
+            Id::CopyLog | Id::SaveLog | Id::ClearLog => !app.log.entries.is_empty(),
             Id::ViewTree | Id::HidePanels => open,
             Id::ViewPalettes => open && app.game.is_some(),
             Id::CloseTab => app.front_tab().is_some(),
@@ -855,6 +865,8 @@ impl Id {
                 return;
             }
             Id::ResetLayout => return app.reset_layout(ctx),
+            Id::CopyLog => return app.copy_log(ctx),
+            Id::SaveLog => return app.save_log(),
             Id::ClearLog => return app.log.clear(),
         };
         app.actions.push(action);

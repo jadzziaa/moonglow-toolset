@@ -5634,3 +5634,84 @@ fn area_shadows_menu() {
         shoot(&mut h, &dir, name);
     }
 }
+
+/// The main window's log and module tree as the deferred sprint's third
+/// package left them (`w3-` pictures): the log's corner buttons; the tree
+/// following a script far down the list (brought up from below), Module
+/// Properties' tab, a tab of several blueprints and a script the Filter
+/// hides; the Filter finding placed objects in areas not opened out; rows
+/// chosen with Shift and Ctrl, and their menu.
+#[test]
+#[ignore]
+fn main_window_log_and_tree() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_palette = false;
+    app.open_module(&root.join("data/nwm/Chapter1.nwm"));
+    for n in 0..30 {
+        app.log.info(format!("Line {n} of what was said"));
+    }
+    app.log.warn("A warning, in its color");
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        .with_step_dt(1.0 / 60.0)
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(5);
+    shoot(&mut h, &dir, "w3-log");
+    // (Each window to the right, the tree in sight.)
+    let open = |h: &mut Harness<'_, Moonglow>, tab: mg_ui::Tab| {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+        h.run_steps(2);
+        if h.state().dock.find_tab(&tab).is_some_and(|p| !p.surface.is_main()) {
+            place(h, &tab, (480.0, 60.0), (560.0, 460.0));
+        }
+        h.run_steps(14);
+    };
+    let script = |name: &str| mg_ui::Tab::Script(ResKey::parse(name, ResType::NSS).unwrap());
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(mg_ui::Tab::ModuleProperties));
+    h.run_steps(3);
+    open(&mut h, script("m1q5a09bertclg"));
+    shoot(&mut h, &dir, "w3-tree-from-below");
+    open(&mut h, mg_ui::Tab::ModuleProperties);
+    shoot(&mut h, &dir, "w3-tree-module-properties");
+    let utc = |name: &str| ResKey::parse(name, ResType::UTC).unwrap();
+    open(&mut h, mg_ui::Tab::Blueprints(vec![utc("attendant"), utc("bertrand")]));
+    shoot(&mut h, &dir, "w3-tree-several");
+    // The Filter typed: placed objects found, then a script it hides
+    // chosen.
+    // (The tree's Filter is the first text field.)
+    h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().click();
+    h.run_steps(2);
+    h.event(egui::Event::Text("gangleader".into()));
+    h.run_steps(8);
+    shoot(&mut h, &dir, "w3-tree-filter-objects");
+    open(&mut h, script("m1s1gillclg09"));
+    shoot(&mut h, &dir, "w3-tree-filtered-tab");
+    // Rows chosen with Shift and Ctrl, and their menu.
+    h.get_all_by_label("×").next().expect("the Filter's clear button").click();
+    h.run_steps(4);
+    let click = |h: &mut Harness<'_, Moonglow>, label: &str, m: egui::Modifiers| {
+        let at = h.get_by_label(label).rect().center();
+        h.hover_at(at);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: m,
+            });
+        }
+        h.run_steps(20);
+    };
+    click(&mut h, "estate", egui::Modifiers::NONE);
+    click(&mut h, "hodge_estate", egui::Modifiers::SHIFT);
+    click(&mut h, "m1q3b", egui::Modifiers::COMMAND);
+    shoot(&mut h, &dir, "w3-tree-several-chosen");
+    h.get_by_label("m1q3b").click_secondary();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "w3-tree-several-menu");
+}

@@ -185,7 +185,9 @@ dropdowns keep their words.
   Location**.
 - **To Scratch**: copy the area as it is now (its `.are`, `.git` and
   `.gic`) into the scratch folder (chosen the first time; Tools › Options
-  › Folders changes it).
+  › Folders changes it), with the module's own blueprints, scripts
+  (compiled first where they changed) and conversations it uses, as
+  Export's **Include the resources they use** takes them.
 
 ## Minimaps
 

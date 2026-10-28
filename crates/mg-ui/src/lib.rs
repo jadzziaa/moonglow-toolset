@@ -448,6 +448,12 @@ impl Log {
     pub fn error(&mut self, s: impl Into<String>) {
         self.said(Level::Error, s.into());
     }
+
+    /// The whole log as text, a line each as the log shows it (its time
+    /// first), for Copy Log and Save Log….
+    pub fn text(&self) -> String {
+        (0..self.entries.len()).map(|i| self.shown(i) + "\n").collect()
+    }
 }
 
 /// The application.
@@ -2456,16 +2462,49 @@ impl Moonglow {
                     self.actions.push(Action::ApplyFix(line));
                 }
             });
-        // A button in its corner to empty it, so that a second Verify's
-        // report isn't mistaken for the first's. (The one that folds it
-        // away is on its edge: `pane_edge`.)
-        let corner = ui.max_rect().right_top() + egui::vec2(-36.0, 2.0);
-        let at = egui::Rect::from_min_size(corner + egui::vec2(-12.0, 0.0), egui::vec2(44.0, 18.0));
-        let clear = ui.put(at, egui::Button::new("Clear").small());
-        clear
-            .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Clear Log"));
-        if clear.on_hover_text("Empty the log (View › Clear Log)").clicked() {
-            self.log.clear();
+        // Buttons in its corner: the whole log copied or saved (a line
+        // selected is copied alone: Jasperre's report), and emptied, so
+        // that a second Verify's report isn't mistaken for the first's.
+        // (The one that folds it away is on its edge: `pane_edge`.)
+        let mut right = ui.max_rect().right() - 4.0;
+        let top = ui.max_rect().top() + 2.0;
+        let buttons = [
+            ("Clear", "Clear Log", "Empty the log (View › Clear Log)", 44.0),
+            ("Save…", "Save Log", "The whole log into a text file (View › Save Log…)", 48.0),
+            ("Copy", "Copy Log", "The whole log to the clipboard (View › Copy Log)", 44.0),
+        ];
+        for (text, name, tip, width) in buttons {
+            let at =
+                egui::Rect::from_min_size(egui::pos2(right - width, top), egui::vec2(width, 18.0));
+            right -= width + 4.0;
+            let enabled = !self.log.entries.is_empty();
+            let b = ui.put(at, egui::Button::new(text).small());
+            b.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name));
+            if b.on_hover_text(tip).clicked() && enabled {
+                match name {
+                    "Clear Log" => self.log.clear(),
+                    "Save Log" => self.save_log(),
+                    _ => self.copy_log(ui.ctx()),
+                }
+            }
+        }
+    }
+
+    /// Copy Log: the whole log to the clipboard, each line with its time.
+    pub(crate) fn copy_log(&mut self, ctx: &egui::Context) {
+        ctx.copy_text(self.log.text());
+    }
+
+    /// Save Log…: the whole log into a text file, where the builder says.
+    pub(crate) fn save_log(&mut self) {
+        let dir = self.module_path().and_then(|p| p.parent().map(|d| d.to_path_buf()));
+        let suggested = dir.map(|d| d.join("moonglow-log.txt"));
+        let Some(path) = self.dialogs.save_file(FileKind::Log, suggested.as_deref()) else {
+            return;
+        };
+        match std::fs::write(&path, self.log.text()) {
+            Ok(()) => self.log.info(format!("Saved the log to {}", path.display())),
+            Err(e) => self.log.error(format!("Could not write {}: {e}", path.display())),
         }
     }
 

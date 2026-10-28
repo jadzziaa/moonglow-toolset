@@ -701,6 +701,49 @@ fn the_log_s_lines_carry_their_time() {
     assert!(h.state().log.times.is_empty());
 }
 
+/// The whole log copied (its corner's Copy, View › Copy Log) and saved
+/// into a text file (Save…, View › Save Log…), each line as it shows,
+/// its time first (Jasperre's report: a line was copied by selecting it,
+/// one at a time).
+#[test]
+fn the_whole_log_is_copied_and_saved() {
+    let dir = mg_testkit::scratch_dir("ui-log-saved");
+    let file = dir.join("said.txt");
+    let dialogs = NoDialogs { save: vec![file.clone()], ..Default::default() };
+    let mut app = Moonglow::new(None, Box::new(dialogs));
+    app.log.clear();
+    app.log.info("First thing said");
+    app.log.error("Second thing said");
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let whole = h.state().log.text();
+    let log = &h.state().log;
+    assert_eq!(whole, format!("{}\n{}\n", log.shown(0), log.shown(1)));
+    assert!(whole.contains(" First thing said\n") && whole.starts_with(&log.times[0]));
+    // Copy: the clipboard has it all.
+    h.get_by_label("Copy Log").click();
+    h.step();
+    let copied: Vec<String> = (h.output().platform_output.commands.iter())
+        .filter_map(|c| match c {
+            egui::OutputCommand::CopyText(t) => Some(t.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(copied, [whole.clone()]);
+    h.run();
+    // Save…: into the file asked for, and said so (after what was saved).
+    h.get_by_label("Save Log").click();
+    h.run();
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), whole);
+    let said = &h.state().log.entries.last().unwrap().1;
+    assert!(said.starts_with("Saved the log to"), "{said}");
+    // View has them too.
+    h.get_by_label("View").click();
+    h.run();
+    assert_eq!(h.get_all_by_label("Copy Log").count(), 2);
+    assert_eq!(h.query_all_by_label("Save Log…").count(), 1);
+}
+
 #[test]
 fn views_draw_nothing_over_anything_else() {
     // The editors, windows and wizards outside the blueprint editors, roomy

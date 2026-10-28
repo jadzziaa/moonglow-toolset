@@ -35,6 +35,8 @@ pub enum FileKind {
     Tileset,
     /// A plugin's archive: `.zip`.
     Plugin,
+    /// The log, as text: `.txt`.
+    Log,
 }
 
 impl FileKind {
@@ -65,6 +67,7 @@ impl FileKind {
             (FileKind::Tileset, false) => "Open Tileset",
             (FileKind::Tileset, true) => "New Tileset",
             (FileKind::Plugin, _) => "Install Plugin from File",
+            (FileKind::Log, _) => "Save Log",
         }
     }
 
@@ -89,6 +92,7 @@ impl FileKind {
             (FileKind::Images, _) => Some(("Pictures", &["png", "tga", "dds", "jpg", "bmp"])),
             (FileKind::Tileset, _) => Some(("Tileset", &["set"])),
             (FileKind::Plugin, _) => Some(("Plugin archives", &["zip"])),
+            (FileKind::Log, _) => Some(("Text", &["txt", "log"])),
         }
     }
 }
