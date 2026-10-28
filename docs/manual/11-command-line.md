@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T11:19:11Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T18:05:00Z }
 ---
 
 # Command-line tools
@@ -408,7 +408,10 @@ it reads only at its start.
   `--` are `mg serve`'s, and so is what you type. Started again, the
   server keeps its port and its passwords.
 - A script that does not compile is said, with its line, and nothing is
-  put out for it: the server keeps the one it has.
+  put out for it: the server keeps the one it has. A warning of the
+  compiles (a function's return type declared one way and defined
+  another, as `mg compile` says it) is said once, with how many scripts
+  met it (`warnings` in the JSON).
 - `--json` prints each of these as a line of JSON (`watching`, `synced`,
   `rebuilt`, and with `--serve` the server's events).
 
@@ -458,7 +461,12 @@ and nothing on standard error, for scripts, build pipelines and tools
   `passed`, `problems` and `notes`), `passed`, `failed` and `noted`
   (how many passed with notes); `mg refs` its `uses`
   and `script_strings`; `mg compile` its `scripts` (how many were compiled), `unchanged` (how many were passed
-  over), `failed` and `errors` (each with `script`, `line` and `message`); and so on.
+  over), `failed` and `errors` (each with `script`, `line` and `message`),
+  and `warnings`, each once however many scripts met it (with `script`,
+  `line`, `message` and `scripts`, how many: a function's return type
+  declared one way and defined another, as in the base game's
+  `x2_inc_cutscene`, which compiles as in Aurora; see
+  [Scripts](07-scripts.md)); and so on.
 - **Notes:** warnings and summaries, otherwise sent to standard error,
   are in `notes`.
 - **Errors:** a command that fails prints `{"error": "…"}` and exits with

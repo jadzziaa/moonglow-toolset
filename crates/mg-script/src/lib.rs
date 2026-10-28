@@ -5,9 +5,10 @@ pub mod analysis;
 pub mod compiler;
 pub mod lex;
 pub mod outline;
+mod return_types;
 pub mod spec;
 
-pub use compiler::{CompileError, Compiled, Compiler};
+pub use compiler::{CompileError, CompileWarning, Compiled, Compiler};
 
 #[cfg(test)]
 mod tests {
@@ -28,6 +29,8 @@ mod tests {
             "inc" => "string Greeting() { return \"hi\"; }\n",
             "bad" => "void main() { Nope(); }\n",
             "cond" => "int StartingConditional() { return TRUE; }\n",
+            "mis" => "#include \"mis_inc\"\nvoid main() { int n = Copy(); }\n",
+            "mis_inc" => "int Copy();\n\nvoid Copy() { PrintString(\"x\"); }\n",
             _ => return None,
         };
         Some(text.as_bytes().to_vec())
@@ -50,6 +53,29 @@ mod tests {
         c.set_debug_output(true);
         let out = c.compile("ok").unwrap();
         assert!(out.ndb.is_some_and(|d| d.starts_with(b"NDB")));
+    }
+
+    /// A function declared with one return type and defined with another
+    /// compiles, as Aurora compiles it (the vendored compiler's
+    /// return-type-mismatch patch), with a warning that names it and both
+    /// lines; the compile after is as quiet as one before.
+    #[test]
+    fn a_return_type_that_differs_compiles_with_a_warning() {
+        let mut c = Compiler::new(sources);
+        assert!(c.compile("ok").unwrap().warnings.is_empty());
+        let out = c.compile("mis").unwrap();
+        assert!(!out.ncs.is_empty());
+        let w: Vec<_> = out.warnings.iter().map(|w| (w.file.as_str(), w.line)).collect();
+        assert_eq!(w, [("mis_inc", 3)]);
+        assert!(
+            out.warnings[0].message.starts_with(
+                "mis_inc.nss(3): WARNING: Copy is declared int at mis_inc.nss(1) and defined \
+                 void at mis_inc.nss(3)."
+            ),
+            "{}",
+            out.warnings[0].message
+        );
+        assert!(c.compile("ok").unwrap().warnings.is_empty());
     }
 
     #[test]

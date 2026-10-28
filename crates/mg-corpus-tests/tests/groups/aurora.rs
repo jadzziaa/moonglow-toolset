@@ -38,6 +38,8 @@ mod aurora_palette_add;
 mod aurora_palettes;
 #[path = "../aurora_script_wizard.rs"]
 mod aurora_script_wizard;
+#[path = "../aurora_scripts.rs"]
+mod aurora_scripts;
 #[path = "../aurora_sounds.rs"]
 mod aurora_sounds;
 #[path = "../aurora_spell_warnings.rs"]

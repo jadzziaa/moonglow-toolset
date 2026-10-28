@@ -57,6 +57,8 @@ mod engine_new_module;
 mod engine_rename;
 #[path = "../engine_resman.rs"]
 mod engine_resman;
+#[path = "../engine_return_types.rs"]
+mod engine_return_types;
 #[path = "../engine_rules.rs"]
 mod engine_rules;
 #[path = "../engine_saves.rs"]

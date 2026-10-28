@@ -15,14 +15,20 @@ use mg_testkit::{corpus, oracle_tool, scratch_dir};
 
 use crate::script_common::{each_script_set, on_every_core};
 
+/// A script compiled by the built-in compiler: its bytecode and what the
+/// compile warned of.
+type Ours = Option<(Vec<u8>, Vec<mg_script::CompileWarning>)>;
+
 /// Compiles `names` with the built-in compiler on all cores; `None` for
 /// scripts that do not compile.
-fn compile_all(rm: &ResMan, names: &[String]) -> BTreeMap<String, Option<Vec<u8>>> {
+fn compile_all(rm: &ResMan, names: &[String]) -> BTreeMap<String, Ours> {
     on_every_core(names, |part| {
         let mut c = Compiler::new(|name, t| {
             ResKey::parse(name, t).and_then(|k| rm.get(&k).ok()).map(|d| d.into_owned())
         });
-        part.iter().map(|n| (n.clone(), c.compile(n).ok().map(|o| o.ncs))).collect::<Vec<_>>()
+        (part.iter())
+            .map(|n| (n.clone(), c.compile(n).ok().map(|o| (o.ncs, o.warnings))))
+            .collect::<Vec<_>>()
     })
     .into_iter()
     .flatten()
@@ -56,16 +62,26 @@ fn oracle_compile(
     names.iter().map(|n| (n.clone(), std::fs::read(out.join(format!("{n}.ncs"))).ok())).collect()
 }
 
+#[derive(Default)]
 struct Tally {
     compiled: usize,
     failed: usize,
     shipped_same: usize,
     shipped_total: usize,
+    /// Compiled here, as Aurora does, and refused by nwn_script_comp for a
+    /// function's return type (the return-type-mismatch patch).
+    mismatched: usize,
+    /// Of those, how many have a compiled script shipped beside them, and
+    /// how many of those are byte for byte the same.
+    mismatched_shipped: usize,
+    mismatched_shipped_same: usize,
+    /// The kinds of mismatch met (the warning's words after the lines).
+    kinds: BTreeMap<String, usize>,
 }
 
 fn compare(
     label: &str,
-    ours: &BTreeMap<String, Option<Vec<u8>>>,
+    ours: &BTreeMap<String, Ours>,
     theirs: &BTreeMap<String, Option<Vec<u8>>>,
     shipped: impl Fn(&str) -> Option<Vec<u8>>,
     tally: &mut Tally,
@@ -74,17 +90,36 @@ fn compare(
     for (name, a) in ours {
         let b = theirs.get(name).cloned().flatten();
         match (a, &b) {
-            (Some(x), Some(y)) if x == y => tally.compiled += 1,
+            (Some((x, _)), Some(y)) if x == y => tally.compiled += 1,
             (None, None) => tally.failed += 1,
             (Some(_), Some(_)) => {
                 failures.push(format!("{label}: {name}.nss compiles differently"))
+            }
+            // The one divergence by design: nwn_script_comp 2.3.1 refuses
+            // a function declared with one return type and defined with
+            // another, which Aurora (and so Moonglow) compiles; the
+            // compile warns of it. Settled by Aurora's own output
+            // (`aurora_scripts`), by the game (`engine_return_types`) and
+            // by the compiled scripts shipped beside these.
+            (Some((x, warnings)), None)
+                if warnings.iter().any(|w| w.message.contains("Aurora compiles it so")) =>
+            {
+                tally.mismatched += 1;
+                for w in warnings {
+                    let kind = w.message.split_once("WARNING: ").map_or("", |(_, k)| k);
+                    *tally.kinds.entry(kind.to_string()).or_default() += 1;
+                }
+                if let Some(s) = shipped(name) {
+                    tally.mismatched_shipped += 1;
+                    tally.mismatched_shipped_same += usize::from(*x == s);
+                }
             }
             (Some(_), None) => failures
                 .push(format!("{label}: {name}.nss compiles here but not with nwn_script_comp")),
             (None, Some(_)) => failures
                 .push(format!("{label}: {name}.nss compiles with nwn_script_comp but not here")),
         }
-        if let (Some(x), Some(s)) = (a, shipped(name)) {
+        if let (Some((x, _)), Some(s)) = (a, shipped(name)) {
             tally.shipped_total += 1;
             tally.shipped_same += usize::from(*x == s);
         }
@@ -98,7 +133,7 @@ fn builtin_compiler_matches_nwn_script_comp() {
     let dir = scratch_dir("scripts");
     let empty_user = dir.join("empty-user");
     std::fs::create_dir_all(&empty_user).unwrap();
-    let mut tally = Tally { compiled: 0, failed: 0, shipped_same: 0, shipped_total: 0 };
+    let mut tally = Tally::default();
     let mut failures = Vec::new();
 
     // The base game's script sources, then every shipped module's over its
@@ -142,6 +177,14 @@ fn builtin_compiler_matches_nwn_script_comp() {
          {} of {} equal the compiled scripts shipped beside them",
         tally.compiled, tally.failed, tally.shipped_same, tally.shipped_total
     );
+    eprintln!(
+        "{} compile here, as in Aurora, and not with nwn_script_comp (a return type that \
+         differs); {} of {} equal the compiled scripts shipped beside them",
+        tally.mismatched, tally.mismatched_shipped_same, tally.mismatched_shipped
+    );
+    for (kind, n) in &tally.kinds {
+        eprintln!("  {n} × {kind}");
+    }
     assert!(tally.compiled > if mg_testkit::full_corpus() { 5000 } else { 500 });
     assert!(
         failures.is_empty(),

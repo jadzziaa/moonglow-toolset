@@ -253,6 +253,35 @@ fn compile_errors_go_to_their_line() {
     assert_eq!(script_cursor(&h, key), Some((line4, line4)));
 }
 
+/// A script that includes the base game's `x2_inc_cutscene` compiles, as
+/// in Aurora (El Grillo's report); the Compiler tab and the log say what
+/// is odd in it: a warning at the include's line, not an error.
+#[test]
+fn x2_inc_cutscene_compiles_with_a_warning() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-compile-warning");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, b"#include \"x2_inc_cutscene\"\nvoid main() {}\n".to_vec());
+    m.save().unwrap();
+    let mut app = game_app(&root, None);
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Compile").click();
+    h.run();
+    let ncs = ResKey::new(key.resref, ResType::NCS);
+    assert!(h.state().ws.as_ref().unwrap().module.contains(&ncs), "compiled");
+    let messages = &h.state().script_tools.messages;
+    assert!(messages.iter().all(|m| !m.error), "{messages:?}");
+    let warning = messages.last().expect("a warning");
+    assert_eq!(warning.location, Some(("x2_inc_cutscene".to_string(), 628)));
+    assert!(warning.text.contains("CutCreateObjectCopy is declared object"), "{}", warning.text);
+    assert!(h.state().log.entries.iter().any(|(_, m)| *m == warning.text));
+}
+
 #[test]
 fn script_wizard_writes_compiles_and_sets_scripts() {
     let root = mg_testkit::corpus!();

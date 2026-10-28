@@ -100,12 +100,18 @@ fn shape_of(outlines: &[&Outline], spec: &Spec) -> Shape {
     };
     let mut s = Shape::default();
     for o in outlines {
-        // Prototypes count too: the NDB lists declared-only functions.
+        // Prototypes count too: the NDB lists declared-only functions. The
+        // first of a file's declarations gives the return type: one defined
+        // with another (x2_inc_cutscene's CutCreateObjectCopy) keeps the
+        // one met first, as Aurora compiles it (the return-type-mismatch
+        // patch, `crates/mg-script/nwscript/README.md`).
+        let mut own = std::collections::BTreeMap::new();
         for f in &o.functions {
             let params: Vec<String> = f.params.iter().map(|p| ty(&p.ty)).collect();
-            s.functions
-                .insert(f.name.clone(), format!("{}({})", ty(&f.return_type), params.join(",")));
+            (own.entry(f.name.clone()))
+                .or_insert_with(|| format!("{}({})", ty(&f.return_type), params.join(",")));
         }
+        s.functions.extend(own);
         // The compiler implements global constants as functions returning
         // the value, and lists them so in the NDB.
         for g in o.globals.iter().filter(|g| g.is_const) {

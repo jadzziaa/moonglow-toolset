@@ -222,7 +222,8 @@ impl Server {
         self.with_index(|idx, src| idx.declaration_at(&name, at, src))
     }
 
-    /// Errors in a script: the compiler's first, as a diagnostic.
+    /// Errors in a script: the compiler's first, as a diagnostic; else
+    /// what the compile warned of in this script, each as a warning.
     fn diagnostics(&self, name: &str) -> Vec<Value> {
         let Some(text) = self.text(name) else { return Vec::new() };
         let mut c = Compiler::new(|n: &str, t: ResType| {
@@ -235,18 +236,29 @@ impl Server {
             self.game.as_ref()?.get(&k).ok().map(|d| d.into_owned())
         });
         c.set_require_entry_point(false);
-        let Err(e) = c.compile(name) else { return Vec::new() };
+        let diagnostic = |line: usize, severity: u8, message: &str| {
+            let end = text.lines().nth(line).map_or(0, |l| l.encode_utf16().count());
+            json!({
+                "range": { "start": { "line": line, "character": 0 }, "end": { "line": line, "character": end } },
+                "severity": severity,
+                "source": "nwscript",
+                "message": message,
+            })
+        };
+        let e = match c.compile(name) {
+            Ok(out) => {
+                return (out.warnings.iter())
+                    .filter(|w| w.file.eq_ignore_ascii_case(name))
+                    .map(|w| diagnostic(w.line.saturating_sub(1), 2, &w.message))
+                    .collect();
+            }
+            Err(e) => e,
+        };
         let line = e
             .location()
             .filter(|(f, _)| f.trim_end_matches(".nss").eq_ignore_ascii_case(name))
             .map_or(0, |(_, l)| l.saturating_sub(1));
-        let end = text.lines().nth(line).map_or(0, |l| l.encode_utf16().count());
-        vec![json!({
-            "range": { "start": { "line": line, "character": 0 }, "end": { "line": line, "character": end } },
-            "severity": 1,
-            "source": "nwscript",
-            "message": e.message,
-        })]
+        vec![diagnostic(line, 1, &e.message)]
     }
 
     fn publish(&self, name: &str, out: &mut impl Write) -> Result<()> {

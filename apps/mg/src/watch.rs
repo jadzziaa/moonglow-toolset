@@ -59,6 +59,9 @@ pub(crate) struct Step {
     /// Scripts compiled (those that made a compiled script).
     pub compiled: Vec<String>,
     pub errors: Vec<String>,
+    /// What the compiles warned of, each once (an include's is said by
+    /// its includers).
+    pub warnings: Vec<String>,
     /// Files put into the development folder.
     pub written: Vec<String>,
     /// What changed that the server has by heart: the module was built
@@ -71,13 +74,13 @@ impl Step {
     pub(crate) fn json(&self) -> Value {
         json!({
             "event": if self.rebuild.is_empty() { "synced" } else { "rebuilt" },
-            "compiled": self.compiled, "errors": self.errors,
+            "compiled": self.compiled, "errors": self.errors, "warnings": self.warnings,
             "written": self.written, "changed": self.rebuild,
         })
     }
 
     pub(crate) fn text(&self, dev_dir: &Path) -> Vec<String> {
-        let mut out: Vec<String> = self.errors.clone();
+        let mut out: Vec<String> = self.errors.iter().chain(&self.warnings).cloned().collect();
         if !self.rebuild.is_empty() {
             let more = match self.rebuild.len() {
                 1 => String::new(),
@@ -321,7 +324,14 @@ impl Watcher {
 }
 
 fn compile(module: &mut Module, rm: &ResMan, names: &[ResKey], debug: bool, step: &mut Step) {
-    for r in mg_module::build::compile_named_with(module, rm, names, None, debug) {
+    let results = mg_module::build::compile_named_with(module, rm, names, None, debug);
+    for (w, n) in mg_module::build::distinct_warnings(&results) {
+        step.warnings.push(match n {
+            1 => w.message.clone(),
+            n => format!("{} (in {n} scripts)", w.message),
+        });
+    }
+    for r in results {
         match r.result {
             Ok(()) if module.contains(&ResKey::new(r.script.resref, ResType::NCS)) => {
                 step.compiled.push(r.script.resref.to_string());
@@ -376,5 +386,31 @@ mod tests {
         assert_eq!(step.rebuild, ["src/tlk/mytlk.tlk.json"], "{step:?}");
         assert!(step.text(&dir).iter().any(|l| l.contains("mytlk.tlk.json changed")));
         assert!(w.step(&rm).unwrap().rebuild.is_empty(), "seen once");
+    }
+
+    /// Scripts compiled with the base game's `x2_inc_cutscene` (a return
+    /// type declared one way and defined another, compiled as in Aurora):
+    /// the warning is said once, with how many scripts met it.
+    #[test]
+    fn a_warning_of_the_compiles_is_said_once() {
+        let root = mg_testkit::corpus!();
+        let rm = ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+        let mut m = Module::new();
+        let names: Vec<ResKey> = ["cut_a", "cut_b"]
+            .iter()
+            .map(|n| {
+                let k = ResKey::parse(n, ResType::NSS).unwrap();
+                m.set(k, b"#include \"x2_inc_cutscene\"\nvoid main() {}\n".to_vec());
+                k
+            })
+            .collect();
+        let mut step = Step::default();
+        compile(&mut m, &rm, &names, false, &mut step);
+        assert_eq!(step.compiled, ["cut_a", "cut_b"]);
+        assert_eq!(step.warnings.len(), 1, "{step:?}");
+        assert!(step.warnings[0].contains("CutCreateObjectCopy is declared object"));
+        assert!(step.warnings[0].ends_with("(in 2 scripts)"));
+        assert!(step.text(&root).contains(&step.warnings[0]));
+        assert_eq!(step.json()["warnings"][0], step.warnings[0].as_str());
     }
 }

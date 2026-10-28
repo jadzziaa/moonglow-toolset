@@ -4,7 +4,7 @@ use std::sync::Mutex;
 
 use mg_core::ResType;
 use mg_resman::{ResKey, ResMan};
-use mg_script::{CompileError, Compiler};
+use mg_script::{CompileError, CompileWarning, Compiler};
 
 use crate::Module;
 use crate::external_compiler::ExternalCompiler;
@@ -14,11 +14,33 @@ use crate::external_compiler::ExternalCompiler;
 pub struct ScriptResult {
     pub script: ResKey,
     pub result: Result<(), CompileError>,
+    /// What a compile that succeeded warned of (the built-in compiler's:
+    /// a function's return type declared one way and defined another, as
+    /// Aurora compiles it).
+    pub warnings: Vec<CompileWarning>,
 }
 
-/// A script and its bytecode (empty for include files) or error.
-/// A script, with its compiled script and its debug file if one was made.
-type Compiled = (ResKey, Result<(Vec<u8>, Option<Vec<u8>>), CompileError>);
+/// The warnings of `results`, each once (an include's is every includer's),
+/// with how many scripts each was met in; in the order first met.
+pub fn distinct_warnings(results: &[ScriptResult]) -> Vec<(&CompileWarning, usize)> {
+    let mut out: Vec<(&CompileWarning, usize)> = Vec::new();
+    let mut at: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for w in results.iter().flat_map(|r| &r.warnings) {
+        match at.get(w.message.as_str()) {
+            Some(&i) => out[i].1 += 1,
+            None => {
+                at.insert(&w.message, out.len());
+                out.push((w, 1));
+            }
+        }
+    }
+    out
+}
+
+/// A script's bytecode (empty for include files), its debug file if one
+/// was made and its warnings, or its error.
+type Made = (Vec<u8>, Option<Vec<u8>>, Vec<CompileWarning>);
+type Compiled = (ResKey, Result<Made, CompileError>);
 
 /// Which scripts to compile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -525,7 +547,7 @@ pub fn compile_named_with(
                 for k in part {
                     let name = k.resref.to_lowercase().to_string();
                     let result = match c.compile(&name) {
-                        Ok(out) => Ok((out.ncs, out.ndb)),
+                        Ok(out) => Ok((out.ncs, out.ndb, out.warnings)),
                         // An include file (no `main`, no
                         // `StartingConditional`): nothing to compile or to
                         // store, as Aurora skips it. It is checked where it
@@ -536,7 +558,7 @@ pub fn compile_named_with(
                                 .get(k)
                                 .is_some_and(|src| !mg_script::outline::has_entry_point(src)) =>
                         {
-                            Ok((Vec::new(), None))
+                            Ok((Vec::new(), None, Vec::new()))
                         }
                         Err(e) => Err(e),
                     };
@@ -554,7 +576,9 @@ pub fn compile_named_with(
     results
         .into_iter()
         .map(|(k, r)| {
-            let result = r.map(|(ncs, ndb)| {
+            let mut warnings = Vec::new();
+            let result = r.map(|(ncs, ndb, said)| {
+                warnings = said;
                 if !ncs.is_empty() {
                     module.set(ResKey::new(k.resref, ResType::NCS), ncs);
                     if let Some(ndb) = ndb {
@@ -562,7 +586,7 @@ pub fn compile_named_with(
                     }
                 }
             });
-            ScriptResult { script: k, result }
+            ScriptResult { script: k, result, warnings }
         })
         .collect()
 }
@@ -665,7 +689,7 @@ fn compile_externally(
         Err(e) => {
             let message = format!("External compiler: {e}. Nothing was compiled");
             let result = Err(CompileError { code: -1, message });
-            return vec![ScriptResult { script: names[0], result }];
+            return vec![ScriptResult { script: names[0], result, warnings: Vec::new() }];
         }
     };
     names
@@ -685,7 +709,7 @@ fn compile_externally(
                 None if include() => Ok(()),
                 None => Err(CompileError { code: -1, message: outcome.message }),
             };
-            ScriptResult { script: *k, result }
+            ScriptResult { script: *k, result, warnings: Vec::new() }
         })
         .collect()
 }

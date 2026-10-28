@@ -132,6 +132,58 @@ fn uncompiled_and_build_remember_what_they_compiled() {
     assert_eq!(kept(), 2, "named by its nasher.cfg, the same project");
 }
 
+/// Scripts that include the base game's `x2_inc_cutscene` (its
+/// `CutCreateObjectCopy` is declared `object` and defined `void`) compile,
+/// as in Aurora (El Grillo's report: they failed): the warning is said
+/// once, with how many scripts it was met in, on standard error and in
+/// the JSON.
+#[test]
+fn x2_inc_cutscene_s_includers_compile_with_one_warning() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("mg-compile-return-types");
+    std::fs::create_dir_all(dir.join("user")).unwrap();
+    let chess = dir.join("chess.mod");
+    std::fs::copy(root.join("data/mod/Neverwinter Chess.mod"), &chess).unwrap();
+    let mut m = mg_module::Module::open(&chess).unwrap();
+    for (name, main) in [
+        ("cut_a", "{}"),
+        (
+            "cut_b",
+            "{ object o = CutCreateObjectCopy(0.0, OBJECT_SELF, GetLocation(OBJECT_SELF)); }",
+        ),
+    ] {
+        let text = format!("#include \"x2_inc_cutscene\"\nvoid main() {main}\n");
+        m.set(ResKey::parse(name, ResType::NSS).unwrap(), text.into_bytes());
+    }
+    m.save().unwrap();
+    let json = compile(&root, &dir, &chess, &["--all"]);
+    assert_eq!(json["failed"], 0, "{json}");
+    let warnings = json["warnings"].as_array().unwrap();
+    assert_eq!(warnings.len(), 1, "{json}");
+    let w = &warnings[0];
+    assert_eq!(
+        (&w["script"], &w["line"], &w["scripts"]),
+        (&"x2_inc_cutscene".into(), &628.into(), &2.into())
+    );
+    assert!(w["message"].as_str().unwrap().contains("declared object at x2_inc_cutscene.nss(303)"));
+    let m = mg_module::Module::open(&chess).unwrap();
+    assert!(m.contains(&ResKey::parse("cut_b", ResType::NCS).unwrap()));
+
+    // As text: on standard error, once.
+    let out = crate::mg()
+        .args(["--root", root.to_str().unwrap(), "--user-dir"])
+        .arg(dir.join("user"))
+        .args(["compile", "--all"])
+        .arg(&chess)
+        .env("MOONGLOW_DATA_DIR", dir.join("data"))
+        .output()
+        .unwrap();
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "{said}");
+    assert_eq!(said.matches("WARNING: CutCreateObjectCopy").count(), 1, "{said}");
+    assert!(said.contains("(in 2 scripts)"), "{said}");
+}
+
 fn is_json(p: &Path) -> bool {
     p.extension().is_some_and(|e| e == "json")
 }

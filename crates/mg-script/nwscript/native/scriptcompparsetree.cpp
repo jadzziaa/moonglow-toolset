@@ -4446,6 +4446,16 @@ int32_t CScriptCompiler::AddUserDefinedIdentifier(CScriptParseTreeNode *pFunctio
 						bReturnTypeDifferent = TRUE;
 					}
 
+					// MOONGLOW PATCH (return-type-mismatch), see ../README.md:
+					// the game's own toolset (Aurora, 8193.37) merges them as
+					// before this check, the first one's return type kept at
+					// the call sites, and the base game's x2_inc_cutscene
+					// (CutCreateObjectCopy: declared object, defined void)
+					// needs it. Moonglow warns of the mismatch itself
+					// (src/return_types.rs).
+					bReturnTypeDifferent = FALSE;
+					// END MOONGLOW PATCH
+
 					if (bParameterListDifferent == FALSE && bReturnTypeDifferent == FALSE)
 					{
 						bFoundIdenticalFunction = TRUE;

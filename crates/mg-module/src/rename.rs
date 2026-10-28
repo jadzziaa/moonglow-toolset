@@ -743,22 +743,14 @@ pub fn rename(
     Ok(report)
 }
 
-/// The spans (inside the quotes) of `#include "name"` lines naming `name`.
+/// The spans (inside the quotes) of the `#include "name"`s naming `name`,
+/// as the compiler reads them (one commented out is left as it is:
+/// [`mg_script::lex::includes`]).
 fn include_spans(src: &[u8], name: &str) -> Vec<(usize, usize)> {
-    let mut out = Vec::new();
-    let mut offset = 0;
-    for line in src.split(|b| *b == b'\n') {
-        let start = line.iter().position(|b| !b.is_ascii_whitespace()).unwrap_or(line.len());
-        if line[start..].starts_with(b"#include")
-            && let Some(q1) = line[start..].iter().position(|b| *b == b'"').map(|q| start + q + 1)
-            && let Some(q2) = line[q1..].iter().position(|b| *b == b'"').map(|q| q1 + q)
-            && line[q1..q2].eq_ignore_ascii_case(name.as_bytes())
-        {
-            out.push((offset + q1, offset + q2));
-        }
-        offset += line.len() + 1;
-    }
-    out
+    (mg_script::lex::includes(src).into_iter())
+        .filter(|at| src[at.name.clone()].eq_ignore_ascii_case(name.as_bytes()))
+        .map(|at| (at.name.start, at.name.end))
+        .collect()
 }
 
 #[cfg(test)]
@@ -1020,6 +1012,14 @@ mod tests {
         let src = m.get(&key("guard_spawn", ResType::NSS)).unwrap();
         assert!(src.starts_with(b"#include \"inc_watch\"\n"));
         assert!(!m.contains(&key("guard_spawn", ResType::NCS)), "to be compiled again");
+
+        // One commented out includes nothing, and is left as written, as
+        // References and the compiler read it.
+        let text = b"/*\n#include \"inc_watch\"\n*/\n#include \"inc_watch\" // and\n".to_vec();
+        m.set(key("guard_old", ResType::NSS), text);
+        rename(&mut m, key("inc_watch", ResType::NSS), rr("inc_ward"), false).unwrap();
+        let src = m.get(&key("guard_old", ResType::NSS)).unwrap();
+        assert_eq!(src, b"/*\n#include \"inc_watch\"\n*/\n#include \"inc_ward\" // and\n");
     }
 
     #[test]

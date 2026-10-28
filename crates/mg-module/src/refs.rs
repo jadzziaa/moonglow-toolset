@@ -199,23 +199,24 @@ pub fn gff_references(from: ResKey, gff: &Gff) -> Vec<Reference> {
     out
 }
 
-/// The `#include "name"` lines of a script source (comments and strings
-/// are not parsed; an include inside a block comment still counts, as a
-/// conservative dependency).
+/// The `#include "name"` of a script source, as the compiler reads them:
+/// not one in a comment (`// #include`, or a line of a `/* … */` block:
+/// code commented out includes nothing, and Verify's missing include
+/// would be none) or in a string ([`mg_script::lex::includes`]).
 pub fn script_includes(from: ResKey, source: &[u8]) -> Vec<Reference> {
-    let text = String::from_utf8_lossy(source);
     let mut out = Vec::new();
-    for (n, line) in text.lines().enumerate() {
-        let Some(rest) = line.trim_start().strip_prefix("#include") else { continue };
-        let Some(start) = rest.find('"') else { continue };
-        let rest = &rest[start + 1..];
-        let Some(end) = rest.find('"') else { continue };
-        if let Ok(target) = ResRef::from_str(&rest[..end])
+    let mut line = 1;
+    let mut counted = 0;
+    for at in mg_script::lex::includes(source) {
+        let quoted = String::from_utf8_lossy(&source[at.name]);
+        line += source[counted..at.directive.start].iter().filter(|&&b| b == b'\n').count();
+        counted = at.directive.start;
+        if let Ok(target) = ResRef::from_str(&quoted)
             && !target.is_empty()
         {
             out.push(Reference {
                 from,
-                path: format!("line {}", n + 1),
+                path: format!("line {line}"),
                 kind: RefKind::Include,
                 target,
             });
@@ -366,6 +367,13 @@ mod tests {
             ["nw_i0_generic", "x0_i0_spawn"]
         );
         assert_eq!(inc[1].path, "line 3");
+        // Commented out, or in a string: none, as the compiler reads them.
+        let src =
+            b"// #include \"a\"\n/*\n#include \"b\"\n*/\nstring s = \"#include \\\"c\\\"\";\n\
+                    #include \"d\"\n";
+        let inc = script_includes(ResKey::parse("s", ResType::NSS).unwrap(), src);
+        let got: Vec<_> = inc.iter().map(|r| (r.target.to_string(), r.path.clone())).collect();
+        assert_eq!(got, [("d".to_string(), "line 6".to_string())]);
 
         let p = RefKind::Portrait.candidates(rr("po_aribeth_"));
         assert_eq!(p[0], ResKey::parse("po_aribeth_m", ResType::TGA).unwrap());

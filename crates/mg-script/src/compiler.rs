@@ -87,6 +87,21 @@ impl CompileError {
     }
 }
 
+/// Something a compile that succeeded says of the script: a function
+/// declared with one return type and defined with another
+/// (`return_types`), which the game's toolset compiles and newer builds of
+/// the compiler refuse.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CompileWarning {
+    /// The script or include it is in (without `.nss`).
+    pub file: String,
+    /// 1-based.
+    pub line: usize,
+    /// As the compiler's own messages are written:
+    /// `inc.nss(4): WARNING: …`.
+    pub message: String,
+}
+
 /// A compiled script.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Compiled {
@@ -95,6 +110,8 @@ pub struct Compiled {
     pub ncs: Vec<u8>,
     /// NDB debug information, when enabled.
     pub ndb: Option<Vec<u8>>,
+    /// What the compile says beside ([`CompileWarning`]).
+    pub warnings: Vec<CompileWarning>,
 }
 
 /// Supplies source files: `(name without extension, type)` → bytes. The
@@ -106,6 +123,8 @@ struct Active {
     compiler: *mut CScriptCompiler,
     resolver: *mut Resolver<'static>,
     output: Compiled,
+    /// The scripts the compiler read (not the language spec), by name.
+    read: Vec<(String, Vec<u8>)>,
 }
 
 thread_local! {
@@ -117,8 +136,8 @@ extern "C" fn load(name: *const c_char, restype: u16) -> bool {
     // A panic must not unwind into C++.
     std::panic::catch_unwind(|| {
         ACTIVE.with(|a| {
-            let a = a.borrow();
-            let Some(active) = a.as_ref() else { return false };
+            let mut a = a.borrow_mut();
+            let Some(active) = a.as_mut() else { return false };
             // SAFETY: the compiler passes a NUL-terminated name.
             let name = unsafe { CStr::from_ptr(name) }.to_string_lossy();
             // SAFETY: `resolver` points at the resolver borrowed for the
@@ -131,6 +150,9 @@ extern "C" fn load(name: *const c_char, restype: u16) -> bool {
                     unsafe {
                         scriptCompApiDeliverFile(active.compiler, data.as_ptr().cast(), data.len())
                     };
+                    if ResType(restype) == ResType::NSS && !name.eq_ignore_ascii_case("nwscript") {
+                        active.read.push((name.to_ascii_lowercase(), data));
+                    }
                     true
                 }
                 None => false,
@@ -218,6 +240,8 @@ fn on_deep_stack<T>(f: impl FnOnce() -> T) -> T {
 pub struct Compiler<'r> {
     raw: *mut CScriptCompiler,
     resolver: Box<Resolver<'r>>,
+    /// What the scripts read declare, for the warnings.
+    declared: crate::return_types::Cache,
     _not_send: PhantomData<*const ()>,
 }
 
@@ -248,7 +272,12 @@ impl<'r> Compiler<'r> {
                 load,
             )
         };
-        let mut c = Compiler { raw, resolver: Box::new(resolver), _not_send: PhantomData };
+        let mut c = Compiler {
+            raw,
+            resolver: Box::new(resolver),
+            declared: Default::default(),
+            _not_send: PhantomData,
+        };
         let lang = CString::new("nwscript").expect("no NUL");
         let alias = CString::new("scriptout").expect("no NUL");
         c.with_active(|raw| {
@@ -271,7 +300,10 @@ impl<'r> Compiler<'r> {
 
     /// Runs `f` with this compiler registered as the thread's active one.
     #[allow(unsafe_code)]
-    fn with_active<T>(&mut self, f: impl FnOnce(*mut CScriptCompiler) -> T) -> (T, Compiled) {
+    fn with_active<T>(
+        &mut self,
+        f: impl FnOnce(*mut CScriptCompiler) -> T,
+    ) -> (T, Compiled, Vec<(String, Vec<u8>)>) {
         let resolver: *mut Resolver<'r> = &mut *self.resolver;
         // SAFETY: the pointer is only used by callbacks during `f`, while
         // `self.resolver` is borrowed; its lifetime is erased for the
@@ -282,11 +314,13 @@ impl<'r> Compiler<'r> {
                 compiler: self.raw,
                 resolver,
                 output: Compiled::default(),
+                read: Vec::new(),
             })
         });
         let result = f(self.raw);
         let active = ACTIVE.with(|a| std::mem::replace(&mut *a.borrow_mut(), previous));
-        (result, active.map(|a| a.output).unwrap_or_default())
+        let (output, read) = active.map(|a| (a.output, a.read)).unwrap_or_default();
+        (result, output, read)
     }
 
     /// Compiles `name` (a script resref, without `.nss`).
@@ -299,11 +333,13 @@ impl<'r> Compiler<'r> {
         // (On a stack of its own: the compiler walks a script by
         // recursion, and a long `else if` chain or expression is deeper
         // than a thread's stack, least of all a main thread's on Windows.)
-        let (result, output) = on_deep_stack(|| {
+        let (result, mut output, read) = on_deep_stack(|| {
             // SAFETY: `raw` is live and the name is NUL-terminated.
             self.with_active(|raw| unsafe { scriptCompApiCompileFile(raw, cname.as_ptr()) })
         });
         if result.code == 0 {
+            let sources = read.iter().map(|(n, d)| (n.clone(), &d[..])).collect();
+            output.warnings = crate::return_types::mismatches(name, &sources, &mut self.declared);
             return Ok(output);
         }
         let mut message = if result.str_.is_null() {
