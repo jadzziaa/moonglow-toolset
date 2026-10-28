@@ -431,6 +431,8 @@ fn kind(k: DeclKind) -> u32 {
         DeclKind::Variable | DeclKind::Local | DeclKind::Parameter => 13,
         DeclKind::Constant => 14,
         DeclKind::Struct => 23,
+        // (A field.)
+        DeclKind::Member => 8,
     }
 }
 
@@ -440,6 +442,7 @@ fn completion_kind(k: DeclKind) -> u32 {
         DeclKind::Variable | DeclKind::Local | DeclKind::Parameter => 6,
         DeclKind::Constant => 21,
         DeclKind::Struct => 22,
+        DeclKind::Member => 5,
     }
 }
 

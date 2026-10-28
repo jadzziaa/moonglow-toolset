@@ -26,14 +26,16 @@ lists:
 
 **Help** shows the documentation as the source has it: the comments
 directly above the declaration (no empty line between), `//` lines and
-`/* … */` blocks alike, with their markers and their spacing, in the
+`/* … */` blocks alike, but not one that follows code on its line
+(`int nLast; // the last one` is about `nLast`), with their markers and their spacing, in the
 editor's font and colors, then the declaration itself, so the aligned
 lists in `nwscript.nss`'s comments line up as they do in the file.
 BioWare's includes document a function with a `/* … */` block between
 `//::` lines above its definition; where the prototype has no comment of
-its own, Help shows the definition's. (`mg lsp`'s hover has the same
-text without the markers: no `//`, `/*`, `*/` or the ` * ` down a
-block's side.)
+its own, Help shows the definition's. A struct's members and local
+variables have theirs too, the comments above their lines. (`mg lsp`'s
+hover has the same text without the markers: no `//`, `/*`, `*/`, the
+` * ` down a block's side or the `*` of BioWare's `// * text`.)
 
 Below the text are the **Compiler** messages: click one to go to its line.
 Each starts with the time it was written (`14:03:27`), so two compiles
@@ -140,6 +142,9 @@ for them).
 
 Moonglow knows what each name in a script stands for:
 - a local variable or parameter in scope;
+- a struct's member after `.`, by the type of what is before it: a
+  variable or parameter (`p.nX`), another member (`a.b.nX`) or a
+  function's call (`GetMark().vPos`);
 - a function, variable, constant or struct of the script itself;
 - one from its includes (in the order the compiler reads them);
 - one from `nwscript.nss`, the engine's own.
@@ -154,7 +159,7 @@ With that:
   uses are only in its own block; a function's, only in scripts that
   include the file it's in.
 - **Rename Symbol…** (Ctrl+Shift+R): renames a function, variable,
-  constant, struct, local or parameter everywhere it's used, as one
+  constant, struct, struct member, local or parameter everywhere it's used, as one
   undoable step. A name already taken, or one of the engine's, is
   refused. Compiled scripts stay valid, since names aren't in them.
 
@@ -166,7 +171,7 @@ move as errors come and go; a long message is cut to fit (hover over it
 for all of it). **Options › Script Editor › Check for errors as you
 type** turns this off.
 
-Struct members (`p.nX`) aren't followed. Other editors get the same
+Other editors get the same
 features through `mg lsp` (see [Command-line tools](11-command-line.md)).
 
 The buttons:

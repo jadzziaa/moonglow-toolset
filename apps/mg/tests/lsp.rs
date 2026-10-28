@@ -72,8 +72,10 @@ fn the_language_server_answers() {
     std::fs::create_dir_all(&src).unwrap();
     let inc = src.join("inc_util.nss");
     let main = src.join("main_a.nss");
-    std::fs::write(&inc, "// Doubles a number.\nint Twice(int n) { return n * 2; }\n").unwrap();
-    let text = "#include \"inc_util\"\nvoid main()\n{\n    int x = Twice(2);\n}\n";
+    let util = "// Doubles a number.\nint Twice(int n) { return n * 2; }\n\
+                struct Pt {\n    // * Across.\n    int nX;\n};\n";
+    std::fs::write(&inc, util).unwrap();
+    let text = "#include \"inc_util\"\nvoid main()\n{\n    int x = Twice(2);\n    struct Pt p; p.nX = 1;\n}\n";
     std::fs::write(&main, text).unwrap();
     let mut child = crate::mg()
         .arg("lsp")
@@ -103,6 +105,12 @@ fn the_language_server_answers() {
     let hover = c.request("textDocument/hover", twice.clone());
     let value = hover["result"]["contents"]["value"].as_str().unwrap();
     assert!(value.contains("int Twice(int n)") && value.contains("Doubles a number."), "{value}");
+    // A struct's member, with its comment (BioWare's `// *` without the
+    // `*`).
+    let member = json!({ "textDocument": { "uri": uri(&main) }, "position": { "line": 4, "character": 19 } });
+    let hover = c.request("textDocument/hover", member);
+    let value = hover["result"]["contents"]["value"].as_str().unwrap_or_default();
+    assert!(value.contains("int nX (struct Pt)") && value.ends_with("\n\nAcross."), "{hover}");
 
     // References: the definition and the use.
     let mut params = twice.clone();
