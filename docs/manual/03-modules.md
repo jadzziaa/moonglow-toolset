@@ -90,7 +90,12 @@ a directory), nasher projects (see below) and the game's campaign files
   script read again is compiled if **Automatically Compile Scripts on
   Save** is on (Options › Script Editor), as one saved here is, and so
   are the scripts that include it (more than 24 at once are compiled
-  in the background, and the log says so). A blueprint copied into the
+  in the background, and the log says so). A module that had no unsaved
+  changes has none after: the compiled scripts are written beside their
+  sources at once (a nasher project keeps none: they are made when it
+  packs). Commands of `mg` that save a module folder keep to the same
+  rules: what another program changed in it meanwhile is left as it is.
+  A blueprint copied into the
   folder (one another builder sent) shows in its custom palette as soon
   as it is read, as after Aurora's Refresh Palette, and one deleted or
   changed there has its entry taken out or made right (written at the

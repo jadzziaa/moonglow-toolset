@@ -1754,6 +1754,17 @@ fn compile_with_debug(
 /// source). Without the game's data nothing can be compiled, and nothing
 /// is said.
 pub(crate) fn compile_stale(app: &mut Moonglow, scripts: &[ResKey]) -> (Vec<String>, Vec<String>) {
+    compile_stale_into(app, scripts, false)
+}
+
+/// [`compile_stale`], the compiled scripts put in as what is made from the
+/// module (`made`: outside the edit history, not unsaved work, as
+/// [`mg_edit::Workspace::derive`] puts them) or as a command.
+pub(crate) fn compile_stale_into(
+    app: &mut Moonglow,
+    scripts: &[ResKey],
+    derived: bool,
+) -> (Vec<String>, Vec<String>) {
     let (mut compiled, mut broken) = (Vec::new(), Vec::new());
     if app.game.is_none() {
         return (compiled, broken);
@@ -1782,7 +1793,18 @@ pub(crate) fn compile_stale(app: &mut Moonglow, scripts: &[ResKey]) -> (Vec<Stri
             Err(_) => {}
         }
     }
-    if !edits.is_empty()
+    if derived && !edits.is_empty() {
+        let set = |m: &mut mg_module::Module| {
+            for e in edits {
+                if let Edit::SetResource { key, data: Some(data) } = e {
+                    m.set(key, data);
+                }
+            }
+        };
+        if let Some(Err(e)) = app.ws.as_mut().map(|ws| ws.derive(set)) {
+            app.log.error(e.to_string());
+        }
+    } else if !edits.is_empty()
         && let Err(e) = app.apply(Command::new("Compile", edits))
     {
         app.log.error(e.to_string());

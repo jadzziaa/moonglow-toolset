@@ -741,6 +741,41 @@ impl Module {
         Ok(files)
     }
 
+    /// Writes the resources `keys` (what is made from the module's others:
+    /// scripts compiled after their source was read again) into the
+    /// module's folder at once, each its own file, and counts them as
+    /// read there: a module that had no unsaved changes has none after. A
+    /// file changed outside since it was read, or new to the folder, is
+    /// left for [`Module::outside`]. Nothing for a nasher project (a
+    /// compiled script with its source is build output) or an archive.
+    /// Returns the files written.
+    pub fn write_made(&mut self, keys: &[ResKey]) -> Result<Vec<PathBuf>, ModuleError> {
+        let mut written = Vec::new();
+        let Some(folder) = self.folder.as_deref_mut().filter(|_| self.project.is_none()) else {
+            return Ok(written);
+        };
+        let dir = folder.dir().to_path_buf();
+        for key in keys {
+            let Some(bytes) = self.resources.get(key) else { continue };
+            let path = match folder.path(key) {
+                Some(p) => p.to_path_buf(),
+                None => key.path_in(&dir).map_err(io(&dir))?,
+            };
+            let now = std::fs::read(&path).ok();
+            if now.as_deref() == Some(&bytes[..]) {
+                folder.note(*key, path, bytes.clone());
+                continue;
+            }
+            if now.is_some() && now.as_deref() != folder.as_read(key) {
+                continue;
+            }
+            write_replacing(&path, bytes).map_err(io(&path))?;
+            folder.note(*key, path.clone(), bytes.clone());
+            written.push(path);
+        }
+        Ok(written)
+    }
+
     /// The files of the module's folder or nasher project changed, added
     /// or deleted outside Moonglow since they were read or written, and
     /// what could not be read of them. `None`: the module is an archive
@@ -1006,6 +1041,34 @@ mod tests {
             .collect();
         assert!(names.contains(&other), "{names:?}");
         assert!(!names.iter().any(|n| n.ends_with(".moonglow-tmp")));
+    }
+
+    /// A module folder opened, changed and saved at once, as every `mg`
+    /// command that saves does it: what another program changed in the
+    /// folder between the open and the save is left as it is (a file
+    /// changed outside, one new to the folder), and a file changed outside
+    /// whose resource the command changed too stops the save, named.
+    #[test]
+    fn opened_changed_and_saved_a_folder_keeps_what_changed_outside() {
+        let dir = mg_testkit::scratch_dir("mg-module-folder-at-once");
+        sample().save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
+        let mut m = Module::open(&dir).unwrap();
+        let first = m.keys().find(|k| k.restype != ResType::NSS).copied().unwrap();
+        let first_file = dir.join(first.to_string());
+        std::fs::write(&first_file, b"another editor's").unwrap();
+        std::fs::write(dir.join("fresh.nss"), b"void main() {}").unwrap();
+        m.set(key("script", ResType::NSS), &b"changed by mg"[..]);
+        m.save().unwrap();
+        assert_eq!(std::fs::read(dir.join("script.nss")).unwrap(), b"changed by mg");
+        assert_eq!(std::fs::read(&first_file).unwrap(), b"another editor's");
+        assert!(dir.join("fresh.nss").exists());
+        // Both changed it: nothing written, the file named.
+        let mut m = Module::open(&dir).unwrap();
+        std::fs::write(dir.join("script.nss"), b"the editor's again").unwrap();
+        m.set(key("script", ResType::NSS), &b"mg's again"[..]);
+        let e = m.save().unwrap_err();
+        assert!(matches!(&e, ModuleError::ChangedOnDisk(p) if p == &[dir.join("script.nss")]));
+        assert_eq!(std::fs::read(dir.join("script.nss")).unwrap(), b"the editor's again");
     }
 
     /// Save As into a folder of other resources (another module's, a
