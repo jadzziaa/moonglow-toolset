@@ -499,13 +499,13 @@ mod tests {
             tag: "TOWN".into(),
         };
         let keys = [key("town", ResType::ARE)];
-        let erf = export_erf(&src, &keys, &describe("The town", &stamp("aaa")), false).unwrap();
-        assert_eq!(archive_stamp(&erf), Some(stamp("aaa")));
+        let erf = export_erf(&src, &keys, &describe("The town", &stamp("aaaaaaa")), false).unwrap();
+        assert_eq!(archive_stamp(&erf), Some(stamp("aaaaaaa")));
         let text = description_text(&Erf::read(&erf).unwrap().description);
         assert_eq!(crate::stamp::read(&text).0, "The town");
-        let more = export_into_erf(&erf, &src, &keys, &describe("", &stamp("bbb")), false).unwrap();
+        let more = export_into_erf(&erf, &src, &keys, &describe("", &stamp("bbbbbbb")), false).unwrap();
         let text = description_text(&Erf::read(&more).unwrap().description);
-        assert_eq!(crate::stamp::read(&text), ("The town".to_string(), Some(stamp("bbb"))));
+        assert_eq!(crate::stamp::read(&text), ("The town".to_string(), Some(stamp("bbbbbbb"))));
         // Aurora's (no stamp).
         let plain = export_erf(&src, &keys, "Aurora's", false).unwrap();
         assert_eq!(archive_stamp(&plain), None);
