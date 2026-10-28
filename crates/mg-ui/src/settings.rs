@@ -359,6 +359,10 @@ pub struct Settings {
     pub light_theme: bool,
     /// Options > General: Graphics backend (from the next start).
     pub graphics_backend: GraphicsBackend,
+    /// Options > General: Toolbar buttons, Icons only: the main toolbar's
+    /// and the area view's buttons show their glyphs alone, their names
+    /// in their tips (the default: Icons and text).
+    pub toolbar_icons_only: bool,
     /// Options > General: Interface size, per cent of the usual (`None`:
     /// 100): the whole interface, text and all, larger.
     pub ui_scale: Option<u16>,

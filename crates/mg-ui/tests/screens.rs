@@ -1672,6 +1672,8 @@ fn glyphs() {
             app.ui(ui);
             egui::Window::new("glyphs").fixed_pos([20.0, 60.0]).show(ui.ctx(), |ui| {
                 ui.heading("▶ 💡 ◎ ⏵ ⏷ 🗐 📦 ⚙ 🗻 🗑 ↕ 🔁 ⏭ ⏮ ↺ 🏁 🌙 ☁ ⊞ 🍃 🎵 👣 ⛶ ℹ 🎥 🏃");
+                // (The main toolbar's and the rest of the area view's.)
+                ui.heading("🗋 🗁 💾 ⟲ ⟳ 🗺 🔍 👁 ✔ 🔊 🌿 🎨 ✏ 👤 🚪 ⚔ 🗡 ⛲ 🔉 💰 ⚡ 📍 ◻");
             });
         },
         app,
@@ -2913,6 +2915,52 @@ fn area_toolbar_narrow() {
     h.run_steps(5);
     h.run_steps(10);
     shoot(&mut h, &dir, "area-toolbar-narrow");
+}
+
+#[test]
+#[ignore]
+fn toolbar_icons_only() {
+    // Options › General › Toolbar buttons: the main toolbar and an area's,
+    // with icons and text, then icons only (in the same tab, and in a
+    // narrow one), and a glyph's tip.
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&root.join("data/nwm/Chapter1.nwm"));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 700.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+    h.run_steps(15);
+    shoot(&mut h, &dir, "toolbar-icons-and-text");
+    h.state_mut().settings.toolbar_icons_only = true;
+    h.run_steps(5);
+    shoot(&mut h, &dir, "toolbar-icons-only");
+    // A tip: the glyph's name, then what it does.
+    let center = |h: &Harness<'_, Moonglow>, label: &str| {
+        let low = |n: &egui_kittest::Node<'_>| n.rect().top();
+        h.get_all_by_label(label).max_by(|a, b| low(a).total_cmp(&low(b))).unwrap().rect().center()
+    };
+    h.hover_at(center(&h, "🎨"));
+    h.run_steps(60);
+    shoot(&mut h, &dir, "toolbar-icons-only-tip");
+    h.hover_at(center(&h, "📦"));
+    h.run_steps(60);
+    shoot(&mut h, &dir, "toolbar-icons-only-main-tip");
+    h.set_size(egui::vec2(1000.0, 700.0));
+    h.hover_at(egui::pos2(500.0, 500.0));
+    h.run_steps(10);
+    shoot(&mut h, &dir, "toolbar-icons-only-narrow");
 }
 
 #[test]

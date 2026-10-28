@@ -233,33 +233,35 @@ pub const MENUS: [(&str, &[Item]); 8] = [
     ),
 ];
 
-/// The toolbar: each command with its button's text and its tip (`None`:
-/// a gap).
-pub const TOOLBAR: [Option<(Id, &str, &str)>; 16] = [
-    Some((Id::NewModule, "🗋 New", "New module")),
-    Some((Id::OpenModule, "🗁 Open", "Open module")),
-    Some((Id::Save, "💾 Save", "Save module")),
+/// The toolbar: each command with its button's glyph, its name and its tip
+/// (`None`: a gap).
+pub const TOOLBAR: [Option<(Id, &str, &str, &str)>; 16] = [
+    Some((Id::NewModule, "🗋", "New", "New module")),
+    Some((Id::OpenModule, "🗁", "Open", "Open module")),
+    Some((Id::Save, "💾", "Save", "Save module")),
     None,
-    Some((Id::Undo, "⟲ Undo", "Undo")),
-    Some((Id::Redo, "⟳ Redo", "Redo")),
+    Some((Id::Undo, "⟲", "Undo", "Undo")),
+    Some((Id::Redo, "⟳", "Redo", "Redo")),
     None,
-    Some((Id::ModuleProperties, "ℹ Properties", "Module properties")),
-    Some((Id::AreaWizard, "🗺 New Area", "Area Wizard")),
+    Some((Id::ModuleProperties, "ℹ", "Properties", "Module properties")),
+    Some((Id::AreaWizard, "🗺", "New Area", "Area Wizard")),
     Some((
         Id::GoToStart,
-        "🏃 Start",
+        "🏃",
+        "Start",
         "Go to Start Location: opens the area the module starts in, at the start location",
     )),
-    Some((Id::Resources, "🔍 Resources", "Resource browser")),
-    Some((Id::Palettes, "📦 Palettes", "Blueprint palettes")),
+    Some((Id::Resources, "🔍", "Resources", "Resource browser")),
+    Some((Id::Palettes, "📦", "Palettes", "Blueprint palettes")),
     Some((
         Id::PreviewWindow,
-        "👁 Preview",
+        "👁",
+        "Preview",
         "Show Preview Window: the blueprint chosen in the palette",
     )),
     None,
-    Some((Id::CompileAll, "⚙ Compile", "Compile all scripts")),
-    Some((Id::Verify, "✔ Verify", "Verify the module")),
+    Some((Id::CompileAll, "⚙", "Compile", "Compile all scripts")),
+    Some((Id::Verify, "✔", "Verify", "Verify the module")),
 ];
 
 impl Id {
@@ -1620,11 +1622,12 @@ pub(crate) fn palette_window(app: &mut Moonglow, ctx: &egui::Context) {
 }
 
 /// The toolbar, from [`TOOLBAR`]: each command's button, its key in its
-/// tip.
+/// tip (with Icons only, its glyph alone: [`crate::icons::Tools`]).
 pub(crate) fn toolbar(app: &mut Moonglow, ui: &mut Ui) {
+    let tools = crate::icons::Tools::of(&app.settings);
     ui.horizontal(|ui| {
         for tool in TOOLBAR {
-            let Some((id, text, tip)) = tool else {
+            let Some((id, glyph, name, tip)) = tool else {
                 ui.separator();
                 continue;
             };
@@ -1635,12 +1638,12 @@ pub(crate) fn toolbar(app: &mut Moonglow, ui: &mut Ui) {
             let clicked = if id == Id::PreviewWindow {
                 // A window that is shown or not: its button stays down.
                 let mut on = app.preview_window;
-                ui.toggle_value(&mut on, text).on_hover_text(tip);
+                tools.toggle(ui, &mut on, glyph, name, &tip);
                 on != app.preview_window
             } else {
-                ui.add_enabled(id.enabled(app), egui::Button::new(text).small())
-                    .on_hover_text(tip)
-                    .clicked()
+                let button = egui::Button::new(tools.label(glyph, name)).small();
+                let enabled = id.enabled(app);
+                ui.add_enabled_ui(enabled, |ui| tools.add(ui, button, name, &tip)).inner.clicked()
             };
             if clicked {
                 id.run(app, ui.ctx());

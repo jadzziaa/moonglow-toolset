@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T12:02:53Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T03:58:52Z }
 ---
 
 # Areas
@@ -14,6 +14,13 @@ objects with the area's lighting, fog and sky, by day or night. Areas open
 looking straight down at their middle, north up, as in Aurora.
 
 ## The toolbar
+
+Each button shows an icon and its name. With **Tools › Options ›
+General › Toolbar buttons: Icons only** the buttons that have an icon
+show it alone, and the toolbar takes about half the rows it took: rest
+the pointer on an icon and its tip names it (and gives its key, as
+Select Tiles' and Paint's do). All, None, Together, To Scratch and the
+dropdowns keep their words.
 
 - **Creatures, Doors, … Waypoints, Start**: show or hide each kind of
   object and the start location marker; **All** and **None**. What you

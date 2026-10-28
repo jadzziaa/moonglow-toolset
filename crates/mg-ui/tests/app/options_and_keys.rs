@@ -490,6 +490,63 @@ fn the_graphics_backend_is_chosen_in_options() {
     assert_eq!(back.graphics_backend, last);
 }
 
+/// Options › General › Toolbar buttons, Icons only: the toolbar's buttons
+/// show their glyphs alone at once, each named in its tip (with its key),
+/// and the toolbar takes less room; kept in the settings, and back to
+/// icons and text.
+#[test]
+fn the_toolbar_shows_icons_only_when_asked() {
+    let mut h = harness(app_with(Vec::new()), 1280.0, 800.0);
+    h.run();
+    let width = |h: &Harness<'_, Moonglow>, first: &str, last: &str| {
+        h.get_by_label(last).rect().right() - h.get_by_label(first).rect().left()
+    };
+    let wide = width(&h, "🗋 New", "✔ Verify");
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    h.run();
+    h.get_by_label("General").click();
+    h.run();
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let both = |n: &egui_kittest::Node<'_>| {
+        n.accesskit_node().value().as_deref() == Some("Icons and text")
+    };
+    h.query_all(combo).find(both).expect("the toolbar buttons' dropdown").click();
+    h.run();
+    h.get_by_label("Icons only").click();
+    h.run();
+    h.get_by_label("OK").click();
+    h.run();
+    assert!(h.state().settings.toolbar_icons_only);
+    let saved = serde_json::to_string(&h.state().settings).unwrap();
+    let back: mg_ui::Settings = serde_json::from_str(&saved).unwrap();
+    assert!(back.toolbar_icons_only, "kept");
+    let old: mg_ui::Settings = serde_json::from_str(r#"{"light_theme":true}"#).unwrap();
+    assert!(!old.toolbar_icons_only, "icons and text in settings from before");
+    h.run();
+    // The glyphs alone.
+    assert!(h.query_by_label("💾 Save").is_none() && h.query_by_label("📦 Palettes").is_none());
+    let narrow = width(&h, "🗋", "✔");
+    assert!(narrow < wide * 0.6, "the toolbar narrower: {narrow} of {wide}");
+    // A tip named for the button: first where it doesn't begin so.
+    let palettes = h.get_by_label("📦").rect().center();
+    h.hover_at(palettes);
+    // (A tooltip waits a moment.)
+    h.run_steps(60);
+    h.get_by_label("Palettes\nBlueprint palettes");
+    // Save (disabled without a module): its tip too, with its key.
+    let save = h.get_by_label("💾").rect().center();
+    h.hover_at(save);
+    h.run_steps(60);
+    let tip = h.get_by_label_contains("Save module").accesskit_node();
+    let tip = tip.label().or(tip.value()).unwrap_or_default();
+    assert!(tip.starts_with("Save module ("), "named, with its key: {tip}");
+    // Back to icons and text.
+    h.state_mut().settings.toolbar_icons_only = false;
+    h.run();
+    h.get_by_label("💾 Save");
+    assert!(h.query_by_label("💾").is_none());
+}
+
 /// Options › General › Light theme.
 #[test]
 fn the_theme_is_set_in_options() {

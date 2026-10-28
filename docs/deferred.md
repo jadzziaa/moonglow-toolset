@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T00:19:15Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T03:58:52Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2753,6 +2753,20 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   is); Expand All and Collapse All have no keys, and an area opened out
   to its objects, and the kinds under it, keep their own state. (S
   each) (from builders' reports and the owner's notes after 1.21.0)
+- **Toolbar buttons: Icons only** (Options › General,
+  `icons::Tools`): the main toolbar and the area view's toolbar only.
+  Not done: the palette's tile tools (Select Tiles, Eraser, Refine
+  Tile…), the script editor's, the conversation editor's, the NUI
+  Creator's and the model view's toolbars keep their words (S each);
+  All, None, Together, To Scratch and Save as Prefab… have no icon and
+  keep their words, the Fade Geometry, Snap and Turn dropdowns their
+  text (S, if fitting glyphs are found in egui's fonts); one icon
+  means two buttons in places: ℹ is the main toolbar's Module
+  Properties and the area's Area Properties, 🏃 Start and Go to Start
+  Location (nearly one command), ⊞ the area's Grid and the palette's
+  pictures (S); with Icons only a screen reader reads the glyph as the
+  button's name, the name being in its tip (S). (ShadowM's request,
+  Discord, October 2026)
 
 ## Languages, tokens and loading screens
 

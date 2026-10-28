@@ -1879,18 +1879,21 @@ fn share_shown(app: &mut Moonglow, view: &AreaView) {
 
 fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
     let was = (view.show, view.show_start);
+    // (Icons only: each glyph alone, its name in its tip.)
+    let tools = crate::icons::Tools::of(&app.settings);
     ui.horizontal_wrapped(|ui| {
-        use crate::icons::{self, labelled};
+        use crate::icons;
         for kind in ObjectKind::ALL {
-            ui.toggle_value(
-                &mut view.show[kind.index()],
-                labelled(icons::object(kind), kind.label()),
-            )
-            .on_hover_text(format!("Show {}", kind.label()));
+            let (on, name) = (&mut view.show[kind.index()], kind.label());
+            tools.toggle(ui, on, icons::object(kind), name, &format!("Show {name}"));
         }
-        ui.toggle_value(&mut view.show_start, labelled(icons::START, "Start")).on_hover_text(
+        tools.toggle(
+            ui,
+            &mut view.show_start,
+            icons::START,
+            "Start",
             "Show the start location's marker (a blue ring with a red arrow). To set it: \
-                 right-click the ground, Set Start Location Here",
+             right-click the ground, Set Start Location Here",
         );
         if ui.button("All").on_hover_text("Show All").clicked() {
             view.show = [true; 9];
@@ -1907,11 +1910,13 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         let show = view.show;
         view.selection.retain(|(k, _)| show[k.index()]);
         ui.separator();
-        ui.toggle_value(&mut view.night, labelled(icons::NIGHT, "Night"))
-            .on_hover_text("Show the area at night");
-        if ui
-            .toggle_value(&mut view.lit, "💡 Lighting")
-            .on_hover_text(
+        tools.toggle(ui, &mut view.night, icons::NIGHT, "Night", "Show the area at night");
+        if tools
+            .toggle(
+                ui,
+                &mut view.lit,
+                icons::LIGHTING,
+                "Lighting",
                 "Use the area's lighting; off, everything is evenly lit (for working in dark \
                  areas)",
             )
@@ -1919,7 +1924,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         {
             app.settings.unlit_areas = !view.lit;
         }
-        ui.toggle_value(&mut view.fog, labelled(icons::FOG, "Fog"));
+        tools.toggle(ui, &mut view.fog, icons::FOG, "Fog", "");
         let before = view.fade;
         let fits =
             Fits::before(ui, "fade-geometry", &format!("Fade Geometry: {}", view.fade.name()));
@@ -1938,9 +1943,12 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             app.settings.fade_geometry = view.fade as u8;
         }
         let mut animated = !app.settings.still_objects;
-        if ui
-            .toggle_value(&mut animated, "▶ Animations")
-            .on_hover_text(
+        if tools
+            .toggle(
+                ui,
+                &mut animated,
+                icons::ANIMATIONS,
+                "Animations",
                 "Creatures and other placed objects play their animations; off, they hold \
                  still (in every area view)",
             )
@@ -1949,9 +1957,12 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             app.settings.still_objects = !animated;
         }
         let mut grass = !app.settings.no_grass;
-        if ui
-            .toggle_value(&mut grass, labelled(icons::GRASS, "Grass"))
-            .on_hover_text(
+        if tools
+            .toggle(
+                ui,
+                &mut grass,
+                icons::GRASS,
+                "Grass",
                 "Grass wherever the view shows grass ground, thinned far off (the game grows \
                  it near the camera alone): the tileset's, and the area's own (Area Properties \
                  › Grass); in every area view",
@@ -1961,9 +1972,12 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             app.settings.no_grass = !grass;
         }
         let mut shaders = app.settings.game_shaders();
-        if ui
-            .toggle_value(&mut shaders, labelled(icons::SHADERS, "Shaders"))
-            .on_hover_text(
+        if tools
+            .toggle(
+                ui,
+                &mut shaders,
+                icons::SHADERS,
+                "Shaders",
                 "Draw with the game's own shaders, compiled from the game and the module's haks: \
                  a material's custom shaders (swaying grass and leaves, flowing water) and the \
                  game's lit shaders; off, with Moonglow's own (in every 3D view)",
@@ -1972,21 +1986,22 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         {
             app.settings.game_shaders = Some(shaders);
         }
-        ui.toggle_value(&mut view.grid, labelled(icons::GRID, "Grid"))
-            .on_hover_text("Display Grid");
+        tools.toggle(ui, &mut view.grid, icons::GRID, "Grid", "Display Grid");
         // Aurora's Play Placed Sounds, Play Ambient Sound, Play Ambient
         // Music (the Options › Sounds settings).
         let mut placed = !app.settings.no_placed_sounds;
-        if ui
-            .toggle_value(&mut placed, "🔊 Sounds")
-            .on_hover_text("Play placed sound objects in area")
+        if tools
+            .toggle(ui, &mut placed, icons::SOUNDS, "Sounds", "Play placed sound objects in area")
             .changed()
         {
             app.settings.no_placed_sounds = !placed;
         }
-        if ui
-            .toggle_value(&mut view.sound_ranges, "◎ Sound Ranges")
-            .on_hover_text(
+        if tools
+            .toggle(
+                ui,
+                &mut view.sound_ranges,
+                icons::SOUND_RANGES,
+                "Sound Ranges",
                 "Where each placed sound is heard: at full volume inside the inner circle, not \
                  at all outside the outer one",
             )
@@ -1994,10 +2009,10 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         {
             app.settings.sound_ranges = view.sound_ranges;
         }
-        ui.toggle_value(&mut app.settings.ambient_sound, labelled(icons::AMBIENT, "Ambient"))
-            .on_hover_text("Play ambient sound in area");
-        ui.toggle_value(&mut app.settings.ambient_music, labelled(icons::MUSIC, "Music"))
-            .on_hover_text("Play ambient music in area");
+        let ambient = &mut app.settings.ambient_sound;
+        tools.toggle(ui, ambient, icons::AMBIENT, "Ambient", "Play ambient sound in area");
+        let music = &mut app.settings.ambient_music;
+        tools.toggle(ui, music, icons::MUSIC, "Music", "Play ambient music in area");
         ui.separator();
         let grid = |v: Option<u16>| {
             v.map_or("Snap: off".to_string(), |cm| format!("Snap: {} m", f32::from(cm) / 100.0))
@@ -2039,14 +2054,14 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             "Several objects selected turn about their middle as one, keeping their places \
              among themselves; off, each turns where it stands",
         );
-        walkmesh_button(ui, view);
-        if ui
-            .toggle_value(&mut view.tile_mode, labelled(icons::SELECT_TILES, "Select Tiles"))
-            .on_hover_text(app.keymap.titled(
-                "Select tiles rather than objects (Aurora's Select Terrain)",
-                crate::keys::Cmd::SelectTiles,
-                ui.ctx(),
-            ))
+        walkmesh_button(ui, view, tools);
+        let tip = app.keymap.titled(
+            "Select tiles rather than objects (Aurora's Select Terrain)",
+            crate::keys::Cmd::SelectTiles,
+            ui.ctx(),
+        );
+        if tools
+            .toggle(ui, &mut view.tile_mode, icons::SELECT_TILES, "Select Tiles", &tip)
             .changed()
         {
             view.selection.clear();
@@ -2056,29 +2071,25 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
                 app.palette.tile_brush = None;
             }
         }
-        if ui
-            .toggle_value(&mut app.paint, labelled(icons::PAINT, "Paint"))
-            .on_hover_text(app.keymap.titled(
-                "Paint the placeables chosen in the palette (Ctrl + click for several) onto the \
-                 ground: scattered in a circle, or in a row",
-                crate::keys::Cmd::PaintPlaceables,
-                ui.ctx(),
-            ))
-            .changed()
-            && app.paint
-        {
+        let tip = app.keymap.titled(
+            "Paint the placeables chosen in the palette (Ctrl + click for several) onto the \
+             ground: scattered in a circle, or in a row",
+            crate::keys::Cmd::PaintPlaceables,
+            ui.ctx(),
+        );
+        if tools.toggle(ui, &mut app.paint, icons::PAINT, "Paint", &tip).changed() && app.paint {
             view.tile_mode = false;
             app.palette.tile_brush = None;
         }
-        if ui.button(labelled(icons::PROPERTIES, "Area Properties")).clicked() {
+        if tools.button(ui, icons::PROPERTIES, "Area Properties", "").clicked() {
             app.actions.push(Action::OpenTab(crate::Tab::AreaProperties(view.area)));
         }
-        if ui.button(labelled(icons::CAMERA, "Reorient Camera")).clicked()
+        if tools.button(ui, icons::CAMERA, "Reorient Camera", "").clicked()
             && let Some(o) = &mut view.orbit
         {
             o.yaw = -FRAC_PI_2;
         }
-        if ui.button(labelled(icons::GO_TO_START, "Go to Start Location")).clicked() {
+        if tools.button(ui, icons::GO_TO_START, "Go to Start Location", "").clicked() {
             // In another area: that area's view is opened at it, as Aurora does.
             if !look_at_start(app, view) {
                 go_to_start(app);
@@ -2780,11 +2791,13 @@ impl Fits {
 /// The toolbar's one button for the walkmeshes: a click shows or hides
 /// the ground's (or hides whichever are shown); held, or right-clicked,
 /// it opens the two to choose from, the ground's and the objects'.
-fn walkmesh_button(ui: &mut egui::Ui, view: &mut AreaView) {
-    use crate::icons::{self, labelled};
+fn walkmesh_button(ui: &mut egui::Ui, view: &mut AreaView, tools: crate::icons::Tools) {
     let on = view.walkmesh || view.object_walkmesh;
-    let label = labelled(icons::WALKMESH, "Walkmesh…");
-    let r = ui.add(egui::Button::selectable(on, label)).on_hover_text(
+    let label = tools.label(crate::icons::WALKMESH, "Walkmesh…");
+    let r = tools.add(
+        ui,
+        egui::Button::selectable(on, label),
+        "Walkmesh…",
         "Click: the ground's walkmesh (Render AABB Nodes), walkable faces green. Hold, or \
          right-click: the ground's and the objects' to choose from",
     );

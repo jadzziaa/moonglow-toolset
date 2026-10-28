@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Options
-description: The Options dialog page by page (folders, area, general with the graphics backend, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
+description: The Options dialog page by page (folders, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T00:19:15Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T03:58:52Z }
 ---
 
 # Options
@@ -83,6 +83,14 @@ the module is opened again from its file.
 - **Interface size**: the whole interface, text and all, from 90% to 200%
   of its usual size.
 - **Light theme**: dark text on light, rather than the dark theme.
+- **Toolbar buttons** (Icons and text): **Icons only** shows the
+  buttons of the main toolbar and of the area view's toolbar as their
+  icons alone, as Aurora's toolbars are, to save room: the area view's
+  toolbar takes about half the rows it took. Rest the pointer on an
+  icon and its tip names it, with its key and what it does. Buttons
+  without an icon (All, None, Together, To Scratch) and the dropdowns
+  (Fade Geometry, Snap, Turn) keep their words. It takes effect at once,
+  when you choose OK.
 - **Graphics backend** (Automatic): what the window, the area view and
   the previews draw with. **Automatic** is the graphics library's
   (wgpu's) choice, except that an AMD GPU on Windows draws through
