@@ -3178,6 +3178,61 @@ fn a_drag_previews_the_tiles_letting_go_paints() {
     check(&mut h, &[7.0, 12.0, 18.0, 24.0, 25.0].map(|x| Vec3::new(x, 5.0, 0.0)));
 }
 
+/// A right drag that turns the view and ends where it began (builders'
+/// reports after 1.14.1) is the camera's, not a right click to the brush:
+/// Raise/Lower lowers nothing, a terrain's tile menu doesn't open; a right
+/// click still does each.
+#[test]
+fn a_right_drag_back_to_where_it_began_is_not_a_right_click() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("right-drag-back") else { return };
+    let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
+    let right = |h: &mut Harness<'_, Moonglow>, away: bool| {
+        h.hover_at(at);
+        h.run_steps(2);
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(1);
+        if away {
+            // Out and back, as quick as a click (well under egui's 0.8 s).
+            for p in [egui::vec2(40.0, 0.0), egui::vec2(80.0, 10.0), egui::vec2(40.0, 0.0)] {
+                h.hover_at(at + p);
+                h.run_steps(1);
+            }
+            h.hover_at(at);
+            h.run_steps(1);
+        }
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(3);
+    };
+    let yaw = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].orbit.as_ref().unwrap().yaw;
+    choose_tile_brush(&mut h, "↕ Raise/Lower");
+    let before = area_are(&mut h, area);
+    let was = yaw(&h);
+    right(&mut h, true);
+    assert!(yaw(&h) != was, "the drag turned the view");
+    assert_eq!(area_are(&mut h, area), before, "Raise/Lower lowered nothing");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), None);
+    right(&mut h, false);
+    assert!(area_are(&mut h, area) != before, "a right click lowers");
+    // A terrain: its right click is the tile menu, a right drag back isn't.
+    h.get_by_label("Grass").click();
+    h.run_steps(2);
+    right(&mut h, true);
+    assert!(h.query_by_label("Tile Properties…").is_none(), "no tile menu");
+    right(&mut h, false);
+    assert!(h.query_by_label("Tile Properties…").is_some(), "a right click's tile menu");
+}
+
 /// With a terrain brush in hand, a right click is the brush's (Raise/
 /// Lower lowers) though an object lies under the pointer: its menu does
 /// not open.

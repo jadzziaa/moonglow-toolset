@@ -1228,12 +1228,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   line); random scale on static placeables (the game gives them none, so
   Scale passes them by). The see-through dab is held by the tests'
   counts; the pictures show strokes laid. (S each)
-- **A press with Ctrl held is the camera's** with a tileset brush chosen
-  (it painted when let go). A right drag that turns the view and ends
-  where it began is still a right click to the brush (Raise/Lower
-  lowers; a terrain, the Eraser, Refine Tile and the tile tools open
-  the tile menu). (S)
-  (from builders' reports after 1.14.1)
 - **Heed's tile lights:** "tile lights don't show with Lighting on" was
   not reproduced: in the stock smithy (`pensmithy1` of Chapter 1, its
   tiles' main lights the area's only light) the area view, lit, is
