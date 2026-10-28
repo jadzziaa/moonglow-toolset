@@ -599,7 +599,7 @@ impl TileStep {
 
 /// The cells of the groups of the tiles in `cells` that are locked (a
 /// group's, not free to edit): what flashes red when they refuse a step.
-fn locked_groups(
+pub(crate) fn locked_groups(
     tools: &crate::terrain_mode::Tools,
     g: &mg_tiles::paint::Grid,
     cells: &[(u32, u32)],
@@ -679,8 +679,9 @@ fn next_variant(app: &mut Moonglow, view: &mut AreaView, (x, y): (u32, u32), bac
 }
 
 /// Delete on the selected tiles (a group's tile: the whole group, unless
-/// their tiles are free to edit).
-fn delete(app: &mut Moonglow, view: &mut AreaView) {
+/// their tiles are free to edit): also the Eraser's on them, from the
+/// tiles palette or its key.
+pub(crate) fn delete(app: &mut Moonglow, view: &mut AreaView) {
     let Some(mut g) = current_grid(app, view) else { return };
     let Some(tools) = view.terrain.as_ref() else { return };
     let cells = view.tile_selection.clone();

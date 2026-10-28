@@ -82,6 +82,15 @@ pub enum Cmd {
     SelectTiles,
     /// The area view's placeable brush, on or off (its toolbar's Paint).
     PaintPlaceables,
+    /// The tiles palette's tile tools: chosen as brushes, or with tiles
+    /// selected in Select Tiles, at once on them
+    /// (`terrain_mode::tool_keys`).
+    Eraser,
+    RefineTile,
+    NextTileAppearance,
+    PreviousTileAppearance,
+    RotateTile,
+    RotateTileClockwise,
     TurnLeft,
     TurnRight,
     TurnLeft90,
@@ -140,7 +149,7 @@ const SHIFT: Modifiers = Modifiers::SHIFT;
 const NONE: Modifiers = Modifiers::NONE;
 
 impl Cmd {
-    pub const ALL: [Cmd; 67] = [
+    pub const ALL: [Cmd; 73] = [
         Cmd::NewModule,
         Cmd::OpenModule,
         Cmd::Save,
@@ -162,6 +171,12 @@ impl Cmd {
         Cmd::CommandPalette,
         Cmd::SelectTiles,
         Cmd::PaintPlaceables,
+        Cmd::Eraser,
+        Cmd::RefineTile,
+        Cmd::NextTileAppearance,
+        Cmd::PreviousTileAppearance,
+        Cmd::RotateTile,
+        Cmd::RotateTileClockwise,
         Cmd::TurnLeft,
         Cmd::TurnRight,
         Cmd::TurnLeft90,
@@ -235,6 +250,14 @@ impl Cmd {
             Cmd::CommandPalette => ("command-palette", "Command Palette", General),
             Cmd::SelectTiles => ("select-tiles", "Select Tiles or Objects", Area),
             Cmd::PaintPlaceables => ("paint-placeables", "Paint Placeables", Area),
+            Cmd::Eraser => ("tile-eraser", "Eraser (Tiles)", Area),
+            Cmd::RefineTile => ("refine-tile", "Refine Tile", Area),
+            Cmd::NextTileAppearance => ("next-tile-appearance", "Next Tile Appearance", Area),
+            Cmd::PreviousTileAppearance => {
+                ("previous-tile-appearance", "Previous Tile Appearance", Area)
+            }
+            Cmd::RotateTile => ("rotate-tile", "Rotate Tile", Area),
+            Cmd::RotateTileClockwise => ("rotate-tile-clockwise", "Rotate Tile Clockwise", Area),
             Cmd::TurnLeft => ("turn-left", "Turn Anticlockwise", Area),
             Cmd::TurnRight => ("turn-right", "Turn Clockwise", Area),
             Cmd::TurnLeft90 => ("turn-left-90", "Turn Anticlockwise 90°", Area),
@@ -322,6 +345,14 @@ impl Cmd {
             Cmd::CommandPalette => vec![k(CTRL | SHIFT, Key::P)],
             Cmd::SelectTiles => vec![k(NONE, Key::F10)],
             Cmd::PaintPlaceables => vec![k(NONE, Key::B)],
+            // (Moonglow's tools: Aurora has none of them but the Eraser,
+            // which has no key there.)
+            Cmd::Eraser => vec![k(NONE, Key::X)],
+            Cmd::RefineTile => vec![k(NONE, Key::T)],
+            Cmd::NextTileAppearance => vec![k(NONE, Key::N)],
+            Cmd::PreviousTileAppearance => vec![k(SHIFT, Key::N)],
+            Cmd::RotateTile => vec![k(NONE, Key::R)],
+            Cmd::RotateTileClockwise => vec![k(SHIFT, Key::R)],
             Cmd::TurnLeft => vec![k(NONE, Key::Q)],
             Cmd::TurnRight => vec![k(NONE, Key::E)],
             Cmd::TurnLeft90 => vec![k(SHIFT, Key::Q)],

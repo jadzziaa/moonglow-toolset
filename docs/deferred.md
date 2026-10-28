@@ -1318,16 +1318,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Tile Properties' Defaults:** not yet compared with Aurora for a
   lighting scheme whose colors aren't black
   (`docs/research/notes_tilesets.md`). (S) (from the research notes)
-- **The palette's tile tools on a selection:** with tiles selected in
-  Select Tiles, Next and Previous Tile Appearance and Rotate Tile in the
-  Tiles palette step the selected tiles (Select Tiles and the selection
-  stay); Refine Tile and the Eraser are still chosen as brushes there,
-  turning Select Tiles off and letting the selection go (Refine Tile's
-  drag and its Gallery target, the Eraser's crossers, have no step on a
-  selection yet; Delete is the Eraser's on it). None of the tile tools
-  has a key of its own. The refusal's reason is at the end of Select
-  Tiles' status line, which a narrow area view cuts short (its tip shows
-  all). (S) (from the owner's report, October 2026)
 - **Delete takes a whole group by default,** where Aurora's Delete takes
   the tile alone and leaves the rest standing (the option gives
   Aurora's). Pasted tiles over a group are refused as a group is; how

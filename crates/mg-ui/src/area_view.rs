@@ -2236,11 +2236,12 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
          wheel zooms slowly meanwhile.)"
             .to_string()
     } else if view.tile_mode {
-        // (And why a step was refused, as a brush's line says it.)
+        // (And why a step was refused, as a brush's line says it: first,
+        // where a narrow view doesn't cut it short.)
         let how = "Select Tiles: click a tile (Ctrl + click: add one), drag a box; Shift + right \
                    click: its next tile; right click: the tile menu";
         match &view.notice {
-            Some(n) => format!("{how} · {n}"),
+            Some(n) => format!("{n} · {how}"),
             None => how.to_string(),
         }
     } else if let ([(kind, index)], Some(m)) = (view.selection.as_slice(), &view.model)
@@ -3516,6 +3517,10 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             view.tile_mode = false;
             app.palette.tile_brush = None;
         }
+    }
+    // The tile tools' keys: on the tiles selected, or the tool chosen.
+    if !typing && response.hovered() && !app.paint {
+        crate::terrain_mode::tool_keys(app, ui, view);
     }
     if crate::terrain_mode::input(app, ui, view, response) {
         // A right click with a brush that has none of its own: the tile

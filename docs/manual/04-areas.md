@@ -217,6 +217,7 @@ Options › Keyboard):
 | Ctrl + Shift + wheel, or Ctrl + Shift + middle drag | move the camera up and down, finely |
 | Numpad 5 | look straight down at the whole area (and back to the ground) |
 | F10 | select tiles or objects (Aurora's) |
+| X, T, N, Shift+N, R, Shift+R | the tile tools: the Eraser, Refine Tile, Next and Previous Tile Appearance, Rotate Tile and clockwise ([Painting terrain](#painting-terrain)) |
 | Double-click an object in Find Instance | go to it |
 
 The keys drive the area view the pointer was in last, also while the
@@ -793,9 +794,21 @@ as Aurora's Terrain tab does:
   selects. Shift + click on Rotate Tile turns them clockwise. A tile
   that can't step (no other appearance, a tile that doesn't turn, a
   group's tile) is left as it is; when none of them can, the status
-  line says why and they (a group's, the whole group) flash red. With
-  no tile selected, the three are chosen as above, and you click the
-  tiles. They have no keys of their own.
+  line says why (at the start of the line, where a narrow view doesn't
+  cut it off) and they (a group's, the whole group) flash red.
+  **Refine Tile** clicked there refines the selected tiles as its drag
+  over them would (the first the next tile that fits, the others of its
+  kind made that tile too; with a tile chosen in the Gallery, that tile
+  wherever it fits), and the **Eraser** deletes them, as Delete does:
+  each one step to undo, the selection kept. With no tile selected, the
+  tools are chosen as above, and you click the tiles.
+- **Keys** (Tools › Options › Keyboard changes them): **X** the Eraser,
+  **T** Refine Tile, **N** Next Tile Appearance, **Shift+N** Previous
+  Tile Appearance, **R** Rotate Tile and **Shift+R** Rotate Tile
+  clockwise, with the pointer over the area view. With tiles selected
+  they work on them, as the palette's clicks do; with none, the key
+  chooses the tool, and pressed again puts it down. Their tips in the
+  palette name them.
 - Select Tiles, the Eraser, Refine Tile, the three tools above and
   Raise/Lower head the Terrain list, whatever the tileset's order. A
   right click with the Eraser, Refine Tile or the three opens the tile

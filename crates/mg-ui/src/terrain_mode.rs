@@ -157,6 +157,184 @@ const TOOLS: [(&str, Brush); 4] = [
     ("Rotate Tile", Brush::Rotate),
 ];
 
+/// What a tile tool does to the tiles selected in Select Tiles, its row
+/// in the tiles palette clicked or its key pressed: the tool works on
+/// them, Select Tiles and the selection staying.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OnSelection {
+    /// Next and Previous Tile Appearance and Rotate Tile: each tile its
+    /// own step, as the tile menu's items.
+    Step(TileStep),
+    /// Refine Tile: as its drag over them, in the order chosen (the first
+    /// the next tile that fits there, the others of its kind made that
+    /// tile too); with a tile chosen in the Gallery, that tile wherever
+    /// it fits.
+    Refine { target: Option<u32> },
+    /// The Eraser: what Delete does to them.
+    Erase,
+}
+
+/// What `brush` does to the tiles selected (`shift`: held, Rotate Tile
+/// turning the other way; `target`: Refine Tile's tile chosen in the
+/// Gallery); `None` for a brush that is only chosen.
+fn on_selection(brush: Brush, target: Option<u32>, shift: bool) -> Option<OnSelection> {
+    match brush {
+        Brush::Appearance { back } => Some(OnSelection::Step(TileStep::Appearance { back })),
+        Brush::Rotate => Some(OnSelection::Step(TileStep::Rotate { back: shift })),
+        Brush::Refine => Some(OnSelection::Refine { target }),
+        Brush::Eraser => Some(OnSelection::Erase),
+        _ => None,
+    }
+}
+
+/// Does `what` to the tiles selected in `view`, as one command; where
+/// nothing could be done, the status line says why and the tiles flash
+/// red.
+pub(crate) fn act_on_selection(app: &mut Moonglow, view: &mut AreaView, what: OnSelection) {
+    let cells = view.tile_selection.clone();
+    if cells.is_empty() {
+        return;
+    }
+    match what {
+        OnSelection::Step(step) => crate::tile_select::step_tiles(app, view, &cells, step),
+        OnSelection::Erase => crate::tile_select::delete(app, view),
+        OnSelection::Refine { target } => {
+            let Some(mut g) = current_grid(app, view) else { return };
+            let Some(tools) = view.terrain.as_ref() else { return };
+            let brush = TileBrush {
+                tileset: tools.tileset,
+                label: String::new(),
+                brush: Brush::Refine,
+                target,
+                exact: false,
+            };
+            let before = g.clone();
+            let (changes, label, left) = refine_cells(tools, &mut g, &brush, &cells);
+            let grouped = cells.iter().any(|&(x, y)| before.locked(&tools.index, x, y));
+            let why = |n: usize| match (grouped, target) {
+                (true, _) => format!("{label}: {n} left as they were: {GROUP_LOCKED}"),
+                (false, Some(_)) => {
+                    format!("{label}: {n} left as they were, where the tile chosen doesn't fit")
+                }
+                (false, None) => format!("{label}: {n} of another kind left as they were"),
+            };
+            if changes.is_empty() {
+                view.notice = Some(match (grouped, target) {
+                    (true, _) => format!("{label}: {GROUP_LOCKED}"),
+                    (false, Some(_)) => format!("{label}: the tile chosen fits none of them"),
+                    (false, None) => "No other tile fits there".to_string(),
+                });
+                // (A group's tile: its whole group in red, as the other
+                // tools show it.)
+                let shown = if grouped {
+                    crate::tile_select::locked_groups(tools, &before, &cells)
+                } else {
+                    cells
+                };
+                view.refused = Some((shown, std::time::Instant::now()));
+                return;
+            }
+            view.notice = None;
+            tile_command(app, view, &before, &changes, &label);
+            if left > 0 {
+                view.notice = Some(why(left));
+            }
+        }
+    }
+}
+
+/// The tile tools' keys (Options › Keyboard, the area view's): with tiles
+/// selected in Select Tiles, the tool on them, as its row in the tiles
+/// palette; else the tool chosen as a brush, or put down if it is the one
+/// in hand.
+pub(crate) fn tool_keys(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
+    use crate::keys::Cmd;
+    let Some(tileset) = view.terrain.as_ref().map(|t| t.tileset) else { return };
+    let keys = [
+        (Cmd::Eraser, Brush::Eraser, false),
+        (Cmd::RefineTile, Brush::Refine, false),
+        (Cmd::NextTileAppearance, Brush::Appearance { back: false }, false),
+        (Cmd::PreviousTileAppearance, Brush::Appearance { back: true }, false),
+        (Cmd::RotateTile, Brush::Rotate, false),
+        (Cmd::RotateTileClockwise, Brush::Rotate, true),
+    ];
+    let Some(&(_, brush, shift)) =
+        keys.iter().find(|(cmd, ..)| ui.input(|i| app.keymap.pressed(i, *cmd)))
+    else {
+        return;
+    };
+    let target = if brush == Brush::Refine { app.palette.tile_choice } else { None };
+    if view.tile_mode && !view.tile_selection.is_empty() {
+        if let Some(what) = on_selection(brush, target, shift) {
+            act_on_selection(app, view, what);
+        }
+        return;
+    }
+    // As a click on its row in the palette.
+    let label = tool_label(app, tileset, brush);
+    let on = app.palette.tile_brush.as_ref().is_some_and(|b| b.label == label && b.brush == brush);
+    app.palette.tile_brush =
+        (!on).then(|| TileBrush { tileset, label, brush, target, exact: false });
+    if brush != Brush::Refine {
+        app.palette.tile_choice = None;
+    }
+    if !on {
+        // (A brush chosen: out of Select Tiles, which it would sit on top
+        // of, and no blueprint to place.)
+        app.palette.selected = None;
+        if view.tile_mode {
+            view.tile_mode = false;
+            view.selection.clear();
+            view.tile_selection.clear();
+        }
+    }
+}
+
+/// The tile tools' keys as Options › Keyboard has them, as their tips
+/// name them (`Key: R; Shift+R: clockwise`); none for a tool without.
+fn tool_key_names(app: &Moonglow, ctx: &egui::Context) -> Vec<(Brush, String)> {
+    use crate::keys::Cmd;
+    let key = |cmd: Cmd| app.keymap.label(cmd, ctx);
+    let rotate = match (key(Cmd::RotateTile), key(Cmd::RotateTileClockwise)) {
+        (k, c) if k.is_empty() && c.is_empty() => String::new(),
+        (k, c) if c.is_empty() => format!("Key: {k}"),
+        (k, c) if k.is_empty() => format!("Key: {c} (clockwise)"),
+        (k, c) => format!("Key: {k}; {c}: clockwise"),
+    };
+    let key = |cmd: Cmd| match key(cmd) {
+        k if k.is_empty() => k,
+        k => format!("Key: {k}"),
+    };
+    vec![
+        (Brush::Eraser, key(Cmd::Eraser)),
+        (Brush::Refine, key(Cmd::RefineTile)),
+        (Brush::Appearance { back: false }, key(Cmd::NextTileAppearance)),
+        (Brush::Appearance { back: true }, key(Cmd::PreviousTileAppearance)),
+        (Brush::Rotate, rotate),
+    ]
+}
+
+/// The name of a tile tool's row in the tiles palette (the Eraser's is
+/// the tileset palette's own, where it has been read).
+fn tool_label(app: &Moonglow, tileset: ResRef, brush: Brush) -> String {
+    fn find(items: &[PaletteItem], brush: Brush) -> Option<&str> {
+        items.iter().find_map(|i| match i {
+            PaletteItem::Brush { label, brush: b } if *b == brush => Some(label.as_str()),
+            PaletteItem::Folder { items, .. } => find(items, brush),
+            _ => None,
+        })
+    }
+    if let Some((label, _)) = TOOLS.iter().find(|(_, b)| *b == brush) {
+        return (*label).to_string();
+    }
+    app.palette
+        .tile_palettes
+        .get(&tileset)
+        .and_then(|p| find(&p.branches, brush))
+        .unwrap_or("Eraser")
+        .to_string()
+}
+
 /// The tiles palette's Exact tile switch's name.
 pub(crate) const EXACT_TILE: &str = "📌 Exact tile";
 
@@ -1406,6 +1584,7 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         tile_mode: &mut tile_mode,
         selected,
         stepped: None,
+        keys: tool_key_names(app, ui.ctx()),
         // (With its key, as the toolbar's tip has it; its name then is
         // the palette's own.)
         select_tiles: crate::icons::labelled(
@@ -1426,13 +1605,12 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     });
     let (shown, open, stepped) = (std::mem::take(&mut at.shown), at.open, at.stepped);
     app.thumbnails.show(shown);
-    // A tile tool clicked with tiles selected: the step on them, as the
-    // tile menu's (Select Tiles and the selection staying).
-    if let Some(step) = stepped
+    // A tile tool clicked with tiles selected: the tool on them (Select
+    // Tiles and the selection staying).
+    if let Some(what) = stepped
         && let Some(mut view) = app.area_views.remove(&area)
     {
-        let cells = view.tile_selection.clone();
-        crate::tile_select::step_tiles(app, &mut view, &cells, step);
+        act_on_selection(app, &mut view, what);
         app.area_views.insert(area, view);
     }
     if let Some(tile) = open {
@@ -1602,12 +1780,14 @@ struct Place<'a> {
     choice: &'a mut Option<u32>,
     /// The area view's tile mode (the palette's Select Tiles).
     tile_mode: &'a mut bool,
-    /// How many tiles are selected in it (0 out of it): with any, Next
-    /// and Previous Tile Appearance and Rotate Tile step them rather than
-    /// being chosen.
+    /// How many tiles are selected in it (0 out of it): with any, the tile
+    /// tools (the Eraser, Refine Tile, Next and Previous Tile Appearance
+    /// and Rotate Tile) work on them rather than being chosen.
     selected: usize,
-    /// The step one of those tools was clicked for, on the selection.
-    stepped: Option<TileStep>,
+    /// What one of those tools was clicked for, on the selection.
+    stepped: Option<OnSelection>,
+    /// The tile tools' keys, for their tips ([`tool_key_names`]).
+    keys: Vec<(Brush, String)>,
     /// The Select Tiles row's name.
     select_tiles: String,
     fold: Option<bool>,
@@ -1768,27 +1948,44 @@ fn brush_row(ui: &mut egui::Ui, label: &str, brush: Brush, at: &mut Place) {
         ),
         _ => None,
     };
-    let on_selection = *at.tile_mode && at.selected > 0;
+    let tip = tip.map(|tip| match brush {
+        Brush::Appearance { .. } | Brush::Rotate => format!(
+            "{tip}. With tiles selected (Select Tiles): a click steps every selected tile at \
+             once, each on its own, the selection kept; click again to step them again"
+        ),
+        Brush::Refine => format!(
+            "{tip}. With tiles selected (Select Tiles): a click refines them, as a drag over \
+             them would (the first the next tile that fits, the others of its kind made that \
+             tile too; with a tile chosen in the Gallery, that tile wherever it fits), the \
+             selection kept"
+        ),
+        _ => tip.to_string(),
+    });
+    let tip = tip.or_else(|| {
+        (brush == Brush::Eraser).then(|| {
+            "Click a tile: the crossers on its edges go, and a group or a feature goes whole \
+             (Shift + click: its next variant). With tiles selected (Select Tiles): a click \
+             deletes them, as Delete does, the selection kept"
+                .to_string()
+        })
+    });
+    let key = at.keys.iter().find(|(b, _)| *b == brush).map(|(_, k)| k.as_str());
+    let tip = match (tip, key) {
+        (Some(tip), Some(k)) if !k.is_empty() => Some(format!("{tip}. {k}")),
+        (tip, _) => tip,
+    };
+    let selecting = *at.tile_mode && at.selected > 0;
     let mut r = ui.selectable_label(on, shown);
     if let Some(tip) = tip {
-        r = match brush {
-            Brush::Appearance { .. } | Brush::Rotate => r.on_hover_text(format!(
-                "{tip}. With tiles selected (Select Tiles): a click steps every selected tile \
-                 at once, each on its own, the selection kept; click again to step them again"
-            )),
-            _ => r.on_hover_text(tip),
-        };
+        r = r.on_hover_text(tip);
     }
-    // With tiles selected, a tile tool is a button on them: the step at
-    // once, nothing chosen (Select Tiles and the selection stay).
+    // With tiles selected, a tile tool is a button on them: it works on
+    // them at once, nothing chosen (Select Tiles and the selection stay).
     if r.clicked()
-        && on_selection
-        && let Some(step) = tile_step(
-            &TileBrush { tileset: at.tileset, label: String::new(), brush, target, exact: false },
-            ui.input(|i| i.modifiers.shift),
-        )
+        && selecting
+        && let Some(what) = on_selection(brush, target, ui.input(|i| i.modifiers.shift))
     {
-        at.stepped = Some(step);
+        at.stepped = Some(what);
     } else if r.clicked() {
         *at.chosen = if on {
             None

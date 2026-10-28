@@ -1975,6 +1975,178 @@ fn palette_tile_tools_step_the_selected_tiles() {
     assert_eq!(grid(&mut h), placed, "nothing changed until a tile is clicked");
 }
 
+/// The tiles palette's Refine Tile and Eraser on the selected tiles (the
+/// owner's report): Refine Tile refines them as its drag over them would
+/// (the first the next tile that fits, the others of its kind made that
+/// tile), the Eraser deletes them as Delete does, each one step to undo,
+/// Select Tiles and the selection kept. And the tile tools' keys: on the
+/// selection the same; without one, the tool chosen (pressed again, put
+/// down). A refusal's reason begins Select Tiles' status line, where a
+/// narrow view doesn't cut it off.
+#[test]
+fn refine_eraser_and_the_tile_tools_keys_act_on_the_selected_tiles() {
+    use glam::Vec3;
+    use mg_tiles::TileIndex;
+    use mg_tiles::paint::{next_fit, step_appearance, turn_fit};
+    let Some((mut h, area)) = area_harness("tile-tools-keys") else { return };
+    let index = {
+        let game = h.state().game.as_deref().unwrap();
+        TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
+    };
+    let grid = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        mg_area::terrain::grid(&are.root, &index).unwrap()
+    };
+    let click = |h: &mut Harness<'_, Moonglow>, p: Vec3, m: egui::Modifiers| {
+        let at = screen(h, area, p);
+        h.hover_at(at);
+        h.run_steps(2);
+        press(h, at, true, m);
+        press(h, at, false, m);
+        h.run_steps(3);
+    };
+    let selecting = |h: &Harness<'_, Moonglow>| {
+        let view = &h.state().area_views[&area];
+        (view.tile_mode, view.tile_selection.clone(), h.state().palette.tile_brush.is_none())
+    };
+    let undo = |h: &mut Harness<'_, Moonglow>| {
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+        h.run_steps(3);
+    };
+    // A key over the area view.
+    let key = |h: &mut Harness<'_, Moonglow>, m: egui::Modifiers, k: egui::Key| {
+        h.hover_at(screen(h, area, Vec3::new(35.0, 35.0, 0.0)));
+        h.run_steps(1);
+        h.key_press_modifiers(m, k);
+        h.run_steps(3);
+    };
+    let shots = mg_testkit::scratch_dir("ui-tile-tools-keys");
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    palette_type(&mut h, "🗻", "Tiles");
+    h.run_steps(2);
+    h.get_by_label("⛶ Select Tiles (F10)").click();
+    h.run_steps(2);
+    let (a, b) = (Vec3::new(15.0, 15.0, 0.0), Vec3::new(25.0, 15.0, 0.0));
+    click(&mut h, a, egui::Modifiers::NONE);
+    click(&mut h, b, egui::Modifiers::COMMAND);
+    let two = vec![(1, 1), (2, 1)];
+    assert_eq!(selecting(&h), (true, two.clone(), true));
+    let before = grid(&mut h);
+    let cell = |c: (u32, u32)| before.lattice.cell(c.0, c.1);
+
+    // Refine Tile: the first the next that fits, the second (grass too)
+    // the same tile.
+    h.get_by_label("🔁 Refine Tile").click();
+    h.run_steps(3);
+    let first = next_fit(&index, &cell((1, 1)), before.tile(1, 1)).expect("grass has others");
+    let g = grid(&mut h);
+    assert_eq!(g.tile(1, 1), first, "the first: the next that fits");
+    assert_eq!(g.tile(2, 1).tile, first.tile, "the second made that tile too");
+    assert_eq!(g.lattice, before.lattice, "no terrain painted");
+    assert_eq!(selecting(&h), (true, two.clone(), true), "Select Tiles and the selection kept");
+    assert_eq!(undo_label(&h).as_deref(), Some("Refine tiles"));
+    undo(&mut h);
+    assert_eq!(grid(&mut h), before, "one undo");
+    // Its key, T: the same.
+    key(&mut h, egui::Modifiers::NONE, egui::Key::T);
+    assert_eq!(grid(&mut h).tile(1, 1), first, "T: Refine Tile on the selection");
+    assert_eq!(selecting(&h), (true, two.clone(), true));
+    undo(&mut h);
+
+    // The other tools' keys on the selection: N, Shift+N, R, Shift+R.
+    for (m, k, label) in [
+        (egui::Modifiers::NONE, egui::Key::N, "Next tile appearance"),
+        (egui::Modifiers::SHIFT, egui::Key::N, "Previous tile appearance"),
+        (egui::Modifiers::NONE, egui::Key::R, "Rotate tile"),
+        (egui::Modifiers::SHIFT, egui::Key::R, "Rotate tile"),
+    ] {
+        key(&mut h, m, k);
+        let g = grid(&mut h);
+        for c in two.iter().copied() {
+            let was = before.tile(c.0, c.1);
+            let made = match k {
+                egui::Key::R => turn_fit(&index, &cell(c), was, m.shift),
+                _ => step_appearance(&index, &cell(c), was, m.shift),
+            };
+            assert_eq!(g.tile(c.0, c.1), made.unwrap(), "{label} ({m:?}): tile {c:?}");
+        }
+        assert_eq!(undo_label(&h).as_deref(), Some(label));
+        assert_eq!(selecting(&h), (true, two.clone(), true), "{label}: the selection kept");
+        undo(&mut h);
+        assert_eq!(grid(&mut h), before, "{label}: undone");
+    }
+
+    // A barn: the Eraser on one of its tiles takes it all, as Delete; X
+    // the same.
+    h.get_by_label("Groups").click();
+    h.run_steps(2);
+    h.get_by_label("Barn 1 2x2").click();
+    h.run_steps(2);
+    click(&mut h, a, egui::Modifiers::NONE);
+    h.get_by_label("Groups").click();
+    h.run_steps(2);
+    let placed = grid(&mut h);
+    assert!(index.is_grouped(placed.tile(2, 1).tile), "the barn placed");
+    h.get_by_label("⛶ Select Tiles (F10)").click();
+    h.run_steps(2);
+    click(&mut h, b, egui::Modifiers::NONE);
+    let east = vec![(2, 1)];
+    assert_eq!(selecting(&h), (true, east.clone(), true));
+    // Refine Tile on a barn's tile: refused, the reason first on the line.
+    h.state_mut().area_views.get_mut(&area).unwrap().refused = None;
+    h.get_by_label("🔁 Refine Tile").click();
+    h.run_steps(3);
+    assert_eq!(grid(&mut h), placed, "refused");
+    let says = "Refine tiles: tiles of a group or feature";
+    let line = h.get_by_label_contains(says).accesskit_node().value().unwrap_or_default();
+    assert!(line.starts_with(says), "the reason first: {line}");
+    let mut red = h.state().area_views[&area].refused.clone().expect("in red").0;
+    red.sort();
+    assert_eq!(red, [(1, 1), (1, 2), (2, 1), (2, 2)], "the barn in red");
+    h.run_steps(10);
+    h.render().unwrap().save(shots.join("refused.png")).unwrap();
+    let erased = |h: &mut Harness<'_, Moonglow>| {
+        let g = grid(h);
+        [(1, 1), (2, 1), (1, 2), (2, 2)].iter().all(|&(x, y)| !index.is_grouped(g.tile(x, y).tile))
+    };
+    h.get_by_label("🗑 Eraser").click();
+    h.run_steps(3);
+    assert!(erased(&mut h), "the barn gone whole");
+    assert_eq!(undo_label(&h).as_deref(), Some("Delete tiles"));
+    assert_eq!(selecting(&h), (true, east.clone(), true), "the selection kept");
+    undo(&mut h);
+    assert_eq!(grid(&mut h), placed);
+    key(&mut h, egui::Modifiers::NONE, egui::Key::X);
+    assert!(erased(&mut h), "X: the barn gone whole");
+    undo(&mut h);
+
+    // No selection: a key chooses its tool, Select Tiles let go; again, it
+    // is put down.
+    h.state_mut().area_views.get_mut(&area).unwrap().tile_selection.clear();
+    h.run_steps(2);
+    for (k, brush) in [
+        (egui::Key::R, mg_area::terrain::Brush::Rotate),
+        (egui::Key::X, mg_area::terrain::Brush::Eraser),
+        (egui::Key::T, mg_area::terrain::Brush::Refine),
+        (egui::Key::N, mg_area::terrain::Brush::Appearance { back: false }),
+    ] {
+        key(&mut h, egui::Modifiers::NONE, k);
+        let chosen = h.state().palette.tile_brush.clone().map(|b| b.brush);
+        assert_eq!(chosen, Some(brush), "{k:?} chose it");
+        assert!(!h.state().area_views[&area].tile_mode, "Select Tiles let go");
+        // (Its row in the palette shows it chosen.)
+        if brush == mg_area::terrain::Brush::Eraser {
+            h.run_steps(5);
+            h.render().unwrap().save(shots.join("eraser-chosen.png")).unwrap();
+        }
+    }
+    key(&mut h, egui::Modifiers::NONE, egui::Key::N);
+    assert!(h.state().palette.tile_brush.is_none(), "pressed again: put down");
+    assert_eq!(grid(&mut h), placed, "nothing changed by choosing");
+}
+
 /// Tile Properties' variants' pictures take their size from their
 /// slider's setting, kept in the settings (a builder's tile feedback:
 /// tiles much alike couldn't be told apart small).
