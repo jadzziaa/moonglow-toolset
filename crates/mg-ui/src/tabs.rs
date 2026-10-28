@@ -269,10 +269,12 @@ impl Viewer<'_> {
         // Cancel does (Aurora's Escape is its Cancel: what the window
         // changed is set back). Dialogs over it close first.
         // (Not during a drag, which Escape drops.)
-        // (Escape in a text field leaves the field, and no more: egui has
-        // taken the keyboard from it by now, `escape_left_text`.)
+        // (Escape in a text or number field is Cancel too, as in Aurora;
+        // in a search field (an inventory's Find) it is the field's, which
+        // clears what is typed: egui has taken the keyboard from it by
+        // now, `escape_left_search`.)
         let escape = crate::widgets::escape_past_dialogs(ui.ctx())
-            && !crate::widgets::escape_left_text(ui.ctx())
+            && !crate::widgets::escape_left_search(ui.ctx())
             && ui.memory(|m| m.focused().is_none())
             && !ui.input(|i| i.pointer.any_down());
         let model = matches!(tab, Tab::Model(_) | Tab::InstanceModel { .. } | Tab::Tile { .. })

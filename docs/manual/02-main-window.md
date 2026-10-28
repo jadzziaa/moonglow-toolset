@@ -286,9 +286,11 @@ the right. **Escape** closes the window in front: a dialog (as its Cancel
 or close button does), then a Properties window as its **Cancel** does,
 as in Aurora: what was changed in it is set back (Tile Properties with
 changes asks first, as its close button does); a model's window while the
-pointer is over it. In a text or number field, Escape only leaves the
-field (what was typed stays, for now), and a second Escape is the
-window's Cancel. With something in hand in the area (a blueprint to place, a paste, a
+pointer is over it. In a text or number field too, Escape is the
+window's Cancel at once, as in Aurora (what was typed there is set back
+with the rest); in a search field (an inventory's or a list's Find, the
+Options' Find a Command) it clears what is typed, then leaves the field,
+and the next Escape is the window's. With something in hand in the area (a blueprint to place, a paste, a
 terrain brush) and the pointer over the area, Escape lets go of that and
 leaves the window open. Right-click a tab for **Eject** and **Close**,
 for **Close Others**, **Close Tabs to the Right** and **Close All** (the

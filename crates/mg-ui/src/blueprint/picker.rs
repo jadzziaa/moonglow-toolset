@@ -139,7 +139,7 @@ pub(crate) fn palette_picker(
         ui.selectable_value(&mut custom, false, "Standard Palette");
         ui.selectable_value(&mut custom, true, "Custom Palette");
     });
-    ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Find"));
+    crate::widgets::SearchField::new(state_id.with("find"), &mut filter).hint("Find").show(ui);
     let palette = palette_view::palette(app, kind, custom);
     let game = app.game.as_deref();
     let button = ui.spacing().interact_size.y + 2.0 * ui.spacing().item_spacing.y;
