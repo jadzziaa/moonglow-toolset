@@ -3,7 +3,7 @@ type: Proposal
 title: 'A 2DA editor and merger: a proposal'
 description: Editing a 2DA's cells and rows inside Moonglow and taking rows from another hak's copy - what exists to build on, the decisions that are the owner's (where a table is edited, what a merger is, rows in the middle, cells by what they hold), four phases with their sizes and tests, what is not known yet, and what was built of it, with pictures.
 tags: [proposal, 2da, custom-content, haks, editor]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T12:04:41Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T11:19:11Z }
 stale_after: 2027-01-12T00:00:00Z
 sources:
   - id: request
