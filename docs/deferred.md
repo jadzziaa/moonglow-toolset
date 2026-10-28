@@ -625,8 +625,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   0 regards a player, or a player it, was not measured (no player joins
   a headless server); an encounter's creatures were not looked at. (S)
   (Jasperre's report, October 2026)
-- **The Visuals page's texture pickers, waiting on the client:**
-  whether the game replaces a PLT texture by name (the page and the
+- **The Visuals page's texture and animation pickers, what's left:**
+  waiting on the client: whether the game replaces a PLT texture by name (the page and the
   preview take it that it doesn't, from `ReplaceObjectTexture`'s comment
   that the new one must be simple), and whether a creature's replacement
   reaches what it holds, its helmet or cloak (left out of its list). A
