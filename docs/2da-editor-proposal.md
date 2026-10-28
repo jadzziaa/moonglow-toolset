@@ -3,7 +3,7 @@ type: Proposal
 title: 'A 2DA editor and merger: a proposal'
 description: Editing a 2DA's cells and rows inside Moonglow and taking rows from another hak's copy - what exists to build on, the decisions that are the owner's (where a table is edited, what a merger is, rows in the middle, cells by what they hold), four phases with their sizes and tests, what is not known yet, and what was built of it, with pictures.
 tags: [proposal, 2da, custom-content, haks, editor]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T12:04:41Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T11:19:11Z }
 stale_after: 2027-01-12T00:00:00Z
 sources:
   - id: request
@@ -169,7 +169,7 @@ All four phases, by the recommendations, after 1.21.3 (the manual's
 | --- | --- | --- |
 | 1 | `TwoDa::set`, `add_row`, `add_column`, `clear_row` (the plugin host calls them); `mg_module::table_edit::Editing` (every change a step); the editor's tab on a module's table: cells, rows added and emptied, columns added, Find, Go to, copy and paste | `mg-2da` and `table_edit` unit tests; `a_module_s_table_is_edited_cell_by_cell`; `engine_reads_a_table_the_editor_wrote` (the server reads the written table cell for cell) |
 | 2 | A hak's table (Edit Table in the hak editor, saved as a step of the hak's), a file anywhere (Tools › 2DA File…), and Edit… in the resource browser: the module's table, or a copy of the one the game reads in the module, a hak or a file | `a_hak_s_table_and_a_file_s_are_saved_where_they_live`, `a_game_table_is_edited_as_a_copy` |
-| 3 | Cells checked as typed (`doctor::table_faults`: a row of another table, a talk-table string), a talk-table string shown as its text, a row of another table chosen by name, Find References to Row | `a_table_s_cells_are_checked_and_rows_taken_from_another_copy`; `the_game_s_own_tables_have_one_cell_fault` (every game table is sound by the same check, but for one row of the game's own) |
+| 3 | Cells checked as typed (`doctor::table_faults`: a row of another table, a talk-table string), a talk-table string shown as its text, a row of another table chosen by name, Find References to Row | `a_table_s_cells_are_checked_and_rows_taken_from_another_copy`; `the_game_s_own_tables_have_only_their_known_cell_faults` (every game table is sound by the same check, but for eight rows of the game's own) |
 | 4 | Take Rows from Another Copy: new rows, rows that differ, and against a lower copy the rows only the other changed apart from those both did | `rows_are_offered_and_taken_from_another_copy`; the same UI test |
 
 ![The editor on a copy of feat.2da: a cell that names a feat that is not there](images/2da-table-editor.png)

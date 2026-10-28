@@ -2140,6 +2140,7 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
     use crate::widgets::{NameWindow, Named};
     let Some(mut name) = app.new_dialog.clone() else { return };
     let window = NameWindow {
+        new: true,
         title: "New Conversation",
         label: "Name (up to 16 characters)",
         restype: ResType::DLG,
@@ -2326,13 +2327,11 @@ impl Moonglow {
         let stem = if stem.is_empty() { "conversation".to_string() } else { stem };
         let free =
             |name: &str| ResKey::parse(name, ResType::DLG).filter(|k| !ws.module.contains(k));
-        let key = free(&stem).or_else(|| {
-            (1..1000).find_map(|n| {
-                let suffix = format!("{n:03}");
-                let base: String = stem.chars().take(16 - suffix.len()).collect();
-                free(&format!("{base}{suffix}"))
-            })
-        })?;
+        // (With the builder's code, as the team's pattern puts it; never
+        // twice.)
+        let naming = ws.module.project_file.naming_for(ResType::DLG);
+        let key = free(&naming.fit(&stem, ""))
+            .or_else(|| (1..1000).find_map(|n| free(&naming.fit(&stem, &format!("{n:03}")))))?;
         let lines = mg_module::dialog::nodes(&g, Kind::Entry).len()
             + mg_module::dialog::nodes(&g, Kind::Reply).len();
         self.actions.push(Action::Apply(mg_edit::Command::new(

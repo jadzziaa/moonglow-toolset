@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugin API reference
 description: Reference of the plugin API - mg, findings and their fixes (ctx.fix), ctx.selection and ctx.open, ctx.event (the events, a resource's own around a save, objects placed or pasted, resources made, and what a handler may edit), ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, ctx.settings, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-22T22:07:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T11:19:10Z }
 ---
 
 # Plugin API reference
@@ -38,6 +38,7 @@ nothing, and a check is reported as failed.
 | `mg.tlk` | Talk tables made, read and written: `parse(bytes)` and `new()` (below). |
 | `mg.path(struct)` | Where a struct read with `gff` is, as a path for `ctx.edit`: `""` for the root, `"/ClassList[0]"`. Nil for a table that is no such struct. |
 | `mg.struct_id(struct)` | A struct's id (since Moonglow 2.2.0): of one read with `gff`, kept beside its table as its path is, never among its fields (an equipped item's is its slot, `Equip_ItemList`); of one read with `raw`, its `__struct_id`. Nil for a table that is neither. |
+| `mg.vars` | The variables the module's project describes (its `variables.toml`): `describe(name)` and `described()` (below; since Moonglow 2.13.0). |
 
 An id is registered once; registering one the manifest doesn't declare,
 or not registering one it does, is a fault `mg plugin check` reports.
@@ -51,6 +52,31 @@ A **finding** is a table:
 | `at` | Where in the resource: a field, a row. |
 | `severity` | `"warning"` or `"error"`; else the check's, from the manifest. |
 | `fix` | Its fix, made with `ctx.fix` (below; since API 0.4): offered beside the finding in Verify Module's report, made only when the user asks. |
+
+### `mg.vars`
+
+The [described variables](03-modules.md#described-variables) of the
+module's project, as the Variables window and `mg vars` read them
+(since Moonglow 2.13.0). `mg.vars.describe(name)` is the description of
+a variable so named: of that very name, else of the first pattern that
+takes it (in its case only, as the game tells names apart); nil where
+none names it. `mg.vars.described()` is every description, in the
+file's order. A description is a table:
+
+| Field | |
+| --- | --- |
+| `name` | The name it describes, or its pattern (`tdod_rental_*`). |
+| `pattern` | Whether it is a pattern. |
+| `file`, `line` | Where it is written: `variables.toml` (or a `.mod`'s own, `krezk.variables.toml`) and its line. |
+| `type` | `"int"`, `"float"`, `"string"`, `"object"` or `"location"`; nil for any. |
+| `on` | What it goes on: a list of kinds (`"placeable"`, `"area"`, `"module"`…); empty for anything. |
+| `help` | Its help, or nil. |
+| `values` | Its values, each `{ value, note }`: those written, a script's constants and a table's rows, read as the Variables window reads them (the project's scripts and tables, the module's, the game's). |
+| `rows` | For an Int whose values are a table's rows, how many it has; else nil. |
+| `problem` | What of its values could not be read (a script or table not there), or nil. |
+| `other` | A value of the builder's own is right too. |
+| `min`, `max` | Its bounds, or nil. |
+| `runtime` | The scripts set it while the server runs: never kept in a file. |
 
 ### `ctx.fix`
 
@@ -232,6 +258,7 @@ and without anything that changes in the window while it runs.
 | `ctx.module:raw(name, path?)` | A GFF resource with every field's type, as `mg gff` writes it: fields as `{ type = "…", value = … }`, structs with `__struct_id`, the root with `__data_type`. With `path`, the struct there alone. |
 | `ctx.module:text(name)` | A resource as text (a script, a 2DA), converted from the module's codepage. |
 | `ctx.module:bytes(name)` | A resource as it is, a string of bytes. |
+| `ctx.module:new_name(name, kind)` | A name (`name.ext`) for a new resource of a kind (`"utc"`, `"dlg"`, `"are"`…), made from `name` (`"Gate Guard"`) as the window makes one: with the builder's code where the project's pattern puts it (Edit › Builder Code…, `[resrefs] pattern`), the first the module hasn't (`ab_gateguard.utc`, `ab_gateguard001.utc`; an area's as the Area Wizard numbers them). Write it with `ctx.edit`. Since Moonglow 2.13.0. |
 
 ### Plain values
 
@@ -286,19 +313,34 @@ an empty one:
 | `twoda:set(row, column, value)` | Sets a cell: text, or a number; nil empties it. The row and the column must be there. |
 | `twoda:add_row(cells?)` | Adds a row at the end and returns its number; `cells` are its values by column (`{ Label = "x", Cost = 5 }`), the others empty. |
 | `twoda:add_column(name)` | Adds a column at the end, its cells empty. |
-| `twoda:write()` | The table as a file's bytes, laid out as the game's own tables are, for `ctx.hak:write`. |
+| `twoda:write()` | The table as a file's bytes, for `ctx.hak:write`: one read from a file (`ctx.game:table`, `mg.twoda.parse`) as that file is laid out, the file itself where the table is unchanged, its columns at least as wide as there, its line ends (since Moonglow 2.13.0); one made with `mg.twoda.new` as the game's own tables are. |
 
 `mg.twoda.kinds(name)` says what the columns of one of the game's tables
 hold, where Verify Module checks them: a table by column name, `"strref"`
 (a talk-table string's number: `kinds("feat").FEAT`), `"model"` (a
 model's name: `kinds("placeables").ModelName`) or `"row:"` and a table's
 name (a row's number in that table: `kinds("feat").MASTERFEAT` is
-`"row:masterfeats"`; since Moonglow 1.21.2). A table it knows nothing
-of gives an empty one. The lists a class, a race or a package names are
-known by how the game's own are named (`cls_feat_*`, `cls_skill_*`,
-`race_feat_*`, `packft*`, `packsk*`, `packsp*`). A cell that names a row holds `****` or a
-negative number for none, and a spell's `FeatID` keeps the feat in its
-low 16 bits.
+`"row:masterfeats"`; since Moonglow 1.21.2), `"table"` (another
+table's name, without `.2da`: `kinds("classes").FeatsTable`; since
+Moonglow 2.13.0), or, for a column whose cells name a row of the table
+another column's value chooses (a class's requirements,
+`cls_pres_*`'s `ReqParam1` by its `ReqType`; since 2.13.0), a table
+`{ by = "ReqType", rows = { FEAT = "feat", SKILL = "skills", … } }`: a
+value not in `rows` names no row. A table it knows nothing of gives an
+empty one. The lists a class, a race or a package names are known by
+how the game's own are named (`cls_feat_*`, `cls_skill_*`, `cls_pres_*`,
+`race_feat_*`, `packft*`, `packsk*`, `packsp*`), and, with the game's
+data, by the column that names them, whatever their names (since
+Moonglow 2.13.0): so are the tables an item property names
+(`itempropdef.2da`'s `SubTypeResRef`, `iprp_costtable.2da`'s `Name` and
+`iprp_paramtable.2da`'s `TableResRef`), whose `Name` is a string. Of the
+item properties' own, `itempropdef.2da`'s `Name`, `GameStrRef` and
+`Description` are strings and its `CostTableResRef` and `Param1ResRef`
+rows of `iprp_costtable.2da` and `iprp_paramtable.2da`. The tables a
+class names for its bonus feats, spells, saves, attack bonus and
+ability gains hold numbers alone: `kinds` has nothing to say of them. A
+cell that names a row holds `****` or a negative number for none, and a
+spell's `FeatID` keeps the feat in its low 16 bits.
 
 `mg.twoda.describe(text, scripts)` reads
 [a table's description](03-modules.md#a-tables-description) from the
@@ -314,12 +356,20 @@ script's source by its name (`{ my_inc = source }`). It gives:
 | `d:name(column, value)` | A value's name in a list, or the names of the flags it has; nil where it has none. |
 | `d:faults(twoda, lengths)` | The cells of `twoda` that are not what the description says, each `{ row, column, value, message }`. `lengths` gives how many rows the tables it names have (`{ classes = 42 }`); a table not given is not held to. Strings are not looked up. |
 
-A `tlk`, from `mg.tlk.parse(bytes)` or `mg.tlk.new()`; lines count from 0
-as in the file (a custom table's line 0 is the game's string 16777216):
+A `tlk`, from `mg.tlk.parse(bytes)` or `mg.tlk.new(language?)` (a
+language's two-letter code, `"fr"`; English if none; since Moonglow
+2.13.0); lines count from 0 as in the file (a custom table's line 0 is
+the game's string 16777216). Its text is written in its language's
+codepage (Windows-1250 for Polish), so a letter the language's
+codepage lacks fails. A feminine table is a file of its own, as the
+game keeps it (`dialogf.tlk`, `mytablef.tlk`): read and write it as
+another `tlk`.
 
 | | |
 | --- | --- |
 | `tlk.lines` | How many lines it has. |
+| `tlk.language` | Its language's two-letter code (`"en"`, `"fr"`, `"de"`, `"it"`, `"es"`, `"pl"`), as its file says (since Moonglow 2.13.0). |
+| `tlk:set_language(code)` | Makes it a table of another language (since Moonglow 2.13.0). |
 | `tlk:get(line)` | A line as `{ text, sound, sound_length }`; nil for none. |
 | `tlk:set(line, value)` | Sets a line (the table grows to hold it): its text, or a table with `text`, `sound` and `sound_length`; nil empties it. |
 | `tlk:add(value)` | Adds a line at the end and returns its number. |
@@ -337,8 +387,10 @@ is named in the test's result: where the test fails, as a reason it may
 have; where it passes all the same (the plugin read it in a `pcall`),
 as a note (since 2.3.0). A test with no game that calls
 `ctx.game:resources()` is told that the list is only the fixture's and
-its game folder's, or, with no folder, that the call fails for want of
-any.
+its game folder's (with no folder, the fixture's alone: with no game
+and no game folder, `ctx.game` is the fixture, since Moonglow 2.13.0).
+The game folder's `dialog.tlk` and the module's custom talk table are
+what `ctx.game:string` reads (since 2.13.0).
 
 ## `ctx.edit`
 

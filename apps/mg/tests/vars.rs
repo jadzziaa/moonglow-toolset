@@ -78,6 +78,62 @@ fn vars_lists_the_project_s_described_variables() {
     );
 }
 
+/// `mg vars --undescribed`: the module's variables that no description
+/// names, with where they are and the description each is near.
+#[test]
+fn vars_lists_the_module_s_undescribed_variables() {
+    let dir = described_folder("mg-vars-undescribed");
+    let mut m = Module::open(&dir).unwrap();
+    let var = |name: &str| {
+        let mut v = Struct::new(0);
+        v.set("Name", Value::String(name.as_bytes().to_vec()));
+        v.set("Type", Value::Dword(1));
+        v.set("Value", Value::Int(1));
+        v
+    };
+    let mut ifo = m.info().unwrap();
+    ifo.root.set(
+        "VarTable",
+        Value::List(vec![var("tdod_settlement"), var("tdod_settlment"), var("TDOD_Lit")]),
+    );
+    m.set_info(&ifo).unwrap();
+    let mut utc = Gff::new(*b"UTC ");
+    utc.root.set("VarTable", Value::List(vec![var("nw_spawned"), var("tdod_trodden")]));
+    m.set_gff(ResKey::new(ResRef::from_str("guard").unwrap(), ResType::UTC), &utc).unwrap();
+    m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
+    let out =
+        crate::mg().args(["--no-user-dir", "vars", "--undescribed"]).arg(&dir).output().unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(
+        text.lines().collect::<Vec<_>>(),
+        [
+            "nw_spawned\tInt\ton creature\tguard.utc › VarTable",
+            "tdod_settlment\tInt\ton module\tmodule.ifo Module › VarTable\tnamed as tdod_* are, \
+             which are to be described: tdod_settlement?",
+            "TDOD_Lit\tInt\ton module\tmodule.ifo Module › VarTable\tdescribed as tdod_lit, in \
+             another case (the game tells them apart)",
+        ],
+        "a described one and a runtime one are not listed"
+    );
+    assert!(String::from_utf8_lossy(&out.stderr).contains("3 variables of the module no"));
+    // Of one kind of object, of the names a glob takes; as JSON.
+    let out = crate::mg()
+        .args(["--json", "--no-user-dir", "vars", "--undescribed", "--on", "module"])
+        .arg(&dir)
+        .arg("tdod_*")
+        .output()
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["undescribed"], serde_json::json!(["tdod_*"]), "the file's globs, as before");
+    let listed = json["not_described"].as_array().unwrap();
+    assert_eq!(listed.len(), 1, "{json}");
+    assert_eq!(listed[0]["name"], "tdod_settlment");
+    assert_eq!(listed[0]["nearest"], "tdod_settlement");
+    assert_eq!(listed[0]["places"][0]["resource"], "module.ifo");
+    assert_eq!(listed[0]["places"][0]["index"], 1);
+}
+
 /// A String's values a table's rows, of a hak the module lists: the
 /// row's own label, without a column named (the Domains of Dread's
 /// tables are in their haks).

@@ -34,18 +34,22 @@
 //! ```
 //!
 //! A test reads the game's data (`ctx.game`) from the machine's game, or
-//! the one at `root` (`root = false`: none), and over it the files of the
-//! folder `game` names (by default `game/` beside the test file, where
-//! there is one), as the game's development folder is read: so a test
-//! that reads only those runs without a game. A test may also run one of
-//! Moonglow's own checks (`builtin = "tag-unique"`) on its fixture, with
-//! the fixture's project file.
+//! the one at `root` (`root = false`: none), with the fixture's haks and
+//! the fixture in it (with no game, the fixture alone), and over it the
+//! files of the folder `game` names (by default `game/` beside the test
+//! file, where there is one), as the game's development folder is read:
+//! so a test that reads only those runs without a game. That folder may
+//! bring a `dialog.tlk`, the fixture's custom talk table and, in its
+//! `hak/`, the fixture's haks. A test may also run Moonglow's own checks
+//! (`builtin = "tag-unique"`, a list of them, or `"all"`) on its fixture,
+//! with the fixture's project file.
 
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError, RwLock};
 
 use mg_core::{Codepage, Gender, Language};
 use mg_edit::fix::{Found, Guard};
@@ -54,7 +58,7 @@ use mg_edit::{Command, GffPath, Step, Workspace};
 use mg_gff::Value;
 use mg_module::Module;
 use mg_module::doctor::Severity;
-use mg_resman::ResKey;
+use mg_resman::{Container, MemContainer, ResError, ResKey};
 use mg_rules::GameData;
 use serde::Deserialize;
 
@@ -91,6 +95,23 @@ enum RootSetting {
     Game(bool),
 }
 
+/// A test's `builtin` as written: one of Moonglow's checks by its id,
+/// several, or `"all"`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum BuiltinSetting {
+    One(String),
+    Many(Vec<String>),
+}
+
+/// Moonglow's own checks a test runs, and whether it named them (rather
+/// than `"all"`).
+#[derive(Debug, Clone)]
+struct Builtins {
+    checks: Vec<mg_module::doctor::Check>,
+    named: bool,
+}
+
 /// The game a test reads.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum Root {
@@ -122,7 +143,7 @@ struct Test {
     check: Option<String>,
     command: Option<String>,
     event: Option<String>,
-    builtin: Option<String>,
+    builtin: Option<BuiltinSetting>,
     /// The fixture, if not the file's.
     module: Option<String>,
     /// The game's resources and the game's root, if not the file's.
@@ -276,9 +297,9 @@ pub fn test_files(plugin: &Plugin) -> Vec<PathBuf> {
 
 /// Runs a plugin's tests: each of its test files' (`module`, when given,
 /// in place of the fixture each file names). `game` gives the game data a
-/// fixture is read with (none: the plugin's `ctx.game` is empty, but for
-/// the test's own game folder). A file that does not read is a test that
-/// failed.
+/// fixture is read with (none: the plugin's `ctx.game` is the fixture
+/// and the test's own game folder alone). A file that does not read is a
+/// test that failed.
 pub fn run_tests(plugin: &Plugin, module: Option<&Path>, game: &GameFor) -> Vec<TestResult> {
     let mut out = Vec::new();
     for path in test_files(plugin) {
@@ -344,15 +365,13 @@ pub fn run_tests(plugin: &Plugin, module: Option<&Path>, game: &GameFor) -> Vec<
                     }
                     Root::No => None,
                 };
-                let game = g.is_some();
-                let g = with_folder(&m, g, folder.as_deref());
-                Ok((m, g.map(Arc::new), game))
+                Ok(Fixture::new(m, g, folder.as_deref()))
             });
             let (problems, notes) = match read {
-                Ok((m, g, game)) => {
+                Ok(f) => {
                     let from =
-                        GameFrom { game: *game, root: &root, folder: folder.as_deref(), dir };
-                    run_one(plugin, test, dir, m, g.clone(), &from)
+                        GameFrom { game: f.game, root: &root, folder: folder.as_deref(), dir };
+                    run_one(plugin, test, dir, f, &from)
                 }
                 Err(e) => (vec![e.clone()], Vec::new()),
             };
@@ -374,26 +393,154 @@ fn from(dir: &Path, named: &str) -> PathBuf {
     dir.join(named)
 }
 
-/// The game's data with the test's own folder of resources over it, as
-/// the game's development folder is read (over the install, the haks and
-/// the module); without a game, the folder and the module alone.
-fn with_folder(m: &Module, g: Option<GameData>, folder: Option<&Path>) -> Option<GameData> {
-    use mg_resman::{DirContainer, LayerClass, ResMan, priority};
-    let Some(folder) = folder else { return g };
-    let mut g = g.unwrap_or_else(|| {
-        let mut rm = ResMan::new();
-        rm.add(priority::MODULE, "module", LayerClass::Erf, m.container());
-        GameData::new(rm, mg_tlk::Tlk::new(Language::ENGLISH))
-    });
-    g.resman.add(
-        priority::DEVELOPMENT,
-        "test:game",
-        LayerClass::Directory,
-        DirContainer::open(folder),
-    );
-    // (Tables looked up before, found or not, may be the folder's now.)
-    g.invalidate();
-    Some(g)
+/// The module's layer in a test's game data: the fixture as it is, or,
+/// for what is `left` after the fixes, the module as fixed, so that what
+/// reads the module through the game's data (its 2DAs) reads the fixes.
+#[derive(Debug, Clone)]
+struct ModuleLayer(Arc<RwLock<MemContainer>>);
+
+impl ModuleLayer {
+    fn of(m: &Module) -> ModuleLayer {
+        ModuleLayer(Arc::new(RwLock::new(m.container())))
+    }
+
+    /// Puts this module's resources in the layer (the game data is then
+    /// to forget what it read: [`GameData::invalidate`]).
+    fn set(&self, m: &Module) {
+        *self.0.write().unwrap_or_else(PoisonError::into_inner) = m.container();
+    }
+
+    fn now(&self) -> std::sync::RwLockReadGuard<'_, MemContainer> {
+        self.0.read().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+impl Container for ModuleLayer {
+    fn contains(&self, key: &ResKey) -> bool {
+        self.now().contains(key)
+    }
+
+    fn read(&self, key: &ResKey) -> Result<Cow<'_, [u8]>, ResError> {
+        Ok(Cow::Owned(self.now().read(key)?.into_owned()))
+    }
+
+    fn keys(&self) -> Box<dyn Iterator<Item = ResKey> + '_> {
+        Box::new(self.now().keys().collect::<Vec<_>>().into_iter())
+    }
+
+    fn len(&self) -> usize {
+        self.now().len()
+    }
+}
+
+/// A fixture module read, and the game data it is read with.
+struct Fixture {
+    module: Module,
+    /// The game's (or none's) with the module's haks and the module, and
+    /// the test's own folder of resources over it.
+    data: Arc<GameData>,
+    /// The module's layer in it.
+    layer: ModuleLayer,
+    /// There was a game (the machine's, or at `root`) under the test's
+    /// folder.
+    game: bool,
+    /// Its talk tables are counted: a game's, or a `dialog.tlk` in the
+    /// test's folder.
+    talk: bool,
+    /// What it could not read, for each test's notes.
+    notes: Vec<String>,
+    /// The haks it lists that its game data has not, for the notes of a
+    /// test of Moonglow's checks (a plugin's reads say what they lacked).
+    haks: Option<String>,
+}
+
+impl Fixture {
+    /// The game's data (none: the module alone) with the test's own folder
+    /// of resources over it, as the game's development folder is read
+    /// (over the install, the haks and the module). The folder's
+    /// `dialog.tlk` is read in place of the game's, its `hak/` has the
+    /// module's haks (before those the game would find), and the module's
+    /// custom talk table is the one the game data has (the module's haks,
+    /// the module, its nasher project or the folder) over the one of the
+    /// machine's `tlk/`.
+    fn new(module: Module, g: Option<GameData>, folder: Option<&Path>) -> Fixture {
+        use mg_resman::{DirContainer, ErfContainer, LayerClass, ResMan, priority};
+        let game = g.is_some();
+        let mut g =
+            g.unwrap_or_else(|| GameData::new(ResMan::new(), mg_tlk::Tlk::new(Language::ENGLISH)));
+        let mut notes = Vec::new();
+        let layer = ModuleLayer::of(&module);
+        if g.resman.replace("module", layer.clone()).is_none() {
+            g.resman.add(priority::MODULE, "module", LayerClass::Erf, layer.clone());
+        }
+        let mut talk = game;
+        let haks = module.haks().unwrap_or_default();
+        if let Some(folder) = folder {
+            for name in &haks {
+                let path = folder.join("hak").join(format!("{name}.hak"));
+                if !path.is_file() {
+                    continue;
+                }
+                let label = format!("hak:{name}");
+                match ErfContainer::open(&path) {
+                    // (In the place of the game's, among the module's.)
+                    Ok(c) if g.resman.layer_mut(&label).is_some() => {
+                        g.resman.replace(&label, c);
+                    }
+                    Ok(c) => g.resman.add(priority::HAK_USER, label, LayerClass::Erf, c),
+                    Err(e) => notes.push(format!("the test's hak {}: {e}", path.display())),
+                }
+            }
+            let dialog = folder.join("dialog.tlk");
+            if dialog.is_file() {
+                let read = std::fs::read(&dialog)
+                    .map_err(|e| e.to_string())
+                    .and_then(|bytes| mg_tlk::Tlk::read(&bytes).map_err(|e| e.to_string()));
+                match read {
+                    Ok(tlk) => {
+                        g.set_tlk(tlk);
+                        talk = true;
+                    }
+                    Err(e) => {
+                        notes.push(format!("the test's {} can't be read: {e}", dialog.display()))
+                    }
+                }
+            }
+            g.resman.add(
+                priority::DEVELOPMENT,
+                "test:game",
+                LayerClass::Directory,
+                DirContainer::open(folder),
+            );
+        }
+        if let Some(name) = module.custom_tlk().ok().flatten()
+            && let Some(found) =
+                mg_module::talk::find_any(&module, &g.resman, &[], &name, Some(g.language))
+        {
+            match found.tlk() {
+                Ok(tlk) => g.set_custom_tlk(Some(tlk)),
+                Err(e) => notes.push(format!("the module's talk table {e}")),
+            }
+        }
+        // (With a game, `mg` says which it did not find.)
+        let lacked: Vec<&str> = (haks.iter())
+            .filter(|h| g.resman.layer_mut(&format!("hak:{h}")).is_none())
+            .map(String::as_str)
+            .collect();
+        let mut lacks = None;
+        if !game && !lacked.is_empty() {
+            let them = if lacked.len() == 1 { "it" } else { "them" };
+            lacks = Some(format!(
+                "the fixture's haks {} are not in the test's game data, which has no game: put \
+                 {them} in its game folder's hak/ ({GAME_FOLDER}/hak/ beside the test file), or \
+                 name a game with root = \"…\"",
+                lacked.join(", ")
+            ));
+        }
+        // (Tables looked up before, found or not, may be the folder's now.)
+        g.invalidate();
+        Fixture { module, data: Arc::new(g), layer, game, talk, notes, haks: lacks }
+    }
 }
 
 /// A fixture read with a game: its path, the game's root and the test's
@@ -409,10 +556,6 @@ struct GameFrom<'a> {
     dir: &'a Path,
 }
 
-/// A fixture module read, the game data it is read with, and whether
-/// there was a game under the test's folder.
-type Fixture = (Module, Option<Arc<GameData>>, bool);
-
 /// The test host: the log kept, a form filled from the answers, a question
 /// answered as the test says.
 struct TestHost {
@@ -421,6 +564,8 @@ struct TestHost {
     not_in_game: RefCell<Vec<String>>,
     /// It listed the game's resources.
     listed: std::cell::Cell<bool>,
+    /// What the test is told all the same.
+    notes: RefCell<Vec<String>>,
     answers: BTreeMap<String, toml::Value>,
     files: RefCell<std::collections::VecDeque<PathBuf>>,
     yes: bool,
@@ -482,7 +627,7 @@ enum Run<'a> {
     Check(&'a str),
     Command(&'a str),
     Event(&'a str),
-    Builtin(mg_module::doctor::Check),
+    Builtin(Builtins),
 }
 
 /// Runs a test: what was not as it wants, and what it is told all the
@@ -491,20 +636,21 @@ fn run_one(
     plugin: &Plugin,
     t: &Test,
     dir: &Path,
-    module: &Module,
-    game: Option<Arc<GameData>>,
+    fixture: &Fixture,
     from: &GameFrom,
 ) -> (Vec<String>, Vec<String>) {
     let host = Rc::new(TestHost {
         log: RefCell::default(),
         not_in_game: RefCell::default(),
         listed: Default::default(),
+        notes: RefCell::default(),
         answers: t.answers.clone(),
         files: RefCell::new(t.files.iter().map(|f| dir.join(f)).collect()),
         yes: t.yes,
     });
-    let mut problems = held(plugin, t, dir, module, game, &host);
-    let mut notes = Vec::new();
+    let mut problems = held(plugin, t, dir, fixture, from, &host);
+    let mut notes = fixture.notes.clone();
+    notes.extend(host.notes.take());
     // What it read of the game and did not find: where it failed, that may
     // be why; where it passed, it made do without (in a `pcall`), and so
     // did not test what it would do with it.
@@ -549,7 +695,7 @@ fn run_one(
             ),
             None => format!(
                 "it listed the game's resources (ctx.game:resources()), and {game}, nor a game \
-                 folder: there are none to list (put those it looks for in a folder \
+                 folder: the list is only the module's (put those it looks for in a folder \
                  {GAME_FOLDER}/ beside the test file, or name a game with root = \"…\")"
             ),
         };
@@ -558,7 +704,8 @@ fn run_one(
     // A built-in check follows the fixture's project file: what of it
     // was not understood is left out of the rules it holds the module to.
     if t.builtin.is_some() {
-        for w in &module.project_file.warnings {
+        notes.extend(fixture.haks.clone());
+        for w in &fixture.module.project_file.warnings {
             notes.push(format!("the fixture's project file: {w}"));
         }
     }
@@ -570,10 +717,12 @@ fn held(
     plugin: &Plugin,
     t: &Test,
     dir: &Path,
-    module: &Module,
-    game: Option<Arc<GameData>>,
+    fixture: &Fixture,
+    from: &GameFrom,
     host: &Rc<TestHost>,
 ) -> Vec<String> {
+    let module = &fixture.module;
+    let game = Some(fixture.data.clone());
     let mut problems = Vec::new();
     if (t.was.is_some() || t.by.is_some() || t.warned.is_some() || t.refused.is_some())
         && t.event.is_none()
@@ -584,7 +733,7 @@ fn held(
         (Some(c), None, None, None) => Run::Check(c),
         (None, Some(c), None, None) => Run::Command(c),
         (None, None, Some(e), None) => Run::Event(e),
-        (None, None, None, Some(b)) => match builtin_check(b) {
+        (None, None, None, Some(b)) => match builtin_checks(b) {
             Ok(c) => Run::Builtin(c),
             Err(e) => return vec![e],
         },
@@ -633,16 +782,24 @@ fn held(
     };
     let input =
         Input { selection, settings: Some(settings), ..Input::new(module.clone(), game.clone()) };
-    let codepage = game
-        .as_deref()
-        .map_or(Codepage::WINDOWS_1252, |g| g.codepage().for_language(Language::ENGLISH));
+    let codepage = fixture.data.codepage().for_language(Language::ENGLISH);
+    // Moonglow's checks that count talk-table strings, with none to count.
+    if let Run::Builtin(b) = &run
+        && let Some((said, wrong)) = uncounted(b, fixture, from)
+    {
+        if wrong {
+            problems.push(said);
+        } else {
+            host.notes.borrow_mut().push(said);
+        }
+    }
     // What it made: findings, or edits.
-    let made: Result<Result<Vec<Found>, Outcome>, PluginError> = match run {
+    let made: Result<Result<Vec<Found>, Outcome>, PluginError> = match &run {
         Run::Check(id) => crate::run_check(plugin, id, input, host.clone()).map(Ok),
-        Run::Builtin(check) => Ok(Ok(run_builtin(check, module, game.as_deref()))),
+        Run::Builtin(b) => Ok(Ok(run_builtin(b, module, fixture))),
         Run::Command(id) => crate::run_command(plugin, id, input, host.clone()).map(Err),
         Run::Event(id) => {
-            let kind = plugin.manifest.events.iter().find(|e| e.id == id).map(|e| e.on);
+            let kind = plugin.manifest.events.iter().find(|e| e.id == *id).map(|e| e.on);
             let kind = kind.unwrap_or(crate::EventKind::ModuleSaved);
             let event = match event_of(t, kind, dir, module, input.selection.selected.clone()) {
                 Ok(event) => event,
@@ -747,16 +904,20 @@ fn held(
             problems.push(e.to_string());
             return problems;
         }
-        // (A builtin check reads the module as fixed; what it reads of
-        // the game's data, the fixture as it was layered in.)
-        let after = match (&t.check, t.builtin.as_deref().map(builtin_check)) {
+        // (The check reads the module as fixed, through the game's data
+        // too: its 2DAs, its scripts.)
+        fixture.layer.set(&ws.module);
+        fixture.data.invalidate();
+        let after = match (&t.check, &run) {
             (Some(id), _) => {
                 let input = Input::new(ws.module.clone(), game);
                 crate::run_check(plugin, id, input, host.clone())
             }
-            (None, Some(Ok(check))) => Ok(run_builtin(check, &ws.module, game.as_deref())),
+            (None, Run::Builtin(b)) => Ok(run_builtin(b, &ws.module, fixture)),
             _ => Ok(Vec::new()),
         };
+        fixture.layer.set(module);
+        fixture.data.invalidate();
         match after {
             Ok(after) if after.len() != n => problems.push(format!(
                 "after the fixes the check finds {}, not {n}: {:?}",
@@ -776,42 +937,113 @@ fn builtin_check(id: &str) -> Result<mg_module::doctor::Check, String> {
     use mg_module::doctor::Check;
     Check::ALL.into_iter().find(|c| c.id() == id).ok_or_else(|| {
         let ids: Vec<&str> = Check::ALL.iter().map(|c| c.id()).collect();
-        format!("builtin: Moonglow has no check {id:?} (its checks: {})", ids.join(", "))
+        format!(
+            "builtin: Moonglow has no check {id:?} (its checks: {}; \"all\" for every one)",
+            ids.join(", ")
+        )
     })
 }
 
-/// One of Moonglow's own checks (Verify's) run on the module, with the
-/// game's data (the module layered in) or the module alone, as Verify
-/// runs it: by the module's project file (`moonglow.toml`,
-/// `variables.toml`), its findings with the fixes Verify offers.
-fn run_builtin(
-    check: mg_module::doctor::Check,
-    module: &Module,
-    game: Option<&GameData>,
-) -> Vec<Found> {
-    use mg_module::doctor::{Group, TalkTables, Timings, examine_groups};
-    use mg_resman::{LayerClass, ResMan, priority};
-    let alone;
-    let rm = match game {
-        Some(g) => &g.resman,
-        None => {
-            let mut rm = ResMan::new();
-            rm.add(priority::MODULE, "module", LayerClass::Erf, module.container());
-            alone = rm;
-            &alone
+/// The checks a test's `builtin` names: one, several (each once, in the
+/// order given), or `"all"`.
+fn builtin_checks(b: &BuiltinSetting) -> Result<Builtins, String> {
+    use mg_module::doctor::Check;
+    let ids: Vec<&str> = match b {
+        BuiltinSetting::One(all) if all == "all" => {
+            return Ok(Builtins { checks: Check::ALL.to_vec(), named: false });
         }
+        BuiltinSetting::One(id) => vec![id],
+        BuiltinSetting::Many(ids) => ids.iter().map(String::as_str).collect(),
     };
-    let tlk = TalkTables {
-        base: game.map_or(0, |g| g.tlk().entries.len()),
-        custom: game.and_then(|g| g.custom_tlk()).map(|t| t.entries.len()),
+    if ids.is_empty() {
+        return Err("builtin: name a check, several in a list, or \"all\"".into());
+    }
+    let mut checks = Vec::new();
+    for id in ids {
+        let check = builtin_check(id)?;
+        if !checks.contains(&check) {
+            checks.push(check);
+        }
+    }
+    Ok(Builtins { checks, named: true })
+}
+
+/// What a test's builtin checks that count talk-table strings say of a
+/// test whose game data has no talk tables to count them by (no game, no
+/// `dialog.tlk` in its game folder), and whether it is a problem: a
+/// check so named by the test can't test what it is for (`2da-strref`;
+/// `custom-tlk` where the module's own table isn't in the game data
+/// either); those run as part of more are told so in a note.
+fn uncounted(b: &Builtins, fixture: &Fixture, from: &GameFrom) -> Option<(String, bool)> {
+    use mg_module::doctor::Check;
+    if fixture.talk {
+        return None;
+    }
+    let custom = (fixture.module.custom_tlk().ok().flatten())
+        .filter(|n| !n.trim().is_empty() && fixture.data.custom_tlk().is_none());
+    let blind = |c: &Check| match c {
+        Check::TwoDaStrRef | Check::TwoDaDescribed => true,
+        Check::CustomTlk => custom.is_some(),
+        _ => false,
     };
-    // (Only its group's checks run: the others are most of a Verify's
+    let checks: Vec<&str> = b.checks.iter().filter(|c| blind(c)).map(|c| c.id()).collect();
+    if checks.is_empty() {
+        return None;
+    }
+    let wrong = b.named
+        && (b.checks.iter())
+            .any(|c| matches!(c, Check::TwoDaStrRef) || matches!(c, Check::CustomTlk) && blind(c));
+    let folder = from.folder.map(|f| f.strip_prefix(from.dir).unwrap_or(f).display().to_string());
+    let (tables, them) = match &custom {
+        Some(name) => (format!("neither dialog.tlk nor the module's {name}.tlk"), "them"),
+        None => ("no dialog.tlk".to_string(), "it"),
+    };
+    let (has, put) = match &folder {
+        Some(f) => (format!("its game folder, {f}, has {tables}"), f.clone()),
+        None => (
+            format!("it has no game folder (and so {tables})"),
+            format!("a folder {GAME_FOLDER}/ beside the test file"),
+        ),
+    };
+    let game = match from.root {
+        Root::No => "the test reads no game, root = false",
+        _ => "there is no game install",
+    };
+    let what = if checks.len() == 1 { "counts" } else { "count" };
+    Some((
+        format!(
+            "{} {what} no talk-table strings: {game}, and {has}: put {them} in {put}, or name a \
+             game with root = \"…\"",
+            checks.join(", ")
+        ),
+        wrong,
+    ))
+}
+
+/// Moonglow's own checks (Verify's) run on the module, with the game's
+/// data (the module layered in) as Verify runs them: by the module's
+/// project file (`moonglow.toml`, `variables.toml`), their findings with
+/// the fixes Verify offers. A talk table the test's game data has not is
+/// not counted (none of its strings is said to be missing).
+fn run_builtin(b: &Builtins, module: &Module, fixture: &Fixture) -> Vec<Found> {
+    use mg_module::doctor::{Group, TalkTables, Timings, examine_groups};
+    let g = &fixture.data;
+    let custom = match g.custom_tlk() {
+        Some(t) => Some(t.entries.len()),
+        None if !fixture.talk && module.custom_tlk().ok().flatten().is_some() => {
+            Some(TalkTables::UNCOUNTED)
+        }
+        None => None,
+    };
+    let tlk = TalkTables { base: if fixture.talk { g.tlk().entries.len() } else { 0 }, custom };
+    // (Only their groups' checks run: the others are most of a Verify's
     // time.)
-    let skip: Vec<Group> = Group::ALL.into_iter().filter(|g| *g != check.group()).collect();
+    let skip: Vec<Group> =
+        (Group::ALL.into_iter()).filter(|g| !b.checks.iter().any(|c| c.group() == *g)).collect();
     let findings: Vec<mg_module::doctor::Finding> =
-        examine_groups(module, rm, tlk, &skip, &mut Timings::default())
+        examine_groups(module, &g.resman, tlk, &skip, &mut Timings::default())
             .into_iter()
-            .filter(|f| f.check == check.id())
+            .filter(|f| b.checks.iter().any(|c| f.check == c.id()))
             .collect();
     mg_edit::fix::attach(module, findings, &[])
 }

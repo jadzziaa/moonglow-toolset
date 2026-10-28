@@ -233,6 +233,7 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
     use crate::widgets::{NameWindow, Named};
     let Some(mut name) = app.new_nui.clone() else { return };
     let window = NameWindow {
+        new: true,
         title: "New NUI Window",
         label: "Name (up to 14 characters)",
         restype: ResType::JUI,

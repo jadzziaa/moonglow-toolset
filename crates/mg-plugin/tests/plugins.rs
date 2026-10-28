@@ -630,6 +630,79 @@ fn tables_are_made_and_written() {
     assert_eq!(log, ["0", "4", "\"Cleave\"", "nil", "\"vs_hide\"", "1.5"]);
 }
 
+/// What the tables for plugins did not do (the deferred list's "Tables
+/// for plugins"): `kinds` knows a class's requirements, the tables a
+/// column names and the item properties' (and a table by the column that
+/// names it, with the game's data); a table is written as the file it
+/// was read from; a talk table has its language.
+#[test]
+fn tables_know_more_kinds_keep_their_layout_and_have_a_language() {
+    use mg_plugin::run_console;
+    let host = Rc::new(TestHost::default());
+    let mut rm = mg_resman::ResMan::new();
+    let mut base = mg_resman::MemContainer::new();
+    base.insert(
+        key("itempropdef.2da"),
+        b"2DA V2.0\n\n   Name Label SubTypeResRef\n0 649 Ability my_abilities\n".to_vec(),
+    );
+    rm.add(mg_resman::priority::KEY, "base", mg_resman::LayerClass::Key, base);
+    let game = std::sync::Arc::new(mg_rules::GameData::new(
+        rm,
+        mg_tlk::Tlk::new(mg_core::Language::ENGLISH),
+    ));
+    let code = r#"
+        local mg = require("@moonglow")
+        local pres = mg.twoda.kinds("cls_pres_wm").ReqParam1
+        local wide = "2DA V2.0\n\n      Label        Cost\n0     Sword        10\n1     Axe          5\n"
+        local t = mg.twoda.parse(wide)
+        local same = t:write() == wide
+        t:set(1, "Cost", 7)
+        return mg.twoda.kinds("classes").FeatsTable, pres.by, pres.rows.FEAT, pres.rows.SKILL,
+            mg.twoda.kinds("itempropdef").CostTableResRef, mg.twoda.kinds("my_abilities").Name,
+            same, t:write()
+    "#;
+    run_console(code, Input::new(module(), Some(game.clone())), host.clone()).unwrap();
+    let log: Vec<String> = host.log.borrow().iter().map(|(_, m)| m.clone()).collect();
+    assert_eq!(
+        log,
+        [
+            "\"table\"",
+            "\"ReqType\"",
+            "\"feat\"",
+            "\"skills\"",
+            "\"row:iprp_costtable\"",
+            "\"strref\"",
+            "true",
+            "\"2DA V2.0\\n\\n      Label        Cost\\n0     Sword        10\\n1     Axe          7\\n\"",
+        ]
+    );
+    // Without the game's data, a table is known by its name alone.
+    host.log.borrow_mut().clear();
+    let code = r#"
+        local mg = require("@moonglow")
+        return mg.twoda.kinds("my_abilities").Name
+    "#;
+    run_console(code, Input::new(module(), None), host.clone()).unwrap();
+    assert_eq!(host.log.borrow()[0].1, "nil");
+
+    // A talk table in Polish, its text in the language's codepage.
+    host.log.borrow_mut().clear();
+    let code = r#"
+        local mg = require("@moonglow")
+        local t = mg.tlk.new("pl")
+        t:add("Łódź")
+        local again = mg.tlk.parse(t:write())
+        local english = mg.tlk.new()
+        local ok = pcall(function() english:add("Łódź") end)
+        english:set_language("fr")
+        local bad = pcall(function() mg.tlk.new("xx") end)
+        return again.language, again:get(0).text, english.language, ok, bad
+    "#;
+    run_console(code, Input::new(module(), None), host.clone()).unwrap();
+    let log: Vec<String> = host.log.borrow().iter().map(|(_, m)| m.clone()).collect();
+    assert_eq!(log, ["\"pl\"", "\"Łódź\"", "\"fr\"", "false", "false"]);
+}
+
 /// `mg.twoda.describe`: a table's description read, a value named, and a
 /// table held to it.
 #[test]
@@ -1138,8 +1211,10 @@ fn a_plugin_s_tests_bring_their_own_game_data() {
 /// Moonglow's own checks (`builtin`) on its fixture, by the fixture's
 /// project file (moonglow.toml, variables.toml), its findings and fixes
 /// held as a plugin's are; what of the project file is not understood is
-/// a note. And, 3: listing the game's resources with no game and no game
-/// folder fails, and says why.
+/// a note. Several of them in one test, or all (the notes on 2.2.0: one a
+/// test). And, 3: listing the game's resources with no game and no game
+/// folder lists the module's, and says so (the notes on 2.2.0: `ctx.game`
+/// was empty, the fixture not in it).
 #[test]
 fn a_plugin_s_tests_run_moonglow_s_own_checks() {
     use mg_module::ModuleLocation;
@@ -1149,7 +1224,9 @@ fn a_plugin_s_tests_run_moonglow_s_own_checks() {
     std::fs::write(
         source.join("plugin.cfg"),
         "[plugin]\nid = \"test.rules\"\nname = \"Rules\"\nversion = \"1\"\napi = \"0.4\"\n\
-         license = \"GPL-3.0-or-later\"\n[check]\nid = \"listed\"\ntitle = \"Listed\"\n",
+         license = \"GPL-3.0-or-later\"\n[check]\nid = \"listed\"\ntitle = \"Listed\"\n\
+         [check]\nid = \"vars\"\ntitle = \"Vars\"\n\
+         [command]\nid = \"names\"\ntitle = \"Names\"\n",
     )
     .unwrap();
     std::fs::write(
@@ -1158,6 +1235,26 @@ fn a_plugin_s_tests_run_moonglow_s_own_checks() {
         local mg = require("@moonglow")
         mg.check("listed", function(ctx)
             return { { resource = "module.ifo", message = `{#ctx.game:resources()}` } }
+        end)
+        -- Names for new resources, as the window proposes them (the
+        -- builder proposal's C1: plugins' new resources had no code).
+        mg.command("names", function(ctx)
+            local guard = ctx.module:new_name("Gate Guard", "utc")
+            ctx.edit:write_bytes(guard, "")
+            ctx.log:info(`{guard} {ctx.module:new_name("Gate Guard", "utc")}`)
+            ctx.log:info(`{ctx.module:new_name("market", "are")} {ctx.module:new_name("kz_hello", ".nss")}`)
+            local ok, why = pcall(function() return ctx.module:new_name("x", "zzz") end)
+            ctx.log:info(`{tostring(ok)} {why}`)
+        end)
+        -- The project's descriptions (the notes on 2.2.0: no API read them).
+        mg.check("vars", function(ctx)
+            local text = mg.vars.describe("tdod_lore_text")
+            local lore = mg.vars.describe("tdod_lore_old")
+            local all = mg.vars.described()
+            local said = `{text.name} {text.type} {text.file}:{text.line} {tostring(text.runtime)}, `
+                .. `{lore.name} {tostring(lore.pattern)} {tostring(lore.runtime)}, `
+                .. `{tostring(mg.vars.describe("nope"))}, {#all} {all[2].name} {all[2].type}`
+            return { { resource = "module.ifo", message = said } }
         end)
         "#,
     )
@@ -1195,7 +1292,11 @@ fn a_plugin_s_tests_run_moonglow_s_own_checks() {
     );
     m.set_gff(key("krezk.git"), &git).unwrap();
     m.save_as(&ModuleLocation::Folder(fixture.clone())).unwrap();
-    std::fs::write(fixture.join("moonglow.toml"), "[tags]\nunique = [\"TDOD_START_*\"]\n").unwrap();
+    std::fs::write(
+        fixture.join("moonglow.toml"),
+        "[tags]\nunique = [\"TDOD_START_*\"]\n[resrefs]\npattern = \"kz_{name}\"\n",
+    )
+    .unwrap();
     std::fs::write(
         fixture.join("variables.toml"),
         "colour = 3\n\
@@ -1249,6 +1350,49 @@ fn a_plugin_s_tests_run_moonglow_s_own_checks() {
         name = "the game's resources, with nothing"
         check = "listed"
         root = false
+        [[test.finding]]
+        resource = "module.ifo"
+        message = "2"
+
+        [[test]]
+        name = "two of Moonglow's checks"
+        builtin = ["var-runtime", "tag-unique", "var-runtime"]
+        findings = 3
+
+        [[test]]
+        name = "all of Moonglow's checks"
+        builtin = "all"
+        findings = 3
+
+        [[test]]
+        name = "all, fixed"
+        builtin = "all"
+        fix = "Remove the variable"
+        left = 1
+
+        [[test]]
+        name = "a list with one Moonglow has not"
+        builtin = ["tag-unique", "tag-uniq"]
+
+        [[test]]
+        name = "an empty list"
+        builtin = []
+
+        [[test]]
+        name = "names for new resources"
+        command = "names"
+        log = [
+            "kz_gateguard.utc kz_gateguard001.utc",
+            "kz_market.are kz_hello.nss",
+            "false ",
+        ]
+
+        [[test]]
+        name = "the project's descriptions"
+        check = "vars"
+        [[test.finding]]
+        resource = "module.ifo"
+        message = "tdod_lore_text string variables.toml:2 false, tdod_lore_* true true, nil, 3 tdod_*_d20 int"
     "#;
     std::fs::write(source.join("tests").join("own.toml"), tests).unwrap();
     let plugin = Plugin::load(&source).unwrap();
@@ -1271,12 +1415,194 @@ fn a_plugin_s_tests_run_moonglow_s_own_checks() {
         ["select, settings are for a plugin's own check, command or event, not a builtin check"]
     );
     assert!(result("two things").problems[0].contains("one thing"));
-    let nothing = result("the game's resources, with nothing").problems;
-    assert!(nothing[0].starts_with("it failed: ") && nothing[0].contains("there is no game data"));
+    // With no game and no game folder, the game's data is the fixture's.
+    let nothing = result("the game's resources, with nothing");
+    assert_eq!(nothing.problems, Vec::<String>::new());
     assert_eq!(
-        nothing[1..],
+        nothing.notes,
         ["it listed the game's resources (ctx.game:resources()), and the test reads no game, \
-             root = false, nor a game folder: there are none to list (put those it looks for in \
-             a folder game/ beside the test file, or name a game with root = \"…\")"]
+             root = false, nor a game folder: the list is only the module's (put those it looks \
+             for in a folder game/ beside the test file, or name a game with root = \"…\")"]
     );
+    // Several of Moonglow's checks, each once, their findings as Verify
+    // lists them (errors first), and all of them: the fixture has nothing
+    // else wrong.
+    for name in [
+        "two of Moonglow's checks",
+        "all of Moonglow's checks",
+        "all, fixed",
+        "the project's descriptions",
+        "names for new resources",
+    ] {
+        assert_eq!(result(name).problems, Vec::<String>::new(), "{name}");
+    }
+    let unknown = result("a list with one Moonglow has not").problems;
+    assert!(unknown[0].starts_with("builtin: Moonglow has no check \"tag-uniq\""), "{unknown:?}");
+    assert!(unknown[0].ends_with("\"all\" for every one)"), "{unknown:?}");
+    assert_eq!(
+        result("an empty list").problems,
+        ["builtin: name a check, several in a list, or \"all\""]
+    );
+}
+
+/// The Domains of Dread's setup on 2.1.0 and notes on 2.2.0: a test's
+/// game folder brings a `dialog.tlk`, the module's custom talk table and
+/// the module's haks, which `ctx.game` and Moonglow's checks read; with
+/// no talk table to count, the checks that count its strings say so
+/// rather than find what the game would not; and what is `left` after a
+/// fix reads the module as fixed through the game's data too.
+#[test]
+fn a_plugin_s_test_game_folder_brings_talk_tables_and_haks() {
+    use mg_module::ModuleLocation;
+    let dir = mg_testkit::scratch_dir("plugin-tests-talk");
+    let source = dir.join("talk");
+    std::fs::create_dir_all(source.join("tests/talk/hak")).unwrap();
+    std::fs::write(
+        source.join("plugin.cfg"),
+        "[plugin]\nid = \"test.talk\"\nname = \"Talk\"\nversion = \"1\"\napi = \"0.4\"\n\
+         license = \"GPL-3.0-or-later\"\n[check]\nid = \"said\"\ntitle = \"Said\"\n\
+         [check]\nid = \"rows\"\ntitle = \"Rows\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        source.join("main.luau"),
+        r#"
+        local mg = require("@moonglow")
+        -- What the talk tables say, and whether the hak's table is there.
+        mg.check("said", function(ctx)
+            local base = ctx.game:string(1) or "none"
+            local custom = ctx.game:string(16777216) or "none"
+            local hak = if ctx.game:has("extra.2da") then "hak" else "no hak"
+            return { { resource = "module.ifo", message = `{base}, {custom}, {hak}` } }
+        end)
+        -- A module's table read through the game's data: a row too many,
+        -- with a fix that takes it out.
+        mg.check("rows", function(ctx)
+            local t = ctx.game:table("skills")
+            if t.rows < 3 then
+                return {}
+            end
+            local fix = ctx.fix("Two rows")
+            fix:write("skills.2da", "2DA V2.0\n\n   Label Name\n0  Hide  16777216\n1  Look  1\n")
+            return { { resource = "skills.2da", message = `{t.rows} rows`, fix = fix } }
+        end)
+        "#,
+    )
+    .unwrap();
+    // The module: a custom talk table it names, a hak, and a skills table
+    // with a string of each table, and one past dialog.tlk's.
+    let mut m = Module::new();
+    let mut ifo = Gff::new(*b"IFO ");
+    ifo.root.set("Mod_CustomTlk", Value::String(b"mine".to_vec()));
+    let mut hak = Struct::new(8);
+    hak.set("Mod_Hak", Value::String(b"extra".to_vec()));
+    ifo.root.set("Mod_HakList", Value::List(vec![hak]));
+    m.set_info(&ifo).unwrap();
+    m.set(
+        key("skills.2da"),
+        b"2DA V2.0\n\n   Label Name\n0  Hide  16777216\n1  Look  1\n2  Lore  9\n".to_vec(),
+    );
+    m.save_as(&ModuleLocation::Folder(source.join("tests/fixture"))).unwrap();
+    // The test's game folder: a dialog.tlk of three strings, the module's
+    // of one, and its hak.
+    let tlk = |texts: &[&str]| {
+        let mut t = mg_tlk::Tlk::new(mg_core::Language::ENGLISH);
+        for text in texts {
+            t.entries.push(mg_tlk::TlkEntry::text(text.as_bytes().to_vec()));
+        }
+        t.to_bytes().unwrap()
+    };
+    std::fs::write(source.join("tests/talk/dialog.tlk"), tlk(&["Bad Strref", "Look", "Lore"]))
+        .unwrap();
+    std::fs::write(source.join("tests/talk/mine.tlk"), tlk(&["Hide"])).unwrap();
+    let mut extra = Module::new();
+    extra.set(key("extra.2da"), b"2DA V2.0\n\n   A\n0  1\n".to_vec());
+    extra.save_as(&ModuleLocation::Archive(source.join("tests/talk/hak/extra.hak"))).unwrap();
+    std::fs::create_dir_all(source.join("tests/empty")).unwrap();
+    let tests = r#"
+        module = "fixture"
+        root = false
+
+        [[test]]
+        name = "the folder's talk tables and hak"
+        check = "said"
+        game = "talk"
+        [[test.finding]]
+        resource = "module.ifo"
+        message = "Look, Hide, hak"
+
+        [[test]]
+        name = "none of them"
+        check = "said"
+        game = "empty"
+        [[test.finding]]
+        resource = "module.ifo"
+        message = "none, none, no hak"
+
+        [[test]]
+        name = "strings counted by the folder's tables"
+        builtin = ["2da-strref", "custom-tlk"]
+        game = "talk"
+        [[test.finding]]
+        resource = "skills.2da"
+        at = "row 2, Name"
+        message = "string 9 doesn't exist: dialog.tlk has 3 strings (\"Bad Strref\")"
+
+        [[test]]
+        name = "no talk tables, a check named"
+        builtin = "2da-strref"
+        game = "empty"
+
+        [[test]]
+        name = "no talk tables, all the checks"
+        builtin = "all"
+        game = "empty"
+
+        [[test]]
+        name = "a fix read through the game's data"
+        check = "rows"
+        game = "talk"
+        fix = "Two rows"
+        left = 0
+    "#;
+    std::fs::write(source.join("tests/a.toml"), tests).unwrap();
+    let plugin = Plugin::load(&source).unwrap();
+    let results = mg_plugin::run_tests(&plugin, None, &|_, _| Ok(None));
+    let result = |name: &str| {
+        results.iter().find(|r| r.name == name).unwrap_or_else(|| panic!("{results:?}")).clone()
+    };
+    assert_eq!(result("the folder's talk tables and hak").problems, Vec::<String>::new());
+    assert_eq!(result("the folder's talk tables and hak").notes, Vec::<String>::new());
+    let none = result("none of them");
+    assert_eq!(none.problems, Vec::<String>::new());
+    assert_eq!(none.notes, Vec::<String>::new(), "a plugin's reads say what they lacked");
+    // A test of Moonglow's checks is told of the haks its game data lacks.
+    assert_eq!(
+        result("no talk tables, a check named").notes,
+        ["the fixture's haks extra are not in the test's game data, which has no game: put it in \
+             its game folder's hak/ (game/hak/ beside the test file), or name a game with root = \
+             \"…\""]
+    );
+    assert_eq!(result("strings counted by the folder's tables").problems, Vec::<String>::new());
+    let uncounted = "counts no talk-table strings: the test reads no game, root = false, and its \
+                     game folder, empty, has neither dialog.tlk nor the module's mine.tlk: put them \
+                     in empty, or name a game with root = \"…\"";
+    assert_eq!(
+        result("no talk tables, a check named").problems,
+        [format!("2da-strref {uncounted}")]
+    );
+    // All of them: told so, and none of the strings said to be missing,
+    // nor the module's table (which the game, with its tlk folder, may
+    // well find).
+    let all = result("no talk tables, all the checks");
+    assert_eq!(all.problems, Vec::<String>::new());
+    assert!(
+        all.notes.iter().any(|n| n
+            == "custom-tlk, 2da-strref, 2da-described count no talk-table strings: the test \
+                reads no game, root = false, and its game folder, empty, has neither dialog.tlk \
+                nor the module's mine.tlk: put them in empty, or name a game with root = \"…\""),
+        "{:?}",
+        all.notes
+    );
+    assert_eq!(result("a fix read through the game's data").problems, Vec::<String>::new());
 }

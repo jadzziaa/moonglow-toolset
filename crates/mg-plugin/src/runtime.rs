@@ -501,6 +501,31 @@ fn reader(lua: &Lua, sh: &Rc<Shared>, game: bool) -> mlua::Result<Table> {
             lua.create_string(s.bytes(&key_of(&name)?, game)?)
         })?,
     )?;
+    if !game {
+        // A name for a new resource, as the window proposes one: the
+        // builder's code where the team's pattern puts it, the first free.
+        let s = sh.clone();
+        t.set(
+            "new_name",
+            lua.create_function(move |_, (_, name, ext): (This, String, String)| {
+                use mg_core::ResType;
+                let Some(restype) = ResType::from_extension(ext.trim_start_matches('.')) else {
+                    return fail(format!("{ext:?} is not a kind of resource (utc, dlg, are…)"));
+                };
+                let ws = s.ws.borrow();
+                let m = &ws.module;
+                let naming = m.project_file.naming_for(restype);
+                let taken = |r: &ResRef| m.contains(&ResKey::new(*r, restype));
+                // (An area's as the Area Wizard's, the others' as a
+                // blueprint wizard's.)
+                let resref = match restype {
+                    ResType::ARE => mg_module::new::resref_for_named(&name, &naming, taken),
+                    _ => mg_module::blueprints::resref_named(&name, &naming, taken),
+                };
+                Ok(ResKey::new(resref, restype).to_string())
+            })?,
+        )?;
+    }
     if game {
         let s = sh.clone();
         t.set(
@@ -516,7 +541,8 @@ fn reader(lua: &Lua, sh: &Rc<Shared>, game: bool) -> mlua::Result<Table> {
                     s.host.not_in_game(&file);
                 }
                 let table = data.table(&name).or_else(fail)?;
-                crate::tables::twoda(lua, table.clone())
+                let file = ResKey::from_filename(&file).and_then(|k| data.resman.get(&k).ok());
+                crate::tables::twoda(lua, table.clone(), file.map(|f| f.into_owned()))
             })?,
         )?;
         let s = sh.clone();
@@ -1001,7 +1027,7 @@ fn context(lua: &Lua, sh: &Rc<Shared>, about: [&str; 3]) -> mlua::Result<Table> 
 
 /// What `require("@moonglow")` gives: where handlers are registered, and
 /// helpers.
-fn api(lua: &Lua) -> mlua::Result<Table> {
+fn api(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
     let mg = lua.create_table()?;
     mg.set("api", crate::API)?;
     for (kind, registry) in
@@ -1067,8 +1093,9 @@ fn api(lua: &Lua) -> mlua::Result<Table> {
         )?;
     }
     mg.set("image", lua.create_function(crate::files::image)?)?;
-    mg.set("twoda", crate::tables::twoda_api(lua)?)?;
+    mg.set("twoda", crate::tables::twoda_api(lua, sh.game.clone())?)?;
     mg.set("tlk", crate::tables::tlk_api(lua)?)?;
+    mg.set("vars", vars_api(lua, sh)?)?;
     // Where a struct read with `gff` is: its path, for the edits.
     mg.set(
         "path",
@@ -1099,12 +1126,69 @@ fn api(lua: &Lua) -> mlua::Result<Table> {
     Ok(mg)
 }
 
+/// `mg.vars`: the variables the module's project describes
+/// (`variables.toml`), as the Variables window and `mg vars` read them:
+/// `describe(name)`, the description of a variable so named (of that very
+/// name, else the first pattern that takes it), nil for none; and
+/// `described()`, every description, in the file's order.
+fn vars_api(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
+    use mg_module::var_desc::{Described, ModuleLookup};
+    fn table(lua: &Lua, sh: &Shared, d: &Described) -> mlua::Result<Table> {
+        let ws = sh.ws.borrow();
+        let module = &ws.module;
+        let lookup = ModuleLookup::new(module, sh.game.as_deref().map(|g| &g.resman));
+        let choices = d.choices(&lookup);
+        let t = lua.create_table()?;
+        t.set("name", d.name.as_str())?;
+        t.set("pattern", d.is_pattern())?;
+        t.set("file", module.project_file.variables.file())?;
+        t.set("line", d.line)?;
+        let kind = d.var_type.map(|v| mg_module::var_desc::type_label(v).to_ascii_lowercase());
+        t.set("type", kind)?;
+        t.set("on", d.on.iter().map(|o| o.name()).collect::<Vec<_>>())?;
+        t.set("help", d.help.as_deref())?;
+        let values = lua.create_table()?;
+        for c in &choices.list {
+            let v = lua.create_table()?;
+            v.set("value", c.value.as_str())?;
+            v.set("note", c.note.as_deref())?;
+            values.push(v)?;
+        }
+        t.set("values", values)?;
+        t.set("rows", choices.rows)?;
+        t.set("problem", choices.problem.as_deref())?;
+        t.set("other", d.other)?;
+        t.set("min", d.min)?;
+        t.set("max", d.max)?;
+        t.set("runtime", d.runtime)?;
+        Ok(t)
+    }
+    let api = lua.create_table()?;
+    let s = sh.clone();
+    api.set(
+        "describe",
+        lua.create_function(move |lua, name: String| {
+            let d = s.ws.borrow().module.project_file.variables.describe(&name).cloned();
+            d.map(|d| table(lua, &s, &d)).transpose()
+        })?,
+    )?;
+    let s = sh.clone();
+    api.set(
+        "described",
+        lua.create_function(move |lua, ()| {
+            let all = s.ws.borrow().module.project_file.variables.described.clone();
+            all.iter().map(|d| table(lua, &s, d)).collect::<mlua::Result<Vec<_>>>()
+        })?,
+    )?;
+    Ok(api)
+}
+
 /// A machine for one job, the plugin's code loaded (`entry`; the console
 /// has none).
 fn start(entry: Option<&str>, sh: &Rc<Shared>) -> mlua::Result<Lua> {
     let lua = Lua::new();
     lua.set_memory_limit(MEMORY_LIMIT)?;
-    lua.set_named_registry_value("mg.api", api(&lua)?)?;
+    lua.set_named_registry_value("mg.api", api(&lua, sh)?)?;
     lua.set_named_registry_value("mg.modules", lua.create_table()?)?;
     let globals = lua.globals();
 

@@ -790,16 +790,17 @@ impl Id {
                 app.blueprint_wizard = Some(crate::blueprint_wizard::BlueprintWizard::new(kind));
                 return;
             }
+            // (Their names start with the builder's code.)
             Id::NewConversation => {
-                app.new_dialog = Some(String::new());
+                app.new_dialog = Some(crate::widgets::code_start(app, mg_core::ResType::DLG));
                 return;
             }
             Id::NewScript => {
-                app.new_script = Some(String::new());
+                app.new_script = Some(crate::widgets::code_start(app, mg_core::ResType::NSS));
                 return;
             }
             Id::NewNui => {
-                app.new_nui = Some(String::new());
+                app.new_nui = Some(crate::widgets::code_start(app, mg_core::ResType::JUI));
                 return;
             }
             Id::NewTileset => return crate::tileset_view::new_tileset(app),

@@ -201,7 +201,10 @@ impl Check {
             Check::TwoDaLimit => "a 2DA has no more rows than the game or Aurora takes",
             Check::TwoDaShadow => "a 2DA does not hide a longer copy in another hak",
             Check::TwoDaStrRef => "a 2DA's changed rows name talk-table strings that exist",
-            Check::TwoDaRef => "a 2DA's changed rows name rows of other 2DAs that exist",
+            Check::TwoDaRef => {
+                "a 2DA's changed rows name rows of other 2DAs that exist and aren't blank, and \
+                 2DAs that are there"
+            }
             Check::TwoDaDescribed => {
                 "a table of the module's that has a description (name.2da.toml) holds what it says"
             }
@@ -417,6 +420,14 @@ pub struct TalkTables {
     /// The module's custom talk table's count, if it names one and it was
     /// found where the game looks ([`crate::talk::find`]).
     pub custom: Option<usize>,
+}
+
+impl TalkTables {
+    /// The count of a table not read, whose strings are not counted (a
+    /// plugin's test with no game and no talk table of its own): `base`
+    /// 0, `custom` `Some(UNCOUNTED)`. None of its strings is said to be
+    /// missing, nor the table.
+    pub const UNCOUNTED: usize = usize::MAX;
 }
 
 /// Whether a layer holds custom content (the user's or the module's).
@@ -1244,7 +1255,7 @@ fn shaders(d: &mut Doctor, custom: &BTreeMap<ResKey, usize>) {
 }
 
 /// Columns that hold a talk-table string, by table.
-pub(crate) const STRREF_COLUMNS: [(&str, &str); 10] = [
+pub(crate) const STRREF_COLUMNS: [(&str, &str); 15] = [
     ("appearance", "STRING_REF"),
     ("baseitems", "Name"),
     ("classes", "Name"),
@@ -1255,6 +1266,11 @@ pub(crate) const STRREF_COLUMNS: [(&str, &str); 10] = [
     ("skills", "Name"),
     ("spells", "Name"),
     ("doortypes", "StringRefGame"),
+    ("itempropdef", "Name"),
+    ("itempropdef", "GameStrRef"),
+    ("itempropdef", "Description"),
+    ("itemprops", "StringRef"),
+    ("iprp_paramtable", "Name"),
 ];
 
 /// Columns that name a model, by table: the ones an object's appearance
@@ -1269,12 +1285,14 @@ const MODEL_COLUMNS: [(&str, &str); 4] =
 /// Columns that name a row of another table (or of their own): the
 /// table, the column, the table whose row it is. Each is in nwn.wiki's
 /// page of its table as a line reference, and holds for every row of the
-/// game's own tables (`row_columns_hold_for_the_game_s_tables`); `****`
-/// and a negative number name none. Left out: columns the game's own
-/// tables break (`appearance.FOOTSTEPTYPE`); the tables a class, a race
-/// or a package names in a column are in [`NAMED_TABLES`].
-pub(crate) const ROW_COLUMNS: [(&str, &str, &str); 61] = [
+/// game's own tables (`row_columns_hold_for_the_game_s_tables`) but
+/// `appearance.FOOTSTEPTYPE`, which the game's rows 562 to 568 break
+/// (footstep 30 of footstepsounds.2da's 18); `****` and a negative number
+/// name none. The tables a class, a race, a package or an item property
+/// names in a column are in [`NAMED_TABLES`].
+pub(crate) const ROW_COLUMNS: [(&str, &str, &str); 64] = [
     ("appearance", "SOUNDAPPTYPE", "appearancesndset"),
+    ("appearance", "FOOTSTEPTYPE", "footstepsounds"),
     ("baseitems", "ReqFeat0", "feat"),
     ("baseitems", "ReqFeat1", "feat"),
     ("baseitems", "ReqFeat2", "feat"),
@@ -1313,6 +1331,8 @@ pub(crate) const ROW_COLUMNS: [(&str, &str, &str); 61] = [
     ("feat", "REQSKILL2", "skills"),
     ("feat", "MinLevelClass", "classes"),
     ("genericdoors", "SoundAppType", "placeableobjsnds"),
+    ("itempropdef", "CostTableResRef", "iprp_costtable"),
+    ("itempropdef", "Param1ResRef", "iprp_paramtable"),
     ("packages", "ClassID", "classes"),
     ("packages", "Domain1", "domains"),
     ("packages", "Domain2", "domains"),
@@ -1337,18 +1357,69 @@ pub(crate) const ROW_COLUMNS: [(&str, &str, &str); 61] = [
     ("spells", "FeatID", "feat"),
 ];
 
-/// Tables that a column of another names, and their column that names a
-/// row: the naming table and its column, the usual start of such a
-/// table's name, its column, the table whose row that is. (A class's
-/// feats are in the table its `FeatsTable` names, `cls_feat_*` in the
-/// game's own.)
-pub(crate) const NAMED_TABLES: [(&str, &str, &str, &str, &str); 6] = [
-    ("classes", "FeatsTable", "cls_feat_", "FeatIndex", "feat"),
-    ("classes", "SkillsTable", "cls_skill_", "SkillIndex", "skills"),
-    ("racialtypes", "FeatsTable", "race_feat_", "FeatIndex", "feat"),
-    ("packages", "FeatPref2DA", "packft", "FeatIndex", "feat"),
-    ("packages", "SkillPref2DA", "packsk", "SkillIndex", "skills"),
-    ("packages", "SpellPref2DA", "packsp", "SpellIndex", "spells"),
+/// The tables each `ReqType` of a class's requirements (`cls_pres_*`)
+/// names a row of in its `ReqParam1` (nwn.wiki's cls_pres_xxx.2da; held by
+/// every row of the game's own: `row_columns_hold_for_the_game_s_tables`):
+/// the others take a number, a name or nothing.
+pub(crate) const REQUIREMENT_ROWS: [(&str, &str); 6] = [
+    ("FEAT", "feat"),
+    ("FEATOR", "feat"),
+    ("SKILL", "skills"),
+    ("RACE", "racialtypes"),
+    ("CLASSOR", "classes"),
+    ("CLASSNOT", "classes"),
+];
+
+/// Tables that a column of another names, and what a column of theirs
+/// holds: the naming table and its column, the usual start of such a
+/// table's name (none: known only by the column that names it), its
+/// column and what it holds. (A class's feats are in the table its
+/// `FeatsTable` names, `cls_feat_*` in the game's own; an item
+/// property's subtypes, costs and parameters in the tables
+/// `itempropdef.2da`, `iprp_costtable.2da` and `iprp_paramtable.2da` name,
+/// each with its `Name`, a talk-table string.)
+pub(crate) const NAMED_TABLES: [(&str, &str, &str, &str, ColumnKind); 10] = [
+    ("classes", "FeatsTable", "cls_feat_", "FeatIndex", ColumnKind::Row("feat")),
+    ("classes", "SkillsTable", "cls_skill_", "SkillIndex", ColumnKind::Row("skills")),
+    (
+        "classes",
+        "PreReqTable",
+        "cls_pres_",
+        "ReqParam1",
+        ColumnKind::RowBy { by: "ReqType", tables: &REQUIREMENT_ROWS },
+    ),
+    ("racialtypes", "FeatsTable", "race_feat_", "FeatIndex", ColumnKind::Row("feat")),
+    ("packages", "FeatPref2DA", "packft", "FeatIndex", ColumnKind::Row("feat")),
+    ("packages", "SkillPref2DA", "packsk", "SkillIndex", ColumnKind::Row("skills")),
+    ("packages", "SpellPref2DA", "packsp", "SpellIndex", ColumnKind::Row("spells")),
+    ("itempropdef", "SubTypeResRef", "", "Name", ColumnKind::StrRef),
+    ("iprp_costtable", "Name", "", "Name", ColumnKind::StrRef),
+    ("iprp_paramtable", "TableResRef", "", "Name", ColumnKind::StrRef),
+];
+
+/// Columns that name another table (without `.2da`), by table: a class's
+/// lists, a race's, a package's and an item property's. (The tables a
+/// class's `BonusFeatsTable`, `SpellGainTable`, `SpellKnownTable`,
+/// `SavingThrowTable`, `AttackBonusTable` and `StatGainTable` name hold
+/// numbers alone: nothing in them is a row, a string or a model.)
+pub(crate) const TABLE_COLUMNS: [(&str, &str); 17] = [
+    ("classes", "FeatsTable"),
+    ("classes", "SkillsTable"),
+    ("classes", "SavingThrowTable"),
+    ("classes", "SpellGainTable"),
+    ("classes", "SpellKnownTable"),
+    ("classes", "PreReqTable"),
+    ("classes", "BonusFeatsTable"),
+    ("classes", "AttackBonusTable"),
+    ("classes", "StatGainTable"),
+    ("racialtypes", "FeatsTable"),
+    ("packages", "FeatPref2DA"),
+    ("packages", "SkillPref2DA"),
+    ("packages", "SpellPref2DA"),
+    ("packages", "Equip2DA"),
+    ("itempropdef", "SubTypeResRef"),
+    ("iprp_costtable", "Name"),
+    ("iprp_paramtable", "TableResRef"),
 ];
 
 /// The row a cell of one of [`ROW_COLUMNS`] names; `None`: none. (A
@@ -1369,13 +1440,50 @@ pub enum ColumnKind {
     Model,
     /// A row's number in the table named (without `.2da`).
     Row(&'static str),
+    /// A row's number in the table another column's cell chooses: the
+    /// column (`by`), and the table each of its values names (`ReqType`'s
+    /// `FEAT`, `feat`); another value names no row. A class's requirement's
+    /// `ReqParam1`.
+    RowBy { by: &'static str, tables: &'static [(&'static str, &'static str)] },
+    /// The name of another table, without `.2da` (a class's `FeatsTable`).
+    Table,
+}
+
+impl ColumnKind {
+    /// The table whose row a cell of this kind names in row `row` of `t`
+    /// (for [`ColumnKind::RowBy`], by the row's other cell); `None` for
+    /// one that names no row.
+    pub fn row_table(self, t: &TwoDa, row: usize) -> Option<&'static str> {
+        match self {
+            ColumnKind::Row(target) => Some(target),
+            ColumnKind::RowBy { by, tables } => {
+                let chosen = t.get(row, by)?.trim();
+                tables.iter().find(|(v, _)| v.eq_ignore_ascii_case(chosen)).map(|(_, t)| *t)
+            }
+            _ => None,
+        }
+    }
+}
+
+/// Why a row of `table` (`target`) is not one to name: it isn't there, or
+/// it is blank (a padding row: every cell empty). `None`: it is fine.
+fn row_fault(table: &TwoDa, target: &str, row: usize) -> Option<String> {
+    let length = table.len();
+    if row >= length {
+        Some(format!("row {row} of {target}.2da doesn't exist: it has {length} rows"))
+    } else if (0..table.columns().len()).all(|c| table.cell(row, c).is_none()) {
+        Some(format!("row {row} of {target}.2da is blank (a padding row)"))
+    } else {
+        None
+    }
 }
 
 /// The columns of the table `name` (without `.2da`) that the checks know
 /// the kind of: the same tables Verify Module reads them from. (A table
 /// that a class, a race or a package names is known here by how the
 /// game's own are named, `cls_feat_*` and the like; Verify Module goes
-/// by the column that names it too.)
+/// by the column that names it too, [`column_kinds_as_named`], which knows
+/// the tables an item property names by it alone.)
 pub fn column_kinds(name: &str) -> Vec<(&'static str, ColumnKind)> {
     let of = |list: &'static [(&'static str, &'static str)], kind: ColumnKind| {
         list.iter().filter(|(t, _)| t.eq_ignore_ascii_case(name)).map(move |(_, c)| (*c, kind))
@@ -1387,11 +1495,12 @@ pub fn column_kinds(name: &str) -> Vec<(&'static str, ColumnKind)> {
     let lower = name.to_ascii_lowercase();
     let named = NAMED_TABLES
         .iter()
-        .filter(move |(_, _, start, _, _)| lower.starts_with(start))
-        .map(|(_, _, _, c, target)| (*c, ColumnKind::Row(target)));
+        .filter(move |(_, _, start, _, _)| !start.is_empty() && lower.starts_with(start))
+        .map(|(_, _, _, c, kind)| (*c, *kind));
     of(&STRREF_COLUMNS, ColumnKind::StrRef)
         .chain(of(&MODEL_COLUMNS, ColumnKind::Model))
         .chain(rows)
+        .chain(of(&TABLE_COLUMNS, ColumnKind::Table))
         .chain(named)
         .collect()
 }
@@ -1413,24 +1522,30 @@ pub(crate) fn strref_problem(v: u32, tlk: TalkTables) -> Option<String> {
     }
 }
 
-/// [`column_kinds`], and for a table that a class, a race or a package
-/// names in a column (`table` reads a table as the game has it), whatever
-/// its own name, the columns such a table has.
+/// [`column_kinds`], and for a table that a class, a race, a package or
+/// an item property names in a column (`table` reads a table as the game
+/// has it), whatever its own name, the columns such a table has.
 pub fn column_kinds_as_named(
     name: &str,
     table: &dyn Fn(&str) -> Option<std::sync::Arc<TwoDa>>,
 ) -> Vec<(&'static str, ColumnKind)> {
     let mut kinds = column_kinds(name);
-    for (naming, by, _, column, target) in NAMED_TABLES {
+    for (naming, by, _, column, kind) in NAMED_TABLES {
+        if kinds.contains(&(column, kind)) {
+            continue;
+        }
         let named = table(naming).is_some_and(|t| {
             (0..t.len()).any(|r| t.get(r, by).is_some_and(|n| n.eq_ignore_ascii_case(name)))
         });
-        if named && !kinds.contains(&(column, ColumnKind::Row(target))) {
-            kinds.push((column, ColumnKind::Row(target)));
+        if named {
+            kinds.push((column, kind));
         }
     }
     kinds
 }
+
+/// What reads a table by its name (without `.2da`), as the module sees it.
+pub type TableOf<'a> = dyn Fn(&str) -> Option<std::sync::Arc<TwoDa>> + 'a;
 
 /// A cell of a table that is wrong as it stands.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1443,25 +1558,20 @@ pub struct CellFault {
 
 /// What is wrong in the cells of the table `name` (without `.2da`), every
 /// row of it, by what its columns hold (`kinds`): a row of another table
-/// that is not there (`rows_of`: how many rows a table has, as the module
-/// sees it; the table itself is asked of itself), a talk-table string
-/// that is not there. A table being edited is checked by this as it is
-/// typed.
+/// that is not there or is blank, a table that is not there (`tables`:
+/// the tables as the module sees them, none where there is no game; the
+/// table itself is asked of itself), a talk-table string that is not
+/// there. A table being edited is checked by this as it is typed.
 pub fn table_faults(
     name: &str,
     t: &TwoDa,
     kinds: &[(&'static str, ColumnKind)],
-    rows_of: &dyn Fn(&str) -> Option<usize>,
+    tables: Option<&TableOf>,
     tlk: TalkTables,
 ) -> Vec<CellFault> {
     let mut out = Vec::new();
     for (column, kind) in kinds {
         let Some(at) = t.column(column) else { continue };
-        let length = match kind {
-            ColumnKind::Row(target) if target.eq_ignore_ascii_case(name) => Some(t.len()),
-            ColumnKind::Row(target) => rows_of(target),
-            _ => None,
-        };
         for row in 0..t.len() {
             let Some(text) = t.cell(row, at) else { continue };
             let message = match kind {
@@ -1474,13 +1584,22 @@ pub fn table_faults(
                 // body of parts. A row's model matters when something
                 // uses the row, which Verify Module looks at.)
                 ColumnKind::Model => None,
-                ColumnKind::Row(target) => mg_2da::parse_int(text)
-                    .and_then(|v| row_named(name, column, v))
-                    .zip(length)
-                    .filter(|(named, length)| named >= length)
-                    .map(|(named, length)| {
-                        format!("row {named} of {target}.2da doesn't exist: it has {length} rows")
-                    }),
+                ColumnKind::Row(_) | ColumnKind::RowBy { .. } => {
+                    let named = mg_2da::parse_int(text).and_then(|v| row_named(name, column, v));
+                    match (kind.row_table(t, row), named) {
+                        (Some(target), Some(named)) if target.eq_ignore_ascii_case(name) => {
+                            row_fault(t, target, named)
+                        }
+                        (Some(target), Some(named)) => tables
+                            .and_then(|read| read(target))
+                            .and_then(|other| row_fault(&other, target, named)),
+                        _ => None,
+                    }
+                }
+                ColumnKind::Table => tables.and_then(|read| {
+                    let there = text.eq_ignore_ascii_case(name) || read(text.trim()).is_some();
+                    (!there).then(|| format!("{text}.2da, which it names, isn't there"))
+                }),
             };
             if let Some(message) = message {
                 out.push(CellFault { row, column: at, message });
@@ -1573,65 +1692,85 @@ fn two_da(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
         let theirs: Vec<Option<&str>> = table.columns().iter().map(|c| base.get(row, c)).collect();
         row >= base.len() || mine != theirs
     };
-    for (t, column) in STRREF_COLUMNS {
-        if name != t {
+    // What its columns hold: its own, and those it has as a table that a
+    // class, a race, a package or an item property names (by that column,
+    // or by its name as the game's own are named).
+    let mut kinds = column_kinds(&name);
+    for (naming, by, _, column, kind) in NAMED_TABLES {
+        if kinds.contains(&(column, kind)) {
             continue;
         }
-        for row in 0..table.len() {
-            if !changed(row) {
-                continue;
-            }
-            let Some(v) = table.get_int(row, column) else { continue };
-            let Ok(v) = u32::try_from(v) else { continue };
-            if let Some(p) = strref_problem(v, d.tlk) {
-                d.push(
-                    Error,
-                    Check::TwoDaStrRef,
-                    source,
-                    key,
-                    format!("row {row}, {column}"),
-                    format!("string {v} doesn't exist: {p} (\"Bad Strref\")"),
-                );
-            }
+        let named = d.table(naming).is_some_and(|t| {
+            (0..t.len()).any(|r| t.get(r, by).is_some_and(|n| n.eq_ignore_ascii_case(&name)))
+        });
+        if named {
+            kinds.push((column, kind));
         }
     }
-    // Rows of other tables (as the module has them, this hak's and the
-    // others' over the game's) that its changed rows name.
-    let rows: Vec<usize> = (0..table.len()).filter(|r| changed(*r)).collect();
-    // (Its own columns, and those it has as a table that a class, a race
-    // or a package names: by that column, or by its name as the game's
-    // own are named.)
-    let mut columns: Vec<(&str, &str)> =
-        ROW_COLUMNS.iter().filter(|(t, _, _)| name == *t).map(|(_, c, to)| (*c, *to)).collect();
-    for (naming, by, start, column, target) in NAMED_TABLES {
-        let is_named = name.starts_with(start)
-            || d.table(naming).is_some_and(|t| {
-                (0..t.len()).any(|r| t.get(r, by).is_some_and(|n| n.eq_ignore_ascii_case(&name)))
-            });
-        if is_named && !columns.contains(&(column, target)) {
-            columns.push((column, target));
-        }
-    }
-    for (column, target) in columns {
-        let t = name.as_str();
+    for (column, kind) in kinds {
         if table.column(column).is_none() {
             continue;
         }
-        let Some(length) = d.table(target).map(TwoDa::len) else { continue };
-        for &row in &rows {
-            let named = table.get_int(row, column).and_then(|v| row_named(t, column, v));
-            if let Some(named) = named.filter(|n| *n >= length) {
-                d.push(
-                    Warning,
-                    Check::TwoDaRef,
-                    source,
-                    key,
-                    format!("row {row}, {column}"),
-                    format!("row {named} of {target}.2da doesn't exist: it has {length} rows"),
-                );
+        for row in (0..table.len()).filter(|r| changed(*r)) {
+            let at = format!("row {row}, {column}");
+            match kind {
+                ColumnKind::StrRef => {
+                    let Some(v) = table.get_int(row, column) else { continue };
+                    let Ok(v) = u32::try_from(v) else { continue };
+                    if let Some(p) = strref_problem(v, d.tlk) {
+                        let message = format!("string {v} doesn't exist: {p} (\"Bad Strref\")");
+                        d.push(Error, Check::TwoDaStrRef, source, key, at, message);
+                    }
+                }
+                ColumnKind::Model => {}
+                // Rows of other tables (as the module has them, this
+                // hak's and the others' over the game's).
+                ColumnKind::Row(_) | ColumnKind::RowBy { .. } => {
+                    let Some(target) = kind.row_table(&table, row) else { continue };
+                    let Some(named) =
+                        table.get_int(row, column).and_then(|v| row_named(&name, column, v))
+                    else {
+                        continue;
+                    };
+                    let Some(other) = d.table(target) else { continue };
+                    let Some(message) = row_fault(other, target, named) else { continue };
+                    // (A cell as the copy below has it, wrong in the game's
+                    // own tables too, is the game's: appearance's
+                    // FOOTSTEPTYPE 30.)
+                    let kept = base.is_some_and(|b| b.get(row, column) == table.get(row, column));
+                    if kept
+                        && game_copy(d.rm, target)
+                            .is_some_and(|g| row_fault(&g, target, named).is_some())
+                    {
+                        continue;
+                    }
+                    d.push(Warning, Check::TwoDaRef, source, key, at, message);
+                }
+                // A table that is not there.
+                ColumnKind::Table => {
+                    let Some(named) = table.get(row, column) else { continue };
+                    let there = ResKey::parse(named.trim(), ResType::TWODA)
+                        .is_some_and(|k| d.rm.contains(&k));
+                    if !there {
+                        let message = format!("{named}.2da, which it names, isn't there");
+                        d.push(Warning, Check::TwoDaRef, source, key, at, message);
+                    }
+                }
             }
         }
     }
+}
+
+/// The game's own copy of a table (the lowest, below every custom layer).
+pub fn game_copy(rm: &ResMan, name: &str) -> Option<TwoDa> {
+    let key = ResKey::parse(name, ResType::TWODA)?;
+    let data = rm
+        .layers()
+        .iter()
+        .rev()
+        .filter(|l| !is_custom(l))
+        .find_map(|l| l.container.read(&key).ok())?;
+    TwoDa::parse(&data, Codepage::default()).ok()
 }
 
 /// The module's own tables that have a description beside them
@@ -2916,7 +3055,14 @@ endmodelgeom fx\ndonemodel fx\n";
             "feat",
             &t,
             &column_kinds("feat"),
-            &|name| (name == "spells").then_some(3),
+            Some(&|name: &str| {
+                let spells = "2DA V2.0\n\n   Label\n0 a\n1 b\n2 c\n";
+                (name == "spells").then(|| {
+                    std::sync::Arc::new(
+                        TwoDa::parse(spells.as_bytes(), Codepage::default()).unwrap(),
+                    )
+                })
+            }),
             TalkTables { base: 100, custom: None },
         );
         let at: Vec<(usize, usize)> = found.iter().map(|f| (f.row, f.column)).collect();
@@ -2927,6 +3073,153 @@ endmodelgeom fx\ndonemodel fx\n";
         assert!(kinds.contains(&("FEAT", ColumnKind::StrRef)));
         assert!(kinds.contains(&("MASTERFEAT", ColumnKind::Row("masterfeats"))));
         assert!(column_kinds("nothing").is_empty());
+    }
+
+    /// A class's other tables, the item properties' and the tables they
+    /// name (the notes on the tables for plugins): a requirement's row by
+    /// its kind, a table that isn't there, a row that is blank, the
+    /// strings of a table an item property names.
+    #[test]
+    fn a_class_s_requirements_item_properties_and_padding_rows_are_checked() {
+        let feat = |rows: &str| format!("2DA V2.0\n\n   LABEL PREREQFEAT1 SPELLID\n{rows}");
+        let mut game = MemContainer::new();
+        game.insert(
+            key("feat", ResType::TWODA),
+            feat("0 Alertness **** ****\n1 **** **** ****\n2 Dodge **** ****\n").into_bytes(),
+        );
+        game.insert(key("skills", ResType::TWODA), b"2DA V2.0\n\n   Label\n0 Hide\n".to_vec());
+        let mut hak = MemContainer::new();
+        hak.insert(
+            key("classes", ResType::TWODA),
+            b"2DA V2.0\n\n   Label PreReqTable BonusFeatsTable\n\
+              0 Knight my_knight_pres cls_bfeat_gone\n"
+                .to_vec(),
+        );
+        // A requirement of each kind: a feat, a blank feat, a skill past
+        // the table's end, a variable (no row) and a feat past the end.
+        hak.insert(
+            key("my_knight_pres", ResType::TWODA),
+            b"2DA V2.0\n\n   LABEL ReqType ReqParam1 ReqParam2\n\
+              0 Dodge FEAT 2 ****\n1 Pad FEATOR 1 ****\n2 Hide SKILL 4 8\n\
+              3 Var VAR X1_Allow 0\n4 Gone FEAT 9 ****\n"
+                .to_vec(),
+        );
+        hak.insert(
+            key("itempropdef", ResType::TWODA),
+            b"2DA V2.0\n\n   Name Label SubTypeResRef CostTableResRef\n\
+              0 649 Ability my_abilities 3\n"
+                .to_vec(),
+        );
+        hak.insert(
+            key("iprp_costtable", ResType::TWODA),
+            b"2DA V2.0\n\n   Name Label\n0 IPRP_BASE1 Base\n".to_vec(),
+        );
+        hak.insert(
+            key("my_abilities", ResType::TWODA),
+            b"2DA V2.0\n\n   Name Label\n0 135 Str\n1 900 Dex\n".to_vec(),
+        );
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "game", LayerClass::Key, game);
+        rm.add(priority::HAK_USER, "my.hak", LayerClass::Erf, hak);
+        let f = examine(&Module::new(), &rm, TalkTables { base: 800, custom: None });
+        let mut found: Vec<(String, String, String)> =
+            f.iter().map(|x| (x.resource.to_string(), x.at.clone(), x.message.clone())).collect();
+        found.sort();
+        let row = |r: &str, a: &str, m: &str| (r.to_string(), a.to_string(), m.to_string());
+        assert_eq!(
+            found,
+            [
+                row(
+                    "classes.2da",
+                    "row 0, BonusFeatsTable",
+                    "cls_bfeat_gone.2da, which it names, isn't there"
+                ),
+                row(
+                    "iprp_costtable.2da",
+                    "row 0, Name",
+                    "IPRP_BASE1.2da, which it names, isn't there"
+                ),
+                row(
+                    "itempropdef.2da",
+                    "row 0, CostTableResRef",
+                    "row 3 of iprp_costtable.2da doesn't exist: it has 1 rows"
+                ),
+                row(
+                    "my_abilities.2da",
+                    "row 1, Name",
+                    "string 900 doesn't exist: dialog.tlk has 800 strings (\"Bad Strref\")"
+                ),
+                row(
+                    "my_knight_pres.2da",
+                    "row 1, ReqParam1",
+                    "row 1 of feat.2da is blank (a padding row)"
+                ),
+                row(
+                    "my_knight_pres.2da",
+                    "row 2, ReqParam1",
+                    "row 4 of skills.2da doesn't exist: it has 1 rows"
+                ),
+                row(
+                    "my_knight_pres.2da",
+                    "row 4, ReqParam1",
+                    "row 9 of feat.2da doesn't exist: it has 3 rows"
+                ),
+            ]
+        );
+        // What the columns hold: by the table's name, and by the column
+        // that names it.
+        let requirement = ColumnKind::RowBy { by: "ReqType", tables: &REQUIREMENT_ROWS };
+        assert_eq!(column_kinds("cls_pres_wm"), [("ReqParam1", requirement)]);
+        let read = |name: &str| {
+            let key = ResKey::parse(name, ResType::TWODA)?;
+            let t = TwoDa::parse(&rm.get(&key).ok()?, Codepage::default()).ok()?;
+            Some(std::sync::Arc::new(t))
+        };
+        assert_eq!(column_kinds_as_named("my_knight_pres", &read), [("ReqParam1", requirement)]);
+        assert_eq!(column_kinds_as_named("my_abilities", &read), [("Name", ColumnKind::StrRef)]);
+        assert!(column_kinds("my_abilities").is_empty(), "known only as named");
+        let kinds = column_kinds("classes");
+        assert!(kinds.contains(&("SpellGainTable", ColumnKind::Table)));
+        let pres = TwoDa::parse(
+            &rm.get(&key("my_knight_pres", ResType::TWODA)).unwrap(),
+            Codepage::default(),
+        )
+        .unwrap();
+        assert_eq!(requirement.row_table(&pres, 2), Some("skills"));
+        assert_eq!(requirement.row_table(&pres, 3), None);
+        // As the 2DA editor checks a table, every row of it: and with no
+        // game, no table is known not to be there.
+        let classes =
+            TwoDa::parse(&rm.get(&key("classes", ResType::TWODA)).unwrap(), Codepage::default())
+                .unwrap();
+        let tlk = TalkTables { base: 800, custom: None };
+        let found = table_faults("classes", &classes, &kinds, Some(&read), tlk);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(table_faults("classes", &classes, &kinds, None, tlk).is_empty());
+        let found =
+            table_faults("my_knight_pres", &pres, &[("ReqParam1", requirement)], Some(&read), tlk);
+        let at: Vec<usize> = found.iter().map(|f| f.row).collect();
+        assert_eq!(at, [1, 2, 4], "{found:?}");
+        // A cell a hak keeps as the game has it, wrong in the game too, is
+        // the game's: said only where the hak changes it.
+        let mut game = MemContainer::new();
+        let appearance = |rows: &str| format!("2DA V2.0\n\n   LABEL RACE FOOTSTEPTYPE\n{rows}");
+        game.insert(key("appearance", ResType::TWODA), appearance("0 Imp a 30\n").into_bytes());
+        game.insert(
+            key("footstepsounds", ResType::TWODA),
+            b"2DA V2.0\n\n   Label\n0 Normal\n".to_vec(),
+        );
+        let hak = |rows: &str| {
+            let mut hak = MemContainer::new();
+            hak.insert(key("appearance", ResType::TWODA), appearance(rows).into_bytes());
+            let mut rm = ResMan::new();
+            rm.add(priority::KEY, "game", LayerClass::Key, game.clone());
+            rm.add(priority::HAK_USER, "my.hak", LayerClass::Erf, hak);
+            examine(&Module::new(), &rm, TalkTables { base: 800, custom: None })
+        };
+        assert!(hak("0 Imp b 30\n").is_empty(), "the game's 30, kept");
+        let f = hak("0 Imp b 31\n");
+        assert_eq!(checks(&f), [("2da-ref", "row 0, FOOTSTEPTYPE".into())]);
     }
 
     #[test]
@@ -2940,6 +3233,12 @@ endmodelgeom fx\ndonemodel fx\n";
         assert_eq!(checks(&f), [("custom-tlk", "Custom Tlk".into())]);
         assert!(f[0].message.contains("without .tlk"), "{}", f[0].message);
         assert!(examine(&m, &rm, TalkTables { base: 100, custom: Some(3) }).is_empty());
+        // A table not read (a plugin's test with no game): not said, nor
+        // its strings.
+        let uncounted = TalkTables { base: 0, custom: Some(TalkTables::UNCOUNTED) };
+        assert!(examine(&m, &rm, uncounted).is_empty());
+        assert_eq!(strref_problem(0x0100_0000 + 5000, uncounted), None);
+        assert_eq!(strref_problem(5000, uncounted), None);
     }
 
     /// An archive whose last resources sit past 2 GiB.

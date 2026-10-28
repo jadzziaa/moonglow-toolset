@@ -210,6 +210,14 @@ impl GameData {
         self.custom_tlk.as_ref()
     }
 
+    /// Puts another `dialog.tlk` in place of the one read (a plugin's
+    /// test brings its own), the language its own.
+    pub fn set_tlk(&mut self, tlk: Tlk) {
+        self.language = tlk.language;
+        self.tlk = tlk;
+        self.invalidate();
+    }
+
     /// `dialog.tlk`.
     pub fn tlk(&self) -> &Tlk {
         &self.tlk

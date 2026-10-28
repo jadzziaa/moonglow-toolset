@@ -473,6 +473,16 @@ pub struct PopupText {
     pub name: String,
 }
 
+impl PopupText {
+    /// The window for a placeable of an area (its right-click menu's Add
+    /// Popup Text…): no text yet, and the conversation's name starting
+    /// with the builder's code.
+    pub fn of(app: &Moonglow, area: ResRef, placeable: usize) -> PopupText {
+        let name = crate::widgets::code_start(app, ResType::DLG);
+        PopupText { area, placeable, text: String::new(), name }
+    }
+}
+
 pub(crate) fn popup_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(mut p) = app.popup_text.take() else { return };
     let (mut ok, mut close) = (false, false);

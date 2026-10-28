@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T11:11:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T11:25:06Z }
 ---
 
 # Modules
@@ -668,10 +668,23 @@ kinds`: `tdod_n_guard` for a creature). The pattern is used by:
 - **Setup Store**'s conversation and script (`ab_store001`,
   `ab_openstore001`);
 - **Copy…** and **Edit Copy…** (`ab_nw_chicken001`);
-- the Script Wizard's names (`ab_sc_001`, `ab_at_001`).
+- the Script Wizard's names (`ab_sc_001`, `ab_at_001`);
+- **New Script…**, **New Conversation…**, **New NUI Window…** and **Add
+  Popup Text…**, whose name starts with the code, the cursor where the
+  name goes (after `ab_`, or before `_ab` with a pattern `{name}_{code}`;
+  since Moonglow 2.13.0);
+- **Import Conversation**'s conversation, named after its file
+  (`ab_night_watch`; since 2.13.0);
+- plugins, which ask for a name with `ctx.module:new_name`
+  ([Plugin API](17-plugin-api.md)); `ctx.terrain:new_area`'s area is the
+  Area Wizard's.
 
-A name typed in a wizard's ResRef field, or in **New Script…** and the
-other windows that start with an empty name, is taken as typed.
+What is typed is taken as typed: a name in those windows (the code can
+be erased, for a script that must have a name of its own) and a ResRef
+typed in a wizard's ResRef field. Where a typed ResRef hasn't the code,
+the wizard offers a button that puts it in (**Use ab_shop**), and the
+Creature Wizard, where the module has the ResRef typed already, makes
+the next free one from it with the code (`ab_guard`; since 2.13.0).
 
 ### Described variables
 
@@ -802,8 +815,14 @@ that is a project of its own: `builtin = "var-runtime"`
 `mg vars MODULE` lists the descriptions, with the values a script's
 constants and a table's rows give (the game's, the project's and the
 module's haks', since Moonglow 2.13.0; `--on placeable`: those that go
-on one); `mg areas --var NAME=VALUE` gives a described variable its
-described type ([Command-line tools](11-command-line.md)).
+on one); `mg vars MODULE --undescribed` lists, in their place, the
+module's variables that no description names, each with its types, what
+it is on and where, and the description it is near (one in another
+case, or the nearest name of those `undescribed` takes: a typo, most
+likely; since Moonglow 2.13.0); `mg areas --var NAME=VALUE` gives a
+described variable its described type ([Command-line
+tools](11-command-line.md)). A plugin reads the descriptions with
+`mg.vars.describe(name)` ([Plugin API](17-plugin-api.md#mg)).
 
 ### Claimed areas
 
@@ -1292,10 +1311,13 @@ numbers at the left as it scrolls.
   goes to it, Escape clears it); **Go to** takes a row's number.
 
 **Cells are checked as you type**, as Verify Module checks a hak's
-tables: a cell that names a row of another table which isn't there (a
-feat's required feat, a spell's feat, a package's class, and the like),
-or a talk-table string that isn't, is outlined in red and says why
-under the pointer; the count above the grid goes to each in turn. Under
+tables: a cell that names a row of another table which isn't there or
+is blank (a feat's required feat, a spell's feat, a package's class, a
+class's requirement by its kind, and the like), a table which isn't
+there (a class's feat list; with the game's data), or a talk-table
+string that isn't, is outlined in red and says why under the pointer
+(a cell as the game's own copy has it, wrong there too, is the game's
+and is not: seven appearances name footstep 30 of 18); the count above the grid goes to each in turn. Under
 the grid, the selected cell is shown by what its column holds: a
 talk-table string as its text (**Strings as text** shows them so in the
 grid too), a row of another table as that row's name, with a list to

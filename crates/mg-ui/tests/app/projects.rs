@@ -1081,6 +1081,157 @@ fn a_builder_code_set_in_its_window_begins_the_resrefs_proposed() {
     assert_eq!(h.state().ws.as_ref().unwrap().module.project_file.naming(), Default::default());
 }
 
+/// The text field holding `value`, of a window that asks for a name.
+fn typed_name<'h>(h: &'h Harness<'_, Moonglow>, value: &'h str) -> egui_kittest::Node<'h> {
+    let field = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.role() == egui::accesskit::Role::TextInput && n.value().as_deref() == Some(value)
+    };
+    h.get(egui_kittest::kittest::by().predicate(field))
+}
+
+/// The builder code where a new resource's name is typed (The Domains of
+/// Dread's builder proposal, C1): New Script…, New Conversation… and New
+/// NUI Window… start with it, the cursor where the name goes (before a
+/// code that follows the name), Add Popup Text…'s conversation too, and
+/// an imported story's conversation has it.
+#[test]
+fn the_names_typed_for_new_resources_start_with_the_builder_code() {
+    let dir = project_folder("ui-code-new-names", &[]);
+    mg_module::project_file::ProjectFile::set_builder_code(&dir, Some("ab")).unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&dir);
+    let mut h = harness(app, 1000.0, 800.0);
+    h.run();
+    let tools = |h: &mut Harness<'_, Moonglow>, item: &str| {
+        h.get_by_label("Tools").click();
+        h.run();
+        h.get_by_label_contains(item).click();
+        h.run();
+    };
+    tools(&mut h, "New Script…");
+    assert_eq!(h.state().new_script.as_deref(), Some("ab_"));
+    typed_name(&h, "ab_").type_text("gate");
+    h.run();
+    h.get_by_label("Create").click();
+    h.run();
+    let ws = h.state().ws.as_ref().unwrap();
+    assert!(ws.module.contains(&ResKey::parse("ab_gate", ResType::NSS).unwrap()));
+    tools(&mut h, "New Conversation…");
+    assert_eq!(h.state().new_dialog.as_deref(), Some("ab_"));
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run();
+    tools(&mut h, "New NUI Window…");
+    assert!(h.query_by_label("New NUI Window").is_some());
+    typed_name(&h, "ab_");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run();
+    let start = ResRef::from_str("start").unwrap();
+    assert_eq!(mg_ui::store_wizard::PopupText::of(h.state(), start, 0).name, "ab_");
+    // A story's conversation: named after its file, with the code (never
+    // twice), the next free after it.
+    let ink = dir.join("Night Watch.ink");
+    std::fs::write(&ink, "-> gate\n=== gate ===\nWho goes there?\n+ [A friend.] -> END\n").unwrap();
+    let first = h.state_mut().import_conversation(&ink).expect("imported");
+    h.run();
+    assert_eq!(first.resref.to_string(), "ab_night_watch");
+    let again = h.state_mut().import_conversation(&ink).expect("imported");
+    assert_eq!(again.resref.to_string(), "ab_night_watc001", "the name cut for the number");
+    let ab = dir.join("ab_lantern.ink");
+    std::fs::write(&ab, "-> gate\n=== gate ===\nA lantern.\n+ [Light it.] -> END\n").unwrap();
+    let own = h.state_mut().import_conversation(&ab).expect("imported");
+    assert_eq!(own.resref.to_string(), "ab_lantern");
+
+    // A pattern with the code after the name: the cursor before it.
+    std::fs::write(dir.join("moonglow.toml"), "[resrefs]\npattern = \"{name}_{code}\"\n").unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&dir);
+    let mut h = harness(app, 1000.0, 800.0);
+    h.run();
+    tools(&mut h, "New Conversation…");
+    assert_eq!(h.state().new_dialog.as_deref(), Some("_ab"));
+    h.run();
+    typed_name(&h, "_ab").type_text("gate");
+    h.run();
+    assert_eq!(h.state().new_dialog.as_deref(), Some("gate_ab"));
+    h.get_by_label("Create").click();
+    h.run();
+    let ws = h.state().ws.as_ref().unwrap();
+    assert!(ws.module.contains(&ResKey::parse("gate_ab", ResType::DLG).unwrap()));
+}
+
+/// A ResRef typed in a wizard is taken as typed, with a button that puts
+/// the builder code in where it lacks it; the Creature Wizard's, where
+/// the module has it, becomes the next free from it with the code (C1).
+#[test]
+fn a_resref_typed_in_a_wizard_is_offered_the_builder_code() {
+    use mg_module::palette::BlueprintKind;
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = project_folder("ui-code-typed", &[]);
+    mg_module::project_file::ProjectFile::set_builder_code(&dir, Some("ab")).unwrap();
+    let mut app = game_app(&root, None);
+    app.open_module(&dir);
+    app.open_palette = false;
+    let mut h = harness(app, 1000.0, 900.0);
+    h.run();
+    h.state_mut().blueprint_wizard =
+        Some(mg_ui::blueprint_wizard::BlueprintWizard::new(BlueprintKind::Store));
+    h.run();
+    h.get_by_label("Merchants").click();
+    h.run();
+    h.get_by_label("Next >").click();
+    h.run();
+    type_into_hint(&mut h, "ab_merchants001", "shop");
+    h.run();
+    h.get_by_label("Use ab_shop").click();
+    h.run();
+    assert_eq!(h.state().blueprint_wizard.as_ref().unwrap().resref, "ab_shop");
+    assert!(h.query_by_label("Use ab_shop").is_none(), "it has the code now");
+    h.get_by_label("Finish").click();
+    h.run();
+    assert!(module_gff(&mut h, "ab_shop", ResType::UTM).is_some());
+
+    // The Creature Wizard: a ResRef the module has.
+    let guard = ResKey::parse("guard", ResType::UTC).unwrap();
+    let data = mg_gff::Gff::new(*b"UTC ").to_bytes().unwrap();
+    let made = mg_edit::Edit::SetResource { key: guard, data: Some(data) };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("guard", vec![made])));
+    h.run();
+    h.get_by_label("Wizards").click();
+    h.run();
+    h.get_by_label_contains("Creature Wizard…").click();
+    h.run();
+    let next = |h: &mut Harness<'_, Moonglow>| {
+        h.get_by_label("Next >").click();
+        h.run();
+    };
+    next(&mut h);
+    h.get_by_label("Human").click();
+    h.run();
+    for _ in 0..4 {
+        next(&mut h);
+    }
+    let w = h.state_mut().creature_wizard.as_mut().unwrap();
+    (w.first_name, w.resref) = ("Hent".into(), "guard".into());
+    h.run();
+    assert!(h.query_by_label("Use ab_guard").is_some());
+    next(&mut h);
+    h.get_by_label("Tutorial").click();
+    h.run();
+    next(&mut h);
+    next(&mut h);
+    h.query_all_by_label("Finish")
+        .find(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
+        .unwrap()
+        .click();
+    h.run();
+    assert!(module_gff(&mut h, "ab_guard", ResType::UTC).is_some(), "the next free, with the code");
+}
+
 /// A team's own prefix, without a builder's code and by kind (`[resrefs]
 /// pattern = "tdod_{kind}{name}"`): the wizards and a copy propose it for
 /// everyone, and the Builder Code window says so.

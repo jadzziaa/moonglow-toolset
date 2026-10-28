@@ -16,12 +16,14 @@ use crate::runtime::{codepage, fail};
 type This = LuaValue;
 
 /// What these objects have, for the list of the API's names.
-pub(crate) const NAMES: [&str; 9] = [
+pub(crate) const NAMES: [&str; 11] = [
     "twoda:set",
     "twoda:add_row",
     "twoda:add_column",
     "twoda:write",
     "tlk.lines",
+    "tlk.language",
+    "tlk:set_language",
     "tlk:get",
     "tlk:set",
     "tlk:add",
@@ -44,8 +46,10 @@ fn cell(value: &LuaValue) -> mlua::Result<Option<String>> {
 
 /// A 2DA as plugins have it: what `ctx.game:table` and `mg.twoda` give.
 /// It is the plugin's own: changing it changes nothing else (a table of
-/// the game's is copied when first changed).
-pub(crate) fn twoda(lua: &Lua, table: Arc<TwoDa>) -> mlua::Result<Table> {
+/// the game's is copied when first changed). `file`: the file it was read
+/// from, which `write` keeps the layout of (as it is, where the table is
+/// unchanged).
+pub(crate) fn twoda(lua: &Lua, table: Arc<TwoDa>, file: Option<Vec<u8>>) -> mlua::Result<Table> {
     let out = lua.create_table()?;
     out.set("rows", table.len())?;
     out.set("columns", table.columns().to_vec())?;
@@ -117,37 +121,59 @@ pub(crate) fn twoda(lua: &Lua, table: Arc<TwoDa>) -> mlua::Result<Table> {
     out.set(
         "write",
         lua.create_function(move |lua, _: This| {
-            lua.create_string(t.borrow().to_bytes(codepage()).or_else(fail)?)
+            let t = t.borrow();
+            let bytes = match &file {
+                Some(file) => t.to_bytes_like(codepage(), file),
+                None => t.to_bytes(codepage()),
+            };
+            lua.create_string(bytes.or_else(fail)?)
         })?,
     )?;
     Ok(out)
 }
 
-/// `mg.twoda`: tables made and read.
-pub(crate) fn twoda_api(lua: &Lua) -> mlua::Result<Table> {
+/// `mg.twoda`: tables made and read; `game`, the job's game data, by
+/// which `kinds` knows a table by the column that names it too.
+pub(crate) fn twoda_api(lua: &Lua, game: Option<Arc<mg_rules::GameData>>) -> mlua::Result<Table> {
     let api = lua.create_table()?;
     api.set(
         "parse",
         lua.create_function(|lua, bytes: mlua::LuaString| {
             let table = TwoDa::parse(&bytes.as_bytes(), codepage()).or_else(fail)?;
-            twoda(lua, Arc::new(table))
+            twoda(lua, Arc::new(table), Some(bytes.as_bytes().to_vec()))
         })?,
     )?;
     api.set(
         "new",
         lua.create_function(|lua, columns: Vec<String>| {
-            twoda(lua, Arc::new(TwoDa::new(columns).or_else(fail)?))
+            twoda(lua, Arc::new(TwoDa::new(columns).or_else(fail)?), None)
         })?,
     )?;
     api.set(
         "kinds",
-        lua.create_function(|lua, name: String| {
+        lua.create_function(move |lua, name: String| {
+            let name = name.trim_end_matches(".2da");
+            let read = |n: &str| game.as_deref().and_then(|g| g.table(n).ok());
             let out = lua.create_table()?;
-            for (column, kind) in mg_module::doctor::column_kinds(&name) {
+            for (column, kind) in mg_module::doctor::column_kinds_as_named(name, &read) {
                 let kind = match kind {
-                    ColumnKind::StrRef => "strref".to_string(),
-                    ColumnKind::Model => "model".to_string(),
-                    ColumnKind::Row(table) => format!("row:{table}"),
+                    ColumnKind::StrRef => LuaValue::String(lua.create_string("strref")?),
+                    ColumnKind::Model => LuaValue::String(lua.create_string("model")?),
+                    ColumnKind::Row(table) => {
+                        LuaValue::String(lua.create_string(format!("row:{table}"))?)
+                    }
+                    ColumnKind::Table => LuaValue::String(lua.create_string("table")?),
+                    // (The table by another column's value.)
+                    ColumnKind::RowBy { by, tables } => {
+                        let t = lua.create_table()?;
+                        t.set("by", by)?;
+                        let rows = lua.create_table()?;
+                        for (value, table) in tables {
+                            rows.set(*value, *table)?;
+                        }
+                        t.set("rows", rows)?;
+                        LuaValue::Table(t)
+                    }
                 };
                 out.set(column, kind)?;
             }
@@ -224,9 +250,22 @@ fn describe(lua: &Lua, (text, scripts): (String, Option<Table>)) -> mlua::Result
     Ok(out)
 }
 
-fn entry_table(lua: &Lua, e: &TlkEntry) -> mlua::Result<Table> {
+/// The codepage of a talk table's text: its language's, in the game's.
+fn codepage_of(t: &Tlk) -> mg_core::Codepage {
+    codepage().for_language(t.language)
+}
+
+/// A language as a plugin names it: its two-letter code (`"fr"`).
+fn language(code: &str) -> mlua::Result<mg_core::Language> {
+    mg_core::Language::from_short_code(code).map_or_else(
+        || fail(format!("{code:?} is not a language of the game's (en, fr, de, it, es, pl)")),
+        Ok,
+    )
+}
+
+fn entry_table(lua: &Lua, e: &TlkEntry, cp: mg_core::Codepage) -> mlua::Result<Table> {
     let t = lua.create_table()?;
-    t.set("text", lua.create_string(codepage().decode(&e.text).as_bytes())?)?;
+    t.set("text", lua.create_string(cp.decode(&e.text).as_bytes())?)?;
     if let Some(sound) = e.sound_resref() {
         t.set("sound", sound.to_string())?;
     }
@@ -238,8 +277,8 @@ fn entry_table(lua: &Lua, e: &TlkEntry) -> mlua::Result<Table> {
 
 /// A line from what a plugin gives: its text, or a table with `text`,
 /// `sound` and `sound_length`. Nil is no line.
-fn entry(value: &LuaValue) -> mlua::Result<TlkEntry> {
-    let encoded = |text: &str| match codepage().encode(text) {
+fn entry(value: &LuaValue, cp: mg_core::Codepage) -> mlua::Result<TlkEntry> {
+    let encoded = |text: &str| match cp.encode(text) {
         Some(bytes) => Ok(bytes.into_owned()),
         None => fail("the text has letters the game's codepage lacks"),
     };
@@ -271,13 +310,23 @@ fn entry(value: &LuaValue) -> mlua::Result<TlkEntry> {
 fn tlk(lua: &Lua, table: Tlk) -> mlua::Result<Table> {
     let out = lua.create_table()?;
     out.set("lines", table.entries.len())?;
+    out.set("language", table.language.short_code())?;
     let shared = Rc::new(RefCell::new(table));
+    let t = shared.clone();
+    out.set(
+        "set_language",
+        lua.create_function(move |_, (this, code): (Table, String)| {
+            t.borrow_mut().language = language(&code)?;
+            this.set("language", code.to_ascii_lowercase())
+        })?,
+    )?;
     let t = shared.clone();
     out.set(
         "get",
         lua.create_function(move |lua, (_, line): (This, usize)| {
-            match t.borrow().entries.get(line).filter(|e| **e != TlkEntry::default()) {
-                Some(e) => Ok(Some(entry_table(lua, e)?)),
+            let t = t.borrow();
+            match t.entries.get(line).filter(|e| **e != TlkEntry::default()) {
+                Some(e) => Ok(Some(entry_table(lua, e, codepage_of(&t))?)),
                 None => Ok(None),
             }
         })?,
@@ -289,8 +338,8 @@ fn tlk(lua: &Lua, table: Tlk) -> mlua::Result<Table> {
             if line >= mg_core::StrRef::CUSTOM_FLAG as usize {
                 return fail(format!("{line} is past what a table holds"));
             }
-            let e = entry(&value)?;
             let mut t = t.borrow_mut();
+            let e = entry(&value, codepage_of(&t))?;
             if t.entries.len() <= line {
                 t.entries.resize(line + 1, TlkEntry::default());
             }
@@ -302,8 +351,8 @@ fn tlk(lua: &Lua, table: Tlk) -> mlua::Result<Table> {
     out.set(
         "add",
         lua.create_function(move |_, (this, value): (Table, LuaValue)| {
-            let e = entry(&value)?;
             let mut t = t.borrow_mut();
+            let e = entry(&value, codepage_of(&t))?;
             t.entries.push(e);
             this.set("lines", t.entries.len())?;
             Ok(t.entries.len() - 1)
@@ -328,6 +377,12 @@ pub(crate) fn tlk_api(lua: &Lua) -> mlua::Result<Table> {
             tlk(lua, Tlk::read(&bytes.as_bytes()).or_else(fail)?)
         })?,
     )?;
-    api.set("new", lua.create_function(|lua, ()| tlk(lua, Tlk::new(mg_core::Language::ENGLISH)))?)?;
+    api.set(
+        "new",
+        lua.create_function(|lua, code: Option<String>| {
+            let l = code.as_deref().map_or(Ok(mg_core::Language::ENGLISH), language)?;
+            tlk(lua, Tlk::new(l))
+        })?,
+    )?;
     Ok(api)
 }

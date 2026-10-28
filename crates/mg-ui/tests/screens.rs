@@ -6244,3 +6244,88 @@ fn main_window_log_and_tree() {
     h.run_steps(3);
     shoot(&mut h, &dir, "w3-tree-several-menu");
 }
+
+/// The names typed for new resources in a project with a builder code
+/// (`ab`): New Script… as it opened before (empty) and as it opens now
+/// (with the code), and the Store Wizard's Name page with a ResRef typed
+/// without the code, and the button that puts it in.
+#[test]
+#[ignore]
+fn names_with_the_builder_code() {
+    use egui_kittest::kittest::Queryable;
+    use mg_module::{Module, ModuleLocation};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let out = mg_testkit::output_dir("screens");
+    let dir = mg_testkit::scratch_dir("screens-builder-code").join("project");
+    let mut m = Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
+    mg_module::project_file::ProjectFile::set_builder_code(&dir, Some("ab")).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.open_module(&dir);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 700.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().new_script = Some(String::new());
+    shoot(&mut h, &out, "new-script-name-before");
+    h.state_mut().new_script = None;
+    h.run();
+    h.get_by_label("Tools").click();
+    h.run();
+    h.get_by_label_contains("New Script…").click();
+    shoot(&mut h, &out, "new-script-name-builder-code");
+    h.state_mut().new_script = None;
+    h.state_mut().blueprint_wizard = Some(mg_ui::blueprint_wizard::BlueprintWizard::new(
+        mg_module::palette::BlueprintKind::Store,
+    ));
+    h.run();
+    h.get_by_label("Merchants").click();
+    h.run();
+    h.get_by_label("Next >").click();
+    h.run();
+    h.state_mut().blueprint_wizard.as_mut().unwrap().resref = "shop".into();
+    shoot(&mut h, &out, "store-wizard-resref-without-code");
+}
+
+/// A copy of the game's appearance.2da in the 2DA editor: its rows 562 to
+/// 568 keep the game's footstep 30 (of 18), not outlined; row 0 typed so,
+/// outlined and said.
+#[test]
+#[ignore]
+fn table_game_s_own_wrong_cells() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let out = mg_testkit::output_dir("screens");
+    let dir = mg_testkit::scratch_dir("screens-table-game-s-own");
+    let install = GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let key = ResKey::parse("appearance", ResType::TWODA).unwrap();
+    let file = dir.join("appearance.2da");
+    std::fs::write(&file, game.resman.get(&key).unwrap()).unwrap();
+    let footsteps = game.table("appearance").unwrap().column("FOOTSTEPTYPE").unwrap();
+    let app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(4);
+    let go = |h: &mut Harness<'_, Moonglow>, row: usize| {
+        h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(row, footsteps);
+    };
+    go(&mut h, 562);
+    shoot(&mut h, &out, "table-appearance-game-s-footsteps");
+    {
+        let d = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+        d.edit.set(0, footsteps, Some("30".into())).unwrap();
+    }
+    h.get_by_label("Add Row").click();
+    h.run_steps(3);
+    go(&mut h, 0);
+    shoot(&mut h, &out, "table-appearance-typed-footstep");
+}

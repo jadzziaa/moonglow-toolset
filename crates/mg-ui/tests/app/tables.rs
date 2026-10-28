@@ -1056,6 +1056,37 @@ fn a_hak_s_table_and_a_file_s_are_saved_where_they_live() {
     assert!(std::fs::read_to_string(&file).unwrap().contains("Bread"), "discarded");
 }
 
+/// A cell as the game's own copy has it, wrong there too, is the game's:
+/// a hak's appearance.2da keeps seven rows of footstep 30 (of 18), which
+/// are not the builder's to fix; one the builder types is said.
+#[test]
+fn the_game_s_own_wrong_cells_are_not_said_in_a_copy() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-table-game-s-own");
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let key = ResKey::parse("appearance", ResType::TWODA).unwrap();
+    let file = dir.join("appearance.2da");
+    std::fs::write(&file, game.resman.get(&key).unwrap()).unwrap();
+    let footsteps = game.table("appearance").unwrap().column("FOOTSTEPTYPE").unwrap();
+    assert_eq!(game.table("appearance").unwrap().cell(562, footsteps), Some("30"));
+    let app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut h = harness(app, 1280.0, 800.0);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(4);
+    assert!(h.query_by_label_contains("wrong").is_none(), "the game's own seven");
+    {
+        let doc = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+        doc.edit.set(0, footsteps, Some("30".into())).unwrap();
+    }
+    h.get_by_label("Add Row").click();
+    h.run_steps(3);
+    h.get_by_label("1 cell is wrong").click();
+    h.run_steps(4);
+    assert_eq!(h.state().tables[0].selected, Some((0, footsteps)));
+}
+
 /// With the game's data: a cell is checked by what its column holds as
 /// it is typed, a row of another table is chosen by name, where a row is
 /// named is found, and rows are taken from the game's copy.

@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T11:11:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T11:19:11Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2191,7 +2191,7 @@ contribution itself states as not done or not checked.
   chooses, haks written with their leave, areas and terrain, pictures;
   0.3 files written into a chosen folder, 2DAs and talk tables as
   values, and events, whose own gaps are below, under "Plugins writing
-  into a folder" and "Tables for plugins"; 0.4 what is selected and
+  into a folder"; 0.4 what is selected and
   open, commands in right-click menus, fixes for findings, a plugin's
   own tests, settings, a project's own plugins, a resource's own events
   and the after-create hook):
@@ -2367,20 +2367,6 @@ contribution itself states as not done or not checked.
     harness. On Windows and macOS the tests pass in CI, but nobody has
     used plugins in the window there; and the file dialog of Install
     from File was not driven anywhere (the harness answers for it). (S)
-- **Tables for plugins** (`mg.twoda`, `mg.tlk`, plugin API 0.3): a 2DA
-  and a talk table as values to change and write; `mg.twoda.kinds`
-  says what Verify Module's tables say (ten columns that hold a
-  talk-table string, four that name a model, sixty-one that name a row
-  of another table, and the feat, skill and spell lists a class, a race
-  or a package names). Not done: a class's other tables (`cls_pres_*`,
-  whose row depends on the requirement's kind; `cls_bfeat_*`,
-  `cls_spgn_*`), the `iprp` tables, columns the game's own tables
-  break (`appearance.FOOTSTEPTYPE`); that the table a column names is
-  there at all is not checked; `mg.twoda.kinds` knows a named list by
-  its name only (`cls_feat_*`), not by the column that names it; a row that is
-  there but blank (a padding row) counts as there; a written 2DA is laid out as the game's are, not with the
-  widths of the file it was read from; a talk table's language is
-  English and its feminine table is another file. (S each)
 - **`mg roundtrip`** (a builder asked what keeps work from being
   corrupted): a module saved, read back and each GFF and 2DA written
   anew, compared with what it was. It does not ask the game or Aurora
@@ -2831,14 +2817,6 @@ The Domains of Dread's builder proposal (its section 3): the project file
 (`moonglow.toml`), Make Placeables Static and Setup Store following it,
 and duplicate tags on paste. What is left:
 
-- **The builder code is not proposed everywhere** (C1): New Script…, New
-  Conversation…, New NUI Window…, Add Popup Text… and Import
-  Conversation start from an empty name or the file's (the code isn't
-  put in the empty field); a ResRef typed in a wizard is taken as typed
-  (the Creature Wizard's, where the module has it, becomes the next free
-  from it, without the code);
-  plugins' `ctx.terrain:new_area` gets the code (it is the Area
-  Wizard's), plugins' other new resources don't. (S)
 - **A builder code isn't checked against the team's:** two builders who
   choose one code aren't told; a claims table (C6) could list the codes.
   (S)
@@ -2848,9 +2826,6 @@ and duplicate tags on paste. What is left:
   `tdod_rental_door`), no rule between variables (as a table's
   `[[rules]]`), no description of a variable by the script that reads
   it. (M)
-- **No `mg vars --undescribed`** listing the module's variables that no
-  description names, nor a plugin API to read the descriptions
-  (`mg.vars.describe`). (S)
 - **The project file is read again only with reloading on** (Options ›
   General), when the folder's watch sees a change; a window open then
   (Setup Store) keeps the rules it opened with. (S)
@@ -2877,28 +2852,6 @@ and duplicate tags on paste. What is left:
   another area isn't said, as the project says it may be there; and
   Setup Store's `{n}` still takes the first number free in the module,
   not in the area. (S) (the Domains of Dread's setup on 2.1.0)
-- **A test's game folder has no talk table:** without a game,
-  `ctx.game:string` is nil, and a test can't bring a `dialog.tlk` (or
-  the module's custom one) of its own; nor haks of its own (the
-  fixture's haks are the machine's user folder's). (S) (the Domains of
-  Dread's setup on 2.1.0)
-- **A builtin check runs one check a test:** a test names one (`builtin
-  = "var-runtime"`); the whole of what `mg verify` finds on a fixture
-  takes a test a check. (S) (the Domains of Dread's notes on 2.2.0)
-- **`left` after a builtin check's fix reads the game's data with the
-  fixture as it was:** the checks that read the module itself (tags,
-  variables) see the fix; one that reads a module's resource through the
-  game's data (a module's 2DA, for `2da-*`) does not. (S) (the Domains
-  of Dread's notes on 2.2.0)
-- **A builtin check with no game counts no talk-table strings:**
-  `2da-strref` and `custom-tlk` then find what the game would not; a
-  test's game folder brings no `dialog.tlk` (above). (S) (the Domains of
-  Dread's notes on 2.2.0)
-- **With no game and no game folder, `ctx.game` is empty, the fixture
-  not in it:** in Moonglow it is the game with the module over it, so a
-  plugin that reads the module's own 2DAs through `ctx.game` needs a
-  game folder (or a game) in its test. (S) (the Domains of Dread's notes
-  on 2.2.0)
 
 ## Claims, protected areas and the project's commands (the builders' proposal, C6 to C8)
 
@@ -3459,3 +3412,8 @@ is not taken for a new gap.
   scheme the first's tiles' lights picked anew; an area of the same
   scheme keeps its own, and the first area's own picks aren't copied
   tile by tile (the areas' tiles differ). (S) (Settled in the triage of 2026-10-28.)
+- **A plugin's talk table and its feminine table** are two files, as the
+  game keeps them (`dialogf.tlk`, `NAMEf.tlk`): `mg.tlk` reads and
+  writes each as a talk table of its own, and nothing pairs a line with
+  its feminine line. (S) (Settled with the rest of "Tables for plugins",
+  done in the deferred sprint of 2026-10-28: it is the game's format.)

@@ -63,10 +63,19 @@ export type TlkLine = { text: string, sound: string?, sound_length: number? }
 
 export type Tlk = {
     lines: number,
+    -- Its language's two-letter code ("en", "fr", "de", "it", "es", "pl").
+    language: string,
+    set_language: (self: Tlk, code: string) -> (),
     get: (self: Tlk, line: number) -> TlkLine?,
     set: (self: Tlk, line: number, value: (string | TlkLine)?) -> (),
     add: (self: Tlk, value: string | TlkLine) -> number,
     write: (self: Tlk) -> string,
+}
+
+-- The module: its resources, and a name for a new one as the window
+-- proposes it (the builder's code in the team's pattern, the first free).
+export type Module = Reader & {
+    new_name: (self: Module, name: string, kind: string) -> string,
 }
 
 export type Game = Reader & {
@@ -251,7 +260,7 @@ export type Context = {
     selection: { Selected },
     -- The area or editor in front, if any (API 0.4).
     open: Selected?,
-    module: Reader,
+    module: Module,
     game: Game,
     edit: Edit,
     hak: Hak,
@@ -338,14 +347,42 @@ export type Described = {
 mg.twoda = {
     parse = function(bytes: string): TwoDa return nil :: any end,
     new = function(columns: { string }): TwoDa return nil :: any end,
-    kinds = function(name: string): { [string]: string } return {} end,
+    -- A column's kind, or for a row chosen by another column's value
+    -- (a class's requirement), { by = column, rows = { value = table } }.
+    kinds = function(name: string): { [string]: string | { by: string, rows: { [string]: string } } } return {} end,
     describe = function(text: string, scripts: { [string]: string }?): Described return nil :: any end,
+}
+
+-- A variable the module's project describes (`variables.toml`).
+export type VarDescription = {
+    name: string,
+    pattern: boolean,
+    file: string,
+    line: number,
+    type: string?,
+    on: { string },
+    help: string?,
+    values: { { value: string, note: string? } },
+    rows: number?,
+    problem: string?,
+    other: boolean,
+    min: number?,
+    max: number?,
+    runtime: boolean,
+}
+
+-- The project's described variables: a variable's description (of its
+-- name, else the first pattern that takes it; nil for none), and all of
+-- them, in the file's order.
+mg.vars = {
+    describe = function(name: string): VarDescription? return nil end,
+    described = function(): { VarDescription } return {} end,
 }
 
 -- Talk tables made, read and written.
 mg.tlk = {
     parse = function(bytes: string): Tlk return nil :: any end,
-    new = function(): Tlk return nil :: any end,
+    new = function(language: string?): Tlk return nil :: any end,
 }
 
 return mg
