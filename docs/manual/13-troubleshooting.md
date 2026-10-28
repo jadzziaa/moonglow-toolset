@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Troubleshooting
-description: Troubleshooting - the game is not found, no GPU in the area viewer, tiles that disappear on AMD under Windows (the graphics backend), Test Module does nothing, no sound, after a crash, and where Moonglow keeps its files.
+description: Troubleshooting - the game is not found, no GPU in the area viewer, an area that draws nothing or loses its tiles on AMD under Windows (the graphics backend, its startup check and the area view's watch), Test Module does nothing, no sound, after a crash, and where Moonglow keeps its files.
 tags: [manual, troubleshooting]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:35:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T12:16:26Z }
 ---
 
 # Troubleshooting
@@ -36,15 +36,49 @@ or NVIDIA's). **Tools › Options… › General › Graphics backend** chooses
 the backend (from the next start); the debug log's `graphics:` line
 says which adapter was taken, and why.
 
-## Tiles disappear on an AMD GPU under Windows
+## An area draws nothing, or loses its tiles, on an AMD GPU under Windows
 
-On an AMD GPU under Windows, AMD's Vulkan driver drew an area's tiles
-when the area opened, then lost them one by one (a builder's Radeon PRO,
-driver 25.10.37.03, October 2026); through Direct3D 12 they stay. Moonglow now
-draws through Direct3D 12 on such a GPU by itself (**Options › General ›
-Graphics backend**: Automatic). If you set **Vulkan** there, or
-something still looks wrong, choose **Direct3D 12** and start Moonglow
-again. To try a backend without changing the setting, start Moonglow
+Two builders' AMD GPUs under Windows went wrong in opposite ways
+(October 2026):
+
+- A Radeon PRO, through AMD's **Vulkan** driver (25.10.37.03), drew an
+  area's tiles when the area opened, then lost them one by one; through
+  Direct3D 12 they stayed.
+- A Radeon RX 580 (Windows 10, since Moonglow 2.11.0), through
+  **Direct3D 12**, drew nothing of an area but the start location's
+  marker and the doors' arrows; through Vulkan it drew it all.
+
+So no fixed rule serves every AMD GPU. Automatic (**Options › General
+› Graphics backend**) still takes Direct3D 12 first for AMD on Windows,
+and Moonglow now looks at what it draws:
+
+- **As it starts**, before the window opens, it draws a small scene
+  offscreen and checks it. Where nothing is drawn, it takes the same
+  GPU's other backend (once: if that fails too, it keeps the first and
+  says so in a notice under the toolbar). The backend that failed is
+  remembered for this GPU and driver; Automatic passes over it until a
+  driver update. The log says what happened, and the debug log's
+  `graphics:` line what the check found on each backend.
+- **While an area is open**, it looks about once a second at how much
+  of the area's ground the GPU drew against what the camera should see
+  (the game's shaders included, once they are compiled). Where less than
+  a fifth of it has been drawn for five seconds, a notice under the
+  toolbar names the GPU and the backend and offers **Restart with …**
+  the other one. It closes Moonglow as File › Exit does (asking about
+  unsaved work first) and starts it again with the same module; on
+  Automatic the failing backend is remembered as above, and a backend
+  you chose in Options is changed there. The watch says nothing on an
+  empty area, while the game's shaders are being compiled, with Fade
+  Geometry, with the camera turned to the sky, or while zooming.
+
+Neither builder's machine was reproduced where Moonglow is developed:
+both failures were imitated there by making every draw draw nothing,
+and the checks are waiting on the two builders to confirm them.
+
+If you set a backend in Options yourself, it is kept even where the
+check fails (the notice offers the other). Where nothing helps, update
+the graphics driver, or turn the game's shaders off with the area
+view's **Shaders** button. To try a backend without changing the setting, start Moonglow
 with the `WGPU_BACKEND` environment variable set (`dx12`, `vulkan` or
 `gl`): it decides over the setting. In a Command Prompt, in the folder
 Moonglow is installed in:

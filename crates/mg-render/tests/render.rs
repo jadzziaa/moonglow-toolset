@@ -3857,3 +3857,146 @@ fn light_shadows_cost() {
         );
     }
 }
+
+/// Puts the draws back as they were when a test that blanked them ends,
+/// even by a panic.
+struct Unblank;
+
+impl Drop for Unblank {
+    fn drop(&mut self) {
+        mg_render::guard::blank_draws(false);
+    }
+}
+
+/// The startup check on whatever GPU the platform has (CI's Windows runner
+/// checks Direct3D 12 through Microsoft's Basic Render Driver, its macOS
+/// one Metal on Apple's Paravirtual device): it passes, and fails where
+/// the draws are made to draw nothing (as Heed's Radeon drew through
+/// Direct3D 12), saying what was drawn wrong. Prints its verdicts and
+/// times to the test's output whether or not output is captured. A device
+/// is opened on the adapter after (the window's, after the check's).
+#[test]
+fn the_startup_check_passes_and_fails_where_nothing_is_drawn() {
+    use std::io::Write;
+    // (Blanking every draw: no other test renders meanwhile.)
+    mg_testkit::gpu::alone();
+    let Some(adapter) = mg_render::headless_adapter() else {
+        let _ = writeln!(std::io::stdout(), "startup check: skipped, no GPU adapter");
+        return;
+    };
+    let first = mg_render::probe::probe(&adapter);
+    let again = mg_render::probe::probe(&adapter);
+    let _ = writeln!(std::io::stdout(), "startup check: {first}");
+    let _ = writeln!(std::io::stdout(), "startup check (again): {again}");
+    assert!(first.passed(), "{first}");
+    assert!(again.passed(), "{again}");
+    let blanked = {
+        let _unblank = Unblank;
+        mg_render::guard::blank_draws(true);
+        mg_render::probe::probe(&adapter)
+    };
+    let _ = writeln!(std::io::stdout(), "startup check (draws blanked): {blanked}");
+    assert!(!blanked.passed(), "{blanked}");
+    let why = blanked.outcome.clone().unwrap_err();
+    assert!(why.contains("the solid mesh is") && why.contains("the skinned mesh"), "{why}");
+    assert!(!why.contains("the background"), "the background is drawn right: {why}");
+    // The window's device, on the adapter checked.
+    let features = adapter.features() & wgpu::Features::TEXTURE_COMPRESSION_BC;
+    let opened = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        required_features: features,
+        required_limits: adapter.limits(),
+        ..Default::default()
+    }));
+    assert!(opened.is_ok(), "{:?}", opened.err());
+}
+
+/// The watch's look at a target's depth (four samples a pixel, as the area
+/// view's): the points of a ground seen are drawn, the sky's are not, and
+/// the expectation of the same camera says the same points; with the
+/// draws blanked, none is drawn. Prints what a look costs.
+#[test]
+fn the_watch_reads_what_the_gpu_drew_where_it_was_expected() {
+    use mg_render::watch::{self, COLUMNS, ROWS, Sampler};
+    use std::io::Write;
+    mg_testkit::gpu::alone();
+    let Some(gpu) = Gpu::headless() else { return };
+    // A 40 m ground, as four 10 m tiles a side, seen from its south edge,
+    // low: the sky above.
+    let ground = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let tiles: Vec<Vec3> = (0..16)
+        .map(|i| Vec3::new((i % 4) as f32 * 10.0 + 5.0, (i / 4) as f32 * 10.0 + 5.0, 0.0))
+        .collect();
+    let tile = |t: &Vec3| {
+        let to = Mat4::from_scale_rotation_translation(
+            Vec3::new(5.0, 5.0, 1.0),
+            glam::Quat::IDENTITY,
+            *t,
+        );
+        Instance::new(ground.clone(), to)
+    };
+    let scene = Scene { instances: tiles.iter().map(tile).collect(), ..Default::default() };
+    let camera = Camera {
+        eye: Vec3::new(20.0, -8.0, 6.0),
+        target: Vec3::new(20.0, 20.0, 2.0),
+        fov_y: 40f32.to_radians(),
+        near: 0.1,
+        far: 500.0,
+    };
+    let (w, h) = (640, 360);
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+    let targets = Targets::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4, w, h);
+    let mut sampler = Sampler::new(&gpu, 4);
+    let mut look = |sampler: &mut Sampler| {
+        r.render_targets(&gpu, &NoAssets, &scene, &camera, &targets);
+        let started = std::time::Instant::now();
+        let expected = watch::expected(&tiles, &camera, w as f32 / h as f32);
+        let expecting = started.elapsed();
+        sampler.look(&gpu, &targets.depth, expected);
+        let looking = started.elapsed() - expecting;
+        let _ = gpu.device.poll(wgpu::PollType::wait_indefinitely());
+        let taking = std::time::Instant::now();
+        let got = sampler.take(&gpu).expect("the look, once the GPU is done");
+        (got, [expecting, looking, taking.elapsed()])
+    };
+    // (What a look costs the frame that takes it, and the one that reads
+    // it: the medians of 21.)
+    let mut times: Vec<[std::time::Duration; 3]> = Vec::new();
+    let mut last = None;
+    for _ in 0..21 {
+        let (got, t) = look(&mut sampler);
+        times.push(t);
+        last = Some(got);
+    }
+    let (expected, drawn) = last.unwrap();
+    let median = |k: usize| {
+        let mut each: Vec<f64> = times.iter().map(|t| t[k].as_secs_f64() * 1000.0).collect();
+        each.sort_by(f64::total_cmp);
+        each[each.len() / 2]
+    };
+    let picture = mg_testkit::output_dir("render").join("watch_ground.png");
+    save(&gpu.read_rgba(&targets.color), &picture);
+    let (count, of) = watch::counted(&expected, &drawn);
+    let _ = writeln!(
+        std::io::stdout(),
+        "watch: {of} of {count} expected points drawn (of {}); expectation {:.3} ms, look {:.3} \
+         ms, read {:.3} ms (medians; the first look {:.3} ms)",
+        COLUMNS * ROWS,
+        median(0),
+        median(1),
+        median(2),
+        times[0][1].as_secs_f64() * 1000.0,
+    );
+    let grid = (COLUMNS * ROWS) as usize;
+    assert!(count > grid / 4 && count < grid, "{count}");
+    assert!(of as f32 >= 0.97 * count as f32, "{of} of {count}");
+    // (The sky: the top row neither expected nor drawn.)
+    assert!(drawn[..COLUMNS as usize].iter().all(|d| !d));
+    assert!(expected.0[..COLUMNS as usize].iter().all(|e| !e));
+    let blanked = {
+        let _unblank = Unblank;
+        mg_render::guard::blank_draws(true);
+        look(&mut sampler).0
+    };
+    let (count, of) = watch::counted(&blanked.0, &blanked.1);
+    assert_eq!((of, count > 0), (0, true), "nothing drawn where the draws are blanked");
+}

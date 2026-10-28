@@ -134,6 +134,16 @@ impl GraphicsBackend {
         }
     }
 
+    /// The choice of `backend` (Automatic: one that can't be chosen).
+    pub fn of(backend: wgpu::Backend) -> GraphicsBackend {
+        match backend {
+            wgpu::Backend::Vulkan => GraphicsBackend::Vulkan,
+            wgpu::Backend::Dx12 => GraphicsBackend::Direct3d12,
+            wgpu::Backend::Metal => GraphicsBackend::Metal,
+            _ => GraphicsBackend::Automatic,
+        }
+    }
+
     /// Its name in Options.
     pub fn name(self) -> &'static str {
         self.backend().map_or("Automatic", mg_render::backend::backend_name)
@@ -147,6 +157,54 @@ impl GraphicsBackend {
         std::iter::once(GraphicsBackend::Automatic)
             .chain(all.into_iter().filter(|c| c.backend().is_some_and(|b| here.contains(&b))))
             .collect()
+    }
+}
+
+/// A backend that drew wrong on a GPU and driver
+/// ([`Settings::graphics_failures`]): the GPU's PCI vendor and device IDs,
+/// its driver's name and version, the backend (by its name, as
+/// [`mg_render::backend::backend_name`] says it), when (Unix seconds) and
+/// what found it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GraphicsFailure {
+    pub vendor: u32,
+    pub device: u32,
+    /// The GPU's name, to show.
+    pub adapter: String,
+    pub driver: String,
+    pub backend: String,
+    pub when: u64,
+    pub what: String,
+}
+
+impl GraphicsFailure {
+    /// The failure of `info`'s adapter, found by `what`, now.
+    pub fn of(info: &wgpu::AdapterInfo, what: &str) -> GraphicsFailure {
+        GraphicsFailure {
+            vendor: info.vendor,
+            device: info.device,
+            adapter: info.name.clone(),
+            driver: mg_render::backend::driver_of(info),
+            backend: mg_render::backend::backend_name(info.backend).to_string(),
+            when: mg_core::time::unix_now(),
+            what: what.to_string(),
+        }
+    }
+
+    /// As [`mg_render::backend::pick_adapter`] passes it over (`None`: a
+    /// backend this version doesn't know).
+    pub fn failed(&self) -> Option<mg_render::backend::Failed> {
+        use wgpu::Backend::*;
+        let backend = [Vulkan, Dx12, Metal, Gl]
+            .into_iter()
+            .find(|b| mg_render::backend::backend_name(*b) == self.backend)?;
+        Some(mg_render::backend::Failed {
+            vendor: self.vendor,
+            device: self.device,
+            driver: self.driver.clone(),
+            backend,
+        })
     }
 }
 
@@ -368,6 +426,12 @@ pub struct Settings {
     pub light_theme: bool,
     /// Options > General: Graphics backend (from the next start).
     pub graphics_backend: GraphicsBackend,
+    /// The backends that drew wrong on this machine's GPU and driver (the
+    /// startup check, or the area view's watch and the builder's restart):
+    /// Automatic passes over them until the driver changes
+    /// ([`mg_render::backend::pick_adapter`]). Options › General forgets
+    /// them.
+    pub graphics_failures: Vec<GraphicsFailure>,
     /// Options > General: Toolbar buttons, Icons only: the main toolbar's
     /// and the area view's buttons show their glyphs alone, their names
     /// in their tips (the default: Icons and text).
@@ -598,6 +662,20 @@ impl Settings {
         ron::from_str(kv.get(key)?).ok()
     }
 
+    /// The backends recorded as failing ([`Settings::graphics_failures`]),
+    /// as Automatic passes them over.
+    pub fn failed_backends(&self) -> Vec<mg_render::backend::Failed> {
+        self.graphics_failures.iter().filter_map(GraphicsFailure::failed).collect()
+    }
+
+    /// Records a backend's failure, in place of one of the same GPU,
+    /// driver and backend.
+    pub fn record_graphics_failure(&mut self, failure: GraphicsFailure) {
+        let key = failure.failed();
+        self.graphics_failures.retain(|f| f.failed() != key);
+        self.graphics_failures.push(failure);
+    }
+
     /// The Shaders switch: the game's own shaders draw the 3D views.
     pub fn game_shaders(&self) -> bool {
         self.game_shaders.unwrap_or(GAME_SHADERS_BY_DEFAULT)
@@ -808,6 +886,33 @@ mod tests {
         assert_eq!(Settings::read_eframe_file(&path, key), None);
         std::fs::write(&path, "not ron").unwrap();
         assert_eq!(Settings::read_eframe_file(&path, key), None);
+    }
+
+    /// A backend's failure is kept by GPU, driver and backend (one in place
+    /// of another of the same), and settings saved before there were any
+    /// read as none; a backend this version doesn't know is passed over by
+    /// nothing.
+    #[test]
+    fn graphics_failures_are_kept_by_gpu_driver_and_backend() {
+        let mut info = wgpu::AdapterInfo::new(wgpu::DeviceType::DiscreteGpu, wgpu::Backend::Dx12);
+        (info.vendor, info.device, info.name) = (0x1002, 0x67df, "Radeon RX 580".into());
+        info.driver_info = "25.9.1".into();
+        let mut s = Settings::default();
+        s.record_graphics_failure(GraphicsFailure::of(&info, "the startup check"));
+        s.record_graphics_failure(GraphicsFailure::of(&info, "the area view's watch"));
+        assert_eq!(s.graphics_failures.len(), 1, "one of each");
+        assert_eq!(s.graphics_failures[0].what, "the area view's watch");
+        assert_eq!(s.graphics_failures[0].backend, "Direct3D 12");
+        assert_eq!(s.failed_backends(), [mg_render::backend::Failed::of(&info)]);
+        info.backend = wgpu::Backend::Vulkan;
+        s.record_graphics_failure(GraphicsFailure::of(&info, "the startup check"));
+        assert_eq!(s.failed_backends().len(), 2);
+        let back: Settings = ron::from_str(&ron::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back.graphics_failures, s.graphics_failures);
+        let older: Settings = ron::from_str("(light_theme:true)").unwrap();
+        assert!(older.graphics_failures.is_empty());
+        let unknown = GraphicsFailure { backend: "WebGPU 2".into(), ..Default::default() };
+        assert_eq!(unknown.failed(), None);
     }
 
     /// Automatic and the backends the platform has.

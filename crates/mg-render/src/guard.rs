@@ -10,10 +10,16 @@
 //! The failures are kept ([`take_failures`]) for the application to tell
 //! the user; while a guarded step runs, [`guarding`] is true, so that a
 //! panic hook can tell a failure Moonglow carries on from a crash.
+//!
+//! [`blank_draws`] makes every scene draw nothing (tests): what a driver
+//! that draws nothing does, for the startup check ([`crate::probe`]) and
+//! the area view's watch ([`crate::watch`]) to be proved on a GPU that
+//! draws.
 
 use std::cell::Cell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 thread_local! {
     /// How many guarded steps are running on this thread, one inside
@@ -26,6 +32,9 @@ static FAILURES: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 /// The model that fails on purpose (tests).
 static FAILING: Mutex<Option<String>> = Mutex::new(None);
+
+/// The scene's draws are made to draw nothing ([`blank_draws`]).
+static BLANK: AtomicBool = AtomicBool::new(false);
 
 /// Whether a guarded step is running on this thread: a panic now is
 /// caught, and Moonglow carries on.
@@ -78,6 +87,23 @@ pub(crate) fn fail_if_asked(name: &str) {
     if asked.is_some_and(|a| a == name.to_ascii_lowercase()) {
         panic!("made to fail");
     }
+}
+
+/// Makes every scene pass draw nothing (`false`: draw again), to test
+/// what tells a renderer that draws nothing: each pass's draws are cut to
+/// its first pixel (a scissor of one pixel at its top left corner), the
+/// sky, Moonglow's meshes, the game's programs, lines and particles alike,
+/// as Heed's Radeon drew through Direct3D 12 (the egui overlays drawn over
+/// the picture, nothing in it). Process-wide: a test that sets it takes
+/// the GPU alone (`mg_testkit::gpu::alone`).
+#[doc(hidden)]
+pub fn blank_draws(on: bool) {
+    BLANK.store(on, Ordering::SeqCst);
+}
+
+/// Whether [`blank_draws`] is on.
+pub fn draws_blanked() -> bool {
+    BLANK.load(Ordering::SeqCst)
 }
 
 #[cfg(test)]

@@ -2986,7 +2986,7 @@ fn scene_pass<'e>(
         ),
         None => (wgpu::LoadOp::Load, wgpu::LoadOp::Load),
     };
-    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label: Some("scene"),
         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
             view: target,
@@ -3000,7 +3000,13 @@ fn scene_pass<'e>(
             stencil_ops: None,
         }),
         ..Default::default()
-    })
+    });
+    // (Made to draw nothing, for the tests of what tells it: its first
+    // pixel only.)
+    if crate::guard::draws_blanked() {
+        pass.set_scissor_rect(0, 0, 1, 1);
+    }
+    pass
 }
 
 /// A box of the scene as the camera sees it (`on_screen`: its projection

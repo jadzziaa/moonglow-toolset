@@ -14,15 +14,17 @@ pub mod guard;
 pub mod model;
 pub mod particles;
 mod pool;
+pub mod probe;
 mod reach;
 mod renderer;
 pub mod scene;
 mod shadow;
 pub mod texture;
+pub mod watch;
 
 pub use assets::{Assets, LoadedTexture, NoAssets, colored_name, split_colors};
 pub use game::ShaderStats;
-pub use gpu::Gpu;
+pub use gpu::{Gpu, headless_adapter};
 pub use model::{GpuModel, rest_pose};
 pub use reach::Frustum;
 pub use renderer::{

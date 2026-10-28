@@ -82,6 +82,8 @@ const SETTINGS_KEY: &str = "moonglow-settings";
 struct App {
     moonglow: Moonglow,
     title: String,
+    /// Where a restart asked for is left for `main` (Restart with …).
+    again: std::sync::Arc<std::sync::Mutex<Option<mg_ui::renderer_check::Relaunch>>>,
 }
 
 /// Windows: the window was last left maximized and is to be maximized
@@ -124,6 +126,11 @@ impl eframe::App for App {
             self.title = title;
         }
         if self.moonglow.quit_requested {
+            if let Some(again) = self.moonglow.relaunch.take()
+                && let Ok(mut left) = self.again.lock()
+            {
+                *left = Some(again);
+            }
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
         }
     }
@@ -210,24 +217,39 @@ impl CommandLine {
 }
 
 /// What the window's adapter was taken by: why, and of which adapters
-/// (the debug log's `graphics:` line), and the backend chosen in Options
-/// that had none.
+/// (the debug log's `graphics:` line), the backend chosen in Options that
+/// had none, and what the startup check found.
 #[derive(Debug, Default)]
 struct Taken {
     why: String,
     missing: Option<wgpu::Backend>,
+    /// The adapters that failed the startup check, and what they drew
+    /// wrong (to be recorded, and said).
+    failed: Vec<(wgpu::AdapterInfo, String)>,
+    /// The adapter taken failed it (kept: asked for, or no other drew).
+    failing: bool,
+    /// The pick failed and the same GPU's other backend was taken.
+    switched: bool,
+    asked_for: bool,
+    from_environment: bool,
+    /// The same GPU's other backend, not recorded as failing.
+    other: Option<wgpu::Backend>,
 }
 
 /// The window's adapter, of those wgpu found (`adapters`, of the backends
 /// `WGPU_BACKEND` names if set, else of all): one that can draw to the
-/// window, chosen by `mg_render::backend::pick_adapter` for Options ›
-/// General › Graphics backend (`wanted`), kept in `taken`. (Given this,
-/// egui-wgpu no longer sorts the adapters by power preference or checks
-/// them against the window: the pick does both.)
+/// window, chosen by `mg_render::backend::start` for Options › General ›
+/// Graphics backend (`wanted`), passing over the backends recorded as
+/// failing here (`failed`), and checked by the startup check
+/// (`mg_render::probe`: where it draws nothing on Automatic, the same
+/// GPU's other backend is taken); kept in `taken`. (Given this, egui-wgpu
+/// no longer sorts the adapters by power preference or checks them
+/// against the window: the pick does both.)
 fn pick_adapter(
     adapters: &[wgpu::Adapter],
     surface: Option<&wgpu::Surface<'_>>,
     wanted: Option<wgpu::Backend>,
+    failed: &[mg_ui::graphics::Failed],
     taken: &std::sync::Mutex<Taken>,
 ) -> Result<wgpu::Adapter, String> {
     use mg_ui::graphics;
@@ -236,28 +258,124 @@ fn pick_adapter(
     let infos: Vec<wgpu::AdapterInfo> = usable.iter().map(|a| a.get_info()).collect();
     let power = wgpu::PowerPreference::from_env().unwrap_or(wgpu::PowerPreference::HighPerformance);
     let from_environment = wgpu::Backends::from_env().is_some();
-    let pick = graphics::pick_adapter(
-        &infos,
-        wanted,
-        from_environment,
-        power,
-        graphics::Platform::current(),
-    )
-    .ok_or_else(|| {
-        format!(
-            "no graphics adapter can draw to the window (of {})",
-            graphics::describe_adapters(&adapters.iter().map(|a| a.get_info()).collect::<Vec<_>>())
-        )
-    })?;
-    let mut why = pick.to_string();
+    let platform = graphics::Platform::current();
+    let mut probes = Vec::new();
+    let check = |i: usize| {
+        let p = mg_ui::renderer_check::probe(usable[i]);
+        let outcome = p.outcome.clone();
+        probes.push(p);
+        outcome
+    };
+    let started = graphics::start(&infos, wanted, from_environment, power, platform, failed, check)
+        .ok_or_else(|| {
+            format!(
+                "no graphics adapter can draw to the window (of {})",
+                graphics::describe_adapters(
+                    &adapters.iter().map(|a| a.get_info()).collect::<Vec<_>>()
+                )
+            )
+        })?;
+    let mut why = started.to_string();
     if from_environment {
-        why += &format!("={}", std::env::var("WGPU_BACKEND").unwrap_or_default());
+        why += &format!(" (WGPU_BACKEND={})", std::env::var("WGPU_BACKEND").unwrap_or_default());
     }
-    why += &format!(", of: {}", graphics::describe_adapters(&infos));
+    for p in &probes {
+        why += &format!("; checked {p}");
+    }
+    why += &format!("; of: {}", graphics::describe_adapters(&infos));
+    let mut known = failed.to_vec();
+    known.extend(started.failures().map(|(i, _)| graphics::Failed::of(&infos[i])));
     if let Ok(mut t) = taken.lock() {
-        *t = Taken { why, missing: pick.missing };
+        *t = Taken {
+            why,
+            missing: started.pick.missing,
+            failed: started.failures().map(|(i, w)| (infos[i].clone(), w.to_string())).collect(),
+            failing: started.failing(),
+            switched: started.switched,
+            asked_for: started.pick.asked_for(),
+            from_environment,
+            other: graphics::other_backend(&infos, started.index, platform, &known)
+                .map(|i| infos[i].backend),
+        };
     }
-    Ok(usable[pick.index].clone())
+    Ok(usable[started.index].clone())
+}
+
+/// What the startup check found, into the app: the failures recorded
+/// (Automatic passes over them from the next start), said in the log, and
+/// the notice where the adapter taken draws nothing.
+fn startup_check(moonglow: &mut Moonglow, taken: &Taken) {
+    let check = &mut moonglow.renderer_check;
+    check.asked_for = taken.asked_for;
+    check.from_environment = taken.from_environment;
+    check.other = taken.other;
+    let name = |b| mg_ui::graphics::backend_name(b);
+    for (info, why) in &taken.failed {
+        let what = format!("the startup check: {why}");
+        moonglow
+            .settings
+            .record_graphics_failure(mg_ui::settings::GraphicsFailure::of(info, &what));
+    }
+    let drawing = moonglow.renderer_check.adapter.clone();
+    if taken.switched
+        && let (Some((first, why)), Some(now)) = (taken.failed.first(), &drawing)
+    {
+        moonglow.log.warn(format!(
+            "Graphics: {} on {} drew nothing in Moonglow's startup check ({why}); Moonglow draws \
+             through {} instead, and passes over {} on this driver from now on (Options › \
+             General › Graphics backend)",
+            name(first.backend),
+            first.name,
+            name(now.backend),
+            name(first.backend),
+        ));
+    }
+    if taken.failing
+        && let Some(now) = &drawing
+    {
+        let mine = taken.failed.iter().find(|(i, _)| i.backend == now.backend);
+        let others: Vec<(wgpu::Backend, String)> = taken
+            .failed
+            .iter()
+            .filter(|(i, _)| i.backend != now.backend)
+            .map(|(i, w)| (i.backend, w.clone()))
+            .collect();
+        let why = mine.map_or("", |(_, w)| w.as_str());
+        moonglow.renderer_check.startup_failed(why, &others);
+        let said = moonglow.renderer_check.trouble.as_ref().map(|t| t.said.clone());
+        moonglow.log.warn(format!("Graphics: {}", said.unwrap_or_default()));
+    }
+}
+
+/// Starts Moonglow again (Restart with …, in the renderer's notice), now
+/// that this run has ended and its settings are saved: the module that
+/// was open, this run's `--user-dir` and `--no-plugins`, and the backend
+/// (as `WGPU_BACKEND` where that named this run's; else the settings
+/// saved say it).
+fn relaunch(again: &mg_ui::renderer_check::Relaunch, line: &CommandLine) {
+    let Ok(exe) = std::env::current_exe() else { return };
+    let mut command = std::process::Command::new(exe);
+    if line.no_plugins {
+        command.arg("--no-plugins");
+    }
+    if let Some(dir) = &line.user_dir {
+        command.arg("--user-dir").arg(dir);
+    }
+    if let Some(module) = &again.module {
+        command.arg(module);
+    }
+    if again.environment {
+        let name = match again.backend {
+            wgpu::Backend::Dx12 => "dx12",
+            wgpu::Backend::Metal => "metal",
+            wgpu::Backend::Gl => "gl",
+            _ => "vulkan",
+        };
+        command.env("WGPU_BACKEND", name);
+    }
+    if let Err(e) = command.spawn() {
+        eprintln!("Moonglow could not start again: {e}");
+    }
 }
 
 fn main() -> eframe::Result<()> {
@@ -272,14 +390,22 @@ fn main() -> eframe::Result<()> {
     // the others in Options (its own file would keep it apart from them).
     // Without the file, or where it can't be read: Automatic.
     let settings_file = eframe::storage_dir(APP_NAME).map(|d| d.join("app.ron"));
-    let wanted = settings_file
+    let saved = settings_file
         .as_deref()
         .and_then(|f| Settings::read_eframe_file(f, SETTINGS_KEY))
-        .unwrap_or_default()
-        .graphics_backend
-        .backend();
+        .unwrap_or_default();
+    let wanted = saved.graphics_backend.backend();
+    // (The backends recorded as drawing nothing here: Automatic passes
+    // over them.)
+    let failed = saved.failed_backends();
     let taken = std::sync::Arc::new(std::sync::Mutex::new(Taken::default()));
     let picked = taken.clone();
+    // Restart with … (the renderer's notice): to start again once the
+    // window has closed.
+    let again = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let asked_again = again.clone();
+    let line_again =
+        CommandLine { module: None, user_dir: line.user_dir.clone(), no_plugins: line.no_plugins };
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 800.0])
@@ -299,7 +425,7 @@ fn main() -> eframe::Result<()> {
                 // The instance keeps every backend (or `WGPU_BACKEND`'s),
                 // so that a backend chosen with no adapter can fall back.
                 native_adapter_selector: Some(std::sync::Arc::new(move |adapters, surface| {
-                    pick_adapter(adapters, surface, wanted, &picked)
+                    pick_adapter(adapters, surface, wanted, &failed, &picked)
                 })),
                 ..egui_wgpu::WgpuSetupCreateNew::without_display_handle()
             }),
@@ -311,7 +437,7 @@ fn main() -> eframe::Result<()> {
         window_builder: Some(Box::new(|window| maximize_later(window, cfg!(windows)))),
         ..Default::default()
     };
-    eframe::run_native(
+    let result = eframe::run_native(
         APP_NAME,
         options,
         Box::new(move |cc| {
@@ -341,6 +467,7 @@ fn main() -> eframe::Result<()> {
                         mg_ui::graphics::backend_name(rs.adapter.get_info().backend),
                     ));
                 }
+                startup_check(&mut moonglow, &taken);
                 moonglow.graphics_choice = Some(taken.why);
             }
             // Recovery copies of unsaved work go to Moonglow's data folder;
@@ -379,9 +506,15 @@ fn main() -> eframe::Result<()> {
             if let Some(path) = &line.module {
                 moonglow.actions.push(mg_ui::Action::OpenModule(path.clone()));
             }
-            Ok(Box::new(App { moonglow, title: String::new() }))
+            Ok(Box::new(App { moonglow, title: String::new(), again: asked_again }))
         }),
-    )
+    );
+    // (After the window has closed and the settings are saved: the new
+    // run reads what this one recorded.)
+    if let Some(again) = again.lock().ok().and_then(|mut a| a.take()) {
+        relaunch(&again, &line_again);
+    }
+    result
 }
 
 #[cfg(test)]
@@ -427,5 +560,50 @@ mod tests {
     fn the_window_icon_decodes() {
         let icon = super::window_icon();
         assert_eq!((icon.width, icon.height, icon.rgba.len()), (256, 256, 256 * 256 * 4));
+    }
+
+    /// What the startup check found, into the app: Heed's Direct3D 12
+    /// drew nothing and Vulkan was taken (recorded and said in the log, no
+    /// notice); a backend chosen in Options that drew nothing is kept (a
+    /// notice, offering the other backend).
+    #[test]
+    fn the_startup_checks_verdict_is_recorded_and_told() {
+        use super::{Taken, startup_check};
+        let info = |backend| {
+            let mut a = wgpu::AdapterInfo::new(wgpu::DeviceType::DiscreteGpu, backend);
+            (a.vendor, a.device, a.name) = (0x1002, 0x67df, "Radeon RX 580 Series".into());
+            a
+        };
+        let app = |drawing| {
+            let mut m = mg_ui::Moonglow::new(None, Box::new(mg_ui::NoDialogs::default()));
+            m.renderer_check.adapter = Some(info(drawing));
+            m
+        };
+        let nothing = "the solid mesh is [0, 0, 0] at (8, 18)".to_string();
+        let mut heed = app(wgpu::Backend::Vulkan);
+        let switched = Taken {
+            failed: vec![(info(wgpu::Backend::Dx12), nothing.clone())],
+            switched: true,
+            ..Default::default()
+        };
+        startup_check(&mut heed, &switched);
+        assert_eq!(heed.settings.graphics_failures.len(), 1);
+        assert_eq!(heed.settings.graphics_failures[0].backend, "Direct3D 12");
+        assert!(heed.settings.graphics_failures[0].what.starts_with("the startup check: "));
+        let said = &heed.log.entries.last().unwrap().1;
+        assert!(said.contains("Moonglow draws through Vulkan instead"), "{said}");
+        assert_eq!(heed.renderer_check.trouble, None);
+        let mut chosen = app(wgpu::Backend::Dx12);
+        let kept = Taken {
+            failed: vec![(info(wgpu::Backend::Dx12), nothing)],
+            failing: true,
+            asked_for: true,
+            other: Some(wgpu::Backend::Vulkan),
+            ..Default::default()
+        };
+        startup_check(&mut chosen, &kept);
+        let trouble = chosen.renderer_check.trouble.clone().expect("the notice");
+        assert_eq!(trouble.offer, Some(wgpu::Backend::Vulkan));
+        assert!(trouble.said.contains("Direct3D 12 on Radeon RX 580 Series"), "{}", trouble.said);
     }
 }

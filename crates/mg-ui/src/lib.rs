@@ -59,6 +59,7 @@ pub mod prefabs;
 mod project_commands;
 pub mod recovery;
 pub mod references;
+pub mod renderer_check;
 pub mod saved;
 pub mod script_nav;
 pub mod script_tools;
@@ -356,6 +357,10 @@ pub enum Action {
     /// The window's own close button: Quit, asked about first where there
     /// is no unsaved work to ask about (Options › General).
     CloseWindow,
+    /// The renderer's notice: Quit (unsaved work asked about first), and
+    /// start again with the module, through this backend
+    /// ([`renderer_check::restart`]).
+    RestartGraphics(wgpu::Backend),
 }
 
 /// Where a window is: where it was last put, where its panes were when
@@ -853,6 +858,12 @@ pub struct Moonglow {
     /// A resource waiting for the answer to "delete it?".
     pub confirm_delete: Option<ResKey>,
     pub quit_requested: bool,
+    /// What the startup check and the area view's watch found of the
+    /// renderer here, for the notice under the toolbar.
+    pub renderer_check: renderer_check::RendererCheck,
+    /// Moonglow is to be started again when it has quit (Restart with …,
+    /// in the renderer's notice): the desktop app does it.
+    pub relaunch: Option<renderer_check::Relaunch>,
     /// Test Module asked to minimize the window (Options › General).
     pub minimize_requested: bool,
     /// Where conversation backups go (Options › Conversation Editor), a
@@ -1104,6 +1115,8 @@ impl Moonglow {
             dock_rect: None,
             confirm_delete: None,
             quit_requested: false,
+            renderer_check: Default::default(),
+            relaunch: None,
             minimize_requested: false,
             conversation_backups: std::env::temp_dir().join("moonglow-backups"),
             recovery_dir: None,
@@ -1159,6 +1172,7 @@ impl Moonglow {
             render_state.device.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC),
         ));
         let adapter = render_state.adapter.get_info();
+        self.renderer_check.adapter = Some(adapter.clone());
         self.drawing_with = Some(format!(
             "{}, {}",
             mg_render::backend::backend_name(adapter.backend),
@@ -1285,6 +1299,9 @@ impl Moonglow {
         });
         // A newer release, told under the toolbar until dismissed.
         updates::notice_bar(self, ui);
+        // A renderer that draws nothing (the startup check, the area
+        // view's watch).
+        renderer_check::notice_bar(self, ui);
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
         // The log shrinks to a single line if the user wants it that small.
         let line = ui.text_style_height(&egui::TextStyle::Monospace);
@@ -2963,6 +2980,7 @@ impl Moonglow {
                     | Action::OpenModule(_)
                     | Action::Close
                     | Action::Quit
+                    | Action::RestartGraphics(_)
                     | Action::ProjectCommand(_)
             ),
         };
@@ -3421,6 +3439,10 @@ impl Moonglow {
             }
             Action::PlacePrefab(name) => self.place_prefab(&name),
             Action::CloseWindow => self.closing = true,
+            Action::RestartGraphics(backend) => {
+                renderer_check::restart(self, backend);
+                self.run_now(Action::Quit);
+            }
             Action::Quit => {
                 // Saved or discarded by now: no recovery copy.
                 self.forget_recovery();
