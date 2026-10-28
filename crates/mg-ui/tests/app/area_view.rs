@@ -3998,6 +3998,7 @@ fn properties_is_the_last_item_of_the_area_and_tree_menus() {
     let items = menu_items(&h, "Properties");
     assert_eq!(tail(&items, 2), ["Variables…", "Properties"], "{items:?}");
     assert!(items.contains(&"Delete".to_string()), "{items:?}");
+    assert!(items.contains(&"Export as Blueprint…".to_string()), "{items:?}");
     h.key_press(egui::Key::Escape);
     h.run_steps(3);
     // Its row in the module tree.
@@ -4008,7 +4009,10 @@ fn properties_is_the_last_item_of_the_area_and_tree_menus() {
     right_click(&mut h, row.center());
     let items = menu_items(&h, "Properties");
     // (A waypoint has no Preview.)
-    assert_eq!(items, ["Go To", "Copy", "Delete", "Variables…", "Properties"]);
+    assert_eq!(
+        items,
+        ["Go To", "Copy", "Delete", "Export as Blueprint…", "Variables…", "Properties"]
+    );
     h.key_press(egui::Key::Escape);
     h.run_steps(3);
     // The area's row in the module tree (left of the area's tab).

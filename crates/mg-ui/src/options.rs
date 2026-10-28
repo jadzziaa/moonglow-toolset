@@ -137,6 +137,8 @@ pub struct OptionsDraft {
     /// The enabled plugins' commands, listed after the window's: the id
     /// each one's keys are kept under, and its name.
     pub plugin_commands: Vec<(String, String)>,
+    /// And the open project's (`[commands]`), after the plugins'.
+    pub project_commands: Vec<(String, String)>,
     /// The command (by the id its keys are kept under) taking the next key.
     pub recording: Option<String>,
     /// The game install found on this machine when Options opened, for the
@@ -159,6 +161,7 @@ impl OptionsDraft {
             page: OptionsPage::default(),
             keymap: crate::keys::Keymap::new(&s.key_bindings),
             plugin_commands: Vec::new(),
+            project_commands: Vec::new(),
             recording: None,
             detected: None,
             game_root: text(&s.game_root),
@@ -1312,13 +1315,17 @@ fn keyboard(ui: &mut Ui, draft: &mut OptionsDraft) {
         .map(|c| (c.group(), c.id().to_string(), c.name().to_string()));
     let plugins =
         draft.plugin_commands.iter().map(|(id, name)| (Group::Plugins, id.clone(), name.clone()));
-    let mut rows: Vec<(Group, String, String)> = general.chain(plugins).chain(others).collect();
+    let project =
+        draft.project_commands.iter().map(|(id, name)| (Group::Project, id.clone(), name.clone()));
+    let mut rows: Vec<(Group, String, String)> =
+        general.chain(plugins).chain(project).chain(others).collect();
     // The list is long: narrow it by a command's name, or its group's.
     let filter_id = egui::Id::new("options-keys-filter");
     let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
-    ui.add(
-        egui::TextEdit::singleline(&mut filter).hint_text("Find a command").desired_width(240.0),
-    );
+    crate::widgets::SearchField::new(filter_id.with("field"), &mut filter)
+        .hint("Find a command")
+        .width(240.0)
+        .show(ui);
     ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
     let needle = mg_core::text::Needle::new(&filter);
     rows.retain(|(group, _, name)| {

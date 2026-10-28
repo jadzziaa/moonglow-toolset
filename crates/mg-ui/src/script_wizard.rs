@@ -282,7 +282,7 @@ impl Moonglow {
         };
         let lists = Arc::new(mg_module::script_wizard::Lists::load(game));
         let module = self.ws.as_ref().map(|w| &w.module);
-        let naming = module.map(|m| m.project_file.naming()).unwrap_or_default();
+        let naming = module.map(|m| m.project_file.naming_for(ResType::NSS)).unwrap_or_default();
         let name = default_name_named(condition, &naming, |n| {
             module.is_some_and(|m| {
                 [ResType::NSS, ResType::NCS]

@@ -19,9 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::Moonglow;
 
-/// Moonglow's data folder: `$XDG_DATA_HOME/moonglow` (else
-/// `~/.local/share/moonglow`) on Linux, `~/Library/Application
-/// Support/Moonglow` on macOS, `%APPDATA%\Moonglow` on Windows.
+/// Moonglow's data folder ([`mg_module::build::data_dir`]).
 pub fn data_dir() -> Option<PathBuf> {
     mg_module::build::data_dir()
 }

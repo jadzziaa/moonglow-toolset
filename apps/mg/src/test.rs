@@ -2,7 +2,7 @@
 //! scratch copy of the module that gets the driver; the builder's module
 //! is only read.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
@@ -36,17 +36,6 @@ pub(crate) struct Run {
     pub ended: Option<String>,
 }
 
-/// The scratch copy's folder: one for a module, used again by its next
-/// run.
-fn scratch_dir(module: &Path) -> PathBuf {
-    use std::hash::{Hash, Hasher};
-    let module = std::fs::canonicalize(module).unwrap_or_else(|_| module.to_path_buf());
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    module.hash(&mut h);
-    let stem = module.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    std::env::temp_dir().join("moonglow-test").join(format!("{stem}-{:08x}", h.finish() as u32))
-}
-
 pub(crate) fn run(
     gi: &GameInstall,
     c: &Config,
@@ -57,6 +46,9 @@ pub(crate) fn run(
     let mut notes = Vec::new();
     // (Changed in memory only, and saved elsewhere.)
     let mut m = Module::open(&c.module).with_context(|| c.module.display().to_string())?;
+    // (The module as the builder has it, before the tests go in.)
+    let as_read = m.clone();
+    let mut added = Vec::new();
     for dir in &c.tests {
         let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
             .with_context(|| dir.display().to_string())?
@@ -70,6 +62,7 @@ pub(crate) fn run(
             let key = ResKey::from_filename(&name)
                 .with_context(|| format!("{} is not a script's name", file.display()))?;
             m.set(key, std::fs::read(&file).with_context(|| file.display().to_string())?);
+            added.push(key);
         }
     }
     let tests = match c.own_driver {
@@ -91,28 +84,86 @@ pub(crate) fn run(
             ));
         }
     }
-    // The tests, the driver, and whatever has no compiled script yet.
+    // The tests, the driver, and the module's scripts that are not as
+    // they were when last compiled (by `mg compile` or the window: what
+    // they remember), or have no compiled script: a test runs the code
+    // as it is, not an older compiled script.
     let rm = resman(&m, &mut notes)?;
     let mut names = tests.clone();
     if !c.own_driver {
         names.push(ResKey::parse(testing::DRIVER_NAME, ResType::NSS).expect("a resource name"));
     }
-    let uncompiled: Vec<ResKey> = (m.keys_of(ResType::NSS))
-        .filter(|k| !names.contains(k) && !m.contains(&ResKey::new(k.resref, ResType::NCS)))
-        .copied()
+    let made_with = mg_module::build::made_with(Some(&c.module), None, Some(&gi.root), &rm);
+    let known = crate::remembered(&c.module, made_with);
+    let changed: Vec<ResKey> = (mg_module::build::changed(&m, &known, false).into_iter())
+        .filter(|k| !names.contains(k) && !added.contains(k))
         .collect();
-    names.extend(uncompiled);
+    names.extend(changed.iter().copied());
     let compiled = mg_module::build::compile_named_scripts(&mut m, &rm, &names, None);
-    let compile_errors: Vec<String> = (compiled.iter())
-        .filter_map(|r| r.result.as_ref().err().map(|e| e.message.clone()))
-        .collect();
+    // What does not compile stops the run: a test, the driver, a script
+    // with no compiled script. One of the module's that has its compiled
+    // script runs with it, said (a module may keep a script it no longer
+    // compiles; the run went so before).
+    let kept =
+        |k: &ResKey| changed.contains(k) && as_read.contains(&ResKey::new(k.resref, ResType::NCS));
+    let mut compile_errors = Vec::new();
+    for r in &compiled {
+        match &r.result {
+            Err(e) if kept(&r.script) => notes.push(format!(
+                "{} does not compile now, and runs with its older compiled script: {}",
+                r.script, e.message
+            )),
+            Err(e) => compile_errors.push(e.message.clone()),
+            Ok(()) => {}
+        }
+    }
+    // The builder's own compiled scripts found to be what their source
+    // compiles to now are noted as compiled, for the next run (and
+    // `mg compile`, and the window) to pass over; those older than their
+    // source are said (what is compiled here goes into the copy, not into
+    // the builder's module).
+    let stamps = mg_module::build::script_stamps_of(&as_read, &changed);
+    let (mut now, mut older) = (known.clone(), Vec::new());
+    for r in compiled.iter().filter(|r| r.result.is_ok() && changed.contains(&r.script)) {
+        let ncs = ResKey::new(r.script.resref, ResType::NCS);
+        match (as_read.get(&ncs), m.get(&ncs)) {
+            (Some(had), Some(made)) if had != made => older.push(r.script.resref.to_string()),
+            // (None either side: an include file.)
+            (Some(_), Some(_)) | (None, None) => now.note(&as_read, &stamps, r.script),
+            _ => {}
+        }
+    }
+    if now != known
+        && let Some(dir) = mg_module::build::compiled_dir()
+        && let Err(e) = now.write(&mg_module::build::Remembered::file(&dir, &c.module))
+    {
+        notes.push(format!("warning: what was compiled is not remembered: {e}"));
+    }
+    if !older.is_empty() {
+        older.sort();
+        let more = match older.len() {
+            n @ 11.. => format!(" and {} more", n - 10),
+            _ => String::new(),
+        };
+        notes.push(format!(
+            "{} of the module's scripts have a compiled script other than their source \
+             compiles to now (changed since, or made by another compiler), and were compiled \
+             for the run: {}{more} (`mg compile` compiles them in the module)",
+            older.len(),
+            older[..older.len().min(10)].join(", ")
+        ));
+    }
     let name = serve::module_name(&c.module);
     if !compile_errors.is_empty() {
         let seconds = started.elapsed().as_secs_f64();
         let report = Report::default();
         return Ok(Run { report, seconds, name, compile_errors, notes, ended: None });
     }
-    let dir = c.serve.dir.clone().unwrap_or_else(|| scratch_dir(&c.module));
+    // The scratch copy's folder: one for a module, used again by its next
+    // run (held while this one lasts: another at once takes another).
+    let scratch = c.serve.dir.is_none().then(|| serve::run_dir("test", &c.module));
+    let dir = c.serve.dir.clone().or_else(|| scratch.as_ref().map(|s| s.dir.clone()));
+    let dir = dir.expect("one or the other");
     let dir = std::path::absolute(&dir).unwrap_or(dir);
     std::fs::create_dir_all(dir.join("modules"))?;
     let copy = dir.join("modules").join(format!("{name}.mod"));

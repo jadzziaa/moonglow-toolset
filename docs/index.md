@@ -14,6 +14,10 @@ Documentation of Moonglow Toolset, the reimplementation of the Aurora Toolset fo
 
 * [Findings](findings.md) - What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 
+# Plan
+
+* [The deferred sprint: a quarter of the list addressed](deferred-sprint.md) - The sprint of late October 2026 that triages the whole deferred list and addresses at least a quarter of its open entries (110 of 440, at least 50 by code) - what counts, the rule that the list may not grow, the triage pass and its verdicts, the waves in their order, and the count after each. (draft)
+
 # Proposal
 
 * [A 2DA editor and merger: a proposal](2da-editor-proposal.md) - Editing a 2DA's cells and rows inside Moonglow and taking rows from another hak's copy - what exists to build on, the decisions that are the owner's (where a table is edited, what a merger is, rows in the middle, cells by what they hold), four phases with their sizes and tests, what is not known yet, and what was built of it, with pictures.

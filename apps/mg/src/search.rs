@@ -206,13 +206,8 @@ fn what(a: &Args, game: Option<&GameData>) -> Result<Search> {
 
 pub(crate) fn run(cli: &Cli, a: &Args) -> Result<Output> {
     let m = Module::open(&a.module)?;
-    let types = (a.types.iter())
-        .map(|t| {
-            ResType::from_extension(t.trim_start_matches('.'))
-                .filter(|t| t.is_gff())
-                .with_context(|| format!("{t}: not a kind of object (utc, uti, are, …)"))
-        })
-        .collect::<Result<Vec<_>>>()?;
+    let types =
+        crate::parse_types(&a.types, ResType::is_gff, "a kind of object (utc, uti, are, …)")?;
     let mut out = Output::default();
     let game = game_data(cli, &m, &mut out);
     let q = Query {

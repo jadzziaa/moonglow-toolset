@@ -171,6 +171,13 @@ pub enum Action {
         dependencies: bool,
         scratch: bool,
     },
+    /// Export as Blueprint…: a placed object written into an archive as a
+    /// blueprint of its own (`transfer::run_export_object`).
+    ExportObject {
+        area: mg_core::ResRef,
+        kind: mg_area::ObjectKind,
+        index: usize,
+    },
     Export(ExportDraft),
     ImportDialog,
     Import(ImportDraft),
@@ -283,6 +290,10 @@ pub enum Action {
     /// The scripts that include this one are compiled again (it was
     /// saved, with Automatically Compile Scripts on Save).
     CompileIncluders(ResKey),
+    /// Scripts compiled one by one (a script's Compile, a save), each
+    /// with the compiled script made: noted as compiled where the module
+    /// has it now, for Compile All to pass over.
+    NoteCompiled(Vec<(ResKey, Vec<u8>)>),
     /// A script editor's Save (its toolbar's, or the Save key while its
     /// text has the keyboard): the text into the module, not the module
     /// to its file.
@@ -448,6 +459,12 @@ impl Log {
     pub fn error(&mut self, s: impl Into<String>) {
         self.said(Level::Error, s.into());
     }
+
+    /// The whole log as text, a line each as the log shows it (its time
+    /// first), for Copy Log and Save Log….
+    pub fn text(&self) -> String {
+        (0..self.entries.len()).map(|i| self.shown(i) + "\n").collect()
+    }
 }
 
 /// The application.
@@ -551,6 +568,9 @@ pub struct Moonglow {
     /// were read from.
     pub keymap: keys::Keymap,
     keymap_from: std::collections::BTreeMap<String, Vec<String>>,
+    /// The open project's commands' names and own keys the keymap was
+    /// made with.
+    project_keys_from: Vec<(String, Option<String>)>,
     /// Haks open in the hak editor.
     pub haks: Vec<hak_view::HakDoc>,
     /// The 2DAs open in the table editor.
@@ -591,9 +611,10 @@ pub struct Moonglow {
     /// The areas' names as last read (Options › General: Show areas by
     /// name).
     pub(crate) area_names: tree::AreaNames,
-    /// What is placed in the areas opened out in the module tree, each as
-    /// read at a revision of the workspace.
-    pub(crate) area_contents: HashMap<mg_core::ResRef, (u64, tree::AreaContents)>,
+    /// What is placed in the areas opened out in the module tree (in
+    /// every area, while its Filter has something typed), each with what
+    /// it was read from (`tree::Read`).
+    pub(crate) area_contents: HashMap<mg_core::ResRef, (tree::Read, tree::AreaContents)>,
     /// Open area viewers, by area.
     pub area_views: HashMap<mg_core::ResRef, area_view::AreaView>,
     /// The Adjust Location window.
@@ -749,6 +770,26 @@ pub struct Moonglow {
     /// and whether the tree has still to go to it.
     pub tree_object: Option<(mg_core::ResRef, mg_area::ObjectKind, usize)>,
     pub tree_object_pending: bool,
+    /// The resources chosen together in the module tree (Ctrl and Shift
+    /// with a click, or the resources of a tab of several), and the row
+    /// a Shift+click goes from. Marked, and what a menu acts on, when
+    /// there are several.
+    pub tree_selected: std::collections::BTreeSet<ResKey>,
+    pub(crate) tree_anchor: Option<ResKey>,
+    /// The rows of the tab chosen while the module tree's Filter had this
+    /// text typed: listed under it, which would hide them, until it is
+    /// changed.
+    pub(crate) tree_kept: Option<(Vec<ResKey>, String)>,
+    /// The placed objects chosen together in the module tree, those of
+    /// one area: as the area view's selection, or by Ctrl and Shift with a
+    /// click there; and the row a Shift+click goes from.
+    pub tree_objects: Option<(mg_core::ResRef, std::collections::BTreeSet<tree::Placed>)>,
+    pub(crate) tree_objects_anchor: Option<tree::Placed>,
+    /// The area view's selection as the module tree last saw it.
+    pub(crate) tree_seen_selection: Option<(mg_core::ResRef, Vec<tree::Placed>)>,
+    /// Objects to select in an area's view once it is open (the module
+    /// tree's Go To on several).
+    pub(crate) area_select: Option<(mg_core::ResRef, Vec<tree::Placed>)>,
     /// The module tree's row the arrow keys are at (a click puts them
     /// there), whether it is to be brought into view, and a group to open
     /// or close at the next frame.
@@ -942,6 +983,7 @@ impl Moonglow {
             haks_layered: Vec::new(),
             keymap: Default::default(),
             keymap_from: Default::default(),
+            project_keys_from: Vec::new(),
             haks: Vec::new(),
             next_hak: 0,
             tables: Vec::new(),
@@ -1027,6 +1069,13 @@ impl Moonglow {
             tree_front: Default::default(),
             tree_object: None,
             tree_object_pending: false,
+            tree_selected: Default::default(),
+            tree_anchor: None,
+            tree_kept: None,
+            tree_objects: None,
+            tree_objects_anchor: None,
+            tree_seen_selection: None,
+            area_select: None,
             tree_cursor: None,
             tree_cursor_moved: false,
             tree_fold: None,
@@ -1950,9 +1999,11 @@ impl Moonglow {
         }
     }
 
-    /// Notes the tab in front as the one used last, each frame; not while
-    /// Next Tab is going through the tabs with Ctrl held, which ends when
-    /// it is let go (the tab arrived at is then the one used last).
+    /// Notes the tab in front of each pane (the middle's, a window's) as
+    /// the pane's one used last, each frame; not while Next Tab is going
+    /// through the tabs with Ctrl held, which ends when it is let go (the
+    /// tab arrived at is then the one used last). One list for every
+    /// pane: a pane's order is its tabs' in it ([`Moonglow::step_tab`]).
     fn note_recent_tabs(&mut self, ctx: &egui::Context) {
         if self.tab_cycle.is_some() {
             if ctx.input(|i| i.modifiers.command || i.modifiers.ctrl) {
@@ -1960,12 +2011,18 @@ impl Moonglow {
             }
             self.tab_cycle = None;
         }
-        let front = (self.tab_pane())
-            .and_then(|pane| self.dock.leaf(pane).ok())
-            .and_then(|leaf| leaf.tabs.get(leaf.active.0))
-            .cloned();
-        let Some(front) = front else { return };
-        if self.tabs_recent.first() != Some(&front) {
+        let fronts: Vec<(Tab, Vec<Tab>)> = (self.dock.iter_leaves())
+            .filter_map(|(_, leaf)| {
+                Some((leaf.tabs.get(leaf.active.0)?.clone(), leaf.tabs.clone()))
+            })
+            .collect();
+        for (front, tabs) in fronts {
+            // (Its pane's first in the list already: nothing changes, and
+            // the panes' fronts don't push each other down, frame by
+            // frame.)
+            if self.tabs_recent.iter().find(|t| tabs.contains(t)) == Some(&front) {
+                continue;
+            }
             self.tabs_recent.retain(|t| *t != front);
             self.tabs_recent.insert(0, front);
             // (Closed ones go as the list is looked through; not kept
@@ -2331,12 +2388,21 @@ impl Moonglow {
 
     fn shortcuts(&mut self, ui: &mut egui::Ui) {
         // The keys as Options › Keyboard last set them.
-        if std::mem::take(&mut self.keymap_stale) || self.keymap_from != self.settings.key_bindings
+        // (And the open project's commands' own keys, as they read: a
+        // project opened, or its file changed, takes the keys anew.)
+        let project = project_commands::commands(self).map(|(_, c)| c).unwrap_or_default();
+        let project_keys: Vec<(String, Option<String>)> =
+            project.iter().map(|c| (c.name.clone(), c.key.clone())).collect();
+        if std::mem::take(&mut self.keymap_stale)
+            || self.keymap_from != self.settings.key_bindings
+            || self.project_keys_from != project_keys
         {
             self.keymap = keys::Keymap::new(&self.settings.key_bindings);
             let commands = self.plugin_commands();
             plugins::register_keys(&mut self.keymap, &commands);
+            project_commands::register_keys(&mut self.keymap, &project);
             self.keymap_from = self.settings.key_bindings.clone();
+            self.project_keys_from = project_keys;
         }
         // (Find's keys, for the search fields.)
         self.keymap.share_find(ui.ctx());
@@ -2456,16 +2522,49 @@ impl Moonglow {
                     self.actions.push(Action::ApplyFix(line));
                 }
             });
-        // A button in its corner to empty it, so that a second Verify's
-        // report isn't mistaken for the first's. (The one that folds it
-        // away is on its edge: `pane_edge`.)
-        let corner = ui.max_rect().right_top() + egui::vec2(-36.0, 2.0);
-        let at = egui::Rect::from_min_size(corner + egui::vec2(-12.0, 0.0), egui::vec2(44.0, 18.0));
-        let clear = ui.put(at, egui::Button::new("Clear").small());
-        clear
-            .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Clear Log"));
-        if clear.on_hover_text("Empty the log (View › Clear Log)").clicked() {
-            self.log.clear();
+        // Buttons in its corner: the whole log copied or saved (a line
+        // selected is copied alone: Jasperre's report), and emptied, so
+        // that a second Verify's report isn't mistaken for the first's.
+        // (The one that folds it away is on its edge: `pane_edge`.)
+        let mut right = ui.max_rect().right() - 4.0;
+        let top = ui.max_rect().top() + 2.0;
+        let buttons = [
+            ("Clear", "Clear Log", "Empty the log (View › Clear Log)", 44.0),
+            ("Save…", "Save Log", "The whole log into a text file (View › Save Log…)", 48.0),
+            ("Copy", "Copy Log", "The whole log to the clipboard (View › Copy Log)", 44.0),
+        ];
+        for (text, name, tip, width) in buttons {
+            let at =
+                egui::Rect::from_min_size(egui::pos2(right - width, top), egui::vec2(width, 18.0));
+            right -= width + 4.0;
+            let enabled = !self.log.entries.is_empty();
+            let b = ui.put(at, egui::Button::new(text).small());
+            b.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name));
+            if b.on_hover_text(tip).clicked() && enabled {
+                match name {
+                    "Clear Log" => self.log.clear(),
+                    "Save Log" => self.save_log(),
+                    _ => self.copy_log(ui.ctx()),
+                }
+            }
+        }
+    }
+
+    /// Copy Log: the whole log to the clipboard, each line with its time.
+    pub(crate) fn copy_log(&mut self, ctx: &egui::Context) {
+        ctx.copy_text(self.log.text());
+    }
+
+    /// Save Log…: the whole log into a text file, where the builder says.
+    pub(crate) fn save_log(&mut self) {
+        let dir = self.module_path().and_then(|p| p.parent().map(|d| d.to_path_buf()));
+        let suggested = dir.map(|d| d.join("moonglow-log.txt"));
+        let Some(path) = self.dialogs.save_file(FileKind::Log, suggested.as_deref()) else {
+            return;
+        };
+        match std::fs::write(&path, self.log.text()) {
+            Ok(()) => self.log.info(format!("Saved the log to {}", path.display())),
+            Err(e) => self.log.error(format!("Could not write {}: {e}", path.display())),
         }
     }
 
@@ -2763,6 +2862,13 @@ impl Moonglow {
         self.tree_area = None;
         self.tree_marked = None;
         self.tree_object = None;
+        self.tree_selected.clear();
+        self.tree_anchor = None;
+        self.tree_kept = None;
+        self.tree_objects = None;
+        self.tree_objects_anchor = None;
+        self.tree_seen_selection = None;
+        self.area_select = None;
         self.dock = DockState::new(vec![Tab::Welcome]);
         self.load_order_changed();
         // (Another module's haks may have other tilesets of these names.)
@@ -2973,6 +3079,7 @@ impl Moonglow {
             Action::ExportFiles { keys, dependencies, scratch } => {
                 self.run_export_files(keys, dependencies, scratch);
             }
+            Action::ExportObject { area, kind, index } => self.run_export_object(area, kind, index),
             Action::ImportDialog => self.open_import(),
             Action::Import(draft) => self.run_import(draft),
             Action::HakReport => self.hak_report(),
@@ -2987,6 +3094,10 @@ impl Moonglow {
                     .into_iter()
                     .map(|c| (c.key_id, format!("{}: {}", c.plugin_name, c.title)))
                     .collect();
+                // And the project's.
+                let project = project_commands::commands(self).map(|(_, c)| c);
+                project_commands::register_keys(&mut draft.keymap, &project.unwrap_or_default());
+                draft.project_commands = project_commands::key_rows(self);
                 self.options = Some(draft);
             }
             Action::ApplyOptions(draft) => self.apply_options(*draft),
@@ -3263,6 +3374,7 @@ impl Moonglow {
             }
             Action::ReloadResources => self.reload_resources(true),
             Action::CompileIncluders(key) => self.compile_includers(key),
+            Action::NoteCompiled(made) => self.note_compiled(&made),
             Action::SaveScript(key) => {
                 script_view::save_script(self, key, script_view::ScriptSave::Save);
             }
@@ -3638,7 +3750,9 @@ impl Moonglow {
     pub(crate) fn log_project_file(&mut self, again: bool, had: bool) {
         let Some(ws) = &self.ws else { return };
         let p = &ws.module.project_file;
-        let name = mg_module::project_file::FILE_NAME;
+        // (Beside a .mod, the module's own: `krezk.moonglow.toml`.)
+        let name = (p.place().map(|place| place.team_name()))
+            .unwrap_or_else(|| mg_module::project_file::FILE_NAME.into());
         match (p.found, again && had) {
             (true, false) => self.log.info(format!("The project's rules are read from {name}")),
             (true, true) => self.log.info(format!("{name} changed: its rules are read again")),
@@ -3646,7 +3760,7 @@ impl Moonglow {
             (false, false) => {}
         }
         let described = p.variables.described.len();
-        let file = mg_module::var_desc::FILE_NAME;
+        let file = p.variables.file();
         if p.variables_found {
             self.log.info(format!(
                 "{described} variable{} described in {file}",
@@ -3736,18 +3850,33 @@ impl Moonglow {
     fn compile_uncompiled(&mut self) {
         let external = self.external_compiler();
         let debug = self.settings.debug_info;
+        // (Noted as compiled, as Compile All notes them: it passes over
+        // them next.)
+        let file = self.remembered_scripts(external.as_ref());
+        let known = self.script_stamps.clone();
         let (Some(ws), Some(game)) = (&mut self.ws, &self.game) else { return };
-        let Ok(results) = ws.derive(|module| {
-            mg_module::build::compile_scripts_with(
+        let Ok(pass) = ws.derive(|module| {
+            let uncompiled: Vec<ResKey> = (module.keys_of(ResType::NSS))
+                .filter(|k| !module.contains(&ResKey::new(k.resref, ResType::NCS)))
+                .filter(|k| {
+                    let target = module.project.as_ref().map(|p| p.target());
+                    !target.is_some_and(|t| t.skips_compiling(&k.to_string()))
+                })
+                .copied()
+                .collect();
+            mg_module::build::compile_changed(
                 module,
                 &game.resman,
-                mg_module::build::ScriptSelection::Uncompiled,
                 external.as_ref(),
+                &known,
+                Some(uncompiled),
                 debug,
             )
         }) else {
             return;
         };
+        self.keep_compiled(pass.now, file.as_deref());
+        let results = pass.results;
         let failed = results.iter().filter(|r| r.result.is_err()).count();
         if failed > 0 {
             self.log.warn(format!("{failed} script(s) didn't compile; see Build › Compile"));
@@ -3863,6 +3992,42 @@ impl Moonglow {
         self.script_stamps = Default::default();
     }
 
+    /// Makes `now` what is remembered of the compiled scripts, and keeps
+    /// it in `file` (what [`remembered_scripts`](Self::remembered_scripts)
+    /// gave) for the next session and `mg compile`.
+    fn keep_compiled(&mut self, now: mg_module::build::Remembered, file: Option<&std::path::Path>) {
+        self.script_stamps = now;
+        if let Some(file) = file
+            && let Err(e) = self.script_stamps.write(file)
+        {
+            crate::trace::note(format!("compiled scripts not noted in {file:?}: {e}"));
+        }
+    }
+
+    /// [`Action::NoteCompiled`]: scripts compiled one by one, noted as
+    /// compiled (as Compile All notes those it compiles) where the module
+    /// has the compiled script that was made of each, so that the next
+    /// Compile All, here or `mg compile`, passes over them.
+    pub(crate) fn note_compiled(&mut self, made: &[(ResKey, Vec<u8>)]) {
+        let external = self.external_compiler();
+        let file = self.remembered_scripts(external.as_ref());
+        let Some(ws) = &self.ws else { return };
+        let module = &ws.module;
+        let stored: Vec<ResKey> = (made.iter())
+            .filter(|(k, ncs)| module.get(&ResKey::new(k.resref, ResType::NCS)) == Some(&ncs[..]))
+            .map(|(k, _)| *k)
+            .collect();
+        if stored.is_empty() {
+            return;
+        }
+        let stamps = mg_module::build::script_stamps_of(module, &stored);
+        let mut now = self.script_stamps.clone();
+        for k in stored {
+            now.note(module, &stamps, k);
+        }
+        self.keep_compiled(now, file.as_deref());
+    }
+
     /// Makes `script_stamps` what is remembered of the module's compiled
     /// scripts for a compile with `external` (the built-in compiler
     /// without): what this session remembers if it was made with the same,
@@ -3942,12 +4107,7 @@ impl Moonglow {
                 for f in &failed {
                     app.log.error(f.clone());
                 }
-                app.script_stamps = now;
-                if let Some(file) = &file
-                    && let Err(e) = app.script_stamps.write(file)
-                {
-                    crate::trace::note(format!("compiled scripts not noted in {file:?}: {e}"));
-                }
+                app.keep_compiled(now, file.as_deref());
                 let changed = edits.len();
                 if !edits.is_empty()
                     && let Err(e) = app.apply(Command::new("Compile scripts", edits))
@@ -4419,11 +4579,15 @@ impl Moonglow {
     fn apply_fix(&mut self, line: usize) {
         let Some(offer) = self.log.fix_at(line).filter(|o| !o.made).cloned() else { return };
         let Some(ws) = self.ws.as_mut() else { return };
-        if let Err(why) = self.log.fix_guard.check(ws, &offer.fix) {
-            self.log.error(format!("{}: {why}", offer.fix.label));
-            return;
-        }
-        if let Err(e) = self.apply(offer.fix.command()) {
+        // (Its paths following what other fixes took out.)
+        let now = match self.log.fix_guard.check(ws, &offer.fix) {
+            Ok(now) => now,
+            Err(why) => {
+                self.log.error(format!("{}: {why}", offer.fix.label));
+                return;
+            }
+        };
+        if let Err(e) = self.apply(now.command()) {
             self.log.error(format!("{}: {e}", offer.fix.label));
             return;
         }

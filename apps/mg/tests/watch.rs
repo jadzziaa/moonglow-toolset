@@ -201,7 +201,8 @@ fn a_project_is_served_and_started_again_when_it_is_built_again() {
         // Told to stop, it stops the server and ends well.
         typed.write_all(b"/quit\n").unwrap();
         typed.flush().unwrap();
-        assert_eq!(next(&events, "ended")["failed"], false);
+        let ended = next(&events, "ended");
+        assert_eq!((&ended["how"], &ended["failed"]), (&"stopped".into(), &false.into()));
     }));
     if result.is_ok() {
         assert!(child.wait().unwrap().success());

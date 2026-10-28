@@ -6,7 +6,9 @@
 //!
 //! Bodies aren't parsed: locals are found by their shape (at the start of a
 //! statement, a type, a name, then `=`, `;`, `,` or `[`), scoped to the
-//! block they're declared in. Struct members aren't resolved.
+//! block they're declared in. A struct's member after `.` is found by the
+//! type of what is before it: a local, parameter or global (`p.nX`), a
+//! member (`a.b.c`) or a function's call (`GetMark().vPos`).
 
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
@@ -45,6 +47,8 @@ pub enum DeclKind {
     Struct,
     Local,
     Parameter,
+    /// A struct's member.
+    Member,
 }
 
 /// A declaration: where its name is, how it reads, its documentation.
@@ -73,6 +77,29 @@ struct Local {
     decl: Range<usize>,
     /// Where the name can be used.
     scope: Range<usize>,
+    /// Where its statement begins (its documentation is above it); none
+    /// for a parameter.
+    statement: Option<usize>,
+}
+
+/// A member's name after `.`, and what it is a member of.
+#[derive(Debug, Clone)]
+struct MemberUse {
+    span: Range<usize>,
+    of: Receiver,
+}
+
+/// What is before a member's `.`.
+#[derive(Debug, Clone)]
+enum Receiver {
+    /// A name (a local, parameter or global): its span.
+    Name(Range<usize>),
+    /// Another member: its index among the file's.
+    Member(usize),
+    /// A function's call: its name's span.
+    Call(Range<usize>),
+    /// Something else (an expression in brackets).
+    Other,
 }
 
 /// A source, indexed.
@@ -83,6 +110,10 @@ struct File {
     /// Identifiers, except member names after `.`.
     idents: Vec<Range<usize>>,
     locals: Vec<Local>,
+    /// Member names after `.`, in order.
+    members: Vec<MemberUse>,
+    /// Every token, comments too (for a local's documentation).
+    toks: Vec<Token>,
 }
 
 const TYPE_KEYWORDS: &[&str] = &["int", "float", "string", "object", "vector", "void", "action"];
@@ -109,6 +140,43 @@ impl File {
             .filter(|(i, t)| t.kind == TokenKind::Ident && (*i == 0 || s(i - 1) != "."))
             .map(|(_, t)| t.span.clone())
             .collect();
+        let mut members: Vec<MemberUse> = Vec::new();
+        for (i, t) in sig.iter().enumerate() {
+            if t.kind != TokenKind::Ident || i < 2 || s(i - 1) != "." {
+                continue;
+            }
+            let before = sig[i - 2];
+            let of = match s(i - 2) {
+                _ if before.kind == TokenKind::Ident && i >= 3 && s(i - 3) == "." => {
+                    let at = members.iter().position(|m| m.span == before.span);
+                    at.map_or(Receiver::Other, Receiver::Member)
+                }
+                _ if before.kind == TokenKind::Ident => Receiver::Name(before.span.clone()),
+                ")" => {
+                    // Back to its `(`, and the function's name before it.
+                    let mut depth = 0;
+                    let mut k = i - 2;
+                    let open = loop {
+                        match s(k) {
+                            ")" => depth += 1,
+                            "(" => depth -= 1,
+                            _ => {}
+                        }
+                        if depth == 0 || k == 0 {
+                            break k;
+                        }
+                        k -= 1;
+                    };
+                    let named = (open > 0 && depth == 0)
+                        .then(|| sig[open - 1])
+                        .filter(|n| n.kind == TokenKind::Ident)
+                        .filter(|_| open < 2 || s(open - 2) != ".");
+                    named.map_or(Receiver::Other, |n| Receiver::Call(n.span.clone()))
+                }
+                _ => Receiver::Other,
+            };
+            members.push(MemberUse { span: t.span.clone(), of });
+        }
         let outline = outline(text.as_bytes());
         let mut locals = Vec::new();
         for f in &outline.functions {
@@ -134,12 +202,25 @@ impl File {
                         kind: DeclKind::Parameter,
                         decl: t.span.clone(),
                         scope: body.clone(),
+                        statement: None,
                     });
                 }
             }
             locals.extend(body_locals(&text, &sig, body));
         }
-        File { text, outline, idents, locals }
+        File { text, outline, idents, locals, members, toks }
+    }
+
+    /// A local's documentation: the comments above its statement.
+    fn local_doc(&self, l: &Local) -> (String, String) {
+        let Some(at) = l.statement else { return Default::default() };
+        let raw = self.toks.partition_point(|t| t.span.start < at);
+        crate::outline::doc_before(&self.text, &self.toks, raw)
+    }
+
+    /// The member name after `.` at (or just before) a byte offset.
+    fn member_at(&self, offset: usize) -> Option<usize> {
+        self.members.iter().position(|m| m.span.start <= offset && offset <= m.span.end)
     }
 
     fn word(&self, span: &Range<usize>) -> &str {
@@ -240,6 +321,7 @@ fn body_locals(text: &str, sig: &[&Token], body: Range<usize>) -> Vec<Local> {
                 kind: DeclKind::Local,
                 decl: t.span.clone(),
                 scope: t.span.start..scope_end,
+                statement: toks.get(i).map(|t| t.span.start),
             });
             first = false;
             // To the next `,` at depth 0, or the end of the statement.
@@ -410,11 +492,113 @@ impl Index {
     ) -> Option<Declaration> {
         let (span, name) = {
             let f = self.file(file, sources)?;
-            let span = f.ident_at(offset)?;
-            let name = f.word(&span).to_string();
-            (span, name)
+            match f.ident_at(offset) {
+                Some(span) => {
+                    let name = f.word(&span).to_string();
+                    (span, name)
+                }
+                None => {
+                    let member = f.member_at(offset)?;
+                    return self.member(file, member, sources).map(|(d, _)| d);
+                }
+            }
         };
         self.resolve(file, &span, &name, sources)
+    }
+
+    /// The struct member that member use `at` of `file` names, with its
+    /// type: found by the type of what is before its `.`.
+    fn member(
+        &mut self,
+        file: &str,
+        at: usize,
+        sources: &mut dyn Sources,
+    ) -> Option<(Declaration, String)> {
+        // (A chain is walked from its start: `a.b.c` is `a`, then `b`.)
+        let mut chain = Vec::new();
+        let mut next = Some(at);
+        let start = loop {
+            let k = next?;
+            let f = self.file(file, sources)?;
+            let m = f.members.get(k)?;
+            chain.push((f.word(&m.span).to_string(), m.span.clone()));
+            match &m.of {
+                Receiver::Member(before) if chain.len() < 64 => next = Some(*before),
+                Receiver::Member(_) | Receiver::Other => return None,
+                other => break other.clone(),
+            }
+        };
+        let mut ty = match start {
+            Receiver::Name(span) => {
+                let f = self.file(file, sources)?;
+                let name = f.word(&span).to_string();
+                match f.local(&name, span.start) {
+                    Some(l) => l.ty.clone(),
+                    None => self.global_type(file, &name, sources)?,
+                }
+            }
+            Receiver::Call(span) => {
+                let name = self.file(file, sources)?.word(&span).to_string();
+                self.return_type(file, &name, sources)?
+            }
+            Receiver::Member(_) | Receiver::Other => return None,
+        };
+        let mut found = None;
+        for (name, _) in chain.iter().rev() {
+            let struct_name = ty.strip_prefix("struct ").unwrap_or(&ty).trim().to_string();
+            let (decl, member_ty) = self.struct_member(file, &struct_name, name, sources)?;
+            ty = member_ty.clone();
+            found = Some((decl, member_ty));
+        }
+        found
+    }
+
+    /// The type of the global `name` of a script's unit.
+    fn global_type(&mut self, file: &str, name: &str, sources: &mut dyn Sources) -> Option<String> {
+        for f in self.unit(file, sources) {
+            let Some(idx) = self.file(&f, sources) else { continue };
+            if let Some(g) = idx.outline.globals.iter().find(|g| g.name == name) {
+                return Some(g.ty.clone());
+            }
+        }
+        None
+    }
+
+    /// What the function `name` of a script's unit returns.
+    fn return_type(&mut self, file: &str, name: &str, sources: &mut dyn Sources) -> Option<String> {
+        for f in self.unit(file, sources) {
+            let Some(idx) = self.file(&f, sources) else { continue };
+            if let Some(func) = idx.outline.functions.iter().find(|x| x.name == name) {
+                return Some(func.return_type.clone());
+            }
+        }
+        None
+    }
+
+    /// The member `member` of the struct `name` of a script's unit, and
+    /// its type.
+    fn struct_member(
+        &mut self,
+        file: &str,
+        name: &str,
+        member: &str,
+        sources: &mut dyn Sources,
+    ) -> Option<(Declaration, String)> {
+        for f in self.unit(file, sources) {
+            let Some(idx) = self.file(&f, sources) else { continue };
+            let Some(st) = idx.outline.structs.iter().find(|s| s.name == name) else { continue };
+            let m = st.members.iter().find(|m| m.name == member)?;
+            let decl = Declaration {
+                name: member.to_string(),
+                kind: DeclKind::Member,
+                at: Location { file: f.clone(), span: m.span.clone() },
+                signature: format!("{} {member} (struct {name})", m.ty),
+                doc: m.doc.clone(),
+                doc_source: m.doc_source.clone(),
+            };
+            return Some((decl, m.ty.clone()));
+        }
+        None
     }
 
     fn resolve(
@@ -426,14 +610,19 @@ impl Index {
     ) -> Option<Declaration> {
         let f = self.file(file, sources)?;
         if let Some(l) = f.local(name, span.start) {
+            let (doc, doc_source) = f.local_doc(l);
             return Some(Declaration {
                 name: name.to_string(),
                 kind: l.kind,
                 at: Location { file: file.to_ascii_lowercase(), span: l.decl.clone() },
                 signature: format!("{} {name}", l.ty),
-                doc: String::new(),
-                doc_source: String::new(),
+                doc,
+                doc_source,
             });
+        }
+        // (A struct's member, where it is declared.)
+        if let Some(d) = self.declared_member(file, span) {
+            return Some(d);
         }
         self.top_level(file, name, sources)
     }
@@ -454,6 +643,9 @@ impl Index {
             candidates.push(decl.at.file.clone());
         }
         let mut out = Vec::new();
+        if decl.kind == DeclKind::Member {
+            return self.member_references(decl, candidates, sources);
+        }
         for file in candidates {
             let spans: Vec<Range<usize>> = match self.file(&file, sources) {
                 Some(f) => f.idents.iter().filter(|r| f.word(r) == decl.name).cloned().collect(),
@@ -472,6 +664,59 @@ impl Index {
             for span in spans {
                 if self.resolve(&file, &span, &decl.name, sources).is_some_and(|d| d.at == decl.at)
                 {
+                    out.push(Location { file: file.clone(), span });
+                }
+            }
+        }
+        out.sort_by(|a, b| (&a.file, a.span.start).cmp(&(&b.file, b.span.start)));
+        out.dedup();
+        out
+    }
+
+    /// A member's declaration, where `span` (an identifier of `file`) is
+    /// the name of a struct's member in its declaration.
+    fn declared_member(&mut self, file: &str, span: &Range<usize>) -> Option<Declaration> {
+        let f = self.files.get(&file.to_ascii_lowercase())?.as_ref()?;
+        let st = f
+            .outline
+            .structs
+            .iter()
+            .find(|s| s.span.start <= span.start && span.end <= s.span.end)?;
+        let m = st.members.iter().find(|m| m.span == *span)?;
+        Some(Declaration {
+            name: m.name.clone(),
+            kind: DeclKind::Member,
+            at: Location { file: file.to_ascii_lowercase(), span: m.span.clone() },
+            signature: format!("{} {} (struct {})", m.ty, m.name, st.name),
+            doc: m.doc.clone(),
+            doc_source: m.doc_source.clone(),
+        })
+    }
+
+    /// [`references`](Self::references) of a struct's member: its
+    /// declaration, and its uses after `.` that are found to be it.
+    fn member_references(
+        &mut self,
+        decl: &Declaration,
+        candidates: Vec<String>,
+        sources: &mut dyn Sources,
+    ) -> Vec<Location> {
+        let mut out = vec![decl.at.clone()];
+        for file in candidates {
+            if !self.unit(&file, sources).contains(&decl.at.file) {
+                continue;
+            }
+            let uses: Vec<usize> = match self.file(&file, sources) {
+                Some(f) => (0..f.members.len())
+                    .filter(|&k| f.word(&f.members[k].span) == decl.name)
+                    .collect(),
+                None => continue,
+            };
+            for k in uses {
+                if let Some((d, _)) = self.member(&file, k, sources)
+                    && d.at == decl.at
+                {
+                    let span = self.file(&file, sources).expect("indexed").members[k].span.clone();
                     out.push(Location { file: file.clone(), span });
                 }
             }
@@ -501,6 +746,17 @@ impl Index {
             return Err("the new name is the old one".into());
         }
         let places = self.references(decl, files, sources);
+        if decl.kind == DeclKind::Member {
+            // (Taken where the struct has a member of that name.)
+            let f = self.file(&decl.at.file, sources).expect("indexed");
+            let st = (f.outline.structs.iter())
+                .find(|s| s.members.iter().any(|m| m.span == decl.at.span))
+                .expect("the member's struct");
+            if st.members.iter().any(|m| m.name == new) {
+                return Err(format!("{new} is already a member of struct {}", st.name));
+            }
+            return Ok(places);
+        }
         let mut checked = HashSet::new();
         for p in &places {
             let taken = match decl.kind {
@@ -574,13 +830,14 @@ impl Index {
             locals.sort_by_key(|l| std::cmp::Reverse(l.decl.start));
             for l in locals {
                 if seen.insert(l.name.clone()) {
+                    let (doc, doc_source) = f.local_doc(l);
                     out.push(Declaration {
                         name: l.name.clone(),
                         kind: l.kind,
                         at: Location { file: name.clone(), span: l.decl.clone() },
                         signature: format!("{} {}", l.ty, l.name),
-                        doc: String::new(),
-                        doc_source: String::new(),
+                        doc,
+                        doc_source,
                     });
                 }
             }
@@ -645,7 +902,7 @@ mod tests {
     }
 
     const NWS: &str = "// Gets the caller.\nobject GetSelf();\nint TRUE = 1;\n";
-    const INC: &str = "// Doubles.\nint Twice(int n);\nint Twice(int n) { return n * 2; }\nconst int LIMIT = 10;\nstruct Pair { int a; int b; };\n";
+    const INC: &str = "// Doubles.\nint Twice(int n);\nint Twice(int n) { return n * 2; }\nconst int LIMIT = 10;\nstruct Pair {\n    // The first.\n    int a; int b;\n};\n";
     const MAIN: &str = "#include \"inc_math\"\nvoid main()\n{\n    int x = Twice(LIMIT), y;\n    if (x > 0) {\n        int x = 3;\n        y = x;\n    }\n    y = x + Twice(y);\n    struct Pair p;\n    p.a = 1;\n    object o = GetSelf();\n}\n";
     const OTHER: &str = "#include \"inc_math\"\nint Use() { return Twice(2); }\n";
     const FILES: &[(&str, &str)] =
@@ -681,10 +938,72 @@ mod tests {
         assert_eq!((y.kind, y.at.span.start), (DeclKind::Local, at(MAIN, "y;", 0)));
         let pair = idx.declaration_at("main", at(MAIN, "Pair p", 0), &mut src).unwrap();
         assert_eq!(pair.kind, DeclKind::Struct);
-        // Members after `.` aren't resolved.
-        assert!(idx.declaration_at("main", at(MAIN, "p.a", 0) + 2, &mut src).is_none());
+        // A member after `.`, by the type of what is before it.
+        let a = idx.declaration_at("main", at(MAIN, "p.a", 0) + 2, &mut src).unwrap();
+        assert_eq!((a.kind, a.at.file.as_str()), (DeclKind::Member, "inc_math"));
+        assert_eq!(a.at.span.start, at(INC, "a; int b", 0));
+        assert_eq!((a.signature.as_str(), a.doc.as_str()), ("int a (struct Pair)", "The first."));
         let n = idx.declaration_at("inc_math", at(INC, "n * 2", 0), &mut src).unwrap();
         assert_eq!(n.kind, DeclKind::Parameter);
+    }
+
+    const MARKS: &str = "struct Inner {\n    // How many.\n    int nCount;\n};\n\
+        /* A mark. */\nstruct Mark {\n    // Where it is.\n    vector vPos;\n    \
+        struct Inner inner; // after inner\n};\nstruct Mark gMark;\n\
+        struct Mark GetMark() { struct Mark m; return m; }\n";
+    const USES: &str = "#include \"marks\"\nvoid Use(struct Mark mArg)\n{\n    \
+        // The mark kept.\n    struct Mark mKept = mArg;\n    int n = mKept.inner.nCount;\n    \
+        vector v = GetMark().vPos + gMark.vPos + mArg.vPos;\n    float f = v.x;\n}\n";
+    const MARK_FILES: &[(&str, &str)] = &[("nwscript", NWS), ("marks", MARKS), ("uses", USES)];
+
+    /// A struct's member after `.` is found by what is before it (a
+    /// local, a parameter, a global, a member, a call), with its
+    /// documentation; so is a local's. References and rename follow the
+    /// member; a member's name taken in its struct is refused.
+    #[test]
+    fn members_and_locals_have_their_documentation() {
+        let mut src = sources(MARK_FILES);
+        let mut idx = Index::new();
+        fn member(
+            idx: &mut Index,
+            src: &mut dyn Sources,
+            needle: &str,
+            nth: usize,
+            back: usize,
+        ) -> Option<Declaration> {
+            let offset = at(USES, needle, nth) + needle.len() - back;
+            idx.declaration_at("uses", offset, src)
+        }
+        let count = member(&mut idx, &mut src, "inner.nCount", 0, 1).unwrap();
+        assert_eq!((count.kind, count.doc.as_str()), (DeclKind::Member, "How many."));
+        assert_eq!(count.signature, "int nCount (struct Inner)");
+        assert_eq!(&MARKS[count.at.span.clone()], "nCount");
+        let inner = member(&mut idx, &mut src, "mKept.inner", 0, 1).unwrap();
+        assert_eq!(
+            (inner.signature.as_str(), inner.doc.as_str()),
+            ("struct Inner inner (struct Mark)", "")
+        );
+        for (needle, nth) in [("GetMark().vPos", 0), ("gMark.vPos", 0), ("mArg.vPos", 0)] {
+            let pos = member(&mut idx, &mut src, needle, nth, 1).unwrap();
+            assert_eq!((pos.name.as_str(), pos.doc.as_str()), ("vPos", "Where it is."), "{needle}");
+        }
+        // A vector's component is no struct's member.
+        assert!(member(&mut idx, &mut src, "v.x", 0, 0).is_none());
+        // A local's documentation is the comment above its statement.
+        let kept = idx.declaration_at("uses", at(USES, "mKept.inner", 0), &mut src).unwrap();
+        assert_eq!((kept.kind, kept.doc.as_str()), (DeclKind::Local, "The mark kept."));
+        let n = idx.declaration_at("uses", at(USES, "int n", 0) + 4, &mut src).unwrap();
+        assert_eq!(n.doc, "");
+        // In the struct itself, its member's name is the member.
+        let declared = idx.declaration_at("marks", at(MARKS, "vPos", 0), &mut src).unwrap();
+        assert_eq!(declared.kind, DeclKind::Member);
+        // References: the declaration and the three uses; rename the same.
+        let files = ["marks", "uses"].map(String::from).to_vec();
+        let refs = idx.references(&declared, &files, &mut src);
+        let in_uses = refs.iter().filter(|r| r.file == "uses").count();
+        assert_eq!((refs.len(), in_uses), (4, 3), "{refs:?}");
+        assert_eq!(idx.rename(&declared, "vWhere", &files, &mut src).unwrap().len(), 4);
+        assert!(idx.rename(&declared, "inner", &files, &mut src).is_err(), "taken in the struct");
     }
 
     #[test]

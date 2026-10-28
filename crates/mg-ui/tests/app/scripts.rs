@@ -1457,6 +1457,80 @@ fn compile_all_compiles_only_what_changed() {
     assert!(again.starts_with("Compiled 0 scripts"), "{again}");
 }
 
+/// A script compiled on its own (its editor's Compile, or a save that
+/// compiles the scripts including the one saved) is noted as compiled:
+/// the next Compile All passes over it. An external compiler given one
+/// script is given it and what it includes, not the module's other
+/// scripts.
+#[test]
+fn a_script_compiled_on_its_own_is_passed_over_by_compile_all() {
+    let Some((mut h, _)) = area_harness("compile-on-its-own") else { return };
+    let nss = |n: &str| ResKey::parse(n, ResType::NSS).unwrap();
+    let set = |h: &mut Harness<'_, Moonglow>, name: &str, text: &str| {
+        let edit = mg_edit::Edit::SetResource { key: nss(name), data: Some(text.into()) };
+        h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Set", vec![edit])));
+        h.run_steps(2);
+    };
+    set(&mut h, "inc_n", "int N() { return 1; }\n");
+    set(&mut h, "uses_n", "#include \"inc_n\"\nvoid main() { int n = N(); }\n");
+    set(&mut h, "alone", "void main() { int a = 1; }\n");
+    let compile = |h: &mut Harness<'_, Moonglow>| -> String {
+        let before = h.state().log.entries.len();
+        h.state_mut().actions.push(mg_ui::Action::CompileScripts);
+        h.run_steps(3);
+        let mut said = h.state().log.entries[before..].iter().map(|(_, m)| m.clone());
+        said.rfind(|m| m.starts_with("Compiled ")).expect("Compile All's line")
+    };
+    compile(&mut h);
+    // Changed in its editor, and compiled with its Compile.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(nss("alone"))));
+    h.run_steps(3);
+    h.state_mut().scripts_mut_for_test(nss("alone"), "void main() { int a = 2; }\n");
+    h.run_steps(1);
+    h.get_by_label("Compile").click();
+    h.run_steps(3);
+    let ncs = ResKey::parse("alone", ResType::NCS).unwrap();
+    let made = h.state().ws.as_ref().unwrap().module.get(&ncs).map(<[u8]>::to_vec);
+    let after = compile(&mut h);
+    assert!(after.starts_with("Compiled 0 scripts") && after.contains("left alone"), "{after}");
+    assert_eq!(h.state().ws.as_ref().unwrap().module.get(&ncs).map(<[u8]>::to_vec), made);
+    // An include saved, compiling on save: the script including it is
+    // compiled then, and passed over by Compile All (the include, never
+    // compiled on its own, is looked at again).
+    h.state_mut().settings.auto_compile = true;
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(nss("inc_n"))));
+    h.run_steps(3);
+    h.state_mut().scripts_mut_for_test(nss("inc_n"), "int N() { return 2; }\n");
+    h.state_mut().actions.push(mg_ui::Action::SaveScript(nss("inc_n")));
+    h.run_steps(4);
+    let saved = compile(&mut h);
+    assert!(saved.starts_with("Compiled 1 scripts: 0 failed, 0 changed"), "{saved}");
+
+    // An external compiler (a stand-in that lists what it is given, and
+    // "compiles" a script by copying it) compiling one script.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = mg_testkit::scratch_dir("ui-external-one");
+        let (program, listed) = (dir.join("listcomp"), dir.join("given.txt"));
+        let line = format!(
+            "#!/bin/sh\nsrc=$1; out=$2; shift 2\nls \"$src\" > '{}'\nfor f in \"$@\"; do \
+             cp \"$f\" \"$out/$(basename \"$f\" .nss).ncs\"; done\n",
+            listed.display()
+        );
+        std::fs::write(&program, line).unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        h.state_mut().settings.external_compiler = Some(program);
+        h.state_mut().settings.external_compiler_args = "{src} {out} {files}".into();
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(nss("uses_n"))));
+        h.run_steps(3);
+        h.get_by_label("Compile").click();
+        h.run_steps(3);
+        let given = std::fs::read_to_string(&listed).unwrap();
+        assert_eq!(given.lines().collect::<Vec<_>>(), ["inc_n.nss", "uses_n.nss"], "{given}");
+    }
+}
+
 /// In Open Script, Down and Up choose among the scripts listed while the
 /// name is typed, and Enter opens the one chosen (the first, unmoved).
 #[test]

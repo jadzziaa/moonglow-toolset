@@ -48,15 +48,76 @@ use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use mg_core::ResRef;
+use mg_core::{ResRef, ResType};
 use regex_lite::Regex;
 use toml::Spanned;
 use toml::de::{DeTable, DeValue};
 
 use crate::ModuleLocation;
 
-/// The team's file, in the project's root.
+/// The team's file, in the project's root (beside a `.mod`, the
+/// module's name before it: `krezk.moonglow.toml`).
 pub const FILE_NAME: &str = "moonglow.toml";
+
+/// Where a module's project files are: a project's root (a nasher
+/// project's or a module folder's) and the files' names in it, or, for a
+/// module kept in one file, its folder and the files named by the module
+/// (`krezk.mod`: `krezk.moonglow.toml` and `krezk.variables.toml`
+/// beside it), as that folder holds other modules too.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Place {
+    /// The folder the files are in.
+    pub root: PathBuf,
+    /// The module's name, for a `.mod`'s.
+    module: Option<String>,
+}
+
+impl Place {
+    /// A project's root's.
+    pub fn folder(root: &Path) -> Place {
+        Place { root: root.to_path_buf(), module: None }
+    }
+
+    /// A `.mod`'s: its folder's files named by it.
+    pub fn beside(archive: &Path) -> Option<Place> {
+        let module = archive.file_stem()?.to_str()?.to_string();
+        let root = archive.parent().unwrap_or(Path::new(".")).to_path_buf();
+        Some(Place { root, module: Some(module) })
+    }
+
+    /// Whether it is a `.mod`'s (whose folder holds other modules: no
+    /// builder's own file, claims, commands or plugins of its own).
+    pub fn is_beside(&self) -> bool {
+        self.module.is_some()
+    }
+
+    fn named(&self, file: &str) -> PathBuf {
+        match &self.module {
+            Some(m) => self.root.join(format!("{m}.{file}")),
+            None => self.root.join(file),
+        }
+    }
+
+    /// The team's file.
+    pub fn team(&self) -> PathBuf {
+        self.named(FILE_NAME)
+    }
+
+    /// The described variables' file.
+    pub fn variables(&self) -> PathBuf {
+        self.named(crate::var_desc::FILE_NAME)
+    }
+
+    /// The builder's own file (none beside a `.mod`).
+    pub fn user(&self) -> Option<PathBuf> {
+        self.module.is_none().then(|| ProjectFile::user_path(&self.root))
+    }
+
+    /// The team's file's name, as messages say it.
+    pub fn team_name(&self) -> String {
+        self.team().file_name().map_or_else(|| FILE_NAME.into(), |n| n.to_string_lossy().into())
+    }
+}
 /// The builder's own folder, in the project's root, and its file.
 pub const USER_DIR: &str = ".moonglow";
 pub const USER_FILE: &str = "user.toml";
@@ -227,6 +288,12 @@ pub struct ProjectCommand {
     pub label: String,
     /// What runs, on this system (none: the file gives none for it).
     pub run: Option<String>,
+    /// Whether it may write the module's files (`writes = false`: it
+    /// writes none, as a submit, so the haks stay open while it runs).
+    pub writes: bool,
+    /// The keys it asks for (`key = "Ctrl+Shift+U"`), as a plugin's
+    /// command does: the builder's own in Options › Keyboard win.
+    pub key: Option<String>,
 }
 
 /// A command's name in the menu, from its name in the file:
@@ -259,9 +326,16 @@ pub struct Naming {
 
 impl Naming {
     /// The naming of a code and a pattern (`{code}` and `{name}` in it;
-    /// [`pattern_problem`] says whether it is one).
+    /// [`pattern_problem`] says whether it is one), `{kind}` left out.
     pub fn new(code: &str, pattern: &str) -> Naming {
-        let filled = pattern.replace("{code}", code).to_ascii_lowercase();
+        Naming::of_kind(code, pattern, "")
+    }
+
+    /// The naming of a code and a pattern for a kind of resource: `kind`
+    /// in place of `{kind}` (`n_`, for a creature, by `[resrefs]
+    /// kinds`).
+    pub fn of_kind(code: &str, pattern: &str, kind: &str) -> Naming {
+        let filled = pattern.replace("{code}", code).replace("{kind}", kind).to_ascii_lowercase();
         let (before, after) = filled.split_once("{name}").unwrap_or((filled.as_str(), ""));
         Naming { before: before.to_string(), after: after.to_string() }
     }
@@ -348,21 +422,27 @@ pub fn code_problem(code: &str) -> Option<String> {
 }
 
 /// What is wrong with a ResRef pattern, or none where it is one:
-/// `{code}` and `{name}` once each, the rest letters, digits and `_`,
-/// leaving a name room by a code of [`MAX_CODE`].
-pub fn pattern_problem(pattern: &str) -> Option<String> {
+/// `{name}` once, `{code}` (the builder's) and `{kind}` (the kind's text,
+/// at most `longest_kind` characters) at most once each, the rest
+/// letters, digits and `_`, leaving a name room by a code of
+/// [`MAX_CODE`]. A pattern without `{code}` is the team's for everyone
+/// (`tdod_{name}`).
+pub fn pattern_problem(pattern: &str, longest_kind: usize) -> Option<String> {
     let mut rest = pattern;
-    let (mut fixed, mut code, mut name) = (0, 0, 0);
+    let (mut fixed, mut code, mut kind, mut name) = (0, 0, 0, 0);
     while let Some(c) = rest.chars().next() {
         if let Some(after) = rest.strip_prefix("{code}") {
             code += 1;
+            rest = after;
+        } else if let Some(after) = rest.strip_prefix("{kind}") {
+            kind += 1;
             rest = after;
         } else if let Some(after) = rest.strip_prefix("{name}") {
             name += 1;
             rest = after;
         } else if c == '{' {
             let word = rest.split('}').next().unwrap_or(rest);
-            return Some(format!("{word}}} is neither {{code}} nor {{name}}"));
+            return Some(format!("{word}}} is none of {{code}}, {{kind}} and {{name}}"));
         } else if !(c.is_ascii_alphanumeric() || c == '_') {
             return Some(format!("\"{c}\": a ResRef is letters, digits and _"));
         } else {
@@ -370,16 +450,45 @@ pub fn pattern_problem(pattern: &str) -> Option<String> {
             rest = &rest[c.len_utf8()..];
         }
     }
-    if code != 1 || name != 1 {
-        return Some("it is to have {code} and {name}, once each".into());
+    if name != 1 || code > 1 || kind > 1 {
+        return Some("it is to have {name} once, and {code} and {kind} at most once".into());
     }
-    if 16 < fixed + MAX_CODE + MIN_ROOM {
+    let code = if code == 1 { MAX_CODE } else { 0 };
+    let kind = if kind == 1 { longest_kind } else { 0 };
+    if 16 < fixed + code + kind + MIN_ROOM {
+        let by = match (code > 0, kind > 0) {
+            (true, true) => format!(" (by a code of {MAX_CODE} and a kind's {kind})"),
+            (true, false) => format!(" (by a code of {MAX_CODE})"),
+            (false, true) => format!(" (by a kind's {kind})"),
+            (false, false) => String::new(),
+        };
         return Some(format!(
-            "it leaves a name fewer than {MIN_ROOM} of a ResRef's 16 characters (by a code of \
-             {MAX_CODE})"
+            "it leaves a name fewer than {MIN_ROOM} of a ResRef's 16 characters{by}"
         ));
     }
     None
+}
+
+/// The kinds of resources a pattern's `{kind}` tells apart (`[resrefs]
+/// kinds`), and the resource types of each.
+pub const KINDS: [(&str, &[ResType]); 12] = [
+    ("area", &[ResType::ARE, ResType::GIT, ResType::GIC]),
+    ("creature", &[ResType::UTC]),
+    ("door", &[ResType::UTD]),
+    ("encounter", &[ResType::UTE]),
+    ("item", &[ResType::UTI]),
+    ("placeable", &[ResType::UTP]),
+    ("sound", &[ResType::UTS]),
+    ("store", &[ResType::UTM]),
+    ("trigger", &[ResType::UTT]),
+    ("waypoint", &[ResType::UTW]),
+    ("script", &[ResType::NSS, ResType::NCS]),
+    ("conversation", &[ResType::DLG]),
+];
+
+/// The kind (of [`KINDS`]) a resource type is.
+pub fn kind_of(t: ResType) -> Option<&'static str> {
+    KINDS.iter().find(|(_, types)| types.contains(&t)).map(|(k, _)| *k)
 }
 
 /// A project's rules, as its files say them.
@@ -393,8 +502,11 @@ pub struct ProjectFile {
     pub tags: TagRules,
     pub store: Option<StoreRules>,
     /// `[resrefs] pattern`: how a new ResRef is made by the builder's
-    /// code (none: [`DEFAULT_PATTERN`]).
+    /// code, or the team's prefix (none: [`DEFAULT_PATTERN`]).
     pub resref_pattern: Option<String>,
+    /// `[resrefs] kinds`: each kind's text in place of the pattern's
+    /// `{kind}` (`creature = "n_"`), by the kind's name ([`KINDS`]).
+    pub resref_kinds: std::collections::BTreeMap<String, String>,
     pub user: UserSettings,
     /// `[claims]`: where the team's claims table is, and what an area
     /// another builder holds is.
@@ -420,6 +532,8 @@ pub struct ProjectFile {
     pub errors: Vec<String>,
     /// The files' times and sizes when read, to see a change.
     stamps: Vec<Option<(SystemTime, u64, u64)>>,
+    /// Where they were read from.
+    place: Option<Place>,
 }
 
 fn stamp(path: &Path) -> Option<(SystemTime, u64, u64)> {
@@ -534,7 +648,8 @@ impl<'a> Reader<'a> {
             self.warn(key.span().start, message);
             return None;
         }
-        let mut c = ProjectCommand { label: label_of(&name), name, run: None };
+        let mut c =
+            ProjectCommand { label: label_of(&name), name, run: None, writes: true, key: None };
         match value.get_ref() {
             DeValue::String(s) => c.run = Some(s.to_string()),
             DeValue::Table(t) => {
@@ -549,6 +664,11 @@ impl<'a> Reader<'a> {
                                 c.label = l.trim().to_string();
                             }
                         }
+                        "writes" => match e.1.get_ref() {
+                            DeValue::Boolean(b) => c.writes = *b,
+                            _ => self.warn(e.1.span().start, "writes is true or false"),
+                        },
+                        "key" => c.key = self.text(e).filter(|k| !k.trim().is_empty()),
                         _ => self.unknown(&format!("commands.{}", c.name), e),
                     }
                 }
@@ -576,13 +696,26 @@ pub fn command_name(name: &str) -> bool {
 
 impl ProjectFile {
     /// Where a module's team file is: in a nasher project's root or a
-    /// module folder; none for a module kept in one file (`.mod`), whose
+    /// module folder; none for a module kept in one file (`.mod`, whose own
+    /// rules are beside it: [`ProjectFile::place_of`]), whose
     /// folder holds other modules too.
     pub fn root_of(location: &ModuleLocation) -> Option<&Path> {
         match location {
             ModuleLocation::Project { root, .. } => Some(root),
             ModuleLocation::Folder(dir) => Some(dir),
             ModuleLocation::Archive(_) => None,
+        }
+    }
+
+    /// Where a module's project files are: a project's root, or beside a
+    /// `.mod` where its own are there (`krezk.moonglow.toml`,
+    /// `krezk.variables.toml`); none for a `.mod` without them.
+    pub fn place_of(location: &ModuleLocation) -> Option<Place> {
+        match location {
+            ModuleLocation::Archive(path) => {
+                Place::beside(path).filter(|p| p.team().is_file() || p.variables().is_file())
+            }
+            _ => Self::root_of(location).map(Place::folder),
         }
     }
 
@@ -594,16 +727,25 @@ impl ProjectFile {
     /// Reads a project's files from its root (neither there: as without
     /// a project file).
     pub fn read(root: &Path) -> ProjectFile {
-        let path = root.join(FILE_NAME);
-        let user = Self::user_path(root);
-        let described = crate::var_desc::path_in(root);
+        Self::read_at(&Place::folder(root))
+    }
+
+    /// Reads a project's files where they are ([`ProjectFile::place_of`]).
+    pub fn read_at(place: &Place) -> ProjectFile {
+        let root = place.root.as_path();
+        let path = place.team();
+        let user = place.user();
+        let described = place.variables();
         let mut p = ProjectFile {
             path: Some(path.clone()),
             // (The claims table's last, once the team's file says where.)
-            stamps: vec![stamp(&path), stamp(&user), stamp(&described), None],
+            stamps: vec![stamp(&path), user.as_deref().and_then(stamp), stamp(&described), None],
+            place: Some(place.clone()),
             ..Default::default()
         };
-        for (file, own) in [(&path, false), (&user, true)] {
+        let files = std::iter::once((path.clone(), false)).chain(user.map(|u| (u, true)));
+        for (file, own) in files {
+            let file = &file;
             let source = match std::fs::read(file) {
                 Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
@@ -612,7 +754,7 @@ impl ProjectFile {
                     continue;
                 }
             };
-            let name = if own { format!("{USER_DIR}/{USER_FILE}") } else { FILE_NAME.to_string() };
+            let name = if own { format!("{USER_DIR}/{USER_FILE}") } else { place.team_name() };
             // (One made by hand: its folder would be committed for all.)
             if own && !root.join(USER_DIR).join(".gitignore").exists() {
                 p.warnings.push(format!(
@@ -632,12 +774,43 @@ impl ProjectFile {
         match std::fs::read(&described) {
             Ok(bytes) => {
                 let source = String::from_utf8_lossy(&bytes);
-                p.read_variables(crate::var_desc::FILE_NAME, &source);
+                let name = described.file_name().map(|n| n.to_string_lossy().into_owned());
+                p.read_variables(name.as_deref().unwrap_or(crate::var_desc::FILE_NAME), &source);
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => p.errors.push(format!("{}: {e}", described.display())),
         }
         p
+    }
+
+    /// Reads `[resrefs] kinds`: each kind's text (`creature = "n_"`),
+    /// letters, digits and `_`.
+    fn read_kinds(&mut self, r: &mut Reader, (key, value): Entry) {
+        let DeValue::Table(t) = value.get_ref() else {
+            let message = "kinds is to be a table: { creature = \"n_\", item = \"i_\" }";
+            r.warn(value.span().start, message);
+            return;
+        };
+        for e in in_order(t) {
+            let kind = e.0.get_ref().to_string();
+            if !KINDS.iter().any(|(k, _)| *k == kind) {
+                let all: Vec<&str> = KINDS.iter().map(|(k, _)| *k).collect();
+                let message = format!("kinds: \"{kind}\" is none of {}", all.join(", "));
+                r.warn(e.0.span().start, message);
+                continue;
+            }
+            let Some(text) = r.text(e) else { continue };
+            match text.chars().find(|c| !(c.is_ascii_alphanumeric() || *c == '_')) {
+                Some(c) => r.warn(
+                    e.1.span().start,
+                    format!("kinds.{kind} \"{text}\": \"{c}\": a ResRef is letters, digits and _"),
+                ),
+                None => {
+                    self.resref_kinds.insert(kind, text.to_ascii_lowercase());
+                }
+            }
+        }
+        let _ = key;
     }
 
     /// Reads the claims table (`[claims] file`): one not there yet is an
@@ -688,9 +861,22 @@ impl ProjectFile {
             }
         };
         let mut r = Reader { name, source, warnings: Vec::new() };
+        let beside = self.place.as_ref().is_some_and(Place::is_beside);
         for entry in in_order(table.get_ref()) {
             let (key, _) = entry;
             let section = key.get_ref().as_ref();
+            // (A .mod's folder holds other modules: what is a checkout's,
+            // and the builder's own file, are a project folder's.)
+            if beside && matches!(section, "claims" | "commands" | "plugins" | "builder") {
+                r.warn(
+                    key.span().start,
+                    format!(
+                        "[{section}] is not read beside a module kept in one file (.mod): it is \
+                         a module folder's or a nasher project's"
+                    ),
+                );
+                continue;
+            }
             match (section, own) {
                 ("make_static", false) => {
                     for e in r.section(entry) {
@@ -750,11 +936,28 @@ impl ProjectFile {
                     }
                 }
                 ("resrefs", false) => {
-                    for e in r.section(entry) {
+                    // (The pattern is held to the kinds' texts: those
+                    // first, their faults said in the file's order.)
+                    let entries = r.section(entry);
+                    let mut kinds = Vec::new();
+                    for e in &entries {
+                        if e.0.get_ref() == "kinds" {
+                            let mut k =
+                                Reader { name: r.name, source: r.source, warnings: Vec::new() };
+                            self.read_kinds(&mut k, *e);
+                            kinds.push(k.warnings);
+                        }
+                    }
+                    let mut kinds = kinds.into_iter();
+                    let longest = self.resref_kinds.values().map(String::len).max();
+                    let mut written = None;
+                    for e in entries {
                         match e.0.get_ref().as_ref() {
+                            "kinds" => r.warnings.extend(kinds.next().unwrap_or_default()),
                             "pattern" => {
                                 if let Some(t) = r.text(e) {
-                                    match pattern_problem(t.trim()) {
+                                    written = Some(t.clone());
+                                    match pattern_problem(t.trim(), longest.unwrap_or(0)) {
                                         Some(problem) => r.warn(
                                             e.1.span().start,
                                             format!("pattern \"{t}\": {problem}"),
@@ -765,6 +968,12 @@ impl ProjectFile {
                             }
                             _ => r.unknown(section, e),
                         }
+                    }
+                    if !written.as_deref().unwrap_or(DEFAULT_PATTERN).contains("{kind}")
+                        && !self.resref_kinds.is_empty()
+                    {
+                        let at = entry.0.span().start;
+                        r.warn(at, "[resrefs] kinds: the pattern has no {kind} to put them in");
                     }
                 }
                 ("store", false) => {
@@ -945,24 +1154,46 @@ impl ProjectFile {
     }
 
     /// How the ResRefs proposed for new resources are made: by the
-    /// builder's code, where they have one, in the team's pattern.
+    /// builder's code, where they have one, in the team's pattern; by the
+    /// team's pattern alone where it has no `{code}` (`tdod_{name}`).
+    /// Its `{kind}` left out: [`ProjectFile::naming_for`].
     pub fn naming(&self) -> Naming {
+        self.naming_of("")
+    }
+
+    /// [`ProjectFile::naming`] for a new resource of type `t`: the
+    /// pattern's `{kind}` the text `[resrefs] kinds` gives its kind (none:
+    /// nothing).
+    pub fn naming_for(&self, t: ResType) -> Naming {
+        let kind = kind_of(t).and_then(|k| self.resref_kinds.get(k));
+        self.naming_of(kind.map_or("", String::as_str))
+    }
+
+    fn naming_of(&self, kind: &str) -> Naming {
         let pattern = self.resref_pattern.as_deref().unwrap_or(DEFAULT_PATTERN);
-        self.user.builder_code.as_deref().map_or_else(Naming::default, |c| Naming::new(c, pattern))
+        match self.user.builder_code.as_deref() {
+            Some(code) => Naming::of_kind(code, pattern, kind),
+            None if !pattern.contains("{code}") => Naming::of_kind("", pattern, kind),
+            None => Naming::default(),
+        }
     }
 
     /// Whether the files changed (were made, edited or deleted) since they
     /// were read.
     pub fn changed(&self) -> bool {
-        let Some(path) = &self.path else { return false };
-        let root = path.parent().unwrap_or(Path::new("."));
+        let Some(place) = &self.place else { return false };
         let now = vec![
-            stamp(path),
-            stamp(&Self::user_path(root)),
-            stamp(&crate::var_desc::path_in(root)),
-            self.claims.path_in(root).and_then(|t| stamp(&t)),
+            stamp(&place.team()),
+            place.user().as_deref().and_then(stamp),
+            stamp(&place.variables()),
+            self.claims.path_in(&place.root).and_then(|t| stamp(&t)),
         ];
         now != self.stamps
+    }
+
+    /// Where its files were read from.
+    pub fn place(&self) -> Option<&Place> {
+        self.place.as_ref()
     }
 
     /// Writes the builder's own file (making its folder, which keeps
@@ -1233,17 +1464,76 @@ keeper_variable = "tdod_store"
         assert!(code_problem("").is_some());
         assert_eq!(code_problem("a b").unwrap(), "\" \": a code is letters, digits and _");
         assert!(code_problem("abcdefghi").unwrap().contains("at most 8"));
-        assert_eq!(pattern_problem("{code}_{name}"), None);
-        assert_eq!(pattern_problem("{name}{code}"), None);
+        assert_eq!(pattern_problem("{code}_{name}", 0), None);
+        assert_eq!(pattern_problem("{name}{code}", 0), None);
         assert_eq!(
-            pattern_problem("{area}_{name}").unwrap(),
-            "{area} is neither {code} nor {name}"
+            pattern_problem("{area}_{name}", 0).unwrap(),
+            "{area} is none of {code}, {kind} and {name}"
         );
-        assert!(pattern_problem("{name}").unwrap().contains("once each"));
-        assert!(pattern_problem("{code}{name}{name}").unwrap().contains("once each"));
-        assert!(pattern_problem("{code}-{name}").unwrap().starts_with("\"-\""));
-        assert!(pattern_problem("tdod_{code}_{name}").unwrap().contains("fewer than 6"));
-        assert_eq!(pattern_problem("t{code}{name}"), None);
+        // A team's prefix, for everyone; and by kind.
+        assert_eq!(pattern_problem("{name}", 0), None);
+        assert_eq!(pattern_problem("tdod_{name}", 0), None);
+        assert_eq!(pattern_problem("tdod_{kind}{name}", 2), None);
+        assert!(pattern_problem("tdod_{code}_{name}", 0).unwrap().contains("fewer than 6"));
+        assert_eq!(
+            pattern_problem("tdod_{kind}{name}", 6).unwrap(),
+            "it leaves a name fewer than 6 of a ResRef's 16 characters (by a kind's 6)"
+        );
+        assert!(pattern_problem("{code}{name}{name}", 0).unwrap().contains("{name} once"));
+        assert!(pattern_problem("{code}{code}{name}", 0).unwrap().contains("at most once"));
+        assert!(pattern_problem("{code}", 0).unwrap().contains("{name} once"));
+        assert!(pattern_problem("{code}-{name}", 0).unwrap().starts_with("\"-\""));
+        assert_eq!(pattern_problem("t{code}{name}", 0), None);
+    }
+
+    /// A team's own prefix without a builder's code (`tdod_{name}`) is
+    /// everyone's, and one by kind (`{kind}`, `tdod_n_` for people) each
+    /// kind's; a builder's code goes in too where the pattern has
+    /// `{code}` (the Domains of Dread's builder proposal).
+    #[test]
+    fn a_team_s_prefix_needs_no_builder_code_and_may_go_by_kind() {
+        let p = read("[resrefs]\npattern = \"tdod_{name}\"\n");
+        assert_eq!(p.warnings, Vec::<String>::new());
+        assert_eq!(p.naming().fit("market", ""), "tdod_market", "no code needed");
+        assert_eq!(p.naming().fit("tdod_chair", "001"), "tdod_chair001", "never tdod_tdod_");
+        let p = read(
+            "[resrefs]\npattern = \"tdod_{kind}{name}\"\n\
+             kinds = { creature = \"n_\", item = \"I_\", placeable = \"p_\" }\n",
+        );
+        assert_eq!(p.warnings, Vec::<String>::new());
+        assert_eq!(p.naming_for(ResType::UTC).fit("guard", ""), "tdod_n_guard");
+        assert_eq!(p.naming_for(ResType::UTI).fit("sword", "001"), "tdod_i_sword001");
+        assert_eq!(p.naming_for(ResType::ARE).fit("market", ""), "tdod_market", "no kind");
+        assert_eq!(p.naming().fit("market", ""), "tdod_market");
+        let mut p =
+            read("[resrefs]\npattern = \"{kind}{code}_{name}\"\nkinds = { creature = \"n\" }\n");
+        assert_eq!(p.warnings, Vec::<String>::new());
+        assert_eq!(p.naming(), Naming::default(), "with {{code}} and no code: as Aurora");
+        p.user.builder_code = Some("ab".into());
+        assert_eq!(p.naming_for(ResType::UTC).fit("guard", ""), "nab_guard");
+        assert_eq!(p.naming_for(ResType::DLG).fit("guard", ""), "ab_guard");
+        let p = read(
+            "[resrefs]\npattern = \"tdod_{kind}{name}\"\n\
+             kinds = { people = \"n_\", item = \"i-\", creature = \"abcdefghi\" }\n\
+             [tags]\n",
+        );
+        assert_eq!(
+            p.warnings,
+            [
+                "moonglow.toml:2: pattern \"tdod_{kind}{name}\": it leaves a name fewer than 6 \
+                 of a ResRef's 16 characters (by a kind's 9)",
+                "moonglow.toml:3: kinds: \"people\" is none of area, creature, door, encounter, \
+                 item, placeable, sound, store, trigger, waypoint, script, conversation",
+                "moonglow.toml:3: kinds.item \"i-\": \"-\": a ResRef is letters, digits and _",
+            ]
+        );
+        let p = read("[resrefs]\nkinds = { creature = \"n_\" }\n");
+        assert_eq!(
+            p.warnings,
+            ["moonglow.toml:1: [resrefs] kinds: the pattern has no {kind} to put them in"]
+        );
+        assert_eq!(kind_of(ResType::GIT), Some("area"));
+        assert_eq!(kind_of(ResType::MDL), None);
     }
 
     #[test]
@@ -1363,7 +1653,60 @@ keeper_variable = "tdod_store"
         assert!(m.reread_project_file());
         assert!(m.project_file.tags.unique.matches("BB_1"));
         m.save_as(&ModuleLocation::Archive(dir.with_extension("mod"))).unwrap();
-        assert_eq!(m.project_file, ProjectFile::default(), "a .mod has none");
+        assert_eq!(m.project_file, ProjectFile::default(), "a .mod has none of its folder's");
+    }
+
+    /// A module kept in one file has its own beside it, named by it
+    /// (`krezk.moonglow.toml`, `krezk.variables.toml`), as its folder
+    /// holds other modules: read when it opens and again when it changes;
+    /// what is a checkout's or a builder's own is not read there.
+    #[test]
+    fn a_mod_reads_its_own_project_file_beside_it() {
+        let dir = mg_testkit::scratch_dir("project-file-mod");
+        let path = dir.join("krezk.mod");
+        crate::Module::new().save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+        crate::Module::new().save_as(&ModuleLocation::Archive(dir.join("other.mod"))).unwrap();
+        std::fs::write(dir.join(FILE_NAME), "[tags]\nunique = [\"X_*\"]\n").unwrap();
+        let mut m = crate::Module::open(&path).unwrap();
+        assert_eq!(m.project_file, ProjectFile::default(), "not the folder's moonglow.toml");
+        std::fs::write(
+            dir.join("krezk.moonglow.toml"),
+            "[tags]\nunique = [\"A_*\"]\n[resrefs]\npattern = \"kz_{name}\"\n\
+             [commands]\nupdate = \"x\"\n[builder]\ncode = \"ab\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("krezk.variables.toml"), "[kz_lit]\ntype = \"int\"\n").unwrap();
+        assert!(m.reread_project_file(), "made: read");
+        let p = &m.project_file;
+        assert!(p.found && p.variables_found);
+        assert!(p.tags.unique.matches("A_1") && !p.tags.unique.matches("X_1"));
+        assert_eq!(p.naming().fit("market", ""), "kz_market");
+        assert!(p.variables.describe("kz_lit").is_some());
+        assert!(p.commands.is_empty() && p.user.builder_code.is_none());
+        assert_eq!(
+            p.warnings,
+            [
+                "krezk.moonglow.toml:5: [commands] is not read beside a module kept in one file \
+                 (.mod): it is a module folder's or a nasher project's",
+                "krezk.moonglow.toml:7: [builder] is not read beside a module kept in one file \
+                 (.mod): it is a module folder's or a nasher project's",
+            ]
+        );
+        assert!(!m.reread_project_file(), "unchanged");
+        std::fs::write(dir.join("krezk.moonglow.toml"), "[tags]\nunique = [\"BB_*\"]\n").unwrap();
+        assert!(m.reread_project_file());
+        assert!(m.project_file.tags.unique.matches("BB_1"));
+        // Opened anew: read; the other module has none.
+        let m = crate::Module::open(&path).unwrap();
+        assert!(m.project_file.tags.unique.matches("BB_1"));
+        let other = crate::Module::open(&dir.join("other.mod")).unwrap();
+        assert_eq!(other.project_file, ProjectFile::default());
+        // Taken away: none again.
+        let mut m = m;
+        std::fs::remove_file(dir.join("krezk.moonglow.toml")).unwrap();
+        std::fs::remove_file(dir.join("krezk.variables.toml")).unwrap();
+        assert!(m.reread_project_file());
+        assert_eq!(m.project_file, ProjectFile::default());
     }
 
     #[test]
@@ -1507,7 +1850,9 @@ keeper_variable = "tdod_store"
         let p = read(
             "[commands]\nupdate = \"bin/update\"\nsubmit = { run = \"bin/submit\", label = \"Submit \
              for Review\" }\nrun_tests = { unix = \"bin/test\", windows = \"bin\\\\test.cmd\" }\n\
-             only_windows = { windows = \"x.cmd\" }\n\"two words\" = \"x\"\nbad = 3\nempty = \"\"\n",
+             only_windows = { windows = \"x.cmd\" }\n\"two words\" = \"x\"\nbad = 3\nempty = \"\"\n\
+             review = { run = \"bin/review\", writes = false, key = \"Ctrl+Shift+R\" }\n\
+             odd = { run = \"x\", writes = \"no\" }\n",
         );
         assert_eq!(
             p.warnings,
@@ -1515,7 +1860,14 @@ keeper_variable = "tdod_store"
                 "moonglow.toml:6: command \"two words\": a command's name is letters, digits, _ and -",
                 "moonglow.toml:7: bad is to be its command, in quotes, or a table: { run = \"…\", \
                  label = \"…\" }",
+                "moonglow.toml:10: writes is true or false",
             ]
+        );
+        let review = p.commands.iter().find(|c| c.name == "review").unwrap();
+        assert!(!review.writes);
+        assert_eq!(review.key.as_deref(), Some("Ctrl+Shift+R"));
+        assert!(
+            p.commands.iter().filter(|c| c.name != "review").all(|c| c.writes && c.key.is_none())
         );
         let names: Vec<(&str, &str, Option<&str>)> =
             p.commands.iter().map(|c| (&*c.name, &*c.label, c.run.as_deref())).collect();
@@ -1529,6 +1881,8 @@ keeper_variable = "tdod_store"
                 ("run_tests", "Run tests", Some(tests)),
                 ("only_windows", "Only windows", only),
                 ("empty", "Empty", None),
+                ("review", "Review", Some("bin/review")),
+                ("odd", "Odd", Some("x")),
             ]
         );
         // What was allowed is never read from the project's files, the

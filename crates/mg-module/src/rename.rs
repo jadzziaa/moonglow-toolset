@@ -450,8 +450,8 @@ fn string_literals(src: &[u8], name: &str, ignore_case: bool) -> Vec<(usize, usi
         .collect()
 }
 
-/// A path's place, for people.
-pub(crate) fn describe(key: ResKey, gff: Option<&Gff>, path: &str) -> String {
+/// A path's place, for people (as findings say it: their `at`).
+pub fn describe(key: ResKey, gff: Option<&Gff>, path: &str) -> String {
     let name = key.resref.to_string();
     let field = |label: &str| -> String {
         match label.strip_prefix("Script") {

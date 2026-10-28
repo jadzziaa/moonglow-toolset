@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T04:46:12Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:50:22Z }
 ---
 
 # Command-line tools
@@ -66,13 +66,13 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | `mg model-files WHAT FOLDER [--module MODULE] [--all] [--force] [--dry-run]` | writes the files the game draws a model (`plc_a08`) or a blueprint (`chest.utp`; also `.utd`, `.uti`, `.utc`) with into a folder: models, walkmeshes, textures, materials, from the module's haks and wherever else they are; the game's own are left out unless all are (or `--all`); files already in the folder are not written over without `--force` |
 | `mg vars MODULE [NAME]` | the variables the project describes (`variables.toml`, see [Modules](03-modules.md#described-variables)): each one's type, what it goes on, its values (a script's constants and a table's rows read) and its help; `--on KIND` those that go on one kind of object (`placeable`, `area`, `module`…), never one the scripts alone set (`runtime`) |
 | `mg claims PROJECT [list\|claim\|release\|merged] [AREA…]` | the project's [claims table](03-modules.md#claimed-areas) (`[claims] file` in its `moonglow.toml`): every area of the table and of the module, whose each is (`--json` too); or the areas named claimed or released by your builder code, as Claim This Area and Release Claim do (`--force`: another builder's claim), or marked merged with their Tags as the module has them. It writes the table, a file of the checkout: commit it |
-| `mg builder-code PROJECT [CODE]` | your builder code in a module folder or nasher project (its `.moonglow/user.toml`, which version control leaves out): shown, set, or taken out with `--clear`; the ResRefs the window proposes begin with it ([Modules](03-modules.md#your-builder-code)) |
+| `mg builder-code PROJECT [CODE]` | your builder code in a module folder or nasher project (its `.moonglow/user.toml`, which version control leaves out): shown, set, or taken out with `--clear`; the ResRefs the window proposes begin with it, and what the team's `[resrefs] pattern` makes of a name (its own prefix, without a code, where it has no `{code}`) ([Modules](03-modules.md#your-builder-code)) |
 | `mg checks` | the checks `mg verify` makes of custom content: each one's id (a finding's `check` in the JSON), its group and what it holds to be true |
 | `mg verify MODULE --skip GROUP` | leave a group out (repeatable, or several separated by commas: `--skip tilesets,models,2das`): `references` (missing resources), `tilesets`, `models`, `2das`, `objects`, `module` or `plugins`. Its checks aren't run (the tilesets and models of a hundred haks are most of the time a Verify takes); the JSON's `skipped` names each group left out, as `null` (not checked), and only the rest count toward failing |
 | `mg verify MODULE --timings` | also print how long each part of the check took, to stderr (the report is unchanged): opening the module, the haks, each group's checks, the tilesets', 2DAs', materials' and models' time added up with the longest of each |
 | `mg verify MODULE --plugins DIR` | also run the checks of the plugins in `DIR` (a plugin's folder, or a folder of plugins); their problems count with the rest. A project's own plugins (its `plugins/`) run as you allowed them in Moonglow, and each that did not is said in a note |
 | `mg verify MODULE --allow-project-plugins` | run the checks of every plugin the project comes with, allowed or not: for a build pipeline, where nobody is asked ([A project's own plugins](15-plugins.md#a-projects-own-plugins)) |
-| `mg verify MODULE --fix CHECK` | make the fixes the findings of a check offer (repeatable; a check's id, as a finding's `check` says: `tag-unique`, `example.tag-conventions/tag-case`) and save: each as Verify Module's button makes it, refused (and named) where an earlier fix changed what it would change. The report is of the module as it was found, with a `fixed` line a fix; only errors not fixed fail. `--dry-run` says which it would make and changes nothing. Without `--fix`, nothing is changed |
+| `mg verify MODULE --fix CHECK` | make the fixes the findings of a check offer (repeatable; a check's id, as a finding's `check` says: `tag-unique`, `area-variables`, `var-runtime`, `static-transform`, `example.tag-conventions/tag-case`) and save: each as Verify Module's button makes it, refused (and named) where an earlier fix changed what it would change (one that takes items out is followed: two variables of one object both go). The report is of the module as it was found, with a `fixed` line a fix; only errors not fixed fail. `--dry-run` says which it would make and changes nothing. Without `--fix`, nothing is changed |
 | `mg plugin list DIR…` | the plugins in the folders and what each adds: its commands, checks, events and settings (each setting's kind, scope and value). `--project PROJECT` adds the project's own plugins, each with what you answered (`allowed`, `not asked`, `changed since allowed`, `denied`), its digest, and its settings' values in the project |
 | `mg plugin allow PROJECT [ID…]` | allow a project's own plugins to run, as they are now (no ids: every one of its plugins), as Moonglow asks when the project is opened; `--deny` keeps them off. The answer is kept in Moonglow's own folder (`project-plugins.toml`), by the project's place on disk, the plugin and a digest of its files, never in the project: a changed plugin is asked about again |
 | `mg plugin check DIR…` | check plugins: the manifest reads, and the code registers what it declares; fails if not. A file is a plugin's archive: checked as the installer checks it, and its code as it is in the archive |
@@ -96,7 +96,7 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | `mg serve MODULE` | run the module in the game's headless server and print its log and console: see [Running a module in the server](#running-a-module-in-the-server) |
 | `mg test MODULE [--filter TEXT]` | run the module's `test_*` scripts in the server and report what they assert: see [Testing scripts in the server](#testing-scripts-in-the-server) |
 | `mg watch PROJECT --dev-dir FOLDER` | follow a module kept as files while you edit it, putting changed scripts (compiled) and blueprints into a development folder: see [Following a project as you edit](#following-a-project-as-you-edit) |
-| `mg compile MODULE [--uncompiled] [--all] [--ndb]` | compile the module's scripts and save it: those changed since they were last compiled, by `mg compile` or by Compile All Scripts in the window (both remember it in Moonglow's data folder, not in the module); `--all` compiles every script, `--uncompiled` only those without a compiled version; `--ndb` makes each one's debug file (`.ndb`) too, and compiles again a script that has none |
+| `mg compile MODULE [--uncompiled] [--all] [--ndb]` | compile the module's scripts and save it: those changed since they were last compiled, by `mg compile` or by Compile All Scripts in the window (both remember it in Moonglow's data folder, not in the module); `--all` compiles every script, `--uncompiled` only those without a compiled version (remembered as compiled too); `--ndb` makes each one's debug file (`.ndb`) too, and compiles again a script that has none |
 | `mg export MODULE NAME.EXT… -o OUT.erf` | export resources with what they use (`--keep-factions`, `--comment`); the archive's description says what it was made from (git commit, Moonglow's version, the module) |
 | `mg export MODULE NAME.EXT… --files -o FOLDER` | write the resources named as loose files in FOLDER (a script with its compiled `.ncs` and `.ndb`, an area with its `.git` and `.gic`): for the game's `development` or `override`, or a server's |
 | `mg import MODULE ERF [--overwrite]` | import an archive into the module and save it; says what a Moonglow export was made from, and warns when the module's git checkout is at another commit now |
@@ -211,6 +211,10 @@ mg areas mymodule.mod --interior --lighting-scheme InteriorDark --set SunFogAmou
   (the module's haks' over it), so it needs the game installed (`--root`).
   It is made before `--set`, which can change what it set. Each area is
   listed with its `LightingScheme` and how many tiles' lights changed.
+  The tiles' lights are picked with a number the command prints (a
+  `--dry-run` too; `seed` in the JSON): **`--seed NUMBER`** picks them
+  so again, so a dry run's are a run's with its number, and a run can be
+  made again the same.
 
 - **`--grass MATERIAL:TEXTURE:DENSITY:HEIGHT[:R,G,B[:R,G,B]]`**: grass of
   each area's own on a surface material (a `surfacemat.2da` row, by
@@ -253,17 +257,19 @@ mg areas mymodule.mod --interior --lighting-scheme InteriorDark --set SunFogAmou
   areas stops the command before anything is saved. The output lists each
   change (`area`, field, `from -> to`); an area that already has a value
   isn't listed for it.
-- Names, lighting schemes (which also pick each tile's lights) and list
-  fields aren't set by this command.
+- Names, tags and comments, which are each area's own, aren't set by
+  this command (`mg replace` changes text in names), nor list fields one
+  by one (a tile's own lights; variables are `--var`'s).
 
 ## Running a module in the server
 
 `mg serve MODULE` starts `nwserver` (Linux and Windows: the game has none
 for macOS) on a `.mod`, a module folder or a nasher project. A folder or
 a project is packed first: the server loads an archive only. Its
-scripts that have no compiled script are compiled for the packed copy,
-as `mg build` would (the server runs compiled scripts only), and one
-that does not compile is said; the sources are left as they are. A
+scripts that have no compiled script, or changed since they were last
+compiled (by `mg compile` or the window), are compiled for the packed
+copy, as `mg build` would (the server runs compiled scripts only), and
+one that does not compile is said; the sources are left as they are. A
 project's own talk table, kept as JSON, is made into the server's `tlk`
 folder (in the game's language, where the project keeps several), in
 place of the one in your tlk folder.
@@ -275,7 +281,8 @@ place of the one in your tlk folder.
   not.
 - **Its own user directory.** The server's vault, database, settings and
   logs go in a scratch folder in the system's temporary folder, the same
-  one for each run of a module, with the module's haks and talk table
+  one for each run of a module (a second server of the module started
+  while the first runs gets one of its own), with the module's haks and talk table
   linked in from your NWN folder (which is only read). `--dir FOLDER`
   names another; your own NWN folder is refused without
   `--real-user-dir`.
@@ -287,7 +294,9 @@ place of the one in your tlk folder.
   is loaded. `--marker TEXT` marks the log lines with that text.
 - **What you type** goes to the server's console (`status`, `say`,
   `exit`, and the commands NWNX adds). `/restart` starts the server
-  again, and `/quit` stops it.
+  again, and `/quit` stops it. So does Ctrl+C: the server is told to
+  `exit` (it closes its database and logs in order) rather than ending
+  with `mg`.
 - **Until.** `--until TEXT` stops the server at the first log line with
   that text and `--timeout SECONDS` after that long: a failure if
   `--until` was not seen. `--restart-on-change` starts the server again
@@ -299,7 +308,8 @@ place of the one in your tlk folder.
   -servervault 1`).
 - **`--json`** prints each of these as a line of JSON (`event`:
   `started`, `passwords`, `ready`, `log`, `marker`, `console`, `engine`,
-  `note`, `changed`, `ended`).
+  `note`, `changed`, `ended`, the last with `how` it ended and whether
+  it `failed`, as `mg watch --serve` ends too).
 
 ## Testing scripts in the server
 
@@ -327,7 +337,15 @@ void main()
 | `Describe(sGroup)` | a name the following results are grouped under |
 
 - **Your module is not changed.** The tests run in a copy in a scratch
-  folder: there a driver becomes the module's OnModuleLoad script. It
+  folder: there a driver becomes the module's OnModuleLoad script. The
+  tests run your scripts as they are: the copy gets each script
+  compiled that has no compiled script or changed since it was last
+  compiled (by `mg compile` or the window: what they remember), and the
+  run names those whose compiled script in your module is not what their
+  source compiles to now: changed since, or made by another compiler
+  (`mg compile` compiles them there). One that does not
+  compile now runs with the compiled script it has, and the run says so;
+  one with none stops the run, as a test that does not compile does. It
   starts each test as an event of its own, half a second after the
   module's own OnModuleLoad script, which it runs too. A test that runs
   out of instructions, or isn't there, is an error and stops no other.
@@ -455,7 +473,7 @@ mg --json verify mymodule.mod | jq '.findings[] | select(.severity == "error")'
 | Command | Does |
 | --- | --- |
 | `mg init MODULE DIR` | put a module into a nasher project in `DIR`: its resources as source files, with a `nasher.cfg` like `nasher init` writes |
-| `mg build DIR` | compile the project's scripts and pack the module, as `nasher pack` does (`--target`, `-o OUT`); `--ndb` makes each script's debug file (`.ndb`) too, packed with it. A `--target` that packs a talk table (a `.tlk`) makes it of its `<name>.tlk.json` as nasher has `nwn_tlk` make it, byte for byte |
+| `mg build DIR` | compile the project's scripts and pack the module, as `nasher pack` does (`--target`, `-o OUT`): those changed since they were last compiled, as `mg compile` does (a project keeps no compiled scripts, so those are all of them unless it keeps some among its sources); `--ndb` makes each script's debug file (`.ndb`) too, packed with it. A `--target` that packs a talk table (a `.tlk`) makes it of its `<name>.tlk.json` as nasher has `nwn_tlk` make it, byte for byte |
 | `mg merge-gff BASE OURS THEIRS` | merge two copies of a GFF resource (an area, `module.ifo`, a blueprint), both made from BASE, as a GFF or as nasher's JSON of one, and write the merge over OURS (`-o FILE` elsewhere). Placed objects merge by object, the area list as a union, variables by name and type. Two different changes to one value are a conflict: it fails, names each by its path and writes nothing, unless `--prefer ours` or `--prefer theirs`. Git runs it as its merge driver: see [Merging in git](03-modules.md#merging-in-git) |
 
 `mg build` fails if a script doesn't compile, which suits a build pipeline:

@@ -479,9 +479,14 @@ A team's rules for Moonglow are kept with its module, in version
 control: a `moonglow.toml` beside `nasher.cfg` in a nasher project, or
 at the root of a module folder. Moonglow reads it when the module opens,
 and again when it changes (with reloading on, Options › General), and
-the log says so. A module kept in one file (`.mod`) has none: its folder
-holds other modules too. Without the file, Moonglow does what it does
-for any module.
+the log says so. A module kept in one file (`.mod`) keeps its own
+beside it, named by it, as its folder holds other modules too:
+`krezk.moonglow.toml` (and `krezk.variables.toml`, below) beside
+`krezk.mod` (since Moonglow 2.13.0). There, what is a checkout's or a
+builder's own is not read (the log says so): `[claims]`, `[commands]`,
+`[plugins]`, `[builder]` and `.moonglow/user.toml` are a module
+folder's or a nasher project's. Without the file, Moonglow does what it
+does for any module.
 
 ```toml
 [make_static]                       # Make Placeables Static leaves dynamic:
@@ -535,7 +540,8 @@ Names are matched by globs, whatever their case: `*` any characters,
 | `[store] tag` | the store's tag: `{area}` the area's tag, `{n}` the first number no object has | the blueprint's tag, with a number where another object has it (with a `[store]` section; Aurora's, the blueprint's, without one) |
 | `[store] blueprint` | the store blueprint chosen at first | none chosen |
 | `[store] keeper_variable` | a String variable set on the shopkeeper to the store's tag | none |
-| `[resrefs] pattern` | how a builder's code goes into the ResRefs Moonglow proposes: `{code}` and `{name}` once each, the rest letters, digits and `_` (`"{name}_{code}"`, `"t{code}{name}"`) | `"{code}_{name}"`, where a builder has a code |
+| `[resrefs] pattern` | how the ResRefs Moonglow proposes are made: `{name}` once, `{code}` (the builder's code) and `{kind}` (the kind's text, by `kinds`) at most once each, the rest letters, digits and `_` (`"{name}_{code}"`, `"t{code}{name}"`). Without `{code}` it is the team's prefix, for everyone, with a code or not (`"tdod_{name}"`, `"tdod_{kind}{name}"`; since Moonglow 2.13.0) | `"{code}_{name}"`, where a builder has a code |
+| `[resrefs] kinds` | the text `{kind}` stands for, by the kind of resource: `area`, `creature`, `door`, `encounter`, `item`, `placeable`, `sound`, `store`, `trigger`, `waypoint`, `script`, `conversation` (`{ creature = "n_", item = "i_" }`); a kind not named has none. Since Moonglow 2.13.0 | no `{kind}` text |
 | `[claims] file` | the team's [claims table](#claimed-areas), from the project's root | no claims |
 | `[claims] others` | an area another builder claimed: `"warn"` (it says so, and a save asks before it writes a change to it) or `"read-only"` (no change to it is taken) | `"warn"` |
 | `[claims] unclaimed` | an area no one claimed: `"edit"` (as without a table) or `"warn"` (as another's) | `"edit"` |
@@ -604,8 +610,10 @@ code kept (16 characters: `ab_areatransi001`). A name that begins with
 your code already doesn't get it twice: a copy of `ab_chicken001` is
 `ab_chicken002`; another builder's code is kept as part of the name. The
 team's `[resrefs] pattern` says where the code goes. Without a code,
-ResRefs are made from names alone, as Aurora makes them. The code is
-used by:
+ResRefs are made from names alone, as Aurora makes them, unless the
+team's pattern has no `{code}`: then it is the team's own prefix, for
+everyone (`tdod_{name}`, or by kind, `tdod_{kind}{name}` with `[resrefs]
+kinds`: `tdod_n_guard` for a creature). The pattern is used by:
 
 - the Area Wizard (which then shows the ResRef under the name), the
   Creature Wizard and every blueprint wizard (the ResRef field's hint);
@@ -625,7 +633,8 @@ one fails without a word: a variable read as another type is that
 type's empty value (an Int read as a String is `""`, a String read as
 an Int is 0), and a name is matched in its case only (`tdod_lit` is not
 `TDOD_LIT`), as the game's server shows. A team describes its
-variables in `variables.toml`, beside its `moonglow.toml` (or alone),
+variables in `variables.toml`, beside its `moonglow.toml` (or alone;
+beside a `.mod`, the module's own, `krezk.variables.toml`),
 as a table's columns are described beside it: each variable's type, the
 values it takes, the objects it goes on and a line of help.
 
@@ -696,12 +705,12 @@ help = "A test's hook: the next d20 rolled (the tests set it on the module)"
 | `on` | what it goes on: `module`, `area`, `creature`, `door`, `encounter`, `item`, `placeable`, `sound`, `store`, `trigger`, `waypoint` (blueprints, placed objects and the items they hold alike) | anything |
 | `values` | the values it takes: `["herb", "ore"]`, or each with what it means, `{ forge = "Smithing" }` | any |
 | `constants`, `prefix` | its values are a script's constants whose names begin so (`constants = "tdod_kind_inc"`, `prefix = "TDOD_KIND_"`): the project's script of that name (any folder of it), the module's, else the game's | |
-| `table`, `column` | its values are a table's rows: an Int's is a row's number (named by its `Label`), a String's a cell of `column` | |
+| `table`, `column` | its values are a table's rows (the project's table of that name, the module's, its haks' or the game's): an Int's is a row's number (named by its `Label`), a String's a cell of `column`, or without one the row's own `Label` (since Moonglow 2.13.0) | |
 | `other = true` | a value not listed is right too (the list is a help) | only those listed |
 | `min`, `max` | an Int's or a Float's range | any |
 | `help` | a line of help, shown with it | |
 | `runtime = true` | the scripts set it while the server runs (their state, a test's hook), and it is never kept in a file: no `undescribed` says it, the Variables window doesn't offer it, and Verify says where one is kept (since Moonglow 2.2.0) | kept in the module's files |
-| `undescribed` (at the top) | names (globs) that are the project's: a variable so named and described nowhere is said, with the described name nearest it (a typo) | not said |
+| `undescribed` (at the top) | names (globs) that are the project's: a variable so named and described nowhere is said, with the described name (or a builder's glob) nearest it (a typo) | not said |
 
 What the file doesn't understand is said in the log by line, as for
 `moonglow.toml`, and the rest is read; it is read again when it
@@ -731,21 +740,22 @@ to the descriptions:
 | `var-value` | a value none of its values (a value in another case is named: the scripts compare as written), out of its range, or no row of its table | a warning |
 | `var-object` | a variable on another kind of object than it says | a warning |
 | `var-name` | a described name in another case, and (with `undescribed`) a variable named as the project's that is described nowhere | a warning |
-| `var-runtime` | a variable described as the scripts' own (`runtime = true`) kept in the module: there from the start, on every server (a test's hook set so fixes every roll). One that a glob of the scripts' takes and that is near a name of its own entry is said with that name, as `var-name` says one (`tdod_lore_txt`, which `["tdod_lore_*"]` takes: `tdod_lore_text?`; since Moonglow 2.3.0) | an error: Verify fails |
+| `var-runtime` | a variable described as the scripts' own (`runtime = true`) kept in the module: there from the start, on every server (a test's hook set so fixes every roll). One that a glob of the scripts' takes and that is near a name of its own entry, or a name a builder's glob takes, is said with that name or glob, as `var-name` says one (`tdod_lore_txt`, which `["tdod_lore_*"]` takes: `tdod_lore_text?`; since Moonglow 2.3.0; `tdod_rentl_term`: `tdod_rental_*?`, since Moonglow 2.13.0). Verify's **Remove the variable** takes it out | an error: Verify fails |
 
 A file's own glob of the scripts' may take a builder's typo: a name is
 described by its own entry, else by the first glob that matches it, so
 put the builders' globs before the scripts'. A typo of a builder's name
 that a glob of the scripts' takes is said as `var-runtime`, with the
-builder's name it is near.
+builder's name (or glob) it is near.
 
 A plugin's tests can run these checks, and `tag-unique`, on a fixture
 that is a project of its own: `builtin = "var-runtime"`
 ([Writing plugins](16-writing-plugins.md#a-plugins-own-tests)).
 
 `mg vars MODULE` lists the descriptions, with the values a script's
-constants and a table's rows give (`--on placeable`: those that go on
-one); `mg areas --var NAME=VALUE` gives a described variable its
+constants and a table's rows give (the game's, the project's and the
+module's haks', since Moonglow 2.13.0; `--on placeable`: those that go
+on one); `mg areas --var NAME=VALUE` gives a described variable its
 described type ([Command-line tools](11-command-line.md)).
 
 ### Claimed areas
@@ -837,9 +847,20 @@ Moonglow to run them in a terminal:
 
 ```toml
 [commands]
-update = "bin/update"
-submit = { run = "bin/submit", windows = "bin\\submit.cmd", label = "Submit for Review" }
+update = { run = "bin/update", key = "Ctrl+Shift+U" }
+submit = { run = "bin/submit", windows = "bin\\submit.cmd", label = "Submit for Review", writes = false }
 ```
+
+A command is its text, or a table of `run` (or `windows` and `unix`,
+each for its systems), `label` (its name in the menu; else its name in
+the file, `run_tests` as Run tests), `key` (the keys it asks for, as
+Options › Keyboard writes them) and `writes = false` (it writes none of
+the module's files, as a submit: the haks stay open while it runs). The
+commands are in the **Command Palette** too, under Project, and in
+**Options › Keyboard** under Project Commands, where the keys you choose
+take the place of `key` (kept by the command's name, so a team's
+`update` keeps its key from one project to the next; since Moonglow
+2.13.0).
 
 Choosing one:
 
@@ -860,14 +881,19 @@ Choosing one:
    made outside, and closes the module's haks, so that the command may
    write over any of them (Windows refuses to replace a file another
    program has open). Moonglow keeps no other file of the project open.
+   A command with `writes = false` leaves the haks open, so the open
+   areas aren't drawn again after it.
 4. **Runs it** in the project's folder, by the system's shell (`sh -c` on
    Linux and macOS, `cmd /C` on Windows), with `MOONGLOW_PROJECT` (the
    folder) and `MOONGLOW_BUILDER` (your code, where you have one) set.
    Its output comes into the log as it is written (its errors in the
    warning color), its last line in the window that shows while it
-   runs; **Cancel** stops it. The log says how it ended: done, or its
-   exit code.
-5. **Reads the project's files again**: the haks are opened again, and
+   runs; **Cancel** stops it, and what it started (a `git` it runs, the
+   shell's process group on Linux and macOS, asked to end and then made
+   to after two seconds; the shell's tree of processes on Windows). The
+   log says how it ended: done, or its exit code.
+5. **Reads the project's files again**: the haks are opened again (where
+   they were closed), and
    what the command changed is read as any [change made
    outside](#nasher-projects-version-control) is (a file you had changed too waits in
    **Changed Outside Moonglow**), with the project file and the claims
@@ -1363,7 +1389,12 @@ plugin reads a description with `mg.twoda.describe`
   Two options add the module resources they use (an area its blueprints,
   scripts and conversations, a conversation its scripts…), and move
   creatures out of the module's own factions into the standard ones.
-  Right-click a resource in the tree to export it. The window lists the
+  Right-click a resource in the tree to export it (several, chosen with
+  Ctrl and Shift, together); a placed object's **Export as Blueprint…**
+  writes it as a blueprint of its own ([Areas](04-areas.md)). An area's
+  `.are` takes its `.git` and `.gic` with it, the resources it uses or
+  not (without them, Import would bring the area with nothing placed in
+  it). The window lists the
   module kind by kind (areas, conversations, scripts, the blueprints,
   then the rest by extension); **Kind** lists one kind alone, **Filter**
   those whose names hold what is typed, and **Select the Listed** and

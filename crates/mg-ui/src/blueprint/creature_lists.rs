@@ -38,9 +38,10 @@ fn remove(key: ResKey, path: GffPath, list: &str, index: usize) -> Edit {
 /// A text filter kept per page.
 fn filter(ui: &mut Ui, id: egui::Id) -> mg_core::text::Needle {
     let mut text: String = ui.data(|d| d.get_temp(id)).unwrap_or_default();
-    let field =
-        ui.add(egui::TextEdit::singleline(&mut text).hint_text("Find").desired_width(200.0));
-    crate::widgets::searching(ui, field);
+    crate::widgets::SearchField::new(id.with("field"), &mut text)
+        .hint("Find")
+        .width(200.0)
+        .show(ui);
     ui.data_mut(|d| d.insert_temp(id, text.clone()));
     mg_core::text::Needle::new(&text)
 }

@@ -1612,11 +1612,14 @@ fn text_in_another_language_shows_where_the_one_edited_has_none() {
     assert_eq!((shown, named), (own, 2));
 }
 
-/// Escape in a text field of a Properties window (a number's, a tag's)
-/// leaves the field and no more: what was typed is kept and the window
-/// stays, on its page. A second Escape, with nothing typed in, closes it.
+/// Escape in a text or number field of a Properties window is the
+/// window's Cancel at once, as Aurora's is (watched in Creature
+/// Properties): it closes, and what was typed is set back with the rest.
+/// In a search field there (the Inventory page's Find) Escape is the
+/// field's: it clears what is typed and the window stays; again, it
+/// leaves the field; again, it is the window's Cancel.
 #[test]
-fn escape_in_a_field_leaves_the_field_and_then_cancels_the_window() {
+fn escape_in_a_field_is_the_window_s_cancel_but_in_a_search_field() {
     let Some((mut h, key)) = blueprint_harness("nw_chicken", "esc_field", ResType::UTC) else {
         return;
     };
@@ -1624,7 +1627,7 @@ fn escape_in_a_field_leaves_the_field_and_then_cancels_the_window() {
         |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
     let open = |h: &Harness<'_, Moonglow>| h.state().dock.find_tab(&Tab::Blueprint(key)).is_some();
     h.run();
-    // A tag typed into.
+    // A tag typed into: Escape closes the window, the tag set back.
     let tag = String::from_utf8_lossy(field(&mut h, &key).string("Tag").unwrap()).into_owned();
     h.get_all_by_value(&tag).find(is_input).expect("the tag's field").click();
     h.run();
@@ -1633,10 +1636,13 @@ fn escape_in_a_field_leaves_the_field_and_then_cancels_the_window() {
     h.run();
     h.key_press(egui::Key::Escape);
     h.run();
-    assert!(open(&h), "the window stays");
+    h.run();
+    assert!(!open(&h), "closed by the first Escape");
     let now = String::from_utf8_lossy(field(&mut h, &key).string("Tag").unwrap()).into_owned();
-    assert_eq!(now, format!("{tag}X"), "what was typed is kept");
-    // A number typed into, on the Statistics page.
+    assert_eq!(now, tag, "the tag set back");
+    // A number typed into, on the Statistics page: the same.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
+    h.run_steps(3);
     h.get_by_label("Statistics").click();
     h.run();
     let was = field(&mut h, &key).integer("Str").unwrap();
@@ -1646,16 +1652,28 @@ fn escape_in_a_field_leaves_the_field_and_then_cancels_the_window() {
     h.run();
     h.key_press(egui::Key::Escape);
     h.run();
+    h.run();
+    assert!(!open(&h), "closed by the first Escape");
+    assert_eq!(field(&mut h, &key).integer("Str"), Some(was), "Strength set back");
+    // The Inventory page's Find: Escape clears it, and the window stays.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
+    h.run_steps(3);
+    h.get_by_label("Inventory").click();
+    h.run();
+    type_into_hint(&mut h, "Find", "torch");
+    assert!(h.query_all_by_value("torch").next().is_some());
+    h.key_press(egui::Key::Escape);
+    h.run();
     assert!(open(&h), "the window stays");
-    assert!(h.query_by_label("Ability Scores").is_some(), "on its page");
-    assert_eq!(field(&mut h, &key).integer("Str"), Some(12), "what was typed is kept");
-    // Nothing typed in now: Escape is the window's Cancel, as Aurora's
-    // is: it closes, and what was changed in it is set back.
+    assert!(h.query_all_by_value("torch").next().is_none(), "what was typed cleared");
+    assert!(h.ctx.egui_wants_keyboard_input(), "still in the field");
+    // Again: out of the field, the window still there; again, Cancel.
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert!(open(&h), "the window stays");
+    assert!(!h.ctx.egui_wants_keyboard_input(), "out of the field");
     h.key_press(egui::Key::Escape);
     h.run();
     h.run();
     assert!(!open(&h));
-    let now = String::from_utf8_lossy(field(&mut h, &key).string("Tag").unwrap()).into_owned();
-    assert_eq!(now, tag, "the tag set back");
-    assert_eq!(field(&mut h, &key).integer("Str"), Some(was), "Strength set back");
 }

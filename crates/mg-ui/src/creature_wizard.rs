@@ -247,7 +247,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let mut looks = Looks { ready: app.thumbnails.looks(), shown: Vec::new() };
     // The ResRef the name gives, as Finish makes it (on the names' page).
     let names = Names {
-        naming: crate::blueprint_wizard::naming(app),
+        naming: crate::blueprint_wizard::naming(app, ResType::UTC),
         taken: match (w.page == NAMES_PAGE, app.ws.as_ref()) {
             (true, Some(ws)) => ws.module.keys_of(ResType::UTC).map(|k| k.resref).collect(),
             _ => Default::default(),
@@ -683,7 +683,7 @@ fn make(app: &mut Moonglow, w: &CreatureWizard) {
         // The ResRef typed, unless the module has it (then the next free
         // one from it, as for one made from the name).
         let own = ResRef::from_str(w.resref.trim()).ok().filter(|r| !r.is_empty());
-        let naming = crate::blueprint_wizard::naming(app);
+        let naming = crate::blueprint_wizard::naming(app, ResType::UTC);
         let resref = match own {
             Some(r) if !taken(&r) => r,
             Some(r) => blueprints::resref(&r.to_string(), taken),

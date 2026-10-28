@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T03:58:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:50:22Z }
 ---
 
 # Options
@@ -146,7 +146,9 @@ the module is opened again from its file.
 - **Ctrl+Tab goes to the tab used last**: Next Tab and Previous Tab go
   through a pane's tabs in the order they were last used, for as long
   as Ctrl is held (one press: back to the tab before); off, to the next
-  tab as they lie.
+  tab as they lie. Each pane and window keeps its own order: a tab that
+  comes to the front of a window while you work elsewhere (a script
+  opened from a field's Edit) counts as used there.
 - **Write a debug log**: what Moonglow does, step by step, in
   the `logs` folder of its data folder, a file for each start; on
   unless you switch it off (see
@@ -249,7 +251,8 @@ the module is opened again from its file.
   `nwn_script_comp`'s (neverwinter.nim), or `nwnsc`'s. The line shows in
   the empty field, and resting the pointer on it lists the places
   Moonglow fills in: `{files}` (the scripts to compile), `{src}` (a
-  scratch folder the module's scripts are written to), `{out}` (the
+  scratch folder the scripts to compile and the module's scripts they
+  include, however indirectly, are written to), `{out}` (the
   folder the compiled scripts are read from), `{game}`, `{user}` and
   `{haks}` (the module's haks, comma-separated: a hak whose path has a
   comma in it can't be passed so, and the compile says which). An option whose place
@@ -346,6 +349,10 @@ what you type (a command's name, or its group's).
 - The commands of enabled [plugins](15-plugins.md) are listed under
   **Plugins**, with the key each plugin suggests; they take keys like
   any other.
+- The open project's [commands](03-modules.md#the-projects-commands)
+  (`[commands]` in its `moonglow.toml`) are listed under **Project
+  Commands**, with the key the project gives each (`key`); the keys you
+  choose are kept by the command's name (since Moonglow 2.13.0).
 
 Save's key saves the module, but in a script editor that has the
 keyboard it is that script's own Save (see [Scripts](07-scripts.md)),

@@ -632,6 +632,65 @@ fn options_window() {
     shoot(&mut h, &dir, "options-keyboard");
 }
 
+/// A project's commands in File › Project (with their keys), the Command
+/// Palette and Options › Keyboard; and the Builder Code window of a team
+/// prefix without a code (`project-commands-menu`, `-palette`,
+/// `-keyboard`, `team-prefix-builder-code`).
+#[test]
+#[ignore]
+fn project_commands_and_team_prefix() {
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("screens-project-commands");
+    let project = dir.join("project");
+    let mut m = mg_module::Module::new();
+    let mut ifo = mg_gff::Gff::new(*b"IFO ");
+    ifo.root.set("Mod_Tag", mg_gff::Value::String(b"KREZK".to_vec()));
+    m.set_info(&ifo).unwrap();
+    m.save_as(&mg_module::ModuleLocation::Folder(project.clone())).unwrap();
+    std::fs::write(
+        project.join("moonglow.toml"),
+        "[resrefs]\npattern = \"tdod_{kind}{name}\"\nkinds = { creature = \"n_\" }\n\n\
+         [commands]\nupdate = { run = \"bin/update\", key = \"Ctrl+Shift+U\" }\n\
+         submit = { run = \"bin/submit\", label = \"Submit for Review\", writes = false }\n",
+    )
+    .unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&project);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("File").click();
+    h.run();
+    h.get_by_label("Project").hover();
+    h.run();
+    h.get_by_label("Project").click();
+    shoot(&mut h, &dir, "project-commands-menu");
+    h.key_press(egui::Key::Escape);
+    h.key_press(egui::Key::Escape);
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
+    h.run();
+    h.event(egui::Event::Text("pro".into()));
+    shoot(&mut h, &dir, "project-commands-palette");
+    h.key_press(egui::Key::Escape);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    h.run();
+    h.get_by_label("Keyboard").click();
+    h.run();
+    h.get_by_label("Update").scroll_to_me();
+    shoot(&mut h, &dir, "project-commands-keyboard");
+    h.state_mut().options = None;
+    h.run();
+    h.get_by_label("Edit").click();
+    h.run();
+    h.get_by_label("Builder Code…").click();
+    shoot(&mut h, &dir, "team-prefix-builder-code");
+}
+
 #[test]
 #[ignore]
 fn model_viewer() {
@@ -2317,6 +2376,50 @@ fn script_help() {
     h.get_by_label("Compile").click();
     h.run();
     shoot(&mut h, &dir, "script-compiler");
+}
+
+/// Help (go to definition) on a function whose comment follows a line of
+/// code with a comment of its own (that one is the code's, not the
+/// function's), and on a struct's member after `.` (its comment above it,
+/// BioWare's `// *`).
+#[test]
+#[ignore]
+fn script_help_member_and_trailing_comment() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-script-member-help");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Name", mg_gff::Value::String(b"x".to_vec()));
+    m.set_info(&info).unwrap();
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let text = "struct Mark\n{\n    // * Where it is.\n    vector vPos;\n};\n\n\
+                int nLast; // the last one\n// Returns the mark's place.\n\
+                vector Place(struct Mark m) { return m.vPos; }\n\n\
+                void main()\n{\n    struct Mark m;\n    vector v = Place(m) + m.vPos;\n}\n";
+    m.set(key, text.as_bytes().to_vec());
+    let path = dir.join("s.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(key)));
+    h.run();
+    for (needle, name) in
+        [("Place(m) +", "script-help-after-code"), ("vPos;\n}", "script-help-member")]
+    {
+        let at = text.find(needle).unwrap() + 1;
+        let d = h.state_mut().declaration_at(key, at).expect("a declaration");
+        h.state_mut().go_to_declaration(&d);
+        h.run();
+        shoot(&mut h, &dir, name);
+    }
 }
 
 /// Jasperre's script editor notes: Help on a function a `/* … */` block
@@ -5784,4 +5887,88 @@ fn area_shadows_menu() {
         let name = if icons_only { "shadows-menu-icons" } else { "shadows-menu" };
         shoot(&mut h, &dir, name);
     }
+}
+
+/// The main window's log and module tree as the deferred sprint's third
+/// package left them (`w3-` pictures): the log's corner buttons; the tree
+/// following a script far down the list (brought up from below), Module
+/// Properties' tab, a tab of several blueprints and a script the Filter
+/// hides; the Filter finding placed objects in areas not opened out; rows
+/// chosen with Shift and Ctrl, and their menu.
+#[test]
+#[ignore]
+fn main_window_log_and_tree() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_palette = false;
+    app.open_module(&root.join("data/nwm/Chapter1.nwm"));
+    for n in 0..30 {
+        app.log.info(format!("Line {n} of what was said"));
+    }
+    app.log.warn("A warning, in its color");
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        .with_step_dt(1.0 / 60.0)
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(5);
+    shoot(&mut h, &dir, "w3-log");
+    // (Each window to the right, the tree in sight.)
+    let open = |h: &mut Harness<'_, Moonglow>, tab: mg_ui::Tab| {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+        h.run_steps(2);
+        if h.state().dock.find_tab(&tab).is_some_and(|p| !p.surface.is_main()) {
+            place(h, &tab, (480.0, 60.0), (560.0, 460.0));
+        }
+        h.run_steps(14);
+    };
+    let script = |name: &str| mg_ui::Tab::Script(ResKey::parse(name, ResType::NSS).unwrap());
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(mg_ui::Tab::ModuleProperties));
+    h.run_steps(3);
+    open(&mut h, script("m1q5a09bertclg"));
+    shoot(&mut h, &dir, "w3-tree-from-below");
+    open(&mut h, mg_ui::Tab::ModuleProperties);
+    shoot(&mut h, &dir, "w3-tree-module-properties");
+    let utc = |name: &str| ResKey::parse(name, ResType::UTC).unwrap();
+    open(&mut h, mg_ui::Tab::Blueprints(vec![utc("attendant"), utc("bertrand")]));
+    shoot(&mut h, &dir, "w3-tree-several");
+    // The Filter typed: placed objects found, then a script it hides
+    // chosen.
+    // (The tree's Filter is the first text field.)
+    h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().click();
+    h.run_steps(2);
+    h.event(egui::Event::Text("gangleader".into()));
+    h.run_steps(8);
+    shoot(&mut h, &dir, "w3-tree-filter-objects");
+    open(&mut h, script("m1s1gillclg09"));
+    shoot(&mut h, &dir, "w3-tree-filtered-tab");
+    // Rows chosen with Shift and Ctrl, and their menu.
+    h.get_all_by_label("×").next().expect("the Filter's clear button").click();
+    h.run_steps(4);
+    let click = |h: &mut Harness<'_, Moonglow>, label: &str, m: egui::Modifiers| {
+        let at = h.get_by_label(label).rect().center();
+        h.hover_at(at);
+        h.event(egui::Event::ModifiersChanged(m));
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: m,
+            });
+        }
+        h.run_steps(2);
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+        h.run_steps(20);
+    };
+    click(&mut h, "estate", egui::Modifiers::NONE);
+    click(&mut h, "hodge_estate", egui::Modifiers::SHIFT);
+    click(&mut h, "m1q3b", egui::Modifiers::COMMAND);
+    shoot(&mut h, &dir, "w3-tree-several-chosen");
+    h.get_by_label("m1q3b").click_secondary();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "w3-tree-several-menu");
 }

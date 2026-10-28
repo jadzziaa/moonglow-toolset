@@ -869,12 +869,7 @@ impl AreaView {
     /// stand on the ground, and so does anything where the view has no
     /// ground yet.
     pub(crate) fn lift_of(&self, o: &mg_area::AreaObject) -> f32 {
-        let ground =
-            self.ground.as_ref().and_then(|g| g.height(o.position.truncate(), o.position.z));
-        match o.kind {
-            ObjectKind::Creature => 0.0,
-            _ => ground.map_or(0.0, |z| o.position.z - z),
-        }
+        lift_on(self.ground.as_ref(), o)
     }
 
     /// Where an object moved by `offset` stands: at the same height above
@@ -1839,6 +1834,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
         }
         app.area_focus = None;
     }
+    // Objects to select (the module tree's Go To on several).
+    if let Some((a, objects)) = &app.area_select
+        && *a == area
+        && view.model.is_some()
+    {
+        view.selection = objects.clone();
+        app.area_select = None;
+    }
     // The start location to go to (Go to Start Location).
     if app.start_focus == Some(area) && view.orbit.is_some() {
         app.start_focus = None;
@@ -2125,12 +2128,13 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         }
         let tip = crate::transfer::scratch_tip(
             app.settings.scratch_dir.as_deref(),
-            "the area as it is now (its .are, .git and .gic)",
+            "the area as it is now (its .are, .git and .gic), with the module's blueprints, \
+             scripts and conversations it uses",
         );
         if ui.button("To Scratch").on_hover_text(tip).clicked() {
             app.actions.push(Action::ExportFiles {
                 keys: vec![ResKey::new(view.area, ResType::ARE)],
-                dependencies: false,
+                dependencies: true,
                 scratch: true,
             });
         }
@@ -5411,6 +5415,18 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
         add_to_palette(app, view, kind, index);
         ui.close();
     }
+    if let Some((kind, index)) = single
+        && ui
+            .button("Export as Blueprint…")
+            .on_hover_text(
+                "Write it into an archive (.erf) as a blueprint of its own, with the items it \
+                 holds, as Add to Palette makes one: for another module's Import",
+            )
+            .clicked()
+    {
+        app.actions.push(Action::ExportObject { area: view.area, kind, index });
+        ui.close();
+    }
     if let Some((ObjectKind::Creature, index)) = single
         && let Some(at) = view.menu_at
         && ui.button("Create Waypoint").clicked()
@@ -5838,6 +5854,32 @@ fn set_window(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     }
 }
 
+/// How high above `ground` an object stands (a creature always on it;
+/// on it where the ground isn't known).
+pub(crate) fn lift_on(ground: Option<&Ground>, o: &mg_area::AreaObject) -> f32 {
+    let at = ground.and_then(|g| g.height(o.position.truncate(), o.position.z));
+    match o.kind {
+        ObjectKind::Creature => 0.0,
+        _ => at.map_or(0.0, |z| o.position.z - z),
+    }
+}
+
+/// An area's ground, read for an area whose view isn't open (the module
+/// tree's Copy, which carries an object's height above it): its tiles'
+/// walkmeshes, as the view reads them.
+pub(crate) fn ground_of(
+    game: &mg_rules::GameData,
+    ws: &mut mg_edit::Workspace,
+    area: ResRef,
+) -> Option<Ground> {
+    let are = ws.doc(&ResKey::new(area, ResType::ARE)).ok()?.root.clone();
+    let git = ws.doc(&ResKey::new(area, ResType::GIT)).ok()?.root.clone();
+    let tileset = are.resref("Tileset")?;
+    let set = mg_area::tileset(game, tileset).ok();
+    let model = AreaModel::read(game, &are, &git, set.as_ref());
+    Some(Ground::new(game, &model))
+}
+
 /// Aurora's Add to Palette: the object made into a new custom blueprint
 /// (with the items it holds), the object naming it; its editor opens.
 fn add_to_palette(app: &mut Moonglow, view: &AreaView, kind: ObjectKind, index: usize) {
@@ -5854,7 +5896,7 @@ fn add_to_palette(app: &mut Moonglow, view: &AreaView, kind: ObjectKind, index: 
     let original = |k: ResKey| mg_module::gff_root(Some(module), game, &k);
     let taken = |k: &ResKey| module.contains(k) || game.resman.get(k).is_ok();
     // (By the builder's code, in a project with one.)
-    let naming = module.project_file.naming();
+    let naming = module.project_file.naming_for(kind.restype());
     let Some(added) = mg_module::palette_add::add_to_palette(
         game,
         kind.restype(),

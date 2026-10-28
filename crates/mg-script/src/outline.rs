@@ -26,9 +26,22 @@ pub struct Define {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StructDecl {
     pub name: String,
-    /// `(type, name)` in declaration order.
-    pub members: Vec<(String, String)>,
+    /// In declaration order.
+    pub members: Vec<Member>,
     pub span: Range<usize>,
+}
+
+/// A member of a struct: `string sLabel;`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Member {
+    pub ty: String,
+    pub name: String,
+    /// The name's.
+    pub span: Range<usize>,
+    /// The comments directly above, without their markers.
+    pub doc: String,
+    /// The same lines as written ([`comment_as_written`]).
+    pub doc_source: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,22 +86,55 @@ pub fn comment_as_written<'a>(text: &'a str, span: &Range<usize>) -> &'a str {
     text[from..span.end].trim_end_matches(['\r', '\n'])
 }
 
-/// A comment as documentation: a line without its `//` and the spaces
-/// around it; a block without its `/*` and `*/`, and each of its lines
-/// without the spaces and the `*`s it begins with (` * ` down the side,
-/// as documentation comments are written), its empty first and last
-/// lines dropped (`/*` and `*/` on lines of their own, as BioWare's
-/// includes have them).
+/// A comment as documentation: a line without its `//`, the spaces
+/// around it and the `*`s it begins with (BioWare's `// * text`); a block
+/// without its `/*` and `*/`, and each of its lines without the spaces
+/// and the `*`s it begins with (` * ` down the side, as documentation
+/// comments are written), its empty first and last lines dropped (`/*`
+/// and `*/` on lines of their own, as BioWare's includes have them).
 pub(crate) fn comment_text(written: &str) -> String {
     let written = written.trim();
     let Some(block) = written.strip_prefix("/*") else {
-        return written.trim_start_matches('/').trim().to_string();
+        let line = written.trim_start_matches('/').trim();
+        return line.trim_start_matches('*').trim().to_string();
     };
     let block = block.strip_suffix("*/").unwrap_or(block);
     let lines: Vec<&str> = block.lines().map(|l| l.trim().trim_start_matches('*').trim()).collect();
     let first = lines.iter().position(|l| !l.is_empty()).unwrap_or(lines.len());
     let last = lines.iter().rposition(|l| !l.is_empty()).map_or(first, |i| i + 1);
     lines[first..last].join("\n")
+}
+
+/// The comments directly above token `raw` of `toks` (all of `text`'s,
+/// comments and spaces too): `//` lines and `/* … */` blocks, with no
+/// empty line between, and none that follows code on its line (`int a;
+/// // a` is about `a`, not what comes next). Without their markers
+/// ([`comment_text`]), and as written ([`comment_as_written`]).
+pub(crate) fn doc_before(text: &str, toks: &[Token], raw: usize) -> (String, String) {
+    let mut lines = Vec::new();
+    let mut i = raw.min(toks.len());
+    while i > 0 {
+        i -= 1;
+        let t = &toks[i];
+        let s = &text[t.span.clone()];
+        match t.kind {
+            TokenKind::LineComment | TokenKind::BlockComment { .. } => {
+                let line_start = text[..t.span.start].rfind('\n').map_or(0, |n| n + 1);
+                let after_code = (toks[..i].iter().rev())
+                    .take_while(|p| p.span.end > line_start)
+                    .any(|p| p.kind.is_significant());
+                if after_code {
+                    break;
+                }
+                lines.push(comment_as_written(text, &t.span));
+            }
+            TokenKind::Whitespace if s.matches('\n').count() <= 1 => {}
+            _ => break,
+        }
+    }
+    lines.reverse();
+    let doc: Vec<String> = lines.iter().map(|l| comment_text(l)).collect();
+    (doc.join("\n"), lines.join("\n").replace('\r', ""))
 }
 
 /// A source's top-level declarations.
@@ -138,28 +184,10 @@ impl<'a> Parser<'a> {
         self.pos >= self.sig.len()
     }
 
-    /// The comments directly above significant token `k` (`//` lines and
-    /// `/* … */` blocks, with no empty line between): without their
-    /// markers ([`comment_text`]), and as written ([`comment_as_written`]).
+    /// [`doc_before`] significant token `k`.
     fn doc_before(&self, k: usize) -> (String, String) {
         let Some(&raw) = self.sig.get(k) else { return Default::default() };
-        let mut lines = Vec::new();
-        let mut i = raw;
-        while i > 0 {
-            i -= 1;
-            let t = &self.toks[i];
-            let s = &self.text[t.span.clone()];
-            match t.kind {
-                TokenKind::LineComment | TokenKind::BlockComment { .. } => {
-                    lines.push(comment_as_written(self.text, &t.span));
-                }
-                TokenKind::Whitespace if s.matches('\n').count() <= 1 => {}
-                _ => break,
-            }
-        }
-        lines.reverse();
-        let doc: Vec<String> = lines.iter().map(|l| comment_text(l)).collect();
-        (doc.join("\n"), lines.join("\n").replace('\r', ""))
+        doc_before(self.text, &self.toks, raw)
     }
 
     /// Skips to just after the next `;` at bracket depth 0, or to (and
@@ -297,18 +325,25 @@ impl<'a> Parser<'a> {
         params
     }
 
-    fn parse_struct_body(&mut self) -> Vec<(String, String)> {
+    fn parse_struct_body(&mut self) -> Vec<Member> {
         // At `{`.
         self.pos += 1;
         let mut members = Vec::new();
         while !self.at_end() && self.peek() != "}" {
+            let (doc, doc_source) = self.doc_before(self.pos);
             let Some(ty) = self.parse_type() else {
                 self.recover();
                 continue;
             };
             loop {
                 if self.kind(self.pos) == Some(TokenKind::Ident) {
-                    members.push((ty.clone(), self.peek().to_string()));
+                    members.push(Member {
+                        ty: ty.clone(),
+                        name: self.peek().to_string(),
+                        span: self.tok(self.pos).map(|t| t.span.clone()).unwrap_or_default(),
+                        doc: doc.clone(),
+                        doc_source: doc_source.clone(),
+                    });
                     self.pos += 1;
                 }
                 if self.peek() == "," {
@@ -542,15 +577,18 @@ void main()
         assert_eq!(o.defines[0].name, "MAX_THINGS");
         assert_eq!(o.defines[0].value, "10");
         assert_eq!(o.structs.len(), 1);
+        let members: Vec<(&str, &str)> =
+            o.structs[0].members.iter().map(|m| (m.ty.as_str(), m.name.as_str())).collect();
         assert_eq!(
-            o.structs[0].members,
+            members,
             [
-                ("vector".into(), "vPos".into()),
-                ("string".into(), "sLabel".into()),
-                ("string".into(), "sOther".into()),
-                ("struct Inner".into(), "inner".into())
+                ("vector", "vPos"),
+                ("string", "sLabel"),
+                ("string", "sOther"),
+                ("struct Inner", "inner")
             ]
         );
+        assert_eq!(&SRC[o.structs[0].members[1].span.clone()], "sLabel");
         let globals: Vec<(&str, &str, bool, Option<&str>)> = o
             .globals
             .iter()
@@ -586,10 +624,22 @@ void main()
         assert_eq!(&SRC[o.functions[3].name_span.clone()], "main");
         assert!(SRC[o.functions[3].body.clone().unwrap()].contains("PrintString"));
         // As written: the spaces before a comment line, not its line's end
-        // (CRLF); a comment after code on its line, the comment alone.
+        // (CRLF). A comment after code on its line is about that code, not
+        // what follows (Jasperre's report).
         let o = outline(b"int a; // A.\r\n    //   B, in.\r\nint F();\r\n");
-        assert_eq!(o.functions[0].doc_source, "// A.\n    //   B, in.");
-        assert_eq!(o.functions[0].doc, "A.\nB, in.");
+        assert_eq!(o.functions[0].doc_source, "    //   B, in.");
+        assert_eq!(o.functions[0].doc, "B, in.");
+        let o = outline(b"int a; /* A. */ /* B. */\nint F();\n");
+        assert_eq!(o.functions[0].doc, "");
+        // BioWare's `// * text`: the `*` is not the text's.
+        let o = outline(b"// * Returns TRUE.\n//***********\n// ** Twice.\nint F();\n");
+        assert_eq!(o.functions[0].doc, "Returns TRUE.\n\nTwice.");
+        assert_eq!(o.functions[0].doc_source, "// * Returns TRUE.\n//***********\n// ** Twice.");
+        // A struct's members have theirs.
+        let o =
+            outline(b"struct S {\n    // The count.\n    int n; // after n\n    string s;\n};\n");
+        let docs: Vec<&str> = o.structs[0].members.iter().map(|m| m.doc.as_str()).collect();
+        assert_eq!(docs, ["The count.", ""]);
     }
 
     /// A `/* … */` comment directly above a declaration is its

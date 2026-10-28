@@ -114,7 +114,7 @@ fn shape_of(outlines: &[&Outline], spec: &Spec) -> Shape {
         for st in &o.structs {
             s.structs.insert(
                 st.name.clone(),
-                st.members.iter().map(|(t, n)| (ty(t), n.clone())).collect(),
+                st.members.iter().map(|m| (ty(&m.ty), m.name.clone())).collect(),
             );
         }
     }

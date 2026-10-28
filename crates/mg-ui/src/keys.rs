@@ -29,6 +29,9 @@ pub enum Group {
     Nui,
     /// The enabled plugins' commands (anywhere in the window).
     Plugins,
+    /// The open project's commands (`[commands]`, anywhere in the
+    /// window).
+    Project,
 }
 
 impl Group {
@@ -40,13 +43,14 @@ impl Group {
             Group::Conversation => "Conversation Editor",
             Group::Nui => "NUI Creator",
             Group::Plugins => "Plugins",
+            Group::Project => "Project Commands",
         }
     }
 
     /// Whether keys in both groups can be pressed at the same moment (the
     /// general keys work everywhere).
     fn overlaps(self, other: Group) -> bool {
-        let anywhere = |g: Group| matches!(g, Group::General | Group::Plugins);
+        let anywhere = |g: Group| matches!(g, Group::General | Group::Plugins | Group::Project);
         self == other || anywhere(self) || anywhere(other)
     }
 }

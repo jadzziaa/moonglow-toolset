@@ -500,7 +500,7 @@ pub fn add_area_of(
     let scheme = Scheme::read(game, defaults.env_scheme)?;
     let taken = |r: &ResRef| module.contains(&ResKey::new(*r, ResType::ARE));
     // (By the builder's code, in a project that has one.)
-    let area = resref_for_named(&spec.name, &module.project_file.naming(), taken);
+    let area = resref_for_named(&spec.name, &module.project_file.naming_for(ResType::ARE), taken);
     let mut are = Gff::new(*b"ARE ");
     let r = &mut are.root;
     r.write(&are::ID, -1);

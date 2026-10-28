@@ -278,7 +278,7 @@ impl VarHelp {
     /// What is wrong with a row by the descriptions, for the note under
     /// the list (none where nothing is, or nothing is described).
     fn note(&self, r: &VarRow) -> Option<String> {
-        let file = mg_module::var_desc::FILE_NAME;
+        let file = self.variables.file();
         let name = r.name.trim();
         if name.is_empty() {
             return None;
@@ -2002,19 +2002,11 @@ pub(crate) struct SearchField<'a> {
     width: Option<f32>,
 }
 
-const SEARCH_FIELD: &str = "search-field";
-
-/// Whether the widget `id` is a search's field ([`SearchField`]'s, or one
-/// [`searching`] marks): what is typed there finds, and changes nothing.
+/// Whether the widget `id` is the text field of a [`SearchField`] shown
+/// this frame so far ([`search_field_shown`]): what is typed there finds,
+/// and changes nothing.
 pub(crate) fn is_search_field(ctx: &egui::Context, id: egui::Id) -> bool {
-    ctx.data(|d| d.get_temp::<bool>(id.with(SEARCH_FIELD))).unwrap_or(false)
-}
-
-/// Marks a text field as a list's search ([`is_search_field`]): a form
-/// only looked at lets it be typed in.
-pub(crate) fn searching(ui: &Ui, field: egui::Response) -> egui::Response {
-    ui.data_mut(|d| d.insert_temp(field.id.with(SEARCH_FIELD), true));
-    field
+    ctx.data(|x| x.get_temp::<Dialogs>(dialogs_id())).is_some_and(|d| d.searches.contains(&id))
 }
 
 /// What a [`SearchField`] did: the field's response, and how its keys
@@ -2081,8 +2073,7 @@ impl<'a> SearchField<'a> {
         let here = find.unwrap_or(false) || (find_over && ui.rect_contains_pointer(ui.clip_rect()));
         let find = find_here(ui, here);
         let left = field_keys(ui, id, text, find, down);
-        // (Known as a search, which a form only looked at lets be typed in.)
-        ui.data_mut(|d| d.insert_temp(id.with(SEARCH_FIELD), true));
+        search_field_shown(ui.ctx(), id);
         let response = ui
             .horizontal(|ui| {
                 let clear = !text.is_empty();
@@ -2147,11 +2138,13 @@ struct Dialogs {
     open: Vec<egui::LayerId>,
     seen: Vec<egui::LayerId>,
     escape: bool,
-    /// Whether a text field (a number's too) had the keyboard as the last
-    /// frame ended ([`dialogs_end`]), and so whether this frame's Escape
-    /// only leaves it.
-    typing: bool,
-    leaves_text: bool,
+    /// The search fields shown this frame ([`search_field_shown`]).
+    searches: Vec<egui::Id>,
+    /// Whether a search field had the keyboard as the last frame ended
+    /// ([`dialogs_end`]), and so whether this frame's Escape is the
+    /// field's (it clears what is typed, then leaves it).
+    searching: bool,
+    leaves_search: bool,
 }
 
 fn dialogs_id() -> egui::Id {
@@ -2181,7 +2174,7 @@ pub(crate) fn dialogs_begin(ctx: &egui::Context) {
     }
     d.escape = ctx.input(|i| i.key_pressed(egui::Key::Escape) && i.modifiers.is_none())
         && !egui::Popup::is_any_open(ctx);
-    d.leaves_text = d.escape && d.typing;
+    d.leaves_search = d.escape && d.searching;
     ctx.data_mut(|x| x.insert_temp(dialogs_id(), d));
 }
 
@@ -2191,22 +2184,35 @@ pub(crate) fn keep_escape(ctx: &egui::Context) {
     ctx.data_mut(|x| {
         let d = x.get_temp_mut_or_default::<Dialogs>(dialogs_id());
         d.escape = false;
-        d.leaves_text = false;
+        d.leaves_search = false;
     });
 }
 
-/// Once a frame, after everything is drawn: whether a text field has the
-/// keyboard. (egui gives the keyboard up at an Escape before anything of
-/// the frame is drawn, so a window can't tell then that it was typed in.)
+/// Once a frame, after everything is drawn: whether a search field has
+/// the keyboard. (egui gives the keyboard up at an Escape before anything
+/// of the frame is drawn, so a window can't tell then that it was typed
+/// in.)
 pub(crate) fn dialogs_end(ctx: &egui::Context) {
-    let typing = ctx.text_edit_focused();
-    ctx.data_mut(|x| x.get_temp_mut_or_default::<Dialogs>(dialogs_id()).typing = typing);
+    let focused = ctx.memory(|m| m.focused());
+    ctx.data_mut(|x| {
+        let d = x.get_temp_mut_or_default::<Dialogs>(dialogs_id());
+        let searches = std::mem::take(&mut d.searches);
+        d.searching = focused.is_some_and(|f| searches.contains(&f));
+    });
 }
 
-/// Whether this frame's Escape left a text field (a number's too), which
-/// is all it does then: a Properties window stays open.
-pub(crate) fn escape_left_text(ctx: &egui::Context) -> bool {
-    ctx.data(|x| x.get_temp::<Dialogs>(dialogs_id())).is_some_and(|d| d.leaves_text)
+/// A search field (`id`, its text field's) shown this frame: Escape in it
+/// is its own ([`escape_left_search`]).
+fn search_field_shown(ctx: &egui::Context, id: egui::Id) {
+    ctx.data_mut(|x| x.get_temp_mut_or_default::<Dialogs>(dialogs_id()).searches.push(id));
+}
+
+/// Whether this frame's Escape was in a search field (a list's filter, an
+/// inventory's Find), whose Escape clears what is typed and then leaves
+/// it: a Properties window stays open. In any other field Escape is the
+/// window's Cancel at once, as Aurora's is.
+pub(crate) fn escape_left_search(ctx: &egui::Context) -> bool {
+    ctx.data(|x| x.get_temp::<Dialogs>(dialogs_id())).is_some_and(|d| d.leaves_search)
 }
 
 /// Escape for the dialog on `layer`: true when it was pressed and this is

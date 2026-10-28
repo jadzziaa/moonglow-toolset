@@ -1,6 +1,6 @@
 //! The module contents tree (Aurora's left pane).
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 use egui::Ui;
@@ -214,11 +214,44 @@ struct ObjectRow {
     tip: String,
 }
 
+/// A placed object of an area, by its kind and its place in its kind's
+/// list.
+pub(crate) type Placed = (mg_area::ObjectKind, usize);
+
+/// What an area's placed objects were read from, for the module tree's
+/// copy of them: the open document at a revision of the workspace (it is
+/// being edited), else the stored GIT's data (where it is and its length:
+/// replaced data is elsewhere). They are read again when it changes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Read {
+    Revision(u64),
+    Data(usize, usize),
+}
+
+/// What an area's placed objects would be read from now ([`Read`]).
+fn read_of(ws: &Workspace, area: ResRef) -> Read {
+    let git = ResKey::new(area, ResType::GIT);
+    if ws.loaded(&git).is_some() {
+        return Read::Revision(ws.revision());
+    }
+    ws.module.get(&git).map_or(Read::Data(0, 0), |d| Read::Data(d.as_ptr() as usize, d.len()))
+}
+
 /// What is placed in an area, as the workspace has it now: every kind,
 /// its objects by name (a waypoint by tag; either, where the other is
-/// empty), sorted.
-fn area_contents(ws: &mut Workspace, game: Option<&GameData>, area: ResRef) -> AreaContents {
-    let Ok(git) = ws.doc(&ResKey::new(area, ResType::GIT)) else { return Vec::new() };
+/// empty), sorted. (A GIT not open is read, not opened: the Filter reads
+/// every area's.)
+fn area_contents(ws: &Workspace, game: Option<&GameData>, area: ResRef) -> AreaContents {
+    let key = ResKey::new(area, ResType::GIT);
+    let stored;
+    let git = match ws.loaded(&key) {
+        Some(git) => git,
+        None => {
+            let Some(Ok(git)) = ws.module.get(&key).map(Gff::read) else { return Vec::new() };
+            stored = git;
+            &stored
+        }
+    };
     mg_area::ObjectKind::ALL
         .into_iter()
         .map(|kind| {
@@ -267,6 +300,9 @@ enum Asked {
     Preview,
     Copy,
     Delete,
+    /// Written out as a blueprint of its own, in an archive (Export as
+    /// Blueprint…).
+    Export,
     /// A plugin's command run on it: its place among the plugins'
     /// commands for menus.
     Plugin(usize),
@@ -281,9 +317,11 @@ pub(crate) fn previewable(kind: mg_area::ObjectKind) -> bool {
 /// An area's placed objects under its row of the module tree, kind by
 /// kind as Aurora lists them. A click goes to the object in the area's
 /// view; a double click opens its Properties; a right click has both, and
-/// Copy, Delete and the plugins' commands for its kind. With a filter that
-/// some of them match (lower case), only those are listed. Only the rows
-/// in view are laid out (an area can hold thousands of a kind).
+/// Copy, Delete, Export as Blueprint… and the plugins' commands for its
+/// kind. Ctrl and Shift with a click choose several (`chosen`, marked),
+/// which a right click on one of them acts on together. With a filter
+/// that some of them match (lower case), only those are listed. Only the
+/// rows in view are laid out (an area can hold thousands of a kind).
 #[allow(clippy::too_many_arguments)]
 fn contents_ui(
     ui: &mut Ui,
@@ -293,10 +331,15 @@ fn contents_ui(
     go: &mut Option<(ResRef, mg_area::ObjectKind, usize, Asked)>,
     // The object in hand (its row marked), and whether to go to it.
     in_hand: Option<(mg_area::ObjectKind, usize, bool)>,
+    // The objects chosen together, when there are several.
+    chosen: Option<&BTreeSet<Placed>>,
     keys: &mut ContentKeys,
     // The plugins' commands for right-click menus.
     commands: &[crate::plugins::PluginCommand],
 ) -> bool {
+    // (Of one kind: Properties opens them together.)
+    let one_kind =
+        chosen.is_some_and(|c| c.iter().all(|(k, _)| Some(k) == c.first().map(|f| &f.0)));
     let mut went = false;
     let matches = |row: &ObjectRow| filter.finds_folded(&row.sought);
     let filtered = !filter.is_empty() && contents.iter().any(|c| c.rows.iter().any(&matches));
@@ -346,6 +389,7 @@ fn contents_ui(
                 header = header.open(Some(open));
             }
             let (clicked, hovered) = (&mut keys.clicked, &mut keys.hovered);
+            let (picked, together) = (&mut keys.picked, &mut keys.together);
             let shown_header = header.show(ui, |ui| {
                 // The rows in view, and room for those above and below.
                 let font = egui::TextStyle::Button.resolve(ui.style());
@@ -364,7 +408,7 @@ fn contents_ui(
                         egui::pos2(ui.cursor().left(), top + at as f32 * step),
                         egui::vec2(1.0, row),
                     );
-                    bring_into_view(ui, rect);
+                    reveal_into_view(ui, rect);
                     went = true;
                 }
                 // (And the keys' row, as near as it need be.)
@@ -390,17 +434,24 @@ fn contents_ui(
                 for &index in &shown[first..last] {
                     let object = &rows[index];
                     let text = if object.text.is_empty() { NO_NAME } else { object.text.as_str() };
+                    let several = chosen.is_some_and(|c| c.contains(&(*kind, index)));
                     let is_marked =
-                        marked.is_some_and(|m| m.1 == index) || at_object == Some(index);
+                        marked.is_some_and(|m| m.1 == index) || at_object == Some(index) || several;
                     let how = "Click to go to it in the area; double-click for its Properties; \
-                               right-click for more";
+                               Ctrl or Shift and a click to choose several; right-click for more";
                     let tip = if object.tip.is_empty() {
                         how.to_string()
                     } else {
                         format!("{}\n{how}", object.tip)
                     };
                     let r = ui.selectable_label(is_marked, text).on_hover_text(tip);
-                    if r.double_clicked() {
+                    let m = ui.input(|i| i.modifiers);
+                    let (command, shift) = (m.command || m.ctrl, m.shift);
+                    if r.clicked() && (command || shift) {
+                        // Chosen with the others (after the rows are laid
+                        // out: `tree_rows`).
+                        *picked = Some((TreeAt::Object(area, *kind, index), command, shift));
+                    } else if r.double_clicked() {
                         *go = Some((area, *kind, index, Asked::Properties));
                     } else if r.clicked() {
                         *go = Some((area, *kind, index, Asked::Go));
@@ -412,29 +463,61 @@ fn contents_ui(
                         *hovered = Some(TreeAt::Object(area, *kind, index));
                     }
                     r.context_menu(|ui| {
+                        // Several chosen, this one among them: what is
+                        // done to them together.
+                        if several {
+                            let n = chosen.map_or(0, BTreeSet::len);
+                            ui.weak(format!("{n} objects chosen"));
+                            ui.separator();
+                        }
                         // Variables and Properties last, as in Aurora.
                         for (label, asked) in [
                             ("Go To", Asked::Go),
                             ("Preview", Asked::Preview),
                             ("Copy", Asked::Copy),
                             ("Delete", Asked::Delete),
+                            ("Export as Blueprint…", Asked::Export),
                             ("Variables…", Asked::Variables),
                             ("Properties", Asked::Properties),
                         ] {
-                            if asked == Asked::Preview && !previewable(*kind) {
+                            if asked == Asked::Preview && (several || !previewable(*kind)) {
                                 continue;
                             }
                             if asked == Asked::Variables {
-                                // (The plugins' commands for it, before.)
-                                let kinds = [mg_plugin::Target::Object(*kind)];
+                                // (The plugins' commands for it, or for
+                                // the kinds of those chosen, before.)
+                                let mut kinds = vec![mg_plugin::Target::Object(*kind)];
+                                if several {
+                                    let all = chosen.into_iter().flatten();
+                                    kinds =
+                                        all.map(|(k, _)| mg_plugin::Target::Object(*k)).collect();
+                                    kinds.dedup();
+                                }
                                 if let Some(i) = crate::plugins::menu_commands(ui, commands, &kinds)
                                 {
                                     *go = Some((area, *kind, index, Asked::Plugin(i)));
+                                    *together = several;
                                 }
                                 ui.separator();
                             }
-                            if ui.button(label).clicked() {
+                            // (One at a time: its variables, and a
+                            // blueprint of it; Properties of several of one
+                            // kind.)
+                            let one = matches!(asked, Asked::Export | Asked::Variables);
+                            if several && (one || (asked == Asked::Properties && !one_kind)) {
+                                continue;
+                            }
+                            let mut b = ui.button(label);
+                            if asked == Asked::Export {
+                                b = b.on_hover_text(
+                                    "Write it into an archive (.erf) as a blueprint of its own, \
+                                     with the items it holds, as Add to Palette makes one: for \
+                                     another module's Import",
+                                );
+                            }
+                            if b.clicked() {
                                 *go = Some((area, *kind, index, asked));
+                                *together = several;
                                 ui.close();
                             }
                         }
@@ -463,6 +546,11 @@ struct ContentKeys {
     fold: Option<(TreeAt, bool)>,
     clicked: Option<TreeAt>,
     hovered: Option<TreeAt>,
+    /// A row clicked with Ctrl (`.1`) or Shift (`.2`).
+    picked: Option<(TreeAt, bool, bool)>,
+    /// What was asked from the menu of a row among several chosen: for
+    /// them all.
+    together: bool,
     listed: Vec<(mg_area::ObjectKind, bool, Vec<usize>)>,
 }
 
@@ -477,6 +565,22 @@ fn spacing_gap(ui: &Ui) -> f32 {
 fn bring_into_view(ui: &Ui, rect: egui::Rect) {
     let x = ui.clip_rect().center().x;
     ui.scroll_to_rect(egui::Rect::from_x_y_ranges(x..=x, rect.y_range()), None);
+}
+
+/// Brings a row gone to from elsewhere (a tab chosen, an object selected
+/// in the area) into view: one out of sight to the middle of the pane,
+/// rather than its foot or top (where the tree scrolled only as far as it
+/// must, a row brought up from below sat at the foot, the rows after it
+/// out of sight); one in sight stays where it is (under the pointer, for
+/// a double click's second click).
+fn reveal_into_view(ui: &Ui, rect: egui::Rect) {
+    let clip = ui.clip_rect();
+    if clip.y_range().contains(rect.top()) && clip.y_range().contains(rect.bottom()) {
+        return;
+    }
+    let x = clip.center().x;
+    let to = egui::Rect::from_x_y_ranges(x..=x, rect.y_range());
+    ui.scroll_to_rect(to, Some(egui::Align::Center));
 }
 
 /// The module tree's pane: the Filter and Expand All / Collapse All, which
@@ -558,12 +662,23 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
 /// is opened out to it, as in Aurora, unless Options › General says to
 /// leave it closed (the tree then does not move).
 fn follow_selection(app: &mut Moonglow) {
-    let selected = app.palette.area.and_then(|area| {
+    let seen = app.palette.area.and_then(|area| {
         let view = app.area_views.get(&area)?;
-        match view.selection.as_slice() {
-            [(kind, index)] => Some((area, *kind, *index)),
-            _ => None,
+        Some((area, view.selection.clone()))
+    });
+    // Several selected there: chosen in the tree too, each row marked
+    // (as the selection changes: those chosen in the tree of an area not
+    // shown stay).
+    if seen != app.tree_seen_selection {
+        if let Some((area, selection)) = &seen {
+            let several = selection.len() > 1;
+            app.tree_objects = several.then(|| (*area, selection.iter().copied().collect()));
         }
+        app.tree_seen_selection = seen.clone();
+    }
+    let selected = seen.and_then(|(area, selection)| match selection.as_slice() {
+        [(kind, index)] => Some((area, *kind, *index)),
+        _ => None,
     });
     if selected != app.tree_object {
         app.tree_object = selected;
@@ -594,13 +709,33 @@ pub(crate) fn listed(app: &Moonglow, key: &ResKey) -> bool {
 /// as the one in front (Aurora marks it so, and its tree follows nothing
 /// else).
 pub(crate) fn reveal_tab(app: &mut Moonglow, tab: &Tab) {
-    let Some(key) = tab.tree_key().filter(|k| listed(app, k)) else { return };
+    // Module Properties: its row, at the top.
+    if *tab == Tab::ModuleProperties {
+        if !app.settings.tree_stays {
+            app.tree_reveal = Some((module_row(), false));
+            app.tree_selected.clear();
+        }
+        return;
+    }
+    let keys: Vec<ResKey> = tab.tree_keys().into_iter().filter(|k| listed(app, k)).collect();
+    let Some(&key) = keys.first() else { return };
     if !app.settings.tree_stays {
         app.tree_reveal = Some((key, false));
-    } else if key.restype == ResType::ARE {
+        // A tab of several (Properties of several blueprints or areas):
+        // each of them chosen, the first brought into view.
+        app.tree_selected = keys.iter().copied().collect();
+        app.tree_anchor = Some(key);
+    } else if key.restype == ResType::ARE && keys.len() == 1 {
         app.tree_marked = Some(key);
         app.tree_area = Some(key.resref);
     }
+}
+
+/// What marks the tree's Module Properties row ([`Moonglow::tree_marked`],
+/// [`Moonglow::tree_reveal`]): the module's `module.ifo`, which the tree
+/// lists no other way.
+pub(crate) fn module_row() -> ResKey {
+    ResKey::new(ResRef::from_str("module").expect("a valid ResRef"), ResType::IFO)
 }
 
 /// The tab chosen since the tree last looked, which it goes to
@@ -718,7 +853,7 @@ fn seek(
 fn row_text(
     at: TreeAt,
     named: &dyn Fn(&ResKey) -> Option<String>,
-    contents: &HashMap<ResRef, (u64, AreaContents)>,
+    contents: &HashMap<ResRef, (Read, AreaContents)>,
 ) -> String {
     match at {
         TreeAt::Group(name) => name.to_string(),
@@ -814,6 +949,8 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
     // resource's row.
     let menu_commands = app.plugin_menu_commands();
     let mut plugin_on: Option<(usize, ResKey)> = None;
+    // One chosen on a row among several chosen: on them all.
+    let mut plugin_several: Option<usize> = None;
     let Some(ws) = &app.ws else { return };
     let revision = ws.revision();
     // Areas opened out whose contents are to be read (after the tree is
@@ -824,9 +961,19 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
     let mut object_waits = false;
     let (by_name, resrefs) = (app.settings.area_names, app.settings.name_resrefs);
     let filter = filter.clone();
-    if ui.selectable_label(false, "Module Properties").clicked() {
+    // (Marked while its tab is the one chosen.)
+    let module = ui.selectable_label(app.tree_marked == Some(module_row()), "Module Properties");
+    if app.tree_reveal.is_some_and(|(k, _)| k == module_row()) {
+        app.tree_marked = Some(module_row());
+        reveal_into_view(ui, module.rect);
+    }
+    if module.clicked() {
         app.actions.push(Action::OpenTab(Tab::ModuleProperties));
     }
+    // A row clicked (with Ctrl or Shift: chosen with others), resolved
+    // once every row is laid out.
+    let mut picked: Option<(TreeAt, bool, bool)> = None;
+    let mut together = false;
     let mut open = None;
     let mut make = None;
     let mut listed = 0;
@@ -873,16 +1020,32 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
     // The resources the filter finds by their own ResRef or name (not
     // only by what is placed in them).
     let mut matched: Vec<ResKey> = Vec::new();
+    // A tab chosen while the Filter has something typed: its rows (a tab
+    // of several's, each) are listed under it too, for as long as it has
+    // the same typed (the tree goes to them; the Filter stays).
+    if let Some((k, _)) = app.tree_reveal.filter(|_| !filter.is_empty()) {
+        let mut keys: Vec<ResKey> = app.tree_selected.iter().copied().collect();
+        if !keys.contains(&k) {
+            keys.push(k);
+        }
+        app.tree_kept = Some((keys, filter.as_str().to_string()));
+    }
     for ((name, types), (all, names)) in GROUPS.iter().zip(lists.iter()) {
         listed += all.len();
-        // (An area opened out stays for what is placed in it, too.)
+        // (An area stays for what is placed in it, too, opened out or not:
+        // every area's objects are read while the Filter has something
+        // typed, below.)
         let holds = |k: &ResKey| {
             k.restype == ResType::ARE
-                && ui.data(|d| d.get_temp(egui::Id::new(("tree-area-open", k.resref))))
-                    == Some(true)
                 && app.area_contents.get(&k.resref).is_some_and(|(_, contents)| {
                     contents.iter().any(|c| c.rows.iter().any(|r| filter.finds_folded(&r.sought)))
                 })
+        };
+        // (The rows of a tab chosen while the Filter has this typed stay
+        // in sight under it: the tree goes to them.)
+        let kept = |k: &ResKey| {
+            (app.tree_kept.as_ref())
+                .is_some_and(|(keys, f)| f == filter.as_str() && keys.contains(k))
         };
         // (Every word in its ResRef or its name, in any order.)
         let own = |k: &ResKey| {
@@ -895,7 +1058,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                 if own(&k) {
                     matched.push(k);
                     found.push(k);
-                } else if holds(&k) {
+                } else if holds(&k) || kept(&k) {
                     found.push(k);
                 }
             }
@@ -940,6 +1103,9 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                     let opened = egui::Id::new(("tree-area-open", k.resref));
                     let is_area = k.restype == ResType::ARE;
                     let mut out = is_area && ui.data(|d| d.get_temp(opened).unwrap_or(false));
+                    // (Shown opened out while the Filter finds what is
+                    // placed in it.)
+                    out |= !filter.is_empty() && holds(&k);
                     // (Opened out or closed by the keys.)
                     if let Some((_, open)) =
                         folded.filter(|f| is_area && f.0 == TreeAt::Resource(k))
@@ -963,6 +1129,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                     }
                     let in_hand = app.tree_marked == Some(k);
                     let at_row = cursor == Some(TreeAt::Resource(k));
+                    let chosen = app.tree_selected.len() > 1 && app.tree_selected.contains(&k);
                     // A row out of sight takes its room only (a module can
                     // list thousands of a kind: laid out every frame, they
                     // slowed everything down while their group was open).
@@ -989,8 +1156,8 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                                 ui.data_mut(|d| d.insert_temp(opened, out));
                             }
                         }
-                        let r = ui
-                            .add(egui::Button::selectable(in_hand || at_row, label).sense(sense));
+                        let marked = in_hand || at_row || chosen;
+                        let r = ui.add(egui::Button::selectable(marked, label).sense(sense));
                         // Who holds it (the project's claims table).
                         if is_area {
                             crate::claims::tree_mark(crate::claims::of(&app.ws), ui, k.resref);
@@ -1012,27 +1179,35 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                     if reveal.is_some() && object_here {
                         app.tree_object_pending = true;
                     } else if reveal.is_some() {
-                        bring_into_view(ui, r.rect);
+                        reveal_into_view(ui, r.rect);
                     }
                     if sought {
                         bring_into_view(ui, r.rect);
                     }
                     if r.clicked() {
                         clicked = Some(TreeAt::Resource(k));
+                        let m = ui.input(|i| i.modifiers);
+                        picked = Some((TreeAt::Resource(k), m.command || m.ctrl, m.shift));
                     }
                     if out {
-                        match app.area_contents.get(&k.resref).filter(|c| c.0 == revision) {
+                        let now = read_of(ws, k.resref);
+                        match app.area_contents.get(&k.resref).filter(|c| c.0 == now) {
                             Some((_, contents)) => {
                                 let in_hand = app
                                     .tree_object
                                     .filter(|(a, ..)| *a == k.resref)
                                     .map(|(_, kind, i)| (kind, i, app.tree_object_pending));
+                                let chosen = (app.tree_objects.as_ref())
+                                    .filter(|(a, set)| *a == k.resref && set.len() > 1)
+                                    .map(|(_, set)| set);
                                 let mut keys = ContentKeys {
                                     cursor,
                                     moved: cursor_moved,
                                     fold: folded,
                                     clicked: None,
                                     hovered: None,
+                                    picked: None,
+                                    together: false,
                                     listed: Vec::new(),
                                 };
                                 let went = contents_ui(
@@ -1042,9 +1217,12 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                                     &filter,
                                     &mut go,
                                     in_hand,
+                                    chosen,
                                     &mut keys,
                                     &menu_commands,
                                 );
+                                picked = keys.picked.or(picked);
+                                together |= keys.together;
                                 if went {
                                     app.tree_object_pending = false;
                                 } else if in_hand.is_some_and(|h| h.2) {
@@ -1086,6 +1264,12 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                         app.actions.push(Action::DeleteDialog(k));
                     }
                     r.context_menu(|ui| {
+                        if chosen {
+                            let keys: Vec<ResKey> = app.tree_selected.iter().copied().collect();
+                            let asked = several_menu(ui, &keys, &menu_commands, &mut app.actions);
+                            plugin_several = asked.or(plugin_several);
+                            return;
+                        }
                         if let (Some(id), Some(label)) = (new, &new_label) {
                             if ui.button(label).clicked() {
                                 make = Some(id);
@@ -1276,6 +1460,18 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
     if !opening {
         app.tree_reveal = None;
     }
+    // While the Filter has something typed, what every area holds is
+    // read (not only the areas opened out), for what it finds there.
+    if !filter.is_empty() {
+        for k in ws.module.keys_of(ResType::ARE) {
+            let now = read_of(ws, k.resref);
+            if app.area_contents.get(&k.resref).is_none_or(|c| c.0 != now)
+                && !read.contains(&k.resref)
+            {
+                read.push(k.resref);
+            }
+        }
+    }
     let others = ws.module.len() - listed;
     ui.weak(format!("{others} other resources"));
     // Down from the Filter: to the first row in sight that it finds (a
@@ -1294,6 +1490,53 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
         app.tree_cursor = first.or(Some(first_row()));
         app.tree_cursor_moved = true;
         ui.ctx().request_repaint();
+    }
+    // A row clicked: with Ctrl, added to (or taken from) those chosen;
+    // with Shift, those from the row clicked before to it, as listed. A
+    // placed object's: the area view's selection follows.
+    match picked {
+        Some((TreeAt::Resource(k), command, shift)) => {
+            let rows = key_rows(&shown, &outs);
+            let listed: Vec<ResKey> = (rows.iter())
+                .filter_map(|r| match r.0 {
+                    TreeAt::Resource(k) => Some(k),
+                    _ => None,
+                })
+                .collect();
+            let (selected, anchor) = (&mut app.tree_selected, &mut app.tree_anchor);
+            crate::widgets::select_in_list(selected, anchor, &listed, k, command, shift);
+        }
+        Some((TreeAt::Object(area, kind, index), command, shift)) => {
+            let rows = key_rows(&shown, &outs);
+            let listed: Vec<Placed> = (rows.iter())
+                .filter_map(|r| match r.0 {
+                    TreeAt::Object(a, k, i) if a == area => Some((k, i)),
+                    _ => None,
+                })
+                .collect();
+            // (Another area's chosen before: from the one in hand here.)
+            let (mut set, mut anchor) = match app.tree_objects.take() {
+                Some((a, set)) if a == area => (set, app.tree_objects_anchor),
+                _ => {
+                    let here = app.tree_object.filter(|o| o.0 == area).map(|o| (o.1, o.2));
+                    (here.into_iter().collect(), here)
+                }
+            };
+            crate::widgets::select_in_list(
+                &mut set,
+                &mut anchor,
+                &listed,
+                (kind, index),
+                command,
+                shift,
+            );
+            app.tree_objects_anchor = anchor;
+            if let Some(view) = app.area_views.get_mut(&area) {
+                view.selection = set.iter().copied().collect();
+            }
+            app.tree_objects = (!set.is_empty()).then_some((area, set));
+        }
+        _ => {}
     }
     // A click in the tree gives it the arrow keys (as the palette's),
     // wherever the pointer goes after until it is in an area's view: Up
@@ -1424,6 +1667,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                 if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Delete)) =>
             {
                 go = Some((area, kind, index, Asked::Delete));
+                together = true;
                 app.tree_cursor = app.tree_cursor.map(|c| past_deleted(&shown, &outs, c, at));
                 ui.ctx().request_repaint();
             }
@@ -1447,15 +1691,31 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
     if let Some(k) = open {
         app.actions.push(Action::OpenResource(k));
     }
-    // What the areas opened out hold, read for the next frame.
+    // What the areas opened out hold, read for the next frame (those the
+    // Filter looks in after them; a module's hundreds of areas over a
+    // few frames, not all in one).
     if !read.is_empty()
-        && let Some(ws) = app.ws.as_mut()
+        && let Some(ws) = app.ws.as_ref()
     {
+        let began = std::time::Instant::now();
         for area in read {
             let contents = area_contents(ws, app.game.as_deref(), area);
-            app.area_contents.insert(area, (revision, contents));
+            app.area_contents.insert(area, (read_of(ws, area), contents));
+            if began.elapsed() > std::time::Duration::from_millis(12) {
+                break;
+            }
         }
         ui.ctx().request_repaint();
+    }
+    // A plugin's command chosen on a row among several chosen: on each.
+    if let Some(i) = plugin_several {
+        let on = (app.tree_selected.iter())
+            .map(|k| match k.restype {
+                ResType::ARE => mg_plugin::Selected::Area(k.resref),
+                _ => mg_plugin::Selected::Blueprint(*k),
+            })
+            .collect();
+        app.actions.push(crate::plugins::run_on(&menu_commands[i], on));
     }
     // A plugin's command on a resource's row: on the area or blueprint.
     if let Some((i, k)) = plugin_on {
@@ -1470,22 +1730,45 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
     // it.
     if let Some((area, kind, index, asked)) = go {
         let git = ResKey::new(area, ResType::GIT);
+        // Asked of a row among several chosen (its menu, the Delete key):
+        // of them all.
+        let targets: Vec<Placed> = match &app.tree_objects {
+            Some((a, set)) if together && *a == area && set.contains(&(kind, index)) => {
+                set.iter().copied().collect()
+            }
+            _ => vec![(kind, index)],
+        };
+        let path = |(kind, index): Placed| mg_edit::GffPath::root().item(kind.list(), index);
         match asked {
             Asked::Plugin(i) => {
-                let on = mg_plugin::Selected::Object { area, kind, index };
-                app.actions.push(crate::plugins::run_on(&menu_commands[i], vec![on]));
+                let on = (targets.iter())
+                    .map(|&(kind, index)| mg_plugin::Selected::Object { area, kind, index })
+                    .collect();
+                app.actions.push(crate::plugins::run_on(&menu_commands[i], on));
+            }
+            Asked::Properties if targets.len() > 1 => {
+                let paths = targets.iter().copied().map(path).collect();
+                app.actions.push(Action::OpenTab(Tab::Instances { area, paths }));
             }
             Asked::Properties => {
-                let path = mg_edit::GffPath::root().item(kind.list(), index);
+                let path = path((kind, index));
                 app.actions.push(Action::OpenTab(Tab::Instance { area, path }));
             }
-            Asked::Variables => {
-                let path = mg_edit::GffPath::root().item(kind.list(), index);
-                crate::widgets::open_variables(app, git, path);
-            }
+            Asked::Variables => crate::widgets::open_variables(app, git, path((kind, index))),
             Asked::Preview => {
-                let path = mg_edit::GffPath::root().item(kind.list(), index);
+                let path = path((kind, index));
                 app.actions.push(Action::OpenTab(Tab::InstanceModel { area, path }));
+            }
+            Asked::Export => app.actions.push(Action::ExportObject { area, kind, index }),
+            Asked::Go if targets.len() > 1 => {
+                // Each of them selected in the area's view (once it is
+                // open), the camera at the one clicked.
+                app.area_focus = Some((area, kind, index));
+                app.area_select = Some((area, targets.clone()));
+                if let Some(view) = app.area_views.get_mut(&area) {
+                    view.selection = targets;
+                }
+                app.actions.push(Action::OpenTab(Tab::Area(area)));
             }
             Asked::Go => {
                 app.area_focus = Some((area, kind, index));
@@ -1493,31 +1776,49 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                 // it is, rather than go to the area's row and back.)
                 app.tree_object = Some((area, kind, index));
                 app.tree_object_pending = false;
+                // (And the one a Shift+click goes from.)
+                app.tree_objects = Some((area, [(kind, index)].into()));
+                app.tree_objects_anchor = Some((kind, index));
                 if let Some(view) = app.area_views.get_mut(&area) {
                     view.selection = vec![(kind, index)];
                 }
                 app.actions.push(Action::OpenTab(Tab::Area(area)));
             }
             Asked::Copy => {
-                // As Copy in the area's view: pasted in any area (Ctrl+V).
-                let placed = app
-                    .ws
-                    .as_mut()
-                    .and_then(|ws| ws.doc(&git).ok()?.root.list(kind.list())?.get(index).cloned());
-                if let (Some(s), Some(game)) = (placed, app.game.as_deref()) {
+                // As Copy in the area's view: pasted in any area (Ctrl+V),
+                // each as high above the ground as it stands (the area's
+                // ground read for it where its view isn't open).
+                let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_deref()) else {
+                    return;
+                };
+                let list = |ws: &mut Workspace, (kind, index): Placed| {
+                    ws.doc(&git).ok()?.root.list(kind.list())?.get(index).cloned()
+                };
+                let placed: Vec<(Placed, mg_gff::Struct)> =
+                    targets.iter().filter_map(|&t| Some((t, list(ws, t)?))).collect();
+                let ground = match app.area_views.get(&area) {
+                    Some(_) => None,
+                    None => crate::area_view::ground_of(game, ws, area),
+                };
+                let mut objects = Vec::new();
+                for ((kind, index), s) in placed {
                     let o = mg_area::AreaObject::read(game, kind, index, &s);
-                    let anchor = o.position;
-                    // (As high above the ground as it stands, where its
-                    // area's view knows the ground: it was pasted on it.)
-                    let lift = app.area_views.get(&area).map_or(0.0, |v| v.lift_of(&o));
-                    let objects = vec![(o, s, lift)];
+                    let lift = match app.area_views.get(&area) {
+                        Some(view) => view.lift_of(&o),
+                        None => crate::area_view::lift_on(ground.as_ref(), &o),
+                    };
+                    objects.push((o, s, lift));
+                }
+                if let Some(anchor) = objects.first().map(|o| o.0.position) {
+                    let n = objects.len();
+                    let what = if n == 1 { "1 object".to_string() } else { format!("{n} objects") };
                     app.object_clip = Some(crate::area_view::ObjectClip { objects, anchor });
-                    crate::widgets::mark_clipboard(ui.ctx(), "1 object");
-                    app.log.info("1 object copied: paste it in an area (Ctrl+V)");
+                    crate::widgets::mark_clipboard(ui.ctx(), &what);
+                    app.log.info(format!("{what} copied: paste in an area (Ctrl+V)"));
                 }
             }
             Asked::Delete => {
-                let edits = mg_area::edit::delete_edits(git, &[(kind, index)]);
+                let edits = mg_area::edit::delete_edits(git, &targets);
                 // (Objects after it move up their list: what is selected
                 // in the area's view, and the Properties open, would be
                 // others'.)
@@ -1529,6 +1830,16 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                 if app.tree_object.is_some_and(|(a, ..)| a == area) {
                     app.tree_object = None;
                     app.tree_object_pending = false;
+                }
+                if app.tree_objects.as_ref().is_some_and(|(a, _)| *a == area) {
+                    app.tree_objects = None;
+                    app.tree_objects_anchor = None;
+                    // (Several gone: the keys go to the kind's row.)
+                    if targets.len() > 1
+                        && let Some(TreeAt::Object(a, k, _)) = app.tree_cursor
+                    {
+                        app.tree_cursor = Some(TreeAt::Kind(a, k));
+                    }
                 }
                 crate::tabs::close_tabs(&mut app.dock, |t| {
                     !matches!(t, Tab::Instance { area: a, .. } | Tab::Instances { area: a, .. }
@@ -1543,6 +1854,76 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
     if let Some(id) = make {
         id.run(app, ui.ctx());
     }
+}
+
+/// The right-click menu of a row among several resources chosen in the
+/// module tree (`keys`): what is done to them together. Edit Together for
+/// blueprints of one kind or for areas (Properties of several), Export…,
+/// Export as Files…, Copy to Scratch Folder; for areas, Make Placeables
+/// Static and Dynamic; the plugins' commands for them all (the one chosen
+/// returned).
+fn several_menu(
+    ui: &mut Ui,
+    keys: &[ResKey],
+    commands: &[crate::plugins::PluginCommand],
+    actions: &mut Vec<Action>,
+) -> Option<usize> {
+    let n = keys.len();
+    ui.weak(format!("{n} resources chosen"));
+    ui.separator();
+    let first = keys.first()?.restype;
+    let one_type = keys.iter().all(|k| k.restype == first);
+    let areas: Vec<ResRef> = keys.iter().map(|k| k.resref).collect();
+    let together = "One editor: what you change is set on each";
+    if one_type && first == ResType::ARE {
+        if ui.button(format!("Edit {n} Together")).on_hover_text(together).clicked() {
+            actions.push(Action::OpenTab(Tab::AreasProperties(areas.clone())));
+            ui.close();
+        }
+        if ui.button("Make Placeables Static").on_hover_text(STATIC_TIP).clicked() {
+            actions.push(Action::StaticPlaceables(areas.clone()));
+            ui.close();
+        }
+        if ui
+            .button("Make Placeables Dynamic")
+            .on_hover_text("Clears Static on every placeable of the areas")
+            .clicked()
+        {
+            actions.push(Action::DynamicPlaceables(areas));
+            ui.close();
+        }
+        ui.separator();
+    } else if one_type
+        && mg_area::ObjectKind::from_restype(first).is_some()
+        && ui.button(format!("Edit {n} Together")).on_hover_text(together).clicked()
+    {
+        actions.push(Action::OpenTab(Tab::Blueprints(keys.to_vec())));
+        ui.close();
+    }
+    if ui.button("Export…").clicked() {
+        actions.push(Action::ExportDialog(keys.to_vec()));
+        ui.close();
+    }
+    let files = "Write them into a folder (a script with its compiled script, an area with its \
+                 .git and .gic)";
+    if ui.button("Export as Files…").on_hover_text(files).clicked() {
+        let keys = keys.to_vec();
+        actions.push(Action::ExportFiles { keys, dependencies: false, scratch: false });
+        ui.close();
+    }
+    if ui.button("Copy to Scratch Folder").clicked() {
+        let keys = keys.to_vec();
+        actions.push(Action::ExportFiles { keys, dependencies: false, scratch: true });
+        ui.close();
+    }
+    // The plugins' commands for them, where they are of one kind (areas,
+    // or blueprints of one type).
+    let target = match first {
+        _ if !one_type => None,
+        ResType::ARE => Some(mg_plugin::Target::Area),
+        t => mg_area::ObjectKind::from_restype(t).map(mg_plugin::Target::Object),
+    };
+    target.and_then(|t| crate::plugins::menu_commands(ui, commands, &[t]))
 }
 
 /// A named resource in the tree: its name, and its ResRef in parentheses
@@ -1706,7 +2087,7 @@ mod tests {
     /// keys: area `a`'s creatures Goblin (0) and Bandit (1), listed Bandit
     /// first, its door Gate in a kind closed and its waypoint by its tag
     /// WP_GATE; area `b` after it.
-    fn opened_out() -> (Shown, Outs, HashMap<ResRef, (u64, AreaContents)>, ResKey, ResKey) {
+    fn opened_out() -> (Shown, Outs, HashMap<ResRef, (Read, AreaContents)>, ResKey, ResKey) {
         use mg_area::ObjectKind::{Creature, Door, Waypoint};
         let key = |name: &str| ResKey::parse(name, ResType::ARE).unwrap();
         let (a, b) = (key("a"), key("b"));
@@ -1727,7 +2108,7 @@ mod tests {
             kind(Door, vec![row("Gate")], vec![0]),
             kind(Waypoint, vec![row("WP_GATE")], vec![0]),
         ];
-        let contents = HashMap::from([(a.resref, (0, contents))]);
+        let contents = HashMap::from([(a.resref, (Read::Revision(0), contents))]);
         (shown, outs, contents, a, b)
     }
 

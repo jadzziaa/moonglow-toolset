@@ -4,6 +4,7 @@
 
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, channel};
 use std::time::{Duration, Instant};
 
@@ -84,16 +85,88 @@ pub(crate) enum End {
     Exited(Option<i32>),
 }
 
-/// The folder a scratch user directory goes in: one for a module, used
-/// again by its next run (so its logs stay to be read, and nothing piles
-/// up).
-pub(crate) fn scratch_dir(module: &Path) -> PathBuf {
+/// A scratch folder of a run's ([`run_dir`]), held while the run
+/// lasts.
+#[derive(Debug)]
+pub(crate) struct Scratch {
+    pub dir: PathBuf,
+    /// Locked while held: another run of the module takes another folder.
+    _held: Option<std::fs::File>,
+}
+
+/// The scratch folder of a run of `kind` (`serve`, `test`) on a module:
+/// one for a module, used again by its next run (so its logs stay to be
+/// read, and nothing piles up). While a run holds it (a lock on a file in
+/// it, let go when the run ends however it ends), another run of the same
+/// module at once takes the next one (`-2`, `-3`…): two servers never
+/// share a user directory.
+pub(crate) fn run_dir(kind: &str, module: &Path) -> Scratch {
     use std::hash::{Hash, Hasher};
     let module = std::fs::canonicalize(module).unwrap_or_else(|_| module.to_path_buf());
     let mut h = std::collections::hash_map::DefaultHasher::new();
     module.hash(&mut h);
     let stem = module.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    std::env::temp_dir().join("moonglow-serve").join(format!("{stem}-{:08x}", h.finish() as u32))
+    let name = format!("{stem}-{:08x}", h.finish() as u32);
+    let parent = std::env::temp_dir().join(format!("moonglow-{kind}"));
+    for n in 1..100 {
+        let dir = match n {
+            1 => parent.join(&name),
+            n => parent.join(format!("{name}-{n}")),
+        };
+        let lock = std::fs::create_dir_all(&dir).and_then(|()| {
+            std::fs::OpenOptions::new().create(true).append(true).open(dir.join(".mg-lock"))
+        });
+        // (A folder that can't be locked is used unlocked, as before.)
+        let Ok(file) = lock else { return Scratch { dir, _held: None } };
+        match file.try_lock() {
+            Ok(()) => return Scratch { dir, _held: Some(file) },
+            Err(std::fs::TryLockError::WouldBlock) => continue,
+            Err(std::fs::TryLockError::Error(_)) => return Scratch { dir, _held: None },
+        }
+    }
+    Scratch { dir: parent.join(name), _held: None }
+}
+
+/// A server is running (Ctrl+C stops it; otherwise Ctrl+C ends `mg`).
+static SERVING: AtomicBool = AtomicBool::new(false);
+/// Ctrl+C was pressed while a server ran.
+static INTERRUPTED: AtomicBool = AtomicBool::new(false);
+
+/// Catches Ctrl+C (and the terminal closing, and a TERM), once for the
+/// process: while a server runs, it is stopped as `/quit` stops it, with
+/// `exit` on its console (it closes its database and logs in order);
+/// otherwise `mg` ends at once, as it would. Whether it is caught (the
+/// server then gets a process group of its own, which the terminal's
+/// Ctrl+C does not reach).
+fn catch_interrupt() -> bool {
+    static CAUGHT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *CAUGHT.get_or_init(|| {
+        ctrlc::set_handler(|| {
+            if SERVING.load(Ordering::SeqCst) {
+                INTERRUPTED.store(true, Ordering::SeqCst);
+            } else {
+                std::process::exit(130);
+            }
+        })
+        .is_ok()
+    })
+}
+
+/// [`SERVING`] for as long as it lives.
+struct Serving;
+
+impl Serving {
+    fn start() -> Serving {
+        INTERRUPTED.store(false, Ordering::SeqCst);
+        SERVING.store(true, Ordering::SeqCst);
+        Serving
+    }
+}
+
+impl Drop for Serving {
+    fn drop(&mut self) {
+        SERVING.store(false, Ordering::SeqCst);
+    }
 }
 
 fn same(a: &Path, b: &Path) -> bool {
@@ -165,22 +238,24 @@ pub(crate) fn prepare(
             std::fs::copy(module, &target).with_context(|| target.display().to_string())?;
         }
     } else {
-        // A project or a folder: its scripts that have no compiled script
-        // are compiled, as `mg build` would (the server runs compiled
-        // scripts only, and a module packed without them loads and does
-        // nothing).
-        let uncompiled: Vec<ResKey> = (m.keys_of(ResType::NSS))
-            .filter(|k| !m.contains(&ResKey::new(k.resref, ResType::NCS)))
-            .copied()
-            .collect();
-        if !uncompiled.is_empty() {
-            let mut rm = mg_resman::ResMan::for_game(gi)?;
-            let _ = m.stack_onto(&mut rm, gi);
-            let results = mg_module::build::compile_named_scripts(&mut m, &rm, &uncompiled, None);
-            let compiled =
-                uncompiled.iter().filter(|k| m.contains(&ResKey::new(k.resref, ResType::NCS)));
+        // A project or a folder: its scripts that have no compiled script,
+        // or are not as they were when last compiled (by `mg compile` or
+        // the window: what they remember), are compiled, as `mg build`
+        // would (the server runs compiled scripts only, and a module
+        // packed without them loads and does nothing). The folder or
+        // project itself is not written.
+        let mut rm = mg_resman::ResMan::for_game(gi)?;
+        let _ = m.stack_onto(&mut rm, gi);
+        let made_with = mg_module::build::made_with(Some(module), None, Some(&gi.root), &rm);
+        let changed = mg_module::build::changed(&m, &crate::remembered(module, made_with), false);
+        if !changed.is_empty() {
+            let results = mg_module::build::compile_named_scripts(&mut m, &rm, &changed, None);
+            let compiled = (results.iter())
+                .filter(|r| r.result.is_ok())
+                .filter(|r| m.contains(&ResKey::new(r.script.resref, ResType::NCS)));
             notes.push(format!(
-                "compiled {} of the module's scripts that had no compiled script",
+                "compiled {} of the module's scripts that had no compiled script or changed \
+                 since they were compiled",
                 compiled.count()
             ));
             for r in &results {
@@ -273,8 +348,14 @@ pub(crate) fn serve(
         mg_serve::server_binary(&gi.root).with_context(|| mg_serve::no_server(&gi.root))?;
     // (The server runs in its own folder: a path from here means nothing
     // to it.)
-    let dir = c.dir.clone().unwrap_or_else(|| scratch_dir(&c.module));
+    let scratch = c.dir.is_none().then(|| run_dir("serve", &c.module));
+    let dir = match (&c.dir, &scratch) {
+        (Some(dir), _) => dir.clone(),
+        (None, Some(s)) => s.dir.clone(),
+        (None, None) => unreachable!("one or the other"),
+    };
     let dir = std::path::absolute(&dir).unwrap_or(dir);
+    let caught = catch_interrupt();
     let players =
         (gi.user_dir.iter().cloned()).chain(mg_resman::default_user_dir()).find(|p| same(p, &dir));
     if let Some(theirs) = players
@@ -317,6 +398,7 @@ pub(crate) fn serve(
             each(&Event::Note(note));
         }
         let seen = signature(&c.module);
+        let serving = Serving::start();
         let mut server = mg_serve::Server::start(&mg_serve::Options {
             server: server.clone(),
             user_dir: dir.clone(),
@@ -330,6 +412,7 @@ pub(crate) fn serve(
             console: true,
             env: env.clone(),
             args: c.args.iter().map(Into::into).collect(),
+            own_group: caught,
         })?;
         port = Some(server.port);
         passwords = (
@@ -406,6 +489,10 @@ pub(crate) fn serve(
                     flow = Flow::Restart;
                 }
             }
+            if INTERRUPTED.swap(false, Ordering::SeqCst) {
+                events.push(Event::Note("Ctrl+C: stopping the server".into()));
+                flow = Flow::Stop;
+            }
             if events.is_empty() {
                 events.push(Event::Idle);
             }
@@ -452,6 +539,7 @@ pub(crate) fn serve(
         for line in log.more() {
             each(&Event::Log(line));
         }
+        drop(serving);
         match std::mem::replace(&mut flow, Flow::Continue) {
             Flow::Restart => continue,
             _ => return Ok(End::Stopped),
@@ -479,6 +567,34 @@ pub(crate) fn json(e: &Event) -> Option<serde_json::Value> {
         Event::Changed => json!({ "event": "changed" }),
         Event::Idle => return None,
     })
+}
+
+/// Writes an event of a run that prints as it goes (`mg serve`, `mg
+/// watch`): a line of JSON with `--json`, else its lines of text.
+pub(crate) fn say(json: bool, v: &serde_json::Value, lines: &[String]) {
+    use std::io::Write;
+    let mut out = std::io::stdout().lock();
+    let _ = match json {
+        true => writeln!(out, "{v}"),
+        false => lines.iter().try_for_each(|l| writeln!(out, "{l}")),
+    };
+    let _ = out.flush();
+}
+
+/// How a run ended, in words.
+pub(crate) fn how(end: End) -> String {
+    match end {
+        End::Stopped => "stopped".into(),
+        End::NotLoaded => "the server could not load the module".into(),
+        End::Exited(code) => format!("the server ended ({code:?})"),
+    }
+}
+
+/// The last event of a run that prints as it goes (`mg serve`, `mg
+/// watch --serve`): how it ended, and whether that is a failure.
+pub(crate) fn say_ended(json: bool, how: &str, failed: bool) {
+    let v = serde_json::json!({ "event": "ended", "how": how, "failed": failed });
+    say(json, &v, &[format!("mg: {how}")]);
 }
 
 /// An event as a line for a terminal.
@@ -547,9 +663,24 @@ mod tests {
 
     #[test]
     fn a_scratch_directory_is_the_module_s_own() {
-        let (a, b) = (scratch_dir(Path::new("/x/a.mod")), scratch_dir(Path::new("/y/a.mod")));
-        assert_ne!(a, b);
-        assert_eq!(a, scratch_dir(Path::new("/x/a.mod")));
-        assert!(a.starts_with(std::env::temp_dir()));
+        let module = |p: &str| Path::new(p).join(format!("a{}.mod", std::process::id()));
+        let (a, b) = (run_dir("serve", &module("/x")), run_dir("serve", &module("/y")));
+        assert_ne!(a.dir, b.dir);
+        assert!(a.dir.starts_with(std::env::temp_dir().join("moonglow-serve")));
+        assert!(
+            run_dir("test", &module("/x"))
+                .dir
+                .starts_with(std::env::temp_dir().join("moonglow-test"))
+        );
+        // Held: another run of the module at once takes another, and the
+        // next run after it the first again.
+        let again = run_dir("serve", &module("/x"));
+        assert_eq!(
+            again.dir.file_name().unwrap().to_string_lossy(),
+            format!("{}-2", a.dir.file_name().unwrap().to_string_lossy())
+        );
+        let first = a.dir.clone();
+        drop((a, again));
+        assert_eq!(run_dir("serve", &module("/x")).dir, first);
     }
 }

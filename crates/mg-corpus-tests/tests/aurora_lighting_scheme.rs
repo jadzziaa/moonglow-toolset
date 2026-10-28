@@ -49,7 +49,7 @@ fn a_lighting_scheme_is_given_as_aurora_gives_it() {
     let before = m.gff(&key).unwrap().unwrap().root;
     let scheme = Scheme::read(&game, INTERIOR_EVIL).unwrap();
     let env = game.table("environment").unwrap();
-    apply(&mut m, &[area], &[Change::LightingScheme(scheme)], mg_core::Codepage::WINDOWS_1252)
+    apply(&mut m, &[area], &[Change::LightingScheme(scheme)], mg_core::Codepage::WINDOWS_1252, 1)
         .unwrap();
     let ours = m.gff(&key).unwrap().unwrap().root;
     let theirs = aurora.gff(&key).unwrap().unwrap().root;

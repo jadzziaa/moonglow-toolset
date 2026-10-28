@@ -65,15 +65,14 @@ mod watch;
 
 /// `mg`, as every test here starts it: with Moonglow's data and cache
 /// folders (what it remembers of the scripts it compiled, the language
-/// server's cache) under `target/test-output`, not the developer's own.
-/// (On macOS the data folder follows `HOME`, which also finds the game: it
-/// is left alone.)
+/// server's cache) under `target/test-output`, not the developer's own,
+/// on every system (`MOONGLOW_DATA_DIR`, `MOONGLOW_CACHE_DIR`: on macOS
+/// the folders otherwise follow `HOME`, which also finds the game).
 fn mg() -> std::process::Command {
     let home = mg_testkit::output_dir("mg-home");
     let mut mg = std::process::Command::new(env!("CARGO_BIN_EXE_mg"));
-    mg.env("XDG_DATA_HOME", home.join("data"))
-        .env("XDG_CACHE_HOME", home.join("cache"))
-        .env("APPDATA", home.join("data"));
+    mg.env("MOONGLOW_DATA_DIR", home.join("data/moonglow"))
+        .env("MOONGLOW_CACHE_DIR", home.join("cache/moonglow"));
     mg
 }
 
