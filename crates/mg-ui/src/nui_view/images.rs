@@ -171,6 +171,45 @@ fn origin_name(layer: &str) -> String {
     }
 }
 
+/// What Export… leaves behind of a window's pictures (`names`, those the
+/// module does not hold) that a client could miss, as a line for the log:
+/// a picture from a hak (a client needs that hak), from this machine's
+/// override, development or user folders, the Workshop, or one the game
+/// finds nowhere. The game's own pictures are on every client and go
+/// unsaid. `None` with nothing to say.
+pub(crate) fn pictures_left_behind(
+    resman: Option<&mg_resman::ResMan>,
+    names: &[String],
+) -> Option<String> {
+    let every_client = |layer: &str| {
+        layer.starts_with("key:")
+            || layer.starts_with("module")
+            || matches!(layer, "portraits" | "ambient" | "music")
+    };
+    let mut missed = Vec::new();
+    for name in names {
+        let origin = resman.and_then(|rm| {
+            TYPES.iter().find_map(|ty| rm.origin(&ResKey::parse(name, *ty)?).map(str::to_owned))
+        });
+        match origin {
+            Some(layer) if every_client(&layer) => {}
+            Some(layer) => missed.push(format!("{name} ({})", origin_name(&layer))),
+            None => missed.push(format!("{name} (found nowhere)")),
+        }
+    }
+    (!missed.is_empty()).then(|| {
+        format!(
+            "Not exported, as the module doesn't hold {}: {}. A client without {} shows the \
+             game's gui_error picture in {} place: give players the hak, or add the picture to \
+             the module (Images › Add images from disk…)",
+            if missed.len() == 1 { "it" } else { "them" },
+            missed.join(", "),
+            if missed.len() == 1 { "it" } else { "them" },
+            if missed.len() == 1 { "its" } else { "their" },
+        )
+    })
+}
+
 /// The picture the root's first draw layer stretches under the controls.
 fn current_background(doc: &Value) -> Option<&str> {
     let first = doc["root"]["draw_list"].get(0)?;
@@ -470,4 +509,41 @@ pub(super) fn page(
         );
     });
     edits
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mg_resman::{LayerClass, MemContainer, ResMan};
+
+    /// Export… says which pictures it leaves behind that a client could
+    /// miss: a hak's, this machine's override's, one found nowhere; the
+    /// game's own go unsaid.
+    #[test]
+    fn export_says_the_pictures_a_client_could_miss() {
+        let mut rm = ResMan::new();
+        let layer = |name: &str, ty: ResType| {
+            let mut c = MemContainer::new();
+            c.insert(ResKey::parse(name, ty).unwrap(), b"picture".to_vec());
+            c
+        };
+        rm.add(30, "hak:tdod_gui", LayerClass::Erf, layer("pic_hak", ResType::TGA));
+        rm.add(20, "override", LayerClass::Directory, layer("pic_over", ResType::PNG));
+        rm.add(10, "key:nwn_base", LayerClass::Key, layer("pic_game", ResType::DDS));
+        let names = |n: &[&str]| n.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(pictures_left_behind(Some(&rm), &names(&["pic_game"])), None);
+        let said = pictures_left_behind(
+            Some(&rm),
+            &names(&["pic_game", "pic_hak", "pic_over", "pic_gone"]),
+        )
+        .unwrap();
+        assert!(
+            said.contains(
+                "pic_hak (Hak: tdod_gui), pic_over (Override folder), pic_gone (found nowhere)"
+            ),
+            "{said}"
+        );
+        assert!(!said.contains("pic_game"), "{said}");
+        assert!(said.contains("give players the hak"), "{said}");
+    }
 }

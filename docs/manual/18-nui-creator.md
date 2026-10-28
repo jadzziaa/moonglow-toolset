@@ -483,8 +483,11 @@ JUI to every client, for example in a HAK. Images and fonts also need to be
 available on the client. **Export…** compiles first, then opens the
 normal export dialog with JUI, settings and both source/compiled scripts
 selected together, plus referenced image/TXI resources present in the module,
-including images in swap layout variants. External HAK/game artwork is not copied into
-the module automatically; include required custom artwork in client distribution.
+including images in swap layout variants. Pictures the window takes from a hak
+or the game are not exported; the log names those a client could miss (from a
+hak, this machine's override or development folder, or found nowhere), which
+players get from the hak or which you add to the module. The game's own go
+unsaid: every client has them.
 
 Edits, including incomplete JSON drafts, participate in module Save, Undo and
 recovery. Invalid drafts cannot generate scripts. The checks describe the

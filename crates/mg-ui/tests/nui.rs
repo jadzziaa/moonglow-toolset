@@ -1305,6 +1305,32 @@ fn build_adds_what_it_compiled_to_the_compile_memory() {
     assert!(line.contains("0 changed; 1 as they were when last compiled, left alone"), "{said:?}");
 }
 
+/// Export… takes the pictures the module holds and says which of the rest
+/// a client could miss: the game's own go unsaid.
+#[test]
+fn export_says_the_pictures_it_leaves_behind() {
+    let root = mg_testkit::corpus!();
+    let mut app = Moonglow::new(
+        Some(mg_resman::GameInstall::new(root, None, "en")),
+        Box::new(NoDialogs::default()),
+    );
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    app.ws = Some(mg_edit::Workspace::new(m));
+    app.run(Action::NewNui("pictures".into()));
+    let jui = ResKey::parse("pictures", ResType::JUI).unwrap();
+    let mut w = mg_nui::parse(app.ws.as_ref().unwrap().module.get(&jui).unwrap()).unwrap();
+    let image = |name: &str| json!({"type":"image","value":name,"height":40.0});
+    let children = w["root"]["children"].as_array_mut().unwrap();
+    children.extend([image("nui_button_a"), image("zz_no_picture")]);
+    app.ws.as_mut().unwrap().module.set(jui, serde_json::to_vec(&w).unwrap());
+    app.run(Action::GenerateNui { name: "pictures".into(), export: true });
+    let said: Vec<&String> = app.log.entries.iter().map(|(_, m)| m).collect();
+    let line = said.iter().find(|m| m.starts_with("Not exported")).expect("the pictures said");
+    assert!(line.contains("zz_no_picture (found nowhere)"), "{line}");
+    assert!(!line.contains("nui_button_a"), "the game's own: {line}");
+}
+
 #[test]
 fn export_compiles_the_window_s_files_and_leaves_the_module_s_events() {
     let root = mg_testkit::corpus!();

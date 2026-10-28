@@ -432,6 +432,7 @@ fn build(app: &mut Moonglow, name: &str, export: bool) {
                     .into_iter()
                     .flatten()
                     .collect();
+                    let mut left = Vec::new();
                     if let Some(ws) = &app.ws
                         && let (Some(doc), Some(settings)) = (
                             ResKey::parse(name, ResType::JUI)
@@ -457,7 +458,17 @@ fn build(app: &mut Moonglow, name: &str, export: bool) {
                                     resources.push(k);
                                 }
                             }
+                            if !resources
+                                .iter()
+                                .any(|k| k.resref.to_string().eq_ignore_ascii_case(&image))
+                            {
+                                left.push(image);
+                            }
                         }
+                    }
+                    let resman = app.game.as_deref().map(|g| &g.resman);
+                    if let Some(said) = images::pictures_left_behind(resman, &left) {
+                        app.log.warn(said);
                     }
                     app.actions.push(Action::ExportDialog(resources));
                 }
