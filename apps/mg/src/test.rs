@@ -147,7 +147,7 @@ pub(crate) fn run(
     }
     // The scratch copy's folder: one for a module, used again by its next
     // run (held while this one lasts: another at once takes another).
-    let scratch = c.serve.dir.is_none().then(|| serve::scratch_dir("test", &c.module));
+    let scratch = c.serve.dir.is_none().then(|| serve::run_dir("test", &c.module));
     let dir = c.serve.dir.clone().or_else(|| scratch.as_ref().map(|s| s.dir.clone()));
     let dir = dir.expect("one or the other");
     let dir = std::path::absolute(&dir).unwrap_or(dir);

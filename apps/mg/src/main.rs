@@ -2174,7 +2174,7 @@ fn run(cli: &Cli) -> Result<Output> {
             let name = serve::module_name(project);
             // (Held while it runs: another server of the project takes
             // another.)
-            let scratch = (*serve && dir.is_none()).then(|| serve::scratch_dir("serve", project));
+            let scratch = (*serve && dir.is_none()).then(|| serve::run_dir("serve", project));
             let server_dir = serve.then(|| {
                 let dir = dir.clone().or_else(|| scratch.as_ref().map(|s| s.dir.clone()));
                 let dir = dir.expect("one or the other");

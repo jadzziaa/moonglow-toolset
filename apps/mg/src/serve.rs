@@ -85,7 +85,7 @@ pub(crate) enum End {
     Exited(Option<i32>),
 }
 
-/// A scratch folder of a run's ([`scratch_dir`]), held while the run
+/// A scratch folder of a run's ([`run_dir`]), held while the run
 /// lasts.
 #[derive(Debug)]
 pub(crate) struct Scratch {
@@ -100,7 +100,7 @@ pub(crate) struct Scratch {
 /// it, let go when the run ends however it ends), another run of the same
 /// module at once takes the next one (`-2`, `-3`…): two servers never
 /// share a user directory.
-pub(crate) fn scratch_dir(kind: &str, module: &Path) -> Scratch {
+pub(crate) fn run_dir(kind: &str, module: &Path) -> Scratch {
     use std::hash::{Hash, Hasher};
     let module = std::fs::canonicalize(module).unwrap_or_else(|_| module.to_path_buf());
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -348,7 +348,7 @@ pub(crate) fn serve(
         mg_serve::server_binary(&gi.root).with_context(|| mg_serve::no_server(&gi.root))?;
     // (The server runs in its own folder: a path from here means nothing
     // to it.)
-    let scratch = c.dir.is_none().then(|| scratch_dir("serve", &c.module));
+    let scratch = c.dir.is_none().then(|| run_dir("serve", &c.module));
     let dir = match (&c.dir, &scratch) {
         (Some(dir), _) => dir.clone(),
         (None, Some(s)) => s.dir.clone(),
@@ -664,23 +664,23 @@ mod tests {
     #[test]
     fn a_scratch_directory_is_the_module_s_own() {
         let module = |p: &str| Path::new(p).join(format!("a{}.mod", std::process::id()));
-        let (a, b) = (scratch_dir("serve", &module("/x")), scratch_dir("serve", &module("/y")));
+        let (a, b) = (run_dir("serve", &module("/x")), run_dir("serve", &module("/y")));
         assert_ne!(a.dir, b.dir);
         assert!(a.dir.starts_with(std::env::temp_dir().join("moonglow-serve")));
         assert!(
-            scratch_dir("test", &module("/x"))
+            run_dir("test", &module("/x"))
                 .dir
                 .starts_with(std::env::temp_dir().join("moonglow-test"))
         );
         // Held: another run of the module at once takes another, and the
         // next run after it the first again.
-        let again = scratch_dir("serve", &module("/x"));
+        let again = run_dir("serve", &module("/x"));
         assert_eq!(
             again.dir.file_name().unwrap().to_string_lossy(),
             format!("{}-2", a.dir.file_name().unwrap().to_string_lossy())
         );
         let first = a.dir.clone();
         drop((a, again));
-        assert_eq!(scratch_dir("serve", &module("/x")).dir, first);
+        assert_eq!(run_dir("serve", &module("/x")).dir, first);
     }
 }
