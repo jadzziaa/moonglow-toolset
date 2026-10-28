@@ -103,6 +103,24 @@ fn field_changed(form: &GffPath, path: &GffPath, label: &str) -> Option<String> 
     })
 }
 
+/// Whether a command reaches some of `targets` (each a document and the
+/// path of an object in it) but not all: an edit reaches an object when it
+/// is in the object's document at its path or further in (an item it
+/// holds), or replaces the document whole. Placed objects share their
+/// area's GIT, so their documents alone don't tell them apart.
+fn partial(targets: &[(ResKey, GffPath)], cmd: &Command) -> bool {
+    let reaches = |(key, at): &(ResKey, GffPath)| {
+        cmd.edits.iter().any(|e| match e {
+            Edit::SetField { key: k, path, .. }
+            | Edit::InsertItem { key: k, path, .. }
+            | Edit::RemoveItem { key: k, path, .. } => k == key && path.0.starts_with(&at.0),
+            Edit::SetResource { key: k, .. } => k == key,
+        })
+    };
+    let reached = targets.iter().filter(|t| reaches(t)).count();
+    reached > 0 && reached < targets.len()
+}
+
 /// Notes what a window's command is about to change (it is not applied
 /// yet), for the window's Cancel: the fields of the window's objects
 /// (`targets`, the first of which names the window) and the resources it
@@ -1556,7 +1574,8 @@ pub(crate) fn edit_many(
         }
     };
     let restype = instance_type(&path).unwrap_or(key.restype);
-    let several = path.0.is_empty() && !also.is_empty();
+    // Several blueprints or placed objects edited together.
+    let several = !also.is_empty();
     // The window this is, and the objects it edits.
     let targets: Vec<(ResKey, GffPath)> =
         std::iter::once((key, path.clone())).chain(also.iter().cloned()).collect();
@@ -1571,14 +1590,10 @@ pub(crate) fn edit_many(
     };
     let is_viewed = app.ws.as_ref().is_some_and(|ws| ws.is_viewed(&key));
     let pressed = ok_cancel(ui, &targets[0], is_viewed);
-    let pages: Vec<&str> = if several {
-        // Lists are edited one blueprint at a time.
-        pages(restype).iter().copied().filter(|p| !LIST_PAGES.contains(p)).collect()
-    } else if path.0.is_empty() {
-        pages(restype).to_vec()
-    } else {
-        instance_pages(restype)
-    };
+    let all = if path.0.is_empty() { pages(restype).to_vec() } else { instance_pages(restype) };
+    // Lists are edited one blueprint or object at a time.
+    let pages: Vec<&str> =
+        if several { all.into_iter().filter(|p| !LIST_PAGES.contains(p)).collect() } else { all };
     let page_key = (key, path.clone());
     let mut page = (app.blueprint_pages.get(&page_key).copied())
         .or_else(|| app.open_tabs.page(&tab, &pages))
@@ -1630,7 +1645,11 @@ pub(crate) fn edit_many(
         ));
     }
     if several {
-        ui.weak("Inventories, classes, skills, feats, spells and properties are edited one blueprint at a time.");
+        let one = if path.0.is_empty() { "blueprint" } else { "object" };
+        ui.weak(format!(
+            "Inventories, classes, skills, feats, spells and properties are edited one {one} at a \
+             time."
+        ));
     }
     let note_id = egui::Id::new(("several-note", key));
     if let Some(note) = ui.data(|d| d.get_temp::<String>(note_id)) {
@@ -1677,23 +1696,20 @@ pub(crate) fn edit_many(
             ui.ctx().request_repaint();
         }
     }
-    // A change only the first would take (a page's own list edits) is
-    // dropped rather than made to one of several blueprints.
+    // A change only the first would take (a page's own list edits, an item
+    // the first object holds) is dropped rather than made to one of several
+    // blueprints or placed objects.
     if several {
-        let keys: Vec<ResKey> = form.targets().map(|(k, _)| k).collect();
+        let one = if form.is_instance() { "object" } else { "blueprint" };
         let app = &mut *form.app;
         let mut dropped = false;
         let mut i = pending;
         while i < app.actions.len() {
-            let partial = match &app.actions[i] {
-                Action::Apply(cmd) => {
-                    let edited: Vec<ResKey> = cmd.edits.iter().map(|e| *e.key()).collect();
-                    keys.iter().any(|k| edited.contains(k))
-                        && !keys.iter().all(|k| edited.contains(k))
-                }
+            let only_some = match &app.actions[i] {
+                Action::Apply(cmd) => partial(&targets, cmd),
                 _ => false,
             };
-            if partial {
+            if only_some {
                 app.actions.remove(i);
                 dropped = true;
             } else {
@@ -1701,7 +1717,7 @@ pub(crate) fn edit_many(
             }
         }
         if dropped {
-            let note = "That change can only be made to one blueprint at a time.".to_string();
+            let note = format!("That change can only be made to one {one} at a time.");
             ui.data_mut(|d| d.insert_temp(note_id, note));
         }
     }
@@ -1734,8 +1750,8 @@ fn read_only_look(ui: &mut Ui) {
     v.text_edit_bg_color = Some(v.panel_fill);
 }
 
-/// The pages that edit lists of their own (the first blueprint's only),
-/// left out when editing several blueprints.
+/// The pages that edit lists of their own (the first object's only), left
+/// out when editing several blueprints or placed objects.
 const LIST_PAGES: [&str; 9] = [
     "Inventory",
     "Classes",
@@ -1751,6 +1767,55 @@ const LIST_PAGES: [&str; 9] = [
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_change_to_some_of_the_objects_edited_together_is_partial() {
+        let git = ResKey::parse("area001", ResType::GIT).unwrap();
+        let chests: Vec<(ResKey, GffPath)> =
+            (0..2).map(|i| (git, GffPath::root().item("Placeable List", i))).collect();
+        let set = |path: &GffPath| Edit::SetField {
+            key: git,
+            path: path.clone(),
+            label: "Plot".into(),
+            value: Some(Value::Byte(1)),
+        };
+        // Set on each: all of them.
+        let each = Command::new("Plot", chests.iter().map(|(_, p)| set(p)).collect());
+        assert!(!partial(&chests, &each));
+        // An item added to the first one's inventory: the same GIT, one of
+        // them.
+        let held = Edit::InsertItem {
+            key: git,
+            path: chests[0].1.clone(),
+            list: "ItemList".into(),
+            index: 0,
+            item: Struct::new(0),
+        };
+        assert!(partial(&chests, &Command::new("Add item", vec![held])));
+        // An item the first holds, further in.
+        let inner = set(&chests[0].1.item("ItemList", 0));
+        assert!(partial(&chests, &Command::new("Stack size", vec![inner])));
+        // Another object of the area: none of them.
+        let other = set(&GffPath::root().item("Placeable List", 2));
+        assert!(!partial(&chests, &Command::new("Plot", vec![other])));
+        // Blueprints, each its own document.
+        let boxes: Vec<(ResKey, GffPath)> = ["mg_box_a", "mg_box_b"]
+            .iter()
+            .map(|n| (ResKey::parse(n, ResType::UTP).unwrap(), GffPath::root()))
+            .collect();
+        let whole = Edit::SetResource { key: boxes[1].0, data: None };
+        assert!(partial(&boxes, &Command::new("Replace", vec![whole])));
+        let both: Vec<Edit> = boxes
+            .iter()
+            .map(|(k, p)| Edit::SetField {
+                key: *k,
+                path: p.clone(),
+                label: "Plot".into(),
+                value: None,
+            })
+            .collect();
+        assert!(!partial(&boxes, &Command::new("Plot", both)));
+    }
 
     #[test]
     fn a_window_s_change_is_noted_by_its_object_s_field() {

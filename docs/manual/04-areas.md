@@ -433,7 +433,10 @@ Aurora):
   objects of one kind selected, one window edits them together: a field
   changed there changes in all of them. It shows the first one's values,
   with **≠** before a field where the others have another (so too for
-  blueprints edited together from the palette).
+  blueprints edited together from the palette). Inventories, classes,
+  skills, feats, spells and the other lists of an object's own are
+  edited one object at a time, so those pages aren't offered there (and
+  a placeable's **Inventory…** is grayed).
 
 ### Setup Store
 

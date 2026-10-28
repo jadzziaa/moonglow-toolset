@@ -2506,6 +2506,56 @@ fn adjust_location_s_visual_transforms_are_saved_and_reopened() {
     assert_eq!(visual(&mut h, 1), Some(mirror), "its file's transform is kept");
 }
 
+/// Placed objects edited together have no pages of lists of their own
+/// (those changed only the first object), as several blueprints have
+/// none: an inventory is edited one object at a time. A field is set on
+/// each.
+#[test]
+fn placed_objects_edited_together_leave_their_lists_alone() {
+    use mg_module::instances::{Placement, Placing, instance};
+    let prepare = |m: &mut mg_module::Module, game: &mg_rules::GameData, area: ResRef| {
+        let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        let mut chest = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        chest.set("HasInventory", mg_gff::Value::Byte(1));
+        chest.set("Static", mg_gff::Value::Byte(0));
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let chests: Vec<_> = [12.0, 28.0]
+            .map(|x| {
+                let at = Placement { position: [x, 30.0, 0.0], rotation: 0.0 };
+                instance(&placing, ResType::UTP, &chest, at, &[]).unwrap()
+            })
+            .into();
+        let git_key = ResKey::new(area, ResType::GIT);
+        let mut git = m.gff(&git_key).unwrap().unwrap();
+        git.root.set("Placeable List", mg_gff::Value::List(chests));
+        m.set_gff(git_key, &git).unwrap();
+    };
+    let Some((mut h, area)) = area_harness_with("together-lists", "ttr01", None, 4, None, &prepare)
+    else {
+        return;
+    };
+    let git_key = ResKey::new(area, ResType::GIT);
+    let paths: Vec<_> =
+        (0..2).map(|i| mg_edit::GffPath::root().item("Placeable List", i)).collect();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Instances { area, paths }));
+    h.run_steps(4);
+    assert!(h.query_by_label("Basic").is_some(), "the window is open");
+    assert!(h.query_by_label("Inventory").is_none(), "no Inventory page");
+    assert!(h.query_by_label_contains("edited one object at a time").is_some());
+    assert!(h.get_by_label("Inventory…").accesskit_node().is_disabled());
+    h.get_by_label("Plot").click();
+    h.run_steps(3);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let list = ws.doc(&git_key).unwrap().root.list("Placeable List").unwrap().to_vec();
+    assert_eq!(list.iter().map(|p| p.integer("Plot")).collect::<Vec<_>>(), [Some(1); 2]);
+    // One of them alone has its Inventory page.
+    let one = mg_edit::GffPath::root().item("Placeable List", 0);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Instance { area, path: one }));
+    h.run_steps(4);
+    assert!(h.query_by_label("Inventory").is_some());
+}
+
 /// Static ticked in the Properties of two placed placeables edited
 /// together takes their visual transforms off, as Aurora does: one step,
 /// which Undo takes back, transforms and all. Unticked, none comes back.
