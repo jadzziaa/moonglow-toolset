@@ -956,6 +956,57 @@ fn a_dropdown_opens_at_what_is_chosen() {
     in_sight(&h);
 }
 
+/// A long dropdown, left open, keeps its width from the first frame it
+/// is drawn: its rows grew wider frame after frame until the list reached
+/// the window's right edge (a builder's report, Area Properties › Audio ›
+/// Ambient Sound, Day). Narrowing it with its Filter field leaves it so.
+#[test]
+fn an_open_dropdown_keeps_its_width() {
+    let Some((mut h, _)) = blueprint_harness("plc_chest1", "chest_width", ResType::UTP) else {
+        return;
+    };
+    h.run();
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let (at, chosen) = h
+        .query_all(combo)
+        .find(|n| n.accesskit_node().value().is_some_and(|v| v.starts_with("Chest")))
+        .map(|n| (n.rect().center(), n.accesskit_node().value().unwrap()))
+        .expect("the Appearance Type dropdown");
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    // (Measured from the first frame that draws it: `run` would step past
+    // a frame that grew.)
+    h.step();
+    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    // The Filter field's width, and a row's (its highlight) under it.
+    let widths = |h: &Harness<'_, Moonglow>, row: &str| {
+        let filter = h.get(egui_kittest::kittest::by().predicate(hint)).rect();
+        let under = |r: &egui::Rect| r.top() > filter.bottom() && r.left() >= filter.left() - 1.0;
+        let row = h.query_all_by_label(row).map(|n| n.rect()).find(under).expect("the row");
+        (filter.width(), row.width())
+    };
+    let first = widths(&h, &chosen);
+    let mut seen = vec![first];
+    for i in 0..300 {
+        // (The pointer moving over the list, as a builder's does.)
+        h.hover_at(egui::pos2(at.x + (i % 7) as f32, at.y + 60.0));
+        h.step();
+        seen.push(widths(&h, &chosen));
+    }
+    assert!(seen.iter().all(|w| *w == first), "the list keeps its width: {seen:?}");
+    // Narrowed to a few: as wide as before.
+    type_into_hint(&mut h, "Filter", "Armoire");
+    let input = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.role() == egui::accesskit::Role::TextInput && n.value().as_deref() == Some("Armoire")
+    };
+    let filter = h.get(egui_kittest::kittest::by().predicate(input)).rect();
+    assert_eq!(filter.width(), first.0, "the list keeps its width, narrowed");
+    // (Its rows still within it: with no scroll bar now, as wide as it.)
+    let row = h.get_all_by_label_contains("Armoire").next().unwrap().rect();
+    assert!(row.right() <= filter.right() + 1.0, "{row:?} within the list beside {filter:?}");
+}
+
 /// A dropdown with a Filter field stays open while the field is clicked
 /// and typed in, and closes when a choice is made.
 #[test]

@@ -2348,6 +2348,9 @@ type About<'a> = &'a mut dyn FnMut(&mut Ui, usize);
 /// Lists of more than this many rows have a Filter field.
 pub(crate) const FILTERED_CHOICES: usize = 30;
 
+/// The greatest height of a filtered list's rows, under its Filter field.
+const ROWS_HEIGHT: f32 = 170.0;
+
 /// A list of `choices` with `current` chosen (`None`: no row), its box
 /// `id`: see [`RowChoice`].
 pub(crate) fn row_choice<'a>(
@@ -2506,15 +2509,53 @@ impl<'a> RowChoice<'a> {
         if let Some(width) = width {
             combo = combo.width(width);
         }
+        if long {
+            // (Room for the Filter field over the rows' own scroll area,
+            // with no scroll bar of egui's around both.)
+            let line = ui.text_style_height(&egui::TextStyle::Body) + ui.spacing().interact_size.y;
+            combo = combo.height(ROWS_HEIGHT + 2.0 * line);
+        }
         // Just opened: the list is whole and begins at the one chosen, not
         // at its top (a long list was searched for it every time).
         let opened = !ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
         let list = combo.show_ui(ui, |ui| {
+            let width_id = open_id.with("width");
             if opened {
                 ui.data_mut(|d| {
                     d.remove_temp::<String>(filter_id);
                     d.insert_temp(open_id.with("go"), true);
                 });
+            }
+            if opened && long {
+                // A long list's width, set once while open: the box's, or
+                // the widest row's and its scroll bar's if wider. egui's
+                // popup takes the width its contents had the frame before;
+                // with the rows filling it, and a scroll area that follows
+                // its rows, any part of a point more there grew the list
+                // every frame, until it reached the window's edge (a
+                // builder's report). (A short list is egui's own.)
+                let pad = 2.0 * ui.spacing().button_padding.x;
+                let bar = ui.spacing().scroll.allocated_width();
+                let widest = (none.map(std::borrow::Cow::from).into_iter())
+                    .chain(in_order().iter().map(|c| text(c, numbered)))
+                    .map(|t| {
+                        egui::WidgetText::from(t.as_ref())
+                            .into_galley(
+                                ui,
+                                Some(egui::TextWrapMode::Extend),
+                                f32::INFINITY,
+                                egui::TextStyle::Button,
+                            )
+                            .size()
+                            .x
+                    })
+                    .fold(0.0, f32::max);
+                let most = ui.ctx().content_rect().width() - 40.0;
+                let width = ui.available_width().max((widest + pad + bar).min(most));
+                ui.data_mut(|d| d.insert_temp(width_id, width));
+            }
+            if let Some(width) = ui.data(|d| d.get_temp::<f32>(width_id)).filter(|_| long) {
+                ui.set_width(width);
             }
             // (A popup's first pass only measures it: the list is brought
             // to the chosen row in the first pass that draws it.)
@@ -2562,7 +2603,7 @@ impl<'a> RowChoice<'a> {
                 }
             };
             if long {
-                let mut area = egui::ScrollArea::vertical().max_height(170.0);
+                let mut area = egui::ScrollArea::vertical().max_height(ROWS_HEIGHT);
                 if narrowed {
                     area = area.vertical_scroll_offset(0.0);
                 }
@@ -3424,5 +3465,80 @@ mod token_tests {
         state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(40))));
         state.store(&ctx, id);
         assert_eq!(with_token(&ctx, id, "ab", "<x>"), "ab<x>");
+    }
+}
+
+#[cfg(test)]
+mod row_choice_tests {
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
+
+    /// The list of a dropdown of `count` rows (one of them long) open:
+    /// where its box is, and where its list is on each of the first 60
+    /// frames it is drawn.
+    fn open_list(count: usize, long_row: bool) -> (egui::Rect, Vec<egui::Rect>) {
+        struct State {
+            choices: Vec<mg_rules::Choice>,
+        }
+        let mut choices: Vec<_> = (0..count)
+            .map(|row| mg_rules::Choice { row, text: format!("Choice {row:03}") })
+            .collect();
+        if long_row {
+            choices[count / 2].text = "A choice with a name far longer than its box".into();
+        }
+        let state = State { choices };
+        let mut h = Harness::builder().with_size(egui::vec2(800.0, 600.0)).build_ui_state(
+            |ui, s: &mut State| {
+                // (The application's scroll bars: room of their own.)
+                let bars = egui::style::ScrollStyle::solid();
+                if ui.ctx().global_style().spacing.scroll != bars {
+                    ui.ctx().all_styles_mut(|s| s.spacing.scroll = bars);
+                }
+                let id = egui::Id::new("list");
+                ui.horizontal(|ui| {
+                    ui.add_space(100.0);
+                    super::row_choice(id, &s.choices, 3).width(160.0).show(ui);
+                });
+            },
+            state,
+        );
+        h.run();
+        let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+        let at = h.get(combo).rect();
+        h.get(egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox)).click();
+        // (Its first pass measures it, unseen.)
+        h.step();
+        let mut lists = Vec::new();
+        for _ in 0..60 {
+            h.step();
+            let list = h.ctx.memory(|m| {
+                let top = m.areas().top_layer_id(egui::Order::Foreground)?;
+                m.area_rect(top.id)
+            });
+            lists.push(list.expect("the list, open"));
+        }
+        (at, lists)
+    }
+
+    /// An open list keeps one width from the first frame it is drawn (a
+    /// long one grew to the window's edge under Windows: a builder's
+    /// report): the box's, short or long, or its widest row's.
+    #[test]
+    fn an_open_list_keeps_its_width() {
+        // A long list with a Filter field, and a short one taller than
+        // egui's list (with egui's scroll bar).
+        for count in [200, 20] {
+            let (at, lists) = open_list(count, false);
+            assert!(lists.iter().all(|l| *l == lists[0]), "{count} rows: {lists:?}");
+            let list = lists[0];
+            assert!(
+                (list.left() - at.left()).abs() < 1.0 && (list.right() - at.right()).abs() < 1.0,
+                "{count} rows: the list {list:?} under the box {at:?}"
+            );
+        }
+        // A long list with a row wider than its box: as wide as that row.
+        let (at, lists) = open_list(200, true);
+        assert!(lists.iter().all(|l| *l == lists[0]), "{lists:?}");
+        assert!(lists[0].width() > at.width() + 50.0, "{lists:?} beside {at:?}");
     }
 }
