@@ -3655,7 +3655,9 @@ impl Moonglow {
     pub(crate) fn log_project_file(&mut self, again: bool, had: bool) {
         let Some(ws) = &self.ws else { return };
         let p = &ws.module.project_file;
-        let name = mg_module::project_file::FILE_NAME;
+        // (Beside a .mod, the module's own: `krezk.moonglow.toml`.)
+        let name = (p.place().map(|place| place.team_name()))
+            .unwrap_or_else(|| mg_module::project_file::FILE_NAME.into());
         match (p.found, again && had) {
             (true, false) => self.log.info(format!("The project's rules are read from {name}")),
             (true, true) => self.log.info(format!("{name} changed: its rules are read again")),
@@ -3663,7 +3665,7 @@ impl Moonglow {
             (false, false) => {}
         }
         let described = p.variables.described.len();
-        let file = mg_module::var_desc::FILE_NAME;
+        let file = p.variables.file();
         if p.variables_found {
             self.log.info(format!(
                 "{described} variable{} described in {file}",

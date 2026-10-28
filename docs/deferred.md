@@ -3854,8 +3854,6 @@ The Domains of Dread's builder proposal (its section 3): the project file
 (`moonglow.toml`), Make Placeables Static and Setup Store following it,
 and duplicate tags on paste. What is left:
 
-- **A module kept in one file has no project file:** a `.mod`'s folder
-  holds other modules (a `NAME.moonglow.toml` beside it would serve). (S)
 - **The builder code is not proposed everywhere** (C1): New Script…, New
   Conversation…, New NUI Window…, Add Popup Text… and Import
   Conversation start from an empty name or the file's (the code isn't

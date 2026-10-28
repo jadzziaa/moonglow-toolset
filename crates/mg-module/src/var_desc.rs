@@ -511,6 +511,8 @@ pub struct Variables {
     /// described one, most likely).
     pub undescribed: Vec<String>,
     undescribed_rx: Vec<RegexEq>,
+    /// The file's name, as messages say it (none: [`FILE_NAME`]).
+    file: Option<String>,
 }
 
 /// A regular expression compared by its text.
@@ -542,6 +544,12 @@ pub enum Unknown<'a> {
 impl Variables {
     pub fn is_empty(&self) -> bool {
         self.described.is_empty() && self.undescribed.is_empty()
+    }
+
+    /// The file's name, as messages say it: `variables.toml`, or beside a
+    /// `.mod` the module's (`krezk.variables.toml`).
+    pub fn file(&self) -> &str {
+        self.file.as_deref().unwrap_or(FILE_NAME)
     }
 
     /// The description of a variable so named: of that very name, else
@@ -628,6 +636,7 @@ impl Variables {
             format!("{name}:{line}: {}", e.message().trim())
         })?;
         let mut r = Reader { name, source, warnings: Vec::new() };
+        self.file = (name != FILE_NAME).then(|| name.to_string());
         for entry in in_order(table.get_ref()) {
             let (key, value) = entry;
             let at = key.span().start;

@@ -278,6 +278,50 @@ fn verify_holds_variables_to_their_descriptions() {
     }
 }
 
+/// A module kept in one file describes its variables beside it, named by
+/// it (`chess.variables.toml`, its folder holding other modules), and
+/// keeps its rules there too (`chess.moonglow.toml`).
+#[test]
+fn a_mod_s_own_files_beside_it_are_its_project_s() {
+    let root = mg_testkit::corpus!();
+    let chess = root.join("data/mod/Neverwinter Chess.mod");
+    let dir = mg_testkit::scratch_dir("mg-vars-mod");
+    let path = dir.join("chess.mod");
+    let mut m = Module::open(&chess).unwrap();
+    let git = ResKey::new(ResRef::from_str("chess").unwrap(), ResType::GIT);
+    let mut g = m.gff(&git).unwrap().unwrap();
+    let mut v = Struct::new(0);
+    v.set("Name", Value::String(b"kz_lit".to_vec()));
+    v.set("Type", Value::Dword(3));
+    v.set("Value", Value::String(b"yes".to_vec()));
+    g.root.set("VarTable", Value::List(vec![v]));
+    m.set_gff(git, &g).unwrap();
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    std::fs::write(dir.join("chess.variables.toml"), "[kz_lit]\ntype = \"int\"\n").unwrap();
+    std::fs::write(dir.join("chess.moonglow.toml"), "[commands]\nupdate = \"x\"\n").unwrap();
+    let out = crate::mg()
+        .args(["--root", root.to_str().unwrap(), "--no-user-dir", "verify", "--json"])
+        .arg(&path)
+        .output()
+        .unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let found = json["findings"].as_array().unwrap();
+    let typed = found.iter().find(|f| f["check"] == "var-type").expect("var-type");
+    assert_eq!(
+        typed["message"],
+        "kz_lit is a String here, and chess.variables.toml:1 says it is an Int: the scripts read 0"
+    );
+    let out = crate::mg().args(["--json", "--no-user-dir", "vars"]).arg(&path).output().unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["variables"][0]["name"], "kz_lit");
+    assert!(
+        json["notes"].to_string().contains(
+            "chess.moonglow.toml:1: [commands] is not read beside a module kept in one file"
+        ),
+        "{json}"
+    );
+}
+
 /// `mg areas --var NAME=VALUE` with no type: the described variable's
 /// (`tdod_settlement=1` a String, not the Int the value looks like: the
 /// guide's second pitfall), and a type given against it is said.

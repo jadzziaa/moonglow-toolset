@@ -1131,11 +1131,17 @@ fn vars(cli: &Cli, path: &Path, on: Option<&str>, name: Option<&str>) -> Result<
     let mut out = Output::default();
     project_file_notes(&m, &mut out);
     if !p.variables_found {
-        out.note(format!(
-            "{} describes no variables: write a {} beside its moonglow.toml",
-            path.display(),
-            mg_module::var_desc::FILE_NAME
-        ));
+        // (Beside a .mod, the module's own: `krezk.variables.toml`.)
+        let file = match &m.location {
+            Some(ModuleLocation::Archive(a)) => mg_module::project_file::Place::beside(a)
+                .and_then(|p| Some(p.variables().file_name()?.to_string_lossy().into_owned()))
+                .map(|f| format!("{f} beside it")),
+            _ => None,
+        };
+        let file = file.unwrap_or_else(|| {
+            format!("{} beside its moonglow.toml", mg_module::var_desc::FILE_NAME)
+        });
+        out.note(format!("{} describes no variables: write a {file}", path.display()));
     }
     // (The game's tables and scripts, and the module's haks', where a
     // description names them; a hak not found is said, as Verify says it.)
@@ -2609,7 +2615,7 @@ fn run(cli: &Cli) -> Result<Output> {
             for c in &mut changes {
                 let Change::Var { name, kind, .. } = c else { continue };
                 let Some(d) = m.project_file.variables.describe(name) else { continue };
-                let file = mg_module::var_desc::FILE_NAME;
+                let file = m.project_file.variables.file();
                 if d.runtime {
                     described_notes.push(format!(
                         "{name}: {file}:{} says the scripts set it while the server runs \

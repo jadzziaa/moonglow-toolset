@@ -55,8 +55,69 @@ use toml::de::{DeTable, DeValue};
 
 use crate::ModuleLocation;
 
-/// The team's file, in the project's root.
+/// The team's file, in the project's root (beside a `.mod`, the
+/// module's name before it: `krezk.moonglow.toml`).
 pub const FILE_NAME: &str = "moonglow.toml";
+
+/// Where a module's project files are: a project's root (a nasher
+/// project's or a module folder's) and the files' names in it, or, for a
+/// module kept in one file, its folder and the files named by the module
+/// (`krezk.mod`: `krezk.moonglow.toml` and `krezk.variables.toml`
+/// beside it), as that folder holds other modules too.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Place {
+    /// The folder the files are in.
+    pub root: PathBuf,
+    /// The module's name, for a `.mod`'s.
+    module: Option<String>,
+}
+
+impl Place {
+    /// A project's root's.
+    pub fn folder(root: &Path) -> Place {
+        Place { root: root.to_path_buf(), module: None }
+    }
+
+    /// A `.mod`'s: its folder's files named by it.
+    pub fn beside(archive: &Path) -> Option<Place> {
+        let module = archive.file_stem()?.to_str()?.to_string();
+        let root = archive.parent().unwrap_or(Path::new(".")).to_path_buf();
+        Some(Place { root, module: Some(module) })
+    }
+
+    /// Whether it is a `.mod`'s (whose folder holds other modules: no
+    /// builder's own file, claims, commands or plugins of its own).
+    pub fn is_beside(&self) -> bool {
+        self.module.is_some()
+    }
+
+    fn named(&self, file: &str) -> PathBuf {
+        match &self.module {
+            Some(m) => self.root.join(format!("{m}.{file}")),
+            None => self.root.join(file),
+        }
+    }
+
+    /// The team's file.
+    pub fn team(&self) -> PathBuf {
+        self.named(FILE_NAME)
+    }
+
+    /// The described variables' file.
+    pub fn variables(&self) -> PathBuf {
+        self.named(crate::var_desc::FILE_NAME)
+    }
+
+    /// The builder's own file (none beside a `.mod`).
+    pub fn user(&self) -> Option<PathBuf> {
+        self.module.is_none().then(|| ProjectFile::user_path(&self.root))
+    }
+
+    /// The team's file's name, as messages say it.
+    pub fn team_name(&self) -> String {
+        self.team().file_name().map_or_else(|| FILE_NAME.into(), |n| n.to_string_lossy().into())
+    }
+}
 /// The builder's own folder, in the project's root, and its file.
 pub const USER_DIR: &str = ".moonglow";
 pub const USER_FILE: &str = "user.toml";
@@ -471,6 +532,8 @@ pub struct ProjectFile {
     pub errors: Vec<String>,
     /// The files' times and sizes when read, to see a change.
     stamps: Vec<Option<(SystemTime, u64, u64)>>,
+    /// Where they were read from.
+    place: Option<Place>,
 }
 
 fn stamp(path: &Path) -> Option<(SystemTime, u64, u64)> {
@@ -633,13 +696,26 @@ pub fn command_name(name: &str) -> bool {
 
 impl ProjectFile {
     /// Where a module's team file is: in a nasher project's root or a
-    /// module folder; none for a module kept in one file (`.mod`), whose
+    /// module folder; none for a module kept in one file (`.mod`, whose own
+    /// rules are beside it: [`ProjectFile::place_of`]), whose
     /// folder holds other modules too.
     pub fn root_of(location: &ModuleLocation) -> Option<&Path> {
         match location {
             ModuleLocation::Project { root, .. } => Some(root),
             ModuleLocation::Folder(dir) => Some(dir),
             ModuleLocation::Archive(_) => None,
+        }
+    }
+
+    /// Where a module's project files are: a project's root, or beside a
+    /// `.mod` where its own are there (`krezk.moonglow.toml`,
+    /// `krezk.variables.toml`); none for a `.mod` without them.
+    pub fn place_of(location: &ModuleLocation) -> Option<Place> {
+        match location {
+            ModuleLocation::Archive(path) => {
+                Place::beside(path).filter(|p| p.team().is_file() || p.variables().is_file())
+            }
+            _ => Self::root_of(location).map(Place::folder),
         }
     }
 
@@ -651,16 +727,25 @@ impl ProjectFile {
     /// Reads a project's files from its root (neither there: as without
     /// a project file).
     pub fn read(root: &Path) -> ProjectFile {
-        let path = root.join(FILE_NAME);
-        let user = Self::user_path(root);
-        let described = crate::var_desc::path_in(root);
+        Self::read_at(&Place::folder(root))
+    }
+
+    /// Reads a project's files where they are ([`ProjectFile::place_of`]).
+    pub fn read_at(place: &Place) -> ProjectFile {
+        let root = place.root.as_path();
+        let path = place.team();
+        let user = place.user();
+        let described = place.variables();
         let mut p = ProjectFile {
             path: Some(path.clone()),
             // (The claims table's last, once the team's file says where.)
-            stamps: vec![stamp(&path), stamp(&user), stamp(&described), None],
+            stamps: vec![stamp(&path), user.as_deref().and_then(stamp), stamp(&described), None],
+            place: Some(place.clone()),
             ..Default::default()
         };
-        for (file, own) in [(&path, false), (&user, true)] {
+        let files = std::iter::once((path.clone(), false)).chain(user.map(|u| (u, true)));
+        for (file, own) in files {
+            let file = &file;
             let source = match std::fs::read(file) {
                 Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
@@ -669,7 +754,7 @@ impl ProjectFile {
                     continue;
                 }
             };
-            let name = if own { format!("{USER_DIR}/{USER_FILE}") } else { FILE_NAME.to_string() };
+            let name = if own { format!("{USER_DIR}/{USER_FILE}") } else { place.team_name() };
             // (One made by hand: its folder would be committed for all.)
             if own && !root.join(USER_DIR).join(".gitignore").exists() {
                 p.warnings.push(format!(
@@ -689,7 +774,8 @@ impl ProjectFile {
         match std::fs::read(&described) {
             Ok(bytes) => {
                 let source = String::from_utf8_lossy(&bytes);
-                p.read_variables(crate::var_desc::FILE_NAME, &source);
+                let name = described.file_name().map(|n| n.to_string_lossy().into_owned());
+                p.read_variables(name.as_deref().unwrap_or(crate::var_desc::FILE_NAME), &source);
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => p.errors.push(format!("{}: {e}", described.display())),
@@ -775,9 +861,22 @@ impl ProjectFile {
             }
         };
         let mut r = Reader { name, source, warnings: Vec::new() };
+        let beside = self.place.as_ref().is_some_and(Place::is_beside);
         for entry in in_order(table.get_ref()) {
             let (key, _) = entry;
             let section = key.get_ref().as_ref();
+            // (A .mod's folder holds other modules: what is a checkout's,
+            // and the builder's own file, are a project folder's.)
+            if beside && matches!(section, "claims" | "commands" | "plugins" | "builder") {
+                r.warn(
+                    key.span().start,
+                    format!(
+                        "[{section}] is not read beside a module kept in one file (.mod): it is \
+                         a module folder's or a nasher project's"
+                    ),
+                );
+                continue;
+            }
             match (section, own) {
                 ("make_static", false) => {
                     for e in r.section(entry) {
@@ -1082,15 +1181,19 @@ impl ProjectFile {
     /// Whether the files changed (were made, edited or deleted) since they
     /// were read.
     pub fn changed(&self) -> bool {
-        let Some(path) = &self.path else { return false };
-        let root = path.parent().unwrap_or(Path::new("."));
+        let Some(place) = &self.place else { return false };
         let now = vec![
-            stamp(path),
-            stamp(&Self::user_path(root)),
-            stamp(&crate::var_desc::path_in(root)),
-            self.claims.path_in(root).and_then(|t| stamp(&t)),
+            stamp(&place.team()),
+            place.user().as_deref().and_then(stamp),
+            stamp(&place.variables()),
+            self.claims.path_in(&place.root).and_then(|t| stamp(&t)),
         ];
         now != self.stamps
+    }
+
+    /// Where its files were read from.
+    pub fn place(&self) -> Option<&Place> {
+        self.place.as_ref()
     }
 
     /// Writes the builder's own file (making its folder, which keeps
@@ -1550,7 +1653,60 @@ keeper_variable = "tdod_store"
         assert!(m.reread_project_file());
         assert!(m.project_file.tags.unique.matches("BB_1"));
         m.save_as(&ModuleLocation::Archive(dir.with_extension("mod"))).unwrap();
-        assert_eq!(m.project_file, ProjectFile::default(), "a .mod has none");
+        assert_eq!(m.project_file, ProjectFile::default(), "a .mod has none of its folder's");
+    }
+
+    /// A module kept in one file has its own beside it, named by it
+    /// (`krezk.moonglow.toml`, `krezk.variables.toml`), as its folder
+    /// holds other modules: read when it opens and again when it changes;
+    /// what is a checkout's or a builder's own is not read there.
+    #[test]
+    fn a_mod_reads_its_own_project_file_beside_it() {
+        let dir = mg_testkit::scratch_dir("project-file-mod");
+        let path = dir.join("krezk.mod");
+        crate::Module::new().save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+        crate::Module::new().save_as(&ModuleLocation::Archive(dir.join("other.mod"))).unwrap();
+        std::fs::write(dir.join(FILE_NAME), "[tags]\nunique = [\"X_*\"]\n").unwrap();
+        let mut m = crate::Module::open(&path).unwrap();
+        assert_eq!(m.project_file, ProjectFile::default(), "not the folder's moonglow.toml");
+        std::fs::write(
+            dir.join("krezk.moonglow.toml"),
+            "[tags]\nunique = [\"A_*\"]\n[resrefs]\npattern = \"kz_{name}\"\n\
+             [commands]\nupdate = \"x\"\n[builder]\ncode = \"ab\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("krezk.variables.toml"), "[kz_lit]\ntype = \"int\"\n").unwrap();
+        assert!(m.reread_project_file(), "made: read");
+        let p = &m.project_file;
+        assert!(p.found && p.variables_found);
+        assert!(p.tags.unique.matches("A_1") && !p.tags.unique.matches("X_1"));
+        assert_eq!(p.naming().fit("market", ""), "kz_market");
+        assert!(p.variables.describe("kz_lit").is_some());
+        assert!(p.commands.is_empty() && p.user.builder_code.is_none());
+        assert_eq!(
+            p.warnings,
+            [
+                "krezk.moonglow.toml:5: [commands] is not read beside a module kept in one file \
+                 (.mod): it is a module folder's or a nasher project's",
+                "krezk.moonglow.toml:7: [builder] is not read beside a module kept in one file \
+                 (.mod): it is a module folder's or a nasher project's",
+            ]
+        );
+        assert!(!m.reread_project_file(), "unchanged");
+        std::fs::write(dir.join("krezk.moonglow.toml"), "[tags]\nunique = [\"BB_*\"]\n").unwrap();
+        assert!(m.reread_project_file());
+        assert!(m.project_file.tags.unique.matches("BB_1"));
+        // Opened anew: read; the other module has none.
+        let m = crate::Module::open(&path).unwrap();
+        assert!(m.project_file.tags.unique.matches("BB_1"));
+        let other = crate::Module::open(&dir.join("other.mod")).unwrap();
+        assert_eq!(other.project_file, ProjectFile::default());
+        // Taken away: none again.
+        let mut m = m;
+        std::fs::remove_file(dir.join("krezk.moonglow.toml")).unwrap();
+        std::fs::remove_file(dir.join("krezk.variables.toml")).unwrap();
+        assert!(m.reread_project_file());
+        assert_eq!(m.project_file, ProjectFile::default());
     }
 
     #[test]

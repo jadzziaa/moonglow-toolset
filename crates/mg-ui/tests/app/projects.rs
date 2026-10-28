@@ -1073,6 +1073,34 @@ fn a_team_s_prefix_by_kind_begins_the_resrefs_proposed() {
     assert_eq!(h.state().copy_as.as_ref().map(|c| c.resref.as_str()), Some("tdod_s_hello001"));
 }
 
+/// A module kept in one file keeps its project file beside it, named by
+/// it (`krezk.moonglow.toml`): read when it opens, and again when it
+/// changes.
+#[test]
+fn a_mod_s_own_project_file_is_read_and_read_again() {
+    let dir = mg_testkit::scratch_dir("ui-mod-project-file");
+    let folder = sample_module(&dir);
+    let path = dir.join("krezk.mod");
+    Module::open(&folder).unwrap().save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    std::fs::write(dir.join("krezk.moonglow.toml"), "[resrefs]\npattern = \"kz_{name}\"\n")
+        .unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = harness(app, 1000.0, 700.0);
+    h.run();
+    assert!(logged(&h, "The project's rules are read from krezk.moonglow.toml"));
+    let naming = |h: &Harness<'_, Moonglow>| {
+        h.state().ws.as_ref().unwrap().module.project_file.naming().fit("market", "")
+    };
+    assert_eq!(naming(&h), "kz_market");
+    std::fs::write(dir.join("krezk.moonglow.toml"), "[resrefs]\npattern = \"krezk_{name}\"\n")
+        .unwrap();
+    h.state_mut().reload_changed_files();
+    h.run();
+    assert!(logged(&h, "krezk.moonglow.toml changed: its rules are read again"));
+    assert_eq!(naming(&h), "krezk_market");
+}
+
 /// A module kept in one file has no project to keep a code in: the menu
 /// item is there, and off.
 #[test]

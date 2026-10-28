@@ -479,9 +479,14 @@ A team's rules for Moonglow are kept with its module, in version
 control: a `moonglow.toml` beside `nasher.cfg` in a nasher project, or
 at the root of a module folder. Moonglow reads it when the module opens,
 and again when it changes (with reloading on, Options › General), and
-the log says so. A module kept in one file (`.mod`) has none: its folder
-holds other modules too. Without the file, Moonglow does what it does
-for any module.
+the log says so. A module kept in one file (`.mod`) keeps its own
+beside it, named by it, as its folder holds other modules too:
+`krezk.moonglow.toml` (and `krezk.variables.toml`, below) beside
+`krezk.mod` (since Moonglow 2.13.0). There, what is a checkout's or a
+builder's own is not read (the log says so): `[claims]`, `[commands]`,
+`[plugins]`, `[builder]` and `.moonglow/user.toml` are a module
+folder's or a nasher project's. Without the file, Moonglow does what it
+does for any module.
 
 ```toml
 [make_static]                       # Make Placeables Static leaves dynamic:
@@ -628,7 +633,8 @@ one fails without a word: a variable read as another type is that
 type's empty value (an Int read as a String is `""`, a String read as
 an Int is 0), and a name is matched in its case only (`tdod_lit` is not
 `TDOD_LIT`), as the game's server shows. A team describes its
-variables in `variables.toml`, beside its `moonglow.toml` (or alone),
+variables in `variables.toml`, beside its `moonglow.toml` (or alone;
+beside a `.mod`, the module's own, `krezk.variables.toml`),
 as a table's columns are described beside it: each variable's type, the
 values it takes, the objects it goes on and a line of help.
 
