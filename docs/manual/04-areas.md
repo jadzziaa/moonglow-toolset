@@ -939,7 +939,10 @@ height, as the game's does.
 opens) shows every tile of the tileset in place of the variants, in the
 tileset's order, groups' pieces too, with **Turn** (0°, ↺90°, ↺180°,
 ↺270°) and the same **Size** slider; only the rows in sight are drawn,
-however many tiles the tileset has. Choosing a Turn turns the tiles
+however many tiles the tileset has (a hak's of 1,872 tiles as readily as
+the game's). Its **search** narrows the pictures to the tiles whose
+model's name or number in the tileset has what you type (`a04`, `117`),
+the count saying how many of all; Escape in it clears it. Choosing a Turn turns the tiles
 chosen at once: each keeps its own tile and its lights and loops, and
 lies as the Turn says, put in as it is, whether it fits its neighbors
 or not (none of them changes); each Turn chosen is one step to undo.

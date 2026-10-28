@@ -1348,15 +1348,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   stood on in the server (`a_tile_s_own_height_stands_where_the_engine_puts_it`),
   not looked at in the game client; the control's ±1024 is Moonglow's
   reading bound, not the engine's. (S) (issue #29)
-- **All tiles in Tile Properties:** no search among them (the tileset's
-  order, 283 to 408 pictures in the game's sets); with several tiles
-  chosen each gets the same tile and turn from a picture clicked (the
-  Turn alone turns each its own tile to the same turn); the switch and the Turn are
-  not remembered from one opening to the next (off each time, as the
-  issue asks). Its frame time was looked at in the UI tests only (20
-  frames in 16 ms with the pictures in sight made), not on the
-  builder's machine with a large hak tileset. Next and Previous Tile
-  (S) (issue #29)
 - **Tile Properties on several tiles, in Aurora:** Moonglow writes only
   the controls set into every tile chosen (2.4.0's OK wrote every shown
   value, the first tile's, into all of them); how Aurora writes them for

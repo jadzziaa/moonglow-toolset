@@ -130,6 +130,9 @@ pub struct TileProps {
     pub turn: u8,
     /// Every tile of the tileset, with its model's name.
     pub every: Vec<(u32, String)>,
+    /// What All tiles' search finds: tiles by their model's name or their
+    /// number in the tileset (empty as the window opens).
+    pub find: String,
     /// The tiles' `Tile_List` structs as the window last read or wrote
     /// them, and the workspace's revision then: where they are otherwise
     /// now (the window's own step undone with Ctrl+Z, or redone; a brush,
@@ -878,6 +881,7 @@ fn open_properties(app: &mut Moonglow, view: &AreaView) {
         all_tiles: false,
         turn: 0,
         every,
+        find: String::new(),
     });
 }
 
@@ -1026,7 +1030,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                     cancel = true;
                 }
             });
-            if crate::widgets::escape_here(ui) {
+            // (Escape in the search field is the field's: it clears it.)
+            if crate::widgets::escape_here(ui) && !crate::widgets::escape_left_search(ctx) {
                 escape = true;
             }
             if props.grouped {
@@ -1074,15 +1079,40 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             if props.all_tiles && free {
                 ui.separator();
                 let side = variant_side(app);
+                // (Found by the search: by model name, or by number.)
+                let needle = mg_core::text::Needle::new(&props.find);
+                let found: Vec<(u32, String)> = props
+                    .every
+                    .iter()
+                    .filter(|(id, model)| needle.finds_in(&[model, &id.to_string()]))
+                    .cloned()
+                    .collect();
+                let all = props.every.len();
                 ui.horizontal(|ui| {
-                    ui.label(format!("All tiles ({} in the tileset)", props.every.len()))
-                        .on_hover_text(
-                            "Every tile of the tileset, in its order, turned as chosen. Click \
-                             one to put it here as it is",
-                        );
+                    let count = match found.len() {
+                        n if n == all => format!("All tiles ({all} in the tileset)"),
+                        n => format!("All tiles ({n} of {all})"),
+                    };
+                    ui.label(count).on_hover_text(
+                        "Every tile of the tileset, in its order, turned as chosen. Click one to \
+                         put it here as it is",
+                    );
                     size_slider(app, ui, side);
                 });
-                if let Some(p) = all_tiles_pictures(app, ui, &props, side) {
+                // (Of the window's visible width, its clear button beside:
+                // as wide as the room offered, the window grew with it.)
+                let seen = ui.clip_rect().right() - ui.cursor().left();
+                let room = ui.available_width().min(seen) - 30.0;
+                crate::widgets::SearchField::new(egui::Id::new("tile-all-search"), &mut props.find)
+                    .hint(ALL_TILES_SEARCH)
+                    .clear_tip("Show every tile")
+                    .find_over()
+                    .width(room)
+                    .show(ui);
+                if found.is_empty() {
+                    ui.weak("No tile's model or number has that in it.");
+                }
+                if let Some(p) = all_tiles_pictures(app, ui, &props, &found, side) {
                     pick = Some(Pick::Any(p));
                 }
             } else if let Some((_, variants)) = props.variants.clone().filter(|(_, v)| v.len() > 1)
@@ -1260,6 +1290,9 @@ pub(crate) fn variant_side(app: &Moonglow) -> f32 {
     app.settings.tile_variant_side.map_or(VARIANT, f32::from).clamp(VARIANT_MIN, VARIANT_MAX)
 }
 
+/// The hint in All tiles' search field.
+pub const ALL_TILES_SEARCH: &str = "🔍 Search model, number";
+
 /// Tile Properties' All tiles switch's name.
 pub const ALL_TILES: &str = "All tiles (ignore fit)";
 
@@ -1340,11 +1373,16 @@ fn all_tiles_pictures(
     app: &mut Moonglow,
     ui: &mut egui::Ui,
     props: &TileProps,
+    tiles: &[(u32, String)],
     side: f32,
 ) -> Option<mg_tiles::Placement> {
     let stride = side + 6.0 + ui.spacing().item_spacing.x;
-    let across = ((ui.available_width() - 16.0 + 6.0) / stride).floor().max(1.0) as usize;
-    let rows = props.every.len().div_ceil(across);
+    // (Of the window's visible width: a row wider than the window, the
+    // heading's, offers more room than it shows.)
+    let seen = ui.clip_rect().right() - ui.cursor().left();
+    let room = ui.available_width().min(seen);
+    let across = ((room - 16.0 + 6.0) / stride).floor().max(1.0) as usize;
+    let rows = tiles.len().div_ceil(across);
     // (A picture's button, its padding, and its name under it.)
     let pad = ui.spacing().button_padding.y * 2.0;
     let name = ui.text_style_height(&egui::TextStyle::Small);
@@ -1358,7 +1396,7 @@ fn all_tiles_pictures(
             for r in range {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 6.0 + ui.spacing().item_spacing.x;
-                    for (id, model) in props.every.iter().skip(r * across).take(across) {
+                    for (id, model) in tiles.iter().skip(r * across).take(across) {
                         let p =
                             mg_tiles::Placement { tile: *id, orientation: props.turn, height: 0 };
                         let now = props
@@ -1539,7 +1577,7 @@ fn carry_draft(was: &TileProps, now: &mut TileProps) {
     if let Some(h) = draft.height {
         now.height = Some(h);
     }
-    (now.all_tiles, now.turn) = (was.all_tiles, was.turn);
+    (now.all_tiles, now.turn, now.find) = (was.all_tiles, was.turn, was.find.clone());
     (now.live, now.buried) = (was.live, was.buried);
     (now.wrote, now.own) = (was.wrote.clone(), was.own.clone());
     // (Where a step of the window's is under another command, the tiles
@@ -1748,7 +1786,7 @@ fn reread(app: &mut Moonglow, props: TileProps) -> TileProps {
     again.live = redone.then_some(revision);
     again.buried = !redone && (props.buried || (props.live.is_some() && !undone));
     (again.base, again.wrote, again.own) = (props.base, props.wrote, props.own);
-    (again.all_tiles, again.turn) = (props.all_tiles, props.turn);
+    (again.all_tiles, again.turn, again.find) = (props.all_tiles, props.turn, props.find);
     (again.closing, again.picking) = (props.closing, props.picking);
     // (Read as they are: nothing to write until a control is changed.)
     again.written = Some(again.draft());

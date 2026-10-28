@@ -2603,6 +2603,143 @@ fn tile_properties_put_any_tile_alone() {
     assert_eq!(tile_list(&mut h, area), list, "one step each");
 }
 
+/// All tiles' search (issue #29: 283 to 408 pictures in the game's sets,
+/// in the tileset's order): what is typed narrows the pictures to the
+/// tiles whose model's name or number has it, the count says how many;
+/// one found is put in by its picture; Escape in the field clears it, the
+/// window staying open.
+#[test]
+fn tile_properties_all_tiles_search_by_model_or_number() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("tile-all-search") else { return };
+    let list = tile_list(&mut h, area);
+    tile_properties_of(&mut h, area, &[Vec3::new(15.0, 15.0, 0.0)]);
+    props_aside(&mut h);
+    h.get_by_label(mg_ui::tile_select::ALL_TILES).click();
+    h.run_steps(3);
+    let every = h.state().tile_props.as_ref().unwrap().every.clone();
+    let all = every.len();
+    h.get_by_label(&format!("All tiles ({all} in the tileset)"));
+    let shots = mg_testkit::scratch_dir("ui-tile-all-search");
+    // A model's name, in part: those tiles alone.
+    type_into_hint(&mut h, mg_ui::tile_select::ALL_TILES_SEARCH, "a04");
+    h.run_steps(20);
+    let found: Vec<&(u32, String)> = every.iter().filter(|(_, m)| m.contains("a04")).collect();
+    assert!(!found.is_empty() && found.len() < all, "{} of {all}", found.len());
+    h.get_by_label(&format!("All tiles ({} of {all})", found.len()));
+    let shown: Vec<String> = h
+        .query_all_by_label_contains("ttr01_")
+        .filter_map(|n| n.accesskit_node().label().or_else(|| n.accesskit_node().value()))
+        .filter(|l| !l.starts_with("Tile "))
+        .collect();
+    h.render().unwrap().save(shots.join("found.png")).unwrap();
+    assert!(!shown.is_empty());
+    assert!(shown.iter().all(|l| l.contains("a04")), "only the tiles found: {shown:?}");
+    h.render().unwrap().save(shots.join("found.png")).unwrap();
+    // One found, put in by its picture.
+    let (id, model) = found[0].clone();
+    let at = h.get_all_by_label(&model).next().expect("its picture").rect().center_top()
+        - egui::vec2(0.0, 40.0);
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(4);
+    assert_eq!(tile_list(&mut h, area)[5].integer("Tile_ID"), Some(i64::from(id)));
+    assert_eq!(h.state().tile_props.as_ref().unwrap().find, "a04", "the search kept");
+    // A number: that tile (and those whose number has it in it).
+    h.state_mut().tile_props.as_mut().unwrap().find.clear();
+    h.run_steps(2);
+    type_into_hint(&mut h, mg_ui::tile_select::ALL_TILES_SEARCH, "117");
+    h.run_steps(5);
+    let by_number =
+        every.iter().filter(|(i, m)| i.to_string().contains("117") || m.contains("117"));
+    h.get_by_label(&format!("All tiles ({} of {all})", by_number.count()));
+    // Escape in the field: cleared, every tile shown, the window open.
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert!(h.state().tile_props.as_ref().is_some_and(|p| p.find.is_empty()), "cleared, open");
+    h.get_by_label(&format!("All tiles ({all} in the tileset)"));
+    h.state_mut().ws.as_mut().unwrap().undo().unwrap();
+    h.run_steps(3);
+    assert_eq!(tile_list(&mut h, area), list);
+}
+
+/// All tiles on a large hak tileset (issue #29's frame time, looked at in
+/// the game's sets only): The Domains of Dread's `tkc02` (`tdod_t_krz.hak`
+/// in `MOONGLOW_HAKS`; skipped without), its every tile in the window.
+/// Only the rows in sight are drawn, the frames while their pictures are
+/// made are timed, and the search narrows them.
+#[test]
+fn tile_properties_all_tiles_on_a_large_hak_tileset() {
+    use glam::Vec3;
+    let Some(haks) =
+        mg_testkit::builder_hak_dirs().into_iter().find(|d| d.join("tdod_t_krz.hak").is_file())
+    else {
+        eprintln!("skipped: no tdod_t_krz.hak in MOONGLOW_HAKS");
+        return;
+    };
+    let user = mg_testkit::scratch_dir("ui-tile-all-hak-user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let file = "tdod_t_krz.hak";
+    mg_testkit::link_or_copy(&haks.join(file), &user.join("hak").join(file)).unwrap();
+    let prepare = |m: &mut mg_module::Module, _: &mg_rules::GameData, area: ResRef| {
+        let key = ResKey::new(area, ResType::ARE);
+        let mut are = m.gff(&key).unwrap().unwrap();
+        are.root.set("Tileset", mg_gff::Value::ResRef(b"tkc02".to_vec()));
+        for t in are.root.list_mut("Tile_List").unwrap() {
+            t.set("Tile_ID", mg_gff::Value::Int(0));
+            t.set("Tile_Orientation", mg_gff::Value::Int(0));
+            t.set("Tile_Height", mg_gff::Value::Int(0));
+        }
+        m.set_gff(key, &are).unwrap();
+        let ifo_key = ResKey::parse("module", ResType::IFO).unwrap();
+        let mut ifo = m.gff(&ifo_key).unwrap().unwrap();
+        let list = mg_module::attach::hak_list(&ifo.root, &["tdod_t_krz".to_string()]);
+        ifo.root.set("Mod_HakList", list);
+        m.set_gff(ifo_key, &ifo).unwrap();
+    };
+    let Some((mut h, area)) =
+        area_harness_with("tile-all-hak", "ttr01", None, 4, Some(user), &prepare)
+    else {
+        return;
+    };
+    tile_properties_of(&mut h, area, &[Vec3::new(15.0, 15.0, 0.0)]);
+    props_aside(&mut h);
+    h.get_by_label(mg_ui::tile_select::ALL_TILES).click();
+    h.run_steps(2);
+    let all = h.state().tile_props.as_ref().unwrap().every.len();
+    assert!(all > 1000, "a large tileset: {all} tiles");
+    let mut frames = Vec::new();
+    for _ in 0..40 {
+        let t = std::time::Instant::now();
+        h.run_steps(1);
+        frames.push(t.elapsed());
+    }
+    let drawn = h.query_all_by_label_contains("tkc02_").count();
+    assert!(drawn > 0 && drawn < all / 10, "only the rows in sight: {drawn} of {all}");
+    let mut sorted = frames.clone();
+    sorted.sort();
+    eprintln!(
+        "tkc02, {all} tiles: 40 frames as the pictures in sight are made, {:?} in all, median \
+         {:?}, worst {:?}; {drawn} pictures drawn",
+        frames.iter().sum::<std::time::Duration>(),
+        sorted[20],
+        sorted[39],
+    );
+    let each: Vec<String> =
+        frames.iter().map(|d| format!("{:.1}", d.as_secs_f64() * 1e3)).collect();
+    eprintln!("  each frame (ms): {}", each.join(" "));
+    let shots = mg_testkit::scratch_dir("ui-tile-all-hak");
+    h.render().unwrap().save(shots.join("all.png")).unwrap();
+    type_into_hint(&mut h, mg_ui::tile_select::ALL_TILES_SEARCH, "tkc02_a01");
+    h.run_steps(10);
+    let every = h.state().tile_props.as_ref().unwrap().every.clone();
+    let found = every.iter().filter(|(_, m)| m.to_lowercase().contains("tkc02_a01")).count();
+    assert!(found > 0 && found < all, "{found} of {all}");
+    h.get_by_label(&format!("All tiles ({found} of {all})"));
+    h.render().unwrap().save(shots.join("found.png")).unwrap();
+}
+
 /// The area's GIT root, as the workspace has it.
 fn git_root(h: &mut Harness<'_, Moonglow>, area: ResRef) -> mg_gff::Struct {
     let ws = h.state_mut().ws.as_mut().unwrap();
