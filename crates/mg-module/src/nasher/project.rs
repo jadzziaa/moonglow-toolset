@@ -1682,7 +1682,10 @@ mod tests {
         item.root.set("Tag", Value::String(b"NEW".to_vec()));
         m.set_gff(key("bread", ResType::UTI), &item).unwrap();
         let err = m.save().unwrap_err();
-        assert!(matches!(&err, ModuleError::ChangedOnDisk(p) if p == &[broken.clone()]), "{err}");
+        assert!(
+            matches!(&err, ModuleError::ChangedOnDisk(p) if p == std::slice::from_ref(&broken)),
+            "{err}"
+        );
         assert_eq!(std::fs::read_to_string(&broken).unwrap(), text);
         // Mended outside: read as a file added.
         std::fs::write(&broken, item_json("MENDED")).unwrap();

@@ -503,7 +503,8 @@ mod tests {
         assert_eq!(archive_stamp(&erf), Some(stamp("aaaaaaa")));
         let text = description_text(&Erf::read(&erf).unwrap().description);
         assert_eq!(crate::stamp::read(&text).0, "The town");
-        let more = export_into_erf(&erf, &src, &keys, &describe("", &stamp("bbbbbbb")), false).unwrap();
+        let more =
+            export_into_erf(&erf, &src, &keys, &describe("", &stamp("bbbbbbb")), false).unwrap();
         let text = description_text(&Erf::read(&more).unwrap().description);
         assert_eq!(crate::stamp::read(&text), ("The town".to_string(), Some(stamp("bbbbbbb"))));
         // Aurora's (no stamp).
