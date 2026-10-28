@@ -470,7 +470,7 @@ fn is_interface(name: &str, icons: &[String]) -> bool {
         && b[2..4].iter().all(u8::is_ascii_alphabetic)
         && b[4..6].iter().all(u8::is_ascii_digit)
         && b[6] == b'_';
-    map_tile || icons.iter().any(|p| name.starts_with(p.as_str()))
+    map_tile || (name.starts_with('i') && icons.iter().any(|p| name.starts_with(p.as_str())))
 }
 
 /// The beginnings of item icons' names: `i`, each base item's `ItemClass`
