@@ -57,7 +57,8 @@ pub struct Renamed {
 ///   moves as it is.
 /// - The compiled scripts of both are removed, not moved: they carry the
 ///   old names. The settings forget the event script as last compiled, so
-///   the window reads as not built; Build makes them.
+///   the window reads as not built; [`build_renamed`] makes them in the
+///   same command.
 /// - The module's scripts that include the opener are pointed at the new
 ///   one: their `#include` line (`mg_module::rename`), and the opener's
 ///   function names where they are used as names. Their compiled scripts
@@ -137,6 +138,49 @@ pub fn rename(module: &Module, from: &str, to: &str, literals: bool) -> Result<R
         .collect();
     renamed.command = Command::new(format!("Rename {layout} to {}", new.layout), edits);
     Ok(renamed)
+}
+
+/// Builds the window `renamed` left under its new name `to`, as the
+/// module's other renames compile what they changed: [`generate`] on the
+/// module as the rename leaves it, compiling the window's scripts and the
+/// scripts that open it. On success `renamed`'s command does both, as one
+/// command, and no longer asks for a Build; what Build made but changed
+/// nothing of (scripts of the module's that did not compile, what is
+/// remembered of those compiled, returns fitted) is returned. A window
+/// that had nothing compiled is not built (`None`). An error of the Build
+/// (the window has errors, its opener was changed by hand, its scripts do
+/// not compile, no compiler) leaves `renamed` as it was: the rename alone,
+/// to be built by hand.
+///
+/// [`generate`]: crate::generate
+pub fn build_renamed(
+    module: &Module,
+    renamed: &mut Renamed,
+    to: &str,
+    build: &crate::Build<'_>,
+) -> Result<Option<crate::Generated>, NuiError> {
+    if !renamed.build {
+        return Ok(None);
+    }
+    let apply = |module: &mut Module, command: &Command| {
+        for edit in &command.edits {
+            if let Edit::SetResource { key, data } = edit {
+                match data {
+                    Some(bytes) => module.set(*key, bytes.clone()),
+                    None => _ = module.remove(key),
+                }
+            }
+        }
+    };
+    let mut staged = module.clone();
+    apply(&mut staged, &renamed.command);
+    let mut built = crate::generate(&staged, to, build)?;
+    apply(&mut staged, &built.command);
+    let label = std::mem::take(&mut renamed.command.label);
+    renamed.command = Command::new(label, mg_edit::edits_between(module, &staged));
+    renamed.build = false;
+    built.command = Command::new(String::new(), Vec::new());
+    Ok(Some(built))
 }
 
 /// A window's two scripts, source and compiled.

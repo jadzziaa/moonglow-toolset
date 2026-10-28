@@ -4799,6 +4799,12 @@ impl Moonglow {
     }
 
     /// A script editor's current text.
+    /// The scripts the compile memory holds: compiled here (Compile All,
+    /// a Build, a rename), passed over while they are as compiled.
+    pub fn compiled_scripts(&self) -> Vec<ResKey> {
+        self.script_stamps.scripts.keys().copied().collect()
+    }
+
     pub fn script_text(&self, key: ResKey) -> Option<String> {
         self.scripts.get(&key).map(|b| b.text.clone())
     }

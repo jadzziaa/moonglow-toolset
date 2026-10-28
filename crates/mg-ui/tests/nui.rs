@@ -2200,3 +2200,232 @@ fn controls_without_a_width_are_as_the_layout_form_says() {
     assert_eq!((l.width, l.elements[0].area.w, l.body.w), (420.0, l.body.w, 404.0));
     assert!(about.contains("the window's width less 20 fills its root column"));
 }
+
+// Renaming a window (Rename… on its row or its tab): its settings and its
+// scripts go with it, the open tabs follow, and what was built is built
+// again under the new name.
+
+fn res(name: &str, ty: ResType) -> ResKey {
+    ResKey::parse(name, ty).unwrap()
+}
+
+/// Every resource of the module, with its bytes.
+fn resources(app: &Moonglow) -> Vec<(ResKey, Vec<u8>)> {
+    let module = &app.ws.as_ref().unwrap().module;
+    let mut all: Vec<_> = module.keys().map(|k| (*k, module.get(k).unwrap().to_vec())).collect();
+    all.sort();
+    all
+}
+
+/// `app` (with the game or not) with the window `shop` as Build leaves it
+/// (without the game, what is compiled stands in), code written in the
+/// Close button's handler, and a script of the module's that opens the
+/// window.
+fn shop(mut app: Moonglow) -> Moonglow {
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    app.ws = Some(mg_edit::Workspace::new(m));
+    app.run(Action::NewNui("shop".into()));
+    app.actions.clear();
+    let module = &mut app.ws.as_mut().unwrap().module;
+    let window = mg_nui::parse(module.get(&res("shop", ResType::JUI)).unwrap()).unwrap();
+    let settings = Settings::parse(module.get(&res("shop", ResType::TXT)).unwrap()).unwrap();
+    let opener = mg_nui::opener_source("shop", &window, &settings).unwrap();
+    let events = mg_nui::event_source("shop", &settings).unwrap();
+    let events =
+        mg_nui::insert_code(&events, "click mg_close", "        SpeakString(\"Bye\");\n").unwrap();
+    module.set(res("shop_o", ResType::NSS), opener.into_bytes());
+    module.set(res("shop_e", ResType::NSS), events.into_bytes());
+    module.set(res("shop_e", ResType::NCS), b"NCS V1.0B".to_vec());
+    module.set(
+        res("enter", ResType::NSS),
+        b"#include \"shop_o\"\nvoid main()\n{\n    Open_shop(GetEnteringObject());\n}\n".to_vec(),
+    );
+    module.set(res("enter", ResType::NCS), b"NCS V1.0B".to_vec());
+    app
+}
+
+fn without_game() -> Moonglow {
+    shop(Moonglow::new(None, Box::new(NoDialogs::default())))
+}
+
+/// The application, drawn whole, with the window's and its event script's
+/// tabs open.
+fn renaming(app: Moonglow) -> Harness<'static, Moonglow> {
+    let mut h = creator(app, [1000, 700]);
+    h.state_mut().run(Action::OpenTab(Tab::Nui(res("shop", ResType::JUI))));
+    h.state_mut().run(Action::OpenTab(Tab::Script(res("shop_e", ResType::NSS))));
+    h.run();
+    h
+}
+
+#[test]
+fn a_renamed_window_takes_its_settings_and_scripts_and_one_undo_brings_them_back() {
+    let mut h = renaming(without_game());
+    let (old_script, new_script) = (res("shop_e", ResType::NSS), res("store_e", ResType::NSS));
+    assert!(h.state().script_text(old_script).is_some());
+    let before = resources(h.state());
+    let step = |app: &Moonglow| app.ws.as_ref().unwrap().can_undo().map(str::to_owned);
+    let last = step(h.state());
+
+    let to = mg_core::ResRef::from_str("store").unwrap();
+    h.state_mut().rename_resource(res("shop", ResType::JUI), to, false);
+    h.run();
+    let app = h.state();
+    // Nothing is left under the old name, compiled or not.
+    let left: Vec<String> = resources(app)
+        .iter()
+        .map(|(k, _)| k.to_string())
+        .filter(|k| k.starts_with("shop"))
+        .collect();
+    assert!(left.is_empty(), "{left:?}");
+    let module = &app.ws.as_ref().unwrap().module;
+    for (name, ty) in [("store", ResType::JUI), ("store", ResType::TXT), ("store_o", ResType::NSS)]
+    {
+        assert!(module.contains(&res(name, ty)), "{name}");
+    }
+    // (Without the game, nothing compiled: the log says why.)
+    assert!(!module.contains(&res("store_e", ResType::NCS)));
+    assert!(
+        app.log
+            .entries
+            .iter()
+            .any(|(_, said)| said.contains("aren't compiled under its new name (no game install"))
+    );
+    // The handler's code is in the new event script, in a frame for the new name.
+    let events = text(app, new_script);
+    assert!(events.contains("        // mg:begin click mg_close\n"), "{events}");
+    assert!(events.contains("        SpeakString(\"Bye\");\n        // mg:end\n"), "{events}");
+    assert!(events.contains("#include \"store_o\"\n"), "{events}");
+    assert!(text(app, res("store_o", ResType::NSS)).contains("void Open_store(object oPlayer)"));
+    // The script that opens the window includes and calls the new one.
+    assert_eq!(
+        text(app, res("enter", ResType::NSS)),
+        "#include \"store_o\"\nvoid main()\n{\n    Open_store(GetEnteringObject());\n}\n"
+    );
+    assert!(!module.contains(&res("enter", ResType::NCS)));
+    // The tabs follow, and the script's editor shows the script as it is now.
+    assert!(app.dock.find_tab(&Tab::Nui(res("store", ResType::JUI))).is_some());
+    assert!(app.dock.find_tab(&Tab::Nui(res("shop", ResType::JUI))).is_none());
+    assert!(app.dock.find_tab(&Tab::Script(new_script)).is_some());
+    assert!(app.dock.find_tab(&Tab::Script(old_script)).is_none());
+    assert!(app.script_text(old_script).is_none());
+    assert_eq!(app.script_text(new_script).as_deref(), Some(events.as_str()));
+    assert!(
+        app.log.entries.iter().any(|(_, said)| said.starts_with("Renamed shop.jui to store.jui"))
+    );
+
+    // One Undo: every resource as it was, byte for byte.
+    assert_eq!(step(h.state()).as_deref(), Some("Rename shop.jui to store.jui"));
+    undo(&mut h);
+    assert_eq!(resources(h.state()), before);
+    assert_eq!(step(h.state()), last);
+}
+
+/// With the game, the window renamed is built under its new name in the
+/// same command: its event script and the script that opens it compiled,
+/// as the other renames compile what they changed; one Undo takes it all
+/// back.
+#[test]
+fn a_renamed_window_is_built_under_its_new_name() {
+    let root = mg_testkit::corpus!();
+    let app = Moonglow::new(
+        Some(mg_resman::GameInstall::new(root, None, "en")),
+        Box::new(NoDialogs::default()),
+    );
+    let mut app = shop(app);
+    app.run(Action::GenerateNui { name: "shop".into(), export: false });
+    let before = resources(&app);
+    let to = mg_core::ResRef::from_str("store").unwrap();
+    app.rename_resource(res("shop", ResType::JUI), to, false);
+    let module = &app.ws.as_ref().unwrap().module;
+    for (name, ty) in [("store_e", ResType::NCS), ("enter", ResType::NCS)] {
+        assert!(module.contains(&res(name, ty)), "{name} compiled");
+    }
+    let window = mg_nui::parse(module.get(&res("store", ResType::JUI)).unwrap()).unwrap();
+    let settings = Settings::parse(module.get(&res("store", ResType::TXT)).unwrap()).unwrap();
+    assert!(mg_nui::is_current(module, "store", &window, &settings), "built as Build builds");
+    assert!(
+        app.log.entries.iter().any(|(_, said)| said.contains("are compiled under its new name")),
+        "{:?}",
+        app.log.entries
+    );
+    // (What was compiled is remembered, as Build's is.)
+    assert!(app.compiled_scripts().contains(&res("store_e", ResType::NSS)));
+    assert_eq!(app.ws.as_ref().unwrap().can_undo(), Some("Rename shop.jui to store.jui"));
+    app.ws.as_mut().unwrap().undo().unwrap();
+    assert_eq!(resources(&app), before);
+}
+
+/// Rename… on a window's event script or opener renames the window: the
+/// script alone would part from it.
+#[test]
+fn rename_on_a_window_s_script_renames_the_window() {
+    let mut app = without_game();
+    app.rename_dialog(res("shop_e", ResType::NSS));
+    let draft = app.rename.clone().unwrap();
+    assert_eq!(
+        (draft.from, draft.script),
+        (res("shop", ResType::JUI), Some(res("shop_e", ResType::NSS)))
+    );
+    app.rename = None;
+    // Given as the script's new name, it is the window's with the suffix.
+    let to = mg_core::ResRef::from_str("store_o").unwrap();
+    app.rename_resource(res("shop_o", ResType::NSS), to, false);
+    let module = &app.ws.as_ref().unwrap().module;
+    assert!(
+        module.contains(&res("store", ResType::JUI))
+            && module.contains(&res("store_e", ResType::NSS))
+    );
+    // A script of the module's that is no window's is renamed as a script.
+    app.rename_dialog(res("enter", ResType::NSS));
+    assert_eq!(app.rename.as_ref().unwrap().from, res("enter", ResType::NSS));
+    assert_eq!(app.rename.as_ref().unwrap().script, None);
+}
+
+#[test]
+fn a_window_rename_is_refused_for_a_name_without_room_for_the_scripts() {
+    let mut app = without_game();
+    let before = resources(&app);
+    let revision = app.ws.as_ref().unwrap().revision();
+    // Fifteen characters: `_o` and `_e` would not fit.
+    let to = mg_core::ResRef::from_str("fifteen_charnam").unwrap();
+    app.rename_resource(res("shop", ResType::JUI), to, false);
+    assert_eq!(resources(&app), before);
+    assert_eq!(app.ws.as_ref().unwrap().revision(), revision);
+    let said = &app.log.entries.last().unwrap().1;
+    assert!(said.starts_with("Rename: \"fifteen_charnam\": use 1–14 lowercase"), "{said}");
+    // So is a name the module has a script of the window's under.
+    app.ws.as_mut().unwrap().module.set(res("store_e", ResType::NSS), b"void main() {}".to_vec());
+    let before = resources(&app);
+    app.rename_resource(
+        res("shop", ResType::JUI),
+        mg_core::ResRef::from_str("store").unwrap(),
+        false,
+    );
+    assert_eq!(resources(&app), before);
+    let said = &app.log.entries.last().unwrap().1;
+    assert_eq!(said, "Rename: Resource already exists: store_e.nss");
+}
+
+#[test]
+fn a_window_rename_leaves_a_text_that_is_not_the_window_s_settings() {
+    let mut app = without_game();
+    let module = &mut app.ws.as_mut().unwrap().module;
+    module.set(res("notes", ResType::JUI), b"{}".to_vec());
+    module.set(res("notes", ResType::TXT), b"Not settings.".to_vec());
+    module.set(res("notes_e", ResType::NSS), b"void main() {}".to_vec());
+    let before = resources(&app).len();
+    app.rename_resource(
+        res("notes", ResType::JUI),
+        mg_core::ResRef::from_str("pages").unwrap(),
+        false,
+    );
+    let module = &app.ws.as_ref().unwrap().module;
+    assert!(module.contains(&res("pages", ResType::JUI)));
+    assert!(!module.contains(&res("notes", ResType::JUI)));
+    assert_eq!(module.get(&res("notes", ResType::TXT)), Some(b"Not settings.".as_slice()));
+    assert!(module.contains(&res("notes_e", ResType::NSS)));
+    assert!(!module.contains(&res("pages", ResType::TXT)));
+    assert_eq!(resources(&app).len(), before);
+}

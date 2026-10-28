@@ -45,6 +45,9 @@ pub struct RenameDraft {
     pub literals: bool,
     pub usages: usize,
     pub mentions: usize,
+    /// The NUI window's script Rename… was asked of, when `from` is the
+    /// window it belongs to.
+    pub script: Option<ResKey>,
 }
 
 /// The resource a family member stands for (an area's `.git` is the area,
@@ -75,9 +78,26 @@ impl Moonglow {
         self.actions.push(Action::OpenTab(Tab::References));
     }
 
-    /// Opens the Rename window for a resource.
+    /// The NUI window whose opener or event script `key` is (`NAME_o.nss`,
+    /// `NAME_e.nss` beside `NAME.jui` and its settings): renaming the
+    /// script alone would part it from the window.
+    pub(crate) fn window_of_script(&self, key: ResKey) -> Option<ResKey> {
+        let ws = self.ws.as_ref()?;
+        if key.restype != ResType::NSS {
+            return None;
+        }
+        let name = key.resref.to_string();
+        let window = name.strip_suffix("_o").or_else(|| name.strip_suffix("_e"))?;
+        let jui = ResKey::parse(window, ResType::JUI)?;
+        crate::nui_view::companions(&ws.module, jui).contains(&key).then_some(jui)
+    }
+
+    /// Opens the Rename window for a resource (for a NUI window's script,
+    /// the window's).
     pub fn rename_dialog(&mut self, key: ResKey) {
         let key = main_key(key);
+        let script = self.window_of_script(key).map(|_| key);
+        let key = self.window_of_script(key).unwrap_or(key);
         let Some(ws) = &mut self.ws else { return };
         // (A NUI window is renamed with what it has beside it: `rename_nui`.)
         if !rename::renamable(key.restype) && key.restype != ResType::JUI {
@@ -96,6 +116,7 @@ impl Moonglow {
             literals: false,
             usages,
             mentions,
+            script,
         });
     }
 
@@ -103,6 +124,21 @@ impl Moonglow {
     /// what names it, and (with `literals`) script strings; scripts whose
     /// source changed are compiled again.
     pub fn rename_resource(&mut self, from: ResKey, to: ResRef, literals: bool) {
+        // (A NUI window's script is renamed with its window, which takes
+        // the new name less the script's suffix.)
+        if let Some(window) = self.window_of_script(main_key(from)) {
+            let suffix = &from.resref.to_string()[window.resref.to_string().len()..];
+            let Some(to) =
+                to.to_string().strip_suffix(suffix).and_then(|n| ResRef::from_str(n).ok())
+            else {
+                self.log.error(format!(
+                    "{from} is {window}'s script: give a new name ending {suffix}, or rename the \
+                     window"
+                ));
+                return;
+            };
+            return self.rename_nui(window, to, literals);
+        }
         if from.restype == ResType::JUI {
             return self.rename_nui(from, to, literals);
         }
@@ -214,23 +250,46 @@ impl Moonglow {
     /// Renames a NUI window as one undoable command (`mg_nui::rename`):
     /// its JUI, its settings, its opener and its event script, and the
     /// module's scripts that open it; with `literals`, script strings
-    /// spelling its name too. The tabs of the window and of its two
-    /// scripts follow. Nothing is compiled: Build does that, and the log
-    /// says so.
+    /// spelling its name too. A window that was built is built again under
+    /// its new name in the same command (`mg_nui::build_renamed`), as the
+    /// other renames compile what they changed; where it can't be, the log
+    /// says why and asks for a Build. The tabs of the window and of its two
+    /// scripts follow.
     fn rename_nui(&mut self, from: ResKey, to: ResRef, literals: bool) {
         self.store_script_text();
+        // (Built as the window's Build builds: Options › Script Editor's
+        // compiler, the compile memory kept.)
+        let external = self.external_compiler();
+        let kept = self.remembered_scripts(external.as_ref());
         let Some(ws) = &mut self.ws else { return };
         if let Err(e) = ws.flush() {
             self.log.error(e.to_string());
             return;
         }
         let (old, name) = (from.resref.to_string(), to.to_string());
-        let made = match mg_nui::rename(&ws.module, &old, &name, literals) {
+        let mut made = match mg_nui::rename(&ws.module, &old, &name, literals) {
             Ok(made) => made,
             Err(e) => {
                 self.log.error(format!("Rename: {e}"));
                 return;
             }
+        };
+        // Built under its new name, in the same command: or why not.
+        let built = match &self.game {
+            Some(game) => mg_nui::build_renamed(
+                &ws.module,
+                &mut made,
+                &name,
+                &mg_nui::Build {
+                    resman: &game.resman,
+                    external: external.as_ref(),
+                    debug: self.settings.debug_info,
+                    known: Some(&self.script_stamps),
+                },
+            )
+            .map_err(|e| e.to_string()),
+            None if made.build => Err("no game install to compile with (Options)".to_owned()),
+            None => Ok(None),
         };
         let new = ResKey::new(to, from.restype);
         if let Err(e) = self.apply(made.command) {
@@ -275,11 +334,26 @@ impl Moonglow {
         for spelled in &made.spelled {
             self.warn_still_spelled(spelled);
         }
-        if made.build {
-            self.log.warn(format!(
+        match built {
+            Ok(Some(b)) => {
+                self.log.info(format!(
+                    "{new}'s scripts, and the scripts that open it, are compiled under its new \
+                     name"
+                ));
+                crate::nui_view::after_build(
+                    self,
+                    &name,
+                    &b.failed,
+                    b.remembered,
+                    &b.refits,
+                    kept.as_deref(),
+                );
+            }
+            Ok(None) => {}
+            Err(why) => self.log.warn(format!(
                 "{new}'s scripts, and the scripts that open it, aren't compiled under its new \
-                 name: Build & compile it before testing"
-            ));
+                 name ({why}): Build it before testing"
+            )),
         }
     }
 
@@ -822,6 +896,18 @@ pub(crate) fn rename_window(app: &mut Moonglow, ctx: &egui::Context) {
                 Ok(r) if exists(r) => Some((format!("{name} already exists"), true)),
                 Ok(r) => nui_problem(r).map(|e| (e.to_string(), true)),
             };
+            if let Some(script) = draft.script {
+                ui.label(format!(
+                    "{script} is the {} of the NUI window {}: the window is renamed, and the \
+                     script takes its new name.",
+                    if script.resref.to_string().ends_with("_o") {
+                        "opener"
+                    } else {
+                        "event script"
+                    },
+                    draft.from.resref
+                ));
+            }
             ui.label(match draft.usages {
                 _ if draft.from.restype == ResType::JUI => {
                     "Its settings and its scripts are renamed with it, and the scripts that \

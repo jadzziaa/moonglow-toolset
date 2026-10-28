@@ -37,8 +37,14 @@ keeps it). Deleting a window
 in the module tree deletes its settings and its two scripts with it. **Rename…**
 there renames them with it: your handlers' code moves to the new event
 script, the opener is written for the new name, and the scripts of yours
-that include it are changed to the new include and function names. Nothing
-is compiled then: **Build & compile** afterwards.
+that include it are changed to the new include and function names. A
+window that was built is built again under its new name in the same step,
+its scripts and yours that open it compiled, as the other renames compile
+what they change; where it can't be (no game install, an opener changed by
+hand, code that doesn't compile), the log says why, and **Build & compile**
+does it afterwards. **Rename…** on the window's `NAME_o.nss` or
+`NAME_e.nss` renames the window. `mg rename MODULE NAME.jui NEW` does the
+same from the command line.
 
 ## Design
 

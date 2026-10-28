@@ -33,8 +33,6 @@ mod images;
 mod interaction;
 mod layouts;
 mod preview;
-#[cfg(test)]
-mod rename_tests;
 mod shortcuts;
 pub(crate) mod skin;
 mod structure;
@@ -302,6 +300,36 @@ pub(crate) fn generate(app: &mut Moonglow, name: &str, export: bool) {
         .map(|(_, why)| (name.to_owned(), why.clone()));
 }
 
+/// What a Build of the window `name` made beside its command, once that is
+/// applied: the code of the builder's it changed said, what is remembered
+/// of the scripts compiled kept (in `kept`, the compile memory's file, as
+/// Compile All keeps it), the module's scripts that did not compile said.
+pub(crate) fn after_build(
+    app: &mut Moonglow,
+    name: &str,
+    failed: &[mg_module::build::ScriptResult],
+    remembered: mg_module::build::Remembered,
+    refits: &[mg_nui::Refit],
+    kept: Option<&std::path::Path>,
+) {
+    for r in refits {
+        app.log.info(format!(
+            "{name}_e.nss line {}: in the section \"{}\", {} is now {}, to fit the event \
+             script's function",
+            r.line, r.section, r.was, r.now
+        ));
+    }
+    app.script_stamps = remembered;
+    if let Some(file) = kept
+        && let Err(e) = app.script_stamps.write(file)
+    {
+        crate::trace::note(format!("compiled scripts not noted in {file:?}: {e}"));
+    }
+    for e in failed.iter().filter_map(|f| f.result.as_ref().err()) {
+        app.log.error(e.message.clone());
+    }
+}
+
 fn build(app: &mut Moonglow, name: &str, export: bool) {
     // The compiler must see the same source the user is looking at. The
     // window's own scripts are what you edit while building it: they are
@@ -365,23 +393,7 @@ fn build(app: &mut Moonglow, name: &str, export: bool) {
         Ok(cmd) => match if cmd.edits.is_empty() { Ok(()) } else { app.apply(cmd) } {
             Ok(()) => {
                 if let Some((failed, remembered, refits)) = built {
-                    // (Code of the builder's that Build changed: said.)
-                    for r in refits {
-                        app.log.info(format!(
-                            "{name}_e.nss line {}: in the section \"{}\", {} is now {}, to fit \
-                             the event script's function",
-                            r.line, r.section, r.was, r.now
-                        ));
-                    }
-                    app.script_stamps = remembered;
-                    if let Some(file) = &kept
-                        && let Err(e) = app.script_stamps.write(file)
-                    {
-                        crate::trace::note(format!("compiled scripts not noted in {file:?}: {e}"));
-                    }
-                    for e in failed.iter().filter_map(|f| f.result.as_ref().err()) {
-                        app.log.error(e.message.clone());
-                    }
+                    after_build(app, name, &failed, remembered, &refits, kept.as_deref());
                 }
                 // (Into the module, as any edit: a nasher project's files
                 // are written when it is saved. "Written" was read as on

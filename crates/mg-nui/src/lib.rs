@@ -37,7 +37,7 @@ pub use actions::{
     merge_events, rename_in_code, string_expr, variant_function, window_id_function,
 };
 pub use error::NuiError;
-pub use rename::{Renamed, can_rename, rename};
+pub use rename::{Renamed, build_renamed, can_rename, rename};
 pub use schema::{controls, settings_schema};
 pub use script::{Build, Generated, generate, is_current, opener_source, rebuild_events};
 pub use validate::{Diagnostic, Severity, plain_name, validate};
