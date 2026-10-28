@@ -641,6 +641,38 @@ fn faults(app: &mut Moonglow, at: usize) -> Arc<Vec<CellFault>> {
     let tables: Option<&mg_module::doctor::TableOf> = game.map(|_| &read as _);
     let mut found =
         mg_module::doctor::table_faults(&name, doc.edit.table(), &kinds, tables, talk_tables(app));
+    // A cell as the game's own copy has it, wrong there too, is the
+    // game's, not the builder's (appearance's FOOTSTEPTYPE 30): as Verify
+    // leaves it.
+    if !found.is_empty()
+        && let Some(g) = game
+        && let Some(base) = mg_module::doctor::game_copy(&g.resman, &name)
+    {
+        let read = std::cell::RefCell::new(std::collections::HashMap::new());
+        let game_read = |n: &str| -> Option<Arc<TwoDa>> {
+            let mut read = read.borrow_mut();
+            let t = read
+                .entry(n.to_ascii_lowercase())
+                .or_insert_with(|| mg_module::doctor::game_copy(&g.resman, n).map(Arc::new));
+            t.clone()
+        };
+        let theirs = mg_module::doctor::table_faults(
+            &name,
+            &base,
+            &kinds,
+            Some(&game_read),
+            talk_tables(app),
+        );
+        let table = doc.edit.table();
+        found.retain(|f| {
+            let column = &table.columns()[f.column];
+            let kept = base.column(column).is_some_and(|c| {
+                base.cell(f.row, c) == table.cell(f.row, f.column)
+                    && theirs.iter().any(|x| (x.row, x.column) == (f.row, c))
+            });
+            !kept
+        });
+    }
     // And by the table's own description: a table it names is this one
     // as it is now, one of its repository's, or the game's.
     if let Some(d) = &doc.described

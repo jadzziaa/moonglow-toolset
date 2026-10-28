@@ -1575,8 +1575,10 @@ fn a_plugin_s_test_game_folder_brings_talk_tables_and_haks() {
     assert_eq!(result("the folder's talk tables and hak").notes, Vec::<String>::new());
     let none = result("none of them");
     assert_eq!(none.problems, Vec::<String>::new());
+    assert_eq!(none.notes, Vec::<String>::new(), "a plugin's reads say what they lacked");
+    // A test of Moonglow's checks is told of the haks its game data lacks.
     assert_eq!(
-        none.notes,
+        result("no talk tables, a check named").notes,
         ["the fixture's haks extra are not in the test's game data, which has no game: put it in \
              its game folder's hak/ (game/hak/ beside the test file), or name a game with root = \
              \"…\""]

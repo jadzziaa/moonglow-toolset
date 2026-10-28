@@ -6067,3 +6067,42 @@ fn names_with_the_builder_code() {
     h.state_mut().blueprint_wizard.as_mut().unwrap().resref = "shop".into();
     shoot(&mut h, &out, "store-wizard-resref-without-code");
 }
+
+/// A copy of the game's appearance.2da in the 2DA editor: its rows 562 to
+/// 568 keep the game's footstep 30 (of 18), not outlined; row 0 typed so,
+/// outlined and said.
+#[test]
+#[ignore]
+fn table_game_s_own_wrong_cells() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let out = mg_testkit::output_dir("screens");
+    let dir = mg_testkit::scratch_dir("screens-table-game-s-own");
+    let install = GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let key = ResKey::parse("appearance", ResType::TWODA).unwrap();
+    let file = dir.join("appearance.2da");
+    std::fs::write(&file, game.resman.get(&key).unwrap()).unwrap();
+    let footsteps = game.table("appearance").unwrap().column("FOOTSTEPTYPE").unwrap();
+    let app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(4);
+    let go = |h: &mut Harness<'_, Moonglow>, row: usize| {
+        h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(row, footsteps);
+    };
+    go(&mut h, 562);
+    shoot(&mut h, &out, "table-appearance-game-s-footsteps");
+    {
+        let d = h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap();
+        d.edit.set(0, footsteps, Some("30".into())).unwrap();
+    }
+    h.get_by_label("Add Row").click();
+    h.run_steps(3);
+    go(&mut h, 0);
+    shoot(&mut h, &out, "table-appearance-typed-footstep");
+}

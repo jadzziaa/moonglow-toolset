@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T11:19:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T11:25:06Z }
 ---
 
 # Modules
@@ -1268,7 +1268,9 @@ tables: a cell that names a row of another table which isn't there or
 is blank (a feat's required feat, a spell's feat, a package's class, a
 class's requirement by its kind, and the like), a table which isn't
 there (a class's feat list; with the game's data), or a talk-table
-string that isn't, is outlined in red and says why under the pointer; the count above the grid goes to each in turn. Under
+string that isn't, is outlined in red and says why under the pointer
+(a cell as the game's own copy has it, wrong there too, is the game's
+and is not: seven appearances name footstep 30 of 18); the count above the grid goes to each in turn. Under
 the grid, the selected cell is shown by what its column holds: a
 talk-table string as its text (**Strings as text** shows them so in the
 grid too), a row of another table as that row's name, with a list to

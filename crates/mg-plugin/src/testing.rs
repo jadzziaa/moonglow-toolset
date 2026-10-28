@@ -447,8 +447,11 @@ struct Fixture {
     /// Its talk tables are counted: a game's, or a `dialog.tlk` in the
     /// test's folder.
     talk: bool,
-    /// What it lacks or could not read, for each test's notes.
+    /// What it could not read, for each test's notes.
     notes: Vec<String>,
+    /// The haks it lists that its game data has not, for the notes of a
+    /// test of Moonglow's checks (a plugin's reads say what they lacked).
+    haks: Option<String>,
 }
 
 impl Fixture {
@@ -524,9 +527,10 @@ impl Fixture {
             .filter(|h| g.resman.layer_mut(&format!("hak:{h}")).is_none())
             .map(String::as_str)
             .collect();
+        let mut lacks = None;
         if !game && !lacked.is_empty() {
             let them = if lacked.len() == 1 { "it" } else { "them" };
-            notes.push(format!(
+            lacks = Some(format!(
                 "the fixture's haks {} are not in the test's game data, which has no game: put \
                  {them} in its game folder's hak/ ({GAME_FOLDER}/hak/ beside the test file), or \
                  name a game with root = \"…\"",
@@ -535,7 +539,7 @@ impl Fixture {
         }
         // (Tables looked up before, found or not, may be the folder's now.)
         g.invalidate();
-        Fixture { module, data: Arc::new(g), layer, game, talk, notes }
+        Fixture { module, data: Arc::new(g), layer, game, talk, notes, haks: lacks }
     }
 }
 
@@ -700,6 +704,7 @@ fn run_one(
     // A built-in check follows the fixture's project file: what of it
     // was not understood is left out of the rules it holds the module to.
     if t.builtin.is_some() {
+        notes.extend(fixture.haks.clone());
         for w in &fixture.module.project_file.warnings {
             notes.push(format!("the fixture's project file: {w}"));
         }

@@ -3,7 +3,7 @@ type: Manual Page
 title: Writing plugins
 description: Writing plugins - a first plugin, how a plugin runs (events too, a resource's own around a save and the after-create hook), the manifest, reading and editing the module, commands on what is selected, the game's data, talking to the user, settings (ctx.settings, their scopes and where each is kept), files and haks outside the module, areas and terrain, checks and the fixes of their findings, several files, trying and testing (a plugin's own tests, mg plugin test), editor types, versions, sharing, and a project's own plugins.
 tags: [manual, plugins, luau]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T11:19:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T11:25:06Z }
 ---
 
 # Writing plugins
@@ -921,7 +921,8 @@ talk table (over the one the game would find in your `tlk/` folder; a
 nasher project's own, in `src/`, is found too), and a hak the fixture
 lists, in the folder's `hak/`, is read in place of the one in your hak
 folder. With no game, a hak the fixture lists and the folder has not is
-said in a note.
+said in a note of a test of Moonglow's checks (a plugin's own reads say
+what they lacked, below).
 
 ```text
 tests/

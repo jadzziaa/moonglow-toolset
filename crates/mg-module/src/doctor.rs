@@ -1762,7 +1762,7 @@ fn two_da(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
 }
 
 /// The game's own copy of a table (the lowest, below every custom layer).
-fn game_copy(rm: &ResMan, name: &str) -> Option<TwoDa> {
+pub fn game_copy(rm: &ResMan, name: &str) -> Option<TwoDa> {
     let key = ResKey::parse(name, ResType::TWODA)?;
     let data = rm
         .layers()
