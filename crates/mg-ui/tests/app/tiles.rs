@@ -95,6 +95,122 @@ fn tileset_made_edited_saved_with_its_palette() {
     assert_eq!(a.lines().zip(b.lines()).filter(|(x, y)| x != y).count(), 1);
 }
 
+/// Renaming a terrain or a crosser in the tileset editor (Terrains and
+/// Crossers' Rename…): every tile naming it follows (Rural's Grass, a
+/// game tileset's copy), so the file still reads without an undeclared
+/// name and Check finds none; a name taken, empty or with a space is
+/// refused, saying why; one step to undo; saved, the palette beside the
+/// file follows, and the undo saved puts it back.
+#[test]
+fn a_tileset_s_terrain_and_crosser_are_renamed_where_its_tiles_name_them() {
+    let root = mg_testkit::corpus!();
+    let Some(rs) = gpu() else { return };
+    let dir = mg_testkit::scratch_dir("ui-tileset-rename");
+    let game =
+        mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+    let ttr = game.get(&ResKey::parse("ttr01", ResType::SET).unwrap()).unwrap().into_owned();
+    let path = dir.join("ttr01.set");
+    std::fs::write(&path, &ttr).unwrap();
+    let dialogs = NoDialogs { open: vec![path.clone()], ..Default::default() };
+    let mut app = game_app_with(&root, None, dialogs);
+    app.set_render_state(rs.clone());
+    app.open_module(&sample_module(&dir));
+    app.open_palette = false;
+    let mut h = gpu_harness(app, rs, 1300.0, 900.0);
+    h.run_steps(3);
+    mg_ui::tileset_view::open(h.state_mut());
+    h.run_steps(3);
+    h.get_by_label("Make Palette").click();
+    h.run_steps(3);
+    let palette = |h: &Harness<'_, Moonglow>| -> Vec<String> {
+        let path = h.state().tilesets[0].palette_path();
+        let gff = mg_gff::Gff::read(&std::fs::read(path).unwrap()).unwrap();
+        let mut out = Vec::new();
+        fn walk(items: &[mg_gff::Struct], out: &mut Vec<String>) {
+            for s in items {
+                match s.list("LIST") {
+                    Some(l) => walk(l, out),
+                    None => out.extend(s.resref("RESREF").map(|r| r.to_string())),
+                }
+            }
+        }
+        walk(gff.root.list("MAIN").unwrap(), &mut out);
+        out
+    };
+    assert!(palette(&h).contains(&"grass".to_string()));
+    let t = h.state().tilesets[0].tileset().unwrap().clone();
+    let grass = t.terrain("Grass").expect("Rural's Grass");
+    let corners = |t: &mg_set::Tileset, name: &str| {
+        t.tiles.iter().flat_map(|x| &x.corners).filter(|c| c.0.eq_ignore_ascii_case(name)).count()
+    };
+    let named = corners(&t, "Grass");
+    assert!(named > 100, "{named}");
+    h.get_by_label("Terrains and Crossers").click();
+    h.run_steps(3);
+    let shots = mg_testkit::scratch_dir("ui-tileset-rename-shots");
+    h.render().unwrap().save(shots.join("before.png")).unwrap();
+    // Rename…: the field; a name taken, then one with a space, refused.
+    h.get_all_by_label("Rename…").nth(grass).expect("its row's button").click();
+    h.run_steps(3);
+    assert_eq!(h.state().tilesets[0].renaming, Some((false, grass, "Grass".to_string())));
+    for (typed, why) in [("water", "The tileset has one of that name"), ("Tall grass", "No spaces")]
+    {
+        h.state_mut().tilesets[0].renaming.as_mut().unwrap().2 = typed.into();
+        h.run_steps(3);
+        h.get_by_label_contains(why);
+        assert!(h.get_by_label("Rename").accesskit_node().is_disabled(), "{typed}: refused");
+    }
+    h.state_mut().tilesets[0].renaming.as_mut().unwrap().2 = "Meadow".into();
+    h.run_steps(3);
+    h.render().unwrap().save(shots.join("renaming.png")).unwrap();
+    h.get_by_label("Rename").click();
+    h.run_steps(3);
+    let t = h.state().tilesets[0].tileset().unwrap().clone();
+    assert_eq!(t.terrains[grass].name, "Meadow");
+    assert_eq!((corners(&t, "Meadow"), corners(&t, "Grass")), (named, 0), "every tile followed");
+    assert!(t.warnings.is_empty(), "nothing undeclared: {:?}", t.warnings);
+    h.render().unwrap().save(shots.join("after.png")).unwrap();
+    h.get_by_label("Check").click();
+    h.run_steps(3);
+    let findings = h.state().tilesets[0].findings.clone().unwrap();
+    assert!(
+        !findings.iter().any(|f| f.message.contains("Meadow") || f.message.contains("Grass")),
+        "{findings:?}"
+    );
+    // A crosser too.
+    let road = t.crosser("Road").expect("Rural's Road");
+    let edges = |t: &mg_set::Tileset, name: &str| {
+        t.tiles.iter().flat_map(|x| &x.edges).filter(|e| e.eq_ignore_ascii_case(name)).count()
+    };
+    let roads = edges(&t, "Road");
+    h.state_mut().tilesets[0].renaming = Some((true, road, "Lane".into()));
+    h.run_steps(3);
+    h.get_by_label("Rename").click();
+    h.run_steps(3);
+    let t = h.state().tilesets[0].tileset().unwrap().clone();
+    assert_eq!((t.crossers[road].name.as_str(), edges(&t, "Lane")), ("Lane", roads));
+    // Saved: the palette follows both.
+    h.get_by_label("Save").click();
+    h.run_steps(3);
+    let p = palette(&h);
+    assert!(p.contains(&"meadow".into()) && p.contains(&"lane".into()), "{p:?}");
+    assert!(!p.contains(&"grass".into()) && !p.contains(&"road".into()), "{p:?}");
+    let saved =
+        mg_set::Tileset::parse(&std::fs::read(&path).unwrap(), mg_core::Codepage::default())
+            .unwrap();
+    assert_eq!(saved.terrains[grass].name, "Meadow");
+    // Undone, one step each, and saved: as it was, the palette too.
+    for _ in 0..2 {
+        h.get_by_label("Undo").click();
+        h.run_steps(3);
+    }
+    h.get_by_label("Save").click();
+    h.run_steps(3);
+    assert_eq!(std::fs::read(&path).unwrap(), ttr, "the file as it was, byte for byte");
+    let p = palette(&h);
+    assert!(p.contains(&"grass".into()) && p.contains(&"road".into()), "{p:?}");
+}
+
 /// A tileset group's name is typed like any other field: kept while it is
 /// typed, set when focus leaves.
 #[test]

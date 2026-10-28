@@ -235,6 +235,54 @@ pub fn add_type(f: &mut SetFile, crosser: bool, name: &str, strref: Option<u32>)
     n
 }
 
+/// Renames terrain `index` (`crosser`: crosser `index`) to `to`, and every
+/// place the file names it with it, each value where it stands: the tiles'
+/// corners (a crosser: their edges), the general Border, Default and Floor
+/// (a terrain's), and the painting rules' Placed, Adjacent and Changed.
+/// Names are matched without case, as the game reads them. Returns how
+/// many values besides its own name were changed; `None` when there is no
+/// such terrain or crosser. (`to` is the caller's to check: not empty, no
+/// spaces, no other type's name.) Areas name tiles by number, not
+/// terrains, so they need nothing; a palette (`.itp`) names terrains and
+/// crossers by name, and follows apart.
+pub fn rename_type(f: &mut SetFile, crosser: bool, index: usize, to: &str) -> Option<usize> {
+    let own = format!("{}{index}", if crosser { "CROSSER" } else { "TERRAIN" });
+    let from = f.get(&own, "Name")?.to_string();
+    f.set(&own, "Name", to);
+    // Which sections name it, and in which keys: the tiles' (not their
+    // doors'), the rules', the general ones.
+    let numbered = |name: &str, prefix: &str| {
+        name.to_ascii_uppercase()
+            .strip_prefix(prefix)
+            .is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+    };
+    let sections: Vec<String> =
+        f.lines.iter().filter_map(|l| header(l)).map(String::from).collect();
+    let tile_keys: &[&str] = if crosser { &crate::EDGES } else { &crate::CORNERS };
+    // (Rules and the general names are of terrains.)
+    let rule_keys: &[&str] = if crosser { &[] } else { &["Placed", "Adjacent", "Changed"] };
+    let general_keys: &[&str] = if crosser { &[] } else { &["Border", "Default", "Floor"] };
+    let mut changed = 0;
+    for section in sections {
+        let keys = if numbered(&section, "TILE") {
+            tile_keys
+        } else if numbered(&section, "PRIMARY RULE") || numbered(&section, "SECONDARY RULE") {
+            rule_keys
+        } else if section.eq_ignore_ascii_case("GENERAL") {
+            general_keys
+        } else {
+            continue;
+        };
+        for key in keys {
+            if f.get(&section, key).is_some_and(|v| v.eq_ignore_ascii_case(&from)) {
+                f.set(&section, key, to);
+                changed += 1;
+            }
+        }
+    }
+    Some(changed)
+}
+
 /// Adds a tile copied from tile `from` (with its door sections), the last
 /// one; returns its index. Tiles are numbered by place: areas store the
 /// numbers, so tiles are only added at the end.
@@ -395,6 +443,44 @@ mod tests {
         f.remove_key("GENERAL", "Interior");
         f.set("GENERAL", "Transition", "5");
         assert_eq!(f.text(), SAMPLE);
+    }
+
+    #[test]
+    fn a_renamed_terrain_or_crosser_is_followed_where_the_file_names_it() {
+        let text = "[GENERAL]\r\nName=ZZZ01\r\nBorder=grass\r\nDefault=Grass\r\nFloor=Water\r\n\
+\r\n[TERRAIN TYPES]\r\nCount=2\r\n\r\n[TERRAIN0]\r\nName=Grass\r\n\r\n[TERRAIN1]\r\nName=Water\r\n\
+\r\n[CROSSER TYPES]\r\nCount=1\r\n\r\n[CROSSER0]\r\nName=Road\r\n\
+\r\n[PRIMARY RULES]\r\nCount=1\r\n\r\n[PRIMARY RULE0]\r\nPlaced=Water\r\nAdjacent=GRASS\r\nChanged=Grass\r\n\
+\r\n[TILES]\r\nCount=1\r\n\r\n[TILE0]\r\nModel=zzz01_a01_01\r\nTopLeft=Grass\r\nTopRight=Water\r\n\
+BottomLeft=grass\r\nBottomRight=Grass\r\nTop=Road\r\nRight=\r\nBottom=road\r\nLeft=\r\nDoors=1\r\n\
+\r\n[TILE0DOOR0]\r\nType=Grass\r\n";
+        let mut f = SetFile::parse(text);
+        assert_eq!(rename_type(&mut f, false, 0, "Meadow"), Some(7));
+        let t = crate::Tileset::parse(f.text().as_bytes(), mg_core::Codepage::default()).unwrap();
+        assert!(t.warnings.is_empty(), "every name found: {:?}", t.warnings);
+        assert_eq!(t.terrains[0].name, "Meadow");
+        let corners: Vec<&str> = t.tiles[0].corners.iter().map(|c| c.0.as_str()).collect();
+        assert_eq!(corners, ["Meadow", "Water", "Meadow", "Meadow"]);
+        let g = &t.general;
+        assert_eq!(
+            (g.border.as_str(), g.default.as_str(), g.floor.as_str()),
+            ("Meadow", "Meadow", "Water")
+        );
+        let r = &t.primary_rules[0];
+        assert_eq!(
+            (r.placed.as_str(), r.adjacent.as_str(), r.changed.as_str()),
+            ("Water", "Meadow", "Meadow")
+        );
+        // Only those lines: the door's, the other terrain's, the rest stay.
+        let now = f.text();
+        let changed: Vec<(&str, &str)> =
+            text.lines().zip(now.lines()).filter(|(a, b)| a != b).collect();
+        assert_eq!(changed.len(), 8, "{changed:?}");
+        assert!(f.text().contains("[TILE0DOOR0]\r\nType=Grass"));
+        // A crosser: the tiles' edges.
+        assert_eq!(rename_type(&mut f, true, 0, "Path"), Some(2));
+        assert_eq!((f.get("TILE0", "Top"), f.get("TILE0", "Bottom")), (Some("Path"), Some("Path")));
+        assert_eq!(rename_type(&mut f, true, 3, "Nope"), None, "no such crosser");
     }
 
     #[test]

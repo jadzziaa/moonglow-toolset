@@ -1179,7 +1179,15 @@ open tilesets too, and closing one with unsaved changes asks first.
   border, default and floor terrains, interior, height transitions, and
   grass.
 - **Terrains and Crossers:** the lists, and **Add Terrain** and **Add
-  Crosser** by name.
+  Crosser** by name. **Rename…** beside one renames it, and every place
+  the file names it follows: the tiles' corners (a crosser: their
+  edges), the general border, default and floor terrains and the
+  painting rules (one step to undo). A name another terrain or crosser
+  has, one with a space, or one longer than 16 characters (a palette
+  names it as a ResRef) is refused, saying why. Areas name tiles by
+  number, so they need nothing; when the file is saved, the palette
+  beside it (`<tileset>palstd.itp`) follows the names changed since the
+  last save, the rest of it as it was.
 - **Tiles:** every tile with its corners and edges; **Find** by model or
   terrain. Per tile: model, walkmesh, minimap picture, path node,
   orientation, corner terrains and heights, edge crossers, lights and

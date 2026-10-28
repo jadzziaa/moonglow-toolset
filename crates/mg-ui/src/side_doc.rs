@@ -116,8 +116,11 @@ impl SideDoc for tileset_view::TilesetDoc {
     fn save(app: &mut Moonglow, id: u32) -> bool {
         let Some(d) = app.tilesets.iter_mut().find(|d| d.id == id) else { return false };
         match d.save() {
-            Ok(()) => {
+            Ok(palette) => {
                 app.log.info(format!("Saved {}", d.path.display()));
+                if let Some(note) = palette {
+                    app.log.info(note);
+                }
                 true
             }
             Err(e) => {

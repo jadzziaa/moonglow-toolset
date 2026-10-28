@@ -2591,8 +2591,6 @@ contribution itself states as not done or not checked.
 - **Rules and doors:** primary and secondary painting rules and a tile's
   door hooks (`[TILEnDOORm]`) aren't on the editor's pages; they stay as
   the file has them (edit the text for now). (M)
-- **Renaming a terrain or crosser** isn't offered: every tile naming it
-  would change with it. (S)
 - **The palette's arrangement:** it's generated flat, without the
   subfolders hand-made palettes have. (S)
 - **A tileset with holes** (a builder's report: a big old tileset,
