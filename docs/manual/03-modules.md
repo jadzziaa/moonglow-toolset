@@ -310,7 +310,7 @@ unpacking or packing between the toolset and git.
   Project…**, choosing an empty folder. Moonglow writes a `nasher.cfg` as
   `nasher init` does, with everything under `src/`, its sources taking in
   scripts, GFF files as JSON, NUI windows, and the module's other kinds
-  of file (2DAs, pictures).
+  of file (2DAs, pictures, compiled scripts without their source).
 - **Build › Pack** *file* writes the module the project builds, as `nasher
   pack` does. **Test Module** (F9) packs it into the game's `modules`
   folder and starts the game on it.
@@ -346,8 +346,11 @@ unpacking or packing between the toolset and git.
   server from the project.
 - **Compiled scripts are build output.** A project keeps scripts as `.nss`
   only, and Moonglow compiles them when it packs. A compiled script
-  without its source can't be kept in a project; Moonglow names any it
-  leaves out.
+  without its source (an old module's, whose source is lost) is kept as
+  it is, a `.ncs` file in the project: Save As nasher Project's
+  `nasher.cfg` takes `.ncs` files in, and nasher packs them as they are
+  (`nasher unpack` loses them). The log names them. Once its source is
+  in the module, its `.ncs` file goes at the next save.
 - **Locked objects stay out of the files.** A lock (the area view's
   **Lock**) is a selection aid the game ignores, so a project's area files
   don't carry it, and locking never shows in a diff. Moonglow keeps a

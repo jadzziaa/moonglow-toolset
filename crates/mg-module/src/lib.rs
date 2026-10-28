@@ -468,19 +468,26 @@ impl Module {
                         })
                         .filter_map(|k| k.restype.extension().map(str::to_string))
                         .collect();
-                    kinds.sort();
-                    kinds.dedup();
-                    let mut project = nasher::Project::create(root, &file, &kinds)?;
-                    // A project keeps scripts as source; compiled scripts
-                    // without one are lost, as with nasher.
+                    // A project keeps scripts as source, and compiles them
+                    // when it packs; a compiled script without its source
+                    // is kept as it is, its sources taking `.ncs` files in
+                    // (nasher packs them so; its unpack loses them).
                     let orphans: Vec<String> = self
                         .keys_of(ResType::NCS)
                         .filter(|k| !self.contains(&ResKey::new(k.resref, ResType::NSS)))
                         .map(|k| k.to_string())
                         .collect();
                     if !orphans.is_empty() {
+                        kinds.push("ncs".into());
+                    }
+                    kinds.sort();
+                    kinds.dedup();
+                    let mut project = nasher::Project::create(root, &file, &kinds)?;
+                    if !orphans.is_empty() {
                         project.warnings.push(format!(
-                            "compiled scripts without source aren't kept in the project: {}",
+                            "compiled scripts without their source are kept in the project as \
+                             they are (its include takes .ncs files in, and nasher packs them): \
+                             {}",
                             orphans.join(", ")
                         ));
                     }

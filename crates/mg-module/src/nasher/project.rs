@@ -50,6 +50,14 @@ pub struct Project {
     spellings: HashMap<ResKey, PathBuf>,
 }
 
+/// Whether `key` is a compiled script whose source the module has: build
+/// output, which a project doesn't keep (nasher compiles it when it
+/// packs). One without its source is kept as it is, as a `.ncs` file
+/// (nasher packs it, where the include takes `.ncs` files in).
+fn built(key: &ResKey, resources: &Resources) -> bool {
+    key.restype == ResType::NCS && resources.contains_key(&ResKey::new(key.resref, ResType::NSS))
+}
+
 /// Whether a file's name is in lower case (as nasher's pack renames
 /// every source file).
 fn is_lower(path: &Path) -> bool {
@@ -344,12 +352,12 @@ impl Project {
 
     /// The source file a resource the project doesn't have yet is written
     /// to, where nasher's rules put it (`unknown` when none matches);
-    /// `None` for one the rules discard, and for compiled scripts (build
-    /// output, never written).
+    /// `None` for one the rules discard. (A compiled script with its
+    /// source is build output, never written: [`built`].)
     fn new_file(&self, key: &ResKey) -> Option<PathBuf> {
         // (A name with a folder in it gets no file: it would be written
         // outside the project.)
-        if key.restype == ResType::NCS || !key.resref.is_file_name() {
+        if !key.resref.is_file_name() {
             return None;
         }
         let json = is_json_type(key.restype);
@@ -371,7 +379,7 @@ impl Project {
         let root = self.root();
         let mut out: Vec<PathBuf> = keys
             .iter()
-            .filter(|k| !self.sources.contains_key(*k))
+            .filter(|k| !self.sources.contains_key(*k) && k.restype != ResType::NCS)
             .filter_map(|k| self.new_file(k))
             .filter(|p| !self.target().covers(root, p))
             .collect();
@@ -724,6 +732,9 @@ impl Project {
         let mut uncovered: Vec<PathBuf> = Vec::new();
         for (key, bytes) in resources {
             match self.sources.get(key) {
+                // (A compiled script kept without its source has one now:
+                // its file goes, below.)
+                _ if built(key, resources) => {}
                 Some(src) if src.resource[..] == bytes[..] => {}
                 Some(src) => {
                     let text = self.source_bytes(key, src.json, bytes, Some(&src.file))?;
@@ -753,8 +764,9 @@ impl Project {
                 }
             }
         }
-        let mut gone: Vec<(&ResKey, &Source)> =
-            self.sources.iter().filter(|(k, _)| !resources.contains_key(*k)).collect();
+        let mut gone: Vec<(&ResKey, &Source)> = (self.sources.iter())
+            .filter(|(k, _)| !resources.contains_key(*k) || built(k, resources))
+            .collect();
         gone.sort_by(|a, b| a.1.path.cmp(&b.1.path));
         for (key, src) in gone {
             match disk(&src.path) {
@@ -1528,6 +1540,40 @@ mod tests {
         std::fs::write(root.join("src/module.ifo.nwnt"), "x").unwrap();
         let err = Module::open(&root).unwrap_err().to_string();
         assert!(err.contains("NWNT"), "{err}");
+    }
+
+    /// A compiled script without its source (a module's, from before its
+    /// builder kept sources) is kept when the module becomes a project, as
+    /// it is: the project's include takes `.ncs` files in (nasher packs
+    /// such a file into the module, measured with nasher 1.1.3). Once its
+    /// source is in the module the compiled script is build output, and
+    /// its file goes.
+    #[test]
+    fn a_compiled_script_without_source_is_kept() {
+        let root = scratch("orphan-ncs");
+        let mut m = module();
+        m.set(key("old_one", ResType::NCS), b"NCS V1.0 old".to_vec());
+        m.save_as(&project_location(&root)).unwrap();
+        let said = m.project.as_ref().unwrap().warnings.join("\n");
+        assert!(said.contains("kept in the project as they are") && said.contains("old_one"));
+        let cfg = std::fs::read_to_string(root.join("nasher.cfg")).unwrap();
+        assert!(cfg.contains("include = \"src/**/*.{") && cfg.contains(",ncs"), "{cfg}");
+        let file = root.join("src/old_one.ncs");
+        assert_eq!(std::fs::read(&file).unwrap(), b"NCS V1.0 old");
+        assert!(!root.join("src/on_load.ncs").exists(), "one with its source is build output");
+        let mut m = Module::open(&root).unwrap();
+        assert_eq!(m.get(&key("old_one", ResType::NCS)), Some(&b"NCS V1.0 old"[..]));
+        assert!(m.project.as_ref().unwrap().warnings.is_empty());
+        assert!(m.project.as_ref().unwrap().left_out.is_empty());
+        // Its source written: the compiled script is build output now.
+        m.set(key("old_one", ResType::NSS), b"void main() {}\n".to_vec());
+        m.save().unwrap();
+        assert!(!file.exists() && root.join("src/old_one.nss").exists());
+        assert!(m.contains(&key("old_one", ResType::NCS)), "still the module's, until packed");
+        m.save().unwrap();
+        assert!(!file.exists());
+        let m = Module::open(&root).unwrap();
+        assert!(!m.contains(&key("old_one", ResType::NCS)));
     }
 
     /// The JSON of an item, tagged `tag`.

@@ -36,14 +36,19 @@ fn init_then_build_gives_the_module_back() {
     ]);
     let original = Module::open(&module).unwrap();
     let built = Module::open(&out).unwrap();
-    // Compiled scripts without source (this module has one) aren't kept.
-    let mut want: Vec<_> = original
-        .keys()
-        .filter(|k| {
-            k.restype != ResType::NCS || original.contains(&ResKey::new(k.resref, ResType::NSS))
-        })
+    // A compiled script without its source (this module has one) is kept
+    // in the project as it is, and packed so.
+    let orphans: Vec<ResKey> = (original.keys_of(ResType::NCS))
+        .filter(|k| !original.contains(&ResKey::new(k.resref, ResType::NSS)))
         .copied()
         .collect();
+    assert!(!orphans.is_empty());
+    for k in &orphans {
+        let file = project.join(format!("src/{}", k.to_string().to_ascii_lowercase()));
+        assert!(file.is_file(), "{} kept", file.display());
+        assert_eq!(built.get(k), original.get(k), "{k} packed as it was");
+    }
+    let mut want: Vec<_> = original.keys().copied().collect();
     let mut have: Vec<_> = built.keys().copied().collect();
     want.sort();
     have.sort();
@@ -56,7 +61,8 @@ fn init_then_build_gives_the_module_back() {
     let count = |m: &Module, t| m.keys_of(t).count();
     assert_eq!(count(&built, ResType::NDB), 0);
     assert!(count(&with, ResType::NDB) > 10);
-    assert_eq!(count(&with, ResType::NDB), count(&with, ResType::NCS));
+    // (Each script compiled; the one kept without its source has none.)
+    assert_eq!(count(&with, ResType::NDB), count(&with, ResType::NCS) - orphans.len());
 }
 
 /// `mg build --target` of a target that packs a talk table: the table made
