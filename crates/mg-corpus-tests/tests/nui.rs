@@ -599,6 +599,44 @@ fn a_build_compiles_with_the_compiler_of_the_options() {
     assert!(e.message.starts_with("External compiler: "), "{e}");
 }
 
+/// Build with a real external compiler (neverwinter.nim's
+/// `nwn_script_comp`, the official compiler as a program, in its own
+/// arguments): the window's event script compiles to the bytes the built-in
+/// compiler makes (the same compiler), and with debug files asked for, its
+/// `.ndb` is made too.
+#[test]
+fn a_build_with_an_external_compiler_makes_what_the_built_in_makes() {
+    let root = corpus!();
+    let tool = mg_testkit::oracle_tool!("nwn_script_comp");
+    let rm = game(&root);
+    let ws = project();
+    let built_in = mg_nui::generate(&ws.module, "test_nui", &Build::new(&rm)).unwrap();
+    let external = ExternalCompiler {
+        program: tool,
+        game: Some(root.clone()),
+        user: Some(mg_testkit::scratch_dir("nui-external-compiler-user")),
+        ..Default::default()
+    };
+    // (Debug files asked for as Options asks: of the compiler, and of the build.)
+    let made = |debug: bool| {
+        let external = ExternalCompiler { debug, ..external.clone() };
+        let how = Build { external: Some(&external), debug, ..Build::new(&rm) };
+        let made = mg_nui::generate(&ws.module, "test_nui", &how).unwrap();
+        let mut ws = project();
+        ws.apply(made.command).unwrap();
+        ws
+    };
+    let with = made(false);
+    let mut theirs = project();
+    theirs.apply(built_in.command).unwrap();
+    let ncs = key("test_nui_e", ResType::NCS);
+    assert!(compiled(&with, "test_nui_e"));
+    assert_eq!(with.module.get(&ncs), theirs.module.get(&ncs), "the same compiler, the same bytes");
+    assert_eq!(text(&with, "test_nui_o"), text(&theirs, "test_nui_o"));
+    let debug = made(true);
+    assert!(debug.module.contains(&key("test_nui_e", ResType::NDB)), "a debug file");
+}
+
 /// A handler shows a swap layout variant by calling the opener include's
 /// function for it, so a variant edited after the code was written still
 /// reaches the game on the next Build.

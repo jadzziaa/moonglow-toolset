@@ -1268,6 +1268,43 @@ fn build_takes_the_window_s_own_scripts_as_typed() {
     assert!(!log.iter().any(|(_, m)| m.contains("typed_e.nss")), "{log:?}");
 }
 
+/// What Build compiles is added to the compile memory, and kept where
+/// Compile All keeps it: the next session's Compile All passes over the
+/// window's event script.
+#[test]
+fn build_adds_what_it_compiled_to_the_compile_memory() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("nui-build-remembered");
+    let path = dir.join("keep.mod");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(
+        Some(mg_resman::GameInstall::new(root, None, "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.ws = Some(mg_edit::Workspace::new(mg_module::Module::open(&path).unwrap()));
+    let kept = dir.join("compiled");
+    std::fs::create_dir_all(&kept).unwrap();
+    app.compiled_dir = Some(kept.clone());
+    app.run(Action::NewNui("shop".into()));
+    app.run(Action::GenerateNui { name: "shop".into(), export: false });
+    let events = ResKey::parse("shop_e", ResType::NSS).unwrap();
+    assert!(app.compiled_scripts().contains(&events), "{:?}", app.compiled_scripts());
+    assert_eq!(std::fs::read_dir(&kept).unwrap().count(), 1, "a file for the module");
+    // The next session reads it: Compile All leaves the event script alone.
+    app.forget_compiled();
+    let mut h = creator(app, [1000, 700]);
+    let before = h.state().log.entries.len();
+    h.state_mut().actions.push(Action::CompileScripts);
+    h.run_steps(3);
+    let said: Vec<String> =
+        h.state().log.entries[before..].iter().map(|(_, m)| m.clone()).collect();
+    let line = said.iter().rfind(|m| m.starts_with("Compiled ")).expect("Compile All's line");
+    // (The opener, an include, is looked at and makes nothing.)
+    assert!(line.contains("0 changed; 1 as they were when last compiled, left alone"), "{said:?}");
+}
+
 #[test]
 fn export_compiles_the_window_s_files_and_leaves_the_module_s_events() {
     let root = mg_testkit::corpus!();
