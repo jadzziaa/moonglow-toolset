@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T05:02:47Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T06:11:06Z }
 ---
 
 # Areas
@@ -123,23 +123,37 @@ dropdowns keep their words.
   Switched off, everything is evenly lit, whatever the area's colors and
   lights: for working in a dark area. Areas opened later open as you left
   it.
-- **◑ Shadows**: the sun's shadows by day and the moon's at night, where
-  the area has them (Area Properties' **Shadows**, sun and moon, and its
-  **Shadow Opacity**), as the game draws them, so that you can set the
-  opacity by eye: they fall away from the sun (to the south-west, as the
-  game's sun stands for every area), cast by the meshes of tiles,
-  placeables and doors that cast them in the game (a model's `shadow`
-  flag, including shadow-only meshes that aren't drawn), and they darken
-  the tiles and the **static** placeables, not dynamic ones, as in the
-  game. Opacity 100 is as dark as the game makes them; like the game,
-  Moonglow fades them toward the top of the picture (from a camera looking
+- **◑ Shadows**: the shadows the game draws, where the area has them
+  (Area Properties' **Shadows**, sun and moon, and its **Shadow
+  Opacity**), so that you can set the opacity by eye. A click turns them
+  all off, and on again as they were; hold the button a moment, or
+  right-click it, for the kinds to choose from:
+  - **Sun and Moon Shadows**: the sun's by day and the moon's at night,
+    falling away from the sun (to the south-west, as the game's sun stands
+    for every area), cast by the tiles and the **static** placeables (a
+    model's meshes flagged `shadow`, including shadow-only meshes that
+    aren't drawn).
+  - **Creature Shadows**: creatures, dynamic placeables and doors cast the
+    sun's and moon's shadows too, posed as they stand, as the game's
+    Creature Shadow Detail at Best has them (its default; at Fast or Off,
+    none of them casts).
+  - **Light Shadows**: where the area has no sun's or moon's shadows at
+    the time (an interior, or night without Moon Shadows), each creature
+    casts one from the nearest light that casts shadows, as in the game: a
+    light with `shadow 1` and a radius of 10 m or more (a placeable's
+    light, a lamp post; the tiles' torches, 7 m, cast none), from a little
+    above it (its `verticaldisplacement`: a placeable's light 3 m).
+
+  All three are on at first. Every shadow darkens the tiles and the
+  static placeables, not dynamic ones or creatures, as in the game.
+  Opacity 100 is as dark as the game makes them; like the game, Moonglow
+  fades them toward the top of the picture (from a camera looking
   straight down, not at all), so they look as dark as in the game from
-  the same angle. Creatures cast none yet, nor do torches and tile lights,
-  and grass stays bright in a shadow; with **Fade Geometry** on, the roofs
-  it leaves out cast none either.
-  Switched off (or with **Lighting** off) there are none; areas opened
-  later open as you left it. Changes to the shadow fields in Area
-  Properties show at once.
+  the same angle; a light's shadow is lighter than the sun's at the same
+  opacity, as the game's. Grass stays bright in a shadow, and with **Fade
+  Geometry** on the roofs it leaves out cast none. Switched off (or with
+  **Lighting** off) there are none; areas opened later open as you left
+  them. Changes to the shadow fields in Area Properties show at once.
 - **🔊 Sounds**, **Ambient**, **Music**: play the placed sound objects, the
   area's ambient sound and its music, heard from where the camera looks.
 - **◎ Sound Ranges**: two circles around each placed sound that is heard
