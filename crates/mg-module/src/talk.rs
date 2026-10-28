@@ -167,6 +167,14 @@ pub struct Line {
     pub sound_length: f32,
 }
 
+/// The sound length a line shows: the entry's where its flag says it has
+/// one, and where it has one without the flag (a table kept as JSON:
+/// `nwn_tlk` keeps a length without a sound, and reads it in with no
+/// flag), so that it is seen and kept.
+fn shown_length(e: &TlkEntry) -> f32 {
+    if e.flags & FLAG_SOUND_LENGTH != 0 || e.sound_length > 0.0 { e.sound_length } else { 0.0 }
+}
+
 /// The entries of a line, before or after a change: the table's and the
 /// feminine table's (`None` where the line isn't there).
 type Entries = (Option<TlkEntry>, Option<TlkEntry>);
@@ -290,9 +298,7 @@ impl Table {
                 .filter(|e| e.flags & FLAG_SOUND != 0)
                 .map(|e| String::from_utf8_lossy(&e.sound).trim_end_matches('\0').to_string())
                 .unwrap_or_default(),
-            sound_length: e
-                .filter(|e| e.flags & FLAG_SOUND_LENGTH != 0)
-                .map_or(0.0, |e| e.sound_length),
+            sound_length: e.map_or(0.0, shown_length),
         }
     }
 
@@ -312,11 +318,16 @@ impl Table {
             let mut e = old.cloned().unwrap_or_default();
             e.text = encode(text)?;
             e.sound = sound.as_bytes().to_vec();
-            e.sound_length = line.sound_length.max(0.0);
             let flag = |on: bool, f: u32, flags: u32| if on { flags | f } else { flags & !f };
             e.flags = flag(!text.is_empty(), FLAG_TEXT, e.flags);
             e.flags = flag(!sound.is_empty(), FLAG_SOUND, e.flags);
-            e.flags = flag(e.sound_length > 0.0, FLAG_SOUND_LENGTH, e.flags);
+            // (A length left as it was shown keeps the entry's own, and
+            // its flag as it was: a table's JSON keeps a length without
+            // a sound, and `nwn_tlk` reads it in with no flag.)
+            if old.is_none_or(|o| shown_length(o).to_bits() != line.sound_length.to_bits()) {
+                e.sound_length = line.sound_length.max(0.0);
+                e.flags = flag(e.sound_length > 0.0, FLAG_SOUND_LENGTH, e.flags);
+            }
             Ok(e)
         };
         let masculine = entry(&line.text, self.tlk.entries.get(row))?;
@@ -881,6 +892,46 @@ mod tests {
 
     fn line(text: &str) -> Line {
         Line { text: text.into(), feminine: None, sound: String::new(), sound_length: 0.0 }
+    }
+
+    /// A project's table (JSON) with a line that has a length and no
+    /// sound, as `nwn_tlk` keeps one: the editor shows the length, and a
+    /// change to the line's text keeps it, in the file written back.
+    #[test]
+    fn a_length_without_a_sound_is_shown_and_kept() {
+        let dir = mg_testkit::scratch_dir("talk-length-alone");
+        let path = dir.join("mine.tlk.json");
+        let text = r#"{"language":0,"entries":[{"id":0,"text":"Hello","soundLen":2.5},{"id":1,"text":"Bye"}]}"#;
+        std::fs::write(&path, text).unwrap();
+        let style = JsonStyle::default();
+        let found = Found { source: Source::Json { path: path.clone(), style }, data: text.into() };
+        let mut t = Table::open("mine", found, None).unwrap();
+        assert_eq!(t.line(0).sound_length, 2.5);
+        assert_eq!(t.tlk.entries[0].flags, FLAG_TEXT, "no flag of a length, as nwn_tlk reads it");
+        t.set_line(0, &Line { text: "Hello there".into(), ..t.line(0) }, None).unwrap();
+        assert_eq!(t.tlk.entries[0].flags, FLAG_TEXT, "the flags as they were");
+        t.save().unwrap();
+        let written = std::fs::read_to_string(&path).unwrap();
+        assert!(written.contains(r#""text":"Hello there","soundLen":2.5"#), "{written}");
+        // A length changed is the length set, flagged; taken away, gone.
+        t.set_line(0, &Line { sound_length: 1.25, ..t.line(0) }, None).unwrap();
+        assert_eq!(t.tlk.entries[0].flags, FLAG_TEXT | FLAG_SOUND_LENGTH);
+        t.set_line(0, &Line { sound_length: 0.0, ..t.line(0) }, None).unwrap();
+        t.save().unwrap();
+        assert!(!std::fs::read_to_string(&path).unwrap().contains("soundLen"));
+        // A binary table's entry with a length its flag doesn't give: shown,
+        // and kept as it is (flag and all) when the line's text changes.
+        let mut e = TlkEntry { text: b"x".to_vec(), flags: FLAG_TEXT, ..Default::default() };
+        e.sound_length = 3.0;
+        let tlk = Tlk { language: Language::ENGLISH, entries: vec![e] };
+        let file = dir.join("bin.tlk");
+        std::fs::write(&file, tlk.to_bytes().unwrap()).unwrap();
+        let found =
+            Found { source: Source::File(file.clone()), data: std::fs::read(&file).unwrap() };
+        let mut t = Table::open("bin", found, None).unwrap();
+        assert_eq!(t.line(0).sound_length, 3.0);
+        t.set_line(0, &Line { text: "y".into(), ..t.line(0) }, None).unwrap();
+        assert_eq!((t.tlk.entries[0].flags, t.tlk.entries[0].sound_length), (FLAG_TEXT, 3.0));
     }
 
     #[test]

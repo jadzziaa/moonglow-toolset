@@ -149,7 +149,13 @@ impl Codepage {
     /// A codepage by its name (`windows-1252`, `cp1250`, `latin1`, ...).
     pub fn for_label(label: &str) -> Option<Codepage> {
         let label = label.trim();
+        // (Windows' numbers for the codepages of more than a byte a
+        // character, as `nwn_tlk --nwn-encoding cp936` names one, are
+        // their own names: encoding_rs knows them by those.)
         let label = match label.to_ascii_lowercase().strip_prefix("cp") {
+            Some("932") => "shift_jis".to_string(),
+            Some("936") => "gbk".to_string(),
+            Some("950") => "big5".to_string(),
             Some(n) if n.chars().all(|c| c.is_ascii_digit()) => format!("windows-{n}"),
             _ => label.to_string(),
         };
@@ -283,6 +289,18 @@ mod tests {
             let text = cp.decode(&all);
             assert_eq!(cp.encode(&text).unwrap().as_ref(), &all[..], "{cp:?}");
         }
+    }
+
+    #[test]
+    fn codepages_by_windows_number() {
+        let named = |l: &str| Codepage::for_label(l).unwrap();
+        assert_eq!(named("cp1250"), Codepage::WINDOWS_1250);
+        assert_eq!(named("windows-1252"), Codepage::WINDOWS_1252);
+        assert_eq!(named("cp949"), Language::KOREAN.codepage());
+        assert_eq!(named("CP936"), Language::CHINESE_SIMPLIFIED.codepage());
+        assert_eq!(named("cp932"), Language::JAPANESE.codepage());
+        assert_eq!(named("cp950"), Language::CHINESE_TRADITIONAL.codepage());
+        assert!(Codepage::for_label("cp99999").is_none());
     }
 
     #[test]
