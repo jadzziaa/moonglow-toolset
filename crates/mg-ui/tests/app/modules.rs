@@ -283,7 +283,9 @@ fn recent_modules_reopen_from_the_welcome_page() {
     app.close();
     let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run();
-    h.get_by_label("sample.mod").click();
+    // (Its name, and the folder it is in.)
+    let place = dir.file_name().unwrap().to_string_lossy().into_owned();
+    h.get_by_label(&format!("sample.mod  in {place}")).click();
     h.run();
     assert_eq!(h.state().module_path().as_deref(), Some(path.as_path()));
 }
