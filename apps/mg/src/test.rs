@@ -100,9 +100,23 @@ pub(crate) fn run(
         .collect();
     names.extend(changed.iter().copied());
     let compiled = mg_module::build::compile_named_scripts(&mut m, &rm, &names, None);
-    let compile_errors: Vec<String> = (compiled.iter())
-        .filter_map(|r| r.result.as_ref().err().map(|e| e.message.clone()))
-        .collect();
+    // What does not compile stops the run: a test, the driver, a script
+    // with no compiled script. One of the module's that has its compiled
+    // script runs with it, said (a module may keep a script it no longer
+    // compiles; the run went so before).
+    let kept =
+        |k: &ResKey| changed.contains(k) && as_read.contains(&ResKey::new(k.resref, ResType::NCS));
+    let mut compile_errors = Vec::new();
+    for r in &compiled {
+        match &r.result {
+            Err(e) if kept(&r.script) => notes.push(format!(
+                "{} does not compile now, and runs with its older compiled script: {}",
+                r.script, e.message
+            )),
+            Err(e) => compile_errors.push(e.message.clone()),
+            Ok(()) => {}
+        }
+    }
     // The builder's own compiled scripts found to be what their source
     // compiles to now are noted as compiled, for the next run (and
     // `mg compile`, and the window) to pass over; those older than their

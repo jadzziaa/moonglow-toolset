@@ -178,6 +178,15 @@ fn a_script_changed_since_it_was_compiled_runs_as_it_is_now() {
     let (ok, r) = mg(&root, &user, &args);
     assert!(ok && r["passed"] == 1, "{r}");
     assert!(!notes(&r).contains("other than their source"), "{r}");
+
+    // A script of the module's that no longer compiles, with its compiled
+    // script: the run goes on with that, and says so.
+    let mut m = mg_module::Module::open(&chess).unwrap();
+    m.set(value, b"void main() { no such thing }\n".to_vec());
+    m.save().unwrap();
+    let (ok, r) = mg(&root, &user, &args);
+    assert!(ok && r["passed"] == 1 && r["compile_errors"] == serde_json::json!([]), "{r}");
+    assert!(notes(&r).contains("mg_value.nss does not compile now"), "{r}");
 }
 
 /// `--driver none`: a module that runs its tests itself (its own script

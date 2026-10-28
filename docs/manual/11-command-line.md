@@ -344,7 +344,8 @@ void main()
   run names those whose compiled script in your module is not what their
   source compiles to now: changed since, or made by another compiler
   (`mg compile` compiles them there). One that does not
-  compile stops the run, as a test that does not compile does. It
+  compile now runs with the compiled script it has, and the run says so;
+  one with none stops the run, as a test that does not compile does. It
   starts each test as an event of its own, half a second after the
   module's own OnModuleLoad script, which it runs too. A test that runs
   out of instructions, or isn't there, is an error and stops no other.
