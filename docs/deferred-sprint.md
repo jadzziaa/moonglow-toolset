@@ -4,7 +4,7 @@ title: 'The deferred sprint: a quarter of the list addressed'
 description: The sprint of late October 2026 that triages the whole deferred list and addresses at least a quarter of its open entries (110 of 440, at least 50 by code) - what counts, the rule that the list may not grow, the triage pass and its verdicts, the waves in their order, and the count after each.
 tags: [plan, deferred, backlog, sprint]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T08:04:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T08:39:32Z }
 stale_after: 2026-11-30T00:00:00Z
 sources:
   - id: owner
@@ -92,5 +92,6 @@ land in `deferred.md` itself.
 | When | Open entries | Items | Fixed | Verified | Dropped | Settled |
 |---|---|---|---|---|---|---|
 | 2026-10-28, start | 440 | 597 | 0 | 0 | 0 | 0 |
+| 2026-10-28, wave 0 (the owner's verdicts) | 330 | 485 | 0 | 6 closed, 3 merged | 53 | 48 |
 
 [^owner]: The owner's scope, 2026-10-28: a quarter or more of the entries addressed, at least 50 by code; the triage pass approved.
