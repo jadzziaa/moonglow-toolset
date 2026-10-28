@@ -64,7 +64,9 @@ fn sweep_tiles(game: &GameData, tilesets: &[ResRef]) -> Tally {
         tally.uses += found.len();
         let nodes: BTreeSet<&str> = model.nodes.iter().map(|n| n.name.as_str()).collect();
         for u in &found {
-            if !u.node.contains(" › ") && !nodes.contains(u.node.as_str()) {
+            if !u.node.contains(mg_preview::replaceable::CHUNK_SEP)
+                && !nodes.contains(u.node.as_str())
+            {
                 tally.problems.push(format!("{name}: {} names no node of it ({})", u.node, u.name));
             }
             if u.material.is_some() && u.role == Role::Slot(0) {

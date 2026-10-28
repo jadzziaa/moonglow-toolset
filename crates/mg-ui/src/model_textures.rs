@@ -316,8 +316,9 @@ fn row_ui(app: &mut Moonglow, ui: &mut Ui, row: &Row) {
                 if ui.small_button("Copy").on_hover_text("Copy the texture's name").clicked() {
                     ui.ctx().copy_text(row.name.clone());
                 }
-                if row.name.len() > ResRef::MAX_LEN {
-                    let cut = &row.name[..ResRef::MAX_LEN];
+                // (Cut by characters, as the game cuts it.)
+                let cut = ResRef::cut(&row.name).map(|r| r.to_string().to_ascii_lowercase());
+                if let Some(cut) = cut.filter(|c| *c != row.name) {
                     ui.weak(format!("(read as {cut})")).on_hover_text(
                         "A name longer than 16 characters: the game cuts it to 16 and draws \
                          the texture of that name",
@@ -376,7 +377,7 @@ fn row_ui(app: &mut Moonglow, ui: &mut Ui, row: &Row) {
 /// face); a mark where it is missing.
 fn picture(app: &mut Moonglow, ui: &mut Ui, row: &Row) {
     let size = egui::vec2(PICTURE, PICTURE);
-    let name = row.name.get(..ResRef::MAX_LEN).unwrap_or(&row.name).to_string();
+    let name = ResRef::cut(&row.name).map_or_else(|| row.name.clone(), |r| r.to_string());
     let picture = row.file.as_ref().and_then(|f| {
         let mut l = app.loader()?;
         match (f.restype, f.cube) {

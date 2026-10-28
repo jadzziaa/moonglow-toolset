@@ -97,6 +97,10 @@ fn clean(name: Option<&str>) -> Option<String> {
 /// How deep [`uses`] follows emitters' chunk models into theirs.
 const CHUNK_DEPTH: u8 = 2;
 
+/// Between an emitter, the chunk model it throws and that model's node,
+/// in a use's [`TextureUse::node`].
+pub const CHUNK_SEP: &str = " › ";
+
 /// Every texture `model` draws, use by use, in the order of its nodes:
 /// its meshes' (each slot as the renderer binds it: the mesh's `bitmap`
 /// and `texture1`–`texture3`, then the material it is drawn with, the
@@ -154,7 +158,7 @@ fn walk(
                     walk(
                         game,
                         &m,
-                        &format!("{node} › {chunk} › "),
+                        &format!("{node}{CHUNK_SEP}{chunk}{CHUNK_SEP}"),
                         area_env,
                         depth + 1,
                         &mut inner,
@@ -296,7 +300,10 @@ pub fn textures(game: &GameData, preview: &Preview) -> Vec<ModelTexture> {
 fn named(game: &GameData, m: &Model) -> Vec<(String, Source)> {
     let mut out: Vec<(String, Source)> = Vec::new();
     for u in uses(game, m, None) {
+        // (Not a chunk model's an emitter throws: whether a replacement
+        // reaches it isn't known.)
         let theirs = match u.source {
+            _ if u.node.contains(CHUNK_SEP) => false,
             Source::Txi { .. } => false,
             Source::Mesh => u.role == Role::Slot(0),
             _ => true,
@@ -516,10 +523,13 @@ mod tests {
              verts 3\n    0 0 0\n    1 0 0\n    0 1 0\n\
              tverts 3\n    0 0 0\n    1 0 0\n    0 1 0\n\
              faces 1\n    0 1 2 1 0 1 2 0\nendnode\n\
-             node emitter sparks\n  parent mg_fx\n  texture FX_Spark\nendnode\n\
+             node emitter sparks\n  parent mg_fx\n  texture FX_Spark\n  chunkname mg_rock\nendnode\n\
              node light glow\n  parent mg_fx\n  texturenames 1\n    fx_flare\nendnode\n\
              endmodelgeom mg_fx\ndonemodel mg_fx\n";
         c.insert(key("mg_fx.mdl"), mdl.as_bytes());
+        // The model the emitter throws.
+        let rock = model("mg_rock", "NULL", &["mg_stone"], &[]);
+        c.insert(key("mg_rock.mdl"), rock.as_bytes());
         let mtr = "// a material\ntexture0 mg_diffuse\ntexture1 mg_normal\ntexture2 null\n";
         c.insert(key("mg_mat.mtr"), mtr.as_bytes());
         let mut rm = ResMan::new();
@@ -539,6 +549,13 @@ mod tests {
                 ("mg_old", &Source::Mesh),
             ]
         );
+        // The thrown model's texture is drawn, under the emitter's node,
+        // but not offered as a replacement (whether one reaches it isn't
+        // known).
+        let m = Lookup { game: &game }.model("mg_fx").unwrap();
+        let stone = uses(&game, &m, None).into_iter().find(|u| u.name == "mg_stone").unwrap();
+        assert_eq!(stone.node, format!("sparks{CHUNK_SEP}mg_rock{CHUNK_SEP}m0"));
+        assert_eq!((stone.role, stone.drawn), (Role::Slot(0), true));
     }
 
     /// A BioWare DDS of `side`×`side`, DXT1 (3 channels) or DXT5 (4).
