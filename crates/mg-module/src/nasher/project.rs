@@ -1898,8 +1898,13 @@ mod tests {
         let src = root.join("src");
         std::fs::write(src.join("bread.UTI.json"), item_json("AURORA")).unwrap();
         std::fs::write(src.join("bread.uti.json"), item_json("MOONGLOW")).unwrap();
-        if !src.join("bread.UTI.json").exists() || !src.join("bread.uti.json").exists() {
-            return; // (A file system that doesn't set capitals apart.)
+        // (A file system that doesn't set capitals apart keeps one file,
+        // which both names find: listed, the folder holds one.)
+        let spellings = (std::fs::read_dir(&src).unwrap().flatten())
+            .filter(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case("bread.uti.json"))
+            .count();
+        if spellings < 2 {
+            return;
         }
         let mut m = Module::open(&root).unwrap();
         assert_eq!(tag_of(&m, "bread"), "AURORA");
