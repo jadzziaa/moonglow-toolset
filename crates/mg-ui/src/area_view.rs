@@ -13,8 +13,9 @@
 //! go); triggers and encounters are drawn point by point, a double click
 //! closing the outline. Also: a middle drag turns the camera (Shift:
 //! moves it), the arrow keys move it, Z and C (or Ctrl + Shift + the wheel
-//! or a middle drag) move it up and down, Ctrl + click adds to the selection
-//! and Delete deletes it.
+//! or a middle drag) move it up and down, a middle click (or Alt + middle
+//! click, Blender's) puts its focus on the ground clicked, Ctrl + click
+//! adds to the selection and Delete deletes it.
 
 use std::f32::consts::FRAC_PI_2;
 
@@ -899,6 +900,28 @@ impl AreaView {
     pub(crate) fn ground_at(&self, pos: Pos2, z: f32) -> Option<Vec3> {
         let ray = self.ray(pos)?;
         self.ground.as_ref().and_then(|g| g.hit(&ray)).or_else(|| ray.at_height(z))
+    }
+
+    /// The point a middle click puts the camera's focus on: where the ray
+    /// under `pos` meets the walkmesh, else the floor of the tile it meets
+    /// (at the tile's height), nearest the eye. `None` on the sky and off
+    /// the area.
+    pub fn focus_at(&self, pos: Pos2) -> Option<Vec3> {
+        let ray = self.ray(pos)?;
+        if let Some(p) = self.ground.as_ref().and_then(|g| g.hit(&ray)) {
+            return Some(p);
+        }
+        let model = self.model.as_ref()?;
+        let half = TILE_SIZE / 2.0;
+        model
+            .tiles
+            .iter()
+            .filter_map(|t| {
+                let p = ray.at_height(t.position.z)?;
+                let d = (p - t.position).truncate().abs();
+                (d.x <= half && d.y <= half).then_some(p)
+            })
+            .min_by(|a, b| (*a - ray.origin).length().total_cmp(&(*b - ray.origin).length()))
     }
 
     /// The ground's height at `p` (on its walkmesh, nearest the level of
@@ -4197,8 +4220,10 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
 
 /// The camera: Ctrl + drag moves it, Ctrl + right or middle drag (or a
 /// middle drag) turns it, Alt + middle drag moves it, the wheel zooms,
-/// Ctrl + Shift + the wheel or a middle drag moves it up and down;
-/// the keys of Options › Keyboard (WASD, the arrows and the number keys).
+/// Ctrl + Shift + the wheel or a middle drag moves it up and down, a
+/// middle click (or Alt + middle click, as in Blender) puts its focus on
+/// the ground clicked; the keys of Options › Keyboard (WASD, the arrows
+/// and the number keys).
 fn camera_input(
     ui: &egui::Ui,
     view: &mut AreaView,
@@ -4219,8 +4244,27 @@ fn camera_input(
         crate::palette_view::give_arrows(ui.ctx(), false);
     }
     let active = ui.data(|d| d.get_temp::<ResRef>(last)) == Some(view.area);
+    // A middle click (Alt + middle click, as in Blender; plain, where the
+    // desktop takes Alt + click for itself): the focus on the ground
+    // clicked, at its height, the distance and the turn kept. Not with
+    // Ctrl or Shift, nor with another button down (the middle button
+    // swinging the view in a drag of the selection).
+    let others = ui.input(|i| {
+        i.pointer.button_down(egui::PointerButton::Primary)
+            || i.pointer.button_down(egui::PointerButton::Secondary)
+    });
+    let focus = (response.clicked_by(egui::PointerButton::Middle) && !command && !shift && !others)
+        .then(|| response.interact_pointer_pos())
+        .flatten()
+        .and_then(|pos| view.focus_at(pos));
     let held = view.held;
     let Some(o) = &mut view.orbit else { return };
+    if let Some(p) = focus {
+        o.target = p.clamp(
+            Vec3::new(f32::MIN, f32::MIN, TARGET_HEIGHTS.0),
+            Vec3::new(f32::MAX, f32::MAX, TARGET_HEIGHTS.1),
+        );
+    }
     let d = held.delta;
     // A right drag turns it too, as in most 3D views (Alt + right drag
     // turns the selection; a right click is still the menu). With Shift
