@@ -3300,6 +3300,7 @@ fn stamp_json(s: &mg_module::stamp::Stamp) -> serde_json::Value {
         "moonglow": s.version,
         "commit": s.commit.as_ref().map(|c| c.hash.clone()),
         "dirty": s.commit.as_ref().map(|c| c.dirty),
+        "named": s.commit.as_ref().map(|c| c.named),
         "module": s.module,
         "tag": s.tag,
     })

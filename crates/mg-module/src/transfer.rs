@@ -494,7 +494,7 @@ mod tests {
         let src = sample();
         let stamp = |hash: &str| Stamp {
             version: "2.0.0".into(),
-            commit: Some(Commit { hash: hash.into(), dirty: false }),
+            commit: Some(Commit { hash: hash.into(), dirty: false, named: false }),
             module: "Town".into(),
             tag: "TOWN".into(),
         };

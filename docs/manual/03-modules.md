@@ -1401,9 +1401,20 @@ plugin reads a description with `mg.twoda.describe`
   Module: The Domains of Dread (TDOD)
   ```
 
+  A builder's `.mod` outside any checkout (a download of the team's
+  module) can name its base itself: a module variable `moonglow_base`
+  (a string, on the module), holding the commit the download was made
+  from, which the team's download script writes. It is stamped as `Base:
+  git 5f96447… (the module's moonglow_base)`, and Import compares it as
+  it compares a checkout's. A `.mod`'s own variable comes before the
+  checkout it lies in (a download put in a clone is the download's); a
+  module folder's or a project's checkout comes before its variable.
+
   The game and Aurora pass an archive's description by (Aurora's
   Import shows it), so the archive imports as before. `mg export` stamps
-  its archives the same way.
+  its archives the same way. Import says when the base is older than
+  the module; bringing the archive in on a branch from that base, and
+  merging, is git's (as the warning says).
 - **Export as Files…** (in the Export window, and on a resource's
   right-click menu in the module tree) writes resources as loose files,
   `name.ext`, into a folder you choose: as they are now in the toolset,
