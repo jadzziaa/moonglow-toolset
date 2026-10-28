@@ -139,6 +139,7 @@ fn positioning(f: &mut Form<'_>, ui: &mut Ui) {
         ("Plays from a specific position", true, false),
     ];
     let looping = f.int("Looping") != 0;
+    f.mark_mixed_inline(ui, &["Positional", "RandomPosition"]);
     for (text, p, r) in choices {
         let on = positional == p && (!p || random == r);
         if ui.radio(on, text).clicked() && !on {
@@ -217,6 +218,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
     crate::widgets::field_label(ui, "When to play");
     let times = f.int("Times");
     ui.horizontal(|ui| {
+        f.mark_mixed_inline(ui, &["Times"]);
         for (text, v) in [("Always", 3), ("Day", 1), ("Night", 2), ("Specific Hours", 0)] {
             if ui.radio(times == v, text).clicked() && times != v {
                 f.set_int("When to play", "Times", v, FieldType::Byte);
@@ -225,6 +227,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
     });
     let hours = f.int("Hours");
     ui.add_enabled_ui(times == 0, |ui| {
+        f.mark_mixed_inline(ui, &["Hours"]);
         egui::Grid::new(("uts-hours", f.key)).num_columns(6).show(ui, |ui| {
             for (bit, text) in HOURS.iter().enumerate() {
                 let mut on = hours & (1 << bit) != 0;
@@ -246,6 +249,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
     let single = f.root.list("Sounds").is_some_and(|l| l.len() == 1);
     crate::widgets::field_label(ui, "Play Style");
     ui.horizontal(|ui| {
+        f.mark_mixed_inline(ui, &["Looping", "Continuous"]);
         // (label, Looping, Continuous), as Aurora writes them; seamless
         // looping takes a single sound, played in order.
         for (text, l, c) in mg_module::blueprints::SOUND_PLAY_STYLES {
@@ -274,6 +278,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
     let random = f.int("Random") != 0;
     ui.add_enabled_ui(!looping, |ui| {
         ui.horizontal(|ui| {
+            f.mark_mixed_inline(ui, &["Random"]);
             for (text, v) in [("Sequential", false), ("Random", true)] {
                 if ui.radio(random == v, text).clicked() && random != v {
                     f.set_int("Play order", "Random", i64::from(v), FieldType::Byte);

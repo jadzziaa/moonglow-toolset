@@ -614,28 +614,88 @@ impl Form<'_> {
     /// Whether the others edited with this one have another value in
     /// field `label` (not looked at past [`MIXED_LIMIT`] of them).
     pub(crate) fn differs(&mut self, label: &str) -> bool {
+        self.differs_by(label, |v| v.cloned())
+    }
+
+    /// Whether the others edited with this one have another value in
+    /// field `label`, as `seen` sees it (a bit of a field of flags).
+    fn differs_by<T: PartialEq>(
+        &mut self,
+        label: &str,
+        seen: impl Fn(Option<&Value>) -> T,
+    ) -> bool {
         if self.also.is_empty() || self.also.len() > MIXED_LIMIT {
             return false;
         }
         let Some(ws) = self.app.ws.as_mut() else { return false };
-        let mine = self.root.get(label);
+        let mine = seen(self.root.get(label));
         self.also.iter().any(|(key, path)| {
             let theirs =
                 ws.doc(key).ok().and_then(|d| path.get(&d.root)).and_then(|s| s.get(label));
-            theirs != mine
+            seen(theirs) != mine
         })
     }
 
     /// Marks the field about to be drawn if the others edited with this
-    /// one have another value in it: "≠" before it. (Painted, not laid
-    /// out: a table's cell holds the field alone.)
-    fn mark_mixed(&mut self, ui: &Ui, label: &str) {
+    /// one have another value in it: "≠" before it, with a tip. (Painted,
+    /// not laid out: a table's cell holds the field alone.) Every field a
+    /// form sets on each of the objects edited together has the mark.
+    pub(crate) fn mark_mixed(&mut self, ui: &Ui, label: &str) {
+        if self.differs(label) {
+            self.paint_mixed(ui, label);
+        }
+    }
+
+    /// [`mark_mixed`](Self::mark_mixed) for one bit of a field of flags
+    /// (an area's `Flags`: a box, or a pair of choices, a bit).
+    pub(crate) fn mark_mixed_bit(&mut self, ui: &Ui, label: &str, bit: u32) {
+        let set = |v: Option<&Value>| match v {
+            Some(Value::Dword(f)) => *f & bit,
+            Some(Value::Int(f)) => *f as u32 & bit,
+            _ => 0,
+        };
+        if self.differs_by(label, set) {
+            self.paint_mixed(ui, &format!("{label}#{bit}"));
+        }
+    }
+
+    /// "≠", laid out where the next widget goes (a row of choices that
+    /// starts at the page's edge, where a painted mark has no room), if
+    /// the objects edited together differ in any of the fields `labels`.
+    pub(crate) fn mark_mixed_inline(&mut self, ui: &mut Ui, labels: &[&str]) {
+        if labels.iter().any(|l| self.differs(l)) {
+            ui.colored_label(ui.visuals().warn_fg_color, MIXED).on_hover_text(MIXED_TIP);
+        }
+    }
+
+    /// A line under a section's heading where the objects edited together
+    /// differ in its field `label` (a list of the section's own, set on
+    /// each whole): "≠" and what that means.
+    pub(crate) fn mixed_line(&mut self, ui: &mut Ui, label: &str) {
         if !self.differs(label) {
             return;
         }
+        let color = ui.visuals().warn_fg_color;
+        ui.horizontal(|ui| {
+            ui.colored_label(color, MIXED);
+            ui.colored_label(
+                color,
+                "They differ here: this shows the first one's, and what you change here sets \
+                 this list on each",
+            );
+        });
+    }
+
+    /// The "≠" before the field about to be drawn: painted in the gutter
+    /// to its left, and known to the screen reader and the pointer.
+    fn paint_mixed(&self, ui: &Ui, label: &str) {
         let at = ui.cursor().min + egui::vec2(-3.0, 2.0);
         let font = egui::TextStyle::Body.resolve(ui.style());
-        ui.painter().text(at, egui::Align2::RIGHT_TOP, "≠", font, ui.visuals().warn_fg_color);
+        let color = ui.visuals().warn_fg_color;
+        let rect = ui.painter().text(at, egui::Align2::RIGHT_TOP, MIXED, font, color);
+        let r = ui.interact(rect, self.id(label).with("mixed"), egui::Sense::hover());
+        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, MIXED));
+        r.on_hover_text(MIXED_TIP);
     }
 
     /// Several blueprints edited together (not placed objects).
@@ -744,6 +804,7 @@ impl Form<'_> {
 
     /// A multi-line text field (`CExoString`), line ends kept.
     pub(crate) fn memo(&mut self, ui: &mut Ui, what: &str, label: &str) {
+        self.mark_mixed(ui, label);
         let current = decode(self.root.string(label).unwrap_or_default());
         let id = self.id(label);
         if let Some(v) = commit_text(self.app, ui, id, &current, true, f32::INFINITY) {
@@ -754,6 +815,7 @@ impl Form<'_> {
 
     /// A localized name: the English text, and `…` for every language.
     pub(crate) fn locstring(&mut self, ui: &mut Ui, what: &str, label: &str) {
+        self.mark_mixed(ui, label);
         let current = self.root.locstring(label).cloned().unwrap_or_default();
         ui.horizontal(|ui| {
             if let Some(v) = self.loc_text(ui, label, &current, false, 240.0) {
@@ -780,6 +842,7 @@ impl Form<'_> {
                 self.app.loc_edit = Some(LocStringEdit::new(self.target(label), what, &current));
             }
         });
+        self.mark_mixed(ui, label);
         if let Some(v) = self.loc_text(ui, label, &current, true, f32::INFINITY) {
             self.set(what, label, Value::LocString(with_english(current.clone(), &v)));
         }
@@ -825,6 +888,7 @@ impl Form<'_> {
         label: &str,
         range: std::ops::RangeInclusive<i64>,
     ) {
+        self.mark_mixed(ui, label);
         let current = self.int(label);
         let mut v = current;
         let r = ui.add(egui::Slider::new(&mut v, range).clamping(egui::SliderClamping::Edits));
@@ -881,6 +945,7 @@ impl Form<'_> {
         range: std::ops::RangeInclusive<f32>,
         step: f64,
     ) {
+        self.mark_mixed(ui, label);
         let current = self.int(label) as f32 / 1000.0;
         if let Some(v) = crate::widgets::spin_with(ui, current, range, step, |d| {
             d.speed(0.1).max_decimals(3).suffix(" s")
@@ -1010,6 +1075,7 @@ impl Form<'_> {
         label: &str,
         palette: &str,
     ) {
+        self.mark_mixed(ui, label);
         let current = self.int(label).clamp(0, 175) as u8;
         let pick = self.palette_pick(ui, game, what, label, palette, current, None);
         if let Some(v) = pick.filter(|&v| v != current) {
@@ -1132,6 +1198,7 @@ impl Form<'_> {
         default: FieldType,
         creature: bool,
     ) {
+        self.mark_mixed(ui, label);
         let show: Shown = if creature { creature_picture } else { placeable_picture };
         self.choice_shown(ui, "Appearance", label, choices, default, Some(show));
     }
@@ -1153,6 +1220,7 @@ impl Form<'_> {
     /// The loading screen (a loadscreens.2da row): its picture shows under
     /// the choice, and each one's on the row the pointer rests on.
     pub(crate) fn load_screen(&mut self, ui: &mut Ui, choices: &[Choice]) {
+        self.mark_mixed(ui, "LoadScreenID");
         ui.vertical(|ui| {
             let show: Shown = load_screen_picture;
             self.choice_shown(
@@ -1298,6 +1366,7 @@ impl Form<'_> {
         edit: ResType,
         tab: fn(ResKey) -> Tab,
     ) {
+        self.mark_mixed(ui, label);
         let current = self.root.resref(label).unwrap_or(ResRef::EMPTY);
         ui.horizontal(|ui| {
             if let Some(v) = resref_field(self.app, ui, self.id(label), current, what, types) {
@@ -1362,6 +1431,7 @@ impl Form<'_> {
     pub(crate) fn variables(&mut self, ui: &mut Ui) {
         let list = self.root.list("VarTable").unwrap_or(&[]).to_vec();
         let label = format!("Variables ({})…", list.len());
+        self.mark_mixed(ui, "VarTable");
         if ui.button(label).on_hover_text("Edit scripting variables").clicked() {
             self.app.var_edit = Some(VarTableEdit::new(self.target("VarTable"), &list));
         }
@@ -1744,6 +1814,14 @@ const VIEW_REFUSED_SHOWN: f64 = 4.0;
 /// The most objects edited together whose values are compared, field by
 /// field, to mark the fields that differ.
 const MIXED_LIMIT: usize = 64;
+
+/// The mark of a field whose value differs among the objects edited
+/// together.
+pub(crate) const MIXED: &str = "≠";
+
+/// The tip of [`MIXED`].
+const MIXED_TIP: &str = "The objects edited together differ here: this shows the first one's. \
+    What you set is set on each";
 
 /// The look of a form that can't be changed (the game's blueprint, opened
 /// by View): its fields are flat and dim, and don't answer the pointer.

@@ -1916,6 +1916,86 @@ fn several_blueprints_are_edited_together() {
     }
 }
 
+/// Blueprints edited together mark each field where they differ with
+/// "≠", whatever kind of field it is: a name (in several languages), an
+/// appearance, hit points, a conversation, a flag, the variables, a memo.
+/// Alike, none is marked.
+#[test]
+fn fields_that_differ_among_blueprints_edited_together_are_marked() {
+    use mg_edit::{Command, Edit};
+    use mg_gff::Value;
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-mixed-marks");
+    let path = sample_module(&dir);
+    let mut app = game_app(&root, None);
+    app.open_module(&path);
+    close_tab(&mut app, &Tab::ModuleProperties);
+    app.open_palette = false;
+    let game = app.game.as_deref().unwrap();
+    let base = Gff::read(&game.resman.get_named("plc_chest1", ResType::UTP).unwrap()).unwrap();
+    let keys: Vec<ResKey> =
+        ["mg_box_a", "mg_box_b"].iter().map(|n| ResKey::parse(n, ResType::UTP).unwrap()).collect();
+    let mut other = base.clone();
+    let name = mg_core::LocString::from_text(Language::ENGLISH, Gender::Male, "Another Box");
+    other.root.set("LocName", Value::LocString(name));
+    other.root.set("Appearance", Value::Dword(8));
+    other.root.set("HP", Value::Short(99));
+    other.root.set("Conversation", Value::resref(ResRef::from_str("mg_talk").unwrap()));
+    other.root.set("Interruptable", Value::Byte(1));
+    other.root.set("Comment", Value::String(b"the other one".to_vec()));
+    let mut var = mg_gff::Struct::new(0);
+    var.set("Name", Value::String(b"nMine".to_vec()));
+    var.set("Type", Value::Dword(1));
+    var.set("Value", Value::Int(1));
+    other.root.set("VarTable", Value::List(vec![var]));
+    let mut misc = mg_gff::Struct::new(8);
+    misc.set("MouseCursor", Value::Int(25));
+    other.root.set("MiscVisuals", Value::Struct(misc));
+    let set = |k: ResKey, g: &Gff| Edit::SetResource { key: k, data: Some(g.to_bytes().unwrap()) };
+    let edits = vec![set(keys[0], &base), set(keys[1], &other)];
+    app.ws.as_mut().unwrap().apply(Command::new("setup", edits)).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprints(keys.clone())));
+    let mut h = harness(app, 1000.0, 800.0);
+    h.run();
+    let marks = |h: &mut Harness<'_, Moonglow>, page: &'static str| {
+        h.state_mut().blueprint_pages.insert((keys[0], mg_edit::GffPath::root()), page);
+        h.run();
+        h.query_all_by_value("≠").count()
+    };
+    assert_eq!(marks(&mut h, "Basic"), 3, "the name, the appearance, the hit points");
+    // The mark says what it means.
+    h.get_all_by_value("≠").next().unwrap().hover();
+    h.run();
+    assert!(h.query_by_label_contains("The objects edited together differ here").is_some());
+    assert_eq!(marks(&mut h, "Advanced"), 3, "the conversation, No Interrupt, the variables");
+    assert_eq!(marks(&mut h, "Comments"), 1);
+    assert_eq!(marks(&mut h, "Visuals"), 1, "the mouse cursor");
+    // A visual set on both: each keeps its other visuals (the second its
+    // cursor).
+    h.get_by_label("As the game decides").scroll_to_me();
+    h.run();
+    h.get_by_label("As the game decides").click();
+    h.run();
+    for k in &keys {
+        let misc = field(&mut h, k).child("MiscVisuals").cloned().unwrap();
+        assert!(misc.integer("UiDiscoverMask").is_some_and(|m| m >= 0), "{k}");
+    }
+    let second = field(&mut h, &keys[1]).child("MiscVisuals").cloned().unwrap();
+    assert_eq!(second.integer("MouseCursor"), Some(25), "its own cursor kept");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    // Alike: none.
+    h.state_mut()
+        .ws
+        .as_mut()
+        .unwrap()
+        .apply(Command::new("alike", vec![set(keys[1], &base)]))
+        .unwrap();
+    for page in ["Basic", "Advanced", "Comments"] {
+        assert_eq!(marks(&mut h, page), 0, "{page}");
+    }
+}
+
 #[test]
 fn variable_sets_are_saved_and_added_elsewhere() {
     let Some((mut h, key)) = blueprint_harness("nw_waypoint001", "waypoint_vars", ResType::UTW)

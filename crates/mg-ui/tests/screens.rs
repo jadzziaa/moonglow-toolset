@@ -1887,6 +1887,78 @@ fn gallery_far_appearance() {
     shoot(&mut h, &dir, "gallery-far-appearance");
 }
 
+/// Blueprints edited together, "≠" before each field they differ in:
+/// two chests (a name, an appearance, hit points, a conversation, No
+/// Interrupt, a cursor) and two sounds (rows of choices from the page's
+/// edge).
+#[test]
+#[ignore]
+fn mixed_marks() {
+    use mg_gff::Value;
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let install = GameInstall::new(&root, None, "en");
+    for (name, t, pages) in [
+        ("plc_chest1", ResType::UTP, &["Basic", "Advanced", "Visuals"][..]),
+        ("animalcriesday", ResType::UTS, &["Basic", "Positioning", "Advanced"][..]),
+    ] {
+        let mut app = Moonglow::new(Some(install.clone()), Box::new(NoDialogs::default()));
+        let game = app.game.as_deref().unwrap();
+        let base = mg_gff::Gff::read(&game.resman.get_named(name, t).unwrap()).unwrap();
+        let mut other = base.clone();
+        let text = mg_core::LocString::from_text(
+            mg_core::Language::ENGLISH,
+            mg_core::Gender::Male,
+            "Another One",
+        );
+        for label in ["LocName", "LocalizedName"] {
+            if other.root.get(label).is_some() {
+                other.root.set(label, Value::LocString(text.clone()));
+            }
+        }
+        if t == ResType::UTP {
+            other.root.set("Appearance", Value::Dword(8));
+            other.root.set("HP", Value::Short(99));
+            other
+                .root
+                .set("Conversation", Value::resref(mg_core::ResRef::from_str("mg_talk").unwrap()));
+            other.root.set("Interruptable", Value::Byte(1));
+            let mut misc = mg_gff::Struct::new(8);
+            misc.set("MouseCursor", Value::Int(25));
+            other.root.set("MiscVisuals", Value::Struct(misc));
+        } else {
+            other.root.set("Times", Value::Byte(1));
+            other
+                .root
+                .set("Random", Value::Byte(1 - base.root.integer("Random").unwrap_or(0) as u8));
+            other.root.set(
+                "Positional",
+                Value::Byte(1 - base.root.integer("Positional").unwrap_or(0) as u8),
+            );
+        }
+        let keys: Vec<ResKey> =
+            ["mg_a", "mg_b"].iter().map(|n| ResKey::parse(n, t).unwrap()).collect();
+        let mut m = mg_module::Module::new();
+        m.set(keys[0], base.to_bytes().unwrap());
+        m.set(keys[1], other.to_bytes().unwrap());
+        let path = mg_testkit::scratch_dir("screens-mixed-marks").join(format!("{name}.mod"));
+        m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+        app.open_module(&path);
+        app.open_palette = false;
+        app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprints(keys.clone())));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1000.0, 760.0))
+            .wgpu()
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        for page in pages {
+            h.state_mut().blueprint_pages.insert((keys[0], GffPath::root()), page);
+            let page_name = page.to_lowercase();
+            shoot(&mut h, &dir, &format!("mixed-{name}-{page_name}"));
+        }
+    }
+}
+
 #[test]
 #[ignore]
 fn store_chosen_item() {

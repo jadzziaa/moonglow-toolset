@@ -352,6 +352,7 @@ fn part_choice(
 /// The mouse wheel over the list, closed, steps through them too.
 fn pick_part(f: &mut Form<'_>, ui: &mut Ui, what: &str, labels: &[&str], choices: &[Choice]) {
     let current = part_number(&f.root, labels[0]).unwrap_or(0);
+    f.mark_mixed(ui, labels[0]);
     if let Some(v) = pictured(f, ui, (what, choices, current), (labels, &|row| row), true) {
         set_part(f, what, labels, v);
     }
@@ -463,6 +464,7 @@ fn part_colors(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
                 let color = armor_part_color(&f.root, part, channel);
                 ui.label(channel.name());
                 ui.horizontal(|ui| {
+                    f.mark_mixed(ui, &label);
                     // Without one of its own: the armor's, as it shows.
                     let shown = color.unwrap_or(f.int(channel.field()).clamp(0, 175) as u8);
                     let text = color.is_none().then_some("Default");
@@ -565,6 +567,7 @@ fn part_grid(
     height: f32,
 ) {
     let current = part_number(&f.root, label).unwrap_or(0);
+    f.mark_mixed_inline(ui, &[label]);
     let mut chosen = None;
     let id = ("uti-icons", f.key, label);
     // As tall as whole rows of icons (their height as last drawn), so the
@@ -678,6 +681,7 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, beside: bool) {
                         shapes.dedup();
                         let shape_numbers: Vec<u16> = shapes.iter().map(|s| s * 10).collect();
                         crate::widgets::field_label(ui, text);
+                        f.mark_mixed(ui, label);
                         let shape_choices: Vec<Choice> = shape_numbers
                             .iter()
                             .map(|&n| Choice {

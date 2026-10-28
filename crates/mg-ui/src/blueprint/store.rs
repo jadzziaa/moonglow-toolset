@@ -56,6 +56,7 @@ fn optional_price(
     let current = f.root.integer(label).unwrap_or(default);
     let mut enabled = current != -1;
     ui.horizontal(|ui| {
+        f.mark_mixed_inline(ui, &[label]);
         if ui.checkbox(&mut enabled, check).changed() {
             f.set_int(check, label, if enabled { on } else { -1 }, FieldType::Int);
         }

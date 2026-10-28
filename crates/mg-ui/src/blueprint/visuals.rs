@@ -14,9 +14,12 @@
 //! triggers, only `MiscVisuals`.
 
 use egui::Ui;
+use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{Struct, Value};
+use mg_resman::ResKey;
 
 use super::Form;
+use crate::Action;
 use crate::text::{decode, encode};
 use crate::widgets::{commit_number, commit_text};
 
@@ -105,14 +108,17 @@ fn cursor_name(v: i64) -> String {
 pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, full: bool) {
     if full {
         crate::widgets::section_heading(ui, "Texture replacements");
+        f.mixed_line(ui, "TextureReplace");
         ui.weak("A texture of the object's models drawn with another (not PLT textures).");
         super::replacements::textures(f, ui);
         ui.add_space(crate::widgets::SECTION_GAP);
         crate::widgets::section_heading(ui, "Animation replacements");
+        f.mixed_line(ui, "AnimationReplace");
         ui.weak("An animation of the object's model played as another.");
         super::replacements::animations(f, ui);
         ui.add_space(crate::widgets::SECTION_GAP);
         crate::widgets::section_heading(ui, "Shader parameters");
+        f.mixed_line(ui, "Material");
         ui.weak(
             "Values a material's shader reads (uniforms): only an MTR that names its own \
              shaders (customshadervs, customshaderfs) gets them.",
@@ -152,14 +158,43 @@ impl Form<'_> {
         self.set_opt(what, field, value);
     }
 
-    /// Sets a field of `MiscVisuals`, keeping the others.
+    /// Sets fields of `MiscVisuals`, keeping the others: each object's
+    /// own, where several are edited together (the first one's were set
+    /// on all of them).
     fn set_misc(&mut self, what: &str, fields: &[(&str, Value)]) {
-        let mut s =
-            self.root.child("MiscVisuals").cloned().unwrap_or_else(|| Struct::new(MISC_VISUALS_ID));
-        for (label, v) in fields {
-            s.set(label, v.clone());
+        let targets: Vec<(ResKey, GffPath)> = self.targets().map(|(k, p)| (k, p.clone())).collect();
+        let mut edits = Vec::new();
+        for (key, path) in targets {
+            let theirs = if key == self.key && path == self.path {
+                Some(self.root.clone())
+            } else {
+                let ws = self.app.ws.as_mut();
+                ws.and_then(|ws| ws.doc(&key).ok().and_then(|d| path.get(&d.root).cloned()))
+            };
+            let mut s = (theirs.as_ref().and_then(|o| o.child("MiscVisuals").cloned()))
+                .unwrap_or_else(|| Struct::new(MISC_VISUALS_ID));
+            for (label, v) in fields {
+                s.set(label, v.clone());
+            }
+            let value = Some(Value::Struct(s));
+            edits.push(Edit::SetField { key, path, label: "MiscVisuals".into(), value });
         }
-        self.set(what, "MiscVisuals", Value::Struct(s));
+        self.app.actions.push(Action::Apply(Command::new(what, edits)));
+    }
+
+    /// [`mark_mixed`](Form::mark_mixed) for fields of the struct `field`
+    /// (`MiscVisuals`' highlight color).
+    fn mark_mixed_in(&mut self, ui: &Ui, field: &str, labels: &[&str]) {
+        let seen = |v: Option<&Value>| -> Vec<Option<Value>> {
+            let s = match v {
+                Some(Value::Struct(s)) => Some(s),
+                _ => None,
+            };
+            labels.iter().map(|l| s.and_then(|s| s.get(l)).cloned()).collect()
+        };
+        if self.differs_by(field, seen) {
+            self.paint_mixed(ui, &format!("{field}#{}", labels.join("#")));
+        }
     }
 }
 
@@ -270,6 +305,7 @@ fn misc(f: &mut Form<'_>, ui: &mut Ui) {
     egui::Grid::new(f.id("MiscVisuals")).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         // The highlight color: -1 each for the game's.
         crate::widgets::field_label(ui, "Highlight Color");
+        f.mark_mixed_in(ui, "MiscVisuals", &["HiliteColorR", "HiliteColorG", "HiliteColorB"]);
         ui.horizontal(|ui| {
             let custom = rgb.iter().all(|c| *c >= 0.0);
             let mut on = custom;
@@ -302,6 +338,7 @@ fn misc(f: &mut Form<'_>, ui: &mut Ui) {
         ui.end_row();
 
         crate::widgets::field_label(ui, "Mouse Cursor");
+        f.mark_mixed_in(ui, "MiscVisuals", &["MouseCursor"]);
         let current = int("MouseCursor", -1);
         let mut pick = current;
         let cursors = || {
@@ -325,6 +362,7 @@ fn misc(f: &mut Form<'_>, ui: &mut Ui) {
         ui.end_row();
 
         crate::widgets::field_label(ui, "Text Bubble");
+        f.mark_mixed_in(ui, "MiscVisuals", &["TextBubbleType", "TextBubbleText"]);
         ui.horizontal(|ui| {
             let mode = int("TextBubbleType", 0);
             let mut pick = mode;
@@ -348,6 +386,7 @@ fn misc(f: &mut Form<'_>, ui: &mut Ui) {
 
         // What shows on mouse-over and Tab: -1 for the game's choice.
         crate::widgets::field_label(ui, "Shown");
+        f.mark_mixed_in(ui, "MiscVisuals", &["UiDiscoverMask"]);
         ui.vertical(|ui| {
             let mask = int("UiDiscoverMask", -1);
             let mut default = mask < 0;
@@ -370,6 +409,7 @@ fn misc(f: &mut Form<'_>, ui: &mut Ui) {
         ui.end_row();
 
         crate::widgets::field_label(ui, "Visible Distance");
+        f.mark_mixed_in(ui, "MiscVisuals", &["VisibleDistance"]);
         ui.horizontal(|ui| {
             let v = s.float("VisibleDistance").unwrap_or(DEFAULT_DISTANCE);
             if let Some(n) = crate::widgets::drag_number(ui, v, |d| {

@@ -400,6 +400,7 @@ fn visual(f: &mut Form<'_>, ui: &mut Ui) {
         1
     };
     ui.horizontal(|ui| {
+        f.mark_mixed_inline(ui, &["DayNightCycle", "IsNight"]);
         for (m, text) in [(0, "Cycle Day and Night"), (1, "Always Bright"), (2, "Always Dark")] {
             if ui.radio(mode == m, text).clicked() && mode != m {
                 let (c, n) = match m {
@@ -436,6 +437,7 @@ fn visual(f: &mut Form<'_>, ui: &mut Ui) {
         crate::widgets::field_label(ui, "Wind Power");
         let winds = ["None", "Weak", "Strong"];
         let wind = f.int("WindPower").clamp(0, 2);
+        f.mark_mixed(ui, "WindPower");
         ui.horizontal(|ui| {
             for (i, w) in winds.iter().enumerate() {
                 if ui.radio(wind == i as i64, *w).clicked() && wind != i as i64 {
@@ -738,6 +740,8 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
             (UNDERGROUND, "Above ground", "Underground"),
         ] {
             ui.label("");
+            // (One field holds these and the shader flags: each bit marked.)
+            f.mark_mixed_bit(ui, "Flags", bit);
             ui.horizontal(|ui| {
                 let set = flags & bit != 0;
                 for (want, text) in [(false, off), (true, on)] {
@@ -760,6 +764,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
             egui::Grid::new("area-shader-flags").num_columns(7).show(ui, |ui| {
                 for (k, bit) in (3..16).map(|b| 1u32 << b).enumerate() {
                     let mut on = flags & bit != 0;
+                    f.mark_mixed_bit(ui, "Flags", bit);
                     if ui.checkbox(&mut on, bit.to_string()).changed() {
                         set_flag(f, "Shader flags", bit, on);
                     }

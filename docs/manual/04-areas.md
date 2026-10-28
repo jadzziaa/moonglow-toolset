@@ -433,7 +433,12 @@ Aurora):
   objects of one kind selected, one window edits them together: a field
   changed there changes in all of them. It shows the first one's values,
   with **≠** before a field where the others have another (so too for
-  blueprints edited together from the palette). Inventories, classes,
+  blueprints edited together from the palette): every field set on each
+  has the mark (names in every language, descriptions, sliders, colors,
+  appearances, the conversation, the variables, each of an area's flags),
+  and the pointer resting on it says what it means. A list the Visuals
+  page sets whole (texture and animation replacements, shader
+  parameters) says so under its heading where they differ. Inventories, classes,
   skills, feats, spells and the other lists of an object's own are
   edited one object at a time, so those pages aren't offered there (and
   a placeable's **Inventory…** is grayed).
