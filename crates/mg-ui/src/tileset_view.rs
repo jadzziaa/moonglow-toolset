@@ -42,6 +42,9 @@ pub struct TilesetDoc {
     pub filter: String,
     /// A terrain's or crosser's name, while it's being added.
     pub new_type: String,
+    /// A terrain (`false`) or crosser (`true`) being renamed: which, its
+    /// index, and the name typed.
+    pub renaming: Option<(bool, usize, String)>,
     pub findings: Option<Vec<mg_module::doctor::Finding>>,
 }
 
@@ -61,6 +64,7 @@ impl TilesetDoc {
             group: None,
             filter: String::new(),
             new_type: String::new(),
+            renaming: None,
             findings: None,
         }
     }
@@ -125,13 +129,57 @@ impl TilesetDoc {
         self.findings = None;
     }
 
-    pub fn save(&mut self) -> Result<(), String> {
+    /// Writes the file; a palette beside it (`<tileset>palstd.itp`) follows
+    /// the terrains and crossers renamed since it was last saved, and what
+    /// it says of that is returned.
+    pub fn save(&mut self) -> Result<Option<String>, String> {
+        // (The names as the file on disk has them, by index.)
+        let names = |t: &Tileset| {
+            let of = |l: &[mg_set::NamedType]| l.iter().map(|x| x.name.clone()).collect::<Vec<_>>();
+            [of(&t.terrains), of(&t.crossers)]
+        };
+        let was = std::fs::read(&self.path)
+            .ok()
+            .and_then(|d| Tileset::parse(&d, Codepage::default()).ok())
+            .map(|t| names(&t));
         let part = self.path.with_extension("set.part");
         std::fs::write(&part, self.file.text())
             .and_then(|()| std::fs::rename(&part, &self.path))
             .map_err(|e| format!("{}: {e}", self.path.display()))?;
         self.saved = Some(self.undo.len());
-        Ok(())
+        let (Some(was), Some(now)) = (was, self.tileset().map(names)) else { return Ok(None) };
+        let renamed: Vec<(&String, &String)> = (0..2)
+            .flat_map(|k| was[k].iter().zip(&now[k]))
+            .filter(|(a, b)| !a.eq_ignore_ascii_case(b))
+            .collect();
+        let palette = self.palette_path();
+        if renamed.is_empty() || !palette.is_file() {
+            return Ok(None);
+        }
+        let mut gff = std::fs::read(&palette)
+            .map_err(|e| e.to_string())
+            .and_then(|d| mg_gff::Gff::read(&d).map_err(|e| e.to_string()))
+            .map_err(|e| format!("{}: {e}", palette.display()))?;
+        let changed: usize = renamed
+            .iter()
+            .map(|(a, b)| mg_module::tileset::rename_in_palette(&mut gff, a, b))
+            .sum();
+        if changed == 0 {
+            return Ok(None);
+        }
+        gff.to_bytes()
+            .map_err(|e| e.to_string())
+            .and_then(|b| std::fs::write(&palette, b).map_err(|e| e.to_string()))
+            .map_err(|e| format!("{}: {e}", palette.display()))?;
+        let names: Vec<String> = renamed.iter().map(|(a, b)| format!("{a} → {b}")).collect();
+        Ok(Some(format!("{}: renamed {}", palette.display(), names.join(", "))))
+    }
+
+    /// The palette beside the `.set`, as Make Palette writes it.
+    pub fn palette_path(&self) -> PathBuf {
+        let stem =
+            self.path.file_stem().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
+        self.path.with_file_name(format!("{stem}palstd.itp"))
     }
 }
 
@@ -227,7 +275,12 @@ fn draw(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
         }
         if ui.add_enabled(d.is_dirty(), egui::Button::new("Save")).clicked() {
             match d.save() {
-                Ok(()) => app.log.info(format!("Saved {}", d.path.display())),
+                Ok(palette) => {
+                    app.log.info(format!("Saved {}", d.path.display()));
+                    if let Some(note) = palette {
+                        app.log.info(note);
+                    }
+                }
                 Err(e) => app.log.error(e),
             }
         }
@@ -418,8 +471,48 @@ fn terrain(ui: &mut Ui, d: &mut TilesetDoc) {
                 };
                 ui.horizontal(|ui| {
                     ui.monospace(format!("{i:>3}"));
-                    ui.label(&x.name);
-                    ui.weak(label);
+                    match &mut d.renaming {
+                        Some((c, k, typed)) if *c == crosser && *k == i => {
+                            let r = ui.add(egui::TextEdit::singleline(typed).desired_width(120.0));
+                            let why = rename_refused(&t, crosser, i, typed);
+                            let ok = why.is_none();
+                            let enter =
+                                r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                            let renamed = ui
+                                .add_enabled(ok, egui::Button::new("Rename"))
+                                .on_hover_text(
+                                    "Every tile naming it, the painting rules and the general \
+                                     terrains follow; the palette beside the file follows when \
+                                     it is saved",
+                                )
+                                .clicked();
+                            if (renamed || enter) && ok {
+                                let to = typed.trim().to_string();
+                                d.change(|f| {
+                                    edit::rename_type(f, crosser, i, &to);
+                                });
+                                d.renaming = None;
+                            } else if ui.button("Cancel").clicked() {
+                                d.renaming = None;
+                            } else if let Some(why) = why {
+                                ui.weak(why);
+                            }
+                        }
+                        _ => {
+                            ui.label(&x.name);
+                            ui.weak(label);
+                            let what = if crosser { "crosser" } else { "terrain" };
+                            if ui
+                                .small_button("Rename…")
+                                .on_hover_text(format!(
+                                    "Rename this {what}: every tile naming it follows"
+                                ))
+                                .clicked()
+                            {
+                                d.renaming = Some((crosser, i, x.name.clone()));
+                            }
+                        }
+                    }
                 });
             }
         }
@@ -448,6 +541,30 @@ fn terrain(ui: &mut Ui, d: &mut TilesetDoc) {
             ui.weak("The tileset has one of that name.");
         }
     });
+}
+
+/// Why a terrain (`crosser`: crosser) `index` can't be renamed `typed`:
+/// no name, a space, more than a palette's 16 characters (a palette names
+/// it as a ResRef), or another terrain's or crosser's name; `None` when
+/// it can.
+fn rename_refused(t: &Tileset, crosser: bool, index: usize, typed: &str) -> Option<&'static str> {
+    let name = typed.trim();
+    let other = |c: bool, k: usize, x: &mg_set::NamedType| {
+        (c != crosser || k != index) && x.name.eq_ignore_ascii_case(name)
+    };
+    let taken = t.terrains.iter().enumerate().any(|(k, x)| other(false, k, x))
+        || t.crossers.iter().enumerate().any(|(k, x)| other(true, k, x));
+    if name.is_empty() {
+        Some("A name, please")
+    } else if name.contains(char::is_whitespace) {
+        Some("No spaces: the file's lines name it")
+    } else if name.len() > 16 {
+        Some("16 characters at most: a palette names it so")
+    } else if taken {
+        Some("The tileset has one of that name")
+    } else {
+        None
+    }
 }
 
 fn tiles(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
@@ -695,8 +812,7 @@ fn groups(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
 fn make_palette(app: &mut Moonglow, d: &mut TilesetDoc) {
     let Some(t) = d.tileset() else { return };
     let (gff, warnings) = mg_module::tileset::palette(t);
-    let stem = d.path.file_stem().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
-    let path = d.path.with_file_name(format!("{stem}palstd.itp"));
+    let path = d.palette_path();
     for w in warnings {
         app.log.warn(format!("Palette: {w}"));
     }

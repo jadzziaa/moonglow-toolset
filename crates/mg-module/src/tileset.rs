@@ -81,9 +81,67 @@ pub fn palette(set: &Tileset) -> (Gff, Vec<String>) {
     (gff, warnings)
 }
 
+/// A palette following a terrain or crosser renamed in its `.set`
+/// (`mg_set::edit::rename_type`): in its Terrain category (ID 2, its
+/// subfolders too), each leaf naming `from` (its `RESREF`, without case)
+/// names `to`, and its label too where it is the name itself (`NAME`, no
+/// talk-table string). The rest of the palette, hand-made as it may be,
+/// stays as it is. Returns how many leaves changed.
+pub fn rename_in_palette(palette: &mut Gff, from: &str, to: &str) -> usize {
+    fn walk(items: &mut [Struct], from: &str, to: &str) -> usize {
+        let mut changed = 0;
+        for s in items {
+            if let Some(list) = s.list_mut("LIST") {
+                changed += walk(list, from, to);
+                continue;
+            }
+            let named =
+                s.resref("RESREF").is_some_and(|r| r.to_string().eq_ignore_ascii_case(from));
+            if !named {
+                continue;
+            }
+            s.set("RESREF", Value::ResRef(to.to_ascii_lowercase().into_bytes()));
+            if s.string("NAME").is_some_and(|n| n.eq_ignore_ascii_case(from.as_bytes())) {
+                s.set("NAME", Value::String(to.as_bytes().to_vec()));
+            }
+            changed += 1;
+        }
+        changed
+    }
+    let Some(main) = palette.root.list_mut("MAIN") else { return 0 };
+    main.iter_mut()
+        .filter(|c| c.integer("ID") == Some(2))
+        .filter_map(|c| c.list_mut("LIST"))
+        .map(|l| walk(l, from, to))
+        .sum()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_palette_follows_a_terrain_renamed() {
+        let set = "[GENERAL]\nName=ZZZ01\n[TERRAIN TYPES]\nCount=2\n[TERRAIN0]\nName=Grass\n\
+                   [TERRAIN1]\nName=Water\nStrRef=63000\n[TILES]\nCount=1\n[TILE0]\nModel=grass\n\
+                   [GROUPS]\nCount=1\n[GROUP0]\nName=Grass\nRows=1\nColumns=1\nTile0=0\n";
+        let set = Tileset::parse(set.as_bytes(), mg_core::Codepage::default()).unwrap();
+        let (mut gff, _) = palette(&set);
+        assert_eq!(rename_in_palette(&mut gff, "GRASS", "Meadow"), 1);
+        let Some(Value::List(main)) = gff.root.get("MAIN") else { panic!() };
+        let leaves = |i: usize| -> Vec<(String, Option<Vec<u8>>)> {
+            let Some(Value::List(l)) = main[i].get("LIST") else { panic!() };
+            l.iter()
+                .map(|s| {
+                    (s.resref("RESREF").unwrap().to_string(), s.string("NAME").map(<[u8]>::to_vec))
+                })
+                .collect()
+        };
+        assert_eq!(leaves(2)[0], ("meadow".to_string(), Some(b"Meadow".to_vec())), "renamed");
+        assert_eq!(leaves(2)[1].0, "water", "the other terrain as it was");
+        assert_eq!(leaves(0)[0].0, "grass", "a feature's model is not a terrain");
+        assert_eq!(rename_in_palette(&mut gff, "Nothing", "x"), 0);
+    }
 
     #[test]
     fn groups_features_and_terrain() {

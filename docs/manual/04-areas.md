@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:51:25Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T11:08:15Z }
 ---
 
 # Areas
@@ -217,6 +217,7 @@ Options › Keyboard):
 | Ctrl + Shift + wheel, or Ctrl + Shift + middle drag | move the camera up and down, finely |
 | Numpad 5 | look straight down at the whole area (and back to the ground) |
 | F10 | select tiles or objects (Aurora's) |
+| X, T, N, Shift+N, R, Shift+R | the tile tools: the Eraser, Refine Tile, Next and Previous Tile Appearance, Rotate Tile and clockwise ([Painting terrain](#painting-terrain)) |
 | Double-click an object in Find Instance | go to it |
 
 The keys drive the area view the pointer was in last, also while the
@@ -369,7 +370,10 @@ Aurora):
   back about its own X axis (east at Bearing 0), and **Z Rotation**
   leans it to one side about its own Y axis; the game makes them in
   that order, X outermost. **Scale** scales the model every way alike
-  (the game reads one number), and the offsets move it along the
+  (the game reads one number, `ScaleX`, and Moonglow writes the three
+  alike, as Aurora does; a file whose `ScaleY` or `ScaleZ` differs,
+  set by hand or by another tool, keeps them until Scale is changed,
+  and the window says so), and the offsets move it along the
   object's own axes, turned by its Bearing but not by the rotations.
   The area view draws all of this as the game client does. A static
   placeable is offered none, as in Aurora: the game draws a static
@@ -790,9 +794,21 @@ as Aurora's Terrain tab does:
   selects. Shift + click on Rotate Tile turns them clockwise. A tile
   that can't step (no other appearance, a tile that doesn't turn, a
   group's tile) is left as it is; when none of them can, the status
-  line says why and they (a group's, the whole group) flash red. With
-  no tile selected, the three are chosen as above, and you click the
-  tiles. They have no keys of their own.
+  line says why (at the start of the line, where a narrow view doesn't
+  cut it off) and they (a group's, the whole group) flash red.
+  **Refine Tile** clicked there refines the selected tiles as its drag
+  over them would (the first the next tile that fits, the others of its
+  kind made that tile too; with a tile chosen in the Gallery, that tile
+  wherever it fits), and the **Eraser** deletes them, as Delete does:
+  each one step to undo, the selection kept. With no tile selected, the
+  tools are chosen as above, and you click the tiles.
+- **Keys** (Tools › Options › Keyboard changes them): **X** the Eraser,
+  **T** Refine Tile, **N** Next Tile Appearance, **Shift+N** Previous
+  Tile Appearance, **R** Rotate Tile and **Shift+R** Rotate Tile
+  clockwise, with the pointer over the area view. With tiles selected
+  they work on them, as the palette's clicks do; with none, the key
+  chooses the tool, and pressed again puts it down. Their tips in the
+  palette name them.
 - Select Tiles, the Eraser, Refine Tile, the three tools above and
   Raise/Lower head the Terrain list, whatever the tileset's order. A
   right click with the Eraser, Refine Tile or the three opens the tile
@@ -891,6 +907,11 @@ another change is made in the module while the window is open (an
 object moved, a tile painted), Cancel still puts back what the window
 changed, in a step of its own, **Cancel Tile Properties**, where those
 tiles still have the window's values; what the other change did stays.
+**Undo** (Ctrl+Z) while the window is open takes its step back, and the
+window reads its tiles again: it shows them as they are now, and what
+you change in it after is written from there, that change alone (Redo
+brings its step back, which Cancel still takes back). So it does after
+any other change to its tiles (a brush, a paste, a plugin).
 
 **Height** (Moonglow's own) is the tiles' `Tile_Height`, in the
 tileset's height steps (the meters are written beside it): **-** and
@@ -918,7 +939,10 @@ height, as the game's does.
 opens) shows every tile of the tileset in place of the variants, in the
 tileset's order, groups' pieces too, with **Turn** (0°, ↺90°, ↺180°,
 ↺270°) and the same **Size** slider; only the rows in sight are drawn,
-however many tiles the tileset has. Choosing a Turn turns the tiles
+however many tiles the tileset has (a hak's of 1,872 tiles as readily as
+the game's). Its **search** narrows the pictures to the tiles whose
+model's name or number in the tileset has what you type (`a04`, `117`),
+the count saying how many of all; Escape in it clears it. Choosing a Turn turns the tiles
 chosen at once: each keeps its own tile and its lights and loops, and
 lies as the Turn says, put in as it is, whether it fits its neighbors
 or not (none of them changes); each Turn chosen is one step to undo.
@@ -1155,7 +1179,15 @@ open tilesets too, and closing one with unsaved changes asks first.
   border, default and floor terrains, interior, height transitions, and
   grass.
 - **Terrains and Crossers:** the lists, and **Add Terrain** and **Add
-  Crosser** by name.
+  Crosser** by name. **Rename…** beside one renames it, and every place
+  the file names it follows: the tiles' corners (a crosser: their
+  edges), the general border, default and floor terrains and the
+  painting rules (one step to undo). A name another terrain or crosser
+  has, one with a space, or one longer than 16 characters (a palette
+  names it as a ResRef) is refused, saying why. Areas name tiles by
+  number, so they need nothing; when the file is saved, the palette
+  beside it (`<tileset>palstd.itp`) follows the names changed since the
+  last save, the rest of it as it was.
 - **Tiles:** every tile with its corners and edges; **Find** by model or
   terrain. Per tile: model, walkmesh, minimap picture, path node,
   orientation, corner terrains and heights, edge crossers, lights and

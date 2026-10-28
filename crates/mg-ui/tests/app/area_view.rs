@@ -2506,6 +2506,86 @@ fn adjust_location_s_visual_transforms_are_saved_and_reopened() {
     assert_eq!(visual(&mut h, 1), Some(mirror), "its file's transform is kept");
 }
 
+/// A file whose `ScaleY` and `ScaleZ` differ from its `ScaleX` (xtul's
+/// report: set by hand, or by another tool): Adjust Location's Scale
+/// shows `ScaleX`, which the game scales by, and the window says the
+/// other two are kept until Scale is changed. A turn alone keeps them;
+/// Scale changed writes the three alike, and the note goes.
+#[test]
+fn adjust_location_says_an_uneven_scale_is_kept() {
+    use glam::Vec3;
+    use mg_area::VisualTransform;
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("visual-uneven") else { return };
+    let git_key = ResKey::new(area, ResType::GIT);
+    let uneven = VisualTransform {
+        scale: Vec3::new(0.5, 1.5, 1.0),
+        rotate: Vec3::ZERO,
+        translate: Vec3::ZERO,
+    };
+    {
+        let app = h.state_mut();
+        let game = app.game.as_deref().unwrap();
+        let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        let chest = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let at = Placement { position: [12.0, 30.0, 0.0], rotation: 0.0 };
+        let mut item = instance(&placing, ResType::UTP, &chest, at, &[]).unwrap();
+        item.set("Static", mg_gff::Value::Byte(0));
+        item.set("VisTransformList", mg_area::edit::visual_transform_list(uneven));
+        let edit = mg_edit::Edit::InsertItem {
+            key: git_key,
+            path: mg_edit::GffPath::root(),
+            list: "Placeable List".into(),
+            index: 0,
+            item,
+        };
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
+    }
+    h.run_steps(3);
+    let visual = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        VisualTransform::read(&ws.doc(&git_key).unwrap().root.list("Placeable List").unwrap()[0])
+    };
+    let at = screen(&h, area, Vec3::new(12.0, 30.0, 0.3));
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    h.get_by_label("Adjust Location…").click();
+    h.run_steps(3);
+    let note = mg_ui::area_tools::scale_note(h.state().adjust.as_ref().unwrap()).expect("a note");
+    assert!(note.starts_with("Its file has ScaleX 0.5, ScaleY 1.5 and ScaleZ 1"), "{note}");
+    assert!(h.query_by_label(&note).is_some(), "the window says so");
+    let dir = mg_testkit::scratch_dir("ui-adjust-uneven");
+    h.render().expect("render").save(dir.join("noted.png")).unwrap();
+    // A turn alone: ScaleY and ScaleZ kept.
+    let a = h.state_mut().adjust.as_mut().unwrap();
+    a.visual.rotate.x = 30.0;
+    a.visual_changed = true;
+    h.get_by_label("Apply").click();
+    h.run_steps(3);
+    let turned = VisualTransform { rotate: Vec3::new(30.0, 0.0, 0.0), ..uneven };
+    assert_eq!(visual(&mut h), Some(turned));
+    // Scale changed (dragged): the three alike, and no note.
+    let scale = h.get_by_label("Scale").rect().right_center() + egui::vec2(40.0, 0.0);
+    drag(&mut h, scale, scale + egui::vec2(10.0, 0.0));
+    h.run_steps(2);
+    assert!(h.query_by_label(&note).is_none(), "the note goes");
+    h.render().expect("render").save(dir.join("scaled.png")).unwrap();
+    h.get_by_label("OK").click();
+    h.run_steps(3);
+    let v = visual(&mut h).unwrap();
+    assert!(v.scale.x != 0.5 && v.scale == Vec3::splat(v.scale.x), "{v:?}");
+}
+
 /// Placed objects edited together have no pages of lists of their own
 /// (those changed only the first object), as several blueprints have
 /// none: an inventory is edited one object at a time. A field is set on

@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T10:53:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T11:08:15Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1193,12 +1193,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   blueprint's Static (Aurora's Update Instances was captured on dynamic
   objects only). Whether Aurora takes it off when Static is ticked on a
   blueprint was not looked at (a blueprint has none from Aurora). (S)
-- **Scale in one field:** the game scales a model by `ScaleX` alone;
-  Adjust Location shows and writes the three alike, as Aurora does, and
-  a file whose `ScaleY` or `ScaleZ` differs (by hand, or another tool)
-  shows `ScaleX` and keeps the others untouched until Scale is changed,
-  when all three are written. Not said in the window. (S) (xtul's
-  report, October 2026)
 - **Lerps, animation speed and other scopes:** Adjust Location edits
   scope 0's scale, rotation and translation only; a transform's
   `AnimationSpeed`, a lerp in progress (`ValueFrom`, `LerpDuration`…)
@@ -1234,12 +1228,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   line); random scale on static placeables (the game gives them none, so
   Scale passes them by). The see-through dab is held by the tests'
   counts; the pictures show strokes laid. (S each)
-- **A press with Ctrl held is the camera's** with a tileset brush chosen
-  (it painted when let go). A right drag that turns the view and ends
-  where it began is still a right click to the brush (Raise/Lower
-  lowers; a terrain, the Eraser, Refine Tile and the tile tools open
-  the tile menu). (S)
-  (from builders' reports after 1.14.1)
 - **Heed's tile lights:** "tile lights don't show with Lighting on" was
   not reproduced: in the stock smithy (`pensmithy1` of Chapter 1, its
   tiles' main lights the area's only light) the area view, lit, is
@@ -1330,16 +1318,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Tile Properties' Defaults:** not yet compared with Aurora for a
   lighting scheme whose colors aren't black
   (`docs/research/notes_tilesets.md`). (S) (from the research notes)
-- **The palette's tile tools on a selection:** with tiles selected in
-  Select Tiles, Next and Previous Tile Appearance and Rotate Tile in the
-  Tiles palette step the selected tiles (Select Tiles and the selection
-  stay); Refine Tile and the Eraser are still chosen as brushes there,
-  turning Select Tiles off and letting the selection go (Refine Tile's
-  drag and its Gallery target, the Eraser's crossers, have no step on a
-  selection yet; Delete is the Eraser's on it). None of the tile tools
-  has a key of its own. The refusal's reason is at the end of Select
-  Tiles' status line, which a narrow area view cuts short (its tip shows
-  all). (S) (from the owner's report, October 2026)
 - **Delete takes a whole group by default,** where Aurora's Delete takes
   the tile alone and leaves the rest standing (the option gives
   Aurora's). Pasted tiles over a group are refused as a group is; how
@@ -1370,38 +1348,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   stood on in the server (`a_tile_s_own_height_stands_where_the_engine_puts_it`),
   not looked at in the game client; the control's ±1024 is Moonglow's
   reading bound, not the engine's. (S) (issue #29)
-- **All tiles in Tile Properties:** no search among them (the tileset's
-  order, 283 to 408 pictures in the game's sets); with several tiles
-  chosen each gets the same tile and turn from a picture clicked (the
-  Turn alone turns each its own tile to the same turn); the switch and the Turn are
-  not remembered from one opening to the next (off each time, as the
-  issue asks). Its frame time was looked at in the UI tests only (20
-  frames in 16 ms with the pictures in sight made), not on the
-  builder's machine with a large hak tileset. Next and Previous Tile
-  (S) (issue #29)
-- **Tile Properties' changes shown as they are made:** Undo in the
-  module (Ctrl+Z) while the window is open takes back the window's step,
-  but the window keeps showing its values and writes them again at the
-  next change in it (it doesn't read the tiles back). Each change takes
-  the window's step back and writes it again, and the area is read anew
-  (its model, walkmesh and scene) on the next frame: a height dragged is
-  that each step of it, timed in the UI tests' 4 by 4 area only, not on
-  a builder's large area. A Cancel after another command (its own
-  "Cancel Tile Properties" step) puts back a value only where the tile
-  still has the window's, by field; a tile put in from the pictures
-  after a step of the window's was buried takes the window's opening
-  values for the fields the window set. With several tiles chosen, only
-  the controls set are written (2.4.0's OK wrote every shown value, the
-  first tile's, into all of them); how Aurora writes them for several
-  tiles was not looked at on the oracle. (S) (the owner's report on
-  Tile Properties)
-- **The tile selection's outline on a tile that isn't flat:** drawn on
-  the ground the pointer picks, at the tile's height, it shows as a
-  thin strip on a cliff corner turned away from the view
-  (`target/test-output/ui-tile-live-turn/turn-after.angled.png`, from
-  `tile_properties_turn_turns_the_tiles_at_once`); it was so before the
-  Turn changed tiles at once. (S) (the owner's report on Tile
-  Properties)
+- **Tile Properties on several tiles, in Aurora:** Moonglow writes only
+  the controls set into every tile chosen (2.4.0's OK wrote every shown
+  value, the first tile's, into all of them); how Aurora writes them for
+  several tiles was not looked at on the oracle: it waits on a session
+  driving Aurora. (S) (the owner's report on Tile Properties)
 
 ## The turning ring
 
@@ -2557,8 +2508,6 @@ contribution itself states as not done or not checked.
 - **Rules and doors:** primary and secondary painting rules and a tile's
   door hooks (`[TILEnDOORm]`) aren't on the editor's pages; they stay as
   the file has them (edit the text for now). (M)
-- **Renaming a terrain or crosser** isn't offered: every tile naming it
-  would change with it. (S)
 - **The palette's arrangement:** it's generated flat, without the
   subfolders hand-made palettes have. (S)
 - **A tileset with holes** (a builder's report: a big old tileset,
@@ -2907,16 +2856,11 @@ of truth, and does each caller's difference matter.
 - The model viewer's wheel lacks Ctrl and pinch zoom and Shift's
   sideways, which the area view's has (`model_view.rs:745`,
   `area_view.rs:3657`), and its orbit is `area_view::Orbit` again.
-- Area Summary names a creature by its first name (`area_tools.rs:476`;
-  `tree.rs:82` and `query.rs:104` join both).
 - "The pointer over the view, not under a window" three times
   (`paint_mode.rs:379`, `area_view.rs:2043`, `:3993`), missing at the
   tile paste outline (`tile_select.rs:765`), the paste outline
   (`area_view.rs:2703`) and the coordinates (`:2215`): to be seen in a
   picture before it is changed.
-- The gallery rows' four-line prelude three times; `group_pictures`
-  (`terrain_mode.rs:1434`) lacks the `set_max_width` the palette's
-  comment says keeps pictures in the pane (not seen in a picture yet).
 - Escape or a right click to cancel, six times (`paint_mode.rs:483`,
   `:495`, `tile_select.rs:217`, `area_view.rs:3107`, `:3123`, `:3155`;
   `:4093` without `hovered`).
