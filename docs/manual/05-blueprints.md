@@ -187,7 +187,9 @@ The palette's buttons:
   area's selection).
 - **View**: open one of the game's blueprints to look at, page by page
   as its editor shows it (or double-click it). It can't be changed
-  there: its fields are dimmed, its pages and lists can still be looked
+  there: its fields are dimmed and take no typing (a click in one leaves
+  the keyboard where it was; a list's **Find** is still typed in), its
+  pages and lists can still be looked
   through, and a change tried is refused with a note that offers **Edit
   Copy…**.
 - **Export…** (a custom blueprint, or the several selected): the Export

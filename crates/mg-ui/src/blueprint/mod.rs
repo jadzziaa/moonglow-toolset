@@ -1657,7 +1657,7 @@ pub(crate) fn edit_many(
     }
     let pending = app.actions.len();
     let mut form = Form { app, key, path, also, root };
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+    let shown = egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         if viewed {
             read_only_look(ui);
         }
@@ -1674,9 +1674,22 @@ pub(crate) fn edit_many(
             _ => {}
         }
     });
-    // The game's blueprint takes no change: what a page asked for is
-    // dropped, and the note above says so.
+    // The game's blueprint takes no change: its fields don't keep the
+    // keyboard (nothing is typed into them, to be dropped when the field
+    // is left), and what a page asked for is dropped, the note above
+    // saying so. Its lists still scroll, its pages open and its lists'
+    // searches take what is typed.
     if viewed {
+        let ctx = ui.ctx();
+        let layer = ui.layer_id();
+        let focused = ctx.memory(|m| m.focused()).and_then(|id| Some((id, ctx.read_response(id)?)));
+        if let Some((id, r)) = focused
+            && r.layer_id == layer
+            && shown.inner_rect.intersects(r.rect)
+            && !crate::widgets::is_search_field(ctx, id)
+        {
+            ctx.memory_mut(|m| m.surrender_focus(id));
+        }
         let app = &mut *form.app;
         let mut tried = false;
         let mut i = pending;

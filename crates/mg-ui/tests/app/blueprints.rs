@@ -3144,6 +3144,64 @@ fn the_gallery_opens_at_a_far_appearance() {
     assert!((0.0..=24.0).contains(&below), "{below} points under Find: {chosen:?}");
 }
 
+/// The game's blueprint, viewed, takes no typing: a click in a field
+/// doesn't keep the keyboard there, so nothing typed waits to be dropped
+/// when the field is left. Its pages still open, and a list's search
+/// still takes what is typed.
+#[test]
+fn a_viewed_blueprint_s_fields_take_no_typing() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-viewed-typing");
+    let mut app = game_app(&root, None);
+    app.open_module(&sample_module(&dir));
+    let key = ResKey::parse("nw_waypoint001", ResType::UTW).unwrap();
+    let data = app.game.as_ref().unwrap().resman.get(&key).unwrap().into_owned();
+    let tag = {
+        let g = Gff::read(&data).unwrap();
+        String::from_utf8(g.root.string("Tag").unwrap().to_vec()).unwrap()
+    };
+    app.ws.as_mut().unwrap().view(key, Gff::read(&data).unwrap());
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
+    close_tab(&mut app, &Tab::ModuleProperties);
+    let mut h = harness(app, 1000.0, 800.0);
+    h.run();
+    assert!(h.query_by_label_contains("shown to look at").is_some(), "viewed");
+    h.get_all_by_value(&tag).next().unwrap().click();
+    h.run();
+    assert!(h.ctx.memory(|m| m.focused()).is_none(), "the field doesn't keep the keyboard");
+    h.event(egui::Event::Text("X".into()));
+    h.run();
+    assert_eq!(h.get_all_by_value(&tag).count(), 2, "nothing typed in it");
+    assert!(h.query_by_value(&format!("{tag}X")).is_none());
+    assert!(h.query_by_label_contains("Not changed").is_none(), "nothing tried to change");
+    // Its pages open.
+    h.get_by_label("Advanced").click();
+    h.run();
+    assert_eq!(
+        h.state().blueprint_pages.get(&(key, mg_edit::GffPath::root())).copied(),
+        Some("Advanced")
+    );
+    // A store's inventory, viewed: its item search is typed in.
+    let store = ResKey::parse("nw_storebar01", ResType::UTM).unwrap();
+    {
+        let app = h.state_mut();
+        let data = app.game.as_ref().unwrap().resman.get(&store).unwrap().into_owned();
+        app.ws.as_mut().unwrap().view(store, Gff::read(&data).unwrap());
+        app.blueprint_pages.insert((store, mg_edit::GffPath::root()), "Inventory");
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(store)));
+    }
+    h.run_steps(3);
+    let find = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Find");
+    h.get_all(egui_kittest::kittest::by().predicate(find)).last().unwrap().click();
+    h.run();
+    h.event(egui::Event::Text("torch".into()));
+    h.run();
+    assert!(h.query_all_by_value("torch").next().is_some(), "the search takes it");
+}
+
 /// An item's Appearance page shows its model in the page, over the fields
 /// in a window too narrow to have it beside them.
 #[test]

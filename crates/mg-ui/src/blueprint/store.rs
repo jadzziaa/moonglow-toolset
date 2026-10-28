@@ -319,7 +319,8 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
         ui.vertical(|ui| {
             ui.set_width(240.0);
             ui.label("Base Items");
-            ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Find"));
+            let field = ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Find"));
+            crate::widgets::searching(ui, field);
             let needle = mg_core::text::Needle::new(&filter);
             egui::ScrollArea::vertical().id_salt(("utm-bases", key)).max_height(360.0).show(
                 ui,

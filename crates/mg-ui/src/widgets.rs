@@ -2002,6 +2002,21 @@ pub(crate) struct SearchField<'a> {
     width: Option<f32>,
 }
 
+const SEARCH_FIELD: &str = "search-field";
+
+/// Whether the widget `id` is a search's field ([`SearchField`]'s, or one
+/// [`searching`] marks): what is typed there finds, and changes nothing.
+pub(crate) fn is_search_field(ctx: &egui::Context, id: egui::Id) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(id.with(SEARCH_FIELD))).unwrap_or(false)
+}
+
+/// Marks a text field as a list's search ([`is_search_field`]): a form
+/// only looked at lets it be typed in.
+pub(crate) fn searching(ui: &Ui, field: egui::Response) -> egui::Response {
+    ui.data_mut(|d| d.insert_temp(field.id.with(SEARCH_FIELD), true));
+    field
+}
+
 /// What a [`SearchField`] did: the field's response, and how its keys
 /// left it, if they did.
 pub(crate) struct Searched {
@@ -2066,6 +2081,8 @@ impl<'a> SearchField<'a> {
         let here = find.unwrap_or(false) || (find_over && ui.rect_contains_pointer(ui.clip_rect()));
         let find = find_here(ui, here);
         let left = field_keys(ui, id, text, find, down);
+        // (Known as a search, which a form only looked at lets be typed in.)
+        ui.data_mut(|d| d.insert_temp(id.with(SEARCH_FIELD), true));
         let response = ui
             .horizontal(|ui| {
                 let clear = !text.is_empty();
