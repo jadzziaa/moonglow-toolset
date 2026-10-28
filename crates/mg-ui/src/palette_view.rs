@@ -1697,15 +1697,8 @@ impl Tree<'_> {
         if self.gallery {
             // As many across as fit, grown to fill the palette's width.
             let asked = self.side;
-            // (Of the pane's visible width: a pane once wider than it
-            // shows, for a row that didn't wrap, would keep that width
-            // and the pictures run past its edge.)
-            let seen = ui.clip_rect().right() - ui.cursor().left();
-            let room = ui.available_width().min(seen) - 1.0;
-            self.side = crate::appearance_gallery::fitted(room, asked, 4.0).1;
-            ui.set_max_width(room);
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
+            crate::appearance_gallery::picture_rows(ui, asked, |ui, side| {
+                self.side = side;
                 for b in rows {
                     self.row(ui, b, within);
                 }

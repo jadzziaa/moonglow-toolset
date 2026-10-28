@@ -2989,9 +2989,6 @@ of truth, and does each caller's difference matter.
   tile paste outline (`tile_select.rs:765`), the paste outline
   (`area_view.rs:2703`) and the coordinates (`:2215`): to be seen in a
   picture before it is changed.
-- The gallery rows' four-line prelude three times; `group_pictures`
-  (`terrain_mode.rs:1434`) lacks the `set_max_width` the palette's
-  comment says keeps pictures in the pane (not seen in a picture yet).
 - Escape or a right click to cancel, six times (`paint_mode.rs:483`,
   `:495`, `tile_select.rs:217`, `area_view.rs:3107`, `:3123`, `:3155`;
   `:4093` without `hovered`).

@@ -167,6 +167,30 @@ pub(crate) fn fitted(room: f32, side: f32, gap: f32) -> (usize, f32) {
     (per_row, fills.clamp(side.min(room.max(MIN_TILE)), side * 2.0))
 }
 
+/// Pictures in rows that wrap, as the Galleries lay theirs out (the
+/// blueprint palettes', the tiles palette's tiles and groups): as many of
+/// at least `asked` points across as fit, grown to fill the row, `GAP`
+/// apart; `add` lays them out, given their side. The row is of the pane's
+/// visible width, and `ui` is narrowed to it: a pane once wider than it
+/// shows, for a row that didn't wrap, would keep that width and the
+/// pictures run past its edge.
+pub(crate) fn picture_rows<R>(
+    ui: &mut egui::Ui,
+    asked: f32,
+    add: impl FnOnce(&mut egui::Ui, f32) -> R,
+) -> R {
+    const GAP: f32 = 4.0;
+    let seen = ui.clip_rect().right() - ui.cursor().left();
+    let room = ui.available_width().min(seen) - 1.0;
+    let side = fitted(room, asked, GAP).1;
+    ui.set_max_width(room);
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(GAP, GAP);
+        add(ui, side)
+    })
+    .inner
+}
+
 const DEFAULT_TILE: u16 = 128;
 const MIN_TILE: f32 = 64.0;
 const MAX_TILE: f32 = 220.0;

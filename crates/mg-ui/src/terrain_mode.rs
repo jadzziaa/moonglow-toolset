@@ -1818,11 +1818,7 @@ fn group_pictures(ui: &mut egui::Ui, groups: &[(&str, usize)], at: &mut Place) {
         return;
     }
     let (asked, ready) = (pictures.side, pictures.ready);
-    let seen = ui.clip_rect().right() - ui.cursor().left();
-    let room = ui.available_width().min(seen) - 1.0;
-    let side = crate::appearance_gallery::fitted(room, asked, 4.0).1;
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
+    crate::appearance_gallery::picture_rows(ui, asked, |ui, side| {
         for &(label, g) in groups {
             let brush = Brush::Group(g);
             let pictured = crate::model_view::Pictured::Group(at.tileset, g as u32);
@@ -1835,7 +1831,13 @@ fn group_pictures(ui: &mut egui::Ui, groups: &[(&str, usize)], at: &mut Place) {
             let choose = |at: &mut Place| {
                 *at.choice = None;
                 let label = label.to_string();
-                *at.chosen = Some(TileBrush { tileset: at.tileset, label, brush, target: None, exact: false });
+                *at.chosen = Some(TileBrush {
+                    tileset: at.tileset,
+                    label,
+                    brush,
+                    target: None,
+                    exact: false,
+                });
             };
             if r.drag_started() {
                 choose(at);
@@ -1874,13 +1876,7 @@ fn group_pictures(ui: &mut egui::Ui, groups: &[(&str, usize)], at: &mut Place) {
 fn tile_pictures(ui: &mut egui::Ui, tiles: &[u32], at: &mut Place) {
     let Some(pictures) = &at.gallery else { return };
     let (asked, ready) = (pictures.side, pictures.ready);
-    // (Of the pane's visible width, as the blueprint palettes fit theirs.)
-    let seen = ui.clip_rect().right() - ui.cursor().left();
-    let room = ui.available_width().min(seen) - 1.0;
-    let side = crate::appearance_gallery::fitted(room, asked, 4.0).1;
-    ui.set_max_width(room);
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
+    crate::appearance_gallery::picture_rows(ui, asked, |ui, side| {
         for &t in tiles {
             let Some(tile) = at.tools.set.tiles.get(t as usize) else { continue };
             let key = ResKey::parse(&tile.model.to_ascii_lowercase(), ResType::MDL);
