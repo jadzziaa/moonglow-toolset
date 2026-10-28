@@ -117,16 +117,22 @@ pub fn file_name(name: &str) -> String {
     format!("{}{}", name.trim(), SHELF.suffix)
 }
 
-/// Saves variables as a set to the file `path` (anywhere). A file name
-/// without `.json` is given the sets' ending.
+/// Saves variables as a set to the file `path` (anywhere), named with the
+/// sets' ending, `.vars.json`, whatever the dialog gave (Windows' adds
+/// `.json` to a name typed bare, others add nothing): so a copy put in
+/// the sets' folder is listed.
 pub fn save_file(path: &Path, rows: &[VarRow]) -> Result<PathBuf, String> {
-    let json = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("json"));
     let path = match path.file_name() {
-        Some(n) if !json => {
+        Some(n) => {
             let n = n.to_string_lossy();
-            path.with_file_name(file_name(n.strip_suffix(".vars").unwrap_or(&n)))
+            let lower = n.to_lowercase();
+            let cut = [SHELF.suffix, ".json", ".vars"]
+                .iter()
+                .find(|s| lower.ends_with(*s))
+                .map_or(n.len(), |s| n.len() - s.len());
+            path.with_file_name(file_name(&n[..cut]))
         }
-        _ => path.to_path_buf(),
+        None => path.to_path_buf(),
     };
     std::fs::write(&path, to_text(rows)).map_err(|e| format!("{}: {e}", path.display()))?;
     Ok(path)
@@ -200,13 +206,15 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&file).unwrap(), to_text(&rows));
         let back = load_file(&file).unwrap();
         assert_eq!(back.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["MG_LOOT", "MG_SAY"]);
-        // A name typed without the ending is given it; a .json is kept.
+        // A name given without the whole ending is given it.
         let bare = save_file(&scratch.join("bare"), &rows).unwrap();
         assert_eq!(bare, scratch.join("bare.vars.json"));
         let half = save_file(&scratch.join("half.vars"), &rows).unwrap();
         assert_eq!(half, scratch.join("half.vars.json"));
         let plain = save_file(&scratch.join("plain.json"), &rows).unwrap();
-        assert_eq!(plain, scratch.join("plain.json"));
+        assert_eq!(plain, scratch.join("plain.vars.json"), "Windows' dialog adds .json");
+        let upper = save_file(&scratch.join("Upper.VARS.JSON"), &rows).unwrap();
+        assert_eq!(upper, scratch.join("Upper.vars.json"));
         // A file that isn't a set says which file.
         std::fs::write(scratch.join("bad.vars.json"), "{}").unwrap();
         let e = load_file(&scratch.join("bad.vars.json")).unwrap_err();

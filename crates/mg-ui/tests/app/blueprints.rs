@@ -1908,6 +1908,16 @@ fn variable_sets_are_managed_and_kept_in_files_of_ones_choosing() {
     h.get_all_by_label("Close").last().unwrap().click();
     h.run();
     assert!(h.state().var_edit.as_ref().unwrap().sets.is_none(), "closed");
+    // Escape closes the Variable Sets window alone, in front of Variables.
+    h.get_by_label("Add Set").click();
+    h.run();
+    h.get_by_label("Manage Sets…").click();
+    h.run();
+    assert!(h.state().var_edit.as_ref().unwrap().sets.is_some());
+    h.key_press(egui::Key::Escape);
+    h.run();
+    let edit = h.state().var_edit.as_ref().expect("Variables stays open");
+    assert!(edit.sets.is_none(), "Escape closed Variable Sets");
     // Save to File…: where the dialog says.
     h.state_mut().var_edit.as_mut().unwrap().rows.push(VarRow::new("MG_LOOT", 1, "9"));
     h.run();
