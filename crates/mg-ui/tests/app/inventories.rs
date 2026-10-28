@@ -3,6 +3,68 @@
 
 use crate::common::*;
 
+/// Two longswords pasted into a store that has no weapons page: one page
+/// made for both, each at a place of its own, as one step (the store added
+/// each its own way: a page each, both at the same place).
+#[test]
+fn items_pasted_into_a_store_share_the_page_they_make() {
+    let Some((mut h, key)) = blueprint_harness("nw_storebar01", "store_paste", ResType::UTM) else {
+        return;
+    };
+    h.run();
+    // A store of one page, Miscellaneous, holding one item.
+    let misc = {
+        let s = field(&mut h, &key);
+        let pages = s.list("StoreList").unwrap();
+        let item = pages.iter().find_map(|p| p.list("ItemList")?.first().cloned()).unwrap();
+        let mut p = mg_gff::Struct::new(1);
+        p.set("ItemList", mg_gff::Value::List(vec![item]));
+        p
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "setup",
+        vec![mg_edit::Edit::SetField {
+            key,
+            path: mg_edit::GffPath::root(),
+            label: "StoreList".into(),
+            value: Some(mg_gff::Value::List(vec![misc])),
+        }],
+    )));
+    let sword = ResRef::from_str("nw_wswls001").unwrap();
+    h.state_mut().item_clip = vec![sword, sword];
+    h.run();
+    h.get_by_label("Inventory…").click();
+    h.run();
+    let rows: Vec<egui::Rect> = h.get_all_by_label_contains(" gp").map(|n| n.rect()).collect();
+    let row = *rows.iter().max_by(|a, b| a.left().total_cmp(&b.left())).unwrap();
+    h.hover_at(row.center());
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: row.center(),
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run();
+    h.get_by_label("Paste (2)").click();
+    h.run();
+    let s = field(&mut h, &key);
+    let pages = s.list("StoreList").unwrap();
+    assert_eq!(pages.iter().map(|p| p.id).collect::<Vec<_>>(), [1, 4], "one weapons page");
+    let swords = pages[1].list("ItemList").unwrap();
+    let at: Vec<_> = swords
+        .iter()
+        .map(|i| (i.integer("Repos_PosX").unwrap(), i.integer("Repos_Posy").unwrap()))
+        .collect();
+    assert_eq!(swords.len(), 2);
+    assert_ne!(at[0], at[1], "each at a place of its own");
+    assert!(swords.iter().all(|i| i.integer("Infinite") == Some(0)));
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert_eq!(field(&mut h, &key).list("StoreList").unwrap().len(), 1, "one step");
+}
+
 #[test]
 fn placeable_editor_fills_its_inventory() {
     let Some((mut h, key)) = blueprint_harness("plc_chest1", "chest_copy", ResType::UTP) else {
