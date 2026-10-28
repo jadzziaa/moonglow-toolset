@@ -4483,6 +4483,35 @@ fn nui_fields() {
     shoot(&mut h, &dir, "nui-split-typing");
 }
 
+/// Delete… on a NUI window whose event script has unsaved text in its
+/// editor (`nui-delete-unsaved.png`), and Rename… on that event script,
+/// which renames the window (`nui-rename-script.png`).
+#[test]
+#[ignore]
+fn nui_delete_and_rename() {
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::output_dir("screens");
+    let key = ResKey::parse("shop", ResType::JUI).unwrap();
+    let script = ResKey::parse("shop_e", ResType::NSS).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.ws = Some(mg_edit::Workspace::new(mg_module::Module::new()));
+    app.run(mg_ui::Action::NewNui("shop".into()));
+    let mut h = nui_harness(app, key, (1100.0, 700.0));
+    h.get_by_label("Canvas Button · Close").click();
+    h.run();
+    h.get_by_label("Edit code").click();
+    h.run();
+    h.state_mut().script_tools.jump = Some((script, 0));
+    h.run();
+    h.event(egui::Event::Text("// typed\n".into()));
+    h.run();
+    h.state_mut().run(mg_ui::Action::DeleteDialog(key));
+    shoot(&mut h, &dir, "nui-delete-unsaved");
+    h.state_mut().confirm_delete = None;
+    h.state_mut().rename_dialog(script);
+    shoot(&mut h, &dir, "nui-rename-script");
+}
+
 /// Properties on a dropdown with a long option, in the Creator's window as
 /// it opens and in a narrow one (`nui-inspector-options.png`, `-narrow`):
 /// Properties stays beside the canvas, not under it.
