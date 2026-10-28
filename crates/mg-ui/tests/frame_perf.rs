@@ -17,7 +17,8 @@
 //! `FRAME_ACCESSKIT=1` builds the accessibility tree every frame, as the app
 //! does while an assistive client is connected (a screen reader, a desktop
 //! agent), and `FRAME_TARGET=<width>x<height>` sizes the pictures of the areas
-//! taken apart at the end. (With another program drawing, the game say,
+//! taken apart at the end, and `FRAME_SHADOWS=off` draws them without
+//! the sun's shadows, `on` with them in every area. (With another program drawing, the game say,
 //! the GPU's times are as much that program's: close it for those.)
 
 #[allow(dead_code)]
@@ -501,11 +502,28 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
     let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap().clone();
     let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap().clone();
     let tileset = mg_area::tileset(&game, are.root.resref("Tileset").unwrap()).ok();
-    let model = mg_area::AreaModel::read(&game, &are.root, &git.root, tileset.as_ref());
+    let mut model = mg_area::AreaModel::read(&game, &are.root, &git.root, tileset.as_ref());
     let t = Instant::now();
     let mut scene = mg_area::AreaScene::new(&gpu, &game, &model);
-    println!("  area {area}: models loaded in {:.0?}", t.elapsed());
     let mut view = mg_area::View::of(&model);
+    // (`FRAME_SHADOWS=off`: without the sun's shadows; `on`: with them in
+    // every area, at the area's opacity or 50.)
+    match std::env::var("FRAME_SHADOWS").as_deref() {
+        Ok("off") => view.shadows = false,
+        Ok("on") => {
+            let l = &mut model.lighting;
+            (l.sun.shadows, l.moon.shadows) = (true, true);
+            if l.shadow_opacity == 0 {
+                l.shadow_opacity = 50;
+            }
+        }
+        _ => {}
+    }
+    println!(
+        "  area {area}: models loaded in {:.0?}; shadows {:?}",
+        t.elapsed(),
+        view.shadows_of(&model.lighting)
+    );
     // (`FRAME_TARGET=<width>x<height>`: a picture of another size.)
     let (w, h_px) = std::env::var("FRAME_TARGET")
         .ok()

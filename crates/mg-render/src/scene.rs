@@ -45,6 +45,14 @@ pub struct Instance {
     /// corners (read from the client: `surfaces_in_the_client` in
     /// `client_render.rs`).
     pub grass: bool,
+    /// The sun's and moon's shadows fall on it ([`Scene::shadows`]): the
+    /// client darkens an area's tiles and its static placeables alone,
+    /// not what moves (a dynamic placeable, a door, a creature), read
+    /// from its pictures (`shadows_look` in `client_render.rs`).
+    pub receives_shadows: bool,
+    /// Its meshes flagged `shadow` cast shadows (with `render 0` meshes
+    /// that only do): on, unless it is a marker, see-through or grass.
+    pub casts_shadows: bool,
 }
 
 impl Instance {
@@ -62,6 +70,8 @@ impl Instance {
             unlit: false,
             tile: false,
             grass: false,
+            receives_shadows: false,
+            casts_shadows: true,
         }
     }
 }
@@ -163,6 +173,21 @@ pub fn bgr_linear(c: u32) -> Vec3 {
     Vec3::new(ch(0), ch(8), ch(16))
 }
 
+/// The sun's or moon's shadows over a scene, as the game's shadow plane
+/// lays them (`docs/research/notes_shaders.md` §G): what the area light
+/// ([`Scene::area`], its direction) shades of what receives them
+/// ([`Instance::receives_shadows`]) is darkened, black laid over it as
+/// much as the area's Shadow Opacity says, less towards the top of the
+/// screen (the plane's fade) and in fog.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SunShadows {
+    /// The area's `ShadowOpacity`, 0 to 1.
+    pub opacity: f32,
+    /// Where the fade of the shadows up the screen ends: the area's fog
+    /// clip distance (`FogClipDist`), as the client's fog is always on.
+    pub fade_limit: f32,
+}
+
 /// Linear fog by view depth, blended in gamma space.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Fog {
@@ -203,6 +228,8 @@ pub struct Scene {
     pub time: f32,
     /// What the game's shaders read of the area besides its light.
     pub environment: Environment,
+    /// The area light's shadows; `None`: none.
+    pub shadows: Option<SunShadows>,
 }
 
 /// What the game's shaders read of an area besides its light

@@ -17,6 +17,8 @@ pub(crate) const ROTATE: &str = "↺";
 pub(crate) const START: &str = "🏁";
 pub(crate) const NIGHT: &str = "🌙";
 pub(crate) const FOG: &str = "☁";
+/// The area view's Shadows switch.
+pub(crate) const SHADOWS: &str = "◑";
 pub(crate) const GRID: &str = "⊞";
 pub(crate) const GRASS: &str = "🌿";
 /// The game's own shaders (the area and model views' Shaders switch).
@@ -153,6 +155,7 @@ impl Tools {
             START,
             NIGHT,
             LIGHTING,
+            SHADOWS,
             FOG,
             ANIMATIONS,
             GRASS,

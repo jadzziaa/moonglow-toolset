@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T04:03:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T05:02:47Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2362,14 +2362,34 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   report's Mindwitness also poses differently than in Aurora and the
   game; not reproduced without the model. (S; the pose needs the
   files)
-- **Shadows:** the area view and the previews draw none. The client
-  draws them for placeables with a shadow caster, static or not (an
-  armoire, and a library cart with a `render 0`, `shadow 1` node), on the
-  ground and on static placeables; an area's shadow settings are only
-  edited. (L: the game's stencil shadows, or a shadow map standing in
-  for them)
-  (asked by the Domains of Dread module session; checked in the client,
-  2026-10-09)
+- **Shadows:** the area view draws the sun's and moon's shadows
+  (2026-10-28: a shadow map standing in for the game's stencil volumes,
+  laid as the game's shadow plane lays them, checked against the client
+  in `shadows_look`; [the research note](research/notes_shaders.md) §G).
+  Left:
+  - creatures cast none (their skinned meshes are left out of the map;
+    the client casts them with its creature shadows setting) (M);
+  - point lights cast none: a PC's torch or light spell at night, the
+    placeable and tile source lights with `shadow 1` (the client casts
+    from up to `max-casting-lights`, 3) (L);
+  - what is drawn after the shadows receives none: the area's grass
+    (see-through tufts: in `shadows_look` with `MG_SHADOW_GRASS=1` the
+    shadowed ground darkens by 0.34 to 0.38, the client's by 0.42, its
+    grass sparser and darkened), the solid parts of a tile's see-through
+    meshes (alpha-blended leaves), shiny water drawn after the
+    framebuffer's copy; the client's volumes darken whatever was drawn
+    before its plane (S);
+  - with Fade Geometry on, the faded roofs and upper walls cast no
+    shadow, where the game's still do (S);
+  - doors cast as placeables do and items on the ground cast none: not
+    checked in the client (S);
+  - the exact stencil look: a volume torn by a non-manifold caster, the
+    shadow's fade with the height between plane and caster
+    (85.8193.31), sun shadows never above the camera's height; the
+    shadow map's edges are a texel soft (S);
+  - the previews (blueprints, the model viewer) draw none (S).
+  (asked by the Domains of Dread module session and by a builder,
+  Troubletcat)
 - **Where a cut-out is cut:** at alpha 0.2 and solid where it is not
   cut; that, two-sided faces and decals as the client draws them are in
   [the findings](findings.md) ("Two-sided faces, cut-outs and decals").

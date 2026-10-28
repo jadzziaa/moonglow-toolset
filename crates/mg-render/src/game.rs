@@ -1196,6 +1196,9 @@ pub(crate) struct GameDraw<'a> {
     /// Drawn after the framebuffer's copy, which it reads (shiny water
     /// through `fswater`): among the solid draws, last.
     pub(crate) late: bool,
+    /// The sun's shadows fall on it ([`crate::Instance::receives_shadows`]):
+    /// among the solid draws, first, before the shadows are laid.
+    pub(crate) receives: bool,
 }
 
 impl GameDraw<'_> {
@@ -2187,7 +2190,17 @@ impl GameShaders {
             fill(&b.plan, f, d, &mut self.bones.bytes[at as usize..end]);
             at
         });
-        GameDraw { pipeline, material, geometry, dynamic, places, bones, instance: 0, late: false }
+        GameDraw {
+            pipeline,
+            material,
+            geometry,
+            dynamic,
+            places,
+            bones,
+            instance: 0,
+            late: false,
+            receives: false,
+        }
     }
 
     /// The same draw through another pipeline of the same programs (a

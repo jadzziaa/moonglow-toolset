@@ -227,6 +227,9 @@ pub struct Settings {
     /// The area view's Lighting switch is off (an even working light), in
     /// views opened from now on.
     pub unlit_areas: bool,
+    /// The area view's Shadows switch is off (no sun or moon shadows), in
+    /// views opened from now on.
+    pub no_shadows: bool,
     /// The area view's Sound Ranges switch is on, in views opened from
     /// now on.
     pub sound_ranges: bool,

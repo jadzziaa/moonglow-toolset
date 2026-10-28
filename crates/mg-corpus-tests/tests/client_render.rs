@@ -58,6 +58,8 @@ mod heads;
 mod heed;
 #[path = "client_render/programs.rs"]
 mod programs;
+#[path = "client_render/shadows.rs"]
+mod shadows;
 #[path = "client_render/soft_particles.rs"]
 mod soft_particles;
 #[path = "client_render/upright.rs"]
@@ -2539,10 +2541,14 @@ fn area_lighting_look() {
     std::fs::create_dir_all(dir.join("user/hak")).unwrap();
     // `MG_CLIENT_SETTINGS`: `owner` (as the project's owner plays) or
     // `default` (the client's defaults) instead of the tests' settings
-    // (the post effects Moonglow doesn't draw off).
+    // (the post effects Moonglow doesn't draw off); `shadows`: the tests'
+    // with the shadows on.
+    // (The tests' settings have no shadows: nor has Moonglow's view then.)
+    let shadows = std::env::var_os("MG_CLIENT_SETTINGS").is_some();
     let settings = match std::env::var("MG_CLIENT_SETTINGS").as_deref() {
         Ok("owner") => common::player_settings(true),
         Ok("default") => common::player_settings(false),
+        Ok("shadows") => shadows::settings(),
         _ => SETTINGS.to_string(),
     };
     std::fs::write(dir.join("user/settings.tml"), settings).unwrap();
@@ -2616,7 +2622,7 @@ fn area_lighting_look() {
     for (name, lit, fog) in
         [("lit", true, true), ("lit_nofog", true, false), ("unlit", false, false)]
     {
-        let view = mg_area::View { lit, fog, ..mg_area::View::of(&model) };
+        let view = mg_area::View { lit, fog, shadows, ..mg_area::View::of(&model) };
         let scene = area_scene.scene(&model, &view);
         eprintln!("{name}: {} lights, area light {:?}", scene.lights.len(), scene.area);
         off_and_on(&gpu, &game, &scene, &camera, size, client.as_ref(), &dir, name);

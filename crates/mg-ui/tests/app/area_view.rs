@@ -3988,3 +3988,33 @@ fn properties_is_the_last_item_of_the_area_and_tree_menus() {
         ]
     );
 }
+
+/// Area Properties' shadow fields show in the view at once (the area read
+/// anew at the edit: the sun's shadows as opaque as its Shadow Opacity),
+/// and the toolbar's Shadows switch takes them away, kept for the views
+/// opened after.
+#[test]
+fn the_area_s_shadow_settings_show_at_once_and_the_switch_hides_them() {
+    let Some((mut h, area)) = area_harness("shadows") else { return };
+    let shadows = |h: &Harness<'_, Moonglow>| {
+        let view = &h.state().area_views[&area];
+        let model = view.model.as_ref().unwrap();
+        let shown =
+            mg_area::View { shadows: view.shadows, night: view.night, ..mg_area::View::of(model) };
+        shown.shadows_of(&model.lighting)
+    };
+    h.state_mut().area_views.get_mut(&area).unwrap().night = false;
+    let key = ResKey::new(area, ResType::ARE);
+    let mut are = h.state_mut().ws.as_mut().unwrap().doc(&key).unwrap().clone();
+    are.root.set("SunShadows", mg_gff::Value::Byte(1));
+    are.root.set("ShadowOpacity", mg_gff::Value::Byte(40));
+    let edit = mg_edit::Edit::SetResource { key, data: are.to_bytes().ok() };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("shadows", vec![edit])));
+    h.run_steps(3);
+    let s = shadows(&h).expect("the sun's shadows");
+    assert!((s.opacity - 0.4).abs() < 1e-6, "{s:?}");
+    h.get_by_label("◑ Shadows").click();
+    h.run_steps(2);
+    assert_eq!(shadows(&h), None);
+    assert!(h.state().settings.no_shadows);
+}

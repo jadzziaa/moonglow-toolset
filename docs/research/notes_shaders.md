@@ -3,7 +3,7 @@ type: Research Note
 title: 'NWN:EE rendering and lighting pipeline: research notes (game 89.8193.37-17)'
 description: The NWN:EE rendering and lighting pipeline read from the stock shaders - shader selection, vertex attributes and uniforms, texture slots, lighting equations, light sources, fog, shadows, gamma and tonemapping, keyholing - every claim tagged with its evidence.
 tags: [rendering, shaders, lighting, renderer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-25T10:55:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T05:02:47Z }
 sources:
   - id: time-uniforms
     resource: crates/mg-corpus-tests/tests/client_render.rs (time_uniforms_in_the_client), run 2026-10-21 on 89.8193.37-17
@@ -14,6 +14,15 @@ sources:
   - id: surfaces
     resource: crates/mg-corpus-tests/tests/client_render/programs.rs (surfaces_in_the_client, runs marked, black, sky, waterband, unmarked), run 2026-10-21 on 89.8193.37-17
     title: The special surfaces marked in the client - water, grass, the skybox, additive meshes, decals with an envmap, particles of the three blends, items on the ground
+  - id: shadows-look
+    resource: crates/mg-corpus-tests/tests/client_render/shadows.rs (shadows_look), run 2026-10-28 on 89.8193.37-17, ttr01 and tic01
+    title: The sun's and moon's shadows in the client at Shadow Opacity 30, 60 and 100, by day and night, with the flags crossed
+  - id: shadowplane
+    resource: the installed game's vs_shadowplane.shd and fs_shadowplane.shd (89.8193.37-17)
+    title: The shadow plane's programs
+  - id: camera-range
+    resource: nwscript.nss SetCameraFacing (89.8193.37-17)
+    title: 'SetCameraFacing: distance 1 to 25'
 ---
 
 # NWN:EE rendering and lighting pipeline: research notes (game 89.8193.37-17)
@@ -636,6 +645,23 @@ The earlier reconstruction (att(0) = 1.5, k ≈ 12.33, colours uploaded as-is) m
   - Other classifications cast only if not transparent ([CL] .35), plus `graphics.shadows.all-types-can-cast-dynamic`.
 - **Beaming** (`beaming 1` meshes, e.g. forest sunbeams): the same extrusion (`vs_beamvol`), drawn as translucent volumes in `globalColor` with fog alpha.
 - A renderer can skip all of this initially. The legacy look is "blob-ish hard stencil shadows darkened by a constant alpha".
+
+### G.1 The sun's shadows as the client draws them [CLIENT]
+Measured with `shadows_look`[^shadows-look] (ttr01 and tic01, ambient 0x606060, diffuse 0xC0C0C0, the client's environment shadows on, creature shadows 2; the reference scenes' camera: pitch 50, the eye 19 m from its focus):
+- **Darkening is a flat multiply** of the finished picture: the shadowed floor is (1 − a) of the lit floor, a = 0.30 at Shadow Opacity 30 (not "the diffuse removed", which would give 0.12). So a = ShadowOpacity/100, black laid over the gamma-space picture.
+- **The plane's fade caps it up the screen**[^shadowplane]: `fShadowFadePoint = max(fMaxY/fLimit + 0.5, 0.01)` with `fMaxY = fLimit·tan(89.99° − cameraPitch) − (cameraPosition.z − cameraFocus.z)·sin(cameraPitch)` and `fLimit` = fog end (the fog is always on: FogClipDist); `fFade = 1.1·(P − y/H)/P − 0.1` (y from the bottom), `a = clamp(min(fFade, a·(1 − fog)), 0, 1)`. At the measured row (0.54 up) fFade = 0.47: opacity 60 and 100 measured alike (0.45). Seen from straight above, the fade is 1 everywhere.
+- **Receivers**: tiles and static placeables. The static armoire's face (turned from the sun) darkened by 0.35; the dynamic armoire's beside it not at all, not even by its own shadow. So dynamic placeables (and, by the same rule, doors and creatures [INF]) receive none.
+- **Casters**: placeables, static or not, and tiles (tic01's pillars and walls, whose trimeshes carry no `shadow 0`, throw long shadows over its floor). `render 0` meshes with `shadow 1` are common in tiles (tic01_e01_01) and cast.
+- **Direction**: the area light's, (4000, 4500, 7000) normalized, by night as by day (night_100 measured as day_100).
+- **Flags**: Sun Shadows by day, Moon Shadows by night; by day with only Moon Shadows on, and by night with only Sun Shadows on, there are none.
+- The edges are hard, a pixel or two soft at most.
+
+### G.2 Moonglow's stand-in
+`crates/mg-render/src/shadow.rs`: a 2048² depth map from the area light (an orthographic box fitted to what the camera sees of the receivers, reaching back toward the light over every caster whose shadow can fall there) stands in for the volumes. The receivers are drawn first; then a full-screen pass (per sample with MSAA) finds each pixel's place from the depth buffer, compares it with the map and lays black over it as the plane does: the opacity, the fade above (the editor camera's height over its focus taken no greater than the game's camera reaches, 25 m[^camera-range], so a far camera fades as the game's farthest would), the fog when shown; then the rest of the scene. Both the game's programs and Moonglow's own shader are darkened alike. In `shadows_look` Moonglow measures 0.41/0.26 at 100/30 against the client's 0.45/0.29 (the shadows' edges a fraction of a pixel apart), the static face 0.33 against 0.35. Left: creatures (skinned) cast none, point-light (torch, tile light) shadows, and see-through meshes (grass, the solid parts of alpha-blended tile meshes, water drawn after the framebuffer copy) receive none ([deferred list](../deferred.md), "Shadows").
+
+[^shadows-look]: crates/mg-corpus-tests/tests/client_render/shadows.rs, shadows_look
+[^shadowplane]: vs_shadowplane.shd, fs_shadowplane.shd
+[^camera-range]: nwscript.nss, SetCameraFacing
 
 ---------------------------------------------------------------------------------------------------
 

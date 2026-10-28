@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T03:58:52Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T05:02:47Z }
 ---
 
 # Areas
@@ -123,6 +123,23 @@ dropdowns keep their words.
   Switched off, everything is evenly lit, whatever the area's colors and
   lights: for working in a dark area. Areas opened later open as you left
   it.
+- **◑ Shadows**: the sun's shadows by day and the moon's at night, where
+  the area has them (Area Properties' **Shadows**, sun and moon, and its
+  **Shadow Opacity**), as the game draws them, so that you can set the
+  opacity by eye: they fall away from the sun (to the south-west, as the
+  game's sun stands for every area), cast by the meshes of tiles,
+  placeables and doors that cast them in the game (a model's `shadow`
+  flag, including shadow-only meshes that aren't drawn), and they darken
+  the tiles and the **static** placeables, not dynamic ones, as in the
+  game. Opacity 100 is as dark as the game makes them; like the game,
+  Moonglow fades them toward the top of the picture (from a camera looking
+  straight down, not at all), so they look as dark as in the game from
+  the same angle. Creatures cast none yet, nor do torches and tile lights,
+  and grass stays bright in a shadow; with **Fade Geometry** on, the roofs
+  it leaves out cast none either.
+  Switched off (or with **Lighting** off) there are none; areas opened
+  later open as you left it. Changes to the shadow fields in Area
+  Properties show at once.
 - **🔊 Sounds**, **Ambient**, **Music**: play the placed sound objects, the
   area's ambient sound and its music, heard from where the camera looks.
 - **◎ Sound Ranges**: two circles around each placed sound that is heard
@@ -923,7 +940,8 @@ Properties** on the viewer's toolbar:
 
 - **Basic**: name, the tileset (fixed once made) and the size.
 - **Visual**: the lighting scheme, day and night (or always one), the sun and moon colors,
-  fog colors and amounts, shadows, the skybox, lightning, rain and snow
+  fog colors and amounts, shadows (the sun's and the moon's, and how dark
+  they are: the view draws them, see **Shadows** above), the skybox, lightning, rain and snow
   chances, as Aurora's Customize Environment sets them. The schemes are
   listed in as many columns as the page is wide; once one is clicked
   (or reached with Tab), the arrow keys choose another: Up and Down down
