@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T11:11:23Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T21:26:27Z }
 ---
 
 # Areas
@@ -737,7 +737,7 @@ as Aurora's Terrain tab does:
   Double-click a picture for the tile's view: its model to turn and zoom,
   and what the tileset says of it (each corner's terrain and height, each
   edge's crosser, its lights, loops, doors and sounds), with **Paint with
-  it**. Chosen from its picture, **Refine Tile** chosen next (it then
+  it**, and its textures ([A tile's textures](#a-tiles-textures)). Chosen from its picture, **Refine Tile** chosen next (it then
   reads **Refine Tile →** and the tile's model) makes the tiles you click
   or drag over that tile, wherever it fits as they stand, and leaves the
   rest. Click the picture again, or another brush, to let it go.
@@ -959,6 +959,49 @@ tile of a group or a feature, unless the option above is on. A piece
 of a group put in alone is taken, after, for what is left of a group
 (see above: only the Eraser or the option changes it).
 
+### A tile's textures
+
+Tile Properties (folded under **Textures of** the model until you open
+it), a tile's view and the tileset editor's tile (Tools › Tilesets,
+Tiles) list the textures the tile's model draws, as the game finds them.
+The heading says how many there are and how many are missing; with
+several tiles chosen in Tile Properties, it is the first one's, and a
+variant put in shows its own at once. Each texture has a small picture
+(a PLT's in its first colors, a cube map's first face) and:
+
+- its **name**, with **Copy** beside it; a right click on it also offers
+  to read the material (`.mtr`) it is drawn through and its `.txi` as
+  text. A name longer than 16 characters says the name the game reads
+  (its first 16).
+- what the file is: **DDS**, **TGA** or **PLT**, its size in pixels, how
+  it is kept (**DXT1**, **DXT5**, **BC5**, **uncompressed**, **24-bit**…)
+  and its size on disk; and **where it comes from** in the load order:
+  **Game data**, **Hak:** and its name, **Override folder**,
+  **Development folder**, **Module** (the layer's own label on hover, as
+  `mg which` prints it). **TXI** says it has one. A DDS beats a TGA of
+  the same name within the folders, the haks and the game's archives in
+  turn, as in the game.
+- what draws it, a line each way: as which slot (**diffuse**,
+  **normal**, **specular**, **roughness**, **height**, **illumination**,
+  a custom shader's **texture6** and on) of which mesh nodes, and through
+  which material: the one its `materialname` names, else one named like
+  its bitmap, whose textures stand in slot by slot for the mesh's own (a
+  bitmap so stood in for is listed as **not drawn**); the **environment
+  map** a texture's TXI names (`default` is the tileset's `EnvMap`, else
+  `chrome1`; water's `bumpyshinytexture` too); an emitter's
+  **particles**, and the models it throws; a light's **lens flare**. On
+  hover, every node and where the materials come from. The tileset's
+  own `EnvMap` is listed too: what the meshes reflect where their
+  textures name none.
+- **Missing**, in red, with a mark for its picture: drawn, and no DDS,
+  TGA or PLT of the name is anywhere in the load order.
+
+Meshes the model doesn't draw (`render 0`) are left out, and so are the
+walkmesh (a `.wok` isn't drawn) and the doors on the tile's door hooks,
+which are door objects of their own (their textures are on the door's
+Visuals page). The tileset editor reads the model from the game data, as
+its Preview does (the module's haks, override, development): a model
+beside the `.set` alone isn't read.
 
 A tile's replacement texture (`Tile_ReplaceTex`, a `replacetexture.2da`
 row for a texture named `replace_tex` in the tile's model) isn't in the
@@ -1194,7 +1237,10 @@ open tilesets too, and closing one with unsaved changes asks first.
   animation loops. **Add Tile** and **Duplicate Tile** add at the end, and
   **Remove Last Tile** takes the last away: areas store tiles by number,
   so tiles in the middle stay where they are. **Preview** shows the
-  model when the game data has it.
+  model when the game data has it, and under the tile's fields are the
+  textures its model draws: each one's picture, file, where in the load
+  order it comes from, what draws it and the missing ones marked
+  ([A tile's textures](#a-tiles-textures)).
 - **Groups:** each group's name, size and tiles, the bottom row first.
 
 The toolbar also has:
