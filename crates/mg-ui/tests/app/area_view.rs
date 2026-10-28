@@ -125,7 +125,7 @@ fn set_orbit(h: &mut Harness<'_, Moonglow>, area: ResRef, orbit: mg_ui::area_vie
 /// El Grillo's ask (Blender's Alt + middle click): Alt + middle click on
 /// the ground puts the camera's focus there, at the ground's height, at
 /// once; the distance, the turn and the tilt stay. A plain middle click
-/// (the middle button has no click of its own) does the same.
+/// does nothing (a short middle drag never jumps the view).
 #[test]
 fn a_middle_click_puts_the_focus_on_the_ground() {
     use glam::Vec3;
@@ -167,12 +167,15 @@ fn a_middle_click_puts_the_focus_on_the_ground() {
     // The point clicked is now the view's middle.
     let rect = h.state().area_views[&area].rect;
     assert!((screen(&h, area, picked) - rect.center()).length() < 1.0);
-    // A plain middle click on the flat ground beside it: there, at its
-    // height.
+    // On the flat ground beside it: a plain middle click, or one with
+    // Ctrl or Shift held (the middle drag's, up and down), leaves the
+    // camera; Alt + middle click puts the focus there, at its height.
     let on = screen(&h, area, Vec3::new(30.0, 25.0, 0.0));
-    // (With Ctrl or Shift held it is not this: those are the middle
-    // drag's, up and down.)
-    for held in [egui::Modifiers::SHIFT, egui::Modifiers::COMMAND | egui::Modifiers::CTRL] {
+    for held in [
+        egui::Modifiers::NONE,
+        egui::Modifiers::SHIFT,
+        egui::Modifiers::COMMAND | egui::Modifiers::CTRL,
+    ] {
         middle_click(&mut h, on, held);
         assert_eq!(orbit(&h), after, "{held:?} + middle click");
     }
@@ -180,7 +183,7 @@ fn a_middle_click_puts_the_focus_on_the_ground() {
     assert!(
         picked.z.abs() < 0.6 && (picked.truncate() - glam::Vec2::new(30.0, 25.0)).length() < 0.6
     );
-    middle_click(&mut h, on, egui::Modifiers::NONE);
+    middle_click(&mut h, on, egui::Modifiers::ALT);
     let again = orbit(&h);
     assert!((again.target - picked).length() < 1e-3, "the focus at {:?}", again.target);
     assert_eq!((again.distance, again.yaw, again.pitch), (after.distance, after.yaw, after.pitch));
@@ -188,7 +191,7 @@ fn a_middle_click_puts_the_focus_on_the_ground() {
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), None);
 }
 
-/// A middle click on the sky, or on the ground past the area's edge,
+/// Alt + middle click on the sky, or on the ground past the area's edge,
 /// leaves the camera where it was.
 #[test]
 fn a_middle_click_off_the_ground_leaves_the_camera() {

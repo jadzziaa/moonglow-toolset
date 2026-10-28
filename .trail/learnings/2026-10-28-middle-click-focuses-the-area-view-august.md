@@ -1,5 +1,5 @@
 ---
-title: "Middle click focuses the area view's camera"
+title: "Alt + middle click focuses the area view's camera"
 author: August
 date: 2026-10-28
 branch: worktree-agent-aa319f1f1213d7e0c
@@ -11,8 +11,8 @@ touches:
 ---
 
 ## Decided
-- A middle click, plain or with Alt (Blender's Alt + middle click, El Grillo's ask), sets `Orbit::target` to `AreaView::focus_at`: the walkmesh hit (`Ground::hit`), else the nearest tile floor plane (`AreaTile::position.z`) the ray meets inside that tile's square. Distance, yaw and pitch untouched; camera moves are plain `view.orbit` mutations (no undo), like Go to Start Location.
-- Plain middle click too: the middle button had only drags (turn; Alt: pan; Ctrl+Shift: raise) and egui's `clicked_by(Middle)` tells a click from a drag. Not with Ctrl or Shift, nor with the left or right button down.
+- Alt + middle click (Blender's, El Grillo's ask) sets `Orbit::target` to `AreaView::focus_at`: the walkmesh hit (`Ground::hit`), else the nearest tile floor plane (`AreaTile::position.z`) the ray meets inside that tile's square. Distance, yaw and pitch untouched; camera moves are plain `view.orbit` mutations (no undo), like Go to Start Location.
+- Alt only, the user's decision: a plain middle click was tried and dropped as disruptive (egui counts a middle drag under ~6 px as a click, so it would jump the view). Not with Ctrl or Shift, nor with the left or right button down. The middle button's drags: turn; Alt: pan; Ctrl+Shift: raise.
 - Mouse gestures stay out of Options › Keyboard (settled in deferred.md, 'Not every key').
 
 ## Ruled out
