@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T05:02:47Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T06:11:06Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2365,13 +2365,16 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Shadows:** the area view draws the sun's and moon's shadows
   (2026-10-28: a shadow map standing in for the game's stencil volumes,
   laid as the game's shadow plane lays them, checked against the client
-  in `shadows_look`; [the research note](research/notes_shaders.md) §G).
-  Left:
-  - creatures cast none (their skinned meshes are left out of the map;
-    the client casts them with its creature shadows setting) (M);
-  - point lights cast none: a PC's torch or light spell at night, the
-    placeable and tile source lights with `shadow 1` (the client casts
-    from up to `max-casting-lights`, 3) (L);
+  in `shadows_look`; [the research note](research/notes_shaders.md) §G),
+  and creatures' and lights' shadows (the Shadows button's menu, done
+  2026-10-28). Left:
+  - the lights' shadows' darkness was measured at one distance from one
+    lamp: the opacity times the plane's fade there, which a fall-off with
+    the distance from the light (`shadowradius`) would look alike to (S);
+  - which light of two equally near the client takes (Moonglow: the
+    first), how many creatures cast the lights' shadows at once
+    (`max-casting-lights` changed nothing with one; Moonglow: 16), and a
+    PC's own light at night (Moonglow places no PC) (S);
   - what is drawn after the shadows receives none: the area's grass
     (see-through tufts: in `shadows_look` with `MG_SHADOW_GRASS=1` the
     shadowed ground darkens by 0.34 to 0.38, the client's by 0.42, its

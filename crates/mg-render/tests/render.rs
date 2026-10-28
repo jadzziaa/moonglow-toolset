@@ -1820,6 +1820,8 @@ void main ()
         cutoff: 1.0,
         ambient_only: false,
         priority: 1,
+        casts_shadows: false,
+        shadow_lift: 0.0,
     };
     let scene = Scene {
         instances: vec![beside(-3.0), quad.clone(), beside(3.0)],
@@ -3632,5 +3634,226 @@ fn shadows_darken_what_receives_them_by_the_opacity() {
             assert!((at(&half, beside) - at(&bare, beside)).abs() <= 1.0, "{context}: beside");
             assert!((at(&elsewhere, under) - lit).abs() <= 1.0, "{context}: not received");
         }
+    }
+}
+
+/// Creature shadows: a skinned plate that only casts, a metre over a
+/// ground that receives, its one bone posed 3 m east: its shadow falls
+/// where the bone has taken it (as it is drawn), not where it was bound;
+/// and none where the instance doesn't cast.
+#[test]
+fn a_skinned_mesh_casts_as_its_bones_pose_it() {
+    let Some(gpu) = gpu() else { return };
+    let ground = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let plate = {
+        let mesh = Mesh {
+            diffuse: [1.0; 3],
+            ambient: [1.0; 3],
+            render: false,
+            shadow: true,
+            vertices: vec![[-0.5, -0.5, 1.0], [0.5, -0.5, 1.0], [0.5, 0.5, 1.0], [-0.5, 0.5, 1.0]],
+            normals: vec![[0.0, 0.0, 1.0]; 4],
+            uvs: [vec![[0.0, 0.0]; 4], vec![], vec![], vec![]],
+            faces: vec![
+                Face { vertices: [0, 1, 2], material: 0 },
+                Face { vertices: [0, 2, 3], material: 0 },
+            ],
+            source: vec![0, 1, 2, 3],
+            extra: mg_mdl::MeshExtra::Skin(mg_mdl::Skin {
+                bones: vec![1],
+                weights: vec![[(0, 1.0), (0, 0.0), (0, 0.0), (0, 0.0)]; 4],
+                inverse_bind: Vec::new(),
+            }),
+            ..Default::default()
+        };
+        let mut root = Node::new("plate", NodeKind::Dummy);
+        root.children = vec![1, 2];
+        let mut bone = Node::new("bone", NodeKind::Dummy);
+        bone.parent = Some(0);
+        let mut skin = Node::new("skin", NodeKind::Mesh(Box::new(mesh)));
+        skin.parent = Some(0);
+        let model = Model {
+            name: "plate".into(),
+            animation_scale: 1.0,
+            nodes: vec![root, bone, skin],
+            ..Default::default()
+        };
+        Arc::new(GpuModel::new(&gpu, Arc::new(model)))
+    };
+    assert!(plate.shadow_only.first().is_some_and(|m| m.skin.is_some()));
+    let pose = Arc::new(vec![
+        Mat4::IDENTITY,
+        Mat4::from_translation(Vec3::new(3.0, 0.0, 0.0)),
+        Mat4::IDENTITY,
+    ]);
+    let scene = |casts: bool| Scene {
+        instances: vec![
+            Instance {
+                receives_shadows: true,
+                ..Instance::new(ground.clone(), Mat4::from_scale(Vec3::splat(6.0)))
+            },
+            Instance {
+                pose: Some(pose.clone()),
+                casts_shadows: casts,
+                ..Instance::new(plate.clone(), Mat4::IDENTITY)
+            },
+        ],
+        area: AreaLight {
+            ambient: Vec3::splat(0.2),
+            diffuse: Vec3::splat(0.6),
+            direction: Vec3::Z,
+        },
+        shadows: Some(mg_render::SunShadows { opacity: 1.0, fade_limit: 45.0 }),
+        ..Default::default()
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 12.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let grey = |p: [u8; 4]| (f32::from(p[0]) + f32::from(p[1]) + f32::from(p[2])) / 3.0;
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+    let cast = r.render_image(&gpu, &NoAssets, &scene(true), &camera, 64, 64);
+    let none = r.render_image(&gpu, &NoAssets, &scene(false), &camera, 64, 64);
+    save(&cast, &mg_testkit::output_dir("render").join("shadows_skinned.png"));
+    // (3 m east: 19 pixels right of the middle, 12 m up seeing 10 m across.)
+    let (posed, bound) = ((51, 32), (32, 32));
+    let lit = grey(none.pixel(posed.0, posed.1));
+    assert!(lit > 40.0, "{lit}");
+    assert!(grey(cast.pixel(posed.0, posed.1)) <= 1.0, "{:?}", cast.pixel(posed.0, posed.1));
+    assert!((grey(cast.pixel(bound.0, bound.1)) - grey(none.pixel(bound.0, bound.1))).abs() <= 1.0);
+}
+
+/// Light shadows: a plate that casts (as a creature does) a metre over a
+/// ground that receives, a lamp that casts shadows 3 m to its west and 2 m
+/// up (lifted 2 m more): the plate's shadow falls east of it, away from the
+/// lamp, as dark as the opacity; none without the lights' shadows, nor
+/// from a light that casts none.
+#[test]
+fn a_creature_s_shadow_falls_away_from_its_light() {
+    let Some(gpu) = gpu() else { return };
+    let ground = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let plate = Arc::new(GpuModel::new(&gpu, Arc::new(shadow_plate())));
+    let lamp = |casts: bool| {
+        mg_render::PointLight::new(Vec3::new(-3.0, 0.0, 2.0), Vec3::ONE, 10.0, false, 4)
+            .casting(casts, 10.0, 2.0)
+    };
+    let scene = |shadows: bool, casts: bool| Scene {
+        instances: vec![
+            Instance {
+                receives_shadows: true,
+                ..Instance::new(ground.clone(), Mat4::from_scale(Vec3::splat(6.0)))
+            },
+            Instance {
+                casts_light_shadows: true,
+                ..Instance::new(
+                    plate.clone(),
+                    Mat4::from_scale_rotation_translation(
+                        Vec3::splat(0.5),
+                        glam::Quat::IDENTITY,
+                        Vec3::new(0.0, 0.0, 1.0),
+                    ),
+                )
+            },
+        ],
+        lights: vec![lamp(casts)],
+        area: AreaLight {
+            ambient: Vec3::splat(0.2),
+            diffuse: Vec3::splat(0.6),
+            direction: Vec3::Z,
+        },
+        light_shadows: shadows.then_some(mg_render::SunShadows { opacity: 0.5, fade_limit: 45.0 }),
+        ..Default::default()
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 12.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let grey = |p: [u8; 4]| (f32::from(p[0]) + f32::from(p[1]) + f32::from(p[2])) / 3.0;
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+    let mut draw = |s: &Scene| r.render_image(&gpu, &NoAssets, s, &camera, 64, 64);
+    let (cast, off, unflagged) =
+        (draw(&scene(true, true)), draw(&scene(false, true)), draw(&scene(true, false)));
+    save(&cast, &mg_testkit::output_dir("render").join("shadows_light.png"));
+    // From 4 m up and 3 m west, the plate (a metre across, 1 m up) throws
+    // its shadow from 0.33 m to 1.67 m east of its middle; at 6.3 pixels a
+    // metre, the pixel 3 east of the middle is in it, the one 3 west lit.
+    let (east, west) = ((35, 32), (29, 32));
+    let lit = grey(off.pixel(east.0, east.1));
+    assert!(lit > 40.0, "{lit}");
+    let at = |img: &mg_image::Rgba, (x, y): (u32, u32)| grey(img.pixel(x, y));
+    assert!((at(&cast, east) - lit * 0.5).abs() <= 2.0, "{} of {lit}", at(&cast, east));
+    assert!((at(&cast, west) - at(&off, west)).abs() <= 1.0, "west");
+    assert!((at(&unflagged, east) - lit).abs() <= 1.0, "a light that casts none");
+}
+
+/// What the lights' shadows cost at their most: as many creatures as cast
+/// them at once ([`mg_render`]'s 16), each with a light, over a ground
+/// that receives, at the development machine's screen (3440×1440, 4×
+/// MSAA): the frame's time with them and without, printed. Run by hand:
+/// `cargo test --release -p mg-render --test render light_shadows_cost -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn light_shadows_cost() {
+    let Some(gpu) = gpu() else { return };
+    let ground = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let plate = Arc::new(GpuModel::new(&gpu, Arc::new(shadow_plate())));
+    let mut instances = vec![Instance {
+        receives_shadows: true,
+        ..Instance::new(ground.clone(), Mat4::from_scale(Vec3::splat(20.0)))
+    }];
+    let mut lights = Vec::new();
+    for k in 0..16 {
+        let at = Vec3::new((k % 4) as f32 * 8.0 - 12.0, (k / 4) as f32 * 8.0 - 12.0, 1.0);
+        instances.push(Instance {
+            casts_light_shadows: true,
+            ..Instance::new(
+                plate.clone(),
+                Mat4::from_scale_rotation_translation(Vec3::splat(0.5), glam::Quat::IDENTITY, at),
+            )
+        });
+        lights.push(
+            mg_render::PointLight::new(at + Vec3::new(-3.0, 0.0, 1.0), Vec3::ONE, 10.0, false, 4)
+                .casting(true, 10.0, 3.0),
+        );
+    }
+    let scene = |on: bool| Scene {
+        instances: instances.clone(),
+        lights: lights.clone(),
+        area: AreaLight {
+            ambient: Vec3::splat(0.2),
+            diffuse: Vec3::splat(0.6),
+            direction: Vec3::Z,
+        },
+        light_shadows: on.then_some(mg_render::SunShadows { opacity: 0.5, fade_limit: 45.0 }),
+        ..Default::default()
+    };
+    let camera = Camera::orbit(Vec3::ZERO, 45.0, -1.2, 0.9);
+    let (w, h) = (3440, 1440);
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+    let targets = Targets::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4, w, h);
+    let wait = || {
+        let _ = gpu.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: None });
+    };
+    for on in [false, true, false, true] {
+        let s = scene(on);
+        let mut times = Vec::new();
+        for _ in 0..40 {
+            wait();
+            let t = std::time::Instant::now();
+            r.render_targets(&gpu, &NoAssets, &s, &camera, &targets);
+            wait();
+            times.push(t.elapsed().as_secs_f64() * 1000.0);
+        }
+        times.sort_by(f64::total_cmp);
+        eprintln!(
+            "lights' shadows {on}: {} creatures, frame {:.2} ms (median), {:.2} (quickest tenth)",
+            r.drawn.light_shadows, times[20], times[4]
+        );
     }
 }

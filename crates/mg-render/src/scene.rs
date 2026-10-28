@@ -53,6 +53,10 @@ pub struct Instance {
     /// Its meshes flagged `shadow` cast shadows (with `render 0` meshes
     /// that only do): on, unless it is a marker, see-through or grass.
     pub casts_shadows: bool,
+    /// It casts a shadow from the nearest light that casts them
+    /// ([`Scene::light_shadows`]): a creature, as the client's do where
+    /// the area has no sun or moon shadows at the time.
+    pub casts_light_shadows: bool,
 }
 
 impl Instance {
@@ -72,6 +76,7 @@ impl Instance {
             grass: false,
             receives_shadows: false,
             casts_shadows: true,
+            casts_light_shadows: false,
         }
     }
 }
@@ -110,7 +115,19 @@ pub struct PointLight {
     pub ambient_only: bool,
     /// 1 (highest) to 5: which lights are kept past 32.
     pub priority: u32,
+    /// A creature's shadow can be cast from it ([`Scene::light_shadows`]):
+    /// a light node flagged `shadow` of a radius of 10 m or more (the
+    /// tiles' flames, radius 7, cast none in the client; a placeable's
+    /// `LightColor` light, 10, does).
+    pub casts_shadows: bool,
+    /// How far above the light its shadows are cast from, metres (its
+    /// node's `verticaldisplacement`: a placeable's light, 3, casts
+    /// shorter shadows than one from where it is, as the client's).
+    pub shadow_lift: f32,
 }
+
+/// The least radius of a light a creature's shadow is cast from.
+pub const SHADOW_LIGHT_RADIUS: f32 = 10.0;
 
 /// The game's `cutoff-range-multiplier` setting.
 pub const CUTOFF_RANGE_MULTIPLIER: f32 = 2.0;
@@ -134,7 +151,17 @@ impl PointLight {
             cutoff: radius * CUTOFF_RANGE_MULTIPLIER * intensity,
             ambient_only,
             priority,
+            casts_shadows: false,
+            shadow_lift: 0.0,
         }
+    }
+
+    /// This light, casting creatures' shadows where `shadow` (its node's
+    /// flag) and its `radius` is [`SHADOW_LIGHT_RADIUS`] or more, from
+    /// `lift` metres above it.
+    pub fn casting(self, shadow: bool, radius: f32, lift: f32) -> Self {
+        let casts_shadows = shadow && radius >= SHADOW_LIGHT_RADIUS;
+        PointLight { casts_shadows, shadow_lift: lift, ..self }
     }
 }
 
@@ -173,7 +200,7 @@ pub fn bgr_linear(c: u32) -> Vec3 {
     Vec3::new(ch(0), ch(8), ch(16))
 }
 
-/// The sun's or moon's shadows over a scene, as the game's shadow plane
+/// The sun's or moon's shadows over a scene (or the lights'), as the game's shadow plane
 /// lays them (`docs/research/notes_shaders.md` §G): what the area light
 /// ([`Scene::area`], its direction) shades of what receives them
 /// ([`Instance::receives_shadows`]) is darkened, black laid over it as
@@ -230,6 +257,11 @@ pub struct Scene {
     pub environment: Environment,
     /// The area light's shadows; `None`: none.
     pub shadows: Option<SunShadows>,
+    /// The shadows cast from point lights (each instance that
+    /// [`Instance::casts_light_shadows`] casts one from the nearest light
+    /// that [`PointLight::casts_shadows`]), as dark as these say; `None`:
+    /// none.
+    pub light_shadows: Option<SunShadows>,
 }
 
 /// What the game's shaders read of an area besides its light

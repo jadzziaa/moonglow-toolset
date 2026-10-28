@@ -3999,8 +3999,12 @@ fn the_area_s_shadow_settings_show_at_once_and_the_switch_hides_them() {
     let shadows = |h: &Harness<'_, Moonglow>| {
         let view = &h.state().area_views[&area];
         let model = view.model.as_ref().unwrap();
-        let shown =
-            mg_area::View { shadows: view.shadows, night: view.night, ..mg_area::View::of(model) };
+        let shown = mg_area::View {
+            shadows: view.shadows,
+            creature_shadows: view.creature_shadows,
+            night: view.night,
+            ..mg_area::View::of(model)
+        };
         shown.shadows_of(&model.lighting)
     };
     h.state_mut().area_views.get_mut(&area).unwrap().night = false;
@@ -4017,4 +4021,54 @@ fn the_area_s_shadow_settings_show_at_once_and_the_switch_hides_them() {
     h.run_steps(2);
     assert_eq!(shadows(&h), None);
     assert!(h.state().settings.no_shadows);
+}
+
+/// The Shadows button's menu: held a moment it opens (its release no
+/// click), its checkboxes choose the kinds, kept in the settings for the
+/// views opened after; a click turns them all off and on again as they
+/// were.
+#[test]
+fn the_shadows_button_held_opens_the_kinds_to_choose() {
+    let Some((mut h, area)) = area_harness("shadow-kinds") else { return };
+    let kinds = |h: &Harness<'_, Moonglow>| {
+        let v = &h.state().area_views[&area];
+        [v.shadows, v.creature_shadows, v.light_shadows]
+    };
+    assert_eq!(kinds(&h), [true; 3], "the defaults");
+    // Held half a second.
+    let at = h.get_by_label("◑ Shadows").rect().center();
+    let button = |pressed| egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    h.input_mut().events.push(egui::Event::PointerMoved(at));
+    h.input_mut().events.push(button(true));
+    for _ in 0..30 {
+        h.input_mut().predicted_dt = 1.0 / 60.0;
+        h.step();
+    }
+    assert!(h.query_by_label("Light Shadows").is_some(), "open while held");
+    h.input_mut().events.push(button(false));
+    h.run_steps(2);
+    // (Open still: the release, outside it, closed it until 2.11.0.)
+    assert!(h.query_by_label("Light Shadows").is_some(), "open after the release");
+    assert_eq!(kinds(&h), [true; 3], "the release is no click");
+    h.get_by_label("Light Shadows").click();
+    h.run();
+    h.get_by_label("Creature Shadows").click();
+    h.run();
+    assert_eq!(kinds(&h), [true, false, false]);
+    let s = &h.state().settings;
+    assert!(!s.no_shadows && s.no_creature_shadows && s.no_light_shadows);
+    // A click: none; another: as they were.
+    h.key_press(egui::Key::Escape);
+    h.run();
+    h.get_by_label("◑ Shadows").click();
+    h.run();
+    assert_eq!(kinds(&h), [false; 3]);
+    h.get_by_label("◑ Shadows").click();
+    h.run();
+    assert_eq!(kinds(&h), [true, false, false]);
 }

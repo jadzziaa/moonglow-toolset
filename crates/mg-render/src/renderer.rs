@@ -549,6 +549,10 @@ pub struct Drawn {
     /// ([`Renderer::read_textures_apart`]): a frame drawn again once they
     /// are shows them.
     pub textures_pending: usize,
+    /// The sun's shadow map's casters, and the creatures casting the
+    /// lights' shadows.
+    pub sun_casters: usize,
+    pub light_shadows: usize,
 }
 
 /// A line's end ([`crate::Line`]), in world space.
@@ -1742,6 +1746,9 @@ impl Renderer {
         let area_dir = view.transform_vector3(scene.area.direction).normalize_or_zero();
         // The sun's shadows: what casts them and where the map is.
         let shadow_plan = crate::shadow::plan(scene, camera, size.0 as f32 / size.1.max(1) as f32);
+        // And the lights': which creatures cast them from which light.
+        let light_plan = crate::shadow::light_plan(scene, camera);
+        let shadowing = shadow_plan.is_some() || light_plan.is_some();
         let fog = scene
             .fog
             .map_or([0.0; 4], |f| [1.0, f.start, f.end, 1.0 / (f.end - f.start).max(1e-3)]);
@@ -1870,7 +1877,7 @@ impl Renderer {
         for (instance, (inst, is_sky, fade_color)) in all.enumerate() {
             // (Only where the frame has shadows: else the solid draws keep
             // their order.)
-            let receives = shadow_plan.is_some() && inst.receives_shadows && !is_sky;
+            let receives = shadowing && inst.receives_shadows && !is_sky;
             let rest = &inst.model.rest;
             let pose: &Vec<Mat4> = inst.pose.as_deref().unwrap_or(rest);
             // (A model whose textures are being read is drawn once they are.)
@@ -2278,6 +2285,8 @@ impl Renderer {
             timed,
             game_pending: self.game.busy(),
             textures_pending: waiting,
+            sun_casters: shadow_plan.as_ref().map_or(0, |p| p.casters.len()),
+            light_shadows: light_plan.as_ref().map_or(0, |p| p.lights.len()),
             ..Drawn::default()
         };
         // Opaque (in the order they came), then blended back to front by
@@ -2657,11 +2666,16 @@ impl Renderer {
         }
         let bg = scene.background;
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
-        // The shadow map, before the scene.
-        if let Some(plan) = &shadow_plan {
+        // The shadow maps, before the scene.
+        if shadowing {
             let maps =
                 self.shadow_maps.get_or_insert_with(|| crate::shadow::ShadowMaps::new(&gpu.device));
-            maps.cast(gpu, &mut encoder, plan);
+            if let Some(plan) = &shadow_plan {
+                maps.cast(gpu, &mut encoder, plan);
+            }
+            if let Some(plan) = &light_plan {
+                maps.cast_lights(gpu, &mut encoder, plan);
+            }
         }
         {
             // (Cut for the framebuffer's copy: the multisampled picture is
@@ -2669,7 +2683,7 @@ impl Renderer {
             let first_resolve = if copying.is_some() { None } else { resolve };
             // (And cut where the shadows are laid, over what they fall on:
             // resolved after.)
-            let mut shadowed = shadow_plan.is_none();
+            let mut shadowed = !shadowing;
             let resolve_now = if shadowed { first_resolve } else { None };
             let mut pass = scene_pass(&mut encoder, target, resolve_now, depth, Some(bg));
             pass.set_bind_group(0, &frame_group, &[]);
@@ -2695,12 +2709,27 @@ impl Renderer {
                     self.drawn.batches +=
                         self.game.draw(&mut pass, received, dynamic, particles, &mut game_bound);
                     drop(pass);
+                    let format = (self.color_format, self.sample_count);
                     if let (Some(plan), Some(maps)) = (&shadow_plan, &mut self.shadow_maps) {
+                        let targets = (target, depth);
                         maps.darken(
                             gpu,
                             &mut encoder,
-                            (target, depth),
-                            (self.color_format, self.sample_count),
+                            targets,
+                            format,
+                            plan,
+                            camera,
+                            size,
+                            scene.fog,
+                        );
+                    }
+                    if let (Some(plan), Some(maps)) = (&light_plan, &mut self.shadow_maps) {
+                        let targets = (target, depth);
+                        maps.darken_lights(
+                            gpu,
+                            &mut encoder,
+                            targets,
+                            format,
                             plan,
                             camera,
                             size,

@@ -5582,3 +5582,55 @@ fn appearance_dropdown_frames() {
     let image = h.render().expect("render");
     image.save(dir.join("appearance-dropdown-300.png")).unwrap();
 }
+
+/// The area view's toolbar with the Shadows button's menu open (held or
+/// right-clicked: Sun and Moon Shadows, Creature Shadows, Light Shadows),
+/// with the buttons labelled and as icons only, in
+/// `target/test-output/screens-area/shadows-menu-*.png`.
+#[test]
+#[ignore]
+fn area_shadows_menu() {
+    use mg_module::ModuleLocation;
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens-area");
+    let scratch = mg_testkit::scratch_dir("screens-area-shadows");
+    let install = GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut rng = fastrand::Rng::with_seed(7);
+    let mut m = new_module(&game, "Shadows", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Field".into(),
+        tileset: mg_core::ResRef::from_str("ttr01").unwrap(),
+        width: 2,
+        height: 2,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let path = scratch.join("shadows.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    for icons_only in [false, true] {
+        let rs = egui_kittest::wgpu::create_render_state(
+            egui_kittest::wgpu::default_wgpu_setup(),
+            egui_wgpu::RendererOptions::PREDICTABLE,
+        );
+        let mut app = Moonglow::new(
+            Some(GameInstall::new(&root, None, "en")),
+            Box::new(NoDialogs::default()),
+        );
+        app.settings.toolbar_icons_only = icons_only;
+        app.set_render_state(rs.clone());
+        app.open_module(&path);
+        app.open_palette = false;
+        app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1400.0, 700.0))
+            .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run_steps(5);
+        let label = if icons_only { "◑" } else { "◑ Shadows" };
+        h.get_by_label(label).click_secondary();
+        let name = if icons_only { "shadows-menu-icons" } else { "shadows-menu" };
+        shoot(&mut h, &dir, name);
+    }
+}

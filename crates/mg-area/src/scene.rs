@@ -82,8 +82,12 @@ pub struct View {
     /// none.
     pub grass: Option<Sight>,
     /// The sun's or moon's shadows are drawn where the area has them
-    /// ([`View::shadows_of`]).
+    /// ([`View::shadows_of`]): cast by tiles, placeables and doors.
     pub shadows: bool,
+    /// Creatures cast the sun's or moon's shadows too.
+    pub creature_shadows: bool,
+    /// Point lights flagged `shadow` cast shadows (`mg_render::LightShadows`).
+    pub light_shadows: bool,
 }
 
 impl View {
@@ -100,17 +104,37 @@ impl View {
             fade: false,
             grass: None,
             shadows: true,
+            creature_shadows: true,
+            light_shadows: true,
         }
     }
 
-    /// The sun's or moon's shadows an area lit as `l` shows in this view: the sun's
+    /// The sun's or moon's shadows an area lit as `l` shows in this view (cast
+    /// by what [`View::shadows`] and [`View::creature_shadows`] say): the sun's
     /// by day, if its Sun Shadows are on, the moon's at night, if its Moon
     /// Shadows are (the client draws none for the other, read from its
     /// pictures: `shadows_look` in `client_render.rs`), as opaque as its
     /// Shadow Opacity; none with the lighting off, or with the view's
     /// shadows switched off.
     pub fn shadows_of(&self, l: &Lighting) -> Option<mg_render::SunShadows> {
-        (self.shadows && self.lit && l.sky(self.night).shadows && l.shadow_opacity > 0).then(|| {
+        let casting = self.shadows || self.creature_shadows;
+        (casting && self.lit && l.sky(self.night).shadows && l.shadow_opacity > 0).then(|| {
+            mg_render::SunShadows {
+                opacity: f32::from(l.shadow_opacity) / 100.0,
+                fade_limit: l.fog_clip,
+            }
+        })
+    }
+
+    /// The lights' shadows an area lit as `l` shows in this view: where
+    /// [`View::light_shadows`] asks for them and the area has no sun or moon
+    /// shadows at the time (as the client: each creature then casts one
+    /// from the nearest light that casts them, `mg_render::PointLight::casts_shadows`;
+    /// with the sun's or moon's, it casts that alone), as opaque as its
+    /// Shadow Opacity (measured in `shadows_look`).
+    pub fn light_shadows_of(&self, l: &Lighting) -> Option<mg_render::SunShadows> {
+        let sky = l.sky(self.night).shadows;
+        (self.light_shadows && self.lit && !sky && l.shadow_opacity > 0).then(|| {
             mg_render::SunShadows {
                 opacity: f32::from(l.shadow_opacity) / 100.0,
                 fade_limit: l.fog_clip,
@@ -878,6 +902,7 @@ impl AreaScene {
                 }
             }
         }
+        let lit_shadows = view.light_shadows_of(&area.lighting).is_some();
         for (o, shown) in area.objects.iter().zip(&self.objects) {
             if !view.shows(o.kind) {
                 continue;
@@ -920,13 +945,23 @@ impl AreaScene {
                 self.failed.borrow_mut().insert(key);
                 continue;
             };
-            // The sun's shadows: cast by placeables and doors (a creature's
-            // are left for later), falling on static placeables, as the
-            // client has them.
-            let casts = matches!(o.kind, ObjectKind::Placeable | ObjectKind::Door);
+            // The sun's shadows: cast by static placeables with the tiles;
+            // by what moves (creatures, dynamic placeables, doors) where
+            // creature shadows are asked for, as the client's Creature
+            // Shadow Detail governs them (Best: they cast; Fast and Off:
+            // none); falling on static placeables.
+            let casts = match o.kind {
+                ObjectKind::Placeable if o.is_static => view.shadows,
+                ObjectKind::Placeable | ObjectKind::Door | ObjectKind::Creature => {
+                    view.creature_shadows
+                }
+                _ => false,
+            };
+            let from_lights = lit_shadows && o.kind == ObjectKind::Creature;
             instances.extend(drawn.into_iter().map(|i| Instance {
                 unlit,
                 casts_shadows: casts && i.casts_shadows,
+                casts_light_shadows: from_lights && i.casts_shadows,
                 receives_shadows: o.is_static,
                 ..i
             }));
@@ -962,6 +997,7 @@ impl AreaScene {
             time: view.time,
             environment: mg_render::Environment::from_are(l.flags, l.wind_power),
             shadows: view.shadows_of(l),
+            light_shadows: view.light_shadows_of(l),
         }
     }
 
@@ -1058,6 +1094,7 @@ impl AreaScene {
             textures,
             tile: true,
             receives_shadows: true,
+            casts_shadows: view.shadows,
             ..Instance::new(loaded.gpu.clone(), transform)
         });
     }
@@ -1259,6 +1296,8 @@ mod tests {
             fade: false,
             grass: None,
             shadows: true,
+            creature_shadows: true,
+            light_shadows: false,
         };
         let s = day.shadows_of(&l).unwrap();
         assert_eq!((s.opacity, s.fade_limit), (0.3, 60.0));
@@ -1272,6 +1311,18 @@ mod tests {
         assert!(night.shadows_of(&moonlit).is_some() && day.shadows_of(&moonlit).is_none());
         assert_eq!(day.shadows_of(&Lighting { shadow_opacity: 0, ..l.clone() }), None);
         assert_eq!(View { lit: false, ..day }.shadows_of(&l), None);
-        assert_eq!(View { shadows: false, ..day }.shadows_of(&l), None);
+        // (Creatures alone cast them too.)
+        assert!(View { shadows: false, ..day }.shadows_of(&l).is_some());
+        let none = View { shadows: false, creature_shadows: false, ..day };
+        assert_eq!(none.shadows_of(&l), None);
+        // The lights' only where asked, and where the area has no sun's or
+        // moon's at the time.
+        let lamps = View { light_shadows: true, ..day };
+        assert_eq!(day.light_shadows_of(&l), None);
+        assert_eq!(lamps.light_shadows_of(&l), None);
+        let s = View { night: true, ..lamps }.light_shadows_of(&l).unwrap();
+        assert_eq!((s.opacity, s.fade_limit), (0.3, 60.0));
+        assert!(lamps.light_shadows_of(&moonlit).is_some());
+        assert_eq!(View { lit: false, ..lamps }.light_shadows_of(&moonlit), None);
     }
 }

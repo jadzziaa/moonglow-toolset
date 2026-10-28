@@ -19,13 +19,28 @@
 //! lit the pixel.
 
 use glam::{Mat4, Vec3};
+use wgpu::util::DeviceExt;
 
 use crate::model::GpuMesh;
-use crate::scene::{Camera, Instance, Scene, SunShadows};
+use crate::scene::{Camera, Instance, PointLight, Scene, SunShadows};
 
 /// The shadow map's side, texels: over an area seen whole (eight tiles
 /// across) a texel is 4 cm, finer than the game's volumes are made.
 pub(crate) const MAP_SIZE: u32 = 2048;
+
+/// The lights' maps' side, texels: each covers one creature seen from its
+/// light, a few metres across.
+pub(crate) const LIGHT_MAP_SIZE: u32 = 512;
+
+/// How many creatures cast the lights' shadows at once (the nearest the
+/// camera looks at): the client's `max-casting-lights` (3 by default)
+/// didn't change what one creature casts, and was not settled for many.
+pub(crate) const MAX_LIGHT_SHADOWS: usize = 16;
+
+/// The depth bias in a light's map (perspective, in its clip space's
+/// depth): what casts there (a creature) receives none, so a little
+/// suffices.
+const LIGHT_BIAS: f32 = 1e-4;
 
 /// The shadow map's format.
 const MAP_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
@@ -82,18 +97,69 @@ pub(crate) fn camera_fade_point(camera: &Camera, limit: f32) -> f32 {
 
 /// Whether a mesh of an instance casts a shadow: flagged `shadow`, solid
 /// (as the game's volumes are of solid models: a see-through mesh casts
-/// none), not moved by a skin (creatures' shadows are left for later), of
-/// an instance that casts at all (not a marker, a see-through ghost or
-/// grass); `alpha` is its alpha as it is drawn now.
+/// none), of an instance that casts at all (not a marker, a see-through
+/// ghost or grass); `alpha` is its alpha as it is drawn now. A skinned
+/// mesh casts as its bones pose it ([`Caster::bones`]).
 pub(crate) fn casts(inst: &Instance, mesh: &GpuMesh, alpha: f32) -> bool {
     inst.casts_shadows
         && !inst.unlit
         && !inst.grass
         && inst.opacity >= 1.0
         && mesh.casts
-        && mesh.skin.is_none()
         && alpha >= 1.0
         && mesh.material.transparency_hint == 0
+}
+
+/// A mesh drawn into a shadow map: where it is, and a skinned one's
+/// bones.
+#[derive(Clone, Copy)]
+pub(crate) struct Caster<'a> {
+    pub(crate) mesh: &'a GpuMesh,
+    /// From the mesh's node to the world.
+    pub(crate) world: Mat4,
+    /// A skinned mesh's first bone among the frame's casting bones
+    /// ([`Plan::bones`]).
+    pub(crate) bones: Option<u32>,
+}
+
+impl Caster<'_> {
+    /// What the map holds of it: its mesh, its place, its bones' first.
+    fn key(&self) -> (usize, Mat4, Option<u32>) {
+        (std::ptr::from_ref(self.mesh) as usize, self.world, self.bones)
+    }
+}
+
+/// A skinned mesh's bones as `pose` has them, each from the bind pose to
+/// the pose, in the space of the skin's node (as the renderer's draws take
+/// them), pushed onto `bones`: their first.
+fn skin_bones(mesh: &GpuMesh, pose: &[Mat4], bones: &mut Vec<Mat4>) -> Option<u32> {
+    let skin = mesh.skin.as_ref()?;
+    let first = bones.len() as u32;
+    let to_skin = pose.get(mesh.node).copied().unwrap_or(Mat4::IDENTITY).inverse();
+    for (&b, inverse_bind) in skin.bones.iter().zip(&skin.inverse_bind) {
+        let now = pose.get(b).copied().unwrap_or(Mat4::IDENTITY);
+        bones.push(to_skin * now * *inverse_bind);
+    }
+    Some(first)
+}
+
+/// A caster's box: a skinned mesh's grown by half its size each way (its
+/// bones move it out of the box it was bound in).
+fn posed_box((min, max): (Vec3, Vec3), skinned: Option<u32>) -> (Vec3, Vec3) {
+    match skinned {
+        Some(_) => {
+            let grow = (max - min).max_element() * 0.5;
+            (min - Vec3::splat(grow), max + Vec3::splat(grow))
+        }
+        None => (min, max),
+    }
+}
+
+/// Casters in the order they are drawn: rigid then skinned (a pipeline
+/// each), a mesh's together, those of a chunk in a row.
+pub(crate) fn in_drawing_order(casters: &mut [Caster<'_>]) {
+    casters
+        .sort_by_key(|c| (c.bones.is_some(), c.mesh.chunk(), std::ptr::from_ref(c.mesh) as usize));
 }
 
 /// A mesh's box as it lies in the scene, transformed by `world`.
@@ -169,7 +235,9 @@ pub(crate) struct Plan<'a> {
     /// From the world to the map (its texture coordinates from -1 to 1,
     /// its depth from 0 at the light to 1).
     pub(crate) light: Mat4,
-    pub(crate) casters: Vec<(&'a GpuMesh, Mat4)>,
+    pub(crate) casters: Vec<Caster<'a>>,
+    /// The skinned casters' bones.
+    pub(crate) bones: Vec<Mat4>,
     /// The map's depth range, metres.
     pub(crate) depth: f32,
     pub(crate) shadows: SunShadows,
@@ -180,7 +248,8 @@ pub(crate) struct Plan<'a> {
 /// or none to receive one in sight).
 pub(crate) fn plan<'a>(scene: &'a Scene, camera: &Camera, aspect: f32) -> Option<Plan<'a>> {
     let shadows = scene.shadows.filter(|s| s.opacity > 0.0)?;
-    let mut casters: Vec<(&'a GpuMesh, Mat4, (Vec3, Vec3))> = Vec::new();
+    let mut casters: Vec<(Caster<'a>, (Vec3, Vec3))> = Vec::new();
+    let mut bones = Vec::new();
     let (mut rmin, mut rmax) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
     for inst in &scene.instances {
         let pose: &[Mat4] = inst.pose.as_deref().unwrap_or(&inst.model.rest);
@@ -197,13 +266,16 @@ pub(crate) fn plan<'a>(scene: &'a Scene, camera: &Camera, aspect: f32) -> Option
                 (rmin, rmax) = (rmin.min(bounds.0), rmax.max(bounds.1));
             }
             if casts(inst, mesh, alpha) {
-                casters.push((mesh, world, bounds));
+                let skinned = skin_bones(mesh, pose, &mut bones);
+                casters.push((Caster { mesh, world, bones: skinned }, posed_box(bounds, skinned)));
             }
         }
         for mesh in &inst.model.shadow_only {
             if casts(inst, mesh, 1.0) {
                 let world = node(mesh.node);
-                casters.push((mesh, world, world_box(world, mesh)));
+                let skinned = skin_bones(mesh, pose, &mut bones);
+                let bounds = posed_box(world_box(world, mesh), skinned);
+                casters.push((Caster { mesh, world, bones: skinned }, bounds));
             }
         }
     }
@@ -225,13 +297,13 @@ pub(crate) fn plan<'a>(scene: &'a Scene, camera: &Camera, aspect: f32) -> Option
     // light, over the region; the box reaching back to the farthest
     // towards the light.
     let mut kept = Vec::with_capacity(casters.len());
-    for (mesh, world, bounds) in casters {
+    for (caster, bounds) in casters {
         let (clo, chi) = to_light(bounds);
         if chi.x < lo.x || clo.x > hi.x || chi.y < lo.y || clo.y > hi.y || chi.z < lo.z {
             continue;
         }
         hi.z = hi.z.max(chi.z);
-        kept.push((mesh, world));
+        kept.push(caster);
     }
     if kept.is_empty() {
         return None;
@@ -246,42 +318,165 @@ pub(crate) fn plan<'a>(scene: &'a Scene, camera: &Camera, aspect: f32) -> Option
     // light, a little further back.)
     let (near, far) = (-hi.z - 1.0, -lo.z + 1.0);
     let projection = Mat4::orthographic_rh(left, left + side, bottom, bottom + side, near, far);
-    // A mesh's draws together, those of a chunk in a row.
-    kept.sort_by_key(|(m, _)| (m.chunk(), std::ptr::from_ref(*m) as usize));
-    Some(Plan { light: projection * view, casters: kept, depth: far - near, shadows })
+    in_drawing_order(&mut kept);
+    Some(Plan { light: projection * view, casters: kept, bones, depth: far - near, shadows })
 }
 
-/// The frame's values the darkening pass reads (`DARKEN` below).
+/// The lights' shadows of a frame: per creature casting one, the light's
+/// projection (from the world to its map's clip space) and its casters
+/// (in [`LightPlan::casters`], from and to).
+pub(crate) struct LightPlan<'a> {
+    pub(crate) lights: Vec<Mat4>,
+    pub(crate) ranges: Vec<std::ops::Range<u32>>,
+    pub(crate) casters: Vec<Caster<'a>>,
+    pub(crate) bones: Vec<Mat4>,
+    pub(crate) shadows: SunShadows,
+}
+
+/// The light a creature at `at` (its box's middle), `radius` round,
+/// casts its shadow from: the nearest of `lights` that casts shadows,
+/// reaches it and is outside it (a torch it holds casts none), as the
+/// client picks (`shadows_look`: of two lamps, the nearer).
+pub(crate) fn casting_light(lights: &[PointLight], at: Vec3, radius: f32) -> Option<usize> {
+    lights
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| l.casts_shadows && !l.ambient_only)
+        .map(|(i, l)| (i, l.position.distance(at)))
+        .filter(|&(i, d)| d > radius && d <= lights[i].cutoff)
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(i, _)| i)
+}
+
+/// A perspective view from `light` that holds a ball at `at`, `radius`
+/// round, and what lies behind it out to `reach` metres from the light:
+/// from the world to the clip space of the light's map.
+pub(crate) fn light_projection(light: Vec3, at: Vec3, radius: f32, reach: f32) -> Mat4 {
+    let along = at - light;
+    let d = along.length().max(1e-3);
+    let up =
+        if along.normalize().cross(Vec3::Z).length_squared() < 1e-6 { Vec3::Y } else { Vec3::Z };
+    let view = Mat4::look_at_rh(light, at, up);
+    let half = (radius / d).clamp(0.0, 0.95).asin() * 1.1;
+    let near = (d - radius).max(0.05);
+    let far = reach.max(d + radius + 1.0);
+    Mat4::perspective_rh(2.0 * half, 1.0, near, far) * view
+}
+
+/// The lights' shadows a scene needs, seen by `camera`: `None` where it
+/// has none (none asked for, or no creature with a light that casts).
+pub(crate) fn light_plan<'a>(scene: &'a Scene, camera: &Camera) -> Option<LightPlan<'a>> {
+    let shadows = scene.light_shadows.filter(|s| s.opacity > 0.0)?;
+    let mut creatures: Vec<(f32, &'a Instance)> = scene
+        .instances
+        .iter()
+        .filter(|i| i.casts_light_shadows)
+        .map(|i| (i.transform.w_axis.truncate().distance(camera.target), i))
+        .collect();
+    creatures.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let mut plan = LightPlan {
+        lights: Vec::new(),
+        ranges: Vec::new(),
+        casters: Vec::new(),
+        bones: Vec::new(),
+        shadows,
+    };
+    for (_, inst) in creatures {
+        if plan.lights.len() == MAX_LIGHT_SHADOWS {
+            break;
+        }
+        let pose: &[Mat4] = inst.pose.as_deref().unwrap_or(&inst.model.rest);
+        let first = plan.casters.len();
+        let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+        let meshes = inst.model.meshes.iter().enumerate().map(|(j, m)| (Some(j), m));
+        for (j, mesh) in meshes.chain(inst.model.shadow_only.iter().map(|m| (None, m))) {
+            let replaced = j.and_then(|j| inst.state.as_ref().and_then(|s| s.meshes.get(j)));
+            let alpha = replaced.and_then(|r| r.alpha).unwrap_or(mesh.material.alpha);
+            if !casts(inst, mesh, if j.is_some() { alpha } else { 1.0 }) {
+                continue;
+            }
+            let world = inst.transform * pose.get(mesh.node).copied().unwrap_or(Mat4::IDENTITY);
+            let skinned = skin_bones(mesh, pose, &mut plan.bones);
+            let (a, b) = posed_box(world_box(world, mesh), skinned);
+            (lo, hi) = (lo.min(a), hi.max(b));
+            plan.casters.push(Caster { mesh, world, bones: skinned });
+        }
+        if plan.casters.len() == first {
+            continue;
+        }
+        let (at, radius) = ((lo + hi) * 0.5, (hi - lo).length() * 0.5);
+        let Some(light) = casting_light(&scene.lights, at, radius) else {
+            plan.casters.truncate(first);
+            continue;
+        };
+        let light = &scene.lights[light];
+        let from = light.position + Vec3::Z * light.shadow_lift;
+        plan.lights.push(light_projection(from, at, radius, light.cutoff + light.shadow_lift));
+        in_drawing_order(&mut plan.casters[first..]);
+        plan.ranges.push(first as u32..plan.casters.len() as u32);
+    }
+    (!plan.lights.is_empty()).then_some(plan)
+}
+
+/// The frame's values the darkening pass reads (`darken_source`).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct DarkenUniform {
     /// From the screen (x, y from -1 to 1, the depth buffer's depth) to
     /// the world.
     unproject: [[f32; 4]; 4],
-    light: [[f32; 4]; 4],
     /// The view, for a pixel's fog (its depth along the camera).
     view: [[f32; 4]; 4],
     /// The picture's width and height, the fade point, the opacity.
     screen: [f32; 4],
     /// 1 with fog, its start and end and 1 over its length; else zeros.
     fog: [f32; 4],
-    /// The bias in the map's depth, and a texel's size in its coordinates.
+    /// The bias in the maps' depth.
     bias: [f32; 4],
+    /// How many maps (the lights'; the sun's is one).
+    count: [u32; 4],
+    /// From the world to each map's clip space.
+    lights: [[[f32; 4]; 4]; MAX_LIGHT_SHADOWS],
 }
 
-/// The casting pass's shader: positions alone, each instance its world
-/// transform.
+/// The casting pass's shader: positions alone (and a skinned mesh's bones
+/// and weights), each instance its world transform and its bones' first.
 const CAST: &str = "
 struct Light { m: mat4x4<f32> }
+struct Caster { world: mat4x4<f32>, bones: vec4<u32> }
 @group(0) @binding(0) var<uniform> light: Light;
-@group(0) @binding(1) var<storage, read> worlds: array<mat4x4<f32>>;
+@group(0) @binding(1) var<storage, read> casters: array<Caster>;
+@group(0) @binding(2) var<storage, read> bones: array<mat4x4<f32>>;
 @vertex fn vs(@location(0) pos: vec3<f32>, @builtin(instance_index) i: u32) -> @builtin(position) vec4<f32> {
-    return light.m * worlds[i] * vec4<f32>(pos, 1.0);
+    return light.m * casters[i].world * vec4<f32>(pos, 1.0);
+}
+// (As the renderer's skinned draws: up to four bones, by their weights.)
+@vertex fn vs_skinned(@location(0) pos: vec3<f32>, @location(1) b: vec4<u32>, @location(2) w: vec4<f32>, @builtin(instance_index) i: u32) -> @builtin(position) vec4<f32> {
+    var p = vec3<f32>(0.0);
+    var total = 0.0;
+    for (var k = 0u; k < 4u; k = k + 1u) {
+        if (w[k] > 0.0) {
+            p = p + w[k] * (bones[casters[i].bones.x + b[k]] * vec4<f32>(pos, 1.0)).xyz;
+            total = total + w[k];
+        }
+    }
+    if (total > 0.0) { p = p / total; } else { p = pos; }
+    return light.m * casters[i].world * vec4<f32>(p, 1.0);
 }
 ";
 
-/// The darkening pass's shader for `samples` samples a pixel.
-fn darken_source(samples: u32) -> String {
+/// A caster as the casting shader reads it.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct CasterData {
+    world: [[f32; 4]; 4],
+    bones: [u32; 4],
+}
+
+/// The darkening pass's shader for `samples` samples a pixel: from the
+/// sun's map (orthographic), or from the lights' (perspective, a layer
+/// each, the darkest taken).
+fn darken_source(samples: u32, lights: bool) -> String {
     let (depth, sample, load) = if samples > 1 {
         (
             "texture_depth_multisampled_2d",
@@ -291,18 +486,50 @@ fn darken_source(samples: u32) -> String {
     } else {
         ("texture_depth_2d", "", "textureLoad(depth, at, 0)")
     };
+    // (The sun's: no more opaque than the fade nor the opacity. The
+    // lights': the opacity times the fade, as measured in the client at 30
+    // and 100 (0.14 and 0.49 where the fade is 0.5), where the sun's are
+    // 0.30 and 0.45.)
+    let opacity = if lights {
+        "let a = clamp(clamp(fade, 0.0, 1.0) * p.screen.w * (1.0 - fogged), 0.0, 1.0) * shade;"
+    } else {
+        "let a = clamp(min(fade, p.screen.w * (1.0 - fogged)), 0.0, 1.0) * shade;"
+    };
+    let (map, shade) = if lights {
+        (
+            "texture_depth_2d_array",
+            "var shade = 0.0;
+    for (var k = 0u; k < p.count.x; k = k + 1u) {
+        let c = p.lights[k] * vec4<f32>(world, 1.0);
+        if (c.w <= 0.0) { continue; }
+        let n = c.xyz / c.w;
+        if (any(abs(n.xy) > vec2<f32>(1.0)) || n.z < 0.0 || n.z > 1.0) { continue; }
+        let uv = vec2<f32>(n.x * 0.5 + 0.5, 0.5 - n.y * 0.5);
+        shade = max(shade, 1.0 - textureSampleCompareLevel(map, cmp, uv, i32(k), n.z - p.bias.x));
+    }",
+        )
+    } else {
+        (
+            "texture_depth_2d",
+            "let l = p.lights[0] * vec4<f32>(world, 1.0);
+    let uv = vec2<f32>(l.x * 0.5 + 0.5, 0.5 - l.y * 0.5);
+    if (any(uv < vec2<f32>(0.0)) || any(uv > vec2<f32>(1.0)) || l.z > 1.0) { discard; }
+    let shade = 1.0 - textureSampleCompareLevel(map, cmp, uv, l.z - p.bias.x);",
+        )
+    };
     format!(
         "struct Params {{
     unproject: mat4x4<f32>,
-    light: mat4x4<f32>,
     view: mat4x4<f32>,
     screen: vec4<f32>,
     fog: vec4<f32>,
     bias: vec4<f32>,
+    count: vec4<u32>,
+    lights: array<mat4x4<f32>, {MAX_LIGHT_SHADOWS}>,
 }}
 @group(0) @binding(0) var<uniform> p: Params;
 @group(0) @binding(1) var depth: {depth};
-@group(0) @binding(2) var map: texture_depth_2d;
+@group(0) @binding(2) var map: {map};
 @group(0) @binding(3) var cmp: sampler_comparison;
 @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {{
     let uv = vec2<f32>(f32((i << 1u) & 2u), f32(i & 2u));
@@ -316,11 +543,8 @@ fn darken_source(samples: u32) -> String {
     let ndc = vec2<f32>(frag.x / p.screen.x * 2.0 - 1.0, 1.0 - frag.y / p.screen.y * 2.0);
     let w = p.unproject * vec4<f32>(ndc, d, 1.0);
     let world = w.xyz / w.w;
-    let l = p.light * vec4<f32>(world, 1.0);
-    let uv = vec2<f32>(l.x * 0.5 + 0.5, 0.5 - l.y * 0.5);
-    if (any(uv < vec2<f32>(0.0)) || any(uv > vec2<f32>(1.0)) || l.z > 1.0) {{ discard; }}
-    let lit = textureSampleCompareLevel(map, cmp, uv, l.z - p.bias.x);
-    let shade = 1.0 - lit;
+    {shade}
+    if (shade <= 0.0) {{ discard; }}
     // The game's plane: no more opaque than its fade up the screen (from
     // the bottom, as OpenGL counts) nor than the area's opacity in what
     // fog leaves.
@@ -331,7 +555,7 @@ fn darken_source(samples: u32) -> String {
         let along = -(p.view * vec4<f32>(world, 1.0)).z;
         fogged = clamp((along - p.fog.y) * p.fog.w, 0.0, 1.0);
     }}
-    let a = clamp(min(fade, p.screen.w * (1.0 - fogged)), 0.0, 1.0) * shade;
+    {opacity}
     if (a <= 0.0) {{ discard; }}
     return vec4<f32>(0.0, 0.0, 0.0, a);
 }}
@@ -352,15 +576,29 @@ struct Darkener {
 pub(crate) struct ShadowMaps {
     map: wgpu::TextureView,
     sampler: wgpu::Sampler,
-    cast_pipeline: wgpu::RenderPipeline,
-    cast_layout: wgpu::BindGroupLayout,
-    light_buffer: wgpu::Buffer,
-    worlds: wgpu::Buffer,
+    casting: Casting,
     params: wgpu::Buffer,
-    darkeners: std::collections::HashMap<(wgpu::TextureFormat, u32), Darkener>,
-    /// What the map holds: the light's projection and the casters' meshes
-    /// and transforms (drawn again only when they change).
-    holds: Option<(Mat4, Vec<(usize, Mat4)>)>,
+    darkeners: std::collections::HashMap<(wgpu::TextureFormat, u32, bool), Darkener>,
+    /// The lights' maps, made at the first frame with lights' shadows.
+    lights: Option<LightMaps>,
+    /// What the map holds: the light's projection, the casters' meshes,
+    /// transforms and bones (drawn again only when they change).
+    holds: Option<Held>,
+}
+
+/// What a shadow map holds: its projection, its casters (mesh, transform,
+/// first bone) and their bones.
+type Held = (Mat4, Vec<(usize, Mat4, Option<u32>)>, Vec<Mat4>);
+
+/// What draws casters into a shadow map: a pipeline for rigid meshes and
+/// one for skinned, the frame's casters and bones.
+#[derive(Debug)]
+pub(crate) struct Casting {
+    rigid: wgpu::RenderPipeline,
+    skinned: wgpu::RenderPipeline,
+    layout: wgpu::BindGroupLayout,
+    casters: wgpu::Buffer,
+    bones: wgpu::Buffer,
 }
 
 impl ShadowMaps {
@@ -393,11 +631,217 @@ impl ShadowMaps {
             compare: Some(wgpu::CompareFunction::LessEqual),
             ..Default::default()
         });
+        let buffer = |label, size, usage| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size,
+                usage: usage | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            })
+        };
+        ShadowMaps {
+            map,
+            sampler,
+            casting: Casting::new(device),
+            params: buffer(
+                "shadow darkening",
+                std::mem::size_of::<DarkenUniform>() as u64,
+                wgpu::BufferUsages::UNIFORM,
+            ),
+            darkeners: Default::default(),
+            lights: None,
+            holds: None,
+        }
+    }
+
+    /// Draws `plan`'s casters into the map (unless it holds them already).
+    pub(crate) fn cast(
+        &mut self,
+        gpu: &crate::Gpu,
+        encoder: &mut wgpu::CommandEncoder,
+        plan: &Plan,
+    ) {
+        let holds: Vec<_> = plan.casters.iter().map(Caster::key).collect();
+        if self
+            .holds
+            .as_ref()
+            .is_some_and(|(l, h, b)| *l == plan.light && *h == holds && *b == plan.bones)
+        {
+            return;
+        }
+        self.casting.upload(gpu, &plan.casters, &plan.bones);
+        let group = self.casting.group(gpu, plan.light);
+        self.casting.draw(encoder, &self.map, &group, &plan.casters, 0, true);
+        self.holds = Some((plan.light, holds, plan.bones.clone()));
+    }
+
+    /// Lays the sun's shadows over what is drawn in `target` (multisampled
+    /// by `samples`, of `format`), as deep as `depth` says, for `camera`
+    /// seeing a picture of `size`; `fog`: the scene's.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn darken(
+        &mut self,
+        gpu: &crate::Gpu,
+        encoder: &mut wgpu::CommandEncoder,
+        targets: (&wgpu::TextureView, &wgpu::TextureView),
+        format: (wgpu::TextureFormat, u32),
+        plan: &Plan,
+        camera: &Camera,
+        size: (u32, u32),
+        fog: Option<crate::scene::Fog>,
+    ) {
+        let mut lights = [[[0.0; 4]; 4]; MAX_LIGHT_SHADOWS];
+        lights[0] = plan.light.to_cols_array_2d();
+        let look = (plan.shadows, BIAS / plan.depth.max(1e-3), 1, lights);
+        let params = uniform(look, camera, size, fog);
+        gpu.queue.write_buffer(&self.params, 0, bytemuck::bytes_of(&params));
+        let darkener = self
+            .darkeners
+            .entry((format.0, format.1, false))
+            .or_insert_with(|| Darkener::new(&gpu.device, format.0, format.1, false));
+        darkener.lay(gpu, encoder, targets, &self.params, &self.map, &self.sampler);
+    }
+
+    /// Draws the lights' maps of `plan`.
+    pub(crate) fn cast_lights(
+        &mut self,
+        gpu: &crate::Gpu,
+        encoder: &mut wgpu::CommandEncoder,
+        plan: &LightPlan,
+    ) {
+        let maps = self.lights.get_or_insert_with(|| LightMaps::new(&gpu.device));
+        maps.casting.upload(gpu, &plan.casters, &plan.bones);
+        for (k, (light, range)) in plan.lights.iter().zip(&plan.ranges).enumerate() {
+            let group = maps.casting.group(gpu, *light);
+            let casters = &plan.casters[range.start as usize..range.end as usize];
+            maps.casting.draw(encoder, &maps.layers[k], &group, casters, range.start, true);
+        }
+    }
+
+    /// Lays the lights' shadows of `plan` over what is drawn, as
+    /// [`ShadowMaps::darken`] the sun's.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn darken_lights(
+        &mut self,
+        gpu: &crate::Gpu,
+        encoder: &mut wgpu::CommandEncoder,
+        targets: (&wgpu::TextureView, &wgpu::TextureView),
+        format: (wgpu::TextureFormat, u32),
+        plan: &LightPlan,
+        camera: &Camera,
+        size: (u32, u32),
+        fog: Option<crate::scene::Fog>,
+    ) {
+        let Some(maps) = &self.lights else { return };
+        let mut lights = [[[0.0; 4]; 4]; MAX_LIGHT_SHADOWS];
+        for (to, from) in lights.iter_mut().zip(&plan.lights) {
+            *to = from.to_cols_array_2d();
+        }
+        let look = (plan.shadows, LIGHT_BIAS, plan.lights.len() as u32, lights);
+        let params = uniform(look, camera, size, fog);
+        gpu.queue.write_buffer(&maps.params, 0, bytemuck::bytes_of(&params));
+        let darkener = self
+            .darkeners
+            .entry((format.0, format.1, true))
+            .or_insert_with(|| Darkener::new(&gpu.device, format.0, format.1, true));
+        darkener.lay(gpu, encoder, targets, &maps.params, &maps.array, &self.sampler);
+    }
+}
+
+/// The darkening pass's values: the shadows' look, the depth bias, how
+/// many maps and their projections; the camera, the picture's size, the
+/// fog.
+fn uniform(
+    (shadows, bias, count, lights): (SunShadows, f32, u32, [[[f32; 4]; 4]; MAX_LIGHT_SHADOWS]),
+    camera: &Camera,
+    size: (u32, u32),
+    fog: Option<crate::scene::Fog>,
+) -> DarkenUniform {
+    let aspect = size.0 as f32 / size.1.max(1) as f32;
+    let view = camera.view();
+    DarkenUniform {
+        unproject: (camera.projection(aspect) * view).inverse().to_cols_array_2d(),
+        view: view.to_cols_array_2d(),
+        screen: [
+            size.0.max(1) as f32,
+            size.1.max(1) as f32,
+            camera_fade_point(camera, shadows.fade_limit),
+            shadows.opacity.clamp(0.0, 1.0),
+        ],
+        fog: fog.map_or([0.0; 4], |f| [1.0, f.start, f.end, 1.0 / (f.end - f.start).max(1e-3)]),
+        bias: [bias, 0.0, 0.0, 0.0],
+        count: [count, 0, 0, 0],
+        lights,
+    }
+}
+
+/// The lights' shadow maps: a layer each, what draws into them, the
+/// darkening pass's values.
+#[derive(Debug)]
+struct LightMaps {
+    layers: Vec<wgpu::TextureView>,
+    array: wgpu::TextureView,
+    casting: Casting,
+    params: wgpu::Buffer,
+}
+
+impl LightMaps {
+    fn new(device: &wgpu::Device) -> LightMaps {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("light shadow maps"),
+            size: wgpu::Extent3d {
+                width: LIGHT_MAP_SIZE,
+                height: LIGHT_MAP_SIZE,
+                depth_or_array_layers: MAX_LIGHT_SHADOWS as u32,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: MAP_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let layers = (0..MAX_LIGHT_SHADOWS as u32)
+            .map(|k| {
+                texture.create_view(&wgpu::TextureViewDescriptor {
+                    dimension: Some(wgpu::TextureViewDimension::D2),
+                    base_array_layer: k,
+                    array_layer_count: Some(1),
+                    ..Default::default()
+                })
+            })
+            .collect();
+        let array = texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
+        let params = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("light shadow darkening"),
+            size: std::mem::size_of::<DarkenUniform>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        LightMaps { layers, array, casting: Casting::new(device), params }
+    }
+}
+
+impl Casting {
+    pub(crate) fn new(device: &wgpu::Device) -> Casting {
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("shadow casters"),
             source: wgpu::ShaderSource::Wgsl(CAST.into()),
         });
-        let cast_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let storage = |binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::VERTEX,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Storage { read_only: true },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        };
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("shadow casters"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -410,228 +854,187 @@ impl ShadowMaps {
                     },
                     count: None,
                 },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
+                storage(1),
+                storage(2),
             ],
         });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("shadow casters"),
-            bind_group_layouts: &[Some(&cast_layout)],
+            bind_group_layouts: &[Some(&layout)],
             immediate_size: 0,
         });
-        let cast_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("shadow casters"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &module,
-                entry_point: Some("vs"),
-                compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<crate::model::Vertex>() as u64,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x3],
-                })],
-            },
-            // (Both sides: the game's meshes are not all closed.)
-            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: MAP_FORMAT,
-                depth_write_enabled: Some(true),
-                depth_compare: Some(wgpu::CompareFunction::Less),
-                stencil: Default::default(),
-                bias: wgpu::DepthBiasState { constant: 0, slope_scale: 1.5, clamp: 0.0 },
-            }),
-            multisample: Default::default(),
-            fragment: None,
-            multiview_mask: None,
-            cache: None,
-        });
-        let buffer = |label, size, usage| {
+        let position = wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<crate::model::Vertex>() as u64,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &wgpu::vertex_attr_array![0 => Float32x3],
+        };
+        let skin = wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<crate::model::SkinVertex>() as u64,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &wgpu::vertex_attr_array![1 => Uint32x4, 2 => Float32x4],
+        };
+        let pipeline = |entry: &str, buffers: &[Option<wgpu::VertexBufferLayout<'_>>]| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("shadow casters"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &module,
+                    entry_point: Some(entry),
+                    compilation_options: Default::default(),
+                    buffers,
+                },
+                // (Both sides: the game's meshes are not all closed.)
+                primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: MAP_FORMAT,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::Less),
+                    stencil: Default::default(),
+                    bias: wgpu::DepthBiasState { constant: 0, slope_scale: 1.5, clamp: 0.0 },
+                }),
+                multisample: Default::default(),
+                fragment: None,
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let rigid = pipeline("vs", &[Some(position.clone())]);
+        let skinned = pipeline("vs_skinned", &[Some(position), Some(skin)]);
+        let buffer = |label, size| {
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(label),
                 size,
-                usage: usage | wgpu::BufferUsages::COPY_DST,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             })
         };
-        ShadowMaps {
-            map,
-            sampler,
-            cast_pipeline,
-            cast_layout,
-            light_buffer: buffer("shadow light", 64, wgpu::BufferUsages::UNIFORM),
-            worlds: buffer("shadow casters", 64 * 256, wgpu::BufferUsages::STORAGE),
-            params: buffer(
-                "shadow darkening",
-                std::mem::size_of::<DarkenUniform>() as u64,
-                wgpu::BufferUsages::UNIFORM,
-            ),
-            darkeners: Default::default(),
-            holds: None,
+        Casting {
+            rigid,
+            skinned,
+            layout,
+            casters: buffer("shadow casters", 80 * 256),
+            bones: buffer("shadow bones", 64 * 64),
         }
     }
 
-    /// Draws `plan`'s casters into the map (unless it holds them already).
-    pub(crate) fn cast(
-        &mut self,
-        gpu: &crate::Gpu,
-        encoder: &mut wgpu::CommandEncoder,
-        plan: &Plan,
-    ) {
-        let holds: Vec<(usize, Mat4)> =
-            plan.casters.iter().map(|(m, w)| (std::ptr::from_ref(*m) as usize, *w)).collect();
-        if self.holds.as_ref().is_some_and(|(l, h)| *l == plan.light && *h == holds) {
-            return;
+    /// Uploads `casters` and their `bones`.
+    pub(crate) fn upload(&mut self, gpu: &crate::Gpu, casters: &[Caster<'_>], bones: &[Mat4]) {
+        let data: Vec<CasterData> = casters
+            .iter()
+            .map(|c| CasterData {
+                world: c.world.to_cols_array_2d(),
+                bones: [c.bones.unwrap_or(0), 0, 0, 0],
+            })
+            .collect();
+        let grow = |buffer: &mut wgpu::Buffer, bytes: u64, label| {
+            if buffer.size() < bytes {
+                *buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some(label),
+                    size: bytes.next_power_of_two(),
+                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
+            }
+        };
+        grow(&mut self.casters, std::mem::size_of_val(&data[..]) as u64, "shadow casters");
+        grow(&mut self.bones, std::mem::size_of_val(bones) as u64, "shadow bones");
+        gpu.queue.write_buffer(&self.casters, 0, bytemuck::cast_slice(&data));
+        if !bones.is_empty() {
+            gpu.queue.write_buffer(&self.bones, 0, bytemuck::cast_slice(bones));
         }
-        let worlds: Vec<[[f32; 4]; 4]> =
-            plan.casters.iter().map(|(_, w)| w.to_cols_array_2d()).collect();
-        let bytes = std::mem::size_of_val(&worlds[..]) as u64;
-        if self.worlds.size() < bytes {
-            self.worlds = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("shadow casters"),
-                size: bytes.next_power_of_two(),
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-        }
-        gpu.queue.write_buffer(&self.worlds, 0, bytemuck::cast_slice(&worlds));
-        gpu.queue.write_buffer(&self.light_buffer, 0, bytemuck::cast_slice(&[plan.light]));
-        let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("shadow casters"),
-            layout: &self.cast_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.light_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry { binding: 1, resource: self.worlds.as_entire_binding() },
-            ],
+    }
+
+    /// The bind group for drawing the uploaded casters seen through
+    /// `light` (from the world to the map's clip space).
+    pub(crate) fn group(&self, gpu: &crate::Gpu, light: Mat4) -> wgpu::BindGroup {
+        let light = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("shadow light"),
+            contents: bytemuck::cast_slice(&[light]),
+            usage: wgpu::BufferUsages::UNIFORM,
         });
+        gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("shadow casters"),
+            layout: &self.layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: light.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: self.casters.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 2, resource: self.bones.as_entire_binding() },
+            ],
+        })
+    }
+
+    /// Draws `casters` (in [`in_drawing_order`]; the uploaded ones from
+    /// `first`) into `depth`, cleared first where `clear`, with `group` (a
+    /// light's, [`Casting::group`]).
+    pub(crate) fn draw(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        depth: &wgpu::TextureView,
+        group: &wgpu::BindGroup,
+        casters: &[Caster<'_>],
+        first: u32,
+        clear: bool,
+    ) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("shadow casters"),
             color_attachments: &[],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &self.map,
+                view: depth,
                 depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(1.0),
+                    load: if clear { wgpu::LoadOp::Clear(1.0) } else { wgpu::LoadOp::Load },
                     store: wgpu::StoreOp::Store,
                 }),
                 stencil_ops: None,
             }),
             ..Default::default()
         });
-        pass.set_pipeline(&self.cast_pipeline);
-        pass.set_bind_group(0, &group, &[]);
-        let mut chunk = None;
+        pass.set_bind_group(0, group, &[]);
+        let (mut chunk, mut skinned) = (None, None);
         let mut i = 0;
-        while i < plan.casters.len() {
-            let mesh = plan.casters[i].0;
+        while i < casters.len() {
+            let c = casters[i];
             let mut n = 1;
-            while i + n < plan.casters.len() && std::ptr::eq(plan.casters[i + n].0, mesh) {
+            while i + n < casters.len() && std::ptr::eq(casters[i + n].mesh, c.mesh) {
                 n += 1;
             }
-            if chunk != Some(mesh.chunk()) {
-                pass.set_vertex_buffer(0, mesh.vertices.slice(..));
-                pass.set_index_buffer(mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
-                chunk = Some(mesh.chunk());
+            let skin = c.mesh.skin.as_ref().filter(|_| c.bones.is_some());
+            if skinned != Some(skin.is_some()) {
+                pass.set_pipeline(if skin.is_some() { &self.skinned } else { &self.rigid });
+                skinned = Some(skin.is_some());
+                chunk = None;
             }
-            let first = mesh.first_index;
-            pass.draw_indexed(
-                first..first + mesh.index_count,
-                mesh.base_vertex,
-                i as u32..(i + n) as u32,
-            );
+            if chunk != Some(c.mesh.chunk()) {
+                pass.set_vertex_buffer(0, c.mesh.vertices.slice(..));
+                pass.set_index_buffer(c.mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
+                if let Some(skin) = skin {
+                    pass.set_vertex_buffer(1, skin.vertices.slice(..));
+                }
+                chunk = Some(c.mesh.chunk());
+            }
+            let index = c.mesh.first_index;
+            let instances = first + i as u32..first + (i + n) as u32;
+            pass.draw_indexed(index..index + c.mesh.index_count, c.mesh.base_vertex, instances);
             i += n;
         }
-        drop(pass);
-        self.holds = Some((plan.light, holds));
-    }
-
-    /// Lays the shadows over what is drawn in `target` (multisampled by
-    /// `samples`, of `format`), as deep as `depth` says, for `camera`
-    /// seeing a picture of `size`; `fog`: the scene's.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn darken(
-        &mut self,
-        gpu: &crate::Gpu,
-        encoder: &mut wgpu::CommandEncoder,
-        (target, depth): (&wgpu::TextureView, &wgpu::TextureView),
-        (format, samples): (wgpu::TextureFormat, u32),
-        plan: &Plan,
-        camera: &Camera,
-        size: (u32, u32),
-        fog: Option<crate::scene::Fog>,
-    ) {
-        let darkener = self
-            .darkeners
-            .entry((format, samples))
-            .or_insert_with(|| Darkener::new(&gpu.device, format, samples));
-        let aspect = size.0 as f32 / size.1.max(1) as f32;
-        let view = camera.view();
-        let texel = 2.0 / MAP_SIZE as f32;
-        let params = DarkenUniform {
-            unproject: (camera.projection(aspect) * view).inverse().to_cols_array_2d(),
-            light: plan.light.to_cols_array_2d(),
-            view: view.to_cols_array_2d(),
-            screen: [
-                size.0.max(1) as f32,
-                size.1.max(1) as f32,
-                camera_fade_point(camera, plan.shadows.fade_limit),
-                plan.shadows.opacity.clamp(0.0, 1.0),
-            ],
-            fog: fog.map_or([0.0; 4], |f| [1.0, f.start, f.end, 1.0 / (f.end - f.start).max(1e-3)]),
-            bias: [BIAS / plan.depth.max(1e-3), texel, 0.0, 0.0],
-        };
-        gpu.queue.write_buffer(&self.params, 0, bytemuck::bytes_of(&params));
-        let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("shadow darkening"),
-            layout: &darkener.layout,
-            entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: self.params.as_entire_binding() },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(depth),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&self.map),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-            ],
-        });
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("shadow darkening"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: target,
-                resolve_target: None,
-                ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
-                depth_slice: None,
-            })],
-            ..Default::default()
-        });
-        pass.set_pipeline(&darkener.pipeline);
-        pass.set_bind_group(0, &group, &[]);
-        pass.draw(0..3, 0..1);
     }
 }
 
 impl Darkener {
-    fn new(device: &wgpu::Device, format: wgpu::TextureFormat, samples: u32) -> Darkener {
+    fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        samples: u32,
+        lights: bool,
+    ) -> Darkener {
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("shadow darkening"),
-            source: wgpu::ShaderSource::Wgsl(darken_source(samples).into()),
+            source: wgpu::ShaderSource::Wgsl(darken_source(samples, lights).into()),
         });
+        let maps = if lights {
+            wgpu::TextureViewDimension::D2Array
+        } else {
+            wgpu::TextureViewDimension::D2
+        };
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("shadow darkening"),
             entries: &[
@@ -660,7 +1063,7 @@ impl Darkener {
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Depth,
-                        view_dimension: wgpu::TextureViewDimension::D2,
+                        view_dimension: maps,
                         multisampled: false,
                     },
                     count: None,
@@ -718,6 +1121,51 @@ impl Darkener {
             cache: None,
         });
         Darkener { pipeline, layout }
+    }
+
+    /// Lays the shadows over what is drawn in `target`, as deep as `depth`
+    /// says, from `maps` with `params`.
+    fn lay(
+        &self,
+        gpu: &crate::Gpu,
+        encoder: &mut wgpu::CommandEncoder,
+        (target, depth): (&wgpu::TextureView, &wgpu::TextureView),
+        params: &wgpu::Buffer,
+        maps: &wgpu::TextureView,
+        sampler: &wgpu::Sampler,
+    ) {
+        let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("shadow darkening"),
+            layout: &self.layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: params.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(depth),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(maps),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+            ],
+        });
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("shadow darkening"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: target,
+                resolve_target: None,
+                ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+                depth_slice: None,
+            })],
+            ..Default::default()
+        });
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &group, &[]);
+        pass.draw(0..3, 0..1);
     }
 }
 
@@ -787,6 +1235,47 @@ mod tests {
             ..above
         };
         assert_eq!(seen(&away, 1.5, area), None);
+    }
+
+    /// A creature casts its lights' shadow from the nearest light that
+    /// casts shadows, reaches it and stands outside it, as the client
+    /// (of two lamps, the nearer); a tile's flame (radius 7) casts none.
+    #[test]
+    fn a_creature_casts_from_the_nearest_light_that_casts() {
+        let lamp = |x: f32, radius: f32| {
+            PointLight::new(Vec3::new(x, 3.0, 4.0), Vec3::ONE, radius, false, 4)
+                .casting(true, radius, 3.0)
+        };
+        let at = Vec3::new(0.0, 0.0, 1.0);
+        let lights = [lamp(-2.6, 10.0), lamp(3.0, 10.0), lamp(1.0, 7.0)];
+        assert!(!lights[2].casts_shadows);
+        assert_eq!(casting_light(&lights, at, 1.0), Some(0));
+        // (Too far for its light, or inside the creature: none.)
+        assert_eq!(casting_light(&lights[1..2], Vec3::new(40.0, 0.0, 0.0), 1.0), None);
+        assert_eq!(casting_light(&lights[1..2], lights[1].position, 1.0), None);
+        // An ambient light casts none.
+        let ambient = PointLight { ambient_only: true, ..lights[0] };
+        assert_eq!(casting_light(&[ambient], at, 1.0), None);
+    }
+
+    /// A light's view holds the creature and what lies behind it: the
+    /// ball's middle and its edge are in sight, the light's side of it is
+    /// not cut off, and a point behind it, on the ground, is in the map.
+    #[test]
+    fn a_light_s_view_holds_the_creature_and_its_shadow() {
+        let (light, at, radius) = (Vec3::new(0.0, 3.0, 6.9), Vec3::new(0.0, 0.0, 1.0), 1.2);
+        let m = light_projection(light, at, radius, 20.0);
+        let inside = |p: Vec3| {
+            let c = m * p.extend(1.0);
+            let n = c.truncate() / c.w;
+            c.w > 0.0 && n.x.abs() <= 1.0 && n.y.abs() <= 1.0 && (0.0..=1.0).contains(&n.z)
+        };
+        assert!(inside(at) && inside(at + Vec3::X * radius) && inside(at - Vec3::Z * radius));
+        // (Its shadow on the ground, beyond it from the light.)
+        let ground = at + (at - light) * (1.0 / (light.z - at.z));
+        assert!(inside(ground.with_z(0.0)), "{ground}");
+        // Nothing beside it.
+        assert!(!inside(at + Vec3::X * 5.0));
     }
 
     /// The light's view looks down along the light: a point towards the

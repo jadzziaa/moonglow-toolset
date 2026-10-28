@@ -17,8 +17,8 @@
 //! `FRAME_ACCESSKIT=1` builds the accessibility tree every frame, as the app
 //! does while an assistive client is connected (a screen reader, a desktop
 //! agent), and `FRAME_TARGET=<width>x<height>` sizes the pictures of the areas
-//! taken apart at the end, and `FRAME_SHADOWS=off` draws them without
-//! the sun's shadows, `on` with them in every area. (With another program drawing, the game say,
+//! taken apart at the end, and `FRAME_SHADOWS=sun,creatures,lights`
+//! (any of them, or `off`) draws those kinds of shadow in every area. (With another program drawing, the game say,
 //! the GPU's times are as much that program's: close it for those.)
 
 #[allow(dead_code)]
@@ -506,23 +506,27 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
     let t = Instant::now();
     let mut scene = mg_area::AreaScene::new(&gpu, &game, &model);
     let mut view = mg_area::View::of(&model);
-    // (`FRAME_SHADOWS=off`: without the sun's shadows; `on`: with them in
-    // every area, at the area's opacity or 50.)
-    match std::env::var("FRAME_SHADOWS").as_deref() {
-        Ok("off") => view.shadows = false,
-        Ok("on") => {
-            let l = &mut model.lighting;
-            (l.sun.shadows, l.moon.shadows) = (true, true);
-            if l.shadow_opacity == 0 {
-                l.shadow_opacity = 50;
-            }
+    // (`FRAME_SHADOWS`: the kinds drawn, of `sun`, `creatures`, `lights`
+    // (by commas; `off` none), each area made to have the sun's and moon's
+    // shadows at its opacity or 50.)
+    if let Ok(kinds) = std::env::var("FRAME_SHADOWS") {
+        view.shadows = kinds.contains("sun");
+        view.creature_shadows = kinds.contains("creatures");
+        view.light_shadows = kinds.contains("lights");
+        // (The lights' shadows only where the area has no sun's.)
+        let l = &mut model.lighting;
+        let sky = !view.light_shadows;
+        (l.sun.shadows, l.moon.shadows) = (sky, sky);
+        if l.shadow_opacity == 0 {
+            l.shadow_opacity = 50;
         }
-        _ => {}
     }
     println!(
-        "  area {area}: models loaded in {:.0?}; shadows {:?}",
+        "  area {area}: models loaded in {:.0?}; shadows {:?}, creatures {}, lights {}",
         t.elapsed(),
-        view.shadows_of(&model.lighting)
+        view.shadows_of(&model.lighting),
+        view.creature_shadows,
+        view.light_shadows
     );
     // (`FRAME_TARGET=<width>x<height>`: a picture of another size.)
     let (w, h_px) = std::env::var("FRAME_TARGET")
@@ -692,7 +696,7 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
              encoded {:5.2} ms (worst {:5.2}; on the processor {:5.2}), GPU {:5.2} ms (the quickest tenth {:5.2}) \
              ({instances} instances, {meshes} meshes, {lights} lights, {quads} particles; {} \
              meshes in {} draws of {} materials and {} pipelines in turn, {} of the game's, {} \
-             meshes out of sight)",
+             meshes out of sight; {} casting the sun's shadows, {} creatures the lights')",
             ms(first),
             ms(pick(build, 0.5)),
             ms(pick(particles, 0.5)),
@@ -707,6 +711,8 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool], gra
             did.pipelines,
             did.game,
             did.hidden,
+            did.sun_casters,
+            did.light_shadows,
         );
     }
 }
