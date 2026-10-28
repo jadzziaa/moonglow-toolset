@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T19:18:43Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:35:52Z }
 ---
 
 # Scripts
