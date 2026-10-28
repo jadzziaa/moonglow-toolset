@@ -45,6 +45,15 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="2.13.0" date="2026-10-28">
+      <description>
+        <p>Moonglow checks what the GPU draws, at startup and while an
+        area is open, and changes backend where a driver draws nothing;
+        a sprint through the deferred list fixes the tile tools, objects
+        edited together, the module tree, the NUI Creator, nasher
+        projects' talk tables, mg test's stale scripts and more.</p>
+      </description>
+    </release>
     <release version="2.12.0" date="2026-10-28">
       <description>
         <p>The area view draws shadows as the game does: the sun's and
