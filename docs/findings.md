@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T09:23:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T21:33:57Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -682,8 +682,12 @@ light: color 1, cutoff 40 m). `lightMaxIntensityInv` = 1.5^−2.2 ≈ 0.4098;
 
 Tile main lights use lightcolor.2da RED/GREEN/BLUE (TOOLSETRED… are only
 the toolset's swatches) with radius 10 (ml1) and 5 (ml2) whatever the model
-says; source lights take their color from the `fx_flame01` animation named
-by the value, radius 7.
+says, and in place of the node's own color, even a black one (`tni01`'s
+smithy: nodes of radius 14 and 9, three of them black, light as row 26
+on every tile); source lights take their color from the `fx_flame01`
+animation named by the value, radius 7. A tile whose model has no
+`ml1`, `ml2`, `sl1` or `sl2` node is lit by none of its settings (the
+black filler of `tni01`, whatever main and source lights it is given).
 
 The light nodes of a placeable's own model are lights like any other,
 static or not; **Illuminated** (`LightState` 0) turns off only the
@@ -695,7 +699,8 @@ appearance's light (placeables.2da `LightColor`), not them. A draw keeps
   (seven cases); `model_light_uniforms` (an authored placeable model's
   light node: multipliers 0.5 to 10, colors above and below 1, ambient
   only, static, `LightState` 0, 36 lights at once; the "Light, White"
-  placeable with `LightState` 0).
+  placeable with `LightState` 0); `heed_armourer_look` (the `tni01`
+  smithy, pictures within 1.6 of 255).
 - **Moonglow:** `crates/mg-render/src/scene.rs`, `renderer.rs`
   (`attenuation_params`), `anim.rs`.
 - **Wiki:** "Shader Engine Support" lists the uniforms without values.
@@ -756,6 +761,24 @@ corners are about a tenth darker than `fslit` lights them.
   game's `fslit_nm` and `fslit` under custom names (before, 99% within
   7 of 255 on the `_nm` one; after, 0).
   `light_uniforms_match_the_client` reads the uniforms themselves.
+- **Checked:** game client, `heed_armourer_look` in
+  `client_render/armourer.rs` (2026-10-28): Heed's armourer
+  (`hss_armourer`, the area he sent; the test builds it of stock
+  content): a 4×4 `tni01` of the smithy group in the tileset's black
+  filler, his tiles' lights (row 26 on the smithy's main lights, the
+  filler's inert), 60/170 by day, black fog of 5, the innkeeper, from
+  four cameras (the forge among them). Moonglow's area view with the
+  Shaders switch off and on drew the same picture (0.02 of 255 apart at
+  most), within 0.1 to 1.6 of 255 of the client's mean color and 1.6 to
+  3.1 in any region of the 3×3 grid; his own file and the built one
+  drew alike. The area's Lighting Scheme (12) is Aurora's preset, which
+  set the colors when it was chosen: neither the client nor Moonglow
+  reads it. `a_builders_area_in_the_view_draws_as_the_comparison`
+  (`crates/mg-ui/tests/app/drawing.rs`) holds the window's own picture
+  of his area to what the comparison draws (within 0.9 of 255). Where
+  the client leaves rooms out, that is the visibility of the tile the
+  player stands on (on the smithy's doorway tile it drew nothing but
+  the innkeeper), which the area view doesn't follow, as Aurora doesn't.
 - **Moonglow:** `crates/mg-render/src/scene.rs` (`AreaLight::from_are`),
   `crates/mg-area/src/scene.rs` (`area_light`), `crates/mg-render/src/renderer.rs`
   (`Slots::lit_normal_mapped`).
@@ -800,11 +823,18 @@ particle keeps 0.8 of its speed along it and 0.8 × `bounce_co` off it.
 `m_isTinted` multiplies a particle by the area's ambient plus diffuse
 (added in gamma space) plus point lights. The three-stop values
 (`colorMid`, `alphaMid`, `sizeMid`, `percentStart/Mid/End`) and
-`twosidedtex` change nothing visible.
+`twosidedtex` change nothing visible. A tile's own emitters (the
+`tni01` smithy's forge fire, which lives 5 seconds) burn in the client's
+picture taken some seconds after the player enters; whether the client
+runs them ahead when the area loads was not measured (Moonglow runs an
+emitter new to its view ahead, a tile's as an object's).
 
 - **Checked:** game client screenshots, `client_render.rs` `particles_look`
-  (exploration, no assertions; numbers in `docs/research/notes_models.md`).
-- **Moonglow:** `crates/mg-render/src/particles.rs`.
+  (exploration, no assertions; numbers in `docs/research/notes_models.md`);
+  `heed_armourer_look` (the forge's fire).
+- **Moonglow:** `crates/mg-render/src/particles.rs`; `crates/mg-area/src/scene.rs`
+  (`AreaScene::particles`: an emitter new to the view, an object's or a
+  tile's, is run ahead).
 - **Wiki:** "MDL ASCII Emitter Nodes" describes `mass`, `bounce_co`,
   `m_isTinted` and `twosidedtex` loosely or differently.
 

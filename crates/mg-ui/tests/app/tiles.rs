@@ -3921,6 +3921,34 @@ fn a_tile_s_source_light_burns() {
     assert!(lit > unlit, "the flames' particles: {unlit} → {lit}");
 }
 
+/// A tile's own emitters show as they do once going from the first frame
+/// the area is shown, as an object's do: the smithy's forge (`tni01`'s
+/// `tni01_r23_01`, whose fire lives five seconds) burns at once. (Its fire
+/// was dark for the first seconds after the area was opened, and after
+/// every change to it; the client's burns.)
+#[test]
+fn a_tile_s_emitters_burn_from_the_first_frame() {
+    let Some((mut h, area)) = area_harness_on("tile-emitters", "tni01", Some(296)) else {
+        return;
+    };
+    h.state_mut().area_views.get_mut(&area).unwrap().orbit = Some(mg_ui::area_view::Orbit {
+        target: glam::Vec3::new(15.0, 15.0, 0.0),
+        yaw: std::f32::consts::FRAC_PI_2,
+        pitch: 0.8,
+        distance: 14.0,
+    });
+    h.run_steps(2);
+    let first = h.state().area_views[&area].particles_shown;
+    let dir = mg_testkit::scratch_dir("ui-tile-emitters");
+    h.render().expect("render").save(dir.join("first.png")).unwrap();
+    // (Eight seconds on: the fire as it burns.)
+    h.run_steps(8 * 60);
+    let going = h.state().area_views[&area].particles_shown;
+    h.render().expect("render").save(dir.join("going.png")).unwrap();
+    assert!(going > 20, "the forge burns: {going} particles");
+    assert!(first * 10 >= going * 8, "at first {first} particles, going {going}");
+}
+
 /// Between objects and tiles without the toolbar. F10 with the pointer
 /// over an area's view is Select Tiles or Objects, as in Aurora; the menus
 /// don't take it there (they do everywhere else, and Alt opens them
