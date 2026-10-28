@@ -4717,11 +4717,12 @@ fn delete(app: &mut Moonglow, view: &mut AreaView) {
 /// Instances makes one again ([`mg_module::instances::replaced`]): where
 /// it stands, facing as it faces, with its outline (a trigger's or an
 /// encounter's), its visual transform and an encounter's spawn points;
-/// its tag, name, scripts and variables become the blueprint's. One
-/// command; objects of other types and locked ones are left. How many
+/// its tag, name, scripts and variables become the blueprint's, or, with
+/// `own`, stay its own ([`mg_module::instances::replaced_keeping_own`]).
+/// One command; objects of other types and locked ones are left. How many
 /// were replaced.
-pub(crate) fn replace_selected(app: &mut Moonglow, area: ResRef, key: ResKey) -> usize {
-    use mg_module::instances::{Placing, replaced};
+pub(crate) fn replace_selected(app: &mut Moonglow, area: ResRef, key: ResKey, own: bool) -> usize {
+    use mg_module::instances::{Placing, replaced, replaced_keeping_own};
     let Some(kind) = ObjectKind::from_restype(key.restype) else { return 0 };
     let Some(view) = app.area_views.get(&area) else { return 0 };
     let git = view.git();
@@ -4752,7 +4753,12 @@ pub(crate) fn replace_selected(app: &mut Moonglow, area: ResRef, key: ResKey) ->
     let placing = Placing { game, item: &items };
     let mut edits = Vec::new();
     for (index, old) in &olds {
-        let Some(item) = replaced(&placing, key.restype, old, &blueprint) else { continue };
+        let made = if own {
+            replaced_keeping_own(&placing, key.restype, old, &blueprint)
+        } else {
+            replaced(&placing, key.restype, old, &blueprint)
+        };
+        let Some(item) = made else { continue };
         let (path, list) = (mg_edit::GffPath::root(), kind.list().to_string());
         edits.push(mg_edit::Edit::remove_item(git, path.clone(), list.clone(), *index));
         edits.push(mg_edit::Edit::insert_item(git, path, list, *index, item));

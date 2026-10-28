@@ -830,7 +830,10 @@ fn visuals_page_sets_replacements_and_misc_visuals() {
     h.run();
     assert!(field(&mut h, &key).get("TextureReplace").is_none());
     // MiscVisuals: what shows, set apart from the game's choice; the other
-    // fields are left to the game.
+    // fields are left to the game. (Under the model's textures, its
+    // emitters' too: scrolled to.)
+    h.get_by_label("As the game decides").scroll_to_me();
+    h.run();
     h.get_by_label("As the game decides").click();
     h.run();
     h.get_by_label("Name with Tab").click();

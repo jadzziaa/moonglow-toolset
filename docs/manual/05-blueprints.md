@@ -154,7 +154,10 @@ The palette's buttons:
   remaking): where they stand, facing as they face, with their visual
   transform (a tilt, a scale), a trigger's or an encounter's outline and
   an encounter's spawn points. Their tag, name, scripts and variables
-  become the blueprint's. A placeable the blueprint makes static loses
+  become the blueprint's; **Replace Selected, Keeping Tags and Scripts**
+  keeps each one's own instead (a placeholder replaced by the real thing
+  keeps the tag its scripts know it by), the rest coming from the
+  blueprint. A placeable the blueprint makes static loses
   its transform, as ticking Static does. Locked objects are left. One
   Undo puts the old ones back. With the Gallery, this swaps a placed
   object for a neighboring one in a click or two.

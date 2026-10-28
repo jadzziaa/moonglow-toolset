@@ -1549,6 +1549,20 @@ fn the_palette_replaces_the_selected_object() {
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run_steps(3);
     assert_eq!(read(&mut h, 0), first, "one undo");
+    // Keeping its tag (and name, scripts, variables): the placeholder's.
+    let tag = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+        let w = &git.root.list("WaypointList").unwrap()[0];
+        (w.string("Tag").map(<[u8]>::to_vec), w.get("LocalizedName").cloned())
+    };
+    let own = tag(&mut h);
+    h.get_by_label(&tavern).click_secondary();
+    h.run_steps(2);
+    h.get_by_label("Replace Selected, Keeping Tags and Scripts").click();
+    h.run_steps(3);
+    assert_eq!(read(&mut h, 0).0.as_deref(), Some("nw_wp_tavern"), "of the blueprint");
+    assert_eq!(tag(&mut h), own, "with its own tag and name");
 }
 
 /// The Placeable Gallery (Tools, and the palette's All Appearances…) is
