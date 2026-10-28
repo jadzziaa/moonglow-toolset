@@ -5,6 +5,7 @@
 //! writes the layout the game ships: header, entry table, strings in entry
 //! order.
 
+pub mod csv;
 pub mod diff;
 pub mod json;
 

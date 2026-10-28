@@ -1357,6 +1357,16 @@ fn a_script_saved_outside_is_compiled_when_asked() {
     h.state_mut().settings.auto_compile = true;
     save_outside(&mut h, "void main()\n{\n    int n = 2;\n}\n");
     let first = compiled(&mut h).expect("compiled when read again");
+    // The module had no unsaved changes, and has none after: the compiled
+    // script is written beside its source at once.
+    assert!(!h.state().ws.as_ref().unwrap().is_modified(), "no unsaved changes");
+    assert_eq!(std::fs::read(dir.join("hello.ncs")).ok(), Some(first.clone()));
+    h.state_mut().reload_project_files();
+    h.run_steps(2);
+    assert!(
+        !h.state().log.entries.iter().any(|(_, m)| m.contains("Read again") && m.contains("ncs")),
+        "the compiled script written is not read again as changed outside"
+    );
     save_outside(&mut h, "void main()\n{\n    int n = 2;\n    n += GetHitDice(OBJECT_SELF);\n}\n");
     assert_ne!(compiled(&mut h).unwrap(), first);
     // An include saved outside: the script that includes it is compiled.
@@ -1529,6 +1539,66 @@ fn a_script_compiled_on_its_own_is_passed_over_by_compile_all() {
         let given = std::fs::read_to_string(&listed).unwrap();
         assert_eq!(given.lines().collect::<Vec<_>>(), ["inc_n.nss", "uses_n.nss"], "{given}");
     }
+}
+
+/// An include changed in its editor: the scripts that include it are
+/// compiled again with it, by its editor's Compile, by its own Save and
+/// by the module's Save (with Automatically Compile Scripts on Save), and
+/// the log names them; a script that includes nothing changed is not.
+#[test]
+fn an_include_s_includers_are_compiled_with_it() {
+    let Some((mut h, _)) = area_harness("compile-includers") else { return };
+    let nss = |n: &str| ResKey::parse(n, ResType::NSS).unwrap();
+    let set = |h: &mut Harness<'_, Moonglow>, name: &str, text: &str| {
+        let edit = mg_edit::Edit::SetResource { key: nss(name), data: Some(text.into()) };
+        h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Set", vec![edit])));
+        h.run_steps(2);
+    };
+    set(&mut h, "inc_n", "int N() { return 1; }\n");
+    set(&mut h, "uses_n", "#include \"inc_n\"\nvoid main() { int n = N(); }\n");
+    set(&mut h, "alone", "void main() { int a = 1; }\n");
+    h.state_mut().actions.push(mg_ui::Action::CompileScripts);
+    h.run_steps(3);
+    let ncs = |h: &mut Harness<'_, Moonglow>, name: &str| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.flush().unwrap();
+        ws.module.get(&ResKey::parse(name, ResType::NCS).unwrap()).map(<[u8]>::to_vec)
+    };
+    let (uses, alone) = (ncs(&mut h, "uses_n").expect("compiled"), ncs(&mut h, "alone"));
+    let said = |h: &Harness<'_, Moonglow>, from: usize, what: &str| {
+        h.state().log.entries[from..].iter().any(|(_, m)| m.contains(what))
+    };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(nss("inc_n"))));
+    h.run_steps(3);
+
+    // Its editor's Compile.
+    let from = h.state().log.entries.len();
+    h.state_mut().scripts_mut_for_test(nss("inc_n"), "int N() { return 2; }\n");
+    h.run_steps(1);
+    h.get_by_label("Compile").click();
+    h.run_steps(3);
+    let by_compile = ncs(&mut h, "uses_n").unwrap();
+    assert_ne!(by_compile, uses, "compiled again by the include's Compile");
+    assert!(said(&h, from, "Compiled, as they include inc_n: uses_n"));
+
+    // Its own Save.
+    h.state_mut().settings.auto_compile = true;
+    let from = h.state().log.entries.len();
+    h.state_mut().scripts_mut_for_test(nss("inc_n"), "int N() { return 3; }\n");
+    h.state_mut().actions.push(mg_ui::Action::SaveScript(nss("inc_n")));
+    h.run_steps(4);
+    let by_save = ncs(&mut h, "uses_n").unwrap();
+    assert_ne!(by_save, by_compile, "compiled again by the include's Save");
+    assert!(said(&h, from, "uses_n"), "named in the log");
+
+    // The module's Save, with the include's text typed and not stored.
+    let from = h.state().log.entries.len();
+    h.state_mut().scripts_mut_for_test(nss("inc_n"), "int N() { return 4; }\n");
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run_steps(4);
+    assert_ne!(ncs(&mut h, "uses_n").unwrap(), by_save, "compiled again by the module's Save");
+    assert!(said(&h, from, "Compiled on save:") && said(&h, from, "uses_n"));
+    assert_eq!(ncs(&mut h, "alone"), alone, "a script that includes it not, only those that do");
 }
 
 /// In Open Script, Down and Up choose among the scripts listed while the

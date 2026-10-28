@@ -1127,7 +1127,7 @@ enum PluginCmd {
 fn vars(cli: &Cli, path: &Path, on: Option<&str>, name: Option<&str>) -> Result<Output> {
     use mg_module::var_desc::{ModuleLookup, Owner, type_label};
     use serde_json::json;
-    let m = Module::open(path)?;
+    let m = crate::open_module(path)?;
     let owner = match on {
         Some(o) => Some(Owner::from_name(o).ok_or_else(|| {
             let all: Vec<&str> = Owner::ALL.iter().map(|o| o.name()).collect();
@@ -1254,9 +1254,17 @@ impl Output {
         self.notes.push(s.into());
     }
 
-    /// Prints it as text, or as JSON with the notes in "notes".
+    /// Prints it as text, or as JSON with the notes in "notes" (with
+    /// those of the modules opened, [`open_module`]).
     fn print(mut self, json: bool) -> io::Result<()> {
+        let opened = std::mem::take(&mut *OPENED.lock().unwrap_or_else(|e| e.into_inner()));
+        for n in opened {
+            if !self.notes.contains(&n) {
+                self.notes.push(n);
+            }
+        }
         if self.done {
+            self.notes.iter().for_each(|n| eprintln!("{n}"));
             return Ok(());
         }
         let mut out = io::stdout().lock();
@@ -1278,6 +1286,31 @@ impl Output {
         }
         Ok(())
     }
+}
+
+/// What was said of the modules opened ([`open_module`]), for the output
+/// to carry.
+static OPENED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// Opens a module, as every command does. A `.mod` with its module
+/// folder beside it (Aurora's module directory, which the window asks
+/// about) is the `.mod`, as the game's server reads it: the output says
+/// so, once, and that the folder is left as it is.
+pub(crate) fn open_module(path: &Path) -> std::result::Result<Module, mg_module::ModuleError> {
+    let m = Module::open(path)?;
+    if let Some(folder) = mg_module::folder::beside_mod(path) {
+        let note = format!(
+            "note: {} has its module folder beside it ({}): this is the .mod, as the game's \
+             server reads it, and the folder is left as it is (name the folder to work on it)",
+            path.display(),
+            folder.display()
+        );
+        let mut said = OPENED.lock().unwrap_or_else(|e| e.into_inner());
+        if !said.contains(&note) {
+            said.push(note);
+        }
+    }
+    Ok(m)
 }
 
 /// A file's extension, lower case.
@@ -1562,7 +1595,7 @@ fn run(cli: &Cli) -> Result<Output> {
         }
         Cmd::Gff { input, output } => gff(input, output.as_deref(), cli.json)?,
         Cmd::Set { module, resource, fields, remove, dry_run, plugins } => {
-            let m = Module::open(module)?;
+            let m = crate::open_module(module)?;
             let codepage = module_codepage(cli, &m);
             let mut notes = Output::default();
             let guard = save_guard(cli, &m, plugins, &mut notes)?;
@@ -1572,7 +1605,7 @@ fn run(cli: &Cli) -> Result<Output> {
             out
         }
         Cmd::Apply { module, edits, dry_run, plugins } => {
-            let m = Module::open(module)?;
+            let m = crate::open_module(module)?;
             let codepage = module_codepage(cli, &m);
             let mut notes = Output::default();
             let guard = save_guard(cli, &m, plugins, &mut notes)?;
@@ -1585,7 +1618,7 @@ fn run(cli: &Cli) -> Result<Output> {
             let key = resource_key(resource)?;
             let mut out = Output::default();
             let rm = match module {
-                Some(path) => module_resman(&gi, &Module::open(path)?, &mut out)?,
+                Some(path) => module_resman(&gi, &crate::open_module(path)?, &mut out)?,
                 None => ResMan::for_game(&gi)?,
             };
             // Every copy, highest first: the first is the one the game reads.
@@ -1801,7 +1834,7 @@ fn run(cli: &Cli) -> Result<Output> {
             out
         }
         Cmd::Haks { module, usage } => {
-            let m = Module::open(module)?;
+            let m = crate::open_module(module)?;
             let gi = install(cli)?;
             let report = mg_module::haks::hak_report(&gi, &m.haks()?)?;
             let rows = |it: &mut dyn Iterator<Item = (&ResKey, &Vec<String>)>| {
@@ -1848,7 +1881,7 @@ fn run(cli: &Cli) -> Result<Output> {
             out
         }
         Cmd::Export { module, resources, output, files, comment, keep_factions } => {
-            let m = Module::open(module)?;
+            let m = crate::open_module(module)?;
             let mut out = Output::default();
             let roots = resources.iter().map(|r| resource_key(r)).collect::<Result<Vec<_>>>()?;
             for r in &roots {
@@ -1911,7 +1944,7 @@ fn run(cli: &Cli) -> Result<Output> {
             out
         }
         Cmd::Compile { module, uncompiled, all, ndb } => {
-            let mut m = Module::open(module)?;
+            let mut m = crate::open_module(module)?;
             let mut out = Output::default();
             let gi = install(cli)?;
             let rm = module_resman(&gi, &m, &mut out)?;
@@ -1994,6 +2027,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 restart_on_change: *restart_on_change,
                 stdin: true,
                 args: server_args.clone(),
+                project: None,
             };
             let started = std::time::Instant::now();
             let bold = !cli.json && io::stdout().is_terminal();
@@ -2232,7 +2266,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 let _ = w;
                 Ok(())
             };
-            let mut rm = resman(&Module::open(project)?)?;
+            let mut rm = resman(&crate::open_module(project)?)?;
             let (mut w, first) = watch::Watcher::start(project, &dev_dir, build_to, *ndb, &rm)?;
             also(&w)?;
             say(
@@ -2265,6 +2299,8 @@ fn run(cli: &Cli) -> Result<Output> {
                 preload: preload.clone(),
                 stdin: true,
                 args: server_args.clone(),
+                // (The project's own talk table, made for the server.)
+                project: Some(project.clone()),
                 ..Default::default()
             };
             let mut wrong: Option<anyhow::Error> = None;
@@ -2331,7 +2367,7 @@ fn run(cli: &Cli) -> Result<Output> {
             Output { done: true, ..Default::default() }
         }
         Cmd::Refs { module, name, tag } => {
-            let m = Module::open(module)?;
+            let m = crate::open_module(module)?;
             let (usages, mentions) = if *tag {
                 (
                     mg_module::rename::tag_usages(&m, name),
@@ -2362,7 +2398,7 @@ fn run(cli: &Cli) -> Result<Output> {
             if from.restype == ResType::JUI {
                 return nui::rename(cli, module, &from.resref.to_string(), to, *strings);
             }
-            let mut m = Module::open(module)?;
+            let mut m = crate::open_module(module)?;
             let to = mg_core::ResRef::from_str(to).map_err(|e| anyhow::anyhow!("{to}: {e}"))?;
             let report = mg_module::rename::rename(&mut m, from, to, *strings)?;
             let mut out = Output::default();
@@ -2398,7 +2434,7 @@ fn run(cli: &Cli) -> Result<Output> {
         }
         Cmd::DialogExport { module, dialog, output } => {
             use mg_module::dialog_io::Format;
-            let m = Module::open(module)?;
+            let m = crate::open_module(module)?;
             let key = ResKey::from_filename(dialog).context("give the conversation as name.dlg")?;
             let g = m.gff(&key).with_context(|| format!("{key} is not in the module"))??;
             let f = Format::of(output).context("the output must end .txt, .csv, .twee or .ink")?;
@@ -2454,7 +2490,7 @@ fn run(cli: &Cli) -> Result<Output> {
         }
         Cmd::DialogImport { module, file, name } => {
             use mg_module::dialog_io::Format;
-            let mut m = Module::open(module)?;
+            let mut m = crate::open_module(module)?;
             let stem = file.file_stem().map(|s| s.to_string_lossy().to_ascii_lowercase());
             let name = name.clone().or(stem).context("name the conversation with --name")?;
             let key = ResKey::parse(&name, mg_core::ResType::DLG)
@@ -2511,7 +2547,7 @@ fn run(cli: &Cli) -> Result<Output> {
                     })
                     .collect::<Result<_>>()?
             };
-            let mut m = Module::open(module)?;
+            let mut m = crate::open_module(module)?;
             let game = Some(module_codepage(cli, &m));
             let o = Options { match_case: *match_case, whole_word: *whole_word, game };
             let hits = mg_module::text::find(&m, find, o, &kinds);
@@ -2621,7 +2657,7 @@ fn run(cli: &Cli) -> Result<Output> {
                     .ok_or_else(|| anyhow::anyhow!("--tileset-grass {on:?}: yes or no"))?;
                 changes.push(Change::TilesetGrass(on));
             }
-            let mut m = Module::open(module)?;
+            let mut m = crate::open_module(module)?;
             let mut out = Output::default();
             // A lighting scheme, from the game's environment.2da (the
             // module's haks' over it): before the fields `--set` sets.
@@ -2795,7 +2831,7 @@ fn run(cli: &Cli) -> Result<Output> {
             out
         }
         Cmd::UpdateInstances { module, blueprints, area } => {
-            let mut m = Module::open(module)?;
+            let mut m = crate::open_module(module)?;
             let gi = install(cli)?;
             let wanted: Vec<ResKey> = if blueprints.is_empty() {
                 m.keys()
@@ -2934,7 +2970,7 @@ fn run(cli: &Cli) -> Result<Output> {
             out
         }
         Cmd::Init { module, project } => {
-            let mut m = Module::open(module)?;
+            let mut m = crate::open_module(module)?;
             m.save_as(&ModuleLocation::Project {
                 root: project.clone(),
                 target: "default".into(),
@@ -2959,7 +2995,7 @@ fn run(cli: &Cli) -> Result<Output> {
             out
         }
         Cmd::Import { module, erf, overwrite } => {
-            let mut m = Module::open(module)?;
+            let mut m = crate::open_module(module)?;
             let data = std::fs::read(erf)?;
             let gi = install(cli)?;
             let mut out = Output::default();
@@ -3019,7 +3055,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 );
             }
             let copied = copy(&placed, *replace).map_err(anyhow::Error::msg)?;
-            let mut m = Module::open(module)?;
+            let mut m = crate::open_module(module)?;
             let mut info = m.info()?;
             let haks: Vec<String> =
                 placed.iter().filter(|p| !p.is_tlk).map(|p| p.name.clone()).collect();
@@ -3041,7 +3077,7 @@ fn run(cli: &Cli) -> Result<Output> {
             out
         }
         Cmd::Minimap { module, area, out: png, size } => {
-            let m = Module::open(module)?;
+            let m = crate::open_module(module)?;
             let gi = install(cli)?;
             let mut out = Output::default();
             let rm = module_resman(&gi, &m, &mut out)?;
@@ -3058,7 +3094,7 @@ fn run(cli: &Cli) -> Result<Output> {
             out
         }
         Cmd::Find { module, types, tag, name, resref, area, placed, blueprints, fields } => {
-            let m = Module::open(module)?;
+            let m = crate::open_module(module)?;
             let types = parse_types(
                 types,
                 |t| mg_rules::ObjectKind::from_restype(t).is_some(),
@@ -3140,7 +3176,7 @@ fn run(cli: &Cli) -> Result<Output> {
             force,
             dry_run,
         } => {
-            let m = Module::open(module)?;
+            let m = crate::open_module(module)?;
             let gi = install(cli)?;
             let mut out = Output::default();
             let rm = module_resman(&gi, &m, &mut out)?;
@@ -3210,11 +3246,9 @@ fn run(cli: &Cli) -> Result<Output> {
             let path =
                 output.clone().unwrap_or_else(|| set.with_file_name(format!("{stem}palstd.itp")));
             std::fs::write(&path, gff.to_bytes()?)?;
+            // (Leaves, in the folders a terrain too.)
             let count = |id: usize| match gff.root.get("MAIN") {
-                Some(mg_gff::Value::List(c)) => match c.get(id).and_then(|c| c.get("LIST")) {
-                    Some(mg_gff::Value::List(l)) => l.len(),
-                    _ => 0,
-                },
+                Some(mg_gff::Value::List(c)) => c.get(id).map_or(0, mg_module::tileset::leaves),
                 _ => 0,
             };
             let mut out = Output::new(json!({
@@ -3242,7 +3276,7 @@ fn run(cli: &Cli) -> Result<Output> {
         }
         Cmd::Search(args) => search::run(cli, args)?,
         Cmd::Info { module } => {
-            let m = Module::open(module)?;
+            let m = crate::open_module(module)?;
             let mut i = mg_module::query::info(&m)?;
             let cp = module_codepage(cli, &m);
             for text in [&mut i.name, &mut i.description] {
@@ -3330,6 +3364,7 @@ fn stamp_json(s: &mg_module::stamp::Stamp) -> serde_json::Value {
         "moonglow": s.version,
         "commit": s.commit.as_ref().map(|c| c.hash.clone()),
         "dirty": s.commit.as_ref().map(|c| c.dirty),
+        "named": s.commit.as_ref().map(|c| c.named),
         "module": s.module,
         "tag": s.tag,
     })
@@ -3445,7 +3480,7 @@ fn verify(
     times: &mut mg_module::doctor::Timings,
 ) -> Result<Output> {
     use mg_module::doctor::Group;
-    let m = times.time("open the module", || Module::open(path))?;
+    let m = times.time("open the module", || crate::open_module(path))?;
     let mut out = Output::default();
     project_file_notes(&m, &mut out);
     let rm = times.time("the game and the haks", || module_resman(gi, &m, &mut out))?;
@@ -3598,7 +3633,7 @@ fn model_files(
 ) -> Result<Output> {
     let mut out = Output::default();
     let m = match module {
-        Some(path) => Module::open(path)?,
+        Some(path) => crate::open_module(path)?,
         None => Module::new(),
     };
     let game = plugins::game_for(Some(gi), &m, &mut out).context("the game data")?;
@@ -3677,7 +3712,7 @@ fn model_files(
 /// `mg roundtrip`: a module saved and read back, and each GFF and 2DA of
 /// it written anew, compared with what it was.
 fn roundtrip(path: &Path, keep: Option<&Path>) -> Result<Output> {
-    let original = Module::open(path)?;
+    let original = crate::open_module(path)?;
     let copy = match keep {
         Some(k) => k.to_path_buf(),
         None => std::env::temp_dir().join(format!("mg-roundtrip-{}.mod", std::process::id())),
@@ -3690,7 +3725,7 @@ fn roundtrip(path: &Path, keep: Option<&Path>) -> Result<Output> {
 
     // Saved as it is: every resource byte for byte.
     let saved = original.clone().save_as(&ModuleLocation::Archive(copy.clone()));
-    let back = saved.map_err(anyhow::Error::from).and_then(|()| Ok(Module::open(&copy)?));
+    let back = saved.map_err(anyhow::Error::from).and_then(|()| Ok(crate::open_module(&copy)?));
     if keep.is_none() {
         let _ = std::fs::remove_file(&copy);
     }

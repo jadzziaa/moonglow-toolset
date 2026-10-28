@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T10:53:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T11:11:23Z }
 ---
 
 # Command-line tools
@@ -32,7 +32,7 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 
 | Command | Does |
 | --- | --- |
-| `mg tileset-palette SET [-o OUT]` | make a tileset's palette (`<tileset>palstd.itp`) from its `.set`: groups, features, terrains and crossers |
+| `mg tileset-palette SET [-o OUT]` | make a tileset's palette (`<tileset>palstd.itp`) from its `.set`: groups and features (in a folder a terrain), terrains and crossers |
 | `mg ls ARCHIVE` | list a `.mod`, `.hak`, `.erf`, `.nwm` or `.sav` |
 | `mg unpack ARCHIVE OUT` | unpack it into folder `OUT` |
 | `mg pack DIR ARCHIVE` | pack a folder into an archive (type from the extension); warns when files would start past 2 GiB, where the game stops reading. `--compile-models` compiles the models kept as text (ASCII `.mdl`) on the way in, each against its supermodel from the folder or the game (which it then needs, as the other commands find it); a model that doesn't compile, has errors `mg verify` would name, or whose supermodel isn't found goes in as the text it is, and is named |
@@ -114,8 +114,11 @@ A module is a `.mod` archive, a module folder or a nasher project. `mg
 compile` and `mg import` write the module in place; an archive's previous
 version is kept beside it (`mymodule.mod.bak`). A `.mod` is read and
 written as the `.mod`, as the game's server reads it, even with a
-folder of its name beside it (which the window asks about): name the
-folder to work on the folder.
+folder of its name beside it (which the window asks about, its name in
+any case): the command says so in a note (in the JSON's `notes` too),
+and that the folder is left as it is. Name the folder to work on the
+folder. A command that saves a module folder leaves what another
+program changed in it meanwhile as it is, as the window does.
 
 For example, every placed creature whose tag starts `GUARD` and that has
 no OnSpawn script set, in the area `keep`:
@@ -383,6 +386,7 @@ module folder) and takes up each change as you save it:
 | A script | it and the scripts that include it are compiled, and the compiled scripts are put into the development folder |
 | A blueprint (`ut*`) or a conversation | it is put into the development folder as it is |
 | Anything else (a 2DA, an area, `module.ifo`), or a file taken away | the module is built again; with `--serve`, the server is started again on it |
+| The project's own talk table (its `<name>.tlk.json` or `.csv`) | the same: the server, started again, has the table made anew of it |
 
 A running server takes up what is in its `development` folder at the next
 use (the next time the script runs, the next creature made from the

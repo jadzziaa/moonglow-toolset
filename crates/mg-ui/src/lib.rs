@@ -3723,8 +3723,10 @@ impl Moonglow {
         if ws.module.project.is_some() {
             return;
         }
-        let Some(name) = dir.file_name().map(|n| n.to_string_lossy().into_owned()) else { return };
-        let path = dir.with_file_name(format!("{name}.mod"));
+        // (The .mod of its name there, in any case: `Castle/` beside
+        // `castle.mod` is written as `castle.mod`.)
+        let path = mg_module::folder::mod_beside(dir);
+        let Some(name) = path.file_name().map(|n| n.to_string_lossy().into_owned()) else { return };
         // (As saving a .mod: the one there kept as its backup, and the new
         // one written beside it, then moved into its place.)
         if !self.settings.no_backups && path.is_file() {
@@ -3733,7 +3735,7 @@ impl Moonglow {
                 self.log.warn(format!("{}: {e}", backup.display()));
             }
         }
-        let part = dir.with_file_name(format!("{name}.mod.moonglow-tmp"));
+        let part = dir.with_file_name(format!("{name}.moonglow-tmp"));
         let written = ws
             .module
             .to_archive_bytes()
@@ -4291,6 +4293,8 @@ impl Moonglow {
             self.custom_tlk = None;
             self.load_custom_tlk();
         }
+        // (And the talk table editor's, from its own files.)
+        talk_view::read_again(self);
         if changed.is_empty() {
             if asked {
                 self.log.info("Reload Resources: nothing changed");

@@ -5,6 +5,13 @@
 //! moved on since (an ERF merged from where the builder started, never
 //! copied over newer work).
 //!
+//! A `.mod` outside any checkout (a builder's download) names its base
+//! itself: a module variable [`BASE_VARIABLE`], a string holding the
+//! commit the download was made from, which the download's script
+//! writes. A `.mod`'s own variable is its base before the folder it lies
+//! in (a download put in a clone is the download's); a folder's or a
+//! project's checkout is its base before the variable.
+//!
 //! The description is the place: the game and Aurora read an ERF's
 //! entries and pass its description by (Aurora shows it), so the stamp
 //! changes nothing that is imported. A resource of its own would be
@@ -18,6 +25,11 @@ use crate::{Module, ModuleLocation};
 /// The first line of the stamp in a description.
 const HEAD: &str = "Moonglow-Export: ";
 
+/// The module variable (a string, on the module: `module.ifo`'s
+/// `VarTable`) naming the commit a module was made from, where it isn't
+/// in a checkout of its own.
+pub const BASE_VARIABLE: &str = "moonglow_base";
+
 /// The commit a module's files were at.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Commit {
@@ -26,6 +38,9 @@ pub struct Commit {
     /// Whether the module's files had changes not committed (`git status`
     /// names any, new files too).
     pub dirty: bool,
+    /// Whether the module named it ([`BASE_VARIABLE`]) rather than its
+    /// checkout: its changes since are not known.
+    pub named: bool,
 }
 
 /// Where an export came from.
@@ -46,7 +61,7 @@ impl Stamp {
         let info = crate::query::info(module).ok();
         Stamp {
             version: mg_core::release::version().to_string(),
-            commit: module_dir(module).and_then(|d| commit_at(&d)),
+            commit: base_of(module),
             module: info.as_ref().map(|i| i.name.clone()).unwrap_or_default(),
             tag: info.map(|i| i.tag).unwrap_or_default(),
         }
@@ -55,6 +70,7 @@ impl Stamp {
     /// The stamp as the description's lines.
     pub fn to_text(&self) -> String {
         let base = match &self.commit {
+            Some(c) if c.named => format!("git {} (the module's {BASE_VARIABLE})", c.hash),
             Some(c) if c.dirty => format!("git {} with uncommitted changes", c.hash),
             Some(c) => format!("git {}", c.hash),
             None => "none (not in a git checkout)".to_string(),
@@ -66,6 +82,9 @@ impl Stamp {
     /// uncommitted changes) of NAME, Moonglow 2.0.0`.
     pub fn summary(&self) -> String {
         let base = match &self.commit {
+            Some(c) if c.named => {
+                format!("commit {} (the module's {BASE_VARIABLE})", short(&c.hash))
+            }
             Some(c) if c.dirty => format!("commit {} (with uncommitted changes)", short(&c.hash)),
             Some(c) => format!("commit {}", short(&c.hash)),
             None => "no commit (not in a git checkout)".to_string(),
@@ -102,10 +121,14 @@ pub fn read(description: &str) -> (String, Option<Stamp>) {
         if let Some(v) = line.strip_prefix(HEAD) {
             stamp.version = v.trim().to_string();
         } else if let Some(v) = line.strip_prefix("Base: git ") {
+            // (A commit's hash alone: the description is another's text,
+            // and what is read is handed to git.)
             let mut words = v.split_whitespace();
-            stamp.commit = words
-                .next()
-                .map(|hash| Commit { hash: hash.to_string(), dirty: v.contains("uncommitted") });
+            stamp.commit = words.next().filter(|h| is_hash(h)).map(|hash| Commit {
+                hash: hash.to_string(),
+                dirty: v.contains("uncommitted"),
+                named: v.contains(BASE_VARIABLE),
+            });
         } else if let Some(v) = line.strip_prefix("Module: ") {
             let v = v.trim_end();
             match v.rfind(" (").filter(|_| v.ends_with(')')) {
@@ -118,6 +141,35 @@ pub fn read(description: &str) -> (String, Option<Stamp>) {
         }
     }
     (own, Some(stamp))
+}
+
+/// Whether `text` is a commit's hash (or the start of one, 7 digits on).
+fn is_hash(text: &str) -> bool {
+    (7..=64).contains(&text.len()) && text.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// The commit the module names itself ([`BASE_VARIABLE`]), if it names
+/// one.
+fn named_base(module: &Module) -> Option<Commit> {
+    use mg_gff::Value;
+    let info = module.info().ok()?;
+    let Some(Value::List(vars)) = info.root.get("VarTable") else { return None };
+    let var = vars.iter().find(|v| {
+        v.string("Name") == Some(BASE_VARIABLE.as_bytes())
+            && v.integer("Type") == Some(i64::from(crate::vars::VarType::String.code()))
+    })?;
+    let hash = String::from_utf8_lossy(var.string("Value")?).trim().to_ascii_lowercase();
+    is_hash(&hash).then_some(Commit { hash, dirty: false, named: true })
+}
+
+/// A module's base: an archive's own variable, else its checkout's
+/// commit, else (a folder or project not in one) the variable.
+fn base_of(module: &Module) -> Option<Commit> {
+    let checkout = || module_dir(module).and_then(|d| commit_at(&d));
+    match module.location.as_ref() {
+        Some(ModuleLocation::Archive(_)) => named_base(module).or_else(checkout),
+        _ => checkout().or_else(|| named_base(module)),
+    }
 }
 
 /// The folder a module's git checkout would hold it in: a project's root,
@@ -147,7 +199,7 @@ fn git(dir: &Path, args: &[&str]) -> Option<String> {
 pub fn commit_at(dir: &Path) -> Option<Commit> {
     let hash = git(dir, &["rev-parse", "--verify", "HEAD"])?;
     let dirty = git(dir, &["status", "--porcelain", "--", "."]).is_some_and(|s| !s.is_empty());
-    Some(Commit { hash, dirty })
+    Some(Commit { hash, dirty, named: false })
 }
 
 /// What an import is told of the export's base, against the module
@@ -201,7 +253,7 @@ mod tests {
     fn stamp(commit: Option<(&str, bool)>) -> Stamp {
         Stamp {
             version: "2.0.0".into(),
-            commit: commit.map(|(h, d)| Commit { hash: h.into(), dirty: d }),
+            commit: commit.map(|(h, d)| Commit { hash: h.into(), dirty: d, named: false }),
             module: "The Domains (of) Dread".into(),
             tag: "TDOD".into(),
         }
@@ -270,5 +322,44 @@ mod tests {
         if Stamp::of(&m).commit.is_none() {
             assert_eq!(compare(&first, &m), None);
         }
+
+        // A builder's `.mod`, out of any checkout, naming its base itself
+        // (the download's script wrote the variable): stamped with that
+        // commit, which Import compares as the checkout's own.
+        let mut download = Module::new();
+        let mut info = mg_gff::Gff::new(*b"IFO ");
+        let var = |name: &str, ty: u32, value: &str| {
+            let mut v = mg_gff::Struct::new(0);
+            v.set("Name", mg_gff::Value::String(name.as_bytes().to_vec()));
+            v.set("Type", mg_gff::Value::Dword(ty));
+            v.set("Value", mg_gff::Value::String(value.as_bytes().to_vec()));
+            v
+        };
+        let vars = vec![var(BASE_VARIABLE, 1, "7"), var(BASE_VARIABLE, 3, &c.hash.to_uppercase())];
+        info.root.set("VarTable", mg_gff::Value::List(vars));
+        download.set_info(&info).unwrap();
+        download.save_as(&ModuleLocation::Archive(elsewhere.join("download.mod"))).unwrap();
+        let named = Stamp::of(&download);
+        let base = named.commit.clone().expect("the module's own base");
+        assert_eq!((base.hash.as_str(), base.dirty, base.named), (c.hash.as_str(), false, true));
+        let text = describe("Gate", &named);
+        assert!(text.contains(&format!("Base: git {} (the module's moonglow_base)", c.hash)));
+        assert_eq!(read(&text).1, Some(named.clone()));
+        assert!(named.summary().contains("(the module's moonglow_base)"), "{}", named.summary());
+        let warning = compare(&named, &Module::open(&dir.join("mod")).unwrap()).unwrap();
+        assert!(warning.contains("older work: the module is 1 commits on"), "{warning}");
+        // A `.mod` in a checkout that names its own base: its own first (a
+        // download put in a clone); a folder's checkout before its own.
+        download.save_as(&ModuleLocation::Archive(dir.join("download.mod"))).unwrap();
+        assert!(Stamp::of(&download).commit.unwrap().named);
+        download.save_as(&ModuleLocation::Folder(dir.join("download"))).unwrap();
+        assert!(!Stamp::of(&download).commit.unwrap().named);
+        // A value that is no commit's hash isn't a base; nor is text after
+        // "Base: git " in another's description that isn't a hash.
+        info.root.set("VarTable", mg_gff::Value::List(vec![var(BASE_VARIABLE, 3, "--all")]));
+        download.set_info(&info).unwrap();
+        download.save_as(&ModuleLocation::Archive(elsewhere.join("download.mod"))).unwrap();
+        assert!(Stamp::of(&download).commit.is_none_or(|c| !c.named), "not the variable");
+        assert_eq!(read("Moonglow-Export: 2.0\nBase: git --output=x").1.unwrap().commit, None);
     }
 }

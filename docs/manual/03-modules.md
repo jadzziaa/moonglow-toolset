@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:51:25Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T11:11:23Z }
 ---
 
 # Modules
@@ -66,7 +66,13 @@ a directory), nasher projects (see below) and the game's campaign files
   The folder opened is saved into, and with **Write a .mod beside a
   module folder on save** (Options › General, on) written as the `.mod`
   too, as Aurora does: the game and its server load the `.mod`, never
-  the folder.
+  the folder. The folder is found by its name in any case, as Aurora
+  finds it on Windows (`Mymodule/` beside `mymodule.mod` on Linux), and
+  is saved as that `.mod`. The welcome page's Recent modules end a
+  folder's name in `/` and name the folder each is in (`mymodule/ in
+  modules`, `mymodule.mod in modules`); the whole path is on hover, as
+  in the File menu. `mg` opens the `.mod` it is given, as the server
+  does, and says that the folder beside it is left as it is.
 - **File › Save** (Ctrl+S) writes the module where it came from, as an
   archive or a folder. **Save As…** writes it as a `.mod` elsewhere (a
   name with no extension: a module folder). A folder that holds
@@ -90,7 +96,12 @@ a directory), nasher projects (see below) and the game's campaign files
   script read again is compiled if **Automatically Compile Scripts on
   Save** is on (Options › Script Editor), as one saved here is, and so
   are the scripts that include it (more than 24 at once are compiled
-  in the background, and the log says so). A blueprint copied into the
+  in the background, and the log says so). A module that had no unsaved
+  changes has none after: the compiled scripts are written beside their
+  sources at once (a nasher project keeps none: they are made when it
+  packs). Commands of `mg` that save a module folder keep to the same
+  rules: what another program changed in it meanwhile is left as it is.
+  A blueprint copied into the
   folder (one another builder sent) shows in its custom palette as soon
   as it is read, as after Aurora's Refresh Palette, and one deleted or
   changed there has its entry taken out or made right (written at the
@@ -263,6 +274,21 @@ unpacking or packing between the toolset and git.
   nasher.cfg** adds a line for their kinds beside the include they lie
   under (`include = "src/**/*.{jui,txt}"`), and they are read: nasher
   packs them from then on too.
+- **A file that can't be read** (JSON broken by a merge's conflict
+  markers, say) is left out of the module, and the log says so: the rest
+  of the project opens. Mend or delete it; a save never writes over it,
+  and once mended it is read as a file added.
+- **One resource under two spellings** in a folder (`bread.UTI.json`, as
+  Aurora names a new item, beside `bread.uti.json`) is the one nasher
+  packs: its pack renames the spelling that isn't lower case over the
+  other, whichever is newer. Moonglow reads that one, the log says so,
+  and the next save leaves it alone, as `bread.uti.json`. (A module
+  folder takes the file changed last, [above](#opening-and-saving):
+  Aurora's own folders never hold both.) The same resource in two
+  folders of the project is
+  packed by nasher from one of them, in no fixed order: Moonglow reads
+  the first it finds, names the other, and leaves both for you to keep
+  one.
 - **Changes made elsewhere are picked up while the project is open.**
   Every few seconds (Options › General, the reloading switch) Moonglow
   looks for source files that another program changed, added or deleted:
@@ -295,7 +321,7 @@ unpacking or packing between the toolset and git.
   Project…**, choosing an empty folder. Moonglow writes a `nasher.cfg` as
   `nasher init` does, with everything under `src/`, its sources taking in
   scripts, GFF files as JSON, NUI windows, and the module's other kinds
-  of file (2DAs, pictures).
+  of file (2DAs, pictures, compiled scripts without their source).
 - **Build › Pack** *file* writes the module the project builds, as `nasher
   pack` does. **Test Module** (F9) packs it into the game's `modules`
   folder and starts the game on it.
@@ -325,14 +351,35 @@ unpacking or packing between the toolset and git.
   feminine table is a target of its own (`mytlkf.tlk`, of
   `mytlkf.tlk.json`), in the same language. The
   project's `tlkFlags` are used as nasher uses them (`--nwn-encoding`,
-  `--pretty`); a project that keeps its tables as CSV (`tlkFormat =
-  "csv"`) is told it isn't read. `mg build PROJECT --target tlk` makes
-  the `.tlk` as nasher does, and `mg serve` and `mg test` make it for the
-  server from the project.
+  `--pretty`; the codepages of more than a byte a character, `cp949`,
+  `cp936`, `cp932` and `cp950`, too). A project that keeps its tables as
+  CSV (`tlkFormat = "csv"`) has `<name>.tlk.csv`, as `nasher unpack`
+  writes it, read, edited and saved back as `nwn_tlk` writes CSV (which
+  keeps no language: such a table is English's); nasher's own pack
+  refuses a CSV source ("csv is not a supported source type"), and
+  Moonglow makes the table of it all the same. A line's sound length is
+  kept without a sound, as `nwn_tlk` keeps one. `mg build PROJECT
+  --target tlk` makes the `.tlk` as nasher does, and `mg serve`, `mg
+  test` and `mg watch --serve` make it for the server from the project
+  (`mg watch` builds again, and starts the server again, when the
+  table's file changes). Changed outside Moonglow while it is open (a
+  `git pull`), the table is read again in the editor; with unsaved
+  changes there, yours are kept and the log says so.
+- **A new talk table** made in the talk table editor (New Talk Table)
+  goes into the project: `<name>.tlk.json` where the project's rules put
+  `<name>.tlk`, with a target of its own in `nasher.cfg` (and the
+  feminine table's), and the module target's sources given `exclude =
+  "**/*.tlk.json"` where they would take it in.
+- **A module target that takes a table's JSON in** (no such exclude):
+  nasher packs the table into the module, converted as `nwn_tlk`
+  converts it, and so do Build › Pack and `mg build`.
 - **Compiled scripts are build output.** A project keeps scripts as `.nss`
   only, and Moonglow compiles them when it packs. A compiled script
-  without its source can't be kept in a project; Moonglow names any it
-  leaves out.
+  without its source (an old module's, whose source is lost) is kept as
+  it is, a `.ncs` file in the project: Save As nasher Project's
+  `nasher.cfg` takes `.ncs` files in, and nasher packs them as they are
+  (`nasher unpack` loses them). The log names them. Once its source is
+  in the module, its `.ncs` file goes at the next save.
 - **Locked objects stay out of the files.** A lock (the area view's
   **Lock**) is a selection aid the game ignores, so a project's area files
   don't carry it, and locking never shows in a diff. Moonglow keeps a
@@ -1414,9 +1461,20 @@ plugin reads a description with `mg.twoda.describe`
   Module: The Domains of Dread (TDOD)
   ```
 
+  A builder's `.mod` outside any checkout (a download of the team's
+  module) can name its base itself: a module variable `moonglow_base`
+  (a string, on the module), holding the commit the download was made
+  from, which the team's download script writes. It is stamped as `Base:
+  git 5f96447… (the module's moonglow_base)`, and Import compares it as
+  it compares a checkout's. A `.mod`'s own variable comes before the
+  checkout it lies in (a download put in a clone is the download's); a
+  module folder's or a project's checkout comes before its variable.
+
   The game and Aurora pass an archive's description by (Aurora's
   Import shows it), so the archive imports as before. `mg export` stamps
-  its archives the same way.
+  its archives the same way. Import says when the base is older than
+  the module; bringing the archive in on a branch from that base, and
+  merging, is git's (as the warning says).
 - **Export as Files…** (in the Export window, and on a resource's
   right-click menu in the module tree) writes resources as loose files,
   `name.ext`, into a folder you choose: as they are now in the toolset,

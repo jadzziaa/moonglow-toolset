@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T11:08:15Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T11:11:23Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -156,44 +156,8 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 ## nasher projects
 
-- **Export's stamp** names the git commit of the module's own folder
-  (or a `.mod`'s folder): a builder's `.mod` outside any checkout is
-  stamped with Moonglow's version and the module's name only. A base the
-  module names itself (a module variable a download script writes, as
-  The Domains of Dread's hand-back proposal has it) isn't read. Import
-  warns; it doesn't import onto a branch for you. (S)
-
 - **NWNT projects:** projects using NWNT instead of JSON for GFF files
   are refused with a message. (M)
-- **Compiled scripts without source:** scripts that exist only as `.ncs`
-  are lost when a module becomes a project, as with nasher; Moonglow
-  names them. It could keep such `.ncs` files in the project instead. (S)
-- **A nasher project's file that isn't UTF-8 throughout** (a Polish
-  module's conversation: "invalid unicode code point") is read with its
-  stray bytes as the project's code page has them. The reporter's file
-  wasn't seen; a file broken another way still stops the project from
-  opening, where it could be left out and said. (S)
-  (from builders' reports after 1.14.1)
-- **A talk table kept as JSON in a nasher project**, what is left (the
-  table a tlk target packs is read as the module's, edited, saved as
-  `nwn_tlk` writes it, chosen by language, built by `mg build --target`
-  and made for `mg serve` and `mg test`):
-  - **Kept as CSV** (`tlkFormat = "csv"`): not read; the log says so. (S)
-  - **A new table** made in the editor goes to the tlk folder as a
-    `.tlk`, not into the project as JSON with a target of its own. (S)
-  - **`mg watch`** doesn't see the table's JSON change (it isn't one of
-    the module's resources): the server has the table made when it
-    starts. The editor doesn't read the JSON again when it changes
-    outside Moonglow while open (a `git pull`); the strings shown do. (S)
-  - **A module target that takes the JSON in** (no `exclude =
-    "**/*.tlk.json"`): nasher packs the table into the module, where the
-    game finds it; Moonglow's Pack and `mg build` leave it out. (S)
-  - **A line with a length and no sound** (`nwn_tlk` keeps the length):
-    the editor shows no length without a sound, and editing the line
-    drops it. (S)
-  - **Codepages of more than a byte** (`--nwn-encoding` for Korean,
-    Chinese or Japanese) weren't compared with `nwn_tlk`. (S)
-  (from builders' reports after 1.19.1)
 - **`mg merge-gff`, what it leaves out** (the [manual](manual/03-modules.md#merging-in-git)
   has the rules):
   - **Lists merged by place** that have an identity of their own: an
@@ -226,46 +190,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 ## Modules kept as folders
 
-- **A module folder worked on in place** (a builder keeps the scripts
-  open in Notepad++, as with Aurora, and asked whether Moonglow reads
-  and writes them where they are). It read the folder once, when the
-  module opened: a script saved outside since was written over by the
-  next save here, with what Moonglow had read, and a file added outside
-  was removed (it was no resource of the module). A folder's files are
-  now followed as a nasher project's are (`mg_module::folder`): those
-  changed, added or deleted outside are read again every few seconds;
-  a save leaves a file changed outside whose resource Moonglow did not
-  change, leaves a file new to the folder, and writes nothing (saying
-  which files) where a file was changed outside and here both, for
-  Changed Outside Moonglow to ask. The external editor works on the
-  folder's file. A script read again is compiled
-  where Automatically Compile Scripts on Save is on (a nasher project's
-  too), and so are the scripts that include it (a script's own Save
-  and Compile, and saving the module, compile the includers too; of
-  these only the reading of a file changed outside is under test). More than 24 at once (a checkout, or an include that many scripts
-  use) are compiled as a job, off the window's thread: a save that
-  starts one is written before the job's compiled scripts are in, and
-  the module has unsaved changes after. With an external compiler, which is run
-  once for each script compiled on the window's thread, more than one
-  go to the job too. Not done: up to 24 are compiled on the window's
-  thread by the built-in compiler (a few milliseconds each; a job
-  would leave every such save with unsaved changes after it); a module
-  whose script was compiled so has unsaved changes (the compiled
-  script, written by the next save); the reloading needs the game's data
-  open, as the game's own reloading does; a first Save As into a folder
-  that has other files still removes the resource files the module
-  lacks; `mg` commands save over a folder as before (they open, change
-  and save at once). (S each) (from builders' reports after 1.19.1)
-- **A module folder with a resource under two spellings** (a builder:
-  Aurora named two new items `x.UTI`, Moonglow wrote them again as
-  `x.uti`, and the folder had both). A folder's resource under another
-  spelling than Moonglow's (lower case) is renamed at the next save;
-  where both files are there (a folder that sets capitals apart), the
-  one changed last is the resource when the folder opens, and the save
-  leaves the one file; the log says which was read. A nasher project
-  takes the first of two it finds and says so, where a folder takes
-  the one changed last: the two are not alike. (S)
-  (from builders' reports after 1.19.1)
 - **A module's files changed outside** (a nasher project's sources, a
   module folder's files; a `.mod` file changed outside isn't noticed)
   are found by a thread of its own (their names, times and sizes every
@@ -298,28 +222,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   (and the custom talk table) are watched the same way, and read again
   on the window's thread after a change (not measured on a large
   `override`). (S each)
-- **A `.mod` with its folder beside it** (GitHub issue 30: a reporter on
-  Linux who could not choose a folder in Open Module…'s file dialog and
-  found a `.mod` with its folder opened as the `.mod`). It asks which to
-  open, in Aurora's words, wherever the `.mod` is opened in the window
-  (Open Module…, Recent Modules, the command line); Options › General
-  asks, or always opens the folder (Aurora's Always open module
-  directories), or always the `.mod`; Open Folder… is on the welcome
-  page, and Open Module…'s dialog title and tip name it. Not done:
-  - **`mg` says nothing of the folder:** a `.mod` named to `mg` is the
-    `.mod` (as the server reads it), and a command that saves it leaves
-    the folder beside it as it was; a note would go in each of its 40
-    places that open a module (no one place opens them). (S)
-  - **The folder is looked for by the `.mod`'s name as written**
-    (`name.mod`, `name/`), and holding a `module.ifo`: on Linux a folder
-    `Name/` beside `name.mod` is not found, where Aurora on Windows
-    finds names in any case. Whether Aurora asks for a folder with no
-    `module.ifo` in it was not tried. (S)
-  - **No files dropped on the window:** Moonglow opens nothing dragged
-    onto it, so there is no drop to ask from. (S)
-  - The welcome page's Recent modules show a folder by its name alone
-    (`name`, beside `name.mod`); the File menu's show the whole path.
-
 ## Content doctor
 
 - **Verify's groups, not its checks:** Options › Verify and `mg verify
@@ -2508,8 +2410,6 @@ contribution itself states as not done or not checked.
 - **Rules and doors:** primary and secondary painting rules and a tile's
   door hooks (`[TILEnDOORm]`) aren't on the editor's pages; they stay as
   the file has them (edit the text for now). (M)
-- **The palette's arrangement:** it's generated flat, without the
-  subfolders hand-made palettes have. (S)
 - **A tileset with holes** (a builder's report: a big old tileset,
   merged by hand, drew no tiles at all) is read tile by tile, as the
   game reads it: a tile without its section or a model draws nothing,
@@ -3559,12 +3459,3 @@ is not taken for a new gap.
   scheme the first's tiles' lights picked anew; an area of the same
   scheme keeps its own, and the first area's own picks aren't copied
   tile by tile (the areas' tiles differ). (S) (Settled in the triage of 2026-10-28.)
-- **`mg nui generate` and a script that includes the opener:** it
-  succeeds where a script of the module's that includes the opener does
-  not compile (the script is printed, and keeps the compiled script it
-  had), as `mg compile` does. (S) (Settled in the triage of 2026-10-28.)
-- **A renamed NUI window found by its ID:** a script that finds the
-  window by the ID it had (`NuiFindWindow(oPlayer, "old")`, the ID
-  following the name unless the settings give another) is only
-  reported, unless the Rename window's strings option is on: a string
-  may mean something else. (S) (Settled in the triage of 2026-10-28.)

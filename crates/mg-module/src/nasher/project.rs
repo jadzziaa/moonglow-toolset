@@ -44,6 +44,96 @@ pub struct Project {
     /// Files in the source folders that the target's include leaves out
     /// and Moonglow would read ([`Project::left_out`]), as last looked.
     pub left_out: Vec<PathBuf>,
+    /// Resources found in one folder under two spellings: the lower-case
+    /// file, which the next save makes the resource's own (the other
+    /// spelling's, read, written there), as nasher's pack does.
+    spellings: HashMap<ResKey, PathBuf>,
+}
+
+/// Adds the line `exclude` to the sources of the target named `target` in
+/// `nasher.cfg`'s lines: in its `[target.sources]` (made at the end of its
+/// block where it has none). A target with no excludes of its own has the
+/// package's (`had`, nasher's inheritance, list by list): written in with
+/// it, so that it keeps them. `None` where no target has that name.
+fn exclude_in_target(
+    lines: &mut Vec<String>,
+    target: &str,
+    exclude: &str,
+    had: &[String],
+) -> Option<()> {
+    let header = |l: &str| l.trim().eq_ignore_ascii_case("[target]");
+    let starts: Vec<usize> = (0..lines.len()).filter(|&i| header(&lines[i])).collect();
+    let named = |l: &str| {
+        let t = l.trim();
+        t.strip_prefix("name")
+            .map(str::trim_start)
+            .and_then(|r| r.strip_prefix('='))
+            .is_some_and(|v| v.trim().trim_matches('"') == target)
+    };
+    let (start, end) = starts.iter().enumerate().find_map(|(n, &s)| {
+        let end = starts.get(n + 1).copied().unwrap_or(lines.len());
+        lines[s..end].iter().any(|l| named(l)).then_some((s, end))
+    })?;
+    let own = lines[start..end].iter().any(|l| l.trim_start().starts_with("exclude"));
+    let mut add: Vec<String> =
+        if own { Vec::new() } else { had.iter().map(|e| format!("exclude = \"{e}\"")).collect() };
+    add.push(exclude.to_string());
+    let sources = (start..end).find(|&i| lines[i].trim().eq_ignore_ascii_case("[target.sources]"));
+    match sources {
+        Some(s) => {
+            let indent: String = (lines.get(s + 1))
+                .map(|l| l.chars().take_while(|c| c.is_whitespace()).collect())
+                .filter(|i: &String| !i.is_empty())
+                .unwrap_or_else(|| "  ".into());
+            for (n, line) in add.into_iter().enumerate() {
+                lines.insert(s + 1 + n, format!("{indent}{line}"));
+            }
+        }
+        None => {
+            // (After its last line that isn't blank.)
+            let mut at = end;
+            while at > start + 1 && lines[at - 1].trim().is_empty() {
+                at -= 1;
+            }
+            let mut block = vec!["  [target.sources]".to_string()];
+            block.extend(add.into_iter().map(|l| format!("  {l}")));
+            for (n, line) in block.into_iter().enumerate() {
+                lines.insert(at + n, line);
+            }
+        }
+    }
+    Some(())
+}
+
+/// Whether `key` is a compiled script whose source the module has: build
+/// output, which a project doesn't keep (nasher compiles it when it
+/// packs). One without its source is kept as it is, as a `.ncs` file
+/// (nasher packs it, where the include takes `.ncs` files in).
+fn built(key: &ResKey, resources: &Resources) -> bool {
+    key.restype == ResType::NCS && resources.contains_key(&ResKey::new(key.resref, ResType::NSS))
+}
+
+/// Whether a file's name is in lower case (as nasher's pack renames
+/// every source file).
+fn is_lower(path: &Path) -> bool {
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    name == name.to_ascii_lowercase()
+}
+
+/// The warning for a resource in one folder under two spellings, `taken`
+/// read and `lower` the lower-case file.
+fn two_spellings(key: &ResKey, taken: &Path, lower: &Path) -> String {
+    let name = |p: &Path| p.file_name().unwrap_or_default().to_string_lossy().to_string();
+    format!(
+        "{key} is in {} as {} and {}: nasher's pack renames {} over {}, so it is the one read, \
+         and at the next save it alone is left, as {}",
+        taken.parent().unwrap_or(Path::new("")).display(),
+        name(taken),
+        name(lower),
+        name(taken),
+        name(lower),
+        name(lower)
+    )
 }
 
 use crate::outside::{Known, OutsideFound, OutsideScan, Stamp, stamp};
@@ -184,6 +274,7 @@ impl Project {
             sources: HashMap::new(),
             warnings: Vec::new(),
             left_out: Vec::new(),
+            spellings: HashMap::new(),
         };
         let conv = project.conversion();
         let mut resources = IndexMap::new();
@@ -198,14 +289,11 @@ impl Project {
                 project.warnings.push(format!("{}: not a resource; left alone", path.display()));
                 continue;
             };
-            // (A talk table's JSON a target of its own packs: read with
-            // the module's talk table, `nasher::talk_tables`.)
-            let talk_table = || {
-                key.restype == ResType::TLK
-                    && (project.package.targets.iter())
-                        .any(|t| t.is_talk_table() && t.covers(root, &path))
-            };
-            if json && !is_json_type(key.restype) && talk_table() {
+            // (A talk table's JSON the target takes in: nasher converts it
+            // and packs the table into the module, as `packed` does. A
+            // target of its own that packs it too has it read with the
+            // module's talk table, `nasher::talk_tables`.)
+            if json && key.restype == ResType::TLK {
                 continue;
             }
             if json && !is_json_type(key.restype) {
@@ -215,36 +303,62 @@ impl Project {
                 ));
                 continue;
             }
-            if resources.contains_key(&key) {
-                project.warnings.push(format!(
-                    "{}: {key} is already read from {}; this copy is left alone",
-                    path.display(),
-                    project.sources[&key].path.display()
-                ));
-                continue;
+            // A resource found twice. In one folder under two spellings
+            // (`x.UTI.json` and `x.uti.json`), nasher's pack renames the
+            // one not in lower case over the other, whichever is newer:
+            // that one is read, and the next save leaves it alone, under
+            // the lower-case name. In two folders nasher packs one of
+            // them, in no fixed order: the first here.
+            let mut twin = None;
+            if let Some(had) = project.sources.get(&key) {
+                let (had, here) = (had.path.to_path_buf(), path.clone());
+                let one_folder = had.parent() == here.parent();
+                if one_folder && is_lower(&had) && !is_lower(&here) {
+                    project.warnings.push(two_spellings(&key, &here, &had));
+                    twin = Some(had);
+                } else if one_folder && !is_lower(&had) && is_lower(&here) {
+                    project.warnings.push(two_spellings(&key, &had, &here));
+                    project.spellings.insert(key, here);
+                    continue;
+                } else {
+                    project.warnings.push(format!(
+                        "{}: {key} is already read from {}; this copy is left alone (nasher \
+                         packs one of the two too, in no fixed order: keep one)",
+                        here.display(),
+                        had.display()
+                    ));
+                    continue;
+                }
             }
             // (Its time and size before it is read: a later look reads
             // only the files changed since.)
             let stamp = stamp(&path);
             let file: Arc<[u8]> = Arc::from(std::fs::read(&path).map_err(io(&path))?);
-            let resource: Arc<[u8]> = if json {
-                let gff = conv.from_source(&path.display().to_string(), &file)?;
-                Arc::from(gff.to_bytes().map_err(|e| ModuleError::Source {
-                    name: path.display().to_string(),
-                    message: e.to_string(),
-                })?)
-            } else {
-                file.clone()
+            // A file that can't be read (JSON broken by a merge, say) is
+            // left out, and said: the rest of the project opens.
+            let resource = match resource_from(conv, &path, json, &file) {
+                Ok(resource) => resource,
+                Err(e) => {
+                    project.warnings.push(format!(
+                        "{}: can't be read, and is left out of the module ({e}). Mend or \
+                         delete it: a save doesn't write over it",
+                        path.display()
+                    ));
+                    continue;
+                }
             };
+            if let Some(twin) = twin {
+                project.spellings.insert(key, twin);
+            }
             resources.insert(key, resource.clone());
             project.sources.insert(key, Source { path: path.into(), json, file, resource, stamp });
         }
-        if project.settings.tlk_format != "json"
+        if super::kept_as(&project.settings).is_none()
             && project.package.targets.iter().any(Target::is_talk_table)
         {
             project.warnings.push(format!(
-                "the project keeps its talk tables as {}: Moonglow reads JSON ones only, and \
-                 leaves them alone",
+                "the project keeps its talk tables as {}: Moonglow reads JSON and CSV ones \
+                 only, and leaves them alone",
                 project.settings.tlk_format
             ));
         }
@@ -290,12 +404,12 @@ impl Project {
 
     /// The source file a resource the project doesn't have yet is written
     /// to, where nasher's rules put it (`unknown` when none matches);
-    /// `None` for one the rules discard, and for compiled scripts (build
-    /// output, never written).
+    /// `None` for one the rules discard. (A compiled script with its
+    /// source is build output, never written: [`built`].)
     fn new_file(&self, key: &ResKey) -> Option<PathBuf> {
         // (A name with a folder in it gets no file: it would be written
         // outside the project.)
-        if key.restype == ResType::NCS || !key.resref.is_file_name() {
+        if !key.resref.is_file_name() {
             return None;
         }
         let json = is_json_type(key.restype);
@@ -317,7 +431,7 @@ impl Project {
         let root = self.root();
         let mut out: Vec<PathBuf> = keys
             .iter()
-            .filter(|k| !self.sources.contains_key(*k))
+            .filter(|k| !self.sources.contains_key(*k) && k.restype != ResType::NCS)
             .filter_map(|k| self.new_file(k))
             .filter(|p| !self.target().covers(root, p))
             .collect();
@@ -395,6 +509,125 @@ impl Project {
         self.package = Package::read(&root)?;
         self.left_out = self.left_out();
         Ok(Some(added))
+    }
+
+    /// The file a new talk table `name` is made in ([`Project::add_talk_table`]):
+    /// `<name>.tlk.json` (`.csv` where the project keeps its tables so)
+    /// where nasher's rules put `<name>.tlk` (`unknown` where none
+    /// matches). `None` where the project keeps its tables in a form
+    /// Moonglow doesn't read, or its rules discard them.
+    pub fn talk_table_file(&self, name: &str) -> Option<PathBuf> {
+        let format = super::kept_as(&self.settings)?;
+        let ext = match format {
+            mg_tlk::csv::Format::Json => "json",
+            mg_tlk::csv::Format::Csv => "csv",
+        };
+        let folder = match self.target().rule_folder(&format!("{name}.tlk")).as_deref() {
+            Some("/dev/null") => return None,
+            Some(f) => f.to_string(),
+            None => "unknown".to_string(),
+        };
+        Some(self.root().join(folder).join(format!("{name}.tlk.{ext}")))
+    }
+
+    /// Makes a new, empty talk table `name` in the project, as nasher keeps
+    /// one ([`super::talk_tables`]): its file ([`Project::talk_table_file`])
+    /// and a target of its own in `nasher.cfg` that packs it (`file =
+    /// "<name>.tlk"`, its sources that file); the feminine table's too
+    /// (`<name>f`) when asked. A module target that would take the file in
+    /// is given `exclude = "**/*.tlk.json"` (`.csv`), as nasher's own
+    /// example has it. Returns the files made.
+    pub fn add_talk_table(
+        &mut self,
+        name: &str,
+        language: mg_core::Language,
+        feminine: bool,
+    ) -> Result<Vec<PathBuf>, ModuleError> {
+        let root = self.root().to_path_buf();
+        let cfg = Package::config_path(&root);
+        let bad =
+            |message: String| ModuleError::Source { name: cfg.display().to_string(), message };
+        let format = super::kept_as(&self.settings).ok_or_else(|| {
+            bad(format!(
+                "the project keeps its talk tables as {}: Moonglow makes JSON and CSV ones only",
+                self.settings.tlk_format
+            ))
+        })?;
+        let names: Vec<String> = std::iter::once(name.to_string())
+            .chain(feminine.then(|| crate::talk::feminine(name)))
+            .collect();
+        let mut files = Vec::new();
+        for n in &names {
+            let file = self.talk_table_file(n).ok_or_else(|| {
+                bad(format!("the project's rules discard {n}.tlk: no folder to make it in"))
+            })?;
+            if file.exists() {
+                return Err(bad(format!("{} is there already", file.display())));
+            }
+            if self.package.targets.iter().any(|t| t.talk_table_name().as_deref() == Some(n)) {
+                return Err(bad(format!("a target packs {n}.tlk already")));
+            }
+            files.push(file);
+        }
+        let text = std::fs::read_to_string(&cfg).map_err(io(&cfg))?;
+        let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
+        let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+        // The module target's own sources leave the tables out, where it
+        // would take them in.
+        let ext = if format == mg_tlk::csv::Format::Csv { "csv" } else { "json" };
+        let exclude = format!("exclude = \"**/*.tlk.{ext}\"");
+        if files.iter().any(|f| self.target().covers(&root, f)) {
+            let had = self.target().excludes.clone();
+            exclude_in_target(&mut lines, &self.target, &exclude, &had)
+                .ok_or_else(|| bad(format!("no [target] named {:?} in it", self.target)))?;
+        }
+        let taken: Vec<String> = self.package.targets.iter().map(|t| t.name.clone()).collect();
+        for (n, file) in names.iter().zip(&files) {
+            let mut target = n.clone();
+            while taken.contains(&target) {
+                target.push_str("_tlk");
+            }
+            let source = file.strip_prefix(&root).unwrap_or(file).display().to_string();
+            let source = source.replace('\\', "/");
+            if lines.last().is_some_and(|l| !l.trim().is_empty()) {
+                lines.push(String::new());
+            }
+            lines.extend([
+                "[target]".to_string(),
+                format!("name = \"{target}\""),
+                format!("file = \"{n}.tlk\""),
+                "  [target.sources]".to_string(),
+                format!("  include = \"{source}\""),
+            ]);
+        }
+        let mut written = lines.join(newline);
+        written.push_str(newline);
+        // The tables first: a nasher.cfg naming files that aren't there
+        // would be read as a mistake.
+        let empty = mg_tlk::Tlk::new(language);
+        for file in &files {
+            super::write_talk_table(file, &empty, self.settings.tlk_style).map_err(|message| {
+                ModuleError::Source { name: file.display().to_string(), message }
+            })?;
+        }
+        let tmp = crate::sibling(&cfg, ".moonglow-tmp");
+        std::fs::write(&tmp, written).map_err(io(&tmp))?;
+        std::fs::rename(&tmp, &cfg).map_err(io(&cfg))?;
+        self.package = Package::read(&root)?;
+        // (A package's own excludes, which a target with none takes, could
+        // leave a table's file out of its target.)
+        for (n, file) in names.iter().zip(&files) {
+            let t = self.package.targets.iter().find(|t| t.talk_table_name().as_deref() == Some(n));
+            let found = t.and_then(|t| t.talk_table_source(&root, format).ok().flatten());
+            if found.as_deref() != Some(file.as_path()) {
+                self.warnings.push(format!(
+                    "{}: made, but its target's sources leave it out (an exclude of the \
+                     package's): mend nasher.cfg",
+                    file.display()
+                ));
+            }
+        }
+        Ok(files)
     }
 
     /// Makes a project at `root` for a module that isn't in one: a
@@ -670,6 +903,9 @@ impl Project {
         let mut uncovered: Vec<PathBuf> = Vec::new();
         for (key, bytes) in resources {
             match self.sources.get(key) {
+                // (A compiled script kept without its source has one now:
+                // its file goes, below.)
+                _ if built(key, resources) => {}
                 Some(src) if src.resource[..] == bytes[..] => {}
                 Some(src) => {
                     let text = self.source_bytes(key, src.json, bytes, Some(&src.file))?;
@@ -699,8 +935,9 @@ impl Project {
                 }
             }
         }
-        let mut gone: Vec<(&ResKey, &Source)> =
-            self.sources.iter().filter(|(k, _)| !resources.contains_key(*k)).collect();
+        let mut gone: Vec<(&ResKey, &Source)> = (self.sources.iter())
+            .filter(|(k, _)| !resources.contains_key(*k) || built(k, resources))
+            .collect();
         gone.sort_by(|a, b| a.1.path.cmp(&b.1.path));
         for (key, src) in gone {
             match disk(&src.path) {
@@ -780,6 +1017,32 @@ impl Project {
                 }
             }
         }
+        // A resource read from one of two spellings in a folder: its file
+        // is the lower-case one now, as nasher's pack leaves it, and the
+        // other goes (both, for a resource the module no longer has).
+        let mut spellings: Vec<(ResKey, PathBuf)> = self.spellings.drain().collect();
+        spellings.sort_by(|a, b| a.1.cmp(&b.1));
+        for (key, lower) in spellings {
+            let Some(src) = self.sources.get(&key).filter(|s| *s.path != *lower) else {
+                if !self.sources.contains_key(&key) && lower.exists() {
+                    std::fs::remove_file(&lower).map_err(io(&lower))?;
+                    report.removed.push(lower);
+                }
+                continue;
+            };
+            let other = src.path.to_path_buf();
+            let tmp = crate::sibling(&lower, ".moonglow-tmp");
+            std::fs::write(&tmp, &src.file).map_err(io(&tmp))?;
+            std::fs::rename(&tmp, &lower).map_err(io(&lower))?;
+            if other.exists() {
+                std::fs::remove_file(&other).map_err(io(&other))?;
+            }
+            let src = self.sources.get_mut(&key).expect("looked up");
+            src.path = lower.as_path().into();
+            src.stamp = None;
+            report.written.push(lower);
+            report.removed.push(other);
+        }
         // (Now on disk where the include doesn't look: Build › Add Left-Out
         // Files to nasher.cfg can take them in.)
         if wrote_uncovered {
@@ -833,6 +1096,31 @@ impl Project {
                     Arc::from(info.to_bytes().map_err(|e| ModuleError::BadInfo(e.to_string()))?);
             }
             out.insert(*key, bytes);
+        }
+        // The talk tables the target takes in as JSON (no `exclude =
+        // "**/*.tlk.json"`), as nasher packs them: converted as `nwn_tlk`
+        // converts them, as they are on disk when packed (the talk table
+        // editor saves into them; one added since the project was opened
+        // is one).
+        let bad = |message: String| ModuleError::Source {
+            name: Package::config_path(self.root()).display().to_string(),
+            message,
+        };
+        for path in t.source_files(self.root()).map_err(bad)? {
+            let name = path.file_name().unwrap_or_default().to_string_lossy().to_ascii_lowercase();
+            let Some((key, true)) = resource_of(&name) else { continue };
+            if key.restype != ResType::TLK {
+                continue;
+            }
+            if t.filtered(&key.to_string()) {
+                continue;
+            }
+            let (_, tlk) = super::read_talk_table(&path, self.settings.tlk_style)?;
+            let bytes = tlk.to_bytes_as_nwn_tlk().map_err(|e| ModuleError::Source {
+                name: path.display().to_string(),
+                message: e.to_string(),
+            })?;
+            out.insert(key, Arc::from(bytes));
         }
         Ok(out)
     }
@@ -1448,5 +1736,258 @@ mod tests {
         std::fs::write(root.join("src/module.ifo.nwnt"), "x").unwrap();
         let err = Module::open(&root).unwrap_err().to_string();
         assert!(err.contains("NWNT"), "{err}");
+    }
+
+    /// A compiled script without its source (a module's, from before its
+    /// builder kept sources) is kept when the module becomes a project, as
+    /// it is: the project's include takes `.ncs` files in (nasher packs
+    /// such a file into the module, measured with nasher 1.1.3). Once its
+    /// source is in the module the compiled script is build output, and
+    /// its file goes.
+    #[test]
+    fn a_compiled_script_without_source_is_kept() {
+        let root = scratch("orphan-ncs");
+        let mut m = module();
+        m.set(key("old_one", ResType::NCS), b"NCS V1.0 old".to_vec());
+        m.save_as(&project_location(&root)).unwrap();
+        let said = m.project.as_ref().unwrap().warnings.join("\n");
+        assert!(said.contains("kept in the project as they are") && said.contains("old_one"));
+        let cfg = std::fs::read_to_string(root.join("nasher.cfg")).unwrap();
+        assert!(cfg.contains("include = \"src/**/*.{") && cfg.contains(",ncs"), "{cfg}");
+        let file = root.join("src/old_one.ncs");
+        assert_eq!(std::fs::read(&file).unwrap(), b"NCS V1.0 old");
+        assert!(!root.join("src/on_load.ncs").exists(), "one with its source is build output");
+        let mut m = Module::open(&root).unwrap();
+        assert_eq!(m.get(&key("old_one", ResType::NCS)), Some(&b"NCS V1.0 old"[..]));
+        assert!(m.project.as_ref().unwrap().warnings.is_empty());
+        assert!(m.project.as_ref().unwrap().left_out.is_empty());
+        // Its source written: the compiled script is build output now.
+        m.set(key("old_one", ResType::NSS), b"void main() {}\n".to_vec());
+        m.save().unwrap();
+        assert!(!file.exists() && root.join("src/old_one.nss").exists());
+        assert!(m.contains(&key("old_one", ResType::NCS)), "still the module's, until packed");
+        m.save().unwrap();
+        assert!(!file.exists());
+        let m = Module::open(&root).unwrap();
+        assert!(!m.contains(&key("old_one", ResType::NCS)));
+    }
+
+    /// A module target that takes a talk table's JSON in (no `exclude =
+    /// "**/*.tlk.json"`): the module packed holds the table, as nasher
+    /// packs it (`nwn_tlk`'s conversion), and the JSON is no warning.
+    #[test]
+    fn a_talk_table_the_module_target_takes_in_is_packed() {
+        let root = scratch("tlk-in-module");
+        module().save_as(&project_location(&root)).unwrap();
+        let json = r#"{"language":0,"entries":[{"id":0,"text":"Hello"},{"id":2,"text":"","sound":"vs_x"}]}"#;
+        std::fs::create_dir_all(root.join("src/tlk")).unwrap();
+        std::fs::write(root.join("src/tlk/mytlk.tlk.json"), json).unwrap();
+        let m = Module::open(&root).unwrap();
+        let said = &m.project.as_ref().unwrap().warnings;
+        assert!(said.is_empty(), "{said:?}");
+        assert!(!m.contains(&key("mytlk", ResType::TLK)), "the table, not a resource to edit");
+        let (_, bytes) = m.target_archive().unwrap().unwrap();
+        let erf = mg_erf::Erf::read(&bytes).unwrap();
+        let entry = erf.entries.iter().find(|e| e.restype == ResType::TLK).expect("packed");
+        assert_eq!(entry.resref.to_string(), "mytlk");
+        let tlk =
+            mg_tlk::json::from_json(json.as_bytes(), mg_core::Codepage::WINDOWS_1252).unwrap();
+        assert_eq!(&erf.data(entry).unwrap()[..], &tlk.to_bytes_as_nwn_tlk().unwrap()[..]);
+        // One added while the project is open: packed too, as it is then.
+        std::fs::write(root.join("src/tlk/later.tlk.json"), json).unwrap();
+        let (_, bytes) = m.target_archive().unwrap().unwrap();
+        let erf = mg_erf::Erf::read(&bytes).unwrap();
+        let mut tables: Vec<String> = (erf.entries.iter())
+            .filter(|e| e.restype == ResType::TLK)
+            .map(|e| e.resref.to_string())
+            .collect();
+        tables.sort();
+        assert_eq!(tables, ["later", "mytlk"]);
+        std::fs::remove_file(root.join("src/tlk/later.tlk.json")).unwrap();
+        // Left out by the target's exclude: not packed.
+        let cfg = std::fs::read_to_string(root.join("nasher.cfg")).unwrap();
+        let cfg = cfg.replacen(
+            "  [package.rules]",
+            "  exclude = \"**/*.tlk.json\"\n  [package.rules]",
+            1,
+        );
+        std::fs::write(root.join("nasher.cfg"), cfg).unwrap();
+        let m = Module::open(&root).unwrap();
+        let (_, bytes) = m.target_archive().unwrap().unwrap();
+        let erf = mg_erf::Erf::read(&bytes).unwrap();
+        assert!(erf.entries.iter().all(|e| e.restype != ResType::TLK));
+    }
+
+    /// A new talk table made in a project goes into it as nasher keeps one:
+    /// `<name>.tlk.json` where the rules put `<name>.tlk`, a target of its
+    /// own packing it, and the module target's sources leaving it out (the
+    /// package's excludes kept with it); the feminine table's too.
+    #[test]
+    fn a_new_talk_table_goes_into_the_project() {
+        let root = scratch("new-tlk");
+        module().save_as(&project_location(&root)).unwrap();
+        // (A package's exclude, which the module target takes.)
+        let cfg = std::fs::read_to_string(root.join("nasher.cfg")).unwrap();
+        let cfg = cfg.replacen(
+            "  [package.rules]",
+            "  exclude = \"**/test_*.nss\"\n  [package.rules]",
+            1,
+        );
+        std::fs::write(root.join("nasher.cfg"), cfg).unwrap();
+        let mut m = Module::open(&root).unwrap();
+        let p = m.project.as_mut().unwrap();
+        assert_eq!(p.talk_table_file("mytlk"), Some(root.join("src/mytlk.tlk.json")));
+        let made = p.add_talk_table("mytlk", mg_core::Language::GERMAN, true).unwrap();
+        assert_eq!(made, [root.join("src/mytlk.tlk.json"), root.join("src/mytlkf.tlk.json")]);
+        assert!(p.warnings.is_empty(), "{:?}", p.warnings);
+        assert_eq!(std::fs::read_to_string(&made[0]).unwrap(), r#"{"language":2,"entries":[]}"#);
+        let cfg = std::fs::read_to_string(root.join("nasher.cfg")).unwrap();
+        assert!(
+            cfg.contains(
+                "[target]\nname = \"mytlk\"\nfile = \"mytlk.tlk\"\n  [target.sources]\n  include \
+                 = \"src/mytlk.tlk.json\"\n"
+            ),
+            "{cfg}"
+        );
+        // The module target leaves the tables out, and keeps the package's
+        // exclude; each table is its target's.
+        let module_target = p.target().clone();
+        assert_eq!(module_target.excludes, ["**/test_*.nss", "**/*.tlk.json"]);
+        assert!(!module_target.covers(&root, &made[0]));
+        let tables = p.talk_tables("mytlk").unwrap();
+        assert_eq!((tables.len(), tables[0].language()), (1, mg_core::Language::GERMAN));
+        assert_eq!(p.talk_tables("mytlkf").unwrap()[0].path, made[1]);
+        // Opened again: no warning of the JSON; packed by its target.
+        let m = Module::open(&root).unwrap();
+        assert!(m.project.as_ref().unwrap().warnings.is_empty());
+        let package = Package::read(&root).unwrap();
+        let (file, bytes) =
+            super::super::pack_talk_table(&root, package.target("mytlk").unwrap()).unwrap();
+        assert_eq!(file, root.join("mytlk.tlk"));
+        assert_eq!(mg_tlk::Tlk::read(&bytes).unwrap().language, mg_core::Language::GERMAN);
+        // Once is enough.
+        let mut m = m;
+        let again =
+            m.project.as_mut().unwrap().add_talk_table("mytlk", mg_core::Language::ENGLISH, false);
+        assert!(again.unwrap_err().to_string().contains("there already"));
+    }
+
+    /// The JSON of an item, tagged `tag`.
+    fn item_json(tag: &str) -> String {
+        format!(
+            "{{\n  \"__data_type\": \"UTI \",\n  \"Tag\": {{\n    \"type\": \"cexostring\",\n    \
+             \"value\": \"{tag}\"\n  }}\n}}\n"
+        )
+    }
+
+    fn tag_of(m: &Module, name: &str) -> String {
+        let gff = m.gff(&key(name, ResType::UTI)).unwrap().unwrap();
+        String::from_utf8_lossy(gff.root.string("Tag").unwrap()).into_owned()
+    }
+
+    /// One item in one folder under two spellings (`x.UTI.json`, as
+    /// Aurora's names come, and `x.uti.json`): nasher's pack renames the
+    /// one not in lower case over the other, newer or older (measured with
+    /// nasher 1.1.3), so the project reads that one, says so, and the next
+    /// save leaves it alone, as `x.uti.json`. In two folders nasher packs
+    /// one of them, in no fixed order: the first is read, and both stay.
+    #[test]
+    fn a_resource_under_two_spellings_is_the_one_nasher_packs() {
+        let root = scratch("two-spellings");
+        module().save_as(&project_location(&root)).unwrap();
+        let src = root.join("src");
+        std::fs::write(src.join("bread.UTI.json"), item_json("AURORA")).unwrap();
+        std::fs::write(src.join("bread.uti.json"), item_json("MOONGLOW")).unwrap();
+        if !src.join("bread.UTI.json").exists() || !src.join("bread.uti.json").exists() {
+            return; // (A file system that doesn't set capitals apart.)
+        }
+        let mut m = Module::open(&root).unwrap();
+        assert_eq!(tag_of(&m, "bread"), "AURORA");
+        let said = &m.project.as_ref().unwrap().warnings;
+        assert!(
+            said.iter().any(|w| w.contains(
+                "as bread.UTI.json and bread.uti.json: nasher's pack \
+                renames bread.UTI.json over bread.uti.json"
+            )),
+            "{said:?}"
+        );
+        m.save().unwrap();
+        let items: Vec<String> = (std::fs::read_dir(&src).unwrap().flatten())
+            .map(|e| e.file_name().into_string().unwrap())
+            .filter(|n| n.to_ascii_lowercase().starts_with("bread."))
+            .collect();
+        assert_eq!(items, ["bread.uti.json"]);
+        assert!(std::fs::read_to_string(src.join("bread.uti.json")).unwrap().contains("AURORA"));
+        let mut m = Module::open(&root).unwrap();
+        assert_eq!(tag_of(&m, "bread"), "AURORA");
+        assert!(m.project.as_ref().unwrap().warnings.is_empty());
+        // Changed and saved again: the one file.
+        let mut gff = m.gff(&key("bread", ResType::UTI)).unwrap().unwrap();
+        gff.root.set("Tag", Value::String(b"EDITED".to_vec()));
+        m.set_gff(key("bread", ResType::UTI), &gff).unwrap();
+        m.save().unwrap();
+        assert!(std::fs::read_to_string(src.join("bread.uti.json")).unwrap().contains("EDITED"));
+        // Two spellings of an item the module then deletes: both go.
+        std::fs::write(src.join("bread.UTI.json"), item_json("AGAIN")).unwrap();
+        let mut m = Module::open(&root).unwrap();
+        assert_eq!(tag_of(&m, "bread"), "AGAIN");
+        m.remove(&key("bread", ResType::UTI));
+        m.save().unwrap();
+        assert!(!src.join("bread.UTI.json").exists() && !src.join("bread.uti.json").exists());
+        // In two folders: the first read, the other said and left.
+        std::fs::create_dir_all(src.join("a")).unwrap();
+        std::fs::create_dir_all(src.join("b")).unwrap();
+        std::fs::write(src.join("b/cake.uti.json"), item_json("IN_B")).unwrap();
+        std::fs::write(src.join("a/cake.uti.json"), item_json("IN_A")).unwrap();
+        let mut m = Module::open(&root).unwrap();
+        let other = if tag_of(&m, "cake") == "IN_A" { "b" } else { "a" };
+        let said = &m.project.as_ref().unwrap().warnings;
+        let left = src.join(other).join("cake.uti.json").display().to_string();
+        assert!(
+            said.iter().any(|w| w.starts_with(&left) && w.contains("in no fixed order")),
+            "{said:?}"
+        );
+        m.save().unwrap();
+        assert!(src.join("a/cake.uti.json").exists() && src.join("b/cake.uti.json").exists());
+    }
+
+    /// A source file that can't be read (JSON broken by a merge's markers)
+    /// is left out of the module and said: the project opens. A resource
+    /// of its name made in the module doesn't write over it.
+    #[test]
+    fn a_file_that_can_t_be_read_is_left_out_and_said() {
+        let root = scratch("broken-file");
+        module().save_as(&project_location(&root)).unwrap();
+        let broken = root.join("src/bread.uti.json");
+        let text = "<<<<<<< HEAD\n{\"__data_type\": \"UTI \"}\n=======\n{}\n>>>>>>> theirs\n";
+        std::fs::write(&broken, text).unwrap();
+        let mut m = Module::open(&root).unwrap();
+        assert!(!m.contains(&key("bread", ResType::UTI)));
+        assert!(m.contains(&key("a1", ResType::ARE)), "the rest is read");
+        let said = &m.project.as_ref().unwrap().warnings;
+        assert!(
+            said.iter().any(|w| w.contains("bread.uti.json: can't be read, and is left out")),
+            "{said:?}"
+        );
+        // Saved with other changes: the file stays as it is.
+        m.set(key("other", ResType::NSS), b"void main() {}\n".to_vec());
+        m.save().unwrap();
+        assert_eq!(std::fs::read_to_string(&broken).unwrap(), text);
+        // A resource of its name made here: not written over it.
+        let mut item = Gff::new(*b"UTI ");
+        item.root.set("Tag", Value::String(b"NEW".to_vec()));
+        m.set_gff(key("bread", ResType::UTI), &item).unwrap();
+        let err = m.save().unwrap_err();
+        assert!(
+            matches!(&err, ModuleError::ChangedOnDisk(p) if p == std::slice::from_ref(&broken)),
+            "{err}"
+        );
+        assert_eq!(std::fs::read_to_string(&broken).unwrap(), text);
+        // Mended outside: read as a file added.
+        std::fs::write(&broken, item_json("MENDED")).unwrap();
+        let (changes, problems) = m.project.as_mut().unwrap().outside();
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].key, key("bread", ResType::UTI));
     }
 }

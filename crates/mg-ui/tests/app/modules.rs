@@ -283,7 +283,9 @@ fn recent_modules_reopen_from_the_welcome_page() {
     app.close();
     let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run();
-    h.get_by_label("sample.mod").click();
+    // (Its name, and the folder it is in.)
+    let place = dir.file_name().unwrap().to_string_lossy().into_owned();
+    h.get_by_label(&format!("sample.mod  in {place}")).click();
     h.run();
     assert_eq!(h.state().module_path().as_deref(), Some(path.as_path()));
 }
@@ -522,6 +524,57 @@ fn a_mod_with_its_folder_beside_it_asks_which_to_open() {
     h.run();
     assert!(h.state().module_folder.is_none());
     assert_eq!(location(&h), Some(ModuleLocation::Archive(path)));
+}
+
+/// The welcome page's Recent modules tell a module folder from the `.mod`
+/// beside it (GitHub issue 30: both showed as their names alone): a
+/// folder's name ends in `/`, and the folder each is in follows it.
+#[test]
+fn the_welcome_page_tells_a_folder_from_its_mod() {
+    let dir = mg_testkit::scratch_dir("ui-welcome-recent");
+    let path = sample_module(&dir);
+    let folder = dir.join("sample");
+    Module::open(&path).unwrap().save_as(&ModuleLocation::Folder(folder.clone())).unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.recent = vec![folder.clone(), path.clone()];
+    app.settings.module_folders = mg_ui::settings::ModuleFolders::Folder;
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let place = dir.file_name().unwrap().to_string_lossy().into_owned();
+    h.get_by_label(&format!("sample.mod  in {place}"));
+    h.get_by_label(&format!("sample/  in {place}")).click();
+    h.run();
+    let location = h.state().ws.as_ref().unwrap().module.location.clone();
+    assert_eq!(location, Some(ModuleLocation::Folder(folder)));
+}
+
+/// The folder beside a `.mod` is found by its name in any case, as Aurora
+/// on Windows finds it (`Sample/` beside `sample.mod`, on Linux): asked
+/// about, opened, and saved as that `.mod`, not a second one.
+#[test]
+fn a_mod_s_folder_in_another_case_is_found() {
+    let dir = mg_testkit::scratch_dir("ui-mod-folder-case");
+    let path = sample_module(&dir);
+    let folder = dir.join("Sample");
+    Module::open(&path).unwrap().save_as(&ModuleLocation::Folder(folder.clone())).unwrap();
+    let mut h =
+        Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app_with(vec![path.clone()]));
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OpenModule(path.clone()));
+    h.run();
+    assert_eq!(h.state().module_folder.as_deref(), Some(path.as_path()), "asked");
+    h.get_by_label(&folder.display().to_string());
+    h.get_by_label("Open Directory").click();
+    h.run();
+    let location = h.state().ws.as_ref().unwrap().module.location.clone();
+    assert_eq!(location, Some(ModuleLocation::Folder(folder.clone())));
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    let mods: Vec<String> = (std::fs::read_dir(&dir).unwrap().flatten())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.to_ascii_lowercase().ends_with(".mod"))
+        .collect();
+    assert_eq!(mods, ["sample.mod"], "the .mod beside it, not a second one");
 }
 
 #[test]

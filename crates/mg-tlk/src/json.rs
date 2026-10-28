@@ -131,6 +131,13 @@ pub fn from_json(text: &[u8], codepage: Codepage) -> Result<Tlk, String> {
         }
         found.push((id as usize, entry));
     }
+    assemble(Language(language), found)
+}
+
+/// A table of `language` of the entries found (by their lines' numbers):
+/// as many lines as the highest asks for (one when there are none), an
+/// entry given twice the later.
+pub(crate) fn assemble(language: Language, found: Vec<(usize, TlkEntry)>) -> Result<Tlk, String> {
     let count = found.iter().map(|(id, _)| id + 1).max().unwrap_or(1);
     if count.saturating_sub(found.len()) > MAX_EMPTY_LINES {
         return Err(format!(
@@ -140,7 +147,7 @@ pub fn from_json(text: &[u8], codepage: Codepage) -> Result<Tlk, String> {
             found.len()
         ));
     }
-    let mut tlk = Tlk { language: Language(language), entries: vec![TlkEntry::default(); count] };
+    let mut tlk = Tlk { language, entries: vec![TlkEntry::default(); count] };
     for (id, e) in found {
         tlk.entries[id] = e;
     }
@@ -148,20 +155,20 @@ pub fn from_json(text: &[u8], codepage: Codepage) -> Result<Tlk, String> {
 }
 
 /// An entry's sound: its bytes up to the last that isn't NUL.
-fn sound_bytes(e: &TlkEntry) -> &[u8] {
+pub(crate) fn sound_bytes(e: &TlkEntry) -> &[u8] {
     let end = e.sound.iter().rposition(|&b| b != 0).map_or(0, |i| i + 1);
     &e.sound[..end]
 }
 
 /// A sound's length as `nwn_tlk` writes it: rounded to four places.
-fn rounded(length: f32) -> f32 {
+pub(crate) fn rounded(length: f32) -> f32 {
     ((f64::from(length) * 10_000.0).round() / 10_000.0) as f32
 }
 
 /// Text bytes as `nwn_tlk` writes them: UTF-8, but for a byte the
 /// codepage has no character for (one it reads as a C1 control), which
 /// stays as it is.
-fn decode(bytes: &[u8], codepage: Codepage) -> Vec<u8> {
+pub(crate) fn decode(bytes: &[u8], codepage: Codepage) -> Vec<u8> {
     let Some(chars) = codepage.chars() else {
         return codepage.decode(bytes).as_bytes().to_vec();
     };
@@ -180,7 +187,7 @@ fn decode(bytes: &[u8], codepage: Codepage) -> Vec<u8> {
 
 /// The most lines a table read holds: as many as a custom table's
 /// StrRefs can name.
-const MAX_ENTRIES: u64 = 1 << 24;
+pub(crate) const MAX_ENTRIES: u64 = 1 << 24;
 
 /// The most empty lines a table read may have beyond those it lists: one
 /// entry with `id` 16777215 would otherwise make a table of 16 million
@@ -195,7 +202,7 @@ const RAW: u32 = 0x10_FF00;
 
 /// The text of a file that isn't UTF-8 throughout, each stray byte as the
 /// character that stands for it.
-fn with_raw_bytes(text: &[u8]) -> String {
+pub(crate) fn with_raw_bytes(text: &[u8]) -> String {
     let mut out = String::with_capacity(text.len());
     for chunk in text.utf8_chunks() {
         out.push_str(chunk.valid());
@@ -205,7 +212,7 @@ fn with_raw_bytes(text: &[u8]) -> String {
 }
 
 /// A string's bytes, a stray byte's character as the byte.
-fn raw(s: &str) -> Vec<u8> {
+pub(crate) fn raw(s: &str) -> Vec<u8> {
     let mut out = Vec::with_capacity(s.len());
     let mut buf = [0u8; 4];
     for c in s.chars() {
@@ -219,7 +226,7 @@ fn raw(s: &str) -> Vec<u8> {
 
 /// Text as `nwn_tlk` writes it in `codepage`: a character at a time, one
 /// the codepage can't write (C1 controls among them) as its UTF-8 bytes.
-fn encode(s: &str, codepage: Codepage) -> Vec<u8> {
+pub(crate) fn encode(s: &str, codepage: Codepage) -> Vec<u8> {
     if s.is_ascii() {
         return s.as_bytes().to_vec();
     }
@@ -266,7 +273,7 @@ fn push_string(out: &mut Vec<u8>, bytes: &[u8]) {
 /// A float as Nim's `$` writes it: the shortest digits that read back as
 /// it, with the point among them while it is at most 17 digits in (else
 /// as `d.ddde+NN`), and `.0` after a whole number.
-fn nim_float(v: f64) -> String {
+pub(crate) fn nim_float(v: f64) -> String {
     if v == 0.0 {
         return "0.0".into();
     }

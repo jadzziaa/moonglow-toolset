@@ -205,7 +205,7 @@ fn what(a: &Args, game: Option<&GameData>) -> Result<Search> {
 }
 
 pub(crate) fn run(cli: &Cli, a: &Args) -> Result<Output> {
-    let m = Module::open(&a.module)?;
+    let m = crate::open_module(&a.module)?;
     let types =
         crate::parse_types(&a.types, ResType::is_gff, "a kind of object (utc, uti, are, …)")?;
     let mut out = Output::default();

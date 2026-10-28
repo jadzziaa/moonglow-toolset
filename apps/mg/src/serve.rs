@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use mg_core::ResType;
-use mg_module::{Module, ModuleLocation};
+use mg_module::ModuleLocation;
 use mg_resman::{GameInstall, ResKey};
 
 /// What to serve, and how.
@@ -39,6 +39,9 @@ pub(crate) struct Config {
     pub stdin: bool,
     /// More arguments for the server.
     pub args: Vec<String>,
+    /// The nasher project `module` was built from (`mg watch`): its own
+    /// talk table is made for the server, as for the project served.
+    pub project: Option<PathBuf>,
 }
 
 /// What happens while a module is served.
@@ -215,6 +218,7 @@ pub(crate) fn prepare(
     gi: &GameInstall,
     module: &Path,
     dir: &Path,
+    project: Option<&Path>,
 ) -> Result<(String, Vec<String>)> {
     let mut notes = Vec::new();
     let name = module_name(module);
@@ -223,14 +227,21 @@ pub(crate) fn prepare(
             .with_context(|| dir.join(sub).display().to_string())?;
     }
     let target = dir.join("modules").join(format!("{name}.mod"));
-    let mut m = Module::open(module).with_context(|| module.display().to_string())?;
+    let mut m = crate::open_module(module).with_context(|| module.display().to_string())?;
     let (haks, tlk) = (m.haks()?, m.custom_tlk()?);
     // A talk table the project keeps as JSON, made into the table as
     // nasher packs it (the game's language's, where it keeps one a
     // language): the server finds no other.
     let language = mg_core::Language::from_short_code(&gi.language);
-    let own_tlk = match (&tlk, m.project.as_deref()) {
-        (Some(name), Some(p)) => mg_module::nasher::in_language(p.talk_tables(name)?, language),
+    // (Or the project's an archive was built from, `mg watch`'s.)
+    let own_tlk = match (&tlk, m.project.as_deref(), project) {
+        (Some(name), Some(p), _) => mg_module::nasher::in_language(p.talk_tables(name)?, language),
+        (Some(name), None, Some(root)) if mg_module::nasher::Package::is_package(root) => {
+            let package = mg_module::nasher::Package::read(root)?;
+            let settings = mg_module::nasher::Settings::read(root);
+            let tables = mg_module::nasher::talk_tables(&package, &settings, name)?;
+            mg_module::nasher::in_language(tables, language)
+        }
         _ => None,
     };
     if matches!(m.location, Some(ModuleLocation::Archive(_))) {
@@ -393,7 +404,7 @@ pub(crate) fn serve(
     let mut passwords =
         (c.player_password.clone(), c.dm_password.clone(), c.admin_password.clone());
     loop {
-        let (name, notes) = prepare(gi, &c.module, &dir)?;
+        let (name, notes) = prepare(gi, &c.module, &dir, c.project.as_deref())?;
         for note in notes {
             each(&Event::Note(note));
         }
@@ -639,7 +650,7 @@ mod tests {
         std::fs::create_dir_all(user.join("tlk")).unwrap();
         std::fs::write(user.join("tlk/mytlk.tlk"), b"the player's own").unwrap();
         let gi = GameInstall::new(&root, Some(user.clone()), "en");
-        let mut m = Module::new();
+        let mut m = mg_module::Module::new();
         let mut info = mg_gff::Gff::new(*b"IFO ");
         info.root.set("Mod_CustomTlk", mg_gff::Value::String(b"mytlk".to_vec()));
         m.set_info(&info).unwrap();
@@ -653,12 +664,26 @@ mod tests {
         let json = r#"{"language":0,"entries":[{"id":0,"text":"Ours"}]}"#;
         std::fs::write(project.join("src/tlk/mytlk.tlk.json"), json).unwrap();
         let server = dir.join("server");
-        let (_, notes) = prepare(&gi, &project, &server).unwrap();
+        let (_, notes) = prepare(&gi, &project, &server, None).unwrap();
         assert!(notes.iter().any(|n| n.contains("made from")), "{notes:?}");
         let made = std::fs::read(server.join("tlk/mytlk.tlk")).unwrap();
         let tlk = mg_tlk::Tlk::read(&made).unwrap();
         assert_eq!(tlk.entries[0].text, b"Ours");
         assert_eq!(std::fs::read(user.join("tlk/mytlk.tlk")).unwrap(), b"the player's own");
+        // An archive built from the project (`mg watch`'s, `mg test`'s
+        // copy): the project's own table, made again as it changes.
+        let built = dir.join("built.mod");
+        mg_module::Module::open(&project)
+            .unwrap()
+            .save_as(&ModuleLocation::Archive(built.clone()))
+            .unwrap();
+        let json = r#"{"language":0,"entries":[{"id":0,"text":"Changed"}]}"#;
+        std::fs::write(project.join("src/tlk/mytlk.tlk.json"), json).unwrap();
+        let (_, notes) = prepare(&gi, &built, &server, Some(&project)).unwrap();
+        assert!(notes.iter().any(|n| n.contains("made from")), "{notes:?}");
+        let made =
+            mg_tlk::Tlk::read(&std::fs::read(server.join("tlk/mytlk.tlk")).unwrap()).unwrap();
+        assert_eq!(made.entries[0].text, b"Changed");
     }
 
     #[test]

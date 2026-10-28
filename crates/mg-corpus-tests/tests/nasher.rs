@@ -334,6 +334,52 @@ fn a_talk_table_kept_as_nasher_keeps_it() {
     );
 }
 
+/// A module target that takes a talk table's JSON in (no `exclude =
+/// "**/*.tlk.json"`): nasher packs the table into the module, converted
+/// by `nwn_tlk`; Moonglow's Pack (`target_archive`) packs the same table.
+#[test]
+fn a_talk_table_the_module_takes_in_is_packed_as_nasher_packs_it() {
+    let root = corpus!();
+    let nasher = oracle_tool!("nasher");
+    let tool = |n: &str| nwn_tool(n).unwrap().display().to_string();
+    let module = root.join("data/mod/Neverwinter Chess.mod");
+    if !module.is_file() {
+        eprintln!("skipped: {} not found", module.display());
+        return;
+    }
+    let project = scratch_dir("nasher-tlk-in-module").join("chess");
+    copy_dir(&unpacked(&nasher, &module), &project);
+    std::fs::create_dir_all(project.join("src/tlk")).unwrap();
+    std::fs::write(
+        project.join("src/tlk/mytlk.tlk.json"),
+        r#"{"language":2,"entries":[{"id":0,"text":"Hallo, \"Welt\"\nzwei"},{"id":2,"text":"","sound":"vs_x"},{"id":3,"text":"a,b","soundLen":1.25},{"id":5,"text":"Señor"}]}"#,
+    )
+    .unwrap();
+    let out = Command::new(&nasher)
+        .current_dir(&project)
+        .env("NWN_HOME", project.join("home"))
+        .args(["pack", "default", "--yes"])
+        .args([
+            format!("--gffUtil:{}", tool("nwn_gff")),
+            format!("--erfUtil:{}", tool("nwn_erf")),
+            format!("--tlkUtil:{}", tool("nwn_tlk")),
+            format!("--nssCompiler:{}", tool("nwn_script_comp")),
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "nasher pack: {}", String::from_utf8_lossy(&out.stdout));
+    let packed = std::fs::read(project.join("m.mod")).unwrap();
+    let theirs = Erf::read(&packed).unwrap();
+    let table = |erf: &Erf| {
+        let e = erf.entries.iter().find(|e| e.restype == ResType::TLK).expect("a table packed");
+        (e.resref.to_string(), erf.data(e).unwrap().to_vec())
+    };
+    let m = Module::open(&project).unwrap();
+    let (_, bytes) = m.target_archive().unwrap().unwrap();
+    let ours = mg_erf::Erf::read(&bytes).unwrap();
+    assert!(table(&ours) == table(&theirs), "the table packed differs from nasher's");
+}
+
 #[test]
 fn projects_save_what_nasher_unpacks() {
     let root = corpus!();

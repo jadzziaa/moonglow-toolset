@@ -139,13 +139,13 @@ pub(crate) enum NuiCmd {
 pub(crate) fn run(cli: &Cli, cmd: &NuiCmd) -> Result<Output> {
     match cmd {
         NuiCmd::New { module, name, dry_run } => {
-            let ws = Workspace::new(Module::open(module)?);
+            let ws = Workspace::new(crate::open_module(module)?);
             let made =
                 mg_nui::create(&ws.module, name).with_context(|| window_text(module, name))?;
             write(ws, made, module, name, *dry_run, Output::default())
         }
         NuiCmd::Generate { module, name, dry_run, ndb } => {
-            let ws = Workspace::new(Module::open(module)?);
+            let ws = Workspace::new(crate::open_module(module)?);
             let mut out = Output::default();
             let gi = install(cli)?;
             let rm = module_resman(&gi, &ws.module, &mut out)?;
@@ -223,7 +223,7 @@ pub(crate) fn rename(
     to: &str,
     strings: bool,
 ) -> Result<Output> {
-    let mut ws = Workspace::new(Module::open(module)?);
+    let mut ws = Workspace::new(crate::open_module(module)?);
     let mut out = Output::default();
     let mut made =
         mg_nui::rename(&ws.module, from, to, strings).with_context(|| window_text(module, from))?;
@@ -389,7 +389,7 @@ fn left_out(m: &Module, keys: &[ResKey]) -> Option<LeftOut> {
 /// `mg nui validate`: the NUI Creator's checks of one window, reported as
 /// `mg verify` reports its findings.
 fn validate(module: &Path, name: &str) -> Result<Output> {
-    let m = Module::open(module)?;
+    let m = crate::open_module(module)?;
     // (Any window the module has: not only one named as `new` names them.)
     let key = |ty: ResType| {
         ResKey::parse(name, ty).ok_or_else(|| anyhow!("{name:?} is not a resource's name"))

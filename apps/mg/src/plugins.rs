@@ -747,7 +747,7 @@ pub(crate) fn run(
     dry_run: bool,
 ) -> Result<Output> {
     let plugin = Plugin::load(dir).map_err(|e| anyhow!("{e}"))?;
-    let m = Module::open(module)?;
+    let m = crate::open_module(module)?;
     let mut notes = Output::default();
     let game = game_for(gi, &m, &mut notes);
     // (The edits are shown in the module's own letters, as the plugin
@@ -1118,7 +1118,9 @@ pub(crate) fn event_for(
         K::ModuleSaved => mg_plugin::Event::new(kind, if named.is_empty() { all() } else { named }),
         K::ResourceSaving | K::ResourceSaved => {
             let was = match what.was {
-                Some(p) => Module::open(p).with_context(|| format!("--was {}", p.display()))?,
+                Some(p) => {
+                    crate::open_module(p).with_context(|| format!("--was {}", p.display()))?
+                }
                 None => m.clone(),
             };
             let gone: Vec<mg_resman::ResKey> = was.keys().copied().collect();

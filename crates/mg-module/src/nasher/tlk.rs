@@ -1,8 +1,12 @@
-//! A nasher project's talk tables, kept as JSON. A target whose file is a
-//! `.tlk` takes `<name>.tlk.json` from its sources (nasher converts it with
-//! `nwn_tlk` and packs it as the target's file; another JSON file among
-//! its sources is converted and left there), so a table is known by the
-//! name the module's `Mod_CustomTlk` gives it. Several targets of one name
+//! A nasher project's talk tables, kept as JSON (or as CSV, `tlkFormat =
+//! "csv"`). A target whose file is a `.tlk` takes `<name>.tlk.json` from
+//! its sources (nasher converts it with `nwn_tlk` and packs it as the
+//! target's file; another JSON file among its sources is converted and
+//! left there), so a table is known by the name the module's
+//! `Mod_CustomTlk` gives it. One kept as CSV is `<name>.tlk.csv`, as
+//! `nasher unpack` writes it (nasher 1.1.3's pack refuses it: "csv is not
+//! a supported source type"; Moonglow makes the table of it all the
+//! same). Several targets of one name
 //! (`tlk/en/mytlk.tlk`, `tlk/de/mytlk.tlk`) are one table in as many
 //! languages, as the game's players install the one of theirs.
 
@@ -10,6 +14,7 @@ use std::path::{Path, PathBuf};
 
 use mg_core::Language;
 use mg_tlk::Tlk;
+use mg_tlk::csv::Format;
 use mg_tlk::json::JsonStyle;
 
 use super::{Package, Settings, Target};
@@ -29,22 +34,53 @@ impl Target {
     }
 
     /// A talk table's source among the target's files: `<name>.tlk.json`,
-    /// as nasher packs it.
-    pub fn talk_table_source(&self, root: &Path) -> Result<Option<PathBuf>, String> {
+    /// as nasher packs it (`<name>.tlk.csv` for a project that keeps
+    /// them as CSV).
+    pub fn talk_table_source(
+        &self,
+        root: &Path,
+        format: Format,
+    ) -> Result<Option<PathBuf>, String> {
         let Some(name) = self.talk_table_name() else { return Ok(None) };
-        let wanted = format!("{name}.tlk.json");
+        let wanted = format!("{name}.tlk.{}", extension(format));
         Ok(self.source_files(root)?.into_iter().find(|p| {
             p.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(&wanted))
         }))
     }
 }
 
-/// A talk table kept as JSON in a project.
+/// The extension of a talk table's file kept as `format` (after `.tlk`).
+fn extension(format: Format) -> &'static str {
+    match format {
+        Format::Json => "json",
+        Format::Csv => "csv",
+    }
+}
+
+/// How a project keeps its talk tables (`tlkFormat`); `None` for a form
+/// `nwn_tlk` has no reader of.
+pub fn kept_as(settings: &Settings) -> Option<Format> {
+    match settings.tlk_format.to_ascii_lowercase().as_str() {
+        "json" => Some(Format::Json),
+        "csv" => Some(Format::Csv),
+        _ => None,
+    }
+}
+
+/// How a talk table's file is kept, by its name: `.csv` CSV, else JSON.
+pub fn format_of(path: &Path) -> Format {
+    match path.extension() {
+        Some(e) if e.eq_ignore_ascii_case("csv") => Format::Csv,
+        _ => Format::Json,
+    }
+}
+
+/// A talk table kept as JSON (or CSV) in a project.
 #[derive(Debug, Clone)]
 pub struct TalkTable {
     /// The target that packs it.
     pub target: String,
-    /// Its JSON file.
+    /// Its JSON (or CSV) file.
     pub path: PathBuf,
     /// The file as read.
     pub file: Vec<u8>,
@@ -60,32 +96,31 @@ impl TalkTable {
     }
 }
 
-/// Reads a talk table's JSON file as `nwn_tlk` does.
+/// Reads a talk table's JSON (or CSV) file as `nwn_tlk` does.
 pub fn read_talk_table(path: &Path, style: JsonStyle) -> Result<(Vec<u8>, Tlk), ModuleError> {
     let bad = |message: String| ModuleError::Source { name: path.display().to_string(), message };
     let file = std::fs::read(path).map_err(|e| bad(e.to_string()))?;
-    let tlk = mg_tlk::json::from_json(&file, style.codepage).map_err(bad)?;
+    let tlk = mg_tlk::csv::read(&file, format_of(path), style.codepage).map_err(bad)?;
     Ok((file, tlk))
 }
 
 /// The talk tables named `name` (as `Mod_CustomTlk` names one) that the
-/// package at `root` keeps as JSON, in its targets' order: none where it
-/// keeps them as CSV. An error for one that can't be read.
+/// package at `root` keeps as JSON or CSV, in its targets' order: none
+/// where it keeps them in another form. An error for one that can't be
+/// read.
 pub fn talk_tables(
     package: &Package,
     settings: &Settings,
     name: &str,
 ) -> Result<Vec<TalkTable>, ModuleError> {
-    if settings.tlk_format != "json" {
-        return Ok(Vec::new());
-    }
+    let Some(format) = kept_as(settings) else { return Ok(Vec::new()) };
     let root = package.root.as_path();
     let mut out = Vec::new();
     for t in &package.targets {
         if !t.talk_table_name().is_some_and(|n| n.eq_ignore_ascii_case(name.trim())) {
             continue;
         }
-        let source = t.talk_table_source(root).map_err(|message| ModuleError::Source {
+        let source = t.talk_table_source(root, format).map_err(|message| ModuleError::Source {
             name: Package::config_path(root).display().to_string(),
             message,
         })?;
@@ -104,21 +139,25 @@ pub fn in_language(tables: Vec<TalkTable>, language: Option<Language>) -> Option
 }
 
 /// A target that packs a talk table, packed as nasher packs it: its
-/// `<name>.tlk.json` converted as `nwn_tlk` converts it. Returns the
-/// target's file (in the project) and its bytes.
+/// `<name>.tlk.json` (or `.csv`) converted as `nwn_tlk` converts it.
+/// Returns the target's file (in the project) and its bytes.
 pub fn pack_talk_table(root: &Path, target: &Target) -> Result<(PathBuf, Vec<u8>), ModuleError> {
     let settings = Settings::read(root);
     let cfg = Package::config_path(root).display().to_string();
     let bad = |message: String| ModuleError::Source { name: cfg.clone(), message };
-    if settings.tlk_format != "json" {
-        return Err(bad(format!(
-            "the project keeps talk tables as {}; Moonglow reads JSON ones only",
+    let format = kept_as(&settings).ok_or_else(|| {
+        bad(format!(
+            "the project keeps talk tables as {}; Moonglow reads JSON and CSV ones only",
             settings.tlk_format
-        )));
-    }
+        ))
+    })?;
     let name = target.talk_table_name().ok_or_else(|| bad("not a talk table's target".into()))?;
-    let path = target.talk_table_source(root).map_err(bad)?.ok_or_else(|| {
-        bad(format!("target {}: no {name}.tlk.json among its sources", target.name))
+    let path = target.talk_table_source(root, format).map_err(bad)?.ok_or_else(|| {
+        bad(format!(
+            "target {}: no {name}.tlk.{} among its sources",
+            target.name,
+            extension(format)
+        ))
     })?;
     let (_, tlk) = read_talk_table(&path, settings.tlk_style)?;
     let bytes = tlk.to_bytes_as_nwn_tlk().map_err(|e| ModuleError::Source {
@@ -128,10 +167,10 @@ pub fn pack_talk_table(root: &Path, target: &Target) -> Result<(PathBuf, Vec<u8>
     Ok((root.join(&target.file), bytes))
 }
 
-/// Writes a talk table back to its JSON file as `nwn_tlk` writes it,
-/// unless the file has that already. Whether it was written.
+/// Writes a talk table back to its JSON (or CSV) file as `nwn_tlk` writes
+/// it, unless the file has that already. Whether it was written.
 pub fn write_talk_table(path: &Path, tlk: &Tlk, style: JsonStyle) -> Result<bool, String> {
-    let text = mg_tlk::json::to_json(tlk, style);
+    let text = mg_tlk::csv::write(tlk, format_of(path), style);
     if std::fs::read(path).is_ok_and(|had| had == text) {
         return Ok(false);
     }
@@ -139,7 +178,7 @@ pub fn write_talk_table(path: &Path, tlk: &Tlk, style: JsonStyle) -> Result<bool
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
     // Written beside it, then moved over it: never half a table.
-    let tmp = path.with_extension("json.part");
+    let tmp = crate::sibling(path, ".part");
     std::fs::write(&tmp, text)
         .and_then(|()| std::fs::rename(&tmp, path))
         .map_err(|e| format!("{}: {e}", path.display()))?;
@@ -227,5 +266,43 @@ mod tests {
             text,
             r#"{"language":0,"entries":[{"id":0,"text":"Hello there"},{"id":2,"text":"","sound":"vs_x"}]}"#
         );
+    }
+
+    /// A project that keeps its tables as CSV (`tlkFormat = "csv"`, as
+    /// `nasher unpack` writes `<name>.tlk.csv`): the table is found, read,
+    /// packed and written back as `nwn_tlk` has CSV.
+    #[test]
+    fn a_table_kept_as_csv() {
+        let root = project("nasher-tlk-csv");
+        // (Its target taking the CSV in.)
+        let cfg = CFG.replacen("src/tlk/*.json", "src/tlk/*.{json,csv}", 1);
+        std::fs::write(root.join("nasher.cfg"), cfg).unwrap();
+        let csv = root.join("src/tlk/mytlk.tlk.csv");
+        std::fs::write(&csv, "0,,,\"Hello, \"\"you\"\"\"\n2,\"vs_x\",1.5,\"\"\n").unwrap();
+        std::fs::create_dir_all(root.join(".nasher")).unwrap();
+        std::fs::write(root.join(".nasher/user.cfg"), "tlkFormat = \"csv\"\n").unwrap();
+        let package = Package::read(&root).unwrap();
+        let settings = Settings::read(&root);
+        assert_eq!(kept_as(&settings), Some(Format::Csv));
+        let found = talk_tables(&package, &settings, "mytlk").unwrap();
+        assert_eq!(found.len(), 1, "the CSV, not the JSON beside it");
+        assert_eq!((found[0].path.as_path(), found[0].target.as_str()), (csv.as_path(), "tlk"));
+        assert_eq!(found[0].tlk.entries[0].text, b"Hello, \"you\"");
+        assert_eq!(found[0].tlk.entries[2].sound_length, 1.5);
+        let (_, bytes) = pack_talk_table(&root, package.target("tlk").unwrap()).unwrap();
+        assert_eq!(Tlk::read(&bytes).unwrap().entries[0].text, b"Hello, \"you\"");
+        // Untouched: not written; changed: written as CSV.
+        let mut tlk = found[0].tlk.clone();
+        assert_eq!(write_talk_table(&csv, &tlk, settings.tlk_style), Ok(false));
+        tlk.entries[0].text = b"Bye".to_vec();
+        assert_eq!(write_talk_table(&csv, &tlk, settings.tlk_style), Ok(true));
+        let text = std::fs::read_to_string(&csv).unwrap();
+        assert_eq!(text, "0,,,\"Bye\"\n2,\"vs_x\",1.5,\"\"\n");
+        // A form nwn_tlk can't read: none, and packing says so.
+        std::fs::write(root.join(".nasher/user.cfg"), "tlkFormat = \"xml\"\n").unwrap();
+        let settings = Settings::read(&root);
+        assert!(talk_tables(&package, &settings, "mytlk").unwrap().is_empty());
+        let e = pack_talk_table(&root, package.target("tlk").unwrap()).unwrap_err().to_string();
+        assert!(e.contains("JSON and CSV ones only"), "{e}");
     }
 }

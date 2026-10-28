@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T11:08:15Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T11:11:23Z }
 ---
 
 # Areas
@@ -1201,8 +1201,14 @@ The toolbar also has:
 - **Make Palette** writes `<tileset>palstd.itp` beside the `.set`, the
   palette the painter offers: one-tile groups as Features, the others as
   Groups, the terrains and crossers, the eraser and (with height
-  transitions) raise and lower. For the game's own tilesets it holds
-  every group their palettes place. `mg tileset-palette` does the same.
+  transitions) raise and lower. Features and Groups are in a folder a
+  terrain, as hand-made palettes keep them (Grass, Water, Castle…): the
+  terrain most of a group's tile corners have, named as the terrain is;
+  one whose corners name no terrain of the set goes in Special, and a
+  category all of one terrain stays flat. For the game's own tilesets it
+  holds every group their palettes place (theirs are arranged by hand,
+  some in folders of their own: City, Cliff). `mg tileset-palette` does
+  the same.
 - **Check** runs Verify's tileset checks: counts that disagree with the
   sections, tiles whose models are missing, groups that won't paint.
 - **Render Minimap Pictures** draws each tile from above with Moonglow's
