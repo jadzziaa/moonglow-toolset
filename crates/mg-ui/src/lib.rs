@@ -1956,9 +1956,11 @@ impl Moonglow {
         }
     }
 
-    /// Notes the tab in front as the one used last, each frame; not while
-    /// Next Tab is going through the tabs with Ctrl held, which ends when
-    /// it is let go (the tab arrived at is then the one used last).
+    /// Notes the tab in front of each pane (the middle's, a window's) as
+    /// the pane's one used last, each frame; not while Next Tab is going
+    /// through the tabs with Ctrl held, which ends when it is let go (the
+    /// tab arrived at is then the one used last). One list for every
+    /// pane: a pane's order is its tabs' in it ([`Moonglow::step_tab`]).
     fn note_recent_tabs(&mut self, ctx: &egui::Context) {
         if self.tab_cycle.is_some() {
             if ctx.input(|i| i.modifiers.command || i.modifiers.ctrl) {
@@ -1966,12 +1968,18 @@ impl Moonglow {
             }
             self.tab_cycle = None;
         }
-        let front = (self.tab_pane())
-            .and_then(|pane| self.dock.leaf(pane).ok())
-            .and_then(|leaf| leaf.tabs.get(leaf.active.0))
-            .cloned();
-        let Some(front) = front else { return };
-        if self.tabs_recent.first() != Some(&front) {
+        let fronts: Vec<(Tab, Vec<Tab>)> = (self.dock.iter_leaves())
+            .filter_map(|(_, leaf)| {
+                Some((leaf.tabs.get(leaf.active.0)?.clone(), leaf.tabs.clone()))
+            })
+            .collect();
+        for (front, tabs) in fronts {
+            // (Its pane's first in the list already: nothing changes, and
+            // the panes' fronts don't push each other down, frame by
+            // frame.)
+            if self.tabs_recent.iter().find(|t| tabs.contains(t)) == Some(&front) {
+                continue;
+            }
             self.tabs_recent.retain(|t| *t != front);
             self.tabs_recent.insert(0, front);
             // (Closed ones go as the list is looked through; not kept

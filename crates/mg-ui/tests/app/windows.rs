@@ -192,6 +192,131 @@ fn tabs_by_the_keyboard() {
     assert_eq!(h.state().dock.iter_all_tabs().count(), 4);
 }
 
+/// GitHub issue 15, with Options › General's Ctrl+Tab by when the tabs
+/// were last used: with Ctrl held, each Tab goes on through the order as
+/// it was when the keys began (not back to the tab before, as one press
+/// and another do), and the tab arrived at is the one used last once Ctrl
+/// is let go. A window's own tabs go by when they were used too, kept
+/// while the keys were elsewhere.
+#[test]
+fn tabs_by_when_they_were_last_used_with_ctrl_held() {
+    let dir = mg_testkit::scratch_dir("ui-tab-recent");
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    let mut info = m.info().unwrap();
+    for name in ["second", "third"] {
+        let mut a = ifo::MOD_AREA_LIST.new_item();
+        a.write(&ifo::mod_area_list::AREA_NAME, ResRef::from_str(name).unwrap());
+        info.root.items_mut(&ifo::MOD_AREA_LIST).push(a);
+        m.set(ResKey::parse(name, ResType::ARE).unwrap(), Gff::new(*b"ARE ").to_bytes().unwrap());
+    }
+    for name in ["one", "two", "three"] {
+        m.set(ResKey::parse(name, ResType::NSS).unwrap(), b"void main() {}\n".to_vec());
+    }
+    m.set_info(&info).unwrap();
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.settings.tabs_by_recent = true;
+    app.open_module(&path);
+    let area = |name: &str| Tab::Area(ResRef::from_str(name).unwrap());
+    for name in ["start", "second", "third"] {
+        app.actions.push(mg_ui::Action::OpenTab(area(name)));
+    }
+    let mut h = harness(app, 1200.0, 800.0);
+    h.run();
+    h.run();
+    let front_of = |h: &Harness<'_, Moonglow>, of: &Tab| {
+        let path = h.state().dock.find_tab(of).unwrap();
+        let leaf = h.state().dock.leaf(path.node_path()).unwrap();
+        leaf.tabs[leaf.active.0].clone()
+    };
+    let front = |h: &Harness<'_, Moonglow>| front_of(h, &area("start"));
+    let ctrl = egui::Modifiers::COMMAND;
+    let key = |h: &mut Harness<'_, Moonglow>, modifiers: egui::Modifiers, key: egui::Key| {
+        h.key_press_modifiers(modifiers, key);
+        h.run();
+        h.run();
+    };
+    // Ctrl held down over several presses of Tab, and let go after.
+    let tab = |h: &mut Harness<'_, Moonglow>| {
+        for pressed in [true, false] {
+            h.event(egui::Event::Key {
+                key: egui::Key::Tab,
+                physical_key: None,
+                pressed,
+                repeat: false,
+                modifiers: ctrl,
+            });
+        }
+        h.run();
+        h.run();
+    };
+    let hold = |h: &mut Harness<'_, Moonglow>, held: bool| {
+        h.event(egui::Event::ModifiersChanged(if held { ctrl } else { egui::Modifiers::NONE }));
+        h.run();
+        h.run();
+    };
+    // Used last: start, then second, then third, then Module Properties.
+    for n in [egui::Key::Num1, egui::Key::Num4, egui::Key::Num3, egui::Key::Num2] {
+        key(&mut h, ctrl, n);
+    }
+    assert_eq!(front(&h), area("start"));
+    hold(&mut h, true);
+    tab(&mut h);
+    assert_eq!(front(&h), area("second"), "the one used before");
+    tab(&mut h);
+    assert_eq!(front(&h), area("third"), "on, not back to start");
+    tab(&mut h);
+    assert_eq!(front(&h), Tab::ModuleProperties);
+    tab(&mut h);
+    assert_eq!(front(&h), area("start"), "round the end");
+    tab(&mut h);
+    tab(&mut h);
+    assert_eq!(front(&h), area("third"));
+    hold(&mut h, false);
+    // Let go: third is the one used last, start the one before it.
+    key(&mut h, ctrl, egui::Key::Tab);
+    assert_eq!(front(&h), area("start"));
+    key(&mut h, ctrl, egui::Key::Tab);
+    assert_eq!(front(&h), area("third"));
+
+    // A window's own tabs brought to its front two, three, one while the
+    // keys are in the middle (as a script opened from a field's Edit
+    // comes to the front of the scripts' window): in the window, by when
+    // its tabs were in front.
+    let script = |name: &str| Tab::Script(ResKey::parse(name, ResType::NSS).unwrap());
+    let window = h.state_mut().dock.add_window(vec![script("one"), script("two"), script("three")]);
+    assert!(!window.is_main());
+    let to_front = |h: &mut Harness<'_, Moonglow>, tab: &Tab, focused: bool| {
+        let path = h.state().dock.find_tab(tab).unwrap();
+        let dock = &mut h.state_mut().dock;
+        let _ = dock.set_active_tab(path);
+        if focused {
+            dock.set_focused_node_and_surface(path.node_path());
+        }
+        h.run();
+        h.run();
+    };
+    to_front(&mut h, &area("start"), true);
+    for name in ["two", "three", "one"] {
+        to_front(&mut h, &script(name), false);
+    }
+    key(&mut h, ctrl, egui::Key::Tab);
+    assert_eq!(front(&h), area("third"), "the middle's, by its own order");
+    to_front(&mut h, &script("one"), true);
+    key(&mut h, ctrl, egui::Key::Tab);
+    assert_eq!(front_of(&h, &script("one")), script("three"), "the window's used before one");
+    key(&mut h, ctrl, egui::Key::Tab);
+    assert_eq!(front_of(&h, &script("one")), script("one"));
+    // With Ctrl held, on through the window's order: three, then two.
+    hold(&mut h, true);
+    tab(&mut h);
+    tab(&mut h);
+    assert_eq!(front_of(&h, &script("one")), script("two"));
+    hold(&mut h, false);
+}
+
 /// GitHub issue 10: the panes beside the middle fold away and come back
 /// (View, Ctrl+Alt+1, 2, 3 and 0, and each pane's own button, on the edge
 /// it faces the middle by), each as wide as it was.

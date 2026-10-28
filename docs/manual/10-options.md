@@ -146,7 +146,9 @@ the module is opened again from its file.
 - **Ctrl+Tab goes to the tab used last**: Next Tab and Previous Tab go
   through a pane's tabs in the order they were last used, for as long
   as Ctrl is held (one press: back to the tab before); off, to the next
-  tab as they lie.
+  tab as they lie. Each pane and window keeps its own order: a tab that
+  comes to the front of a window while you work elsewhere (a script
+  opened from a field's Edit) counts as used there.
 - **Write a debug log**: what Moonglow does, step by step, in
   the `logs` folder of its data folder, a file for each start; on
   unless you switch it off (see
