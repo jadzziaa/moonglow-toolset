@@ -2622,7 +2622,14 @@ fn area_lighting_look() {
     for (name, lit, fog) in
         [("lit", true, true), ("lit_nofog", true, false), ("unlit", false, false)]
     {
-        let view = mg_area::View { lit, fog, shadows, ..mg_area::View::of(&model) };
+        let view = mg_area::View {
+            lit,
+            fog,
+            shadows,
+            creature_shadows: shadows,
+            light_shadows: shadows,
+            ..mg_area::View::of(&model)
+        };
         let scene = area_scene.scene(&model, &view);
         eprintln!("{name}: {} lights, area light {:?}", scene.lights.len(), scene.area);
         off_and_on(&gpu, &game, &scene, &camera, size, client.as_ref(), &dir, name);

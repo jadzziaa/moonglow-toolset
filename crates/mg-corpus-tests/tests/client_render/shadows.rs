@@ -41,8 +41,8 @@
 //! the dynamic armoires' shadows; Fast and Off, none), and on tic01
 //! (`MG_SHADOW_TILESET=tic01`) `MG_SHADOW_LAMP=73@19.8,25.5` stands a lamp
 //! post behind the ogre, `MG_SHADOW_SOURCES` lights the tiles' torches,
-//! `MG_SHADOW_COLORS` darkens the area and `MG_SHADOW_LIGHTS=1` draws
-//! Moonglow's lights' shadows: with the sun's and moon's off at the time
+//! `MG_SHADOW_COLORS` darkens the area (`MG_SHADOW_LIGHTS=0` leaves
+//! Moonglow's lights' shadows out): with the sun's and moon's off at the time
 //! (`day_off`, `day_off_30`) the ogre casts one from the nearest lamp,
 //! measured against the same lighting's capture with Creature Shadow
 //! Detail Off (made first, `MG_CREATURE_SHADOWS=0`).
@@ -317,8 +317,9 @@ fn shadows_look() {
         let (a, d) = colors();
         label = format!("{label}_{a:06x}_{d:06x}");
     }
-    // (`MG_SHADOW_LIGHTS=1`: Moonglow's lights cast too.)
-    let light_shadows = std::env::var_os("MG_SHADOW_LIGHTS").is_some();
+    // (Moonglow's lights cast as the client's do by default;
+    // `MG_SHADOW_LIGHTS=0`: not.)
+    let light_shadows = std::env::var("MG_SHADOW_LIGHTS").as_deref() != Ok("0");
     let mut client_none = None;
     let mut failures = Vec::new();
     for s in LIGHTINGS
