@@ -20,18 +20,28 @@ impl Gpu {
         Gpu { device, queue, pool: Default::default() }
     }
 
-    /// A headless device (any adapter, BC textures when available), or
-    /// `None` without a usable adapter.
+    /// A headless device (BC textures when available), or `None` without
+    /// a usable adapter. The adapter is the window's on Automatic
+    /// ([`crate::backend::pick_adapter`]: wgpu's, but an AMD GPU on
+    /// Windows through Direct3D 12), of the backends `WGPU_BACKEND` names
+    /// if it is set.
     pub fn headless() -> Option<Gpu> {
+        let from_environment = wgpu::Backends::from_env();
+        let backends = from_environment.unwrap_or(wgpu::Backends::PRIMARY | wgpu::Backends::GL);
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::PRIMARY | wgpu::Backends::GL,
+            backends,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            ..Default::default()
-        }))
-        .ok()?;
+        let adapters = pollster::block_on(instance.enumerate_adapters(backends));
+        let infos: Vec<wgpu::AdapterInfo> = adapters.iter().map(|a| a.get_info()).collect();
+        let pick = crate::backend::pick_adapter(
+            &infos,
+            None,
+            from_environment.is_some(),
+            wgpu::PowerPreference::HighPerformance,
+            crate::backend::Platform::current(),
+        )?;
+        let adapter = adapters.into_iter().nth(pick.index)?;
         let features = adapter.features() & wgpu::Features::TEXTURE_COMPRESSION_BC;
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("moonglow"),

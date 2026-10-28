@@ -209,12 +209,77 @@ impl CommandLine {
     }
 }
 
+/// What the window's adapter was taken by: why, and of which adapters
+/// (the debug log's `graphics:` line), and the backend chosen in Options
+/// that had none.
+#[derive(Debug, Default)]
+struct Taken {
+    why: String,
+    missing: Option<wgpu::Backend>,
+}
+
+/// The window's adapter, of those wgpu found (`adapters`, of the backends
+/// `WGPU_BACKEND` names if set, else of all): one that can draw to the
+/// window, chosen by `mg_render::backend::pick_adapter` for Options ›
+/// General › Graphics backend (`wanted`), kept in `taken`. (Given this,
+/// egui-wgpu no longer sorts the adapters by power preference or checks
+/// them against the window: the pick does both.)
+fn pick_adapter(
+    adapters: &[wgpu::Adapter],
+    surface: Option<&wgpu::Surface<'_>>,
+    wanted: Option<wgpu::Backend>,
+    taken: &std::sync::Mutex<Taken>,
+) -> Result<wgpu::Adapter, String> {
+    use mg_ui::graphics;
+    let usable: Vec<&wgpu::Adapter> =
+        adapters.iter().filter(|a| surface.is_none_or(|s| a.is_surface_supported(s))).collect();
+    let infos: Vec<wgpu::AdapterInfo> = usable.iter().map(|a| a.get_info()).collect();
+    let power = wgpu::PowerPreference::from_env().unwrap_or(wgpu::PowerPreference::HighPerformance);
+    let from_environment = wgpu::Backends::from_env().is_some();
+    let pick = graphics::pick_adapter(
+        &infos,
+        wanted,
+        from_environment,
+        power,
+        graphics::Platform::current(),
+    )
+    .ok_or_else(|| {
+        format!(
+            "no graphics adapter can draw to the window (of {})",
+            graphics::describe_adapters(&adapters.iter().map(|a| a.get_info()).collect::<Vec<_>>())
+        )
+    })?;
+    let mut why = pick.to_string();
+    if from_environment {
+        why += &format!("={}", std::env::var("WGPU_BACKEND").unwrap_or_default());
+    }
+    why += &format!(", of: {}", graphics::describe_adapters(&infos));
+    if let Ok(mut t) = taken.lock() {
+        *t = Taken { why, missing: pick.missing };
+    }
+    Ok(usable[pick.index].clone())
+}
+
 fn main() -> eframe::Result<()> {
     // (What the libraries write of the release reads it from there.)
     mg_core::release::set(env!("CARGO_PKG_VERSION"));
     crash_reports();
     let line = CommandLine::parse(std::env::args_os().skip(1));
     mg_ui::trace::by_default();
+    // The settings are eframe's, given to the app once the window has its
+    // device (`run_native`'s closure, below): the graphics backend chosen
+    // is read from the same file before, so that it is one setting among
+    // the others in Options (its own file would keep it apart from them).
+    // Without the file, or where it can't be read: Automatic.
+    let settings_file = eframe::storage_dir(APP_NAME).map(|d| d.join("app.ron"));
+    let wanted = settings_file
+        .as_deref()
+        .and_then(|f| Settings::read_eframe_file(f, SETTINGS_KEY))
+        .unwrap_or_default()
+        .graphics_backend
+        .backend();
+    let taken = std::sync::Arc::new(std::sync::Mutex::new(Taken::default()));
+    let picked = taken.clone();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 800.0])
@@ -231,13 +296,18 @@ fn main() -> eframe::Result<()> {
                     required_limits: adapter.limits(),
                     ..Default::default()
                 }),
+                // The instance keeps every backend (or `WGPU_BACKEND`'s),
+                // so that a backend chosen with no adapter can fall back.
+                native_adapter_selector: Some(std::sync::Arc::new(move |adapters, surface| {
+                    pick_adapter(adapters, surface, wanted, &picked)
+                })),
                 ..egui_wgpu::WgpuSetupCreateNew::without_display_handle()
             }),
             ..Default::default()
         },
         // The settings stay where they were before the window had an app
         // ID (eframe would otherwise name their folder after it).
-        persistence_path: eframe::storage_dir(APP_NAME).map(|d| d.join("app.ron")),
+        persistence_path: settings_file,
         window_builder: Some(Box::new(|window| maximize_later(window, cfg!(windows)))),
         ..Default::default()
     };
@@ -262,6 +332,16 @@ fn main() -> eframe::Result<()> {
             }
             if let Some(rs) = &cc.wgpu_render_state {
                 moonglow.set_render_state(rs.clone());
+                let taken = std::mem::take(&mut *taken.lock().unwrap_or_else(|e| e.into_inner()));
+                if let Some(missing) = taken.missing {
+                    moonglow.log.warn(format!(
+                        "Options › General › Graphics backend: no {} adapter here; Moonglow \
+                         draws with {} (Automatic)",
+                        mg_ui::graphics::backend_name(missing),
+                        mg_ui::graphics::backend_name(rs.adapter.get_info().backend),
+                    ));
+                }
+                moonglow.graphics_choice = Some(taken.why);
             }
             // Recovery copies of unsaved work go to Moonglow's data folder;
             // those a crashed session left are offered back.

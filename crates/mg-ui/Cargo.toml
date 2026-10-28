@@ -39,6 +39,7 @@ mg-script.workspace = true
 mg-set.workspace = true
 mg-tiles.workspace = true
 mg-tlk.workspace = true
+ron.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 skrifa.workspace = true

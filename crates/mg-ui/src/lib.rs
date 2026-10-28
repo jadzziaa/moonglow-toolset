@@ -101,10 +101,11 @@ use mg_rules::GameData;
 
 pub use browser::Browser;
 pub use dialogs::{Dialogs, FileKind, NoDialogs};
+pub use mg_render::backend as graphics;
 /// Carrying on when one model fails (for the application's panic hook).
 pub use mg_render::guard as model_guard;
 pub use options::{OptionsDraft, OptionsPage};
-pub use settings::Settings;
+pub use settings::{GraphicsBackend, Settings};
 pub use tabs::Tab;
 pub use text::set_edit_language;
 pub use transfer::{ExportDraft, ImportDraft};
@@ -772,6 +773,13 @@ pub struct Moonglow {
     pub closing: bool,
     /// The graphics adapter and its limits, for the debug log.
     render_info: Option<String>,
+    /// Why the window draws with its adapter (the desktop app's choice by
+    /// Options › General › Graphics backend, `WGPU_BACKEND` or AMD on
+    /// Windows), and of which: for the debug log.
+    pub graphics_choice: Option<String>,
+    /// The backend and the adapter the window draws with, for Options
+    /// (`Direct3D 12, AMD Radeon PRO …`).
+    pub(crate) drawing_with: Option<String>,
     /// A nasher project's files changed outside Moonglow.
     pub(crate) outside: outside::OutsideState,
     /// The windows maximized, and where each was before (and its panes'
@@ -1030,6 +1038,8 @@ impl Moonglow {
             project_commands: Default::default(),
             closing: false,
             render_info: None,
+            graphics_choice: None,
+            drawing_with: None,
             outside: Default::default(),
             maximized: HashMap::new(),
             tab_buttons: Vec::new(),
@@ -1098,6 +1108,12 @@ impl Moonglow {
             render_state.device.limits().max_texture_dimension_2d,
             render_state.device.limits().max_bind_groups,
             render_state.device.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC),
+        ));
+        let adapter = render_state.adapter.get_info();
+        self.drawing_with = Some(format!(
+            "{}, {}",
+            mg_render::backend::backend_name(adapter.backend),
+            adapter.name
         ));
         self.viewport = Some(model_view::Viewport3d::new(render_state));
     }
@@ -1440,7 +1456,13 @@ impl Moonglow {
         if !trace::on() {
             return;
         }
-        trace::changed("graphics", || self.render_info.clone().unwrap_or_else(|| "none".into()));
+        trace::changed("graphics", || {
+            let info = self.render_info.as_deref().unwrap_or("none");
+            match &self.graphics_choice {
+                Some(why) => format!("{info}; taken by {why}"),
+                None => info.to_string(),
+            }
+        });
         trace::changed("settings", || {
             let s = &self.settings;
             format!(

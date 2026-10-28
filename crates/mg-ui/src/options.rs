@@ -72,6 +72,7 @@ pub struct OptionsDraft {
     pub palette_cr: bool,
     pub armor_on_woman: bool,
     pub light_theme: bool,
+    pub graphics_backend: crate::settings::GraphicsBackend,
     /// Per cent.
     pub ui_scale: u16,
     pub minimize_on_test: bool,
@@ -177,6 +178,7 @@ impl OptionsDraft {
             palette_cr: !s.palette_no_cr,
             armor_on_woman: s.armor_on_woman,
             light_theme: s.light_theme,
+            graphics_backend: s.graphics_backend,
             ui_scale: s.ui_scale.unwrap_or(100),
             minimize_on_test: s.minimize_on_test,
             test_with_steam: !s.test_without_steam,
@@ -255,6 +257,7 @@ impl OptionsDraft {
             palette_no_cr: !self.palette_cr,
             armor_on_woman: self.armor_on_woman,
             light_theme: self.light_theme,
+            graphics_backend: self.graphics_backend,
             ui_scale: (self.ui_scale != 100).then_some(self.ui_scale.clamp(UI_SCALES[0], 300)),
             minimize_on_test: self.minimize_on_test,
             test_without_steam: !self.test_with_steam,
@@ -363,6 +366,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     };
     let detected = draft.detected.clone();
     let this_run = app.settings.user_dir_this_run.clone();
+    let drawing_with = app.drawing_with.clone();
     let (installer, checked) = (app.updates.installer, app.settings.update_checked);
     let mut browse = None;
     let mut close = false;
@@ -531,6 +535,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                     );
                             });
                             ui.checkbox(&mut draft.light_theme, "Light theme");
+                            graphics_backend(ui, draft, drawing_with.as_deref());
                             ui.checkbox(
                                 &mut draft.last_area,
                                 "Open a module on the area opened last",
@@ -1117,6 +1122,34 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
 
 /// The script editor's font size and a colour per syntax element (the
 /// theme's unless "Custom" is ticked), with a preview.
+/// Options › General › Graphics backend: Automatic and the backends of
+/// this platform, from the next start; what this run draws with
+/// (`drawing_with`), and whether `WGPU_BACKEND` decides instead.
+fn graphics_backend(ui: &mut Ui, draft: &mut OptionsDraft, drawing_with: Option<&str>) {
+    use crate::settings::GraphicsBackend;
+    ui.horizontal(|ui| {
+        crate::widgets::field_label(ui, "Graphics backend");
+        let offered = GraphicsBackend::offered(mg_render::backend::Platform::current());
+        crate::widgets::dropdown("graphics-backend")
+            .selected_text(draft.graphics_backend.name())
+            .show(ui, &mut draft.graphics_backend, &offered, |b| b.name())
+            .on_hover_text(
+                "What the area view, the previews and the window draw with. Automatic: the \
+                 graphics library's choice, except that an AMD GPU on Windows draws through \
+                 Direct3D 12 rather than Vulkan (AMD's Vulkan driver there drew areas' tiles \
+                 wrong). A backend with no adapter here falls back to Automatic",
+            );
+    });
+    let mut note = "Takes effect the next time Moonglow starts.".to_string();
+    if let Some(now) = drawing_with {
+        note.push_str(&format!(" This run draws with {now}."));
+    }
+    if std::env::var_os("WGPU_BACKEND").is_some_and(|v| !v.is_empty()) {
+        note.push_str(" WGPU_BACKEND is set, and decides over this.");
+    }
+    ui.weak(note);
+}
+
 fn script_style(ui: &mut Ui, style: &mut ScriptStyle) {
     ui.horizontal(|ui| {
         crate::widgets::field_label(ui, "Font size");
@@ -1416,6 +1449,12 @@ mod tests {
         assert!(t.name_resrefs && t.palette_no_cr && t.light_theme);
         assert!(t.armor_on_woman && !s.armor_on_woman, "on a man unless asked");
         assert!(OptionsDraft::from_settings(&t).armor_on_woman, "and kept");
+        use crate::settings::GraphicsBackend;
+        assert_eq!(s.graphics_backend, GraphicsBackend::Automatic, "Automatic unless asked");
+        d.graphics_backend = GraphicsBackend::Direct3d12;
+        let g = d.apply(&s);
+        assert_eq!(g.graphics_backend, GraphicsBackend::Direct3d12);
+        assert_eq!(OptionsDraft::from_settings(&g).graphics_backend, GraphicsBackend::Direct3d12);
         // Unless asked: names alone, challenge ratings shown, the dark theme.
         let plain = OptionsDraft::from_settings(&s);
         assert!(!plain.name_resrefs && plain.palette_cr && !plain.light_theme);

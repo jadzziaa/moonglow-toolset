@@ -597,6 +597,14 @@ fn options_window() {
     shoot(&mut h, &dir, "options-folders");
     h.get_by_label("General").click();
     shoot(&mut h, &dir, "options-general");
+    // The graphics backend's choices, opened.
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let automatic =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().value().as_deref() == Some("Automatic");
+    h.query_all(combo).find(automatic).expect("the graphics backend's dropdown").click();
+    shoot(&mut h, &dir, "options-general-graphics-backend");
+    h.key_press(egui::Key::Escape);
+    h.run();
     // Further down: the warnings, duplicate tags' among them.
     h.get_by_label("Show duplicate tags warning after a paste or a copy").scroll_to_me();
     shoot(&mut h, &dir, "options-general-warnings");
