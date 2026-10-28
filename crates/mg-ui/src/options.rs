@@ -1316,9 +1316,10 @@ fn keyboard(ui: &mut Ui, draft: &mut OptionsDraft) {
     // The list is long: narrow it by a command's name, or its group's.
     let filter_id = egui::Id::new("options-keys-filter");
     let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
-    ui.add(
-        egui::TextEdit::singleline(&mut filter).hint_text("Find a command").desired_width(240.0),
-    );
+    crate::widgets::SearchField::new(filter_id.with("field"), &mut filter)
+        .hint("Find a command")
+        .width(240.0)
+        .show(ui);
     ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
     let needle = mg_core::text::Needle::new(&filter);
     rows.retain(|(group, _, name)| {

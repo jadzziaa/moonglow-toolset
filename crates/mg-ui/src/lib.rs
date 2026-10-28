@@ -171,6 +171,13 @@ pub enum Action {
         dependencies: bool,
         scratch: bool,
     },
+    /// Export as Blueprint…: a placed object written into an archive as a
+    /// blueprint of its own (`transfer::run_export_object`).
+    ExportObject {
+        area: mg_core::ResRef,
+        kind: mg_area::ObjectKind,
+        index: usize,
+    },
     Export(ExportDraft),
     ImportDialog,
     Import(ImportDraft),
@@ -448,6 +455,12 @@ impl Log {
     pub fn error(&mut self, s: impl Into<String>) {
         self.said(Level::Error, s.into());
     }
+
+    /// The whole log as text, a line each as the log shows it (its time
+    /// first), for Copy Log and Save Log….
+    pub fn text(&self) -> String {
+        (0..self.entries.len()).map(|i| self.shown(i) + "\n").collect()
+    }
 }
 
 /// The application.
@@ -591,9 +604,10 @@ pub struct Moonglow {
     /// The areas' names as last read (Options › General: Show areas by
     /// name).
     pub(crate) area_names: tree::AreaNames,
-    /// What is placed in the areas opened out in the module tree, each as
-    /// read at a revision of the workspace.
-    pub(crate) area_contents: HashMap<mg_core::ResRef, (u64, tree::AreaContents)>,
+    /// What is placed in the areas opened out in the module tree (in
+    /// every area, while its Filter has something typed), each with what
+    /// it was read from (`tree::Read`).
+    pub(crate) area_contents: HashMap<mg_core::ResRef, (tree::Read, tree::AreaContents)>,
     /// Open area viewers, by area.
     pub area_views: HashMap<mg_core::ResRef, area_view::AreaView>,
     /// The Adjust Location window.
@@ -749,6 +763,26 @@ pub struct Moonglow {
     /// and whether the tree has still to go to it.
     pub tree_object: Option<(mg_core::ResRef, mg_area::ObjectKind, usize)>,
     pub tree_object_pending: bool,
+    /// The resources chosen together in the module tree (Ctrl and Shift
+    /// with a click, or the resources of a tab of several), and the row
+    /// a Shift+click goes from. Marked, and what a menu acts on, when
+    /// there are several.
+    pub tree_selected: std::collections::BTreeSet<ResKey>,
+    pub(crate) tree_anchor: Option<ResKey>,
+    /// The rows of the tab chosen while the module tree's Filter had this
+    /// text typed: listed under it, which would hide them, until it is
+    /// changed.
+    pub(crate) tree_kept: Option<(Vec<ResKey>, String)>,
+    /// The placed objects chosen together in the module tree, those of
+    /// one area: as the area view's selection, or by Ctrl and Shift with a
+    /// click there; and the row a Shift+click goes from.
+    pub tree_objects: Option<(mg_core::ResRef, std::collections::BTreeSet<tree::Placed>)>,
+    pub(crate) tree_objects_anchor: Option<tree::Placed>,
+    /// The area view's selection as the module tree last saw it.
+    pub(crate) tree_seen_selection: Option<(mg_core::ResRef, Vec<tree::Placed>)>,
+    /// Objects to select in an area's view once it is open (the module
+    /// tree's Go To on several).
+    pub(crate) area_select: Option<(mg_core::ResRef, Vec<tree::Placed>)>,
     /// The module tree's row the arrow keys are at (a click puts them
     /// there), whether it is to be brought into view, and a group to open
     /// or close at the next frame.
@@ -1027,6 +1061,13 @@ impl Moonglow {
             tree_front: Default::default(),
             tree_object: None,
             tree_object_pending: false,
+            tree_selected: Default::default(),
+            tree_anchor: None,
+            tree_kept: None,
+            tree_objects: None,
+            tree_objects_anchor: None,
+            tree_seen_selection: None,
+            area_select: None,
             tree_cursor: None,
             tree_cursor_moved: false,
             tree_fold: None,
@@ -1950,9 +1991,11 @@ impl Moonglow {
         }
     }
 
-    /// Notes the tab in front as the one used last, each frame; not while
-    /// Next Tab is going through the tabs with Ctrl held, which ends when
-    /// it is let go (the tab arrived at is then the one used last).
+    /// Notes the tab in front of each pane (the middle's, a window's) as
+    /// the pane's one used last, each frame; not while Next Tab is going
+    /// through the tabs with Ctrl held, which ends when it is let go (the
+    /// tab arrived at is then the one used last). One list for every
+    /// pane: a pane's order is its tabs' in it ([`Moonglow::step_tab`]).
     fn note_recent_tabs(&mut self, ctx: &egui::Context) {
         if self.tab_cycle.is_some() {
             if ctx.input(|i| i.modifiers.command || i.modifiers.ctrl) {
@@ -1960,12 +2003,18 @@ impl Moonglow {
             }
             self.tab_cycle = None;
         }
-        let front = (self.tab_pane())
-            .and_then(|pane| self.dock.leaf(pane).ok())
-            .and_then(|leaf| leaf.tabs.get(leaf.active.0))
-            .cloned();
-        let Some(front) = front else { return };
-        if self.tabs_recent.first() != Some(&front) {
+        let fronts: Vec<(Tab, Vec<Tab>)> = (self.dock.iter_leaves())
+            .filter_map(|(_, leaf)| {
+                Some((leaf.tabs.get(leaf.active.0)?.clone(), leaf.tabs.clone()))
+            })
+            .collect();
+        for (front, tabs) in fronts {
+            // (Its pane's first in the list already: nothing changes, and
+            // the panes' fronts don't push each other down, frame by
+            // frame.)
+            if self.tabs_recent.iter().find(|t| tabs.contains(t)) == Some(&front) {
+                continue;
+            }
             self.tabs_recent.retain(|t| *t != front);
             self.tabs_recent.insert(0, front);
             // (Closed ones go as the list is looked through; not kept
@@ -2456,16 +2505,49 @@ impl Moonglow {
                     self.actions.push(Action::ApplyFix(line));
                 }
             });
-        // A button in its corner to empty it, so that a second Verify's
-        // report isn't mistaken for the first's. (The one that folds it
-        // away is on its edge: `pane_edge`.)
-        let corner = ui.max_rect().right_top() + egui::vec2(-36.0, 2.0);
-        let at = egui::Rect::from_min_size(corner + egui::vec2(-12.0, 0.0), egui::vec2(44.0, 18.0));
-        let clear = ui.put(at, egui::Button::new("Clear").small());
-        clear
-            .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Clear Log"));
-        if clear.on_hover_text("Empty the log (View › Clear Log)").clicked() {
-            self.log.clear();
+        // Buttons in its corner: the whole log copied or saved (a line
+        // selected is copied alone: Jasperre's report), and emptied, so
+        // that a second Verify's report isn't mistaken for the first's.
+        // (The one that folds it away is on its edge: `pane_edge`.)
+        let mut right = ui.max_rect().right() - 4.0;
+        let top = ui.max_rect().top() + 2.0;
+        let buttons = [
+            ("Clear", "Clear Log", "Empty the log (View › Clear Log)", 44.0),
+            ("Save…", "Save Log", "The whole log into a text file (View › Save Log…)", 48.0),
+            ("Copy", "Copy Log", "The whole log to the clipboard (View › Copy Log)", 44.0),
+        ];
+        for (text, name, tip, width) in buttons {
+            let at =
+                egui::Rect::from_min_size(egui::pos2(right - width, top), egui::vec2(width, 18.0));
+            right -= width + 4.0;
+            let enabled = !self.log.entries.is_empty();
+            let b = ui.put(at, egui::Button::new(text).small());
+            b.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name));
+            if b.on_hover_text(tip).clicked() && enabled {
+                match name {
+                    "Clear Log" => self.log.clear(),
+                    "Save Log" => self.save_log(),
+                    _ => self.copy_log(ui.ctx()),
+                }
+            }
+        }
+    }
+
+    /// Copy Log: the whole log to the clipboard, each line with its time.
+    pub(crate) fn copy_log(&mut self, ctx: &egui::Context) {
+        ctx.copy_text(self.log.text());
+    }
+
+    /// Save Log…: the whole log into a text file, where the builder says.
+    pub(crate) fn save_log(&mut self) {
+        let dir = self.module_path().and_then(|p| p.parent().map(|d| d.to_path_buf()));
+        let suggested = dir.map(|d| d.join("moonglow-log.txt"));
+        let Some(path) = self.dialogs.save_file(FileKind::Log, suggested.as_deref()) else {
+            return;
+        };
+        match std::fs::write(&path, self.log.text()) {
+            Ok(()) => self.log.info(format!("Saved the log to {}", path.display())),
+            Err(e) => self.log.error(format!("Could not write {}: {e}", path.display())),
         }
     }
 
@@ -2763,6 +2845,13 @@ impl Moonglow {
         self.tree_area = None;
         self.tree_marked = None;
         self.tree_object = None;
+        self.tree_selected.clear();
+        self.tree_anchor = None;
+        self.tree_kept = None;
+        self.tree_objects = None;
+        self.tree_objects_anchor = None;
+        self.tree_seen_selection = None;
+        self.area_select = None;
         self.dock = DockState::new(vec![Tab::Welcome]);
         self.load_order_changed();
         // (Another module's haks may have other tilesets of these names.)
@@ -2973,6 +3062,7 @@ impl Moonglow {
             Action::ExportFiles { keys, dependencies, scratch } => {
                 self.run_export_files(keys, dependencies, scratch);
             }
+            Action::ExportObject { area, kind, index } => self.run_export_object(area, kind, index),
             Action::ImportDialog => self.open_import(),
             Action::Import(draft) => self.run_import(draft),
             Action::HakReport => self.hak_report(),

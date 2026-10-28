@@ -378,6 +378,40 @@ fn export_then_import_into_another_module() {
     assert!(!h.state().ws.as_ref().unwrap().module.contains(&area));
 }
 
+/// An area's `.are` exported without the resources it uses still takes
+/// its `.git` and `.gic` (the builders' reports on 1.25.1: the window
+/// lists the three apart, and the archive held the `.are` alone, which
+/// imports as an area with nothing placed in it), as Export as Files does.
+#[test]
+fn an_area_exported_alone_takes_its_git_and_gic() {
+    let dir = mg_testkit::scratch_dir("ui-export-area-alone");
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    for (t, kind) in [(ResType::GIT, *b"GIT "), (ResType::GIC, *b"GIC ")] {
+        m.set(ResKey::parse("start", t).unwrap(), Gff::new(kind).to_bytes().unwrap());
+    }
+    m.set(ResKey::parse("hello", ResType::NSS).unwrap(), b"void main() {}\n".to_vec());
+    m.save().unwrap();
+    let erf = dir.join("start.erf");
+    let dialogs = NoDialogs { save: vec![erf.clone()], ..Default::default() };
+    let mut app = Moonglow::new(None, Box::new(dialogs));
+    app.open_module(&path);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    let area = ResKey::parse("start", ResType::ARE).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::ExportDialog(vec![area]));
+    h.run();
+    h.state_mut().export.as_mut().unwrap().dependencies = false;
+    h.run();
+    h.get_by_label("Export 1…").click();
+    h.run();
+    let bytes = std::fs::read(&erf).unwrap();
+    let archive = mg_erf::Erf::read(&bytes).unwrap();
+    let mut names: Vec<String> =
+        archive.entries.iter().map(|e| ResKey::new(e.resref, e.restype).to_string()).collect();
+    names.sort();
+    assert_eq!(names, ["start.are", "start.gic", "start.git"]);
+}
+
 /// A module that is a folder is written as a `.mod` beside the folder too
 /// when it is saved, as Aurora saves a module directory; not with
 /// Options › General's switch off.
@@ -1252,10 +1286,23 @@ fn a_stale_compiled_script_is_compiled_before_it_goes_out() {
 }
 
 /// The area view's To Scratch: the area as it is now (its .are, .git and
-/// .gic) copied into the scratch folder.
+/// .gic) copied into the scratch folder, with what of the module's it
+/// uses (its OnEnter script, compiled), not only the area.
 #[test]
 fn an_area_goes_to_the_scratch_folder() {
-    let Some((mut h, area)) = area_harness("area-scratch") else { return };
+    let enter = |m: &mut Module, _: &mg_rules::GameData, area: ResRef| {
+        let key = ResKey::new(area, ResType::ARE);
+        let mut are = Gff::read(m.get(&key).unwrap()).unwrap();
+        are.root.set("OnEnter", mg_gff::Value::ResRef(b"mg_enter".to_vec()));
+        m.set(key, are.to_bytes().unwrap());
+        m.set(ResKey::parse("mg_enter", ResType::NSS).unwrap(), b"void main() {}\n".to_vec());
+        // (One the area doesn't use stays behind.)
+        m.set(ResKey::parse("mg_other", ResType::NSS).unwrap(), b"void main() {}\n".to_vec());
+    };
+    let Some((mut h, area)) = area_harness_with("area-scratch", "ttr01", None, 4, None, &enter)
+    else {
+        return;
+    };
     // No scratch folder yet, and none chosen when asked: nothing is copied.
     h.get_by_label("To Scratch").click();
     h.run_steps(2);
@@ -1270,7 +1317,10 @@ fn an_area_goes_to_the_scratch_folder() {
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
     names.sort();
-    assert_eq!(names, ["are", "gic", "git"].map(|e| format!("{area}.{e}")));
+    let mut wanted: Vec<String> = ["are", "gic", "git"].map(|e| format!("{area}.{e}")).into();
+    wanted.extend(["mg_enter.ncs".to_string(), "mg_enter.nss".to_string()]);
+    wanted.sort();
+    assert_eq!(names, wanted);
     let ws = h.state_mut().ws.as_mut().unwrap();
     let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap().to_bytes().unwrap();
     assert_eq!(std::fs::read(scratch.join(format!("{area}.are"))).unwrap(), are);
