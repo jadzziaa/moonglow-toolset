@@ -94,7 +94,7 @@ fn persistent_world_stays_within_budget() {
     println!("a persistent world ({} MB)", w.module.metadata().unwrap().len() / 1_000_000);
 
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let install = GameInstall::new(&root, Some(w.user.clone()), "en");

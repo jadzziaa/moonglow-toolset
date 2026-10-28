@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Troubleshooting
-description: Troubleshooting - the game is not found, no GPU in the area viewer, an area that draws nothing or loses its tiles on AMD under Windows (the graphics backend, its startup check, the lit check and the area view's watch; what to send), Test Module does nothing, no sound, after a crash, and where Moonglow keeps its files.
+description: Troubleshooting - the game is not found, no GPU in the area viewer, an area that draws nothing or loses its tiles on AMD under Windows (the graphics backend, its startup check, the lit check and the area view's watch; what to send), Direct3D 12's shader compiler (the DXC shipped beside Moonglow, and FXC where it is missing), Test Module does nothing, no sound, after a crash, and where Moonglow keeps its files.
 tags: [manual, troubleshooting]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T21:48:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T23:16:08Z }
 ---
 
 # Troubleshooting
@@ -83,10 +83,8 @@ and Moonglow looks at what it draws:
   comes, it judges what is drawn all the same.
 
 A shader of the game's that the graphics driver can't compile is drawn
-with Moonglow's own shader instead, and the log says which. Under
-Direct3D 12 that is the case of the game's normal-mapped lit shaders
-(`fslit_nm`, and copies of it in a module's haks): Direct3D 12's
-shader compiler can't compile their height-map loop.
+with Moonglow's own shader instead, and the log says which. (Under
+Direct3D 12, see the next section.)
 
 Neither builder's machine was reproduced where Moonglow is developed:
 both failures were imitated there, and the checks are waiting on the
@@ -109,6 +107,36 @@ Moonglow is installed in:
 
 ```bat
 set WGPU_BACKEND=dx12
+moonglow.exe
+```
+
+## Direct3D 12's shader compiler
+
+Under Direct3D 12, shaders are compiled with Microsoft's DirectX Shader
+Compiler (DXC): the `dxcompiler.dll` installed beside `moonglow.exe` and
+`mg.exe` (the installer and the zip both have it). The debug log's
+`graphics:` line ends with which compiler was taken, "Direct3D 12
+compiles shaders with DXC (…\dxcompiler.dll)".
+
+Where that file is missing (deleted, or not copied with the programs),
+Moonglow takes Windows' older compiler, FXC, and the line says "with FXC
+(no dxcompiler.dll beside moonglow.exe)". FXC can't compile the game's
+normal-mapped lit shaders (`fslit_nm`, `fslit_sm_nm`, and copies of them
+in a module's haks, such as a skin tile's): their height map is read in
+a loop of as many steps as the view asks. Those meshes are then drawn
+with Moonglow's own shader, and the log says which; the rest draws as
+before. Install Moonglow again, or unpack the zip again, to put the file
+back.
+
+With DXC, Direct3D 12 needs a driver with shader model 6, which current
+drivers have; on an older one Direct3D 12 isn't offered at all, and
+Moonglow draws with Vulkan. To use Direct3D 12 with FXC there, start
+Moonglow with the `WGPU_DX12_COMPILER` environment variable set to `fxc`
+(it decides over the file; `dxc` takes a `dxcompiler.dll` wherever
+Windows finds one):
+
+```bat
+set WGPU_DX12_COMPILER=fxc
 moonglow.exe
 ```
 

@@ -2,21 +2,25 @@
 # and the same files as a zip, Moonglow-<version>-windows-x64.zip (to unpack
 # anywhere and run; what Scoop installs: bucket\moonglow.json).
 # Needs Rust, Python 3 and Inno Setup 6 (iscc on PATH, or in its usual folder).
+# Downloads the pinned DirectX Shader Compiler release (dxc.ps1: its
+# dxcompiler.dll goes beside moonglow.exe and mg.exe; Direct3D 12 compiles
+# shaders with it).
 $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..\..")
 $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"' | Select-Object -First 1).Matches[0].Groups[1].Value
 
 cargo build --profile dist --locked -p moonglow -p mg
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& packaging\windows\dxc.ps1 -Destination target\dist -Licenses target\dist\dxc-licenses
 python packaging\third_party_licenses.py --target x86_64-pc-windows-msvc `
-    --output target\dist\THIRD-PARTY-LICENSES.txt
+    --dxc target\dist\dxc-licenses --output target\dist\THIRD-PARTY-LICENSES.txt
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # The zip: what the installer puts in its folder.
 $portable = "target\dist\portable"
 if (Test-Path $portable) { Remove-Item -Recurse -Force $portable }
 New-Item -ItemType Directory -Path $portable | Out-Null
-Copy-Item target\dist\moonglow.exe, target\dist\mg.exe, target\dist\THIRD-PARTY-LICENSES.txt $portable
+Copy-Item target\dist\moonglow.exe, target\dist\mg.exe, target\dist\dxcompiler.dll, target\dist\THIRD-PARTY-LICENSES.txt $portable
 Copy-Item LICENSE (Join-Path $portable "LICENSE.txt")
 Copy-Item -Recurse docs\manual (Join-Path $portable "manual")
 $zip = "target\dist\Moonglow-$version-windows-x64.zip"

@@ -81,7 +81,7 @@ fn largest_campaigns_stay_within_budget() {
         }
         println!("{name} ({} MB)", path.metadata().unwrap().len() / 1_000_000);
         let rs = egui_kittest::wgpu::create_render_state(
-            egui_kittest::wgpu::default_wgpu_setup(),
+            mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
             egui_wgpu::RendererOptions::PREDICTABLE,
         );
         let mut app = Moonglow::new(

@@ -283,6 +283,9 @@ fn pick_adapter(
         why += &format!("; checked {p}");
     }
     why += &format!("; of: {}", graphics::describe_adapters(&infos));
+    if platform == graphics::Platform::Windows {
+        why += &format!("; {}", mg_ui::dx12::compiler());
+    }
     let mut known = failed.to_vec();
     known.extend(started.failures().map(|(i, _)| graphics::Failed::of(&infos[i])));
     if let Ok(mut t) = taken.lock() {
@@ -413,22 +416,27 @@ fn main() -> eframe::Result<()> {
             .with_app_id(APP_ID)
             .with_icon(window_icon()),
         wgpu_options: egui_wgpu::WgpuConfiguration {
-            wgpu_setup: egui_wgpu::WgpuSetup::CreateNew(egui_wgpu::WgpuSetupCreateNew {
-                // Game textures are mostly BC-compressed: upload them as
-                // they are where the GPU can read them.
-                device_descriptor: std::sync::Arc::new(|adapter| wgpu::DeviceDescriptor {
-                    label: Some("moonglow"),
-                    required_features: adapter.features() & wgpu::Features::TEXTURE_COMPRESSION_BC,
-                    required_limits: adapter.limits(),
-                    ..Default::default()
-                }),
-                // The instance keeps every backend (or `WGPU_BACKEND`'s),
-                // so that a backend chosen with no adapter can fall back.
-                native_adapter_selector: Some(std::sync::Arc::new(move |adapters, surface| {
-                    pick_adapter(adapters, surface, wanted, &failed, &picked)
-                })),
-                ..egui_wgpu::WgpuSetupCreateNew::without_display_handle()
-            }),
+            // (Direct3D 12 compiles shaders with the DXC beside the
+            // program, else FXC: `mg_render::dx12`.)
+            wgpu_setup: mg_ui::graphics_setup(egui_wgpu::WgpuSetup::CreateNew(
+                egui_wgpu::WgpuSetupCreateNew {
+                    // Game textures are mostly BC-compressed: upload them as
+                    // they are where the GPU can read them.
+                    device_descriptor: std::sync::Arc::new(|adapter| wgpu::DeviceDescriptor {
+                        label: Some("moonglow"),
+                        required_features: adapter.features()
+                            & wgpu::Features::TEXTURE_COMPRESSION_BC,
+                        required_limits: adapter.limits(),
+                        ..Default::default()
+                    }),
+                    // The instance keeps every backend (or `WGPU_BACKEND`'s),
+                    // so that a backend chosen with no adapter can fall back.
+                    native_adapter_selector: Some(std::sync::Arc::new(move |adapters, surface| {
+                        pick_adapter(adapters, surface, wanted, &failed, &picked)
+                    })),
+                    ..egui_wgpu::WgpuSetupCreateNew::without_display_handle()
+                },
+            )),
             ..Default::default()
         },
         // The settings stay where they were before the window had an app

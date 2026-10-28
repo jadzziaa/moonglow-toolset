@@ -349,7 +349,7 @@ fn harness<'a>(app: Moonglow, rs: egui_wgpu::RenderState) -> App<'a> {
 
 fn render_state() -> egui_wgpu::RenderState {
     egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     )
 }

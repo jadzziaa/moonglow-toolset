@@ -4244,3 +4244,289 @@ fn the_lit_check_draws_a_lit_mesh_both_ways() {
     assert!(blanked.own.as_ref().is_err_and(|e| e.contains("not red")), "{blanked}");
     assert!(!blanked.game_fails(), "Moonglow's own fails too: not the game's to blame");
 }
+
+/// A texture read with derivatives (`textureSample`) in a loop whose count
+/// varies from pixel to pixel: the construct of the game's `fslit_nm` and
+/// `fslit_sm_nm`, which read their height map step by step, as many steps
+/// as the view's angle and distance ask (`inc_displacement`'s
+/// `fIterations`). FXC must unroll such a loop and can't (X3570, then
+/// X3511); DXC compiles it. (A count that is a uniform alone FXC compiles:
+/// tried, 2026-10-28.) The count is a uniform (4) times the texture
+/// coordinate across the target: 2 in the middle, where two reads of a
+/// texture of one color, added and quartered, give half the color.
+const DERIVATIVE_LOOP: &str = r#"
+struct Steps { count: u32, step: f32, unused: vec2<u32> }
+@group(0) @binding(0) var<uniform> steps: Steps;
+@group(0) @binding(1) var image: texture_2d<f32>;
+@group(0) @binding(2) var linear: sampler;
+
+struct Out { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32> }
+
+@vertex
+fn vs(@builtin(vertex_index) i: u32) -> Out {
+    let xy = vec2<f32>(f32((i << 1u) & 2u), f32(i & 2u));
+    var out: Out;
+    out.position = vec4<f32>(xy * 2.0 - 1.0, 0.0, 1.0);
+    out.uv = xy;
+    return out;
+}
+
+@fragment
+fn fs(in: Out) -> @location(0) vec4<f32> {
+    var sum = vec4<f32>(0.0);
+    var uv = in.uv;
+    let count = u32(in.uv.x * f32(steps.count));
+    for (var i = 0u; i < count; i++) {
+        sum += textureSample(image, linear, uv);
+        uv += vec2<f32>(steps.step, 0.0);
+    }
+    return sum * 0.25;
+}
+"#;
+
+/// The texture's one color, and what [`DERIVATIVE_LOOP`] draws of it (two
+/// reads, quartered).
+const LOOP_TEXEL: [u8; 4] = [204, 102, 254, 254];
+const LOOP_DRAWN: [u8; 4] = [102, 51, 127, 127];
+
+/// [`DERIVATIVE_LOOP`] made into a pipeline and drawn on `gpu`: the color
+/// in the middle of what was drawn, or what the backend said making the
+/// pipeline (Direct3D 12 with FXC: an internal error, X3511).
+fn derivative_loop_drawn(gpu: &Gpu) -> Result<[u8; 4], String> {
+    let device = &gpu.device;
+    let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let internal = device.push_error_scope(wgpu::ErrorFilter::Internal);
+    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("derivative_loop"),
+        source: wgpu::ShaderSource::Wgsl(DERIVATIVE_LOOP.into()),
+    });
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("derivative_loop"),
+        layout: None,
+        vertex: wgpu::VertexState {
+            module: &module,
+            entry_point: Some("vs"),
+            compilation_options: Default::default(),
+            buffers: &[],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &module,
+            entry_point: Some("fs"),
+            compilation_options: Default::default(),
+            targets: &[Some(format.into())],
+        }),
+        primitive: Default::default(),
+        depth_stencil: None,
+        multisample: Default::default(),
+        multiview_mask: None,
+        cache: None,
+    });
+    let said: Vec<String> = [internal, validation]
+        .into_iter()
+        .filter_map(|scope| pollster::block_on(scope.pop()))
+        .map(|e| e.to_string())
+        .collect();
+    if !said.is_empty() {
+        return Err(said.join("; "));
+    }
+    let size = |side| wgpu::Extent3d { width: side, height: side, depth_or_array_layers: 1 };
+    let image = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("derivative_loop image"),
+        size: size(4),
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    gpu.queue.write_texture(
+        image.as_image_copy(),
+        &LOOP_TEXEL.repeat(16),
+        wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(16), rows_per_image: None },
+        size(4),
+    );
+    let mut steps = [0u8; 16];
+    steps[..4].copy_from_slice(&4u32.to_le_bytes());
+    steps[4..8].copy_from_slice(&0.05f32.to_le_bytes());
+    let uniform = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("derivative_loop steps"),
+        size: 16,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    gpu.queue.write_buffer(&uniform, 0, &steps);
+    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        ..Default::default()
+    });
+    let image_view = image.create_view(&Default::default());
+    let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("derivative_loop"),
+        layout: &pipeline.get_bind_group_layout(0),
+        entries: &[
+            wgpu::BindGroupEntry { binding: 0, resource: uniform.as_entire_binding() },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(&image_view),
+            },
+            wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&sampler) },
+        ],
+    });
+    let target = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("derivative_loop target"),
+        size: size(8),
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let view = target.create_view(&Default::default());
+    let mut encoder = device.create_command_encoder(&Default::default());
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("derivative_loop"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            ..Default::default()
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, &group, &[]);
+        pass.draw(0..3, 0..1);
+    }
+    gpu.queue.submit([encoder.finish()]);
+    let read = gpu.try_read_rgba(&target)?;
+    let at = (4 * 8 + 4) * 4;
+    Ok(read.data[at..at + 4].try_into().unwrap())
+}
+
+/// The construct FXC can't compile ([`DERIVATIVE_LOOP`]) on whatever GPU
+/// the platform has: where Direct3D 12 compiles with DXC (the
+/// `dxcompiler.dll` beside the program: on CI's Windows runner, the
+/// pinned release put beside the test binaries, `MOONGLOW_REQUIRE_DXC=1`),
+/// and on Vulkan and Metal, it compiles and draws right; where Direct3D 12
+/// compiles with FXC (no `dxcompiler.dll`), its pipeline is refused with
+/// X3511. Which compiler and what came of it is printed to the test's
+/// output whether or not output is captured.
+#[test]
+fn a_texture_read_in_a_loop_of_a_varying_count_compiles_and_draws() {
+    use std::io::Write;
+    mg_testkit::gpu::hold();
+    let compiler = mg_render::dx12::compiler();
+    let require_dxc = std::env::var_os("MOONGLOW_REQUIRE_DXC").is_some_and(|v| v == "1");
+    let Some(adapter) = mg_render::headless_adapter() else {
+        let _ = writeln!(std::io::stdout(), "compiler check: skipped, no GPU adapter");
+        assert!(!require_dxc, "MOONGLOW_REQUIRE_DXC=1 but no GPU adapter ({compiler})");
+        return;
+    };
+    let info = adapter.get_info();
+    let backend = mg_render::backend::backend_name(info.backend);
+    let (device, queue) = pollster::block_on(adapter.request_device(&Default::default()))
+        .expect("a device on the headless adapter");
+    let gpu = Gpu::new(device, queue);
+    let drawn = derivative_loop_drawn(&gpu);
+    let what = match &drawn {
+        Ok(c) => format!("compiled and drawn {c:?} (right: {LOOP_DRAWN:?})"),
+        Err(e) => format!("refused: {e}"),
+    };
+    let _ = writeln!(
+        std::io::stdout(),
+        "compiler check: {backend} on {}; {compiler}; {what}",
+        info.name
+    );
+    if require_dxc {
+        assert_eq!(info.backend, wgpu::Backend::Dx12, "MOONGLOW_REQUIRE_DXC=1: {backend}");
+        assert!(compiler.is_dxc(), "MOONGLOW_REQUIRE_DXC=1: {compiler}");
+    }
+    let fxc = info.backend == wgpu::Backend::Dx12
+        && matches!(compiler, mg_render::dx12::ShaderCompiler::Fxc(_))
+        || matches!(compiler, mg_render::dx12::ShaderCompiler::Environment(v)
+            if v.eq_ignore_ascii_case("fxc"));
+    if fxc && info.backend == wgpu::Backend::Dx12 {
+        let why = drawn.expect_err("FXC compiled the loop");
+        assert!(why.contains("X3511"), "{why}");
+        return;
+    }
+    let color = drawn.unwrap_or_else(|e| panic!("{backend}, {compiler}: {e}"));
+    for (got, want) in color.iter().zip(LOOP_DRAWN) {
+        assert!(got.abs_diff(want) <= 2, "drawn {color:?}, not {LOOP_DRAWN:?}");
+    }
+}
+
+/// [`DERIVATIVE_LOOP`] written in HLSL as Direct3D 12 writes it: at shader
+/// model 5.1, where `MOONGLOW_D3DCOMPILER` names Microsoft's
+/// `d3dcompiler_47.dll`, FXC refuses its fragment stage (X3511); at 6.0
+/// and the later models DXC is given, where `MOONGLOW_DXC` names a DXC
+/// release's `bin/x64`, `dxcompiler.dll` alone (no `dxil.dll`) compiles
+/// and signs both stages. Both under Wine (`tools/dx12`). In
+/// `target/test-output/hlsl/loop/`.
+#[test]
+fn fxc_refuses_the_loop_and_dxc_compiles_it() {
+    use mg_testkit::hlsl;
+    use naga::ShaderStage;
+    let dir = mg_testkit::output_dir("hlsl/loop");
+    let module = naga::front::wgsl::parse_str(DERIVATIVE_LOOP).unwrap();
+    let groups = hlsl::groups_of(&module);
+    let write = |model: naga::back::hlsl::ShaderModel| {
+        let options = hlsl::options_at(&groups, model);
+        let mut written = Vec::new();
+        for (stage, entry, fragment) in [
+            (ShaderStage::Vertex, "vs", Some((&module, "fs"))),
+            (ShaderStage::Fragment, "fs", None),
+        ] {
+            let (text, ep) = hlsl::write(&module, stage, entry, fragment, &options).unwrap();
+            let file = dir.join(format!("{entry}.{}.hlsl", model.to_str()));
+            std::fs::write(&file, text).unwrap();
+            written.push((file, ep, hlsl::profile_at(stage, model)));
+        }
+        written
+    };
+    let fxc_written = write(naga::back::hlsl::ShaderModel::V5_1);
+    let dxc_written: Vec<_> = hlsl::DXC_SHADER_MODELS.iter().flat_map(|&m| write(m)).collect();
+    match hlsl::d3dcompiler() {
+        Some(dll) => {
+            let compiled = hlsl::fxc(&dll, &dir, &fxc_written).unwrap();
+            for c in &compiled {
+                eprintln!(
+                    "FXC {} {}: {}",
+                    if c.ok { "OK  " } else { "FAIL" },
+                    c.file.display(),
+                    c.message
+                );
+            }
+            assert!(compiled[0].ok, "FXC: the vertex stage: {}", compiled[0].message);
+            assert!(!compiled[1].ok, "FXC compiled the loop");
+            assert!(compiled[1].message.contains("X3511"), "{}", compiled[1].message);
+        }
+        None => eprintln!("FXC not run: MOONGLOW_D3DCOMPILER names no d3dcompiler_47.dll"),
+    }
+    match hlsl::dxc_dir() {
+        Some(dxc) => {
+            let compiled = hlsl::dxc(&dxc, &dir, &dxc_written).unwrap();
+            for c in &compiled {
+                eprintln!(
+                    "DXC {} {}: {}",
+                    if c.ok { "OK  " } else { "FAIL" },
+                    c.file.display(),
+                    c.message
+                );
+            }
+            let failed: Vec<_> = compiled.iter().filter(|c| !c.ok).collect();
+            assert!(failed.is_empty(), "DXC: {failed:#?}");
+        }
+        None => {
+            eprintln!("DXC not run: MOONGLOW_DXC names no folder of dxc.exe and dxcompiler.dll")
+        }
+    }
+}

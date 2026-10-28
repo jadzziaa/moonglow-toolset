@@ -38,9 +38,9 @@ which sets it as it starts (`mg_core::release`). A release:
 | `icons/` | The icon (`moonglow.svg`, authored for Moonglow) and what `render.sh` makes of it: PNGs from 16 to 512 pixels, `moonglow.ico`, `moonglow.icns`. The 256-pixel PNG is also the window's icon, built into the program. |
 | `linux/` | The desktop entry, AppStream metadata, the `.mod` MIME type (weaker than tracker music's, so a file's header decides between them) and `build-appimage.sh`. |
 | `flatpak/` | The Flatpak manifest, `cargo_sources.py` and `build-flatpak.sh`. |
-| `windows/` | The Inno Setup script and `build-installer.ps1`. The executable's icon and version information come from `apps/moonglow/build.rs`. |
+| `windows/` | The Inno Setup script, `build-installer.ps1`, and `dxc.ps1` with `dxc/` (the pinned DirectX Shader Compiler: [DXC](#dxc-direct3d-12s-shader-compiler)). The executable's icon and version information come from `apps/moonglow/build.rs`. |
 | `macos/` | `Info.plist` and `build-app.sh`. |
-| `third_party_licenses.py` | Writes `THIRD-PARTY-LICENSES.txt`: every crate the programs are built from, its license, and the license texts. |
+| `third_party_licenses.py` | Writes `THIRD-PARTY-LICENSES.txt`: every crate the programs are built from, its license, and the license texts (on Windows, DXC's too: `--dxc`). |
 
 The application ID is `io.github.moonglow_toolset.Moonglow`
 (`io.github.moonglow-toolset.Moonglow` on macOS, where bundle IDs take no
@@ -110,13 +110,53 @@ allows. Without it the tree is never offered in the Flatpak.
 packaging\windows\build-installer.ps1
 ```
 
-Needs Rust (MSVC), Python 3 and [Inno Setup 6](https://jrsoftware.org/isinfo.php).
+Needs Rust (MSVC), Python 3, [Inno Setup 6](https://jrsoftware.org/isinfo.php)
+and the network the first time (it downloads [DXC](#dxc-direct3d-12s-shader-compiler)).
 Writes `target\dist\Moonglow-<version>-windows-x64-setup.exe`, and the same
 files as `Moonglow-<version>-windows-x64.zip` (to unpack anywhere and run). It installs
 for the current user (or for all users, if chosen) and adds a Start menu
 entry and, optionally, a desktop icon and the `.mod` association.
 The programs carry the C runtime (`.cargo/config.toml`), so no Visual C++
 Redistributable is needed.
+
+### DXC: Direct3D 12's shader compiler
+
+Both the installer and the zip put Microsoft's DirectX Shader Compiler,
+`dxcompiler.dll` (x64), beside `moonglow.exe` and `mg.exe`. Direct3D 12
+compiles shaders with the one beside the program (`crates/mg-render/src/dx12.rs`;
+the debug log's `graphics:` line says which), and with Windows' FXC where
+there is none, which can't compile the game's normal-mapped lit shaders
+(`fslit_nm`, `fslit_sm_nm`: a texture read with derivatives in a loop
+of a count that varies by pixel). `windows/dxc.ps1` fetches it as the
+installer is built:
+the release pinned there (`v1.9.2609`, `dxc_2026_09_29.zip`, SHA-256
+`ad31b1fc8443175d204f77a611fdb3ef2ec42759bdc2f1167368de24a4a7e7f1`),
+downloaded from GitHub into `target\dxc\<tag>`, its hash checked, and
+`bin\x64\dxcompiler.dll` copied out. `dxil.dll` is neither needed (since
+1.8.2505 `dxcompiler.dll` validates and signs what it compiles on its own) nor
+shipped. CI's Windows job puts the same DLL beside the test binaries
+(`target\debug\deps`) and sets `MOONGLOW_REQUIRE_DXC=1`, so that
+mg-render's compiler check
+(`a_texture_read_in_a_loop_of_a_varying_count_compiles_and_draws`) fails
+unless Direct3D 12 compiled with it and drew such a loop right.
+
+DXC is under the University of Illinois/NCSA Open Source License
+(LLVM's), with Microsoft's own code under MIT: both permissive, and fine
+to ship with a GPL-3.0 program. `THIRD-PARTY-LICENSES.txt` has both texts,
+from the zip, and the repository's `ThirdPartyNotices.txt` at the tag
+(`windows/dxc/`, for what DXC incorporates; `third_party_licenses.py
+--dxc`). The zip also holds `LICENSE-MS.txt`, a proprietary Microsoft
+license that names no file. It is read here as covering what is closed in
+the zip (`dxil.dll`, the validator, built apart from the open source the
+repository's README puts under NCSA), which isn't shipped. That reading
+is an inference, not a statement in the zip: the owner was asked to
+confirm it.
+
+A newer DXC: change the tag, the zip's name and its hash in `windows/dxc.ps1`
+(the hash is the release asset's digest on GitHub; check it against the
+file), replace `windows/dxc/ThirdPartyNotices.txt` with the new tag's, and
+run the corpus HLSL test through it (`MOONGLOW_DXC`, `tools/dx12/dxc.sh`)
+and CI's Windows job. wgpu 30 needs 1.8.2502 or later.
 
 ### Scoop
 

@@ -807,7 +807,7 @@ fn tdod_s_inc_lighting_changes_the_area_view_through_the_load_order() {
     // number of frames (the wind shaders' clock the same).
     let picture = |path: &std::path::Path, area: ResRef, on: bool, name: &str| {
         let rs = egui_kittest::wgpu::create_render_state(
-            egui_kittest::wgpu::default_wgpu_setup(),
+            mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
             egui_wgpu::RendererOptions::PREDICTABLE,
         );
         let mut app = Moonglow::new(Some(install.clone()), Box::new(NoDialogs::default()));

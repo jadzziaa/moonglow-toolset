@@ -757,7 +757,7 @@ fn model_viewer() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens-model");
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app =
@@ -790,7 +790,7 @@ fn model_view_game_shaders() {
     let user = std::env::var_os("MG_TEST_USER").map(std::path::PathBuf::from);
     for on in [true, false] {
         let rs = egui_kittest::wgpu::create_render_state(
-            egui_kittest::wgpu::default_wgpu_setup(),
+            mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
             egui_wgpu::RendererOptions::PREDICTABLE,
         );
         let install = GameInstall::new(&root, user.clone(), "en");
@@ -925,7 +925,7 @@ fn area_creatures_game_shaders() {
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
     for on in [true, false] {
         let rs = egui_kittest::wgpu::create_render_state(
-            egui_kittest::wgpu::default_wgpu_setup(),
+            mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
             egui_wgpu::RendererOptions::PREDICTABLE,
         );
         let install = GameInstall::new(&root, Some(user.clone()), "en");
@@ -992,7 +992,7 @@ fn palette_hover_preview() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("screens-hover");
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app =
@@ -1025,7 +1025,7 @@ fn item_previews() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens-model");
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app =
@@ -1053,7 +1053,7 @@ fn blueprint_preview() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens-model");
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app =
@@ -1479,7 +1479,7 @@ fn pictured_blueprint(
     size: egui::Vec2,
 ) -> Harness<'static, Moonglow> {
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app =
@@ -2934,7 +2934,7 @@ fn object_walkmeshes() {
     let path = dir.join("contest.mod");
     std::fs::copy(root.join("data/mod/Contest Of Champions 0492.mod"), &path).unwrap();
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app =
@@ -2975,7 +2975,7 @@ fn tileset_minimap_pictures() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("screens-minimaps");
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let install = GameInstall::new(&root, None, "en");
@@ -3094,7 +3094,7 @@ fn readme_area_candidates() {
     let module = std::env::var("MG_README_MODULE").unwrap_or("Chapter1.nwm".into());
     let path = root.join("data/nwm").join(&module);
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app =
@@ -3145,7 +3145,7 @@ fn exact_tiles_and_tile_height() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app =
@@ -3217,7 +3217,7 @@ fn area_grid() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app =
@@ -3254,7 +3254,7 @@ fn area_toolbar_narrow() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app =
@@ -3283,7 +3283,7 @@ fn toolbar_icons_only() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app =
@@ -3329,7 +3329,7 @@ fn lighting_off_and_sound_ranges() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app =
@@ -3381,7 +3381,7 @@ fn areas_by_name_and_area_properties() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app =
@@ -3415,7 +3415,7 @@ fn store_markers() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app =
@@ -3464,7 +3464,7 @@ fn areas_edited_together() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app =
@@ -3500,7 +3500,7 @@ fn raw_fields_with_row_names() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app =
@@ -3528,7 +3528,7 @@ fn spawn_point_markers() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app =
@@ -3574,7 +3574,7 @@ fn creature_appearance_inline() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app =
@@ -3620,7 +3620,7 @@ fn tiles_palette_group_search() {
     let path = dir.join("group-search.mod");
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
@@ -3666,7 +3666,7 @@ fn crosser_cursor() {
     let path = dir.join("crossers.mod");
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
@@ -3734,7 +3734,7 @@ fn area_fog() {
     let path = dir.join("fog.mod");
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
@@ -3778,7 +3778,7 @@ fn city_tile_selection() {
     let path = dir.join("city-tiles.mod");
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
@@ -3826,7 +3826,7 @@ fn tile_preview() {
     let path = dir.join("preview.mod");
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
@@ -3926,7 +3926,7 @@ fn area_properties_grass() {
     let path = dir.join("grass.mod");
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
@@ -3981,7 +3981,7 @@ fn area_ghost() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app =
@@ -4027,7 +4027,7 @@ fn area_items() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app =
@@ -4113,7 +4113,7 @@ fn area_dropped_cloaks() {
     let module = mg_testkit::aurora_capture!("items/zz_cloaks.mod");
     let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app =
@@ -4187,7 +4187,7 @@ fn generated_tileset_palette() {
         let path = mg_testkit::scratch_dir(&format!("screens-palette-{name}")).join("p.mod");
         m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
         let rs = egui_kittest::wgpu::create_render_state(
-            egui_kittest::wgpu::default_wgpu_setup(),
+            mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
             egui_wgpu::RendererOptions::PREDICTABLE,
         );
         let mut app = Moonglow::new(Some(install.clone()), Box::new(NoDialogs::default()));
@@ -4268,7 +4268,7 @@ fn tile_textures() {
         let path = user.join("textures.mod");
         m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
         let rs = egui_kittest::wgpu::create_render_state(
-            egui_kittest::wgpu::default_wgpu_setup(),
+            mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
             egui_wgpu::RendererOptions::PREDICTABLE,
         );
         let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
@@ -4353,7 +4353,7 @@ fn tile_gallery() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app =
@@ -4416,7 +4416,7 @@ fn area_paint() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::output_dir("screens");
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app =
@@ -4533,7 +4533,7 @@ fn readme_screenshots() {
     let chapter = root.join("data/nwm/Chapter1.nwm");
     let harness = || {
         let rs = egui_kittest::wgpu::create_render_state(
-            egui_kittest::wgpu::default_wgpu_setup(),
+            mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
             egui_wgpu::RendererOptions::PREDICTABLE,
         );
         let mut app = Moonglow::new(
@@ -5228,7 +5228,7 @@ fn context_menus() {
     let path = dir.join("context-menus.mod");
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
@@ -5614,7 +5614,7 @@ fn claims_and_project_commands() {
     .unwrap();
     mg_module::project_file::ProjectFile::set_builder_code(&project, Some("ab")).unwrap();
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
@@ -5747,7 +5747,7 @@ fn armor_part_none() {
     let dir = mg_testkit::output_dir("screens-armor-part-none");
     let shot = std::env::var("MG_SHOT").unwrap_or_else(|_| "after".into());
     let rs = egui_kittest::wgpu::create_render_state(
-        egui_kittest::wgpu::default_wgpu_setup(),
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
         egui_wgpu::RendererOptions::PREDICTABLE,
     );
     let mut app =
@@ -5870,7 +5870,7 @@ fn panes_folded() {
     ];
     for (name, size, scale) in shots {
         let rs = egui_kittest::wgpu::create_render_state(
-            egui_kittest::wgpu::default_wgpu_setup(),
+            mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
             egui_wgpu::RendererOptions::PREDICTABLE,
         );
         let mut app = Moonglow::new(
@@ -6263,7 +6263,7 @@ fn area_shadows_menu() {
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
     for icons_only in [false, true] {
         let rs = egui_kittest::wgpu::create_render_state(
-            egui_kittest::wgpu::default_wgpu_setup(),
+            mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
             egui_wgpu::RendererOptions::PREDICTABLE,
         );
         let mut app = Moonglow::new(

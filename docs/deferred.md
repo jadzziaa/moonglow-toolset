@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T21:48:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T23:16:08Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1358,21 +1358,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     default limit) falls back. A failure is reported once in the log
     (the debug log, where Windows has no console), by
     `Renderer::game_shader_failures`, and (M2) in the log pane. (S)
-  - **FXC can't compile the normal-mapped lit programs** (`fslit_nm`,
-    `fslit_sm_nm`, and a module's copies of them, as Heed's
-    `fhss_skintile`): X3511, their height-map loop reads a texture with
-    derivatives in a loop of a varying count, which FXC must unroll and
-    can't (`hlsl.rs` in the corpus tests, `KNOWN_FXC_FAILURES`, with
-    Microsoft's d3dcompiler_47.dll under Wine; 4 of the install's 38
-    distinct stages). Direct3D 12 compiles with FXC where it finds no
-    `dxcompiler.dll`, and Moonglow ships none: those meshes are drawn by
-    Moonglow's own shader there (the internal error is caught since
-    the release after 2.13.0, and logged). Left for a decision, as either way changes what
-    is drawn: reading the height map at an explicit level (or with
-    gradients taken before the loop) in the program given to Direct3D
-    12 alone, which would need comparing with the client; or shipping
-    DXC (`dxcompiler.dll`, and `WGPU_DX12_COMPILER` to take it), which
-    takes such a loop. (M) (Heed's report, 2026-10-28)
   - Not run on Windows or macOS (the renderer's CI branch): naga's
     `discard` from the game's `discard` on Metal, where a discarded
     fragment that runs on writes its depth (`a_shader_returns_where_it_discards`
@@ -2483,17 +2468,24 @@ contribution itself states as not done or not checked.
     past them was closed after 2.13.0 (frames that never get ready are
     judged after 20 s with nothing finished; tiles whose models failed
     are expected; a look the GPU doesn't give back is given up; the
-    pipelines' internal errors are caught, the FXC failures above among
-    them; the lit check; the watch writes what it sees to the debug
-    log). The startup check passed there and draws unlit meshes alone,
+    pipelines' internal errors are caught, FXC's failures on
+    `fslit_nm` and `fslit_sm_nm` among them; the lit check; the watch
+    writes what it sees to the debug log), and Direct3D 12 compiles with
+    the DXC shipped beside the programs since (`mg_render::dx12`;
+    FXC, where `dxcompiler.dll` is missing, can't compile those two nor
+    Heed's `fhss_skintile`, a copy of `fslit_nm`). The startup check passed there and draws unlit meshes alone,
     so Moonglow's own unlit pipelines draw on that driver; why the rest
     doesn't is not known. Waiting on Heed, with the next release: the session's
     debug log (`%APPDATA%\Moonglow\logs`: its `graphics` and
-    `graphics watch` lines, and any `[WARN` or `[ERROR` ones), any
+    `graphics watch` lines, and any `[WARN` or `[ERROR` ones; the
+    `graphics:` line now ends with the compiler taken, which should be
+    DXC), any
     `crash-*.txt` or `model-failure-*.txt` in `%APPDATA%\Moonglow` from
     2.13.0 and the next (2.13.0 wrote one where FXC failed a program, as a
-    crash though it went on), whether a notice appeared, and whether the
-    area is drawn with the Shaders button off on Direct3D 12. (S, needs
+    crash though it went on), whether a notice appeared, whether the
+    area is drawn with the Shaders button off on Direct3D 12, and whether
+    the skin tile is drawn by the game's shaders now (DXC compiling for a
+    real driver is checked on CI's software one alone, WARP). (S, needs
     the builder)
   - El Grillo's machine: 2.13.0 renders well on his Radeon PRO
     (2026-10-28), on Automatic's Direct3D 12: that confirms Direct3D 12
