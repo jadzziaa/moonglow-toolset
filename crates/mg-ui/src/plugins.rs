@@ -1373,14 +1373,13 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     .button("Reload")
                     .on_hover_text("Read the folder again: a plugin copied in, or changed")
                     .clicked();
-                if let Some(dir) = &app.plugin_dir
+                if let Some(dir) = app.plugin_dir.clone()
                     && ui
                         .button("Open Folder")
                         .on_hover_text("Open the plugins folder (it is made if it is not there)")
                         .clicked()
                 {
-                    let _ = std::fs::create_dir_all(dir);
-                    ui.ctx().open_url(egui::OpenUrl::new_tab(format!("file://{}", dir.display())));
+                    crate::widgets::open_folder(ui.ctx(), &dir, &mut app.log);
                 }
             });
             ui.horizontal(|ui| {
