@@ -2541,10 +2541,12 @@ fn area_lighting_look() {
     std::fs::create_dir_all(dir.join("user/hak")).unwrap();
     // `MG_CLIENT_SETTINGS`: `owner` (as the project's owner plays) or
     // `default` (the client's defaults) instead of the tests' settings
-    // (the post effects Moonglow doesn't draw off).
+    // (the post effects Moonglow doesn't draw off); `shadows`: the tests'
+    // with the shadows on.
     let settings = match std::env::var("MG_CLIENT_SETTINGS").as_deref() {
         Ok("owner") => common::player_settings(true),
         Ok("default") => common::player_settings(false),
+        Ok("shadows") => shadows::settings(),
         _ => SETTINGS.to_string(),
     };
     std::fs::write(dir.join("user/settings.tml"), settings).unwrap();

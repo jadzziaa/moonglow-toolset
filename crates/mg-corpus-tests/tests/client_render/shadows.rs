@@ -81,7 +81,7 @@ const FACE_DYNAMIC: [f32; 4] = [0.317, 0.371, 0.361, 0.423];
 const FACE_STATIC: [f32; 4] = [0.557, 0.371, 0.601, 0.423];
 
 /// The client's settings for the comparison with its shadows on.
-fn settings() -> String {
+pub(super) fn settings() -> String {
     SETTINGS
         .replace(
             "[graphics.shadows.creatures]\n\t\t\tmode = 0",
