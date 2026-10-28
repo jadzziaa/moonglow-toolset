@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general with the graphics backend and the toolbar buttons, script editor, conversation editor, sounds, verify, language, keyboard, updates) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:50:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T12:16:26Z }
 ---
 
 # Options
@@ -94,17 +94,26 @@ the module is opened again from its file.
 - **Graphics backend** (Automatic): what the window, the area view and
   the previews draw with. **Automatic** is the graphics library's
   (wgpu's) choice, except that an AMD GPU on Windows draws through
-  Direct3D 12 rather than Vulkan: AMD's Windows Vulkan driver drew
-  areas' tiles wrong (see [Troubleshooting](13-troubleshooting.md#tiles-disappear-on-an-amd-gpu-under-windows)).
+  Direct3D 12 rather than Vulkan, and it is **checked as Moonglow
+  starts**: before the window opens, a small scene is drawn offscreen
+  through Moonglow's own pipelines and compared with what it must look
+  like (under a tenth of a second here). Where it draws nothing, the same
+  GPU's other backend is checked and taken, and the backend that failed
+  is remembered: Automatic passes over it on this GPU until its driver
+  changes. Below the choice, the page lists the backends passed over
+  this way; **Try Again** forgets them (when you choose OK). See
+  [Troubleshooting](13-troubleshooting.md#an-area-draws-nothing-or-loses-its-tiles-on-an-amd-gpu-under-windows).
   Or choose one: **Vulkan** or **Direct3D 12** on Windows, **Vulkan**
   on Linux, **Metal** on macOS (the only one there); only the
-  platform's are offered. (Not OpenGL: Moonglow's renderer draws
+  platform's are offered. A backend chosen here is kept even where the
+  check finds it drawing nothing: a notice under the toolbar says so and
+  offers the other. (Not OpenGL: Moonglow's renderer draws
   particles, the game's shaders and more wrong there.) It takes effect the next time
   Moonglow starts, and the page says what this run draws with. A backend
   with no adapter on this machine falls back to Automatic, and the log
   says so. The `WGPU_BACKEND` environment variable (`vulkan`, `dx12`,
-  `metal`), when set, decides over this setting: a way out if the
-  one chosen doesn't start.
+  `metal`), when set, decides over this setting (and is kept as the
+  setting is): a way out if the one chosen doesn't start.
 - **Open a module on the area opened last**: on by default; the first
   time, the first area the module tree lists (see
   [Modules](03-modules.md)).

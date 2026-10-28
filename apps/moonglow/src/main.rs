@@ -561,4 +561,49 @@ mod tests {
         let icon = super::window_icon();
         assert_eq!((icon.width, icon.height, icon.rgba.len()), (256, 256, 256 * 256 * 4));
     }
+
+    /// What the startup check found, into the app: Heed's Direct3D 12
+    /// drew nothing and Vulkan was taken (recorded and said in the log, no
+    /// notice); a backend chosen in Options that drew nothing is kept (a
+    /// notice, offering the other backend).
+    #[test]
+    fn the_startup_checks_verdict_is_recorded_and_told() {
+        use super::{Taken, startup_check};
+        let info = |backend| {
+            let mut a = wgpu::AdapterInfo::new(wgpu::DeviceType::DiscreteGpu, backend);
+            (a.vendor, a.device, a.name) = (0x1002, 0x67df, "Radeon RX 580 Series".into());
+            a
+        };
+        let app = |drawing| {
+            let mut m = mg_ui::Moonglow::new(None, Box::new(mg_ui::NoDialogs::default()));
+            m.renderer_check.adapter = Some(info(drawing));
+            m
+        };
+        let nothing = "the solid mesh is [0, 0, 0] at (8, 18)".to_string();
+        let mut heed = app(wgpu::Backend::Vulkan);
+        let switched = Taken {
+            failed: vec![(info(wgpu::Backend::Dx12), nothing.clone())],
+            switched: true,
+            ..Default::default()
+        };
+        startup_check(&mut heed, &switched);
+        assert_eq!(heed.settings.graphics_failures.len(), 1);
+        assert_eq!(heed.settings.graphics_failures[0].backend, "Direct3D 12");
+        assert!(heed.settings.graphics_failures[0].what.starts_with("the startup check: "));
+        let said = &heed.log.entries.last().unwrap().1;
+        assert!(said.contains("Moonglow draws through Vulkan instead"), "{said}");
+        assert_eq!(heed.renderer_check.trouble, None);
+        let mut chosen = app(wgpu::Backend::Dx12);
+        let kept = Taken {
+            failed: vec![(info(wgpu::Backend::Dx12), nothing)],
+            failing: true,
+            asked_for: true,
+            other: Some(wgpu::Backend::Vulkan),
+            ..Default::default()
+        };
+        startup_check(&mut chosen, &kept);
+        let trouble = chosen.renderer_check.trouble.clone().expect("the notice");
+        assert_eq!(trouble.offer, Some(wgpu::Backend::Vulkan));
+        assert!(trouble.said.contains("Direct3D 12 on Radeon RX 580 Series"), "{}", trouble.said);
+    }
 }
