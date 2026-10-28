@@ -60,6 +60,104 @@ pub enum ModuleFolders {
     Module,
 }
 
+/// Options › General › Graphics backend: what Moonglow draws with, read
+/// at its start (`apps/moonglow`, before the window has a device;
+/// [`mg_render::backend::pick_adapter`]). Automatic is wgpu's choice, but
+/// an AMD GPU on Windows through Direct3D 12 rather than Vulkan.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub enum GraphicsBackend {
+    #[default]
+    Automatic,
+    Vulkan,
+    Direct3d12,
+    OpenGl,
+    Metal,
+}
+
+/// A name this version doesn't know (a newer one's settings) is
+/// Automatic, rather than every setting lost with it.
+impl<'de> Deserialize<'de> for GraphicsBackend {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<GraphicsBackend, D::Error> {
+        use serde::de::{EnumAccess, VariantAccess};
+        /// The variant's name, read as a name (RON's bare identifier,
+        /// JSON's string).
+        struct Name(String);
+        impl<'de> Deserialize<'de> for Name {
+            fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Name, D::Error> {
+                struct Text;
+                impl serde::de::Visitor<'_> for Text {
+                    type Value = Name;
+                    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                        f.write_str("a name")
+                    }
+                    fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Name, E> {
+                        Ok(Name(v.to_string()))
+                    }
+                }
+                d.deserialize_identifier(Text)
+            }
+        }
+        struct Named;
+        impl<'de> serde::de::Visitor<'de> for Named {
+            type Value = GraphicsBackend;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a graphics backend")
+            }
+            fn visit_enum<A: EnumAccess<'de>>(self, data: A) -> Result<GraphicsBackend, A::Error> {
+                let (Name(name), variant) = data.variant()?;
+                variant.unit_variant()?;
+                Ok(GraphicsBackend::NAMES
+                    .iter()
+                    .find(|(n, _)| *n == name)
+                    .map_or(GraphicsBackend::Automatic, |(_, b)| *b))
+            }
+        }
+        d.deserialize_enum("GraphicsBackend", &[], Named)
+    }
+}
+
+impl GraphicsBackend {
+    /// Each one by the name it is saved as.
+    const NAMES: [(&str, GraphicsBackend); 5] = [
+        ("Automatic", GraphicsBackend::Automatic),
+        ("Vulkan", GraphicsBackend::Vulkan),
+        ("Direct3d12", GraphicsBackend::Direct3d12),
+        ("OpenGl", GraphicsBackend::OpenGl),
+        ("Metal", GraphicsBackend::Metal),
+    ];
+
+    /// The backend chosen (`None`: Automatic).
+    pub fn backend(self) -> Option<wgpu::Backend> {
+        match self {
+            GraphicsBackend::Automatic => None,
+            GraphicsBackend::Vulkan => Some(wgpu::Backend::Vulkan),
+            GraphicsBackend::Direct3d12 => Some(wgpu::Backend::Dx12),
+            GraphicsBackend::OpenGl => Some(wgpu::Backend::Gl),
+            GraphicsBackend::Metal => Some(wgpu::Backend::Metal),
+        }
+    }
+
+    /// Its name in Options.
+    pub fn name(self) -> &'static str {
+        self.backend().map_or("Automatic", mg_render::backend::backend_name)
+    }
+
+    /// The choices on `platform`: Automatic, then the backends wgpu
+    /// offers there.
+    pub fn offered(platform: mg_render::backend::Platform) -> Vec<GraphicsBackend> {
+        let all = [
+            GraphicsBackend::Vulkan,
+            GraphicsBackend::Direct3d12,
+            GraphicsBackend::OpenGl,
+            GraphicsBackend::Metal,
+        ];
+        let here = platform.backends();
+        std::iter::once(GraphicsBackend::Automatic)
+            .chain(all.into_iter().filter(|c| c.backend().is_some_and(|b| here.contains(&b))))
+            .collect()
+    }
+}
+
 /// The area view's placeable brush, as its strip of settings has it
 /// (`paint_mode`): whole centimeters, percents and degrees, as the snapping
 /// settings are kept.
@@ -267,6 +365,8 @@ pub struct Settings {
     pub armor_on_woman: bool,
     /// Options > General: Light theme (the default: dark).
     pub light_theme: bool,
+    /// Options > General: Graphics backend (from the next start).
+    pub graphics_backend: GraphicsBackend,
     /// Options > General: Interface size, per cent of the usual (`None`:
     /// 100): the whole interface, text and all, larger.
     pub ui_scale: Option<u16>,
@@ -482,6 +582,17 @@ pub struct Settings {
 pub const GAME_SHADERS_BY_DEFAULT: bool = true;
 
 impl Settings {
+    /// The settings kept under `key` in eframe's settings file (`app.ron`:
+    /// a RON map of keys to RON text), read before eframe opens it, or
+    /// `None` without the file or the key, or where they can't be read.
+    /// (The desktop app reads the graphics backend so: the window's device
+    /// is made before the app is given eframe's storage.)
+    pub fn read_eframe_file(path: &Path, key: &str) -> Option<Settings> {
+        let text = std::fs::read_to_string(path).ok()?;
+        let kv: std::collections::HashMap<String, String> = ron::from_str(&text).ok()?;
+        ron::from_str(kv.get(key)?).ok()
+    }
+
     /// The Shaders switch: the game's own shaders draw the 3D views.
     pub fn game_shaders(&self) -> bool {
         self.game_shaders.unwrap_or(GAME_SHADERS_BY_DEFAULT)
@@ -633,6 +744,60 @@ mod tests {
         let back: Settings = serde_json::from_str(&saved).unwrap();
         assert_eq!(back.user_dir_this_run, None);
         assert_eq!(back.user_dir, s.user_dir);
+    }
+
+    /// The graphics backend is read from eframe's file before the window
+    /// opens: kept as eframe keeps the settings (RON text under a key of
+    /// a RON map), Automatic where it isn't there or can't be read, and a
+    /// name this version doesn't know is Automatic, the rest kept.
+    #[test]
+    fn the_graphics_backend_is_read_from_eframes_file() {
+        let dir = mg_testkit::scratch_dir("settings-eframe-file");
+        let path = dir.join("app.ron");
+        let key = "moonglow-settings";
+        let write = |settings: &str| {
+            let kv = std::collections::HashMap::from([
+                ("egui".to_string(), "(options:())".to_string()),
+                (key.to_string(), settings.to_string()),
+            ]);
+            let pretty = ron::ser::PrettyConfig::default();
+            std::fs::write(&path, ron::ser::to_string_pretty(&kv, pretty).unwrap()).unwrap();
+        };
+        let s = Settings {
+            graphics_backend: GraphicsBackend::Direct3d12,
+            light_theme: true,
+            ..Default::default()
+        };
+        write(&ron::to_string(&s).unwrap());
+        assert_eq!(Settings::read_eframe_file(&path, key), Some(s));
+        assert_eq!(Settings::read_eframe_file(&path, "other"), None);
+        assert_eq!(Settings::read_eframe_file(&dir.join("none.ron"), key), None);
+        write("(graphics_backend:WebGpu,light_theme:true)");
+        let newer = Settings::read_eframe_file(&path, key).unwrap();
+        assert_eq!((newer.graphics_backend, newer.light_theme), (GraphicsBackend::Automatic, true));
+        let json: Settings = serde_json::from_str(r#"{"graphics_backend":"WebGpu"}"#).unwrap();
+        assert_eq!(json.graphics_backend, GraphicsBackend::Automatic);
+        let json: Settings = serde_json::from_str(r#"{"graphics_backend":"OpenGl"}"#).unwrap();
+        assert_eq!(json.graphics_backend, GraphicsBackend::OpenGl);
+        write("(graphics_backend:");
+        assert_eq!(Settings::read_eframe_file(&path, key), None);
+        std::fs::write(&path, "not ron").unwrap();
+        assert_eq!(Settings::read_eframe_file(&path, key), None);
+    }
+
+    /// Automatic and the backends the platform has.
+    #[test]
+    fn each_platform_offers_its_graphics_backends() {
+        use GraphicsBackend::*;
+        use mg_render::backend::Platform;
+        assert_eq!(
+            GraphicsBackend::offered(Platform::Windows),
+            [Automatic, Vulkan, Direct3d12, OpenGl]
+        );
+        assert_eq!(GraphicsBackend::offered(Platform::Linux), [Automatic, Vulkan, OpenGl]);
+        assert_eq!(GraphicsBackend::offered(Platform::MacOs), [Automatic, Metal]);
+        let names: Vec<_> = [Automatic, Vulkan, Direct3d12, OpenGl, Metal].map(|b| b.name()).into();
+        assert_eq!(names, ["Automatic", "Vulkan", "Direct3D 12", "OpenGL", "Metal"]);
     }
 
     #[test]

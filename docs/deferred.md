@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T19:18:43Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T00:16:13Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -3401,6 +3401,34 @@ contribution itself states as not done or not checked.
   owner's choice: no network asked for one request). Builds from source (`cargo run`, a distribution's
   own package) aren't told apart: they check as the AppImage does. (S)
   (GitHub issue 28)
+- **The graphics backend** (Options › General, `mg_render::backend`;
+  El Grillo's report, October 2026: an AMD Radeon PRO's tiles gone one
+  by one through AMD's Windows Vulkan driver, 25.10.37.03, drawn right
+  with `WGPU_BACKEND=dx12`). Left over:
+  - Not run on Windows, nor on an AMD GPU there: the choice is tested
+    through the pure function, the Options control on Linux. That El
+    Grillo's machine takes Direct3D 12 on Automatic isn't confirmed
+    by a build with this. (S, needs the builder)
+  - Why AMD's Vulkan driver loses the tiles isn't known: Moonglow's use
+    of Vulkan may be at fault (a validation run on that driver would
+    say), and nothing was reported to AMD. Until then every AMD GPU on
+    Windows takes Direct3D 12, whose renderer changes since 2.8.0 are not
+    all run there (Rendering: **Renderer changes not yet on Direct3D 12
+    and Metal**). (M, needs the hardware)
+  - The window's adapter is chosen by Moonglow (egui-wgpu's adapter
+    selector), which leaves wgpu's power preference and surface check
+    to it: `pick_adapter` repeats wgpu 30's order of adapter kinds and
+    the app checks the surface. A later wgpu that orders otherwise is
+    not followed by itself: look at it at the next wgpu bump. (S)
+  - **OpenGL draws wrong.** It is offered (with `WGPU_BACKEND=gl` too),
+    but `WGPU_BACKEND=gl cargo test -p mg-render --test render` fails 20
+    of its 44 tests on the development machine (no visible particles,
+    the game's programs, the framebuffer's copies, animations...): the
+    renderer was never made for wgpu's GL backend, which Vulkan always
+    beat before. Make it draw right there, or stop offering it. (M)
+  - `mg` and the other headless renderers take Automatic (or
+    `WGPU_BACKEND`), not the GUI's setting; Moonglow Viewer, which builds
+    on mg-render, doesn't use `pick_adapter` yet. (S each)
 
 ## Documentation
 

@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Troubleshooting
-description: Troubleshooting - the game is not found, no GPU in the area viewer, Test Module does nothing, no sound, after a crash, and where Moonglow keeps its files.
+description: Troubleshooting - the game is not found, no GPU in the area viewer, tiles that disappear on AMD under Windows (the graphics backend), Test Module does nothing, no sound, after a crash, and where Moonglow keeps its files.
 tags: [manual, troubleshooting]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T05:29:48Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T00:16:13Z }
 ---
 
 # Troubleshooting
@@ -26,11 +26,33 @@ flatpak override --user --filesystem="/path/to/Neverwinter Nights:ro" io.github.
 
 ## The area viewer says "No GPU"
 
-The area viewer and model previews need a graphics card with Vulkan
-(Linux, Windows), Metal (macOS) or Direct3D 12 (Windows). Everything else
-in Moonglow works without one. Update the graphics driver; on Linux,
-install your distribution's Vulkan driver (Mesa's `vulkan-radeon` or
-`vulkan-intel`, or NVIDIA's).
+The area viewer and model previews need a graphics card with Vulkan or
+Direct3D 12 (Windows), Vulkan (Linux) or Metal (macOS). OpenGL can be
+chosen on Windows and Linux, but Moonglow's renderer is not made for it:
+particles, the game's shaders and more are drawn wrong there. Everything else in Moonglow works
+without one. Update the graphics driver; on Linux, install your
+distribution's Vulkan driver (Mesa's `vulkan-radeon` or `vulkan-intel`,
+or NVIDIA's). **Tools › Options… › General › Graphics backend** chooses
+the backend (from the next start); the debug log's `graphics:` line
+says which adapter was taken, and why.
+
+## Tiles disappear on an AMD GPU under Windows
+
+On an AMD GPU under Windows, AMD's Vulkan driver drew an area's tiles
+when the area opened, then lost them one by one (a builder's Radeon PRO,
+driver 25.10.37.03, October 2026); through Direct3D 12 they stay. Moonglow now
+draws through Direct3D 12 on such a GPU by itself (**Options › General ›
+Graphics backend**: Automatic). If you set **Vulkan** there, or
+something still looks wrong, choose **Direct3D 12** and start Moonglow
+again. To try a backend without changing the setting, start Moonglow
+with the `WGPU_BACKEND` environment variable set (`dx12`, `vulkan` or
+`gl`): it decides over the setting. In a Command Prompt, in the folder
+Moonglow is installed in:
+
+```bat
+set WGPU_BACKEND=dx12
+moonglow.exe
+```
 
 ## Test Module does nothing
 

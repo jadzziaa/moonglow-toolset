@@ -2826,6 +2826,7 @@ dependencies = [
  "mg-tiles",
  "mg-tlk",
  "png",
+ "ron",
  "serde",
  "serde_json",
  "skrifa",

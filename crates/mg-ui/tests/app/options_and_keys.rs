@@ -452,6 +452,48 @@ fn the_interface_size_is_set_in_options() {
     assert_eq!(h.ctx.zoom_factor(), 1.0);
 }
 
+/// Options › General › Graphics backend: Automatic and this platform's
+/// backends only (Direct3D 12 on Windows alone, Metal on macOS alone),
+/// saved in the settings, from the next start.
+#[test]
+fn the_graphics_backend_is_chosen_in_options() {
+    use mg_ui::GraphicsBackend;
+    let mut h = harness(app_with(Vec::new()), 1280.0, 800.0);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    h.run();
+    h.get_by_label("General").click();
+    h.run();
+    h.get_by_label("Takes effect the next time Moonglow starts.");
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let automatic =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().value().as_deref() == Some("Automatic");
+    h.query_all(combo).find(automatic).expect("the graphics backend's dropdown").click();
+    h.run();
+    let offered = GraphicsBackend::offered(mg_ui::graphics::Platform::current());
+    let all = [
+        GraphicsBackend::Vulkan,
+        GraphicsBackend::Direct3d12,
+        GraphicsBackend::OpenGl,
+        GraphicsBackend::Metal,
+    ];
+    for b in all {
+        let shown = h.query_by_label(b.name()).is_some();
+        assert_eq!(shown, offered.contains(&b), "{} offered here", b.name());
+    }
+    // (The last one offered: OpenGL, or Metal on macOS.)
+    let last = *offered.last().unwrap();
+    h.get_by_label(last.name()).click();
+    h.run();
+    h.get_by_label("OK").click();
+    h.run();
+    assert_eq!(h.state().settings.graphics_backend, last);
+    // Kept as the settings are, for the next start.
+    let saved = serde_json::to_string(&h.state().settings).unwrap();
+    let back: mg_ui::Settings = serde_json::from_str(&saved).unwrap();
+    assert_eq!(back.graphics_backend, last);
+}
+
 /// Options › General › Light theme.
 #[test]
 fn the_theme_is_set_in_options() {

@@ -4,6 +4,7 @@
 
 pub mod anim;
 pub mod assets;
+pub mod backend;
 mod batch;
 pub mod dangly;
 pub mod framebuffer;
