@@ -1946,6 +1946,55 @@ fn gallery_far_appearance() {
     shoot(&mut h, &dir, "gallery-far-appearance");
 }
 
+/// A game blueprint viewed: its Tag field clicked and typed in (nothing
+/// taken), and a store's inventory viewed, its Find typed in (taken).
+#[test]
+#[ignore]
+fn viewed_blueprint_typing() {
+    use egui_kittest::kittest::Queryable;
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let install = GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let path = mg_testkit::scratch_dir("screens-viewed").join("viewed.mod");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    app.open_module(&path);
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 760.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    for (name, t, page) in
+        [("nw_waypoint001", ResType::UTW, "Basic"), ("nw_storebar01", ResType::UTM, "Inventory")]
+    {
+        let key = ResKey::parse(name, t).unwrap();
+        {
+            let app = h.state_mut();
+            let data = app.game.as_ref().unwrap().resman.get(&key).unwrap().into_owned();
+            app.ws.as_mut().unwrap().view(key, mg_gff::Gff::read(&data).unwrap());
+            app.blueprint_pages.insert((key, GffPath::root()), page);
+            app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
+        }
+        h.run_steps(3);
+        if t == ResType::UTW {
+            h.get_all_by_value("NW_WAYPOINT001").next().unwrap().click();
+        } else {
+            let find =
+                |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Find");
+            h.get_all(egui_kittest::kittest::by().predicate(find)).last().unwrap().click();
+        }
+        h.run_steps(2);
+        h.event(egui::Event::Text("torch".into()));
+        shoot(&mut h, &dir, &format!("viewed-{name}-typed"));
+        let tab = h.state().dock.find_tab(&mg_ui::Tab::Blueprint(key)).unwrap();
+        h.state_mut().dock.remove_tab(tab);
+        h.run_steps(2);
+    }
+}
+
 /// Blueprints edited together, "≠" before each field they differ in:
 /// two chests (a name, an appearance, hit points, a conversation, No
 /// Interrupt, a cursor) and two sounds (rows of choices from the page's
