@@ -56,8 +56,8 @@ pub fn validate(window: &Value, settings: &Settings) -> Vec<Diagnostic> {
         c.blank(root, "/root", "NWN shows this window blank: the last draw layers in it have Clip to control on. Turn it off (it clips nothing in the game)");
     }
     // A variant that replaces the whole window is its last drawing when shown.
-    for (name, variant) in &settings.views {
-        if settings.view_targets.get(name).is_some_and(|t| t == "_window_") {
+    for (name, variant) in &settings.variants {
+        if settings.variant_targets.get(name).is_some_and(|t| t == "_window_") {
             c.blank(variant, &format!("/views/{name}"), "NWN shows the window blank when this variant is shown: its last draw layers have Clip to control on. Turn it off (it clips nothing in the game)");
         }
     }
@@ -93,7 +93,7 @@ pub fn validate(window: &Value, settings: &Settings) -> Vec<Diagnostic> {
     if settings.from_resref {
         c.warn("", "NuiCreateFromResRef needs this JUI on every player's client (for example in a distributed HAK)");
     }
-    for (name, variant) in &settings.views {
+    for (name, variant) in &settings.variants {
         c.ids.clear();
         c.element(variant, &format!("/views/{name}"), false);
         let Names { binds, ids, groups } = Names::of(variant);
@@ -114,7 +114,7 @@ pub fn validate(window: &Value, settings: &Settings) -> Vec<Diagnostic> {
         .map(|d| (d.path.clone(), d.message.clone()))
         .collect();
     let mut handlers = BTreeSet::new();
-    for handler in &settings.actions {
+    for handler in &settings.handlers {
         let window_event = matches!(handler.event.as_str(), "open" | "close");
         if !EVENT_TYPES.contains(&handler.event.as_str()) {
             c.error("/actions", "Unsupported event type");
@@ -139,11 +139,11 @@ pub fn validate(window: &Value, settings: &Settings) -> Vec<Diagnostic> {
                     "Unknown handler action {raw}: kept as it is, with no code written for it"
                 ),
             ),
-            Action::View { group, view } => {
+            Action::Variant { group, variant: view } => {
                 if group != "_window_" && !names.groups.contains(group) {
                     c.error("/actions", "A swap layout must name a Group ID");
                 }
-                if !settings.views.contains_key(view) {
+                if !settings.variants.contains_key(view) {
                     c.error("/actions", "Unknown swap layout variant");
                 }
             }
@@ -168,7 +168,7 @@ pub fn validate(window: &Value, settings: &Settings) -> Vec<Diagnostic> {
     // A new window's Close button comes with the handler that closes the
     // window; with that handler removed the button does nothing in the game.
     if names.ids.contains("mg_close")
-        && !settings.actions.iter().any(|r| r.event == "click" && r.element == "mg_close")
+        && !settings.handlers.iter().any(|r| r.event == "click" && r.element == "mg_close")
     {
         c.warn(
             "/actions",
@@ -189,7 +189,7 @@ pub fn validate(window: &Value, settings: &Settings) -> Vec<Diagnostic> {
     // Handlers of watched binds that set each other's binds run without
     // end in the client: each circle is said once.
     let sets: BTreeMap<&str, &str> = settings
-        .actions
+        .handlers
         .iter()
         .filter_map(|h| match &h.action {
             Action::Set { bind, .. } | Action::Toggle { bind } if h.event == "watch" => {
@@ -210,7 +210,7 @@ pub fn validate(window: &Value, settings: &Settings) -> Vec<Diagnostic> {
     // The value a handler sets is held to every place its bind is read (the
     // window's own properties too). Only what the new value causes is the
     // handler's: the rest is said once above.
-    for handler in &settings.actions {
+    for handler in &settings.handlers {
         let Action::Set { bind, value } = &handler.action else { continue };
         let caused: BTreeSet<(&str, String)> = c
             .uses
@@ -900,7 +900,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::{Binding, Route, template, window};
+    use crate::{Binding, Handler, template, window};
 
     fn errors(w: &Value, s: &Settings) -> Vec<Diagnostic> {
         validate(w, s).into_iter().filter(|d| d.severity == Severity::Error).collect()
@@ -935,18 +935,18 @@ mod tests {
         s
     }
 
-    fn click(element: &str, action: Action) -> Route {
-        Route::new("click", element, action)
+    fn click(element: &str, action: Action) -> Handler {
+        Handler::new("click", element, action)
     }
 
-    fn watch(bind: &str, action: Action) -> Route {
-        Route::new("watch", bind, action)
+    fn watch(bind: &str, action: Action) -> Handler {
+        Handler::new("watch", bind, action)
     }
 
     #[test]
     fn a_new_window_has_no_findings() {
         let mut s = Settings::default();
-        s.actions.push(click("mg_close", Action::Close));
+        s.handlers.push(click("mg_close", Action::Close));
         assert_eq!(validate(&window(), &s), []);
     }
 
@@ -1002,7 +1002,7 @@ mod tests {
     #[test]
     fn a_variants_bind_without_a_first_value_is_an_error() {
         let mut s = Settings::default();
-        s.views.insert("page".into(), json!({"type":"label","value":{"bind":"caption"}}));
+        s.variants.insert("page".into(), json!({"type":"label","value":{"bind":"caption"}}));
         let found = errors(&window(), &s);
         assert!(
             found
@@ -1051,13 +1051,13 @@ mod tests {
     #[test]
     fn a_whole_window_variant_whose_last_draw_list_clips_is_an_error() {
         let mut s = Settings::default();
-        s.views.insert(
+        s.variants.insert(
             "cover".into(),
             json!({"type":"col","children":[],"draw_list_scissor":true,
             "draw_list":[{"type":6,"order":1,"render":0,"a":{"x":0.0,"y":0.0},"b":{"x":1.0,"y":1.0}}]}),
         );
         assert!(!error(&window(), &s, "when this variant is shown"), "shown in a group");
-        s.view_targets.insert("cover".into(), "_window_".into());
+        s.variant_targets.insert("cover".into(), "_window_".into());
         assert!(error(&window(), &s, "when this variant is shown"));
     }
 
@@ -1065,7 +1065,7 @@ mod tests {
     fn checking_changes_neither_the_layout_nor_the_settings() {
         let w = with(json!([{"type":"check","id":"flag","label":"F","value":{"bind":"a"}}]));
         let mut s = binds(&[("a", json!(false))]);
-        s.actions.push(click("flag", Action::Set { bind: "a".into(), value: json!("no") }));
+        s.handlers.push(click("flag", Action::Set { bind: "a".into(), value: json!("no") }));
         let (before_w, before_s) = (w.clone(), s.clone());
         validate(&w, &s);
         assert_eq!((w, s), (before_w, before_s));
@@ -1116,7 +1116,7 @@ mod tests {
     #[test]
     fn watched_binds_whose_handlers_set_each_other_are_an_error() {
         let mut s = binds(&[("a", json!(false)), ("b", json!(false))]);
-        s.actions = vec![
+        s.handlers = vec![
             watch("a", Action::Toggle { bind: "b".into() }),
             watch("b", Action::Toggle { bind: "a".into() }),
         ];
@@ -1128,7 +1128,7 @@ mod tests {
         let names = ["a", "b", "c", "lead", "p", "q"];
         let mut s = binds(&names.map(|n| (n, json!(false))));
         let toggle = |from: &str, to: &str| watch(from, Action::Toggle { bind: to.into() });
-        s.actions = vec![
+        s.handlers = vec![
             toggle("a", "b"),
             toggle("b", "c"),
             toggle("c", "a"),
@@ -1151,7 +1151,7 @@ mod tests {
     #[test]
     fn watched_binds_in_a_line_are_no_circle() {
         let mut s = binds(&[("a", json!(false)), ("b", json!(false)), ("c", json!(false))]);
-        s.actions = vec![
+        s.handlers = vec![
             watch("a", Action::Toggle { bind: "b".into() }),
             watch("b", Action::Toggle { bind: "c".into() }),
         ];
@@ -1161,7 +1161,7 @@ mod tests {
     #[test]
     fn a_handler_cannot_set_the_bind_it_watches() {
         let mut s = binds(&[("a", json!(false))]);
-        s.actions = vec![watch("a", Action::Toggle { bind: "a".into() })];
+        s.handlers = vec![watch("a", Action::Toggle { bind: "a".into() })];
         assert!(error(&window(), &s, "cannot set the bind it watches"));
     }
 
@@ -1169,7 +1169,7 @@ mod tests {
     fn a_value_set_of_the_wrong_kind_is_the_handlers_error() {
         let w = with(json!([{"type":"check","id":"flag","label":"Flag","value":{"bind":"a"}}]));
         let mut s = binds(&[("a", json!(false))]);
-        s.actions = vec![click("flag", Action::Set { bind: "a".into(), value: json!("wrong") })];
+        s.handlers = vec![click("flag", Action::Set { bind: "a".into(), value: json!("wrong") })];
         let found = errors(&w, &s);
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(found[0].path, "/actions");
@@ -1177,7 +1177,7 @@ mod tests {
             found[0].message,
             "Set a: Expected boolean according to nw_inc_nui at /root/children/0/value"
         );
-        s.actions = vec![click("flag", Action::Set { bind: "a".into(), value: json!(true) })];
+        s.handlers = vec![click("flag", Action::Set { bind: "a".into(), value: json!(true) })];
         assert_eq!(errors(&w, &s), []);
     }
 
@@ -1186,7 +1186,7 @@ mod tests {
         let mut w = with(json!([{"type":"button","id":"flag","label":"b"}]));
         w["geometry"] = json!({"bind":"bounds"});
         let mut s = binds(&[("bounds", json!({"x":-1.0,"y":-1.0,"w":420.0,"h":240.0}))]);
-        s.actions = vec![click("flag", Action::Set { bind: "bounds".into(), value: json!(true) })];
+        s.handlers = vec![click("flag", Action::Set { bind: "bounds".into(), value: json!(true) })];
         assert!(error(&w, &s, "Set bounds: Expected rectangle {x,y,w,h}"));
         assert!(error(&w, &s, "at /geometry"));
     }
@@ -1202,9 +1202,9 @@ mod tests {
         ]));
         w["title"] = json!({"bind":"text"});
         let mut s = binds(&[("text", json!("t")), ("rows", json!(["a", "b"]))]);
-        s.views.insert("page".into(), json!({"type":"label","value":{"bind":"text"}}));
+        s.variants.insert("page".into(), json!({"type":"label","value":{"bind":"text"}}));
         assert_eq!(errors(&w, &s), []);
-        s.actions = vec![
+        s.handlers = vec![
             click("go", Action::Set { bind: "text".into(), value: json!({"no":1}) }),
             click("go2", Action::Set { bind: "rows".into(), value: json!("one") }),
         ];
@@ -1225,7 +1225,7 @@ mod tests {
             ]
         );
         // A number will do for text that comes from a bind; null for a title.
-        s.actions = vec![click("go", Action::Set { bind: "text".into(), value: json!(7) })];
+        s.handlers = vec![click("go", Action::Set { bind: "text".into(), value: json!(7) })];
         assert_eq!(errors(&w, &s), []);
     }
 
@@ -1237,7 +1237,7 @@ mod tests {
         );
         let mut s = binds(&[("clip", json!(false))]);
         assert_eq!(errors(&w, &s), []);
-        s.actions = vec![click("go", Action::Set { bind: "clip".into(), value: json!(true) })];
+        s.handlers = vec![click("go", Action::Set { bind: "clip".into(), value: json!(true) })];
         let found = errors(&w, &s);
         assert_eq!(found.len(), 1, "{found:?}");
         assert!(found[0].message.starts_with("Set clip: NWN shows this window blank"));
@@ -1250,10 +1250,10 @@ mod tests {
         w["geometry"] = json!({"bind":"bounds"});
         w["title"] = json!(7);
         let mut s = binds(&[("bounds", json!({"x":-1.0,"y":-1.0,"w":420.0,"h":240.0}))]);
-        s.actions = (0..3)
+        s.handlers = (0..3)
             .map(|i| {
                 let value = json!({"x":i,"y":0,"w":9,"h":9});
-                Route::new("click", "flag", Action::Set { bind: "bounds".into(), value })
+                Handler::new("click", "flag", Action::Set { bind: "bounds".into(), value })
             })
             .collect();
         let found = validate(&w, &s);
@@ -1265,7 +1265,7 @@ mod tests {
     fn a_value_that_is_wrong_already_is_not_the_handlers_error() {
         let w = with(json!([{"type":"check","id":"flag","label":"Flag","value":{"bind":"a"}}]));
         let mut s = binds(&[("a", json!("wrong already"))]);
-        s.actions = vec![click("flag", Action::Set { bind: "a".into(), value: json!(3) })];
+        s.handlers = vec![click("flag", Action::Set { bind: "a".into(), value: json!(3) })];
         let found = errors(&w, &s);
         assert_eq!(found.len(), 1, "{found:?}");
         assert_eq!(found[0].path, "/root/children/0/value");
@@ -1493,37 +1493,37 @@ mod tests {
     #[test]
     fn a_handler_of_the_windows_own_event_names_no_control() {
         let mut s = Settings::default();
-        s.views.insert("other".into(), template("col"));
-        let show = Action::View { group: "_window_".into(), view: "other".into() };
-        s.actions.push(Route::new("open", "ignored_a", show));
+        s.variants.insert("other".into(), template("col"));
+        let show = Action::Variant { group: "_window_".into(), variant: "other".into() };
+        s.handlers.push(Handler::new("open", "ignored_a", show));
         assert_eq!(errors(&window(), &s), []);
     }
 
     #[test]
     fn two_handlers_for_one_event_are_an_error() {
         let mut s = Settings::default();
-        s.actions.push(Route::new("open", "ignored_a", Action::Code));
-        s.actions.push(Route::new("open", "ignored_b", Action::Close));
+        s.handlers.push(Handler::new("open", "ignored_a", Action::Code));
+        s.handlers.push(Handler::new("open", "ignored_b", Action::Close));
         assert!(error(&window(), &s, "Two handlers for the same event"));
-        s.actions = vec![click("mg_close", Action::Code), click("mg_close", Action::Close)];
+        s.handlers = vec![click("mg_close", Action::Code), click("mg_close", Action::Close)];
         assert!(error(&window(), &s, "Two handlers for the same event"));
     }
 
     #[test]
     fn a_handler_of_a_control_the_window_does_not_have_is_an_error() {
         let mut s = Settings::default();
-        s.actions.push(click("nowhere", Action::Code));
+        s.handlers.push(click("nowhere", Action::Code));
         assert!(error(&window(), &s, "Unknown element ID: nowhere"));
         // One in a variant counts.
-        s.views.insert("page".into(), json!({"type":"button","id":"nowhere","label":"b"}));
+        s.variants.insert("page".into(), json!({"type":"button","id":"nowhere","label":"b"}));
         assert_eq!(errors(&window(), &s), []);
     }
 
     #[test]
     fn an_event_the_client_does_not_send_is_an_error() {
         let mut s = Settings::default();
-        s.actions.push(click("mg_close", Action::Close));
-        s.actions[0].event = "closed".into();
+        s.handlers.push(click("mg_close", Action::Close));
+        s.handlers[0].event = "closed".into();
         assert!(error(&window(), &s, "Unsupported event type"));
     }
 
@@ -1535,11 +1535,11 @@ mod tests {
             {"type":"group","id":"panel","children":[{"type":"label","value":"Original"}]}
         ]));
         let mut s = Settings::default();
-        s.views.insert("details".into(), template("col"));
-        let show = |group: &str| Action::View { group: group.into(), view: "details".into() };
-        s.actions = vec![click("next", show("panel"))];
+        s.variants.insert("details".into(), template("col"));
+        let show = |group: &str| Action::Variant { group: group.into(), variant: "details".into() };
+        s.handlers = vec![click("next", show("panel"))];
         assert_eq!(errors(&w, &s), []);
-        s.actions = vec![click("next", show("header"))];
+        s.handlers = vec![click("next", show("header"))];
         assert!(error(&w, &s, "must name a Group ID"));
     }
 
@@ -1547,39 +1547,39 @@ mod tests {
     fn a_group_inside_a_variant_can_show_a_variant() {
         let w = with(json!([{"type":"button","id":"next","label":"Next"}]));
         let mut s = Settings::default();
-        s.views.insert(
+        s.variants.insert(
             "details".into(),
             json!({"type":"group","id":"nested","children":[{"type":"label","value":"x"}]}),
         );
-        s.views.insert("inner".into(), template("col"));
-        let show = Action::View { group: "nested".into(), view: "inner".into() };
-        s.actions = vec![click("next", show)];
+        s.variants.insert("inner".into(), template("col"));
+        let show = Action::Variant { group: "nested".into(), variant: "inner".into() };
+        s.handlers = vec![click("next", show)];
         assert_eq!(errors(&w, &s), []);
     }
 
     #[test]
     fn a_handler_that_shows_a_variant_there_is_not_is_an_error() {
         let mut s = Settings::default();
-        let show = Action::View { group: "_window_".into(), view: "gone".into() };
-        s.actions = vec![click("mg_close", show)];
+        let show = Action::Variant { group: "_window_".into(), variant: "gone".into() };
+        s.handlers = vec![click("mg_close", show)];
         assert!(error(&window(), &s, "Unknown swap layout variant"));
     }
 
     #[test]
     fn toggling_a_bind_that_is_no_flag_is_an_error() {
         let mut s = binds(&[("n", json!(3)), ("rows", json!([true, false]))]);
-        s.actions = vec![click("mg_close", Action::Toggle { bind: "rows".into() })];
+        s.handlers = vec![click("mg_close", Action::Toggle { bind: "rows".into() })];
         assert_eq!(errors(&window(), &s), []);
-        s.actions = vec![click("mg_close", Action::Toggle { bind: "n".into() })];
+        s.handlers = vec![click("mg_close", Action::Toggle { bind: "n".into() })];
         assert!(error(&window(), &s, "boolean or boolean array"));
-        s.actions = vec![click("mg_close", Action::Toggle { bind: "gone".into() })];
+        s.handlers = vec![click("mg_close", Action::Toggle { bind: "gone".into() })];
         assert!(error(&window(), &s, "needs an existing bind"));
     }
 
     #[test]
     fn an_action_the_crate_does_not_know_is_an_error() {
         let s = Settings {
-            actions: vec![click("mg_close", Action::Other(json!("teleport")))],
+            handlers: vec![click("mg_close", Action::Other(json!("teleport")))],
             ..Default::default()
         };
         assert!(error(&window(), &s, "Unknown handler action \"teleport\""));
@@ -1617,7 +1617,7 @@ mod tests {
         };
         assert!(said(&Settings::default()));
         let mut handled = Settings::default();
-        handled.actions.push(crate::Route::new("click", "mg_close", Action::Close));
+        handled.handlers.push(crate::Handler::new("click", "mg_close", Action::Close));
         assert!(!said(&handled));
     }
 }

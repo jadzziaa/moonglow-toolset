@@ -894,7 +894,7 @@ fn fixes(
         let at = d.path.strip_prefix("/views/").and_then(|p| p.split_once('/'));
         let flag = match at {
             Some((view, rest)) => {
-                s.views.get_mut(view).and_then(|v| v.pointer_mut(&format!("/{rest}")))
+                s.variants.get_mut(view).and_then(|v| v.pointer_mut(&format!("/{rest}")))
             }
             None => doc.pointer_mut(&d.path),
         };
@@ -909,7 +909,7 @@ fn fixes(
         && ui.small_button("Add Close handler").clicked()
     {
         let mut s = s.clone();
-        s.actions.push(mg_nui::Route {
+        s.handlers.push(mg_nui::Handler {
             event: "click".into(),
             element: "mg_close".into(),
             action: mg_nui::Action::Close,
@@ -1040,7 +1040,7 @@ fn design_page(
     let edited_view = state.edit_view.clone();
     // A variant is edited in the window's place, and put back after.
     let mut base_root = None;
-    if let Some(view) = state.edit_view.as_ref().and_then(|n| s.views.get(n)) {
+    if let Some(view) = state.edit_view.as_ref().and_then(|n| s.variants.get(n)) {
         base_root = Some(std::mem::replace(&mut v["root"], view.clone()));
     }
     // A selection whose control is gone (Undo took it back, the
@@ -1061,7 +1061,7 @@ fn design_page(
             Some(base) => std::mem::replace(&mut v["root"], base),
             None => v["root"].clone(),
         };
-        s.views.insert(name.clone(), root);
+        s.variants.insert(name.clone(), root);
     }
     fields::put_back(ui.ctx(), &before, &mut v);
     fields::put_back_settings(ui.ctx(), &before_settings, &mut s);

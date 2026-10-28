@@ -96,8 +96,8 @@ pub(super) fn put_back_settings(ctx: &egui::Context, was: &Settings, now: &mut S
             put_back(ctx, &was.value, &mut binding.value);
         }
     }
-    for (name, view) in &mut now.views {
-        if let Some(was) = was.views.get(name) {
+    for (name, view) in &mut now.variants {
+        if let Some(was) = was.variants.get(name) {
             put_back(ctx, was, view);
         }
     }

@@ -348,7 +348,7 @@ fn name_of(r: &Resources) -> &str {
 fn function_names(from: &str, to: &str, settings: &Settings) -> BTreeMap<String, String> {
     let mut names = BTreeMap::new();
     names.insert(format!("Open_{from}"), format!("Open_{to}"));
-    for variant in settings.views.keys() {
+    for variant in settings.variants.keys() {
         names.insert(variant_function(from, variant), variant_function(to, variant));
     }
     for group in swap_groups(settings) {
@@ -388,7 +388,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::{Action, Route, window};
+    use crate::{Action, Handler, window};
 
     fn k(name: &str, ty: ResType) -> ResKey {
         ResKey::parse(name, ty).unwrap()
@@ -419,10 +419,10 @@ mod tests {
             {"type": "group", "id": "pages", "children": [{"type": "label", "value": "First"}]}
         ]);
         let mut s = Settings::default();
-        s.views.insert("details".into(), json!({"type": "label", "value": "Second"}));
-        s.view_targets.insert("details".into(), "pages".into());
-        let show = Action::View { group: "pages".into(), view: "details".into() };
-        s.actions.push(Route::new("click", "more", show));
+        s.variants.insert("details".into(), json!({"type": "label", "value": "Second"}));
+        s.variant_targets.insert("details".into(), "pages".into());
+        let show = Action::Variant { group: "pages".into(), variant: "details".into() };
+        s.handlers.push(Handler::new("click", "more", show));
         let opener = opener_source("shop", &w, &s).unwrap();
         let events = merge_events("shop", &s, None).unwrap().replace(
             "        NuiSetGroupLayout(",
@@ -570,7 +570,7 @@ mod tests {
         let mut w = window();
         w["root"]["children"] = json!([{"type": "button", "id": "shop", "label": "Buy"}]);
         let mut s = Settings::default();
-        s.actions.push(Route::new("click", "shop", Action::Code));
+        s.handlers.push(Handler::new("click", "shop", Action::Code));
         let opener = opener_source("shop", &w, &s).unwrap();
         let events = merge_events("shop", &s, None)
             .unwrap()

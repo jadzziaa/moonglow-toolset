@@ -32,7 +32,7 @@ mod script;
 mod validate;
 
 pub use actions::{
-    Action, BEGIN, END, EVENT_TYPES, Refit, Route, edited_outside, event_function, event_source,
+    Action, BEGIN, END, EVENT_TYPES, Handler, Refit, edited_outside, event_function, event_source,
     fit_returns, handler_code, handler_key, handler_offset, initial_function, insert_code,
     merge_events, rename_in_code, string_expr, variant_function, window_id_function,
 };
@@ -87,19 +87,19 @@ pub struct Settings {
     pub event_hash: Option<String>,
     /// The swap layout variants by name: each a layout a handler can show
     /// in a group in place of what it holds (`views` in the file).
-    #[serde(default)]
-    pub views: BTreeMap<String, Value>,
+    #[serde(default, rename = "views")]
+    pub variants: BTreeMap<String, Value>,
     /// The handlers, in the order of the event script (`actions` in the
     /// file).
-    #[serde(default)]
-    pub actions: Vec<Route>,
+    #[serde(default, rename = "actions")]
+    pub handlers: Vec<Handler>,
     /// The window's ID in the game, when it is not the window's name.
     #[serde(default)]
     pub window_id: Option<String>,
     /// The group each variant was made for, by the variant's name
-    /// (`_window_`: the whole window).
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub view_targets: BTreeMap<String, String>,
+    /// (`_window_`: the whole window; `view_targets` in the file).
+    #[serde(default, rename = "view_targets", skip_serializing_if = "BTreeMap::is_empty")]
+    pub variant_targets: BTreeMap<String, String>,
     /// The IDs of the groups made as swap layouts, in the order made.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub swap_hosts: Vec<String>,
@@ -117,10 +117,10 @@ impl Default for Settings {
             event_function: false,
             opener_hash: None,
             event_hash: None,
-            views: BTreeMap::new(),
-            actions: Vec::new(),
+            variants: BTreeMap::new(),
+            handlers: Vec::new(),
             window_id: None,
-            view_targets: BTreeMap::new(),
+            variant_targets: BTreeMap::new(),
             swap_hosts: Vec::new(),
             extra: BTreeMap::new(),
         }
@@ -280,7 +280,7 @@ pub fn create(module: &Module, name: &str) -> Result<Command, NuiError> {
         return Err(NuiError::Exists(k));
     }
     let settings = Settings {
-        actions: vec![Route::new("click", "mg_close", Action::Close)],
+        handlers: vec![Handler::new("click", "mg_close", Action::Close)],
         ..Default::default()
     };
     Ok(Command::new(
@@ -532,7 +532,7 @@ pub fn image_names(window: &Value, settings: &Settings) -> BTreeSet<String> {
     }
     let mut out = BTreeSet::new();
     visit(window, settings, &mut out);
-    for view in settings.views.values() {
+    for view in settings.variants.values() {
         visit(view, settings, &mut out);
     }
     out
@@ -586,7 +586,7 @@ mod tests {
     fn a_new_window_has_a_handler_that_closes_it() {
         let ws = project();
         let made = Settings::parse(ws.module.get(&key("test_nui", ResType::TXT)).unwrap()).unwrap();
-        assert_eq!(made.actions, vec![Route::new("click", "mg_close", Action::Close)]);
+        assert_eq!(made.handlers, vec![Handler::new("click", "mg_close", Action::Close)]);
         let layout = parse(ws.module.get(&key("test_nui", ResType::JUI)).unwrap()).unwrap();
         assert!(element_ids(&layout).contains("mg_close"));
     }
@@ -634,12 +634,12 @@ mod tests {
     fn garbage_and_truncated_settings_are_errors() {
         let mut s = Settings::default();
         s.bindings.insert("ż".into(), Binding { value: json!([1, "two"]), ..Default::default() });
-        s.actions.push(Route::new(
+        s.handlers.push(Handler::new(
             "click",
             "ok",
             Action::Set { bind: "ż".into(), value: json!(1) },
         ));
-        s.views.insert("v".into(), template("col"));
+        s.variants.insert("v".into(), template("col"));
         let whole = s.bytes();
         assert_eq!(Settings::parse(&whole).unwrap(), s);
         for end in 0..whole.len() - 1 {
@@ -684,9 +684,9 @@ mod tests {
             "views": {"v": {"type": "col", "children": [], "unknown": 1}}
         });
         let parsed = Settings::parse(raw.to_string().as_bytes()).unwrap();
-        assert_eq!(parsed.actions[0].action, Action::Close);
-        assert_eq!(parsed.actions[2].action, Action::Other(json!("teleport")));
-        assert_eq!(parsed.actions[3].action, Action::Other(json!({"kind": "later"})));
+        assert_eq!(parsed.handlers[0].action, Action::Close);
+        assert_eq!(parsed.handlers[2].action, Action::Other(json!("teleport")));
+        assert_eq!(parsed.handlers[3].action, Action::Other(json!({"kind": "later"})));
         let written: Value = serde_json::from_slice(&parsed.bytes()).unwrap();
         for at in [
             "/later",
@@ -707,7 +707,7 @@ mod tests {
         let raw = br#"{"format":"moonglow.nui/1","swap_hosts":["pages","side"],"view_targets":{"details":"pages","cover":"_window_"}}"#;
         let parsed = Settings::parse(raw).unwrap();
         assert_eq!(parsed.swap_hosts, ["pages", "side"]);
-        assert_eq!(parsed.view_targets["cover"], "_window_");
+        assert_eq!(parsed.variant_targets["cover"], "_window_");
         assert!(parsed.extra.is_empty());
         let written: Value = serde_json::from_slice(&parsed.bytes()).unwrap();
         assert_eq!(written["swap_hosts"], json!(["pages", "side"]));
@@ -778,7 +778,7 @@ mod tests {
         let mut s = Settings::default();
         s.bindings
             .insert("icon".into(), Binding { value: json!("ir_attack"), ..Default::default() });
-        s.views.insert("v".into(), json!({"type": "image", "value": "other"}));
+        s.variants.insert("v".into(), json!({"type": "image", "value": "other"}));
         let names: Vec<String> = image_names(&w, &s).into_iter().collect();
         assert_eq!(names, ["frame", "ir_attack", "other", "portrait"]);
     }

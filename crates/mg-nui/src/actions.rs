@@ -1,6 +1,6 @@
 //! The handlers of a window and its event script.
 //!
-//! A handler ([`Route`]) is an event of the window, of a control or of a
+//! A handler ([`Handler`]) is an event of the window, of a control or of a
 //! bind, and the code it starts with ([`Action`]). The event script
 //! (`NAME_e`) has a section for each, between a `// mg:begin KEY` line and
 //! the next `// mg:end`: [`merge_events`] writes the script around what its
@@ -32,11 +32,11 @@ pub const EVENT_TYPES: &[&str] = &[
 ];
 
 /// A handler: an event, whose it is, and the code it starts with. (An
-/// entry of `actions` in the settings; the name is from before the Creator
+/// entry of `actions` in the settings file, a name from before the Creator
 /// called them handlers.)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "Map<String, Value>", into = "Map<String, Value>")]
-pub struct Route {
+pub struct Handler {
     /// One of [`EVENT_TYPES`].
     pub event: String,
     /// The control's ID; for `watch`, the bind's name; nothing the script
@@ -48,10 +48,10 @@ pub struct Route {
     pub extra: BTreeMap<String, Value>,
 }
 
-impl Route {
+impl Handler {
     /// A handler with no fields but its own.
-    pub fn new(event: impl Into<String>, element: impl Into<String>, action: Action) -> Route {
-        Route { event: event.into(), element: element.into(), action, extra: BTreeMap::new() }
+    pub fn new(event: impl Into<String>, element: impl Into<String>, action: Action) -> Handler {
+        Handler { event: event.into(), element: element.into(), action, extra: BTreeMap::new() }
     }
 }
 
@@ -67,19 +67,20 @@ pub enum Action {
     Toggle { bind: String },
     /// Sets a bind to a value.
     Set { bind: String, value: Value },
-    /// Shows a swap layout variant (`view`) in a group (`_window_`: in
-    /// place of the whole window).
-    View { group: String, view: String },
+    /// Shows a swap layout variant in a group (`_window_`: in place of the
+    /// whole window). (`view` in the settings file, with the variant's
+    /// name in `view`.)
+    Variant { group: String, variant: String },
     /// An action this version does not know, as its `action` field reads:
     /// kept as it is (its other fields are the handler's `extra`), and
     /// reported by the checks.
     Other(Value),
 }
 
-impl TryFrom<Map<String, Value>> for Route {
+impl TryFrom<Map<String, Value>> for Handler {
     type Error = String;
 
-    fn try_from(mut m: Map<String, Value>) -> Result<Route, String> {
+    fn try_from(mut m: Map<String, Value>) -> Result<Handler, String> {
         fn text(m: &mut Map<String, Value>, field: &str) -> Result<String, String> {
             match m.remove(field) {
                 Some(Value::String(s)) => Ok(s),
@@ -98,24 +99,25 @@ impl TryFrom<Map<String, Value>> for Route {
                     bind: text(&mut m, "bind")?,
                     value: m.remove("value").ok_or("a handler that sets a bind has no value")?,
                 },
-                "view" => {
-                    Action::View { group: text(&mut m, "group")?, view: text(&mut m, "view")? }
-                }
+                "view" => Action::Variant {
+                    group: text(&mut m, "group")?,
+                    variant: text(&mut m, "view")?,
+                },
                 _ => Action::Other(Value::String(tag)),
             },
             other => Action::Other(other),
         };
-        Ok(Route { event, element, action, extra: m.into_iter().collect() })
+        Ok(Handler { event, element, action, extra: m.into_iter().collect() })
     }
 }
 
-impl From<Route> for Map<String, Value> {
-    fn from(route: Route) -> Map<String, Value> {
+impl From<Handler> for Map<String, Value> {
+    fn from(handler: Handler) -> Map<String, Value> {
         let mut m = Map::new();
-        m.insert("event".into(), route.event.into());
-        m.insert("element".into(), route.element.into());
+        m.insert("event".into(), handler.event.into());
+        m.insert("element".into(), handler.element.into());
         let tag = |m: &mut Map<String, Value>, tag: &str| m.insert("action".into(), tag.into());
-        match route.action {
+        match handler.action {
             Action::Code => _ = tag(&mut m, "code"),
             Action::Close => _ = tag(&mut m, "close"),
             Action::Toggle { bind } => {
@@ -127,7 +129,7 @@ impl From<Route> for Map<String, Value> {
                 m.insert("bind".into(), bind.into());
                 m.insert("value".into(), value);
             }
-            Action::View { group, view } => {
+            Action::Variant { group, variant: view } => {
                 tag(&mut m, "view");
                 m.insert("group".into(), group.into());
                 m.insert("view".into(), view.into());
@@ -135,7 +137,7 @@ impl From<Route> for Map<String, Value> {
             Action::Other(raw) => _ = m.insert("action".into(), raw),
         }
         // (A field of the handler's own is never written twice.)
-        for (k, v) in route.extra {
+        for (k, v) in handler.extra {
             m.entry(k).or_insert(v);
         }
         m
@@ -168,7 +170,7 @@ const STUB: &str = "        // Your code here.\n";
 /// for any but the window's own, whose it is. A key is ASCII whatever the
 /// names are ([`key_text`]), so it reads the same in any codepage the
 /// script is saved in.
-pub fn handler_key(handler: &Route) -> String {
+pub fn handler_key(handler: &Handler) -> String {
     if matches!(handler.event.as_str(), "open" | "close") {
         handler.event.clone()
     } else {
@@ -226,7 +228,11 @@ fn key_name(text: &str) -> String {
 /// The code a handler of the window `name` starts with: a note for your
 /// own, or what its action does. An error for a variant the settings do not
 /// have.
-pub fn handler_code(name: &str, handler: &Route, settings: &Settings) -> Result<String, NuiError> {
+pub fn handler_code(
+    name: &str,
+    handler: &Handler,
+    settings: &Settings,
+) -> Result<String, NuiError> {
     let mut out = String::new();
     // A block of its own, so a second insert can declare its variable again.
     let block = |out: &mut String, variable: &str, value: &Value, call: String| {
@@ -264,8 +270,8 @@ pub fn handler_code(name: &str, handler: &Route, settings: &Settings) -> Result<
             ),
         },
         // The layout comes from the opener's function, rebuilt on every Build.
-        Action::View { group, view } => {
-            if !settings.views.contains_key(view) {
+        Action::Variant { group, variant: view } => {
+            if !settings.variants.contains_key(view) {
                 return Err(NuiError::MissingVariant(view.clone()));
             }
             writeln!(
@@ -434,7 +440,7 @@ pub fn merge_events(
         if function { "int " } else { "" }
     );
     let mut seen = BTreeSet::new();
-    for handler in &settings.actions {
+    for handler in &settings.handlers {
         let key = handler_key(handler);
         // A second handler for one event would never run (the first
         // returns), and its section could not be told from the first's.
@@ -543,13 +549,13 @@ pub fn edited_outside(name: &str, script: &str) -> bool {
         .filter(|key| *key != "top")
         .map(|key| {
             let (event, element) = key.split_once(' ').unwrap_or((key, ""));
-            Route::new(key_name(event), key_name(element), Action::Code)
+            Handler::new(key_name(event), key_name(element), Action::Code)
         })
         .collect();
     // (A function for the module's event script, or a script of its own:
     // as it was written.)
     let event_function = script.contains(&format!("int {}()\n", event_function(name)));
-    let settings = Settings { actions, event_function, ..Default::default() };
+    let settings = Settings { handlers: actions, event_function, ..Default::default() };
     merge_events(name, &settings, Some(script)).is_ok_and(|s| s != script)
 }
 
@@ -685,12 +691,12 @@ pub fn fit_returns(script: &str, function: bool) -> (String, Vec<Refit>) {
 mod tests {
     use super::*;
 
-    fn code(event: &str, element: &str) -> Route {
-        Route::new(event, element, Action::Code)
+    fn code(event: &str, element: &str) -> Handler {
+        Handler::new(event, element, Action::Code)
     }
 
-    fn handlers(actions: Vec<Route>) -> Settings {
-        Settings { actions, ..Default::default() }
+    fn handlers(actions: Vec<Handler>) -> Settings {
+        Settings { handlers: actions, ..Default::default() }
     }
 
     #[test]
@@ -795,9 +801,9 @@ mod tests {
         let written = insert_code(&fresh, "click ok", "        int nKept = 1;\n").unwrap();
         assert_eq!(merge_events("test", &s, Some(&written)).unwrap(), written);
         // A handler's action is only what its section starts with.
-        s.actions[0].action = Action::Close;
+        s.handlers[0].action = Action::Close;
         assert_eq!(merge_events("test", &s, Some(&written)).unwrap(), written);
-        s.actions.push(code("open", ""));
+        s.handlers.push(code("open", ""));
         let more = merge_events("test", &s, Some(&written)).unwrap();
         assert!(more.contains("int nKept = 1;") && more.contains("// mg:begin open\n"));
     }
@@ -817,7 +823,7 @@ mod tests {
         let fresh = event_source("test", &s).unwrap();
         let written =
             insert_code(&fresh, "click ok", "        SendMessageToPC(oPlayer, \"ok\");\n").unwrap();
-        s.actions.remove(0);
+        s.handlers.remove(0);
         let without = merge_events("test", &s, Some(&written)).unwrap();
         assert!(without.contains("// mg:removed click ok\n//         SendMessageToPC"));
         assert!(!without.lines().any(|l| l.trim_start().starts_with("SendMessageToPC")));
@@ -834,9 +840,9 @@ mod tests {
             "        SendMessageToPC(oPlayer, \"ok\");\n\n        int n;\n",
         )
         .unwrap();
-        s.actions.remove(0);
+        s.handlers.remove(0);
         let without = merge_events("test", &s, Some(&written)).unwrap();
-        s.actions.insert(0, code("click", "ok"));
+        s.handlers.insert(0, code("click", "ok"));
         assert_eq!(merge_events("test", &s, Some(&without)).unwrap(), written);
     }
 
@@ -844,24 +850,24 @@ mod tests {
     fn a_removed_handler_that_held_only_the_note_leaves_nothing() {
         let mut s = handlers(vec![code("click", "ok")]);
         let fresh = event_source("test", &s).unwrap();
-        s.actions.clear();
+        s.handlers.clear();
         assert!(!merge_events("test", &s, Some(&fresh)).unwrap().contains("mg:removed"));
     }
 
     #[test]
     fn a_handlers_action_is_the_code_its_section_starts_with() {
         let mut s = Settings::default();
-        s.views.insert("page".into(), json!({"type": "col", "children": []}));
-        let starts = |action: Action| handler_code("w", &Route::new("click", "b", action), &s);
+        s.variants.insert("page".into(), json!({"type": "col", "children": []}));
+        let starts = |action: Action| handler_code("w", &Handler::new("click", "b", action), &s);
         assert!(starts(Action::Close).unwrap().contains("NuiDestroy(oPlayer, nToken);"));
         assert_eq!(starts(Action::Code).unwrap(), STUB);
         assert_eq!(starts(Action::Other(json!("later"))).unwrap(), STUB);
-        let show = Action::View { group: "pages".into(), view: "page".into() };
+        let show = Action::Variant { group: "pages".into(), variant: "page".into() };
         assert_eq!(
             starts(show).unwrap(),
             "        NuiSetGroupLayout(oPlayer, nToken, \"pages\", Variant_w_page());\n"
         );
-        let gone = Action::View { group: "pages".into(), view: "gone".into() };
+        let gone = Action::Variant { group: "pages".into(), variant: "gone".into() };
         assert_eq!(starts(gone), Err(NuiError::MissingVariant("gone".into())));
     }
 
@@ -870,7 +876,7 @@ mod tests {
         let s = Settings::default();
         let set = |value: Value| {
             let action = Action::Set { bind: "b".into(), value };
-            handler_code("w", &Route::new("click", "x", action), &s).unwrap()
+            handler_code("w", &Handler::new("click", "x", action), &s).unwrap()
         };
         let call = |json: &str| format!("        NuiSetBind(oPlayer, nToken, \"b\", {json});\n");
         assert_eq!(set(json!("a \"q\" \\")), call(r#"JsonString("a \"q\" \\")"#));
@@ -920,7 +926,7 @@ mod tests {
         let s = handlers(vec![code("click", "Żółw \"x\""), code("click", "a\\b")]);
         let fresh = event_source("w", &s).unwrap();
         assert!(fresh.is_ascii(), "{fresh}");
-        let key = handler_key(&s.actions[0]);
+        let key = handler_key(&s.handlers[0]);
         let written = insert_code(&fresh, &key, "        int nKept = 1;\n").unwrap();
         assert!(!edited_outside("w", &written));
         assert_eq!(merge_events("w", &s, Some(&written)).unwrap(), written);
@@ -929,7 +935,7 @@ mod tests {
     #[test]
     fn a_second_handler_for_one_event_gets_no_section() {
         let s = handlers(vec![
-            Route::new("click", "ok", Action::Close),
+            Handler::new("click", "ok", Action::Close),
             code("click", "ok"),
             code("open", "a"),
             code("open", "b"),
@@ -957,7 +963,7 @@ mod tests {
     fn a_handler_keeps_fields_the_crate_does_not_know() {
         let raw = json!({"event": "click", "element": "ok", "action": "toggle", "bind": "flag",
             "note": [1, {"deep": true}], "zeta": null});
-        let handler: Route = serde_json::from_value(raw.clone()).unwrap();
+        let handler: Handler = serde_json::from_value(raw.clone()).unwrap();
         assert_eq!(handler.action, Action::Toggle { bind: "flag".into() });
         assert_eq!(handler.extra.keys().collect::<Vec<_>>(), ["note", "zeta"]);
         assert_eq!(serde_json::to_value(&handler).unwrap(), raw);
@@ -966,14 +972,14 @@ mod tests {
     #[test]
     fn a_handler_is_written_as_it_was_before_it_kept_unknown_fields() {
         let handler =
-            Route::new("click", "set", Action::Set { bind: "caption".into(), value: json!("x") });
+            Handler::new("click", "set", Action::Set { bind: "caption".into(), value: json!("x") });
         assert_eq!(
             serde_json::to_string(&handler).unwrap(),
             r#"{"event":"click","element":"set","action":"set","bind":"caption","value":"x"}"#
         );
-        let show = Action::View { group: "g".into(), view: "v".into() };
+        let show = Action::Variant { group: "g".into(), variant: "v".into() };
         assert_eq!(
-            serde_json::to_string(&Route::new("open", "", show)).unwrap(),
+            serde_json::to_string(&Handler::new("open", "", show)).unwrap(),
             r#"{"event":"open","element":"","action":"view","group":"g","view":"v"}"#
         );
     }
@@ -985,7 +991,7 @@ mod tests {
             json!({"event": "click", "element": "ok", "action": 7}),
             json!({"event": "click", "element": "ok", "action": null}),
         ] {
-            let handler: Route = serde_json::from_value(raw.clone()).unwrap();
+            let handler: Handler = serde_json::from_value(raw.clone()).unwrap();
             assert_eq!(handler.action, Action::Other(raw["action"].clone()));
             assert_eq!(serde_json::to_value(&handler).unwrap(), raw);
         }
@@ -1002,7 +1008,7 @@ mod tests {
             json!({"event": "click", "element": "ok", "action": "view", "group": "g"}),
             json!("click"),
         ] {
-            assert!(serde_json::from_value::<Route>(raw.clone()).is_err(), "{raw}");
+            assert!(serde_json::from_value::<Handler>(raw.clone()).is_err(), "{raw}");
         }
     }
 

@@ -8,7 +8,7 @@ use mg_edit::Workspace;
 use mg_module::Module;
 use mg_module::build::Remembered;
 use mg_module::external_compiler::ExternalCompiler;
-use mg_nui::{Action, Binding, Build, Generated, NuiError, Route, Settings, Severity};
+use mg_nui::{Action, Binding, Build, Generated, Handler, NuiError, Settings, Severity};
 use mg_resman::{GameInstall, ResKey, ResMan};
 use mg_testkit::corpus;
 use serde_json::{Value, json};
@@ -55,8 +55,8 @@ fn compiled(ws: &Workspace, name: &str) -> bool {
     ws.module.get(&key(name, ResType::NCS)).is_some_and(|b| b.starts_with(b"NCS "))
 }
 
-fn click(element: &str, action: Action) -> Route {
-    Route::new("click", element, action)
+fn click(element: &str, action: Action) -> Handler {
+    Handler::new("click", element, action)
 }
 
 #[test]
@@ -171,7 +171,7 @@ fn a_removed_handlers_code_stays_in_the_built_script_commented_out() {
     build(&mut ws, &rm);
     let mut settings =
         Settings::parse(ws.module.get(&key("test_nui", ResType::TXT)).unwrap()).unwrap();
-    settings.actions.clear();
+    settings.handlers.clear();
     ws.module.set(key("test_nui", ResType::TXT), settings.bytes());
     build(&mut ws, &rm);
     let script = text(&ws, "test_nui_e");
@@ -227,17 +227,17 @@ fn handlers_that_show_variants_in_nested_groups_compile_in_both_deliveries() {
                     {"type":"label","value":"Original"}]}]},
             {"type":"label","value":"Fixed footer"}]);
         let mut settings = Settings { from_resref, ..Default::default() };
-        settings.views.insert("details".into(), json!({"type":"col","children":[
+        settings.variants.insert("details".into(), json!({"type":"col","children":[
             {"type":"button","id":"inner_next","label":"Inner next"},
             {"type":"group","id":"nested","children":[{"type":"label","value":"Inner original"}]}]}));
         settings
-            .views
+            .variants
             .insert("inner_details".into(), json!({"type":"label","value":"Inner replaced"}));
         for (element, group, view) in
             [("next", "panel", "details"), ("inner_next", "nested", "inner_details")]
         {
-            let show = Action::View { group: group.into(), view: view.into() };
-            settings.actions.push(click(element, show));
+            let show = Action::Variant { group: group.into(), variant: view.into() };
+            settings.handlers.push(click(element, show));
         }
         let mut ws = project_of(&doc, &settings);
         build(&mut ws, &rm);
@@ -265,7 +265,7 @@ fn handlers_of_focus_and_of_a_lists_range_compile() {
     let mut s = Settings::default();
     s.bindings.insert("text".into(), Binding { value: json!(""), ..Default::default() });
     for (event, element) in [("focus", "edit"), ("blur", "edit"), ("range", "rows")] {
-        s.actions.push(Route::new(event, element, Action::Close));
+        s.handlers.push(Handler::new(event, element, Action::Close));
     }
     let mut ws = project_of(&doc, &s);
     build(&mut ws, &rm);
@@ -297,7 +297,7 @@ fn every_kind_of_handler_and_names_no_literal_holds_compile() {
     ] {
         s.bindings.insert(name.into(), Binding { value, watch: true, ..Default::default() });
     }
-    s.views.insert(
+    s.variants.insert(
         "details 🐉".into(),
         json!({"type":"col","children":[{"type":"label","value":{"bind":"caption"}}]}),
     );
@@ -305,13 +305,13 @@ fn every_kind_of_handler_and_names_no_literal_holds_compile() {
         ("toggle", Action::Toggle { bind: "flag".into() }),
         ("set", Action::Set { bind: "caption".into(), value: json!("Zażółć 🐉") }),
         ("array", Action::Toggle { bind: "rows".into() }),
-        ("page", Action::View { group: "pages".into(), view: "details 🐉".into() }),
+        ("page", Action::Variant { group: "pages".into(), variant: "details 🐉".into() }),
         ("Żółw \"x\"", Action::Set { bind: "zażółć".into(), value: json!({"a": [1, 2.5]}) }),
         ("close", Action::Close),
     ] {
-        s.actions.push(click(element, action));
+        s.handlers.push(click(element, action));
     }
-    s.actions.push(Route::new(
+    s.handlers.push(Handler::new(
         "watch",
         "flag",
         Action::Set { bind: "caption".into(), value: json!("watched") },
@@ -326,7 +326,7 @@ fn every_kind_of_handler_and_names_no_literal_holds_compile() {
     assert!(ws.module.get(&key("test_nui_o", ResType::NSS)).unwrap().is_ascii());
     // Code in the section of the control whose name no literal holds is
     // kept by the next Build.
-    let odd = mg_nui::handler_key(&s.actions[4]);
+    let odd = mg_nui::handler_key(&s.handlers[4]);
     let written =
         mg_nui::insert_code(&text(&ws, "test_nui_e"), &odd, "        int nKept = 1;\n").unwrap();
     ws.module.set(key("test_nui_e", ResType::NSS), written.clone().into_bytes());
@@ -343,12 +343,12 @@ fn a_new_handler_makes_the_built_scripts_out_of_date() {
     let built = Settings::parse(ws.module.get(&key("test_nui", ResType::TXT)).unwrap()).unwrap();
     assert!(mg_nui::is_current(&ws.module, "test_nui", &w, &built));
     let mut more = built.clone();
-    more.actions.push(Route::new("open", "", Action::Code));
+    more.handlers.push(Handler::new("open", "", Action::Code));
     assert!(!mg_nui::is_current(&ws.module, "test_nui", &w, &more));
     // A handler's action is only the code it starts with: changing it is
     // no change to what was built.
     let mut other = built.clone();
-    other.actions[0].action = Action::Code;
+    other.handlers[0].action = Action::Code;
     assert!(mg_nui::is_current(&ws.module, "test_nui", &w, &other));
 }
 
@@ -453,7 +453,7 @@ fn an_opener_changed_by_hand_after_a_build_is_not_written_over() {
 fn an_event_script_written_before_the_first_build_is_the_windows() {
     let rm = game(&corpus!());
     let mut s = Settings::default();
-    s.actions.push(Route::new("open", "", Action::Code));
+    s.handlers.push(Handler::new("open", "", Action::Code));
     let mut ws = project_of(&mg_nui::window(), &s);
     let early = mg_nui::insert_code(
         &mg_nui::event_source("test_nui", &s).unwrap(),
@@ -611,12 +611,12 @@ fn a_variant_edited_after_its_handler_was_written_reaches_the_next_build() {
         {"type":"group","id":"pages","children":[{"type":"col","children":[{"type":"label","value":"First"}]}]}
     ]});
     let mut s = Settings::default();
-    s.views.insert(
+    s.variants.insert(
         "details page".into(),
         json!({"type":"col","children":[{"type":"label","value":"Old text"}]}),
     );
-    s.view_targets.insert("details page".into(), "pages".into());
-    s.actions.push(click("next", Action::Code));
+    s.variant_targets.insert("details page".into(), "pages".into());
+    s.handlers.push(click("next", Action::Code));
     let mut ws = project_of(&w, &s);
     build(&mut ws, &rm);
     let function = mg_nui::variant_function("test_nui", "details page");
@@ -634,7 +634,7 @@ fn a_variant_edited_after_its_handler_was_written_reaches_the_next_build() {
     assert!(opener.contains("Old text"));
     // Edit the variant and build: the opener has it, the handler is unchanged.
     s = Settings::parse(ws.module.get(&key("test_nui", ResType::TXT)).unwrap()).unwrap();
-    s.views.insert(
+    s.variants.insert(
         "details page".into(),
         json!({"type":"col","children":[{"type":"label","value":"New text"}]}),
     );

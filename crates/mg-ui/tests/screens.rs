@@ -4398,11 +4398,11 @@ fn nui_creator() {
             {"type":0,"points":[195.0,70.0,260.0,20.0,320.0,65.0,395.0,15.0],"color":{"r":80,"g":180,"b":240,"a":255},"line_thickness":3.0}
         ]}
     ]);
-    settings.views.insert("details".into(), json!({"type":"label","value":"Details view"}));
-    settings.actions = vec![mg_nui::Route {
+    settings.variants.insert("details".into(), json!({"type":"label","value":"Details view"}));
+    settings.handlers = vec![mg_nui::Handler {
         event: "click".into(),
         element: "next".into(),
-        action: mg_nui::Action::View { group: "view_host".into(), view: "details".into() },
+        action: mg_nui::Action::Variant { group: "view_host".into(), variant: "details".into() },
         extra: Default::default(),
     }];
     set(h.state_mut(), &window, &settings);

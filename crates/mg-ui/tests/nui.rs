@@ -134,12 +134,12 @@ fn a_bind_made_for_a_property_and_its_handler_are_undone_on_the_design_page() {
     h.get_all_by_label("+ Add handler").last().unwrap().click();
     h.run();
     assert_eq!(settings(&h).bindings["label_value"].value, json!("Label"));
-    assert!(settings(&h).actions.iter().any(|r| r.event == "watch"
+    assert!(settings(&h).handlers.iter().any(|r| r.event == "watch"
         && r.element == "label_value"
         && r.action == mg_nui::Action::Code));
     h.state_mut().ws.as_mut().unwrap().undo().unwrap();
     h.run();
-    assert!(!settings(&h).actions.iter().any(|r| r.event == "watch"));
+    assert!(!settings(&h).handlers.iter().any(|r| r.event == "watch"));
     h.state_mut().ws.as_mut().unwrap().undo().unwrap();
     h.run();
     assert_eq!(document(&h), before);
@@ -166,7 +166,7 @@ fn handlers_follow_a_renamed_control_and_go_with_a_deleted_one() {
     // (Set when the field is left.)
     h.key_press(egui::Key::Tab);
     h.run();
-    assert!(settings(&h).actions.iter().any(|r| r.event == "click" && r.element == "mg_close_x"));
+    assert!(settings(&h).handlers.iter().any(|r| r.event == "click" && r.element == "mg_close_x"));
     assert!(script(&h).contains("// mg:begin click mg_close_x\n"));
     assert!(!script(&h).contains("// mg:begin click mg_close\n"));
     // The guard follows too, so the script still builds.
@@ -180,11 +180,11 @@ fn handlers_follow_a_renamed_control_and_go_with_a_deleted_one() {
     h.run();
     h.key_press(egui::Key::Delete);
     h.run();
-    assert!(!settings(&h).actions.iter().any(|r| r.event == "click"));
+    assert!(!settings(&h).handlers.iter().any(|r| r.event == "click"));
     assert!(
         mg_nui::validate(
             &document(&h),
-            &Settings { actions: settings(&h).actions, ..Default::default() }
+            &Settings { handlers: settings(&h).handlers, ..Default::default() }
         )
         .iter()
         .all(|d| !d.message.contains("Unknown element ID"))
@@ -890,7 +890,7 @@ fn cancel_sets_back_the_window_and_keeps_the_code_written_in_the_event_script() 
     assert!(after.contains(mine.trim_end()), "the code is kept: {after}");
     // Around the handlers that are back: as Build would write it.
     assert!(!mg_nui::edited_outside("nui_test", &after));
-    for handler in &opened.1.actions {
+    for handler in &opened.1.handlers {
         let begin = format!("{}{}", mg_nui::BEGIN, mg_nui::handler_key(handler));
         assert!(after.contains(&begin), "{begin}: {after}");
     }
@@ -1298,7 +1298,7 @@ fn windows_written_by_hand_reach_every_page_and_interact() {
     settings
         .bindings
         .insert("geometry".into(), Binding { value: json!("x"), ..Default::default() });
-    settings.views.insert("broken".into(), json!({"type":"group","children":7}));
+    settings.variants.insert("broken".into(), json!({"type":"group","children":7}));
     for window in windows {
         let mut app = app();
         let ws = app.ws.as_mut().unwrap();
@@ -1469,7 +1469,7 @@ fn a_selection_undo_takes_away_is_cleared() {
 fn events_harness(action: mg_nui::Action) -> Harness<'static, Moonglow> {
     let mut app = app();
     let settings = Settings {
-        actions: vec![mg_nui::Route::new("click", "mg_close", action)],
+        handlers: vec![mg_nui::Handler::new("click", "mg_close", action)],
         ..Default::default()
     };
     app.ws.as_mut().unwrap().module.set(ResKey::new(key().resref, ResType::TXT), settings.bytes());
@@ -1497,7 +1497,7 @@ fn the_bindings_page_adds_a_bind_s_change_handler() {
     h.run();
     let after = settings(&h);
     assert!(
-        after.actions.iter().any(|r| r.event == "watch"
+        after.handlers.iter().any(|r| r.event == "watch"
             && r.element == "volume"
             && r.action == mg_nui::Action::Code)
     );
@@ -1529,12 +1529,12 @@ fn binds_are_renamed_and_deleted_with_their_handlers() {
     h.run();
     let renamed = settings(&h);
     assert!(renamed.bindings.contains_key("volume_2") && !renamed.bindings.contains_key("volume"));
-    assert!(renamed.actions.iter().any(|r| r.event == "watch" && r.element == "volume_2"));
+    assert!(renamed.handlers.iter().any(|r| r.event == "watch" && r.element == "volume_2"));
     h.get_by_label("Delete").click();
     h.run();
     let deleted = settings(&h);
     assert!(deleted.bindings.is_empty());
-    assert!(!deleted.actions.iter().any(|r| r.event == "watch"));
+    assert!(!deleted.handlers.iter().any(|r| r.event == "watch"));
 }
 
 /// A drag that begins on the editor's page moves nothing: the window the
@@ -1851,8 +1851,8 @@ fn a_window_is_laid_out_in_the_states_binds_and_variant_asked() {
     let mut lost = fixture("cries");
     let txt = ResKey::parse("cries", ResType::TXT).unwrap();
     let mut s = Settings::parse(lost.get(&txt).unwrap()).unwrap();
-    s.actions.clear();
-    s.view_targets.clear();
+    s.handlers.clear();
+    s.variant_targets.clear();
     lost.set(txt, s.bytes());
     let o = Options { variant: Some("details".into()), ..Default::default() };
     let e = layout(&cries_window(&lost), &o).unwrap_err().to_string();

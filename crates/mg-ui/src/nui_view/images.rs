@@ -14,7 +14,7 @@ const TYPES: [ResType; 5] = [ResType::JPG, ResType::TGA, ResType::PNG, ResType::
 fn used(doc: &Value, s: &Settings) -> BTreeSet<String> {
     let mut names = BTreeSet::new();
     skin::names(doc, s, &mut names);
-    for view in s.views.values() {
+    for view in s.variants.values() {
         skin::names(view, s, &mut names);
     }
     names

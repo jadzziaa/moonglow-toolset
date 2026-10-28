@@ -32,15 +32,15 @@ pub(super) fn edit(state: &mut State, view: Option<String>) {
 // Editor metadata associates a newly authored variant with its intended host.
 // It does not create a runtime action; the user must save an explicit event.
 fn remember_target(s: &mut Settings, view: &str, group: &str) {
-    s.view_targets.insert(view.into(), group.into());
+    s.variant_targets.insert(view.into(), group.into());
 }
 
 pub(super) fn target_for(s: &Settings, view: &str) -> Option<String> {
     let targets: std::collections::BTreeSet<_> = s
-        .actions
+        .handlers
         .iter()
         .filter_map(|r| {
-            if let mg_nui::Action::View { group, view: name } = &r.action
+            if let mg_nui::Action::Variant { group, variant: name } = &r.action
                 && name == view
             {
                 Some(group.clone())
@@ -52,7 +52,7 @@ pub(super) fn target_for(s: &Settings, view: &str) -> Option<String> {
     if targets.len() == 1 {
         return targets.into_iter().next();
     }
-    s.view_targets.get(view).cloned()
+    s.variant_targets.get(view).cloned()
 }
 
 fn group_mut<'a>(v: &'a mut Value, id: &str) -> Option<&'a mut Value> {
@@ -76,7 +76,11 @@ pub(super) fn context_document(
 }
 
 pub(super) fn variants(s: &Settings, group: &str) -> Vec<String> {
-    s.views.keys().filter(|name| target_for(s, name).as_deref() == Some(group)).cloned().collect()
+    s.variants
+        .keys()
+        .filter(|name| target_for(s, name).as_deref() == Some(group))
+        .cloned()
+        .collect()
 }
 
 pub(super) fn is_swap(s: &Settings, node: &Value) -> bool {
@@ -109,7 +113,7 @@ pub(super) fn canvas_context(doc: &Value, s: &Settings, state: &State) -> Option
     let main = state.main_doc.as_ref()?;
     let target = target_for(s, view)?;
     let mut current = s.clone();
-    current.views.insert(view.into(), doc["root"].clone());
+    current.variants.insert(view.into(), doc["root"].clone());
     let shown = context_document(main, &current, view, &target)?;
     let prefix = if target == "_window_" {
         "/root".into()
@@ -157,7 +161,7 @@ fn context_document_inner(
     if !visited.insert(view.into()) {
         return None;
     }
-    let layout = s.views.get(view)?;
+    let layout = s.variants.get(view)?;
     let mut result = doc.clone();
     if target == "_window_" {
         result["root"] = layout.clone();
@@ -165,7 +169,7 @@ fn context_document_inner(
         // A target may itself exist only in another alternate layout.
         if group_mut(&mut result["root"], target).is_none() {
             result = s
-                .views
+                .variants
                 .iter()
                 .filter(|(n, v)| n.as_str() != view && mg_nui::group_ids(v).contains(target))
                 .find_map(|(parent, _)| {
@@ -184,7 +188,7 @@ fn make_group(doc: &mut Value, s: &mut Settings, path: &str) -> Option<String> {
         return None;
     }
     let mut ids = mg_nui::element_ids(doc);
-    for layout in s.views.values() {
+    for layout in s.variants.values() {
         ids.extend(mg_nui::element_ids(layout));
     }
     let existing_group = node["type"] == "group";
@@ -227,7 +231,7 @@ fn create(ui: &mut Ui, s: &mut Settings, copy: Option<&Value>) -> Option<String>
         let copied = copy.filter(|_| ui.button("Copy initial contents").clicked()).cloned();
         if draft.is_none() && (empty || copied.is_some()) {
             draft = Some(Draft {
-                name: unique("variant", |n| s.views.contains_key(n)),
+                name: unique("variant", |n| s.variants.contains_key(n)),
                 root: copied.unwrap_or_else(|| mg_nui::template("col")),
             });
         }
@@ -251,7 +255,7 @@ fn create(ui: &mut Ui, s: &mut Settings, copy: Option<&Value>) -> Option<String>
                 draft.root["type"] = json!(if horizontal { "row" } else { "col" });
             }
             let name = draft.name.trim();
-            let valid = !name.is_empty() && !name.contains('\0') && !s.views.contains_key(name);
+            let valid = !name.is_empty() && !name.contains('\0') && !s.variants.contains_key(name);
             if !valid {
                 ui.weak("The variant needs a name no other variant has.");
             }
@@ -259,7 +263,7 @@ fn create(ui: &mut Ui, s: &mut Settings, copy: Option<&Value>) -> Option<String>
                 if ui.add_enabled(valid, egui::Button::new("Create")).clicked()
                     || (valid && widgets::enter(ui))
                 {
-                    s.views.insert(name.into(), draft.root.clone());
+                    s.variants.insert(name.into(), draft.root.clone());
                     result = Some(name.to_owned());
                     finish = true;
                 }
@@ -290,7 +294,7 @@ fn select_host(state: &mut State, s: &Settings, target: &str) -> bool {
         return true;
     }
     if let Some((name, path)) = s
-        .views
+        .variants
         .iter()
         .find_map(|(name, root)| group_path(root, target, "/root").map(|path| (name.clone(), path)))
     {
@@ -303,7 +307,7 @@ fn select_host(state: &mut State, s: &Settings, target: &str) -> bool {
 }
 
 pub(super) fn bar(ui: &mut Ui, s: &Settings, state: &mut State) {
-    if state.edit_view.as_ref().is_some_and(|name| !s.views.contains_key(name)) {
+    if state.edit_view.as_ref().is_some_and(|name| !s.variants.contains_key(name)) {
         edit(state, None);
     }
     if let Some(name) = state.edit_view.clone() {
@@ -380,7 +384,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, s: &mut Settings, state: &
             if let Some(name) = create(ui, s, contents.as_ref()) {
                 if group.is_empty() {
                     let mut ids = mg_nui::element_ids(doc);
-                    for v in s.views.values() {
+                    for v in s.variants.values() {
                         ids.extend(mg_nui::element_ids(v));
                     }
                     group = unique("swap_group", |n| ids.contains(n));
@@ -388,7 +392,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, s: &mut Settings, state: &
                         node["id"] = json!(group);
                     }
                 }
-                // Registration is editor metadata only; generation still uses Action::View.
+                // Registration is editor metadata only; generation still uses Action::Variant.
                 remember_target(s, &name, &group);
                 state.layout_target = group.clone();
                 edit(state, Some(name));
@@ -451,8 +455,8 @@ mod tests {
         let slot = doc["root"]["children"].as_array().unwrap().last().unwrap();
         assert_eq!(slot["type"], "group");
         assert!(is_swap(&s, slot));
-        assert!(s.views.is_empty());
-        assert!(s.actions.is_empty());
+        assert!(s.variants.is_empty());
+        assert!(s.handlers.is_empty());
         assert!(mg_nui::validate(&doc, &s).iter().all(|d| d.severity != Severity::Error));
     }
 
@@ -491,8 +495,11 @@ mod tests {
         let authored = read(&h);
         assert_eq!(authored.0, initial.0);
         assert_eq!(target_for(&authored.1, "variant").as_deref(), Some(id));
-        assert_eq!(authored.1.views["variant"]["type"], "row");
-        assert!(authored.1.actions.is_empty(), "Creating variants must not install a switch event");
+        assert_eq!(authored.1.variants["variant"]["type"], "row");
+        assert!(
+            authored.1.handlers.is_empty(),
+            "Creating variants must not install a switch event"
+        );
         h.get_by_label("Swap layout properties").click();
         h.run();
         h.get_by_label("Edit variant · variant");
@@ -505,7 +512,7 @@ mod tests {
     #[test]
     fn returning_to_a_nested_swap_host_selects_the_parent_variant() {
         let mut s = Settings::default();
-        s.views.insert(
+        s.variants.insert(
             "outer".into(),
             json!({"type":"col","children":[
             {"type":"group","id":"inner","children":[{"type":"col","children":[]}]}]}),
@@ -529,7 +536,7 @@ mod tests {
     #[test]
     fn palette_drop_into_variant_tree_does_not_modify_main_layout() {
         let mut s = Settings::default();
-        s.views.insert(
+        s.variants.insert(
             "details".into(),
             json!({"type":"col","children":[{"type":"label","value":"Variant only"}]}),
         );
@@ -563,8 +570,8 @@ mod tests {
         h.run();
         let edited = read(&h);
         assert_eq!(edited.0, original.0);
-        assert_eq!(edited.1.views["details"]["children"][1]["type"], "row");
-        assert!(edited.1.actions.is_empty());
+        assert_eq!(edited.1.variants["details"]["children"][1]["type"], "row");
+        assert!(edited.1.handlers.is_empty());
         h.state_mut().ws.as_mut().unwrap().undo().unwrap();
         h.run();
         assert_eq!(read(&h), original);
@@ -573,14 +580,14 @@ mod tests {
     #[test]
     fn tree_variant_is_edited_in_its_slot_without_writing_surroundings() {
         let mut s = Settings::default();
-        s.views.insert(
+        s.variants.insert(
             "details".into(),
             json!({"type":"row","children":[
             {"type":"label","value":"Left","width":150.0,"height":30.0},
             {"type":"label","value":"Right","width":150.0,"height":30.0}]}),
         );
         remember_target(&mut s, "details", "content");
-        s.views.insert("other".into(), json!({"type":"col","children":[]}));
+        s.variants.insert("other".into(), json!({"type":"col","children":[]}));
         remember_target(&mut s, "other", "content");
         let mut h = harness(s);
         let mut doc = mg_nui::window();
@@ -621,8 +628,8 @@ mod tests {
         h.run();
         let edited = read(&h);
         assert_eq!(edited.0, original.0, "Authoring overwrote the surrounding main document");
-        assert_eq!(edited.1.views["details"]["children"].as_array().unwrap().len(), 3);
-        assert!(edited.1.actions.is_empty(), "Editing a variant created an event");
+        assert_eq!(edited.1.variants["details"]["children"].as_array().unwrap().len(), 3);
+        assert!(edited.1.handlers.is_empty(), "Editing a variant created an event");
         h.state_mut().ws.as_mut().unwrap().undo().unwrap();
         h.run();
         assert_eq!(read(&h), original);
@@ -671,7 +678,7 @@ mod tests {
             original["root"]["children"][1]["children"][0]
         );
         assert_eq!(doc["root"]["children"][2], original["root"]["children"][2]);
-        assert!(settings.actions.is_empty());
+        assert!(settings.handlers.is_empty());
         assert!(mg_nui::validate(&doc, &settings).iter().all(|d| d.severity != Severity::Error));
     }
 
@@ -684,24 +691,24 @@ mod tests {
                     "children":[{"type":"label","value":"Before"}]}]},
             {"type":"button","id":"close","label":"Close"}]}});
         let mut settings = Settings::default();
-        settings.views.insert(
+        settings.variants.insert(
             "details".into(),
             json!({"type":"row","children":[
             {"type":"group","id":"nested","children":[{"type":"label","value":"Inner before"}]}]}),
         );
-        settings.views.insert("inner".into(), json!({"type":"label","value":"Inner after"}));
+        settings.variants.insert("inner".into(), json!({"type":"label","value":"Inner after"}));
         remember_target(&mut settings, "details", "content");
         let original = settings.clone();
         let result = context_document(&doc, &settings, "details", "content").unwrap();
         let mut expected = doc.clone();
         expected["root"]["children"][1]["children"][1]["children"] =
-            json!([settings.views["details"]]);
+            json!([settings.variants["details"]]);
         assert_eq!(result, expected);
         let nested = context_document(&doc, &settings, "inner", "nested").unwrap();
         assert_eq!(
             nested["root"]["children"][1]["children"][1]["children"][0]["children"][0]["children"]
                 [0],
-            settings.views["inner"]
+            settings.variants["inner"]
         );
         assert_eq!(nested["root"]["children"][0], doc["root"]["children"][0]);
         assert!(context_document(&doc, &settings, "details", "missing").is_none());
@@ -722,14 +729,14 @@ mod tests {
             wrapped.0["root"]["children"][1]["children"][0]["children"][0],
             before.0["root"]["children"][1]
         );
-        assert!(wrapped.1.actions.is_empty());
+        assert!(wrapped.1.handlers.is_empty());
         assert!(is_swap(&wrapped.1, &wrapped.0["root"]["children"][1]));
         h.get_by_label("Copy initial contents").click();
         h.run();
         h.get_by_label("Create").click();
         h.run();
         let authored = read(&h);
-        assert!(authored.1.actions.is_empty());
+        assert!(authored.1.handlers.is_empty());
         assert_eq!(target_for(&authored.1, "variant").as_deref(), Some("swap_group"));
         h.get_by_label("Context Label · Original content");
         assert_eq!(read(&h), authored, "Context projection must never alter the module");
@@ -764,7 +771,7 @@ mod tests {
         h.get_by_label("Create").click();
         h.run();
         let (doc, settings) = read(&h);
-        assert_eq!(settings.views["variant"], before.0["root"]["children"][0]["children"][0]);
+        assert_eq!(settings.variants["variant"], before.0["root"]["children"][0]["children"][0]);
         assert_eq!(doc["root"]["children"][0]["id"], "swap_group");
         assert_eq!(doc["root"]["children"][1], before.0["root"]["children"][1]);
         h.get_by_label("Back to main window").click();

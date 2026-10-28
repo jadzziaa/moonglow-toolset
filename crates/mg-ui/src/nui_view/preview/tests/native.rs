@@ -238,7 +238,7 @@ fn native_geometry_actions_obey_bound_limits_without_editing_source() {
         Binding { value: json!({"x":360.0,"y":300.0,"w":780.0,"h":700.0}), ..Default::default() },
     );
     for (id, w, height) in [("small", 100.0, 200.0), ("large", 1000.0, 900.0)] {
-        settings.actions.push(mg_nui::Route {
+        settings.handlers.push(mg_nui::Handler {
             event: "click".into(),
             element: id.into(),
             action: mg_nui::Action::Set {

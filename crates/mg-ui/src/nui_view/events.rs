@@ -101,7 +101,7 @@ pub(super) fn sync_script(
 ) -> Option<Edit> {
     let (old, new) =
         (Settings::parse(old_config.as_bytes()).ok()?, Settings::parse(config.as_bytes()).ok()?);
-    let keys = |s: &Settings| s.actions.iter().map(mg_nui::handler_key).collect::<Vec<_>>();
+    let keys = |s: &Settings| s.handlers.iter().map(mg_nui::handler_key).collect::<Vec<_>>();
     if keys(&old) == keys(&new) {
         return None;
     }
@@ -171,7 +171,7 @@ pub(super) fn follow_controls(
     let ids = |doc: &Value, s: &Settings| {
         let mut ids = Vec::new();
         id_list(doc, &mut ids);
-        for v in s.views.values() {
+        for v in s.variants.values() {
             id_list(v, &mut ids);
         }
         ids
@@ -179,16 +179,16 @@ pub(super) fn follow_controls(
     let (before, after) = (ids(&old_window, &old), ids(&new_window, &s));
     let gone: Vec<_> = before.iter().filter(|i| !after.contains(i)).cloned().collect();
     let came: Vec<_> = after.iter().filter(|i| !before.contains(i)).cloned().collect();
-    let controls = |r: &mg_nui::Route| !matches!(r.event.as_str(), "open" | "close" | "watch");
+    let controls = |r: &mg_nui::Handler| !matches!(r.event.as_str(), "open" | "close" | "watch");
     // Names code spells, renamed: an ID, a bind.
     let mut names = Vec::new();
     if let ([from], [to]) = (gone.as_slice(), came.as_slice()) {
         names.push((from.clone(), to.clone()));
-        for route in s.actions.iter_mut().filter(|r| controls(r) && r.element == *from) {
-            route.element = to.clone();
+        for handler in s.handlers.iter_mut().filter(|r| controls(r) && r.element == *from) {
+            handler.element = to.clone();
         }
     } else if after.len() < before.len() {
-        s.actions.retain(|r| !(controls(r) && gone.contains(&r.element)));
+        s.handlers.retain(|r| !(controls(r) && gone.contains(&r.element)));
     }
     if s != Settings::parse(config.as_bytes()).ok()? {
         *config = String::from_utf8(s.bytes()).ok()?;
@@ -202,15 +202,15 @@ pub(super) fn follow_controls(
         }
     };
     names.extend(one_renamed(old.bindings.keys().collect(), s.bindings.keys().collect()));
-    let calls: Vec<_> = one_renamed(old.views.keys().collect(), s.views.keys().collect())
+    let calls: Vec<_> = one_renamed(old.variants.keys().collect(), s.variants.keys().collect())
         .map(|(f, t)| (mg_nui::variant_function(name, &f), mg_nui::variant_function(name, &t)))
         .into_iter()
         .collect();
     // Handlers renamed in place: by this frame's edit (a bind renamed) or
     // just above (a control's ID).
     let mut renamed = Vec::new();
-    if old.actions.len() == s.actions.len() {
-        for (a, b) in old.actions.iter().zip(&s.actions) {
+    if old.handlers.len() == s.handlers.len() {
+        for (a, b) in old.handlers.iter().zip(&s.handlers) {
             if a.event == b.event && a.element != b.element {
                 renamed.push((a, b));
             }
@@ -309,7 +309,7 @@ fn node_by_id<'a>(doc: &'a Value, s: &'a Settings, id: &str) -> Option<&'a Value
             _ => None,
         }
     }
-    find(doc, id).or_else(|| s.views.values().find_map(|v| find(v, id)))
+    find(doc, id).or_else(|| s.variants.values().find_map(|v| find(v, id)))
 }
 
 fn node<'a>(target: &Target, doc: &'a Value, s: &'a Settings) -> Option<&'a Value> {
@@ -345,11 +345,11 @@ fn choices(target: &Target, doc: &Value, s: &Settings) -> Vec<&'static str> {
     }
 }
 
-fn route_target(route: &mg_nui::Route) -> Target {
-    match route.event.as_str() {
+fn handler_target(handler: &mg_nui::Handler) -> Target {
+    match handler.event.as_str() {
         "open" | "close" => Target::Window,
-        "watch" => Target::Bind(route.element.clone()),
-        _ => Target::Id(route.element.clone()),
+        "watch" => Target::Bind(handler.element.clone()),
+        _ => Target::Id(handler.element.clone()),
     }
 }
 
@@ -372,7 +372,7 @@ fn element(target: &Target, event: &str, doc: &mut Value, s: &Settings, state: &
             let base = format!("{}_event", node["type"].as_str().unwrap_or("control"));
             let mut ids = mg_nui::element_ids(state.main_doc.as_ref().unwrap_or(doc));
             ids.extend(mg_nui::element_ids(doc));
-            for v in s.views.values() {
+            for v in s.variants.values() {
                 ids.extend(mg_nui::element_ids(v));
             }
             let mut id = base.clone();
@@ -400,9 +400,10 @@ fn target_name(target: &Target, doc: &Value) -> String {
 
 /// Ready-made code to add to a handler: what the old actions did. A menu
 /// with nothing to offer is off, saying why.
-fn insert_menu(ui: &mut Ui, route: &mg_nui::Route, s: &Settings) -> Option<String> {
-    let with =
-        |action| mg_nui::handler_code(WINDOW, &mg_nui::Route { action, ..route.clone() }, s).ok();
+fn insert_menu(ui: &mut Ui, handler: &mg_nui::Handler, s: &Settings) -> Option<String> {
+    let with = |action| {
+        mg_nui::handler_code(WINDOW, &mg_nui::Handler { action, ..handler.clone() }, s).ok()
+    };
     let flags: Vec<_> = s
         .bindings
         .iter()
@@ -413,7 +414,7 @@ fn insert_menu(ui: &mut Ui, route: &mg_nui::Route, s: &Settings) -> Option<Strin
         .map(|(n, _)| n.clone())
         .collect();
     let groups: std::collections::BTreeSet<_> =
-        s.views.keys().filter_map(|v| layouts::target_for(s, v)).collect();
+        s.variants.keys().filter_map(|v| layouts::target_for(s, v)).collect();
     let mut code = None;
     ui.menu_button("Insert…", |ui| {
         if ui.button("Close window").clicked() {
@@ -453,14 +454,14 @@ fn insert_menu(ui: &mut Ui, route: &mg_nui::Route, s: &Settings) -> Option<Strin
         submenu(
             ui,
             "Show variant",
-            s.views.is_empty(),
+            s.variants.is_empty(),
             "No swap layout variants yet: add one in Design",
             &mut |ui| {
-                for view in s.views.keys() {
+                for view in s.variants.keys() {
                     if ui.button(view).clicked() {
                         let group =
                             layouts::target_for(s, view).unwrap_or_else(|| "_window_".into());
-                        code = with(mg_nui::Action::View { group, view: view.clone() });
+                        code = with(mg_nui::Action::Variant { group, variant: view.clone() });
                     }
                 }
                 for group in &groups {
@@ -504,7 +505,7 @@ pub(super) fn editor(
                 "Each event handled is a section of the event script, where its code is written.",
             );
         }
-        let shown = |r: &mg_nui::Route, doc: &Value| match &scope {
+        let shown = |r: &mg_nui::Handler, doc: &Value| match &scope {
             None => true,
             Some(Target::Control(path)) => {
                 let node = doc.pointer(path);
@@ -514,29 +515,29 @@ pub(super) fn editor(
                     || (!matches!(r.event.as_str(), "open" | "close" | "watch")
                         && id == Some(r.element.as_str()))
             }
-            Some(t) => route_target(r) == *t,
+            Some(t) => handler_target(r) == *t,
         };
         let mut remove = None;
-        for (i, route) in s.actions.clone().iter().enumerate().filter(|(_, r)| shown(r, doc)) {
+        for (i, handler) in s.handlers.clone().iter().enumerate().filter(|(_, r)| shown(r, doc)) {
             ui.push_id(i, |ui| {
                 ui.horizontal_wrapped(|ui| {
-                    widgets::field_label(ui, label(&route.event));
-                    if scope.is_none() || route.event == "watch" {
-                        ui.weak(target_name(&route_target(route), doc));
+                    widgets::field_label(ui, label(&handler.event));
+                    if scope.is_none() || handler.event == "watch" {
+                        ui.weak(target_name(&handler_target(handler), doc));
                     }
-                    let handler = mg_nui::handler_key(route);
+                    let key = mg_nui::handler_key(handler);
                     if ui.button("Edit code").on_hover_text("Open the event script here").clicked()
                     {
                         state.event_script = Some(EventScript {
                             settings: s.clone(),
-                            handler: Some(handler.clone()),
+                            handler: Some(key.clone()),
                             code: None,
                         });
                     }
-                    if let Some(code) = insert_menu(ui, route, s) {
+                    if let Some(code) = insert_menu(ui, handler, s) {
                         state.event_script = Some(EventScript {
                             settings: s.clone(),
-                            handler: Some(handler),
+                            handler: Some(key),
                             code: Some(code),
                         });
                     }
@@ -551,7 +552,7 @@ pub(super) fn editor(
             });
         }
         if let Some(i) = remove {
-            s.actions.remove(i);
+            s.handlers.remove(i);
         }
         // Adding a handler: who sends the event, and which one.
         let add_id = ui.make_persistent_id("add");
@@ -571,7 +572,7 @@ pub(super) fn editor(
                 // the list is used.)
                 let targets = || {
                     let mut ids = mg_nui::element_ids(doc);
-                    for v in s.views.values() {
+                    for v in s.variants.values() {
                         ids.extend(mg_nui::element_ids(v));
                     }
                     let ids = ids.into_iter().map(Target::Id);
@@ -611,13 +612,13 @@ pub(super) fn editor(
                         }
                         (Target::Id(id) | Target::Bind(id), _) => id.clone(),
                     };
-                    let key = mg_nui::handler_key(&mg_nui::Route {
+                    let key = mg_nui::handler_key(&mg_nui::Handler {
                         event: (*e).into(),
                         element,
                         action: mg_nui::Action::Code,
                         extra: Default::default(),
                     });
-                    !s.actions.iter().any(|r| mg_nui::handler_key(r) == key)
+                    !s.handlers.iter().any(|r| mg_nui::handler_key(r) == key)
                 })
                 .collect();
             if free.is_empty() {
@@ -643,7 +644,7 @@ pub(super) fn editor(
             );
             if ui.button("+ Add handler").on_hover_text(explanation(&event)).clicked() {
                 let element = element(t, &event, doc, s, state);
-                s.actions.push(mg_nui::Route::new(event.clone(), element, mg_nui::Action::Code));
+                s.handlers.push(mg_nui::Handler::new(event.clone(), element, mg_nui::Action::Code));
             }
         });
         if let Some(control @ Target::Control(_)) = &scope

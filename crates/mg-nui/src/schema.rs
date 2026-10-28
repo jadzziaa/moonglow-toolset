@@ -2,7 +2,7 @@
 //! needs them: the settings (`NAME.txt`, [`FORMAT`]) as a JSON Schema
 //! ([`settings_schema`]), and the controls of a layout as the Creator makes
 //! them ([`controls`]). `mg nui schema` prints them. The schema is written
-//! here beside [`Settings`] and [`Route`], and its tests hold it to what
+//! here beside [`Settings`] and [`Handler`], and its tests hold it to what
 //! they read and write: a key added to the settings without its place
 //! here fails them.
 
@@ -11,7 +11,7 @@ use serde_json::{Map, Value, json};
 use crate::{ELEMENTS, EVENT_TYPES, FORMAT, template, window};
 
 #[cfg(doc)]
-use crate::{Route, Settings};
+use crate::{Handler, Settings};
 
 /// What a settings key holds, for the schema: its JSON Schema and what it
 /// is for.
@@ -112,7 +112,7 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use super::*;
-    use crate::{Action, Binding, Route, Settings};
+    use crate::{Action, Binding, Handler, Settings};
 
     /// Settings with every key set: what [`Settings`] writes at most.
     fn full() -> Settings {
@@ -127,9 +127,9 @@ mod tests {
         };
         s.bindings
             .insert("b".into(), Binding { value: json!(1), watch: true, ..Default::default() });
-        s.views.insert("v".into(), template("col"));
-        s.view_targets.insert("v".into(), "pages".into());
-        s.actions.push(Route::new("click", "ok", Action::Close));
+        s.variants.insert("v".into(), template("col"));
+        s.variant_targets.insert("v".into(), "pages".into());
+        s.handlers.push(Handler::new("click", "ok", Action::Close));
         s
     }
 
@@ -181,11 +181,11 @@ mod tests {
             Action::Close,
             Action::Toggle { bind: "b".into() },
             Action::Set { bind: "b".into(), value: json!(1) },
-            Action::View { group: "g".into(), view: "v".into() },
+            Action::Variant { group: "g".into(), variant: "v".into() },
         ];
         assert_eq!(by_action.len(), actions.len());
         for action in actions {
-            let written = serde_json::to_value(Route::new("click", "ok", action)).unwrap();
+            let written = serde_json::to_value(Handler::new("click", "ok", action)).unwrap();
             let form = by_action[written["action"].as_str().unwrap()];
             assert_eq!(keys(&written), properties(form), "{written}");
             let required: BTreeSet<String> = form["required"]

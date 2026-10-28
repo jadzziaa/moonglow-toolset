@@ -135,11 +135,11 @@ fn collapse_button_obeys_window_contract_and_reset() {
 fn whole_window_view_changes_only_root_and_reset_restores_it() {
     let mut settings = Settings::default();
     let layout = json!({"type":"label","value":"Details"});
-    settings.views.insert("details".into(), layout.clone());
-    settings.actions.push(mg_nui::Route {
+    settings.variants.insert("details".into(), layout.clone());
+    settings.handlers.push(mg_nui::Handler {
         event: "click".into(),
         element: "details_button".into(),
-        action: mg_nui::Action::View { group: "_window_".into(), view: "details".into() },
+        action: mg_nui::Action::Variant { group: "_window_".into(), variant: "details".into() },
         extra: Default::default(),
     });
     let doc = mg_nui::window();
@@ -150,32 +150,32 @@ fn whole_window_view_changes_only_root_and_reset_restores_it() {
     expected["root"] = layout;
     assert_eq!(session.doc, expected);
     assert!(session.row_values.is_empty());
-    assert_eq!(settings.views["details"]["value"], "Details");
+    assert_eq!(settings.variants["details"]["value"], "Details");
     assert_eq!(interaction::Session::new(&doc, &settings).doc, doc);
 }
 
 #[test]
 fn declarative_preview_switches_views_watches_and_resets_without_authoring_changes() {
-    use mg_nui::{Action as NuiAction, Route};
+    use mg_nui::{Action as NuiAction, Handler};
     let mut s = Settings::default();
     s.bindings.insert("flag".into(), Binding { value: json!(false), ..Default::default() });
     s.bindings.insert("caption".into(), Binding { value: json!("Before"), ..Default::default() });
-    s.views.insert("details".into(), json!({"type":"label","value":{"bind":"caption"}}));
-    s.actions = vec![
-        Route::new("click", "mg_close", NuiAction::Close),
-        Route {
+    s.variants.insert("details".into(), json!({"type":"label","value":{"bind":"caption"}}));
+    s.handlers = vec![
+        Handler::new("click", "mg_close", NuiAction::Close),
+        Handler {
             event: "click".into(),
             element: "next".into(),
-            action: NuiAction::View { group: "host".into(), view: "details".into() },
+            action: NuiAction::Variant { group: "host".into(), variant: "details".into() },
             extra: Default::default(),
         },
-        Route {
+        Handler {
             event: "click".into(),
             element: "toggle".into(),
             action: NuiAction::Toggle { bind: "flag".into() },
             extra: Default::default(),
         },
-        Route {
+        Handler {
             event: "watch".into(),
             element: "flag".into(),
             action: NuiAction::Set { bind: "caption".into(), value: json!("After") },
@@ -1164,7 +1164,7 @@ fn close_button_requires_explicit_action_and_removal_stops_closing() {
     h.get_by_label("Canvas Button · Close").click();
     h.run();
     assert!(!h.state().state.runtime.as_ref().unwrap().closed);
-    h.state_mut().settings.actions.push(mg_nui::Route {
+    h.state_mut().settings.handlers.push(mg_nui::Handler {
         event: "click".into(),
         element: "mg_close".into(),
         action: mg_nui::Action::Close,
@@ -1174,7 +1174,7 @@ fn close_button_requires_explicit_action_and_removal_stops_closing() {
     h.get_by_label("Canvas Button · Close").click();
     h.run();
     assert!(h.state().state.runtime.as_ref().unwrap().closed);
-    h.state_mut().settings.actions.clear();
+    h.state_mut().settings.handlers.clear();
     h.run();
     h.get_by_label("Canvas Button · Close").click();
     h.run();
@@ -1492,7 +1492,7 @@ fn native_dropdown_corrects_missing_selection_without_clicking_or_editing_source
         for (name, value) in [("options", entries.clone()), ("choice", json!(-1))] {
             settings.bindings.insert(name.into(), Binding { value, ..Default::default() });
         }
-        settings.actions.push(mg_nui::Route {
+        settings.handlers.push(mg_nui::Handler {
             event: "click".into(),
             element: "dropdown".into(),
             action: mg_nui::Action::Close,
@@ -1511,7 +1511,7 @@ fn native_dropdown_corrects_missing_selection_without_clicking_or_editing_source
         h.run();
         let runtime = h.state().state.runtime.as_ref().unwrap();
         assert_eq!(runtime.settings.bindings["choice"].value, expected);
-        assert!(!runtime.closed, "normalization must not run the click route");
+        assert!(!runtime.closed, "normalization must not run the click handler");
         if entries.as_array().unwrap().len() == 2 {
             let runtime = h.state_mut().state.runtime.as_mut().unwrap();
             runtime.settings.bindings.get_mut("choice").unwrap().value = json!(1);

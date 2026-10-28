@@ -338,8 +338,11 @@ fn cases() -> Vec<Case> {
     ];
     // A variant shown in place of the whole window is its last drawing.
     let mut variant = column("clip_variant", json!([mark()]), Some("when this variant"), Blank);
-    variant.settings.views.insert("cover".into(), json!({"type":"col","children":[mark(), on()]}));
-    variant.settings.view_targets.insert("cover".into(), "_window_".into());
+    variant
+        .settings
+        .variants
+        .insert("cover".into(), json!({"type":"col","children":[mark(), on()]}));
+    variant.settings.variant_targets.insert("cover".into(), "_window_".into());
     variant.swap = Some("cover");
     all.push(variant);
     all

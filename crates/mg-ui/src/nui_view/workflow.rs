@@ -172,7 +172,7 @@ pub(super) fn ui(
              or Layers.",
         );
         let (mut remove, mut rename) = (None, None);
-        for name in s.views.keys() {
+        for name in s.variants.keys() {
             ui.horizontal(|ui| {
                 widgets::field_label(ui, name);
                 let target = layouts::target_for(s, name);
@@ -192,7 +192,7 @@ pub(super) fn ui(
                         ui.ctx().data_mut(|d| d.get_temp(id)).unwrap_or_else(|| name.clone());
                     let label = widgets::field_label(ui, "Name");
                     ui.text_edit_singleline(&mut to).labelled_by(label.id);
-                    let taken = to != *name && s.views.contains_key(&to);
+                    let taken = to != *name && s.variants.contains_key(&to);
                     let ok = to != *name && !to.is_empty() && mg_nui::plain_name(&to) && !taken;
                     if ui
                         .add_enabled(ok, egui::Button::new("Rename"))
@@ -213,9 +213,9 @@ pub(super) fn ui(
                 let shown = script.is_some_and(|t| {
                     t.lines().any(|l| !l.trim_start().starts_with("//") && l.contains(&call))
                 }) || s
-                    .actions
+                    .handlers
                     .iter()
-                    .any(|r| matches!(&r.action, mg_nui::Action::View{view,..} if view==name));
+                    .any(|r| matches!(&r.action, mg_nui::Action::Variant { variant: view, .. } if view==name));
                 if ui
                     .add_enabled(!shown, egui::Button::new("Remove"))
                     .on_disabled_hover_text(
@@ -228,18 +228,18 @@ pub(super) fn ui(
             });
         }
         if let Some(name) = remove {
-            s.views.remove(&name);
-            s.view_targets.remove(&name);
+            s.variants.remove(&name);
+            s.variant_targets.remove(&name);
         }
         if let Some((from, to)) = rename
-            && let Some(view) = s.views.remove(&from)
+            && let Some(view) = s.variants.remove(&from)
         {
-            s.views.insert(to.clone(), view);
-            if let Some(target) = s.view_targets.remove(&from) {
-                s.view_targets.insert(to.clone(), target);
+            s.variants.insert(to.clone(), view);
+            if let Some(target) = s.variant_targets.remove(&from) {
+                s.variant_targets.insert(to.clone(), target);
             }
-            for route in &mut s.actions {
-                if let mg_nui::Action::View { view, .. } = &mut route.action
+            for handler in &mut s.handlers {
+                if let mg_nui::Action::Variant { variant: view, .. } = &mut handler.action
                     && *view == from
                 {
                     *view = to.clone();
