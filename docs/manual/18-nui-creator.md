@@ -613,6 +613,13 @@ and the preview follow them.
   combo's width, 23 points a choice plus 5 high, and always has a scrollbar.
 - **Encouraged** controls pulse between their normal and their hover look; the
   preview shows the hover look.
+- **What the game takes all the same.** A window whose root is a label, a
+  button or a spacer rather than a row, column or group is shown; a window
+  ID with punctuation, spaces or letters outside ASCII opens, and the
+  window is found by it; an arc's center can be a point or the rectangle
+  `nw_inc_nui` documents. The checks say nothing of these. An alignment,
+  a draw layer's **Show when** or its paint order outside the game's
+  constants is shown too: a warning says so, as it is likely a slip.
 - **Text inputs** count `max` in UTF-8 bytes. Below 4, a letter outside ASCII
   can be stored as garbage (with `max` 1, typing *Ż* stores U+0005). A warning
   says so.

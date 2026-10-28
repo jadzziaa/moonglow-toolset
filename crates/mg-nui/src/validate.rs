@@ -42,12 +42,10 @@ pub fn validate(window: &Value, settings: &Settings) -> Vec<Diagnostic> {
         c.error("/version", "Stock NuiWindow uses integer version 1");
     }
     match window.get("root") {
-        Some(root) => {
-            if !matches!(root["type"].as_str(), Some("row" | "col" | "group")) {
-                c.warn("/root", "NuiWindow documents a row, column or group root; client acceptance of other roots is unverified");
-            }
-            c.element(root, "/root", false);
-        }
+        // (A root that is no row, column or group, as `nw_inc_nui` makes
+        // them, is shown all the same: a label, a button and a spacer in NWN
+        // EE 8193.37, `root_*` in the client test.)
+        Some(root) => c.element(root, "/root", false),
         None => c.error("/root", "Missing window layout"),
     }
     // NWN EE 8193.37: with Clip to control on the last draw list painted,
@@ -179,13 +177,9 @@ pub fn validate(window: &Value, settings: &Settings) -> Vec<Diagnostic> {
     if settings.window_id.as_ref().is_some_and(|id| id.is_empty() || id.contains('\0')) {
         c.error("/settings/window_id", "Window ID must be nonempty and contain no NUL");
     }
-    if settings
-        .window_id
-        .as_ref()
-        .is_some_and(|id| !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'))
-    {
-        c.warn("/settings/window_id", "nwscript documents a short alphanumeric window ID; punctuation and Unicode identity need a native client check");
-    }
+    // (Any other ID is the window's: NWN EE 8193.37 opens and finds one
+    // with punctuation, spaces or letters outside ASCII, `id_punct` and
+    // `id_unicode` in the client test.)
     // Handlers of watched binds that set each other's binds run without
     // end in the client: each circle is said once.
     let sets: BTreeMap<&str, &str> = settings
@@ -466,7 +460,10 @@ impl<'a> Check<'a> {
             {
                 self.warn(
                     &format!("{path}/{key}"),
-                    &format!("{n} is none of the {constants} values ({low} to {high})"),
+                    &format!(
+                        "{n} is none of the {constants} values ({low} to {high}); the game \
+                         shows the window all the same"
+                    ),
                 );
             }
         }
@@ -845,7 +842,8 @@ impl<'a> Check<'a> {
         if v["order"].as_i64().is_some_and(|o| o != -1 && o != 1) {
             self.warn(
                 &format!("{path}/order"),
-                "Paint order is before (-1) or after (1) the control: NUI_DRAW_LIST_ITEM_ORDER_*",
+                "Paint order is before (-1) or after (1) the control \
+                 (NUI_DRAW_LIST_ITEM_ORDER_*); the game draws the item all the same",
             );
         }
         self.ranges(
@@ -874,8 +872,9 @@ impl<'a> Check<'a> {
         for k in ["a", "b", "ctrl0", "ctrl1"] {
             self.property(v, k, path, Kind::Vec2, false, arrays);
         }
-        // The stock include documents the arc's center as Rect. Preserve it
-        // without enforcing a guessed shape (client behavior needs a probe).
+        // The stock include documents the arc's center as a rectangle; NWN
+        // EE 8193.37 draws the arc the same with a point there (`arc_point`
+        // and `arc_rect` in the client test), so either is kept as it is.
         for k in ["text", "font", "image"] {
             self.property(v, k, path, Kind::Text, false, arrays);
         }
@@ -1589,8 +1588,42 @@ mod tests {
     fn a_window_id_is_not_empty() {
         let s = Settings { window_id: Some(String::new()), ..Default::default() };
         assert!(error(&window(), &s, "Window ID must be nonempty"));
-        let s = Settings { window_id: Some("Żółw".into()), ..Default::default() };
-        assert!(warning(&window(), &s, "alphanumeric window ID"));
+    }
+
+    /// NWN EE 8193.37 opens a window by such an ID and finds it by it
+    /// (`id_punct`, `id_unicode` in the client test): nothing to say.
+    #[test]
+    fn a_window_id_with_punctuation_or_letters_outside_ascii_is_the_windows() {
+        for id in ["a.b-c:d e/f!", "okno żółwia"] {
+            let s = Settings { window_id: Some(id.into()), ..Default::default() };
+            let found = validate(&window(), &s);
+            assert!(!found.iter().any(|d| d.path == "/settings/window_id"), "{id}: {found:?}");
+        }
+    }
+
+    /// A label, a button or a spacer as the root is shown (NWN EE 8193.37,
+    /// `root_*` in the client test): nothing to say of it.
+    #[test]
+    fn a_root_that_is_no_row_column_or_group_is_shown() {
+        for root in [
+            json!({"type":"label","value":"Label"}),
+            json!({"type":"button","label":"b","id":"b"}),
+            json!({"type":"spacer"}),
+        ] {
+            let mut w = window();
+            w["root"] = root.clone();
+            let found = validate(&w, &Settings::default());
+            assert!(!found.iter().any(|d| d.path == "/root"), "{root}: {found:?}");
+        }
+    }
+
+    /// A constant out of range is said, as a likely slip, with what the
+    /// game does with it: shows the window (NWN EE 8193.37, `halign_9`,
+    /// `render_9` and `order_5` in the client test).
+    #[test]
+    fn a_constant_out_of_range_says_the_game_shows_the_window() {
+        let w = with(json!([{"type":"label","value":"x","text_halign":9}]));
+        assert!(warning(&w, &Settings::default(), "NUI_HALIGN_* values (0 to 2); the game shows"));
     }
 
     #[test]
