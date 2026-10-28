@@ -81,7 +81,7 @@ struct Groups {
 /// A blueprint's name in the editing language, else as the game shows it:
 /// a creature's first and last names, another's `LocalizedName` or
 /// `LocName`.
-fn blueprint_name(game: Option<&GameData>, root: &mg_gff::Struct) -> String {
+pub(crate) fn blueprint_name(game: Option<&GameData>, root: &mg_gff::Struct) -> String {
     let text = |label: &str| {
         root.locstring(label).map_or(String::new(), |name| {
             let edited = crate::text::edited_text(name);

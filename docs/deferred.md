@@ -1193,12 +1193,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   blueprint's Static (Aurora's Update Instances was captured on dynamic
   objects only). Whether Aurora takes it off when Static is ticked on a
   blueprint was not looked at (a blueprint has none from Aurora). (S)
-- **Scale in one field:** the game scales a model by `ScaleX` alone;
-  Adjust Location shows and writes the three alike, as Aurora does, and
-  a file whose `ScaleY` or `ScaleZ` differs (by hand, or another tool)
-  shows `ScaleX` and keeps the others untouched until Scale is changed,
-  when all three are written. Not said in the window. (S) (xtul's
-  report, October 2026)
 - **Lerps, animation speed and other scopes:** Adjust Location edits
   scope 0's scale, rotation and translation only; a transform's
   `AnimationSpeed`, a lerp in progress (`ValueFrom`, `LerpDuration`…)
@@ -2990,8 +2984,6 @@ of truth, and does each caller's difference matter.
 - The model viewer's wheel lacks Ctrl and pinch zoom and Shift's
   sideways, which the area view's has (`model_view.rs:745`,
   `area_view.rs:3657`), and its orbit is `area_view::Orbit` again.
-- Area Summary names a creature by its first name (`area_tools.rs:476`;
-  `tree.rs:82` and `query.rs:104` join both).
 - "The pointer over the view, not under a window" three times
   (`paint_mode.rs:379`, `area_view.rs:2043`, `:3993`), missing at the
   tile paste outline (`tile_select.rs:765`), the paste outline

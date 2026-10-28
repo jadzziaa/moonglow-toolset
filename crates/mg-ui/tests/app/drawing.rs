@@ -740,7 +740,19 @@ fn tdod_s_inc_lighting_changes_the_area_view_through_the_load_order() {
 
 #[test]
 fn preview_window_shows_the_chosen_blueprint() {
-    let Some((mut h, _area)) = area_harness("preview") else { return };
+    // (A creature of the module's with a first and a last name.)
+    let guard = |m: &mut mg_module::Module, _: &mg_rules::GameData, _: ResRef| {
+        let text = |t: &str| {
+            mg_gff::Value::LocString(LocString::from_text(Language::ENGLISH, Gender::Male, t))
+        };
+        let mut guard = Gff::new(*b"UTC ");
+        guard.root.set("FirstName", text("Hent"));
+        guard.root.set("LastName", text("Fynolds"));
+        m.set(ResKey::parse("guard001", ResType::UTC).unwrap(), guard.to_bytes().unwrap());
+    };
+    let Some((mut h, _area)) = area_harness_with("preview", "ttr01", None, 4, None, &guard) else {
+        return;
+    };
     h.get_by_label("👁 Preview").click();
     h.run_steps(2);
     h.get_by_label("Choose a blueprint in the palette.");
@@ -762,6 +774,10 @@ fn preview_window_shows_the_chosen_blueprint() {
     h.state_mut().palette.selected = ResKey::parse("nw_wswls001", ResType::UTI);
     h.run_steps(3);
     h.get_by_label("Item icon");
+    // A creature: by its first and last names, as the module tree names it.
+    h.state_mut().palette.selected = ResKey::parse("guard001", ResType::UTC);
+    h.run_steps(3);
+    h.get_by_label("Hent Fynolds");
 }
 
 #[test]

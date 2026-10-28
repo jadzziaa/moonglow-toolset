@@ -36,6 +36,11 @@ pub struct AdjustLocation {
     /// static placeable without one (the window says so).
     pub fixed: usize,
     pub fixed_shaped: usize,
+    /// How many of the objects chosen that take a visual transform have a
+    /// `ScaleY` or `ScaleZ` in their file other than their `ScaleX` (the
+    /// one the game scales by): kept until Scale is changed (the window
+    /// says so).
+    pub uneven: usize,
 }
 
 /// Adjust Location for the selection of an area's view (showing the first
@@ -59,6 +64,14 @@ pub(crate) fn adjust(view: &crate::area_view::AreaView) -> Option<AdjustLocation
         changed: [false; 4],
         visual: first.visual.unwrap_or_default(),
         visual_changed: false,
+        uneven: view
+            .selection
+            .iter()
+            .filter_map(|&(k, i)| model.object(k, i))
+            .filter(|o| o.takes_visual_transform())
+            .filter_map(|o| o.visual)
+            .filter(|v| v.scale.y != v.scale.x || v.scale.z != v.scale.x)
+            .count(),
         shaped: view
             .selection
             .iter()
@@ -125,6 +138,8 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
                     if r.changed() {
                         a.visual.scale = Vec3::splat(scale);
                         a.visual_changed = true;
+                        // (Written alike from now on.)
+                        a.uneven = 0;
                     }
                     ui.end_row();
                     // What each turn does, as the game draws it
@@ -154,6 +169,15 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
                         a.visual_changed |= r.changed();
                         ui.end_row();
                     }
+                });
+            }
+            if let Some(note) = scale_note(&a) {
+                ui.add_space(crate::widgets::SECTION_GAP);
+                // (About as wide as the fields above: the window sizes
+                // itself to what it holds.)
+                ui.scope(|ui| {
+                    ui.set_max_width(340.0);
+                    ui.add(egui::Label::new(egui::RichText::new(note).weak()).wrap());
                 });
             }
             if let Some(note) = static_note(&a) {
@@ -220,6 +244,42 @@ pub fn static_note(a: &AdjustLocation) -> Option<String> {
         "{which}: the game draws static placeables without visual transforms, so none is \
          offered. Untick Static (Properties) to scale, tilt or move a model.{kept}"
     ))
+}
+
+/// What Adjust Location says when a file's `ScaleY` or `ScaleZ` differs
+/// from its `ScaleX` (set by hand, or by another tool): the game scales by
+/// `ScaleX` alone, which Scale shows; the other two are kept until Scale
+/// is changed, which writes the three alike. `None` when none differs.
+pub fn scale_note(a: &AdjustLocation) -> Option<String> {
+    if a.uneven == 0 || !a.shaped {
+        return None;
+    }
+    let which = if a.objects.len() == 1 {
+        let s = a.visual.scale;
+        format!(
+            "Its file has ScaleX {}, ScaleY {} and ScaleZ {}",
+            short(s.x),
+            short(s.y),
+            short(s.z)
+        )
+    } else if a.uneven == 1 {
+        "1 of these objects has a ScaleY or ScaleZ in its file other than its ScaleX".into()
+    } else {
+        format!(
+            "{} of these objects have a ScaleY or ScaleZ in their file other than their ScaleX",
+            a.uneven
+        )
+    };
+    Some(format!(
+        "{which}: the game scales a model by ScaleX alone, which Scale shows. ScaleY and \
+         ScaleZ are kept as they are until Scale is changed, which writes the three alike."
+    ))
+}
+
+/// A number as short as it reads (`0.5`, `1`, `1.25`).
+fn short(v: f32) -> String {
+    let s = format!("{v:.3}");
+    s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
 /// Sets the changed parts of the location on each object (one command).
@@ -535,17 +595,14 @@ pub(crate) fn blueprint(app: &Moonglow, key: ResKey) -> Option<mg_gff::Gff> {
 fn summary(app: &Moonglow, t: ResType, s: &mg_gff::Struct) -> Vec<(&'static str, String)> {
     let game = app.game.as_deref();
     let text = |label: &str| s.string(label).map(crate::text::decode);
-    let name = |label: &str| {
-        let ls = s.locstring(label)?;
-        game.and_then(|g| g.locstring(ls))
-    };
     let int = |label: &str| s.integer(label).map(|v| v.to_string()).unwrap_or_default();
     let yes =
         |label: &str| if s.integer(label).unwrap_or(0) != 0 { "yes" } else { "no" }.to_string();
     let resref_field = ObjectKind::resref_field_of(t);
-    let name_field = ObjectKind::from_restype(t).map_or("LocName", ObjectKind::name_field);
+    // (A creature by its first and last names, as the module tree and
+    // `mg` name it.)
     let mut out = vec![
-        ("Name", name(name_field).unwrap_or_default()),
+        ("Name", crate::tree::blueprint_name(game, s)),
         ("Tag", text("Tag").unwrap_or_default()),
         ("Blueprint ResRef", s.resref(resref_field).map(|r| r.to_string()).unwrap_or_default()),
     ];

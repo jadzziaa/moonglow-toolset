@@ -369,7 +369,10 @@ Aurora):
   back about its own X axis (east at Bearing 0), and **Z Rotation**
   leans it to one side about its own Y axis; the game makes them in
   that order, X outermost. **Scale** scales the model every way alike
-  (the game reads one number), and the offsets move it along the
+  (the game reads one number, `ScaleX`, and Moonglow writes the three
+  alike, as Aurora does; a file whose `ScaleY` or `ScaleZ` differs,
+  set by hand or by another tool, keeps them until Scale is changed,
+  and the window says so), and the offsets move it along the
   object's own axes, turned by its Bearing but not by the rotations.
   The area view draws all of this as the game client does. A static
   placeable is offered none, as in Aurora: the game draws a static
