@@ -82,7 +82,18 @@ const FACE_STATIC: [f32; 4] = [0.557, 0.371, 0.601, 0.423];
 
 /// The client's settings for the comparison with its shadows on.
 pub(super) fn settings() -> String {
-    SETTINGS
+    grassy_settings(false)
+}
+
+/// [`settings`], with the client's grass where `grass` (its default, mode
+/// 2).
+fn grassy_settings(grass: bool) -> String {
+    let settings = if grass {
+        SETTINGS.replace("[graphics.grass]\n\t\tmode = 0", "[graphics.grass]\n\t\tmode = 2")
+    } else {
+        SETTINGS.to_string()
+    };
+    settings
         .replace(
             "[graphics.shadows.creatures]\n\t\t\tmode = 0",
             "[graphics.shadows.creatures]\n\t\t\tmode = 2",
@@ -166,18 +177,21 @@ fn shadows_look() {
     };
     let tileset = std::env::var("MG_SHADOW_TILESET").unwrap_or_else(|_| "ttr01".into());
     let only = std::env::var("MG_SHADOW_ONLY").ok();
+    // (`MG_SHADOW_GRASS=1`: with the grass, in the client and the view.)
+    let grass = std::env::var_os("MG_SHADOW_GRASS").is_some();
+    let label = if grass { format!("{tileset}_grass") } else { tileset.clone() };
     let mut client_none = None;
     let mut failures = Vec::new();
     for s in LIGHTINGS
         .iter()
         .filter(|s| s.name == "day_off" || only.as_deref().is_none_or(|o| o.contains(s.name)))
     {
-        let dir = scratch_dir(&format!("client_shadows_{tileset}_{}", s.name));
+        let dir = scratch_dir(&format!("client_shadows_{label}_{}", s.name));
         std::fs::create_dir_all(dir.join("user")).unwrap();
-        std::fs::write(dir.join("user/settings.tml"), settings()).unwrap();
+        std::fs::write(dir.join("user/settings.tml"), grassy_settings(grass)).unwrap();
         let game = GameData::open(&GameInstall::new(&root, Some(dir.join("user")), "en")).unwrap();
         let (are, git) = module(&game, &dir, &tileset, *s);
-        let client = client_capture(&dir, "MgScene", &format!("shadows_{tileset}_{}", s.name));
+        let client = client_capture(&dir, "MgScene", &format!("shadows_{label}_{}", s.name));
         if let Some(c) = &client {
             save_png(c, &dir.join("client.png"));
         }
@@ -187,12 +201,19 @@ fn shadows_look() {
             &git.root,
             mg_area::tileset(&game, ResRef::from_str(&tileset).unwrap()).ok().as_ref(),
         );
-        let area_scene = mg_area::AreaScene::new(&gpu, &game, &model);
-        let view = mg_area::View { fog: false, ..mg_area::View::of(&model) };
-        let scene = area_scene.scene(&model, &view);
+        let mut area_scene = mg_area::AreaScene::new(&gpu, &game, &model);
         let camera =
             fitted_camera(Vec3::new(20.0, 20.0, 0.0), FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
         let (w, h) = client.as_ref().map_or((1024, 768), |c| (c.width, c.height));
+        let sight = grass.then(|| mg_area::Sight::of(&camera, w as f32 / h as f32));
+        if let Some(sight) = &sight {
+            let start = std::time::Instant::now();
+            while area_scene.grow_grass(&gpu, &model, sight) && start.elapsed().as_secs() < 30 {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        let view = mg_area::View { fog: false, grass: sight, ..mg_area::View::of(&model) };
+        let scene = area_scene.scene(&model, &view);
         let (off, on) =
             off_and_on(&gpu, &game, &scene, &camera, (w, h), client.as_ref(), &dir, "moonglow");
         // Moonglow's measure of no shadow: the same view without.

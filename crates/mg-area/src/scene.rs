@@ -1040,8 +1040,10 @@ impl AreaScene {
                 });
                 let Some(burning) = burning else { continue };
                 lights.extend(burning.lamps.iter().filter_map(|l| l.placed(at, &|_| None)));
+                // (An effect: the game casts no shadow of it.)
                 instances.push(Instance {
                     pose: Some(burning.pose.clone()),
+                    casts_shadows: false,
                     ..Instance::new(flame.gpu.clone(), at)
                 });
             }

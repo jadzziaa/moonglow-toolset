@@ -3,7 +3,7 @@ type: Research Note
 title: 'NWN:EE rendering and lighting pipeline: research notes (game 89.8193.37-17)'
 description: The NWN:EE rendering and lighting pipeline read from the stock shaders - shader selection, vertex attributes and uniforms, texture slots, lighting equations, light sources, fog, shadows, gamma and tonemapping, keyholing - every claim tagged with its evidence.
 tags: [rendering, shaders, lighting, renderer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T04:47:45Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T05:02:47Z }
 sources:
   - id: time-uniforms
     resource: crates/mg-corpus-tests/tests/client_render.rs (time_uniforms_in_the_client), run 2026-10-21 on 89.8193.37-17
@@ -657,7 +657,7 @@ Measured with `shadows_look`[^shadows-look] (ttr01 and tic01, ambient 0x606060, 
 - The edges are hard, a pixel or two soft at most.
 
 ### G.2 Moonglow's stand-in
-`crates/mg-render/src/shadow.rs`: a 2048² depth map from the area light (an orthographic box fitted to what the camera sees of the receivers, reaching back toward the light over every caster whose shadow can fall there) stands in for the volumes. The receivers are drawn first; then a full-screen pass (per sample with MSAA) finds each pixel's place from the depth buffer, compares it with the map and lays black over it as the plane does: the opacity, the fade above (the editor camera's height over its focus taken no greater than the game's camera reaches, 25 m[^camera-range], so a far camera fades as the game's farthest would), the fog when shown; then the rest of the scene. Both the game's programs and Moonglow's own shader are darkened alike. In `shadows_look` Moonglow measures 0.41/0.26 at 100/30 against the client's 0.45/0.29 (the shadows' edges a fraction of a pixel apart), the static face 0.33 against 0.35. Left: creatures (skinned) cast none, point-light (torch, tile light) shadows, and see-through meshes (the solid parts of alpha-blended tile meshes, water drawn after the framebuffer copy) receive none ([deferred list](../deferred.md), "Shadows").
+`crates/mg-render/src/shadow.rs`: a 2048² depth map from the area light (an orthographic box fitted to what the camera sees of the receivers, reaching back toward the light over every caster whose shadow can fall there) stands in for the volumes. The receivers are drawn first; then a full-screen pass (per sample with MSAA) finds each pixel's place from the depth buffer, compares it with the map and lays black over it as the plane does: the opacity, the fade above (the editor camera's height over its focus taken no greater than the game's camera reaches, 25 m[^camera-range], so a far camera fades as the game's farthest would), the fog when shown; then the rest of the scene. Both the game's programs and Moonglow's own shader are darkened alike. In `shadows_look` Moonglow measures 0.41/0.26 at 100/30 against the client's 0.45/0.29 (the shadows' edges a fraction of a pixel apart), the static face 0.33 against 0.35. Left: creatures (skinned) cast none, point-light (torch, tile light) shadows, and see-through meshes (grass, the solid parts of alpha-blended tile meshes, water drawn after the framebuffer copy) receive none ([deferred list](../deferred.md), "Shadows").
 
 [^shadows-look]: crates/mg-corpus-tests/tests/client_render/shadows.rs, shadows_look
 [^shadowplane]: vs_shadowplane.shd, fs_shadowplane.shd

@@ -3613,6 +3613,8 @@ fn shadows_darken_what_receives_them_by_the_opacity() {
             let half = draw(&scene(true, Some(0.5)));
             let whole = draw(&scene(true, Some(1.0)));
             let elsewhere = draw(&scene(false, Some(0.5)));
+            // (With the switch on, the ground by the game's programs.)
+            assert_eq!(r.drawn.game > 0, shaders, "{samples} samples");
             save(&half, &dir.join(format!("shadows_{samples}_{shaders}.png")));
             // (The plate's shadow is the middle of the picture; the ground
             // reaches past it.)

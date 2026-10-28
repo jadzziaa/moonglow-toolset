@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T04:48:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T05:02:47Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2360,10 +2360,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - point lights cast none: a PC's torch or light spell at night, the
     placeable and tile source lights with `shadow 1` (the client casts
     from up to `max-casting-lights`, 3) (L);
-  - what is drawn after the shadows receives none: the solid parts of a
-    tile's see-through meshes (alpha-blended leaves), shiny water drawn
-    after the framebuffer's copy; the client's volumes darken whatever
-    was drawn before its plane (S);
+  - what is drawn after the shadows receives none: the area's grass
+    (see-through tufts: in `shadows_look` with `MG_SHADOW_GRASS=1` the
+    shadowed ground darkens by 0.34 to 0.38, the client's by 0.42, its
+    grass sparser and darkened), the solid parts of a tile's see-through
+    meshes (alpha-blended leaves), shiny water drawn after the
+    framebuffer's copy; the client's volumes darken whatever was drawn
+    before its plane (S);
+  - with Fade Geometry on, the faded roofs and upper walls cast no
+    shadow, where the game's still do (S);
   - doors cast as placeables do and items on the ground cast none: not
     checked in the client (S);
   - the exact stencil look: a volume torn by a non-manifold caster, the

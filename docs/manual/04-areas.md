@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T04:48:13Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T05:02:47Z }
 ---
 
 # Areas
@@ -127,7 +127,9 @@ looking straight down at their middle, north up, as in Aurora.
   game. Opacity 100 is as dark as the game makes them; like the game,
   Moonglow fades them toward the top of the picture (from a camera looking
   straight down, not at all), so they look as dark as in the game from
-  the same angle. Creatures cast none yet, nor do torches and tile lights.
+  the same angle. Creatures cast none yet, nor do torches and tile lights,
+  and grass stays bright in a shadow; with **Fade Geometry** on, the roofs
+  it leaves out cast none either.
   Switched off (or with **Lighting** off) there are none; areas opened
   later open as you left it. Changes to the shadow fields in Area
   Properties show at once.
