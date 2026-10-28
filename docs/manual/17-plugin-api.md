@@ -38,6 +38,7 @@ nothing, and a check is reported as failed.
 | `mg.tlk` | Talk tables made, read and written: `parse(bytes)` and `new()` (below). |
 | `mg.path(struct)` | Where a struct read with `gff` is, as a path for `ctx.edit`: `""` for the root, `"/ClassList[0]"`. Nil for a table that is no such struct. |
 | `mg.struct_id(struct)` | A struct's id (since Moonglow 2.2.0): of one read with `gff`, kept beside its table as its path is, never among its fields (an equipped item's is its slot, `Equip_ItemList`); of one read with `raw`, its `__struct_id`. Nil for a table that is neither. |
+| `mg.vars` | The variables the module's project describes (its `variables.toml`): `describe(name)` and `described()` (below; since Moonglow 2.13.0). |
 
 An id is registered once; registering one the manifest doesn't declare,
 or not registering one it does, is a fault `mg plugin check` reports.
@@ -51,6 +52,31 @@ A **finding** is a table:
 | `at` | Where in the resource: a field, a row. |
 | `severity` | `"warning"` or `"error"`; else the check's, from the manifest. |
 | `fix` | Its fix, made with `ctx.fix` (below; since API 0.4): offered beside the finding in Verify Module's report, made only when the user asks. |
+
+### `mg.vars`
+
+The [described variables](03-modules.md#described-variables) of the
+module's project, as the Variables window and `mg vars` read them
+(since Moonglow 2.13.0). `mg.vars.describe(name)` is the description of
+a variable so named: of that very name, else of the first pattern that
+takes it (in its case only, as the game tells names apart); nil where
+none names it. `mg.vars.described()` is every description, in the
+file's order. A description is a table:
+
+| Field | |
+| --- | --- |
+| `name` | The name it describes, or its pattern (`tdod_rental_*`). |
+| `pattern` | Whether it is a pattern. |
+| `file`, `line` | Where it is written: `variables.toml` (or a `.mod`'s own, `krezk.variables.toml`) and its line. |
+| `type` | `"int"`, `"float"`, `"string"`, `"object"` or `"location"`; nil for any. |
+| `on` | What it goes on: a list of kinds (`"placeable"`, `"area"`, `"module"`…); empty for anything. |
+| `help` | Its help, or nil. |
+| `values` | Its values, each `{ value, note }`: those written, a script's constants and a table's rows, read as the Variables window reads them (the project's scripts and tables, the module's, the game's). |
+| `rows` | For an Int whose values are a table's rows, how many it has; else nil. |
+| `problem` | What of its values could not be read (a script or table not there), or nil. |
+| `other` | A value of the builder's own is right too. |
+| `min`, `max` | Its bounds, or nil. |
+| `runtime` | The scripts set it while the server runs: never kept in a file. |
 
 ### `ctx.fix`
 
@@ -337,8 +363,10 @@ is named in the test's result: where the test fails, as a reason it may
 have; where it passes all the same (the plugin read it in a `pcall`),
 as a note (since 2.3.0). A test with no game that calls
 `ctx.game:resources()` is told that the list is only the fixture's and
-its game folder's, or, with no folder, that the call fails for want of
-any.
+its game folder's (with no folder, the fixture's alone: with no game
+and no game folder, `ctx.game` is the fixture, since Moonglow 2.13.0).
+The game folder's `dialog.tlk` and the module's custom talk table are
+what `ctx.game:string` reads (since 2.13.0).
 
 ## `ctx.edit`
 

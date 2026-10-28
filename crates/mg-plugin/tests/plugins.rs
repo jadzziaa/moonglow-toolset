@@ -1151,7 +1151,8 @@ fn a_plugin_s_tests_run_moonglow_s_own_checks() {
     std::fs::write(
         source.join("plugin.cfg"),
         "[plugin]\nid = \"test.rules\"\nname = \"Rules\"\nversion = \"1\"\napi = \"0.4\"\n\
-         license = \"GPL-3.0-or-later\"\n[check]\nid = \"listed\"\ntitle = \"Listed\"\n",
+         license = \"GPL-3.0-or-later\"\n[check]\nid = \"listed\"\ntitle = \"Listed\"\n\
+         [check]\nid = \"vars\"\ntitle = \"Vars\"\n",
     )
     .unwrap();
     std::fs::write(
@@ -1160,6 +1161,16 @@ fn a_plugin_s_tests_run_moonglow_s_own_checks() {
         local mg = require("@moonglow")
         mg.check("listed", function(ctx)
             return { { resource = "module.ifo", message = `{#ctx.game:resources()}` } }
+        end)
+        -- The project's descriptions (the notes on 2.2.0: no API read them).
+        mg.check("vars", function(ctx)
+            local text = mg.vars.describe("tdod_lore_text")
+            local lore = mg.vars.describe("tdod_lore_old")
+            local all = mg.vars.described()
+            local said = `{text.name} {text.type} {text.file}:{text.line} {tostring(text.runtime)}, `
+                .. `{lore.name} {tostring(lore.pattern)} {tostring(lore.runtime)}, `
+                .. `{tostring(mg.vars.describe("nope"))}, {#all} {all[2].name} {all[2].type}`
+            return { { resource = "module.ifo", message = said } }
         end)
         "#,
     )
@@ -1278,6 +1289,13 @@ fn a_plugin_s_tests_run_moonglow_s_own_checks() {
         [[test]]
         name = "an empty list"
         builtin = []
+
+        [[test]]
+        name = "the project's descriptions"
+        check = "vars"
+        [[test.finding]]
+        resource = "module.ifo"
+        message = "tdod_lore_text string variables.toml:2 false, tdod_lore_* true true, nil, 3 tdod_*_d20 int"
     "#;
     std::fs::write(source.join("tests").join("own.toml"), tests).unwrap();
     let plugin = Plugin::load(&source).unwrap();
@@ -1312,7 +1330,12 @@ fn a_plugin_s_tests_run_moonglow_s_own_checks() {
     // Several of Moonglow's checks, each once, their findings as Verify
     // lists them (errors first), and all of them: the fixture has nothing
     // else wrong.
-    for name in ["two of Moonglow's checks", "all of Moonglow's checks", "all, fixed"] {
+    for name in [
+        "two of Moonglow's checks",
+        "all of Moonglow's checks",
+        "all, fixed",
+        "the project's descriptions",
+    ] {
         assert_eq!(result(name).problems, Vec::<String>::new(), "{name}");
     }
     let unknown = result("a list with one Moonglow has not").problems;

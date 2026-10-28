@@ -3087,9 +3087,6 @@ and duplicate tags on paste. What is left:
   `tdod_rental_door`), no rule between variables (as a table's
   `[[rules]]`), no description of a variable by the script that reads
   it. (M)
-- **No `mg vars --undescribed`** listing the module's variables that no
-  description names, nor a plugin API to read the descriptions
-  (`mg.vars.describe`). (S)
 - **The project file is read again only with reloading on** (Options ›
   General), when the folder's watch sees a change; a window open then
   (Setup Store) keeps the rules it opened with. (S)

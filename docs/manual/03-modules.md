@@ -755,8 +755,14 @@ that is a project of its own: `builtin = "var-runtime"`
 `mg vars MODULE` lists the descriptions, with the values a script's
 constants and a table's rows give (the game's, the project's and the
 module's haks', since Moonglow 2.13.0; `--on placeable`: those that go
-on one); `mg areas --var NAME=VALUE` gives a described variable its
-described type ([Command-line tools](11-command-line.md)).
+on one); `mg vars MODULE --undescribed` lists, in their place, the
+module's variables that no description names, each with its types, what
+it is on and where, and the description it is near (one in another
+case, or the nearest name of those `undescribed` takes: a typo, most
+likely; since Moonglow 2.13.0); `mg areas --var NAME=VALUE` gives a
+described variable its described type ([Command-line
+tools](11-command-line.md)). A plugin reads the descriptions with
+`mg.vars.describe(name)` ([Plugin API](17-plugin-api.md#mg)).
 
 ### Claimed areas
 

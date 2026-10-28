@@ -1200,6 +1200,29 @@ pub fn path_in(root: &Path) -> PathBuf {
     root.join(FILE_NAME)
 }
 
+impl Variables {
+    /// The module's variables (`found`, as [`module_variables`] lists
+    /// them) that no description names, not even a pattern: each name
+    /// once, in the order first found, with every place it is.
+    pub fn undescribed_of<'a>(&self, found: &'a [Found]) -> Vec<(&'a str, Vec<&'a Found>)> {
+        let mut out: Vec<(&str, Vec<&Found>)> = Vec::new();
+        for f in found.iter().filter(|f| self.describe(&f.name).is_none()) {
+            match out.iter_mut().find(|(n, _)| *n == f.name) {
+                Some((_, places)) => places.push(f),
+                None => out.push((&f.name, vec![f])),
+            }
+        }
+        out
+    }
+}
+
+/// Whether a glob (`tdod_*`, `tdod_{shop,inn}_*`) takes a variable's name,
+/// in its case only, as a description's does; a glob that can't be read
+/// takes its own text alone.
+pub fn glob_takes(pattern: &str, name: &str) -> bool {
+    glob(pattern).map_or(pattern == name, |rx| rx.is_match(name))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1433,6 +1456,34 @@ on = ["creature", "placeable"]
         );
         assert_eq!(v.unknown("nw_other"), None, "not the project's");
         assert_eq!(distance("tdod_lit", "tdod_lti"), 1);
+    }
+
+    /// `mg vars --undescribed`: the module's variables no description
+    /// names, each name once with its places.
+    #[test]
+    fn the_module_s_undescribed_variables_are_listed_by_name() {
+        let (v, _) = read(EXAMPLE);
+        let at = |name: &str, path: &str| Found {
+            key: ResKey::parse("tavern", ResType::GIT).unwrap(),
+            path: path.into(),
+            index: 0,
+            owner: Owner::Placeable,
+            name: name.into(),
+            var_type: Some(VarType::Int),
+            value: "1".into(),
+        };
+        let found = [
+            at("tdod_workbench", "/Placeable List[0]"),
+            at("nw_other", "/Placeable List[0]"),
+            at("tdod_rental_door", "/Placeable List[1]"),
+            at("nw_other", "/Placeable List[2]"),
+            at("TDOD_Workbench", "/Placeable List[2]"),
+        ];
+        let listed: Vec<(&str, usize)> =
+            v.undescribed_of(&found).into_iter().map(|(n, at)| (n, at.len())).collect();
+        assert_eq!(listed, [("nw_other", 2), ("TDOD_Workbench", 1)]);
+        assert!(glob_takes("nw_*", "nw_other") && !glob_takes("nw_*", "NW_other"));
+        assert!(glob_takes("tdod_{a,b}", "tdod_b") && glob_takes("[", "["));
     }
 
     /// A pattern quoted beside a variable it takes is the one alternative

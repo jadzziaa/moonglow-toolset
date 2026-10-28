@@ -159,6 +159,11 @@ enum Cmd {
         /// `creature`, `area`, `module`...).
         #[arg(long)]
         on: Option<String>,
+        /// The module's variables that no description names, in place of
+        /// the descriptions: each name with its types, what it is on and
+        /// where, and the described name it may be a typo of.
+        #[arg(long)]
+        undescribed: bool,
         /// Only this variable (or those a glob names).
         name: Option<String>,
     },
@@ -1121,7 +1126,13 @@ enum PluginCmd {
 }
 
 /// `mg vars`: the project's described variables.
-fn vars(cli: &Cli, path: &Path, on: Option<&str>, name: Option<&str>) -> Result<Output> {
+fn vars(
+    cli: &Cli,
+    path: &Path,
+    on: Option<&str>,
+    undescribed: bool,
+    name: Option<&str>,
+) -> Result<Output> {
     use mg_module::var_desc::{ModuleLookup, Owner, type_label};
     use serde_json::json;
     let m = Module::open(path)?;
@@ -1147,6 +1158,10 @@ fn vars(cli: &Cli, path: &Path, on: Option<&str>, name: Option<&str>) -> Result<
             format!("{} beside its moonglow.toml", mg_module::var_desc::FILE_NAME)
         });
         out.note(format!("{} describes no variables: write a {file}", path.display()));
+    }
+    if undescribed {
+        undescribed_vars(&m, owner, name, &mut out);
+        return Ok(out);
     }
     // (The game's tables and scripts, and the module's haks', where a
     // description names them; a hak not found is said, as Verify says it.)
@@ -1213,6 +1228,102 @@ fn vars(cli: &Cli, path: &Path, on: Option<&str>, name: Option<&str>) -> Result<
     }
     out.json = json!({ "undescribed": p.variables.undescribed, "variables": rows });
     Ok(out)
+}
+
+/// `mg vars --undescribed`: the module's variables that no description
+/// names (on `owner`, of the names `name` takes), a line a name: its
+/// types, what it is on, where (the first places), and what of the
+/// descriptions it is near: one in another case, or the nearest name of
+/// those named as the project's are (`undescribed`), a typo most likely.
+fn undescribed_vars(
+    m: &Module,
+    owner: Option<mg_module::var_desc::Owner>,
+    name: Option<&str>,
+    out: &mut Output,
+) {
+    use mg_module::var_desc::{Unknown, glob_takes, module_variables, type_label};
+    use serde_json::json;
+    let p = &m.project_file;
+    let found: Vec<_> = module_variables(m)
+        .into_iter()
+        .filter(|f| owner.is_none_or(|o| f.owner == o))
+        .filter(|f| name.is_none_or(|n| glob_takes(n, &f.name)))
+        .collect();
+    let mut rows = Vec::new();
+    let mut gffs = std::collections::HashMap::new();
+    for (var, places) in p.variables.undescribed_of(&found) {
+        let mut types: Vec<&str> = Vec::new();
+        let mut on: Vec<&str> = Vec::new();
+        for f in &places {
+            let t = f.var_type.map_or("?", type_label);
+            if !types.contains(&t) {
+                types.push(t);
+            }
+            if !on.contains(&f.owner.name()) {
+                on.push(f.owner.name());
+            }
+        }
+        let at: Vec<String> = places
+            .iter()
+            .map(|f| {
+                let gff = gffs.entry(f.key).or_insert_with(|| m.gff(&f.key).and_then(Result::ok));
+                let place = mg_module::rename::describe(
+                    f.key,
+                    gff.as_ref(),
+                    &format!("{}/VarTable", f.path),
+                );
+                // (A blueprint's place begins with its name.)
+                match place.starts_with(&f.key.to_string()) {
+                    true => place,
+                    false => format!("{} {place}", f.key),
+                }
+            })
+            .collect();
+        let (case, pattern, nearest) = match p.variables.unknown(var) {
+            Some(Unknown::OtherCase(d)) => (Some(d.name.as_str()), None, None),
+            Some(Unknown::Undescribed { pattern, nearest }) => (None, Some(pattern), nearest),
+            None => (None, None, None),
+        };
+        let mut line = format!("{var}\t{}\ton {}\t", types.join(", "), on.join(", "));
+        let shown = at.iter().take(3).cloned().collect::<Vec<_>>().join("; ");
+        line.push_str(&shown);
+        if at.len() > 3 {
+            line.push_str(&format!("; and {} more", at.len() - 3));
+        }
+        if let Some(d) = case {
+            line.push_str(&format!(
+                "\tdescribed as {d}, in another case (the game tells them apart)"
+            ));
+        } else if let Some(pattern) = pattern {
+            line.push_str(&format!("\tnamed as {pattern} are, which are to be described"));
+            if let Some(n) = nearest {
+                line.push_str(&format!(": {n}?"));
+            }
+        }
+        out.line(line);
+        rows.push(json!({
+            "name": var,
+            "types": types,
+            "on": on,
+            "places": places.iter().zip(&at).map(|(f, at)| json!({
+                "resource": f.key.to_string(),
+                "path": f.path,
+                "index": f.index,
+                "at": at,
+                "value": f.value,
+            })).collect::<Vec<_>>(),
+            "other_case": case,
+            "pattern": pattern,
+            "nearest": nearest,
+        }));
+    }
+    let n = rows.len();
+    out.note(match n {
+        0 => "every variable of the module is described".to_string(),
+        1 => "1 variable of the module no description names".to_string(),
+        _ => format!("{n} variables of the module no description names"),
+    });
+    out.json = json!({ "undescribed": p.variables.undescribed, "not_described": rows });
 }
 
 /// What the module's project file (`moonglow.toml`) said that wasn't
@@ -1742,7 +1853,9 @@ fn run(cli: &Cli) -> Result<Output> {
             PluginCmd::Remove { id, folder } => plugins::remove(id, folder)?,
         },
         Cmd::Nui { cmd } => nui::run(cli, cmd)?,
-        Cmd::Vars { module, on, name } => vars(cli, module, on.as_deref(), name.as_deref())?,
+        Cmd::Vars { module, on, undescribed, name } => {
+            vars(cli, module, on.as_deref(), *undescribed, name.as_deref())?
+        }
         Cmd::BuilderCode { project, code, clear } => {
             use mg_module::project_file::{DEFAULT_PATTERN, ProjectFile};
             let root = match project.file_name() {

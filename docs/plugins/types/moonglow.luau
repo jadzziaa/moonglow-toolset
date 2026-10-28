@@ -342,6 +342,32 @@ mg.twoda = {
     describe = function(text: string, scripts: { [string]: string }?): Described return nil :: any end,
 }
 
+-- A variable the module's project describes (`variables.toml`).
+export type VarDescription = {
+    name: string,
+    pattern: boolean,
+    file: string,
+    line: number,
+    type: string?,
+    on: { string },
+    help: string?,
+    values: { { value: string, note: string? } },
+    rows: number?,
+    problem: string?,
+    other: boolean,
+    min: number?,
+    max: number?,
+    runtime: boolean,
+}
+
+-- The project's described variables: a variable's description (of its
+-- name, else the first pattern that takes it; nil for none), and all of
+-- them, in the file's order.
+mg.vars = {
+    describe = function(name: string): VarDescription? return nil end,
+    described = function(): { VarDescription } return {} end,
+}
+
 -- Talk tables made, read and written.
 mg.tlk = {
     parse = function(bytes: string): Tlk return nil :: any end,
