@@ -579,6 +579,38 @@ fn talk_table_editor() {
     }
 }
 
+/// The talk table editor's New Talk Table in a nasher project: the table
+/// is made in the project, with a target of its own.
+#[test]
+#[ignore]
+fn talk_table_new_in_a_project() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-talk-new-project");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    let project = dir.join("project");
+    m.save_as(&mg_module::ModuleLocation::Project {
+        root: project.clone(),
+        target: "default".into(),
+    })
+    .unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&project);
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 600.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::TalkTable));
+    h.run_steps(3);
+    h.state_mut().talk_view.new_name = "mg_new".into();
+    shoot(&mut h, &dir, "talk-new-in-project");
+    eprintln!("{}", dir.join("talk-new-in-project.png").display());
+}
+
 /// The welcome page's Recent modules: a `.mod`, the module folder beside
 /// it and a nasher project (GitHub issue 30: the folder showed as its
 /// name alone).

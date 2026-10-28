@@ -225,6 +225,48 @@ fn nasher_projects_save_in_place_and_never_overwrite_other_changes() {
 /// folder's copy), edited, and saved with the module as nwn_tlk writes it;
 /// the other language is chosen in the editor.
 #[test]
+fn a_new_talk_table_of_a_project_is_made_in_it() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-talk-project-new");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("tlk")).unwrap();
+    let m = mg_module::Module::open(&sample_module(&dir)).unwrap();
+    let project = dir.join("project");
+    let mut m = m;
+    m.save_as(&ModuleLocation::Project { root: project.clone(), target: "default".into() })
+        .unwrap();
+    let mut app = game_app(&root, Some(user.clone()));
+    app.settings.no_last_area = true;
+    app.open_module(&project);
+    app.open_palette = false;
+    let mut h = harness(app, 1000.0, 800.0);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
+    h.run();
+    h.state_mut().talk_view.new_name = "mg_new".into();
+    h.run();
+    h.get_by_label_contains("Made in the project as");
+    h.get_by_label("Create").click();
+    h.run();
+    h.run();
+    let json = project.join("src/mg_new.tlk.json");
+    let t = h.state().talk.as_ref().expect("the new table is open");
+    assert!(matches!(&t.source, mg_module::talk::Source::Json { path, .. } if *path == json));
+    assert!(!user.join("tlk/mg_new.tlk").exists(), "not in the tlk folder");
+    let cfg = std::fs::read_to_string(project.join("nasher.cfg")).unwrap();
+    assert!(cfg.contains("file = \"mg_new.tlk\"") && cfg.contains("exclude = \"**/*.tlk.json\""));
+    // The module names it; a line added and saved goes into its JSON.
+    h.get_by_label("Add Line").click();
+    h.run();
+    type_into_hint(&mut h, "the line's text", "Fresh");
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    assert!(std::fs::read_to_string(&json).unwrap().contains("\"text\":\"Fresh\""));
+    let m = mg_module::Module::open(&project).unwrap();
+    assert_eq!(m.custom_tlk().unwrap().as_deref(), Some("mg_new"));
+    assert!(m.project.as_ref().unwrap().warnings.is_empty());
+}
+
+#[test]
 fn a_projects_talk_table_kept_as_json_is_edited_there() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-talk-project");

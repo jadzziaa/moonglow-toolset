@@ -54,6 +54,61 @@ pub struct Project {
     tables_packed: Vec<PathBuf>,
 }
 
+/// Adds the line `exclude` to the sources of the target named `target` in
+/// `nasher.cfg`'s lines: in its `[target.sources]` (made at the end of its
+/// block where it has none). A target with no excludes of its own has the
+/// package's (`had`, nasher's inheritance, list by list): written in with
+/// it, so that it keeps them. `None` where no target has that name.
+fn exclude_in_target(
+    lines: &mut Vec<String>,
+    target: &str,
+    exclude: &str,
+    had: &[String],
+) -> Option<()> {
+    let header = |l: &str| l.trim().eq_ignore_ascii_case("[target]");
+    let starts: Vec<usize> = (0..lines.len()).filter(|&i| header(&lines[i])).collect();
+    let named = |l: &str| {
+        let t = l.trim();
+        t.strip_prefix("name")
+            .map(str::trim_start)
+            .and_then(|r| r.strip_prefix('='))
+            .is_some_and(|v| v.trim().trim_matches('"') == target)
+    };
+    let (start, end) = starts.iter().enumerate().find_map(|(n, &s)| {
+        let end = starts.get(n + 1).copied().unwrap_or(lines.len());
+        lines[s..end].iter().any(|l| named(l)).then_some((s, end))
+    })?;
+    let own = lines[start..end].iter().any(|l| l.trim_start().starts_with("exclude"));
+    let mut add: Vec<String> =
+        if own { Vec::new() } else { had.iter().map(|e| format!("exclude = \"{e}\"")).collect() };
+    add.push(exclude.to_string());
+    let sources = (start..end).find(|&i| lines[i].trim().eq_ignore_ascii_case("[target.sources]"));
+    match sources {
+        Some(s) => {
+            let indent: String = (lines.get(s + 1))
+                .map(|l| l.chars().take_while(|c| c.is_whitespace()).collect())
+                .filter(|i: &String| !i.is_empty())
+                .unwrap_or_else(|| "  ".into());
+            for (n, line) in add.into_iter().enumerate() {
+                lines.insert(s + 1 + n, format!("{indent}{line}"));
+            }
+        }
+        None => {
+            // (After its last line that isn't blank.)
+            let mut at = end;
+            while at > start + 1 && lines[at - 1].trim().is_empty() {
+                at -= 1;
+            }
+            let mut block = vec!["  [target.sources]".to_string()];
+            block.extend(add.into_iter().map(|l| format!("  {l}")));
+            for (n, line) in block.into_iter().enumerate() {
+                lines.insert(at + n, line);
+            }
+        }
+    }
+    Some(())
+}
+
 /// Whether `key` is a compiled script whose source the module has: build
 /// output, which a project doesn't keep (nasher compiles it when it
 /// packs). One without its source is kept as it is, as a `.ncs` file
@@ -460,6 +515,125 @@ impl Project {
         self.package = Package::read(&root)?;
         self.left_out = self.left_out();
         Ok(Some(added))
+    }
+
+    /// The file a new talk table `name` is made in ([`Project::add_talk_table`]):
+    /// `<name>.tlk.json` (`.csv` where the project keeps its tables so)
+    /// where nasher's rules put `<name>.tlk` (`unknown` where none
+    /// matches). `None` where the project keeps its tables in a form
+    /// Moonglow doesn't read, or its rules discard them.
+    pub fn talk_table_file(&self, name: &str) -> Option<PathBuf> {
+        let format = super::kept_as(&self.settings)?;
+        let ext = match format {
+            mg_tlk::csv::Format::Json => "json",
+            mg_tlk::csv::Format::Csv => "csv",
+        };
+        let folder = match self.target().rule_folder(&format!("{name}.tlk")).as_deref() {
+            Some("/dev/null") => return None,
+            Some(f) => f.to_string(),
+            None => "unknown".to_string(),
+        };
+        Some(self.root().join(folder).join(format!("{name}.tlk.{ext}")))
+    }
+
+    /// Makes a new, empty talk table `name` in the project, as nasher keeps
+    /// one ([`super::talk_tables`]): its file ([`Project::talk_table_file`])
+    /// and a target of its own in `nasher.cfg` that packs it (`file =
+    /// "<name>.tlk"`, its sources that file); the feminine table's too
+    /// (`<name>f`) when asked. A module target that would take the file in
+    /// is given `exclude = "**/*.tlk.json"` (`.csv`), as nasher's own
+    /// example has it. Returns the files made.
+    pub fn add_talk_table(
+        &mut self,
+        name: &str,
+        language: mg_core::Language,
+        feminine: bool,
+    ) -> Result<Vec<PathBuf>, ModuleError> {
+        let root = self.root().to_path_buf();
+        let cfg = Package::config_path(&root);
+        let bad =
+            |message: String| ModuleError::Source { name: cfg.display().to_string(), message };
+        let format = super::kept_as(&self.settings).ok_or_else(|| {
+            bad(format!(
+                "the project keeps its talk tables as {}: Moonglow makes JSON and CSV ones only",
+                self.settings.tlk_format
+            ))
+        })?;
+        let names: Vec<String> = std::iter::once(name.to_string())
+            .chain(feminine.then(|| crate::talk::feminine(name)))
+            .collect();
+        let mut files = Vec::new();
+        for n in &names {
+            let file = self.talk_table_file(n).ok_or_else(|| {
+                bad(format!("the project's rules discard {n}.tlk: no folder to make it in"))
+            })?;
+            if file.exists() {
+                return Err(bad(format!("{} is there already", file.display())));
+            }
+            if self.package.targets.iter().any(|t| t.talk_table_name().as_deref() == Some(n)) {
+                return Err(bad(format!("a target packs {n}.tlk already")));
+            }
+            files.push(file);
+        }
+        let text = std::fs::read_to_string(&cfg).map_err(io(&cfg))?;
+        let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
+        let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+        // The module target's own sources leave the tables out, where it
+        // would take them in.
+        let ext = if format == mg_tlk::csv::Format::Csv { "csv" } else { "json" };
+        let exclude = format!("exclude = \"**/*.tlk.{ext}\"");
+        if files.iter().any(|f| self.target().covers(&root, f)) {
+            let had = self.target().excludes.clone();
+            exclude_in_target(&mut lines, &self.target, &exclude, &had)
+                .ok_or_else(|| bad(format!("no [target] named {:?} in it", self.target)))?;
+        }
+        let taken: Vec<String> = self.package.targets.iter().map(|t| t.name.clone()).collect();
+        for (n, file) in names.iter().zip(&files) {
+            let mut target = n.clone();
+            while taken.contains(&target) {
+                target.push_str("_tlk");
+            }
+            let source = file.strip_prefix(&root).unwrap_or(file).display().to_string();
+            let source = source.replace('\\', "/");
+            if lines.last().is_some_and(|l| !l.trim().is_empty()) {
+                lines.push(String::new());
+            }
+            lines.extend([
+                "[target]".to_string(),
+                format!("name = \"{target}\""),
+                format!("file = \"{n}.tlk\""),
+                "  [target.sources]".to_string(),
+                format!("  include = \"{source}\""),
+            ]);
+        }
+        let mut written = lines.join(newline);
+        written.push_str(newline);
+        // The tables first: a nasher.cfg naming files that aren't there
+        // would be read as a mistake.
+        let empty = mg_tlk::Tlk::new(language);
+        for file in &files {
+            super::write_talk_table(file, &empty, self.settings.tlk_style).map_err(|message| {
+                ModuleError::Source { name: file.display().to_string(), message }
+            })?;
+        }
+        let tmp = crate::sibling(&cfg, ".moonglow-tmp");
+        std::fs::write(&tmp, written).map_err(io(&tmp))?;
+        std::fs::rename(&tmp, &cfg).map_err(io(&cfg))?;
+        self.package = Package::read(&root)?;
+        // (A package's own excludes, which a target with none takes, could
+        // leave a table's file out of its target.)
+        for (n, file) in names.iter().zip(&files) {
+            let t = self.package.targets.iter().find(|t| t.talk_table_name().as_deref() == Some(n));
+            let found = t.and_then(|t| t.talk_table_source(&root, format).ok().flatten());
+            if found.as_deref() != Some(file.as_path()) {
+                self.warnings.push(format!(
+                    "{}: made, but its target's sources leave it out (an exclude of the \
+                     package's): mend nasher.cfg",
+                    file.display()
+                ));
+            }
+        }
+        Ok(files)
     }
 
     /// Makes a project at `root` for a module that isn't in one: a
@@ -1628,6 +1802,60 @@ mod tests {
         let (_, bytes) = m.target_archive().unwrap().unwrap();
         let erf = mg_erf::Erf::read(&bytes).unwrap();
         assert!(erf.entries.iter().all(|e| e.restype != ResType::TLK));
+    }
+
+    /// A new talk table made in a project goes into it as nasher keeps one:
+    /// `<name>.tlk.json` where the rules put `<name>.tlk`, a target of its
+    /// own packing it, and the module target's sources leaving it out (the
+    /// package's excludes kept with it); the feminine table's too.
+    #[test]
+    fn a_new_talk_table_goes_into_the_project() {
+        let root = scratch("new-tlk");
+        module().save_as(&project_location(&root)).unwrap();
+        // (A package's exclude, which the module target takes.)
+        let cfg = std::fs::read_to_string(root.join("nasher.cfg")).unwrap();
+        let cfg = cfg.replacen(
+            "  [package.rules]",
+            "  exclude = \"**/test_*.nss\"\n  [package.rules]",
+            1,
+        );
+        std::fs::write(root.join("nasher.cfg"), cfg).unwrap();
+        let mut m = Module::open(&root).unwrap();
+        let p = m.project.as_mut().unwrap();
+        assert_eq!(p.talk_table_file("mytlk"), Some(root.join("src/mytlk.tlk.json")));
+        let made = p.add_talk_table("mytlk", mg_core::Language::GERMAN, true).unwrap();
+        assert_eq!(made, [root.join("src/mytlk.tlk.json"), root.join("src/mytlkf.tlk.json")]);
+        assert!(p.warnings.is_empty(), "{:?}", p.warnings);
+        assert_eq!(std::fs::read_to_string(&made[0]).unwrap(), r#"{"language":2,"entries":[]}"#);
+        let cfg = std::fs::read_to_string(root.join("nasher.cfg")).unwrap();
+        assert!(
+            cfg.contains(
+                "[target]\nname = \"mytlk\"\nfile = \"mytlk.tlk\"\n  [target.sources]\n  include \
+                 = \"src/mytlk.tlk.json\"\n"
+            ),
+            "{cfg}"
+        );
+        // The module target leaves the tables out, and keeps the package's
+        // exclude; each table is its target's.
+        let module_target = p.target().clone();
+        assert_eq!(module_target.excludes, ["**/test_*.nss", "**/*.tlk.json"]);
+        assert!(!module_target.covers(&root, &made[0]));
+        let tables = p.talk_tables("mytlk").unwrap();
+        assert_eq!((tables.len(), tables[0].language()), (1, mg_core::Language::GERMAN));
+        assert_eq!(p.talk_tables("mytlkf").unwrap()[0].path, made[1]);
+        // Opened again: no warning of the JSON; packed by its target.
+        let m = Module::open(&root).unwrap();
+        assert!(m.project.as_ref().unwrap().warnings.is_empty());
+        let package = Package::read(&root).unwrap();
+        let (file, bytes) =
+            super::super::pack_talk_table(&root, package.target("mytlk").unwrap()).unwrap();
+        assert_eq!(file, root.join("mytlk.tlk"));
+        assert_eq!(mg_tlk::Tlk::read(&bytes).unwrap().language, mg_core::Language::GERMAN);
+        // Once is enough.
+        let mut m = m;
+        let again =
+            m.project.as_mut().unwrap().add_talk_table("mytlk", mg_core::Language::ENGLISH, false);
+        assert!(again.unwrap_err().to_string().contains("there already"));
     }
 
     /// The JSON of an item, tagged `tag`.

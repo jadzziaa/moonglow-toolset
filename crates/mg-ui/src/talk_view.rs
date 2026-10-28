@@ -391,11 +391,28 @@ fn no_table(app: &mut Moonglow, ui: &mut Ui, name: Option<String>) {
         }
     }
     ui.add_space(8.0);
-    let Some(dir) = app.install.as_ref().and_then(|i| i.user_dir.clone()).map(|d| d.join("tlk"))
-    else {
+    // (A nasher project keeps its table in it, as nasher does: its file
+    // where the rules put it, and a target of its own.)
+    let project = app.ws.as_ref().and_then(|ws| ws.module.project.as_deref());
+    let in_project = project.filter(|p| mg_module::nasher::kept_as(&p.settings).is_some());
+    let user_dir = app.install.as_ref().and_then(|i| i.user_dir.clone()).map(|d| d.join("tlk"));
+    let Some(dir) = user_dir.or_else(|| in_project.map(|p| p.root().join("tlk"))) else {
         ui.label("Making a talk table needs the game's user folder (Tools › Options).");
         return;
     };
+    let file_of = |n: &str| match in_project {
+        Some(p) => p.talk_table_file(n),
+        None => Some(dir.join(format!("{n}.tlk"))),
+    };
+    let new = app.talk_view.new_name.trim().to_string();
+    let made_in = file_of(&new);
+    // (In the project, as its nasher.cfg names it: `src/mytlk.tlk.json`.)
+    let shown = |f: &std::path::Path| match in_project {
+        Some(p) => f.strip_prefix(p.root()).unwrap_or(f).display().to_string().replace('\\', "/"),
+        None => f.display().to_string(),
+    };
+    let made_shown = made_in.as_deref().map(shown);
+    let in_project = in_project.is_some();
     let v = &mut app.talk_view;
     ui.horizontal(|ui| {
         ui.label("New talk table");
@@ -403,28 +420,40 @@ fn no_table(app: &mut Moonglow, ui: &mut Ui, name: Option<String>) {
         ui.checkbox(&mut v.new_feminine, "With a feminine table")
             .on_hover_text("For languages whose text differs for female characters");
     });
-    let new = v.new_name.trim().to_string();
     let problem = if new.is_empty() {
         Some("Name it: up to 16 lower-case letters, digits and _.".to_string())
     } else if new.len() > 16
         || !new.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
     {
         Some("A name has up to 16 lower-case letters, digits and _.".to_string())
-    } else if dir.join(format!("{new}.tlk")).exists() {
-        Some(format!("{new}.tlk is already in the tlk folder: choose it in Module Properties."))
+    } else if made_in.is_none() {
+        Some("The project's rules discard talk tables: nowhere to make one.".to_string())
+    } else if made_in.as_ref().is_some_and(|f| f.exists()) {
+        let f = made_shown.as_deref().unwrap_or_default();
+        Some(format!("{f} is there already: choose it in Module Properties."))
     } else {
         None
     };
     if let Some(p) = &problem {
         ui.weak(p);
-    } else {
-        ui.weak(format!("Made in {}", dir.display()));
+    } else if let Some(f) = &made_shown {
+        match in_project {
+            true => ui.weak(format!("Made in the project as {f}, with a target of its own")),
+            false => ui.weak(format!("Made in {}", dir.display())),
+        };
     }
     if ui.add_enabled(problem.is_none(), egui::Button::new("Create")).clicked() {
         let language = app.game.as_deref().map_or(mg_core::Language::ENGLISH, |g| g.language);
-        let mut t = Table::create(&new, &dir, language, v.new_feminine);
-        match t.save() {
-            Ok(()) => {
+        let feminine = v.new_feminine;
+        let made = match in_project {
+            true => in_project_table(app, &new, language, feminine),
+            false => {
+                let mut t = Table::create(&new, &dir, language, feminine);
+                t.save().map(|()| t)
+            }
+        };
+        match made {
+            Ok(t) => {
                 app.log.info(format!("Made talk table {}", t.source));
                 app.talk = Some(t);
                 app.talk_view = TalkView::default();
@@ -445,6 +474,34 @@ fn no_table(app: &mut Moonglow, ui: &mut Ui, name: Option<String>) {
             Err(e) => app.log.error(format!("Talk table: {e}")),
         }
     }
+}
+
+/// Makes the talk table `name` in the module's nasher project
+/// ([`mg_module::nasher::Project::add_talk_table`]: its file, a target of
+/// its own) and opens it from there.
+fn in_project_table(
+    app: &mut Moonglow,
+    name: &str,
+    language: mg_core::Language,
+    feminine: bool,
+) -> Result<Table, String> {
+    let p = app.ws.as_mut().and_then(|ws| ws.module.project.as_deref_mut()).ok_or("no project")?;
+    let made = p.add_talk_table(name, language, feminine).map_err(|e| e.to_string())?;
+    let style = p.settings.tlk_style;
+    let warnings = std::mem::take(&mut p.warnings);
+    for w in warnings {
+        app.log.warn(w);
+    }
+    let found = |path: &std::path::Path| -> Result<talk::Found, String> {
+        let data = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        Ok(talk::Found { source: talk::Source::Json { path: path.to_path_buf(), style }, data })
+    };
+    let feminine = made.get(1).map(|f| found(f)).transpose()?;
+    app.log.info(format!(
+        "nasher.cfg: a target packs {}",
+        made.iter().map(|f| f.display().to_string()).collect::<Vec<_>>().join(" and ")
+    ));
+    Table::open(name, found(&made[0])?, feminine)
 }
 
 /// A line as its fields show it: with plain line ends
