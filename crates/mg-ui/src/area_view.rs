@@ -1215,7 +1215,10 @@ impl AreaView {
         let per_point = match per_meter {
             Some(v) => v / v.length_sq(),
             // End on: up the screen is along it, as Alt + drag raises.
-            None => egui::vec2(0.0, -self.orbit.map_or(0.02, |o| o.distance * 0.002)),
+            None => {
+                let up = self.orbit.map_or(0.02, |o| o.camera().per_point(self.rect.height()));
+                egui::vec2(0.0, -up)
+            }
         };
         (0.0, Some((pos, per_point)))
     }
@@ -3861,13 +3864,13 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             }
         }
         Some(Drag::Lift { by }) if held.by(button) => {
-            let scale = view.orbit.map_or(0.02, |o| o.distance * 0.002);
+            let height = response.rect.height();
+            let scale = view.orbit.map_or(0.02, |o| o.camera().per_point(height));
             view.drag = Some(Drag::Lift { by: by - held.delta.y * scale });
         }
         Some(Drag::Pan) if held.by(button) => {
             if let Some(o) = view.orbit.as_mut() {
-                let per_pixel = 2.0 * o.distance * (o.camera().fov_y / 2.0).tan()
-                    / response.rect.height().max(1.0);
+                let per_pixel = o.camera().per_point(response.rect.height());
                 pan(o, Vec2::new(-held.delta.x, held.delta.y) * per_pixel);
             }
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
@@ -4114,7 +4117,7 @@ fn camera_input(
     let turning = (held.by(egui::PointerButton::Middle) && !alt)
         || (!alt && held.by(egui::PointerButton::Secondary));
     // What a pixel is on the ground at the target.
-    let per_pixel = 2.0 * o.distance * (o.camera().fov_y / 2.0).tan() / rect.height().max(1.0);
+    let per_pixel = o.camera().per_point(rect.height());
     if command && shift && held.by(egui::PointerButton::Middle) {
         // Ctrl + Shift + middle drag: up and down, the view following the
         // pointer.
@@ -4718,11 +4721,12 @@ fn delete(app: &mut Moonglow, view: &mut AreaView) {
 /// Instances makes one again ([`mg_module::instances::replaced`]): where
 /// it stands, facing as it faces, with its outline (a trigger's or an
 /// encounter's), its visual transform and an encounter's spawn points;
-/// its tag, name, scripts and variables become the blueprint's. One
-/// command; objects of other types and locked ones are left. How many
+/// its tag, name, scripts and variables become the blueprint's, or, with
+/// `own`, stay its own ([`mg_module::instances::replaced_keeping_own`]).
+/// One command; objects of other types and locked ones are left. How many
 /// were replaced.
-pub(crate) fn replace_selected(app: &mut Moonglow, area: ResRef, key: ResKey) -> usize {
-    use mg_module::instances::{Placing, replaced};
+pub(crate) fn replace_selected(app: &mut Moonglow, area: ResRef, key: ResKey, own: bool) -> usize {
+    use mg_module::instances::{Placing, replaced, replaced_keeping_own};
     let Some(kind) = ObjectKind::from_restype(key.restype) else { return 0 };
     let Some(view) = app.area_views.get(&area) else { return 0 };
     let git = view.git();
@@ -4753,7 +4757,12 @@ pub(crate) fn replace_selected(app: &mut Moonglow, area: ResRef, key: ResKey) ->
     let placing = Placing { game, item: &items };
     let mut edits = Vec::new();
     for (index, old) in &olds {
-        let Some(item) = replaced(&placing, key.restype, old, &blueprint) else { continue };
+        let made = if own {
+            replaced_keeping_own(&placing, key.restype, old, &blueprint)
+        } else {
+            replaced(&placing, key.restype, old, &blueprint)
+        };
+        let Some(item) = made else { continue };
         let (path, list) = (mg_edit::GffPath::root(), kind.list().to_string());
         edits.push(mg_edit::Edit::remove_item(git, path.clone(), list.clone(), *index));
         edits.push(mg_edit::Edit::insert_item(git, path, list, *index, item));

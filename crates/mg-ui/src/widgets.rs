@@ -222,6 +222,24 @@ pub struct VarHelp {
     names: Vec<String>,
     /// The row whose name is being typed: the names offered under it.
     pub completing: Option<usize>,
+    /// The offer's row Up and Down move to, which Enter takes.
+    pub highlighted: usize,
+    /// How many were offered at the frame before (the keys are the
+    /// offer's only while there is one).
+    offered_before: usize,
+    /// The row and name Escape closed the offer at: not offered again
+    /// until the name changes.
+    dismissed: Option<(usize, String)>,
+}
+
+/// A name the Variables window offers as one is typed: a described
+/// variable's, or the beginning of a pattern's names (`tdod_rental_` of
+/// `tdod_rental_*`), typed on from there.
+#[derive(Debug, Clone)]
+struct Offer<'a> {
+    /// What the name becomes when it is taken.
+    name: String,
+    described: &'a Described,
 }
 
 impl VarHelp {
@@ -316,26 +334,37 @@ impl VarHelp {
 
     /// The described names to offer for a name being typed: those that
     /// go on this object, begin with (or hold) what is typed, and no other
-    /// row has.
-    fn offered(&self, typed: &str, rows: &[VarRow], row: usize) -> Vec<&Described> {
-        let typed = typed.trim().to_ascii_lowercase();
+    /// row has; then the patterns' beginnings so (not where what is typed
+    /// is already a name the pattern takes).
+    fn offered(&self, typed: &str, rows: &[VarRow], row: usize) -> Vec<Offer<'_>> {
+        let raw = typed.trim();
+        let typed = raw.to_ascii_lowercase();
         let taken = |n: &str| rows.iter().enumerate().any(|(i, r)| i != row && r.name == n);
-        let mut first: Vec<&Described> = Vec::new();
-        let mut then: Vec<&Described> = Vec::new();
-        for d in self.variables.names_for(self.owner) {
-            let lower = d.name.to_ascii_lowercase();
-            if taken(&d.name) || d.name == typed {
-                continue;
-            }
-            if lower.starts_with(&typed) {
-                first.push(d);
-            } else if !typed.is_empty() && lower.contains(&typed) {
-                then.push(d);
-            }
+        // Those that begin with what is typed, then those that hold it.
+        fn ranked<'a>(
+            all: Vec<Offer<'a>>,
+            typed: &str,
+            taken: &dyn Fn(&str) -> bool,
+        ) -> Vec<Offer<'a>> {
+            let kept = all.into_iter().filter(|o| {
+                let lower = o.name.to_ascii_lowercase();
+                !taken(&o.name) && lower != typed && (typed.is_empty() || lower.contains(typed))
+            });
+            let (first, then): (Vec<_>, Vec<_>) =
+                kept.partition(|o| o.name.to_ascii_lowercase().starts_with(typed));
+            first.into_iter().chain(then).collect()
         }
-        first.extend(then);
-        first.truncate(12);
-        first
+        let names = self
+            .variables
+            .names_for(self.owner)
+            .map(|d| Offer { name: d.name.clone(), described: d });
+        let patterns = (self.variables.patterns_for(self.owner))
+            .filter(|d| raw.is_empty() || !d.matches(raw))
+            .flat_map(|d| d.beginnings().into_iter().map(move |name| Offer { name, described: d }));
+        let mut out = ranked(names.collect(), &typed, &taken);
+        out.extend(ranked(patterns.collect(), &typed, &taken));
+        out.truncate(12);
+        out
     }
 }
 
@@ -479,14 +508,16 @@ fn take_described_type(variables: &Variables, r: &mut VarRow) {
     }
 }
 
-/// The described names offered under a name being typed: the one
-/// clicked is `picked` (its row and name). Whether the pointer is over
-/// the list.
+/// The described names offered under a name being typed, the one
+/// `highlighted` (Up and Down move it) marked: the one clicked is
+/// `picked` (its row and name). Whether the pointer is over the list. A
+/// pattern's beginning is shown with the pattern.
 fn completion(
     ui: &Ui,
     row: usize,
     field: &egui::Response,
-    offered: &[&Described],
+    offered: &[Offer<'_>],
+    highlighted: usize,
     picked: &mut Option<(usize, String)>,
 ) -> bool {
     if offered.is_empty() {
@@ -498,18 +529,47 @@ fn completion(
         .show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 ui.set_min_width(field.rect.width());
-                for d in offered {
-                    let what = d.words();
-                    let item =
-                        ui.selectable_label(false, &d.name).on_hover_text(description_tip(d));
-                    ui.weak(what);
+                for (i, o) in offered.iter().enumerate() {
+                    let d = o.described;
+                    let item = ui
+                        .selectable_label(i == highlighted, &o.name)
+                        .on_hover_text(description_tip(d));
+                    if d.is_pattern() {
+                        ui.weak(format!("{}: {}", d.name, d.words()));
+                    } else {
+                        ui.weak(d.words());
+                    }
                     if item.clicked() {
-                        *picked = Some((row, d.name.clone()));
+                        *picked = Some((row, o.name.clone()));
                     }
                 }
             });
         });
     area.response.hovered() || area.response.contains_pointer()
+}
+
+/// The keys an offer of names takes from the name field under it while
+/// it shows (`count` names): Up and Down move `highlighted`, Enter takes
+/// that name (not the window's OK), Escape closes the offer (not the
+/// window). Taken before the field is drawn, so the field and the window
+/// don't see them. Whether Escape closed it, and the name Enter took.
+fn offer_keys(ui: &Ui, count: usize, highlighted: &mut usize) -> (bool, bool) {
+    if count == 0 {
+        return (false, false);
+    }
+    let key = |k| ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, k));
+    if key(egui::Key::ArrowDown) {
+        *highlighted = (*highlighted + 1) % count;
+    }
+    if key(egui::Key::ArrowUp) {
+        *highlighted = (*highlighted + count - 1) % count;
+    }
+    let taken = key(egui::Key::Enter);
+    let closed = key(egui::Key::Escape);
+    if closed {
+        keep_escape(ui.ctx());
+    }
+    (closed, taken)
 }
 
 /// A described variable's value, chosen from its values (and typed, where
@@ -957,6 +1017,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             ui.end_row();
                             let mut remove = None;
                             let mut picked = None;
+                            let mut picked_field: Option<egui::Id> = None;
                             for i in 0..edit.rows.len() {
                                 // (A minimum: a new window offers the fields no width yet,
                                 // and they would keep to it.)
@@ -965,6 +1026,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                         .desired_width(width)
                                         .min_size(egui::vec2(width, 0.0))
                                 }
+                                // The offer's keys, before the field takes them.
+                                let offering = described && help.completing == Some(i);
+                                let count = if offering { help.offered_before } else { 0 };
+                                let (closed, taken) = offer_keys(ui, count, &mut help.highlighted);
                                 let field = wide(&mut edit.rows[i].name, name_width);
                                 let name = ui.add(field.hint_text("Name"));
                                 let r = &edit.rows[i];
@@ -975,20 +1040,53 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 };
                                 // The described names, offered as one is typed.
                                 if described {
-                                    if name.has_focus() || name.gained_focus() {
+                                    // (Escape closes the offer, until the name
+                                    // changes; the name is still being typed.)
+                                    let dismissed =
+                                        help.dismissed.as_ref() == Some(&(i, r.name.clone()));
+                                    if closed {
+                                        help.completing = None;
+                                        help.dismissed = Some((i, r.name.clone()));
+                                        name.request_focus();
+                                    } else if (name.has_focus() || name.gained_focus())
+                                        && !dismissed
+                                    {
                                         help.completing = Some(i);
+                                        help.dismissed = None;
                                     }
                                     if help.completing == Some(i) {
                                         let offered = help.offered(&r.name, &edit.rows, i);
-                                        let over = completion(ui, i, &name, &offered, &mut picked);
+                                        // (Typing anew: the first again.)
+                                        let retyped =
+                                            help.names.get(i).is_some_and(|n| *n != r.name);
+                                        let h = if retyped || help.highlighted >= offered.len() {
+                                            0
+                                        } else {
+                                            help.highlighted
+                                        };
+                                        if taken && let Some(o) = offered.get(h) {
+                                            picked = Some((i, o.name.clone()));
+                                        }
+                                        let over =
+                                            completion(ui, i, &name, &offered, h, &mut picked);
                                         let pressed = ui.input(|i| i.pointer.any_pressed());
-                                        if offered.is_empty()
+                                        let count = offered.len();
+                                        help.highlighted = h;
+                                        help.offered_before = count;
+                                        if picked.is_some() {
+                                            // (Typed on from there, from its end.)
+                                            picked_field = Some(name.id);
+                                        }
+                                        if count == 0
                                             || picked.is_some()
                                             || (!name.has_focus() && !over && pressed)
                                             || (name.lost_focus() && !over)
                                         {
                                             help.completing = None;
                                         }
+                                    }
+                                    if help.completing.is_none() {
+                                        help.offered_before = 0;
                                     }
                                 }
                                 let r = &mut edit.rows[i];
@@ -1020,6 +1118,19 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 ui.end_row();
                             }
                             if let Some((i, name)) = picked {
+                                // The field keeps the keyboard, its cursor at the
+                                // end: a pattern's beginning is typed on from.
+                                if let Some(id) = picked_field {
+                                    let end = egui::text::CCursor::new(name.chars().count());
+                                    let mut state =
+                                        egui::text_edit::TextEditState::load(ui.ctx(), id)
+                                            .unwrap_or_default();
+                                    state
+                                        .cursor
+                                        .set_char_range(Some(egui::text::CCursorRange::one(end)));
+                                    state.store(ui.ctx(), id);
+                                    ui.memory_mut(|m| m.request_focus(id));
+                                }
                                 edit.rows[i].name = name;
                             }
                             if let Some(i) = remove {
@@ -1891,6 +2002,13 @@ pub(crate) struct SearchField<'a> {
     width: Option<f32>,
 }
 
+/// Whether the widget `id` is the text field of a [`SearchField`] shown
+/// this frame so far ([`search_field_shown`]): what is typed there finds,
+/// and changes nothing.
+pub(crate) fn is_search_field(ctx: &egui::Context, id: egui::Id) -> bool {
+    ctx.data(|x| x.get_temp::<Dialogs>(dialogs_id())).is_some_and(|d| d.searches.contains(&id))
+}
+
 /// What a [`SearchField`] did: the field's response, and how its keys
 /// left it, if they did.
 pub(crate) struct Searched {
@@ -2058,6 +2176,16 @@ pub(crate) fn dialogs_begin(ctx: &egui::Context) {
         && !egui::Popup::is_any_open(ctx);
     d.leaves_search = d.escape && d.searching;
     ctx.data_mut(|x| x.insert_temp(dialogs_id(), d));
+}
+
+/// This frame's Escape was something's in a dialog (it closed the names
+/// a field offers): the dialog stays open.
+pub(crate) fn keep_escape(ctx: &egui::Context) {
+    ctx.data_mut(|x| {
+        let d = x.get_temp_mut_or_default::<Dialogs>(dialogs_id());
+        d.escape = false;
+        d.leaves_search = false;
+    });
 }
 
 /// Once a frame, after everything is drawn: whether a search field has
@@ -2902,6 +3030,21 @@ pub(crate) fn tile_label_height(ui: &Ui) -> f32 {
 /// name under it, on up to two lines. `made`: the picture (`Some(None)`: there
 /// is nothing to draw; `None`: not made yet). Its response, and whether
 /// it is in sight (to have its picture made).
+/// Where a picture of texture `id` is drawn in `room`: as large as fits,
+/// in its own shape (a texture twice as wide as tall isn't stretched to a
+/// square), centered. The whole room where its size isn't known.
+pub(crate) fn letterboxed(
+    ctx: &egui::Context,
+    id: egui::TextureId,
+    room: egui::Rect,
+) -> egui::Rect {
+    let size = ctx.tex_manager().read().meta(id).map(|m| m.size);
+    let Some([w, h]) = size.filter(|[w, h]| *w > 0 && *h > 0) else { return room };
+    let (w, h) = (w as f32, h as f32);
+    let scale = (room.width() / w).min(room.height() / h);
+    egui::Rect::from_center_size(room.center(), egui::vec2(w * scale, h * scale))
+}
+
 pub(crate) fn picture_tile(
     ui: &mut Ui,
     side: f32,
@@ -2930,7 +3073,8 @@ pub(crate) fn picture_tile(
     match made {
         Some(Some(id)) => {
             let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-            ui.painter().image(id, picture, uv, egui::Color32::WHITE);
+            let at = letterboxed(ui.ctx(), id, picture);
+            ui.painter().image(id, at, uv, egui::Color32::WHITE);
         }
         _ => {
             let mark = if made.is_none() { "…" } else { "(no picture)" };

@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:50:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:51:25Z }
 ---
 
 # Modules
@@ -718,7 +718,12 @@ changes.
 
 **In the Variables window** (an object's, a blueprint's, an area's, the
 module's), the name being typed offers the described variables that go
-on that object, each with its type and what it goes on; one chosen (or
+on that object, each with its type and what it goes on, then the
+patterns' (`tdod_rental_*`) by what their names begin with
+(`tdod_rental_`), to type on from. A click takes one, or **Down** and
+**Up** move to it and **Enter** takes it (Enter is the offer's then, not
+the window's OK); **Escape** closes the offer and leaves the window
+open. One chosen (or
 typed whole) takes its type, a value is chosen from its values, and its
 help is the name's tip. Under the list, the window says what the
 description finds wrong (another type, a value not listed, the wrong

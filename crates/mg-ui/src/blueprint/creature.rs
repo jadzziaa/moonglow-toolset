@@ -215,6 +215,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         f.conversation(ui);
         ui.end_row();
         crate::widgets::field_label(ui, "");
+        f.mark_mixed(ui, "Interruptable");
         let mut no_interrupt = f.root.integer("Interruptable").unwrap_or(1) == 0;
         if ui.checkbox(&mut no_interrupt, "No Interrupt").changed() {
             f.set_int("No interrupt", "Interruptable", i64::from(!no_interrupt), FieldType::Byte);
@@ -282,6 +283,7 @@ fn statistics(f: &mut Form<'_>, ui: &mut Ui) {
             egui::Grid::new(("utc-hp", f.key)).num_columns(2).spacing([16.0, 4.0]).show(ui, |ui| {
                 crate::widgets::field_label(ui, "Base Hit Points");
                 // The current hit points follow the base.
+                f.mark_mixed(ui, "HitPoints");
                 if let Some(v) = spin_number(ui, f.int("HitPoints"), 1..=10_000) {
                     f.set_many(
                         "Hit points",
@@ -323,6 +325,7 @@ fn statistics(f: &mut Form<'_>, ui: &mut Ui) {
                         ui.label(signed(stats.saves_modifier[i]));
                         // (To 250, as Aurora; below 0, which Aurora's field doesn't
                         // go, for the penalties files have.)
+                        f.mark_mixed(ui, label);
                         if let Some(v) = spin_number(ui, f.int(label), -100..=250) {
                             f.set_int(name, label, v, FieldType::Short);
                         }
@@ -534,6 +537,7 @@ fn appearance_fields(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, prefix: Opt
             let current = part_number(&f.root, label).unwrap_or(0);
             let choices = situated::part_choices(&numbers, |n| n.to_string());
             crate::widgets::field_label(ui, text);
+            f.mark_mixed(ui, label);
             if let Some(v) = situated::pick_part(ui, f.key, label, &choices, current, 220.0) {
                 set_part(f, text, label, v);
             }
@@ -600,7 +604,7 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
     });
     ui.separator();
     let mut edits: Vec<(&str, Vec<Edit>)> = Vec::new();
-    egui::Grid::new(("utc-classes", key)).num_columns(5).spacing([12.0, 6.0]).show(ui, |ui| {
+    egui::Grid::new(("utc-classes", key)).num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
         for (i, c) in list.iter().enumerate() {
             let path = base.clone().item("ClassList", i);
             ui.label(format!("Class {}", i + 1));
@@ -621,10 +625,14 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
                     vec![Edit::remove_item(key, base.clone(), "ClassList", i)],
                 ));
             }
+            ui.end_row();
             // A cleric's domains, a wizard's school (classes.2da PickDomains,
-            // PickSchool); the game reads them (engine_ee_fields.rs).
-            ui.horizontal(|ui| {
-                if class_int(class, "PickDomains") == Some(1) {
+            // PickSchool); the game reads them (engine_ee_fields.rs). On a
+            // row of their own, under the class: beside it, the second
+            // domain was at a narrow window's edge.
+            if class_int(class, "PickDomains") == Some(1) {
+                ui.label("Domains");
+                ui.horizontal(|ui| {
                     for (n, label) in ["Domain1", "Domain2"].into_iter().enumerate() {
                         let name = format!("class{i}-domain{n}");
                         if let Some(v) = optional_pick(ui, key, &name, &domains, c.integer(label)) {
@@ -634,20 +642,18 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
                             ));
                         }
                     }
-                } else if class_int(class, "PickSchool") == Some(1) {
-                    crate::widgets::field_label(ui, "School");
-                    let current = c.integer("School");
-                    if let Some(v) =
-                        optional_pick(ui, key, &format!("class{i}-school"), &schools, current)
-                    {
-                        edits.push((
-                            "School",
-                            vec![set(key, &path, "School", Value::Byte(v as u8))],
-                        ));
-                    }
+                });
+                ui.end_row();
+            } else if class_int(class, "PickSchool") == Some(1) {
+                ui.label("School");
+                let current = c.integer("School");
+                if let Some(v) =
+                    optional_pick(ui, key, &format!("class{i}-school"), &schools, current)
+                {
+                    edits.push(("School", vec![set(key, &path, "School", Value::Byte(v as u8))]));
                 }
-            });
-            ui.end_row();
+                ui.end_row();
+            }
         }
     });
     // EE creatures take up to 8 classes.
@@ -735,6 +741,7 @@ fn associates(
             ),
         ] {
             crate::widgets::field_label(ui, title);
+            f.mark_mixed(ui, type_label);
             let current = f.root.integer(type_label);
             if let Some(v) = optional_pick(ui, f.key, type_label, kinds, current) {
                 f.set_int(title, type_label, v, FieldType::Int);
@@ -906,6 +913,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
                 crate::widgets::field_label(ui, "Adjustment");
                 // The rating is recalculated with it (`refresh_hit_points`).
                 let adjust = f.int("CRAdjust");
+                f.mark_mixed(ui, "CRAdjust");
                 if let Some(v) = spin_number(ui, adjust, -100..=100) {
                     let adjust_value = super::integer(f.root.get("CRAdjust"), v, FieldType::Int);
                     f.set_fields("CR adjustment", vec![("CRAdjust", adjust_value)]);

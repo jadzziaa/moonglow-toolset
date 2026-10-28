@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T03:57:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:51:25Z }
 ---
 
 # Blueprints
@@ -154,7 +154,10 @@ The palette's buttons:
   remaking): where they stand, facing as they face, with their visual
   transform (a tilt, a scale), a trigger's or an encounter's outline and
   an encounter's spawn points. Their tag, name, scripts and variables
-  become the blueprint's. A placeable the blueprint makes static loses
+  become the blueprint's; **Replace Selected, Keeping Tags and Scripts**
+  keeps each one's own instead (a placeholder replaced by the real thing
+  keeps the tag its scripts know it by), the rest coming from the
+  blueprint. A placeable the blueprint makes static loses
   its transform, as ticking Static does. Locked objects are left. One
   Undo puts the old ones back. With the Gallery, this swaps a placed
   object for a neighboring one in a click or two.
@@ -184,7 +187,9 @@ The palette's buttons:
   area's selection).
 - **View**: open one of the game's blueprints to look at, page by page
   as its editor shows it (or double-click it). It can't be changed
-  there: its fields are dimmed, its pages and lists can still be looked
+  there: its fields are dimmed and take no typing (a click in one leaves
+  the keyboard where it was; a list's **Find** is still typed in), its
+  pages and lists can still be looked
   through, and a change tried is refused with a note that offers **Edit
   Copy…**.
 - **Export…** (a custom blueprint, or the several selected): the Export
@@ -394,15 +399,24 @@ Shared parts:
   game reads them when it loads the object, so no script is needed: a
   field set here works as the script call would.
   - **Texture replacements**: a texture of the object's model drawn with
-    another. The page lists the textures its models' meshes use, each
-    with its picture and what it is drawn as. **Select Texture…** opens
+    another. The page lists the textures its models use, each with its
+    picture and what it is drawn as: its meshes' textures, the textures
+    of the materials (MTRs) a mesh is drawn with *(material …)*, its
+    particle emitters' *(emitter)* and its lights' lens flares
+    *(flare)*. **Select Texture…** opens
     a gallery of the game's, the haks' and the module's DDS and TGA
     textures, with **Find** to search them by name and their pictures
-    made as they come into sight; a click chooses one, **OK** or a
-    double-click takes it. The name can also be typed after **Drawn as**.
+    made as they come into sight, each in its own shape; a click chooses one, **OK** or a
+    double-click takes it. The interface's pictures, which no model is
+    drawn with (item, feat and spell icons, portraits, load screens, the
+    area map's tiles and the GUI's own: more than three quarters of the
+    game's textures), are left out unless **Interface textures too** is
+    ticked. The name can also be typed after **Drawn as**.
     **Reset** removes a replacement. PLT textures are listed but have
     nothing to pick: the game keeps their colors and doesn't replace
-    them. A replacement of a texture the model lacks is kept and shown
+    them. A texture whose name is longer than 16 characters is listed
+    *(name too long)* with nothing to pick: a replacement names a
+    texture by a resref, which holds 16. A replacement of a texture the model lacks is kept and shown
     *(not in the model)*; **Any name** adds one for any two names. The
     area view and the model viewer show them.
     - A placeable's or a door's textures are its model's; an item's,

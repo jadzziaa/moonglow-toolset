@@ -545,8 +545,9 @@ enum Pick {
     EditCopy(ResKey),
     Delete(ResKey),
     Preview(ResKey),
-    /// The objects selected in the area become ones of this blueprint.
-    Replace(ResKey),
+    /// The objects selected in the area become ones of this blueprint
+    /// (keeping their own tags, names, scripts and variables).
+    Replace(ResKey, bool),
     References(ResKey),
     UpdateInstances(Vec<ResKey>),
     EditTogether(Vec<ResKey>),
@@ -1112,9 +1113,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             }
             Pick::New => new_blueprint(app, kind),
             Pick::Preview(key) => app.actions.push(Action::OpenTab(Tab::Model(key))),
-            Pick::Replace(key) => match app.palette.area {
+            Pick::Replace(key, own) => match app.palette.area {
                 Some(area) => {
-                    let n = crate::area_view::replace_selected(app, area, key);
+                    let n = crate::area_view::replace_selected(app, area, key, own);
                     if n > 0 {
                         app.log.info(format!("Replaced {n} with {}", key.resref));
                     }
@@ -1599,7 +1600,19 @@ impl Tree<'_> {
                 )
                 .clicked()
             {
-                picks.push(Pick::Replace(key));
+                picks.push(Pick::Replace(key, false));
+                ui.close();
+            }
+            if ui
+                .button("Replace Selected, Keeping Tags and Scripts")
+                .on_hover_text(
+                    "The objects of this type selected in the area become ones of this \
+                     blueprint, where they stand, each keeping its own tag, name, scripts and \
+                     variables (a placeholder keeps what the scripts know it by)",
+                )
+                .clicked()
+            {
+                picks.push(Pick::Replace(key, true));
                 ui.close();
             }
             let text = if favorite { "Remove from Favorites" } else { "Add to Favorites" };

@@ -1,12 +1,14 @@
 //! What an object's texture and animation replacements can name: the
-//! textures its models' meshes are drawn with, and the animations its base
-//! model plays (its own and its supermodels'). The Visuals page lists them
-//! to pick from.
+//! textures its models are drawn with (their meshes', the materials'
+//! the meshes are drawn with, their emitters' and their lights' flares),
+//! and the animations its base model plays (its own and its
+//! supermodels'). The Visuals page lists them to pick from.
 
 use std::sync::Arc;
 
 use mg_core::{ResRef, ResType};
-use mg_mdl::Model;
+use mg_image::mtr::Mtr;
+use mg_mdl::{Model, NodeKind};
 use mg_resman::ResKey;
 use mg_rules::GameData;
 
@@ -15,24 +17,42 @@ use crate::{Lookup, Preview};
 /// A texture of an object's models.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ModelTexture {
-    /// Lower case, as the meshes name it.
+    /// Lower case, as the models name it.
     pub name: String,
     /// Only a PLT has the name (no DDS or TGA): drawn in the object's
     /// colors, and not replaced by the game.
     pub plt: bool,
-    /// The models whose meshes use it.
+    /// The models that use it.
     pub models: Vec<String>,
     /// The PLT colors of the first part that uses it.
     pub colors: Option<[u8; 10]>,
+    /// What names it, where the first model to use it does.
+    pub source: Source,
 }
 
-/// The textures the meshes of a preview's models are drawn with (the base
-/// and its parts), each once, by name.
+/// What in a model names a texture it is drawn with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Source {
+    /// A mesh's `bitmap`.
+    Mesh,
+    /// A material (an MTR) a mesh is drawn with: its name. (A mesh's
+    /// `materialname`, or a `bitmap` an MTR has the name of, which EE
+    /// draws as that material.)
+    Material(String),
+    /// A particle emitter.
+    Emitter,
+    /// A light's lens flare.
+    Flare,
+}
+
+/// The textures a preview's models are drawn with (the base and its
+/// parts), each once, by name.
 pub fn textures(game: &GameData, preview: &Preview) -> Vec<ModelTexture> {
     let lk = Lookup { game };
     let mut out: Vec<ModelTexture> = Vec::new();
     for part in std::iter::once(&preview.base).chain(&preview.parts) {
-        for name in lk.bitmaps(&part.model) {
+        let Some(model) = lk.model(&part.model) else { continue };
+        for (name, source) in named(game, &model) {
             match out.iter_mut().find(|t| t.name == name) {
                 Some(t) => {
                     if !t.models.contains(&part.model) {
@@ -44,12 +64,60 @@ pub fn textures(game: &GameData, preview: &Preview) -> Vec<ModelTexture> {
                     name,
                     models: vec![part.model.clone()],
                     colors: part.colors,
+                    source,
                 }),
             }
         }
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
     out
+}
+
+/// The textures a model names, each with what names it (lower case): the
+/// meshes it draws (their `bitmap`, and the textures of the materials they
+/// are drawn with), its emitters' and its lights' flares.
+fn named(game: &GameData, m: &Model) -> Vec<(String, Source)> {
+    let mut out: Vec<(String, Source)> = Vec::new();
+    let mut add = |name: &str, source: Source| {
+        let name = name.trim().to_ascii_lowercase();
+        if !name.is_empty() && name != "null" && !out.iter().any(|(n, _)| *n == name) {
+            out.push((name, source));
+        }
+    };
+    for n in &m.nodes {
+        match &n.kind {
+            NodeKind::Mesh(mesh) if mesh.render => {
+                if let Some(b) = &mesh.textures[0] {
+                    add(b, Source::Mesh);
+                }
+                let materials = mesh.material.iter().chain(mesh.textures[0].iter());
+                for material in materials {
+                    for t in material_textures(game, material) {
+                        add(&t, Source::Material(material.to_ascii_lowercase()));
+                    }
+                }
+            }
+            NodeKind::Emitter(e) => {
+                if let Some(t) = &e.texture {
+                    add(t, Source::Emitter);
+                }
+            }
+            NodeKind::Light(l) => {
+                for t in &l.flare_textures {
+                    add(t, Source::Flare);
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// The textures of the material of this name (an MTR), if there is one.
+fn material_textures(game: &GameData, name: &str) -> Vec<String> {
+    let Some(r) = ResRef::cut(name) else { return Vec::new() };
+    let Ok(data) = game.resman.get(&ResKey::new(r, ResType::MTR)) else { return Vec::new() };
+    Mtr::parse(&data).textures.into_iter().flatten().collect()
 }
 
 /// Whether the texture of this name is a PLT alone.
@@ -139,6 +207,43 @@ mod tests {
         assert!(!is_simple_texture(&game, "mg_skin"));
         // No model, none.
         assert!(textures(&game, &Preview::model("nothing")).is_empty());
+    }
+
+    /// A mesh drawn with a material lists the material's textures; an
+    /// emitter's and a light's flare are listed too.
+    #[test]
+    fn materials_emitters_and_flares_name_textures_too() {
+        let key = |name: &str| ResKey::from_filename(name).unwrap();
+        let mut c = MemContainer::new();
+        let mdl = "newmodel mg_fx\nsetsupermodel mg_fx NULL\nclassification effect\n\
+             beginmodelgeom mg_fx\nnode dummy mg_fx\n  parent NULL\nendnode\n\
+             node trimesh shell\n  parent mg_fx\n  bitmap mg_old\n  materialname mg_mat\n\
+             verts 3\n    0 0 0\n    1 0 0\n    0 1 0\n\
+             tverts 3\n    0 0 0\n    1 0 0\n    0 1 0\n\
+             faces 1\n    0 1 2 1 0 1 2 0\nendnode\n\
+             node emitter sparks\n  parent mg_fx\n  texture FX_Spark\nendnode\n\
+             node light glow\n  parent mg_fx\n  texturenames 1\n    fx_flare\nendnode\n\
+             endmodelgeom mg_fx\ndonemodel mg_fx\n";
+        c.insert(key("mg_fx.mdl"), mdl.as_bytes());
+        let mtr = "// a material\ntexture0 mg_diffuse\ntexture1 mg_normal\ntexture2 null\n";
+        c.insert(key("mg_mat.mtr"), mtr.as_bytes());
+        let mut rm = ResMan::new();
+        rm.add(priority::HAK_USER, "hak:x", LayerClass::Erf, c);
+        let game = GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let found = textures(&game, &Preview::model("mg_fx"));
+        let named: Vec<(&str, &Source)> =
+            found.iter().map(|t| (t.name.as_str(), &t.source)).collect();
+        let material = Source::Material("mg_mat".into());
+        assert_eq!(
+            named,
+            [
+                ("fx_flare", &Source::Flare),
+                ("fx_spark", &Source::Emitter),
+                ("mg_diffuse", &material),
+                ("mg_normal", &material),
+                ("mg_old", &Source::Mesh),
+            ]
+        );
     }
 
     #[test]

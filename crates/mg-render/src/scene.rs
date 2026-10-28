@@ -380,6 +380,14 @@ impl Camera {
         Mat4::look_at_rh(self.eye, self.target, Vec3::Z)
     }
 
+    /// How far a point of a view `height` points tall is at the target
+    /// (across the view, as up it): what a drag of a point moves there, so
+    /// that what is dragged follows the pointer. The area view's pan, its
+    /// lift and its arrows seen end on, and the model viewer's pan.
+    pub fn per_point(&self, height: f32) -> f32 {
+        2.0 * self.eye.distance(self.target) * (self.fov_y / 2.0).tan() / height.max(1.0)
+    }
+
     pub fn projection(&self, aspect: f32) -> Mat4 {
         Mat4::perspective_rh(self.fov_y, aspect.max(1e-3), self.near, self.far)
     }
@@ -394,6 +402,25 @@ impl Camera {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A step of `per_point` at the target, across the view, is a point
+    /// on the screen: what is dragged follows the pointer.
+    #[test]
+    fn a_point_at_the_target_is_per_point_there() {
+        let target = Vec3::new(10.0, 20.0, 0.0);
+        for distance in [5.0, 40.0, 300.0] {
+            let c = Camera::orbit(target, distance, 0.7, 0.9);
+            let (w, h) = (1200.0, 800.0);
+            let m = c.projection(w / h) * c.view();
+            let on_screen = |p: Vec3| {
+                let v = m.project_point3(p);
+                glam::Vec2::new((v.x + 1.0) / 2.0 * w, (1.0 - v.y) / 2.0 * h)
+            };
+            let right = (c.target - c.eye).cross(Vec3::Z).normalize();
+            let step = on_screen(target + right * c.per_point(h)) - on_screen(target);
+            assert!((step.length() - 1.0).abs() < 1e-3, "{distance}: {step}");
+        }
+    }
 
     /// The client's uniforms for these lights (read back through a debug
     /// shader): colour and cutoff.

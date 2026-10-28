@@ -472,12 +472,18 @@ fn several_areas_are_edited_together() {
     h.run_steps(2);
     assert!(h.query_by_label("ResRef").is_none());
     h.get_by_label("Names, tags and comments are edited one area at a time.");
+    // The flags they differ in, each marked: natural or artificial, and
+    // shader flag 0x100 (one field holds them all).
+    assert_eq!(h.query_all_by_value("≠").count(), 2);
     h.get_by_label("Above ground").click();
     h.run_steps(2);
     let flags = |h: &mut Harness<'_, Moonglow>, name: &str| are(h, name).integer("Flags");
     assert_eq!(flags(&mut h, "cave1"), Some(0x5));
     assert_eq!(flags(&mut h, "cave2"), Some(0x1 | 0x100));
     assert_eq!(flags(&mut h, "inn"), Some(0x1));
+    h.get_by_label("Artificial").click();
+    h.run_steps(2);
+    assert_eq!(h.query_all_by_value("≠").count(), 1, "both artificial now");
     // Variables: one added is added to each, which keeps its own. (The
     // caves' are in their ARE, as Moonglow wrote them before 1.34.3:
     // opening the window moves them to the GIT, where the game reads

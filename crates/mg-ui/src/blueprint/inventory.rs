@@ -670,6 +670,25 @@ pub(super) fn item_list(
     ListOut { edits, clicked, dropped, asked, moved, paste }
 }
 
+/// Where an item added to an inventory goes ([`Form::add_items`]): the
+/// `ItemList` of the struct at `path`, which holds `items` now; or, where
+/// `page` is given, that page's, made first (a store's page of a kind it
+/// has none of yet; `path` is then the page's place).
+pub(super) struct Bin {
+    pub path: GffPath,
+    pub items: Vec<Struct>,
+    pub page: Option<NewPage>,
+}
+
+/// A page an added item makes: `page` (its `ItemList` left out), put at
+/// `index` of list `list` of the struct at `at`.
+pub(super) struct NewPage {
+    pub at: GffPath,
+    pub list: &'static str,
+    pub index: usize,
+    pub page: Struct,
+}
+
 impl Form<'_> {
     /// What an inventory page does with what its list came to: the items
     /// to add (picked, pasted or dropped) go to the end of the object's
@@ -683,27 +702,68 @@ impl Form<'_> {
         taken: Vec<Edit>,
         edits: Vec<(&'static str, Edit)>,
     ) {
-        let key = self.key;
-        if !adds.is_empty() {
-            let mut held = items.to_vec();
-            let what = if taken.is_empty() { "Add item" } else { "Move item" };
-            let mut together = taken;
-            for added in adds {
-                let item = self.inventory_item(&held, &added);
-                together.push(Edit::insert_item(
-                    key,
-                    base.clone(),
-                    "ItemList",
-                    held.len(),
-                    item.clone(),
-                ));
-                held.push(item);
-            }
-            self.app.actions.push(Action::Apply(Command::new(what, together)));
-        }
+        let what = if taken.is_empty() { "Add item" } else { "Move item" };
+        let here =
+            |_: &mut Self, _: &Added| Bin { path: base.clone(), items: items.to_vec(), page: None };
+        self.add_items(what, &adds, taken, here, |_| {});
         for (what, edit) in edits {
             self.app.actions.push(Action::Apply(Command::new(what, vec![edit])));
         }
+    }
+
+    /// Items added to an inventory (picked, pasted or dropped), with
+    /// `taken` (what took a moved one from where it was), as one step
+    /// named `what`: each where `bin` puts it, at the end of that
+    /// `ItemList`, at the first free place in its grid among the items
+    /// there and those added before it; `adjust` gives each what its
+    /// inventory adds (a store's `Infinite`). The placeable's, the
+    /// creature's and the store's inventories add their items so.
+    pub(super) fn add_items(
+        &mut self,
+        what: &str,
+        adds: &[Added],
+        taken: Vec<Edit>,
+        mut bin: impl FnMut(&mut Self, &Added) -> Bin,
+        adjust: impl Fn(&mut Struct),
+    ) {
+        if adds.is_empty() {
+            return;
+        }
+        let key = self.key;
+        // What each list holds as the step goes on, by its path; the pages
+        // made in it (where, the page's id, the path it is at).
+        let mut held: Vec<(GffPath, Vec<Struct>)> = Vec::new();
+        let mut made: Vec<(GffPath, &'static str, u32, GffPath)> = Vec::new();
+        let mut together = taken;
+        for added in adds {
+            let Bin { mut path, items, page } = bin(self, added);
+            if let Some(p) = page {
+                let id = p.page.id;
+                let same = |m: &&(GffPath, &str, u32, GffPath)| m.0 == p.at && m.1 == p.list;
+                match made.iter().filter(same).find(|m| m.2 == id) {
+                    Some(m) => path = m.3.clone(),
+                    None => {
+                        let index = p.index + made.iter().filter(same).count();
+                        path = p.at.item(p.list, index);
+                        together.push(Edit::insert_item(key, p.at.clone(), p.list, index, p.page));
+                        made.push((p.at, p.list, id, path.clone()));
+                    }
+                }
+            }
+            let at = match held.iter().position(|(p, _)| *p == path) {
+                Some(i) => i,
+                None => {
+                    held.push((path.clone(), items));
+                    held.len() - 1
+                }
+            };
+            let mut item = self.inventory_item(&held[at].1, added);
+            adjust(&mut item);
+            let index = held[at].1.len();
+            together.push(Edit::insert_item(key, path, "ItemList", index, item.clone()));
+            held[at].1.push(item);
+        }
+        self.app.actions.push(Action::Apply(Command::new(what, together)));
     }
 
     /// Copy and Properties from a row's menu, a row moved within the

@@ -98,11 +98,17 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         ui.horizontal(|ui| {
             let has =
                 ui.add_enabled_ui(!fixed, |ui| f.check(ui, "Has Inventory", "HasInventory")).inner;
-            if ui
-                .add_enabled(has, egui::Button::new("Inventory…"))
-                .on_hover_text("Edit inventory contents")
-                .clicked()
-            {
+            // (Several edited together: an inventory is one's own.)
+            let one = f.also.is_empty();
+            let button = ui
+                .add_enabled(has && one, egui::Button::new("Inventory…"))
+                .on_hover_text("Edit inventory contents");
+            let button = if one {
+                button
+            } else {
+                button.on_disabled_hover_text("Inventories are edited one at a time")
+            };
+            if button.clicked() {
                 f.app.blueprint_pages.insert((f.key, f.path.clone()), "Inventory");
             }
             // The game keeps an inventory on a placeable players can't use

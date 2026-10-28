@@ -172,6 +172,7 @@ fn portrait_image(
 /// choice sets the row, and the resref where the blueprint has one. Its
 /// image shows; … opens Select Portrait (thumbnails, filters).
 pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
+    f.mark_mixed(ui, "PortraitId");
     let Some(table) = f.app.game.as_deref().and_then(|g| g.table("portraits").ok()) else {
         return;
     };
@@ -422,6 +423,7 @@ pub(super) fn transition(f: &mut Form<'_>, ui: &mut Ui) {
         ui.end_row();
         crate::widgets::field_label(ui, "Destination is a");
         let flags = f.int("LinkedToFlags");
+        f.mark_mixed(ui, "LinkedToFlags");
         ui.horizontal(|ui| {
             for (text, v) in [("Door", 1), ("Waypoint", 2), ("None", 0)] {
                 if ui.radio(flags == v, text).clicked() && flags != v {
@@ -502,6 +504,7 @@ pub(super) fn lock(f: &mut Form<'_>, ui: &mut Ui) {
 pub(super) fn durability(f: &mut Form<'_>, ui: &mut Ui) {
     crate::widgets::field_label(ui, "Hit Points");
     // The blueprint's current hit points follow its maximum.
+    f.mark_mixed(ui, "HP");
     if let Some(v) = spin_number(ui, f.int("HP"), 1..=10_000) {
         f.set_many(
             "Hit points",
@@ -559,6 +562,7 @@ pub(super) fn advanced(
             ui.end_row();
             crate::widgets::field_label(ui, "");
             // Aurora's No Interrupt is the inverse of Interruptable.
+            f.mark_mixed(ui, "Interruptable");
             let mut no_interrupt = f.root.integer("Interruptable").unwrap_or(1) == 0;
             if ui.checkbox(&mut no_interrupt, "No Interrupt").changed() {
                 f.set_int(

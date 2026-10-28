@@ -1276,6 +1276,56 @@ pub fn replaced(p: &Placing<'_>, restype: ResType, old: &Struct, bp: &Struct) ->
     Some(made)
 }
 
+/// The fields of a placed object's name: a creature's first and last
+/// names, the others' one name.
+const NAME_FIELDS: [&str; 4] = ["LocName", "LocalizedName", "FirstName", "LastName"];
+
+/// Whether a field is one of an object's event scripts (`OnUsed`,
+/// `ScriptHeartbeat`, a trap's `OnTrapTriggered`, a store's
+/// `OnOpenStore`...): a resref named so.
+fn is_script(label: &str, v: &Value) -> bool {
+    matches!(v, Value::ResRef(_)) && (label.starts_with("On") || label.starts_with("Script"))
+}
+
+/// [`replaced`], keeping the old object's own tag, name, scripts and
+/// variables: a placeholder replaced by the thing it stood for keeps what
+/// the scripts know it by (Replace Selected with This, Keeping Tags and
+/// Scripts). Everything else is the blueprint's; a script the old object
+/// had no field for is left empty, and variables it had none of are none.
+pub fn replaced_keeping_own(
+    p: &Placing<'_>,
+    restype: ResType,
+    old: &Struct,
+    bp: &Struct,
+) -> Option<Struct> {
+    let mut made = replaced(p, restype, old, bp)?;
+    for label in std::iter::once("Tag").chain(NAME_FIELDS) {
+        if let Some(v) = old.get(label) {
+            made.set(label, v.clone());
+        }
+    }
+    let scripts = |s: &Struct| -> Vec<(String, Value)> {
+        (s.fields.iter())
+            .map(|f| (f.label.to_string_lossy(), &f.value))
+            .filter(|(label, v)| is_script(label, v))
+            .map(|(label, v)| (label, v.clone()))
+            .collect()
+    };
+    for (label, _) in scripts(&made) {
+        made.set(&label, Value::resref(ResRef::EMPTY));
+    }
+    for (label, v) in scripts(old) {
+        made.set(&label, v);
+    }
+    match old.get("VarTable") {
+        Some(v) => made.set("VarTable", v.clone()),
+        None => {
+            made.remove("VarTable");
+        }
+    }
+    Some(made)
+}
+
 /// Where an item is held in a GIT: each list and index down to it from
 /// the GIT's root: the placed object that holds it (`Placeable List` 3),
 /// then where in that (`ItemList` 0; a creature's `Equip_ItemList`; a
@@ -1603,6 +1653,67 @@ mod tests {
         fixed.set("Static", Value::Byte(1));
         let new = replaced(&p, ResType::UTP, &chest, &fixed).unwrap();
         assert!(!new.contains("VisTransformList"), "a static placeable takes no transform");
+    }
+
+    /// Replace Selected, keeping their tags and scripts: a placeholder made
+    /// anew from the blueprint keeps its own tag, name, scripts and
+    /// variables (a script the blueprint has and it hadn't is left empty);
+    /// the rest, its appearance here, is the blueprint's.
+    #[test]
+    fn replaced_objects_can_keep_their_own_tag_name_scripts_and_variables() {
+        let game = game();
+        let none = |_: ResRef| None;
+        let p = Placing { game: &game, item: &none };
+        let text = |s: &str| Value::String(s.as_bytes().to_vec());
+        let script = |s: &str| Value::resref(ResRef::from_str(s).unwrap());
+        let name = |s: &str| {
+            Value::LocString(mg_core::LocString::from_text(
+                mg_core::Language::ENGLISH,
+                mg_core::Gender::Male,
+                s,
+            ))
+        };
+        let mut placeholder = Struct::new(0);
+        placeholder.set("Tag", text("QUEST_CHEST"));
+        placeholder.set("LocName", name("Placeholder"));
+        placeholder.set("Appearance", Value::Dword(1));
+        placeholder.set("OnUsed", script("q_chest_used"));
+        let mut var = Struct::new(0);
+        var.set("Name", text("nQuest"));
+        placeholder.set("VarTable", Value::List(vec![var]));
+        let at = Placement { position: [5.0, 6.0, 1.0], rotation: 0.7 };
+        let old = instance(&p, ResType::UTP, &placeholder, at, &[]).unwrap();
+        let mut chest = Struct::new(0);
+        chest.set("Tag", text("FINE_CHEST"));
+        chest.set("LocName", name("Fine Chest"));
+        chest.set("Appearance", Value::Dword(7));
+        chest.set("OnUsed", script("chest_used"));
+        chest.set("OnOpen", script("chest_open"));
+        chest.set("TemplateResRef", script("fine_chest"));
+        let new = replaced_keeping_own(&p, ResType::UTP, &old, &chest).unwrap();
+        assert_eq!(new.string("Tag"), Some(&b"QUEST_CHEST"[..]));
+        assert_eq!(new.get("LocName"), old.get("LocName"));
+        assert_eq!(new.resref("OnUsed").unwrap().to_string(), "q_chest_used");
+        let open = new.resref("OnOpen").map(|r| r.to_string());
+        assert!(open.is_none_or(|s| s.is_empty()), "its own: none");
+        assert_eq!(new.list("VarTable"), old.list("VarTable"));
+        assert_eq!(new.integer("Appearance"), Some(7), "the rest the blueprint's");
+        assert_eq!(new.resref("TemplateResRef").unwrap().to_string(), "fine_chest");
+        assert_eq!((new.float("X"), new.float("Bearing")), (Some(5.0), Some(0.7)));
+        // A creature's two names.
+        let mut bandit = Struct::new(0);
+        bandit.set("FirstName", name("Old"));
+        bandit.set("LastName", name("Bandit"));
+        bandit.set("ScriptSpawn", script("q_spawn"));
+        let old = instance(&p, ResType::UTC, &bandit, at, &[]).unwrap();
+        let mut guard = Struct::new(0);
+        guard.set("FirstName", name("Guard"));
+        guard.set("ScriptSpawn", script("nw_c2_default9"));
+        let new = replaced_keeping_own(&p, ResType::UTC, &old, &guard).unwrap();
+        assert_eq!(new.get("FirstName"), old.get("FirstName"));
+        assert_eq!(new.get("LastName"), old.get("LastName"));
+        assert_eq!(new.resref("ScriptSpawn").unwrap().to_string(), "q_spawn");
+        assert!(!new.contains("VarTable"));
     }
 
     #[test]

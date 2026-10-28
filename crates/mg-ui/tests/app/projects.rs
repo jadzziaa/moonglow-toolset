@@ -1217,6 +1217,91 @@ fn the_variables_window_offers_the_project_s_described_variables() {
     assert_eq!(vars[0].string("Value"), Some(&b"forge"[..]));
 }
 
+/// The Variables window's offer by the keys: Down and Up move in it,
+/// Enter takes the name (not the window's OK) and Escape closes it (not
+/// the window). A pattern is offered by what its names begin with, typed
+/// on from there.
+#[test]
+fn the_variables_window_s_offer_takes_the_keys_and_offers_patterns() {
+    use mg_ui::widgets::{FieldTarget, VarTableEdit};
+    let described = "[tdod_workbench]\ntype = \"string\"\non = [\"placeable\"]\n\n\
+        [tdod_lit]\ntype = \"int\"\n\n\
+        [\"tdod_rental_*\"]\ntype = \"int\"\non = [\"placeable\"]\nhelp = \"A room's rent\"\n";
+    let dir = project_folder("ui-offer-keys", &[("variables.toml", described)]);
+    let git = ResKey::parse("start", ResType::GIT).unwrap();
+    {
+        let mut m = Module::open(&dir).unwrap();
+        let mut g = Gff::new(*b"GIT ");
+        g.root.set("Placeable List", mg_gff::Value::List(vec![mg_gff::Struct::new(9)]));
+        m.set_gff(git, &g).unwrap();
+        m.save().unwrap();
+    }
+    let mut app = app_with(Vec::new());
+    app.open_module(&dir);
+    let path = mg_edit::GffPath::root().item("Placeable List", 0);
+    app.var_edit = Some(VarTableEdit::new(FieldTarget::new(git, path, "VarTable"), &[]));
+    let mut h = harness(app, 1000.0, 700.0);
+    h.run();
+    let row =
+        |h: &Harness<'_, Moonglow>, i: usize| h.state().var_edit.as_ref().unwrap().rows[i].clone();
+    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Name");
+    let name_field = |h: &Harness<'_, Moonglow>, _row: usize| {
+        h.get_all(egui_kittest::kittest::by().predicate(hint)).last().unwrap().click();
+    };
+    h.get_by_label("Add").click();
+    h.run();
+    name_field(&h, 0);
+    h.run();
+    h.event(egui::Event::Text("tdod_".into()));
+    h.run();
+    // The names, then the pattern's beginning, with the pattern.
+    assert!(h.query_by_label("tdod_workbench").is_some());
+    assert!(h.query_by_label("tdod_lit").is_some());
+    assert!(h.query_by_label("tdod_rental_").is_some(), "the pattern, by its beginning");
+    assert!(h.query_by_label_contains("tdod_rental_*: ").is_some());
+    // Down, Enter: the second, and the window stays open.
+    h.key_press(egui::Key::ArrowDown);
+    h.run();
+    h.key_press(egui::Key::Enter);
+    h.run();
+    h.run();
+    assert!(h.state().var_edit.is_some(), "Enter took the name, not the window's OK");
+    assert_eq!(row(&h, 0).name, "tdod_lit");
+    // A pattern taken by the keys, and typed on from.
+    h.get_by_label("Add").click();
+    h.run();
+    name_field(&h, 1);
+    h.run();
+    h.event(egui::Event::Text("tdod_r".into()));
+    h.run();
+    h.key_press(egui::Key::Enter);
+    h.run();
+    h.run();
+    assert_eq!(row(&h, 1).name, "tdod_rental_");
+    h.event(egui::Event::Text("door".into()));
+    h.run();
+    assert_eq!(row(&h, 1).name, "tdod_rental_door", "typed on, at its end");
+    assert_eq!(row(&h, 1).kind, 1, "an Int, as the pattern says");
+    // Escape closes the offer, not the window.
+    h.get_by_label("Add").click();
+    h.run();
+    name_field(&h, 2);
+    h.run();
+    h.event(egui::Event::Text("tdod_w".into()));
+    h.run();
+    assert!(h.query_by_label("tdod_workbench").is_some());
+    h.key_press(egui::Key::Escape);
+    h.run();
+    h.run();
+    assert!(h.state().var_edit.is_some(), "the window stays open");
+    assert!(h.query_by_label("tdod_workbench").is_none(), "the offer closed");
+    // With no offer, Escape is the window's.
+    h.key_press(egui::Key::Escape);
+    h.run();
+    h.run();
+    assert!(h.state().var_edit.is_none(), "closed");
+}
+
 /// Verify Module holds the module's variables to the project's
 /// descriptions: a variable of another type is an error (C2).
 #[test]

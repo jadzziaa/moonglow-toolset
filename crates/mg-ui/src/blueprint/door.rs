@@ -96,6 +96,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         // follows it where the blueprint has one).
         crate::widgets::field_label(ui, "Generic Appearance");
         let current = f.int(mg_rules::rows::generic_door_field(&f.root));
+        f.mark_mixed(ui, mg_rules::rows::generic_door_field(&f.root));
         ui.add_enabled_ui(f.int("Appearance") == 0, |ui| {
             let app = &mut *f.app;
             let mut shown = |ui: &mut Ui, row| super::generic_door_picture(app, ui, row);

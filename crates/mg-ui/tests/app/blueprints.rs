@@ -830,7 +830,10 @@ fn visuals_page_sets_replacements_and_misc_visuals() {
     h.run();
     assert!(field(&mut h, &key).get("TextureReplace").is_none());
     // MiscVisuals: what shows, set apart from the game's choice; the other
-    // fields are left to the game.
+    // fields are left to the game. (Under the model's textures, its
+    // emitters' too: scrolled to.)
+    h.get_by_label("As the game decides").scroll_to_me();
+    h.run();
     h.get_by_label("As the game decides").click();
     h.run();
     h.get_by_label("Name with Tab").click();
@@ -976,6 +979,102 @@ fn visuals_page_picks_a_texture_in_the_gallery_and_resets_it() {
     h.get_all_by_label("Reset").next().unwrap().click();
     h.run();
     assert!(field(&mut h, &key).get("TextureReplace").is_none());
+}
+
+/// The Visuals page lists the textures of a material a mesh is drawn with
+/// and an emitter's, each said so; a texture whose name is longer than a
+/// resref is listed with why nothing is offered for it.
+#[test]
+fn visuals_page_lists_materials_emitters_and_long_names() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let mut app = game_app(&root, None);
+    let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+    let game = app.game.as_deref().unwrap();
+    let chest = game.resman.get(&key).unwrap().into_owned();
+    let model = {
+        let g = Gff::read(&chest).unwrap();
+        mg_preview::placeable(game, &g.root).unwrap().base.model
+    };
+    // The chest's model, the module's own: a mesh drawn with a material,
+    // one with a long name, an emitter.
+    let mesh = |name: &str, lines: &str| {
+        format!(
+            "node trimesh {name}\n  parent {model}\n{lines}verts 3\n    0 0 0\n    1 0 0\n    \
+             0 1 0\ntverts 3\n    0 0 0\n    1 0 0\n    0 1 0\nfaces 1\n    0 1 2 1 0 1 2 \
+             0\nendnode\n"
+        )
+    };
+    let mdl = format!(
+        "newmodel {model}\nsetsupermodel {model} NULL\nclassification character\n\
+         beginmodelgeom {model}\nnode dummy {model}\n  parent NULL\nendnode\n{}{}\
+         node emitter sparks\n  parent {model}\n  texture mg_spark\nendnode\n\
+         endmodelgeom {model}\ndonemodel {model}\n",
+        mesh("lid", "  bitmap mg_lid\n  materialname mg_lidmat\n"),
+        mesh("base", "  bitmap mg_a_very_long_texture_name\n"),
+    );
+    let mut m = mg_module::Module::new();
+    m.set_info(&Gff::new(*b"IFO ")).unwrap();
+    m.set(key, chest);
+    m.set(ResKey::parse(&model, ResType::MDL).unwrap(), mdl.into_bytes());
+    m.set(ResKey::parse("mg_lidmat", ResType::MTR).unwrap(), b"texture0 mg_lidwood\n".to_vec());
+    let path = mg_testkit::scratch_dir("ui-visuals-kinds").join("kinds.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    app.open_module(&path);
+    app.blueprint_pages.insert((key, mg_edit::GffPath::root()), "Visuals");
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
+    let mut h = harness(app, 1000.0, 800.0);
+    h.run_steps(3);
+    for name in ["mg_lid", "mg_lidwood", "mg_spark", "mg_a_very_long_texture_name"] {
+        assert!(h.query_by_label(name).is_some(), "{name} is listed");
+    }
+    assert!(h.query_by_label("(material mg_lidmat)").is_some());
+    assert!(h.query_by_label("(emitter)").is_some());
+    assert!(h.query_by_label("(name too long)").is_some());
+    let disabled =
+        h.get_all_by_label("Select Texture…").filter(|b| b.accesskit_node().is_disabled()).count();
+    assert_eq!(disabled, 1, "the long one's");
+}
+
+/// Select Texture leaves the interface's pictures (a portrait here) out,
+/// unless asked for them.
+#[test]
+fn select_texture_leaves_the_interface_out() {
+    let Some((mut h, _key)) = blueprint_harness("plc_chest1", "chest_interface", ResType::UTP)
+    else {
+        return;
+    };
+    h.run();
+    h.get_by_label("Visuals").click();
+    h.run();
+    h.get_all_by_label("Select Texture…").next().unwrap().click();
+    settle(&mut h);
+    let by_hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Find");
+    h.get(egui_kittest::kittest::by().predicate(by_hint)).click();
+    settle(&mut h);
+    h.get(egui_kittest::kittest::by().predicate(by_hint)).type_text("po_hezrou_h");
+    settle(&mut h);
+    assert!(h.query_by_label("po_hezrou_h").is_none(), "a portrait, left out");
+    let count = |h: &Harness<'_, Moonglow>| -> (usize, usize) {
+        let label = (h.get_all_by_label_contains(" textures"))
+            .filter_map(|n| n.accesskit_node().value())
+            .find(|l| l.ends_with(" textures") && l.contains(" of "))
+            .expect("how many are listed");
+        let words: Vec<&str> = label.split_whitespace().collect();
+        (words[0].parse().unwrap(), words[2].parse().unwrap())
+    };
+    let (none, models) = count(&h);
+    assert_eq!(none, 0);
+    h.get_by_label("Interface textures too").click();
+    settle(&mut h);
+    assert!(h.query_by_label("po_hezrou_h").is_some(), "listed when asked for");
+    let (one, all) = count(&h);
+    assert_eq!(one, 1);
+    assert!(all > models + 5000, "{models} of the models', {all} in all");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run();
 }
 
 /// GitHub issue 32: an animation replacement picked from the animations of
@@ -1172,6 +1271,34 @@ fn classes_page_sets_domains_and_associates() {
     // them, and the page says so.
     assert!(h.query_by_label_contains("a familiar only for a creature with an arcane").is_some());
     assert!(h.query_by_label_contains("companion only for a creature with a divine").is_some());
+}
+
+/// A cleric's two domains are on a row of their own under its class, so
+/// in a narrow window both are in it (beside the class, the second sat at
+/// the window's edge).
+#[test]
+fn a_cleric_s_domains_fit_a_narrow_window() {
+    let Some((mut h, key)) = blueprint_harness("nw_mumcleric", "cleric_narrow", ResType::UTC)
+    else {
+        return;
+    };
+    h.run();
+    h.get_by_label("Classes").click();
+    h.run();
+    let at = h.state().dock.find_tab(&Tab::Blueprint(key)).expect("its window");
+    let window = h.state_mut().dock.get_window_state_mut(at.surface).expect("a window");
+    window.set_position(egui::pos2(20.0, 60.0)).set_size(egui::vec2(480.0, 600.0));
+    h.run_steps(3);
+    let right = h.get_by_label("Domains").rect().left() + 470.0;
+    let pickers: Vec<egui::Rect> = h.get_all_by_value("Not set").map(|n| n.rect()).collect();
+    assert!(pickers.len() >= 2, "both domains");
+    let domain_row = h.get_by_label("Domains").rect().center().y;
+    let domains: Vec<_> =
+        pickers.iter().filter(|r| (r.center().y - domain_row).abs() < 4.0).collect();
+    assert_eq!(domains.len(), 2, "both on the Domains row");
+    for r in domains {
+        assert!(r.right() <= right, "{r:?} in the window (right edge {right})");
+    }
 }
 
 /// A weapon's parts are chosen from pictures of the part alone: the
@@ -1786,6 +1913,86 @@ fn several_blueprints_are_edited_together() {
     h.run();
     for k in &keys {
         assert_eq!(field(&mut h, k).integer("Plot"), Some(0), "{k}");
+    }
+}
+
+/// Blueprints edited together mark each field where they differ with
+/// "≠", whatever kind of field it is: a name (in several languages), an
+/// appearance, hit points, a conversation, a flag, the variables, a memo.
+/// Alike, none is marked.
+#[test]
+fn fields_that_differ_among_blueprints_edited_together_are_marked() {
+    use mg_edit::{Command, Edit};
+    use mg_gff::Value;
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-mixed-marks");
+    let path = sample_module(&dir);
+    let mut app = game_app(&root, None);
+    app.open_module(&path);
+    close_tab(&mut app, &Tab::ModuleProperties);
+    app.open_palette = false;
+    let game = app.game.as_deref().unwrap();
+    let base = Gff::read(&game.resman.get_named("plc_chest1", ResType::UTP).unwrap()).unwrap();
+    let keys: Vec<ResKey> =
+        ["mg_box_a", "mg_box_b"].iter().map(|n| ResKey::parse(n, ResType::UTP).unwrap()).collect();
+    let mut other = base.clone();
+    let name = mg_core::LocString::from_text(Language::ENGLISH, Gender::Male, "Another Box");
+    other.root.set("LocName", Value::LocString(name));
+    other.root.set("Appearance", Value::Dword(8));
+    other.root.set("HP", Value::Short(99));
+    other.root.set("Conversation", Value::resref(ResRef::from_str("mg_talk").unwrap()));
+    other.root.set("Interruptable", Value::Byte(1));
+    other.root.set("Comment", Value::String(b"the other one".to_vec()));
+    let mut var = mg_gff::Struct::new(0);
+    var.set("Name", Value::String(b"nMine".to_vec()));
+    var.set("Type", Value::Dword(1));
+    var.set("Value", Value::Int(1));
+    other.root.set("VarTable", Value::List(vec![var]));
+    let mut misc = mg_gff::Struct::new(8);
+    misc.set("MouseCursor", Value::Int(25));
+    other.root.set("MiscVisuals", Value::Struct(misc));
+    let set = |k: ResKey, g: &Gff| Edit::SetResource { key: k, data: Some(g.to_bytes().unwrap()) };
+    let edits = vec![set(keys[0], &base), set(keys[1], &other)];
+    app.ws.as_mut().unwrap().apply(Command::new("setup", edits)).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprints(keys.clone())));
+    let mut h = harness(app, 1000.0, 800.0);
+    h.run();
+    let marks = |h: &mut Harness<'_, Moonglow>, page: &'static str| {
+        h.state_mut().blueprint_pages.insert((keys[0], mg_edit::GffPath::root()), page);
+        h.run();
+        h.query_all_by_value("≠").count()
+    };
+    assert_eq!(marks(&mut h, "Basic"), 3, "the name, the appearance, the hit points");
+    // The mark says what it means.
+    h.get_all_by_value("≠").next().unwrap().hover();
+    h.run();
+    assert!(h.query_by_label_contains("The objects edited together differ here").is_some());
+    assert_eq!(marks(&mut h, "Advanced"), 3, "the conversation, No Interrupt, the variables");
+    assert_eq!(marks(&mut h, "Comments"), 1);
+    assert_eq!(marks(&mut h, "Visuals"), 1, "the mouse cursor");
+    // A visual set on both: each keeps its other visuals (the second its
+    // cursor).
+    h.get_by_label("As the game decides").scroll_to_me();
+    h.run();
+    h.get_by_label("As the game decides").click();
+    h.run();
+    for k in &keys {
+        let misc = field(&mut h, k).child("MiscVisuals").cloned().unwrap();
+        assert!(misc.integer("UiDiscoverMask").is_some_and(|m| m >= 0), "{k}");
+    }
+    let second = field(&mut h, &keys[1]).child("MiscVisuals").cloned().unwrap();
+    assert_eq!(second.integer("MouseCursor"), Some(25), "its own cursor kept");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    // Alike: none.
+    h.state_mut()
+        .ws
+        .as_mut()
+        .unwrap()
+        .apply(Command::new("alike", vec![set(keys[1], &base)]))
+        .unwrap();
+    for page in ["Basic", "Advanced", "Comments"] {
+        assert_eq!(marks(&mut h, page), 0, "{page}");
     }
 }
 
@@ -2981,6 +3188,98 @@ fn a_placeable_s_appearance_is_chosen_from_pictures() {
     assert_eq!(field(&mut h, &key).integer("Appearance"), Some(next.row as i64));
     assert!(h.state().dock.find_tab(&Tab::PlaceableGallery).is_some(), "the gallery stays, a tab");
     assert!(h.query_by_label_contains("A click gives my_chest.utp the appearance").is_some());
+}
+
+/// The Appearance Gallery opens scrolled to the object's own appearance,
+/// however far down its table that is: at the top of the pictures, not
+/// a pixel further per row (GitHub issue 32: the scroll took the rows'
+/// own spacing for the scroll area's).
+#[test]
+fn the_gallery_opens_at_a_far_appearance() {
+    let Some((mut h, key)) = blueprint_harness("plc_chest1", "far_chest", ResType::UTP) else {
+        return;
+    };
+    let far = {
+        let game = h.state().game.as_deref().unwrap();
+        let cols = mg_rules::ChoiceColumns { name: Some("StrRef"), label: Some("Label") };
+        let all = game.choices("placeables", cols).unwrap();
+        all[all.len() * 2 / 3].clone()
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "far",
+        vec![mg_edit::Edit::SetField {
+            key,
+            path: mg_edit::GffPath::root(),
+            label: "Appearance".into(),
+            value: Some(mg_gff::Value::Dword(far.row as u32)),
+        }],
+    )));
+    h.run();
+    h.get_by_label("Gallery…").click();
+    h.run_steps(4);
+    let tile = |n: &egui_kittest::Node<'_>| n.rect().height() > 60.0;
+    let chosen = h.get_all_by_label(&far.text).find(tile).expect("its picture, in sight").rect();
+    let find = h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().rect();
+    let below = chosen.top() - find.bottom();
+    assert!((0.0..=24.0).contains(&below), "{below} points under Find: {chosen:?}");
+}
+
+/// The game's blueprint, viewed, takes no typing: a click in a field
+/// doesn't keep the keyboard there, so nothing typed waits to be dropped
+/// when the field is left. Its pages still open, and a list's search
+/// still takes what is typed.
+#[test]
+fn a_viewed_blueprint_s_fields_take_no_typing() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-viewed-typing");
+    let mut app = game_app(&root, None);
+    app.open_module(&sample_module(&dir));
+    let key = ResKey::parse("nw_waypoint001", ResType::UTW).unwrap();
+    let data = app.game.as_ref().unwrap().resman.get(&key).unwrap().into_owned();
+    let tag = {
+        let g = Gff::read(&data).unwrap();
+        String::from_utf8(g.root.string("Tag").unwrap().to_vec()).unwrap()
+    };
+    app.ws.as_mut().unwrap().view(key, Gff::read(&data).unwrap());
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
+    close_tab(&mut app, &Tab::ModuleProperties);
+    let mut h = harness(app, 1000.0, 800.0);
+    h.run();
+    assert!(h.query_by_label_contains("shown to look at").is_some(), "viewed");
+    h.get_all_by_value(&tag).next().unwrap().click();
+    h.run();
+    assert!(h.ctx.memory(|m| m.focused()).is_none(), "the field doesn't keep the keyboard");
+    h.event(egui::Event::Text("X".into()));
+    h.run();
+    assert_eq!(h.get_all_by_value(&tag).count(), 2, "nothing typed in it");
+    assert!(h.query_by_value(&format!("{tag}X")).is_none());
+    assert!(h.query_by_label_contains("Not changed").is_none(), "nothing tried to change");
+    // Its pages open.
+    h.get_by_label("Advanced").click();
+    h.run();
+    assert_eq!(
+        h.state().blueprint_pages.get(&(key, mg_edit::GffPath::root())).copied(),
+        Some("Advanced")
+    );
+    // A store's inventory, viewed: its item search is typed in.
+    let store = ResKey::parse("nw_storebar01", ResType::UTM).unwrap();
+    {
+        let app = h.state_mut();
+        let data = app.game.as_ref().unwrap().resman.get(&store).unwrap().into_owned();
+        app.ws.as_mut().unwrap().view(store, Gff::read(&data).unwrap());
+        app.blueprint_pages.insert((store, mg_edit::GffPath::root()), "Inventory");
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(store)));
+    }
+    h.run_steps(3);
+    let find = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Find");
+    h.get_all(egui_kittest::kittest::by().predicate(find)).last().unwrap().click();
+    h.run();
+    h.event(egui::Event::Text("torch".into()));
+    h.run();
+    assert!(h.query_all_by_value("torch").next().is_some(), "the search takes it");
 }
 
 /// An item's Appearance page shows its model in the page, over the fields

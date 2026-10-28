@@ -103,6 +103,24 @@ fn field_changed(form: &GffPath, path: &GffPath, label: &str) -> Option<String> 
     })
 }
 
+/// Whether a command reaches some of `targets` (each a document and the
+/// path of an object in it) but not all: an edit reaches an object when it
+/// is in the object's document at its path or further in (an item it
+/// holds), or replaces the document whole. Placed objects share their
+/// area's GIT, so their documents alone don't tell them apart.
+fn partial(targets: &[(ResKey, GffPath)], cmd: &Command) -> bool {
+    let reaches = |(key, at): &(ResKey, GffPath)| {
+        cmd.edits.iter().any(|e| match e {
+            Edit::SetField { key: k, path, .. }
+            | Edit::InsertItem { key: k, path, .. }
+            | Edit::RemoveItem { key: k, path, .. } => k == key && path.0.starts_with(&at.0),
+            Edit::SetResource { key: k, .. } => k == key,
+        })
+    };
+    let reached = targets.iter().filter(|t| reaches(t)).count();
+    reached > 0 && reached < targets.len()
+}
+
 /// Notes what a window's command is about to change (it is not applied
 /// yet), for the window's Cancel: the fields of the window's objects
 /// (`targets`, the first of which names the window) and the resources it
@@ -596,28 +614,88 @@ impl Form<'_> {
     /// Whether the others edited with this one have another value in
     /// field `label` (not looked at past [`MIXED_LIMIT`] of them).
     pub(crate) fn differs(&mut self, label: &str) -> bool {
+        self.differs_by(label, |v| v.cloned())
+    }
+
+    /// Whether the others edited with this one have another value in
+    /// field `label`, as `seen` sees it (a bit of a field of flags).
+    fn differs_by<T: PartialEq>(
+        &mut self,
+        label: &str,
+        seen: impl Fn(Option<&Value>) -> T,
+    ) -> bool {
         if self.also.is_empty() || self.also.len() > MIXED_LIMIT {
             return false;
         }
         let Some(ws) = self.app.ws.as_mut() else { return false };
-        let mine = self.root.get(label);
+        let mine = seen(self.root.get(label));
         self.also.iter().any(|(key, path)| {
             let theirs =
                 ws.doc(key).ok().and_then(|d| path.get(&d.root)).and_then(|s| s.get(label));
-            theirs != mine
+            seen(theirs) != mine
         })
     }
 
     /// Marks the field about to be drawn if the others edited with this
-    /// one have another value in it: "≠" before it. (Painted, not laid
-    /// out: a table's cell holds the field alone.)
-    fn mark_mixed(&mut self, ui: &Ui, label: &str) {
+    /// one have another value in it: "≠" before it, with a tip. (Painted,
+    /// not laid out: a table's cell holds the field alone.) Every field a
+    /// form sets on each of the objects edited together has the mark.
+    pub(crate) fn mark_mixed(&mut self, ui: &Ui, label: &str) {
+        if self.differs(label) {
+            self.paint_mixed(ui, label);
+        }
+    }
+
+    /// [`mark_mixed`](Self::mark_mixed) for one bit of a field of flags
+    /// (an area's `Flags`: a box, or a pair of choices, a bit).
+    pub(crate) fn mark_mixed_bit(&mut self, ui: &Ui, label: &str, bit: u32) {
+        let set = |v: Option<&Value>| match v {
+            Some(Value::Dword(f)) => *f & bit,
+            Some(Value::Int(f)) => *f as u32 & bit,
+            _ => 0,
+        };
+        if self.differs_by(label, set) {
+            self.paint_mixed(ui, &format!("{label}#{bit}"));
+        }
+    }
+
+    /// "≠", laid out where the next widget goes (a row of choices that
+    /// starts at the page's edge, where a painted mark has no room), if
+    /// the objects edited together differ in any of the fields `labels`.
+    pub(crate) fn mark_mixed_inline(&mut self, ui: &mut Ui, labels: &[&str]) {
+        if labels.iter().any(|l| self.differs(l)) {
+            ui.colored_label(ui.visuals().warn_fg_color, MIXED).on_hover_text(MIXED_TIP);
+        }
+    }
+
+    /// A line under a section's heading where the objects edited together
+    /// differ in its field `label` (a list of the section's own, set on
+    /// each whole): "≠" and what that means.
+    pub(crate) fn mixed_line(&mut self, ui: &mut Ui, label: &str) {
         if !self.differs(label) {
             return;
         }
+        let color = ui.visuals().warn_fg_color;
+        ui.horizontal(|ui| {
+            ui.colored_label(color, MIXED);
+            ui.colored_label(
+                color,
+                "They differ here: this shows the first one's, and what you change here sets \
+                 this list on each",
+            );
+        });
+    }
+
+    /// The "≠" before the field about to be drawn: painted in the gutter
+    /// to its left, and known to the screen reader and the pointer.
+    fn paint_mixed(&self, ui: &Ui, label: &str) {
         let at = ui.cursor().min + egui::vec2(-3.0, 2.0);
         let font = egui::TextStyle::Body.resolve(ui.style());
-        ui.painter().text(at, egui::Align2::RIGHT_TOP, "≠", font, ui.visuals().warn_fg_color);
+        let color = ui.visuals().warn_fg_color;
+        let rect = ui.painter().text(at, egui::Align2::RIGHT_TOP, MIXED, font, color);
+        let r = ui.interact(rect, self.id(label).with("mixed"), egui::Sense::hover());
+        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, MIXED));
+        r.on_hover_text(MIXED_TIP);
     }
 
     /// Several blueprints edited together (not placed objects).
@@ -726,6 +804,7 @@ impl Form<'_> {
 
     /// A multi-line text field (`CExoString`), line ends kept.
     pub(crate) fn memo(&mut self, ui: &mut Ui, what: &str, label: &str) {
+        self.mark_mixed(ui, label);
         let current = decode(self.root.string(label).unwrap_or_default());
         let id = self.id(label);
         if let Some(v) = commit_text(self.app, ui, id, &current, true, f32::INFINITY) {
@@ -736,6 +815,7 @@ impl Form<'_> {
 
     /// A localized name: the English text, and `…` for every language.
     pub(crate) fn locstring(&mut self, ui: &mut Ui, what: &str, label: &str) {
+        self.mark_mixed(ui, label);
         let current = self.root.locstring(label).cloned().unwrap_or_default();
         ui.horizontal(|ui| {
             if let Some(v) = self.loc_text(ui, label, &current, false, 240.0) {
@@ -762,6 +842,7 @@ impl Form<'_> {
                 self.app.loc_edit = Some(LocStringEdit::new(self.target(label), what, &current));
             }
         });
+        self.mark_mixed(ui, label);
         if let Some(v) = self.loc_text(ui, label, &current, true, f32::INFINITY) {
             self.set(what, label, Value::LocString(with_english(current.clone(), &v)));
         }
@@ -807,6 +888,7 @@ impl Form<'_> {
         label: &str,
         range: std::ops::RangeInclusive<i64>,
     ) {
+        self.mark_mixed(ui, label);
         let current = self.int(label);
         let mut v = current;
         let r = ui.add(egui::Slider::new(&mut v, range).clamping(egui::SliderClamping::Edits));
@@ -863,6 +945,7 @@ impl Form<'_> {
         range: std::ops::RangeInclusive<f32>,
         step: f64,
     ) {
+        self.mark_mixed(ui, label);
         let current = self.int(label) as f32 / 1000.0;
         if let Some(v) = crate::widgets::spin_with(ui, current, range, step, |d| {
             d.speed(0.1).max_decimals(3).suffix(" s")
@@ -992,6 +1075,7 @@ impl Form<'_> {
         label: &str,
         palette: &str,
     ) {
+        self.mark_mixed(ui, label);
         let current = self.int(label).clamp(0, 175) as u8;
         let pick = self.palette_pick(ui, game, what, label, palette, current, None);
         if let Some(v) = pick.filter(|&v| v != current) {
@@ -1114,6 +1198,7 @@ impl Form<'_> {
         default: FieldType,
         creature: bool,
     ) {
+        self.mark_mixed(ui, label);
         let show: Shown = if creature { creature_picture } else { placeable_picture };
         self.choice_shown(ui, "Appearance", label, choices, default, Some(show));
     }
@@ -1135,6 +1220,7 @@ impl Form<'_> {
     /// The loading screen (a loadscreens.2da row): its picture shows under
     /// the choice, and each one's on the row the pointer rests on.
     pub(crate) fn load_screen(&mut self, ui: &mut Ui, choices: &[Choice]) {
+        self.mark_mixed(ui, "LoadScreenID");
         ui.vertical(|ui| {
             let show: Shown = load_screen_picture;
             self.choice_shown(
@@ -1280,6 +1366,7 @@ impl Form<'_> {
         edit: ResType,
         tab: fn(ResKey) -> Tab,
     ) {
+        self.mark_mixed(ui, label);
         let current = self.root.resref(label).unwrap_or(ResRef::EMPTY);
         ui.horizontal(|ui| {
             if let Some(v) = resref_field(self.app, ui, self.id(label), current, what, types) {
@@ -1344,6 +1431,7 @@ impl Form<'_> {
     pub(crate) fn variables(&mut self, ui: &mut Ui) {
         let list = self.root.list("VarTable").unwrap_or(&[]).to_vec();
         let label = format!("Variables ({})…", list.len());
+        self.mark_mixed(ui, "VarTable");
         if ui.button(label).on_hover_text("Edit scripting variables").clicked() {
             self.app.var_edit = Some(VarTableEdit::new(self.target("VarTable"), &list));
         }
@@ -1556,7 +1644,8 @@ pub(crate) fn edit_many(
         }
     };
     let restype = instance_type(&path).unwrap_or(key.restype);
-    let several = path.0.is_empty() && !also.is_empty();
+    // Several blueprints or placed objects edited together.
+    let several = !also.is_empty();
     // The window this is, and the objects it edits.
     let targets: Vec<(ResKey, GffPath)> =
         std::iter::once((key, path.clone())).chain(also.iter().cloned()).collect();
@@ -1571,14 +1660,10 @@ pub(crate) fn edit_many(
     };
     let is_viewed = app.ws.as_ref().is_some_and(|ws| ws.is_viewed(&key));
     let pressed = ok_cancel(ui, &targets[0], is_viewed);
-    let pages: Vec<&str> = if several {
-        // Lists are edited one blueprint at a time.
-        pages(restype).iter().copied().filter(|p| !LIST_PAGES.contains(p)).collect()
-    } else if path.0.is_empty() {
-        pages(restype).to_vec()
-    } else {
-        instance_pages(restype)
-    };
+    let all = if path.0.is_empty() { pages(restype).to_vec() } else { instance_pages(restype) };
+    // Lists are edited one blueprint or object at a time.
+    let pages: Vec<&str> =
+        if several { all.into_iter().filter(|p| !LIST_PAGES.contains(p)).collect() } else { all };
     let page_key = (key, path.clone());
     let mut page = (app.blueprint_pages.get(&page_key).copied())
         .or_else(|| app.open_tabs.page(&tab, &pages))
@@ -1630,7 +1715,11 @@ pub(crate) fn edit_many(
         ));
     }
     if several {
-        ui.weak("Inventories, classes, skills, feats, spells and properties are edited one blueprint at a time.");
+        let one = if path.0.is_empty() { "blueprint" } else { "object" };
+        ui.weak(format!(
+            "Inventories, classes, skills, feats, spells and properties are edited one {one} at a \
+             time."
+        ));
     }
     let note_id = egui::Id::new(("several-note", key));
     if let Some(note) = ui.data(|d| d.get_temp::<String>(note_id)) {
@@ -1638,7 +1727,7 @@ pub(crate) fn edit_many(
     }
     let pending = app.actions.len();
     let mut form = Form { app, key, path, also, root };
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+    let shown = egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         if viewed {
             read_only_look(ui);
         }
@@ -1655,9 +1744,22 @@ pub(crate) fn edit_many(
             _ => {}
         }
     });
-    // The game's blueprint takes no change: what a page asked for is
-    // dropped, and the note above says so.
+    // The game's blueprint takes no change: its fields don't keep the
+    // keyboard (nothing is typed into them, to be dropped when the field
+    // is left), and what a page asked for is dropped, the note above
+    // saying so. Its lists still scroll, its pages open and its lists'
+    // searches take what is typed.
     if viewed {
+        let ctx = ui.ctx();
+        let layer = ui.layer_id();
+        let focused = ctx.memory(|m| m.focused()).and_then(|id| Some((id, ctx.read_response(id)?)));
+        if let Some((id, r)) = focused
+            && r.layer_id == layer
+            && shown.inner_rect.intersects(r.rect)
+            && !crate::widgets::is_search_field(ctx, id)
+        {
+            ctx.memory_mut(|m| m.surrender_focus(id));
+        }
         let app = &mut *form.app;
         let mut tried = false;
         let mut i = pending;
@@ -1677,23 +1779,20 @@ pub(crate) fn edit_many(
             ui.ctx().request_repaint();
         }
     }
-    // A change only the first would take (a page's own list edits) is
-    // dropped rather than made to one of several blueprints.
+    // A change only the first would take (a page's own list edits, an item
+    // the first object holds) is dropped rather than made to one of several
+    // blueprints or placed objects.
     if several {
-        let keys: Vec<ResKey> = form.targets().map(|(k, _)| k).collect();
+        let one = if form.is_instance() { "object" } else { "blueprint" };
         let app = &mut *form.app;
         let mut dropped = false;
         let mut i = pending;
         while i < app.actions.len() {
-            let partial = match &app.actions[i] {
-                Action::Apply(cmd) => {
-                    let edited: Vec<ResKey> = cmd.edits.iter().map(|e| *e.key()).collect();
-                    keys.iter().any(|k| edited.contains(k))
-                        && !keys.iter().all(|k| edited.contains(k))
-                }
+            let only_some = match &app.actions[i] {
+                Action::Apply(cmd) => partial(&targets, cmd),
                 _ => false,
             };
-            if partial {
+            if only_some {
                 app.actions.remove(i);
                 dropped = true;
             } else {
@@ -1701,7 +1800,7 @@ pub(crate) fn edit_many(
             }
         }
         if dropped {
-            let note = "That change can only be made to one blueprint at a time.".to_string();
+            let note = format!("That change can only be made to one {one} at a time.");
             ui.data_mut(|d| d.insert_temp(note_id, note));
         }
     }
@@ -1715,6 +1814,14 @@ const VIEW_REFUSED_SHOWN: f64 = 4.0;
 /// The most objects edited together whose values are compared, field by
 /// field, to mark the fields that differ.
 const MIXED_LIMIT: usize = 64;
+
+/// The mark of a field whose value differs among the objects edited
+/// together.
+pub(crate) const MIXED: &str = "≠";
+
+/// The tip of [`MIXED`].
+const MIXED_TIP: &str = "The objects edited together differ here: this shows the first one's. \
+    What you set is set on each";
 
 /// The look of a form that can't be changed (the game's blueprint, opened
 /// by View): its fields are flat and dim, and don't answer the pointer.
@@ -1734,8 +1841,8 @@ fn read_only_look(ui: &mut Ui) {
     v.text_edit_bg_color = Some(v.panel_fill);
 }
 
-/// The pages that edit lists of their own (the first blueprint's only),
-/// left out when editing several blueprints.
+/// The pages that edit lists of their own (the first object's only), left
+/// out when editing several blueprints or placed objects.
 const LIST_PAGES: [&str; 9] = [
     "Inventory",
     "Classes",
@@ -1751,6 +1858,55 @@ const LIST_PAGES: [&str; 9] = [
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_change_to_some_of_the_objects_edited_together_is_partial() {
+        let git = ResKey::parse("area001", ResType::GIT).unwrap();
+        let chests: Vec<(ResKey, GffPath)> =
+            (0..2).map(|i| (git, GffPath::root().item("Placeable List", i))).collect();
+        let set = |path: &GffPath| Edit::SetField {
+            key: git,
+            path: path.clone(),
+            label: "Plot".into(),
+            value: Some(Value::Byte(1)),
+        };
+        // Set on each: all of them.
+        let each = Command::new("Plot", chests.iter().map(|(_, p)| set(p)).collect());
+        assert!(!partial(&chests, &each));
+        // An item added to the first one's inventory: the same GIT, one of
+        // them.
+        let held = Edit::InsertItem {
+            key: git,
+            path: chests[0].1.clone(),
+            list: "ItemList".into(),
+            index: 0,
+            item: Struct::new(0),
+        };
+        assert!(partial(&chests, &Command::new("Add item", vec![held])));
+        // An item the first holds, further in.
+        let inner = set(&chests[0].1.item("ItemList", 0));
+        assert!(partial(&chests, &Command::new("Stack size", vec![inner])));
+        // Another object of the area: none of them.
+        let other = set(&GffPath::root().item("Placeable List", 2));
+        assert!(!partial(&chests, &Command::new("Plot", vec![other])));
+        // Blueprints, each its own document.
+        let boxes: Vec<(ResKey, GffPath)> = ["mg_box_a", "mg_box_b"]
+            .iter()
+            .map(|n| (ResKey::parse(n, ResType::UTP).unwrap(), GffPath::root()))
+            .collect();
+        let whole = Edit::SetResource { key: boxes[1].0, data: None };
+        assert!(partial(&boxes, &Command::new("Replace", vec![whole])));
+        let both: Vec<Edit> = boxes
+            .iter()
+            .map(|(k, p)| Edit::SetField {
+                key: *k,
+                path: p.clone(),
+                label: "Plot".into(),
+                value: None,
+            })
+            .collect();
+        assert!(!partial(&boxes, &Command::new("Plot", both)));
+    }
 
     #[test]
     fn a_window_s_change_is_noted_by_its_object_s_field() {

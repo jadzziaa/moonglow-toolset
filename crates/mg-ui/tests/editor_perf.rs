@@ -183,4 +183,12 @@ fn opening_select_texture() {
     let t = Instant::now();
     h.step();
     println!("a frame after typing \"wood\": {:?}", t.elapsed());
+    // Closed and opened again: the game's textures are not listed again.
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.step();
+    h.step();
+    h.get_all_by_label("Select Texture…").next().unwrap().click();
+    let t = Instant::now();
+    h.step();
+    println!("the click's frame, opened again (the list kept): {:?}", t.elapsed());
 }

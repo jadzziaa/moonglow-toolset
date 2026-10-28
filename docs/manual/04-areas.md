@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:50:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:51:25Z }
 ---
 
 # Areas
@@ -442,7 +442,15 @@ Aurora):
   objects of one kind selected, one window edits them together: a field
   changed there changes in all of them. It shows the first one's values,
   with **≠** before a field where the others have another (so too for
-  blueprints edited together from the palette).
+  blueprints edited together from the palette): every field set on each
+  has the mark (names in every language, descriptions, sliders, colors,
+  appearances, the conversation, the variables, each of an area's flags),
+  and the pointer resting on it says what it means. A list the Visuals
+  page sets whole (texture and animation replacements, shader
+  parameters) says so under its heading where they differ. Inventories, classes,
+  skills, feats, spells and the other lists of an object's own are
+  edited one object at a time, so those pages aren't offered there (and
+  a placeable's **Inventory…** is grayed).
 
 ### Setup Store
 

@@ -1873,6 +1873,200 @@ fn inventory_pages_narrow() {
     }
 }
 
+/// A cleric's Classes page in windows narrow and wide: its two domain
+/// pickers in reach, not at (or past) the window's edge.
+#[test]
+#[ignore]
+fn classes_narrow() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let install = GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let game = app.game.as_deref().unwrap();
+    let key = ResKey::parse("nw_mumcleric", ResType::UTC).unwrap();
+    let mut m = mg_module::Module::new();
+    m.set(key, game.resman.get(&key).unwrap().into_owned());
+    let path = mg_testkit::scratch_dir("screens-classes-narrow").join("classes.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    app.open_module(&path);
+    app.open_palette = false;
+    app.blueprint_pages.insert((key, GffPath::root()), "Classes");
+    let tab = mg_ui::Tab::Blueprint(key);
+    app.actions.push(mg_ui::Action::OpenTab(tab.clone()));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 760.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    for (size, width) in [("narrow", 480.0), ("middle", 620.0), ("wide", 900.0)] {
+        place(&mut h, &tab, (20.0, 60.0), (width, 600.0));
+        h.run_steps(3);
+        shoot(&mut h, &dir, &format!("classes-{size}"));
+    }
+}
+
+/// The Appearance Gallery opened for a chest whose appearance is two
+/// thirds down placeables.2da: scrolled to it, its picture at the top
+/// (GitHub issue 32).
+#[test]
+#[ignore]
+fn gallery_far_appearance() {
+    use egui_kittest::kittest::Queryable;
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let install = GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let game = app.game.as_deref().unwrap();
+    let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+    let cols = mg_rules::ChoiceColumns { name: Some("StrRef"), label: Some("Label") };
+    let all = game.choices("placeables", cols).unwrap();
+    let far = all[all.len() * 2 / 3].clone();
+    let mut g = mg_gff::Gff::read(&game.resman.get(&key).unwrap()).unwrap();
+    g.root.set("Appearance", mg_gff::Value::Dword(far.row as u32));
+    let mut m = mg_module::Module::new();
+    m.set(key, g.to_bytes().unwrap());
+    let path = mg_testkit::scratch_dir("screens-gallery-far").join("gallery.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    app.open_module(&path);
+    app.open_palette = false;
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 760.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.get_by_label("Gallery…").click();
+    for _ in 0..200 {
+        if h.try_run().is_ok() {
+            break;
+        }
+    }
+    shoot(&mut h, &dir, "gallery-far-appearance");
+}
+
+/// A game blueprint viewed: its Tag field clicked and typed in (nothing
+/// taken), and a store's inventory viewed, its Find typed in (taken).
+#[test]
+#[ignore]
+fn viewed_blueprint_typing() {
+    use egui_kittest::kittest::Queryable;
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let install = GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let path = mg_testkit::scratch_dir("screens-viewed").join("viewed.mod");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    app.open_module(&path);
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 760.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    for (name, t, page) in
+        [("nw_waypoint001", ResType::UTW, "Basic"), ("nw_storebar01", ResType::UTM, "Inventory")]
+    {
+        let key = ResKey::parse(name, t).unwrap();
+        {
+            let app = h.state_mut();
+            let data = app.game.as_ref().unwrap().resman.get(&key).unwrap().into_owned();
+            app.ws.as_mut().unwrap().view(key, mg_gff::Gff::read(&data).unwrap());
+            app.blueprint_pages.insert((key, GffPath::root()), page);
+            app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
+        }
+        h.run_steps(3);
+        if t == ResType::UTW {
+            h.get_all_by_value("NW_WAYPOINT001").next().unwrap().click();
+        } else {
+            let find =
+                |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Find");
+            h.get_all(egui_kittest::kittest::by().predicate(find)).last().unwrap().click();
+        }
+        h.run_steps(2);
+        h.event(egui::Event::Text("torch".into()));
+        shoot(&mut h, &dir, &format!("viewed-{name}-typed"));
+        let tab = h.state().dock.find_tab(&mg_ui::Tab::Blueprint(key)).unwrap();
+        h.state_mut().dock.remove_tab(tab);
+        h.run_steps(2);
+    }
+}
+
+/// Blueprints edited together, "≠" before each field they differ in:
+/// two chests (a name, an appearance, hit points, a conversation, No
+/// Interrupt, a cursor) and two sounds (rows of choices from the page's
+/// edge).
+#[test]
+#[ignore]
+fn mixed_marks() {
+    use mg_gff::Value;
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let install = GameInstall::new(&root, None, "en");
+    for (name, t, pages) in [
+        ("plc_chest1", ResType::UTP, &["Basic", "Advanced", "Visuals"][..]),
+        ("animalcriesday", ResType::UTS, &["Basic", "Positioning", "Advanced"][..]),
+    ] {
+        let mut app = Moonglow::new(Some(install.clone()), Box::new(NoDialogs::default()));
+        let game = app.game.as_deref().unwrap();
+        let base = mg_gff::Gff::read(&game.resman.get_named(name, t).unwrap()).unwrap();
+        let mut other = base.clone();
+        let text = mg_core::LocString::from_text(
+            mg_core::Language::ENGLISH,
+            mg_core::Gender::Male,
+            "Another One",
+        );
+        for label in ["LocName", "LocalizedName"] {
+            if other.root.get(label).is_some() {
+                other.root.set(label, Value::LocString(text.clone()));
+            }
+        }
+        if t == ResType::UTP {
+            other.root.set("Appearance", Value::Dword(8));
+            other.root.set("HP", Value::Short(99));
+            other
+                .root
+                .set("Conversation", Value::resref(mg_core::ResRef::from_str("mg_talk").unwrap()));
+            other.root.set("Interruptable", Value::Byte(1));
+            let mut misc = mg_gff::Struct::new(8);
+            misc.set("MouseCursor", Value::Int(25));
+            other.root.set("MiscVisuals", Value::Struct(misc));
+        } else {
+            other.root.set("Times", Value::Byte(1));
+            other
+                .root
+                .set("Random", Value::Byte(1 - base.root.integer("Random").unwrap_or(0) as u8));
+            other.root.set(
+                "Positional",
+                Value::Byte(1 - base.root.integer("Positional").unwrap_or(0) as u8),
+            );
+        }
+        let keys: Vec<ResKey> =
+            ["mg_a", "mg_b"].iter().map(|n| ResKey::parse(n, t).unwrap()).collect();
+        let mut m = mg_module::Module::new();
+        m.set(keys[0], base.to_bytes().unwrap());
+        m.set(keys[1], other.to_bytes().unwrap());
+        let path = mg_testkit::scratch_dir("screens-mixed-marks").join(format!("{name}.mod"));
+        m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+        app.open_module(&path);
+        app.open_palette = false;
+        app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprints(keys.clone())));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1000.0, 760.0))
+            .wgpu()
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        for page in pages {
+            h.state_mut().blueprint_pages.insert((keys[0], GffPath::root()), page);
+            let page_name = page.to_lowercase();
+            shoot(&mut h, &dir, &format!("mixed-{name}-{page_name}"));
+        }
+    }
+}
+
 #[test]
 #[ignore]
 fn store_chosen_item() {
@@ -4967,7 +5161,8 @@ fn described_variables_and_the_builder_code() {
          [tdod_harvest_dc]\ntype = \"int\"\non = [\"placeable\"]\nmin = 1\nmax = 60\n\n\
          [tdod_light]\ntype = \"int\"\nvalues = { 1 = \"lit\" }\nhelp = \"A natural light against delirium, within 3.33 m\"\n\n\
          [tdod_lit]\ntype = \"int\"\non = [\"placeable\"]\nvalues = { 1 = \"lit\" }\n\n\
-         [tdod_banker]\ntype = \"int\"\non = [\"creature\", \"placeable\"]\nvalues = { 1 = \"a banker\" }\n",
+         [tdod_banker]\ntype = \"int\"\non = [\"creature\", \"placeable\"]\nvalues = { 1 = \"a banker\" }\n\n\
+         [\"tdod_rental_*\"]\ntype = \"int\"\non = [\"placeable\"]\nhelp = \"A room's rent\"\n",
     )
     .unwrap();
     let rows = || {
@@ -4996,6 +5191,11 @@ fn described_variables_and_the_builder_code() {
         h.run_steps(3);
         shoot(&mut h, &dir, &format!("variables-{name}-typed"));
         if name == "described" {
+            // Down twice: the third offered, marked.
+            h.key_press(egui::Key::ArrowDown);
+            h.key_press(egui::Key::ArrowDown);
+            h.run_steps(3);
+            shoot(&mut h, &dir, "variables-described-offer-keys");
             h.get_all_by_value("tdod_").next().unwrap().type_text("w");
             h.run_steps(2);
             h.get_by_label("tdod_workbench").click();
