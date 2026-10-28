@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T03:57:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:51:25Z }
 ---
 
 # Blueprints

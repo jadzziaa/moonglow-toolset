@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T06:11:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:51:25Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -602,8 +602,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   `ActionEquipItem` was refused too; without the properties it was
   worn). Moonglow draws whatever the file has equipped. Which
   properties keep an item off wasn't looked into. (S–M)
-- **The Classes page in a narrow window:** the second domain picker
-  sits at the window's edge. (S)
 - **A placeable's illumination, what's left:** **Illuminated** off now
   leaves out the appearance's light in the area view and the preview
   (read from the client: `model_light_uniforms`), and the box can be set
@@ -627,28 +625,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   0 regards a player, or a player it, was not measured (no player joins
   a headless server); an encounter's creatures were not looked at. (S)
   (Jasperre's report, October 2026)
-- **The Visuals page's texture and animation pickers, what's left:**
-  the page lists the textures of the object's models (their meshes'
-  `bitmap`) and picks replacements in Select Texture; animations are
-  picked from the model's and its supermodels'. Not done or not
-  measured:
-  - Whether the game replaces a PLT texture by name (the page and the
-    preview take it that it doesn't, from `ReplaceObjectTexture`'s
-    comment that the new one must be simple); and whether a creature's
-    replacement reaches what it holds, its helmet or cloak (left out of
-    its list).
-  - A mesh drawn with a material (`materialname`, an MTR) lists only
-    its `bitmap`, not the material's textures; emitters' and other
-    nodes' textures aren't listed; a texture name longer than 16
-    characters can't be written (the field is a resref) and the row
-    gives no reason.
-  - Select Texture stretches a texture that isn't square into its
-    square, and lists the GUI's own textures with the rest. The
-    textures are listed anew each time it opens (29,567 in the game:
-    15 ms on the click, release build).
-  - The Appearance Gallery's scroll to the current row adds the gallery's
-    own spacing per row rather than the scroll area's (the same mistake
-    put Select Texture rows away from the one chosen, fixed there). (S)
+- **The Visuals page's texture pickers, waiting on the client:**
+  whether the game replaces a PLT texture by name (the page and the
+  preview take it that it doesn't, from `ReplaceObjectTexture`'s comment
+  that the new one must be simple), and whether a creature's replacement
+  reaches what it holds, its helmet or cloak (left out of its list). A
+  client screenshot of `ReplaceObjectTexture` on each settles it. (S)
   (GitHub issue 32)
 
 - **A tile's replacement texture, out of Tile Properties:** the form
@@ -729,11 +711,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   (by `UserType`, `ALLCLASSESCANUSE` or else) was not captured: Moonglow
   leaves out rows without a name and those labelled DELETED or Padding.
   (S) (a second builder's review, October 2026)
-- **View is read-only by its look and by what it refuses:** fields are
-  dimmed and a change tried is dropped with a note, but a field still
-  takes the pointer and the keys until then (so its lists scroll and its
-  pages open): what is typed goes when the field is left. (S)
-  (a second builder's review, October 2026)
 - **Random item properties, what is left** (done: the Item Wizard's
   Magical, Item Level and Item Quality, with rules fitted to 127 items
   Aurora's wizard made, `docs/findings.md`): the rules are fitted, not
@@ -907,20 +884,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   pages that edit lists (inventories, classes, skills, feats, spells,
   item properties); those are edited one blueprint at a time. Adding the
   same item or feat to each would need its own design. (M)
-- **The multi-object editor's list pages:** with several placed objects
-  selected, those pages still change only the first object.
-  Edit Together's guard (leave the pages out, drop changes that reach only
-  the first) could apply there too, once Aurora's multi-editor is checked
-  for what it allows. (S, plus an Aurora capture)
-- **Edited together, shown as the first:** a field whose value differs
-  among the areas, blueprints or placed objects edited together has "≠"
-  before it (of up to 65 of them). Not marked: a field in several
-  languages, a memo, a slider, a palette color, the appearance and
-  loading screen choices, the category and the conversation, an area's
-  flags (one field for several boxes) and its Audio page, and the lists
-  of an editor's own (a code review found the first seven never call
-  `Form::mark_mixed`; nothing says which fields are meant to have the
-  mark, and a painted mark is in no test). (S, needs the intent)
 - **Choosing areas by more:** the chooser filters by name, ResRef,
   tileset and the three kinds; not by a property's value (areas with a
   given music or variable), and its choice isn't kept as a named set.
@@ -1607,14 +1570,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   line); random scale on static placeables (the game gives them none, so
   Scale passes them by). The see-through dab is held by the tests'
   counts; the pictures show strokes laid. (S each)
-- **Replace Selected with This** makes the object anew from the
-  blueprint as Update Instances does (Aurora has no Replace; its Update
-  Instances is the captured equivalent): place, facing, visual
-  transform, a trigger's or encounter's outline and spawn points are
-  kept, triggers and encounters too. The old object's own tag, name,
-  scripts and variables go, as in Aurora's Update Instances: a choice to
-  keep them (a builder replacing a placeholder keeps its tag for the
-  scripts) isn't offered. (S) (from builders' reports after 1.10.1)
 - **A click is on the model, not its box:** an object with a model is
   picked where the pointer's ray meets its triangles (at rest: a creature
   mid-stride is picked where it stands still), so a click through the
@@ -3557,13 +3512,6 @@ unless it says so.
 - **A dropdown's choices are kept but copied to who asks:**
   `GameData::choice_list` hands the kept list out shared; the editors
   still call `choices`, which copies it. (S)
-- **Written more than once, in the editors:** the store's inventory
-  page adds an item its own way (to the page of its kind, at a place in
-  its grid), where the placeable's and the creature's share
-  `Form::apply_list`; the tools' radius by distance was not found as
-  the review saw it (two sites in `area_view.rs` and one in
-  `model_view.rs` scale by the camera's distance, each its own way).
-  (S each)
 - **Written more than once, in the tests:** some corpus tests still
   stack the game, a module's haks and the module by hand, where
   `Module::stack_onto` does it for mg and the window. (S)
@@ -3883,10 +3831,6 @@ and duplicate tags on paste. What is left:
   variable described nowhere and not named as the project's is not
   said; variables set by scripts are not seen (Verify reads the module's
   resources). (S)
-- **The Variables window's offer** takes the mouse (or a name typed
-  whole); Up, Down and Enter don't move in it or take one (Enter is the
-  window's OK), and Escape closes the window. A pattern's description
-  (`tdod_rental_*`) isn't offered, only matched. (S)
 - **No `mg vars --undescribed`** listing the module's variables that no
   description names, nor a plugin API to read the descriptions
   (`mg.vars.describe`). (S)
