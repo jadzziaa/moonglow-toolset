@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer, the log, and screen readers and desktop agents.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T04:52:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T03:58:52Z }
 ---
 
 # The main window
@@ -14,6 +14,13 @@ the **log**, and the **status bar** (the module's file, "(modified)" while
 there are unsaved changes, and the game's folder).
 The palette opens with each module, as wide as the module tree. If you
 close it, **Palettes** on the toolbar brings it back.
+
+The toolbar's buttons (New, Open, Save, Undo, Redo, Properties, New
+Area, Start, Resources, Palettes, Preview, Compile, Verify) each show an
+icon and a word. To save room, **Tools › Options › General › Toolbar
+buttons: Icons only** shows the icons alone, as Aurora's toolbar does
+(the area view's toolbar too): rest the pointer on one and its tip names
+it, with its key.
 
 ## Menus
 
