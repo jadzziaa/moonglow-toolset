@@ -1814,6 +1814,39 @@ fn inventory_pages_narrow() {
     }
 }
 
+/// A cleric's Classes page in windows narrow and wide: its two domain
+/// pickers in reach, not at (or past) the window's edge.
+#[test]
+#[ignore]
+fn classes_narrow() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let install = GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let game = app.game.as_deref().unwrap();
+    let key = ResKey::parse("nw_mumcleric", ResType::UTC).unwrap();
+    let mut m = mg_module::Module::new();
+    m.set(key, game.resman.get(&key).unwrap().into_owned());
+    let path = mg_testkit::scratch_dir("screens-classes-narrow").join("classes.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    app.open_module(&path);
+    app.open_palette = false;
+    app.blueprint_pages.insert((key, GffPath::root()), "Classes");
+    let tab = mg_ui::Tab::Blueprint(key);
+    app.actions.push(mg_ui::Action::OpenTab(tab.clone()));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 760.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    for (size, width) in [("narrow", 480.0), ("middle", 620.0), ("wide", 900.0)] {
+        place(&mut h, &tab, (20.0, 60.0), (width, 600.0));
+        h.run_steps(3);
+        shoot(&mut h, &dir, &format!("classes-{size}"));
+    }
+}
+
 #[test]
 #[ignore]
 fn store_chosen_item() {

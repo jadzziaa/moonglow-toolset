@@ -1174,6 +1174,34 @@ fn classes_page_sets_domains_and_associates() {
     assert!(h.query_by_label_contains("companion only for a creature with a divine").is_some());
 }
 
+/// A cleric's two domains are on a row of their own under its class, so
+/// in a narrow window both are in it (beside the class, the second sat at
+/// the window's edge).
+#[test]
+fn a_cleric_s_domains_fit_a_narrow_window() {
+    let Some((mut h, key)) = blueprint_harness("nw_mumcleric", "cleric_narrow", ResType::UTC)
+    else {
+        return;
+    };
+    h.run();
+    h.get_by_label("Classes").click();
+    h.run();
+    let at = h.state().dock.find_tab(&Tab::Blueprint(key)).expect("its window");
+    let window = h.state_mut().dock.get_window_state_mut(at.surface).expect("a window");
+    window.set_position(egui::pos2(20.0, 60.0)).set_size(egui::vec2(480.0, 600.0));
+    h.run_steps(3);
+    let right = h.get_by_label("Domains").rect().left() + 470.0;
+    let pickers: Vec<egui::Rect> = h.get_all_by_value("Not set").map(|n| n.rect()).collect();
+    assert!(pickers.len() >= 2, "both domains");
+    let domain_row = h.get_by_label("Domains").rect().center().y;
+    let domains: Vec<_> =
+        pickers.iter().filter(|r| (r.center().y - domain_row).abs() < 4.0).collect();
+    assert_eq!(domains.len(), 2, "both on the Domains row");
+    for r in domains {
+        assert!(r.right() <= right, "{r:?} in the window (right edge {right})");
+    }
+}
+
 /// A weapon's parts are chosen from pictures of the part alone: the
 /// icon's texture is the whole weapon's size (256 points for a great
 /// sword), and three lists of those were more than a window.

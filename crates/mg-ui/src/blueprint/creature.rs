@@ -600,7 +600,7 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
     });
     ui.separator();
     let mut edits: Vec<(&str, Vec<Edit>)> = Vec::new();
-    egui::Grid::new(("utc-classes", key)).num_columns(5).spacing([12.0, 6.0]).show(ui, |ui| {
+    egui::Grid::new(("utc-classes", key)).num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
         for (i, c) in list.iter().enumerate() {
             let path = base.clone().item("ClassList", i);
             ui.label(format!("Class {}", i + 1));
@@ -621,10 +621,14 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
                     vec![Edit::remove_item(key, base.clone(), "ClassList", i)],
                 ));
             }
+            ui.end_row();
             // A cleric's domains, a wizard's school (classes.2da PickDomains,
-            // PickSchool); the game reads them (engine_ee_fields.rs).
-            ui.horizontal(|ui| {
-                if class_int(class, "PickDomains") == Some(1) {
+            // PickSchool); the game reads them (engine_ee_fields.rs). On a
+            // row of their own, under the class: beside it, the second
+            // domain was at a narrow window's edge.
+            if class_int(class, "PickDomains") == Some(1) {
+                ui.label("Domains");
+                ui.horizontal(|ui| {
                     for (n, label) in ["Domain1", "Domain2"].into_iter().enumerate() {
                         let name = format!("class{i}-domain{n}");
                         if let Some(v) = optional_pick(ui, key, &name, &domains, c.integer(label)) {
@@ -634,20 +638,18 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
                             ));
                         }
                     }
-                } else if class_int(class, "PickSchool") == Some(1) {
-                    crate::widgets::field_label(ui, "School");
-                    let current = c.integer("School");
-                    if let Some(v) =
-                        optional_pick(ui, key, &format!("class{i}-school"), &schools, current)
-                    {
-                        edits.push((
-                            "School",
-                            vec![set(key, &path, "School", Value::Byte(v as u8))],
-                        ));
-                    }
+                });
+                ui.end_row();
+            } else if class_int(class, "PickSchool") == Some(1) {
+                ui.label("School");
+                let current = c.integer("School");
+                if let Some(v) =
+                    optional_pick(ui, key, &format!("class{i}-school"), &schools, current)
+                {
+                    edits.push(("School", vec![set(key, &path, "School", Value::Byte(v as u8))]));
                 }
-            });
-            ui.end_row();
+                ui.end_row();
+            }
         }
     });
     // EE creatures take up to 8 classes.
