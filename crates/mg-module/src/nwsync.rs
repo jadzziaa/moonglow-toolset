@@ -216,6 +216,24 @@ pub fn write(
     o: &Options,
     progress: &mut dyn FnMut(usize, usize),
 ) -> Result<Written, String> {
+    write_until(root, contents, o, progress, &|| false)
+}
+
+/// What [`write_until`] says when `stop` stopped it.
+pub const CANCELED: &str = "canceled";
+
+/// [`write`], stopping before the next resource once `stop` says so (the
+/// window's Cancel): then no manifest is written, `latest` stays as it
+/// was, and the error is [`CANCELED`]. The data files written by then are
+/// kept: publishing again finds them, and [`prune`] takes away those no
+/// manifest names.
+pub fn write_until(
+    root: &Path,
+    contents: &[(ResKey, Source)],
+    o: &Options,
+    progress: &mut dyn FnMut(usize, usize),
+    stop: &dyn Fn() -> bool,
+) -> Result<Written, String> {
     let mut seen = HashSet::new();
     let wanted: Vec<&(ResKey, Source)> = contents
         .iter()
@@ -232,6 +250,9 @@ pub fn write(
     let (mut bytes, mut on_disk, mut new_files) = (0u64, 0u64, 0usize);
     let mut done: HashSet<[u8; 20]> = HashSet::new();
     for (i, (key, source)) in wanted.iter().enumerate() {
+        if stop() {
+            return Err(CANCELED.into());
+        }
         let data = source.read(key)?;
         if let Some(limit) = o.limit
             && data.len() as u64 > limit
@@ -328,6 +349,173 @@ pub fn read_manifest(data: &[u8]) -> Result<Vec<(ResKey, [u8; 20], u32)>, String
     Ok(out)
 }
 
+/// How old a data file no manifest names must be to be pruned, as
+/// `nwn_nwsync_prune` has it by default: two weeks (a file written by a
+/// publish still under way, or canceled a moment ago, is kept).
+pub const PRUNE_MIN_AGE: u64 = 14 * 24 * 60 * 60;
+
+/// What [`prune`] found in a repository and did (or, a dry run, would do).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Pruned {
+    /// The manifests read.
+    pub manifests: usize,
+    /// Data files no manifest names, removed.
+    pub removed: Vec<PathBuf>,
+    /// Their size on disk.
+    pub removed_bytes: u64,
+    /// Data files no manifest names, kept as younger than the age given.
+    pub kept_young: usize,
+    /// The metadata (`<sha1>.json`) of manifests no longer there, removed.
+    pub dangling: Vec<PathBuf>,
+    /// Folders under `data/sha1` left empty, removed.
+    pub folders: usize,
+    /// Data files a manifest names that aren't there: the SHA-1 and a
+    /// manifest that names it.
+    pub missing: Vec<(String, String)>,
+    /// What is wrong and left as it is: `latest` naming a manifest that
+    /// isn't there, a manifest without its metadata.
+    pub problems: Vec<String>,
+}
+
+fn is_sha1(name: &str) -> bool {
+    name.len() == 40 && name.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// Housekeeping of an NWSync repository, as neverwinter.nim's
+/// `nwn_nwsync_prune` does it (`tests/nwsync.rs` holds the two to the same
+/// files): every data file under `data/sha1` that no manifest in
+/// `manifests/` names, and that is older than `min_age` seconds, is
+/// removed, with the folders it leaves empty, and the metadata of a
+/// manifest that is gone. Taking away old manifests (`manifests/<sha1>`
+/// and its `.json`) is the builder's; their data goes with the next prune.
+/// It says, and leaves, what it can't mend: `latest` naming a manifest
+/// that isn't there, a manifest without its metadata, data a manifest
+/// needs that is missing. A manifest that can't be read stops it before
+/// anything is removed (the data it names would be taken for unused).
+pub fn prune(root: &Path, min_age: u64, dry_run: bool) -> Result<Pruned, String> {
+    let manifests_dir = root.join("manifests");
+    let read_dir = |d: &Path| -> Result<Vec<PathBuf>, String> {
+        let mut v: Vec<PathBuf> = std::fs::read_dir(d)
+            .map_err(|e| format!("{}: {e}", d.display()))?
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .collect();
+        v.sort();
+        Ok(v)
+    };
+    let file_name = |p: &Path| p.file_name().map(|n| n.to_string_lossy().into_owned());
+    let mut out = Pruned::default();
+    let entries = read_dir(&manifests_dir)?;
+    let manifests: Vec<String> = entries
+        .iter()
+        .filter(|p| p.is_file())
+        .filter_map(|p| file_name(p))
+        .filter(|n| is_sha1(n))
+        .collect();
+    let has_manifest = |sha: &str| manifests.iter().any(|m| m.eq_ignore_ascii_case(sha));
+    if let Ok(latest) = std::fs::read_to_string(root.join("latest")) {
+        let latest = latest.trim();
+        if !has_manifest(latest) {
+            out.problems.push(format!(
+                "`latest` names the manifest {latest}, which isn't in manifests/: nwserver \
+                 serving `latest` fails"
+            ));
+        }
+    }
+    // Every manifest read before anything is removed.
+    let mut named: BTreeMap<String, String> = BTreeMap::new();
+    for m in &manifests {
+        let path = manifests_dir.join(m);
+        let data = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let entries = read_manifest(&data).map_err(|e| format!("manifest {m}: {e}"))?;
+        for (_, sha, _) in entries {
+            named.entry(hex(&sha)).or_insert_with(|| m.clone());
+        }
+        if !manifests_dir.join(format!("{m}.json")).is_file() {
+            out.problems.push(format!(
+                "the manifest {m} has no metadata ({m}.json): publish it again from its module"
+            ));
+        }
+    }
+    out.manifests = manifests.len();
+    for p in entries.iter().filter(|p| p.is_file()) {
+        let Some(n) = file_name(p) else { continue };
+        if let Some(stem) = n.strip_suffix(".json")
+            && is_sha1(stem)
+            && !has_manifest(stem)
+        {
+            if !dry_run {
+                std::fs::remove_file(p).map_err(|e| format!("{}: {e}", p.display()))?;
+            }
+            out.dangling.push(p.clone());
+        }
+    }
+    // The data files, and the folders they leave empty (data/sha1 itself
+    // stays).
+    let now = std::time::SystemTime::now();
+    let mut present: HashSet<String> = HashSet::new();
+    fn walk(
+        dir: &Path,
+        top: bool,
+        visit: &mut dyn FnMut(&Path) -> Result<bool, String>,
+        folders: &mut usize,
+        dry_run: bool,
+    ) -> Result<bool, String> {
+        let Ok(rd) = std::fs::read_dir(dir) else { return Ok(false) };
+        let mut paths: Vec<PathBuf> = rd.filter_map(|e| e.ok().map(|e| e.path())).collect();
+        paths.sort();
+        let mut empty = true;
+        for p in paths {
+            let gone =
+                if p.is_dir() { walk(&p, false, visit, folders, dry_run)? } else { visit(&p)? };
+            empty &= gone;
+        }
+        if empty && !top {
+            if !dry_run {
+                std::fs::remove_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+            }
+            *folders += 1;
+        }
+        Ok(empty)
+    }
+    let mut folders = 0;
+    let (mut removed, mut removed_bytes, mut kept_young) = (Vec::new(), 0u64, 0usize);
+    walk(
+        &root.join("data").join("sha1"),
+        true,
+        &mut |p| {
+            let name = file_name(p).unwrap_or_default().to_ascii_lowercase();
+            if named.contains_key(&name) {
+                present.insert(name);
+                return Ok(false);
+            }
+            let meta = std::fs::metadata(p).map_err(|e| format!("{}: {e}", p.display()))?;
+            let age = meta
+                .modified()
+                .ok()
+                .and_then(|t| now.duration_since(t).ok())
+                .map_or(0, |d| d.as_secs());
+            if age <= min_age {
+                kept_young += 1;
+                return Ok(false);
+            }
+            if !dry_run {
+                std::fs::remove_file(p).map_err(|e| format!("{}: {e}", p.display()))?;
+            }
+            removed_bytes += meta.len();
+            removed.push(p.to_path_buf());
+            Ok(true)
+        },
+        &mut folders,
+        dry_run,
+    )?;
+    out.removed = removed;
+    out.removed_bytes = removed_bytes;
+    out.kept_young = kept_young;
+    out.folders = folders;
+    out.missing = named.into_iter().filter(|(sha, _)| !present.contains(sha)).collect();
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -378,6 +566,80 @@ mod tests {
         let big = vec![(key("big", ResType::MDL), Source::Bytes(vec![0u8; 100].into()))];
         assert!(write(&dir, &big, &Options { limit: Some(10), ..o }, &mut |_, _| {}).is_err());
         assert_eq!(new_uuid().len(), 36);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Makes a file look written `days` ago.
+    fn age_file(p: &Path, days: u64) {
+        let then = std::time::SystemTime::now() - std::time::Duration::from_secs(days * 86_400);
+        std::fs::File::options().write(true).open(p).unwrap().set_modified(then).unwrap();
+    }
+
+    fn data_path(root: &Path, data: &[u8]) -> PathBuf {
+        let h = hex(&sha1(data));
+        root.join("data/sha1").join(&h[0..2]).join(&h[2..4]).join(&h)
+    }
+
+    /// Canceled, nothing is written but the data files done by then; a
+    /// prune takes away, once they are old enough, the data files no
+    /// manifest names and the metadata of manifests taken away, and says
+    /// what it can't mend.
+    #[test]
+    fn canceled_and_pruned() {
+        let dir = std::env::temp_dir().join(format!("mg-nwsync-prune-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let bytes = |b: &'static [u8]| Source::Bytes(Arc::from(b));
+        let o = Options { latest: true, ..Default::default() };
+        let first =
+            vec![(key("a", ResType::TXT), bytes(b"one")), (key("b", ResType::TXT), bytes(b"two"))];
+        let second = vec![
+            (key("a", ResType::TXT), bytes(b"one")),
+            (key("c", ResType::TXT), bytes(b"three")),
+        ];
+        // Called off after the first resource: no manifest, no latest.
+        let calls = std::cell::Cell::new(0);
+        let stop = || {
+            calls.set(calls.get() + 1);
+            calls.get() > 1
+        };
+        let e = write_until(&dir, &first, &o, &mut |_, _| {}, &stop).unwrap_err();
+        assert_eq!(e, CANCELED);
+        assert!(!dir.join("latest").exists() && !dir.join("manifests").exists());
+        assert!(data_path(&dir, b"one").is_file());
+        let w1 = write(&dir, &first, &o, &mut |_, _| {}).unwrap();
+        let w2 = write(&dir, &second, &o, &mut |_, _| {}).unwrap();
+        // Nothing unused yet.
+        let p = prune(&dir, 0, false).unwrap();
+        assert_eq!((p.manifests, p.removed.len(), p.missing.len()), (2, 0, 0), "{p:?}");
+        assert!(p.problems.is_empty(), "{:?}", p.problems);
+        // The first manifest taken away: "two" is no one's.
+        std::fs::remove_file(dir.join("manifests").join(&w1.sha1)).unwrap();
+        let two = data_path(&dir, b"two");
+        let p = prune(&dir, PRUNE_MIN_AGE, false).unwrap();
+        assert_eq!((p.removed.len(), p.kept_young, p.dangling.len()), (0, 1, 1), "{p:?}");
+        assert!(two.is_file(), "too young to go");
+        assert!(!dir.join("manifests").join(format!("{}.json", w1.sha1)).exists());
+        age_file(&two, 15);
+        let p = prune(&dir, PRUNE_MIN_AGE, true).unwrap();
+        assert_eq!((p.removed.clone(), p.folders), (vec![two.clone()], 2), "a dry run says");
+        assert!(two.is_file(), "and leaves it");
+        let p = prune(&dir, PRUNE_MIN_AGE, false).unwrap();
+        assert_eq!(p.removed, vec![two.clone()]);
+        assert!(!two.exists() && !two.parent().unwrap().exists());
+        assert!(data_path(&dir, b"one").is_file() && data_path(&dir, b"three").is_file());
+        // What it can't mend: said, left.
+        std::fs::remove_file(data_path(&dir, b"three")).unwrap();
+        std::fs::remove_file(dir.join("manifests").join(format!("{}.json", w2.sha1))).unwrap();
+        std::fs::write(dir.join("latest"), "0".repeat(40)).unwrap();
+        let p = prune(&dir, 0, false).unwrap();
+        assert_eq!(p.missing, vec![(hex(&sha1(b"three")), w2.sha1.clone())]);
+        assert_eq!(p.problems.len(), 2, "{:?}", p.problems);
+        assert!(dir.join("manifests").join(&w2.sha1).is_file());
+        // A manifest that can't be read: nothing is removed.
+        std::fs::write(dir.join("manifests").join("f".repeat(40)), b"NSYM").unwrap();
+        age_file(&data_path(&dir, b"one"), 30);
+        assert!(prune(&dir, 0, false).is_err());
+        assert!(data_path(&dir, b"one").is_file());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

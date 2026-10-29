@@ -234,6 +234,92 @@ fn window_bar_maximize_and_an_older_hak() {
     shoot(&mut h, &dir, "window-bar-restore");
 }
 
+/// Build › Publish to NWSync… (`target/test-output/screens-nwsync/`):
+/// the window after publishing (`nwsync-published`), and, where the
+/// window has it, after Remove Unused Data took a file no manifest names
+/// (`nwsync-pruned`). (Run on the code before the install-and-publish fix
+/// package, the window has no Remove Unused Data and the first picture is
+/// all there is.)
+#[test]
+#[ignore]
+fn nwsync_publish_and_prune() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens-nwsync");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let mut w = mg_erf::ErfWriter::new(*b"HAK ");
+    let table = b"2DA V2.0\n\n   Label\n0  synced\n".to_vec();
+    w.add(mg_core::ResRef::from_str("mg_synced").unwrap(), ResType::TWODA, table).unwrap();
+    // (Enough to take a while, for a picture of it under way: 3000 files
+    // of noise.)
+    let mut seed = 0x2545_f491_4f6c_dd1du64;
+    for i in 0..3000 {
+        let noise: Vec<u8> = (0..24_000)
+            .map(|_| {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                seed as u8
+            })
+            .collect();
+        let name = mg_core::ResRef::from_str(&format!("mg_noise{i}")).unwrap();
+        w.add(name, ResType::TXT, noise).unwrap();
+    }
+    std::fs::write(user.join("hak/mg_sync.hak"), w.to_bytes().unwrap()).unwrap();
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_HakList", mg_module::attach::hak_list(&info.root, &["mg_sync".into()]));
+    m.set_info(&info).unwrap();
+    let path = dir.join("synced.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let repo = dir.join("repo");
+    let _ = std::fs::remove_dir_all(&repo);
+    let mut app = Moonglow::new(
+        Some(GameInstall::new(&root, Some(user), "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.open_module(&path);
+    app.open_palette = false;
+    app.background_jobs = true;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 640.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.get_by_label("Build").click();
+    h.run_steps(2);
+    h.get_by_label("Publish to NWSync…").click();
+    h.run_steps(2);
+    h.state_mut().publish.as_mut().unwrap().folder = repo.display().to_string();
+    h.run_steps(1);
+    h.get_by_label("Publish").click();
+    h.run_steps(1);
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    shoot(&mut h, &dir, "nwsync-publishing");
+    for _ in 0..1000 {
+        h.run_steps(1);
+        if h.state().publish.as_ref().is_some_and(|p| p.written.is_some() || p.error.is_some()) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    shoot(&mut h, &dir, "nwsync-published");
+    eprintln!("{}", dir.join("nwsync-published.png").display());
+    if h.query_by_label("Remove Unused Data").is_some() {
+        let unused = repo.join("data/sha1/ab/cd").join("ab".repeat(20));
+        std::fs::create_dir_all(unused.parent().unwrap()).unwrap();
+        std::fs::write(&unused, b"left by a manifest taken away").unwrap();
+        let then = std::time::SystemTime::now() - std::time::Duration::from_secs(30 * 86_400);
+        std::fs::File::options().write(true).open(&unused).unwrap().set_modified(then).unwrap();
+        std::fs::write(repo.join("latest"), "0".repeat(40)).unwrap();
+        h.get_by_label("Remove Unused Data").click();
+        h.run_steps(4);
+        shoot(&mut h, &dir, "nwsync-pruned");
+        eprintln!("{}", dir.join("nwsync-pruned.png").display());
+    }
+}
+
 /// The widgets of the deferred sprint's first fix package, each where a
 /// builder meets it (`target/test-output/screens-widgets/`): Add hak…
 /// opened by the keys, its cursor on the second hak; the Command

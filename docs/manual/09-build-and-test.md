@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync, long work, Verify Module and the fixes beside its findings, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T14:28:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:58:36Z }
 ---
 
 # Build, verify and test
@@ -108,10 +108,27 @@ that web server serves into a folder, as neverwinter.nim's
 - **Latest:** **Make it the latest** points the repository's `latest` at
   it; nwserver serves `latest` unless given `-nwsynchash`.
 
-Publishing again writes only the changed files. It runs in the
-background; the window shows progress, then the manifest's hash
-(**Copy** copies it, for `-nwsynchash`). Upload the folder to the web
-server. `mg nwsync` does the same from the command line.
+Publishing again writes only the changed files. It runs as the other
+long work does (see [Long work](#long-work)): a small window shows how
+far it is and has **Cancel**, which stops before the next file and
+writes no manifest (`latest` stays as it was; the data files written by
+then stay, for the next publish to find). Then the window shows the
+manifest's hash (**Copy** copies it, for `-nwsynchash`). Upload the
+folder to the web server. `mg nwsync` does the same from the command
+line.
+
+**Remove Unused Data** tidies the folder as neverwinter.nim's
+`nwn_nwsync_prune` does: it takes away the data files that no manifest
+in the folder names, once they are more than two weeks old (a publish
+under way, or one canceled a moment ago, keeps its own), the folders
+they leave empty, and the `.json` of a manifest that is gone. Publishing
+never removes a manifest, since a server may still name an older one
+with `-nwsynchash`: delete the manifests you no longer serve
+(`manifests/HASH` and `manifests/HASH.json`) first, then Remove Unused
+Data takes their data. What it can't mend it says, in the window and the
+log: `latest` naming a manifest that isn't there, a manifest without its
+`.json`, a data file a manifest needs that is missing (publish that
+module again). `mg nwsync-prune` does the same from the command line.
 
 ## Long work
 

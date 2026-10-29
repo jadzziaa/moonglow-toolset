@@ -972,6 +972,23 @@ enum Cmd {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Tidy an NWSync repository, as nwn_nwsync_prune does: remove the
+    /// data files no manifest names (once older than --min-age), the
+    /// folders they leave empty and the metadata of manifests taken away;
+    /// say what it can't mend (`latest` naming no manifest, a manifest
+    /// without its metadata, data a manifest needs that is missing). Take
+    /// away the manifests you no longer serve first.
+    NwsyncPrune {
+        /// The repository folder.
+        repository: PathBuf,
+        /// Keep unused data files written within this many seconds (two
+        /// weeks, as nwn_nwsync_prune: a publish under way keeps its own).
+        #[arg(long, default_value_t = mg_module::nwsync::PRUNE_MIN_AGE)]
+        min_age: u64,
+        /// Say what would go; remove nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Import an ERF into a module and save it. What the ERF was made
     /// from (stamped by Moonglow's export) is said, with a warning when
     /// the module's git checkout is at another commit now: the ERF was
@@ -3530,6 +3547,45 @@ fn run(cli: &Cli) -> Result<Output> {
             out.note(format!(
                 "serve {} on a web server, and start nwserver with -nwsyncurl <its address>",
                 repository.display()
+            ));
+            out
+        }
+        Cmd::NwsyncPrune { repository, min_age, dry_run } => {
+            let p = mg_module::nwsync::prune(repository, *min_age, *dry_run)
+                .map_err(anyhow::Error::msg)?;
+            let mut out = Output::default();
+            let shown = |v: &[PathBuf]| v.iter().map(|p| path_text(p)).collect::<Vec<_>>();
+            out.json = json!({
+                "repository": path_text(repository),
+                "manifests": p.manifests,
+                "removed": shown(&p.removed),
+                "removed_bytes": p.removed_bytes,
+                "kept_young": p.kept_young,
+                "metadata_removed": shown(&p.dangling),
+                "folders_removed": p.folders,
+                "missing": p.missing.iter().map(|(sha, m)| json!({"sha1": sha, "manifest": m})).collect::<Vec<_>>(),
+                "problems": p.problems,
+                "dry_run": *dry_run,
+            });
+            for f in p.removed.iter().chain(&p.dangling) {
+                out.line(path_text(f));
+            }
+            for (sha, m) in &p.missing {
+                out.note(format!("missing: the data file {sha}, which manifest {m} names"));
+            }
+            for problem in &p.problems {
+                out.note(problem.clone());
+            }
+            out.note(format!(
+                "{} manifests; {} {} unused data files ({:.1} MB), {} kept as younger than {} \
+                 days{}",
+                p.manifests,
+                if *dry_run { "would remove" } else { "removed" },
+                p.removed.len(),
+                p.removed_bytes as f64 / 1048576.0,
+                p.kept_young,
+                min_age / 86_400,
+                if *dry_run { "; nothing removed" } else { "" }
             ));
             out
         }

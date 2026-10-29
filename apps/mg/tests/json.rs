@@ -159,6 +159,13 @@ fn every_command_answers_in_json() {
     let synced = ok(&["nwsync", c, &at("repo"), "--with-module"]);
     assert_eq!(synced["sha1"].as_str().unwrap().len(), 40);
     assert!(synced["files"].as_u64().unwrap() > 100);
+    // Nothing unused in it: nothing to prune.
+    let pruned = ok(&["nwsync-prune", &at("repo"), "--dry-run"]);
+    assert_eq!(
+        (pruned["manifests"].as_u64(), pruned["removed"].as_array().map(Vec::len)),
+        (Some(1), Some(0))
+    );
+    assert_eq!(pruned["problems"], serde_json::json!([]));
 
     // A failure.
     let (success, json) = run(&root, &user, &["which", "nothing_at_all.2da"]);
