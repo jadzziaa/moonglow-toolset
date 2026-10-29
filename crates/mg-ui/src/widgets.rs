@@ -2120,7 +2120,6 @@ impl<'a> SearchField<'a> {
         let here = find.unwrap_or(false) || (find_over && ui.rect_contains_pointer(ui.clip_rect()));
         let find = find_here(ui, here);
         let left = field_keys(ui, id, text, find, down);
-        search_field_shown(ui.ctx(), id, !text.is_empty());
         let response = ui
             .horizontal(|ui| {
                 let clear = !text.is_empty();
@@ -2150,6 +2149,9 @@ impl<'a> SearchField<'a> {
                 r
             })
             .inner;
+        // (After the field: typed in this frame counts for the next
+        // frame's Escape.)
+        search_field_shown(ui.ctx(), id, !text.is_empty());
         Searched { response, left }
     }
 }

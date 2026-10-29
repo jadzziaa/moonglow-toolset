@@ -186,6 +186,118 @@ fn module_properties_haks() {
     shoot(&mut h, &dir, "module-properties-advanced");
 }
 
+/// The widgets of the deferred sprint's first fix package, each where a
+/// builder meets it (`target/test-output/screens-widgets/`): Add hak…
+/// opened by the keys, its cursor on the second hak; the Command
+/// Palette and Open Script with a name typed (the search fields' ×);
+/// Resize Area's and Adjust Location's numbers with their arrows.
+#[test]
+#[ignore]
+fn widgets_keys_searches_and_arrows() {
+    use mg_schema::{ExoString, StructExt, ifo};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens-widgets");
+    let user = dir.join("haks-user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    for name in ["bloodwar", "bmmountainsv102", "cb_tile_atemple"] {
+        let empty = mg_erf::ErfWriter::new(*b"HAK ").to_bytes().unwrap();
+        std::fs::write(user.join(format!("hak/{name}.hak")), empty).unwrap();
+    }
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    let mut item = ifo::MOD_HAK_LIST.new_item();
+    item.write(&ifo::mod_hak_list::MOD_HAK, ExoString::from("ghcastlehd"));
+    info.root.set(ifo::MOD_HAK_LIST.label, mg_gff::Value::List(vec![item]));
+    m.set_info(&info).unwrap();
+    let script = ResKey::parse("hello", ResType::NSS).unwrap();
+    m.set(script, b"void main()\n{\n}\n".to_vec());
+    for n in ["at_door", "at_gate", "at_inn", "inc_loot", "on_death"] {
+        m.set(ResKey::parse(n, ResType::NSS).unwrap(), b"void main() { }\n".to_vec());
+    }
+    let path = dir.join("widgets.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(
+        Some(GameInstall::new(&root, Some(user), "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.open_module(&path);
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 700.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.get_by_label("Custom Content").click();
+    h.run_steps(3);
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let at = h
+        .query_all(combo)
+        .find(|n| n.accesskit_node().value().as_deref() == Some("Add hak…"))
+        .map(|n| n.rect().center())
+        .expect("Add hak…");
+    h.hover_at(at);
+    for _ in 0..2 {
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(3);
+    }
+    h.hover_at(egui::pos2(5.0, 690.0));
+    for _ in 0..2 {
+        h.key_press(egui::Key::ArrowDown);
+        h.run_steps(2);
+    }
+    shoot(&mut h, &dir, "add-hak-by-the-keys");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+
+    let mut finder = mg_ui::commands::Finder::default();
+    finder.filter = "module".into();
+    h.state_mut().command_palette = Some(finder);
+    h.run_steps(3);
+    shoot(&mut h, &dir, "command-palette-typed");
+    h.state_mut().command_palette = None;
+    h.run_steps(2);
+
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(script)));
+    h.run_steps(3);
+    h.get_by_label("Open…").click();
+    h.run_steps(3);
+    h.state_mut().script_tools.open_script.as_mut().unwrap().filter = "at_".into();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "open-script-typed");
+    h.state_mut().script_tools.open_script = None;
+    h.run_steps(2);
+
+    let area = mg_core::ResRef::from_str("area001").unwrap();
+    h.state_mut().resize_area =
+        Some(mg_ui::area_reshape::ResizeDraft { area, rows: 8, columns: 12, edges: 0 });
+    h.run_steps(3);
+    shoot(&mut h, &dir, "resize-area-arrows");
+    h.state_mut().resize_area = None;
+    h.state_mut().adjust = Some(mg_ui::area_tools::AdjustLocation {
+        area,
+        objects: vec![(mg_area::ObjectKind::Placeable, 0)],
+        position: glam::Vec3::new(12.5, 31.25, 0.5),
+        bearing: 90.0,
+        changed: [false; 4],
+        visual: mg_area::VisualTransform::default(),
+        visual_changed: false,
+        shaped: true,
+        fixed: 0,
+        fixed_shaped: 0,
+        uneven: 0,
+    });
+    h.run_steps(3);
+    shoot(&mut h, &dir, "adjust-location-arrows");
+}
+
 /// The 2DA editor on a copy of the game's feat.2da kept as a file: a
 /// cell that names a feat that is not there, selected; and Take Rows,
 /// with the game's copy to take from.
