@@ -1411,8 +1411,8 @@ fn item_editor_adds_properties_and_keeps_the_cost() {
 
 /// The Great Constitution feats' hit points, which the game leaves out of
 /// those a creature starts with (`engine_saves.rs`), are kept in its
-/// current hit points: given with the feats, taken with them, and a
-/// creature wounded below its base is left so.
+/// current hit points: given with the feats; a creature without them, or
+/// wounded below its base, is left as it is.
 #[test]
 fn great_constitution_s_hit_points_are_kept_in_the_current_ones() {
     let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_great", ResType::UTC) else {
@@ -1447,12 +1447,13 @@ fn great_constitution_s_hit_points_are_kept_in_the_current_ones() {
         f.set("Feat", mg_gff::Value::Word(feat));
         feats.push(f);
     }
-    set(&mut h, "FeatList", mg_gff::Value::List(feats));
+    set(&mut h, "FeatList", mg_gff::Value::List(feats.clone()));
     assert_eq!(hit_points(&mut h), (base, base + level), "the feats' hit points");
-    set(&mut h, "FeatList", mg_gff::Value::List(without.clone()));
-    assert_eq!(hit_points(&mut h), (base, base), "taken with them");
-    set(&mut h, "CurrentHitPoints", mg_gff::Value::Short(1));
+    // (Without them, a creature's current hit points are its own.)
     set(&mut h, "FeatList", mg_gff::Value::List(without));
+    assert_eq!(hit_points(&mut h), (base, base + level), "left as they were");
+    set(&mut h, "CurrentHitPoints", mg_gff::Value::Short(1));
+    set(&mut h, "FeatList", mg_gff::Value::List(feats));
     assert_eq!(hit_points(&mut h), (base, 1), "a wounded creature stays wounded");
 }
 

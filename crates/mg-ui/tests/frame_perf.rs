@@ -457,6 +457,7 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
         let p = &mut h.state_mut().palette;
         (p.tiles, p.filter) = (false, String::new());
     }
+    close(h, &Tab::Palette);
     // Every object selected (Ctrl+A) and the ground's walkmesh shown,
     // turning: the overlays drawn for each, each frame.
     if let Some(v) = h.state_mut().area_views.get_mut(&area)
