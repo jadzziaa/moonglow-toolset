@@ -1512,7 +1512,7 @@ fn a_mod_s_own_project_file_is_read_and_read_again() {
     std::fs::write(dir.join("krezk.moonglow.toml"), "[resrefs]\npattern = \"krezk_{name}\"\n")
         .unwrap();
     h.state_mut().reload_changed_files();
-    h.run();
+    settle(&mut h);
     assert!(logged(&h, "krezk.moonglow.toml changed: its rules are read again"));
     assert_eq!(naming(&h), "krezk_market");
 }

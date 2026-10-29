@@ -3729,6 +3729,52 @@ fn tileset_minimap_pictures() {
     std::fs::write(dir.join("minimaps.png"), mg_module::minimap::png(&sheet).unwrap()).unwrap();
 }
 
+/// The tileset editor's painting rules and a tile's door hooks: a copy of
+/// a game tileset (the city's, with both), its Rules page and a tile with
+/// doors.
+#[test]
+#[ignore]
+fn tileset_rules_and_doors() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-tileset-rules");
+    let rs = egui_kittest::wgpu::create_render_state(
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let install = GameInstall::new(&root, None, "en");
+    let game = mg_resman::ResMan::for_game(&install).unwrap();
+    let name = "tcn01";
+    let set = game.get(&ResKey::parse(name, ResType::SET).unwrap()).unwrap().into_owned();
+    let path = dir.join(format!("{name}.set"));
+    std::fs::write(&path, &set).unwrap();
+    let t = mg_set::Tileset::parse(&set, mg_core::Codepage::default()).unwrap();
+    let door = t.tiles.iter().position(|t| t.doors.len() > 1).expect("a tile with doors");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 900.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    mg_ui::tileset_view::open_path(h.state_mut(), path);
+    h.run();
+    h.state_mut().tilesets[0].page = mg_ui::tileset_view::Page::Tiles;
+    h.state_mut().tilesets[0].tile = Some(door);
+    h.run();
+    // (The tile's fields scrolled to its doors.)
+    h.get_by_label("Remove Last Door").scroll_to_me();
+    h.run();
+    shoot(&mut h, &dir, "tileset-door-hooks");
+    h.state_mut().tilesets[0].page = mg_ui::tileset_view::Page::Rules;
+    h.run();
+    shoot(&mut h, &dir, "tileset-rules");
+    // (Scrolled to their end: the secondary rules.)
+    h.get_all_by_label("Remove Last Rule").last().unwrap().scroll_to_me();
+    h.run();
+    shoot(&mut h, &dir, "tileset-rules-end");
+}
+
 /// Candidate areas for the README: the first outdoor areas of a campaign
 /// module, from a three-quarter view. `MG_README_MODULE` picks the module
 /// (default Chapter 1).

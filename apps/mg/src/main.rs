@@ -568,10 +568,22 @@ enum Cmd {
     ))]
     Watch {
         project: PathBuf,
+        /// The nasher project's target to follow (default: the target
+        /// that packs a module).
+        #[arg(long)]
+        target: Option<String>,
         /// The development folder to write into (default with --serve:
         /// the server's own).
         #[arg(long)]
         dev_dir: Option<PathBuf>,
+        /// Run the module's tests (`test_*` scripts, as `mg test` does,
+        /// in a server of their own) at the start and after every change.
+        #[arg(long)]
+        test: bool,
+        /// With --test: only the tests whose name has this text (`*` for
+        /// any run of characters).
+        #[arg(long, value_name = "TEXT", requires = "test")]
+        test_filter: Option<String>,
         /// Also build the module to this file (.mod), at the start and
         /// after every change.
         #[arg(long, value_name = "FILE")]
@@ -2470,56 +2482,17 @@ fn run(cli: &Cli) -> Result<Output> {
                     eprintln!("{line}");
                 }
             })?;
-            let mut out = Output::new(ran.report.to_json());
-            out.json["module"] = json!(ran.name);
-            out.json["seconds"] = json!(ran.seconds);
-            out.json["compile_errors"] = json!(ran.compile_errors);
-            out.json["ended"] = json!(ran.ended);
-            out.notes = ran.notes;
-            for e in &ran.compile_errors {
-                out.line(e.clone());
-            }
-            for t in &ran.report.tests {
-                match (&t.error, t.failed()) {
-                    // (Run to its end with nothing asserted: said, not a
-                    // failure.)
-                    (None, 0) if t.cases.is_empty() => {
-                        out.line(format!("ok    {} (0: it made no assertion)", t.script));
-                    }
-                    (None, 0) => out.line(format!("ok    {} ({})", t.script, t.cases.len())),
-                    (None, n) => out.line(format!("FAIL  {} ({n} of {})", t.script, t.cases.len())),
-                    (Some(_), _) => out.line(format!("ERROR {}", t.script)),
-                }
-                for c in t.cases.iter().filter(|c| !c.ok) {
-                    let detail = match c.detail.is_empty() {
-                        true => String::new(),
-                        false => format!(": {}", c.detail),
-                    };
-                    out.line(format!("        {}{detail}", c.name));
-                }
-                for line in t.error.iter().flat_map(|e| e.lines()) {
-                    out.line(format!("        {line}"));
-                }
+            let mut out = Output::new(ran.json());
+            for line in ran.lines() {
+                out.line(line);
             }
             if let Some(file) = junit {
                 std::fs::write(file, ran.report.junit(&ran.name, ran.seconds))
                     .with_context(|| path_text(file))?;
             }
-            let ok = ran.compile_errors.is_empty() && ran.report.ok();
-            out.json["ok"] = json!(ok);
-            out.failed = !ok;
-            let why = match (&ran.ended, ran.compile_errors.len()) {
-                (_, n) if n > 0 => format!("{n} scripts did not compile; nothing was run"),
-                (Some(why), _) => why.clone(),
-                _ => format!("{:.1} s", ran.seconds),
-            };
-            out.note(format!(
-                "{} passed, {} failed, {} errors in {} tests ({why})",
-                ran.report.passed(),
-                ran.report.failed(),
-                ran.report.errors(),
-                ran.report.tests.len()
-            ));
+            out.failed = !ran.ok();
+            out.notes = ran.notes.clone();
+            out.note(ran.summary());
             out
         }
         Cmd::TwodaCheck { paths, beside } => {
@@ -2575,7 +2548,10 @@ fn run(cli: &Cli) -> Result<Output> {
         }
         Cmd::Watch {
             project,
+            target,
             dev_dir,
+            test,
+            test_filter,
             r#mod,
             ndb,
             serve,
@@ -2607,9 +2583,19 @@ fn run(cli: &Cli) -> Result<Output> {
             let say = |v: serde_json::Value, lines: Vec<String>| serve::say(cli.json, &v, &lines);
             let resman = |m: &Module| -> Result<ResMan> {
                 let mut notes = Output::default();
-                let rm = module_resman(&gi, m, &mut notes)?;
+                let mut rm = module_resman(&gi, m, &mut notes)?;
                 for note in notes.notes {
                     say(json!({ "event": "note", "note": note }), vec![format!("mg: {note}")]);
+                }
+                // With --test: the tests' include (`mg_test`), as `mg test`
+                // gives its copy, for them to compile where the module has
+                // none of its own (beneath everything: not put into it).
+                if *test {
+                    let mut include = mg_resman::MemContainer::new();
+                    let name = mg_module::testing::INCLUDE_NAME;
+                    let key = ResKey::parse(name, ResType::NSS).expect("a resource name");
+                    include.insert(key, mg_module::testing::INCLUDE.as_bytes().to_vec());
+                    rm.add(0, "mg test", mg_resman::LayerClass::Directory, include);
                 }
                 Ok(rm)
             };
@@ -2621,8 +2607,63 @@ fn run(cli: &Cli) -> Result<Output> {
                 let _ = w;
                 Ok(())
             };
-            let mut rm = resman(&crate::open_module(project)?)?;
-            let (mut w, first) = watch::Watcher::start(project, &dev_dir, build_to, *ndb, &rm)?;
+            // With --test: the module's tests, as `mg test` runs them (in a
+            // server of their own, on a copy), on the module as the watch
+            // has it, after a change taken up (not one that didn't compile).
+            let tested = |w: &watch::Watcher, step: &watch::Step| {
+                if !*test {
+                    return;
+                }
+                if !step.errors.is_empty() {
+                    let note = "tests not run: the module doesn't compile";
+                    say(json!({ "event": "note", "note": note }), vec![format!("mg: {note}")]);
+                    return;
+                }
+                let config = test::Config {
+                    module: project.clone(),
+                    filter: test_filter.clone(),
+                    tests: Vec::new(),
+                    own_driver: false,
+                    settle: 0.0,
+                    timeout: 120.0,
+                    serve: serve::Config { name: "Moonglow test run".into(), ..Default::default() },
+                };
+                let resman = |m: &Module, notes: &mut Vec<String>| {
+                    let mut out = Output::default();
+                    let rm = module_resman(&gi, m, &mut out)?;
+                    notes.append(&mut out.notes);
+                    Ok(rm)
+                };
+                match test::run_on(&gi, &config, w.module().clone(), resman, &mut |_| {}) {
+                    Ok(ran) => {
+                        let mut v = ran.json();
+                        v["event"] = json!("tested");
+                        v["notes"] = json!(ran.notes);
+                        let notes = ran.notes.iter().map(|n| format!("mg: {n}"));
+                        let lines = notes.chain(ran.lines()).chain([format!(
+                            "mg: tests {}: {}",
+                            if ran.ok() { "passed" } else { "failed" },
+                            ran.summary()
+                        )]);
+                        say(v, lines.collect());
+                    }
+                    Err(e) => {
+                        let note = format!("tests not run: {e:#}");
+                        say(json!({ "event": "note", "note": note }), vec![format!("mg: {note}")]);
+                    }
+                }
+            };
+            let module = watch::open(project, target.as_deref())?;
+            let mut rm = resman(&module)?;
+            let (mut w, first) = watch::Watcher::start(
+                module,
+                project,
+                target.as_deref(),
+                &dev_dir,
+                build_to,
+                *ndb,
+                &rm,
+            )?;
             also(&w)?;
             say(
                 json!({
@@ -2633,6 +2674,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 [first.text(&dev_dir), vec![format!("mg: watching {}", project.display())]]
                     .concat(),
             );
+            tested(&w, &first);
             let Some(server_dir) = server_dir else {
                 loop {
                     std::thread::sleep(std::time::Duration::from_millis(100));
@@ -2642,6 +2684,7 @@ fn run(cli: &Cli) -> Result<Output> {
                             also(&w)?;
                         }
                         say(step.json(), step.text(&dev_dir));
+                        tested(&w, &step);
                     }
                 }
             };
@@ -2676,6 +2719,7 @@ fn run(cli: &Cli) -> Result<Output> {
                     }
                 };
                 say(step.json(), step.text(&dev_dir));
+                tested(&w, &step);
                 if step.rebuild.is_empty() {
                     return serve::Flow::Continue;
                 }

@@ -502,7 +502,7 @@ fn advanced_search_finds_objects_by_what_they_hold() {
     tlk.entries.push(mg_tlk::TlkEntry::text("Fighter"));
     app.game = Some(std::sync::Arc::new(mg_rules::GameData::new(rm, tlk)));
     let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
-    h.run();
+    settle(&mut h);
     h.get_by_label("Edit").click();
     h.run_steps(2);
     h.get_by_label("Advanced Search…").click();

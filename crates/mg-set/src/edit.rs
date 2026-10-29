@@ -179,10 +179,52 @@ impl SetFile {
             }
             None => self.end_of(0, self.lines.len()),
         };
+        self.insert_section(at, name, entries);
+    }
+
+    /// Adds a section right after section `after`, else as
+    /// [`SetFile::add_section`] does.
+    pub fn add_section_after(&mut self, after: &str, name: &str, entries: &[(String, String)]) {
+        match self.body(after) {
+            Some((a, b)) => {
+                let at = self.end_of(a, b);
+                self.insert_section(at, name, entries);
+            }
+            None => self.add_section(name, entries),
+        }
+    }
+
+    fn insert_section(&mut self, at: usize, name: &str, entries: &[(String, String)]) {
         let mut new = if at == 0 { Vec::new() } else { vec![String::new()] };
         new.push(format!("[{name}]"));
         new.extend(entries.iter().map(|(k, v)| format!("{k}={v}")));
         self.lines.splice(at..at, new);
+    }
+
+    /// Sets a section's keys where it is there (one past a count, which
+    /// the game doesn't read), else adds it after section `after`.
+    fn put_section(&mut self, name: &str, entries: &[(String, String)], after: &str) {
+        if self.has_section(name) {
+            for (k, v) in entries {
+                self.set(name, k, v);
+            }
+        } else {
+            self.add_section_after(after, name, entries);
+        }
+    }
+
+    /// A tile's doors as the game reads them: its door sections numbered
+    /// below its `Doors` count (which in custom tilesets may be no count
+    /// at all), each door's number and section, by number.
+    pub fn doors(&self, tile: usize) -> Vec<(usize, String)> {
+        let declared = self
+            .get(&format!("TILE{tile}"), "Doors")
+            .and_then(|d| d.trim().parse::<i64>().ok())
+            .unwrap_or(0)
+            .max(0);
+        let mut doors = self.door_sections(tile);
+        doors.retain(|(d, _)| (*d as i64) < declared);
+        doors
     }
 
     /// Takes a section out, with the blank lines before it.
@@ -424,6 +466,94 @@ pub fn remove_last_group(f: &mut SetFile) -> bool {
     true
 }
 
+/// The list section and the sections' name of the primary painting rules
+/// (`secondary`: the secondary).
+pub fn rule_sections(secondary: bool) -> (&'static str, &'static str) {
+    match secondary {
+        false => ("PRIMARY RULES", "PRIMARY RULE"),
+        true => ("SECONDARY RULES", "SECONDARY RULE"),
+    }
+}
+
+/// Adds a painting rule (`secondary`: a secondary one), the last: placing
+/// a corner of `placed` next to one of `adjacent` turns that one into
+/// `changed`, all at height 0. Returns its index.
+pub fn add_rule(
+    f: &mut SetFile,
+    secondary: bool,
+    placed: &str,
+    adjacent: &str,
+    changed: &str,
+) -> usize {
+    let (list, each) = rule_sections(secondary);
+    let n = f.count(list);
+    f.set(list, "Count", &(n + 1).to_string());
+    let entries = pairs(&[
+        ("Placed", placed.to_string()),
+        ("PlacedHeight", "0".to_string()),
+        ("Adjacent", adjacent.to_string()),
+        ("AdjacentHeight", "0".to_string()),
+        ("Changed", changed.to_string()),
+        ("ChangedHeight", "0".to_string()),
+    ]);
+    // (After the rule before it, the first after its list, as the game's
+    // files have them.)
+    let before = format!("{each}{}", n.wrapping_sub(1));
+    let after = if n > 0 && f.has_section(&before) { before.as_str() } else { list };
+    f.put_section(&format!("{each}{n}"), &entries, after);
+    n
+}
+
+/// Takes away the last painting rule (`secondary`: the last secondary).
+pub fn remove_last_rule(f: &mut SetFile, secondary: bool) -> bool {
+    let (list, each) = rule_sections(secondary);
+    let n = f.count(list);
+    let Some(last) = n.checked_sub(1) else { return false };
+    f.remove_section(&format!("{each}{last}"));
+    f.set(list, "Count", &last.to_string());
+    true
+}
+
+/// Adds a door hook to tile `tile`, the last of its doors (after those the
+/// game reads: [`SetFile::doors`]), of `doortypes.2da` row `door_type`,
+/// at the tile's middle, unturned. Its `Doors` count follows. Returns the
+/// door's number; `None` without such a tile.
+pub fn add_door(f: &mut SetFile, tile: usize, door_type: i32) -> Option<usize> {
+    let section = format!("TILE{tile}");
+    if !f.has_section(&section) {
+        return None;
+    }
+    let shown = f.doors(tile);
+    let n = shown.last().map_or(0, |(d, _)| d + 1);
+    f.set(&section, "Doors", &(n + 1).to_string());
+    let entries = pairs(&[
+        ("Type", door_type.to_string()),
+        ("X", "0.0".to_string()),
+        ("Y", "0.0".to_string()),
+        ("Z", "0.0".to_string()),
+        ("Orientation", "0.0".to_string()),
+    ]);
+    // (After the tile's last door, else the tile: not after another
+    // tile's doors, the last of their family.)
+    let name = format!("TILE{tile}DOOR{n}");
+    let after = shown.last().map_or(section, |(_, s)| s.clone());
+    f.put_section(&name, &entries, &after);
+    Some(n)
+}
+
+/// Takes away tile `tile`'s last door hook (of those the game reads), its
+/// `Doors` count following.
+pub fn remove_last_door(f: &mut SetFile, tile: usize) -> bool {
+    let mut doors = f.doors(tile);
+    let Some((_, name)) = doors.pop() else { return false };
+    f.remove_section(&name);
+    // (Up to the door before it: a count past a section missing would
+    // be a door the game is told of and hasn't.)
+    let count = doors.last().map_or(0, |(d, _)| d + 1);
+    f.set(&format!("TILE{tile}"), "Doors", &count.to_string());
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -489,6 +619,74 @@ BottomLeft=grass\r\nBottomRight=Grass\r\nTop=Road\r\nRight=\r\nBottom=road\r\nLe
         assert_eq!(rename_type(&mut f, true, 0, "Path"), Some(2));
         assert_eq!((f.get("TILE0", "Top"), f.get("TILE0", "Bottom")), (Some("Path"), Some("Path")));
         assert_eq!(rename_type(&mut f, true, 3, "Nope"), None, "no such crosser");
+    }
+
+    /// Painting rules added and taken away keep their counts: the first
+    /// right after its list, the next after it; one past the count (which
+    /// the game doesn't read) is used again rather than made twice.
+    #[test]
+    fn rules_keep_their_counts_and_places() {
+        let mut f = SetFile::parse(SAMPLE);
+        f.set("PRIMARY RULES", "Count", "0");
+        // (A rule the file has past its count.)
+        f.add_section("PRIMARY RULE1", &pairs(&[("Placed", "Old".into())]));
+        assert_eq!(add_rule(&mut f, false, "Water", "Grass", "Sand"), 0);
+        assert_eq!(add_rule(&mut f, false, "Grass", "Water", "Sand"), 1);
+        assert_eq!(add_rule(&mut f, true, "Grass", "Grass", "Grass"), 0);
+        let t = crate::Tileset::parse(f.text().as_bytes(), mg_core::Codepage::default()).unwrap();
+        let rule = |r: &crate::Rule| (r.placed.clone(), r.adjacent.clone(), r.changed.clone());
+        assert_eq!(
+            t.primary_rules.iter().map(rule).collect::<Vec<_>>(),
+            [
+                ("Water".into(), "Grass".into(), "Sand".into()),
+                ("Grass".into(), "Water".into(), "Sand".into())
+            ]
+        );
+        assert_eq!(t.secondary_rules.len(), 1);
+        let now = f.text();
+        assert_eq!(now.matches("[PRIMARY RULE1]").count(), 1, "{now}");
+        assert!(
+            now.contains("[PRIMARY RULES]\r\nCount=2\r\n\r\n[PRIMARY RULE0]\r\nPlaced=Water\r\n"),
+            "{now}"
+        );
+        // (A secondary list the file lacked: added, its rule after it.)
+        assert!(now.contains("[SECONDARY RULES]\r\nCount=1\r\n\r\n[SECONDARY RULE0]\r\n"), "{now}");
+        assert!(remove_last_rule(&mut f, true) && remove_last_rule(&mut f, false));
+        assert!(remove_last_rule(&mut f, false) && !remove_last_rule(&mut f, false));
+        assert_eq!(f.get("PRIMARY RULES", "Count"), Some("0"));
+        assert!(!f.has_section("PRIMARY RULE0") && !f.has_section("PRIMARY RULE1"));
+    }
+
+    /// A tile's door hooks added and taken away keep its `Doors` count: a
+    /// door goes after the tile's own (not another tile's), and a count
+    /// that is no count (a custom tileset's) becomes the doors there are.
+    #[test]
+    fn door_hooks_keep_their_tile_s_count() {
+        let text = "[GENERAL]\r\nName=X\r\n\r\n[TILES]\r\nCount=2\r\n\r\n[TILE0]\r\nModel=a\r\nDoors=1\r\n\r\n[TILE0DOOR0]\r\n\
+Type=1\r\n\r\n[TILE1]\r\nModel=b\r\nDoors=1869573190\r\n\r\n[TILE1DOOR0]\r\nType=2\r\n\r\n\
+[TILE1DOOR2]\r\nType=3\r\n";
+        let mut f = SetFile::parse(text);
+        assert_eq!(add_door(&mut f, 0, 4), Some(1));
+        let now = f.text();
+        assert!(
+            now.contains("[TILE0DOOR0]\r\nType=1\r\n\r\n[TILE0DOOR1]\r\nType=4\r\nX=0.0"),
+            "{now}"
+        );
+        assert_eq!(f.get("TILE0", "Doors"), Some("2"));
+        assert_eq!(add_door(&mut f, 1, 5), Some(3));
+        assert_eq!(f.get("TILE1", "Doors"), Some("4"));
+        let t = crate::Tileset::parse(f.text().as_bytes(), mg_core::Codepage::default()).unwrap();
+        let types = |i: usize| t.tiles[i].doors.iter().map(|d| d.door_type).collect::<Vec<_>>();
+        assert_eq!((types(0), types(1)), (vec![1, 4], vec![2, 3, 5]));
+        assert_eq!(add_door(&mut f, 7, 1), None, "no such tile");
+        // Taken away: the count is up to the door before.
+        assert!(remove_last_door(&mut f, 1));
+        assert!(remove_last_door(&mut f, 1));
+        assert_eq!(f.get("TILE1", "Doors"), Some("1"), "DOOR1 is no section: up to DOOR0");
+        assert!(remove_last_door(&mut f, 1) && !remove_last_door(&mut f, 1));
+        assert_eq!(f.get("TILE1", "Doors"), Some("0"));
+        assert!(remove_last_door(&mut f, 0));
+        assert_eq!(f.doors(0), [(0, "TILE0DOOR0".to_string())]);
     }
 
     #[test]

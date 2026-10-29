@@ -417,8 +417,26 @@ it reads only at its start.
   keeps a list there (`.mg-watch`) of what it wrote, and takes those
   files away again when the module is built anew (the module has them
   then); files of yours in the folder are left alone.
+- The project is read once, at the start. After that the system says
+  which files changed (where it can't, a network share, say, their
+  times and sizes are looked at a few times a second), and only those
+  are read again, as the window reads files changed outside Moonglow.
+  It is read whole again only where reading it settles something:
+  `nasher.cfg` changed, an area added or taken away, or `module.ifo`
+  changed (its area list is filled as nasher fills it).
+- `--target NAME` follows that target of a nasher project (default: the
+  target that packs a module), as `mg build --target` builds it.
 - `--mod FILE` builds the module to a file, at the start and after every
   change, with every script compiled.
+- `--test` runs the module's tests (its `test_*` scripts) as
+  [`mg test`](#testing-scripts-in-the-server) runs them, in a server of
+  their own on a copy, at the start and again after each change taken
+  up, and prints their results (a `tested` event with `--json`, with
+  `mg test`'s fields). The tests compile with Moonglow's `mg_test`
+  where the module has none of its own. A change that doesn't compile
+  runs no tests. `--test-filter TEXT` runs only those with that text in
+  their name, as `mg test --filter` does. With `--serve` the tests have
+  their server and the module served has its own, apart.
 - `--ndb` makes each compiled script's debug file (`.ndb`) too, for the
   game's script debugger: put out beside the compiled script, and built
   into the module.
@@ -438,7 +456,7 @@ it reads only at its start.
   another, as `mg compile` says it) is said once, with how many scripts
   met it (`warnings` in the JSON).
 - `--json` prints each of these as a line of JSON (`watching`, `synced`,
-  `rebuilt`, and with `--serve` the server's events).
+  `rebuilt`, `tested`, and with `--serve` the server's events).
 
 ## Strings by name
 

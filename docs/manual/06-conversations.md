@@ -3,7 +3,7 @@ type: Manual Page
 title: Conversations
 description: Conversations - the conversation tree, a line's tabs, writing conversations elsewhere, the Script Wizard and backups.
 tags: [manual, conversations]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-26T07:06:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T22:04:40Z }
 ---
 
 # Conversations
@@ -158,7 +158,8 @@ there).
 **Export** writes the conversation in other formats:
 - **Plain text**: a readable script, for proofreading or review.
 - **CSV**: one row per line (`E3` an NPC line, `R5` a reply) with its
-  speaker, text, condition, action and comment, and a column for each
+  speaker, text, condition and action (each with its script parameters,
+  written as in Twine and Ink below: `c_has item=gold`) and comment, and a column for each
   other language the lines have text in: `text_fr`, `text_de`,
   `text_it`, `text_es`, `text_pl` (`text_fr_f` for a feminine text,
   `text_en_f` English's). With another language chosen in Options ›
@@ -179,6 +180,15 @@ written in those tools and brought in. The mapping:
   speaker, action, journal update and sound: `speaker:TAG`,
   `do:a_script`, `journal:q_rats:20`, `sound:vs_hello`. In Ink a tag goes
   on its own line, as `# do:a_script`.
+- **Other Actions and the comment** are tags too, of an NPC line or a
+  reply, where a line has them: `anim:talk-forceful` (the animation as
+  Other Actions names it, lower case with `-` for its spaces, or its
+  number), `delay:500`, and `comment:Asked about the sword`. A
+  comment's characters that Ink or Twine read as syntax are escaped as
+  a parameter's are (below), and in a Twine passage's tags, which can't
+  hold a space, its spaces too (`comment:Asked%20about%20the%20sword`).
+  In a Twine reply they go in braces as the action does:
+  `[[Bye. {anim bow} {comment Leaves for good}->END]]`.
 - **Player replies** are a passage's links or a knot's choices, leading
   to the next NPC line or to `END`.
   - Twine: `[[Who are you? {if c_curious} {do a_note}->E5]]`.
@@ -213,7 +223,7 @@ Text Moonglow writes is escaped where the format would read it as syntax:
 in Twine as HTML character references, which story formats show as the
 characters; in Ink with backslashes, and a blank line as `//`. Only the
 English text goes out to Twine and Ink (a passage holds one text: the
-CSV carries the other languages), not animations, comments or delays.
+CSV carries the other languages).
 Every conversation the game and its modules ship
 plays the same after a round trip through Twine or Ink. Ink beyond this
 subset (stitches, gathers, logic) is refused with its line number.

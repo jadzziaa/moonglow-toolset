@@ -261,12 +261,14 @@ pub(crate) const ANIMATIONS: (&str, &str, &str, &str) =
     ("AnimationReplace", "AnimationReplace", "OldAnimation", "NewAnimation");
 
 /// Frames until the UI stops asking for more (a gallery makes its pictures
-/// a few milliseconds' worth a frame).
+/// a few milliseconds' worth a frame; a look at the module's files runs on
+/// a thread, which takes longer on Windows: a little time between tries).
 pub(crate) fn settle(h: &mut Harness<'_, Moonglow>) {
-    for _ in 0..100 {
+    for _ in 0..400 {
         if h.try_run().is_ok() {
             return;
         }
+        std::thread::sleep(std::time::Duration::from_millis(5));
     }
     panic!("the UI keeps repainting");
 }

@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T21:10:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T22:20:00Z }
 ---
 
 # Areas
@@ -1376,10 +1376,25 @@ open tilesets too, and closing one with unsaved changes asks first.
   number, so they need nothing; when the file is saved, the palette
   beside it (`<tileset>palstd.itp`) follows the names changed since the
   last save, the rest of it as it was.
+- **Painting Rules:** the primary and secondary rules. A primary rule is
+  what the terrain brush changes beside the corners it paints: painting
+  a corner *Placed* (at its height) beside one *Adjacent* (at its
+  height) turns that one into *Changed* (at its height). The secondary
+  rules are kept and edited as the file has them (Moonglow's brush
+  follows the primary ones). Each terrain is chosen from
+  the tileset's and each height typed. **Add Rule** adds one at the end
+  (every terrain the first, at height 0) and **Remove Last Rule** takes
+  the last away, the list's count following.
 - **Tiles:** every tile with its corners and edges; **Find** by model or
   terrain. Per tile: model, walkmesh, minimap picture, path node,
-  orientation, corner terrains and heights, edge crossers, lights and
-  animation loops. **Add Tile** and **Duplicate Tile** add at the end, and
+  orientation, corner terrains and heights, edge crossers, lights,
+  animation loops and its **Doors**: the hooks a door placed on the tile
+  stands at (`[TILEnDOORm]`), each with its `doortypes.2da` row (its
+  label beside it, from the game data), where it stands on the tile (X,
+  Y, Z, in meters) and how it is turned (degrees). **Add Door** adds
+  one at the tile's middle and **Remove Last Door** takes the last away,
+  the tile's `Doors` count following (a count that is no count, as some
+  custom tilesets have, becomes the doors there are). **Add Tile** and **Duplicate Tile** add at the end, and
   **Remove Last Tile** takes the last away: areas store tiles by number,
   so tiles in the middle stay where they are. **Preview** shows the
   model when the game data has it, and under the tile's fields are the

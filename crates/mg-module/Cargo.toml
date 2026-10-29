@@ -31,6 +31,7 @@ toml.workspace = true
 toml_edit.workspace = true
 thiserror.workspace = true
 mg-tlk.workspace = true
+notify.workspace = true
 png.workspace = true
 rars.workspace = true
 sevenz-rust2.workspace = true

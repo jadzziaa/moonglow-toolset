@@ -61,6 +61,7 @@ pub mod var_desc;
 pub mod vars;
 pub mod verify;
 mod verify_cache;
+pub mod watch;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
