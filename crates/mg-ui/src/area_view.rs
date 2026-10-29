@@ -1888,6 +1888,9 @@ fn near_segment(a: Pos2, b: Pos2, pos: Pos2) -> f32 {
 struct Reading {
     /// What the thread hands back.
     read: std::sync::mpsc::Receiver<Read>,
+    /// Read again (Reload Resources): the area shown before is let go of
+    /// as a new one is (its tile tools' hold on the ground).
+    again: bool,
 }
 
 /// What a [`Reading`] read.
@@ -1910,13 +1913,14 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView, ctx: &egui::Context) {
     if let Some(reading) = &view.reading {
         match reading.read.try_recv() {
             Ok(read) => {
+                let again = reading.again;
                 view.reading = None;
                 let Some(game) = app.game.clone() else { return };
                 view.terrain = read.terrain;
                 view.tileset = Some(read.tileset);
                 view.ground = Some(read.ground);
                 view.scene = Some(read.scene);
-                show(app, view, &game, read.model, false, false);
+                show(app, view, &game, read.model, again, again);
             }
             Err(std::sync::mpsc::TryRecvError::Empty) => {}
             Err(std::sync::mpsc::TryRecvError::Disconnected) => {
@@ -1959,12 +1963,15 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView, ctx: &egui::Context) {
         "tileset {tileset_ref}, GIT {}",
         if ws.doc(&view.git()).is_ok() { "read" } else { "none" }
     ));
-    // The first reading, where the window is kept going: on a thread.
+    // The first reading, and a reading again of its models and textures
+    // (Reload Resources), where the window is kept going: on a thread.
+    // (An edit reads the area here: what it changed is shown at once, its
+    // models mostly read already.)
     if app.background_jobs
-        && view.model.is_none()
         && view.scene.is_none()
         && let Some(vp) = &app.viewport
     {
+        let again = view.model.is_some();
         let (tx, rx) = std::sync::mpsc::channel();
         let (gpu, game, ctx) = (vp.gpu.clone(), game.clone(), ctx.clone());
         // (Kept here too, to read here if no thread can be had.)
@@ -1985,7 +1992,7 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView, ctx: &egui::Context) {
         match std::thread::Builder::new().name(format!("moonglow area {area}")).spawn(work) {
             Ok(_) => {
                 step("reading on a thread of its own");
-                view.reading = Some(Reading { read: rx });
+                view.reading = Some(Reading { read: rx, again });
                 return;
             }
             Err(e) => step(&format!("no thread to read it on ({e}): read here")),
