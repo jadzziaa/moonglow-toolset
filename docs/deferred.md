@@ -1486,14 +1486,18 @@ contribution itself states as not done or not checked.
   - *`mg nui layout`'s `overlaps`* come of the canvas's own layout, which
     places neighbors apart: it finds none but where the game would lay the
     window out otherwise, which it can't know. (settle?: proposed by the
-    sprint on 2026-10-29, the owner's to say: said in the manual, as it
-    is.)
+    sprint on 2026-10-29, the owner's to say: said in the manual's command
+    line chapter, as it is.)
 - **Left by The Domains of Dread's NUI Creator asks (October 2026)**
   (AccessKit and the event function; the asks are the module project's
-  probe, `tdod-modulework/docs/systems/nui-creator-probe.md`; the rest was
-  done on 2026-10-29: a state for one row, variants of several groups,
-  binds held to their properties' rules, a list's rows out of view and the
-  title in `layout`, the layout's schema, the Creator's Import…):
+  probe, `tdod-modulework/docs/systems/nui-creator-probe.md`; done on
+  2026-10-29: a state for one row, variants of several groups, binds held
+  to their properties' rules, a list's rows out of view and the title in
+  `layout`, the layout's schema, the Creator's Import…, the hand-run
+  `a_module_s_windows_are_laid_out_as_json` gone; moved: "`mg` links
+  `mg-ui`" to "`mg` builds the GPU stack by default", "the preview is not
+  the game" and `layout`'s `overlaps` to "Where the preview is known to
+  differ from the game"):
   - *AccessKit doesn't start on newer Linux desktops*: eframe 0.36's
     `accesskit_unix` (0.21) offers the tree only when the session bus's
     `org.a11y.Status.ScreenReaderEnabled` turns true, and at-spi2-core

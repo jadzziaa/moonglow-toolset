@@ -583,7 +583,10 @@ impl<'a> Check<'a> {
             );
         }
         if ty == "textedit" {
-            if v.get("max").is_some_and(|m| m.as_u64().is_none_or(|n| !(1..=65535).contains(&n))) {
+            // (A bound one is the table's error: static.)
+            if v.get("max").is_some_and(|m| {
+                m.get("bind").is_none() && m.as_u64().is_none_or(|n| !(1..=65535).contains(&n))
+            }) {
                 self.error(
                     &format!("{path}/max"),
                     "NuiTextEdit max length must be a static integer from 1 to 65535",
