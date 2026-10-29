@@ -36,7 +36,7 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | `mg ls ARCHIVE` | list a `.mod`, `.hak`, `.erf`, `.nwm` or `.sav` |
 | `mg unpack ARCHIVE OUT` | unpack it into folder `OUT` |
 | `mg pack DIR ARCHIVE` | pack a folder into an archive (type from the extension); warns when files would start past 2 GiB, where the game stops reading. `--compile-models` compiles the models kept as text (ASCII `.mdl`) on the way in, each against its supermodel from the folder or the game (which it then needs, as the other commands find it); a model that doesn't compile, has errors `mg verify` would name, or whose supermodel isn't found goes in as the text it is, and is named |
-| `mg gff INPUT [-o OUTPUT]` | a GFF file to JSON (the format of neverwinter.nim and nasher), or JSON back to GFF |
+| `mg gff INPUT [-o OUTPUT] [--module PATH]` | a GFF file to JSON (the format of neverwinter.nim and nasher), or JSON back to GFF; its text in Windows-1252, or by the `encoding.2da` table of the module given (in its haks) |
 
 ## The game's resources
 
@@ -155,6 +155,10 @@ mg set mymodule.mod guard.utc Tag=GATE_GUARD '/ClassList[0]/ClassLevel=5'
 - Text set on a name or description becomes its English text; its
   talk-table reference and other languages stay.
 - `--remove FIELD` takes a field away.
+- A creature's, placeable's, door's or encounter's faction set to 0, or
+  taken away (which the game reads as 0), is set, and warned of: the PC
+  faction is the players' alone, and Verify warns of it after
+  (`pc-faction`; a trigger's, no).
 - `--dry-run` prints each field as it was and would be; with `--json`,
   the change under `"command"` is an edit file.
 
@@ -529,7 +533,9 @@ cache folder.
 It reads scripts in the codepage the game reads their text in: the one
 your user folder's `settings.tml` gives the game (its codepage, else its
 language's: Windows-1250 for Polish), else Windows-1252. `mg lsp
---codepage cp1250` names it. The files open in your editor come as the
+--codepage cp1250` names it, and `mg lsp --module PATH` reads them in
+that module's own `encoding.2da` table (in its haks), where it has one.
+The files open in your editor come as the
 editor read them: set it to the same codepage for `.nss` files.
 
 To use it, tell your editor to run `mg lsp` for `.nss` files:

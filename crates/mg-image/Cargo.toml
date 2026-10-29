@@ -1,6 +1,6 @@
 [package]
 name = "mg-image"
-description = "Textures: TGA, DDS (BioWare's and standard), PLT; TXI and MTR"
+description = "Textures: TGA, DDS (BioWare's and standard), PLT; TXI and MTR; PNG pictures"
 version = "0.0.0"
 edition.workspace = true
 rust-version.workspace = true
@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 mg-core.workspace = true
+png.workspace = true
 thiserror.workspace = true
 
 [lints]

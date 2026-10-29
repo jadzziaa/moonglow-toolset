@@ -306,11 +306,7 @@ impl Loader<'_> {
         let rgba = ResRef::from_str(name).ok().and_then(|r| {
             let plt = mg_image::plt::Plt::read(&self.data(ResKey::new(r, ResType::PLT))?).ok()?;
             // (The ten palettes, read once for every colouring.)
-            let palettes: Vec<Option<Arc<mg_image::Rgba>>> =
-                mg_image::plt::PALETTES.iter().map(|p| self.palette(p)).collect();
-            let refs: [Option<&mg_image::Rgba>; 10] =
-                std::array::from_fn(|i| palettes[i].as_deref());
-            Some(plt.colorize(&refs, colors))
+            Some(plt.colorize_by(|p| self.palette(p), colors))
         });
         self.keep(ctx, key, rgba)
     }

@@ -3832,6 +3832,77 @@ fn raw_fields_with_row_names() {
 
 #[test]
 #[ignore]
+fn raw_fields_of_the_pc_faction() {
+    // A creature blueprint of faction 0 in the raw fields view: the
+    // warning beside its FactionID.
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let scratch = mg_testkit::scratch_dir("screens-raw-pc-faction");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    let mut guard = mg_gff::Gff::new(*b"UTC ");
+    guard.root.set("Tag", mg_gff::Value::String(b"GUARD".to_vec()));
+    guard.root.set("FactionID", mg_gff::Value::Word(0));
+    guard.root.set("Appearance_Type", mg_gff::Value::Word(6));
+    let key = ResKey::parse("guard", ResType::UTC).unwrap();
+    m.set_gff(key, &guard).unwrap();
+    let path = scratch.join("pcfac.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let rs = egui_kittest::wgpu::create_render_state(
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Gff(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 400.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(4);
+    shoot(&mut h, &dir, "raw-fields-pc-faction");
+}
+
+#[test]
+#[ignore]
+fn waypoint_with_no_flag() {
+    // A waypoint blueprint whose Appearance is no waypoint.2da row: the
+    // warning under its Appearance Type, as Verify words it.
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let scratch = mg_testkit::scratch_dir("screens-waypoint-flag");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    let mut post = mg_gff::Gff::new(*b"UTW ");
+    post.root.set("Tag", mg_gff::Value::String(b"WP_POST".to_vec()));
+    post.root.set("Appearance", mg_gff::Value::Byte(7));
+    let key = ResKey::parse("post", ResType::UTW).unwrap();
+    m.set_gff(key, &post).unwrap();
+    let path = scratch.join("flag.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let rs = egui_kittest::wgpu::create_render_state(
+        mg_ui::graphics_setup(egui_kittest::wgpu::default_wgpu_setup()),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 700.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(6);
+    shoot(&mut h, &dir, "waypoint-no-flag");
+}
+
+#[test]
+#[ignore]
 fn spawn_point_markers() {
     // An encounter's spawn points: the game's marker, its post and the
     // arrow of its facing.

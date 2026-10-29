@@ -248,7 +248,9 @@ The palette's buttons:
   451, ModelName) isn't in the module, its haks or the game". The game
   draws nothing for such an object, and Aurora's area view often crashes
   on one: choose another appearance, or add the model to a hak. An
-  item's Base Type Name says so when it isn't a `baseitems.2da` row.
+  item's Base Type Name says so when it isn't a `baseitems.2da` row, and
+  a waypoint's Appearance Type when its `waypoint.2da` row has no flag
+  to draw (the game draws no waypoint: the area view shows none for it).
   Verify (Build › Verify) reports the same objects by the same rule.
 - **Preview**: show the blueprint in the model viewer. An item modeled
   lying (a sword) is stood up; a helmet and a shield show as worn, a
@@ -699,8 +701,10 @@ The faction lists (a creature's, a placeable's, a door's, a trigger's and
 an encounter's Advanced page) leave out the PC faction: it is the
 players' alone, and the game puts a creature of it in Hostile. An object
 that already has it keeps it, shown as "PC (not for objects)", until
-another is picked; Verify Module warns of it (of a trigger's, no:
-Aurora writes faction 0 for a trigger whose blueprint has none).
+another is picked; Verify Module warns of it, and of an object with no
+faction at all, which the game reads as the PC faction (of a
+trigger's, no: Aurora writes faction 0 for a trigger whose blueprint
+has none).
 
 ### Triggers and encounters
 

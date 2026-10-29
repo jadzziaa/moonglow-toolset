@@ -78,6 +78,35 @@ fn a_module_s_encoding_table_is_the_text_of_its_commands() {
     let first = guard(&path).locstring("FirstName").unwrap().clone();
     assert_eq!(first.get(Language::ENGLISH, Gender::Male).unwrap(), b"Ya\xf0");
 
+    // A lone file of the module's by its table, given the module: as JSON
+    // and back.
+    let lone = dir.join("guard.utc");
+    let bytes = Module::open(&path).unwrap().get(&key("guard.utc")).unwrap().to_vec();
+    std::fs::write(&lone, &bytes).unwrap();
+    let lone_path = lone.to_str().unwrap();
+    let (ok, json) = mg(&root, Some(&user), &["gff", lone_path, "--module", module]);
+    assert!(ok, "{json}");
+    assert!(json.to_string().contains("Yağ"), "{json}");
+    let (ok, json) = mg(&root, Some(&user), &["gff", lone_path]);
+    assert!(ok && json.to_string().contains("Yað"), "without the module: {json}");
+    let (text, back) = (dir.join("guard.utc.json"), dir.join("back.utc"));
+    let (text, back) = (text.to_str().unwrap(), back.to_str().unwrap());
+    let (ok, _) = mg(&root, Some(&user), &["gff", lone_path, "--module", module, "-o", text]);
+    assert!(ok);
+    let (ok, _) = mg(&root, Some(&user), &["gff", text, "--module", module, "-o", back]);
+    assert!(ok);
+    assert_eq!(std::fs::read(back).unwrap(), bytes, "the same bytes back");
+
+    // Its name published to NWSync in the table's letters.
+    let repository = dir.join("nwsync");
+    let (ok, made) =
+        mg(&root, Some(&user), &["nwsync", module, repository.to_str().unwrap(), "--with-module"]);
+    assert!(ok, "{made}");
+    let sha = made["sha1"].as_str().unwrap();
+    let manifest = std::fs::read(repository.join(format!("manifests/{sha}.json"))).unwrap();
+    let manifest: Json = serde_json::from_slice(&manifest).unwrap();
+    assert_eq!(manifest["module_name"], "Yağ Evi", "{manifest}");
+
     // Without it (the hak not found): Windows-1252, as ever.
     let (ok, info) = mg(&root, None, &["info", module]);
     assert!(ok);

@@ -10,11 +10,15 @@
 //!
 //! DDS data stays compressed ([`Texture::mips`]) for the GPU;
 //! [`Texture::to_rgba`] decodes the largest level on the CPU.
+//!
+//! Pictures that are not textures (a NUI window's, a plugin's) are read
+//! top row first: [`tga::read_picture`] and [`png::read_picture`].
 
 pub mod bc;
 pub mod dds;
 pub mod mtr;
 pub mod plt;
+pub mod png;
 pub mod tga;
 pub mod txi;
 
@@ -36,6 +40,8 @@ pub enum ImageError {
     BadSize(u32, u32),
     #[error("{0} is not an image type")]
     NotImage(ResType),
+    #[error("unreadable PNG: {0}")]
+    Png(String),
 }
 
 /// How a texture's pixels are stored.

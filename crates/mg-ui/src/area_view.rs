@@ -4917,16 +4917,10 @@ fn turn_keys(view: &AreaView) -> [(crate::keys::Cmd, f32); 4] {
 
 /// The twelve edges of the box `min`–`max` placed by `t`.
 fn box_edges(t: glam::Mat4, min: Vec3, max: Vec3) -> impl Iterator<Item = (Vec3, Vec3)> {
-    let c = move |i: usize| {
-        t.transform_point3(Vec3::new(
-            if i & 1 == 0 { min.x } else { max.x },
-            if i & 2 == 0 { min.y } else { max.y },
-            if i & 4 == 0 { min.z } else { max.z },
-        ))
-    };
+    let c = mg_render::box_corners(min, max).map(|p| t.transform_point3(p));
     [(0, 1), (1, 3), (3, 2), (2, 0), (4, 5), (5, 7), (7, 6), (6, 4), (0, 4), (1, 5), (2, 6), (3, 7)]
         .into_iter()
-        .map(move |(a, b)| (c(a), c(b)))
+        .map(move |(a, b)| (c[a], c[b]))
 }
 
 /// The farthest the game's camera stands from the player (metres; the

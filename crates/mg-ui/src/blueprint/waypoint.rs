@@ -32,6 +32,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         crate::widgets::field_label(ui, "Appearance Type");
         f.choice(ui, "Appearance", "Appearance", &appearances, mg_gff::FieldType::Byte);
         ui.end_row();
+        f.model_warning(ui, mg_rules::ObjectKind::Waypoint);
     });
 }
 

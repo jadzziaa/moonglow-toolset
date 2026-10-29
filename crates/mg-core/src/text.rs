@@ -1,5 +1,6 @@
 //! Putting names in order and finding them as a reader expects: case and
-//! the accents of Latin and Greek letters set aside, so that `Árboles`
+//! the accents of Latin and Greek letters (polytonic Greek's too) and
+//! Cyrillic's `ё` set aside, so that `Árboles`
 //! stands beside `arboles`, not after `z`, and a Filter's `arbol` finds it
 //! (the game's names are in Western and Central European code pages:
 //! Spanish, French, German, Polish, Czech...; a module's own may be in
@@ -147,10 +148,13 @@ fn is_combining(c: char) -> bool {
 /// A lower-case letter's letters without its accent: Latin-1, Latin
 /// Extended-A and B (the game's Western and Central European code pages;
 /// Romanian, Pinyin, Croatian's digraphs), Latin Extended Additional
-/// (Vietnamese, Welsh) and Greek's tonos and dialytika.
+/// (Vietnamese, Welsh), Greek's tonos and dialytika, Greek Extended's
+/// marks (polytonic Greek) and Cyrillic's `ё`.
 fn base(c: char) -> Option<&'static str> {
-    if let '\u{1e00}'..='\u{1eff}' = c {
-        return extended_additional(c);
+    match c {
+        '\u{1e00}'..='\u{1eff}' => return extended_additional(c),
+        '\u{1f00}'..='\u{1fff}' => return greek_extended(c),
+        _ => {}
     }
     Some(match c {
         'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' | 'ā' | 'ă' | 'ą' => "a",
@@ -213,8 +217,86 @@ fn base(c: char) -> Option<&'static str> {
         'ύ' | 'ϋ' | 'ΰ' => "υ",
         'ώ' => "ω",
         'ς' => "σ",
+        // Cyrillic: ё as е (Russian, Belarusian), and the grave of
+        // Bulgarian and Macedonian; й, ї, ў, ѓ and ќ are letters of their
+        // own, and stay.
+        'ё' | 'ѐ' => "е",
+        'ѝ' => "и",
         _ => return None,
     })
+}
+
+/// A letter of Greek Extended (U+1F00 to U+1FFF, polytonic Greek: the
+/// breathings, the accents, the iota subscript and the length marks)
+/// without its marks. The block keeps a vowel's letters together, small
+/// then capital: a letter is the run it stands in.
+fn greek_extended(c: char) -> Option<&'static str> {
+    // (Where each run begins; "": no letter, or a mark that stands alone.)
+    const RUNS: [(u32, &str); 59] = [
+        (0x1f00, "α"),
+        (0x1f10, "ε"),
+        (0x1f16, ""),
+        (0x1f18, "ε"),
+        (0x1f1e, ""),
+        (0x1f20, "η"),
+        (0x1f30, "ι"),
+        (0x1f40, "ο"),
+        (0x1f46, ""),
+        (0x1f48, "ο"),
+        (0x1f4e, ""),
+        (0x1f50, "υ"),
+        (0x1f58, ""),
+        (0x1f59, "υ"),
+        (0x1f5a, ""),
+        (0x1f5b, "υ"),
+        (0x1f5c, ""),
+        (0x1f5d, "υ"),
+        (0x1f5e, ""),
+        (0x1f5f, "υ"),
+        (0x1f60, "ω"),
+        (0x1f70, "α"),
+        (0x1f72, "ε"),
+        (0x1f74, "η"),
+        (0x1f76, "ι"),
+        (0x1f78, "ο"),
+        (0x1f7a, "υ"),
+        (0x1f7c, "ω"),
+        (0x1f7e, ""),
+        (0x1f80, "α"),
+        (0x1f90, "η"),
+        (0x1fa0, "ω"),
+        (0x1fb0, "α"),
+        (0x1fb5, ""),
+        (0x1fb6, "α"),
+        // The koronis; the prosgegrammeni, an iota; the psili.
+        (0x1fbd, ""),
+        (0x1fbe, "ι"),
+        (0x1fbf, ""),
+        (0x1fc2, "η"),
+        (0x1fc5, ""),
+        (0x1fc6, "η"),
+        (0x1fc8, "ε"),
+        (0x1fca, "η"),
+        (0x1fcd, ""),
+        (0x1fd0, "ι"),
+        (0x1fd4, ""),
+        (0x1fd6, "ι"),
+        (0x1fdc, ""),
+        (0x1fe0, "υ"),
+        (0x1fe4, "ρ"),
+        (0x1fe6, "υ"),
+        (0x1fec, "ρ"),
+        (0x1fed, ""),
+        (0x1ff2, "ω"),
+        (0x1ff5, ""),
+        (0x1ff6, "ω"),
+        (0x1ff8, "ο"),
+        (0x1ffa, "ω"),
+        (0x1ffd, ""),
+    ];
+    let n = u32::from(c);
+    let at = RUNS.partition_point(|&(start, _)| start <= n).checked_sub(1)?;
+    Some(RUNS[at].1).filter(|l| !l.is_empty())
 }
 
 /// A letter of Latin Extended Additional (U+1E00 to U+1EFF) without its
@@ -296,8 +378,26 @@ mod tests {
         assert_eq!(fold("Ỳ ẁ ẃ ẅ ḃ ḋ ṡ ẗ ẞ"), "y w w w b d s t ss");
         // Greek's tonos and dialytika, and the final sigma.
         assert_eq!(fold("Ελληνικά Άλφα ΐ ΰ λόγος"), "ελληνικα αλφα ι υ λογοσ");
+        // Polytonic Greek (Greek Extended): breathings, accents, the iota
+        // subscript, the capitals' too.
+        assert_eq!(fold("Ἀθῆναι ᾠδή Ὅμηρος ῥόδον ᾼ Ὦ"), "αθηναι ωδη ομηροσ ροδον α ω");
+        assert_eq!(fold("ἄνθρωπος"), fold("ανθρωπος"));
+        // Cyrillic's ё and the graves; й and the other letters of their own
+        // stay.
+        assert_eq!(fold("Ёлка ёж Ѐ ѝ"), "елка еж е и");
+        assert_eq!(fold("Йод ї ў ѓ ќ"), "йод ї ў ѓ ќ");
         // What has no letter beneath it stays.
-        assert_eq!(fold("Ỻ ẜ"), "ỻ ẜ");
+        assert_eq!(fold("Ỻ ẜ ᾽ ῀"), "ỻ ẜ ᾽ ῀");
+    }
+
+    #[test]
+    fn polytonic_greek_and_cyrillic_sort_and_are_found_beside_their_letters() {
+        let mut names = vec!["Ὅμηρος", "Αθήνα", "ἀγορά", "ёлка", "Ель", "елка"];
+        names.sort_by_cached_key(|n| sort_key(n));
+        assert_eq!(names, ["ἀγορά", "Αθήνα", "Ὅμηρος", "елка", "ёлка", "Ель"]);
+        assert!(contains("Ὅμηρος", "ομηρ"));
+        assert!(contains("Ёлка", "елка"));
+        assert!(same_letter('ἄ', 'Α') && same_letter('ё', 'Е') && !same_letter('й', 'и'));
     }
 
     #[test]

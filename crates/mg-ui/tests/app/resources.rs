@@ -1252,6 +1252,56 @@ fn raw_fields_name_their_2da_rows() {
     }
 }
 
+/// The raw fields view says an object's faction field of 0 puts it in the
+/// PC faction, as Verify warns of it: a creature blueprint's, a placed
+/// door's; not another faction's, nor a placed trigger's (the owner's
+/// decision).
+#[test]
+fn raw_fields_warn_of_the_pc_faction() {
+    use egui_kittest::kittest::Queryable;
+    let dir = mg_testkit::scratch_dir("ui-raw-pc-faction");
+    let mut m = mg_module::Module::new();
+    m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+    let blueprint = |faction: u16| {
+        let mut g = mg_gff::Gff::new(*b"UTC ");
+        g.root.set("FactionID", mg_gff::Value::Word(faction));
+        g
+    };
+    m.set_gff(ResKey::parse("guard", ResType::UTC).unwrap(), &blueprint(0)).unwrap();
+    m.set_gff(ResKey::parse("hostile", ResType::UTC).unwrap(), &blueprint(1)).unwrap();
+    let mut area = mg_gff::Gff::new(*b"GIT ");
+    let placed = |faction: u32| {
+        let mut s = mg_gff::Struct::new(1);
+        s.set("Faction", mg_gff::Value::Dword(faction));
+        s
+    };
+    area.root.set("Door List", mg_gff::Value::List(vec![placed(0)]));
+    area.root.set("TriggerList", mg_gff::Value::List(vec![placed(0)]));
+    m.set_gff(ResKey::parse("area", ResType::GIT).unwrap(), &area).unwrap();
+    let path = dir.join("pcfac.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let warned = |name: &str, t: ResType, open: &[usize]| {
+        let mut h = harness(app_with(Vec::new()), 1000.0, 700.0);
+        h.state_mut().actions.push(mg_ui::Action::OpenModule(path.clone()));
+        h.run_steps(2);
+        let key = ResKey::parse(name, t).unwrap();
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Gff(key)));
+        h.run_steps(3);
+        for &i in open {
+            h.get_all_by_label_contains(" items").nth(i).unwrap().click();
+            h.run_steps(2);
+            h.get_all_by_label_contains("struct").last().unwrap().click();
+            h.run_steps(2);
+        }
+        h.query_all_by_label_contains("The PC faction").count()
+    };
+    assert_eq!(warned("guard", ResType::UTC, &[]), 1);
+    assert_eq!(warned("hostile", ResType::UTC, &[]), 0);
+    // The GIT's lists in their order: the doors', then the triggers'.
+    assert_eq!(warned("area", ResType::GIT, &[0]), 1, "a placed door");
+    assert_eq!(warned("area", ResType::GIT, &[1]), 0, "a placed trigger");
+}
+
 /// Build › Compile Models compiles the module's own models kept as text,
 /// as one step to undo; one whose supermodel is nowhere stays as text.
 #[test]

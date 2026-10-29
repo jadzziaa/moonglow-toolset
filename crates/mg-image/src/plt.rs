@@ -106,6 +106,21 @@ impl Plt {
         }
         out
     }
+
+    /// [`colorize`](Self::colorize) with the ten palettes [`PALETTES`]
+    /// names, each as `palette` finds it by that name (none: grey): what a
+    /// creature's or an item's part looks like in its colors, in the
+    /// renderer and in the window's pictures alike.
+    pub fn colorize_by<P: std::borrow::Borrow<Rgba>>(
+        &self,
+        mut palette: impl FnMut(&'static str) -> Option<P>,
+        colors: [u8; 10],
+    ) -> Rgba {
+        let palettes: [Option<P>; 10] = PALETTES.map(&mut palette);
+        let refs: [Option<&Rgba>; 10] =
+            std::array::from_fn(|i| palettes[i].as_ref().map(P::borrow));
+        self.colorize(&refs, colors)
+    }
 }
 
 #[cfg(test)]
@@ -137,6 +152,19 @@ mod tests {
         assert_eq!(img.pixel(0, 0), [0, 0, 0, 255]);
         // Hair, index 1 = the bottom row: red.
         assert_eq!(img.pixel(1, 0), [255, 0, 0, 255]);
+        // The palettes by their names: the same, and one not found grey.
+        let mut asked = Vec::new();
+        let by = plt.colorize_by(
+            |name| {
+                asked.push(name);
+                matches!(name, "pal_skin01" | "pal_hair01").then(|| pal.clone())
+            },
+            colors,
+        );
+        assert_eq!(by, img);
+        assert_eq!(asked, PALETTES);
+        let grey = plt.colorize_by(|_| None::<Rgba>, colors);
+        assert_eq!((grey.pixel(0, 0), grey.pixel(1, 0)), ([0, 0, 0, 255], [255, 255, 255, 255]));
     }
 
     /// Every prefix of a PLT is an error (and never a panic); the whole

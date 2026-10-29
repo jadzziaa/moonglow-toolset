@@ -18,7 +18,8 @@ thread_local! {
 }
 
 /// The codepage of the game's text other than a localized string's: a
-/// module's own table, else Windows-1252.
+/// module's own table, else Windows-1252 (`GameData::text_codepage`, as
+/// `mg` and plugins read it).
 pub(crate) fn game_codepage() -> Codepage {
     GAME_CODEPAGE.with(Cell::get).unwrap_or_default().for_language(Language::ENGLISH)
 }

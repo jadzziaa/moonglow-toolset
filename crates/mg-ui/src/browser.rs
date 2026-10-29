@@ -719,17 +719,10 @@ fn hex(data: &[u8]) -> String {
 }
 
 fn value_text(v: &Value) -> String {
+    if let Some(number) = v.number_text() {
+        return number;
+    }
     match v {
-        Value::Byte(x) => x.to_string(),
-        Value::Char(x) => x.to_string(),
-        Value::Word(x) => x.to_string(),
-        Value::Short(x) => x.to_string(),
-        Value::Dword(x) => x.to_string(),
-        Value::Int(x) => x.to_string(),
-        Value::Dword64(x) => x.to_string(),
-        Value::Int64(x) => x.to_string(),
-        Value::Float(x) => x.to_string(),
-        Value::Double(x) => x.to_string(),
         Value::String(b) | Value::ResRef(b) => format!("{:?}", decode(b)),
         Value::LocString(ls) => {
             let mut parts: Vec<String> = Vec::new();
@@ -740,7 +733,7 @@ fn value_text(v: &Value) -> String {
             parts.join(", ")
         }
         Value::Void(b) => format!("{} bytes", b.len()),
-        Value::Struct(_) | Value::List(_) => String::new(),
+        _ => String::new(),
     }
 }
 

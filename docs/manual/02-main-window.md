@@ -170,8 +170,9 @@ wheel, or the scroll bar under it), as Aurora's does.
 Resources are listed by their ResRefs, as in Aurora. With **Tools ›
 Options › General › List areas and blueprints by name**, areas and
 blueprints are listed by their names instead (in the names' order,
-case and accents aside, so `Árboles` stands beside `arboles`; one
-without a name keeps its ResRef), areas' tabs are titled by name, the
+case and accents aside, so `Árboles` stands beside `arboles`, as
+polytonic Greek's `Ἀθῆναι` beside `Αθηναι` and Russian's `ёлка` beside
+`елка`; one without a name keeps its ResRef), areas' tabs are titled by name, the
 filter finds either, and the ResRef shows when the pointer rests on one.
 **Show ResRefs beside names** adds it in parentheses, `Name (resref)`,
 there and in the palettes: for telling apart resources of one name.
@@ -268,7 +269,9 @@ name beside it, in a list to choose another by name: an area's music and
 ambient sounds, a creature's race, classes, feats and spells, an item's
 base item and properties, an object's appearance, a trap's type, a loading
 screen. A creature's skills are named in their list, and a talk-table
-string's text is shown beside its number.
+string's text is shown beside its number. An object's faction of 0 (a
+blueprint's, or one an area places) is marked as the PC faction, the
+players' alone, which Verify warns of (a trigger's, no).
 
 **The panes beside the middle** (the module tree on the left, the
 palettes on the right, the log below) fold away to give the area's view

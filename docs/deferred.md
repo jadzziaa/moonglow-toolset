@@ -295,20 +295,20 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   or keeps the field. Which `LightColor` the engine counts as a light
   (Moonglow: a row above 0) was checked on rows 1 and 25. (S) (Jasperre's
   reports, October 2026)
-- **The PC faction, what's left:** the faction lists, the Store Wizard
-  and Verify (`pc-faction`) keep objects out of faction 0. Not done:
-  `mg set` and the raw fields view still write 0 if told to (Verify
-  reports it after); Verify
-  doesn't report an object with no faction field (the engine's reading of
-  a missing one wasn't measured); Aurora's own faction lists were not
-  captured (whether they offer PC is not known), and Aurora writes
-  faction 0 for a trigger whose blueprint has none (`instances.rs`
-  `TRIGGER`), which Moonglow copies when placing; so Verify leaves
-  triggers out of `pc-faction` (the owner's decision), and such a
-  trigger's faction field shows "PC (not for objects)". How an object of faction
-  0 regards a player, or a player it, was not measured (no player joins
-  a headless server); an encounter's creatures were not looked at. (S)
-  (Jasperre's report, October 2026)
+- **The PC faction, what's left** (waits on an Aurora capture and the
+  client): Moonglow keeps objects out of faction 0 and says so where it
+  is written (the faction lists, the Store Wizard, `mg set`, the raw
+  fields view, Verify's `pc-faction`, an object with no faction too,
+  which the server reads as 0: `engine_factions.rs`). Not known:
+  whether Aurora's own faction lists offer PC (not captured; Aurora
+  writes faction 0 for a trigger whose blueprint has none, which is why
+  triggers are left out, the owner's decision); how an object of
+  faction 0 regards a player, or a player it (no player joins a
+  headless server); and what an encounter of faction 0, or of none,
+  gives the creatures it spawns (a player's entering spawns them). An
+  Aurora capture of a faction list and a client run with a player
+  entering an encounter settle it. (S) (Jasperre's report, October
+  2026)
 - **The Visuals page's texture and animation pickers, what's left:**
   waiting on the client: whether the game replaces a PLT texture by name (the page and the
   preview take it that it doesn't, from `ReplaceObjectTexture`'s comment
@@ -352,17 +352,23 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   module's files changed outside and read again). (S) (a builder's
   report, October 2026)
 - **An appearance with no model, what the warning leaves out:** the rule
-  (`mg_rules::appearance`) checks a placeable's, a door's and a
-  single-model creature's row and model by name, and an item's base item
-  row. Not checked by it: an item's own models (its parts, `ModelPart1`…
-  and an armor's), which the preview alone says are missing; a body of
-  parts' skeleton and parts; a waypoint's flag (waypoint.2da), which the
-  preview checks on its own; a model that is there but cannot be read (a
-  broken file is found when it is drawn). The Appearance lists in the
-  Properties don't mark the rows with no model (the Appearance Gallery
-  does, for those in sight), and the palette's own Gallery doesn't mark
-  blueprints whose appearance has none. (S) (dansen9191's report,
-  October 2026)
+  (`mg_rules::appearance`) checks a placeable's, a door's, a
+  single-model creature's and a waypoint's row and model by name (the
+  waypoint's flag since 2026-10-29: Verify warns of it, the preview and
+  the Properties go by it; a waypoint without the field, as 190 of
+  BioWare's blueprints are, is not judged, and what Aurora draws for
+  one was not captured), and an item's base item row.
+  Not checked by it, each S, about a day together: an item's own models
+  (its parts, `ModelPart1`… and an armor's), whose names mg-preview
+  alone makes (the naming would move down into mg-rules); a body of
+  parts' skeleton and parts, likewise; a model that is there but cannot
+  be read (a broken file is found when it is drawn; reading each
+  appearance's model in Verify was not timed on a large module); the
+  Appearance lists in the Properties don't mark the rows with no model
+  (the Appearance Gallery does, for those in sight: a mark in
+  `widgets::row_choice`, the rows checked once a revision, not each
+  frame); and the palette's own Gallery doesn't mark blueprints whose
+  appearance has none. (dansen9191's report, October 2026)
 - **Number fields' limits against Aurora, what is left:** the rest were
   measured in Aurora (2026-10-29, typed past their ends: an encounter's
   creatures 1 to 8, its respawn time 1 to 32000 s and count 0 to 32000,
@@ -539,21 +545,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   the script only. (S–M)
 
 ## Palettes
-
-- **Names in order, accents aside** (Sacha's report, October 2026):
-  the Category lists (Options › General), the module tree, the lists of
-  a table's rows and the palettes' own order (Windows' word sort) fold
-  case and the accents of Latin letters (Latin-1, Extended-A and B,
-  Extended Additional: Vietnamese) and Greek's tonos (`mg_core::text`),
-  so `Árboles` stands beside `arboles`; every Filter and Find of names
-  (`mg_core::text::Needle`: the module tree, the palettes, the lists of
-  rows, the resource browser, the 2DA editor, the script side list, the
-  wizards, Edit Areas Together, `mg`'s area and object filters) finds
-  `Árbol` for `arbol`, and the searches of text (Find and Replace Text,
-  a script's Find, the conversation Search) set accents aside only
-  without Match case; tags and `*` patterns (Find Instance, Advanced
-  Search, `mg find`) too. Not done: Cyrillic's (ё for е) and polytonic
-  Greek's marks (Greek Extended) are not folded. (S)
 
 - **Palette categories, what the editor lacks:** no translated names
   (one text for every language), and Remove refuses a category in use
@@ -1695,55 +1686,27 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   module with its own `pnl_loadscreen` model, or a texture that isn't
   laid out so, shows wrong. Aurora's small `<name>s` preview isn't used.
   The picture isn't in the list itself, only on hover. (S)
-- **A module's `encoding.2da`** (EE 1.87: a table of the Unicode
-  character each of the 256 byte values stands for, shipped with fonts
-  to match, so that a module can be in a language the game has no
-  codepage for; a builder who knows the engine pointed it out, after
-  1.19.1) is read
-  now (`GameData::codepage`, `mg_core::Codepage::table`): the
-  toolset shows and writes the module's text by it (names and other
-  localized strings in the editors, tags and comments, scripts,
-  conversations, the journal, factions, the talk tables, the palettes,
-  the area list, Find and Replace Text, the 2DA view), and reads it
-  anew when the hak list changes. Without a table every path is as it
-  was (Windows-1252, Windows-1250 for Polish). What the game does was
-  settled in it (`engine_encoding.rs`): the table is read from a hak,
-  not from the module file; a cell is hexadecimal with or without `0x`
-  (`305` is U+0305), of which the low 16 bits count; a blank or missing
-  row keeps the game's own character; a character two bytes stand for is
-  written as the last of them; ASCII's bytes can be moved too. Left, or
-  not known:
-  - `mg` goes by the table where it is given a module (`set`, `apply`,
-    `find`, `info`, `areas`, `replace`, `dialog` export and import, a
-    plugin's edits), finding the hak through the game install (without
-    one: Windows-1252, and nothing said). `mg gff` on a lone file,
-    nasher sources (theirs is `--nwn-encoding`), `mg nwsync`'s module
-    name still read and write Windows-1252 whatever the table, and the
-    script language server reads the game's codepage (`settings.tml`,
-    or `--codepage`), not a module's table. (S each)
-  - In the toolset, by choice: a prefab's file keeps the bytes (written
-    as Windows-1252 text, so that it is the same object in any module),
-    and a hak's description is the hak's, not the module's. The Store
-    Wizard's lines, a conversation exported or imported, the name Save
-    As offers and plugins' strings go by the table
-    (`Codepage::spelled_in` for code that writes Windows-1252); a
-    letter of an imported conversation the table lacks is a "?" (as is,
-    now, one Windows-1252 lacks in a module without a table: a
-    conversation's new line, a faction's name and an export's comments
-    were written as UTF-8 there). An exported or imported file is
-    spelled over as a whole, its punctuation too: of no matter unless a
-    table moves ASCII's own characters.
-  - A table is taken to stand for every language of one byte a character
-    (a Polish name in an English game is read by it too), and for none of
-    the East Asian ones; a missing row keeps the character of the game's
-    language. Only English was tried in the game.
-  - Whether the game reads the table from `override` and the like was
-    not tried (Moonglow reads it from whatever lies outside the module
-    file, haks first); nor was the game's `game.language.codepage`
-    setting, which only `mg lsp` reads (the toolset goes by Options ›
-    Language).
-  - A text field already being typed in when the hak list changes keeps
-    what it showed until it is left.
+- **A module's `encoding.2da`, what is left by choice** (EE 1.87: a
+  table of the Unicode character each byte of the game's text stands
+  for; a builder who knows the engine pointed it out, after 1.19.1):
+  the toolset, plugins and `mg` read and write a module's text by it
+  wherever they are given the module (`mg gff` and `mg lsp` with
+  `--module`, the name `mg nwsync` publishes), as the server reads it
+  (`engine_encoding.rs`: from a hak or `override`, not the module file;
+  a missing row the game's language's letter, a Polish game's
+  Windows-1250 one; `game.language.codepage` honored). Kept as they are
+  by choice, for the owner to settle: a prefab's file keeps the bytes
+  (written as Windows-1252 text, so that it is the same object in any
+  module); a hak's description is the hak's, not the module's; a nasher
+  project's sources are converted by its `nasher.cfg`'s
+  `--nwn-encoding`, as nasher's own tools convert them, so that the
+  bytes nasher packs are the module's; and the toolset reads the game's
+  text by Options › Language, not by the user folder's
+  `game.language.codepage`, which the server honors and `mg lsp` reads.
+  An exported or imported conversation is spelled over as a whole, its
+  punctuation too (of no matter unless a table moves ASCII's own
+  characters). Left: a text field already being typed in when the hak
+  list changes keeps what it showed until it is left. (S)
 
 ## Remappable keys
 
@@ -2376,10 +2339,6 @@ of truth, and does each caller's difference matter.
   (`creature_wizard.rs:92`: the gender chosen, then rows of both or
   none, Plot rows left out, not the module's portraits) was not compared
   with Aurora's wizard. (S)
-- **The module's codepage, four ways** (`mg main.rs:2661` builds a
-  ResMan for it; `mg-plugin runtime.rs:950`, `mg plugins.rs:414`,
-  `mg-ui text.rs:23`; `mg-plugin terrain.rs:65`): the same on an English
-  game; with a partial `encoding.2da` on another, to be checked. (S)
 
 ### Smaller, each S
 
@@ -2394,10 +2353,6 @@ of truth, and does each caller's difference matter.
   Aurora's order (a creature's classes and a door's generic appearance
   are by name in Aurora too; its portraits are in the table's order, as
   Select Portrait's grid: captured 2026-10-29).
-- The eight corners of a box five times (`model_view.rs:441`, `:459`,
-  `area_view.rs:3898`, `mg-preview compose.rs:546`, `mg-render
-  renderer.rs:1709`); lightcolor.2da's toolset colors twice
-  (`tile_select.rs:375`, `area_view.rs:5080`).
 - NWSync publishing on a thread of its own, without the jobs' cancel
   and panic handling (`nwsync_view.rs:113`).
 - `DialogSearch` keeps its own match options and rebuilds
@@ -2412,27 +2367,13 @@ of truth, and does each caller's difference matter.
   minutes in four places; `ui.label` where `field_label` is meant
   (`wizards.rs:67`, `:86`, `:106`, `faction_view.rs:263`,
   `store_wizard.rs:355`, `:358`, `widgets.rs:369`, `:604`).
-- A value as a whole number or text, three times each (`search.rs:415`,
-  `gff_view.rs:41`, `new.rs:178` without the 64-bit types;
-  `areas.rs:249`, `query.rs:84`, `search.rs:396`); a 2DA row's name
-  through the talk table (`rows.rs:146` filters `****` labels,
-  `choice_list` doesn't) and some ten `game.string(StrRef(..))` by hand.
 - `rename`'s `usages`, `tag_usages` and `mentions` restate what
   `UsageIndex` answers. (`#include`, read three ways, is read one way
   since 2026-10-28: `mg_script::lex::includes`, which knows comments.)
-- In mg-mdl: `compile.rs:93` `tangents` has no caller (a different
-  normalize from `engine_tangents`); `sub`, `dot` and `cross` three
-  times; `PartNumbers::read` (`binary_write.rs:296`) walks nodes beside
-  `Bin`. PLT coloring twice (`mg-render assets.rs:119`,
-  `images.rs:221`).
 - The grass mutations (`mg_module::grass` and `mg_area::grass`) agree
   now but are still two (the edits wanted by the area view against the
   module's mutations). (Making placeables static is one since
   2026-10-22: `areas::static_plan` and `static_fields`.)
-- The plugin's PNG reading differs from the NUI skin's (16-bit samples
-  cut against rounded, limits by pixels against bytes and sides:
-  `mg-plugin files.rs`, `nui_view/skin.rs:342`); the TGA's are one
-  since 2026-10-21.
 
 ## A project's rules (the builders' proposal, C1 to C5)
 

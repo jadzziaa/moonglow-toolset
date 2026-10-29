@@ -4,10 +4,10 @@
 //! PLT (coloured with the default palette rows).
 
 use mg_core::{ResRef, ResType};
+use mg_image::Texture;
 use mg_image::mtr::Mtr;
-use mg_image::plt::{PALETTES, Plt};
+use mg_image::plt::Plt;
 use mg_image::txi::Txi;
-use mg_image::{Rgba, Texture};
 use mg_resman::{LayerClass, ResKey, ResMan};
 
 /// A texture with its settings.
@@ -129,15 +129,11 @@ impl Assets for ResMan {
 
 /// A PLT coloured with a colour per layer.
 fn plt_colored(rm: &ResMan, plt: &Plt, colors: [u8; 10]) -> Option<Texture> {
-    let palettes: Vec<Option<Rgba>> = PALETTES
-        .iter()
-        .map(|p| {
-            let (t, data) = rm.texture(ResRef::from_str(p).ok()?)?;
-            mg_image::read(t, &data).ok().map(|t| t.to_rgba())
-        })
-        .collect();
-    let refs: [Option<&Rgba>; 10] = std::array::from_fn(|i| palettes[i].as_ref());
-    Some(plt.colorize(&refs, colors).into_texture(true))
+    let palette = |name: &str| {
+        let (t, data) = rm.texture(ResRef::from_str(name).ok()?)?;
+        mg_image::read(t, &data).ok().map(|t| t.to_rgba())
+    };
+    Some(plt.colorize_by(palette, colors).into_texture(true))
 }
 
 /// No textures (tests, untextured previews).

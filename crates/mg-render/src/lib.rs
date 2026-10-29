@@ -29,7 +29,7 @@ pub use game::ShaderStats;
 pub use game::{Captured, CapturedPipeline};
 pub use gpu::{Gpu, headless_adapter};
 pub use model::{GpuModel, rest_pose};
-pub use reach::Frustum;
+pub use reach::{Frustum, box_corners};
 pub use renderer::{
     DEPTH_FORMAT, Drawn, GAME_WATER, GameProgram, MAX_LIGHTS, Renderer, Targets,
     attenuation_params, tint_light,

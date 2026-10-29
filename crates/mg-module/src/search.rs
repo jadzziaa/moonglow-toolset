@@ -496,27 +496,13 @@ fn shown(v: &Value, cp: Codepage) -> String {
     out
 }
 
-fn integer(v: &Value) -> Option<i64> {
-    Some(match *v {
-        Value::Byte(x) => x.into(),
-        Value::Char(x) => x.into(),
-        Value::Word(x) => x.into(),
-        Value::Short(x) => x.into(),
-        Value::Dword(x) => x.into(),
-        Value::Int(x) => x.into(),
-        Value::Dword64(x) => i64::try_from(x).ok()?,
-        Value::Int64(x) => x,
-        _ => return None,
-    })
-}
-
 /// Whether a number field holds a number in a range: a float compared
 /// at its own precision (the ends made floats too).
 fn in_range(v: &Value, min: Option<f64>, max: Option<f64>) -> bool {
     let (n, single) = match *v {
         Value::Float(x) => (f64::from(x), true),
         Value::Double(x) => (x, false),
-        ref v => match integer(v) {
+        ref v => match v.as_integer() {
             Some(n) => (n as f64, false),
             None => return false,
         },
@@ -592,7 +578,7 @@ fn field_hit(
         }
         Search::Class(_) | Search::Feat(_) | Search::Spell(_) | Search::Appearance { .. } => {
             let want = search.table()?;
-            let n = integer(f.value)?;
+            let n = f.value.as_integer()?;
             if Some(n) != search.row() {
                 return None;
             }
@@ -620,7 +606,9 @@ fn field_hit(
             Some((f.path.to_string(), format!("{what}: {name}")))
         }
         Search::ClassLevel { class, min, max } => {
-            if f.list != Some("ClassList") || f.label != "Class" || integer(f.value) != Some(*class)
+            if f.list != Some("ClassList")
+                || f.label != "Class"
+                || f.value.as_integer() != Some(*class)
             {
                 return None;
             }
@@ -639,7 +627,7 @@ fn field_hit(
             let at = labels.len().saturating_sub(2);
             let table = list_table(file_type, &labels[..at], "SkillList")?;
             let (_, index) = item(f.path.rsplit('/').nth(1)?)?;
-            let rank = integer(f.value)?;
+            let rank = f.value.as_integer()?;
             let hit = index == *skill && rank >= i64::from((*min_rank).max(1));
             let name = row_name(game, &table, index as i64);
             hit.then(|| (owner(), format!("Skill: {name}, {rank} rank(s)")))
@@ -651,7 +639,7 @@ fn field_hit(
             }
             let hit = match value {
                 None => true,
-                Some(FieldValue::Number(n)) => integer(f.value) == Some(*n),
+                Some(FieldValue::Number(n)) => f.value.as_integer() == Some(*n),
                 Some(FieldValue::Text(t)) => texts(f.value, cp).iter().any(|s| contains(t, s)),
                 Some(FieldValue::Range { min, max }) => in_range(f.value, *min, *max),
             };

@@ -72,19 +72,14 @@ pub fn placeable(game: &GameData, utp: &Struct) -> Result<Preview, PreviewError>
 }
 
 /// A waypoint (UTW fields): the flag of its `Appearance`, waypoint.2da
-/// `RESREF` (blue, red, green, yellow).
+/// `RESREF` (blue, red, green, yellow), by [`mg_rules::appearance`] as
+/// Verify judges it.
 pub fn waypoint(game: &GameData, utw: &Struct) -> Result<Preview, PreviewError> {
-    let lk = Lookup { game };
-    let table = game.table("waypoint")?;
-    let row = utw.integer("Appearance").unwrap_or(0);
-    let model = usize::try_from(row)
-        .ok()
-        .and_then(|r| cell(&table, r, "RESREF"))
-        .map(str::to_ascii_lowercase)
-        .ok_or(PreviewError::NoRow { table: "waypoint", row })?;
-    if !lk.has_model(&model) {
-        return Err(PreviewError::NoModel(model));
+    if utw.get("Appearance").is_none() {
+        return Err(PreviewError::NoRow { table: "waypoint", row: 0 });
     }
+    let (_, model) = crate::appearance(game, mg_rules::ObjectKind::Waypoint, utw)?;
+    let model = model.ok_or_else(|| PreviewError::NoModel("waypoint".into()))?;
     Ok(Preview::model(&model))
 }
 

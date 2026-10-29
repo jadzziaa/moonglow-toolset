@@ -1861,7 +1861,9 @@ fn described_tables(d: &mut Doctor, module: &Module) {
 }
 
 /// The module's objects: 2DA rows they name that don't exist (a creature
-/// with a class that isn't there crashes Aurora and the game).
+/// with a class that isn't there crashes Aurora and the game). A
+/// waypoint's (its flag, which the toolset alone draws) is a warning
+/// wherever it is.
 fn objects(d: &mut Doctor, module: &Module) {
     let mut keys: Vec<ResKey> = module
         .keys()
@@ -1873,6 +1875,7 @@ fn objects(d: &mut Doctor, module: &Module) {
                     | ResType::UTI
                     | ResType::UTD
                     | ResType::UTM
+                    | ResType::UTW
                     | ResType::GIT
             )
         })
@@ -1888,10 +1891,14 @@ fn objects(d: &mut Doctor, module: &Module) {
         };
         walk_objects(d, &gff.root, kind, "", &mut found);
         // Placed, it breaks the area (Aurora's area view crashes on it); a
-        // blueprint breaks only when placed.
-        let severity =
-            if key.restype == ResType::GIT { Severity::Error } else { Severity::Warning };
+        // blueprint breaks only when placed, and a waypoint's flag nothing
+        // the game shows.
         for (path, message) in found {
+            let waypoint = path.starts_with("/WaypointList[") || key.restype == ResType::UTW;
+            let severity = match key.restype == ResType::GIT && !waypoint {
+                true => Severity::Error,
+                false => Severity::Warning,
+            };
             let place = crate::rename::describe(key, Some(&gff), &path);
             d.push(severity, Check::ObjectRow, "module", key, place, message);
         }
@@ -1902,18 +1909,15 @@ fn objects(d: &mut Doctor, module: &Module) {
 /// faction 0, the PC faction: the players' alone (Jasperre's report). The
 /// game puts a creature of it in Hostile as it loads; a placeable or door
 /// keeps it, and creatures regard it as they regard players
-/// (`engine_factions.rs`). Triggers are left out (the owner's decision):
-/// Aurora writes 0 for a trigger whose blueprint has no faction, so the
-/// warning would fall on ordinary triggers. A field the object lacks is
-/// not reported.
+/// (`engine_factions.rs`). An object with no faction field is of it too
+/// (the game reads none as 0), but for an encounter, whose reading was not
+/// measured. Triggers are left out (the owner's decision): Aurora writes
+/// 0 for a trigger whose blueprint has no faction, so the warning would
+/// fall on ordinary triggers. The rule is `mg_rules::objects::pc_faction`.
 fn pc_faction(d: &mut Doctor, module: &Module) {
     use mg_rules::ObjectKind;
-    let of_pc = |kind: ObjectKind, s: &Struct| -> Option<&'static str> {
-        if kind == ObjectKind::Trigger {
-            return None;
-        }
-        let field = kind.faction_field()?;
-        (s.integer(field) == Some(mg_rules::objects::PC_FACTION)).then_some(field)
+    let of_pc = |kind: ObjectKind, s: &Struct| {
+        mg_rules::objects::pc_faction(kind, s).map(|field| (field, s.get(field).is_none()))
     };
     let mut keys: Vec<ResKey> = module
         .keys()
@@ -1937,27 +1941,29 @@ fn pc_faction(d: &mut Doctor, module: &Module) {
                     continue;
                 };
                 for (i, s) in objects.iter().enumerate() {
-                    if let Some(field) = of_pc(kind, s) {
-                        found.push((kind, format!("/{label}[{i}]/{field}")));
+                    if let Some((field, none)) = of_pc(kind, s) {
+                        found.push((kind, format!("/{label}[{i}]/{field}"), none));
                     }
                 }
             }
         } else if let Some(kind) = ObjectKind::from_restype(key.restype)
-            && let Some(field) = of_pc(kind, &gff.root)
+            && let Some((field, none)) = of_pc(kind, &gff.root)
         {
-            found.push((kind, format!("/{field}")));
+            found.push((kind, format!("/{field}"), none));
         }
-        for (kind, path) in found {
+        for (kind, path, none) in found {
             let place = crate::rename::describe(key, Some(&gff), &path);
             let what = match kind {
                 ObjectKind::Creature => "the game puts a creature of it in Hostile",
                 ObjectKind::Encounter => "an encounter's own faction",
                 _ => "creatures regard it as they regard players",
             };
-            let message = format!(
-                "of the PC faction (0), which is the players' alone ({what}): give it another \
-                 faction"
-            );
+            let of = match none {
+                true => "has no faction, which the game reads as the PC faction (0)",
+                false => "of the PC faction (0)",
+            };
+            let message =
+                format!("{of}, which is the players' alone ({what}): give it another faction");
             d.push(Severity::Warning, Check::PcFaction, "module", key, place, message);
         }
     }
@@ -2258,7 +2264,13 @@ fn walk_objects(
     let object = kind.and_then(mg_rules::ObjectKind::from_restype);
     if let Some(at) = object.and_then(|k| mg_rules::appearance::AppearanceRow::of(k, s)) {
         let rm = d.rm;
-        if let Err(e) = at.model(d.table(at.table), rm) {
+        let table = d.table(at.table);
+        // (A waypoint's flag is the toolset's alone: judged only where
+        // there is a waypoint.2da to judge it by, a game.)
+        let unjudged = object == Some(mg_rules::ObjectKind::Waypoint) && table.is_none();
+        if let Err(e) = at.model(table, rm)
+            && !unjudged
+        {
             out.push((format!("{path}/{}", at.field), e.to_string()));
         }
     }
@@ -3425,10 +3437,12 @@ endmodelgeom fx\ndonemodel fx\n";
         let mut m = Module::new();
         let mut utp = Gff::new(*b"UTP ");
         utp.root.set("Appearance", Value::Dword(9));
+        utp.root.set("Faction", Value::Dword(1));
         m.set_gff(key("box", ResType::UTP), &utp).unwrap();
         let mut git = Gff::new(*b"GIT ");
         let mut p = Struct::new(9);
         p.set("Appearance", Value::Dword(0));
+        p.set("Faction", Value::Dword(1));
         p.set("Tag", Value::String(b"CHAIR".to_vec()));
         git.root.set("Placeable List", Value::List(vec![p]));
         m.set_gff(key("area", ResType::GIT), &git).unwrap();
@@ -3439,9 +3453,42 @@ endmodelgeom fx\ndonemodel fx\n";
         );
     }
 
-    /// An object of the PC faction is warned of, blueprint or placed; one
-    /// of another faction, with no faction field, or a trigger (Aurora
-    /// writes 0 for one whose blueprint has none), is not.
+    /// A waypoint's flag is a waypoint.2da row with a model, as the
+    /// previews have it: one that isn't is warned of, a blueprint's or a
+    /// placed one's (the game draws no waypoint: only the toolset's flag
+    /// is missing); one without the field is not (BioWare's blueprints).
+    #[test]
+    fn a_waypoint_s_flag_is_a_row_with_a_model() {
+        let table =
+            b"2DA V2.0\n\n   LABEL RESREF STRREF\n0 **** **** ****\n1 blue gi_waypoint01 5\n";
+        let rm =
+            resman(&[("waypoint", ResType::TWODA, table), ("gi_waypoint01", ResType::MDL, b"x")]);
+        let mut m = Module::new();
+        let mut utw = Gff::new(*b"UTW ");
+        utw.root.set("Appearance", Value::Byte(1));
+        m.set_gff(key("post", ResType::UTW), &utw).unwrap();
+        m.set_gff(key("bare", ResType::UTW), &Gff::new(*b"UTW ")).unwrap();
+        let mut git = Gff::new(*b"GIT ");
+        let placed = |row: u8, tag: &str| {
+            let mut s = Struct::new(5);
+            s.set("Appearance", Value::Byte(row));
+            s.set("Tag", Value::String(tag.as_bytes().to_vec()));
+            s
+        };
+        git.root.set("WaypointList", Value::List(vec![placed(1, "WP_OK"), placed(7, "WP_BAD")]));
+        m.set_gff(key("area", ResType::GIT), &git).unwrap();
+        let f = examine(&m, &rm, TalkTables::default());
+        let rows: Vec<_> = f.iter().filter(|f| f.check == "object-row").collect();
+        let at: Vec<&str> = rows.iter().map(|f| f.at.as_str()).collect();
+        assert_eq!(at, ["area › waypoint WP_BAD › Appearance"], "{rows:?}");
+        assert!(rows.iter().all(|f| f.severity == Severity::Warning), "{rows:?}");
+        assert!(rows[0].message.contains("waypoint.2da has no row 7"), "{rows:?}");
+    }
+
+    /// An object of the PC faction is warned of, blueprint or placed, and
+    /// one with no faction field (which the game reads as 0); one of
+    /// another faction, or a trigger (Aurora writes 0 for one whose
+    /// blueprint has none), is not.
     #[test]
     fn objects_of_the_pc_faction_are_warned_of() {
         let mut m = Module::new();
@@ -3462,17 +3509,28 @@ endmodelgeom fx\ndonemodel fx\n";
             .set("Placeable List", Value::List(vec![placed("Faction", Value::Dword(0), "BOX")]));
         git.root.set(
             "Door List",
-            Value::List(vec![placed("Faction", Value::Dword(2), "DOOR"), Struct::new(8)]),
+            Value::List(vec![
+                placed("Faction", Value::Dword(2), "DOOR"),
+                placed("Unused", Value::Dword(0), "GATE"),
+            ]),
         );
         git.root.set("TriggerList", Value::List(vec![placed("Faction", Value::Dword(0), "TRAP")]));
         m.set_gff(key("area", ResType::GIT), &git).unwrap();
         let f = examine(&m, &resman(&[]), TalkTables::default());
         let found: Vec<_> = f.iter().filter(|f| f.check == "pc-faction").collect();
         let at: Vec<&str> = found.iter().map(|f| f.at.as_str()).collect();
-        assert_eq!(at, ["area › placeable BOX › Faction", "guard.utc › FactionID"]);
+        assert_eq!(
+            at,
+            [
+                "area › placeable BOX › Faction",
+                "area › door GATE › Faction",
+                "guard.utc › FactionID"
+            ]
+        );
         assert!(found.iter().all(|f| f.severity == Severity::Warning));
         assert!(found[0].message.contains("regard players"), "{found:?}");
-        assert!(found[1].message.contains("puts a creature of it in Hostile"), "{found:?}");
+        assert!(found[1].message.starts_with("has no faction"), "{found:?}");
+        assert!(found[2].message.contains("puts a creature of it in Hostile"), "{found:?}");
         assert_eq!(Check::PcFaction.group(), Group::Objects);
     }
 

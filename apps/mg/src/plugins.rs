@@ -759,9 +759,7 @@ pub(crate) fn run(
     let game = game_for(gi, &m, &mut notes);
     // (The edits are shown in the module's own letters, as the plugin
     // wrote them.)
-    let codepage = game.as_ref().map_or(mg_core::Codepage::WINDOWS_1252, |game| {
-        game.codepage().for_language(mg_core::Language::ENGLISH)
-    });
+    let codepage = game.as_ref().map_or(mg_core::Codepage::WINDOWS_1252, |g| g.text_codepage());
     let host = Rc::new(host);
     // What it is run on is the module's (a blueprint may be the game's).
     let named = what.selection.selected.iter().chain(&what.selection.open);

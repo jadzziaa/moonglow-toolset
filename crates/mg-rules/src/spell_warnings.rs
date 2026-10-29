@@ -159,13 +159,12 @@ impl GameData {
             self.string(StrRef(strref)).unwrap_or_else(|| english.to_string())
         };
         let class_name = |class: u32| {
-            let classes = self.table("classes").ok();
-            classes
-                .as_ref()
-                .and_then(|t| t.get_int(class as usize, "Name"))
-                .and_then(|s| self.string(StrRef(s as u32)))
-                .or_else(|| classes.as_ref()?.get(class as usize, "Label").map(str::to_string))
-                .unwrap_or_else(|| format!("({class})"))
+            let classes = crate::rows::RowTable {
+                table: "classes",
+                name: Some("Name"),
+                label: Some("Label"),
+            };
+            self.row_name(&classes, i64::from(class)).unwrap_or_else(|| format!("({class})"))
         };
         match *warning {
             SpellWarning::TooHigh { class } => fill(&text(TOO_HIGH), &[class_name(class)]),

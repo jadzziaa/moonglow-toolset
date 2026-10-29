@@ -170,21 +170,34 @@ fn the_language_server_answers() {
 /// builders keep their scripts), from a server started with `args` and
 /// the user directory `user`: its comment as the server read it.
 fn polish_hover(name: &str, user: Option<&std::path::Path>, args: &[&str]) -> String {
-    let dir = mg_testkit::scratch_dir(name);
-    let src = dir.join("src");
-    std::fs::create_dir_all(&src).unwrap();
-    let inc = src.join("inc_pl.nss");
-    let main = src.join("main_pl.nss");
-    let comment = "// Zażółć gęślą jaźń. Źródło.\nint Twice(int n) { return n * 2; }\n";
+    let comment = "// Zażółć gęślą jaźń. Źródło.\n";
     let bytes = mg_core::Codepage::WINDOWS_1250.encode(comment).unwrap().into_owned();
-    std::fs::write(&inc, bytes).unwrap();
-    let text = "#include \"inc_pl\"\nvoid main()\n{\n    int x = Twice(2);\n}\n";
-    std::fs::write(&main, text).unwrap();
     let mut command = crate::mg();
     match user {
         Some(u) => command.args(["--user-dir", u.to_str().unwrap()]),
         None => command.arg("--no-user-dir"),
     };
+    hover_of(name, &bytes, command, args)
+}
+
+/// Hover over a function of an include whose comment is `comment` (its
+/// bytes), from `command lsp args`: the comment as the server read it.
+fn hover_of(
+    name: &str,
+    comment: &[u8],
+    mut command: std::process::Command,
+    args: &[&str],
+) -> String {
+    let dir = mg_testkit::scratch_dir(name);
+    let src = dir.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    let inc = src.join("inc_pl.nss");
+    let main = src.join("main_pl.nss");
+    let mut bytes = comment.to_vec();
+    bytes.extend_from_slice(b"int Twice(int n) { return n * 2; }\n");
+    std::fs::write(&inc, bytes).unwrap();
+    let text = "#include \"inc_pl\"\nvoid main()\n{\n    int x = Twice(2);\n}\n";
+    std::fs::write(&main, text).unwrap();
     let mut child = command
         .arg("lsp")
         .args(args)
@@ -224,4 +237,41 @@ fn the_language_server_reads_scripts_in_the_game_s_codepage() {
     assert!(named.contains(polish), "{named}");
     let western = polish_hover("mg-lsp-pl-western", None, &[]);
     assert!(!western.contains(polish) && western.contains("Twice"), "{western}");
+}
+
+/// Given the module the scripts are of, the language server reads them
+/// in the table of its `encoding.2da` (in its hak): byte 0xF0 is "ğ" there.
+#[test]
+fn the_language_server_reads_scripts_by_a_module_s_table() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("mg-lsp-table");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let mut rows = String::from("2DA V2.0\n\n  Codepoint\n");
+    for row in 0..240 {
+        rows.push_str(&format!("{row} ****\n"));
+    }
+    rows.push_str("240 0x11f\n");
+    let mut hak = mg_erf::ErfWriter::new(*b"HAK ");
+    let table = mg_resman::ResKey::from_filename("encoding.2da").unwrap();
+    hak.add(table.resref, table.restype, rows.into_bytes()).unwrap();
+    std::fs::write(user.join("hak/mg_turkish.hak"), hak.to_bytes().unwrap()).unwrap();
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    let mut listed = mg_gff::Struct::new(8);
+    listed.set("Mod_Hak", mg_gff::Value::String(b"mg_turkish".to_vec()));
+    info.root.set("Mod_HakList", mg_gff::Value::List(vec![listed]));
+    m.set_info(&info).unwrap();
+    let path = dir.join("turkish.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let comment = b"// Da\xf0 Evi.\n";
+    let by_table = hover_of(
+        "mg-lsp-table-module",
+        comment,
+        crate::mg_on(&root, Some(&user)),
+        &["--module", path.to_str().unwrap()],
+    );
+    assert!(by_table.contains("Dağ Evi"), "{by_table}");
+    let without = hover_of("mg-lsp-table-none", comment, crate::mg_on(&root, Some(&user)), &[]);
+    assert!(without.contains("Dað Evi"), "{without}");
 }

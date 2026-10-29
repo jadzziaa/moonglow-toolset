@@ -382,17 +382,7 @@ fn shown(v: &Value, codepage: Codepage) -> String {
     match v {
         Value::String(b) => codepage.decode(b).into_owned(),
         Value::ResRef(b) => String::from_utf8_lossy(b).into_owned(),
-        Value::Byte(i) => i.to_string(),
-        Value::Char(i) => i.to_string(),
-        Value::Word(i) => i.to_string(),
-        Value::Short(i) => i.to_string(),
-        Value::Dword(i) => i.to_string(),
-        Value::Int(i) => i.to_string(),
-        Value::Dword64(i) => i.to_string(),
-        Value::Int64(i) => i.to_string(),
-        Value::Float(f) => f.to_string(),
-        Value::Double(f) => f.to_string(),
-        other => format!("{other:?}"),
+        other => other.number_text().unwrap_or_else(|| format!("{other:?}")),
     }
 }
 

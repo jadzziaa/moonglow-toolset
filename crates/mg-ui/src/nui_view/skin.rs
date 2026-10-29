@@ -463,47 +463,18 @@ fn read_tga(bytes: &[u8]) -> Result<egui::ColorImage, String> {
     ))
 }
 
-/// A PNG of any color type and depth as RGBA8: 16-bit samples rounded to
-/// the nearest 8-bit one.
+/// A PNG of any color type and depth as RGBA8 (`mg_image::png`, as a
+/// plugin's `mg.image` reads one), no more than [`MAX_SIDE`] a side.
 fn read_png(bytes: &[u8]) -> Result<egui::ColorImage, String> {
-    let limits = png::Limits { bytes: 128 * 1024 * 1024 };
-    let mut decoder = png::Decoder::new_with_limits(std::io::Cursor::new(bytes), limits);
-    decoder.set_transformations(png::Transformations::EXPAND);
-    let mut reader = decoder.read_info().map_err(|e| e.to_string())?;
-    let (width, height) = (reader.info().width, reader.info().height);
-    if width > MAX_SIDE || height > MAX_SIDE {
+    let most = u64::from(MAX_SIDE) * u64::from(MAX_SIDE);
+    let rgba = mg_image::png::read_picture(bytes, most).map_err(|e| e.to_string())?;
+    if rgba.width > MAX_SIDE || rgba.height > MAX_SIDE {
         return Err(format!("image exceeds {MAX_SIDE} pixels a side"));
     }
-    let size = reader.output_buffer_size().ok_or("image is too large")?;
-    let mut buffer = vec![0; size];
-    let info = reader.next_frame(&mut buffer).map_err(|e| e.to_string())?;
-    let data = buffer.get(..info.buffer_size()).ok_or("image is cut short")?;
-    // The samples of a pixel, each as 8 bits.
-    let samples: Vec<u8> = match info.bit_depth {
-        png::BitDepth::Sixteen => data
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|s| ((u32::from(u16::from_be_bytes(*s)) + 128) / 257) as u8)
-            .collect(),
-        _ => data.to_vec(),
-    };
-    let rgba: Vec<u8> = match info.color_type {
-        png::ColorType::Grayscale => samples.iter().flat_map(|&g| [g, g, g, 255]).collect(),
-        png::ColorType::GrayscaleAlpha => {
-            samples.as_chunks::<2>().0.iter().flat_map(|p| [p[0], p[0], p[0], p[1]]).collect()
-        }
-        png::ColorType::Rgb => {
-            samples.as_chunks::<3>().0.iter().flat_map(|p| [p[0], p[1], p[2], 255]).collect()
-        }
-        png::ColorType::Rgba => samples,
-        png::ColorType::Indexed => return Err("the image's palette was not unpacked".into()),
-    };
-    let size = [width as usize, height as usize];
-    if rgba.len() != size[0] * size[1] * 4 {
-        return Err("image is cut short".into());
-    }
-    Ok(egui::ColorImage::from_rgba_unmultiplied(size, &rgba))
+    Ok(egui::ColorImage::from_rgba_unmultiplied(
+        [rgba.width as usize, rgba.height as usize],
+        &rgba.data,
+    ))
 }
 
 /// A JPEG or BMP.

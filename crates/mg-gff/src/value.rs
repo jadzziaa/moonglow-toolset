@@ -282,6 +282,34 @@ impl Value {
         }
     }
 
+    /// The value of a whole number of any width (BYTE, CHAR, WORD, SHORT,
+    /// DWORD, INT, DWORD64, INT64; a DWORD64 past `i64::MAX` is none);
+    /// `None` for any other type.
+    pub fn as_integer(&self) -> Option<i64> {
+        match *self {
+            Value::Byte(v) => Some(i64::from(v)),
+            Value::Char(v) => Some(i64::from(v)),
+            Value::Word(v) => Some(i64::from(v)),
+            Value::Short(v) => Some(i64::from(v)),
+            Value::Dword(v) => Some(i64::from(v)),
+            Value::Int(v) => Some(i64::from(v)),
+            Value::Dword64(v) => i64::try_from(v).ok(),
+            Value::Int64(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    /// A number, whole or not, written as Rust writes it (`42`, `-1`,
+    /// `0.5`; a DWORD64 whole); `None` for a value that is no number.
+    pub fn number_text(&self) -> Option<String> {
+        Some(match self {
+            Value::Dword64(v) => v.to_string(),
+            Value::Float(v) => v.to_string(),
+            Value::Double(v) => v.to_string(),
+            v => v.as_integer()?.to_string(),
+        })
+    }
+
     /// A resref value from a validated [`ResRef`].
     pub fn resref(r: ResRef) -> Value {
         Value::ResRef(r.as_bytes().to_vec())
@@ -429,17 +457,7 @@ impl Struct {
     /// DWORD, INT, DWORD64, INT64), for fields whose type differs between
     /// game versions.
     pub fn integer(&self, label: &str) -> Option<i64> {
-        match self.get(label)? {
-            Value::Byte(v) => Some(i64::from(*v)),
-            Value::Char(v) => Some(i64::from(*v)),
-            Value::Word(v) => Some(i64::from(*v)),
-            Value::Short(v) => Some(i64::from(*v)),
-            Value::Dword(v) => Some(i64::from(*v)),
-            Value::Int(v) => Some(i64::from(*v)),
-            Value::Dword64(v) => i64::try_from(*v).ok(),
-            Value::Int64(v) => Some(*v),
-            _ => None,
-        }
+        self.get(label)?.as_integer()
     }
 
     /// Every field of the struct and of the structs under it, each with
@@ -563,6 +581,32 @@ mod tests {
     fn floats_compare_by_bits() {
         assert_eq!(Value::Float(f32::NAN), Value::Float(f32::NAN));
         assert_ne!(Value::Float(0.0), Value::Float(-0.0));
+    }
+
+    #[test]
+    fn whole_numbers_of_every_width_and_numbers_as_text() {
+        let whole = [
+            (Value::Byte(200), 200),
+            (Value::Char(-5), -5),
+            (Value::Word(60000), 60000),
+            (Value::Short(-300), -300),
+            (Value::Dword(4_000_000_000), 4_000_000_000),
+            (Value::Int(-7), -7),
+            (Value::Dword64(1 << 40), 1 << 40),
+            (Value::Int64(-(1 << 50)), -(1 << 50)),
+        ];
+        for (v, n) in whole {
+            assert_eq!(v.as_integer(), Some(n), "{v:?}");
+            assert_eq!(v.number_text(), Some(n.to_string()), "{v:?}");
+        }
+        // Past what an i64 holds: no whole number, the text still.
+        assert_eq!(Value::Dword64(u64::MAX).as_integer(), None);
+        assert_eq!(Value::Dword64(u64::MAX).number_text(), Some(u64::MAX.to_string()));
+        assert_eq!(Value::Float(0.5).as_integer(), None);
+        assert_eq!(Value::Float(0.5).number_text().as_deref(), Some("0.5"));
+        assert_eq!(Value::Double(-2.25).number_text().as_deref(), Some("-2.25"));
+        assert_eq!(Value::String(b"7".to_vec()).as_integer(), None);
+        assert_eq!(Value::String(b"7".to_vec()).number_text(), None);
     }
 
     #[test]

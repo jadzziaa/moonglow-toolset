@@ -546,18 +546,35 @@ impl<'a> Bin<'a> {
     }
 }
 
-/// Reads a compiled model.
-pub fn read(data: &[u8]) -> Result<Model, MdlError> {
+/// The reader of a compiled model's bytes; `None` for anything else.
+fn bin(data: &[u8]) -> Option<Bin<'_>> {
     if !crate::is_binary(data) {
-        return Err(err("not a compiled model"));
+        return None;
     }
     let raw_offset = u32::from_le_bytes([data[4], data[5], data[6], data[7]]) as usize;
-    let b = Bin {
+    Some(Bin {
         data,
         m: 12,
         r: 12usize.saturating_add(raw_offset),
         budget: Cell::new(CopyBudget::for_input(data.len())),
-    };
+    })
+}
+
+/// The part number each node of a compiled model holds, its nodes in the
+/// order [`read`] gives them (pre-order), and the model's node count:
+/// [`PartNumbers::read`](crate::binary_write::PartNumbers::read).
+/// `None` for anything else, or a node tree that can't be walked.
+pub(crate) fn part_numbers(data: &[u8]) -> Option<(Vec<i32>, u32)> {
+    let b = bin(data)?;
+    let root = b.u32(0x48).ok()? as usize;
+    let nodes = b.walk(root).ok()?;
+    let numbers = nodes.iter().map(|&(off, _)| b.u32(off + 0x1C).map(|n| n as i32));
+    Some((numbers.collect::<Result<_, _>>().ok()?, b.u32(0x4C).ok()?))
+}
+
+/// Reads a compiled model.
+pub fn read(data: &[u8]) -> Result<Model, MdlError> {
+    let b = bin(data).ok_or_else(|| err("not a compiled model"))?;
     let supermodel = b.resname(0xA8, 64)?;
     let mut model = Model {
         name: b.name(0x08, 64)?,

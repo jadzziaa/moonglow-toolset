@@ -156,3 +156,47 @@ fn apply_takes_all_of_a_file_or_none() {
     assert!(failed["error"].as_str().unwrap().contains("edits[0]: no \"field\""), "{failed}");
     let _ = before;
 }
+
+/// Setting an object's faction to 0, the PC faction, or taking its faction
+/// field away (which the game reads as 0) is done, and warned of as Verify
+/// warns of it after; another faction is not; nor a trigger's 0.
+#[test]
+fn set_warns_of_the_pc_faction() {
+    let dir = mg_testkit::scratch_dir("mg-set-pc-faction");
+    let path = module(&dir);
+    let m = path.to_str().unwrap();
+    let notes = |out: &Json| -> Vec<String> {
+        let notes = out["notes"].as_array().cloned().unwrap_or_default();
+        let notes = notes.iter().filter_map(|n| n.as_str().map(str::to_string));
+        notes.filter(|n| n.starts_with("warning:")).collect()
+    };
+    let (ok, out) = mg(&["set", m, "guard.utc", "FactionID=2"]);
+    assert!(ok, "{out}");
+    assert!(notes(&out).is_empty(), "{out}");
+    let (ok, out) = mg(&["set", m, "guard.utc", "FactionID=0"]);
+    assert!(ok, "{out}");
+    assert_eq!(guard(&path).get("FactionID"), Some(&Value::Word(0)));
+    let said = notes(&out);
+    assert_eq!(said.len(), 1, "{out}");
+    assert!(said[0].contains("guard.utc /FactionID: puts it in the PC faction (0)"), "{said:?}");
+    assert!(said[0].contains("pc-faction"), "{said:?}");
+    let (ok, out) = mg(&["set", m, "guard.utc", "--remove", "FactionID"]);
+    assert!(ok, "{out}");
+    assert!(notes(&out)[0].contains("leaves it no faction"), "{out}");
+    // A placed trigger of faction 0 is the owner's decision: not warned of.
+    let mut module = Module::open(&path).unwrap();
+    let mut area = Gff::new(*b"GIT ");
+    let mut trigger = Struct::new(1);
+    trigger.set("Faction", Value::Dword(2));
+    let mut door = Struct::new(8);
+    door.set("Faction", Value::Dword(2));
+    area.root.set("TriggerList", Value::List(vec![trigger]));
+    area.root.set("Door List", Value::List(vec![door]));
+    module.set_gff(key("area.git"), &area).unwrap();
+    module.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let (ok, out) = mg(&["set", m, "area.git", "/TriggerList[0]/Faction=0"]);
+    assert!(ok && notes(&out).is_empty(), "{out}");
+    let (ok, out) = mg(&["set", m, "area.git", "/Door List[0]/Faction=0"]);
+    assert!(ok, "{out}");
+    assert!(notes(&out)[0].contains("area.git /Door List[0]/Faction"), "{out}");
+}

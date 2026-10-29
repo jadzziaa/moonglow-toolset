@@ -58,6 +58,8 @@ pub(crate) fn set(
     let mut edits = Vec::new();
     // Each field as it was and as it will be, for people.
     let mut lines = Vec::new();
+    // What Verify would warn of after, said as it is set.
+    let mut warnings = Vec::new();
     let shown = |v: &Value| match mg_gff::value_to_json(v, codepage) {
         Ok(json) => json.get("value").or(json.get("value64")).cloned().unwrap_or_default(),
         Err(_) => serde_json::Value::Null,
@@ -96,15 +98,15 @@ pub(crate) fn set(
             Some(old) => format!("{key} {place}: {} -> {}", shown(old), shown(&value)),
             None => format!("{key} {place}: {} (new, {})", shown(&value), ty.json_name()),
         });
+        warnings.extend(pc_faction(key, &path, at, &label, Some(&value)));
         edits.push(Edit::SetField { key, path, label, value: Some(value) });
     }
     for field in remove {
         let (path, label) = field_from_str(field).map_err(|e| anyhow!("{field:?}: {e}"))?;
-        let has = path.get(&root).is_some_and(|s| s.get(&label).is_some());
-        if !has {
-            bail!("{key} has no field {field}");
-        }
+        let at = path.get(&root).filter(|s| s.get(&label).is_some());
+        let Some(at) = at else { bail!("{key} has no field {field}") };
         lines.push(format!("{key} {}: removed", mg_edit::wire::field_to_string(&path, &label)));
+        warnings.extend(pc_faction(key, &path, at, &label, None));
         edits.push(Edit::SetField { key, path, label, value: None });
     }
     if edits.is_empty() {
@@ -115,7 +117,52 @@ pub(crate) fn set(
         [Edit::SetField { label, .. }] => format!("Remove {label}"),
         _ => format!("Set {} fields of {key}", edits.len()),
     };
-    run(ws, Command::new(label, edits), dry_run, Some(lines), true, codepage, guard)
+    let mut out = run(ws, Command::new(label, edits), dry_run, Some(lines), true, codepage, guard)?;
+    for w in warnings {
+        out.note(w);
+    }
+    Ok(out)
+}
+
+/// A warning that a field set (`value`; `None`: removed) puts an object in
+/// the PC faction, as Verify's `pc-faction` warns of it after
+/// ([`mg_rules::objects::pc_faction`]): the object a blueprint is, or one
+/// an area's GIT places.
+fn pc_faction(
+    key: ResKey,
+    path: &mg_edit::GffPath,
+    object: &mg_gff::Struct,
+    label: &str,
+    value: Option<&Value>,
+) -> Option<String> {
+    use mg_rules::ObjectKind;
+    let kind = match path.0.as_slice() {
+        [] => ObjectKind::from_restype(key.restype)?,
+        [mg_edit::Step::Item(list, _)] if key.restype == mg_core::ResType::GIT => {
+            ObjectKind::from_list(list)?
+        }
+        _ => return None,
+    };
+    if kind.faction_field() != Some(label) {
+        return None;
+    }
+    let mut after = object.clone();
+    match value {
+        Some(v) => after.set(label, v.clone()),
+        None => {
+            after.remove(label);
+        }
+    }
+    mg_rules::objects::pc_faction(kind, &after)?;
+    let place = mg_edit::wire::field_to_string(path, label);
+    let what = match value {
+        Some(_) => "puts it in the PC faction (0)",
+        None => "leaves it no faction, which the game reads as the PC faction (0)",
+    };
+    Some(format!(
+        "warning: {key} {place}: {what}, which is the players' alone; Verify warns of it \
+         (pc-faction)"
+    ))
 }
 
 /// Applies a command (all of it or none) and saves, or with `dry_run`
