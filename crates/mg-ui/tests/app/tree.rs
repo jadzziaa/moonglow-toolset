@@ -176,7 +176,7 @@ fn the_module_tree_by_the_keyboard() {
     h.state_mut().rename = None;
     h.run();
     key(&mut h, egui::Key::Delete);
-    assert_eq!(h.state().confirm_delete, Some(start));
+    assert_eq!(h.state().confirm_delete, Some(vec![start]));
     h.state_mut().confirm_delete = None;
     h.run();
     // Ctrl+F goes to the Filter, and Down from it into the rows.
@@ -305,6 +305,100 @@ fn an_area_is_deleted_from_the_module_tree() {
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run_steps(2);
     assert_eq!(listed(&mut h), (true, 1), "one undo");
+}
+
+/// The Delete window says what in the module names what it deletes, left
+/// as it is: a creature's script, a string in another script, another
+/// area's door leading into an area; what goes with them is not said.
+/// Those chosen in the tree are deleted together, as one step, but the
+/// start area.
+#[test]
+fn deleting_says_what_names_it_and_takes_those_chosen_together() {
+    let dir = mg_testkit::scratch_dir("ui-delete-named");
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    let key = |name: &str, t| ResKey::parse(name, t).unwrap();
+    let mut info = m.gff(&key("module", ResType::IFO)).unwrap().unwrap();
+    let mut listed = mg_schema::ifo::MOD_AREA_LIST.new_item();
+    listed.write(&mg_schema::ifo::mod_area_list::AREA_NAME, ResRef::from_str("yard").unwrap());
+    info.root.items_mut(&mg_schema::ifo::MOD_AREA_LIST).push(listed);
+    info.root.write(&mg_schema::ifo::MOD_ENTRY_AREA, ResRef::from_str("start").unwrap());
+    m.set_info(&info).unwrap();
+    // start: a creature that spawns with `hello`, and a door to the
+    // yard's gate.
+    let mut git = Gff::new(*b"GIT ");
+    let mut c = mg_schema::git::CREATURE_LIST.new_item();
+    c.write(&mg_schema::git::creature_list::SCRIPT_SPAWN, ResRef::from_str("hello").unwrap());
+    c.set("Tag", mg_gff::Value::String(b"GREETER".to_vec()));
+    git.root.items_mut(&mg_schema::git::CREATURE_LIST).push(c);
+    let mut door = mg_gff::Struct::new(8);
+    door.set("Tag", mg_gff::Value::String(b"TO_YARD".to_vec()));
+    door.set("LinkedTo", mg_gff::Value::String(b"YARD_GATE".to_vec()));
+    git.root.set("Door List", mg_gff::Value::List(vec![door]));
+    m.set_gff(key("start", ResType::GIT), &git).unwrap();
+    // yard: its gate, and a waypoint its own door leads to.
+    m.set(key("yard", ResType::ARE), Gff::new(*b"ARE ").to_bytes().unwrap());
+    let mut yard = Gff::new(*b"GIT ");
+    let mut gate = mg_gff::Struct::new(8);
+    gate.set("Tag", mg_gff::Value::String(b"YARD_GATE".to_vec()));
+    gate.set("LinkedTo", mg_gff::Value::String(b"YARD_SPOT".to_vec()));
+    yard.root.set("Door List", mg_gff::Value::List(vec![gate]));
+    let mut spot = mg_gff::Struct::new(5);
+    spot.set("Tag", mg_gff::Value::String(b"YARD_SPOT".to_vec()));
+    yard.root.set("WaypointList", mg_gff::Value::List(vec![spot]));
+    m.set_gff(key("yard", ResType::GIT), &yard).unwrap();
+    let caller = key("caller", ResType::NSS);
+    m.set(caller, b"void main() {\n  ExecuteScript(\"hello\", OBJECT_SELF);\n}\n".to_vec());
+    m.set(key("hello", ResType::NCS), b"NCS V1.0".to_vec());
+    m.save().unwrap();
+
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = harness(app, 1280.0, 800.0);
+    h.run();
+    let hello = key("hello", ResType::NSS);
+    h.state_mut().actions.push(mg_ui::Action::DeleteDialog(hello));
+    h.run_steps(3);
+    h.get_by_label("Delete hello.nss and its compiled script?");
+    h.get_by_label("1 place in the module names it, left as they are:");
+    h.get_by_label("  start › creature GREETER › OnSpawn");
+    h.get_by_label("Spelled out in scripts (1), which may mean it:");
+    h.get_by_label_contains("caller.nss line 2: ExecuteScript(\"hello\", OBJECT_SELF);");
+    // Find References from it: the window gives way to the tab.
+    h.get_by_label("Find References").click();
+    h.run_steps(2);
+    assert_eq!(h.state().confirm_delete, None);
+    assert!(h.state().dock.find_tab(&Tab::References).is_some());
+    // The yard: the door into it from the start, not its own door to
+    // its own waypoint, nor its entry in the module's area list.
+    let yard_are = key("yard", ResType::ARE);
+    h.state_mut().actions.push(mg_ui::Action::DeleteDialog(yard_are));
+    h.run_steps(3);
+    h.get_by_label("Delete the area yard and everything placed in it?");
+    h.get_by_label("1 place in the module names it, left as they are:");
+    h.get_by_label("  start › door TO_YARD › LinkedTo");
+    h.get_by_label("Cancel").click();
+    h.run_steps(2);
+    // Several chosen: the start area stays; what names the script from
+    // the caller, deleted with it, is not said.
+    let chosen = vec![key("start", ResType::ARE), hello, caller];
+    h.state_mut().actions.push(mg_ui::Action::DeleteChosenDialog(chosen));
+    h.run_steps(3);
+    h.get_by_label_contains("Delete these 2 resources");
+    h.get_by_label("Not deleted: start.are: the module's start location is in it.");
+    h.get_by_label("  start › creature GREETER › OnSpawn");
+    // (The References tab, opened above, says its own.)
+    assert!(h.query_by_label_contains("which may mean").is_none());
+    h.get_by_label("Delete").click();
+    h.run_steps(3);
+    let module = |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().module.clone();
+    let gone = [hello, key("hello", ResType::NCS), caller];
+    assert!(gone.iter().all(|k| !module(&h).contains(k)), "{:?}", h.state().log.entries);
+    assert!(module(&h).contains(&key("start", ResType::ARE)));
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Delete 2 resources"));
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(2);
+    assert!(gone.iter().all(|k| module(&h).contains(k)), "one undo brings them back");
 }
 
 /// An area opens out, in the module tree, to what is placed in it, kind

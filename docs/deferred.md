@@ -240,13 +240,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 - **Other machines:** budgets were measured only on the development
   machine (Ryzen 7 5800X3D, Radeon RX 9070). (S, needs other hardware)
-- **Where-used at scale:** the References window and Rename keep the
-  module's references between questions (`rename::UsageIndex`): the
-  first Find References in the persistent world reads the module, on
-  every core (0.2 s; 1.4 s on one), the next ones only the resources
-  changed since (7 ms). Tags and the strings in scripts are answered from it too.
-  Not done: the first read is on the window's thread; `mg refs` reads the module each time, as a
-  command run once must. (S each)
 
 ## Frames (a steady 144 a second)
 
@@ -1597,13 +1590,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   added (neither is taken for it); a kept Options tab making its draft
   as Tools › Options does, which looks for the game's install (Steam's
   library files) as the module opens. (a builder's report, October 2026)
-- **Deleting from the module tree:** Delete… removes the resource (an
-  area with its GIT and GIC and its area-list entry, a script with its
-  NCS) and nothing else: transitions, scripts and conversations that name
-  it are left as they are, with no warning of them; one resource at a
-  time (the Delete key asks the same of the row under the pointer). Moonglow refuses to delete the
-  start area; Aurora removes it (after asking twice) and then refuses
-  to save: "A module must have a starting location to be valid." (S)
 - **The light theme's own colors:** it is egui's light theme; the script
   editor's syntax colors follow it, but conversation and faction colors
   are the dark theme's (legible on both), and the area view's overlays

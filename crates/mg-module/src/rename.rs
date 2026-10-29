@@ -240,6 +240,14 @@ impl UsageIndex {
     /// Reads the resources that are new or changed since the last time
     /// (on every core), and forgets those that are gone.
     pub fn refresh(&mut self, module: &Module) {
+        self.refresh_at_most(module, usize::MAX);
+    }
+
+    /// [`refresh`](Self::refresh) where at most `most` resources are new
+    /// or changed (what a window reads between two frames); else nothing
+    /// is read, and `false` says so (read them elsewhere: on another
+    /// thread, from a copy of the module).
+    pub fn refresh_at_most(&mut self, module: &Module, most: usize) -> bool {
         use rayon::prelude::*;
         self.seen.retain(|k, _| module.contains(k));
         let mut changed = Vec::new();
@@ -256,11 +264,61 @@ impl UsageIndex {
                 _ => {}
             }
             changed.push((*key, data));
+            if changed.len() > most {
+                return false;
+            }
         }
         self.read = changed.len();
         let read: Vec<(ResKey, Read)> =
             changed.into_par_iter().map(|(key, data)| (key, Read::of(key, data))).collect();
         self.seen.extend(read);
+        true
+    }
+
+    /// The transitions (doors' and triggers' `LinkedTo`) of other areas,
+    /// and anything else outside `area` that names a destination by tag,
+    /// that lead to an object of `area` no other area has the tag of:
+    /// where a transition goes nowhere once the area is deleted. From
+    /// what [`refresh`](Self::refresh) read.
+    pub fn links_into(&self, area: ResRef) -> Vec<Usage> {
+        let git = ResKey::new(area, ResType::GIT);
+        let own = |path: &str| path.ends_with("/Tag") && path.matches('/').count() == 2;
+        let Some(read) = self.seen.get(&git) else { return Vec::new() };
+        let mut tags: Vec<&[u8]> = (read.tags.iter())
+            .filter(|(path, tag)| own(path) && !tag.is_empty())
+            .map(|(_, tag)| &tag[..])
+            .collect();
+        // (A tag another area's object has too: a transition to it still
+        // goes there.)
+        let elsewhere = |tag: &[u8]| {
+            self.seen.iter().any(|(k, r)| {
+                k.restype == ResType::GIT
+                    && k.resref != area
+                    && r.tags.iter().any(|(path, t)| own(path) && t == tag)
+            })
+        };
+        tags.sort();
+        tags.dedup();
+        tags.retain(|t| !elsewhere(t));
+        let leads = |path: &str, tag: &[u8]| path.ends_with("/LinkedTo") && tags.contains(&tag);
+        let mut keys: Vec<&ResKey> = (self.seen.iter())
+            .filter(|(k, _)| {
+                k.resref != area || !matches!(k.restype, ResType::ARE | ResType::GIT | ResType::GIC)
+            })
+            .filter(|(_, r)| r.tags.iter().any(|(p, t)| leads(p, t)))
+            .map(|(k, _)| k)
+            .collect();
+        keys.sort();
+        let mut out = Vec::new();
+        for key in keys {
+            let read = &self.seen[key];
+            let gff = Gff::read(&read.data).ok();
+            for (path, _) in read.tags.iter().filter(|(p, t)| leads(p, t)) {
+                let place = describe(*key, gff.as_ref(), path);
+                out.push(Usage { from: *key, path: path.clone(), place });
+            }
+        }
+        out
     }
 
     /// [`usages`] of `target`, from what [`refresh`](Self::refresh) read.
@@ -998,6 +1056,71 @@ mod tests {
         index.refresh(&m);
         assert_eq!(index.read, 0);
         same(&index, &m);
+    }
+
+    /// What leads into an area by tag, from outside it: another area's
+    /// door to its gate, not the area's own door, not an item's tag in a
+    /// creature's inventory, and not a tag another area's object has too.
+    #[test]
+    fn the_transitions_into_an_area_are_those_from_outside_to_its_own_tags() {
+        let mut m = module();
+        let mut g = Gff::new(*b"GIT ");
+        let door = |tag: &[u8], to: &[u8]| {
+            let mut d = Struct::new(8);
+            d.set("Tag", Value::String(tag.to_vec()));
+            d.set("LinkedTo", Value::String(to.to_vec()));
+            d
+        };
+        g.root.set(
+            "Door List",
+            Value::List(vec![door(b"OUT_1", b"GATE"), door(b"OUT_2", b"GUARD"), door(b"", b"")]),
+        );
+        let mut c = git::CREATURE_LIST.new_item();
+        c.set("Tag", Value::String(b"OTHER".to_vec()));
+        let mut item = Struct::new(0);
+        item.set("Tag", Value::String(b"GUARD".to_vec()));
+        c.set("ItemList", Value::List(vec![item]));
+        g.root.items_mut(&git::CREATURE_LIST).push(c);
+        m.set_gff(key("outside", ResType::GIT), &g).unwrap();
+        let mut index = UsageIndex::default();
+        index.refresh(&m);
+        let places: Vec<(ResKey, String)> =
+            index.links_into(rr("keep")).into_iter().map(|u| (u.from, u.path)).collect();
+        // (The keep's own door leads to its guard, and the outside's
+        // second door to the guard too: GUARD is the guard's alone, the
+        // item's tag in the inventory being no destination.)
+        assert_eq!(
+            places,
+            [
+                (key("outside", ResType::GIT), "/Door List[0]/LinkedTo".to_string()),
+                (key("outside", ResType::GIT), "/Door List[1]/LinkedTo".to_string()),
+            ]
+        );
+        // A gate in the other area too: a door to GATE still goes there.
+        let mut both = Gff::read(m.get(&key("outside", ResType::GIT)).unwrap()).unwrap();
+        both.root.list_mut("Door List").unwrap()[2].set("Tag", Value::String(b"GATE".to_vec()));
+        m.set_gff(key("outside", ResType::GIT), &both).unwrap();
+        index.refresh(&m);
+        let paths: Vec<String> = index.links_into(rr("keep")).into_iter().map(|u| u.path).collect();
+        assert_eq!(paths, ["/Door List[1]/LinkedTo"]);
+        assert!(index.links_into(rr("outside")).is_empty(), "OUT_1, OUT_2: nothing leads there");
+    }
+
+    /// A window reads only a few resources where it asks: past that, it
+    /// is told so and nothing is read.
+    #[test]
+    fn the_index_reads_at_most_what_it_is_given() {
+        let m = module();
+        let mut index = UsageIndex::default();
+        assert!(!index.refresh_at_most(&m, 3));
+        assert!(index.usages(key("guard_spawn", ResType::NSS)).is_empty(), "nothing read");
+        assert!(index.refresh_at_most(&m, m.len()));
+        assert_eq!(index.read, m.len());
+        assert_eq!(index.usages(key("guard", ResType::UTC)).len(), 1);
+        let mut m = m;
+        m.set(key("fresh", ResType::NSS), b"void main() {}\n".to_vec());
+        assert!(index.refresh_at_most(&m, 1), "one resource new");
+        assert_eq!(index.read, 1);
     }
 
     #[test]

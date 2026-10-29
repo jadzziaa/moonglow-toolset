@@ -231,8 +231,9 @@ clicked before to it, as listed; they are marked. A right click on one
 of them offers what is done to them all: **Edit N Together** (blueprints
 of one kind, or areas: one Properties window, what you change set on
 each), **Export…**, **Export as Files…**, **Copy to Scratch Folder**,
-for areas **Make Placeables Static** and **Dynamic**, and the plugins'
-commands for them. A click alone chooses one row again.
+**Delete…** (and the Delete key on one of them), for areas **Make
+Placeables Static** and **Dynamic**, and the plugins' commands for them.
+A click alone chooses one row again.
 
 **Copy…** makes a copy in the module under a ResRef you give (a free one
 is offered), and for a blueprint or an area a Tag. An area is copied with
@@ -247,7 +248,15 @@ scripts. A script that goes whose editor holds unsaved text is named
 when it asks: the text goes as typed, and Undo brings it back so. The
 area the module's start location is in can't be deleted: set the start
 location in another area first. Nothing
-that names what is deleted is changed (check **Find References** first).
+that names what is deleted is changed, and the window says what does,
+before you answer: the places that name it (a creature's OnSpawn, a
+door's conversation, an object placed from a blueprint, the module's
+events), strings in scripts that spell its name, and for an area the
+doors and triggers of other areas that lead to its objects (by a tag no
+other area's object has); **Find References** there opens the whole
+list. Of several chosen, the window lists them and deletes them as one
+step; the start area, and a protected area of a project (delete it
+alone, to be asked), stay out of it, said so.
 
 A right click on a group (Areas, Scripts, Creatures…) or on one of its
 resources offers **New …**: the group's wizard, or the New Script or New

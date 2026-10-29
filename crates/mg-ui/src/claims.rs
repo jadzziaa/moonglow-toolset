@@ -697,7 +697,8 @@ fn end_pass(app: &mut Moonglow) {
             .as_ref()
             .is_some_and(|d| d.from.restype == ResType::ARE && d.from.resref == pass.area),
         Protected::Deleted => {
-            app.confirm_delete.is_some_and(|k| k.restype == ResType::ARE && k.resref == pass.area)
+            let asked = |k: &ResKey| k.restype == ResType::ARE && k.resref == pass.area;
+            app.confirm_delete.as_ref().is_some_and(|keys| keys.iter().any(asked))
         }
         Protected::Tag => false,
     };

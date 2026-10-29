@@ -71,6 +71,51 @@ fn find_references_then_rename_everywhere() {
     assert!(String::from_utf8_lossy(module.get(&caller).unwrap()).contains("\"hello\""));
 }
 
+/// The first Find References in a module reads its references on a
+/// thread of its own, as the desktop app runs (the window draws, and says
+/// it is reading); the next ones read only what changed, at once; the
+/// Rename window counts from the same references once they are read.
+#[test]
+fn the_first_find_references_reads_the_module_on_a_thread_of_its_own() {
+    let dir = mg_testkit::scratch_dir("ui-references-thread");
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    // (More scripts than a frame reads where they are asked.)
+    for i in 0..200 {
+        let k = ResKey::parse(&format!("s{i:03}"), ResType::NSS).unwrap();
+        m.set(k, format!("void main() {{ ExecuteScript(\"hello\"); }} // {i}\n").into_bytes());
+    }
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.background_jobs = true;
+    app.open_module(&path);
+    let mut h = harness(app, 1280.0, 800.0);
+    h.run();
+    let hello = ResKey::parse("hello", ResType::NSS).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::FindReferences(hello));
+    // (Frame by frame: the frame that starts the read says so, however
+    // soon it is done.)
+    let (started, mut said) = (std::time::Instant::now(), false);
+    while h.query_by_label("Spelled out in scripts (200):").is_none() {
+        assert!(started.elapsed().as_secs() < 30, "read in time");
+        h.run_steps(1);
+        said |= h.query_by_label("Reading the module's references…").is_some();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(said, "it said it was reading");
+    // One script changed: read where it is asked, at once.
+    let one = ResKey::parse("s000", ResType::NSS).unwrap();
+    let edit = mg_edit::Edit::SetResource { key: one, data: Some(b"void main() {}\n".to_vec()) };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Edit", vec![edit])));
+    h.run_steps(2);
+    h.get_by_label("Spelled out in scripts (199):");
+    assert!(h.query_by_label("Reading the module's references…").is_none());
+    // Rename… counts the strings from them.
+    h.get_by_label("Rename…").click();
+    h.run_steps(2);
+    h.get_by_label("Also change the 199 strings spelling “hello” in scripts");
+}
+
 /// Find References for a talk-table line: the module's localized strings
 /// that name its StrRef, from the talk-table editor's button's action and
 /// from a number typed in the References window's field.
