@@ -1860,14 +1860,7 @@ fn about(app: &Moonglow, key: ResKey) -> Vec<String> {
     let int = |label: &str| s.integer(label).unwrap_or(0);
     let on = |label: &str| int(label) != 0;
     // Up to four names, and how many more.
-    let listed = |names: Vec<String>| {
-        let more = names.len().saturating_sub(4);
-        let mut text = names.into_iter().take(4).collect::<Vec<_>>().join(", ");
-        if more > 0 {
-            text.push_str(&format!(" and {more} more"));
-        }
-        text
-    };
+    let listed = |names: Vec<String>| crate::text::some_of(&names, 5);
     let resrefs = |list: &str, label: &str| -> Vec<String> {
         let items = s.list(list).unwrap_or(&[]);
         items.iter().filter_map(|i| i.resref(label)).map(|r| r.to_string()).collect()

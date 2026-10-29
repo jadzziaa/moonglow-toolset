@@ -623,27 +623,12 @@ fn compile_models(app: &mut Moonglow, i: usize) {
         move |app, results| {
             // (The window took no input meanwhile: the hak is as it was.)
             let Some(i) = app.haks.iter().position(|d| d.id == id) else { return };
-            let (mut made, mut left, mut notes) = (Vec::new(), Vec::new(), 0);
-            for c in results {
-                match c.result {
-                    Ok((binary, said)) => {
-                        notes += said.len();
-                        for (line, note) in said.iter().take(3) {
-                            let at =
-                                if *line > 0 { format!(" line {line}") } else { String::new() };
-                            app.log.info(format!("{}{at}: {note}", c.model));
-                        }
-                        made.push((c.model, mg_module::hak_edit::Source::Bytes(binary.into())));
-                    }
-                    Err(why) => left.push(format!("{}: {why}", c.model)),
-                }
-            }
-            let compiled = made.len();
-            if compiled == 0 && left.is_empty() {
-                app.log.info("Compile Models: the hak has no models kept as text");
-                return;
-            }
-            if compiled > 0 {
+            let sorted = crate::model_view::CompiledModels::sort(&mut app.log, "the hak", results);
+            let Some(sorted) = sorted else { return };
+            let made: Vec<_> = (sorted.made.iter())
+                .map(|(k, b)| (*k, mg_module::hak_edit::Source::Bytes(b.clone().into())))
+                .collect();
+            if !made.is_empty() {
                 match app.haks[i].hak.add_sources_as("Compile Models", made) {
                     Ok(_) => app.haks[i].changed(),
                     Err(e) => {
@@ -652,17 +637,7 @@ fn compile_models(app: &mut Moonglow, i: usize) {
                     }
                 }
             }
-            app.log.info(format!(
-                "Compile Models: {compiled} compiled ({notes} notes of the compiler's), {} left \
-                 as text",
-                left.len()
-            ));
-            for l in left.iter().take(12) {
-                app.log.warn(format!("Left as text: {l}"));
-            }
-            if left.len() > 12 {
-                app.log.warn(format!("…and {} more left as text", left.len() - 12));
-            }
+            sorted.say(&mut app.log);
         },
     );
 }
@@ -686,48 +661,26 @@ pub(crate) fn adding_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(i) = app.haks.iter().position(|d| d.adding.is_some()) else { return };
     let adding = app.haks[i].adding.clone().expect("found");
     let title = app.haks[i].title();
-    // Replace all (true), skip those (false).
-    let mut answer = None;
-    let mut cancel = false;
-    egui::Window::new("Files Already in the Hak")
-        .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(ctx, |ui| {
-            let (n, all) = (adding.replaced.len(), adding.files.len());
-            ui.label(format!(
-                "{} already has {n} of the {all} files chosen:",
-                title.trim_end_matches(" *")
-            ));
-            egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
-                for (path, key) in &adding.replaced {
-                    ui.label(egui::RichText::new(key.to_string()).monospace())
-                        .on_hover_text(path.display().to_string());
-                }
-            });
-            ui.horizontal(|ui| {
-                if ui
-                    .button(format!("Replace {n}"))
-                    .on_hover_text("Add all the files: these take the place of the hak's")
-                    .clicked()
-                {
-                    answer = Some(true);
-                }
-                if ui
-                    .button("Skip Those")
-                    .on_hover_text("Add the other files and leave the hak's as they are")
-                    .clicked()
-                {
-                    answer = Some(false);
-                }
-                cancel = crate::widgets::cancel(ui);
-            });
-        });
-    if cancel {
-        app.haks[i].adding = None;
-    }
-    let Some(replace) = answer else { return };
+    let (n, all) = (adding.replaced.len(), adding.files.len());
+    let said =
+        format!("{} already has {n} of the {all} files chosen:", title.trim_end_matches(" *"));
+    let files: Vec<_> = (adding.replaced.iter())
+        .map(|(path, key)| (key.to_string(), Some(path.display().to_string())))
+        .collect();
+    let tips = [
+        "Add all the files: these take the place of the hak's",
+        "Add the other files and leave the hak's as they are",
+    ];
+    use crate::widgets::Already;
+    let Some(answer) = crate::widgets::files_already(ctx, "Hak", &said, &files, tips) else {
+        return;
+    };
     app.haks[i].adding = None;
+    let replace = match answer {
+        Already::Replace => true,
+        Already::Skip => false,
+        Already::Cancel => return,
+    };
     let files: Vec<PathBuf> = if replace {
         adding.files
     } else {

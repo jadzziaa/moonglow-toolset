@@ -154,14 +154,6 @@ fn read(game: &mg_rules::GameData, model: &str, area_env: Option<&str>) -> Listi
     Listing { problem: None, rows }
 }
 
-/// A list of names, the first few and how many more (all of them on hover).
-fn some_of(names: &[&str]) -> String {
-    if names.len() <= NODES_NAMED {
-        return names.join(", ");
-    }
-    format!("{} and {} more", names[..NODES_NAMED - 1].join(", "), names.len() - NODES_NAMED + 1)
-}
-
 /// What a texture's uses are, a line each kind: what it is drawn as, by
 /// which nodes, through what.
 fn use_lines(row: &Row) -> Vec<(String, String)> {
@@ -183,7 +175,7 @@ fn use_lines(row: &Row) -> Vec<(String, String)> {
         .iter()
         .map(|(u, nodes)| {
             let all = nodes.join(", ");
-            let on = some_of(nodes);
+            let on = crate::text::some_of(nodes, NODES_NAMED);
             let line = match (&u.role, &u.source) {
                 (Role::Slot(i), Source::Mesh) if !u.drawn => {
                     let slot = mg_image::mtr::slot_name(*i);
@@ -429,11 +421,4 @@ fn menu(app: &mut Moonglow, ui: &mut Ui, row: &Row) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_few_names_and_how_many_more() {
-        assert_eq!(some_of(&["a", "b"]), "a, b");
-        assert_eq!(some_of(&["a", "b", "c", "d"]), "a, b, c, d");
-        assert_eq!(some_of(&["a", "b", "c", "d", "e", "f"]), "a, b, c and 3 more");
-    }
 }

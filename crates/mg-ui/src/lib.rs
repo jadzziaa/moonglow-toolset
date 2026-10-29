@@ -4064,41 +4064,18 @@ impl Moonglow {
             },
             |app, made| {
                 let Some(results) = made else { return };
-                let (mut edits, mut left, mut notes) = (Vec::new(), Vec::new(), 0);
-                for c in results {
-                    match c.result {
-                        Ok((binary, said)) => {
-                            notes += said.len();
-                            edits.push(mg_edit::Edit::SetResource {
-                                key: c.model,
-                                data: Some(binary),
-                            });
-                        }
-                        Err(why) => left.push(format!("{}: {why}", c.model)),
-                    }
-                }
-                let compiled = edits.len();
-                if compiled == 0 && left.is_empty() {
-                    app.log.info("Compile Models: the module has no models kept as text");
-                    return;
-                }
+                let sorted = model_view::CompiledModels::sort(&mut app.log, "the module", results);
+                let Some(sorted) = sorted else { return };
+                let edits: Vec<_> = (sorted.made.iter())
+                    .map(|(key, b)| mg_edit::Edit::SetResource { key: *key, data: Some(b.clone()) })
+                    .collect();
                 if !edits.is_empty()
                     && let Err(e) = app.apply(Command::new("Compile Models", edits))
                 {
                     app.log.error(e.to_string());
                     return;
                 }
-                app.log.info(format!(
-                    "Compile Models: {compiled} compiled ({notes} notes of the compiler's), {} \
-                     left as text",
-                    left.len()
-                ));
-                for l in left.iter().take(12) {
-                    app.log.warn(format!("Left as text: {l}"));
-                }
-                if left.len() > 12 {
-                    app.log.warn(format!("…and {} more left as text", left.len() - 12));
-                }
+                sorted.say(&mut app.log);
             },
         );
     }

@@ -2,6 +2,70 @@
 
 use crate::common::*;
 
+/// File dialogs that answer nothing and note what they were asked for.
+struct Asked(std::rc::Rc<std::cell::RefCell<Vec<(mg_ui::FileKind, bool)>>>);
+
+impl mg_ui::Dialogs for Asked {
+    fn open_file(
+        &mut self,
+        kind: mg_ui::FileKind,
+        _: Option<&std::path::Path>,
+    ) -> Option<std::path::PathBuf> {
+        self.0.borrow_mut().push((kind, false));
+        None
+    }
+    fn save_file(
+        &mut self,
+        kind: mg_ui::FileKind,
+        _: Option<&std::path::Path>,
+    ) -> Option<std::path::PathBuf> {
+        self.0.borrow_mut().push((kind, true));
+        None
+    }
+    fn pick_folder(&mut self, _: &str, _: Option<&std::path::Path>) -> Option<std::path::PathBuf> {
+        None
+    }
+}
+
+/// The 2DA and talk table editors' file dialogs are of their own kinds
+/// (titled for them, showing their files), not any file's.
+#[test]
+fn tables_and_talk_tables_ask_for_their_own_files() {
+    use mg_ui::FileKind;
+    let asked = std::rc::Rc::default();
+    let mut h =
+        harness(Moonglow::new(None, Box::new(Asked(std::rc::Rc::clone(&asked)))), 900.0, 700.0);
+    mg_ui::table_view::open_file(h.state_mut());
+    let asks = |h: &mut Harness<'_, Moonglow>, actions: Vec<mg_ui::Action>| {
+        for a in actions {
+            h.state_mut().actions.push(a);
+            h.run_steps(1);
+        }
+    };
+    asks(&mut h, vec![mg_ui::Action::TalkFile(false), mg_ui::Action::TalkFile(true)]);
+    // (Its lines, of a table open.)
+    let dir = mg_testkit::scratch_dir("ui-talk-kinds");
+    h.state_mut().talk =
+        Some(mg_module::talk::Table::create("kinds", &dir, mg_core::Language::ENGLISH, false));
+    let lines = [true, false].map(mg_ui::Action::TalkCsv).into_iter();
+    asks(&mut h, lines.chain([mg_ui::Action::TalkJson(false)]).collect());
+    let lines = |json| FileKind::TalkLines { json };
+    assert_eq!(
+        *asked.borrow(),
+        [
+            (FileKind::Table, false),
+            (FileKind::TalkTable, false),
+            (FileKind::TalkTable, true),
+            (lines(false), false),
+            (lines(false), true),
+            (lines(true), true),
+        ]
+    );
+    assert_eq!(FileKind::Table.filter(false), Some(("2DA tables", &["2da"][..])));
+    assert_eq!(FileKind::TalkTable.title(true), "New Talk Table");
+    assert_eq!(lines(true).filter(true), Some(("JSON", &["json"][..])));
+}
+
 /// The Talk Table editor makes and opens a `.tlk` file on its own, with no
 /// module open.
 /// A line of the talk table is chosen by a click anywhere on its row, the

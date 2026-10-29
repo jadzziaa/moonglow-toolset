@@ -343,48 +343,85 @@ fn write_export(app: &mut Moonglow, export: &ModelExport, replace: bool) {
     app.export_dir = Some(dir.clone());
 }
 
+/// What Compile Models made, of the module's models or a hak's.
+pub(crate) struct CompiledModels {
+    /// Each model compiled, and its compiled bytes.
+    pub made: Vec<(ResKey, Vec<u8>)>,
+    /// Each left as text, and why.
+    left: Vec<String>,
+    /// How many notes the compiler made.
+    notes: usize,
+}
+
+impl CompiledModels {
+    /// Sorts Compile Models' results; `what` says whose they are ("the
+    /// module", "the hak") in the log, where the compiler's notes go (three
+    /// of each model's). `None`: nothing was kept as text.
+    pub(crate) fn sort(
+        log: &mut crate::Log,
+        what: &str,
+        results: Vec<mg_module::models::Compiled>,
+    ) -> Option<CompiledModels> {
+        let mut sorted = CompiledModels { made: Vec::new(), left: Vec::new(), notes: 0 };
+        for c in results {
+            match c.result {
+                Ok((binary, said)) => {
+                    sorted.notes += said.len();
+                    for (line, note) in said.iter().take(3) {
+                        let at = if *line > 0 { format!(" line {line}") } else { String::new() };
+                        log.info(format!("{}{at}: {note}", c.model));
+                    }
+                    sorted.made.push((c.model, binary));
+                }
+                Err(why) => sorted.left.push(format!("{}: {why}", c.model)),
+            }
+        }
+        if sorted.made.is_empty() && sorted.left.is_empty() {
+            log.info(format!("Compile Models: {what} has no models kept as text"));
+            return None;
+        }
+        Some(sorted)
+    }
+
+    /// Says in the log what was compiled and what was left as text (once
+    /// the compiled models are in).
+    pub(crate) fn say(&self, log: &mut crate::Log) {
+        log.info(format!(
+            "Compile Models: {} compiled ({} notes of the compiler's), {} left as text",
+            self.made.len(),
+            self.notes,
+            self.left.len()
+        ));
+        const LISTED: usize = 12;
+        for l in self.left.iter().take(LISTED) {
+            log.warn(format!("Left as text: {l}"));
+        }
+        if self.left.len() > LISTED {
+            log.warn(format!("…and {} more left as text", self.left.len() - LISTED));
+        }
+    }
+}
+
 /// Asks what to do with the files an Export Files would write over.
 pub(crate) fn export_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(export) = app.model_export.clone() else { return };
-    // Replace all (true), skip those (false).
-    let mut answer = None;
-    let mut cancel = false;
-    egui::Window::new("Files Already in the Folder")
-        .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(ctx, |ui| {
-            let (n, all) = (export.existing.len(), export.files.len());
-            ui.label(format!("{} already has {n} of the {all} files:", export.dir.display()));
-            egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
-                for key in &export.existing {
-                    ui.label(egui::RichText::new(key.to_string()).monospace());
-                }
-            });
-            ui.horizontal(|ui| {
-                if ui
-                    .button(format!("Replace {n}"))
-                    .on_hover_text("Write all the files: these take the place of the folder's")
-                    .clicked()
-                {
-                    answer = Some(true);
-                }
-                if ui
-                    .button("Skip Those")
-                    .on_hover_text("Write the other files and leave the folder's as they are")
-                    .clicked()
-                {
-                    answer = Some(false);
-                }
-                cancel = crate::widgets::cancel(ui);
-            });
-        });
-    if cancel {
-        app.model_export = None;
-    }
-    let Some(replace) = answer else { return };
+    let (n, all) = (export.existing.len(), export.files.len());
+    let said = format!("{} already has {n} of the {all} files:", export.dir.display());
+    let files: Vec<_> = export.existing.iter().map(|k| (k.to_string(), None)).collect();
+    let tips = [
+        "Write all the files: these take the place of the folder's",
+        "Write the other files and leave the folder's as they are",
+    ];
+    use crate::widgets::Already;
+    let Some(answer) = crate::widgets::files_already(ctx, "Folder", &said, &files, tips) else {
+        return;
+    };
     app.model_export = None;
-    write_export(app, &export, replace);
+    match answer {
+        Already::Replace => write_export(app, &export, true),
+        Already::Skip => write_export(app, &export, false),
+        Already::Cancel => {}
+    }
 }
 
 /// Whether the viewer can show a resource type.

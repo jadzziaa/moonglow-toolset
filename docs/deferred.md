@@ -2609,11 +2609,6 @@ of truth, and does each caller's difference matter.
   `area_view.rs:3898`, `mg-preview compose.rs:546`, `mg-render
   renderer.rs:1709`); lightcolor.2da's toolset colors twice
   (`tile_select.rs:375`, `area_view.rs:5080`).
-- Compile Models' report twice (`hak_view.rs:650`, `lib.rs:3195`), the
-  "Files Already in…" window twice (`hak_view.rs:710`,
-  `model_view.rs:264`), "A, B and N more" by hand five times beside
-  `transfer::listed`, and the 2DA and talk-table file dialogs with no
-  kind of their own (`FileKind::Any`).
 - NWSync publishing on a thread of its own, without the jobs' cancel
   and panic handling (`nwsync_view.rs:113`).
 - `DialogSearch` keeps its own match options and rebuilds

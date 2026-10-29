@@ -352,8 +352,8 @@ pub(crate) fn file(app: &mut Moonglow, new: bool) {
     };
     let table = if new {
         let suggested = start.map(|d| d.join("new.tlk"));
-        let Some(path) = app.dialogs.save_file(crate::dialogs::FileKind::Any, suggested.as_deref())
-        else {
+        let kind = crate::dialogs::FileKind::TalkTable;
+        let Some(path) = app.dialogs.save_file(kind, suggested.as_deref()) else {
             return;
         };
         let path = if path.extension().is_some() { path } else { path.with_extension("tlk") };
@@ -363,8 +363,8 @@ pub(crate) fn file(app: &mut Moonglow, new: bool) {
         t.source = talk::Source::File(path);
         t.save().map(|()| t)
     } else {
-        let Some(path) = app.dialogs.open_file(crate::dialogs::FileKind::Any, start.as_deref())
-        else {
+        let kind = crate::dialogs::FileKind::TalkTable;
+        let Some(path) = app.dialogs.open_file(kind, start.as_deref()) else {
             return;
         };
         let found = |p: &std::path::Path| {
@@ -394,9 +394,9 @@ pub(crate) fn transfer(app: &mut Moonglow, import: bool, json: bool) {
     let ext = if json { "json" } else { "csv" };
     let start =
         t.source.file().and_then(|f| f.parent()).map(|d| d.join(format!("{}.{ext}", t.name)));
+    let kind = crate::dialogs::FileKind::TalkLines { json };
     if import {
-        let Some(path) = app.dialogs.open_file(crate::dialogs::FileKind::Any, start.as_deref())
-        else {
+        let Some(path) = app.dialogs.open_file(kind, start.as_deref()) else {
             return;
         };
         let read = std::fs::read_to_string(&path).map_err(|e| e.to_string());
@@ -413,8 +413,7 @@ pub(crate) fn transfer(app: &mut Moonglow, import: bool, json: bool) {
             Err(e) => app.log.error(format!("{}: {e}", path.display())),
         }
     } else {
-        let Some(path) = app.dialogs.save_file(crate::dialogs::FileKind::Any, start.as_deref())
-        else {
+        let Some(path) = app.dialogs.save_file(kind, start.as_deref()) else {
             return;
         };
         match std::fs::write(&path, if json { t.to_json() } else { t.to_csv().into_bytes() }) {

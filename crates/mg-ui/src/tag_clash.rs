@@ -208,12 +208,16 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         .resizable(false)
         .show(ctx, |ui| {
             ui.label(format!("{} put tags on more than one object of the module:", clash.what));
-            const SHOWN: usize = 8;
-            for c in clash.clashes.iter().take(SHOWN) {
+            // (Eight lines at most, "and N more" one of them, as
+            // `text::some_of` names things.)
+            const ROOM: usize = 8;
+            let n = clash.clashes.len();
+            let shown = if n <= ROOM { n } else { ROOM - 1 };
+            for c in clash.clashes.iter().take(shown) {
                 ui.label(format!("• {}", c.sentence()));
             }
-            if clash.clashes.len() > SHOWN {
-                ui.label(format!("• and {} more", clash.clashes.len() - SHOWN));
+            if n > shown {
+                ui.label(format!("• and {} more", n - shown));
             }
             if clash.others > 0 {
                 let s = if clash.others == 1 { "" } else { "s" };

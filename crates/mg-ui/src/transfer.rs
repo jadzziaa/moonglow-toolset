@@ -68,14 +68,10 @@ pub(crate) fn scratch_tip(scratch: Option<&std::path::Path>, what: &str) -> Stri
     }
 }
 
-/// Names for the log: all of a few, else the first and how many more.
+/// Names for the log: all of a few, else the first and how many more
+/// ([`crate::text::some_of`], in eight places).
 pub(crate) fn listed(names: &[String]) -> String {
-    const SHOWN: usize = 8;
-    if names.len() <= SHOWN {
-        names.join(", ")
-    } else {
-        format!("{} and {} more", names[..SHOWN].join(", "), names.len() - SHOWN)
-    }
+    crate::text::some_of(names, 8)
 }
 
 /// The rule for a script copied into the scratch folder (a script
