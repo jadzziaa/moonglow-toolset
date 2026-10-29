@@ -58,6 +58,12 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+        # Saved by develop alone: other branches start from develop's (a
+        # branch may read its default branch's caches). GitHub keeps 10 GB
+        # per repository, and a branch's pushes (each change to a manifest
+        # is a new key) evicted develop's, whose next runs started cold.
+        with:
+          save-if: ${{ github.ref == 'refs/heads/develop' }}
       - name: Linux libraries
         if: runner.os == 'Linux'
         # ALSA for sound playback (rodio).
