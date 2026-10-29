@@ -2085,7 +2085,7 @@ impl Moonglow {
             // from a cell.)
             if let Some(doc) = self.tables.iter_mut().find(|d| d.id == id)
                 && doc.selected.is_none()
-                && doc.edit.table().len() > 0
+                && !doc.edit.table().is_empty()
             {
                 doc.selected = Some((0, 0));
             }
