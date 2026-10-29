@@ -1175,26 +1175,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   shader matched. (S once seen)
 - **The model compiler and writers in `mg-mdl`** (moved from the
   viewer's `crates/mgv-mdl` at its 0.1.6, 2026-10-09; in use since
-  1.20.5).
-  Not done: `mg pack` compiles only when
-  asked (the game reads text, and a pack's bytes should not change
-  unasked: on by default later?); Compile Models is a job (off the window's
-  thread, on every core, with its progress and Cancel, which leaves
-  the hak as it was; one step, named in Undo); a compiled model is not
-  compared with the game's own compiler's here (the viewer's `engine.rs`
-  does that); Build › Compile Models compiles a module's own
-  (a job, one step to undo); nothing compiles a nasher project's on
-  Pack Target, whose sources stay text; the linter's notes (Info) are not shown;
-  the viewer keeps its copy until its pin
-  moves past the release that has these, and keeps the tests that need
-  its `nwnmdlcomp` wrapper, the game's compiler and the client
-  (`nwnmdlcomp.rs`, `engine.rs`, `client.rs`); `PartNumbers::read`
-  still reads a file's part numbers a second time, where the reader
-  now keeps them on each node (`Node::part`), but not the header's
-  node count. (M for the uses)
-  (proposed by the Moonglow Viewer session, 2026-10-07: its
-  `docs/PLAN.md` §10.1 has the full text; not checked here beyond that
-  the code named is there)
+  1.20.5). Left: `mg pack` (and a nasher project's Pack, by its project
+  file's `[pack] compile_models`) compiles models only when asked, as
+  the game reads text and a pack's bytes should not change unasked: on
+  by default later? (settle?: proposed by the sprint on 2026-10-29, the
+  owner's to say: kept off by default)
 - **Animations bind by part number, not by name:** done (by name
   where either is from text, and for a worn cloak or robe).
   Seen in the viewer session's client pictures (a

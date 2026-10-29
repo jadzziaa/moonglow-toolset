@@ -220,6 +220,37 @@ fn nasher_projects_save_in_place_and_never_overwrite_other_changes() {
     assert!(h.state().log.entries.iter().any(|(_, m)| m.contains("Opened nasher project")));
 }
 
+/// Build › Pack compiles a nasher project's models kept as text where its
+/// project file says `[pack] compile_models = true`, and the log says so;
+/// the source stays text.
+#[test]
+fn pack_compiles_a_project_s_models_where_its_project_file_says() {
+    let dir = mg_testkit::scratch_dir("ui-pack-models");
+    let mut m = Module::open(&sample_module(&dir)).unwrap();
+    let text = "newmodel lamp\nsetsupermodel lamp NULL\nbeginmodelgeom lamp\n\
+        node dummy lamp\n  parent NULL\nendnode\nendmodelgeom lamp\ndonemodel lamp\n";
+    m.set(ResKey::parse("lamp", ResType::MDL).unwrap(), text.as_bytes().to_vec());
+    let project = dir.join("project");
+    m.save_as(&ModuleLocation::Project { root: project.clone(), target: "default".into() })
+        .unwrap();
+    std::fs::write(project.join("moonglow.toml"), "[pack]\ncompile_models = true\n").unwrap();
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app_with(vec![]));
+    h.state_mut().open_module(&project);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::PackTarget);
+    h.run();
+    let ws = h.state().ws.as_ref().expect("the project");
+    let target = ws.module.project.as_ref().unwrap().target_path();
+    let bytes = std::fs::read(&target).unwrap();
+    let erf = mg_erf::Erf::read(&bytes).unwrap();
+    let entry = erf.entries.iter().find(|e| e.restype == ResType::MDL).expect("the model");
+    assert!(mg_mdl::is_binary(&erf.data(entry).unwrap()), "packed compiled");
+    assert!(logged(&h, "Compile Models: 1 compiled"), "{:?}", h.state().log.entries);
+    let source = std::fs::read_dir(project.join("src")).unwrap().flatten().map(|e| e.path());
+    let source = source.filter(|p| p.extension().is_some_and(|e| e == "mdl")).next().unwrap();
+    assert_eq!(std::fs::read(source).unwrap(), text.as_bytes(), "the source stays text");
+}
+
 /// A nasher project that keeps its talk table as JSON (a tlk target of its
 /// own, in two languages): opened, the table is the project's (not the tlk
 /// folder's copy), edited, and saved with the module as nwn_tlk writes it;

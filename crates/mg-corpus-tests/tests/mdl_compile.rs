@@ -138,6 +138,7 @@ fn every_binary_model_writes_back_the_same() {
             // are made anew here, and tallied against the file's below.)
             let bare = |m: &Model| {
                 let mut m = m.clone();
+                m.part_count = None;
                 m.nodes.iter_mut().for_each(|n| n.part = None);
                 m.animations.iter_mut().flat_map(|a| &mut a.nodes).for_each(|n| n.part = None);
                 m
@@ -289,6 +290,10 @@ impl CompiledBack {
         text: &str,
     ) -> Option<(String, Vec<String>)> {
         let numbers = PartNumbers::read(data)?;
+        // (The numbers the reader kept are the file's.)
+        if PartNumbers::of(model).as_ref() != Some(&numbers) {
+            return Some((name.to_string(), vec!["PartNumbers::of is not the file's".into()]));
+        }
         let sup = supermodel_of(rm, model);
         let sources = mg_mdl::compile::Sources {
             supermodel: sup.as_ref().map(|(m, p)| (m, p)),

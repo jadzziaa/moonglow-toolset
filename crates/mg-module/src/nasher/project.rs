@@ -1925,6 +1925,41 @@ mod tests {
         assert!(erf.entries.iter().all(|e| e.restype != ResType::TLK));
     }
 
+    /// Pack compiles the project's models kept as text where its project
+    /// file says `[pack] compile_models = true` (each against its
+    /// supermodel, found through the lookup), and packs them as text where
+    /// it doesn't.
+    #[test]
+    fn pack_compiles_the_models_where_the_project_file_says() {
+        let root = scratch("pack-models");
+        let text = "newmodel kid\nsetsupermodel kid base\nbeginmodelgeom kid\n\
+            node dummy kid\n  parent NULL\nendnode\nendmodelgeom kid\ndonemodel kid\n";
+        let base = text.replace("kid", "base").replace("setsupermodel base base", "");
+        let mut m = module();
+        m.set(key("kid", ResType::MDL), text.as_bytes());
+        m.save_as(&project_location(&root)).unwrap();
+        let lookup = |n: &str, t: ResType| {
+            (n == "base" && t == ResType::MDL).then(|| base.clone().into_bytes())
+        };
+        let packed = |m: &Module| {
+            let (_, bytes, models) = m.target_archive_with(&lookup).unwrap().unwrap();
+            let erf = mg_erf::Erf::read(&bytes).unwrap();
+            let entry = erf.entries.iter().find(|e| e.restype == ResType::MDL).unwrap();
+            (erf.data(entry).unwrap().to_vec(), models)
+        };
+        let (data, models) = packed(&Module::open(&root).unwrap());
+        assert_eq!(data, text.as_bytes(), "not asked: as text");
+        assert!(models.is_empty());
+        std::fs::write(root.join("moonglow.toml"), "[pack]\ncompile_models = true\n").unwrap();
+        let (data, models) = packed(&Module::open(&root).unwrap());
+        assert!(mg_mdl::is_binary(&data), "asked: compiled");
+        assert_eq!(models.len(), 1);
+        assert!(models[0].result.is_ok(), "{:?}", models[0].result);
+        // (target_archive packs what the project holds, as it is.)
+        let (_, bytes) = Module::open(&root).unwrap().target_archive().unwrap().unwrap();
+        assert!(mg_erf::Erf::read(&bytes).is_ok());
+    }
+
     /// A new talk table made in a project goes into it as nasher keeps one:
     /// `<name>.tlk.json` where the rules put `<name>.tlk`, a target of its
     /// own packing it, and the module target's sources leaving it out (the

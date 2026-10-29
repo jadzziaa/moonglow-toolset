@@ -23,6 +23,9 @@
 //!
 //! [resrefs]
 //! pattern = "{code}_{name}"           # a new ResRef, by the builder's code
+//!
+//! [pack]                              # a nasher project's Pack
+//! compile_models = true               # models kept as text go in compiled
 //! ```
 //!
 //! And in `.moonglow/user.toml`, the builder's own:
@@ -281,6 +284,15 @@ pub struct StoreRules {
     pub blueprint: Option<ResRef>,
     /// A String variable set on the shopkeeper to the store's tag.
     pub keeper_variable: Option<String>,
+}
+
+/// `[pack]`: what a nasher project's Pack does on the way in.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct PackRules {
+    /// `compile_models`: the models kept as text are compiled into the
+    /// target's file (`Module::target_archive_with`), as `mg pack
+    /// --compile-models` compiles a folder's; off, they go in as text.
+    pub compile_models: bool,
 }
 
 /// `[used]`: what the Unused report counts as used though nothing in the
@@ -567,6 +579,8 @@ pub struct ProjectFile {
     pub store: Option<StoreRules>,
     /// `[used]`: what the Unused report counts as used.
     pub used: UsedRules,
+    /// `[pack]`: what Pack does on the way in.
+    pub pack: PackRules,
     /// `[resrefs] pattern`: how a new ResRef is made by the builder's
     /// code, or the team's prefix (none: [`DEFAULT_PATTERN`]).
     pub resref_pattern: Option<String>,
@@ -1057,6 +1071,17 @@ impl ProjectFile {
                         r.warn(at, "[resrefs] kinds: the pattern has no {kind} to put them in");
                     }
                 }
+                ("pack", false) => {
+                    for e in r.section(entry) {
+                        match e.0.get_ref().as_ref() {
+                            "compile_models" => match e.1.get_ref() {
+                                DeValue::Boolean(b) => self.pack.compile_models = *b,
+                                _ => r.warn(e.1.span().start, "compile_models is true or false"),
+                            },
+                            _ => r.unknown(section, e),
+                        }
+                    }
+                }
                 ("store", false) => {
                     let mut store = StoreRules::default();
                     for e in r.section(entry) {
@@ -1146,7 +1171,8 @@ impl ProjectFile {
                     crate::project_plugins::read_decided(self, &mut r, entry, own)
                 }
                 (
-                    "make_static" | "tags" | "store" | "resrefs" | "used" | "claims" | "commands",
+                    "make_static" | "tags" | "store" | "resrefs" | "used" | "claims" | "commands"
+                    | "pack",
                     true,
                 ) => r.warn(
                     key.span().start,
@@ -1555,6 +1581,21 @@ keeper_variable = "tdod_store"
         assert_eq!(store.tag.as_deref(), Some("{area}_STORE_{n}"));
         assert_eq!(store.blueprint, ResRef::from_str("tdod_vendor").ok());
         assert_eq!(store.keeper_variable.as_deref(), Some("tdod_store"));
+    }
+
+    /// `[pack] compile_models`: off unless said; a value not true or false
+    /// is said, and the builder's own file may not set it.
+    #[test]
+    fn pack_compiles_models_when_the_team_says() {
+        assert!(!read("").pack.compile_models);
+        assert!(read("[pack]\ncompile_models = true\n").pack.compile_models);
+        let wrong = read("[pack]\ncompile_models = \"yes\"\nfast = 1\n");
+        assert!(!wrong.pack.compile_models);
+        assert_eq!(wrong.warnings.len(), 2, "{:?}", wrong.warnings);
+        let mut own = ProjectFile::default();
+        own.apply(USER_FILE, "[pack]\ncompile_models = true\n", true);
+        assert!(!own.pack.compile_models);
+        assert!(own.warnings[0].contains("is the team's"), "{:?}", own.warnings);
     }
 
     /// The manual's example (Modules, the project file) reads whole.

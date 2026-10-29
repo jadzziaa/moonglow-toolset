@@ -1722,10 +1722,15 @@ fn model_file(cli: &Cli, cmd: &ModelCmd) -> Result<Output> {
                 mg_mdl::compile::compile_named_with(&data, &name, &models, &|_| None, &materials)
                     .map_err(|e| anyhow::anyhow!("{}: {e}", input.display()))?;
             std::fs::write(output, &compiled.binary)?;
-            let notes: Vec<serde_json::Value> = (compiled.notes.iter())
+            // (With the linter's notes on the text.)
+            let mut said = compiled.notes;
+            said.extend(mg_module::models::linter_notes(&String::from_utf8_lossy(&data)));
+            said.sort();
+            said.dedup();
+            let notes: Vec<serde_json::Value> = (said.iter())
                 .map(|(line, note)| serde_json::json!({ "line": line, "note": note }))
                 .collect();
-            for (line, note) in &compiled.notes {
+            for (line, note) in &said {
                 let at = if *line > 0 { format!("line {line}: ") } else { String::new() };
                 out.note(format!("{at}{note}"));
             }
@@ -3618,7 +3623,13 @@ fn run(cli: &Cli) -> Result<Output> {
                 }
                 bail!("{failed} of {} scripts failed to compile", results.len());
             }
-            let (path, bytes) = m.target_archive()?.context("not a nasher project")?;
+            // (The models kept as text compiled on the way in, where the
+            // project file's `[pack] compile_models` asks: each against its
+            // supermodel from the module, its haks or the game.)
+            let lookup =
+                |name: &str, t: ResType| rm.get_named(name, t).ok().map(|d| d.into_owned());
+            let (path, bytes, models) =
+                m.target_archive_with(&lookup)?.context("not a nasher project")?;
             let path = output.clone().unwrap_or(path);
             if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
                 std::fs::create_dir_all(dir)?;
@@ -3628,7 +3639,24 @@ fn run(cli: &Cli) -> Result<Output> {
                 0 => String::new(),
                 n => format!(" ({n} as they were when last compiled)"),
             };
-            out.json = json!({ "compiled": compile, "packed": path_text(&path) });
+            let made = models.iter().filter(|c| c.result.is_ok()).count();
+            for c in &models {
+                if let Err(why) = &c.result {
+                    out.note(format!("warning: {} goes in as text: {why}", c.model));
+                }
+            }
+            if !models.is_empty() {
+                out.note(format!("compiled {made} of {} models kept as text", models.len()));
+            }
+            out.json = json!({
+                "compiled": compile,
+                "packed": path_text(&path),
+                "models_compiled": made,
+                "models_left_as_text": models
+                    .iter()
+                    .filter_map(|c| Some(json!({ "model": c.model.to_string(), "why": c.result.as_ref().err()? })))
+                    .collect::<Vec<_>>(),
+            });
             out.note(format!(
                 "compiled {} of {} scripts{left}; packed {}",
                 results.len() - failed,

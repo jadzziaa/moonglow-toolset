@@ -90,6 +90,11 @@ pub struct Model {
     /// In pre-order; `nodes[0]` is the root.
     pub nodes: Vec<Node>,
     pub animations: Vec<Animation>,
+    /// The node count a compiled model's header holds: its nodes' part
+    /// numbers ([`Node::part`]) run below it, past its supermodel's
+    /// (`None` for a model read from text). With them, its
+    /// [`binary_write::PartNumbers::of`].
+    pub part_count: Option<u32>,
 }
 
 impl Model {
@@ -665,7 +670,7 @@ pub fn decompile_with(
         return Err(DecompileError::NotBinary);
     }
     let model = Model::read(data)?;
-    let order = match binary_write::PartNumbers::read(data) {
+    let order = match binary_write::PartNumbers::of(&model) {
         Some(parts) => ascii_write::file_order(&model, &parts.numbers),
         None => (0..model.nodes.len()).collect(),
     };

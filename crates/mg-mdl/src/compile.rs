@@ -35,7 +35,8 @@ pub enum CompileError {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Sources<'a> {
     /// Its supermodel and that one's part numbers
-    /// ([`PartNumbers::read`] of its compiled file, where it has one).
+    /// ([`PartNumbers::of`] a compiled one, [`PartNumbers::read`] of its
+    /// file).
     pub supermodel: Option<(&'a Model, &'a PartNumbers)>,
     /// The compiled model of its own name, where it was compiled before:
     /// its nodes keep the numbers they have there.
@@ -528,6 +529,13 @@ fn in_tree_order(model: &mut Model) -> Vec<usize> {
     order
 }
 
+/// A compiled model and its part numbers, read once.
+fn with_numbers(data: &[u8]) -> Option<(Model, PartNumbers)> {
+    let model = Model::read(data).ok()?;
+    let parts = PartNumbers::of(&model)?;
+    Some((model, parts))
+}
+
 /// A model by name as a compiler needs it: the model and its part numbers.
 /// A compiled one's are read from it; a text is compiled first (or, where
 /// that fails, numbered in its tree's order).
@@ -539,13 +547,13 @@ fn numbered(
     let data = lookup(name)?;
     if !crate::is_binary(&data) && depth < 16 {
         if let Ok(c) = compile_named_at(&data, name, lookup, &|_| None, None, depth + 1) {
-            return Some((Model::read(&c.binary).ok()?, PartNumbers::read(&c.binary)?));
+            return with_numbers(&c.binary);
         }
         let model = Model::read(&data).ok()?;
         let parts = binary::part_numbers(&model, None);
         return Some((model, parts));
     }
-    Some((Model::read(&data).ok()?, PartNumbers::read(&data)?))
+    with_numbers(&data)
 }
 
 fn compile_named_at(
@@ -563,9 +571,8 @@ fn compile_named_at(
         .supermodel
         .filter(|s| !s.eq_ignore_ascii_case(name))
         .and_then(|s| numbered(&s, lookup, depth));
-    let existing = compiled_before(name)
-        .filter(|d| crate::is_binary(d))
-        .and_then(|d| Some((Model::read(&d).ok()?, PartNumbers::read(&d)?)));
+    let existing =
+        compiled_before(name).filter(|d| crate::is_binary(d)).and_then(|d| with_numbers(&d));
     let sources = Sources {
         supermodel: supermodel.as_ref().map(|(m, p)| (m, p)),
         existing: existing.as_ref().map(|(m, p)| (m, p)),

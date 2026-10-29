@@ -582,6 +582,7 @@ pub fn read(data: &[u8]) -> Result<Model, MdlError> {
         classification: Classification::from_byte(b.u8(0x72)?),
         ignore_fog: b.u8(0x73)? == 0,
         animation_scale: b.f32(0xA4)?,
+        part_count: Some(b.u32(0x4C)?),
         ..Default::default()
     };
     let root = b.u32(0x48)? as usize;

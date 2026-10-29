@@ -536,13 +536,50 @@ impl Module {
     /// For a module in a nasher project, its target's file and contents as
     /// nasher packs them (filters and module name applied).
     pub fn target_archive(&self) -> Result<Option<(PathBuf, Vec<u8>)>, ModuleError> {
+        let packed = self.target_archive_from(None)?;
+        Ok(packed.map(|(path, bytes, _)| (path, bytes)))
+    }
+
+    /// [`Module::target_archive`], the models kept as text compiled on the
+    /// way in where the project file asks (`[pack] compile_models`): each
+    /// against its supermodel among the module's files, else from `lookup`
+    /// (its haks, the game), as [`models::compile_models`] compiles them;
+    /// one that can't be goes in as the text it is. With what became of
+    /// each (none where the project file doesn't ask).
+    #[allow(clippy::type_complexity)]
+    pub fn target_archive_with(
+        &self,
+        lookup: &(dyn Fn(&str, ResType) -> Option<Vec<u8>> + Sync),
+    ) -> Result<Option<(PathBuf, Vec<u8>, Vec<models::Compiled>)>, ModuleError> {
+        let compile = self.project_file.pack.compile_models.then_some(lookup);
+        self.target_archive_from(compile)
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn target_archive_from(
+        &self,
+        compile: Option<&(dyn Fn(&str, ResType) -> Option<Vec<u8>> + Sync)>,
+    ) -> Result<Option<(PathBuf, Vec<u8>, Vec<models::Compiled>)>, ModuleError> {
         let Some(project) = &self.project else { return Ok(None) };
         let mut w = ErfWriter::new(self.file_type);
         w.description = self.description.clone();
         let (year, day) = build_date();
         w.build_year = year;
         w.build_day = day;
-        let packed = project.packed(&self.resources)?;
+        let mut packed = project.packed(&self.resources)?;
+        let mut compiled = Vec::new();
+        if let Some(lookup) = compile {
+            let files: Vec<(ResKey, &[u8])> = (packed.iter())
+                .filter(|(k, _)| matches!(k.restype, ResType::MDL | ResType::MTR))
+                .map(|(k, v)| (*k, &v[..]))
+                .collect();
+            compiled = models::compile_models(&files, lookup);
+            for c in &compiled {
+                if let Ok((binary, _)) = &c.result {
+                    packed.insert(c.model, binary.clone().into());
+                }
+            }
+        }
         for (k, v) in &packed {
             w.add(k.resref, k.restype, &v[..]).map_err(|e| ModuleError::Archive {
                 path: project.target_path(),
@@ -553,7 +590,7 @@ impl Module {
             path: project.target_path(),
             message: e.to_string(),
         })?;
-        Ok(Some((project.target_path(), bytes)))
+        Ok(Some((project.target_path(), bytes, compiled)))
     }
 
     /// The module as archive bytes. The build date is today's (or

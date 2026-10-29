@@ -349,6 +349,16 @@ impl PartNumbers {
         let (numbers, count) = crate::binary::part_numbers(data)?;
         Some(PartNumbers { numbers, count })
     }
+
+    /// The numbers of a compiled model read already: its nodes' own
+    /// ([`crate::Node::part`]) and its header's count
+    /// ([`Model::part_count`]), as [`PartNumbers::read`] of its file
+    /// gives them, without reading the file again. `None` for a model read
+    /// from text, or made in code.
+    pub fn of(model: &Model) -> Option<PartNumbers> {
+        let numbers = model.nodes.iter().map(|n| n.part).collect::<Option<Vec<i32>>>()?;
+        Some(PartNumbers { numbers, count: model.part_count? })
+    }
 }
 
 /// A model's part numbers, as the compilers give them: its nodes in order,
@@ -1152,6 +1162,7 @@ doneanim wave m\ndonemodel m\n";
         let bare = |m: &Model| {
             let mut m = m.clone();
             // (Nor does a text hold part numbers: a binary's are read.)
+            m.part_count = None;
             for n in &mut m.nodes {
                 n.part = None;
                 if let NodeKind::Mesh(mesh) = &mut n.kind {
@@ -1257,6 +1268,20 @@ doneanim wave m\ndonemodel m\n";
         let parts = part_numbers(&model, None);
         let meshes: Vec<_> = map.meshes.iter().map(Option::as_ref).collect();
         assert_ne!(write(&model, &parts).unwrap(), write_from(&model, &parts, &meshes).unwrap());
+    }
+
+    /// A compiled model's numbers, as read with it, are its file's; a
+    /// model read from text has none.
+    #[test]
+    fn a_compiled_model_keeps_its_numbers() {
+        let model = Model::read(MODEL.as_bytes()).unwrap();
+        assert_eq!(PartNumbers::of(&model), None);
+        let parts = PartNumbers { numbers: vec![0, 7, 5, 9], count: 12 };
+        let bytes = write(&model, &parts).unwrap();
+        let back = Model::read(&bytes).unwrap();
+        assert_eq!(back.part_count, Some(12));
+        assert_eq!(PartNumbers::of(&back), PartNumbers::read(&bytes));
+        assert_eq!(PartNumbers::of(&back).unwrap().count, 12);
     }
 
     #[test]

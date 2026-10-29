@@ -4094,14 +4094,27 @@ impl Moonglow {
             self.log.error(e.to_string());
             return None;
         }
-        match ws.module.target_archive() {
-            Ok(Some((path, bytes))) => {
+        // (The models kept as text compiled on the way in, where the
+        // project file asks: `[pack] compile_models`.)
+        let game = self.game.as_deref();
+        let lookup = |name: &str, t: ResType| {
+            game.and_then(|g| g.resman.get_named(name, t).ok()).map(|d| d.into_owned())
+        };
+        match ws.module.target_archive_with(&lookup) {
+            Ok(Some((path, bytes, models))) => {
                 let written = path
                     .parent()
                     .map_or(Ok(()), std::fs::create_dir_all)
                     .and_then(|()| std::fs::write(&path, bytes));
                 match written {
                     Ok(()) => {
+                        let what = "the project";
+                        if !models.is_empty()
+                            && let Some(sorted) =
+                                model_view::CompiledModels::sort(&mut self.log, what, models)
+                        {
+                            sorted.say(&mut self.log);
+                        }
                         self.log.info(format!("Packed {}", path.display()));
                         Some(path)
                     }
