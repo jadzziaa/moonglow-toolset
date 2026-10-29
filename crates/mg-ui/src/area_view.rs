@@ -4139,9 +4139,11 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     {
         view.selection = vec![(o.kind, o.index)];
     }
-    // A right click on the start location's marker selects it, alone: its
-    // menu's Adjust Location is the start location's.
+    // A right click on the start location's marker, nothing else selected,
+    // selects it: its menu's Adjust Location is the start location's. (With
+    // objects selected the menu stays theirs.)
     if response.secondary_clicked()
+        && view.selection.is_empty()
         && let Some(pos) = response.interact_pointer_pos()
         && view.pick(pos).is_none()
         && start_on_ground(app, view).is_some_and(|s| view.start_grab(s, pos).is_some())

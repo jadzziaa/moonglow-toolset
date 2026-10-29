@@ -333,11 +333,11 @@ fn add_tuft(mesh: &mut Mesh, t: &Tuft) {
 /// that grass is drawn out to the end of what the view shows.
 pub const LEVELS: [(f32, f32); 4] = [(0.0, f32::INFINITY), (45.0, 10.0), (90.0, 5.0), (180.0, 2.5)];
 
-/// Grass thins towards each of [`LEVELS`] past the first over a stretch
-/// before it, this share of the level's distance (45 m's from 33.75 m),
-/// in [`FADE_STEPS`] steps: a level begun at once was a band where tufts
-/// were gone at a tile's edge, which a careful eye saw as the camera
-/// moved.
+/// Grass thins to each of [`LEVELS`] past the first over a stretch from
+/// its distance on, this share of it (45 m's to 56.25 m), in
+/// [`FADE_STEPS`] steps: a level begun at once was a band where tufts were
+/// gone at a tile's edge, which a careful eye saw as the camera moved.
+/// (Nearer than a level's distance grass is as dense as before it.)
 pub const FADE: f32 = 0.25;
 pub const FADE_STEPS: usize = 8;
 
@@ -347,19 +347,19 @@ pub const FADE_STEPS: usize = 8;
 pub const STEPS: usize = 1 + (LEVELS.len() - 1) * FADE_STEPS;
 
 /// Which of the [`STEPS`] levels grass this far from the eye is drawn at:
-/// 0 near, all of it; `k * FADE_STEPS` at and past [`LEVELS`]`[k]`, and
-/// the steps between over the stretch before it ([`FADE`]).
+/// 0 near, all of it; `k * FADE_STEPS` once past the stretch from
+/// [`LEVELS`]`[k]` ([`FADE`]), and the steps between over it.
 pub fn level(distance: f32) -> usize {
     for k in (1..LEVELS.len()).rev() {
         let from = LEVELS[k].0;
-        if distance >= from {
+        let end = from * (1.0 + FADE);
+        if distance >= end {
             return k * FADE_STEPS;
         }
-        let start = from * (1.0 - FADE);
-        if distance > start {
-            let along = (distance - start) / (from - start);
-            let step = ((along * FADE_STEPS as f32).ceil() as usize).clamp(1, FADE_STEPS);
-            return (k - 1) * FADE_STEPS + step;
+        if distance >= from {
+            let along = (distance - from) / (end - from);
+            let step = (along * FADE_STEPS as f32) as usize + 1;
+            return (k - 1) * FADE_STEPS + step.min(FADE_STEPS);
         }
     }
     0
@@ -622,19 +622,22 @@ mod tests {
         assert_eq!(d, [1.0 * keep, 50.0 * keep]);
     }
 
-    /// Grass thins over a stretch before each level, a step at a time,
+    /// Grass thins over a stretch from each level on, a step at a time,
     /// never thicker further off: dense grass (30 a square meter) past
     /// 45 m lost two thirds of its tufts at once.
     #[test]
-    fn grass_thins_over_a_stretch_before_each_level() {
-        assert_eq!(level(33.0), 0, "near: all of it");
-        assert_eq!(level(45.0), FADE_STEPS);
-        assert_eq!(level(90.0), 2 * FADE_STEPS);
+    fn grass_thins_over_a_stretch_from_each_level() {
+        assert_eq!(level(44.9), 0, "near: all of it, as before");
+        assert_eq!(level(45.0), 1, "the first step");
+        assert_eq!(level(56.25), FADE_STEPS);
+        assert_eq!(level(89.9), FADE_STEPS);
+        assert_eq!(level(112.5), 2 * FADE_STEPS);
+        assert_eq!(level(225.0), STEPS - 1);
         assert_eq!(level(1000.0), STEPS - 1);
-        // Between 33.75 and 45 m, every step, in order.
-        let steps: Vec<usize> = (0..=120).map(|d| level(33.0 + d as f32 / 10.0)).collect();
+        // Between 45 and 56.25 m, every step, in order.
+        let steps: Vec<usize> = (0..=120).map(|d| level(44.5 + d as f32 / 10.0)).collect();
         assert!(steps.windows(2).all(|w| w[1] >= w[0] && w[1] - w[0] <= 1), "{steps:?}");
-        assert_eq!(*steps.last().unwrap(), FADE_STEPS);
+        assert_eq!((steps[0], *steps.last().unwrap()), (0, FADE_STEPS));
         for density in [1.0, 5.0, 12.0, 30.0, 500.0] {
             let mut last = 1.0;
             for (k, s) in (0..STEPS).map(|k| (k, share(k, density))) {

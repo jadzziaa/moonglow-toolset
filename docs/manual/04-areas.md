@@ -76,9 +76,9 @@ dropdowns keep their words.
   Properties › Grass). It is drawn wherever the view shows grass ground,
   out to the far edge of the view, as dense as the game's near the
   camera and thinner further off, a little at a time rather than at a
-  line (dense grass, more than 10 tufts a square meter, from about 34 m
-  to 45 m and again further off; the tilesets' own from 135 m to
-  180 m). The game draws it within 30 m of its camera
+  line (dense grass, more than 10 tufts a square meter, from 45 m to
+  about 56 m and again further off; the tilesets' own from 180 m to
+  225 m). The game draws it within 30 m of its camera
   by default (its `Grass Render Distance` setting, up to about 170 m).
   From high above a field a tuft is a pixel or two, and the grass shows
   little. Switched off, in every area view; it stays as you leave it.
