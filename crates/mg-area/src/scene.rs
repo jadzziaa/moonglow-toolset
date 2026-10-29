@@ -186,7 +186,7 @@ impl Loaded {
             .collect();
         let found = anims.iter().zip(&at).filter_map(|((_, owner), i)| owner.animations.get((*i)?));
         let mut bindings = anim::Binding::all(model, found).into_iter();
-        let bound = at.iter().map(|i| Some((((*i)?), bindings.next()?))).collect();
+        let bound = at.iter().map(|i| Some(((*i)?, bindings.next()?))).collect();
         let tile =
             TILE_ANIMATIONS.map(|t| anims.iter().position(|(n, _)| n.eq_ignore_ascii_case(t)));
         let sources = [1, 2].map(|slot| {
