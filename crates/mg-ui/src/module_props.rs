@@ -3,98 +3,31 @@
 //! command.
 
 use egui::Ui;
-use mg_core::{LocString, ResRef, ResType};
+use mg_core::ResRef;
 use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{Struct, Value};
 use mg_resman::{GameInstall, ResKey};
 use mg_schema::{ExoString, Field, GffValue, StructExt, ifo};
 
-use crate::text::{decode, encode, with_english};
-use crate::widgets::{FieldTarget, LocStringEdit, VarTableEdit, resref_field, variables_button};
+use crate::blueprint::Form;
+use crate::text::{decode, encode};
 use crate::{Action, Moonglow};
 
 pub(crate) fn info_key() -> ResKey {
     mg_module::Module::info_key()
 }
 
-fn target(label: &str) -> FieldTarget {
-    FieldTarget::new(info_key(), GffPath::root(), label)
-}
-
 /// A command setting one module-info field.
 fn set<T: GffValue>(label: &str, f: &Field<T>, v: T) -> Action {
-    set_value(label, f.label, v.into_value())
-}
-
-fn set_value(what: &str, label: &str, value: Value) -> Action {
     Action::Apply(Command::new(
-        what,
+        label,
         vec![Edit::SetField {
             key: info_key(),
             path: GffPath::root(),
-            label: label.to_string(),
-            value: Some(value),
+            label: f.label.to_string(),
+            value: Some(v.into_value()),
         }],
     ))
-}
-
-/// A one-line text field that commits when focus leaves it.
-fn text_field(app: &mut Moonglow, ui: &mut Ui, id: &str, current: &str) -> Option<String> {
-    edit_field(app, ui, id, current, false, false)
-}
-
-/// [`edit_field`] for a localized string: its text in the language
-/// edited, else what [`crate::widgets::loc_shown`] finds, marked as not
-/// its own.
-fn loc_field(
-    app: &mut Moonglow,
-    ui: &mut Ui,
-    id: &str,
-    ls: &LocString,
-    multiline: bool,
-) -> Option<String> {
-    match crate::widgets::loc_shown(app, ls) {
-        (shown, None) => edit_field(app, ui, id, &shown, multiline, true),
-        (shown, Some((from, why))) => crate::widgets::borrowed_field(ui, &from, why, |ui| {
-            edit_field(app, ui, id, &shown, multiline, true)
-        }),
-    }
-}
-
-/// A text field (one line or several) that commits when focus leaves it.
-/// Multi-line text keeps the line-end style it had (CRLF or LF); a line
-/// typed into a text of one line gets a localized string's (`loc`: plain,
-/// as Aurora writes) or a `CExoString`'s (CRLF).
-fn edit_field(
-    app: &mut Moonglow,
-    ui: &mut Ui,
-    id: &str,
-    current: &str,
-    multiline: bool,
-    loc: bool,
-) -> Option<String> {
-    let id = egui::Id::new(("ifo", id));
-    let (rows, width) = if multiline { (Some(12), f32::INFINITY) } else { (None, 320.0) };
-    let buffers = &mut app.buffers;
-    match loc {
-        true => crate::widgets::commit_loc_text_in(buffers, ui, id, current, rows, width, None),
-        false => crate::widgets::commit_text_in(buffers, ui, id, current, rows, width, None),
-    }
-}
-
-/// A number with a range and Aurora's arrows, committed when it changes (a
-/// drag: when released; an arrow held: when let go).
-fn number<T: egui::emath::Numeric + GffValue>(
-    app: &mut Moonglow,
-    ui: &mut Ui,
-    what: &str,
-    f: &Field<T>,
-    current: T,
-    range: std::ops::RangeInclusive<T>,
-) {
-    if let Some(v) = crate::widgets::spin_number(ui, current, range) {
-        app.actions.push(set(what, f, v));
-    }
 }
 
 /// The dialog's tabs.
@@ -172,80 +105,67 @@ fn pages(app: &mut Moonglow, ui: &mut Ui) {
         }
     });
     ui.separator();
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match app.module_page {
-        Page::Basic => basic(app, ui, &root),
-        Page::Events => events(app, ui, &root),
-        Page::Advanced => advanced(app, ui, &root),
-        Page::Description => description(app, ui, &root),
-        Page::CustomContent => custom_content(app, ui, &root),
+    let page = app.module_page;
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        // (The module's fields as a blueprint's are: `blueprint::Form`'s,
+        // their typing kept, a tag of 32 characters, a slider's drag one
+        // change.)
+        if page == Page::CustomContent {
+            return custom_content(app, ui, &root);
+        }
+        let key = info_key();
+        let mut f = Form { app, key, path: GffPath::root(), also: Vec::new(), root };
+        match page {
+            Page::Basic => basic(&mut f, ui),
+            Page::Events => events(&mut f, ui),
+            Page::Advanced => advanced(&mut f, ui),
+            Page::Description => f.locstring_memo(ui, "Description", ifo::MOD_DESCRIPTION.label),
+            Page::CustomContent => {}
+        }
     });
 }
 
-fn basic(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
+fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     egui::Grid::new("ifo-basic").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         crate::widgets::field_label(ui, "Name");
-        let name: LocString = root.read(&ifo::MOD_NAME);
-        ui.horizontal(|ui| {
-            if let Some(v) = loc_field(app, ui, "name", &name, false) {
-                app.actions.push(set(
-                    "Module name",
-                    &ifo::MOD_NAME,
-                    with_english(name.clone(), &v),
-                ));
-            }
-            if ui.small_button("…").on_hover_text("Edit text in multiple languages").clicked() {
-                app.loc_edit =
-                    Some(LocStringEdit::new(target(ifo::MOD_NAME.label), "Module name", &name));
-            }
-        });
+        f.locstring(ui, "Module name", ifo::MOD_NAME.label);
         ui.end_row();
 
         crate::widgets::field_label(ui, "Tag");
-        let tag = decode(root.read(&ifo::MOD_TAG).as_bytes());
-        if let Some(v) = text_field(app, ui, "tag", &tag) {
-            app.actions.push(set("Module tag", &ifo::MOD_TAG, ExoString(encode(&v))));
-        }
+        f.tag(ui, "Module tag", ifo::MOD_TAG.label);
         ui.end_row();
 
         // Set by placing the start location in an area, as in Aurora.
         crate::widgets::field_label(ui, "Start area");
-        ui.label(root.read(&ifo::MOD_ENTRY_AREA).to_string());
+        ui.label(f.root.read(&ifo::MOD_ENTRY_AREA).to_string());
         ui.end_row();
         crate::widgets::field_label(ui, "Start location");
         ui.label(format!(
             "{:.2}, {:.2}, {:.2}",
-            root.read(&ifo::MOD_ENTRY_X),
-            root.read(&ifo::MOD_ENTRY_Y),
-            root.read(&ifo::MOD_ENTRY_Z)
+            f.root.read(&ifo::MOD_ENTRY_X),
+            f.root.read(&ifo::MOD_ENTRY_Y),
+            f.root.read(&ifo::MOD_ENTRY_Z)
         ));
         ui.end_row();
     });
 }
 
-fn events(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
-    egui::Grid::new("ifo-events").num_columns(3).spacing([12.0, 4.0]).show(ui, |ui| {
+fn events(f: &mut Form<'_>, ui: &mut Ui) {
+    egui::Grid::new("ifo-events").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
         for (label, field) in EVENTS {
-            let current = root.resref(field).unwrap_or(ResRef::EMPTY);
-            if field == "Mod_OnModStart" && current.is_empty() {
+            if field == "Mod_OnModStart" && f.root.resref(field).is_none_or(|r| r.is_empty()) {
                 continue;
             }
             crate::widgets::field_label(ui, label);
-            let id = egui::Id::new(("ifo-event", field));
-            let types = [ResType::NSS, ResType::NCS];
-            if let Some(v) = resref_field(app, ui, id, current, "Select a script", &types) {
-                app.actions.push(set_value(&format!("{label} script"), field, Value::resref(v)));
-            }
-            if let Some(name) = crate::widgets::edit_script_button(app, ui, id, current) {
-                app.actions.push(Action::EditScript { name, condition: false });
-            }
+            f.script(ui, label, field);
             ui.end_row();
         }
     });
 }
 
-fn advanced(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
+fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
     egui::Grid::new("ifo-advanced").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        let rows: [(&str, &Field<u8>, std::ops::RangeInclusive<u8>); 6] = [
+        let rows: [(&str, &Field<u8>, std::ops::RangeInclusive<i64>); 6] = [
             ("Starting month", &ifo::MOD_START_MONTH, 1..=12),
             ("Starting day", &ifo::MOD_START_DAY, 1..=31),
             ("Starting hour", &ifo::MOD_START_HOUR, 0..=23),
@@ -253,36 +173,25 @@ fn advanced(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
             ("Dawn start hour", &ifo::MOD_DAWN_HOUR, 0..=23),
             ("Dusk start hour", &ifo::MOD_DUSK_HOUR, 0..=23),
         ];
-        for (label, f, range) in rows {
+        for (label, field, range) in rows {
             crate::widgets::field_label(ui, label);
-            number(app, ui, label, f, root.read(f), range);
+            f.spin(ui, label, field.label, range);
             ui.end_row();
         }
         crate::widgets::field_label(ui, "Starting year");
-        number(
-            app,
-            ui,
-            "Starting year",
-            &ifo::MOD_START_YEAR,
-            root.read(&ifo::MOD_START_YEAR),
-            0..=30000,
-        );
+        f.spin(ui, "Starting year", ifo::MOD_START_YEAR.label, 0..=30000);
         ui.end_row();
 
         crate::widgets::field_label(ui, "XP scale");
-        let mut xp = root.read(&ifo::MOD_XP_SCALE);
-        let r = ui.add(egui::Slider::new(&mut xp, 0..=200).clamping(egui::SliderClamping::Edits));
-        if r.drag_stopped() || (r.changed() && !r.dragged()) {
-            app.actions.push(set("Experience scale", &ifo::MOD_XP_SCALE, xp));
-        }
+        f.slider(ui, "Experience scale", ifo::MOD_XP_SCALE.label, 0..=200);
         ui.end_row();
 
         crate::widgets::field_label(ui, "Starting movie");
-        let movie = root.read(&ifo::MOD_START_MOVIE);
+        let movie = f.root.read(&ifo::MOD_START_MOVIE);
         let shown = if movie.is_empty() { "(none)".to_string() } else { movie.to_string() };
         // (Read only while the list is used: open, or with the keys.)
         let movies = || {
-            let names = (app.install.as_ref())
+            let names = (f.app.install.as_ref())
                 .map(|i| GameInstall::file_names(&i.movie_dirs(), "bik"))
                 .unwrap_or_default();
             let movies = names.iter().filter_map(|m| ResRef::from_str(m).ok());
@@ -301,32 +210,14 @@ fn advanced(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
             },
         );
         if pick != movie {
-            app.actions.push(set("Starting movie", &ifo::MOD_START_MOVIE, pick));
+            f.app.actions.push(set("Starting movie", &ifo::MOD_START_MOVIE, pick));
         }
         ui.end_row();
 
         crate::widgets::field_label(ui, "Variables");
-        let list = root.items(&ifo::VAR_TABLE);
-        if variables_button(ui, list.len()) {
-            app.var_edit = Some(VarTableEdit::new(target(ifo::VAR_TABLE.label), list));
-        }
+        f.variables(ui);
         ui.end_row();
     });
-}
-
-fn description(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
-    let desc: LocString = root.read(&ifo::MOD_DESCRIPTION);
-    ui.horizontal(|ui| {
-        let language = crate::text::edit_language().name().unwrap_or("?");
-        crate::widgets::field_label(ui, format!("Description ({language})"));
-        if ui.small_button("…").on_hover_text("Edit text in multiple languages").clicked() {
-            let t = target(ifo::MOD_DESCRIPTION.label);
-            app.loc_edit = Some(LocStringEdit::new(t, "Module description", &desc));
-        }
-    });
-    if let Some(v) = loc_field(app, ui, "desc", &desc, true) {
-        app.actions.push(set("Module description", &ifo::MOD_DESCRIPTION, with_english(desc, &v)));
-    }
 }
 
 /// The hak list of Module Properties › Custom Content: the rows chosen,

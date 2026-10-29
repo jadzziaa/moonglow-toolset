@@ -194,7 +194,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
             ui.end_row();
         }
         crate::widgets::field_label(ui, "Tag");
-        f.text(ui, "Tag", "Tag", 32);
+        f.tag(ui, "Tag", "Tag");
         ui.end_row();
         crate::widgets::field_label(ui, "Race");
         f.choice(ui, "Race", "Race", &races, FieldType::Byte);

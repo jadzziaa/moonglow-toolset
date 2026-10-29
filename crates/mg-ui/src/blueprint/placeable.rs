@@ -72,7 +72,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         f.locstring(ui, "Name", "LocName");
         ui.end_row();
         crate::widgets::field_label(ui, "Tag");
-        f.text(ui, "Tag", "Tag", 32);
+        f.tag(ui, "Tag", "Tag");
         ui.end_row();
         crate::widgets::field_label(ui, "Appearance Type");
         ui.horizontal(|ui| {

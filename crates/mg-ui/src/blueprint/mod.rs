@@ -853,6 +853,12 @@ impl Form<'_> {
         self.hold_text(ui, what, label, &current, false, |text| Value::String(encode(&text)));
     }
 
+    /// A tag: a [`text`](Self::text) of at most the 32 characters the
+    /// game keeps (`mg_module::tags::MAX_TAG`), as every tag field is.
+    pub(crate) fn tag(&mut self, ui: &mut Ui, what: &str, label: &str) {
+        self.text(ui, what, label, mg_module::tags::MAX_TAG);
+    }
+
     /// A multi-line text field (`CExoString`), line ends kept.
     pub(crate) fn memo(&mut self, ui: &mut Ui, what: &str, label: &str) {
         self.mark_mixed(ui, label);
@@ -877,7 +883,7 @@ impl Form<'_> {
             self.hold_text(ui, what, label, &shown, true, move |text| {
                 Value::LocString(with_english(held.clone(), &text))
             });
-            if ui.small_button("…").on_hover_text("Edit text in multiple languages").clicked() {
+            if crate::widgets::languages_button(ui) {
                 self.app.loc_edit = Some(LocStringEdit::new(self.target(label), what, &current));
             }
         });
@@ -889,7 +895,7 @@ impl Form<'_> {
         ui.horizontal(|ui| {
             let language = crate::text::edit_language().name().unwrap_or("?");
             crate::widgets::field_label(ui, format!("{what} ({language})"));
-            if ui.small_button("…").on_hover_text("Edit text in multiple languages").clicked() {
+            if crate::widgets::languages_button(ui) {
                 self.app.loc_edit = Some(LocStringEdit::new(self.target(label), what, &current));
             }
         });

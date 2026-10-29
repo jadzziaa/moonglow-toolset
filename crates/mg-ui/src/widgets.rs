@@ -1575,6 +1575,12 @@ pub(crate) fn loc_text(
     }
 }
 
+/// The "…" beside a localized string's text, which opens String Edit for
+/// its text in every language: whether it was clicked.
+pub(crate) fn languages_button(ui: &mut Ui) -> bool {
+    ui.small_button("…").on_hover_text("Edit text in multiple languages").clicked()
+}
+
 /// `current` (a text field's value, the field `id`) with `token` put
 /// where the field's caret was last, in place of what was selected: at
 /// the end if the caret was never in it. The caret is left after the

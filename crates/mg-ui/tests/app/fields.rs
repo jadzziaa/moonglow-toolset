@@ -788,6 +788,114 @@ fn a_faction_s_removal_cancelled_numbers_its_objects_back() {
     );
 }
 
+/// Module Properties' and the journal's fields are a blueprint's
+/// (`blueprint::Form`): the module's tag and a category's take 32
+/// characters as typed; the XP slider dragged back to where it began
+/// changes nothing (it added an empty step); the module's tag typed and
+/// its page gone with the field holding the keyboard is set, and
+/// Cancel sets it back.
+#[test]
+fn module_properties_and_the_journal_fields_are_a_form_s() {
+    let dir = mg_testkit::scratch_dir("ui-ifo-form");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = harness(app, 1200.0, 900.0);
+    h.run_steps(3);
+    let info = ResKey::parse("module", ResType::IFO).unwrap();
+    let root = |h: &mut Harness<'_, Moonglow>| {
+        h.state_mut().ws.as_mut().unwrap().doc(&info).unwrap().root.clone()
+    };
+    let tag = |h: &mut Harness<'_, Moonglow>| {
+        String::from_utf8_lossy(root(h).string("Mod_Tag").unwrap_or_default()).into_owned()
+    };
+    // (The field on the row of the label "Tag": the module's name may
+    // read the same.)
+    let click_field = |h: &mut Harness<'_, Moonglow>, value: &str| {
+        let row = h.get_all_by_label("Tag").last().unwrap().rect().center().y;
+        let is = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+            n.role() == egui::accesskit::Role::TextInput && n.value().as_deref() == Some(value)
+        };
+        let at = (h.query_all(egui_kittest::kittest::by().predicate(is)))
+            .map(|n| n.rect().center())
+            .find(|c| (c.y - row).abs() < 8.0)
+            .expect("the tag's field");
+        h.hover_at(at);
+        press(h, at, true, egui::Modifiers::NONE);
+        press(h, at, false, egui::Modifiers::NONE);
+        h.run_steps(2);
+        h.key_press(egui::Key::End);
+    };
+    // The tag: 32 characters at most, as typed.
+    click_field(&mut h, "SAMPLE");
+    h.event(egui::Event::Text("_".repeat(40)));
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert_eq!(tag(&mut h).chars().count(), 32, "{}", tag(&mut h));
+    // Typed, and its page gone with the field holding the keyboard: set,
+    // and set back by Cancel with the rest.
+    let long = tag(&mut h);
+    click_field(&mut h, &long);
+    h.key_press(egui::Key::Home);
+    h.key_press(egui::Key::Delete);
+    h.run_steps(2);
+    h.state_mut().module_page = mg_ui::module_props::Page::Description;
+    h.run_steps(3);
+    assert_eq!(tag(&mut h).chars().count(), 31, "set as the field went");
+    h.get_by_label("Cancel").click();
+    h.run_steps(4);
+    assert_eq!(tag(&mut h), "SAMPLE", "set back");
+
+    // The XP slider dragged away and back: no change, no step. (First
+    // set by a press where the drag is to begin and end: the value there.)
+    h.state_mut().module_page = mg_ui::module_props::Page::Advanced;
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::ModuleProperties));
+    h.run_steps(4);
+    let steps =
+        |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(str::to_owned);
+    let slider = h.get_by_role(egui::accesskit::Role::Slider).rect();
+    let along = |x: f32| egui::pos2(slider.left() + slider.width() * x, slider.center().y);
+    let at = along(0.3);
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let before = (steps(&h), root(&mut h).integer("Mod_XPScale"));
+    assert_eq!(before.0.as_deref(), Some("Experience scale"), "set by the press");
+    press(&h, at, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    for x in [0.5, 0.9, 0.3] {
+        h.hover_at(along(x));
+        h.run_steps(1);
+    }
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    assert_eq!(root(&mut h).integer("Mod_XPScale"), before.1, "where it began");
+    assert_eq!(steps(&h), before.0);
+    h.state_mut().ws.as_mut().unwrap().undo().unwrap();
+    assert_ne!(root(&mut h).integer("Mod_XPScale"), before.1, "one Undo takes the press back");
+
+    // A journal category's tag: 32 characters too.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Journal));
+    h.run_steps(4);
+    h.get_by_label("Add").click();
+    h.run_steps(4);
+    let jrl = ResKey::parse("module", ResType::JRL).unwrap();
+    let cat_tag = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let cats = ws.doc(&jrl).unwrap().root.list("Categories").unwrap_or(&[]).to_vec();
+        String::from_utf8_lossy(cats[0].string("Tag").unwrap_or_default()).into_owned()
+    };
+    let was = cat_tag(&mut h);
+    click_field(&mut h, &was);
+    h.event(egui::Event::Text("x".repeat(40)));
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert_eq!(cat_tag(&mut h).chars().count(), 32, "{}", cat_tag(&mut h));
+}
+
 /// The editors of files saved when asked have OK and Cancel as the 2DA
 /// editor's: OK saves and closes; Cancel asks about what is unsaved and,
 /// with Don't Save, closes with it dropped. A script (its text into the

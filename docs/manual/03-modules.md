@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, merging in git (mg merge-gff as the merge driver), the project file (moonglow.toml), your builder code, described variables (variables.toml), claimed and protected areas (the claims table), the project's commands (File › Project, update and submit), recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T20:06:45Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T21:20:00Z }
 ---
 
 # Modules
@@ -1110,8 +1110,9 @@ it had), then save it where you want. As in Aurora, open conversations are also 
 **Edit › Module Properties** (or the top of the module tree), with
 Aurora's pages:
 
-- **Basic**: name, tag, and the start area and location (the start
-  location marker in the area viewer moves it).
+- **Basic**: name, tag (up to 32 characters, as every tag), and the
+  start area and location (the start location marker in the area viewer
+  moves it).
 - **Events**: the module's event scripts, each with Edit to open it.
 - **Advanced**: the starting date and hour, minutes per hour, dawn and
   dusk hours, the experience scale, the starting movie, Variables.
@@ -1123,7 +1124,9 @@ Aurora's pages:
 Text fields players see (names, descriptions) are localized strings. The
 field shows the language chosen in Options › Language. The **…** button
 opens **String Edit**, where each language and gender has its own text, or
-a talk-table reference.
+a talk-table reference. The fields work as a blueprint's do (what is typed
+is kept when the page is left, by the pointer or a key), and so do the
+journal's.
 
 ## Haks and custom talk tables
 

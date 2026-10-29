@@ -1799,7 +1799,7 @@ fn text_panel(
     let ls = n.locstring("Text").cloned().unwrap_or_default();
     ui.horizontal(|ui| {
         ui.label("Text");
-        if ui.small_button("…").on_hover_text("Edit text in multiple languages").clicked() {
+        if crate::widgets::languages_button(ui) {
             app.loc_edit = Some(LocStringEdit::new(
                 FieldTarget::new(key, path.clone(), "Text"),
                 "Line text",

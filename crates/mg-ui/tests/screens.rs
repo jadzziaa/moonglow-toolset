@@ -7720,6 +7720,56 @@ fn dialog_windows() {
     shoot(&mut h, &dir, "attach");
 }
 
+/// Module Properties' pages and the journal's category and entry, their
+/// fields a blueprint's (`target/test-output/screens-module-form/`).
+#[test]
+#[ignore]
+fn module_properties_and_journal_fields() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens-module-form");
+    let scratch = mg_testkit::scratch_dir("screens-module-form-module");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Tag", mg_gff::Value::String(b"MODULE".to_vec()));
+    info.root.set("Mod_XPScale", mg_gff::Value::Byte(10));
+    let name =
+        mg_core::LocString::from_text(mg_core::Language::ENGLISH, mg_core::Gender::Male, "Forms");
+    info.root.set("Mod_Name", mg_gff::Value::LocString(name));
+    m.set_info(&info).unwrap();
+    let path = scratch.join("f.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let install = GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    use mg_ui::module_props::Page;
+    for (page, name) in [
+        (Page::Basic, "basic"),
+        (Page::Events, "events"),
+        (Page::Advanced, "advanced"),
+        (Page::Description, "description"),
+    ] {
+        h.state_mut().module_page = page;
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::ModuleProperties));
+        shoot(&mut h, &dir, &format!("module-{name}"));
+    }
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(mg_ui::Tab::ModuleProperties));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Journal));
+    h.run_steps(4);
+    h.get_by_label("Add").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "journal-category");
+    h.get_by_label("Add").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "journal-entry");
+}
+
 /// The editors of files saved when asked, and the raw fields view, each
 /// in its window (`target/test-output/screens-editors/`): OK and Cancel
 /// at their foot, as the other editors have; Close for a talk table

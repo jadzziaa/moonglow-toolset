@@ -2111,12 +2111,6 @@ of truth, and does each caller's difference matter.
   `Struct::walk_fields` (`rename.rs:192`, `:209`, `text.rs:207`,
   `doctor.rs:1250`). `GffPath` into mg-gff, carried by `Reference`,
   `Usage` and `Hit`. (L, mechanical)
-- **Module Properties and the journal redo `Form` by hand**
-  (`module_props.rs`, `journal_view.rs:296`): a tag's 32 characters held
-  three ways (the module's not at all), the module's XP slider adds an
-  empty undo step when a drag ends where it began, neither keeps typing
-  as `hold_text` does; the "…" button for every language seven times.
-  (M)
 - **The game data for a module, three times in `mg`**
   (`search.rs:98`, `plugins.rs:34`, `main.rs:2671`, with the custom
   talk table found three more ways: `main.rs:2713`, `nwsync.rs:122`,

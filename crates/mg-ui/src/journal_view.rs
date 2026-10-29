@@ -8,10 +8,10 @@ use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{Struct, Value};
 use mg_module::journal::{PRIORITIES, entries, list_value, new_category, new_entry, new_journal};
 use mg_resman::ResKey;
-use mg_schema::{ExoString, GffValue, StructExt, jrl};
+use mg_schema::{StructExt, jrl};
 
-use crate::text::{decode, encode, with_english};
-use crate::widgets::{FieldTarget, LocStringEdit, commit_number, commit_text};
+use crate::blueprint::Form;
+use crate::text::decode;
 use crate::{Action, Moonglow};
 
 /// What is selected: a category, or an entry of one.
@@ -65,13 +65,6 @@ fn set_entries(what: &str, category: usize, list: Vec<Struct>) -> Action {
             label: jrl::categories::ENTRY_LIST.label.to_string(),
             value: Some(list_value(list)),
         }],
-    ))
-}
-
-fn set_field(what: &str, path: GffPath, label: &str, value: Value) -> Action {
-    Action::Apply(Command::new(
-        what,
-        vec![Edit::SetField { key: key(), path, label: label.to_string(), value: Some(value) }],
     ))
 }
 
@@ -199,10 +192,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) {
         ui.set_min_height(ui.max_rect().height());
         // A node added this frame appears once the command has run.
         match view.selected.filter(valid) {
-            Some(Node::Category(c)) => category_fields(app, ui, c, &cats[c], &mut actions),
-            Some(Node::Entry(c, e)) => {
-                entry_fields(app, ui, c, e, &entries(&cats[c])[e], &mut actions)
-            }
+            Some(Node::Category(c)) => category_fields(app, ui, c, &cats[c]),
+            Some(Node::Entry(c, e)) => entry_fields(app, ui, c, e, &entries(&cats[c])[e]),
             None => {
                 ui.weak(
                     "Select a category or an entry. Add with nothing selected adds a category.",
@@ -287,58 +278,22 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) {
     app.actions.extend(actions);
 }
 
-fn category_fields(
-    app: &mut Moonglow,
-    ui: &mut Ui,
-    c: usize,
-    cat: &Struct,
-    actions: &mut Vec<Action>,
-) {
+fn category_fields(app: &mut Moonglow, ui: &mut Ui, c: usize, cat: &Struct) {
     use jrl::categories as f;
     let path = GffPath::root().item(jrl::CATEGORIES.label, c);
-    let id = |name: &str| egui::Id::new(("jrl-cat", c, name.to_string()));
+    // (A category's fields as a blueprint's are: `blueprint::Form`'s, their
+    // typing kept, its tag of 32 characters.)
+    let mut form = Form { app, key: key(), path, also: Vec::new(), root: cat.clone() };
     crate::widgets::two_columns(ui, 300.0, |ui, col| {
         if col == 0 {
             egui::Grid::new(("jrl-cat-grid", c)).num_columns(2).spacing([10.0, 6.0]).show(
                 ui,
                 |ui| {
                     crate::widgets::field_label(ui, "Name");
-                    let name = cat.read(&f::NAME);
-                    ui.horizontal(|ui| {
-                        if let Some(v) =
-                            crate::widgets::loc_text(app, ui, id("name"), &name, false, 200.0)
-                        {
-                            actions.push(set_field(
-                                "Category name",
-                                path.clone(),
-                                f::NAME.label,
-                                with_english(name.clone(), &v).into_value(),
-                            ));
-                        }
-                        if ui
-                            .small_button("…")
-                            .on_hover_text("Edit text in multiple languages")
-                            .clicked()
-                        {
-                            app.loc_edit = Some(LocStringEdit::new(
-                                FieldTarget::new(key(), path.clone(), f::NAME.label),
-                                "Category name",
-                                &name,
-                            ));
-                        }
-                    });
+                    form.locstring(ui, "Category name", f::NAME.label);
                     ui.end_row();
                     crate::widgets::field_label(ui, "Tag");
-                    let tag = decode(cat.read(&f::TAG).as_bytes());
-                    if let Some(v) = commit_text(app, ui, id("tag"), &tag, false, 200.0) {
-                        let v: String = v.chars().take(32).collect();
-                        actions.push(set_field(
-                            "Category tag",
-                            path.clone(),
-                            f::TAG.label,
-                            ExoString(encode(&v)).into_value(),
-                        ));
-                    }
+                    form.tag(ui, "Category tag", f::TAG.label);
                     ui.end_row();
                     crate::widgets::field_label(ui, "Priority");
                     let prio = cat.read(&f::PRIORITY);
@@ -348,101 +303,40 @@ fn category_fields(
                         .selected_text(PRIORITIES.get(prio as usize).copied().unwrap_or("?"))
                         .show(ui, &mut pick, &all, |p| PRIORITIES[*p as usize]);
                     if pick != prio {
-                        actions.push(set_field(
-                            "Category priority",
-                            path.clone(),
-                            f::PRIORITY.label,
-                            Value::Dword(pick),
-                        ));
+                        form.set("Category priority", f::PRIORITY.label, Value::Dword(pick));
                     }
                     ui.end_row();
                     crate::widgets::field_label(ui, "XP");
-                    if let Some(v) = commit_number(ui, cat.read(&f::XP), 0..=u32::MAX) {
-                        actions.push(set_field(
-                            "Category XP",
-                            path.clone(),
-                            f::XP.label,
-                            Value::Dword(v),
-                        ));
-                    }
+                    form.number(ui, "Category XP", f::XP.label, 0..=i64::from(u32::MAX));
                     ui.end_row();
                 },
             );
         } else {
             crate::widgets::field_label(ui, "Comments");
-            let comment = decode(cat.read(&f::COMMENT).as_bytes());
-            if let Some(v) = commit_text(app, ui, id("comment"), &comment, true, f32::INFINITY) {
-                actions.push(set_field(
-                    "Category comments",
-                    path.clone(),
-                    f::COMMENT.label,
-                    ExoString(encode(&v)).into_value(),
-                ));
-            }
+            form.memo(ui, "Category comments", f::COMMENT.label);
         }
     });
 }
 
-fn entry_fields(
-    app: &mut Moonglow,
-    ui: &mut Ui,
-    c: usize,
-    e: usize,
-    entry: &Struct,
-    actions: &mut Vec<Action>,
-) {
+fn entry_fields(app: &mut Moonglow, ui: &mut Ui, c: usize, e: usize, entry: &Struct) {
     use jrl::categories::entry_list as f;
     let path =
         GffPath::root().item(jrl::CATEGORIES.label, c).item(jrl::categories::ENTRY_LIST.label, e);
+    let mut form = Form { app, key: key(), path, also: Vec::new(), root: entry.clone() };
     crate::widgets::two_columns(ui, 300.0, |ui, col| {
         if col == 0 {
             egui::Grid::new(("jrl-entry-grid", c, e)).num_columns(2).spacing([10.0, 6.0]).show(
                 ui,
                 |ui| {
                     crate::widgets::field_label(ui, "ID");
-                    if let Some(v) = commit_number(ui, entry.read(&f::ID), 0..=u32::MAX) {
-                        actions.push(set_field(
-                            "Entry ID",
-                            path.clone(),
-                            f::ID.label,
-                            Value::Dword(v),
-                        ));
-                    }
+                    form.number(ui, "Entry ID", f::ID.label, 0..=i64::from(u32::MAX));
                     ui.end_row();
-                    let mut end = entry.read(&f::END) != 0;
-                    if ui.checkbox(&mut end, "Finish Category").changed() {
-                        actions.push(set_field(
-                            "Entry finishes the category",
-                            path.clone(),
-                            f::END.label,
-                            Value::Word(u16::from(end)),
-                        ));
-                    }
+                    form.check(ui, "Finish Category", f::END.label);
                     ui.end_row();
                 },
             );
         } else {
-            let text = entry.read(&f::TEXT);
-            ui.horizontal(|ui| {
-                crate::widgets::field_label(ui, "Text");
-                if ui.small_button("…").on_hover_text("Edit text in multiple languages").clicked()
-                {
-                    app.loc_edit = Some(LocStringEdit::new(
-                        FieldTarget::new(key(), path.clone(), f::TEXT.label),
-                        "Entry text",
-                        &text,
-                    ));
-                }
-            });
-            let id = egui::Id::new(("jrl-entry-text", c, e));
-            if let Some(v) = crate::widgets::loc_text(app, ui, id, &text, true, f32::INFINITY) {
-                actions.push(set_field(
-                    "Entry text",
-                    path.clone(),
-                    f::TEXT.label,
-                    with_english(text.clone(), &v).into_value(),
-                ));
-            }
+            form.locstring_memo(ui, "Text", f::TEXT.label);
         }
     });
 }
