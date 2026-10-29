@@ -1097,14 +1097,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   turns the selection with Shift + right drag; and some desktops take
   Alt + drag to move the window. Not in Options › Keyboard. (S)
   (from builders' reports after 1.10.1)
-- **Placing onto a placeable as it is placed:** Drop onto Object
-  (Shift+G) sets an object on the placeable below it after it is placed;
-  the see-through copy that follows the pointer still lies on the ground
-  (the walkmesh), under a table or an altar. Shift, Ctrl and Alt are each
-  taken while placing (place another, the camera, a rectangle), and on by
-  default every drop in a forest would land in a canopy: it wants a
-  switch on the toolbar, or a key of its own. (S) (from builders'
-  reports on 1.31.0)
 - **Painting placeables** (the area view's Paint, from builders'
   reports on 1.31.0) is in: Scatter, Row and Fill (a rectangle in rows
   on a grid Q and E turn, each piece by its own size, a builder's ask

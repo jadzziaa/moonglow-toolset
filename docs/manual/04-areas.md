@@ -397,6 +397,7 @@ Aurora):
   placeable or door below its center (a skull on an altar, a book on a
   table), by that object's model, up to 2 m above it; with nothing there,
   on the ground. Not creatures, which the game stands on the ground.
+  **Onto Objects** on the toolbar places them so in the first place.
 - **Arrange** (several selected; the first selected leads):
   - **Line Up West–East** or **South–North**: on a line through the first.
   - **Space Evenly**: evenly spaced between the two farthest apart.
@@ -492,9 +493,16 @@ drag it onto the area from the palette or the module tree. Until it is
 placed, a see-through copy in a blue box follows the pointer where it
 would go (on the snapping grid; a door on the nearest hook). **Q** and
 **E** turn it as they turn a selection (Shift + Q and E by 90°), and it is
-placed facing that way; a door faces as its hook does. Shift + click
-places it and keeps it chosen for another; a right click or Escape lets
-it go. Doors go on a tile's door hook when you click near one. Triggers
+placed facing that way; a door faces as its hook does. With **Onto
+Objects** on (the toolbar, beside Together) it goes onto the top of the
+placeable or door the pointer is on, by that object's model (a book on a
+table, a skull on an altar), as Drop onto Object sets it after; where
+that top is more than 2 m above the ground (a tree's canopy) it goes on
+the ground, as with the switch off. Shift + click places it and keeps it
+chosen for another; a right click or Escape over the view lets it go
+(over a window in front of the view, the window takes Escape, and the
+copy and the coordinates in the view's corner wait for the pointer to
+come back to the view). Doors go on a tile's door hook when you click near one. Triggers
 and encounters are drawn point by point: click each corner, double-click
 to close the outline. For a rectangle, click one corner, press Alt (the
 rectangle to the pointer shows), then click the corner opposite: its

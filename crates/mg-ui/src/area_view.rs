@@ -454,6 +454,9 @@ pub struct AreaView {
     /// Several selected objects turn about their middle as one
     /// (Options: the toolbar's Together).
     turn_together: bool,
+    /// What is placed goes onto the placeable or door under the pointer
+    /// (the settings', copied each frame: the toolbar's Onto Objects).
+    onto_objects: bool,
     /// The ground point under the pointer, shown in the corner.
     pub pointer: Option<Vec3>,
     /// The tileset brush's cursor as the last frame drew it: its shapes'
@@ -861,6 +864,7 @@ impl AreaView {
             menu_tile: None,
             snap: (None, None),
             turn_together: false,
+            onto_objects: false,
             pointer: None,
             brush_cursor: Vec::new(),
             terrain_drag: None,
@@ -1165,6 +1169,69 @@ impl AreaView {
         let lift = self.lift_of(o);
         let near = o.position.z - lift;
         g.height(to, near).map_or(to.extend(o.position.z), |z| to.extend(z + lift))
+    }
+
+    /// Where an object put down with the pointer at `pos` stands (before
+    /// its own lift): on the ground there, snapped to the grid; with Onto
+    /// Objects on, on the top of the placeable or door the pointer is on
+    /// (its model, not its box) where that is up to [`ONTO_REACH`] above
+    /// the ground below it, as Drop onto Object sets it. (Higher, a
+    /// tree's canopy: on the ground, as off.)
+    pub(crate) fn put_down_at(&self, pos: Pos2) -> Option<Vec3> {
+        let ground = self.ground_at(pos, 0.0)?;
+        if !self.onto_objects {
+            return Some(self.snapped(ground));
+        }
+        let ray = self.ray(pos)?;
+        let (model, scene) = (self.model.as_ref()?, self.scene.as_ref()?);
+        let along = (ground - ray.origin).length() / ray.dir.length().max(1e-6);
+        // The nearest placeable or door the ray meets before the ground,
+        // low enough to stand on.
+        let on = (0..model.objects.len())
+            .filter(|&j| self.surface_kind(model, j))
+            .filter_map(|j| scene.ray_hit(model, j, &ray).flatten())
+            .filter(|t| *t >= 0.0 && *t < along)
+            .min_by(f32::total_cmp)
+            .map(|t| ray.origin + ray.dir * t)
+            .filter(|p| {
+                let below = self.ground.as_ref().and_then(|g| g.height(p.truncate(), p.z));
+                below.is_none_or(|z| p.z - z <= ONTO_REACH)
+            });
+        let Some(p) = on else { return Some(self.snapped(ground)) };
+        let xy = match self.snap.0 {
+            Some(_) => mg_area::arrange::snap_point(p.truncate(), self.snap.0),
+            None => p.truncate(),
+        };
+        let floor = self.ground.as_ref().and_then(|g| g.height(xy, p.z)).unwrap_or(ground.z);
+        let from = xy.extend(floor + ONTO_REACH);
+        let z = self.surface_below(from, &|_| false).unwrap_or(floor);
+        Some(xy.extend(z))
+    }
+
+    /// Whether object `j` of `model` is one a thing can be set on: a
+    /// placeable or door, shown.
+    fn surface_kind(&self, model: &AreaModel, j: usize) -> bool {
+        let k = model.objects[j].kind;
+        matches!(k, ObjectKind::Placeable | ObjectKind::Door) && self.show[k.index()]
+    }
+
+    /// The height of the first surface straight below `from`: the top of a
+    /// placeable or door there (their models; not those `except` names),
+    /// else the ground.
+    fn surface_below(&self, from: Vec3, except: &dyn Fn(usize) -> bool) -> Option<f32> {
+        let (model, scene) = (self.model.as_ref()?, self.scene.as_ref()?);
+        let ray = Ray { origin: from, dir: Vec3::NEG_Z };
+        let on_object = (0..model.objects.len())
+            .filter(|&j| !except(j) && self.surface_kind(model, j))
+            .filter_map(|j| scene.ray_hit(model, j, &ray).flatten())
+            .filter(|t| *t >= 0.0)
+            .min_by(f32::total_cmp);
+        let on_ground = self.ground.as_ref().and_then(|g| g.hit(&ray)).map(|p| from.z - p.z);
+        let t = match (on_object, on_ground) {
+            (Some(a), Some(b)) => a.min(b),
+            (a, b) => a.or(b)?,
+        };
+        Some(from.z - t)
     }
 
     /// A point snapped to the grid, on the ground there.
@@ -2118,6 +2185,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
         app.settings.snap_angle.map(f32::from),
     );
     view.turn_together = app.settings.turn_together;
+    view.onto_objects = app.settings.place_onto_objects;
     // An object to go to (from Find Instance).
     if let Some((a, kind, index)) = app.area_focus
         && a == area
@@ -2381,6 +2449,11 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         ui.toggle_value(&mut app.settings.turn_together, "Together").on_hover_text(
             "Several objects selected turn about their middle as one, keeping their places \
              among themselves; off, each turns where it stands",
+        );
+        ui.toggle_value(&mut app.settings.place_onto_objects, "Onto Objects").on_hover_text(
+            "What is placed from the palette goes onto the top of the placeable or door under \
+             the pointer (a book on a table, a skull on an altar), up to 2 m above the ground; \
+             off, on the ground. Drop onto Object (Shift+G) sets what is selected so after",
         );
         walkmesh_button(ui, view, tools);
         let tip = app.keymap.titled(
@@ -3968,7 +4041,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                     }
                     None => app.log.warn("Doors go on door hooks: click near one"),
                 }
-            } else {
+            } else if let Some(at) = view.put_down_at(pos) {
                 place(app, view, key, at, view.ghost_turn, &[]);
                 if !shift {
                     app.palette.selected = None;
@@ -4581,7 +4654,7 @@ fn drop_blueprint(app: &mut Moonglow, view: &mut AreaView, response: &egui::Resp
             Some(h) => place(app, view, key, h.position, h.bearing, &[]),
             None => app.log.warn("Doors go on door hooks: drop it near one"),
         }
-    } else {
+    } else if let Some(at) = pointer.and_then(|pos| view.put_down_at(pos)) {
         place(app, view, key, at, view.ghost_turn, &[]);
     }
     // Placed, as a click places it: the palette's choice is let go (with
@@ -4673,8 +4746,8 @@ fn place(
 ) {
     use mg_module::instances::{OUTLINE_LIFT, Placement};
     let Some(kind) = ObjectKind::from_restype(key.restype) else { return };
-    // On the grid (doors go on their hooks; outlines are drawn point by point).
-    let at = if kind == ObjectKind::Door || kind.has_outline() { at } else { view.snapped(at) };
+    // (`at` is on the grid already, or onto an object: `put_down_at`.
+    // Doors go on their hooks; outlines are drawn point by point.)
     let ground = |p: Vec3| view.ground.as_ref().and_then(|g| g.height(p.truncate(), p.z));
     let position = at + Vec3::Z * lift(kind);
     let relative: Vec<[f32; 3]> = outline
@@ -4810,12 +4883,11 @@ fn ghost(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) -> Option<mg_ar
     };
     let kind = ObjectKind::from_restype(key.restype).filter(|k| !k.has_outline())?;
     let pos = view.pointer_over(ui)?;
-    let at = view.ground_at(pos, 0.0)?;
     let (at, rotation) = if kind == ObjectKind::Door {
-        let hook = view.model.as_ref()?.hook_near(at, DOOR_REACH)?;
+        let hook = view.model.as_ref()?.hook_near(view.ground_at(pos, 0.0)?, DOOR_REACH)?;
         (hook.position, Some(hook.bearing))
     } else {
-        (view.snapped(at), None)
+        (view.put_down_at(pos)?, None)
     };
     // (Read again after the module changes too: the blueprint edited while
     // it is the brush looks as it does now.)
@@ -5331,7 +5403,7 @@ const ONTO_REACH: f32 = 2.0;
 /// up to [`ONTO_REACH`] above it, else the ground. For a skull on an altar
 /// or a book on a table, which Aurora leaves to the height typed in.
 fn drop_onto_objects(app: &mut Moonglow, view: &AreaView) {
-    let (Some(model), Some(scene)) = (&view.model, &view.scene) else { return };
+    let Some(model) = &view.model else { return };
     let chosen: Vec<usize> = view.selected_indices().collect();
     // (Looked up for every object under every one chosen: a set.)
     let is_chosen: std::collections::HashSet<usize> = chosen.iter().copied().collect();
@@ -5342,23 +5414,8 @@ fn drop_onto_objects(app: &mut Moonglow, view: &AreaView) {
             if o.kind == ObjectKind::Creature || o.kind.has_outline() {
                 return None;
             }
-            let ray = Ray { origin: o.position + Vec3::Z * ONTO_REACH, dir: Vec3::NEG_Z };
-            let on_object = (0..model.objects.len())
-                .filter(|j| !is_chosen.contains(j))
-                .filter(|&j| {
-                    let k = model.objects[j].kind;
-                    matches!(k, ObjectKind::Placeable | ObjectKind::Door) && view.show[k.index()]
-                })
-                .filter_map(|j| scene.ray_hit(model, j, &ray).flatten())
-                .filter(|t| *t >= 0.0)
-                .min_by(f32::total_cmp);
-            let on_ground =
-                view.ground.as_ref().and_then(|g| g.hit(&ray)).map(|p| ray.origin.z - p.z);
-            let t = match (on_object, on_ground) {
-                (Some(a), Some(b)) => a.min(b),
-                (a, b) => a.or(b)?,
-            };
-            let z = ray.origin.z - t;
+            let from = o.position + Vec3::Z * ONTO_REACH;
+            let z = view.surface_below(from, &|j| is_chosen.contains(&j))?;
             ((z - o.position.z).abs() > 1e-4).then_some((
                 i,
                 o.position.truncate().extend(z),

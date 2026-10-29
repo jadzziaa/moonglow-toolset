@@ -4133,6 +4133,66 @@ fn replaced_objects_keep_their_outline_and_transform() {
     assert_eq!(placed(&mut h, "TriggerList"), trigger, "and one for the trigger");
 }
 
+/// With Onto Objects on (the toolbar), the see-through copy of what is
+/// about to be placed lies on the placeable under the pointer, and is
+/// placed there; off, on the ground under it (a builder's report on
+/// 1.31.0: the copy lay under the table Drop onto Object would set it
+/// on). Pictures in `target/test-output/ui-area-onto/`.
+#[test]
+fn onto_objects_places_on_the_placeable_under_the_pointer() {
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("onto") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let chest = {
+        let game = h.state().game.clone().unwrap();
+        let bp = game.resman.get(&ResKey::parse("plc_chest1", ResType::UTP).unwrap()).unwrap();
+        let bp = Gff::read(&bp).unwrap();
+        let none = |_: ResRef| None;
+        let placing = Placing { game: &game, item: &none };
+        let at = Placement { position: [25.0, 25.0, 0.0], rotation: 0.0 };
+        instance(&placing, ResType::UTP, &bp.root, at, &[]).unwrap()
+    };
+    let insert = mg_edit::Edit::InsertItem {
+        key: git,
+        path: mg_edit::GffPath::root(),
+        list: "Placeable List".into(),
+        index: 0,
+        item: chest,
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![insert])));
+    h.run_steps(6);
+    if let Some(o) = &mut h.state_mut().area_views.get_mut(&area).unwrap().orbit {
+        o.target = glam::Vec3::new(25.0, 25.0, 0.5);
+        (o.pitch, o.yaw, o.distance) = (45f32.to_radians(), -60f32.to_radians(), 6.0);
+    }
+    h.state_mut().palette.selected = Some(ResKey::parse("plc_chest1", ResType::UTP).unwrap());
+    h.run_steps(2);
+    let dir = mg_testkit::output_dir("ui-area-onto");
+    // On the chest's top, near its middle.
+    let at = screen(&h, area, glam::Vec3::new(25.0, 25.0, 0.6));
+    let shown_z = |h: &mut Harness<'_, Moonglow>, name: &str| {
+        h.hover_at(at);
+        h.run_steps(3);
+        h.render().expect("render").save(dir.join(name)).unwrap();
+        h.state().area_views[&area].ghost_shown.as_ref().expect("the copy").position.z
+    };
+    let off = shown_z(&mut h, "off.png");
+    assert!(off.abs() < 0.1, "off: on the ground, {off}");
+    h.state_mut().settings.place_onto_objects = true;
+    let on = shown_z(&mut h, "on.png");
+    assert!(on > 0.3 && on < 2.0, "on: on the chest, {on}");
+    // Placed where it showed.
+    click_pos(&h, at);
+    h.run_steps(3);
+    let placed = {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let list = ws.doc(&git).unwrap().root.list("Placeable List").unwrap().to_vec();
+        list.iter().map(|p| p.float("Z").unwrap()).collect::<Vec<_>>()
+    };
+    assert_eq!(placed.len(), 2, "{placed:?}");
+    assert!(placed.iter().any(|z| (z - on).abs() < 0.05), "placed at {placed:?}, shown at {on}");
+}
+
 /// Drop onto Object (Shift+G) sets the selection on the placeable below
 /// it, by the placeable's model (a builder's ask: a skeleton on an altar);
 /// with nothing below, on the ground.

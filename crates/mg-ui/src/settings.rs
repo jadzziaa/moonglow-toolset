@@ -611,6 +611,11 @@ pub struct Settings {
     /// itself.
     #[serde(default)]
     pub turn_together: bool,
+    /// The area view: what is placed goes onto the top of a placeable or
+    /// door under the pointer (the toolbar's Onto Objects), as Drop onto
+    /// Object sets it after; off, on the ground.
+    #[serde(default)]
+    pub place_onto_objects: bool,
     /// The area view's placeable brush (Paint): its strip's settings.
     #[serde(default)]
     pub paint: PaintSettings,
