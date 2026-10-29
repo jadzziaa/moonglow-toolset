@@ -24,12 +24,15 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 ## Tests and the build (the [review](test-review.md) of October 2026)
 
-- **Sweeps still walked more than once:** the areas of every module by
-  four tests (they share the module's set-up, not the walk: the renders
-  hold the GPU, and the others read each area differently), and
-  `decompiled_models_compile_back` decompiles each model a second time
-  (10 s of the full run's 28 s for models). nasher still unpacks each
-  edited module once more, as the test is about that. (M)
+- **Sweeps still walked more than once:** the areas of every module, by
+  five tests (`areas`, `hlsl`, `minimaps`, `object_walkmeshes`,
+  `tiles`, through `area_common::each_module`): they share the
+  module's set-up, not the walk, as the renders hold the GPU and the
+  others read each area differently. No walk of the five together is
+  proposed: the owner's word on keeping them so (Settled) is what
+  closes it. (The models are decompiled once since 2026-10-29; nasher
+  still unpacks each edited module once more, as the test is about
+  that.) (M)
 - **The `app` tests' set-ups left by hand** (`crates/mg-ui/tests/app/`,
   split by subject, with `harness`, `game_app` and `gpu` in `common.rs`):
   86 harnesses at kittest's default size (`Harness::new_ui_state`), 27

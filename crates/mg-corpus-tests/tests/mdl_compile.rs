@@ -245,159 +245,180 @@ fn supermodel_of(rm: &ResMan, model: &Model) -> Option<(Model, PartNumbers)> {
     Some((Model::read(&data).ok()?, PartNumbers::read(&data)?))
 }
 
+/// What compiling the game's decompiled models back finds (the plan's
+/// Phase 9, stage B): `mdl_decompile`'s sweep, which decompiles each
+/// model once, compiles each text as it goes ([`CompiledBack::add`]).
+#[derive(Default)]
+pub(crate) struct CompiledBack {
+    compiled: AtomicUsize,
+    skins: AtomicUsize,
+    // Numbers kept from the compiled model, and numbered afresh from the
+    // text alone (where the model's numbers are its own).
+    kept: Tally,
+    fresh: Tally,
+    binds: Tally,
+    odd_binds: Mutex<std::collections::BTreeSet<String>>,
+    failures: Mutex<Vec<(String, Vec<String>)>>,
+}
+
+impl CompiledBack {
+    /// A binary model of the game, `text` as it decompiles: compiled
+    /// again, natively, against the model it was.
+    pub(crate) fn add(&self, rm: &ResMan, name: &ResRef, data: &[u8], model: &Model, text: &str) {
+        if model.nodes.iter().any(|n| n.kind.type_name() == "skin") {
+            self.skins.fetch_add(1, Ordering::Relaxed);
+        }
+        // Two nodes of one name cannot be told apart in text.
+        if common::duplicate_names(model) {
+            return;
+        }
+        if let Some(failed) = self.compile(rm, name, data, model, text) {
+            self.failures.lock().unwrap().push(failed);
+        }
+    }
+
+    fn compile(
+        &self,
+        rm: &ResMan,
+        name: &ResRef,
+        data: &[u8],
+        model: &Model,
+        text: &str,
+    ) -> Option<(String, Vec<String>)> {
+        let numbers = PartNumbers::read(data)?;
+        let sup = supermodel_of(rm, model);
+        let sources = mg_mdl::compile::Sources {
+            supermodel: sup.as_ref().map(|(m, p)| (m, p)),
+            existing: Some((model, &numbers)),
+            materials: None,
+        };
+        let out = match mg_mdl::compile::compile(text.as_bytes(), &sources) {
+            Ok(c) => c,
+            Err(e) => return Some((name.to_string(), vec![format!("not compiled: {e}")])),
+        };
+        self.compiled.fetch_add(1, Ordering::Relaxed);
+        let back = match Model::read(&out.binary) {
+            Ok(m) => m,
+            Err(e) => return Some((name.to_string(), vec![format!("unreadable: {e}")])),
+        };
+        let mut problems = common::differences(model, &back);
+        let name_key = name;
+        let name_of = |n: &ResRef| n.to_string();
+        // A skin's inverse binds, made from the model at rest, against
+        // those its file has: where each bone sees a point of the skin.
+        for (i, node) in model.nodes.iter().enumerate() {
+            let Some(mg_mdl::MeshExtra::Skin(theirs)) = node.mesh().map(|m| &m.extra) else {
+                continue;
+            };
+            let ours = back.node(&node.name).and_then(|j| match back.nodes[j].mesh()?.extra {
+                mg_mdl::MeshExtra::Skin(ref s) => Some(s),
+                _ => None,
+            });
+            let Some(ours) = ours else {
+                problems.push(format!("{}: no skin", node.name));
+                continue;
+            };
+            // (Compiled from the text, the model's own are not kept:
+            // compare with a compile that had to make them.)
+            let _ = i;
+            for &bone in &theirs.bones {
+                let name = &model.nodes[bone].name;
+                let (Some(a), Some(b)) = (
+                    theirs.inverse_bind.get(bone),
+                    back.node(name).and_then(|j| ours.inverse_bind.get(j)),
+                ) else {
+                    continue;
+                };
+                let seen = |(q, t): &([f32; 4], [f32; 3])| {
+                    let len = q.iter().map(|x| x * x).sum::<f32>().sqrt().max(1e-12);
+                    let [x, y, z, w] = q.map(|v| v / len);
+                    let p = [0.3f32, -0.7, 1.1];
+                    // q p q*
+                    let u = [x, y, z];
+                    let d = u[0] * p[0] + u[1] * p[1] + u[2] * p[2];
+                    let c = [
+                        u[1] * p[2] - u[2] * p[1],
+                        u[2] * p[0] - u[0] * p[2],
+                        u[0] * p[1] - u[1] * p[0],
+                    ];
+                    let uu = x * x + y * y + z * z;
+                    std::array::from_fn::<f32, 3, _>(|k| {
+                        2.0 * d * u[k] + (w * w - uu) * p[k] + 2.0 * w * c[k] + t[k]
+                    })
+                };
+                let (pa, pb) = (seen(a), seen(b));
+                let off = (0..3).map(|k| (pa[k] - pb[k]).powi(2)).sum::<f32>().sqrt();
+                self.binds.add(off < 2e-3);
+                if off >= 2e-3 {
+                    self.odd_binds.lock().unwrap().insert(name_of(name_key));
+                }
+            }
+        }
+        let by_name = |m: &Model, p: &PartNumbers| {
+            let mut v: Vec<(String, i32)> =
+                m.nodes.iter().zip(&p.numbers).map(|(n, k)| (n.name.to_lowercase(), *k)).collect();
+            v.sort();
+            v
+        };
+        let theirs = by_name(model, &numbers);
+        let ours = PartNumbers::read(&out.binary).unwrap();
+        let same = by_name(&back, &ours) == theirs && ours.count == numbers.count;
+        self.kept.add(same);
+        if !same {
+            problems.push("part numbers changed".into());
+        }
+        // From the text alone.
+        let mut sorted = numbers.numbers.clone();
+        sorted.sort_unstable();
+        // (A skin is written after its bones, whatever its number.)
+        let skinned = model.nodes.iter().any(|n| n.kind.type_name() == "skin");
+        if model.supermodel.is_none()
+            && !skinned
+            && sorted.iter().enumerate().all(|(i, n)| *n == i as i32)
+        {
+            let alone = mg_mdl::compile::compile(text.as_bytes(), &Default::default()).ok()?;
+            let parts = PartNumbers::read(&alone.binary).unwrap();
+            self.fresh.add(by_name(&Model::read(&alone.binary).ok()?, &parts) == theirs);
+        }
+        (!problems.is_empty()).then(|| (name.to_string(), problems))
+    }
+}
+
 /// The native compiler on the game's models (the plan's Phase 9, stage B):
-/// every compiled model, decompiled and compiled again, is the model it was, with the part numbers it had.
+/// every compiled model, decompiled and compiled again, is the model it
+/// was, with the part numbers it had. (Compiled in the decompiler's sweep,
+/// `mdl_decompile::swept`, each model decompiled once for both.)
 #[test]
 fn decompiled_models_compile_back() {
     let root = mg_testkit::corpus!();
-    let rm = ResMan::for_game(&GameInstall::new(root, None, "en")).unwrap();
-    let names = mg_testkit::sweep(rm.list(ResType::MDL), 10);
-    let (compiled, skins) = (AtomicUsize::new(0), AtomicUsize::new(0));
-    // Numbers kept from the compiled model, and numbered afresh from the
-    // text alone (where the model's numbers are its own).
-    let (kept, fresh, binds) = (Tally::default(), Tally::default(), Tally::default());
-    let odd_binds = Mutex::new(std::collections::BTreeSet::new());
-    let mut failures: Vec<(String, Vec<String>)> = names
-        .par_iter()
-        .filter_map(|name| {
-            let data = rm.get(&ResKey::new(*name, ResType::MDL)).ok()?;
-            let model = Model::read(&data).ok().filter(|_| mg_mdl::is_binary(&data))?;
-            if model.nodes.iter().any(|n| n.kind.type_name() == "skin") {
-                skins.fetch_add(1, Ordering::Relaxed);
-            }
-            // Two nodes of one name cannot be told apart in text.
-            if common::duplicate_names(&model) {
-                return None;
-            }
-            let text = mg_mdl::decompile(&data).ok()?;
-            let numbers = PartNumbers::read(&data)?;
-            let sup = supermodel_of(&rm, &model);
-            let sources = mg_mdl::compile::Sources {
-                supermodel: sup.as_ref().map(|(m, p)| (m, p)),
-                existing: Some((&model, &numbers)),
-                materials: None,
-            };
-            let out = match mg_mdl::compile::compile(text.as_bytes(), &sources) {
-                Ok(c) => c,
-                Err(e) => return Some((name.to_string(), vec![format!("not compiled: {e}")])),
-            };
-            compiled.fetch_add(1, Ordering::Relaxed);
-            let back = match Model::read(&out.binary) {
-                Ok(m) => m,
-                Err(e) => return Some((name.to_string(), vec![format!("unreadable: {e}")])),
-            };
-            let mut problems = common::differences(&model, &back);
-            let name_key = name;
-            let name_of = |n: &ResRef| n.to_string();
-            // A skin's inverse binds, made from the model at rest, against
-            // those its file has: where each bone sees a point of the skin.
-            for (i, node) in model.nodes.iter().enumerate() {
-                let Some(mg_mdl::MeshExtra::Skin(theirs)) = node.mesh().map(|m| &m.extra) else {
-                    continue;
-                };
-                let ours = back.node(&node.name).and_then(|j| match back.nodes[j].mesh()?.extra {
-                    mg_mdl::MeshExtra::Skin(ref s) => Some(s),
-                    _ => None,
-                });
-                let Some(ours) = ours else {
-                    problems.push(format!("{}: no skin", node.name));
-                    continue;
-                };
-                // (Compiled from the text, the model's own are not kept:
-                // compare with a compile that had to make them.)
-                let _ = i;
-                for &bone in &theirs.bones {
-                    let name = &model.nodes[bone].name;
-                    let (Some(a), Some(b)) = (
-                        theirs.inverse_bind.get(bone),
-                        back.node(name).and_then(|j| ours.inverse_bind.get(j)),
-                    ) else {
-                        continue;
-                    };
-                    let seen = |(q, t): &([f32; 4], [f32; 3])| {
-                        let len = q.iter().map(|x| x * x).sum::<f32>().sqrt().max(1e-12);
-                        let [x, y, z, w] = q.map(|v| v / len);
-                        let p = [0.3f32, -0.7, 1.1];
-                        // q p q*
-                        let u = [x, y, z];
-                        let d = u[0] * p[0] + u[1] * p[1] + u[2] * p[2];
-                        let c = [
-                            u[1] * p[2] - u[2] * p[1],
-                            u[2] * p[0] - u[0] * p[2],
-                            u[0] * p[1] - u[1] * p[0],
-                        ];
-                        let uu = x * x + y * y + z * z;
-                        std::array::from_fn::<f32, 3, _>(|k| {
-                            2.0 * d * u[k] + (w * w - uu) * p[k] + 2.0 * w * c[k] + t[k]
-                        })
-                    };
-                    let (pa, pb) = (seen(a), seen(b));
-                    let off = (0..3).map(|k| (pa[k] - pb[k]).powi(2)).sum::<f32>().sqrt();
-                    binds.add(off < 2e-3);
-                    if off >= 2e-3 {
-                        odd_binds.lock().unwrap().insert(name_of(name_key));
-                    }
-                }
-            }
-            let by_name = |m: &Model, p: &PartNumbers| {
-                let mut v: Vec<(String, i32)> = m
-                    .nodes
-                    .iter()
-                    .zip(&p.numbers)
-                    .map(|(n, k)| (n.name.to_lowercase(), *k))
-                    .collect();
-                v.sort();
-                v
-            };
-            let theirs = by_name(&model, &numbers);
-            let ours = PartNumbers::read(&out.binary).unwrap();
-            let same = by_name(&back, &ours) == theirs && ours.count == numbers.count;
-            kept.add(same);
-            if !same {
-                problems.push("part numbers changed".into());
-            }
-            // From the text alone.
-            let mut sorted = numbers.numbers.clone();
-            sorted.sort_unstable();
-            // (A skin is written after its bones, whatever its number.)
-            let skinned = model.nodes.iter().any(|n| n.kind.type_name() == "skin");
-            if model.supermodel.is_none()
-                && !skinned
-                && sorted.iter().enumerate().all(|(i, n)| *n == i as i32)
-            {
-                let alone = mg_mdl::compile::compile(text.as_bytes(), &Default::default()).ok()?;
-                let parts = PartNumbers::read(&alone.binary).unwrap();
-                fresh.add(by_name(&Model::read(&alone.binary).ok()?, &parts) == theirs);
-            }
-            (!problems.is_empty()).then(|| (name.to_string(), problems))
-        })
-        .collect();
+    let back = &crate::mdl_decompile::swept(&root).compiled_back;
+    let mut failures = back.failures.lock().unwrap().clone();
     failures.sort();
     eprintln!(
         "{} models compiled ({} with skins), {} differ; part numbers kept from the compiled \
          model: {}; numbered again from the text alone: {}; skins' inverse binds as their \
          files': {}",
-        compiled.load(Ordering::Relaxed),
-        skins.load(Ordering::Relaxed),
+        back.compiled.load(Ordering::Relaxed),
+        back.skins.load(Ordering::Relaxed),
         failures.len(),
-        kept.text(),
-        fresh.text(),
-        binds.text()
+        back.kept.text(),
+        back.fresh.text(),
+        back.binds.text()
     );
     for (name, d) in failures.iter().take(25) {
         eprintln!("  {name}: {}", d.iter().take(4).cloned().collect::<Vec<_>>().join("; "));
     }
     eprintln!(
         "skins bound in another pose than their model's rest: {:?}",
-        odd_binds.lock().unwrap()
+        back.odd_binds.lock().unwrap()
     );
-    assert!(compiled.load(Ordering::Relaxed) > mg_testkit::at_least(25_000, 10));
-    assert!(skins.load(Ordering::Relaxed) > mg_testkit::at_least(300, 10));
+    assert!(back.compiled.load(Ordering::Relaxed) > mg_testkit::at_least(25_000, 10));
+    assert!(back.skins.load(Ordering::Relaxed) > mg_testkit::at_least(300, 10));
     assert!(failures.is_empty(), "{} models differ", failures.len());
-    assert!(fresh.share() >= 1.0, "{}", fresh.text());
+    assert!(back.fresh.share() >= 1.0, "{}", back.fresh.text());
     // A few skins were bound in another pose than their model rests in,
     // which no text holds: every compiler binds those at rest.
-    assert!(binds.share() >= 0.98, "{}", binds.text());
+    assert!(back.binds.share() >= 0.98, "{}", back.binds.text());
 }
 
 /// The game's own ASCII models (a fifth of its models are text): each
