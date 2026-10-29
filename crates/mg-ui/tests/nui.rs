@@ -1891,6 +1891,69 @@ fn a_drag_in_the_editor_does_not_move_its_window() {
     h.get_by_label("+ Create bind");
 }
 
+/// The Creator's Import… brings windows in from the files chosen, as `mg
+/// nui import` does (the Domains of Dread's ask: only the command line and
+/// File › Import's ERFs did): a .jui with its settings beside it, opened in
+/// the Creator, one Undo step. One the module has otherwise is asked about:
+/// Skip Those leaves it, Replace brings it.
+#[test]
+fn import_brings_windows_into_the_module_from_the_creator() {
+    let dir = mg_testkit::scratch_dir("nui-creator-import");
+    for file in ["crier.jui", "crier.txt", "cries.jui", "cries.txt"] {
+        std::fs::copy(fixture_file(file), dir.join(file)).unwrap();
+    }
+    let crier = ResKey::parse("crier", ResType::JUI).unwrap();
+    let cries = ResKey::parse("cries", ResType::JUI).unwrap();
+    let dialogs = NoDialogs {
+        // (The last first: the second Import… takes the first.)
+        open_many: vec![
+            vec![dir.join("crier.jui"), dir.join("cries.jui")],
+            vec![dir.join("crier.jui"), dir.join("cries.jui")],
+            vec![dir.join("crier.jui")],
+        ],
+        ..Default::default()
+    };
+    let mut h = creator(app_with("nui_test", dialogs), [1300, 900]);
+    h.get_by_label("Import…").click();
+    h.run_steps(3);
+    let module = |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().module.clone();
+    let m = module(&h);
+    assert_eq!(m.get(&crier).unwrap(), std::fs::read(dir.join("crier.jui")).unwrap());
+    assert!(m.contains(&ResKey::new(crier.resref, ResType::TXT)));
+    assert!(h.state().dock.find_tab(&Tab::Nui(crier)).is_some(), "the window opened");
+    undo(&mut h);
+    assert!(
+        !module(&h).contains(&crier)
+            && !module(&h).contains(&ResKey::new(crier.resref, ResType::TXT))
+    );
+    h.state_mut().ws.as_mut().unwrap().redo().unwrap();
+    h.run();
+
+    // The crier changed on disk: asked about, Skip Those leaves it and
+    // brings the cries.
+    let changed =
+        std::fs::read_to_string(dir.join("crier.jui")).unwrap().replace("Town Crier", "Crier");
+    std::fs::write(dir.join("crier.jui"), &changed).unwrap();
+    let before = module(&h).get(&crier).unwrap().to_vec();
+    h.state_mut().actions.push(Action::ImportNui);
+    h.run();
+    h.get_by_label("Skip Those").click();
+    h.run();
+    assert_eq!(module(&h).get(&crier).unwrap(), &before[..]);
+    assert!(module(&h).contains(&cries), "{:?}", h.state().log.entries);
+    // Again, Replace: the changed one comes in.
+    h.state_mut().actions.push(Action::ImportNui);
+    h.run();
+    h.get_by_label("Replace 1").click();
+    h.run();
+    assert_eq!(module(&h).get(&crier).unwrap(), changed.as_bytes());
+    let said = &h.state().log.entries;
+    assert!(
+        said.iter().any(|(_, s)| s.starts_with("Imported 2 NUI windows: crier, cries")),
+        "{said:?}"
+    );
+}
+
 /// Bindings › Client delivery turns the event function on: the settings
 /// say so, as one Undo step.
 #[test]

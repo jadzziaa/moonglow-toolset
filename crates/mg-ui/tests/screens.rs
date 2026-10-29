@@ -5491,6 +5491,34 @@ fn nui_harness(app: Moonglow, key: ResKey, size: (f32, f32)) -> Harness<'static,
     h
 }
 
+/// The NUI Creator's Import… asking about a window the module has
+/// otherwise (`nui-import-ask.png`), in front of the Creator.
+#[test]
+#[ignore]
+fn nui_import() {
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::output_dir("screens");
+    let files = mg_testkit::scratch_dir("screens-nui-import");
+    let data = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../mg-nui/tests/data");
+    for file in ["crier.jui", "crier.txt"] {
+        std::fs::copy(data.join(file), files.join(file)).unwrap();
+    }
+    let dialogs =
+        NoDialogs { open_many: vec![vec![files.join("crier.jui")]], ..Default::default() };
+    let mut app = Moonglow::new(None, Box::new(dialogs));
+    let mut m = mg_module::Module::new();
+    m.set(
+        ResKey::parse("crier", ResType::JUI).unwrap(),
+        serde_json::to_vec(&mg_nui::window()).unwrap(),
+    );
+    app.ws = Some(mg_edit::Workspace::new(m));
+    let key = ResKey::parse("crier", ResType::JUI).unwrap();
+    let mut h = nui_harness(app, key, (900.0, 560.0));
+    h.state_mut().actions.push(mg_ui::Action::ImportNui);
+    h.run_steps(4);
+    shoot(&mut h, &dir, "nui-import-ask");
+}
+
 /// The NUI Creator on a window of settings (`nui-editor.png`), the preview
 /// in its Hover state at 150% (`nui-hover-150.png`), a list
 /// (`nui-list.png`), Interact (`nui-interact.png`, `-narrow`), groups,

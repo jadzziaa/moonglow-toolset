@@ -233,7 +233,34 @@ impl State {
 /// scripts' suffixes, which the name window does not know of: one that is
 /// refused is said in the log, and the window stays.
 pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
-    use crate::widgets::{NameWindow, Named};
+    use crate::widgets::{Already, NameWindow, Named};
+    // Import…'s question: windows whose resources the module has.
+    if let Some(windows) = &app.nui_import {
+        let taken: Vec<(String, Option<String>)> = (windows.iter())
+            .flat_map(|w| w.taken.iter().map(|k| (k.to_string(), Some(w.from.clone()))))
+            .collect();
+        let answer = crate::widgets::files_already(
+            ui.ctx(),
+            "Module",
+            "The module has these already, otherwise than the files imported:",
+            &taken,
+            [
+                "Imports every window, replacing these",
+                "Imports the windows the module doesn't have, and leaves those it has as they are",
+            ],
+        );
+        if let Some(answer) = answer {
+            let windows = app.nui_import.take().unwrap_or_default();
+            match answer {
+                Already::Replace => bring_in(app, &windows),
+                Already::Skip => {
+                    let new: Vec<_> = windows.into_iter().filter(|w| w.taken.is_empty()).collect();
+                    bring_in(app, &new);
+                }
+                Already::Cancel => {}
+            }
+        }
+    }
     let Some(mut name) = app.new_nui.clone() else { return };
     let window = NameWindow {
         new: true,
@@ -264,25 +291,33 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
     };
 }
 
-pub(crate) fn create(app: &mut Moonglow, name: &str) {
-    let Some(ws) = &app.ws else { return };
-    // A nasher project whose include takes in scripts and JSON only would
-    // neither pack the window nor read it back: said now, with the line.
-    let files = [ResType::JUI, ResType::TXT].map(|ty| ResKey::parse(name, ty));
-    if let Some(p) = ws.module.project.as_deref()
-        && let [Some(jui), Some(txt)] = files
-    {
-        let left = p.uncovered(&[jui, txt]);
-        if let Some(line) = p.include_for(&left) {
-            app.log.warn(format!(
-                "{name}: nasher.cfg's include ({}) leaves out the window's files ({jui}, {txt}): \
-                 nasher won't pack them, and the project won't read them back. Add the line \
-                 {line} to the target's sources, or save and use Build › Add Left-Out Files to \
-                 nasher.cfg.",
-                p.target().includes.join(", ")
-            ));
-        }
+/// A nasher project whose include takes in scripts and JSON only would
+/// neither pack a window's files nor read them back: said, with the line
+/// that takes them in.
+fn say_left_out(app: &mut Moonglow, what: &str, files: &[ResKey]) {
+    let Some(p) = app.ws.as_ref().and_then(|ws| ws.module.project.as_deref()) else { return };
+    let left = p.uncovered(files);
+    if let Some(line) = p.include_for(&left) {
+        let names: Vec<String> = files.iter().map(ToString::to_string).collect();
+        let said = format!(
+            "{what}: nasher.cfg's include ({}) leaves out the window's files ({}): nasher won't \
+             pack them, and the project won't read them back. Add the line {line} to the \
+             target's sources, or save and use Build › Add Left-Out Files to nasher.cfg.",
+            p.target().includes.join(", "),
+            names.join(", ")
+        );
+        app.log.warn(said);
     }
+}
+
+pub(crate) fn create(app: &mut Moonglow, name: &str) {
+    if app.ws.is_none() {
+        return;
+    }
+    let files: Vec<ResKey> =
+        [ResType::JUI, ResType::TXT].iter().filter_map(|ty| ResKey::parse(name, *ty)).collect();
+    say_left_out(app, name, &files);
+    let Some(ws) = &app.ws else { return };
     match mg_nui::create(&ws.module, name) {
         Ok(cmd) => match app.apply(cmd) {
             Ok(()) => app.actions.extend(
@@ -292,6 +327,75 @@ pub(crate) fn create(app: &mut Moonglow, name: &str) {
         },
         Err(e) => app.log.error(e.to_string()),
     }
+}
+
+/// Import… (the Creator's): NUI windows from the files chosen (`.jui`
+/// files with their settings and event script beside them, and ERF and
+/// zip archives of them), as `mg nui import` brings them. Windows whose
+/// resources the module has otherwise are asked about first.
+pub(crate) fn import(app: &mut Moonglow) {
+    if app.ws.is_none() {
+        return;
+    }
+    let files = app.dialogs.open_files(crate::FileKind::NuiWindows, None);
+    if files.is_empty() {
+        return;
+    }
+    let mut found = mg_nui::import::Found::new();
+    for file in &files {
+        if let Err(e) = mg_nui::import::gather(file, &mut found) {
+            app.log.error(format!("Import NUI windows: {e}"));
+            return;
+        }
+    }
+    let Some(ws) = &app.ws else { return };
+    match mg_nui::import::incoming(&ws.module, &found) {
+        Ok(windows) if windows.iter().any(|w| !w.taken.is_empty()) => {
+            app.nui_import = Some(windows);
+        }
+        Ok(windows) => bring_in(app, &windows),
+        Err(e) => app.log.error(format!(
+            "Import NUI windows: {}: {e}",
+            files.iter().map(|f| f.display().to_string()).collect::<Vec<_>>().join(", ")
+        )),
+    }
+}
+
+/// The windows imported, as one Undo step, the first opened in the
+/// Creator; what is to be said of them, said.
+fn bring_in(app: &mut Moonglow, windows: &[mg_nui::import::Incoming]) {
+    if windows.is_empty() {
+        return;
+    }
+    for w in windows {
+        for note in &w.notes {
+            app.log.warn(note.clone());
+        }
+        if w.errors > 0 {
+            app.log.warn(format!(
+                "{}.jui has {}: open it to see them",
+                w.name,
+                count(w.errors, "error")
+            ));
+        }
+        say_left_out(app, &w.name, &w.resources);
+    }
+    let made = mg_nui::import::command(windows);
+    if !made.edits.is_empty()
+        && let Err(e) = app.apply(made)
+    {
+        app.log.error(e.to_string());
+        return;
+    }
+    let names: Vec<&str> = windows.iter().map(|w| w.name.as_str()).collect();
+    app.log.info(format!(
+        "Imported {}: {}. Build writes each one's scripts.",
+        count(windows.len(), "NUI window"),
+        names.join(", ")
+    ));
+    app.actions.extend(
+        ResKey::parse(&windows[0].name, ResType::JUI).map(|key| Action::OpenTab(Tab::Nui(key))),
+    );
 }
 
 pub(crate) fn generate(app: &mut Moonglow, name: &str, export: bool) {
@@ -719,6 +823,12 @@ fn header(app: &mut Moonglow, ui: &mut Ui, name: &str, checked: &Checked) {
         let tools = crate::icons::Tools::of(&app.settings);
         use crate::icons::editor as glyph;
         ui.with_layout(layout, |ui| {
+            let r = ui.button(tools.word(glyph::IMPORT, "Import…"));
+            let tip = "Brings NUI windows into the module from files: .jui files (with their \
+                       settings and event script beside them) and ERF or zip archives of them";
+            if tools.named(r, "Import…", tip, None).clicked() {
+                app.actions.push(Action::ImportNui);
+            }
             let r = ui.button(tools.word(glyph::EXPORT, "Export…"));
             let tip = "Builds the window, then exports it with its settings, its opener include \
                        and its compiled event script";

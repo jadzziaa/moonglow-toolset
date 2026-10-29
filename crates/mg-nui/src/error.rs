@@ -45,6 +45,10 @@ pub enum NuiError {
     /// A handler shows a swap layout variant the settings do not have.
     #[error("Missing variant: {0}")]
     MissingVariant(String),
+    /// Windows could not be brought in from files ([`crate::import`]):
+    /// what was wrong, and where.
+    #[error("{0}")]
+    Import(String),
     /// A script of the window does not compile: the compiler's error.
     #[error("{0}")]
     Compile(#[source] mg_script::CompileError),

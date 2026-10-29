@@ -494,6 +494,17 @@ hak, this machine's override or development folder, or found nowhere), which
 players get from the hak or which you add to the module. The game's own go
 unsaid: every client has them.
 
+**Import…**, beside it, brings windows made elsewhere into the module, as
+`mg nui import` does: choose `.jui` files (each brings its `NAME.txt` and
+`NAME_e.nss` from beside it) or ERF archives (`.erf`, `.hak`, `.mod`,
+`.nwm`) and zip files of windows. Each window comes with its settings, when
+they are the Creator's, and its event script's source; not its opener or
+compiled scripts, which Build writes for this module. A window the module
+has otherwise is asked about first: **Replace** brings every window,
+**Skip Those** only the ones the module doesn't have. The windows come in
+as one Undo step, the first opens in the Creator, and the log says what
+their checks found.
+
 Edits, including incomplete JSON drafts, participate in module Save, Undo and
 recovery. Invalid drafts cannot generate scripts. The checks describe the
 stock `nw_inc_nui` API contract and generator requirements. Passing them and

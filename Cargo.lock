@@ -2680,6 +2680,7 @@ version = "0.0.0"
 dependencies = [
  "mg-core",
  "mg-edit",
+ "mg-erf",
  "mg-module",
  "mg-resman",
  "mg-script",
@@ -2687,6 +2688,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.21",
+ "zip",
 ]
 
 [[package]]

@@ -35,6 +35,9 @@ pub enum FileKind {
     Tileset,
     /// A plugin's archive: `.zip`.
     Plugin,
+    /// NUI windows to import: `.jui` files (with what is beside them) and
+    /// archives of them.
+    NuiWindows,
     /// The log, as text: `.txt`.
     Log,
     /// A 2DA table: `.2da`.
@@ -75,6 +78,7 @@ impl FileKind {
             (FileKind::Tileset, false) => "Open Tileset",
             (FileKind::Tileset, true) => "New Tileset",
             (FileKind::Plugin, _) => "Install Plugin from File",
+            (FileKind::NuiWindows, _) => "Import NUI Windows",
             (FileKind::Log, _) => "Save Log",
             (FileKind::Table, false) => "Open 2DA",
             (FileKind::Table, true) => "Save 2DA As",
@@ -110,6 +114,10 @@ impl FileKind {
             (FileKind::Images, _) => Some(("Pictures", &["png", "tga", "dds", "jpg", "bmp"])),
             (FileKind::Tileset, _) => Some(("Tileset", &["set"])),
             (FileKind::Plugin, _) => Some(("Plugin archives", &["zip"])),
+            (FileKind::NuiWindows, _) => Some((
+                "NUI windows and archives of them",
+                &["jui", "erf", "hak", "mod", "nwm", "zip"],
+            )),
             (FileKind::Log, _) => Some(("Text", &["txt", "log"])),
             (FileKind::Table, _) => Some(("2DA tables", &["2da"])),
             (FileKind::TalkTable, _) => Some(("Talk tables", &["tlk"])),
