@@ -177,9 +177,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   mesh's lights chosen and its values written. Fewer, larger chunks, and
   values kept from frame to frame for what doesn't move, would cut it.
   ([the frames note](research/notes_frames.md), 27 October) (M–L)
-- **A slow picture in a gallery** (a model with large textures) takes a
-  frame of 7 to 9 ms: a picture's models and textures are read on the
-  window's thread. Read on another. (M)
 
 ## EE fields Aurora hides
 

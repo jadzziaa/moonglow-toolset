@@ -3,7 +3,7 @@ type: Research Note
 title: 'Frames at 144 a second: where a frame''s time went'
 description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, a dense area seen whole and an area's opening (27 October), what the profile found, and what is left.
 tags: [performance, frames, renderer, area-view, galleries]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T19:52:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T23:30:00Z }
 sources:
   - id: frame-perf
     resource: crates/mg-ui/tests/frame_perf.rs
@@ -211,6 +211,36 @@ own frames. Its times are to be taken with nothing else drawing.)
 - **Each picture kept its multisampled and depth targets**, nine times
   the picture's memory (1.8 MB each). A picture is now its own texture
   alone (0.2 MB).
+
+### A slow picture, read apart (29 October 2026)
+
+What was left of a gallery's frames was the picture that took one: a
+model with large textures, read, uploaded and drawn on the window's
+thread in one frame. Timed in `frames_at_144` (`FRAME_VIEW=Gallery
+FRAME_DETAIL=1`, release, the machine at a load of 6 to 16 from other
+builds), the frames the wheel turns the palette's Gallery in, three
+runs each way in turn: made in the frame, the slowest 16 to 20 ms (the
+smallest pictures', 11 to 13) and one to three frames over the budget a
+run; read apart, the slowest 1.8 to 3.2 ms and none over it.
+
+Where the frame went, taken apart: the models' reading (`Model::read`
+of the model and its supermodels) and their upload; the textures' reading,
+decoding and mipmaps; and, the most of the slowest pictures (13 to 27 ms
+of `tnp_balc_a02`'s), the game's programs a picture was the first to
+draw with, made while the frame waited. Now, where the window keeps going
+(`background_jobs`, the desktop app), a picture's models are read and
+uploaded by two threads of their own (`PictureReader` in `model_view.rs`,
+from the module's models as they were then and the game's), its textures
+are read apart as the area view's are, and the game's programs made apart
+as the area view makes them (`game_background`); the picture is drawn in
+the frame after they are, and kept only once nothing it draws waited. The
+jobs waiting are let go of with the game data
+(`Moonglow::release_game_data`). Tests that make pictures with it off make
+them in the frame, as before.
+
+The galleries' pictures are the same, pixel for pixel, read either way
+(`frames_at_144` with `FRAME_SHOTS=1`, the palette's Gallery at both
+sizes; and `a_gallery_s_pictures_are_read_apart_and_look_the_same`).
 
 ### Smaller things
 

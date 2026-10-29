@@ -895,7 +895,10 @@ fn frames_at_144() {
     tab(&mut h, &mut r, "standard placeable palette, searched for \"a\"", Tab::Palette);
     palette(&mut h, BlueprintKind::Item, false, "e");
     tab(&mut h, &mut r, "standard item palette, searched for \"e\"", Tab::Palette);
-    // The Gallery: its pictures are made a few a frame, then kept.
+    // The Gallery: its pictures are made a few a frame, then kept; their
+    // models and textures read apart, as the desktop app reads them.
+    let background = h.state().background_jobs;
+    h.state_mut().background_jobs = true;
     h.state_mut().settings.palette_gallery = true;
     for (side, what) in [(128, "Gallery"), (64, "Gallery, smallest pictures")] {
         h.state_mut().settings.gallery_tile = Some(side);
@@ -907,6 +910,7 @@ fn frames_at_144() {
     }
     h.state_mut().settings.palette_gallery = false;
     h.state_mut().settings.gallery_tile = None;
+    h.state_mut().background_jobs = background;
     h.state_mut().palette.filter.clear();
 
     tab(&mut h, &mut r, "resource browser", Tab::Resources);

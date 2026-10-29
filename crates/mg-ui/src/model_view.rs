@@ -1145,6 +1145,20 @@ pub struct Thumbnails {
     pub drawn: u64,
     /// How many pictures out of sight are kept, if not [`THUMBNAILS_KEPT`].
     pub keep: Option<usize>,
+    /// What reads pictures' models apart ([`make_thumbnail`]), made with
+    /// the first it reads.
+    reader: Option<PictureReader>,
+    /// The pictures whose models are being read apart, and those read,
+    /// waiting to be drawn (for their textures, read apart too).
+    loading: HashMap<Kept, Loading>,
+    ready: HashMap<Kept, Ready>,
+    /// Bumped as pictures are let go of: what was being read before is
+    /// dropped as it comes.
+    era: u64,
+    /// The module's models as they were at a revision, which pictures read
+    /// apart are read from.
+    #[allow(clippy::type_complexity)]
+    module_models: Option<(Option<u64>, Arc<HashMap<ResKey, Arc<[u8]>>>)>,
 }
 
 /// What a picture is kept by: what it is of, and whether as a woman wears
@@ -1268,6 +1282,9 @@ impl Thumbnails {
         self.wanted.clear();
         self.items.clear();
         self.flushed = None;
+        self.let_go();
+        self.ready.clear();
+        self.module_models = None;
     }
 
     /// How many pictures are kept.
@@ -1278,6 +1295,12 @@ impl Thumbnails {
     /// How many pictures asked for this frame are still to make.
     pub fn waiting(&self) -> usize {
         self.wanted.len()
+    }
+
+    /// How many pictures are being read apart, or wait to be drawn for
+    /// their textures ([`make_thumbnail`]).
+    pub fn reading(&self) -> usize {
+        self.loading.len() + self.ready.len()
     }
 }
 
@@ -1328,6 +1351,10 @@ pub(crate) fn make_thumbnails(app: &mut Moonglow, ctx: &egui::Context) {
         let _ = ws.flush();
         app.thumbnails.flushed = revision;
     }
+    app.thumbnails.take_read();
+    // (Read apart and no longer asked for: let go of.)
+    let asked: std::collections::HashSet<Kept> = wanted.iter().copied().collect();
+    app.thumbnails.ready.retain(|k, _| asked.contains(k));
     let (mut made, mut waiting) = (0, Vec::new());
     for key in wanted {
         let current = app
@@ -1348,6 +1375,10 @@ pub(crate) fn make_thumbnails(app: &mut Moonglow, ctx: &egui::Context) {
     }
     if made > 0 || !waiting.is_empty() {
         ctx.request_repaint();
+    }
+    // (Being read apart: looked for again soon.)
+    if !app.thumbnails.loading.is_empty() || !app.thumbnails.ready.is_empty() {
+        ctx.request_repaint_after(std::time::Duration::from_millis(8));
     }
     app.thumbnails.wanted = waiting;
     // Those not shown any more go, the longest unseen first, when there
@@ -1386,19 +1417,48 @@ pub(crate) fn make_thumbnails(app: &mut Moonglow, ctx: &egui::Context) {
 }
 
 /// Makes a picture, or finds the one made before the module changed to be
-/// what the blueprint still looks like.
+/// what the blueprint still looks like. Where the window keeps going
+/// ([`Moonglow::background_jobs`]), a picture's models are read apart
+/// ([`PictureReader`]) and its textures too: it is drawn in a later frame,
+/// once they are (a model with large textures took a frame of 7 to 9 ms,
+/// read on the window's thread). Else it is made at once.
 fn make_thumbnail(app: &mut Moonglow, kept: Kept) {
     let (frame, revision) = (app.thumbnails.frame, app.thumbnails.revision);
     let key = kept.0;
-    if let Pictured::Group(tileset, group) = key {
-        let picture = draw_group_thumbnail(app, tileset, group);
-        app.thumbnails.drawn += 1;
-        let made = Made { picture, look: None, revision, used: frame };
-        if let Some(old) = app.thumbnails.made.insert(kept, made)
-            && let (Some((_, id)), Some(vp)) = (old.picture, &app.viewport)
-        {
-            vp.render_state.renderer.write().free_texture(&id);
+    // Its models read apart: drawn once its textures are read too.
+    if let Some(ready) = app.thumbnails.ready.remove(&kept) {
+        let drawn = match &ready.subject {
+            Some((source, preview)) => match ready.composed.first() {
+                Some((composed, _)) => draw_composed(app, key, source, preview, composed, true),
+                None => Ok(None),
+            },
+            None => draw_group(app, &ready.composed, true),
+        };
+        match drawn {
+            Err(Waiting) => _ = app.thumbnails.ready.insert(kept, ready),
+            Ok(picture) => {
+                let made =
+                    Made { picture, look: ready.look, revision: ready.revision, used: frame };
+                keep_made(app, kept, made);
+            }
         }
+        return;
+    }
+    // (Being read.)
+    if app.thumbnails.loading.contains_key(&kept) {
+        return;
+    }
+    let apart = app.background_jobs && app.viewport.is_some() && app.game.is_some();
+    if let Pictured::Group(tileset, group) = key {
+        if apart {
+            let tiles = group_tiles(app, tileset, group).unwrap_or_default();
+            let parts = tiles.iter().map(|(_, preview, at)| (preview.clone(), *at)).collect();
+            let loading = Loading { subject: None, look: None, revision };
+            read_apart(app, kept, parts, loading);
+            return;
+        }
+        let picture = draw_group_thumbnail(app, tileset, group);
+        keep_made(app, kept, Made { picture, look: None, revision, used: frame });
         return;
     }
     let look = pictured_look(app, kept);
@@ -1409,15 +1469,214 @@ fn make_thumbnail(app: &mut Moonglow, kept: Kept) {
         made.revision = revision;
         return;
     }
+    let kept_look = look.as_ref().map(|(_, p)| p.clone()).filter(|_| key.follows_the_module());
+    if apart && let Some((source, preview)) = look {
+        let parts = vec![(preview.clone(), Mat4::IDENTITY)];
+        let loading = Loading { subject: Some((source, preview)), look: kept_look, revision };
+        read_apart(app, kept, parts, loading);
+        return;
+    }
     let picture =
         look.as_ref().and_then(|(source, preview)| draw_thumbnail(app, key, source, preview));
-    let look = look.map(|(_, preview)| preview).filter(|_| key.follows_the_module());
-    let made = Made { picture, look, revision, used: frame };
+    keep_made(app, kept, Made { picture, look: kept_look, revision, used: frame });
+}
+
+/// Keeps a picture made, letting go of the one it takes the place of.
+fn keep_made(app: &mut Moonglow, kept: Kept, made: Made) {
     app.thumbnails.drawn += 1;
     if let Some(old) = app.thumbnails.made.insert(kept, made)
         && let (Some((_, id)), Some(vp)) = (old.picture, &app.viewport)
     {
         vp.render_state.renderer.write().free_texture(&id);
+    }
+}
+
+/// Asks for a picture's models (`parts`: each preview and where it stands)
+/// to be read apart, from the module's models as they are now and the
+/// game's.
+fn read_apart(app: &mut Moonglow, kept: Kept, parts: Vec<(Preview, Mat4)>, loading: Loading) {
+    let (Some(vp), Some(game)) = (&app.viewport, &app.game) else { return };
+    let thumbnails = &mut app.thumbnails;
+    let revision = thumbnails.revision;
+    let module = match &thumbnails.module_models {
+        Some((at, models)) if *at == revision => models.clone(),
+        _ => {
+            let models: HashMap<ResKey, Arc<[u8]>> = (app.ws.as_ref())
+                .map(|ws| {
+                    (ws.module.keys_of(ResType::MDL))
+                        .filter_map(|k| Some((*k, ws.module.shared(k)?.clone())))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let models = Arc::new(models);
+            thumbnails.module_models = Some((revision, models.clone()));
+            models
+        }
+    };
+    let reader = thumbnails.reader.get_or_insert_with(|| PictureReader::new(vp.gpu.clone()));
+    let era = thumbnails.era;
+    reader.ask(PictureJob { kept, era, parts, module, game: game.clone() });
+    thumbnails.loading.insert(kept, loading);
+}
+
+/// A picture whose models are being read apart ([`Thumbnails::loading`]):
+/// what it is of (none for a tileset's group) and what is kept with it.
+struct Loading {
+    subject: Option<(Source, Preview)>,
+    look: Option<Preview>,
+    revision: Option<u64>,
+}
+
+/// A picture whose models are read, drawn once its textures are
+/// ([`Thumbnails::ready`]).
+struct Ready {
+    subject: Option<(Source, Preview)>,
+    composed: Vec<(Composed, Mat4)>,
+    look: Option<Preview>,
+    revision: Option<u64>,
+}
+
+/// What a [`PictureReader`] is asked to read: a picture's previews' models,
+/// from the module's (as they were when asked) and the game's.
+struct PictureJob {
+    kept: Kept,
+    era: u64,
+    parts: Vec<(Preview, Mat4)>,
+    module: Arc<HashMap<ResKey, Arc<[u8]>>>,
+    game: Arc<mg_rules::GameData>,
+}
+
+/// What it read: each part's models on the GPU (`None`: not found or not
+/// readable), where it stands.
+struct PictureDone {
+    kept: Kept,
+    era: u64,
+    composed: Vec<(Option<Composed>, Mat4)>,
+}
+
+/// How many threads read pictures' models apart.
+const PICTURE_READERS: usize = 2;
+
+/// Threads that read pictures' models apart from the window (a gallery's:
+/// [`make_thumbnail`]), uploading them, as the renderer reads textures
+/// apart. The jobs waiting are let go of with the game data they hold
+/// ([`Thumbnails::let_go`]); the threads end with it.
+struct PictureReader {
+    queue: Arc<(std::sync::Mutex<PictureQueue>, std::sync::Condvar)>,
+    done: std::sync::mpsc::Receiver<PictureDone>,
+}
+
+#[derive(Default)]
+struct PictureQueue {
+    jobs: std::collections::VecDeque<PictureJob>,
+    stop: bool,
+}
+
+impl PictureReader {
+    fn new(gpu: Gpu) -> PictureReader {
+        let queue: Arc<(std::sync::Mutex<PictureQueue>, std::sync::Condvar)> = Default::default();
+        let (give, done) = std::sync::mpsc::channel();
+        for n in 0..PICTURE_READERS {
+            let (queue, give, gpu) = (queue.clone(), give.clone(), gpu.clone());
+            let read = move || {
+                loop {
+                    let job = {
+                        let (lock, ready) = &*queue;
+                        let Ok(mut q) = lock.lock() else { return };
+                        loop {
+                            if q.stop {
+                                return;
+                            }
+                            if let Some(job) = q.jobs.pop_front() {
+                                break job;
+                            }
+                            q = match ready.wait(q) {
+                                Ok(q) => q,
+                                Err(_) => return,
+                            };
+                        }
+                    };
+                    let composed = read_picture(&gpu, &job);
+                    let done = PictureDone { kept: job.kept, era: job.era, composed };
+                    // (The game data let go of before it is said.)
+                    drop(job);
+                    if give.send(done).is_err() {
+                        return;
+                    }
+                }
+            };
+            let name = format!("moonglow pictures {n}");
+            // (No thread: the jobs wait; the window reads none apart.)
+            let _ = std::thread::Builder::new().name(name).spawn(read);
+        }
+        PictureReader { queue, done }
+    }
+
+    fn ask(&self, job: PictureJob) {
+        let (lock, ready) = &*self.queue;
+        if let Ok(mut q) = lock.lock() {
+            q.jobs.push_back(job);
+            ready.notify_one();
+        }
+    }
+
+    /// Lets go of the jobs waiting (and the game data they hold).
+    fn clear(&self) {
+        if let Ok(mut q) = self.queue.0.lock() {
+            q.jobs.clear();
+        }
+    }
+}
+
+impl Drop for PictureReader {
+    fn drop(&mut self) {
+        let (lock, ready) = &*self.queue;
+        if let Ok(mut q) = lock.lock() {
+            q.jobs.clear();
+            q.stop = true;
+        }
+        ready.notify_all();
+    }
+}
+
+/// A job's models read and uploaded, as [`compose`] reads them.
+fn read_picture(gpu: &Gpu, job: &PictureJob) -> Vec<(Option<Composed>, Mat4)> {
+    let load = |name: &str| -> Option<Arc<Model>> {
+        let k = ResKey::parse(name, ResType::MDL)?;
+        let model = match job.module.get(&k) {
+            Some(data) => Model::read(data),
+            None => Model::read(&job.game.resman.get(&k).ok()?),
+        };
+        model.ok().map(Arc::new)
+    };
+    (job.parts.iter()).map(|(preview, at)| (Composed::new(gpu, preview, &load), *at)).collect()
+}
+
+impl Thumbnails {
+    /// Takes the pictures whose models were read apart since the last
+    /// frame: each to be drawn once its textures are.
+    fn take_read(&mut self) {
+        let Some(reader) = &self.reader else { return };
+        while let Ok(done) = reader.done.try_recv() {
+            if done.era != self.era {
+                continue;
+            }
+            let Some(loading) = self.loading.remove(&done.kept) else { continue };
+            let composed = done.composed.into_iter().filter_map(|(c, at)| Some((c?, at))).collect();
+            let Loading { subject, look, revision } = loading;
+            self.ready.insert(done.kept, Ready { subject, composed, look, revision });
+        }
+    }
+
+    /// Lets go of what reads pictures apart holds of the game data, to
+    /// have it changed ([`Moonglow::release_game_data`]): the jobs waiting
+    /// (asked for again by the views that want them).
+    pub(crate) fn let_go(&mut self) {
+        if let Some(reader) = &self.reader {
+            reader.clear();
+        }
+        self.era += 1;
+        self.loading.clear();
     }
 }
 
@@ -1488,21 +1747,45 @@ fn worn_slots(app: &Moonglow, source: &Source, preview: &Preview) -> Option<i32>
         .find_map(|row| t.get_int(row, "EquipableSlots"))
 }
 
+/// A picture drawn, or not drawn yet: a texture it needs is being read
+/// apart ([`mg_render::Renderer::read_textures_apart`]).
+type Drawn = Result<Option<(wgpu::Texture, egui::TextureId)>, Waiting>;
+
+/// A picture waits for its textures.
+#[derive(Debug, Clone, Copy)]
+struct Waiting;
+
 fn draw_thumbnail(
     app: &mut Moonglow,
     key: Pictured,
     source: &Source,
     preview: &Preview,
 ) -> Option<(wgpu::Texture, egui::TextureId)> {
+    let composed = compose(app, source, preview).ok()?;
+    draw_composed(app, key, source, preview, &composed, false).ok().flatten()
+}
+
+/// [`draw_thumbnail`] of a preview's models read already; `apart`: its
+/// textures met for the first time are read apart, and it is not drawn
+/// until they are.
+fn draw_composed(
+    app: &mut Moonglow,
+    key: Pictured,
+    source: &Source,
+    preview: &Preview,
+    composed: &Composed,
+    apart: bool,
+) -> Drawn {
     // (A tile is seen from one side always, turned as it lies.)
     let turned = match key {
         Pictured::Tile(_, quarters) => Some(f32::from(quarters % 4) * std::f32::consts::FRAC_PI_2),
         _ => None,
     };
     let shield = is_shield(app, source, preview);
-    let composed = compose(app, source, preview).ok()?;
     // (Drawn with the GPU: none, no picture.)
-    app.viewport.as_ref()?;
+    if app.viewport.is_none() {
+        return Ok(None);
+    }
     // As the viewer frames it: from the front, a little to the side.
     // A model that emits (flames, sparks, a shaft of light: some are
     // nothing else) is drawn a few seconds in, its particles in the frame.
@@ -1585,7 +1868,7 @@ fn draw_thumbnail(
         particles,
         ..Default::default()
     };
-    render_picture(app, &scene, &camera)
+    render_picture(app, &scene, &camera, apart)
 }
 
 /// A tileset's group as a picture: as it stands placed, unturned, in open
@@ -1598,6 +1881,20 @@ fn draw_group_thumbnail(
     tileset: mg_core::ResRef,
     group: u32,
 ) -> Option<(wgpu::Texture, egui::TextureId)> {
+    let tiles = group_tiles(app, tileset, group)?;
+    let parts: Vec<(Composed, Mat4)> = (tiles.iter())
+        .filter_map(|(source, preview, at)| Some((compose(app, source, preview).ok()?, *at)))
+        .collect();
+    draw_group(app, &parts, false).ok().flatten()
+}
+
+/// The tiles a group's picture shows: each tile's model, as a source and
+/// its preview, and where it lies ([`draw_group_thumbnail`]).
+fn group_tiles(
+    app: &Moonglow,
+    tileset: mg_core::ResRef,
+    group: u32,
+) -> Option<Vec<(Source, Preview, Mat4)>> {
     let set = app.tileset(tileset)?;
     let g = set.groups.get(group as usize)?;
     let index = (app.open_tileset(tileset).map(|t| t.index.clone()))
@@ -1618,8 +1915,7 @@ fn draw_group_thumbnail(
                 })
                 .collect(),
         };
-    // (Each tile's models kept until the picture is drawn.)
-    let mut parts = Vec::new();
+    let mut tiles = Vec::new();
     for ((c, r), p) in placed {
         let Some(t) = set.tiles.get(p.tile as usize) else { continue };
         let Some(key) = ResKey::parse(&t.model.to_ascii_lowercase(), ResType::MDL) else {
@@ -1627,7 +1923,6 @@ fn draw_group_thumbnail(
         };
         let source = Source::Resource(key);
         let Ok(preview) = preview_of(app, &source) else { continue };
-        let Ok(composed) = compose(app, &source, &preview) else { continue };
         let at = Vec3::new(
             c as f32 * mg_area::TILE_SIZE,
             r as f32 * mg_area::TILE_SIZE,
@@ -1635,14 +1930,20 @@ fn draw_group_thumbnail(
         );
         let turn =
             glam::Quat::from_rotation_z(f32::from(p.orientation % 4) * std::f32::consts::FRAC_PI_2);
-        parts.push((composed, Mat4::from_rotation_translation(turn, at)));
+        tiles.push((source, preview, Mat4::from_rotation_translation(turn, at)));
     }
+    Some(tiles)
+}
+
+/// A group's picture of its tiles' models read already, each where it
+/// lies; `apart` as [`draw_composed`]'s. `Ok(None)` where there are none.
+fn draw_group(app: &mut Moonglow, parts: &[(Composed, Mat4)], apart: bool) -> Drawn {
     if parts.is_empty() {
-        return None;
+        return Ok(None);
     }
     let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
     let (mut instances, mut lights) = (Vec::new(), Vec::new());
-    for (composed, at) in &parts {
+    for (composed, at) in parts {
         let (low, high) = composed.bounds();
         (min, max) = (min.min(at.transform_point3(low)), max.max(at.transform_point3(high)));
         instances.extend(composed.instances(None, 0.0, *at));
@@ -1663,17 +1964,17 @@ fn draw_group_thumbnail(
         background: [0.16, 0.18, 0.21],
         ..Default::default()
     };
-    render_picture(app, &scene, &camera)
+    render_picture(app, &scene, &camera, apart)
 }
 
 /// A picture of `scene` from `camera`, in a texture of its own, and egui's
-/// name for it: a thumbnail.
-fn render_picture(
-    app: &mut Moonglow,
-    scene: &Scene,
-    camera: &Camera,
-) -> Option<(wgpu::Texture, egui::TextureId)> {
-    let vp = app.viewport.as_mut()?;
+/// name for it: a thumbnail. `apart`: textures met for the first time are
+/// read apart from the window ([`mg_render::Renderer::read_textures_apart`])
+/// and the picture waits for them (`Err`); else they are read as they are
+/// met.
+fn render_picture(app: &mut Moonglow, scene: &Scene, camera: &Camera, apart: bool) -> Drawn {
+    let game = app.game.clone();
+    let Some(vp) = app.viewport.as_mut() else { return Ok(None) };
     // Drawn into the targets every picture is drawn into, and resolved
     // into a texture of its own: what is kept of it. (Each kept its own
     // multisampled and depth targets, nine times its picture's memory.)
@@ -1698,11 +1999,23 @@ fn render_picture(
         Some(multisampled) => (multisampled, Some(&view)),
         None => (&view, None),
     };
-    let resman = app.game.as_deref().map(|g| &g.resman);
+    let resman = game.as_deref().map(|g| &g.resman);
     let assets: &dyn mg_render::Assets = match resman {
         Some(rm) => rm,
         None => &mg_render::NoAssets,
     };
+    // (As the area view reads them apart: from the game data, which it
+    // lets go of to have it changed, `Viewport3d::release_game_data`.)
+    let apart = apart && game.is_some();
+    if let Some(game) = game.as_ref().filter(|_| apart) {
+        let from = vp.textures_from(game);
+        vp.renderer.read_textures_apart(&vp.gpu, Some(from));
+    }
+    vp.renderer.textures_apart = apart;
+    // (And the game's programs a picture is the first to draw with made
+    // apart too, the picture waiting for them: made in the frame, one
+    // took 13 to 27 ms.)
+    vp.renderer.game_background = apart;
     vp.renderer.render(
         &vp.gpu,
         assets,
@@ -1713,12 +2026,18 @@ fn render_picture(
         &targets.depth,
         (size, size),
     );
+    vp.renderer.textures_apart = false;
+    vp.renderer.game_background = false;
+    let drawn = &vp.renderer.drawn;
+    if apart && (drawn.textures_pending > 0 || drawn.game_pending > 0) {
+        return Err(Waiting);
+    }
     let id = vp.render_state.renderer.write().register_native_texture(
         &vp.gpu.device,
         &view,
         wgpu::FilterMode::Linear,
     );
-    Some((picture, id))
+    Ok(Some((picture, id)))
 }
 
 /// A tile's model seen from straight above, its 10 m square filling

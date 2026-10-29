@@ -5270,6 +5270,8 @@ impl Moonglow {
         if let Some(vp) = &mut self.viewport {
             vp.release_game_data();
         }
+        // (And the pictures' models waiting to be read apart.)
+        self.thumbnails.let_go();
         if self.busy() {
             return;
         }
