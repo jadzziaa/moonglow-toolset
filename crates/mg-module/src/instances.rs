@@ -51,6 +51,21 @@ impl std::fmt::Debug for Placing<'_> {
     }
 }
 
+/// Places blueprints as `module` has them, else as the game does: `f` is
+/// given the [`Placing`] (its item blueprints read so) and the reader of
+/// any blueprint by key, the one way every tool that makes placed objects
+/// reads them (the area view's palette, painting, Replace, Update
+/// Instances, the store and level-up wizards, `mg update-instances`).
+pub fn with_placing<R>(
+    game: &GameData,
+    module: Option<&crate::Module>,
+    f: impl FnOnce(&Placing<'_>, &dyn Fn(mg_resman::ResKey) -> Option<Struct>) -> R,
+) -> R {
+    let read = |k: mg_resman::ResKey| crate::gff_root(module, game, &k);
+    let item = |r: ResRef| read(mg_resman::ResKey::new(r, ResType::UTI));
+    f(&Placing { game, item: &item }, &read)
+}
+
 /// The GIT list a blueprint type's instances go in, and their struct id
 /// ([`ObjectKind::list`], [`ObjectKind::struct_id`]).
 pub fn git_list(restype: ResType) -> Option<(&'static str, u32)> {

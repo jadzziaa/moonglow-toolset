@@ -2212,9 +2212,6 @@ of truth, and does each caller's difference matter.
 - **A blueprint's preview, three times** (`mg model-files`,
   `model_view.rs:164`, `mg-area lib.rs:347`): `mg model-files` has no
   waypoint. A `mg_preview::of_object`. (M)
-- **The blueprint-to-instance pipeline four times** (`area_view.rs:3944`,
-  `:3784`, `paint_mode.rs:559`, `bulk.rs:144`; the paint stroke's cache
-  is deliberate). (M)
 
 ### Settled in the engine or Aurora first
 

@@ -10,7 +10,7 @@ use mg_area::ObjectKind;
 use mg_core::{ResRef, ResType};
 use mg_edit::{Command, Edit, GffPath};
 use mg_gff::Struct;
-use mg_module::instances::{Held, Placing, held_items, update, update_held};
+use mg_module::instances::{Held, held_items, update, update_held};
 use mg_resman::ResKey;
 
 use crate::{Action, Moonglow};
@@ -106,7 +106,7 @@ impl Moonglow {
     /// Makes the ticked objects again from their blueprints, as one
     /// command; how many.
     pub fn apply_update(&mut self, draft: &UpdateDraft) -> usize {
-        let (Some(ws), Some(game)) = (self.ws.as_mut(), self.game.as_deref()) else { return 0 };
+        let Some(ws) = self.ws.as_mut() else { return 0 };
         let wanted: HashSet<ResKey> = draft.blueprints.iter().copied().collect();
         let mut blueprints = std::collections::HashMap::new();
         for k in &wanted {
@@ -126,49 +126,50 @@ impl Moonglow {
                 ws.doc(&key).ok().map(|g| (key, g.root.clone()))
             })
             .collect();
-        let module = &ws.module;
-        let items =
-            |r: ResRef| mg_module::gff_root(Some(module), game, &ResKey::new(r, ResType::UTI));
-        let placing = Placing { game, item: &items };
         let blueprint = |t: ResType, r: ResRef| blueprints.get(&ResKey::new(r, t)).cloned();
-        let mut edits = Vec::new();
-        let mut total = 0;
-        for (key, git) in &gits {
-            let (key, area) = (*key, key.resref);
-            let which = |list: &str, index: usize| {
-                draft.objects.iter().any(|o| {
-                    o.area == area
-                        && o.held.is_empty()
-                        && o.list == list
-                        && o.index == index
-                        && o.on
-                })
-            };
-            // The items held first (where they are is by their places
-            // now), then the placed objects.
-            let held = |at: &[(&'static str, usize)]| {
-                draft.objects.iter().any(|o| o.area == area && o.held == at && o.on)
-            };
-            let item = |r: ResRef| blueprint(ResType::UTI, r);
-            let (with_held, held_n) =
-                update_held(&placing, git, &item, &held).unwrap_or_else(|| (git.clone(), 0));
-            let (new, n) = update(&placing, &with_held, &blueprint, &which)
-                .map_or((with_held, held_n), |(new, n)| (new, n + held_n));
-            if n == 0 {
-                continue;
-            }
-            total += n;
-            for list in ObjectKind::ALL.map(ObjectKind::list) {
-                if new.get(list) != git.get(list) {
-                    edits.push(Edit::SetField {
-                        key,
-                        path: GffPath::root(),
-                        label: list.to_string(),
-                        value: new.get(list).cloned(),
-                    });
+        // (The items the objects hold, as their editors have them.)
+        let made = crate::area_view::placing(self, |placing, _| {
+            let mut edits = Vec::new();
+            let mut total = 0;
+            for (key, git) in &gits {
+                let (key, area) = (*key, key.resref);
+                let which = |list: &str, index: usize| {
+                    draft.objects.iter().any(|o| {
+                        o.area == area
+                            && o.held.is_empty()
+                            && o.list == list
+                            && o.index == index
+                            && o.on
+                    })
+                };
+                // The items held first (where they are is by their places
+                // now), then the placed objects.
+                let held = |at: &[(&'static str, usize)]| {
+                    draft.objects.iter().any(|o| o.area == area && o.held == at && o.on)
+                };
+                let item = |r: ResRef| blueprint(ResType::UTI, r);
+                let (with_held, held_n) =
+                    update_held(placing, git, &item, &held).unwrap_or_else(|| (git.clone(), 0));
+                let (new, n) = update(placing, &with_held, &blueprint, &which)
+                    .map_or((with_held, held_n), |(new, n)| (new, n + held_n));
+                if n == 0 {
+                    continue;
+                }
+                total += n;
+                for list in ObjectKind::ALL.map(ObjectKind::list) {
+                    if new.get(list) != git.get(list) {
+                        edits.push(Edit::SetField {
+                            key,
+                            path: GffPath::root(),
+                            label: list.to_string(),
+                            value: new.get(list).cloned(),
+                        });
+                    }
                 }
             }
-        }
+            (edits, total)
+        });
+        let Some((edits, total)) = made else { return 0 };
         if total > 0 {
             let what = match draft.blueprints.as_slice() {
                 [one] => format!("Update instances of {}", one.resref),

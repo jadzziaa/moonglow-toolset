@@ -4962,14 +4962,26 @@ fn instance_of(
     placement: mg_module::instances::Placement,
     relative: &[[f32; 3]],
 ) -> Result<Option<mg_gff::Struct>, String> {
-    use mg_module::instances::{Placing, instance};
-    let (Some(game), Some(ws)) = (app.game.as_deref(), app.ws.as_mut()) else { return Ok(None) };
+    placing(app, |placing, read| {
+        let blueprint = read(key).ok_or_else(|| format!("{key}: not found or not readable"))?;
+        let made =
+            mg_module::instances::instance(placing, key.restype, &blueprint, placement, relative);
+        Ok(made)
+    })
+    .unwrap_or(Ok(None))
+}
+
+/// Makes placed objects of blueprints as their editors have them now, not
+/// as last saved (the workspace is flushed first): the module's, else the
+/// game's ([`mg_module::instances::with_placing`]). `None` without a
+/// module or game data.
+pub(crate) fn placing<R>(
+    app: &mut Moonglow,
+    f: impl FnOnce(&mg_module::instances::Placing<'_>, &dyn Fn(ResKey) -> Option<mg_gff::Struct>) -> R,
+) -> Option<R> {
+    let (Some(game), Some(ws)) = (app.game.as_deref(), app.ws.as_mut()) else { return None };
     let _ = ws.flush();
-    let read = |k: ResKey| mg_module::gff_root(Some(&ws.module), game, &k);
-    let blueprint = read(key).ok_or_else(|| format!("{key}: not found or not readable"))?;
-    let items = |r: ResRef| read(ResKey::new(r, ResType::UTI));
-    let placing = Placing { game, item: &items };
-    Ok(instance(&placing, key.restype, &blueprint, placement, relative))
+    Some(mg_module::instances::with_placing(game, Some(&ws.module), f))
 }
 
 /// Blueprint `key` as an object not yet placed (at the origin, unturned),
@@ -5246,7 +5258,7 @@ fn delete(app: &mut Moonglow, view: &mut AreaView) {
 /// One command; objects of other types and locked ones are left. How many
 /// were replaced.
 pub(crate) fn replace_selected(app: &mut Moonglow, area: ResRef, key: ResKey, own: bool) -> usize {
-    use mg_module::instances::{Placing, replaced, replaced_keeping_own};
+    use mg_module::instances::{replaced, replaced_keeping_own};
     let Some(kind) = ObjectKind::from_restype(key.restype) else { return 0 };
     let Some(view) = app.area_views.get(&area) else { return 0 };
     let git = view.git();
@@ -5259,7 +5271,7 @@ pub(crate) fn replace_selected(app: &mut Moonglow, area: ResRef, key: ResKey, ow
         })
         .map(|&(_, i)| i)
         .collect();
-    let (Some(game), Some(ws)) = (app.game.as_deref(), app.ws.as_mut()) else { return 0 };
+    let Some(ws) = app.ws.as_mut() else { return 0 };
     let olds: Vec<(usize, mg_gff::Struct)> = match ws.doc(&git) {
         Ok(doc) => {
             let list = doc.root.list(kind.list()).unwrap_or(&[]);
@@ -5267,26 +5279,27 @@ pub(crate) fn replace_selected(app: &mut Moonglow, area: ResRef, key: ResKey, ow
         }
         Err(_) => return 0,
     };
-    let _ = ws.flush();
-    let read = |k: ResKey| mg_module::gff_root(Some(&ws.module), game, &k);
-    let Some(blueprint) = read(key) else {
+    let made = placing(app, |placing, read| {
+        let blueprint = read(key)?;
+        let mut edits = Vec::new();
+        for (index, old) in &olds {
+            let made = if own {
+                replaced_keeping_own(placing, key.restype, old, &blueprint)
+            } else {
+                replaced(placing, key.restype, old, &blueprint)
+            };
+            let Some(item) = made else { continue };
+            let (path, list) = (mg_edit::GffPath::root(), kind.list().to_string());
+            edits.push(mg_edit::Edit::remove_item(git, path.clone(), list.clone(), *index));
+            edits.push(mg_edit::Edit::insert_item(git, path, list, *index, item));
+        }
+        Some(edits)
+    });
+    let Some(made) = made else { return 0 };
+    let Some(edits) = made else {
         app.log.error(format!("{key}: not found or not readable"));
         return 0;
     };
-    let items = |r: ResRef| read(ResKey::new(r, ResType::UTI));
-    let placing = Placing { game, item: &items };
-    let mut edits = Vec::new();
-    for (index, old) in &olds {
-        let made = if own {
-            replaced_keeping_own(&placing, key.restype, old, &blueprint)
-        } else {
-            replaced(&placing, key.restype, old, &blueprint)
-        };
-        let Some(item) = made else { continue };
-        let (path, list) = (mg_edit::GffPath::root(), kind.list().to_string());
-        edits.push(mg_edit::Edit::remove_item(git, path.clone(), list.clone(), *index));
-        edits.push(mg_edit::Edit::insert_item(git, path, list, *index, item));
-    }
     let replaced = edits.len() / 2;
     if replaced == 0 {
         app.log.warn("Select objects of this blueprint's type in the area first");
