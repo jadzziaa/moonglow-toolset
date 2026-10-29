@@ -2222,10 +2222,6 @@ document; the entries here that name the audit are that list in short.
 - **The wiki corrections were never submitted** (`wiki-proposal.md`);
   all fifteen pages are unchanged upstream. (S)
   (the documentation audit of 2026-10-12)
-- **The parity checklists:** the main menus are not compared with
-  Aurora's item by item; "eight tests not in
-  `app.rs` named without their file" is as the audit found it. (S
-  each) (the documentation audit of 2026-10-12)
 
 ## The code itself (the code review of October 2026)
 

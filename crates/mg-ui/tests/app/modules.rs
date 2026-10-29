@@ -1618,6 +1618,11 @@ fn closing_the_window_asks_first() {
     h.state_mut().actions.push(mg_ui::Action::Quit);
     h.run_steps(3);
     assert!(h.state().quit_requested);
+    // Nor does its key, Alt+X, Aurora's.
+    h.state_mut().quit_requested = false;
+    h.key_press_modifiers(egui::Modifiers::ALT, egui::Key::X);
+    h.run_steps(3);
+    assert!(h.state().quit_requested, "Alt+X exits");
 }
 
 /// Test Module and a game running that Moonglow did not start (GitHub

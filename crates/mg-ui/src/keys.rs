@@ -127,6 +127,8 @@ pub enum Cmd {
     DialogFindNext,
     /// File › Close.
     Close,
+    /// File › Exit.
+    Exit,
     CloseTab,
     NextTab,
     PreviousTab,
@@ -159,7 +161,7 @@ const SHIFT: Modifiers = Modifiers::SHIFT;
 const NONE: Modifiers = Modifiers::NONE;
 
 impl Cmd {
-    pub const ALL: [Cmd; 78] = [
+    pub const ALL: [Cmd; 79] = [
         Cmd::NewModule,
         Cmd::OpenModule,
         Cmd::Save,
@@ -217,6 +219,7 @@ impl Cmd {
         Cmd::DialogFind,
         Cmd::DialogFindNext,
         Cmd::Close,
+        Cmd::Exit,
         Cmd::CloseTab,
         Cmd::NextTab,
         Cmd::PreviousTab,
@@ -303,6 +306,7 @@ impl Cmd {
             Cmd::DialogFind => ("dialog-find", "Find and Replace", Conversation),
             Cmd::DialogFindNext => ("dialog-find-next", "Find Next", Conversation),
             Cmd::Close => ("close", "Close", General),
+            Cmd::Exit => ("exit", "Exit", General),
             Cmd::CloseTab => ("close-tab", "Close Tab", General),
             Cmd::NextTab => ("next-tab", "Next Tab", General),
             Cmd::PreviousTab => ("previous-tab", "Previous Tab", General),
@@ -415,6 +419,8 @@ impl Cmd {
             Cmd::DialogFindNext => vec![k(NONE, Key::F3)],
             // (No key at first: Ctrl+F4, Aurora's for it, closes a tab.)
             Cmd::Close => Vec::new(),
+            // Aurora's.
+            Cmd::Exit => vec![k(Modifiers::ALT, Key::X)],
             // A browser's, both.
             Cmd::CloseTab => vec![k(CTRL, Key::W), k(CTRL, Key::F4)],
             Cmd::NextTab => vec![k(CTRL, Key::Tab), k(CTRL, Key::PageDown)],
