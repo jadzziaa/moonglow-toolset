@@ -25,12 +25,14 @@ pub(crate) struct Drawn {
     #[arg(long, default_value_t = 1.0)]
     scale: f32,
     /// A state to draw controls in: STATE for every control, STATE:ID for
-    /// the one with that ID (which wins over every control's). STATE is
-    /// normal, hover, pressed or disabled. Again for more: --state
-    /// hover:send --state disabled:cancel. A control its binds disable
+    /// the one with that ID (which wins over every control's; in a list's
+    /// rows, every row's), STATE:ID@ROW for a list's control in one row
+    /// (from 0; which wins over its ID's). STATE is normal, hover, pressed
+    /// or disabled. Again for more: --state hover:send --state
+    /// disabled:cancel --state pressed:read@2. A control its binds disable
     /// stays disabled.
-    #[arg(long = "state", value_name = "STATE[:ID]", value_parser = parse_state)]
-    states: Vec<(Option<String>, mg_ui::nui_render::Look)>,
+    #[arg(long = "state", value_name = "STATE[:ID[@ROW]]", value_parser = parse_state)]
+    states: Vec<(Option<(String, Option<usize>)>, mg_ui::nui_render::Look)>,
     /// Binds' values from a JSON file, in place of their first ones: an
     /// object of bind names and values as NuiSetBind sets them (a string,
     /// number, boolean, an array for a list's rows, {"r","g","b","a"} for
@@ -39,9 +41,10 @@ pub(crate) struct Drawn {
     binds: Option<PathBuf>,
     /// A swap layout variant (a key of the settings' `views`) to draw in
     /// its group, or as the whole window, in place of what it holds at
-    /// first, as NuiSetGroupLayout shows it.
-    #[arg(long, value_name = "NAME")]
-    variant: Option<String>,
+    /// first, as NuiSetGroupLayout shows it. Again for variants of other
+    /// groups: --variant details --variant filters (one a group).
+    #[arg(long = "variant", value_name = "NAME")]
+    variants: Vec<String>,
 }
 
 impl Drawn {
@@ -49,13 +52,23 @@ impl Drawn {
     /// twice for one control refused.
     pub(super) fn options(&self) -> Result<mg_ui::nui_render::Options> {
         let mut states = std::collections::BTreeMap::new();
-        for (id, look) in &self.states {
-            if let Some(was) = states.insert(id.clone(), *look)
+        let mut row_states = std::collections::BTreeMap::new();
+        for (to, look) in &self.states {
+            let was = match to {
+                Some((id, Some(row))) => row_states.insert((id.clone(), *row), *look),
+                Some((id, None)) => states.insert(Some(id.clone()), *look),
+                None => states.insert(None, *look),
+            };
+            if let Some(was) = was
                 && was != *look
             {
                 bail!(
                     "--state: {} is given {} and {}",
-                    id.as_ref().map_or("every control".to_owned(), |id| format!("{id:?}")),
+                    match to {
+                        None => "every control".to_owned(),
+                        Some((id, None)) => format!("{id:?}"),
+                        Some((id, Some(row))) => format!("{id:?} in row {row}"),
+                    },
                     was.name(),
                     look.name()
                 );
@@ -81,24 +94,34 @@ impl Drawn {
             scale: self.scale,
             size: self.size,
             states,
+            row_states,
             binds,
-            variant: self.variant.clone(),
+            variants: self.variants.clone(),
         })
     }
 }
 
-/// A state given as STATE or STATE:ID.
-fn parse_state(
-    text: &str,
-) -> std::result::Result<(Option<String>, mg_ui::nui_render::Look), String> {
+/// Whose a state is: every control's (`None`), an ID's, or an ID's in
+/// one row of its list.
+type StateOf = Option<(String, Option<usize>)>;
+
+/// A state given as STATE, STATE:ID or STATE:ID@ROW.
+fn parse_state(text: &str) -> std::result::Result<(StateOf, mg_ui::nui_render::Look), String> {
     let (look, id) = match text.split_once(':') {
         Some((look, "")) => {
             return Err(format!("{text:?}: give the control's ID after {look}:"));
         }
-        Some((look, id)) => (look, Some(id.to_owned())),
+        Some((look, id)) => (look, Some(id)),
         None => (text, None),
     };
-    Ok((id, look.parse()?))
+    // (An ID may hold an @ of its own: a row is the number after the last.)
+    let to = id.map(|id| match id.rsplit_once('@') {
+        Some((id, row)) if !id.is_empty() && row.parse::<usize>().is_ok() => {
+            (id.to_owned(), row.parse().ok())
+        }
+        _ => (id.to_owned(), None),
+    });
+    Ok((to, look.parse()?))
 }
 
 /// A size given as WIDTHxHEIGHT (or WIDTH,HEIGHT), in points.
@@ -279,6 +302,12 @@ fn layout_output(module: &Path, l: &mg_ui::nui_render::Layout, mut out: Output) 
         b.w,
         b.h
     ));
+    if let Some(title) = &l.title {
+        out.line(format!(
+            "title\t{title:?}{}",
+            if l.title_cut { "\tcut: longer than its bar" } else { "" }
+        ));
+    }
     for e in &l.elements {
         let a = &e.area;
         let mut line = format!("{}\t{}", e.path, e.kind);

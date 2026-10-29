@@ -244,6 +244,11 @@ pub(super) struct Record {
     /// Each control drawn or passed over, in the order the canvas reached
     /// them (a parent before its children).
     pub placed: Vec<Placed>,
+    /// The title as its bar shows it, and whether it was cut there (text
+    /// cut outside every control: the title is the only text the window
+    /// draws of its own).
+    pub title: Option<String>,
+    pub title_cut: bool,
     /// The controls being drawn, innermost last: whose text a cut belongs to.
     current: Vec<usize>,
 }
@@ -278,6 +283,8 @@ impl Default for Record {
             window: Rect::NOTHING,
             body: Rect::NOTHING,
             placed: Vec::new(),
+            title: None,
+            title_cut: false,
             current: Vec::new(),
         }
     }
@@ -340,12 +347,21 @@ impl Assets {
         }
     }
 
-    /// Text the control being drawn cut because it did not fit.
+    /// The window's title, drawn in its bar.
+    pub(super) fn record_title(&self, title: &str) {
+        if let Some(r) = self.record.borrow_mut().as_mut() {
+            r.title = Some(title.into());
+        }
+    }
+
+    /// Text the control being drawn cut because it did not fit (outside
+    /// every control: the title).
     pub(super) fn record_cut(&self, text: &str) {
-        if let Some(r) = self.record.borrow_mut().as_mut()
-            && let Some(&at) = r.current.last()
-        {
-            r.placed[at].cut.push(text.into());
+        if let Some(r) = self.record.borrow_mut().as_mut() {
+            match r.current.last() {
+                Some(&at) => r.placed[at].cut.push(text.into()),
+                None => r.title_cut = true,
+            }
         }
     }
 

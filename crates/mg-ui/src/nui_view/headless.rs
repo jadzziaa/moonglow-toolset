@@ -55,15 +55,21 @@ pub struct Options {
     /// shows the selected one. A control its binds disable is drawn
     /// disabled whatever its state here, as in the game.
     pub states: BTreeMap<Option<String>, Look>,
+    /// Controls of a list's row template drawn in a state of their own in
+    /// one row, by ID and row (from 0): over `states`, which are every
+    /// row's.
+    pub row_states: BTreeMap<(String, usize), Look>,
     /// Binds' values in place of their first ones, by name, as the game's
     /// `NuiSetBind` sets them: a string, number, boolean, an array (a
     /// list's row template, a value a row), a color or a rectangle.
     pub binds: BTreeMap<String, Value>,
-    /// A swap layout variant shown in its group (or as the whole window)
-    /// in place of what the group holds at first, as `NuiSetGroupLayout`
-    /// shows it: its controls are then laid out where the variant puts
-    /// them, their paths the window's as shown.
-    pub variant: Option<String>,
+    /// Swap layout variants shown in their groups (or as the whole window)
+    /// in place of what the groups hold at first, as `NuiSetGroupLayout`
+    /// shows them: their controls are then laid out where the variants put
+    /// them, their paths the window's as shown. One a group; the whole
+    /// window's first, the others in the order given (a group of a variant
+    /// shows another after it).
+    pub variants: Vec<String>,
 }
 
 impl Default for Options {
@@ -72,8 +78,9 @@ impl Default for Options {
             scale: 1.0,
             size: None,
             states: BTreeMap::new(),
+            row_states: BTreeMap::new(),
             binds: BTreeMap::new(),
-            variant: None,
+            variants: Vec::new(),
         }
     }
 }
@@ -143,6 +150,12 @@ pub enum Error {
     NoGroup(String),
     /// No control of the window as shown has this ID: those there are.
     Id(String, Vec<String>),
+    /// Two variants were asked for one group.
+    SameGroup(String, String, String),
+    /// A state for a row was asked of a control that is in no list's row.
+    NotInRow(String),
+    /// A state was asked for a row the list doesn't have: how many it has.
+    Row(String, usize, usize),
 }
 
 impl fmt::Display for Error {
@@ -172,11 +185,31 @@ impl fmt::Display for Error {
                     format!(": the IDs are {}", quoted(known))
                 }
             ),
+            Error::SameGroup(a, b, group) => {
+                write!(f, "the variants {a:?} and {b:?} are both shown in {}", group_text(group))
+            }
+            Error::NotInRow(id) => write!(
+                f,
+                "{id:?} is in no list's row template: a state for one row (ID@ROW) is a list's \
+                 control's"
+            ),
+            Error::Row(id, row, 0) => write!(f, "{id:?} is in no row as drawn: no row {row}"),
+            Error::Row(id, row, rows) => write!(
+                f,
+                "no row {row} for {id:?}: its list has {rows} row{}, 0 to {}",
+                if *rows == 1 { "" } else { "s" },
+                rows - 1
+            ),
         }
     }
 }
 
 impl std::error::Error for Error {}
+
+/// A group as said: the window, or by its ID.
+fn group_text(group: &str) -> String {
+    if group == "_window_" { "the whole window".into() } else { format!("the group {group:?}") }
+}
 
 fn quoted(names: &[String]) -> String {
     names.iter().map(|n| format!("{n:?}")).collect::<Vec<_>>().join(", ")
@@ -195,6 +228,12 @@ pub struct Layout {
     /// What the controls are laid out in: the window inside its title bar
     /// and 8-point inset.
     pub body: Area,
+    /// The title as its bar shows it, when it has one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// The title is longer than its bar, between its edge and the buttons,
+    /// and is cut.
+    pub title_cut: bool,
     pub elements: Vec<Element>,
     /// Pictures and fonts the window names that were not found, and other
     /// problems with what it is drawn with.
@@ -265,8 +304,11 @@ fn shown_text(
     s: &mg_nui::Settings,
     row: Option<usize>,
 ) -> Option<String> {
+    // (A number a bind gives text is drawn as the game writes it.)
     let text = |k: &str| {
-        preview::val(&node[k], s, row).is_string().then(|| preview::string(&node[k], s, row))
+        let v = preview::val(&node[k], s, row);
+        let drawn = v.is_string() || (v.is_number() && node[k]["bind"].is_string());
+        drawn.then(|| preview::string(&node[k], s, row))
     };
     if node["type"] == "textedit" {
         return text("value").filter(|v| !v.is_empty()).or_else(|| text("label"));
@@ -393,32 +435,47 @@ fn document(w: &Window<'_>, o: &Options) -> Result<(Value, Settings, Vec<String>
     for v in settings.variants.values() {
         read.extend(mg_nui::bind_names(v));
     }
-    if let Some(view) = &o.variant {
+    // (The whole window's variant first: the others go into its groups.)
+    let mut shown: Vec<(&String, String)> = Vec::new();
+    for view in &o.variants {
         if !settings.variants.contains_key(view) {
             return Err(Error::Variant(view.clone(), settings.variants.keys().cloned().collect()));
         }
         let target = layouts::target_for(&settings, view).ok_or(Error::NoGroup(view.clone()))?;
-        window = layouts::context_document(&window, &settings, view, &target)
-            .ok_or(Error::NoGroup(view.clone()))?;
+        if let Some((was, _)) = shown.iter().find(|(_, t)| *t == target) {
+            return Err(Error::SameGroup((*was).clone(), view.clone(), target));
+        }
+        shown.push((view, target));
+    }
+    shown.sort_by_key(|(_, target)| target != "_window_");
+    for (view, target) in &shown {
+        window = layouts::context_document(&window, &settings, view, target)
+            .ok_or(Error::NoGroup((*view).clone()))?;
     }
     if !o.binds.is_empty() {
+        // The values given are held to what the properties that read them
+        // take, as the checks hold the first values: what is new of the
+        // checks' findings with them is said.
+        let before = mg_nui::validate(&window, &settings);
+        let first = settings.clone();
         for (name, value) in &o.binds {
             if !read.contains(name) {
                 said.push(format!("bind {name:?}: no property of the window reads it"));
             }
-            let b = settings.bindings.entry(name.clone()).or_default();
-            if !b.value.is_null() && kind(&b.value) != kind(value) {
-                said.push(format!(
-                    "bind {name:?}: given {} where its first value is {}",
-                    kind(value),
-                    kind(&b.value)
-                ));
+            settings.bindings.entry(name.clone()).or_default().value = value.clone();
+        }
+        for d in mg_nui::validate(&window, &settings) {
+            if before.contains(&d) {
+                continue;
             }
-            b.value = value.clone();
+            match bind_at(&window, &first, &d.path).filter(|b| o.binds.contains_key(b)) {
+                Some(bind) => said.push(format!("bind {bind:?} at {}: {}", d.path, d.message)),
+                None => said.push(format!("{}: {}", d.path, d.message)),
+            }
         }
     }
     let ids = mg_nui::element_ids(&window);
-    for id in o.states.keys().flatten() {
+    for id in o.states.keys().flatten().chain(o.row_states.keys().map(|(id, _)| id)) {
         if !ids.contains(id) {
             return Err(Error::Id(id.clone(), ids.into_iter().collect()));
         }
@@ -440,16 +497,18 @@ fn document(w: &Window<'_>, o: &Options) -> Result<(Value, Settings, Vec<String>
     Ok((window, settings, said))
 }
 
-/// What a value is, as said of a bind given another.
-fn kind(v: &Value) -> &'static str {
-    match v {
-        Value::Null => "null",
-        Value::Bool(_) => "a boolean",
-        Value::Number(_) => "a number",
-        Value::String(_) => "a string",
-        Value::Array(_) => "an array",
-        Value::Object(_) => "an object",
-    }
+/// The bind a finding of the checks is about: the one its property reads
+/// (`/root/children/2/value`), in the window or one of its variants.
+fn bind_at(window: &Value, s: &Settings, path: &str) -> Option<String> {
+    let at = match path.strip_prefix("/views/") {
+        Some(rest) => {
+            let (view, rest) = rest.split_once('/').unwrap_or((rest, ""));
+            let layout = s.variants.get(view)?;
+            if rest.is_empty() { layout } else { layout.pointer(&format!("/{rest}"))? }
+        }
+        None => window.pointer(path)?,
+    };
+    at["bind"].as_str().map(str::to_owned)
 }
 
 /// Frames of the canvas until it has all it draws with (fonts are added to
@@ -467,6 +526,7 @@ fn frames(
         preview_clean: true,
         zoom: 1.0,
         still_states: o.states.iter().map(|(id, look)| (id.clone(), look.mode())).collect(),
+        still_row_states: o.row_states.iter().map(|(at, look)| (at.clone(), look.mode())).collect(),
         ..Default::default()
     };
     let mut assets = skin::Assets::default();
@@ -502,6 +562,20 @@ fn frames(
     }
     let record = assets.record.take().unwrap_or_default();
     let mut layout = laid_out(w.name, &record, scale, &settings);
+    // (A row asked for is one the list has, drawn or out of its view.)
+    for (id, row) in o.row_states.keys() {
+        let rows: BTreeSet<usize> = (layout.elements.iter())
+            .filter(|e| e.id.as_deref() == Some(id.as_str()))
+            .filter_map(|e| e.row)
+            .collect();
+        let in_a_row = |e: &Element| e.id.as_deref() == Some(id.as_str()) && e.row.is_none();
+        if rows.is_empty() && layout.elements.iter().any(in_a_row) {
+            return Err(Error::NotInRow(id.clone()));
+        }
+        if !rows.contains(row) {
+            return Err(Error::Row(id.clone(), *row, rows.len()));
+        }
+    }
     // (Said once each, however many frames found them.)
     layout.issues = assets.issues.clone();
     layout.issues.extend(said);
@@ -572,6 +646,8 @@ fn laid_out(name: &str, r: &skin::Record, scale: f32, s: &Settings) -> Layout {
         height: window.h,
         scale,
         body: area(r.body),
+        title: r.title.clone(),
+        title_cut: r.title_cut,
         elements,
         issues: Vec::new(),
         not_drawn: Vec::new(),

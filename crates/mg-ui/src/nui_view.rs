@@ -63,6 +63,9 @@ pub(crate) struct State {
     /// --state`), counted as `preview_state` is, by ID (`None`: all but
     /// those given by ID).
     still_states: std::collections::BTreeMap<Option<String>, usize>,
+    /// The states of controls of a list's rows off the screen, one row's
+    /// (`--state STATE:ID@ROW`), by ID and row: over `still_states`.
+    still_row_states: std::collections::BTreeMap<(String, usize), usize>,
     /// Resources: under the canvas's toolbar, where each picture and font
     /// came from and what was not found.
     preview_info: bool,

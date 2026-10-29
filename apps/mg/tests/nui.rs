@@ -606,6 +606,17 @@ fn layout_and_render_take_states_binds_and_a_variant() {
     assert!(ok, "{details}");
     let back = details["elements"].as_array().unwrap().iter().find(|e| e["id"] == "back");
     assert_eq!(back.unwrap()["state"], "pressed", "{details}");
+    // One row's button, over every row's.
+    let rows = ["--binds", binds, "--state", "hover:read", "--state", "pressed:read@2"];
+    let (ok, one) = mg(None, &[&["layout", file][..], &rows].concat());
+    assert!(ok, "{one}");
+    let states: Vec<_> = (one["elements"].as_array().unwrap().iter())
+        .filter(|e| e["id"] == "read")
+        .map(|e| (e["row"].as_u64().unwrap(), e["state"].as_str().unwrap()))
+        .collect();
+    assert_eq!(states, [(0, "hover"), (1, "hover"), (2, "pressed"), (3, "hover")]);
+    assert_eq!(one["title"], "Today's Cries");
+    assert_eq!(one["title_cut"], false);
     // For people: the state on the control's line.
     let out = output(None, &[&["nui", "layout", file][..], &options].concat());
     let text = String::from_utf8_lossy(&out.stdout);
@@ -622,6 +633,11 @@ fn layout_and_render_take_states_binds_and_a_variant() {
     assert!(error(&["--variant", "cover"]).contains("the window's are \"details\""));
     let twice = error(&["--state", "hover:read", "--state", "pressed:read"]);
     assert!(twice.contains("\"read\" is given hover and pressed"), "{twice}");
+    let twice = error(&["--state", "hover:read@1", "--state", "pressed:read@1"]);
+    assert!(twice.contains("\"read\" in row 1 is given hover and pressed"), "{twice}");
+    assert!(error(&["--state", "hover:read@1"]).contains("no row 1 for \"read\""));
+    let two = error(&["--variant", "details", "--variant", "details"]);
+    assert!(two.contains("are both shown in the group \"pages\""), "{two}");
     let list = jui.with_file_name("list.json");
     std::fs::write(&list, "[1, 2]").unwrap();
     assert!(error(&["--binds", list.to_str().unwrap()]).contains("one JSON object"));

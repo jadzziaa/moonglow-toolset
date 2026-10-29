@@ -530,6 +530,9 @@ impl Stage<'_> {
         let mut title_rect = header.shrink2(vec2(10.0, 2.0) * scale);
         let button_count = usize::from(closable) + usize::from(collapsible);
         title_rect.max.x -= 26.0 * button_count as f32 * scale;
+        if !title.is_empty() {
+            assets.record_title(title);
+        }
         text(
             p,
             assets,

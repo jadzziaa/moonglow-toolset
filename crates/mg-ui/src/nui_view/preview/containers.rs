@@ -1,6 +1,10 @@
 //! Rows, columns and groups (with a group's scrolling), and lists.
 use super::*;
 
+/// The most rows of a list drawn at once (from the first in its view), and
+/// laid out off the screen (from its first).
+const ROWS_DRAWN: usize = 512;
+
 impl Renderer<'_> {
     /// A row, a column or a group: its children side by side or one under
     /// another, in what the group's bars leave.
@@ -348,12 +352,18 @@ impl Renderer<'_> {
             let widths = list_widths(cells, inner.width(), scale);
             let old_clip = ui.clip_rect();
             ui.set_clip_rect(inner.intersect(old_clip));
-            let first = (offset / stride).floor() as usize;
+            let mut first = (offset / stride).floor() as usize;
             // Native list rows include a four-unit gap and do not
             // expose the next row's border when only that gap fits.
-            let end = count
+            let mut end = count
                 .min(((offset + inner.height() + 4.0 * scale) / stride).floor().max(0.0) as usize);
-            for r in first..end.min(first.saturating_add(512)) {
+            // Where it goes asked for (`mg nui layout`): the rows out of
+            // its view too, laid out where scrolling brings them, drawn
+            // clipped to nothing.
+            if a.recording() {
+                (first, end) = (0, count);
+            }
+            for r in first..end.min(first.saturating_add(ROWS_DRAWN)) {
                 let mut x = inner.left();
                 for (i, cell) in cells.iter().enumerate() {
                     let width = widths[i];

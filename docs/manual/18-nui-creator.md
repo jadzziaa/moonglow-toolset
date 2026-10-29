@@ -514,15 +514,19 @@ every option):
 3. `mg nui render MODULE NAME -o NAME.png` draws it as the canvas does,
    off the screen, at a UI scale and a window size of your choosing, and
    `mg nui layout MODULE NAME --json` gives each control's rectangle and
-   what doesn't fit (clipped, out of view, no room, text cut): the same
-   layout the picture shows. Both take a `.jui` file alone too, and draw
-   the window otherwise than as it opens with the same options:
+   what doesn't fit (clipped, out of view, no room, text cut, a title
+   longer than its bar): the same layout the picture shows, a list's
+   rows out of its view included. Both take a `.jui` file alone too, and
+   draw the window otherwise than as it opens with the same options:
    `--state hover:send` (or `pressed`, `disabled`, `normal`; without
-   `:ID`, every control), `--binds FILE.json` (the binds as a script sets
-   them, so a list has the rows a character would see) and `--variant
-   NAME` (a swap layout variant in its group). For the crier's list of
-   cries in this repository's tests:
-   `mg nui render cries.jui --binds cries.binds.json --state hover:read`.
+   `:ID`, every control; `hover:read@2`, a list's control in its third
+   row alone), `--binds FILE.json` (the binds as a script sets them, so
+   a list has the rows a character would see; a value the bind's
+   properties don't take is said, as the checks say it) and `--variant
+   NAME` (a swap layout variant in its group; again for another group's).
+   For the crier's list of cries in this repository's tests:
+   `mg nui render cries.jui --binds cries.binds.json --state hover:read
+   --state pressed:read@2`.
 4. `mg nui generate MODULE NAME` writes and compiles its scripts.
 
 In a nasher project whose sources take in scripts and JSON only, a

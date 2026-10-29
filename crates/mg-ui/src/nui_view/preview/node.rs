@@ -229,7 +229,11 @@ impl Renderer<'_> {
         // Disabled by its ID, what is in it is too, as in the game; all
         // disabled, each is, and one given another state by ID has it.)
         let still = &self.state.still_states;
-        let by_id = node["id"].as_str().and_then(|id| still.get(&Some(id.to_owned()))).copied();
+        let id = node["id"].as_str();
+        let in_row = id
+            .zip(row)
+            .and_then(|(id, r)| self.state.still_row_states.get(&(id.to_owned(), r)).copied());
+        let by_id = in_row.or_else(|| id.and_then(|id| still.get(&Some(id.to_owned()))).copied());
         let asked = by_id.or_else(|| still.get(&None).copied());
         let disabled = parent_disabled
             || !flag(&node["enabled"], s, row, true)
