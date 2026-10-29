@@ -41,12 +41,7 @@ fn main() {
     }
     let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
     for m in &gm.meshes {
-        for c in 0..8 {
-            let p = Vec3::new(
-                if c & 1 == 0 { m.min.x } else { m.max.x },
-                if c & 2 == 0 { m.min.y } else { m.max.y },
-                if c & 4 == 0 { m.min.z } else { m.max.z },
-            );
+        for p in mg_render::box_corners(m.min, m.max) {
             let w = gm.rest[m.node].transform_point3(p);
             (min, max) = (min.min(w), max.max(w));
         }

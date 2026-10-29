@@ -212,6 +212,22 @@ impl<'a> LightGrid<'a> {
     }
 }
 
+/// The eight corners of the box `min`–`max`: corner `i` takes `max`'s x
+/// where bit 0 of `i` is set, its y where bit 1 is, its z where bit 2
+/// is (so 0 is `min` and 7 `max`, and corners one bit apart share an
+/// edge). The one place a box's corners are worked out: the shadows'
+/// reach, the screen's boxes, the area view's outlines, the previews'
+/// and the model viewer's framing.
+pub fn box_corners(min: Vec3, max: Vec3) -> [Vec3; 8] {
+    std::array::from_fn(|i| {
+        Vec3::new(
+            if i & 1 == 0 { min.x } else { max.x },
+            if i & 2 == 0 { min.y } else { max.y },
+            if i & 4 == 0 { min.z } else { max.z },
+        )
+    })
+}
+
 /// What the camera sees, as the six planes around it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Frustum([Vec4; 6]);
@@ -238,6 +254,25 @@ impl Frustum {
 mod tests {
     use super::*;
     use crate::scene::Camera;
+
+    #[test]
+    fn a_box_s_corners_in_their_order() {
+        let (min, max) = (Vec3::new(1.0, 2.0, 3.0), Vec3::new(4.0, 5.0, 6.0));
+        let c = box_corners(min, max);
+        assert_eq!(c[0], min);
+        assert_eq!(c[7], max);
+        assert_eq!(c[1], Vec3::new(4.0, 2.0, 3.0));
+        assert_eq!(c[2], Vec3::new(1.0, 5.0, 3.0));
+        assert_eq!(c[4], Vec3::new(1.0, 2.0, 6.0));
+        assert_eq!(c[6], Vec3::new(1.0, 5.0, 6.0));
+        // Corners one bit apart differ along one axis: an edge.
+        for i in 0..8 {
+            for bit in [1, 2, 4] {
+                let d = c[i] - c[i ^ bit];
+                assert_eq!(d.abs().cmpgt(Vec3::ZERO).bitmask().count_ones(), 1, "{i} {bit}");
+            }
+        }
+    }
 
     /// A sequence of numbers from 0 to 1 that looks random.
     struct Numbers(u64);

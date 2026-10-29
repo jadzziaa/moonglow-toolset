@@ -3047,12 +3047,7 @@ fn scene_pass<'e>(
 /// each way; all of the screen for one that reaches behind the camera.
 fn screen_box(on_screen: Mat4, bounds: &Bounds) -> Bounds {
     let (mut min, mut max) = (glam::Vec2::splat(f32::MAX), glam::Vec2::splat(f32::MIN));
-    for corner in 0..8 {
-        let at = Vec3::new(
-            if corner & 1 == 0 { bounds.min.x } else { bounds.max.x },
-            if corner & 2 == 0 { bounds.min.y } else { bounds.max.y },
-            if corner & 4 == 0 { bounds.min.z } else { bounds.max.z },
-        );
+    for at in crate::box_corners(bounds.min, bounds.max) {
         let clip = on_screen * at.extend(1.0);
         if clip.w.is_nan() || clip.w <= 1e-4 {
             (min, max) = (glam::Vec2::splat(-1.0), glam::Vec2::splat(1.0));

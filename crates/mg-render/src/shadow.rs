@@ -171,17 +171,6 @@ fn world_box(world: Mat4, mesh: &GpuMesh) -> (Vec3, Vec3) {
     (centre - around, centre + around)
 }
 
-/// The eight corners of a box.
-fn corners((min, max): (Vec3, Vec3)) -> [Vec3; 8] {
-    std::array::from_fn(|i| {
-        Vec3::new(
-            if i & 1 == 0 { min.x } else { max.x },
-            if i & 2 == 0 { min.y } else { max.y },
-            if i & 4 == 0 { min.z } else { max.z },
-        )
-    })
-}
-
 /// A view from the area light: looking along it (towards where it
 /// shines), Z up where the light is not straight above.
 pub(crate) fn light_view(direction: Vec3) -> Mat4 {
@@ -286,7 +275,7 @@ pub(crate) fn plan<'a>(scene: &'a Scene, camera: &Camera, aspect: f32) -> Option
     let view = light_view(scene.area.direction);
     let to_light = |(min, max): (Vec3, Vec3)| {
         let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-        for c in corners((min, max)) {
+        for c in crate::box_corners(min, max) {
             let p = view.transform_point3(c);
             (lo, hi) = (lo.min(p), hi.max(p));
         }

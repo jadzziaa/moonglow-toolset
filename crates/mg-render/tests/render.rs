@@ -114,12 +114,7 @@ fn framing(model: &GpuModel) -> Camera {
     let pose = mg_render::rest_pose(&model.model);
     let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
     for m in &model.meshes {
-        for corner in 0..8 {
-            let p = Vec3::new(
-                if corner & 1 == 0 { m.min.x } else { m.max.x },
-                if corner & 2 == 0 { m.min.y } else { m.max.y },
-                if corner & 4 == 0 { m.min.z } else { m.max.z },
-            );
+        for p in mg_render::box_corners(m.min, m.max) {
             let w = pose[m.node].transform_point3(p);
             min = min.min(w);
             max = max.max(w);

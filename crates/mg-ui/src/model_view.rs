@@ -525,12 +525,7 @@ impl ModelView {
             let (low, high) = c.bounds();
             // (The box around it as it is stood.)
             let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-            for corner in 0..8 {
-                let p = Vec3::new(
-                    if corner & 1 == 0 { low.x } else { high.x },
-                    if corner & 2 == 0 { low.y } else { high.y },
-                    if corner & 4 == 0 { low.z } else { high.z },
-                );
+            for p in mg_render::box_corners(low, high) {
                 let w = self.stand.transform_point3(p);
                 (min, max) = (min.min(w), max.max(w));
             }
@@ -543,12 +538,7 @@ impl ModelView {
         let pose = mg_render::rest_pose(&m.model);
         let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
         for mesh in &m.meshes {
-            for c in 0..8 {
-                let p = Vec3::new(
-                    if c & 1 == 0 { mesh.min.x } else { mesh.max.x },
-                    if c & 2 == 0 { mesh.min.y } else { mesh.max.y },
-                    if c & 4 == 0 { mesh.min.z } else { mesh.max.z },
-                );
+            for p in mg_render::box_corners(mesh.min, mesh.max) {
                 let w = pose[mesh.node].transform_point3(p);
                 min = min.min(w);
                 max = max.max(w);

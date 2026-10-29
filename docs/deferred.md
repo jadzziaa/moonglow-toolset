@@ -2467,10 +2467,6 @@ of truth, and does each caller's difference matter.
 - A tileset read by hand where it is open: `tile_view.rs:19`,
   `model_view.rs:1208`, `tabs.rs:396`, `area_grass.rs:266`,
   `area_reshape.rs:146`, `area_props.rs:261`. One `Moonglow::tileset`.
-- The eight corners of a box five times (`model_view.rs:441`, `:459`,
-  `area_view.rs:3898`, `mg-preview compose.rs:546`, `mg-render
-  renderer.rs:1709`); lightcolor.2da's toolset colors twice
-  (`tile_select.rs:375`, `area_view.rs:5080`).
 - A module's hak list read four ways (`Module::haks`, `lib.rs:3658`,
   `nui_view/images.rs:29` with no fallback, `module_props.rs:351`);
   `hak_dir` and `hak_folder` the same (`hak_view.rs:194`,
