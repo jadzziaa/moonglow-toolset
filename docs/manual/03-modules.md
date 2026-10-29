@@ -1050,7 +1050,9 @@ it is there, or taken off the list.
 - Each move or removal is one step to undo.
 
 **Add Haks and Talk Table…** (Custom Content) attaches downloaded content
-in one step. Choose the haks and a talk table wherever they are, and put
+in one step. Choose the haks and a talk table wherever they are, or the
+`.zip` they were downloaded as (its haks and talk table are taken from
+it, wherever in it they are; there is no need to unpack it first), and put
 the haks in order (highest priority first). Moonglow copies them into the
 user folder's `hak` and `tlk` (asking before replacing different files of
 the same names), lists the haks at the top of the module's list and names
