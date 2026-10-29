@@ -2504,16 +2504,6 @@ of truth, and does each caller's difference matter.
   repeat a movable variant with no helper; `creature_wizard.rs:257`
   and `situated.rs:247` (an `egui::Modal`) are two more styles, and
   centering is done two ways. A `widgets::modal`. (S)
-- **The placed objects' kind, still spelled out in the window:** the
-  GIT's lists and the nine types are one `mg_rules::ObjectKind` now
-  (`mg_area::ObjectKind` and `mg_module::palette::BlueprintKind` are
-  that type under the names their callers use), but mg-ui keeps tables
-  of its own that the merge with the editors' work in progress left
-  alone: Advanced Search's kinds (`search.rs:58`), the module tree's
-  categories (`tree.rs:22`) and its New wizard per type
-  (`tree.rs:1280`), the palettes' New menu items (`palette_view.rs:1117`),
-  the tabs' kind names (`tabs.rs:116`, five types), `icons::blueprint`
-  (a kind turned into itself). (S)
 - **A localized string's text, without the toolset's language or the
   talk table:** `query.rs:74`, `dialog.rs:598`, `:502`, `rename.rs:513`,
   `hak_edit.rs:120`, `areas.rs:63`, `tree.rs:85` and `:112` (beside

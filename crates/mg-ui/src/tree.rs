@@ -9,7 +9,7 @@ use mg_core::{ResRef, ResType};
 use mg_edit::Workspace;
 use mg_gff::Gff;
 use mg_resman::ResKey;
-use mg_rules::GameData;
+use mg_rules::{GameData, ObjectKind};
 
 use crate::{Action, Moonglow, Tab};
 
@@ -20,22 +20,24 @@ const STATIC_TIP: &str = "Sets Static on the placeables that lose nothing by it:
     inventory or an animation switched on, or have variables, or the project's moonglow.toml \
     says so";
 
-pub(crate) const GROUPS: &[(&str, &[ResType])] = &[
-    ("Areas", &[ResType::ARE]),
-    ("Conversations", &[ResType::DLG]),
-    ("Scripts", &[ResType::NSS]),
-    ("NUI windows", &[ResType::JUI]),
-    ("Creatures", &[ResType::UTC]),
-    ("Doors", &[ResType::UTD]),
-    ("Encounters", &[ResType::UTE]),
-    ("Items", &[ResType::UTI]),
-    ("Placeables", &[ResType::UTP]),
-    ("Sounds", &[ResType::UTS]),
-    ("Stores", &[ResType::UTM]),
-    ("Triggers", &[ResType::UTT]),
-    ("Waypoints", &[ResType::UTW]),
-    ("Journal and factions", &[ResType::JRL, ResType::FAC]),
-];
+/// The tree's groups: the module's own kinds of resource, then each
+/// kind of blueprint (`mg_rules::ObjectKind`'s order and names), then the
+/// journal and factions.
+pub(crate) const GROUPS: &[(&str, &[ResType])] = &{
+    let mut groups: [(&str, &[ResType]); 14] = [("", &[]); 14];
+    groups[0] = ("Areas", &[ResType::ARE]);
+    groups[1] = ("Conversations", &[ResType::DLG]);
+    groups[2] = ("Scripts", &[ResType::NSS]);
+    groups[3] = ("NUI windows", &[ResType::JUI]);
+    let mut i = 0;
+    while i < ObjectKind::ALL.len() {
+        let kind = ObjectKind::ALL[i];
+        groups[4 + i] = (kind.label(), kind.restypes());
+        i += 1;
+    }
+    groups[13] = ("Journal and factions", &[ResType::JRL, ResType::FAC]);
+    groups
+};
 
 /// What lists of areas show and filter by, from an area's ARE.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -1959,7 +1961,7 @@ fn named_label(name: &str, resref: ResRef, resrefs: bool) -> String {
 
 /// The menu entry for a command that makes something new, from its name:
 /// "Area Wizard" is "New Area…", "New Script" is "New Script…".
-fn new_label(command: &str) -> String {
+pub(crate) fn new_label(command: &str) -> String {
     let what = command.trim_end_matches(" Wizard");
     if what.starts_with("New ") { format!("{what}…") } else { format!("New {what}…") }
 }
@@ -1968,22 +1970,12 @@ fn new_label(command: &str) -> String {
 /// Wizards menu's for it.
 fn new_command(types: &[ResType]) -> Option<crate::commands::Id> {
     use crate::commands::Id;
-    use mg_module::palette::BlueprintKind;
     Some(match *types.first()? {
         ResType::ARE => Id::AreaWizard,
         ResType::DLG => Id::NewConversation,
         ResType::NSS => Id::NewScript,
         ResType::JUI => Id::NewNui,
-        ResType::UTC => Id::CreatureWizard,
-        ResType::UTD => Id::Wizard(BlueprintKind::Door),
-        ResType::UTE => Id::Wizard(BlueprintKind::Encounter),
-        ResType::UTI => Id::Wizard(BlueprintKind::Item),
-        ResType::UTM => Id::Wizard(BlueprintKind::Store),
-        ResType::UTP => Id::Wizard(BlueprintKind::Placeable),
-        ResType::UTS => Id::Wizard(BlueprintKind::Sound),
-        ResType::UTT => Id::Wizard(BlueprintKind::Trigger),
-        ResType::UTW => Id::Wizard(BlueprintKind::Waypoint),
-        _ => return None,
+        t => Id::new_blueprint(ObjectKind::from_restype(t)?),
     })
 }
 
@@ -2204,6 +2196,14 @@ mod tests {
         for (_, types) in GROUPS.iter().filter(|(n, _)| *n != "Journal and factions") {
             assert!(new_command(types).is_some(), "{types:?}");
         }
+        // Each kind of blueprint is a group by the name the toolset calls
+        // it by, and its New… is its wizard's, as the palettes' is.
+        for k in ObjectKind::ALL {
+            assert!(GROUPS.contains(&(k.label(), &[k.restype()])), "{k:?}");
+            assert_eq!(new_command(&[k.restype()]), Some(Id::new_blueprint(k)));
+        }
+        assert_eq!(GROUPS.iter().filter(|(n, _)| n.is_empty()).count(), 0);
+        assert_eq!(label(&[ResType::UTW]).as_deref(), Some("New Waypoint…"));
         assert_eq!(
             new_command(&[ResType::UTI]),
             Some(Id::Wizard(mg_module::palette::BlueprintKind::Item))

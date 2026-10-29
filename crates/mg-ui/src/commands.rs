@@ -271,6 +271,12 @@ pub const TOOLBAR: [Option<(Id, &str, &str, &str)>; 16] = [
 ];
 
 impl Id {
+    /// The Wizards menu's command that makes a new blueprint of `kind`:
+    /// the Creature Wizard for creatures, a blueprint wizard otherwise.
+    pub(crate) fn new_blueprint(kind: BlueprintKind) -> Id {
+        if kind == BlueprintKind::Creature { Id::CreatureWizard } else { Id::Wizard(kind) }
+    }
+
     /// Every command, in the menus' order, then those no menu has.
     pub fn all() -> Vec<Id> {
         fn walk(items: &[Item], out: &mut Vec<Id>) {

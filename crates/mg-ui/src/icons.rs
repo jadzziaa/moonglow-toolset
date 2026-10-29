@@ -3,7 +3,6 @@
 //! fonts.
 
 use mg_area::ObjectKind;
-use mg_module::palette::BlueprintKind;
 
 pub(crate) const TILES: &str = "🗻";
 pub(crate) const ERASER: &str = "🗑";
@@ -70,11 +69,6 @@ pub(crate) fn object(kind: ObjectKind) -> &'static str {
         ObjectKind::Trigger => "⚡",
         ObjectKind::Waypoint => "📍",
     }
-}
-
-/// A blueprint type's glyph: its objects'.
-pub(crate) fn blueprint(kind: BlueprintKind) -> &'static str {
-    ObjectKind::from_restype(kind.restype()).map_or("", object)
 }
 
 /// `text` after `glyph`.

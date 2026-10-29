@@ -1701,7 +1701,7 @@ impl Moonglow {
     /// Where the next window of a kind opens: where one of its kind was
     /// last dragged to (GitHub issue 14), a window of its own otherwise.
     fn place_for(&self, tab: &Tab) -> Place {
-        let kept = self.settings.window_places.iter().find(|(k, _)| k == tab.kind());
+        let kept = kept_by_kind(&self.settings.window_places, tab);
         match kept.map(|(_, p)| p.as_str()) {
             Some("middle") => Place::Middle,
             Some("palettes") => Place::Palettes,
@@ -2282,8 +2282,7 @@ impl Moonglow {
         // Below the menu and toolbar (the main pane's top), never over them.
         let room = egui::Rect::from_min_max(egui::pos2(screen.left(), main.top()), screen.max);
         // As wide and tall as one of its kind was last left.
-        let kind = tab.kind();
-        let left = self.settings.window_sizes.iter().find(|(k, _)| k == kind);
+        let left = kept_by_kind(&self.settings.window_sizes, &tab);
         // (One left too small to use, by an older version, is passed over.)
         let left = left
             .filter(|(_, s)| s[0] as f32 >= MIN_REMEMBERED.x && s[1] as f32 >= MIN_REMEMBERED.y);
@@ -5087,6 +5086,15 @@ impl Moonglow {
         let views = self.viewport.as_ref().is_some_and(|vp| vp.holds(game));
         Arc::strong_count(game) - 1 > usize::from(views)
     }
+}
+
+/// What is kept for windows of `tab`'s kind (a size, a place), or for its
+/// kind as it was called before ([`Tab::kind_before`]).
+fn kept_by_kind<'a, T>(kept: &'a [(String, T)], tab: &Tab) -> Option<&'a (String, T)> {
+    let kind = tab.kind();
+    kept.iter()
+        .find(|(k, _)| k == kind)
+        .or_else(|| tab.kind_before().and_then(|b| kept.iter().find(|(k, _)| k == b)))
 }
 
 /// The game data to change (its layers, its talk table): only while

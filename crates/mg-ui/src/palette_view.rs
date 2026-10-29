@@ -736,7 +736,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     // (and below, for the one shown); in a pane too narrow for the row, a
     // dropdown with their names.
     {
-        use crate::icons::{PREFABS, TILES, blueprint, labelled};
+        use crate::icons::{PREFABS, TILES, labelled, object};
         #[derive(Clone, Copy, PartialEq)]
         enum Type {
             Tiles,
@@ -751,7 +751,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             Type::Kind(view.kind)
         };
         let mut types = vec![(Type::Tiles, TILES, "Tiles", "The area's tileset")];
-        types.extend(BlueprintKind::ALL.map(|k| (Type::Kind(k), blueprint(k), k.label(), "")));
+        types.extend(BlueprintKind::ALL.map(|k| (Type::Kind(k), object(k), k.label(), "")));
         types.push((
             Type::Prefabs,
             PREFABS,
@@ -939,14 +939,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 app.settings.palette_gallery = true;
             }
         });
-        let creature = view.kind == BlueprintKind::Creature;
-        let wizard = creature || crate::blueprint_wizard::KINDS.contains(&view.kind);
         if ui
-            .add_enabled(app.ws.is_some() && wizard, egui::Button::new("New…"))
+            .add_enabled(app.ws.is_some(), egui::Button::new("New…"))
             .on_hover_text("A new blueprint (the type's wizard)")
             .clicked()
         {
-            new_blueprint(app, view.kind);
+            crate::commands::Id::new_blueprint(view.kind).run(app, ui.ctx());
         }
         ui.menu_button("More", |ui| {
             if ui
@@ -1042,6 +1040,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         (Some(ws), true) => ws.module.keys_of(kind.restype()).map(|k| k.resref).collect(),
         _ => std::collections::HashSet::new(),
     };
+    let new_label = new_label(kind);
     let mut tree = Tree {
         game,
         kind,
@@ -1050,7 +1049,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         fold: view.fold,
         open: app.settings.palette_open.clone(),
         open_changed: false,
-        new: (app.ws.is_some() && wizard_for(kind)).then(|| new_label(kind)),
+        new: app.ws.is_some().then_some(new_label.as_str()),
         found: found.as_deref(),
         tags: &tags,
         favorites: favorites
@@ -1221,7 +1220,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                     app.log.error(e.to_string());
                 }
             }
-            Pick::New => new_blueprint(app, kind),
+            Pick::New => crate::commands::Id::new_blueprint(kind).run(app, ui.ctx()),
             Pick::Preview(key) => app.actions.push(Action::OpenTab(Tab::Model(key))),
             Pick::Replace(key, own) => match app.palette.area {
                 Some(area) => {
@@ -1318,33 +1317,10 @@ fn shown_name(name: &mg_module::palette::PaletteName, game: &mg_rules::GameData)
     }
 }
 
-/// Whether a kind of blueprint has a wizard to make a new one.
-fn wizard_for(kind: BlueprintKind) -> bool {
-    kind == BlueprintKind::Creature || crate::blueprint_wizard::KINDS.contains(&kind)
-}
-
-/// "New Creature…" and the like, for the palettes' menus.
-fn new_label(kind: BlueprintKind) -> &'static str {
-    match kind {
-        BlueprintKind::Creature => "New Creature…",
-        BlueprintKind::Door => "New Door…",
-        BlueprintKind::Encounter => "New Encounter…",
-        BlueprintKind::Item => "New Item…",
-        BlueprintKind::Placeable => "New Placeable…",
-        BlueprintKind::Sound => "New Sound…",
-        BlueprintKind::Store => "New Store…",
-        BlueprintKind::Trigger => "New Trigger…",
-        BlueprintKind::Waypoint => "New Waypoint…",
-    }
-}
-
-/// Opens the wizard that makes a new blueprint of `kind`.
-fn new_blueprint(app: &mut Moonglow, kind: BlueprintKind) {
-    if kind == BlueprintKind::Creature {
-        app.creature_wizard = Some(Default::default());
-    } else if crate::blueprint_wizard::KINDS.contains(&kind) {
-        app.blueprint_wizard = Some(crate::blueprint_wizard::BlueprintWizard::new(kind));
-    }
+/// "New Creature…" and the like, for the palettes' menus: the label the
+/// module tree gives the command.
+fn new_label(kind: BlueprintKind) -> String {
+    crate::tree::new_label(&crate::commands::Id::new_blueprint(kind).name())
 }
 
 /// What the palette tree is drawn with.
@@ -1363,8 +1339,8 @@ struct Tree<'a> {
     open: Vec<String>,
     open_changed: bool,
     /// What a right click offers to make a new blueprint of the kind
-    /// ("New Creature…"), where the kind has a wizard and a module is open.
-    new: Option<&'static str>,
+    /// ("New Creature…"), where a module is open.
+    new: Option<&'a str>,
     /// The blueprints the search finds (`None`: no search).
     found: Option<&'a std::collections::HashSet<ResRef>>,
     tags: &'a HashMap<ResRef, String>,

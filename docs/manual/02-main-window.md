@@ -371,7 +371,9 @@ click: the panes beside it keep their widths.
 
 A window opens as large as one of its kind was last left: resize a
 conversation's window, and the next conversation opens at that size (each
-kind of editor has its own). **Double-click a window's tab** to maximize
+kind of editor has its own, and each type of blueprint: a waypoint's
+Properties opens at the size the last waypoint's was left, not an
+encounter's). **Double-click a window's tab** to maximize
 it over the whole of Moonglow's window under the toolbar, and again to
 put it back; **Maximize** and
 **Restore** are on the tab's right-click menu too. **The module tree

@@ -62,21 +62,20 @@ impl Kind {
     }
 }
 
-/// The kinds of object a search may be kept to.
-const OBJECTS: [(ResType, &str); 12] = [
-    (ResType::UTC, "Creatures"),
-    (ResType::UTI, "Items"),
-    (ResType::UTP, "Placeables"),
-    (ResType::UTD, "Doors"),
-    (ResType::UTT, "Triggers"),
-    (ResType::UTE, "Encounters"),
-    (ResType::UTM, "Stores"),
-    (ResType::UTS, "Sounds"),
-    (ResType::UTW, "Waypoints"),
-    (ResType::ARE, "Areas"),
-    (ResType::DLG, "Conversations"),
-    (ResType::IFO, "The module"),
-];
+/// What else a search may be kept to, beside the placed objects' kinds.
+const OTHERS: [(ResType, &str); 3] =
+    [(ResType::ARE, "Areas"), (ResType::DLG, "Conversations"), (ResType::IFO, "The module")];
+
+/// The kinds of object a search may be kept to: the blueprints' types,
+/// then areas, conversations and the module.
+fn objects() -> impl Iterator<Item = (ResType, &'static str)> {
+    ObjectKind::ALL.into_iter().map(|k| (k.restype(), k.label())).chain(OTHERS)
+}
+
+/// What a search kept to `object` is called (`None`: everything).
+fn object_label(object: Option<ResType>) -> &'static str {
+    objects().find(|(t, _)| Some(*t) == object).map_or("Everything", |o| o.1)
+}
 
 /// The highest class level a condition's range reaches.
 const TOP_LEVEL: u8 = 60;
@@ -609,15 +608,11 @@ fn search_ui(ui: &mut Ui, d: &mut AdvancedSearch, game: Option<&GameData>) -> bo
         ui.end_row();
         crate::widgets::field_label(ui, "Look at");
         ui.horizontal(|ui| {
-            let object =
-                OBJECTS.iter().find(|(t, _)| Some(*t) == d.object).map_or("Everything", |o| o.1);
             let objects: Vec<_> =
-                std::iter::once(None).chain(OBJECTS.iter().map(|o| Some(o.0))).collect();
+                std::iter::once(None).chain(objects().map(|o| Some(o.0))).collect();
             crate::widgets::dropdown("advanced-search-object")
-                .selected_text(object)
-                .show(ui, &mut d.object, &objects, |t| {
-                    OBJECTS.iter().find(|o| Some(o.0) == *t).map_or("Everything", |o| o.1)
-                })
+                .selected_text(object_label(d.object))
+                .show(ui, &mut d.object, &objects, |t| object_label(*t))
                 .on_hover_text("Items include those in inventories, equipment and stores");
             let placed = match d.placed {
                 None => "blueprints and placed objects",
@@ -921,4 +916,24 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         });
     }
     app.advanced_search = draft;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A search is kept to each placed object kind by its type and the
+    /// name the toolset calls it by, then to areas, conversations and the
+    /// module.
+    #[test]
+    fn a_search_is_kept_to_each_kind_of_object() {
+        let listed: Vec<_> = objects().collect();
+        assert_eq!(listed.len(), ObjectKind::ALL.len() + 3);
+        for k in ObjectKind::ALL {
+            assert_eq!(object_label(Some(k.restype())), k.label());
+        }
+        assert_eq!(object_label(Some(ResType::UTM)), "Stores");
+        assert_eq!(object_label(Some(ResType::IFO)), "The module");
+        assert_eq!(object_label(None), "Everything");
+    }
 }
