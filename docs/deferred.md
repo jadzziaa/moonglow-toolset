@@ -1467,11 +1467,16 @@ contribution itself states as not done or not checked.
     alpha: `mg-image` makes a 5-bit channel 8 bits as `(c << 3) | (c >> 2)`
     and takes the top bit as alpha when the descriptor declares an alpha
     bit; the `image` crate's table is c × 255 / 31 rounded (3 is 25, not
-    24) and it never took the bit as alpha. For the second client batch: a
-    NUI image of a 16-bit TGA whose descriptor declares an alpha bit, with
-    a patch of each of the 32 levels of a channel and pixels with the bit
-    clear, at 100%: read the levels drawn and whether those pixels are
-    transparent. `mg-image` follows the game. (S, waits on the client)
+    24) and it never took the bit as alpha. Read in the client
+    (2026-10-29, `nui_readings_in_the_client` in `client_render.rs`'s
+    `nui.rs`: a NUI image of a 16-bit TGA whose descriptor declares an
+    alpha bit, at its size): the game draws level c as c × 255 / 31
+    rounded down (4 is 32, 8 is 65, 30 is 246, where `mg-image` gives 33,
+    66 and 247 and the `image` crate 33, 66 and 247), and the pixels with
+    the bit clear opaque, as those with it set: it takes no alpha from the
+    bit. `mg-image` differs on both; a model's texture of the same file
+    was not read, and `mg-image` decodes it for the renderer too, so the
+    fix (the table, and the bit not alpha) waits on that one reading. (S)
 - **Where the preview is known to differ from the game** (stated in
   [the manual](manual/18-nui-creator.md);
   `crates/mg-ui/src/nui_view/preview.rs`; `mg nui render` and `layout`
@@ -1481,29 +1486,43 @@ contribution itself states as not done or not checked.
   - *Rows of buttons without widths after a control with a width of its
     own* make the game pick a narrower width than the preview's (308
     against 462 in the case measured, an image 200 wide above a row of two
-    buttons): one case is not the rule. For the second client batch, a
-    column of an image (then a button) 100, 200 and 400 wide over a row of
-    one, two and three buttons without widths, and the same with the row
-    first: read each control's width. (S once measured)
+    buttons). Measured in the client (2026-10-29,
+    `nui_readings_in_the_client`, a window 600 wide; each control's cell,
+    margins of 2 included): a row's buttons without widths are 150 wide
+    (cells of 154, the row's last 152) whatever an image or button 100,
+    200 or 400 wide above them; below them, the row's last button
+    stretches until the row is as wide as that control less 2 where it is
+    wider (one button: 198 under 200, 398 under 400; two under 400: 154
+    and 244; under 100, and three buttons under any, 150 each). The rule
+    is the order: a control with a width counts for the rows above it
+    only. Not done in the preview yet. (S)
   - *Gaps and margins at a UI scale that isn't whole* are scaled as they
-    are: whether the game rounds them down too is not measured. For the
-    second client batch: a column of ten buttons 30 high, with margins 2
-    and 5, at 111% (`ui.unconstrain-scale` set): read each one's top edge.
-    (S)
+    are, where the game rounds each down to whole pixels, as it does a
+    control's size: measured in the client (2026-10-29,
+    `nui_readings_in_the_client` with `MG_NUI_SCALE=1.11`, ten buttons 30
+    high, `ui.unconstrain-scale` set), the buttons' top edges are 34 and
+    40 apart at 100% (margins 2 and 5), 37 and 43 at 111%: 33 for the
+    button (33.3 rounded down) and the margins 2 and 5 (2.22 and 5.55
+    rounded down). Not done in the preview yet. (S)
   - *An encouraged control* shows its hover look and does not pulse; the
     pulse's period is not measured either. (settle?: proposed by the
     sprint on 2026-10-29, the owner's to say: a still preview shows the
     pulse's peak.)
-  - *Numbers in text* are shown to at most 16 decimal places. For the
-    second client batch: a label bound to 1/3 with `number_precision` 16,
-    17, 20 and 30, and to 0.5 and 2.5 at 0: read the text drawn. (S)
+  - *Numbers in text* are shown to at most 16 decimal places, from the
+    bind's double, ties rounded away from zero (`native_decimal`). Read
+    in the client (2026-10-29, `nui_readings_in_the_client`): a label
+    bound to 1/3 shows the 32-bit float's digits to as many places as
+    `number_precision` says, with no cap (16: 0.3333333432674408; 17:
+    0.33333334326744080; 30: 0.333333343267440795898437500000), and 0.5
+    and 2.5 at 0 show 0 and 2 (ties to even, as C's printf). The preview
+    differs on all three. Not done in the preview yet. (S)
   - *`mg nui layout`'s `overlaps`* come of the canvas's own layout, which
     places neighbors apart: it finds none but where the game would lay the
     window out otherwise, which it can't know. (settle?: proposed by the
     sprint on 2026-10-29, the owner's to say: said in the manual's command
     line chapter, as it is.)
 - **Left by The Domains of Dread's NUI Creator asks (October 2026)**
-  (AccessKit and the event function; the asks are the module project's
+  (AccessKit; the asks are the module project's
   probe, `tdod-modulework/docs/systems/nui-creator-probe.md`; done on
   2026-10-29: a state for one row, variants of several groups, binds held
   to their properties' rules, a list's rows out of view and the title in
@@ -1530,17 +1549,6 @@ contribution itself states as not done or not checked.
     average without the tree, 0.97 with it, the most 0.55 ms more (a
     long script, 0.73 to 1.28); none over the budget. Without one,
     nothing. (S, waits on a screen reader's user)
-  - *The event function in the game*: compiled against the game's
-    `nwscript.nss`, not yet run in the client (`client_nui.rs` builds
-    windows with their own event scripts). For the second client batch:
-    in `client_nui.rs`, a window with `event_function` on, built by
-    `mg_nui::generate` (its `NAME_e.nss` the include of `NAME_OnEvent()`),
-    created without an event script, and the module's OnNuiEvent a script
-    of the test's that includes it and logs what `NAME_OnEvent()`
-    returns; a click on a button whose handler sets a bind: read that the
-    handler ran (the bind's new value), that the function returned TRUE
-    for the window's event and FALSE for another window's. (S, waits on
-    the client)
 
 ## Automation
 

@@ -60,6 +60,8 @@ mod heads;
 mod heed;
 #[path = "client_render/joined.rs"]
 mod joined;
+#[path = "client_render/nui.rs"]
+mod nui;
 #[path = "client_render/programs.rs"]
 mod programs;
 #[path = "client_render/readings.rs"]
