@@ -5718,6 +5718,52 @@ fn find_and_replace_text() {
     shoot(&mut h, &dir, "find-and-replace");
 }
 
+/// Find References for a talk-table line a blueprint, a script and a
+/// hak's 2DA name (the last two where the tab finds them).
+#[test]
+#[ignore]
+fn references_of_a_talk_table_line() {
+    use mg_schema::{StructExt, ifo};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let scratch = mg_testkit::scratch_dir("screens-strref");
+    let user = scratch.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let mut hak = mg_erf::ErfWriter::new(*b"HAK ");
+    let classes = b"2DA V2.0\n\n   Label Name\n0  Kz 16777300\n".to_vec();
+    hak.add(mg_core::ResRef::from_str("classes").unwrap(), ResType::TWODA, classes).unwrap();
+    std::fs::write(user.join("hak/kz_classes.hak"), hak.to_bytes().unwrap()).unwrap();
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    let mut item = ifo::MOD_HAK_LIST.new_item();
+    item.write(&ifo::mod_hak_list::MOD_HAK, mg_schema::ExoString::from("kz_classes"));
+    info.root.items_mut(&ifo::MOD_HAK_LIST).push(item);
+    m.set_info(&info).unwrap();
+    let mut sword = mg_gff::Gff::new(*b"UTI ");
+    let named = mg_core::LocString { strref: mg_core::StrRef(16_777_300), strings: Vec::new() };
+    sword.root.set("LocalizedName", mg_gff::Value::LocString(named));
+    m.set_gff(ResKey::parse("kz_sword", ResType::UTI).unwrap(), &sword).unwrap();
+    let script = b"void main()\n{\n    SpeakStringByStrRef(16777300);\n}\n".to_vec();
+    m.set(ResKey::parse("kz_speak", ResType::NSS).unwrap(), script);
+    let path = scratch.join("strref.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(
+        Some(GameInstall::new(&root, Some(user), "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::FindStrRef(16_777_300));
+    h.run_steps(4);
+    shoot(&mut h, &dir, "references-strref");
+}
+
 /// Edit › Edit Areas Together… over Chapter 1: the areas, then (where the
 /// window has it) those holding a value of MusicDay.
 #[test]
