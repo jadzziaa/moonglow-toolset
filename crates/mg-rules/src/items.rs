@@ -256,6 +256,53 @@ pub fn part_number(s: &mg_gff::Struct, label: &str) -> Option<i64> {
     s.integer(&wide_label(label)).or_else(|| s.integer(label))
 }
 
+/// Armor icon parts, bottom first: (field, icon part).
+pub const ARMOR_ICON: [(&str, &str); 6] = [
+    ("ArmorPart_Pelvis", "pelvis"),
+    ("ArmorPart_Torso", "chest"),
+    ("ArmorPart_Belt", "belt"),
+    ("ArmorPart_LShoul", "shol"),
+    ("ArmorPart_RShoul", "shor"),
+    ("ArmorPart_Robe", "robe"),
+];
+
+/// The names of an item's inventory icon layers, bottom first (nwn.wiki,
+/// baseitems.2da): `i<ItemClass>_<model>` for simple and layered items
+/// (`_m_` between for gender-specific ones), a composite weapon's bottom,
+/// middle and top (`_b_`, `_m_`, `_t_`), an armor's pelvis, chest, belt,
+/// shoulders and robe (`ipm_<part><number>`). Where `female`, the icons a
+/// woman's inventory shows (`ipf_`, `_f_`), for the items that have both.
+/// What the window draws an icon with, and what a hak's usage counts.
+pub fn icon_names(game: &GameData, item: &mg_gff::Struct, female: bool) -> Vec<String> {
+    let part = |label: &str| part_number(item, label).unwrap_or(0);
+    let g = if female { 'f' } else { 'm' };
+    let Ok(t) = game.table("baseitems") else { return Vec::new() };
+    let Ok(row) = usize::try_from(item.integer("BaseItem").unwrap_or(-1)) else {
+        return Vec::new();
+    };
+    let class = t.get(row, "ItemClass").unwrap_or_default().to_ascii_lowercase();
+    match t.get_int(row, "ModelType").unwrap_or(0) {
+        2 => [("ModelPart1", "b"), ("ModelPart2", "m"), ("ModelPart3", "t")]
+            .iter()
+            .map(|(l, p)| format!("i{class}_{p}_{:03}", part(l)))
+            .collect(),
+        3 => ARMOR_ICON
+            .iter()
+            .map(|(l, p)| (part(l), p))
+            .filter(|(n, _)| *n > 0)
+            .map(|(n, p)| format!("ip{g}_{p}{n:03}"))
+            .collect(),
+        _ => {
+            let gender = if t.get_int(row, "GenderSpecific") == Some(1) {
+                format!("{g}_")
+            } else {
+                String::new()
+            };
+            vec![format!("i{class}_{gender}{:03}", part("ModelPart1"))]
+        }
+    }
+}
+
 /// An armor's parts, in the game's order (`ITEM_APPR_ARMOR_MODEL_*`): the
 /// field with each one's part number, and its name.
 pub const ARMOR_PARTS: [(&str, &str); 19] = [

@@ -26,24 +26,35 @@
 //!   ([`crate`]): a placeable's or door's model and its sounds
 //!   (placeableobjsnds.2da), a creature's body (heads, body parts, wings,
 //!   tails, the armor it wears), its portrait and its sound set (the
-//!   `.ssf` and its sounds), an item's models (with every race's, gender's
-//!   and phenotype's armor part of the numbers it has, as anyone may wear
-//!   it) and their inventory icons;
+//!   `.ssf` and its sounds), its footsteps (footstepsounds.2da) and combat
+//!   sounds (appearancesndset.2da: its falls, its natural weapons' hits
+//!   and misses, weaponsounds.2da's sounds of each weapon striking its
+//!   skin), an item's models (with every race's, gender's and phenotype's
+//!   armor part of the numbers it has, as anyone may wear it), their
+//!   inventory icons (an armor's its parts' layers, `ipm_chest001`, a
+//!   man's and a woman's), a weapon's hits (weaponsounds.2da) and the
+//!   model of its visual effect property (`<ItemClass>_fx<suffix>`,
+//!   iprp_visualfx.2da);
 //! - a model's own files ([`crate::files`]): its walkmeshes, textures
 //!   (as the game picks a DDS or TGA, and a PLT), materials (`.mtr`) and
 //!   TXIs and what they name, its emitters' models and its supermodels;
 //! - the scripts the game runs from its tables as the module sees them
 //!   ([`mg_module::verify::table_scripts`]: spells' impact scripts, areas
 //!   of effect's, states', traps', diseases' and poisons'), reached from
-//!   the table.
+//!   the table;
+//! - the 2DAs the game reads by itself (a hak's replacement of one the
+//!   game has), each reached from itself, and the tables a 2DA's cells
+//!   name (classes.2da a class's feat table);
+//! - what players choose at character creation: every head of the player
+//!   races, their portraits and the players' voice sets.
 //!
 //! Not followed, and so not judged by it: what scripts reach by a number
 //! (visual effects, spells, item properties, appearances set by a
-//! script), what players choose (heads, portraits, sound sets and parts at
-//! character creation), what the game reads by itself (2DAs other than
-//! those the walk reads, GUI, fonts, shaders a material doesn't name,
-//! palettes) and a hak's replacements of the game's own resources, which
-//! the game's own content may use: these are "not judged", never "unused".
+//! script), the body parts players choose, what the game reads by itself
+//! other than its 2DAs (a 2DA of the haks' own nothing names, GUI, fonts,
+//! shaders a material doesn't name, palettes) and a hak's replacements of
+//! the game's own resources other than 2DAs, which the game's own content
+//! may use: these are "not judged", never "unused".
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -122,9 +133,10 @@ fn judged(t: ResType) -> bool {
     )
 }
 
-/// What a walk can follow further when it reaches it.
+/// What a walk can follow further when it reaches it (a 2DA: the tables
+/// its cells name, as classes.2da names each class's feat table).
 fn followed(t: ResType) -> bool {
-    t.is_gff() || t == ResType::NSS || t == ResType::SSF
+    t.is_gff() || t == ResType::NSS || t == ResType::SSF || t == ResType::TWODA
 }
 
 /// The types a script's string may name (models and textures are tried
@@ -162,6 +174,9 @@ pub(crate) struct Walk<'a> {
     wearers: Option<(Vec<char>, Vec<usize>)>,
     /// Armor parts and icons done.
     parts: std::collections::HashSet<String>,
+    /// The names of the 2DAs in the load order, once (a table's cells
+    /// that are one reach it).
+    tables: Option<std::collections::HashSet<ResRef>>,
 }
 
 fn text(s: &Struct, label: &str) -> Option<String> {
@@ -190,6 +205,7 @@ impl<'a> Walk<'a> {
             tilesets: HashMap::new(),
             wearers: None,
             parts: Default::default(),
+            tables: None,
         }
     }
 
@@ -260,6 +276,10 @@ impl<'a> Walk<'a> {
     }
 
     fn follow(&mut self, key: ResKey) {
+        if key.restype == ResType::TWODA {
+            self.table_names(key.resref);
+            return;
+        }
         let Ok(data) = self.rm().get(&key) else { return };
         let data = data.into_owned();
         if key.restype == ResType::NSS {
@@ -443,6 +463,174 @@ impl<'a> Walk<'a> {
         {
             self.reach_named(&ssf, ResType::SSF);
         }
+        // Its footsteps (footstepsounds.2da) and its combat sounds
+        // (appearancesndset.2da: falling, its natural weapons' hits and
+        // misses, its skin's when hit), by its appearance.2da row.
+        let row = s.integer("Appearance_Type").unwrap_or(-1);
+        let Some(t) = self.table("appearance") else { return };
+        if let Some(steps) = cell(&t, row, "FOOTSTEPTYPE").and_then(|r| r.parse().ok())
+            && let Some(f) = self.table("footstepsounds")
+        {
+            self.row_sounds(&f, steps);
+        }
+        let Some(set) = cell(&t, row, "SOUNDAPPTYPE").and_then(|r| r.parse::<i64>().ok()) else {
+            return;
+        };
+        let Some(sounds) = self.table("appearancesndset") else { return };
+        for c in ["Looping", "FallFwd", "FallBck"] {
+            if let Some(w) = cell(&sounds, set, c) {
+                self.reach_named(&w, ResType::WAV);
+            }
+        }
+        let Some(weapons) = self.table("weaponsounds") else { return };
+        let natural = ["WeapTypeL", "WeapTypeR", "WeapTypeS", "WeapTypeClsLw", "WeapTypeClsH"];
+        for c in natural.into_iter().chain(["WeapTypeRch", "MissIndex"]) {
+            if let Some(r) = cell(&sounds, set, c).and_then(|r| r.parse().ok()) {
+                self.row_sounds(&weapons, r);
+            }
+        }
+        // (Struck: each weapon's sound against its skin, `Leather0`…)
+        if let Some(skin) = cell(&sounds, set, "ArmorType") {
+            for n in 0..2 {
+                let column = format!("{skin}{n}");
+                for r in 0..weapons.len() {
+                    if let Some(w) = cell(&weapons, r as i64, &column) {
+                        self.reach_named(&w, ResType::WAV);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Every sound a row of a table of sounds names (each column but its
+    /// label).
+    fn row_sounds(&mut self, t: &TwoDa, row: i64) {
+        let Ok(r) = usize::try_from(row) else { return };
+        for c in 0..t.columns().len() {
+            if t.columns()[c].eq_ignore_ascii_case("Label") {
+                continue;
+            }
+            if let Some(w) = t.cell(r, c).map(str::trim).filter(|w| !w.is_empty() && *w != "****") {
+                self.reach_named(w, ResType::WAV);
+            }
+        }
+    }
+
+    /// The tables a 2DA's cells name (classes.2da a class's feat, skill and
+    /// spell tables; itempropdef.2da its subtypes' tables): each a 2DA of
+    /// the load order, reached.
+    fn table_names(&mut self, table: ResRef) {
+        let Ok(t) = self.game.table(&table.to_string()) else { return };
+        let tables = self.tables.get_or_insert_with(|| {
+            let rm = &self.game.resman;
+            (rm.layers().iter())
+                .flat_map(|l| l.container.keys())
+                .filter(|k| k.restype == ResType::TWODA)
+                .map(|k| k.resref)
+                .collect()
+        });
+        let mut named = Vec::new();
+        for r in 0..t.len() {
+            for c in 0..t.columns().len() {
+                let Some(v) = t.cell(r, c) else { continue };
+                if v.len() > 16 || v.starts_with(|c: char| c.is_ascii_digit() || c == '*') {
+                    continue;
+                }
+                if let Ok(name) = ResRef::from_str(&v.to_ascii_lowercase())
+                    && name != table
+                    && tables.contains(&name)
+                {
+                    named.push(name);
+                }
+            }
+        }
+        for name in named {
+            self.reach(ResKey::new(name, ResType::TWODA));
+        }
+    }
+
+    /// What players choose at character creation, as their game offers it,
+    /// reached from the table that offers it: every head of the player
+    /// races (racialtypes.2da `PlayerRace`) for each gender and phenotype,
+    /// the portraits of those races (portraits.2da) and the players' sound
+    /// sets (soundset.2da `TYPE` 0).
+    pub(crate) fn players_choose(&mut self) {
+        let Some(races) = self.table("racialtypes") else { return };
+        let player = |r: usize| cell(&races, r as i64, "PlayerRace").as_deref() == Some("1");
+        let rows: Vec<usize> = (0..races.len()).filter(|r| player(*r)).collect();
+        self.root = ResKey::new(ResRef::from_str("racialtypes").expect("a name"), ResType::TWODA);
+        let mut letters = Vec::new();
+        if let Some(looks) = self.table("appearance") {
+            for r in &rows {
+                if let Some(look) =
+                    cell(&races, *r as i64, "Appearance").and_then(|a| a.parse().ok())
+                    && let Some(letter) = cell(&looks, look, "RACE").filter(|l| l.len() == 1)
+                    && !letters.contains(&letter)
+                {
+                    letters.push(letter);
+                }
+            }
+        }
+        self.find_wearers();
+        let phenotypes = self.wearers.as_ref().map(|w| w.1.clone()).unwrap_or_default();
+        for letter in &letters {
+            for g in ['m', 'f'] {
+                for ph in &phenotypes {
+                    // (A creature's head is a byte.)
+                    for n in 1..=255 {
+                        let name = format!("p{g}{letter}{ph}_head{n:03}");
+                        if ResKey::parse(&name, ResType::MDL)
+                            .is_some_and(|k| self.rm().contains(&k))
+                        {
+                            self.gather.add_model(&name);
+                        }
+                    }
+                }
+            }
+        }
+        self.settle();
+        if let Some(portraits) = self.table("portraits") {
+            self.root = ResKey::new(ResRef::from_str("portraits").expect("a name"), ResType::TWODA);
+            for r in 0..portraits.len() {
+                let race = cell(&portraits, r as i64, "Race").and_then(|v| v.parse::<usize>().ok());
+                if race.is_some_and(|race| rows.contains(&race))
+                    && let Some(base) = cell(&portraits, r as i64, "BaseResRef")
+                {
+                    self.portrait(&format!("po_{base}"));
+                }
+            }
+            self.settle();
+        }
+        if let Some(sets) = self.table("soundset") {
+            self.root = ResKey::new(ResRef::from_str("soundset").expect("a name"), ResType::TWODA);
+            for r in 0..sets.len() {
+                if cell(&sets, r as i64, "TYPE").as_deref() == Some("0")
+                    && let Some(ssf) = cell(&sets, r as i64, "RESREF")
+                {
+                    self.reach_named(&ssf, ResType::SSF);
+                }
+            }
+            self.drain();
+        }
+    }
+
+    /// The 2DAs the game reads by itself (`tables`: those it has of its
+    /// own, which a hak replaces), each reached from itself, and what
+    /// their cells name.
+    pub(crate) fn game_reads(&mut self, tables: impl IntoIterator<Item = ResKey>) {
+        for key in tables {
+            self.root = key;
+            self.reach(key);
+            self.drain();
+        }
+    }
+
+    /// Follows what is queued, to the end.
+    fn drain(&mut self) {
+        while let Some(next) = self.queue.pop() {
+            self.follow(next);
+            self.settle();
+        }
     }
 
     fn placeable(&mut self, s: &Struct) {
@@ -493,6 +681,24 @@ impl<'a> Walk<'a> {
                 self.gather.add_texture(&icon);
             }
             armor = cell(&t, base, "ModelType").as_deref() == Some("3");
+            // Its icon's layers, a man's and a woman's (an armor's are its
+            // parts' `ipm_chest001`…, PLTs), as the inventory draws it.
+            for female in [false, true] {
+                for icon in mg_rules::items::icon_names(self.game, s, female) {
+                    self.gather.add_texture(&icon);
+                }
+            }
+            // A weapon's sounds as it hits (weaponsounds.2da).
+            if let Some(r) = cell(&t, base, "WeaponMatType").and_then(|r| r.parse().ok())
+                && let Some(w) = self.table("weaponsounds")
+            {
+                self.row_sounds(&w, r);
+            }
+            // A visual effect property's model, `<ItemClass>_fx<suffix>`
+            // (iprp_visualfx.2da's ModelSuffix).
+            if let Some(class) = cell(&t, base, "ItemClass") {
+                self.visual_effects(s, &class);
+            }
         }
         if armor {
             // (Its preview is a body wearing it: the body is no part of it.)
@@ -517,6 +723,33 @@ impl<'a> Walk<'a> {
                     self.gather.add_texture(&format!("i{name}"))
                 }
                 None => {}
+            }
+        }
+    }
+
+    /// The models of an item's visual effect properties (itempropdef.2da's
+    /// row with the subtypes of iprp_visualfx.2da): `<class>_fx<suffix>`.
+    fn visual_effects(&mut self, s: &Struct, class: &str) {
+        let Some(defs) = self.table("itempropdef") else { return };
+        let mut suffixes = Vec::new();
+        for p in s.list("PropertiesList").unwrap_or_default() {
+            let Some(row) = p.integer("PropertyName") else { continue };
+            let table = cell(&defs, row, "SubTypeResRef");
+            if table.as_deref() != Some("iprp_visualfx") {
+                continue;
+            }
+            suffixes.push(p.integer("Subtype").unwrap_or(-1));
+        }
+        if suffixes.is_empty() {
+            return;
+        }
+        let Some(fx) = self.table("iprp_visualfx") else { return };
+        for row in suffixes {
+            if let Some(suffix) = cell(&fx, row, "ModelSuffix") {
+                let name = format!("{class}_fx{suffix}");
+                if ResKey::parse(&name, ResType::MDL).is_some_and(|k| self.rm().contains(&k)) {
+                    self.gather.add_model(&name);
+                }
             }
         }
     }
@@ -636,6 +869,11 @@ pub fn hak_usage(
     let mut walk = Walk::new(&game);
     walk.module(m);
     walk.settle();
+    // The game's own 2DAs, which a hak replaces: the game reads them.
+    let tables = report.overrides.keys().filter(|k| k.restype == ResType::TWODA).copied();
+    walk.game_reads(tables.collect::<Vec<_>>());
+    walk.players_choose();
+    walk.settle();
     let mut out = Vec::new();
     for (name, path) in &report.haks {
         let index = match path {
@@ -726,7 +964,8 @@ pub fn total_line(haks: &[HakUsage]) -> String {
 
 /// What the walk doesn't follow, said with its results.
 pub const NOT_FOLLOWED: &str = "not followed: what scripts reach by number (effects, spells, \
-    appearances), what players choose, and what the game reads itself (\"not judged\")";
+    appearances), the body parts players choose, and what the game reads itself other than its \
+    2DAs (\"not judged\")";
 
 #[cfg(test)]
 mod tests {
@@ -883,5 +1122,147 @@ mod tests {
         assert_eq!(u.unused.len(), 1);
         assert_eq!(armor_part("pmh0_chest001"), Some(('m', 'h', "0", "chest001")));
         assert_eq!(armor_part("plc_a01"), None);
+    }
+
+    /// What the walk followed only since the deferred sprint: a creature's
+    /// footsteps and combat sounds, a weapon's hits and its visual effect
+    /// property's model, an armor's icon layers, the tables a 2DA names,
+    /// the game's own 2DAs a hak replaces, and what players choose at
+    /// character creation (heads, portraits, voice sets).
+    #[test]
+    fn sounds_icons_effects_tables_and_what_players_choose() {
+        let table = |text: &str| format!("2DA V2.0\n\n{text}").into_bytes();
+        let mut stock = MemContainer::new();
+        stock.insert(
+            key("appearance.2da"),
+            table(
+                "   LABEL MODELTYPE RACE FOOTSTEPTYPE SOUNDAPPTYPE\n0 Human P H 0 0\n\
+                 1 Wolf F **** 1 1\n",
+            ),
+        );
+        stock.insert(
+            key("footstepsounds.2da"),
+            table(" Label Dirt0 Stone0\n0 normal fs_a fs_b\n1 paw fs_paw ****\n"),
+        );
+        stock.insert(
+            key("appearancesndset.2da"),
+            table(
+                " Label ArmorType WeapTypeL WeapTypeR WeapTypeS WeapTypeClsLw WeapTypeClsH \
+                 WeapTypeRch MissIndex Looping FallFwd FallBck\n0 Human **** **** **** **** **** \
+                 **** **** **** **** bf_h bf_h\n1 Wolf leather 1 1 1 1 1 1 1 **** bf_wolf bf_wolf\n",
+            ),
+        );
+        stock.insert(
+            key("weaponsounds.2da"),
+            table(" Label Leather0 Leather1 Chain0 Miss0\n0 Blade cb_bl_le cb_bl_le2 cb_bl_ch cb_miss\n1 Claw cb_cl_le **** cb_cl_ch cb_cl_miss\n"),
+        );
+        stock.insert(
+            key("baseitems.2da"),
+            table(
+                " label ItemClass ModelType WeaponMatType DefaultIcon\n0 shortsword WSwSs 2 0 iw_ss\n\
+                 1 armor AArmor 3 **** ia_armor\n",
+            ),
+        );
+        stock.insert(
+            key("itempropdef.2da"),
+            table(" Label SubTypeResRef\n0 Ability IPRP_ABILITIES\n1 VisualEffect IPRP_VISUALFX\n"),
+        );
+        stock.insert(key("iprp_visualfx.2da"), table(" Label ModelSuffix\n0 Acid acid\n"));
+        stock.insert(key("racialtypes.2da"), table(" Label Appearance PlayerRace FeatsTable\n0 Human 0 1 race_feat_human\n1 Wolf 1 0 ****\n"));
+        stock.insert(key("race_feat_human.2da"), table(" FeatIndex\n0 1\n"));
+        stock.insert(key("portraits.2da"), table(" BaseResRef Race\n0 hu_m_01 0\n1 wolf_ 1\n"));
+        stock.insert(key("soundset.2da"), table(" RESREF TYPE\n0 vs_player 0\n1 vs_npc 1\n"));
+        stock.insert(key("classes.2da"), table(" Label FeatsTable\n0 Mine cls_feat_mine\n"));
+        let mut haks = MemContainer::new();
+        for (n, d) in [
+            ("fs_paw.wav", &b"w"[..]),
+            ("fs_a.wav", b"w"),
+            ("bf_wolf.wav", b"w"),
+            ("cb_cl_le.wav", b"w"),
+            ("cb_cl_miss.wav", b"w"),
+            ("cb_bl_le.wav", b"w"),
+            ("cb_bl_ch.wav", b"w"),
+            ("cb_miss.wav", b"w"),
+            ("ipm_chest005.plt", b"p"),
+            ("ipf_chest005.plt", b"p"),
+            ("ipm_chest006.plt", b"p"),
+            ("cls_feat_mine.2da", b"2DA V2.0\n\n FeatIndex\n"),
+            ("cls_feat_none.2da", b"2DA V2.0\n\n FeatIndex\n"),
+            ("vs_player.ssf", b"s"),
+            ("vs_npc.ssf", b"s"),
+            ("po_hu_m_01h.tga", b"t"),
+            ("po_wolf_h.tga", b"t"),
+        ] {
+            haks.insert(key(n), d);
+        }
+        haks.insert(key("classes.2da"), table(" Label FeatsTable\n0 Mine cls_feat_mine\n"));
+        haks.insert(key("wswss_fxacid.mdl"), model("wswss_fxacid", "fx_acid"));
+        haks.insert(key("wswss_fxfire.mdl"), model("wswss_fxfire", "fx_fire"));
+        haks.insert(key("pmh0_head007.mdl"), model("pmh0_head007", "pmh0_head007"));
+        haks.insert(key("pmh0_head007.tga"), &b"t"[..]);
+        haks.insert(key("pfh0_head300.mdl"), model("pfh0_head300", "x"));
+        let mut module = MemContainer::new();
+        let mut git = Gff::new(*b"GIT ");
+        let mut wolf = Struct::new(4);
+        wolf.set("Appearance_Type", Value::Word(1));
+        let mut sword = Struct::new(0);
+        sword.set("BaseItem", Value::Int(0));
+        let mut fx = Struct::new(0);
+        fx.set("PropertyName", Value::Word(1));
+        fx.set("Subtype", Value::Word(0));
+        sword.set("PropertiesList", Value::List(vec![fx]));
+        let mut armor = Struct::new(0);
+        armor.set("BaseItem", Value::Int(1));
+        armor.set("ArmorPart_Torso", Value::Byte(5));
+        wolf.set("ItemList", Value::List(vec![sword, armor]));
+        git.root.set("Creature List", Value::List(vec![wolf]));
+        module.insert(key("a1.git"), git.to_bytes().unwrap());
+
+        let mut rm = ResMan::new();
+        rm.add(priority::MODULE, "module", LayerClass::Erf, module);
+        rm.add(priority::HAK_USER, "hak:mine", LayerClass::Erf, haks);
+        rm.add(priority::KEY, "nwn_base.key", LayerClass::Key, stock);
+        let game = GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let mut m = Module::new();
+        m.set(key("a1.git"), game.resman.get(&key("a1.git")).unwrap().into_owned());
+        let mut walk = Walk::new(&game);
+        walk.module(&m);
+        walk.settle();
+        let reached = |w: &Walk<'_>, n: &str| w.from.get(&key(n)).map(|f| f.to_string());
+        // The wolf's paws, its fall, its claws and its hide struck by a
+        // blade; the sword's hits and its acid; the armor's icon.
+        for n in [
+            "fs_paw.wav",
+            "bf_wolf.wav",
+            "cb_cl_le.wav",
+            "cb_cl_miss.wav",
+            "cb_bl_le.wav",
+            "cb_bl_ch.wav",
+            "cb_miss.wav",
+            "wswss_fxacid.mdl",
+            "ipm_chest005.plt",
+            "ipf_chest005.plt",
+        ] {
+            assert_eq!(reached(&walk, n).as_deref(), Some("a1.git"), "{n}");
+        }
+        for n in ["fs_a.wav", "wswss_fxfire.mdl", "ipm_chest006.plt", "cls_feat_mine.2da"] {
+            assert_eq!(reached(&walk, n), None, "{n}");
+        }
+        // The game's classes.2da, which the hak replaces: read by the game,
+        // with the feat table it names.
+        walk.game_reads([key("classes.2da")]);
+        assert_eq!(reached(&walk, "classes.2da").as_deref(), Some("classes.2da"));
+        assert_eq!(reached(&walk, "cls_feat_mine.2da").as_deref(), Some("classes.2da"));
+        assert_eq!(reached(&walk, "cls_feat_none.2da"), None);
+        // A player's choices: a human's heads (any number a byte holds),
+        // portraits and voice sets; not a wolf's portrait, nor an NPC's.
+        walk.players_choose();
+        walk.settle();
+        for n in ["pmh0_head007.mdl", "pmh0_head007.tga", "po_hu_m_01h.tga", "vs_player.ssf"] {
+            assert!(reached(&walk, n).is_some(), "{n}");
+        }
+        for n in ["pfh0_head300.mdl", "po_wolf_h.tga", "vs_npc.ssf"] {
+            assert_eq!(reached(&walk, n), None, "{n}");
+        }
     }
 }

@@ -708,15 +708,35 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Haks in the GUI
 
-- **Not followed by `--usage`:** what scripts reach by a number
-  (visual effects, spells, item properties, `SetCreatureAppearanceType`),
-  a creature's footstep, weapon and combat sounds, an item property's
-  visual effect, armor's inventory icon, what players choose at
-  character creation (heads, portraits, sound sets, parts), and 2DAs the
-  game reads by itself (judged only where the walk reads one). A
-  script's string counts as a use of whatever it spells. A per-hak list
-  for the release cut (a folder of used assets to pack smaller haks) is
-  not written: `--json` has the lists. (M)
+- **Not followed by `--usage`** (and What the Module Uses), what is left
+  of it after the sprint followed sounds, icons, visual effect
+  properties, 2DAs and the heads, portraits and voice sets players
+  choose (`mg_preview::usage`):
+  - **What scripts reach by a number** (visual effects, spells, item
+    properties, `SetCreatureAppearanceType`): a reader of a script's
+    calls' arguments (an `int` literal, a stock constant from
+    `nwscript.nss`, the module's own `const`s through its includes) by
+    the function and parameter that take a row of a table
+    (`EffectVisualEffect` visualeffects.2da, `ActionCastSpell*`
+    spells.2da, `ItemProperty*` their iprp tables), then each row's
+    files (a visual effect's models, progfx.2da's, its sounds; a
+    spell's icons, models and sounds; an appearance's look through
+    `mg_preview::creature`). In mg-script and `usage.rs`: a day or two
+    (L), larger than the rest of the entry was.
+  - **The body parts players choose** at character creation (tattoos):
+    which part numbers the creation screen offers for a race and
+    phenotype isn't known here (parts_*.2da has no column for it, and
+    every part number would count every armor part as used). Waits on
+    the client batch: read the creation screen's part lists against
+    parts_chest.2da and the others.
+
+  A script's string still counts as a use of whatever it spells,
+  whatever the string is for (a release cut keeps too much rather than
+  too little; said in the manual), and a per-hak list for the release
+  cut (a folder of the used assets to pack smaller haks) is not written:
+  `--json` has the lists, and writing haks from them goes beyond what
+  was asked. (settle?: both proposed by the sprint on 2026-10-29, the
+  owner's to say)
 
 - **No 7z or rar:** content downloaded as one is unpacked first; Add
   Haks and Talk Table (and `mg attach`) take a `.zip`'s haks and talk
