@@ -8,7 +8,7 @@
 //! Needs the game and the off-screen display; run by hand:
 //! `DISPLAY=:2 cargo test -p mg-corpus-tests --release --test client_render batch2 -- --ignored --nocapture`.
 
-use super::readings::{INVISIBLE, Reading, enter, print_log};
+use super::readings::{INVISIBLE, Reading, enter, placeables_with, print_log};
 use super::*;
 use std::process::Command;
 
@@ -295,5 +295,93 @@ fn reading_emitters_from_above() {
     } else {
         let (dir, _) = r.shoot_beside(INVISIBLE, SETTINGS, &|v| v.animate = true);
         print_log(&dir);
+    }
+}
+
+/// A 64 × 64 TGA of gray 64, its alpha rising from 0 at its left edge to
+/// 1 at its right (`alpha`), or none (24 bits).
+fn gray_tga(alpha: bool) -> Vec<u8> {
+    let bits = if alpha { 32 } else { 24 };
+    let mut t =
+        vec![0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 64, 0, 64, 0, bits, if alpha { 8 } else { 0 }];
+    for _ in 0..64 {
+        for x in 0..64u32 {
+            t.extend([64, 64, 64]);
+            if alpha {
+                t.push((x * 255 / 63) as u8);
+            }
+        }
+    }
+    t
+}
+
+/// A card 2 m wide and 2 m high standing on the ground, facing south, of
+/// the texture `bitmap`.
+fn standing_card(name: &str, bitmap: &str) -> String {
+    format!(
+        "newmodel {name}\nsetsupermodel {name} NULL\nclassification character\n\
+         setanimationscale 1\nbeginmodelgeom {name}\nnode dummy {name}\n  parent NULL\nendnode\n\
+         node trimesh {name}_card\n  parent {name}\n  position 0 0 0\n  orientation 0 0 0 0\n  \
+         ambient 1 1 1\n  diffuse 1 1 1\n  specular 0 0 0\n  shininess 1\n  bitmap {bitmap}\n  \
+         render 1\n  shadow 0\n  verts 4\n    -1 0 0\n    1 0 0\n    1 0 2\n    -1 0 2\n  \
+         tverts 4\n    0 0 0\n    1 0 0\n    1 1 0\n    0 1 0\n  faces 2\n    0 1 2 1 0 1 2 0\n    \
+         0 2 3 1 0 2 3 0\nendnode\nendmodelgeom {name}\ndonemodel {name}\n"
+    )
+}
+
+/// How the engine blends an additive mesh (the deferred list's M5 item):
+/// two cards of TXI `blending additive` north of the player on tic01, gray
+/// 64 with an alpha rising from 0 (west edge) to 1 (east edge), and the
+/// same gray opaque (no alpha), in the client and beside Moonglow's area
+/// view; the same area without the cards first, so that what a card adds
+/// is the difference. Printed: what each card adds at five places across
+/// it, client and Moonglow.
+#[test]
+#[ignore]
+fn reading_additive_blending() {
+    let root = mg_testkit::nwn_root().expect("the game");
+    let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let (table, first) = placeables_with(&base, &[("mg_adda", 0), ("mg_addo", 0)]);
+    let overrides = [
+        ("mg_adda.mdl", standing_card("mg_adda", "mgadda").into_bytes()),
+        ("mg_addo.mdl", standing_card("mg_addo", "mgaddo").into_bytes()),
+        ("mgadda.tga", gray_tga(true)),
+        ("mgaddo.tga", gray_tga(false)),
+        ("mgadda.txi", b"blending additive\n".to_vec()),
+        ("mgaddo.txi", b"blending additive\n".to_vec()),
+        ("placeables.2da", table.into_bytes()),
+    ];
+    let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+    let mut shots = Vec::new();
+    for cards in [false, true] {
+        let name = if cards { "additive_cards" } else { "additive_none" };
+        let mut r = Reading::new(name, "tic01", light, &overrides);
+        if cards {
+            r.place(first, [17.5, 24.0, 0.0], 0.0, &[]);
+            r.place(first + 1, [22.5, 24.0, 0.0], 0.0, &[]);
+        }
+        let (dir, client) = r.shoot_beside(INVISIBLE, SETTINGS, &|_| {});
+        let ours = common::read_png(&dir.join("moonglow.png"));
+        let ours_on = common::read_png(&dir.join("moonglow_on.png"));
+        shots.push((client, ours, ours_on));
+    }
+    // (The cards' places on the picture, read off the client's: printed
+    // for a look, the boxes being what they are.)
+    let (none, with) = (&shots[0], &shots[1]);
+    let add = |a: &Rgba, b: &Rgba, x: f32, y: f32| {
+        let r = [x - 0.006, y - 0.01, x + 0.006, y + 0.01];
+        let (m0, m1) = (mean(a, r), mean(b, r));
+        (m1[0] + m1[1] + m1[2] - m0[0] - m0[1] - m0[2]) / 3.0
+    };
+    for (card, x0, x1) in [("alpha ramp", 0.385, 0.475), ("opaque", 0.525, 0.615)] {
+        for k in 0..5 {
+            let x = x0 + (x1 - x0) * (k as f32 + 0.5) / 5.0;
+            eprintln!(
+                "{card} at {x:.3}: client adds {:.1}, Moonglow {:.1} (game's shaders {:.1})",
+                add(&none.0, &with.0, x, 0.36),
+                add(&none.1, &with.1, x, 0.36),
+                add(&none.2, &with.2, x, 0.36),
+            );
+        }
     }
 }

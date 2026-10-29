@@ -1019,11 +1019,17 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     Moonglow's: what the engine draws it with and gives it
     (`globalColor`, its blending) wasn't read; the skybox is the game's
     `vsvt`/`fst`. (S) (waits on a client reading)
-  - **How the engine blends an additive mesh** (one and one, or by its
-    alpha) is not read: Moonglow adds its colour whole by either path;
-    the same for an opaque texture. A Lighten particle is added by its
-    alpha. (S) (waits on a client reading: an additive card whose
-    texture's alpha runs 0 to 1, over a gray ground)
+  - **How the engine blends an additive mesh**, read in the client
+    (2026-10-29, `reading_additive_blending` in `client_render.rs`'s
+    `batch2.rs`: cards of TXI `blending additive` in gray 64 on tic01,
+    what each adds measured against the area without them): by its
+    alpha (source alpha and one) where its texture has one, the card
+    whose alpha runs 0 to 1 west to east adding 0 at its west edge
+    rising to 24 of 255 at its east; whole where it has none (24 all
+    over). Moonglow, either path, adds the opaque card as the client
+    does (24) and the other 36 at its west falling to 26 at its east:
+    not by its alpha, and more than its colour, the cause not looked
+    into. A Lighten particle is added by its alpha. (S)
   - **Particles' size and turn:** a still emitter's square particles
     are drawn upright, as in the client, 28 pixels a side against the
     client's 30 in `surfaces_in_the_client` (the fitted camera's error,

@@ -575,7 +575,7 @@ fn slab(name: &str, side: f32) -> (String, String) {
 /// placeables.2da with rows for `models` after the game's (each the
 /// armoire's row with its model and `Static`), and the first new row's
 /// number.
-fn placeables_with(game: &GameData, models: &[(&str, u8)]) -> (String, u32) {
+pub(super) fn placeables_with(game: &GameData, models: &[(&str, u8)]) -> (String, u32) {
     let table = game.resman.get_named("placeables", ResType::TWODA).unwrap();
     let mut table = String::from_utf8_lossy(&table).into_owned();
     let header: Vec<String> =
