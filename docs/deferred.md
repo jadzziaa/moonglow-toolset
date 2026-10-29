@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T23:16:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T09:42:01Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1151,8 +1151,22 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   what his module loads over it (a hak's `tni01` models, textures or
   MTRs, a `lightcolor.2da`, a shader include) or is something other than
   the game's look: his own words for it, a picture of the view beside
-  the game's, and his haks are what is needed. (S) (Heed's reports,
-  October 2026)
+  the game's, and his haks are what is needed. 2.13.1's lit check on his
+  Vulkan (Radeon RX 580, AMD 25.5.1) drew its red mesh [212, 133, 133]
+  through the game's `vslit`/`fslit` where this machine draws [204, 56,
+  56] (Moonglow's own shader too): exactly the stock program's color
+  with `fNdotV` zero, the surface lit as if seen edge on (the Fresnel
+  term at a grazing angle, environment specularity 0.29 for 0.04, the
+  diffuse unchanged), which no uniform, texture, buffer or uninitialized
+  value of Moonglow's here gives (all are written or zeroed; findings,
+  "The lit check's pink on Heed's Vulkan"). The check then read the
+  programs through the whole load order, his `override/` and
+  `development/` included: a builder's `inc_lighting` there draws so
+  (`a_builder_s_include_leaves_the_lit_check_to_the_game_s_own`). It
+  reads the game's own copies now and its debug-log line names any
+  copy the load order puts over them, with each shader's color: that
+  line from the next release says which of the two it was. (S) (Heed's
+  reports, October 2026)
 - **A custom shader's tangents, not every case read:** the client's
   rule (tangents from the model or a render hint, else zeros) was read
   with an ASCII model without tangents, with and without an MTR

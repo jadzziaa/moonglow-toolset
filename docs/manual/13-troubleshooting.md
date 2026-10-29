@@ -3,7 +3,7 @@ type: Manual Page
 title: Troubleshooting
 description: Troubleshooting - the game is not found, no GPU in the area viewer, an area that draws nothing or loses its tiles on AMD under Windows (the graphics backend, its startup check, the lit check and the area view's watch; what to send), Direct3D 12's shader compiler (the DXC shipped beside Moonglow, and FXC where it is missing), Test Module does nothing, no sound, after a crash, and where Moonglow keeps its files.
 tags: [manual, troubleshooting]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T23:16:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T09:42:01Z }
 ---
 
 # Troubleshooting
@@ -61,12 +61,20 @@ and Moonglow looks at what it draws:
   remembered for this GPU and driver; Automatic passes over it until a
   driver update. The log says what happened, and the debug log's
   `graphics:` line what the check found on each backend.
-- **Once the game's data is read**, it draws a lit, textured mesh as a
-  tile is drawn, with Moonglow's own shader and with the game's. Where
-  Moonglow's own draws nothing, the notice offers **Restart with …**
-  (below). Where only the game's shaders draw nothing, Moonglow draws
-  with its own for the rest of the session and the notice says so (the
-  **Shaders** button turns the game's on again).
+- **Once the game's data is read**, it draws a lit, textured test mesh
+  (red) as a tile is drawn, with Moonglow's own shader and with the
+  game's, and says whether each drew nothing of it or drew it in the
+  wrong colors. Where Moonglow's own draws it wrong, the notice offers
+  **Restart with …** (below). Where only the game's shaders draw it
+  wrong, Moonglow draws with its own for the rest of the session and the
+  notice says so (the **Shaders** button turns the game's on again): the
+  area is still drawn, only not by the game's shaders. The check draws
+  the game's own shader files, as the game installs them, even where
+  `override`, `development`, a Workshop item or a hak has its own copy
+  of one (a builder's `inc_lighting`, say), since what the game's own
+  draw is known; the debug log's `graphics: the lit check` line names
+  such copies and the colors each shader drew. The area view draws with
+  the copies the game reads.
 - **While an area is open**, it looks about once a second at how much
   of the area's ground the GPU drew against what the camera should see
   (the game's shaders included, once they are compiled; tiles whose

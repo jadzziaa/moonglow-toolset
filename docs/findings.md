@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T21:33:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T09:42:01Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -1088,6 +1088,54 @@ with the game's shaders, and the client draws it so too.
   `a_stock_interior_looks_alike_with_the_shaders_on_and_off` in
   `crates/mg-ui/tests/app/drawing.rs`.
 - **Moonglow:** `crates/mg-render/src/game.rs`.
+- **Wiki:** missing.
+
+### The lit check's pink on Heed's Vulkan
+
+The lit check (`mg_render::probe::probe_lit`) draws a red BC1-textured
+quad, seen from straight above in the default area light. On this
+machine (Radeon RX 9070 XT, Mesa RADV) the stock `vslit`/`fslit` and
+Moonglow's own shader both draw its middle [204, 56, 56]: the green and
+blue are the stock program's white specular light (its specular color
+is white for a red albedo at the default specularity 0.04, metallicness
+0). Heed's Radeon RX 580 through AMD's Vulkan driver 25.5.1 drew it
+[212, 133, 133] with the game's programs (2.13.1). That is exactly the
+stock program with `fNdotV` (the normal against the view) zero, as if
+the surface were seen edge on: the Fresnel term at a grazing angle
+raises the environment specularity from 0.04 to 0.29 (`mix(1, 0.04,
+sqrt(0.55))`), which takes the red light down by the same factor (0.6
+of linear light times 0.71, against 0.96) while the diffuse light is
+unchanged. Forcing `fNdotV = 0.0` in `inc_lighting` here draws [202,
+116, 116]; with the view vector also lying in the surface's plane,
+[208, 127, 127].
+
+Nothing Moonglow feeds the program differs by driver: every uniform
+block is zeroed on the CPU and then written (the members the contract
+leaves zero among them; filled with 1.0 instead they draw [255, 220,
+220]), the lights past a draw's count read the table's zeros and the
+check has none, naga zero-initializes private and function variables and
+reads `OpUndef` as zero, wgpu zero-fills buffers and textures, the
+environment, noise and missing slots are bound to white 1×1 textures,
+the zero vertex inputs (`vWeight`, `vIndex`) are read only for skinned
+meshes, every read of the storage buffers is in bounds, and nothing in
+the program's path divides by zero or normalizes a zero vector for this
+view. What does change the program is the load order: the check read
+`vslit`, `fslit` and their includes as the area view does, from
+`override/`, `development/`, a Workshop item and the module's haks
+first, and The Domains of Dread's `inc_lighting` shows builders do
+replace it. Whether Heed's machine had such a copy or its driver
+computes the view vector wrong is not known. The check now draws the
+game's own copies (`Assets::game_shader`, the keys' copy) and names any
+copy the load order puts over them in its debug-log line, with the
+colors each shader drew.
+
+- **Checked:** `the_lit_check_draws_with_the_game_s_programs` and
+  `a_builder_s_include_leaves_the_lit_check_to_the_game_s_own`
+  (`crates/mg-corpus-tests/tests/hlsl.rs`, pictures in
+  `target/test-output/lit-check/`), 2026-10-29. Heed's machine: not
+  reproduced (waiting on him: `docs/deferred.md`, "Heed's interiors'
+  lighting").
+- **Moonglow:** `crates/mg-render/src/probe.rs`, `assets.rs`.
 - **Wiki:** missing.
 
 ### What a custom shader gets of its mesh

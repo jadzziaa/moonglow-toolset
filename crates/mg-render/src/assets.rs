@@ -8,7 +8,7 @@ use mg_image::mtr::Mtr;
 use mg_image::plt::{PALETTES, Plt};
 use mg_image::txi::Txi;
 use mg_image::{Rgba, Texture};
-use mg_resman::{ResKey, ResMan};
+use mg_resman::{LayerClass, ResKey, ResMan};
 
 /// A texture with its settings.
 #[derive(Debug, Clone)]
@@ -40,6 +40,22 @@ pub trait Assets {
     /// A shader's source by name (lower case): only read for what it
     /// switches off, never run.
     fn shader(&self, name: &str) -> Option<String> {
+        let _ = name;
+        None
+    }
+
+    /// The game's own copy of a shader (its install's, whatever the load
+    /// order puts over it: `override/`, `development/`, a hak): what the
+    /// lit check ([`crate::probe::probe_lit`]) draws with, as what the
+    /// stock programs draw is known. By default the load order's.
+    fn game_shader(&self, name: &str) -> Option<String> {
+        self.shader(name)
+    }
+
+    /// Where the load order's copy of a shader comes from when it isn't
+    /// the game's own (the layer: `override`, `development`, `hak:…`);
+    /// `None` for the game's own, or where it isn't known.
+    fn shader_origin(&self, name: &str) -> Option<String> {
         let _ = name;
         None
     }
@@ -95,6 +111,22 @@ impl Assets for ResMan {
         let data = self.get(&ResKey::new(resref, ResType::SHD)).ok()?;
         Some(String::from_utf8_lossy(&data).into_owned())
     }
+
+    fn game_shader(&self, name: &str) -> Option<String> {
+        let key = ResKey::new(ResRef::cut(name)?, ResType::SHD);
+        let layer = self
+            .copies(&key)
+            .into_iter()
+            .find(|&i| self.layers().get(i).is_some_and(|l| l.class == LayerClass::Key))?;
+        let data = self.get_in(layer, &key).ok()?;
+        Some(String::from_utf8_lossy(&data).into_owned())
+    }
+
+    fn shader_origin(&self, name: &str) -> Option<String> {
+        let key = ResKey::new(ResRef::cut(name)?, ResType::SHD);
+        let layer = self.layers().get(self.find(&key)?)?;
+        (layer.class != LayerClass::Key).then(|| layer.label.clone())
+    }
 }
 
 /// A PLT coloured with a colour per layer.
@@ -117,5 +149,37 @@ pub struct NoAssets;
 impl Assets for NoAssets {
     fn texture(&self, _name: &str) -> Option<LoadedTexture> {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mg_resman::{MemContainer, priority};
+
+    use super::*;
+
+    /// A shader the load order replaces (`override/` over the keys): the
+    /// load order's copy, the game's own, and where the replacement is;
+    /// one the game alone has, and one only `override/` has.
+    #[test]
+    fn a_shader_s_game_copy_and_where_the_load_order_s_comes_from() {
+        let key = |n: &str| ResKey::new(ResRef::from_str(n).unwrap(), ResType::SHD);
+        let mut game = MemContainer::new();
+        game.insert(key("inc_lighting"), b"game's".to_vec());
+        game.insert(key("fslit"), b"game's fslit".to_vec());
+        let mut over = MemContainer::new();
+        over.insert(key("inc_lighting"), b"builder's".to_vec());
+        over.insert(key("fhss_skintile"), b"builder's own".to_vec());
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "key:nwn_base", LayerClass::Key, game);
+        rm.add(priority::OVERRIDE, "override", LayerClass::Directory, over);
+        assert_eq!(rm.shader("inc_lighting").as_deref(), Some("builder's"));
+        assert_eq!(rm.game_shader("inc_lighting").as_deref(), Some("game's"));
+        assert_eq!(rm.shader_origin("inc_lighting").as_deref(), Some("override"));
+        assert_eq!(rm.game_shader("fslit").as_deref(), Some("game's fslit"));
+        assert_eq!(rm.shader_origin("fslit"), None);
+        assert_eq!(rm.game_shader("fhss_skintile"), None);
+        assert_eq!(rm.shader_origin("fhss_skintile").as_deref(), Some("override"));
+        assert_eq!(rm.shader_origin("nowhere"), None);
     }
 }

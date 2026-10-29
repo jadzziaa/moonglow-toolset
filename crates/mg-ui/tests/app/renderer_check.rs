@@ -334,13 +334,14 @@ fn frames_that_never_get_ready_are_judged_after_a_while() {
 /// The lit check runs once the game's data is read (where jobs run in the
 /// background, as in the desktop app), apart from the window's thread,
 /// and finds both Moonglow's own shader and the game's drawing here. Told
-/// of a check where the game's programs draw nothing (as it would find
-/// them if Heed's Direct3D 12 drew nothing through them alone): Moonglow
-/// draws with its own for the rest of the run, the notice says so and
-/// offers the other backend, and the Shaders button turns the game's on
-/// again.
+/// of a check where the game's programs draw the mesh in the wrong colors
+/// (as Heed's Vulkan found them, 2.13.1): Moonglow draws with its own for
+/// the rest of the run, the notice says what was found (not that nothing
+/// is drawn: the area was) and offers the other backend, and the Shaders
+/// button turns the game's on again. Where they draw nothing of it, the
+/// notice says that.
 #[test]
-fn the_lit_check_turns_the_game_s_shaders_off_where_they_draw_nothing() {
+fn the_lit_check_turns_the_game_s_shaders_off_where_they_draw_wrong() {
     let Some((mut app, rs, _area)) = area_app("lit-check", "ttr01", None, 4, None, &|_, _, _| {})
     else {
         return;
@@ -361,12 +362,15 @@ fn the_lit_check_turns_the_game_s_shaders_off_where_they_draw_nothing() {
     assert_eq!((&lit.own, &lit.game), (&Ok(()), &Some(Ok(()))), "{lit}");
     assert!(h.state().game_shaders());
     assert_eq!(h.state().renderer_check.trouble, None);
-    // The game's programs drawing nothing.
-    let wrong = mg_render::probe::Lit {
-        game: Some(Err("the lit mesh is [0, 0, 0] at (24, 24), not red".into())),
-        ..lit
+    // The game's programs drawing the mesh in the wrong colors (Heed's
+    // Vulkan, 2.13.1: washed-out pink where red is drawn here): the area
+    // is drawn, so the notice must not say nothing is.
+    let pink = mg_render::probe::Lit {
+        game: Some(Err("the lit mesh is [212, 133, 133] at (24, 24), not red".into())),
+        game_color: Some([212, 133, 133]),
+        ..lit.clone()
     };
-    mg_ui::renderer_check::lit_found(h.state_mut(), wrong);
+    mg_ui::renderer_check::lit_found(h.state_mut(), pink);
     h.run_steps(2);
     let app = h.state();
     assert!(!app.game_shaders(), "Moonglow's own for the rest of the run");
@@ -374,11 +378,28 @@ fn the_lit_check_turns_the_game_s_shaders_off_where_they_draw_nothing() {
     assert!(!app.viewport.as_ref().unwrap().renderer.game_shaders);
     let trouble = app.renderer_check.trouble.clone().expect("the notice");
     assert!(
-        trouble.said.starts_with("The game's shaders draw nothing right through"),
+        trouble.said.contains(
+            "the game's shaders draw the lit, textured test mesh in the wrong colors through \
+             Direct3D 12 on Radeon RX 580 Series (the lit mesh is [212, 133, 133]"
+        ),
         "{trouble:?}"
     );
+    assert!(trouble.said.contains("Moonglow draws with its own shaders"), "{trouble:?}");
+    assert!(!trouble.said.contains("nothing"), "{trouble:?}");
     assert_eq!(trouble.offer, Some(wgpu::Backend::Vulkan));
     picture(&mut h, "lit_check_game_off");
+    // Drawing nothing of it: said as such.
+    let wrong = mg_render::probe::Lit {
+        game: Some(Err("the lit mesh is [0, 0, 0] at (24, 24), not red".into())),
+        game_color: Some([0, 0, 0]),
+        ..lit
+    };
+    mg_ui::renderer_check::lit_found(h.state_mut(), wrong);
+    let trouble = h.state().renderer_check.trouble.clone().expect("the notice");
+    assert!(
+        trouble.said.contains("the game's shaders draw nothing of the lit, textured test mesh"),
+        "{trouble:?}"
+    );
     // The Shaders button, off and on: the game's again.
     h.state_mut().set_game_shaders(false);
     h.state_mut().set_game_shaders(true);

@@ -188,6 +188,7 @@ const KNOWN_FXC_FAILURES: &[(&str, &str)] = &[("fslit_nm", "X3511"), ("fslit_sm_
 /// read) with the game's own `vslit`/`fslit`: both parts draw right, and
 /// what it costs, with no shader cache and with the programs cached (as
 /// from the second start on). It runs apart from the window's thread.
+/// What each drew: `target/test-output/lit-check/own.png` and `game.png`.
 #[test]
 fn the_lit_check_draws_with_the_game_s_programs() {
     use std::io::Write;
@@ -204,7 +205,95 @@ fn the_lit_check_draws_with_the_game_s_programs() {
     let cached = mg_render::probe::probe_lit(&gpu, &rm, Some(cache));
     let _ = writeln!(std::io::stdout(), "lit check, no cache: {cold}");
     let _ = writeln!(std::io::stdout(), "lit check, cached: {cached}");
+    let out = mg_testkit::output_dir("lit-check");
+    for (name, picture) in [("own", &cold.own_picture), ("game", &cold.game_picture)] {
+        save_png(picture.as_ref().expect("drawn"), &out.join(format!("{name}.png")));
+    }
     for lit in [&cold, &cached] {
         assert_eq!((&lit.own, &lit.game), (&Ok(()), &Some(Ok(()))), "{lit}");
     }
+}
+
+/// A picture as a PNG.
+fn save_png(img: &mg_image::Rgba, path: &Path) {
+    let file = std::fs::File::create(path).unwrap();
+    let mut enc = png::Encoder::new(std::io::BufWriter::new(file), img.width, img.height);
+    enc.set_color(png::ColorType::Rgba);
+    enc.set_depth(png::BitDepth::Eight);
+    enc.write_header().unwrap().write_image_data(&img.data).unwrap();
+}
+
+/// The game's install with one include replaced in the load order, as a
+/// builder's copy in `override/` replaces it: `inc_lighting` computing its
+/// specular light as if every surface were seen edge on (`fNdotV` zero),
+/// which draws the lit check's red mesh a washed-out pink, as Heed's
+/// Vulkan drew it (2.13.1: [212, 133, 133]). `own`: whether the game's own
+/// copy is what [`mg_render::Assets::game_shader`] gives (the load order's
+/// otherwise, as the check read the programs before).
+struct Overridden<'a> {
+    game: &'a mg_resman::ResMan,
+    own: bool,
+}
+
+const EDGE_ON: (&str, &str) = ("fNdotV = dot(vNormalThis, -vViewToSurface_n);", "fNdotV = 0.0;");
+
+impl mg_render::Assets for Overridden<'_> {
+    fn texture(&self, name: &str) -> Option<mg_render::LoadedTexture> {
+        mg_render::Assets::texture(self.game, name)
+    }
+
+    fn shader(&self, name: &str) -> Option<String> {
+        let text = mg_render::Assets::shader(self.game, name)?;
+        Some(if name == "inc_lighting" {
+            assert!(text.contains(EDGE_ON.0), "the game's inc_lighting changed");
+            text.replace(EDGE_ON.0, EDGE_ON.1)
+        } else {
+            text
+        })
+    }
+
+    fn game_shader(&self, name: &str) -> Option<String> {
+        if self.own { mg_render::Assets::game_shader(self.game, name) } else { self.shader(name) }
+    }
+
+    fn shader_origin(&self, name: &str) -> Option<String> {
+        (name == "inc_lighting").then(|| "override".to_string())
+    }
+}
+
+/// A builder's include in the load order (the game's `inc_lighting`, its
+/// specular light computed as if seen edge on) draws the lit check's mesh
+/// pink, as Heed's machine drew it; the check reads the game's own copies,
+/// so it draws red all the same and says which file the load order
+/// replaces. In `target/test-output/lit-check/` (`builder-include.png`,
+/// the pink; `game-own.png`, the check's).
+#[test]
+fn a_builder_s_include_leaves_the_lit_check_to_the_game_s_own() {
+    use std::io::Write;
+    let root = corpus!();
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU adapter");
+        return;
+    };
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let rm = mg_resman::ResMan::for_game(&install).unwrap();
+    let out = mg_testkit::output_dir("lit-check");
+    // (The load order's copies drawn, as the check read them before.)
+    let pink = mg_render::probe::probe_lit(&gpu, &Overridden { game: &rm, own: false }, None);
+    let _ = writeln!(std::io::stdout(), "the load order's: {pink}");
+    save_png(pink.game_picture.as_ref().unwrap(), &out.join("builder-include.png"));
+    assert_eq!(pink.own, Ok(()), "{pink}");
+    assert!(pink.game_fails(), "{pink}");
+    let [r, g, b] = pink.game_color.unwrap();
+    assert!(r > 150 && g > 90 && (g as i32 - b as i32).abs() <= 2, "pink: {pink}");
+    assert!(!mg_render::probe::Lit::drew_nothing(pink.game_color));
+    // The game's own: red, and the replaced file said.
+    let lit = mg_render::probe::probe_lit(&gpu, &Overridden { game: &rm, own: true }, None);
+    let _ = writeln!(std::io::stdout(), "the game's own: {lit}");
+    save_png(lit.game_picture.as_ref().unwrap(), &out.join("game-own.png"));
+    assert_eq!((&lit.own, &lit.game), (&Ok(()), &Some(Ok(()))), "{lit}");
+    assert_eq!(lit.overridden, ["inc_lighting.shd (override)"], "{lit}");
+    assert!(lit.to_string().contains("the load order has inc_lighting.shd (override)"), "{lit}");
+    assert_eq!(lit.game_color, lit.own_color, "{lit}");
 }
