@@ -778,7 +778,11 @@ impl Id {
             }
             Id::IndentToTabs | Id::IndentToSpaces => {
                 let tabs = self == Id::IndentToTabs;
-                app.script_tools.convert_indent = script_in_front(app).map(|k| (k, tabs));
+                // (The lines selected, where the script had the keys as the
+                // menu was opened: the selection was there to see.)
+                let keys = app.undo_script;
+                app.script_tools.convert_indent =
+                    script_in_front(app).map(|k| (k, tabs, keys == Some(k)));
                 return;
             }
             Id::CreatureWizard => {

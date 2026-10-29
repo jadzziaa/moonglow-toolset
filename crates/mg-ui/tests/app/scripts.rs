@@ -770,6 +770,43 @@ fn tab_indents_as_the_script_does() {
     assert_eq!(h.state().script_text(key).unwrap(), converted);
     // Tab indents with a tab from then on.
     assert_eq!(tab_at_start(&mut h), "\t");
+    // Taken back with the editor's Undo, Tab indents as before it (two
+    // spaces), not as converted.
+    let mut h = open(two);
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    h.get_by_label("Convert Indentation to Tabs").click();
+    h.run_steps(3);
+    h.state_mut().script_tools.jump = Some((key, 3));
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert_eq!(h.state().script_text(key).unwrap(), two);
+    assert_eq!(tab_at_start(&mut h), "  ", "as before the conversion");
+
+    // With lines selected (the editor's context menu): those lines alone.
+    let mut h = open(two);
+    let id = egui::Id::new(("script", key));
+    let (from, to) = (two.find("  if").unwrap(), two.find("    n++").unwrap() + 2);
+    let mut state = egui::text_edit::TextEditState::load(&h.ctx, id).unwrap_or_default();
+    let range =
+        egui::text::CCursorRange::two(egui::text::CCursor::new(from), egui::text::CCursor::new(to));
+    state.cursor.set_char_range(Some(range));
+    state.store(&h.ctx, id);
+    h.ctx.memory_mut(|m| m.request_focus(id));
+    h.run_steps(2);
+    h.get_all_by_role(egui::accesskit::Role::MultilineTextInput)
+        .find(|n| n.accesskit_node().value().is_some_and(|v| v.starts_with("void main")))
+        .expect("the script's text")
+        .click_secondary();
+    h.run_steps(2);
+    h.get_by_label("Convert Indentation to Tabs").click();
+    h.run_steps(3);
+    assert_eq!(
+        h.state().script_text(key).unwrap(),
+        "void main()\n{\n  int n;\n\tif (n)\n\t\tn++;\n}\n",
+        "the line before the selection as it was"
+    );
 
     // From the editor's context menu: to spaces, Options' four.
     let mut h = open(tabbed);

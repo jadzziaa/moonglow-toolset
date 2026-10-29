@@ -181,8 +181,10 @@ pub struct ScriptTools {
     /// An editor to scroll to its cursor once laid out.
     pub scroll: Option<ResKey>,
     /// A script's indentation to convert, to tabs (`true`) or spaces, once
-    /// its editor is drawn (Edit › Convert Indentation…).
-    pub convert_indent: Option<(ResKey, bool)>,
+    /// its editor is drawn (Edit › Convert Indentation…); of the lines
+    /// selected if the last `bool`, asked while the editor had the keys
+    /// (else a selection left from before, not shown, would be taken).
+    pub convert_indent: Option<(ResKey, bool, bool)>,
     /// A step of a script's own history to take, back (`false`) or again
     /// (`true`), once its editor is drawn: Edit › Undo or Redo, or the
     /// toolbar's, while the script is the one worked in
@@ -574,6 +576,34 @@ pub fn convert_indentation(text: &str, tabs: bool, width: usize) -> String {
     lines.join("\n")
 }
 
+/// [`convert_indentation`] of the lines a selection (character indexes
+/// `from` to `to`) touches, as Tab indents them (a selection ending at a
+/// line's start leaves that line alone); with nothing selected, of every
+/// line.
+pub fn convert_indentation_in(
+    text: &str,
+    tabs: bool,
+    width: usize,
+    from: usize,
+    to: usize,
+) -> String {
+    let (from, to) = (from.min(to), from.max(to));
+    if from == to {
+        return convert_indentation(text, tabs, width);
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let (from, to) = (from.min(chars.len()), to.min(chars.len()));
+    let start = chars[..from].iter().rposition(|&c| c == '\n').map_or(0, |i| i + 1);
+    let last = if chars[to - 1] == '\n' { to - 1 } else { to };
+    let end = chars[last..].iter().position(|&c| c == '\n').map_or(chars.len(), |i| last + i);
+    let (head, block, tail): (String, String, String) = (
+        chars[..start].iter().collect(),
+        chars[start..end].iter().collect(),
+        chars[end..].iter().collect(),
+    );
+    format!("{head}{}{tail}", convert_indentation(&block, tabs, width))
+}
+
 /// The identifier around a character index.
 pub fn word_at(text: &str, chars: usize) -> Option<String> {
     let all: Vec<char> = text.chars().collect();
@@ -757,6 +787,18 @@ mod tests {
         // A tab after spaces goes to the next stop; two-space steps.
         assert_eq!(super::convert_indentation("  \tx\n", false, 4), "    x\n");
         assert_eq!(super::convert_indentation("  a\n    b\n", true, 2), "\ta\n\t\tb\n");
+    }
+
+    /// With text selected, the lines it touches alone (from anywhere in
+    /// the first; one it ends at the start of is left), either way round.
+    #[test]
+    fn a_selection_s_lines_convert_alone() {
+        let text = "  a\n  b\n  c\n  d\n";
+        let at = |s: &str| text.find(s).unwrap();
+        let converted = super::convert_indentation_in(text, true, 2, at("b"), at("  d"));
+        assert_eq!(converted, "  a\n\tb\n\tc\n  d\n");
+        assert_eq!(super::convert_indentation_in(text, true, 2, at("  d"), at("b")), converted);
+        assert_eq!(super::convert_indentation_in(text, true, 2, 3, 3), "\ta\n\tb\n\tc\n\td\n");
     }
 
     #[test]

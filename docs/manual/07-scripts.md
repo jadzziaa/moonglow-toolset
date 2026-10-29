@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T14:12:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T14:18:47Z }
 ---
 
 # Scripts
@@ -251,10 +251,16 @@ with no indented line goes by Options › Script Editor › Indent with.
 editor's right-click menu) make every line of the script in front so:
 as far in as it was, a tab for each step (what is left of a step, a
 column lined up, stays spaces), or spaces for each tab (to the next
-multiple of Options' Indent width). It is one step for the editor's
-Undo (Ctrl+Z with the editor's keyboard), and Tab indents so from then
-on. Enter still begins a new line with the spaces and tabs the line it
-is started from has.
+multiple of Options' Indent width). With text selected in the editor
+(a right click keeps the selection; from the Edit menu, with the
+editor's keyboard as the menu opens), only the lines it touches are
+converted. It is one step for the editor's Undo (Ctrl+Z with the
+editor's keyboard), and Tab indents so from then on (after a
+selection's, as the script is then indented); taken back with Undo,
+Tab indents as before it again. The guess is made when the script is
+read, not as you type, and not kept from one session to the next.
+Enter still begins a new line with the spaces and tabs the line it is
+started from has.
 - **External Editor**: open the script in the editor set in Options ›
   Script Editor; what you save there comes back into Moonglow's editor.
   In a nasher project it is the project's own file that opens, in place

@@ -57,6 +57,11 @@ pub(crate) struct ScriptBuffer {
     /// ([`tools::Indent::guess`]) or set by converting it: what Tab puts
     /// in (`None`: as Options › Script Editor says).
     pub(crate) indent: Option<tools::Guess>,
+    /// The last Convert Indentation: the text's hash before it and how it
+    /// was indented then, and after it and how then. The editor's Undo
+    /// taking the conversion back (or Redo making it again) gives Tab that
+    /// text's indentation again ([`ScriptBuffer::follow_conversion`]).
+    pub(crate) conversion: Option<[(u64, Option<tools::Guess>); 2]>,
 }
 
 /// A script's text: what its editor holds (unsaved typing too), else the
@@ -161,6 +166,16 @@ impl ScriptBuffer {
             codepage,
             seen: None,
             indent,
+            conversion: None,
+        }
+    }
+
+    /// After the editor's Undo or Redo: where the text (`hash`) is as it
+    /// was before or after the last Convert Indentation, Tab indents as it
+    /// did then.
+    pub(crate) fn follow_conversion(&mut self, hash: u64) {
+        if let Some(&(_, then)) = self.conversion.iter().flatten().find(|(h, _)| *h == hash) {
+            self.indent = then;
         }
     }
 
@@ -169,6 +184,7 @@ impl ScriptBuffer {
     fn follow(&mut self, raw: String) {
         let text = crate::text::to_editor(&raw).0;
         self.indent = tools::Indent::guess(&text);
+        self.conversion = None;
         self.text = text.clone();
         self.saved = text;
         self.raw = raw;
@@ -466,23 +482,36 @@ const INDENT_CONVERSIONS: [(bool, &str); 2] =
 
 /// Convert Indentation to Tabs (`tabs`) or to Spaces: every line's
 /// indentation made so ([`tools::convert_indentation`], a step `width`
-/// columns), one step for the editor's Undo; Tab indents so from then on.
+/// columns), or with text `selected` the lines it touches; one step for the
+/// editor's Undo. Tab indents so from then on (a selection's: as the
+/// script now is, guessed again), and as before once Undo takes it back.
 /// The cursor stays on its line, at its start.
 fn convert_indentation(
     buf: &mut ScriptBuffer,
     ctx: &egui::Context,
     key: ResKey,
     tabs: bool,
+    selected: bool,
     width: usize,
 ) {
-    buf.indent = Some(if tabs { tools::Guess::Tabs } else { tools::Guess::Spaces(width) });
-    let converted = tools::convert_indentation(&buf.text, tabs, width);
-    if converted == buf.text {
-        return;
-    }
     let id = editor_id(key);
     let mut state = egui::text_edit::TextEditState::load(ctx, id).unwrap_or_default();
     let before = state.cursor.char_range().unwrap_or_default();
+    let (a, b) = match selected {
+        true => (before.primary.index.into(), before.secondary.index.into()),
+        false => (0, 0),
+    };
+    let converted = tools::convert_indentation_in(&buf.text, tabs, width, a, b);
+    let made = match a == b {
+        true => Some(if tabs { tools::Guess::Tabs } else { tools::Guess::Spaces(width) }),
+        false => tools::Indent::guess(&converted),
+    };
+    if converted == buf.text {
+        buf.indent = made;
+        return;
+    }
+    buf.conversion = Some([(tools::hash(&buf.text), buf.indent), (tools::hash(&converted), made)]);
+    buf.indent = made;
     let line = buf.text.chars().take(before.primary.index.into()).filter(|c| *c == '\n').count();
     let at = egui::text::CCursorRange::one(egui::text::CCursor::new(tools::line_start(
         &converted, line,
@@ -555,6 +584,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     // (The text's hash, once a frame: the symbols and the live check
     // go by it too, and a script may be some 600 KB.)
     let h = tools::hash(&app.scripts[&key].text);
+    // (A conversion taken back by the editor's Undo: Tab as before it.)
+    app.scripts.get_mut(&key).expect("just inserted").follow_conversion(h);
     {
         let revision = app.ws.as_ref().map_or(0, |w| w.revision());
         let t = &mut app.script_tools;
@@ -1077,8 +1108,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     // Tab indents as the script is indented (Jasperre's report), else as
     // Options › Script Editor says.
     let mut indent = tools::Indent::of_script(buf.indent, style_indent);
-    if let Some((_, tabs)) = script_tools.convert_indent.take_if(|(k, _)| *k == key) {
-        convert_indentation(buf, &ctx, key, tabs, indent.width);
+    if let Some((_, tabs, selected)) = script_tools.convert_indent.take_if(|(k, ..)| *k == key) {
+        convert_indentation(buf, &ctx, key, tabs, selected, indent.width);
         indent = tools::Indent::of_script(buf.indent, style_indent);
     }
     // Edit › Undo or Redo, or the toolbar's: the editor's step, and the
@@ -1287,7 +1318,13 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 &mut ui.visuals_mut().selection.bg_fill,
                 egui::Color32::TRANSPARENT,
             );
-            let out = egui::TextEdit::multiline(&mut buf.text)
+            // (A right click keeps the text selected, for the context
+            // menu's Convert Indentation of its lines: the field takes any
+            // button's press as a click that moves the cursor.)
+            let selection = egui::text_edit::TextEditState::load(&ctx, editor_id(key))
+                .and_then(|s| s.cursor.char_range())
+                .filter(|r| r.primary != r.secondary);
+            let mut out = egui::TextEdit::multiline(&mut buf.text)
                 .code_editor()
                 .desired_width(f32::INFINITY)
                 .desired_rows(1)
@@ -1296,6 +1333,14 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 .background_color(egui::Color32::TRANSPARENT)
                 .layouter(&mut layouter)
                 .show(ui);
+            if let Some(range) = selection
+                && out.response.response.hovered()
+                && ctx.input(|i| i.pointer.button_pressed(egui::PointerButton::Secondary))
+            {
+                out.state.cursor.set_char_range(Some(range));
+                out.state.clone().store(&ctx, editor_id(key));
+                out.cursor_range = Some(range);
+            }
             cursor_now = out.state.cursor.char_range();
             ui.visuals_mut().selection.bg_fill = selected;
             out.response.response.context_menu(|ui| {
@@ -1355,7 +1400,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         ctx.memory_mut(|m| m.request_focus(editor_id(key)));
     }
     if let Some(tabs) = convert {
-        script_tools.convert_indent = Some((key, tabs));
+        script_tools.convert_indent = Some((key, tabs, true));
         ctx.request_repaint();
     }
 

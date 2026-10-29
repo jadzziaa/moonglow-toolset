@@ -107,19 +107,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   General (the copy's way is used then). Scripts of a module file still
   open as a copy in the temporary folder. Tried with a stand-in editor;
   not with VS Code. (S) (from builders' reports after 1.16.1)
-- **Indentation by file:** a script's indentation is guessed when its
-  text is read (opened, read again from the module, a Save of it
-  included, or from outside), from its indented lines (tabs or spaces as
-  most are; the step most often taken), and kept until it is read again
-  or converted: not as it is typed, and not remembered from one session
-  to the next. A conversion taken back with the editor's Ctrl+Z gives
-  the text back but not the guess: Tab indents as converted until the
-  script is next saved or read. Enter copies the line's own leading
-  spaces and tabs as they are. Convert Indentation is the whole
-  script's, not a selection's; from the Edit menu it is the script in
-  front, which for scripts in windows of their own (the tab in front
-  not a script) is the one whose editor had the keyboard last. (S)
-  (Jasperre's report, 2026-10-21)
 - **Edit › Undo and the toolbar's Undo in a script** are the script's
   own while its editor has the keyboard, as Ctrl+Z is (the click on
   the menu or button counts as in it), say plain "Undo" and "Redo",
