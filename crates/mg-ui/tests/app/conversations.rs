@@ -1743,3 +1743,39 @@ fn a_letter_typed_in_a_tree_leaves_the_area_camera() {
     hold(&mut h, egui::Key::W, "w");
     assert!((target(&h) - start).length() > 0.1, "W moves the view");
 }
+
+/// GitHub issue 18, in the conversation editor: Ctrl+Z with a line's text
+/// typed in is the text's own, not the module's Undo (the conversation's
+/// earlier change stays); the field left, it is the module's again.
+#[test]
+fn undo_in_a_conversation_line_s_text_is_the_text_s() {
+    let (mut h, key) = dialog_from_tree("ui-dialog-undo-in-text", &branching_dialog());
+    // An earlier change of the conversation: Delete on a line.
+    delete_line(&mut h, key, "Bye. [END DIALOGUE]", 0, DeleteBy::Key);
+    let earlier = dialog_lines(&mut h, key);
+    assert_eq!(earlier.len(), 6);
+    h.get_by_label("[OWNER] - Go away.").click();
+    h.run();
+    let text = egui::accesskit::Role::MultilineTextInput;
+    h.get_all_by_role(text).next().unwrap().click();
+    h.run();
+    h.key_press(egui::Key::End);
+    h.event(egui::Event::Text(" Now".into()));
+    h.run_steps(2);
+    assert!(h.ctx.egui_wants_keyboard_input());
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Y);
+    h.run_steps(2);
+    let lines = dialog_lines(&mut h, key);
+    assert_eq!(lines.len(), 6, "the delete is not undone: {lines:?}");
+    // The field left: Ctrl+Z is the module's, back past the delete.
+    h.get_by_label("Root").click();
+    h.run_steps(2);
+    assert!(!h.ctx.egui_wants_keyboard_input());
+    for _ in 0..3 {
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+        h.run_steps(2);
+    }
+    assert_eq!(dialog_lines(&mut h, key), BRANCHING, "the module's undo, down to the delete");
+}

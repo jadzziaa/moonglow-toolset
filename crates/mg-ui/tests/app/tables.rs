@@ -372,6 +372,26 @@ fn talk_table_made_edited_saved_and_used_by_strings() {
     h.get_by_label("Redo").click();
     h.run();
     assert_eq!(line(&h).feminine.as_deref(), Some("Greetings, lady"));
+    // In the line's text, typed in: Ctrl+Z is the field's, not the
+    // table's (GitHub issue 18): the feminine text stays.
+    let typed = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.value().as_deref() == Some("Greetings")
+            && matches!(
+                n.role(),
+                egui::accesskit::Role::TextInput | egui::accesskit::Role::MultilineTextInput
+            )
+    };
+    h.get(egui_kittest::kittest::by().predicate(typed)).click();
+    h.run();
+    h.key_press(egui::Key::End);
+    h.event(egui::Event::Text(" friend".into()));
+    h.run_steps(2);
+    assert!(h.ctx.egui_wants_keyboard_input());
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(line(&h).feminine.as_deref(), Some("Greetings, lady"), "not the table's undo");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
 
     // The lines go out as CSV; changed in a spreadsheet, they come back.
     h.get_by_label("Export CSV…").click();
@@ -1419,4 +1439,51 @@ fn a_game_table_read_only_scrolls() {
     assert!(acid < label - 300.0, "the rows went sideways with the names: {acid}");
     // The rows' numbers stay in sight at the left.
     assert!(numbers(&h).contains(&0), "{:?}", numbers(&h));
+}
+
+/// GitHub issue 18, in the 2DA editor: Ctrl+Z with a cell's text typed in
+/// is the cell's own, not the table's Undo (its earlier change stays).
+#[test]
+fn undo_in_a_table_cell_being_typed_is_the_cell_s() {
+    let dir = mg_testkit::scratch_dir("ui-table-undo-in-cell");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let key = ResKey::parse("mystore", ResType::TWODA).unwrap();
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A table",
+        vec![mg_edit::Edit::SetResource { key, data: Some(SMALL_TABLE.to_vec()) }],
+    )));
+    let mut h = harness(app, 1200.0, 800.0);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_in_module(h.state_mut(), key).unwrap();
+    h.run_steps(4);
+    // An earlier change: a cell typed and kept.
+    h.get_by_label("Cheese").click();
+    h.run_steps(2);
+    h.key_press(egui::Key::F2);
+    h.run_steps(3);
+    h.event(egui::Event::Text("y".into()));
+    h.run_steps(2);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert_eq!(table_of(&h, id).get(1, "Label"), Some("Cheesey"));
+    // Another cell typed in, and Ctrl+Z: the typing's, not the table's.
+    h.key_press(egui::Key::ArrowUp);
+    h.run_steps(2);
+    h.key_press(egui::Key::F2);
+    h.run_steps(3);
+    h.event(egui::Event::Text("zz".into()));
+    h.run_steps(2);
+    assert!(h.ctx.egui_wants_keyboard_input());
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(table_of(&h, id).get(1, "Label"), Some("Cheesey"), "not the table's Undo");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(!h.ctx.egui_wants_keyboard_input());
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(table_of(&h, id).get(1, "Label"), Some("Cheese"), "the table's, once left");
 }

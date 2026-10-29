@@ -1872,15 +1872,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   take Alt for its own menu; a submenu inside a submenu has no keys
   (there is none today); the bar itself is never "focused" without a
   menu open. (S each) (from builders' reports after 1.19.1)
-- **Undo in a text field** (issue 18): Ctrl+Z and Ctrl+Y with a text
-  field in hand were the module's Undo and Redo, and took back an
-  earlier change somewhere else, unseen. They are the field's own once
-  it has been typed in (until it is left); a field only stepped into
-  has nothing of its own to take back, and there they are the module's
-  still (a tag typed, Tab, Ctrl+Z takes the tag back). Not done: the
-  script editor and the other text fields were not tried one by one
-  (the rule is the window's, for every field). (S)
-  (GitHub issues 10 to 24, after 1.20.0)
 - **The middle with a tab beside the palettes** (issue 11): the middle
   was let go where another tab (the resource browser) shared the
   palettes' pane; the pane's tabs no longer count as the middle's. The
