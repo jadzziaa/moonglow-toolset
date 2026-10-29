@@ -2478,6 +2478,7 @@ fn a_project_s_command_that_writes_nothing_keeps_the_haks_open() {
 }
 
 /// Frames until the job running is over (or a test has hung).
+#[cfg(unix)]
 fn until_idle(h: &mut Harness<'_, Moonglow>) {
     let started = std::time::Instant::now();
     while h.state().busy() {
