@@ -712,6 +712,7 @@ fn published_to_nwsync_from_the_build_menu() {
     m.set_info(&info).unwrap();
     m.save().unwrap();
     let mut app = game_app(&root, Some(user));
+    app.background_jobs = true;
     app.open_module(&path);
     let mut h = harness(app, 1200.0, 800.0);
     h.run();
@@ -720,17 +721,23 @@ fn published_to_nwsync_from_the_build_menu() {
     h.get_by_label("Publish to NWSync…").click();
     h.run();
     let repo = dir.join("repo");
+    let _ = std::fs::remove_dir_all(&repo);
     h.state_mut().publish.as_mut().unwrap().folder = repo.display().to_string();
     h.run();
-    h.get_by_label("Publish").click();
-    // It runs in the background.
-    for _ in 0..200 {
-        h.run_steps(2);
-        if h.state().publish.as_ref().is_some_and(|p| p.written.is_some() || p.error.is_some()) {
-            break;
+    // It runs as a job (its window, with Cancel), the window behind it
+    // showing what it wrote.
+    let until_done = |h: &mut Harness<'_, Moonglow>| {
+        let started = std::time::Instant::now();
+        while h.state().busy() {
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            assert!(started.elapsed().as_secs() < 30, "the job never ended");
         }
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
+        h.run_steps(2);
+    };
+    h.get_by_label("Publish").click();
+    h.run_steps(1);
+    until_done(&mut h);
     let p = h.state().publish.as_ref().unwrap();
     assert_eq!(p.error, None);
     let written = p.written.clone().expect("published");
@@ -742,6 +749,25 @@ fn published_to_nwsync_from_the_build_menu() {
     assert_eq!(entries[0].1, mg_core::sha1::sha1(&table));
     assert!(h.get_all_by_label_contains(&written.sha1).count() >= 1);
     assert_eq!(h.state().settings.nwsync_repository.as_deref(), Some(repo.as_path()));
+
+    // Remove Unused Data: a data file no manifest names, older than two
+    // weeks, goes; the manifest's own stays.
+    let unused = repo.join("data/sha1/ab/cd").join("ab".repeat(20));
+    std::fs::create_dir_all(unused.parent().unwrap()).unwrap();
+    std::fs::write(&unused, b"left by a manifest taken away").unwrap();
+    let month_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(30 * 86_400);
+    let file = std::fs::File::options().write(true).open(&unused).unwrap();
+    file.set_modified(month_ago).unwrap();
+    drop(file);
+    h.get_by_label("Remove Unused Data").click();
+    h.run_steps(1);
+    until_done(&mut h);
+    assert!(!unused.exists() && !repo.join("data/sha1/ab").exists());
+    let h1 = mg_core::sha1::hex(&mg_core::sha1::sha1(&table));
+    assert!(repo.join("data/sha1").join(&h1[..2]).join(&h1[2..4]).join(&h1).is_file());
+    let pruned = h.state().publish.as_ref().unwrap().pruned.clone().expect("pruned");
+    assert_eq!((pruned.manifests, pruned.removed.len()), (1, 1));
+    h.get_by_label_contains("Removed 1 unused data file (");
 }
 
 #[test]
@@ -1278,7 +1304,7 @@ fn verify_says_errors_first_and_gone_blueprints_once_each() {
         },
         category: Category::Placeables,
         uncompiled: false,
-        only_userpatch: false,
+        only_local: None,
     };
     let utp = RefKind::Blueprint(ResType::UTP);
     let list = [

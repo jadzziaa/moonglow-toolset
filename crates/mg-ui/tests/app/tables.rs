@@ -1050,6 +1050,15 @@ fn a_rebound_undo_key_reaches_a_table_s_grid() {
     h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Z);
     h.run_steps(2);
     assert_eq!(table_of(&h, id).get(0, "Label"), None, "redone");
+    // Edit › Undo is the table's, names its step, and takes it.
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    let undo = h.get_by_label_contains("Undo ").accesskit_node().label().unwrap_or_default();
+    assert!(undo.starts_with("Undo Empty 1 cell"), "{undo}");
+    h.get_by_label_contains("Undo Empty 1 cell").click();
+    h.run_steps(2);
+    assert_eq!(table_of(&h, id).get(0, "Label"), Some("Bread"), "the table's undo, from the menu");
+    assert_eq!(module_step(&h).as_deref(), Some("A table"), "not the module's");
 }
 
 /// The 2DA editor on a table of the module's: a cell typed in, rows

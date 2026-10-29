@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T13:59:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T18:13:14Z }
 ---
 
 # Command-line tools
@@ -20,13 +20,17 @@ Moonglow package:
 | macOS | `/Applications/Moonglow Toolset.app/Contents/MacOS/mg` |
 
 ```text
-mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
+mg [--root GAME] [--user-dir DIR | --no-user-dir] [--userpatch] [--workshop] [--json] COMMAND ...
 ```
 
 `--root` is the game's folder (default: `$NWN_ROOT`, else Steam's);
 `--user-dir` the user folder (default: `$NWN_HOME`, else the platform's);
-`--no-user-dir` reads the game alone; `--json` prints the result as JSON
-(below). `mg COMMAND --help` describes each command.
+`--no-user-dir` reads the game alone; `--userpatch` reads the haks the
+user folder's `userpatch.ini` names and `--workshop` the Steam Workshop
+items you are subscribed to, as the game does and as Options › General's
+switches have the window read them (both off unless given: see
+[Options](10-options.md)); `--json` prints the result as JSON (below).
+`mg COMMAND --help` describes each command.
 
 ## Archives and files
 
@@ -93,6 +97,7 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | `mg haks MODULE --usage` | which of each hak's resources the module reaches (areas' tilesets and tiles, objects' and blueprints' looks and sounds, scripts and what their strings name, every model's textures and materials) and which nothing does: a line a hak (used of all, bytes used of all; unused, shadowed, not judged); with `--json` each resource used with what reached it first ([Modules](03-modules.md#what-the-module-uses-of-its-haks)) |
 | `mg minimap MODULE AREA OUT.png [--size PX]` | an area's minimap as a PNG, laid out as the game's map draws it (`PX` pixels a tile) |
 | `mg nwsync MODULE REPOSITORY` | publish the module's haks and talk table for NWSync into a repository folder, as `nwn_nwsync_write` does: `--with-module` (with `--name`, `--description`, `--uuid`), `--group-id`, `--no-latest`, `--limit-file-size MB`, `--force`, `--dry-run`; prints the manifest's hash |
+| `mg nwsync-prune REPOSITORY` | tidy an NWSync repository as `nwn_nwsync_prune` does: remove the data files no manifest names that were written more than `--min-age` seconds ago (two weeks by default), the folders they leave and the `.json` of manifests taken away, and say what it can't mend (`latest` naming no manifest, a manifest without its `.json`, a data file a manifest needs that is missing); `--dry-run` says what would go. Delete the manifests no server names any more first ([Publish to NWSync](09-build-and-test.md#publish-to-nwsync)) |
 | `mg attach MODULE FILE…` | copy haks and a talk table (from anywhere, or from the `.zip` they came in) into the user folder's `hak` and `tlk`, list the haks at the top of the module's hak list in the order given, name the talk table, and save (`--replace` replaces different files of the same names there) |
 | `mg serve MODULE` | run the module in the game's headless server and print its log and console: see [Running a module in the server](#running-a-module-in-the-server) |
 | `mg test MODULE [--filter TEXT]` | run the module's `test_*` scripts in the server and report what they assert: see [Testing scripts in the server](#testing-scripts-in-the-server) |

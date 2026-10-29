@@ -1117,7 +1117,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     match keys_file {
         Some(true) => {
             let suggested = std::path::Path::new("moonglow-keys.json");
-            if let Some(p) = app.dialogs.save_file(crate::dialogs::FileKind::Any, Some(suggested)) {
+            if let Some(p) = app.dialogs.save_file(crate::dialogs::FileKind::Keys, Some(suggested))
+            {
                 match std::fs::write(&p, draft.keymap.to_file()) {
                     Ok(()) => app.log.info(format!("Keys written to {}", p.display())),
                     Err(e) => app.log.error(format!("{}: {e}", p.display())),
@@ -1125,7 +1126,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             }
         }
         Some(false) => {
-            if let Some(p) = app.dialogs.open_file(crate::dialogs::FileKind::Any, None) {
+            if let Some(p) = app.dialogs.open_file(crate::dialogs::FileKind::Keys, None) {
                 let taken = std::fs::read_to_string(&p)
                     .map_err(|e| e.to_string())
                     .and_then(|text| draft.keymap.take_file(&text));

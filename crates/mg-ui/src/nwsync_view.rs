@@ -1,11 +1,12 @@
 //! Build › Publish to NWSync…: the module's haks and talk table (and, for a
 //! single-player module, the module itself) written into an NWSync
-//! repository folder for a web server to serve (`mg_module::nwsync`). It
-//! runs in the background: a hak of gigabytes takes a while.
+//! repository folder for a web server to serve (`mg_module::nwsync`), and
+//! the repository's unused data taken away (`nwn_nwsync_prune`'s
+//! housekeeping). Both run as jobs (`jobs.rs`): a hak of gigabytes takes a
+//! while, the job's window says how far it is and has Cancel, and a panic
+//! in the work is said in the log, not a crash.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
 
 use crate::Moonglow;
 
@@ -18,19 +19,17 @@ pub struct Publish {
     pub description: String,
     pub group_id: u32,
     pub latest: bool,
-    /// While it runs: resources done and of how many.
-    progress: Option<(Arc<AtomicUsize>, Arc<AtomicUsize>)>,
-    result: Arc<Mutex<Option<Result<mg_module::nwsync::Written, String>>>>,
     /// The last one written.
     pub written: Option<mg_module::nwsync::Written>,
+    /// What the last Remove Unused Data found and did.
+    pub pruned: Option<mg_module::nwsync::Pruned>,
     pub error: Option<String>,
 }
 
-impl Publish {
-    pub fn running(&self) -> bool {
-        self.progress.is_some()
-    }
-}
+/// The job publishing (its window's heading; not the window's own title).
+pub const PUBLISHING: &str = "Publishing to NWSync";
+/// The job removing unused data.
+pub const PRUNING: &str = "Removing unused NWSync data";
 
 /// Opens the window, with the folder last published to.
 pub(crate) fn open(app: &mut Moonglow) {
@@ -50,20 +49,32 @@ pub(crate) fn open(app: &mut Moonglow) {
     });
 }
 
-/// Starts publishing in the background.
+/// `n` of `what`: "1 manifest", "3 manifests".
+fn count(n: usize, what: &str) -> String {
+    if n == 1 { format!("1 {what}") } else { format!("{n} {what}s") }
+}
+
+/// The repository folder chosen, or why there is none (said in the
+/// window).
+fn folder(p: &mut Publish) -> Option<PathBuf> {
+    p.error = None;
+    if p.folder.trim().is_empty() {
+        p.error = Some("Choose the repository folder.".into());
+        return None;
+    }
+    Some(PathBuf::from(p.folder.trim()))
+}
+
+/// Starts publishing, as a job.
 fn start(app: &mut Moonglow) {
     let (Some(p), Some(ws), Some(game), Some(install)) =
         (&mut app.publish, &mut app.ws, &app.game, &app.install)
     else {
         return;
     };
-    p.error = None;
     p.written = None;
-    let folder = PathBuf::from(p.folder.trim());
-    if p.folder.trim().is_empty() {
-        p.error = Some("Choose the repository folder.".into());
-        return;
-    }
+    p.pruned = None;
+    let Some(folder) = folder(p) else { return };
     if let Err(e) = ws.flush() {
         p.error = Some(e.to_string());
         return;
@@ -78,6 +89,7 @@ fn start(app: &mut Moonglow) {
             .filter(|u| !u.is_empty())
             .unwrap_or_else(mg_module::nwsync::new_uuid)
     });
+    // (Which resources, from where: the haks' indexes, read here.)
     let contents = match mg_module::nwsync::module_contents(
         m,
         install,
@@ -106,40 +118,80 @@ fn start(app: &mut Moonglow) {
         force: false,
         dry_run: false,
     };
-    let (done, total) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(contents.len())));
-    p.progress = Some((done.clone(), total.clone()));
-    let result = p.result.clone();
     app.settings.nwsync_repository = Some(folder.clone());
-    std::thread::spawn(move || {
-        let r = mg_module::nwsync::write(&folder, &contents, &o, &mut |d, t| {
-            done.store(d, Ordering::Relaxed);
-            total.store(t, Ordering::Relaxed);
-        });
-        *result.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(r);
-    });
+    app.start_job(
+        PUBLISHING,
+        move |job| {
+            let progress = &job.progress;
+            mg_module::nwsync::write_until(
+                &folder,
+                &contents,
+                &o,
+                &mut |d, t| progress.step(d, t),
+                &|| progress.cancelled(),
+            )
+        },
+        |app, r| {
+            let Some(p) = &mut app.publish else { return };
+            match r {
+                Ok(w) => {
+                    app.log.info(format!(
+                        "Published to NWSync: manifest {} ({} files)",
+                        w.sha1, w.files
+                    ));
+                    p.written = Some(w);
+                }
+                Err(e) => p.error = Some(e),
+            }
+        },
+    );
+}
+
+/// Starts taking away the repository's unused data, as a job: the data
+/// files no manifest names, written more than two weeks ago (as
+/// `nwn_nwsync_prune`), the folders they leave and the metadata of
+/// manifests taken away.
+fn start_pruning(app: &mut Moonglow) {
+    let Some(p) = &mut app.publish else { return };
+    p.written = None;
+    p.pruned = None;
+    let Some(folder) = folder(p) else { return };
+    app.settings.nwsync_repository = Some(folder.clone());
+    app.start_job_anywhere(
+        PRUNING,
+        move |_| mg_module::nwsync::prune(&folder, mg_module::nwsync::PRUNE_MIN_AGE, false),
+        |app, r| {
+            let Some(p) = &mut app.publish else { return };
+            match r {
+                Ok(pruned) => {
+                    app.log.info(format!(
+                        "NWSync repository: removed {} ({:.1} MB)",
+                        count(pruned.removed.len(), "unused data file"),
+                        pruned.removed_bytes as f64 / 1048576.0
+                    ));
+                    for (sha, m) in &pruned.missing {
+                        app.log.warn(format!(
+                            "NWSync repository: the data file {sha}, which manifest {m} names, \
+                             is missing"
+                        ));
+                    }
+                    for problem in &pruned.problems {
+                        app.log.warn(format!("NWSync repository: {problem}"));
+                    }
+                    p.pruned = Some(pruned);
+                }
+                Err(e) => p.error = Some(e),
+            }
+        },
+    );
 }
 
 pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
+    let busy = app.busy();
     let Some(p) = &mut app.publish else { return };
-    // Finished in the background?
-    if p.progress.is_some() {
-        let finished = p.result.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
-        match finished {
-            Some(Ok(w)) => {
-                p.progress = None;
-                app.log
-                    .info(format!("Published to NWSync: manifest {} ({} files)", w.sha1, w.files));
-                p.written = Some(w);
-            }
-            Some(Err(e)) => {
-                p.progress = None;
-                p.error = Some(e);
-            }
-            None => ctx.request_repaint_after(std::time::Duration::from_millis(100)),
-        }
-    }
     let mut open = true;
     let mut go = false;
+    let mut prune = false;
     let mut browse = false;
     egui::Window::new("Publish to NWSync")
         .open(crate::widgets::open_unless_escape(ctx, "Publish to NWSync", &mut open))
@@ -151,7 +203,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 "Players' games download the module's haks and talk table from a web server \
                  before they join (nwserver's -nwsyncurl). This writes what the web server serves.",
             );
-            ui.add_enabled_ui(!p.running(), |ui| {
+            ui.add_enabled_ui(!busy, |ui| {
                 ui.horizontal(|ui| {
                     crate::widgets::field_label(ui, "Repository folder");
                     ui.add(egui::TextEdit::singleline(&mut p.folder).desired_width(320.0));
@@ -181,12 +233,6 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     "Make it the latest (what nwserver serves unless told a hash)",
                 );
             });
-            if let Some((done, total)) = &p.progress {
-                let (d, t) = (done.load(Ordering::Relaxed), total.load(Ordering::Relaxed).max(1));
-                ui.add(
-                    egui::ProgressBar::new(d as f32 / t as f32).text(format!("{d} of {t} files")),
-                );
-            }
             if let Some(e) = &p.error {
                 ui.colored_label(ui.visuals().error_fg_color, e);
             }
@@ -210,8 +256,39 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     w.sha1
                 ));
             }
+            if let Some(r) = &p.pruned {
+                ui.separator();
+                ui.label(format!(
+                    "{}. Removed {} ({:.1} MB); {} kept as written in the last two weeks.",
+                    count(r.manifests, "manifest"),
+                    count(r.removed.len(), "unused data file"),
+                    r.removed_bytes as f64 / 1048576.0,
+                    r.kept_young
+                ));
+                if !r.missing.is_empty() {
+                    ui.colored_label(
+                        ui.visuals().warn_fg_color,
+                        format!(
+                            "{} the manifests name missing (the log names them): publish their \
+                             modules again.",
+                            count(r.missing.len(), "data file")
+                        ),
+                    );
+                }
+                for problem in &r.problems {
+                    ui.colored_label(ui.visuals().warn_fg_color, problem);
+                }
+            }
             ui.horizontal(|ui| {
-                go = ui.add_enabled(!p.running(), egui::Button::new("Publish")).clicked();
+                go = ui.add_enabled(!busy, egui::Button::new("Publish")).clicked();
+                prune = ui
+                    .add_enabled(!busy, egui::Button::new("Remove Unused Data"))
+                    .on_hover_text(
+                        "Take away the data files no manifest in the folder names, written more \
+                         than two weeks ago, as nwn_nwsync_prune does. Delete the manifests you \
+                         no longer serve (manifests/HASH and HASH.json) first.",
+                    )
+                    .clicked();
             });
         });
     if browse {
@@ -226,7 +303,10 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     if go {
         start(app);
     }
-    if !open && app.publish.as_ref().is_some_and(|p| !p.running()) {
+    if prune {
+        start_pruning(app);
+    }
+    if !open && !app.busy() {
         app.publish = None;
     }
 }

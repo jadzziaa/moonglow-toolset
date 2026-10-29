@@ -43,6 +43,8 @@ pub enum FileKind {
     TalkTable,
     /// A talk table's lines, as CSV or (`json`) as `nwn_tlk`'s JSON.
     TalkLines { json: bool },
+    /// The keys chosen in Options › Keyboard, as a file: `.json`.
+    Keys,
 }
 
 impl FileKind {
@@ -80,6 +82,8 @@ impl FileKind {
             (FileKind::TalkTable, true) => "New Talk Table",
             (FileKind::TalkLines { .. }, false) => "Import Lines",
             (FileKind::TalkLines { .. }, true) => "Export Lines",
+            (FileKind::Keys, false) => "Import Keys",
+            (FileKind::Keys, true) => "Export Keys",
         }
     }
 
@@ -111,6 +115,7 @@ impl FileKind {
             (FileKind::TalkTable, _) => Some(("Talk tables", &["tlk"])),
             (FileKind::TalkLines { json: false }, _) => Some(("CSV", &["csv"])),
             (FileKind::TalkLines { json: true }, _) => Some(("JSON", &["json"])),
+            (FileKind::Keys, _) => Some(("Key sets", &["json"])),
         }
     }
 }

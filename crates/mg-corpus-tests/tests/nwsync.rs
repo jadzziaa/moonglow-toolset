@@ -165,3 +165,99 @@ fn published_as_nwn_nwsync_write_publishes() {
         assert!(nb.keys().all(|k| !k.ends_with(".nss")));
     }
 }
+
+/// The files under a folder, relative to it, sorted.
+fn tree(root: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut dirs = vec![root.to_path_buf()];
+    while let Some(d) = dirs.pop() {
+        for e in std::fs::read_dir(&d).unwrap().flatten() {
+            let p = e.path();
+            let shown = p.strip_prefix(root).unwrap().display().to_string().replace('\\', "/");
+            if p.is_dir() {
+                dirs.push(p);
+                out.push(format!("{shown}/"));
+            } else {
+                out.push(shown);
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// Pruning (`mg_module::nwsync::prune`) against neverwinter.nim's
+/// `nwn_nwsync_prune`: a repository of two manifests, one taken away, with
+/// a stray file and an empty folder in its data, pruned by both; then
+/// again with a young unused file and the default age. The same files are
+/// left.
+#[test]
+fn pruned_as_nwn_nwsync_prune_prunes() {
+    use mg_module::nwsync::{PRUNE_MIN_AGE, Source, prune};
+    use mg_resman::ResKey;
+    let nim = oracle_tool!("nwn_nwsync_prune");
+    let dir = scratch_dir("nwsync-prune");
+    let source = dir.join("source");
+    let _ = std::fs::remove_dir_all(&source);
+    let res = |n: &str, b: &'static [u8]| {
+        (ResKey::parse(n, mg_core::ResType::TXT).unwrap(), Source::Bytes(b.into()))
+    };
+    let o = Options { latest: true, ..Default::default() };
+    let first = write(&source, &[res("a", b"one"), res("b", b"two")], &o, &mut |_, _| {}).unwrap();
+    write(&source, &[res("a", b"one"), res("c", b"three")], &o, &mut |_, _| {}).unwrap();
+    std::fs::remove_file(source.join("manifests").join(&first.sha1)).unwrap();
+    std::fs::write(source.join("data/sha1/stray.part"), b"half").unwrap();
+    std::fs::create_dir_all(source.join("data/sha1/zz/yy")).unwrap();
+    std::fs::write(source.join("notes.txt"), b"mine").unwrap();
+    let age = |root: &Path, days: u64| {
+        let then = std::time::SystemTime::now() - std::time::Duration::from_secs(days * 86_400);
+        for f in tree(root).iter().filter(|f| !f.ends_with('/')) {
+            let file = std::fs::File::options().write(true).open(root.join(f)).unwrap();
+            file.set_modified(then).unwrap();
+        }
+    };
+    age(&source, 30);
+    let copy = |name: &str| {
+        let to = dir.join(name);
+        let _ = std::fs::remove_dir_all(&to);
+        for f in tree(&source) {
+            if let Some(d) = f.strip_suffix('/') {
+                std::fs::create_dir_all(to.join(d)).unwrap();
+            } else {
+                std::fs::create_dir_all(to.join(&f).parent().unwrap()).unwrap();
+                std::fs::copy(source.join(&f), to.join(&f)).unwrap();
+            }
+        }
+        age(&to, 30);
+        to
+    };
+    let theirs_run = |root: &Path, args: &[&str]| {
+        let out = Command::new(&nim).args(args).arg(root).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    };
+
+    // Every file old: what no manifest names goes.
+    let (theirs, ours) = (copy("nim"), copy("mg"));
+    theirs_run(&theirs, &["--quiet", "--min-age", "0"]);
+    let p = prune(&ours, 0, false).unwrap();
+    assert_eq!(tree(&ours), tree(&theirs), "{p:?}");
+    assert_eq!((p.removed.len(), p.dangling.len()), (2, 1), "{p:?}");
+    assert!(tree(&ours).contains(&"notes.txt".to_string()), "only data/ is pruned");
+
+    // A young unused file stays, at the default age.
+    let (theirs, ours) = (copy("nim-young"), copy("mg-young"));
+    let h = hex(&mg_core::sha1::sha1(b"two"));
+    for root in [&theirs, &ours] {
+        let file = root.join("data/sha1").join(&h[..2]).join(&h[2..4]).join(&h);
+        std::fs::File::options()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_modified(std::time::SystemTime::now())
+            .unwrap();
+    }
+    theirs_run(&theirs, &["--quiet"]);
+    let p = prune(&ours, PRUNE_MIN_AGE, false).unwrap();
+    assert_eq!(tree(&ours), tree(&theirs), "{p:?}");
+    assert_eq!(p.kept_young, 1);
+}

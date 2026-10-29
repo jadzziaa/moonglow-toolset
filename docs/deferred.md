@@ -1649,20 +1649,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   tree no longer deletes the resource (it is a cut, which the tree does
   not take). (S) (Sacha's report on 2.5.4) (waits on the keys pressed
   in the running program: the owner's on Linux, Sacha's on his system)
-- **Sharing key sets:** Options › Keyboard › Export… and Import… write
-  and take the keys chosen as a file; the dialogs themselves weren't
-  driven.
-- **Undo's name for a side editor's step:** with the pointer over a
-  hak's, a 2DA's, a tileset's or the talk table's editor, or the keys in
-  a 2DA's grid, Edit › Undo and Redo (and the toolbar's) are that
-  editor's, and say plain "Undo" rather than the step (the module's step
-  is named; the hak's and the 2DA's have names to give, the tileset's
-  and the talk table's none). The tileset's editor has no test of its
-  own for its keys (it shares the hak's path, `side_doc.rs`). A text
-  field in one of these editors that has the keyboard but has not been
-  typed in since it took it (the Find field, clicked again) passes
-  Undo's key to the editor's step, as fields elsewhere pass it to the
-  module's; the 2DA grid's own reading of Ctrl+Z left it to the field. (S)
 
 ## NUI Creator (the review of its pull request, October 2026)
 
@@ -1952,8 +1938,13 @@ contribution itself states as not done or not checked.
   doesn't; whether the client would use one isn't known. (S) (waits on
   the download test above: a `dialogf.tlk` published, a woman's
   character given its text or not)
-- **No pruning** of old manifests' data (`nwn_nwsync_prune` does it), and
-  no upload: the folder is copied to the web server by hand. (S)
+- **No upload**: the folder is copied to the web server by hand (its
+  pruning is done: Remove Unused Data and `mg nwsync-prune`, as
+  `nwn_nwsync_prune`, 2026-10-29). An upload would need a way in that
+  the builder's server takes (SFTP, an S3 bucket, a web server's own),
+  a new dependency for it and the credentials kept; the triage proposed
+  dropping it, the web server being the builder's own. (S to M) (waits
+  on the owner's word: drop it, or which way in)
 - **Compression:** Moonglow's encoder offers only zstd's fastest level,
   so the data is about a quarter bigger than
   `nwn_nwsync_write`'s (9.8 MB against 7.7 MB in `nwsync.rs`): more to
@@ -1986,22 +1977,17 @@ contribution itself states as not done or not checked.
 ## The install, starting and crashes
 
 - **The recovery copy written at a panic** holds the work as the frame
-  that panicked left it (a change applied in it is in the copy), and only
-  a panic in a frame writes one: one in a background thread (an
-  autosave, a plugin's run, a model's load) or in eframe's own code
-  writes none. On macOS a panic unwinding into the system's code aborts
-  after the copy is written. Not tried on a real crash on Windows or
-  macOS. (S) (Sacha's report, 2026-10-25)
+  that panicked left it (a change applied in it is in the copy); one in
+  a thread of its own has the next frame write it, and one in eframe's
+  own code has the application write it as the unwinding drops it
+  (2026-10-29, `recovery.rs`'s tests). Not tried in a real crash: on
+  macOS a panic unwinding into the system's code aborts (after a
+  frame's copy is written; one in eframe's code there may abort before
+  the application is dropped), and eframe's unwinding through the event
+  loop was read in its code (`run_app_on_demand` on the stack), not
+  crashed on Linux, Windows or macOS. (S) (waits on a crash on Windows
+  and macOS) (Sacha's report, 2026-10-25)
 
-- **userpatch.ini's haks** are read (Options › General, off by default), at the
-  game's priority for them as the wiki's load order gives it (13: under
-  the module, over `override/`); not measured in the client. Not done:
-  `mg` doesn't read them (as it doesn't read the Workshop: a flag would
-  do); Verify warns of a reference only they satisfy, but not of one
-  only the user's `override/` or a Workshop item satisfies, which a
-  player lacks just as much; their talk tables, music and ambient are
-  not looked for apart from the haks' own resources. (S each) (El
-  Grillo's question, 2026-10-21)
 - **Steam Workshop content** is read (Options › General): each item's
   `override` folder as a layer under the user's own, its `hak` and `tlk`
   folders searched. Which of two items' overrides wins in the game isn't
@@ -2010,12 +1996,17 @@ contribution itself states as not done or not checked.
   runs here with Steam hidden. An item's other folders (portraits,
   modules, music) aren't read. (S) (from builders' reports after 1.14.1)
 - **Finding the game:** Steam's libraries are read from its
-  `libraryfolders.vdf` (a game on a second drive), and GOG's usual
-  folders tried. Steam itself installed outside its usual folder is
-  found on Windows only as `X:\Steam` or `X:\SteamLibrary` (the registry
-  isn't read); Beamdog's client isn't looked for. The reporter's case (a
-  second drive on Linux) is covered by the list, not tried on their
-  machine. (S) (from builders' reports after 1.14.1)
+  `libraryfolders.vdf` (a game on a second drive), GOG's usual folders
+  tried, Steam's own folder read from Windows' registry (`reg query`
+  of `SteamPath` and `InstallPath`: held by Wine's `reg` in
+  `steam_folder_from_this_machine_s_registry`), and Beamdog's client's
+  libraries from its `settings.json` (as neverwinter.nim's
+  `findNwnRoot` reads them; else `~/Beamdog Library`), 2026-10-29. Not
+  tried where they live: a real Windows with Steam elsewhere (a folder
+  of other than ASCII letters, which `reg` prints in the console's
+  codepage), Beamdog's client on any system, and the reporter's case (a
+  second drive on Linux), covered by the list. (S) (waits on a Windows
+  machine and a Beamdog install) (from builders' reports after 1.14.1)
 - **Installing updates from the app** (the rest of GitHub issue 28):
   Help › Check for Updates… and the daily check only say that a newer
   release is out and link its page. Not done, for the owner to decide:
@@ -2274,8 +2265,6 @@ of truth, and does each caller's difference matter.
   Aurora's order (a creature's classes and a door's generic appearance
   are by name in Aurora too; its portraits are in the table's order, as
   Select Portrait's grid: captured 2026-10-29).
-- NWSync publishing on a thread of its own, without the jobs' cancel
-  and panic handling (`nwsync_view.rs:113`).
 - `rename`'s `usages`, `tag_usages` and `mentions` restate what
   `UsageIndex` answers. (`#include`, read three ways, is read one way
   since 2026-10-28: `mg_script::lex::includes`, which knows comments.)

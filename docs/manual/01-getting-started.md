@@ -3,7 +3,7 @@ type: Manual Page
 title: Getting started
 description: What Moonglow needs, installing it, the first start (finding the game) and a first module.
 tags: [manual, installing]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:26:25Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T18:21:15Z }
 ---
 
 # Getting started
@@ -59,13 +59,16 @@ Moonglow reads the list of libraries Steam keeps. So is GOG's usual
 folder on Linux (`~/GOG Games/Neverwinter Nights Enhanced Edition`) and
 Windows (`GOG Galaxy\Games\Neverwinter Nights Enhanced Edition` under
 Program Files, or `GOG Games\Neverwinter Nights Enhanced Edition` on any
-drive). On macOS only Steam's folder is looked in: a game from GOG there
-is set in Options, as below.
+drive), and the game Beamdog's client installed (in the libraries its
+settings list, else in `Beamdog Library` in your home folder). On
+Windows, Steam installed in a folder of your choosing is found through
+the registry, where its installer notes the folder. On macOS only
+Steam's and Beamdog's folders are looked in: a game from GOG there is
+set in Options, as below.
 
 The log at the bottom of the window says where it found the game ("Game
 data loaded from …"); the status bar shows the folder. If the game is
-somewhere else (Beamdog's client, a folder of your own, or Steam itself
-installed somewhere unusual), choose
+somewhere else (a folder of your own, say), choose
 **Tools › Options… › Folders** and set **Neverwinter Nights installation**
 (the folder with `data/` and `bin/` in it) and, if needed, the **NWN user
 folder**.

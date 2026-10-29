@@ -252,8 +252,10 @@ fn candidate_roots() -> Vec<PathBuf> {
                 other.push(PathBuf::from(p).join("GOG Galaxy").join("Games").join(gog));
             }
         }
-        // Steam, a library of its own or GOG's folder on any drive (Steam
-        // put elsewhere isn't found by its usual place).
+        // Steam where its installer put it, as the registry says (a
+        // folder of the user's choosing).
+        steam.extend(steam_from_registry());
+        // Steam, a library of its own or GOG's folder on any drive.
         for drive in 'C'..='Z' {
             let drive = PathBuf::from(format!("{drive}:\\"));
             steam.push(drive.join("Steam"));
@@ -270,6 +272,24 @@ fn candidate_roots() -> Vec<PathBuf> {
             }
         }
     }
+    // Beamdog's client: its library folders (its settings, else its
+    // usual one), the stable release before the development one.
+    let beamdog_settings = if cfg!(windows) {
+        env::var_os("APPDATA")
+            .map(PathBuf::from)
+            .or_else(|| env::var_os("USERPROFILE").map(|h| Path::new(&h).join("AppData/Roaming")))
+    } else if cfg!(target_os = "macos") {
+        home.as_ref().map(|h| h.join("Library/Application Support"))
+    } else {
+        env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .or_else(|| home.as_ref().map(|h| h.join(".config")))
+    }
+    .map(|d| d.join("Beamdog Client").join("settings.json"));
+    let beamdog_home =
+        if cfg!(windows) { env::var_os("USERPROFILE").map(PathBuf::from) } else { home };
+    let settings = beamdog_settings.and_then(|p| std::fs::read_to_string(p).ok());
+    other.extend(beamdog_roots(settings.as_deref(), beamdog_home.as_deref()));
     let mut v: Vec<PathBuf> = Vec::new();
     for root in libraries.into_iter().map(|l| l.join(&game)).chain(other) {
         if !v.contains(&root) {
@@ -298,6 +318,72 @@ fn steam_libraries(vdf: &str) -> Vec<PathBuf> {
         }
     }
     out
+}
+
+/// Beamdog's numbers for the game: the stable release, then the
+/// development one (neverwinter.nim's `findNwnRoot` looks for both).
+const BEAMDOG_RELEASES: [&str; 2] = ["00785", "00829"];
+
+/// Where Beamdog's client may have put the game: in each library folder
+/// its `settings.json` lists (`"folders"`), else in its usual one
+/// (`Beamdog Library` in the home folder), each release's folder.
+fn beamdog_roots(settings: Option<&str>, home: Option<&Path>) -> Vec<PathBuf> {
+    let listed: Vec<PathBuf> = settings
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+        .and_then(|j| {
+            j.get("folders")?
+                .as_array()
+                .map(|a| a.iter().filter_map(|f| f.as_str()).map(PathBuf::from).collect::<Vec<_>>())
+        })
+        .unwrap_or_default();
+    let folders = if listed.is_empty() {
+        home.map(|h| vec![h.join("Beamdog Library")]).unwrap_or_default()
+    } else {
+        listed
+    };
+    BEAMDOG_RELEASES.iter().flat_map(|r| folders.iter().map(move |f| f.join(r))).collect()
+}
+
+/// Steam's own folder as Windows' registry has it: the user's
+/// `SteamPath`, then the machine's `InstallPath` (Steam installed where
+/// its installer was told to). Elsewhere, none.
+fn steam_from_registry() -> Vec<PathBuf> {
+    if !cfg!(windows) {
+        return Vec::new();
+    }
+    [
+        (r"HKCU\Software\Valve\Steam", "SteamPath"),
+        (r"HKLM\SOFTWARE\WOW6432Node\Valve\Steam", "InstallPath"),
+        (r"HKLM\SOFTWARE\Valve\Steam", "InstallPath"),
+    ]
+    .into_iter()
+    .filter_map(|(key, name)| {
+        let mut reg = std::process::Command::new("reg");
+        reg.args(["query", key, "/v", name]);
+        #[cfg(windows)]
+        {
+            // (No console window flashing up from the window's program.)
+            use std::os::windows::process::CommandExt;
+            reg.creation_flags(0x0800_0000);
+        }
+        let out = reg.output().ok().filter(|o| o.status.success())?;
+        reg_value(&String::from_utf8_lossy(&out.stdout), name)
+    })
+    .map(PathBuf::from)
+    .collect()
+}
+
+/// A value of `reg query KEY /v NAME`'s output (`    NAME    REG_SZ
+/// VALUE`), its slashes as they are.
+fn reg_value(output: &str, name: &str) -> Option<String> {
+    output.lines().find_map(|line| {
+        let line = line.trim_start();
+        let rest = line.strip_prefix(name)?;
+        let rest = rest.trim_start().strip_prefix("REG_")?;
+        // (The type's name, then the value, which may hold spaces.)
+        let (_, value) = rest.split_once(char::is_whitespace)?;
+        Some(value.trim().to_string()).filter(|v| !v.is_empty())
+    })
 }
 
 /// The `key=value` lines of an INI file's `[section]` (names compared
@@ -446,6 +532,57 @@ mod install_tests {
         let old = "\"LibraryFolders\"\n{\n\t\"TimeNextStatsReport\"\t\"1\"\n\t\"1\"\t\t\"/mnt/games/Steam\"\n}\n";
         assert_eq!(steam_libraries(old), [PathBuf::from("/mnt/games/Steam")]);
         assert!(steam_libraries("not a list at all").is_empty());
+    }
+
+    /// Beamdog's client: the game in each library its settings list, the
+    /// stable release before the development one; without its settings,
+    /// in its usual library.
+    #[test]
+    fn beamdog_s_libraries_are_looked_in() {
+        let settings = r#"{"folders": ["D:\\Games\\Beamdog Library", "/mnt/bd"], "other": 1}"#;
+        let home = Path::new("/home/me");
+        assert_eq!(
+            beamdog_roots(Some(settings), Some(home)),
+            [
+                PathBuf::from("D:\\Games\\Beamdog Library").join("00785"),
+                PathBuf::from("/mnt/bd/00785"),
+                PathBuf::from("D:\\Games\\Beamdog Library").join("00829"),
+                PathBuf::from("/mnt/bd/00829"),
+            ]
+        );
+        let usual = [home.join("Beamdog Library/00785"), home.join("Beamdog Library/00829")];
+        assert_eq!(beamdog_roots(None, Some(home)), usual);
+        assert_eq!(beamdog_roots(Some("not json"), Some(home)), usual);
+        assert_eq!(beamdog_roots(Some(r#"{"folders": []}"#), Some(home)), usual);
+        assert!(beamdog_roots(None, None).is_empty());
+    }
+
+    /// Steam's folder from `reg query`'s output, spaces in it kept.
+    #[test]
+    fn the_registry_s_steam_folder_is_read() {
+        let out = "\r\nHKEY_CURRENT_USER\\Software\\Valve\\Steam\r\n    SteamPath    REG_SZ    \
+                   e:/my games/steam\r\n\r\n";
+        assert_eq!(reg_value(out, "SteamPath").as_deref(), Some("e:/my games/steam"));
+        let machine = "HKEY_LOCAL_MACHINE\\SOFTWARE\\WOW6432Node\\Valve\\Steam\n    InstallPath    \
+                       REG_SZ    E:\\Steam\n";
+        assert_eq!(reg_value(machine, "InstallPath").as_deref(), Some("E:\\Steam"));
+        assert_eq!(reg_value(machine, "SteamPath"), None);
+        assert_eq!(reg_value("ERROR: The system was unable to find the key", "SteamPath"), None);
+        assert!(steam_from_registry().is_empty() || cfg!(windows));
+    }
+
+    /// This machine's registry asked (run by hand on Windows, or under
+    /// Wine with `wine reg add HKCU\Software\Valve\Steam /v SteamPath /t
+    /// REG_SZ /d "c:/my games/steam"`): `MG_STEAM_EXPECTED` is what it
+    /// should find first.
+    #[test]
+    #[ignore]
+    fn steam_folder_from_this_machine_s_registry() {
+        let found = steam_from_registry();
+        eprintln!("{found:?}");
+        if let Some(expected) = env::var_os("MG_STEAM_EXPECTED") {
+            assert_eq!(found.first(), Some(&PathBuf::from(expected)));
+        }
     }
 
     /// A Steam install's Workshop items are read when asked for: their

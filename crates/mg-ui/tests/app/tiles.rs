@@ -3,6 +3,81 @@
 
 use crate::common::*;
 
+/// Undo and Redo over a tileset's editor, by their keys and from the Edit
+/// menu, are the tileset's (it shares the hak's path, `side_doc.rs`), and
+/// the menu says plain "Undo": its steps have no names. Away from it, the
+/// module's.
+#[test]
+fn undo_over_a_tileset_editor_is_the_tileset_s() {
+    let dir = mg_testkit::scratch_dir("ui-tileset-undo");
+    let set_path = dir.join("zzu01.set");
+    let _ = std::fs::remove_file(&set_path);
+    let dialogs = NoDialogs { save: vec![set_path.clone()], ..Default::default() };
+    let mut app = Moonglow::new(None, Box::new(dialogs));
+    app.settings.no_last_area = true;
+    app.open_module(&sample_module(&dir));
+    let key = ResKey::parse("mystore", ResType::TWODA).unwrap();
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A table",
+        vec![mg_edit::Edit::SetResource { key, data: Some(SMALL_TABLE.to_vec()) }],
+    )));
+    let mut h = harness(app, 1300.0, 900.0);
+    h.run();
+    mg_ui::tileset_view::new_tileset(h.state_mut());
+    h.run();
+    h.get_by_label("Terrains and Crossers").click();
+    h.run();
+    h.state_mut().tilesets[0].new_type = "Grass".into();
+    h.run();
+    h.get_by_label("Add Terrain").click();
+    h.run();
+    let terrains =
+        |h: &Harness<'_, Moonglow>| h.state().tilesets[0].tileset().unwrap().terrains.len();
+    let module_step =
+        |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(str::to_string);
+    assert_eq!((terrains(&h), module_step(&h).as_deref()), (1, Some("A table")));
+    let ctrl = egui::Modifiers::COMMAND;
+    let over = |h: &mut Harness<'_, Moonglow>| {
+        h.hover_at(h.get_by_label("Add Terrain").rect().center());
+        h.run();
+    };
+    over(&mut h);
+    h.key_press_modifiers(ctrl, egui::Key::Z);
+    h.run();
+    assert_eq!(terrains(&h), 0, "the tileset's step undone");
+    assert_eq!(module_step(&h).as_deref(), Some("A table"), "not the module's");
+    over(&mut h);
+    h.key_press_modifiers(ctrl, egui::Key::Y);
+    h.run();
+    assert_eq!(terrains(&h), 1, "redone");
+    // From the Edit menu: plain Undo, the tileset's.
+    over(&mut h);
+    h.get_by_label("Edit").click();
+    h.run();
+    // (The menu's entry is the one with its key: the editor's own button
+    // and the toolbar's say "Undo" with no more, or after a glyph.)
+    let label = |n: &egui_kittest::Node<'_>| n.accesskit_node().label().unwrap_or_default();
+    let entries: Vec<String> = h
+        .get_all_by_label_contains("Undo")
+        .map(|n| label(&n))
+        .filter(|l| l.starts_with("Undo "))
+        .collect();
+    assert_eq!(entries.len(), 1, "{entries:?}");
+    let entry = entries[0].clone();
+    let key = entry.strip_prefix("Undo ").unwrap_or_default();
+    assert!(key.ends_with('Z') && key.len() <= 6, "plain Undo and its key: {entry}");
+    h.get_by_label(&entry).click();
+    h.run();
+    assert_eq!(terrains(&h), 0, "the tileset's step, from the menu");
+    assert_eq!(module_step(&h).as_deref(), Some("A table"));
+    // Away from it (over the module tree): the module's.
+    h.hover_at(h.get_by_label("Areas (1)").rect().center());
+    h.run();
+    h.key_press_modifiers(ctrl, egui::Key::Z);
+    h.run();
+    assert_ne!(module_step(&h).as_deref(), Some("A table"), "the module's step undone");
+}
+
 #[test]
 fn tileset_made_edited_saved_with_its_palette() {
     let root = mg_testkit::corpus!();

@@ -239,7 +239,8 @@ impl Editing {
         match self.put(cells) {
             Ok(changed) if !changed.is_empty() => {
                 let count = changed.len();
-                self.done(format!("Empty {count} cells"), Change::Cells(changed));
+                let what = if count == 1 { "1 cell".to_string() } else { format!("{count} cells") };
+                self.done(format!("Empty {what}"), Change::Cells(changed));
                 count
             }
             _ => 0,

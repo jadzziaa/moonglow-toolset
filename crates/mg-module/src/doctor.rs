@@ -634,12 +634,31 @@ pub fn examine_groups(
 }
 
 /// A custom talk table the module names and the game can't find: the game
-/// then won't load the module (`tests/engine_tlk.rs`).
+/// then won't load the module (`tests/engine_tlk.rs`). One found first in
+/// the player's own content (a hak userpatch.ini names, the user's
+/// `override/`, a Workshop item: the game reads it from there too) is a
+/// warning, a player without the same not loading the module.
 fn custom_tlk(d: &mut Doctor, module: &Module) {
     let Some(name) = module.custom_tlk().ok().flatten().filter(|n| !n.trim().is_empty()) else {
         return;
     };
     if d.tlk.custom.is_some() {
+        if let Some(key) = ResKey::parse(name.trim(), ResType::TLK)
+            && let Some(local) = crate::verify::only_local(module, d.rm, &key)
+        {
+            d.push(
+                Severity::Warning,
+                Check::CustomTlk,
+                "module",
+                Module::info_key(),
+                "Custom Tlk",
+                format!(
+                    "the talk table {name:?} is found first in {}: players without it there, in \
+                     the module's haks or in their tlk folder can't load the module",
+                    local.place()
+                ),
+            );
+        }
         return;
     }
     let hint = crate::talk::name_hint(&name).map(|h| format!(" ({h})")).unwrap_or_default();
@@ -3455,6 +3474,36 @@ endmodelgeom fx\ndonemodel fx\n";
         assert!(examine(&m, &rm, uncounted).is_empty());
         assert_eq!(strref_problem(0x0100_0000 + 5000, uncounted), None);
         assert_eq!(strref_problem(5000, uncounted), None);
+    }
+
+    /// A custom talk table found first in the player's own content (the
+    /// game reads it from a userpatch hak or override, `tests/engine_tlk.rs`)
+    /// is a warning; in a hak of the module's, nothing.
+    #[test]
+    fn a_custom_talk_table_only_the_player_has() {
+        let mut m = Module::new();
+        let mut ifo = Gff::new(*b"IFO ");
+        ifo.root.set("Mod_CustomTlk", Value::String(b"mine".to_vec()));
+        m.set_gff(ResKey::parse("module", ResType::IFO).unwrap(), &ifo).unwrap();
+        let found = TalkTables { base: 100, custom: Some(3) };
+        let table = || {
+            let mut c = MemContainer::new();
+            c.insert(ResKey::parse("mine", ResType::TLK).unwrap(), b"TLK V3.0".to_vec());
+            c
+        };
+        for (p, place) in
+            [(priority::USERPATCH, "userpatch.ini's haks"), (priority::OVERRIDE, "your override")]
+        {
+            let mut rm = resman(&[]);
+            rm.add(p, "theirs", LayerClass::Directory, table());
+            let f = examine(&m, &rm, found);
+            assert_eq!(checks(&f), [("custom-tlk", "Custom Tlk".into())]);
+            assert_eq!(f[0].severity, Severity::Warning);
+            assert!(f[0].message.contains(place), "{}", f[0].message);
+            // With the module's hak too: the module's own.
+            rm.add(priority::HAK_USER, "mine.hak", LayerClass::Erf, table());
+            assert!(examine(&m, &rm, found).is_empty());
+        }
     }
 
     /// An archive whose last resources sit past 2 GiB.

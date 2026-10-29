@@ -20,6 +20,7 @@ fn alias_for(label: &str, module: &str) -> Option<String> {
         "override" => "OVERRIDE:".to_string(),
         l if l.starts_with("key:") => format!("HD0INSTALL:data/{}", &l[4..]),
         "module" => format!("CURRENTGAME:{module}"),
+        l if l.starts_with("userpatch:") => format!("PATCH:{}", &l[10..]),
         _ => return None,
     })
 }
@@ -63,6 +64,28 @@ fn resolution_matches_engine() {
     for f in ["repute.2da", "classes.2da", "nw_chicken.utc"] {
         std::fs::write(dir.join("override").join(f), marker("override")).unwrap();
     }
+    // userpatch.ini's haks: under the module, over override; the higher
+    // number over the lower.
+    std::fs::create_dir_all(dir.join("patch")).unwrap();
+    std::fs::write(
+        dir.join("userpatch.ini"),
+        "[Patch]\r\nPatchFile000=mg_patch_low\r\nPatchFile001=mg_patch_high\r\n",
+    )
+    .unwrap();
+    for (name, label) in [("mg_patch_low", "patch low"), ("mg_patch_high", "patch high")] {
+        let mut hak = ErfWriter::new(*b"HAK ");
+        for t in ["classes", "repute", "mg_both_patches", &format!("mg_only_{}", &name[9..])] {
+            hak.add(ResRef::from_str(t).unwrap(), ResType::TWODA, marker(label)).unwrap();
+        }
+        // Music and ambient sound in it, as any resource.
+        if name == "mg_patch_low" {
+            hak.add(ResRef::from_str("mg_patch_music").unwrap(), ResType::BMU, b"BMU".to_vec())
+                .unwrap();
+            hak.add(ResRef::from_str("mg_patch_amb").unwrap(), ResType::WAV, b"RIFF".to_vec())
+                .unwrap();
+        }
+        std::fs::write(dir.join(format!("patch/{name}.hak")), hak.to_bytes().unwrap()).unwrap();
+    }
     // The module: under the hak, over override.
     let extra = [
         (key("random_lines", ResType::TWODA), marker("module")),
@@ -71,7 +94,8 @@ fn resolution_matches_engine() {
     let haks = [install_hak, user_hak];
     probe_module(&root, &dir, module, "void main() {}", &haks, &extra);
 
-    let install = GameInstall::new(&root, Some(dir.clone()), "en");
+    let mut install = GameInstall::new(&root, Some(dir.clone()), "en");
+    install.userpatch = true;
     let build = || {
         let mut rm = ResMan::for_game(&install).unwrap();
         // The headless server loads no portraits and no ambient or music folders.
@@ -93,7 +117,9 @@ fn resolution_matches_engine() {
     assert_eq!(origin("random_neutral", ResType::TWODA), format!("hak:{user_hak}"));
     assert_eq!(origin("random_lines", ResType::TWODA), format!("hak:{install_hak}"));
     assert_eq!(origin("repute", ResType::TWODA), "module");
-    assert_eq!(origin("classes", ResType::TWODA), "override");
+    assert_eq!(origin("classes", ResType::TWODA), "userpatch:mg_patch_high");
+    assert_eq!(origin("mg_both_patches", ResType::TWODA), "userpatch:mg_patch_high");
+    assert_eq!(origin("mg_only_low", ResType::TWODA), "userpatch:mg_patch_low");
     assert_eq!(origin("nw_chicken", ResType::UTC), "override");
 
     let mut sample: Vec<ResKey> = [
@@ -103,10 +129,17 @@ fn resolution_matches_engine() {
         "repute",
         "classes",
         "mg_only_userhak",
+        "mg_both_patches",
+        "mg_only_low",
+        "mg_only_high",
     ]
     .iter()
     .map(|n| key(n, ResType::TWODA))
-    .chain([key("nw_chicken", ResType::UTC)])
+    .chain([
+        key("nw_chicken", ResType::UTC),
+        key("mg_patch_music", ResType::BMU),
+        key("mg_patch_amb", ResType::WAV),
+    ])
     .collect();
     for l in rm.layers() {
         let mut keys: Vec<ResKey> = l.container.keys().collect();

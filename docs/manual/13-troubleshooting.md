@@ -3,7 +3,7 @@ type: Manual Page
 title: Troubleshooting
 description: Troubleshooting - the game is not found, no GPU in the area viewer, an area that draws nothing or loses its tiles on AMD under Windows (the graphics backend, its startup check, the lit check and the area view's watch; what to send), Direct3D 12's shader compiler (the DXC shipped beside Moonglow, and FXC where it is missing), Test Module does nothing, no sound, after a crash, and where Moonglow keeps its files.
 tags: [manual, troubleshooting]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T09:42:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T18:03:45Z }
 ---
 
 # Troubleshooting
@@ -178,6 +178,12 @@ If the module had unsaved changes, it writes a recovery copy of them as
 it stops (unless Options › General keeps none), and the next start offers
 it back in **Recover Unsaved Work**. The module's own file is as it was
 last saved. Please include the crash report when you report the problem.
+
+Something that fails in the background (long work, an autosave, a
+plugin's run, an area being read) leaves the window going: the log says
+so, and the unsaved work is kept in a recovery copy straight away, in
+case what failed shows later. Saving, or closing the module without
+saving, removes the copy as usual.
 
 The report names the [plugins](15-plugins.md) that were enabled. To see
 whether one of them is the cause, start Moonglow with `--no-plugins`

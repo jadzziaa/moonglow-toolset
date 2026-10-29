@@ -79,9 +79,70 @@ pub struct Missing {
     /// For scripts: the source exists but not the compiled script, which the
     /// game needs.
     pub uncompiled: bool,
-    /// It is there, but only in the haks the user's `userpatch.ini` names:
-    /// a player without them has nothing in its place.
-    pub only_userpatch: bool,
+    /// It is there, but only in the player's own content ([`Local`]: the
+    /// haks the user's `userpatch.ini` names, the user's `override/`, a
+    /// Workshop item): a player without the same has nothing in its place.
+    pub only_local: Option<Local>,
+}
+
+/// Content of the user's own, which a module's players have only if they
+/// put the same there themselves: what a module may not count on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Local {
+    /// A hak the user's `userpatch.ini` names.
+    Userpatch,
+    /// The user's `override/` folder.
+    Override,
+    /// A Steam Workshop item the user subscribed to.
+    Workshop,
+}
+
+impl Local {
+    /// The player's own content a resource manager layer holds, by its
+    /// priority. (The user's `development/` folder is not counted: it is
+    /// where `mg watch` and the builder put the module's own work to try.)
+    pub fn of_priority(p: u32) -> Option<Local> {
+        match p {
+            priority::USERPATCH => Some(Local::Userpatch),
+            priority::OVERRIDE => Some(Local::Override),
+            priority::WORKSHOP => Some(Local::Workshop),
+            _ => None,
+        }
+    }
+
+    /// Its name in JSON: `userpatch`, `override`, `workshop`.
+    pub fn id(self) -> &'static str {
+        match self {
+            Local::Userpatch => "userpatch",
+            Local::Override => "override",
+            Local::Workshop => "workshop",
+        }
+    }
+
+    /// Where it is, for people: "userpatch.ini's haks", "your override
+    /// folder", "a Steam Workshop item".
+    pub fn place(self) -> &'static str {
+        match self {
+            Local::Userpatch => "userpatch.ini's haks",
+            Local::Override => "your override folder",
+            Local::Workshop => "a Steam Workshop item",
+        }
+    }
+}
+
+/// Whether only the player's own content has `key` (not the module, its
+/// haks or the game): the highest of it that has it. `None` when the
+/// module or another layer has it too, or nothing has.
+pub fn only_local(module: &Module, resman: &ResMan, key: &ResKey) -> Option<Local> {
+    if module.contains(key) {
+        return None;
+    }
+    let found = Local::of_priority(resman.layers()[resman.find(key)?].priority)?;
+    let elsewhere = resman
+        .layers()
+        .iter()
+        .any(|l| Local::of_priority(l.priority).is_none() && l.container.contains(key));
+    (!elsewhere).then_some(found)
 }
 
 impl Missing {
@@ -103,19 +164,26 @@ impl Missing {
     }
 
     /// What is wrong with it, after its name: "missing", "not compiled",
-    /// or found only in userpatch.ini's haks.
+    /// or found only in the player's own content ("only in userpatch.ini's
+    /// haks …", "only in your override folder …").
     pub fn what(&self) -> &'static str {
-        if self.only_userpatch {
-            "only in userpatch.ini's haks (players without them won't have it)"
-        } else if self.uncompiled {
-            "not compiled"
-        } else {
-            "missing"
+        match self.only_local {
+            Some(Local::Userpatch) => {
+                "only in userpatch.ini's haks (players without them won't have it)"
+            }
+            Some(Local::Override) => {
+                "only in your override folder (players without the same won't have it)"
+            }
+            Some(Local::Workshop) => {
+                "only in a Steam Workshop item (players not subscribed won't have it)"
+            }
+            None if self.uncompiled => "not compiled",
+            None => "missing",
         }
     }
 
     pub fn is_error(&self) -> bool {
-        if self.only_userpatch {
+        if self.only_local.is_some() {
             return false;
         }
         let r = &self.reference;
@@ -139,7 +207,9 @@ pub fn module_references(module: &Module) -> Vec<Reference> {
 /// References that neither the module nor `resman` (the game, haks, and
 /// usually the module layer too) can satisfy. Scripts need their compiled
 /// form; one with only a source is reported as uncompiled. A reference
-/// only userpatch.ini's haks satisfy is reported too, as such (a warning).
+/// only the player's own content satisfies ([`Local`]: userpatch.ini's
+/// haks, `override/`, a Workshop item) is reported too, as such (a
+/// warning).
 pub fn missing(module: &Module, resman: &ResMan) -> Vec<Missing> {
     missing_of(module, resman, module_references(module))
 }
@@ -148,18 +218,11 @@ pub fn missing(module: &Module, resman: &ResMan) -> Vec<Missing> {
 /// ([`module_references`]: every GFF read; [`unused_of`] takes them too).
 pub fn missing_of(module: &Module, resman: &ResMan, references: Vec<Reference>) -> Vec<Missing> {
     let has = |k: &ResKey| module.contains(k) || resman.contains(k);
-    // Found, but only in userpatch.ini's haks (the player's own, not the
-    // module's): nothing else in the stack has it.
-    let patched = resman.layers().iter().any(|l| l.priority == priority::USERPATCH);
-    let only_userpatch = |k: &ResKey| {
-        patched
-            && !module.contains(k)
-            && resman.find(k).is_some_and(|i| resman.layers()[i].priority == priority::USERPATCH)
-            && !resman
-                .layers()
-                .iter()
-                .any(|l| l.priority != priority::USERPATCH && l.container.contains(k))
-    };
+    // Found, but only in the player's own content (userpatch.ini's haks,
+    // override/, a Workshop item: not the module's): nothing else in the
+    // stack has it.
+    let local = resman.layers().iter().any(|l| Local::of_priority(l.priority).is_some());
+    let only_local = |k: &ResKey| if local { only_local(module, resman, k) } else { None };
     let mut out = Vec::new();
     let mut seen = HashSet::new();
     for r in references {
@@ -172,8 +235,12 @@ pub fn missing_of(module: &Module, resman: &ResMan, references: Vec<Reference>) 
             }
             _ => candidates.iter().filter(|k| has(k)).collect(),
         };
-        let patch_only = !satisfying.is_empty() && satisfying.iter().all(|k| only_userpatch(k));
-        if candidates.is_empty() || (!satisfying.is_empty() && !patch_only) {
+        // (Of several that would do, each only the player's own: the first's
+        // place is said.)
+        let locals: Vec<Option<Local>> = satisfying.iter().map(|k| only_local(k)).collect();
+        let local_only =
+            if !locals.is_empty() && locals.iter().all(Option::is_some) { locals[0] } else { None };
+        if candidates.is_empty() || (!satisfying.is_empty() && local_only.is_none()) {
             continue;
         }
         // Each missing target once per referencing resource (a dialog may
@@ -181,14 +248,14 @@ pub fn missing_of(module: &Module, resman: &ResMan, references: Vec<Reference>) 
         if !seen.insert((r.from, r.kind, r.target)) {
             continue;
         }
-        let uncompiled = !patch_only
+        let uncompiled = local_only.is_none()
             && r.kind == RefKind::Script
             && candidates.iter().any(|k| k.restype == ResType::NSS && has(k));
         out.push(Missing {
             category: Category::of(&r),
             reference: r,
             uncompiled,
-            only_userpatch: patch_only,
+            only_local: local_only,
         });
     }
     out
@@ -813,29 +880,70 @@ mod tests {
         assert_eq!(names, ["other.ncs"]);
     }
 
-    /// What only userpatch.ini's haks have is said, as a warning: a player
-    /// without them has nothing there. What the game has too is not.
+    /// What only the player's own content has (userpatch.ini's haks, the
+    /// user's override, a Workshop item) is said, as a warning: a player
+    /// without the same has nothing there. What the game or the module has
+    /// too is not.
     #[test]
-    fn a_reference_only_a_userpatch_hak_has_is_a_warning() {
+    fn a_reference_only_the_player_s_own_content_has_is_a_warning() {
         let mut m = Module::new();
         let mut ifo = Gff::new(*b"IFO ");
         ifo.root.write(&ifo::MOD_ON_MOD_LOAD, rr("patch_only"));
         ifo.root.write(&ifo::MOD_ON_HEARTBEAT, rr("both"));
+        ifo.root.write(&ifo::MOD_ON_CLIENT_ENTR, rr("override_only"));
+        ifo.root.write(&ifo::MOD_ON_CLIENT_LEAV, rr("workshop_only"));
+        ifo.root.write(&ifo::MOD_ON_PLR_DEATH, rr("in_module"));
         m.set_info(&ifo).unwrap();
+        m.set(key("in_module", ResType::NCS), Vec::new());
         let mut patch = MemContainer::new();
         let mut base = MemContainer::new();
+        let mut over = MemContainer::new();
+        let mut workshop = MemContainer::new();
         for n in ["patch_only", "both"] {
             patch.insert(key(n, ResType::NCS), Vec::new());
         }
         base.insert(key("both", ResType::NCS), Vec::new());
+        for n in ["override_only", "in_module", "workshop_only"] {
+            over.insert(key(n, ResType::NCS), Vec::new());
+        }
+        workshop.insert(key("workshop_only", ResType::NCS), Vec::new());
         let mut rm = ResMan::new();
         rm.add(priority::KEY, "base", LayerClass::Key, base);
+        rm.add(priority::WORKSHOP, "workshop:1", LayerClass::Directory, workshop);
+        rm.add(priority::OVERRIDE, "override", LayerClass::Directory, over);
         rm.add(priority::USERPATCH, "userpatch:hd", LayerClass::Erf, patch);
         let miss = missing(&m, &rm);
-        assert_eq!(miss.len(), 1, "{miss:?}");
-        assert_eq!(miss[0].reference.target.to_string(), "patch_only");
-        assert!(miss[0].only_userpatch && !miss[0].is_error());
-        assert!(miss[0].what().starts_with("only in userpatch.ini's haks"));
+        let mut said: Vec<(String, Option<Local>, &str)> =
+            miss.iter().map(|x| (x.reference.target.to_string(), x.only_local, x.what())).collect();
+        said.sort_by(|a, b| a.0.cmp(&b.0));
+        let override_ = "only in your override folder (players without the same won't have it)";
+        assert_eq!(
+            said,
+            [
+                ("override_only".to_string(), Some(Local::Override), override_),
+                (
+                    "patch_only".to_string(),
+                    Some(Local::Userpatch),
+                    "only in userpatch.ini's haks (players without them won't have it)"
+                ),
+                // (Its highest: the override over the Workshop.)
+                ("workshop_only".to_string(), Some(Local::Override), override_),
+            ],
+            "{miss:?}"
+        );
+        assert!(miss.iter().all(|x| !x.is_error()));
+        // A Workshop item alone.
+        let mut alone = MemContainer::new();
+        alone.insert(key("workshop_only", ResType::NCS), Vec::new());
+        let mut rm = ResMan::new();
+        rm.add(priority::WORKSHOP, "workshop:1", LayerClass::Directory, alone);
+        let k = key("workshop_only", ResType::NCS);
+        assert_eq!(only_local(&m, &rm, &k), Some(Local::Workshop));
+        assert!(
+            Missing { only_local: Some(Local::Workshop), ..miss[0].clone() }
+                .what()
+                .starts_with("only in a Steam Workshop item")
+        );
     }
 
     #[test]
