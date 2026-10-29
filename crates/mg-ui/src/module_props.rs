@@ -457,21 +457,17 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
                     if name.clicked() {
                         let (command, shift) =
                             ui.input(|i| (i.modifiers.command, i.modifiers.shift));
-                        match (command, shift, state.anchor) {
-                            (true, ..) => {
-                                if !state.selected.remove(&i) {
-                                    state.selected.insert(i);
-                                }
-                                state.anchor = Some(i);
-                            }
-                            (false, true, Some(a)) => {
-                                state.selected = (a.min(i)..=a.max(i)).collect();
-                            }
-                            _ => {
-                                state.selected = BTreeSet::from([i]);
-                                state.anchor = Some(i);
-                            }
-                        }
+                        // The rule of every list of several (Ctrl+Shift
+                        // adds the range, as Windows' lists do).
+                        let listed: Vec<usize> = (0..n).collect();
+                        crate::widgets::select_in_list(
+                            &mut state.selected,
+                            &mut state.anchor,
+                            &listed,
+                            i,
+                            command,
+                            shift,
+                        );
                         state.cursor = Some(i);
                         // (The arrow keys are the list's now, not a camera's.)
                         crate::palette_view::give_keys(ui.ctx(), crate::palette_view::Keys::List);

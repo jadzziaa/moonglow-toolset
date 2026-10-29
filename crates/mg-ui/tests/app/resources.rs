@@ -456,6 +456,18 @@ fn the_hak_list_is_reordered_by_keys_buttons_and_a_drag() {
     h.get_by_label("gone").click_modifiers(egui::Modifiers::COMMAND);
     h.run();
     assert_eq!(chosen(&h), [2, 3]);
+    // Ctrl + Shift + click adds the rows from the one clicked last, as
+    // every list of several does (it was a Ctrl + click here once).
+    h.get_by_label("bravo").click();
+    h.run();
+    h.get_by_label("alpha").click_modifiers(egui::Modifiers::COMMAND);
+    h.run();
+    h.get_by_label("gone").click_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT);
+    h.run();
+    assert_eq!(chosen(&h), [0, 2, 3]);
+    h.get_by_label("bravo").click_modifiers(egui::Modifiers::COMMAND);
+    h.run();
+    assert_eq!(chosen(&h), [2, 3]);
     h.key_press(egui::Key::Delete);
     h.run();
     assert_eq!(haks(&mut h), ["bravo", "charlie"]);

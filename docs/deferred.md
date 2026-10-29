@@ -2708,12 +2708,6 @@ of truth, and does each caller's difference matter.
   the lists' dropdown filters (`widgets.rs`), the store page's, Options
   › Keyboard's, the creature pages' lists, the script editor's help and
   Open Script, the Command Palette. (S)
-- **A list's click to select several, three times:**
-  `widgets::select_in_list` (Open Script, from October 2026), the hak
-  editor's list (`hak_view.rs:457`, the same rule) and Module
-  Properties' haks (`module_props.rs:427`: Ctrl wins over Shift there,
-  and Ctrl+Shift adds no range). The hak editor's could call it as it
-  is; the module's haks, once the difference is chosen. (S)
 - **Module Properties and the journal redo `Form` by hand**
   (`module_props.rs`, `journal_view.rs:296`): a tag's 32 characters held
   three ways (the module's not at all), the module's XP slider adds an

@@ -3615,6 +3615,36 @@ mod tests {
 }
 
 #[cfg(test)]
+mod select_tests {
+    use super::select_in_list;
+    use std::collections::BTreeSet;
+
+    /// The rule of every list of which several can be selected (the hak
+    /// editor's, the module's haks, Open Script's, the tree's): a click
+    /// alone, Ctrl toggling, Shift a range from the anchor, Ctrl+Shift the
+    /// range added.
+    #[test]
+    fn a_click_with_ctrl_and_shift_selects_as_lists_do() {
+        let listed = [10, 20, 30, 40, 50];
+        let (mut selected, mut anchor) = (BTreeSet::new(), None);
+        let mut click = |row, command, shift| {
+            select_in_list(&mut selected, &mut anchor, &listed, row, command, shift);
+            (selected.iter().copied().collect::<Vec<_>>(), anchor)
+        };
+        assert_eq!(click(20, false, false), (vec![20], Some(20)));
+        assert_eq!(click(40, false, true), (vec![20, 30, 40], Some(20)), "anchor stays");
+        assert_eq!(click(10, false, true), (vec![10, 20], Some(20)));
+        assert_eq!(click(50, true, false), (vec![10, 20, 50], Some(50)));
+        assert_eq!(click(20, true, false), (vec![10, 50], Some(20)), "Ctrl takes one away");
+        assert_eq!(click(40, true, true), (vec![10, 20, 30, 40, 50], Some(20)));
+        // Shift with no anchor listed is a click alone.
+        let (mut selected, mut anchor) = (BTreeSet::new(), Some(99));
+        select_in_list(&mut selected, &mut anchor, &listed, 30, false, true);
+        assert_eq!((selected.into_iter().collect::<Vec<_>>(), anchor), (vec![30], Some(30)));
+    }
+}
+
+#[cfg(test)]
 mod token_tests {
     use super::with_token;
     use egui::text::{CCursor, CCursorRange};

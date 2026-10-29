@@ -462,26 +462,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
                     .inner;
                 if r.clicked() {
                     let (shift, command) = ui.input(|i| (i.modifiers.shift, i.modifiers.command));
-                    let place = |k: ResKey| rows.iter().position(|&r| doc.hak.items()[r].key == k);
-                    let from = doc.anchor.filter(|_| shift).and_then(place);
-                    if let (Some(a), Some(b)) = (from, place(item.key)) {
-                        // From the one clicked last to this one, as listed
-                        // (with Ctrl, added to what is selected).
-                        if !command {
-                            doc.selected.clear();
-                        }
-                        let range = &rows[a.min(b)..=a.max(b)];
-                        doc.selected.extend(range.iter().map(|&r| doc.hak.items()[r].key));
-                    } else {
-                        if command {
-                            if !doc.selected.remove(&item.key) {
-                                doc.selected.insert(item.key);
-                            }
-                        } else {
-                            doc.selected = [item.key].into();
-                        }
-                        doc.anchor = Some(item.key);
-                    }
+                    let listed: Vec<ResKey> =
+                        rows.iter().map(|&r| doc.hak.items()[r].key).collect();
+                    crate::widgets::select_in_list(
+                        &mut doc.selected,
+                        &mut doc.anchor,
+                        &listed,
+                        item.key,
+                        command,
+                        shift,
+                    );
                 }
                 if r.double_clicked() {
                     todo = Some(Do::View(item.key));
