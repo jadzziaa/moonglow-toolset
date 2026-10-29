@@ -278,10 +278,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **A slow picture in a gallery** (a model with large textures) takes a
   frame of 7 to 9 ms: a picture's models and textures are read on the
   window's thread. Read on another. (M)
-- **`Workspace::flush` writes every document read,** changed or not: its
-  cost grows with what a session has opened. It is called once a revision
-  by the pictures and by each open model view, and on saving. Marking the
-  documents an edit changes would make it what was changed. (S)
 - **The tiles' animations are looked up by name** every time one is
   posed (three times a tile's model a frame: the pose, the lights, the
   meshes), lower-casing each node's name. Bound once when the model is

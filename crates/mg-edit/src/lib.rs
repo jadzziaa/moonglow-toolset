@@ -4,7 +4,7 @@
 //! so undo and redo are exact, and every editor, the CLI and the tests change
 //! modules through the same path.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use mg_gff::{Gff, Label, Struct, Value};
@@ -179,6 +179,10 @@ pub fn edits_between(before: &Module, after: &Module) -> Vec<Edit> {
 pub struct Workspace {
     pub module: Module,
     docs: HashMap<ResKey, Gff>,
+    /// The documents edited since the last [`Workspace::flush`]: only
+    /// those are written back (a document only read stays as the module
+    /// has it, and costs nothing to flush).
+    edited: HashSet<ResKey>,
     /// Documents shown that aren't the module's (the game's blueprints, to
     /// look at): [`Workspace::doc`] gives them, nothing edits or saves them.
     viewed: HashMap<ResKey, Gff>,
@@ -219,6 +223,7 @@ impl Workspace {
             saved: resources_of(&module),
             module,
             docs: HashMap::new(),
+            edited: HashSet::new(),
             viewed: HashMap::new(),
             undo: Vec::new(),
             redo: Vec::new(),
@@ -426,7 +431,9 @@ impl Workspace {
             Edit::SetResource { key, data } => {
                 // The cached document may hold edits not yet in the module;
                 // the undo copy must include them.
-                if let Some(doc) = self.docs.remove(key) {
+                if let Some(doc) = self.docs.remove(key)
+                    && self.edited.remove(key)
+                {
                     let bytes = doc
                         .to_bytes()
                         .map_err(|e| EditError::Invalid { key: *key, message: e.to_string() })?;
@@ -577,23 +584,38 @@ impl Workspace {
         }))
     }
 
+    /// The struct at `path` of document `key`, to change: the document
+    /// counts as edited ([`Workspace::flush`] writes it back).
     fn struct_at(&mut self, key: &ResKey, path: &GffPath) -> Result<&mut Struct, EditError> {
+        self.edited.insert(*key);
         let doc = self.doc_mut(key)?;
         path.get_mut(&mut doc.root)
             .ok_or_else(|| EditError::BadPath { key: *key, path: path.clone() })
     }
 
-    /// Writes changed documents back into the module.
+    /// Writes the documents edited since the last flush back into the
+    /// module (those only read are as the module has them already): its
+    /// cost is what was edited, not what a session has opened.
     pub fn flush(&mut self) -> Result<(), EditError> {
-        for (key, gff) in &self.docs {
-            let bytes = gff
-                .to_bytes()
-                .map_err(|e| EditError::Invalid { key: *key, message: e.to_string() })?;
-            if self.module.get(key) != Some(&bytes[..]) {
-                self.module.set(*key, bytes);
+        let edited: Vec<ResKey> = self.edited.iter().copied().collect();
+        for key in edited {
+            if let Some(gff) = self.docs.get(&key) {
+                let bytes = gff
+                    .to_bytes()
+                    .map_err(|e| EditError::Invalid { key, message: e.to_string() })?;
+                if self.module.get(&key) != Some(&bytes[..]) {
+                    self.module.set(key, bytes);
+                }
             }
+            self.edited.remove(&key);
         }
         Ok(())
+    }
+
+    /// How many documents hold edits [`Workspace::flush`] has not yet
+    /// written into the module.
+    pub fn unflushed(&self) -> usize {
+        self.edited.len()
     }
 
     /// Flushes and saves the module to where it was opened from.
@@ -639,6 +661,7 @@ impl Workspace {
         let made = make(&mut self.module);
         // (They are read again from what `make` left.)
         self.docs.clear();
+        self.edited.clear();
         self.revision += 1;
         Ok(made)
     }
@@ -658,6 +681,7 @@ impl Workspace {
         self.flush()?;
         for (key, data) in changes {
             self.docs.remove(key);
+            self.edited.remove(key);
             self.rewritten(key);
             // (Not the builder's change here: what a save compares with
             // takes it too. Not a blueprint: its palette entry follows it,
@@ -1161,6 +1185,88 @@ mod tests {
         );
         ws.undo().unwrap();
         assert!(!ws.doc(&k).unwrap().root.contains("N"));
+    }
+
+    /// A flush writes what was edited since the last one, however it was
+    /// edited (a field set, an item put in or taken out, a field taken out
+    /// from among others, an amendment, an undo, a redo), and only that: a
+    /// document only read is left as the module has it.
+    #[test]
+    fn a_flush_writes_every_edit_and_only_what_was_edited() {
+        type Step = (&'static str, Box<dyn Fn(&mut Workspace)>, Box<dyn Fn(&Gff) -> bool>);
+        let mut ws = workspace();
+        let (area, info) = (key("area", ResType::GIT), key("module", ResType::IFO));
+        let stored = |ws: &Workspace, k: &ResKey| Gff::read(ws.module.get(k).unwrap()).unwrap();
+        let field = move |label: &str, value: Option<i32>| Edit::SetField {
+            key: area,
+            path: GffPath::root(),
+            label: label.into(),
+            value: value.map(Value::Int),
+        };
+        let creatures = |g: &Gff| g.root.list("Creature List").map_or(0, <[Struct]>::len);
+        // Read, not edited: nothing to write, and what the module holds
+        // for it stays (bytes set there since are not written over).
+        ws.doc(&info).unwrap();
+        ws.doc(&area).unwrap();
+        assert_eq!(ws.unflushed(), 0);
+        let other = {
+            let mut g = Gff::new(*b"IFO ");
+            g.root.set("Other", Value::Int(1));
+            g.to_bytes().unwrap()
+        };
+        ws.module.set(info, other.clone());
+        ws.flush().unwrap();
+        assert_eq!(ws.module.get(&info), Some(&other[..]), "a document only read isn't written");
+        // Each way of editing is written by the next flush.
+        let steps: Vec<Step> = vec![
+            (
+                "a field set",
+                Box::new(move |ws| ws.apply(Command::new("A", vec![field("A", Some(1))])).unwrap()),
+                Box::new(|g| g.root.int("A") == Some(1)),
+            ),
+            (
+                "an amendment",
+                Box::new(move |ws| ws.amend(vec![field("B", Some(2))]).unwrap()),
+                Box::new(|g| g.root.int("B") == Some(2)),
+            ),
+            (
+                "an item taken out",
+                Box::new(move |ws| {
+                    let edit = Edit::remove_item(area, GffPath::root(), "Creature List", 0);
+                    ws.apply(Command::new("Out", vec![edit])).unwrap()
+                }),
+                Box::new(move |g| creatures(g) == 0),
+            ),
+            (
+                "an undo",
+                Box::new(|ws| _ = ws.undo().unwrap()),
+                Box::new(move |g| creatures(g) == 1),
+            ),
+            ("a redo", Box::new(|ws| _ = ws.redo().unwrap()), Box::new(move |g| creatures(g) == 0)),
+            (
+                "an item put in",
+                Box::new(move |ws| {
+                    let item = Struct::default();
+                    let edit = Edit::insert_item(area, GffPath::root(), "Creature List", 0, item);
+                    ws.apply(Command::new("In", vec![edit])).unwrap()
+                }),
+                Box::new(move |g| creatures(g) == 1),
+            ),
+            (
+                "a field taken out from among others",
+                Box::new(move |ws| ws.apply(Command::new("A", vec![field("A", None)])).unwrap()),
+                Box::new(|g| !g.root.contains("A") && g.root.int("B") == Some(2)),
+            ),
+        ];
+        for (what, edit, written) in &steps {
+            edit(&mut ws);
+            assert_eq!(ws.unflushed(), 1, "{what}: the one document edited");
+            assert!(!written(&stored(&ws, &area)), "{what}: not in the module before the flush");
+            ws.flush().unwrap();
+            assert!(written(&stored(&ws, &area)), "{what}: written by the flush");
+            assert_eq!(ws.unflushed(), 0);
+        }
+        assert_eq!(ws.module.get(&info), Some(&other[..]), "the document only read, still not");
     }
 
     #[test]
