@@ -2099,7 +2099,7 @@ fn static_transforms(d: &mut Doctor, module: &Module) {
         let Some(Ok(gff)) = module.gff(&key) else { continue };
         let list = gff.root.list("Placeable List").unwrap_or(&[]);
         for (i, s) in list.iter().enumerate() {
-            if s.integer("Static").unwrap_or(0) == 0 || !crate::areas::transforms(s) {
+            if s.integer("Static").unwrap_or(0) == 0 || !crate::placement::is_transformed(s) {
                 continue;
             }
             let place =

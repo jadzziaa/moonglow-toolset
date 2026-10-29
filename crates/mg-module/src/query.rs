@@ -144,14 +144,12 @@ fn describe(s: &Struct, restype: ResType, placed: Option<(ResRef, usize)>) -> Fo
     };
     let template = ObjectKind::resref_field_of(restype);
     let resref = s.resref(template).filter(|r| !r.is_empty());
-    let float = |l: &str| s.float(l);
-    let position = match (float("X"), float("Y"), float("Z")) {
-        (Some(x), Some(y), Some(z)) => Some([x, y, z]),
-        _ => match (float("XPosition"), float("YPosition"), float("ZPosition")) {
-            (Some(x), Some(y), Some(z)) => Some([x, y, z]),
-            _ => None,
-        },
-    };
+    // (Where it stands, as its kind keeps it: all three of the fields.)
+    let at = ObjectKind::from_restype(restype).map(crate::placement::position_fields);
+    let position = at.and_then(|labels| {
+        let [x, y, z] = labels.map(|l| s.float(l));
+        Some([x?, y?, z?])
+    });
     Found {
         restype,
         resref,

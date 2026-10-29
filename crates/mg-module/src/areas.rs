@@ -412,29 +412,13 @@ impl StaticPlan {
     }
 }
 
-/// Whether a placed object's visual transform (EE's `VisTransformList`,
-/// or the older `VisualTransform`) changes how its model shows.
-pub(crate) fn transforms(s: &Struct) -> bool {
-    const AXES: [(&str, f32); 3] = [("Scale", 1.0), ("Rotate", 0.0), ("Translate", 0.0)];
-    let changed = |get: &dyn Fn(&str) -> Option<f32>| {
-        AXES.iter().any(|(prefix, rest)| {
-            ["X", "Y", "Z"].iter().any(|a| get(&format!("{prefix}{a}")).unwrap_or(*rest) != *rest)
-        })
-    };
-    let listed =
-        s.list("VisTransformList").unwrap_or(&[]).iter().any(|entry| {
-            changed(&|label: &str| entry.child(label).and_then(|c| c.float("ValueTo")))
-        });
-    listed || s.child("VisualTransform").is_some_and(|v| changed(&|label: &str| v.float(label)))
-}
-
 /// Why a placeable that isn't static is to stay dynamic, if it is.
 fn kept(p: &Struct, rules: &StaticRules) -> Option<Kept> {
     let on = |label: &str| p.integer(label).unwrap_or(0) != 0;
     if on("Useable") {
         return Some(Kept::Useable);
     }
-    if transforms(p) {
+    if crate::placement::is_transformed(p) {
         return Some(Kept::Transformed);
     }
     let script = p.fields.iter().find(|f| {
@@ -496,8 +480,7 @@ pub fn static_plan(git: &Struct, rules: &StaticRules) -> StaticPlan {
     plan
 }
 
-/// A placed object's visual transform: EE's list, and the older struct.
-pub const VISUAL_TRANSFORM_FIELDS: [&str; 2] = ["VisTransformList", "VisualTransform"];
+pub use crate::placement::VISUAL_TRANSFORM_FIELDS;
 
 /// The fields to change to make placeable `p` static: `Static` set, and
 /// its visual transform taken off (a static placeable has none; it would

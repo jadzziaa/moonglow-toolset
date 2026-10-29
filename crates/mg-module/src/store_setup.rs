@@ -99,12 +99,7 @@ pub fn merchant(factions: Option<&Factions>) -> u32 {
 /// does (its orientation's bearing, less the quarter turn the instance's
 /// facing adds).
 pub fn store_placement(creature: &Struct) -> crate::instances::Placement {
-    let f = |l: &str| creature.float(l).unwrap_or(0.0);
-    let rotation = f("YOrientation").atan2(f("XOrientation")) - std::f32::consts::FRAC_PI_2;
-    crate::instances::Placement {
-        position: [f("XPosition"), f("YPosition"), f("ZPosition")],
-        rotation,
-    }
+    crate::placement::Placement::read(mg_rules::ObjectKind::Creature, creature)
 }
 
 #[cfg(test)]

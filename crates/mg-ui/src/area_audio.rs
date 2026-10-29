@@ -58,7 +58,9 @@ impl PlacedSound {
                 .filter_map(|e| e.resref("Sound"))
                 .filter(|r| !r.is_empty())
                 .collect(),
-            position: Vec3::new(float("XPosition"), float("YPosition"), float("ZPosition")),
+            position: Vec3::from(
+                mg_module::placement::position_fields(mg_area::ObjectKind::Sound).map(float),
+            ),
             active: int("Active", 1) != 0,
             positional: int("Positional", 0) != 0,
             min_distance: float("MinDistance"),

@@ -2151,12 +2151,6 @@ of truth, and does each caller's difference matter.
   IFO is seen by half the tools. And areas listed and filtered three
   times (`areas.rs:40`, `tree.rs:105`, `area_props.rs:706`, the last
   without the tag). (M)
-- **Where an object stands:** visual transforms read two ways
-  (`areas.rs:191`: any entry; `mg-area lib.rs:233`: scope 0, else the
-  first), and placement fields (X/Y/Z and Bearing, or XPosition and
-  orientation; PointX or X) read and written in six places
-  (`instances.rs:1149`, `mg-area lib.rs:323`, `reshape.rs:92`,
-  `edit.rs:50`, `query.rs:114`, `palette_add.rs:58`). (M)
 - **GFF paths as strings:** two `Step` enums (`mg-module text.rs:77`,
   `mg-edit lib.rs:36`), hand parsers (`search.rs:255`, `rename.rs:83`,
   `:436`, `verify.rs:38`, `references.rs:489`), hand walkers beside
