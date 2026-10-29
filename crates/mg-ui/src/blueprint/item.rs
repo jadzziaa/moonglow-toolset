@@ -257,6 +257,18 @@ fn general(f: &mut Form<'_>, ui: &mut Ui) {
     });
 }
 
+/// The number a model or icon `name` is numbered with after `prefix`, as
+/// the game names them (`{prefix}{n:03}`): three digits, and from 1000 on
+/// four or five (EE's part numbers past 255, in the WORD twins).
+fn number_after(name: &str, prefix: &str) -> Option<u16> {
+    let rest = name.strip_prefix(prefix)?;
+    let named = rest.len() == 3 || (rest.len() > 3 && !rest.starts_with('0'));
+    if !named || !rest.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    rest.parse().ok()
+}
+
 /// The numbers `nnn` for which a model `{prefix}{nnn:03}` exists, cached.
 fn model_numbers(ui: &Ui, game: &GameData, prefix: &str) -> Arc<Vec<u16>> {
     let id = egui::Id::new(("model-numbers", prefix));
@@ -267,11 +279,7 @@ fn model_numbers(ui: &Ui, game: &GameData, prefix: &str) -> Arc<Vec<u16>> {
         .resman
         .list(ResType::MDL)
         .iter()
-        .filter_map(|r| {
-            let name = r.to_string();
-            let rest = name.strip_prefix(prefix)?;
-            (rest.len() == 3).then(|| rest.parse().ok()).flatten()
-        })
+        .filter_map(|r| number_after(&r.to_string(), prefix))
         .collect();
     v.sort_unstable();
     v.dedup();
@@ -308,11 +316,7 @@ fn icon_numbers(ui: &Ui, game: &GameData, prefix: &str) -> Arc<Vec<u16>> {
     let mut v: Vec<u16> = [ResType::TGA, ResType::DDS, ResType::PLT]
         .into_iter()
         .flat_map(|t| game.resman.list(t))
-        .filter_map(|r| {
-            let name = r.to_string();
-            let rest = name.strip_prefix(&icon)?;
-            (rest.len() == 3).then(|| rest.parse().ok()).flatten()
-        })
+        .filter_map(|r| number_after(&r.to_string(), &icon))
         .collect();
     v.sort_unstable();
     v.dedup();
@@ -1072,4 +1076,24 @@ fn description(f: &mut Form<'_>, ui: &mut Ui) {
     ui.separator();
     f.variables(ui);
     f.update_instances(ui);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::number_after;
+
+    /// Three digits, and past 999 the number as it is (a hak's it_gem_1000):
+    /// nwn-issues 658's appearances of 100 and more are listed.
+    #[test]
+    fn models_are_numbered_by_three_digits_and_more() {
+        assert_eq!(number_after("it_gem_007", "it_gem_"), Some(7));
+        assert_eq!(number_after("it_gem_150", "it_gem_"), Some(150));
+        assert_eq!(number_after("it_gem_1000", "it_gem_"), Some(1000));
+        assert_eq!(number_after("it_gem_65535", "it_gem_"), Some(65535));
+        for not in
+            ["it_gem_07", "it_gem_0150", "it_gem_15a", "it_gem_+15", "it_gem_99999", "it_ge_150"]
+        {
+            assert_eq!(number_after(not, "it_gem_"), None, "{not}");
+        }
+    }
 }

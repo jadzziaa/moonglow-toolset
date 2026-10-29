@@ -541,8 +541,9 @@ placeables around.
 ## Duplicate tags
 
 A copy keeps its original's tag, and a script that looks an object up by
-its tag (`GetObjectByTag`) finds only one of them: in the game, the copy
-placed later. A copied start waypoint, rental door or store then takes
+its tag (`GetObjectByTag`) finds only one of them: in the game, the one
+loaded last, which is the copy placed later, or the one in the area that
+comes later in the module's list of areas. A copied start waypoint, rental door or store then takes
 its original's place, or the original its copy's, with no error.
 
 With **Options › General › Show duplicate tags warning after a paste

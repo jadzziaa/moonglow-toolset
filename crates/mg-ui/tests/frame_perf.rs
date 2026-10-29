@@ -443,6 +443,21 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
             o.yaw += 0.01;
         }
     });
+    // The tiles palette beside it with a search being typed: a letter
+    // more each frame (the tileset searched again as each is).
+    h.state_mut().actions.push(Action::OpenTab(Tab::Palette));
+    h.run_steps(2);
+    view_with(h, r, &format!("{name}, tiles palette searched as typed"), None, |app, n| {
+        const TYPED: &str = "corner wall";
+        let p = &mut app.palette;
+        (p.tiles, p.prefabs) = (true, false);
+        p.filter = TYPED[..1 + n % TYPED.len()].to_string();
+    });
+    {
+        let p = &mut h.state_mut().palette;
+        (p.tiles, p.filter) = (false, String::new());
+    }
+    close(h, &Tab::Palette);
     // Every object selected (Ctrl+A) and the ground's walkmesh shown,
     // turning: the overlays drawn for each, each frame.
     if let Some(v) = h.state_mut().area_views.get_mut(&area)
@@ -903,6 +918,18 @@ fn frames_at_144_in_a_persistent_world() {
     h.get_by_label("Inventory").click();
     h.run_steps(3);
     view(&mut h, &mut r, "store inventory with 1,000 items", Some(&store));
+    // Its picker on the custom palette, searched for what all 8,000 have:
+    // every blueprint folded into the tree, every match drawn.
+    if click(&mut h, "Custom Palette") {
+        let found = egui_kittest::kittest::by().predicate(|n| n.placeholder() == Some("Find"));
+        if let Some(find) = h.query_all(found).last() {
+            find.click();
+            h.run_steps(2);
+            h.event(egui::Event::Text("pw_i".into()));
+            h.run_steps(3);
+        }
+        view(&mut h, &mut r, "store inventory, picker searched (8,000 found)", Some(&store));
+    }
     close(&mut h, &store);
     // An item's Properties page: every property it may take, by kind.
     let item = Tab::Blueprint(ResKey::parse("pw_i00001", ResType::UTI).unwrap());

@@ -8,6 +8,7 @@
 use std::time::Duration;
 
 use mg_core::{ResRef, ResType};
+use mg_gff::{Struct, Value};
 use mg_module::blueprints::{CreatureSpec, creature};
 use mg_resman::{GameInstall, ResKey};
 use mg_rules::{CreatureSheet, GameData};
@@ -95,4 +96,88 @@ fn saving_throws_match_the_engine() {
         }
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// The Great Constitution feats' hit points: the game adds them to the
+/// maximum itself (as it adds Epic Toughness's), but works out the hit
+/// points a creature starts with from `CurrentHitPoints` and the
+/// Constitution without them. A fighter 30 of Constitution 14 with none
+/// of the feats, and with four (a modifier 2 higher: 60 hit points), its
+/// `CurrentHitPoints` the base as Aurora writes it, and as Moonglow does
+/// (the base and the feats' 60): Aurora's starts 60 short.
+#[test]
+fn great_constitution_s_hit_points_are_the_engine_s_to_add() {
+    let root = corpus!();
+    if server_binary(&root).is_none() {
+        eprintln!("skipped: no nwserver for this platform");
+        return;
+    }
+    let _ = oracle_tool!("nwn_script_comp");
+    let dir = scratch_dir("engine_great_constitution");
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let mut extra = Vec::new();
+    let mut ours = Vec::new();
+    let mut probes = String::new();
+    for (name, great) in [("mg_plain", 0u16), ("mg_aurora", 4), ("mg_great", 4)] {
+        let resref = ResRef::from_str(name).unwrap();
+        let spec = CreatureSpec {
+            resref,
+            first_name: name.to_string(),
+            last_name: String::new(),
+            race: 6,
+            gender: 0,
+            appearance: 6,
+            portrait: 1,
+            faction: 1,
+            classes: vec![(4, 30)],
+            category: 0,
+        };
+        let mut utc = creature(&game, &spec, &|_| None);
+        utc.root.set("Con", Value::Byte(14));
+        let list = utc.root.list_mut("FeatList").unwrap();
+        // (The wizard's own Great feats out, these in.)
+        list.retain(|f| !f.integer("Feat").is_some_and(|f| (764..824).contains(&f)));
+        for feat in 774..774 + great {
+            let mut f = Struct::new(1);
+            f.set("Feat", Value::Word(feat));
+            list.push(f);
+        }
+        let stats = game.creature_stats(&CreatureSheet::from_gff(&utc.root));
+        let base = utc.root.integer("HitPoints").unwrap() as i32;
+        let current = if name == "mg_aurora" { base } else { stats.current_hit_points };
+        utc.root.set("MaxHitPoints", Value::Short(stats.max_hit_points as i16));
+        utc.root.set("CurrentHitPoints", Value::Short(current as i16));
+        ours.push((name, stats));
+        extra.push((ResKey::new(resref, ResType::UTC), utc.to_bytes().unwrap()));
+        probes += &format!(
+            "    o = CreateObject(OBJECT_TYPE_CREATURE, \"{name}\", l);\n    \
+             WriteTimestampedLogEntry(\"MG_HP {name}=\" + IntToString(GetMaxHitPoints(o)) + \
+             \",\" + IntToString(GetCurrentHitPoints(o)));\n"
+        );
+    }
+    let script = format!(
+        "void main()\n{{\n    location l = GetStartingLocation();\n    object o;\n{probes}    \
+         WriteTimestampedLogEntry(\"MG_DONE\");\n}}\n"
+    );
+    probe_module(&root, &dir, "mg_greatcon", &script, &[], &extra);
+    let run = run_server(&root, &dir, "mg_greatcon", "MG_DONE", Duration::from_secs(120)).unwrap();
+    assert!(run.finished, "{}", &run.log[run.log.len().saturating_sub(2000)..]);
+    let engine: std::collections::HashMap<String, (i32, i32)> = run
+        .values("MG_HP")
+        .into_iter()
+        .filter_map(|v| {
+            let (name, rest) = v.split_once('=')?;
+            let (max, current) = rest.split_once(',')?;
+            Some((name.to_string(), (max.parse().ok()?, current.parse().ok()?)))
+        })
+        .collect();
+    let [(_, plain), (_, aurora), (_, great)] = &ours[..] else { unreachable!() };
+    assert_eq!((plain.great_hit_points, great.great_hit_points), (0, 60));
+    // The same stored maximum, Aurora's; the engine's own is 60 more.
+    assert_eq!(plain.max_hit_points, great.max_hit_points);
+    let (plain_max, plain_current) = engine["mg_plain"];
+    assert_eq!(plain_current, plain_max, "{engine:?}");
+    assert_eq!(engine["mg_aurora"], (plain_max + 60, plain_max), "Aurora's starts short");
+    assert_eq!(engine["mg_great"], (plain_max + 60, plain_max + 60), "Moonglow's starts whole");
+    assert_eq!(aurora.current_hit_points, great.current_hit_points);
 }

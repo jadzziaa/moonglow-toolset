@@ -1409,6 +1409,54 @@ fn item_editor_adds_properties_and_keeps_the_cost() {
     h.get_by_label("No property has that.");
 }
 
+/// The Great Constitution feats' hit points, which the game leaves out of
+/// those a creature starts with (`engine_saves.rs`), are kept in its
+/// current hit points: given with the feats; a creature without them, or
+/// wounded below its base, is left as it is.
+#[test]
+fn great_constitution_s_hit_points_are_kept_in_the_current_ones() {
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_great", ResType::UTC) else {
+        return;
+    };
+    h.run();
+    let set = |h: &mut Harness<'_, Moonglow>, label: &str, value: mg_gff::Value| {
+        let edit = mg_edit::Edit::SetField {
+            key,
+            path: mg_edit::GffPath::root(),
+            label: label.into(),
+            value: Some(value),
+        };
+        h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Set", vec![edit])));
+        h.run_steps(3);
+    };
+    let hit_points = |h: &mut Harness<'_, Moonglow>| {
+        let s = field(h, &key);
+        (s.integer("HitPoints").unwrap(), s.integer("CurrentHitPoints").unwrap())
+    };
+    let s = field(&mut h, &key);
+    let level: i64 =
+        s.list("ClassList").unwrap().iter().filter_map(|c| c.integer("ClassLevel")).sum();
+    let (base, current) = hit_points(&mut h);
+    assert_eq!(current, base, "as Aurora writes it");
+    let mut feats = s.list("FeatList").unwrap().to_vec();
+    let without = feats.clone();
+    // (Two points of Constitution: a modifier one higher whatever the
+    // score's parity.)
+    for feat in [774, 775] {
+        let mut f = mg_gff::Struct::new(1);
+        f.set("Feat", mg_gff::Value::Word(feat));
+        feats.push(f);
+    }
+    set(&mut h, "FeatList", mg_gff::Value::List(feats.clone()));
+    assert_eq!(hit_points(&mut h), (base, base + level), "the feats' hit points");
+    // (Without them, a creature's current hit points are its own.)
+    set(&mut h, "FeatList", mg_gff::Value::List(without));
+    assert_eq!(hit_points(&mut h), (base, base + level), "left as they were");
+    set(&mut h, "CurrentHitPoints", mg_gff::Value::Short(1));
+    set(&mut h, "FeatList", mg_gff::Value::List(feats));
+    assert_eq!(hit_points(&mut h), (base, 1), "a wounded creature stays wounded");
+}
+
 #[test]
 fn creature_editor_levels_and_aligns() {
     let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_copy", ResType::UTC) else {

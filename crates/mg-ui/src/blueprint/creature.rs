@@ -85,7 +85,30 @@ pub(crate) fn refresh_hit_points(
         let Ok(g) = ws.doc(&key) else { continue };
         let Some(creature) = path.get(&g.root).cloned() else { continue };
         let creature = &creature;
-        let max = game.creature_stats(&CreatureSheet::from_gff(creature)).max_hit_points;
+        let stats = game.creature_stats(&CreatureSheet::from_gff(creature));
+        let max = stats.max_hit_points;
+        // The current hit points with the Great Constitution feats', which
+        // the game leaves out of those it starts the creature with, where
+        // it has them. A creature with fewer than its base is left
+        // wounded, and one without them as it is (a stock creature has
+        // more than its base without them: `tm_cr_dragblksml`).
+        let base = creature.integer("HitPoints").unwrap_or(0);
+        let current = creature.integer("CurrentHitPoints");
+        if stats.great_hit_points != 0
+            && current.is_some_and(|c| c >= base)
+            && current != Some(i64::from(stats.current_hit_points))
+        {
+            edits.push(Edit::SetField {
+                key,
+                path: path.clone(),
+                label: "CurrentHitPoints".into(),
+                value: Some(super::integer(
+                    creature.get("CurrentHitPoints"),
+                    stats.current_hit_points.into(),
+                    FieldType::Short,
+                )),
+            });
+        }
         if creature.integer("MaxHitPoints") != Some(i64::from(max)) {
             let old = creature.get("MaxHitPoints");
             edits.push(Edit::SetField {

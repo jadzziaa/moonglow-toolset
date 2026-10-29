@@ -61,9 +61,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   wrapper for the arguments it adds (`--root`, `--user-dir`, a home),
   and the corpus tests' `gpu()` (`game_shaders.rs`) repeats
   mg-render's tests'. (S)
-- **CI's time with the new workflow is not measured:** its first run
-  passed on the three systems from an empty cache (14 to 24 minutes);
-  compare a warm run with the 8 to 10 minutes of before. (S)
 
 ## Script intelligence (`mg lsp`, the script editor)
 
@@ -106,7 +103,8 @@ Size: S (an hour or two), M (a day or so), L (several days).
   stay selected but aren't opened. (S)
 - **Editor setups:** the manual's Neovim and Helix snippets are untried
   in those editors. On Windows, `mg lsp` is checked only by CI's
-  tests. (S)
+  tests. (S) (waits on Neovim and Helix: neither is on the
+  development machine, and putting them there is a download)
 - **The external compiler with `nwnsc`** (Options › Script Editor):
   its line of arguments (`-q -y -o -n {game} -i {src} -b {out}
   {files}`) is from its documentation, not run, and its messages are
@@ -116,12 +114,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   (its bytecode is the built-in compiler's, byte for byte). (S) (waits
   on a copy of nwnsc: none is on the development machine) (from
   builders' reports after 1.14.1)
-- **A project's script in the external editor** opens in place (the
-  project's own `.nss`), and its saves come back by the reading of files
-  changed outside, so not at all with that turned off in Options ›
-  General (the copy's way is used then). Scripts of a module file still
-  open as a copy in the temporary folder. Tried with a stand-in editor;
-  not with VS Code. (S) (from builders' reports after 1.16.1)
 - **Indentation by file:** a script's indentation is guessed when its
   text is read (opened, read again from the module, a Save of it
   included, or from outside), from its indented lines (tabs or spaces as
@@ -283,9 +275,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 ## Persistent-world scale
 
-- **Real CEP haks:** the test world's 150,000 hak files are tiny stand-ins.
-  Loading real CEP content at scale isn't measured; the campaign budgets
-  and model corpus tests cover real models. (S, needs CEP downloaded)
 - **Other machines:** budgets were measured only on the development
   machine (Ryzen 7 5800X3D, Radeon RX 9070). (S, needs other hardware)
 - **Where-used at scale:** the References window and Rename keep the
@@ -432,17 +421,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   does, for those in sight), and the palette's own Gallery doesn't mark
   blueprints whose appearance has none. (S) (dansen9191's report,
   October 2026)
-- **Aurora's faults Moonglow was checked for:** an epic creature of
-  several classes had Aurora's wrong saves (nwn-issues 816) and has the
-  game's now, measured in the server ([findings](findings.md)); the
-  abilities count the Great feats. Not done: whether the game adds the
-  Great Constitution feats' hit points itself was not measured (the
-  stored maximum stays Aurora's); an item appearance of 100 or more
-  (nwn-issues 658) is listed by what models there are (three digits),
-  with no base item's range read, and was not tried with such a model;
-  a custom caster class's spells (566) are offered by `classes.2da`'s
-  `SpellCaster` and `SpellTableColumn` alone, and were not tried with a
-  custom class. (S each)
 - **Number fields' limits against Aurora:** measured in Aurora
   (v89.8193.37) by typing past them: a creature's save bonuses 250 (and,
   it seems, no lower than 0: Moonglow keeps -100, for the penalties files
@@ -1018,16 +996,27 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Add Grass to… lists every surfacemat.2da row:** which materials the
   area's tiles have isn't shown, nor a texture's picture beside its name;
   any texture is taken as four tufts, two by two, as the game's are. (S)
-- **The other runtime fields of an area's GIT:** a saved game holds
-  `SunDirectionX/Y/Z`, `MoonDirectionX/Y/Z` and `DisplayName` in the GIT's
-  `AreaProperties` and `CurrentWeather` at its root; whether the engine
-  reads them from a module's GIT (as it reads the grass) isn't tested. (S)
+- **The sun's and moon's directions in an area's GIT:** the server reads
+  a module's GIT's `AreaProperties` `SunDirectionX/Y/Z`,
+  `MoonDirectionX/Y/Z` (kept into a saved game) and `DisplayName` (the
+  area's `GetName`), not the root's `CurrentWeather`
+  (`engine_git_runtime.rs`). Whether the client lights the area by those
+  directions, and so whether the area view should, isn't known. (S)
+  (waits on the client batch: an outdoor area at noon whose GIT's
+  `SunDirection` is low from one side, against the same area without,
+  its walls' lit sides and the shadows compared)
 - **Walkmesh cutters:** not drawn, and not placed (the trigger kind EE
   added). (S–M)
 - **A walkmesh's own node position:** one shipped placeable
   (`ptm_candle02.pwk`, Tyrants of the Moonsea) puts its mesh 72 m from
-  itself. Moonglow draws it there; whether the engine does isn't tested.
-  (S)
+  itself. Moonglow draws it there; whether the engine does isn't known.
+  Tried in the server (2026-10-29, a probe not kept): a creature made
+  where the mesh would be, at the placeable or 72 m off, is not moved at
+  either, where one made on a wagon is moved off it; with the module's
+  own copy of the walkmesh twenty times as wide (3.4 m), the same. So
+  the engine ignores this mesh, or a module's copy of it, or making a
+  creature doesn't see it: telling which needs a creature's path across
+  each place, or the client. (M)
 - **Lighting off against Aurora:** the Lighting switch's working light
   (white, even, a little from the sun's side) is Moonglow's; how Aurora
   lights an area with its lighting off was not captured. (S)
@@ -1224,12 +1213,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Aurora's). Pasted tiles over a group are refused as a group is; how
   Aurora pastes over a group wasn't checked. (S) (from Jasperre's tile
   feedback, October 2026)
-- **Group tiles freed (the option on):** a stroke chooses terrain tiles
-  for the group tiles it no longer fits; the doors such a change takes
-  or leaves were not looked at in the engine. The plugin API keeps its
-  documented `place_group` (over part of another group, that one goes
-  whole) and doesn't follow the option; its strokes keep groups whole as
-  before. (S) (from Jasperre's tile feedback, October 2026)
 - **Exact tile's reach:** the Gallery shows a terrain's and a crosser's
   tiles, not a group's pieces, so a piece of a group goes in alone only
   through Tile Properties' All tiles (the Features and Groups pictures,
@@ -1324,110 +1307,79 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - The C++ build: glslang is in every program and test binary that
     links `mg-module` (about 40 s of C++ on a cold build, once).
 - **The game's lit shaders drawn (M1 of [the shaders
-  proposal](shaders-proposal.md)):** what `Renderer::game_shaders` leaves
-  out. M2 turns it on with the Shaders switch in the area view and the
-  model viewer (off by default); `mgv` and Moonglow Viewer have none (M6).
-  (from M1, 2026-10-21)
+  proposal](shaders-proposal.md)):** what `Renderer::game_shaders`
+  leaves out (the Shaders switch, on by default since M3; Moonglow
+  Viewer draws them since its 0.2.0). (from M1, 2026-10-21)
   - **The environment map's level under a normal map:** the WGSL port
     takes `_nm`'s derivatives from the normal map's normal before the
     parallax and the bend of a normal facing away, which the game takes
     after (2 of 255 at the 99th percentile). (S)
-  - Solid and see-through lit meshes go through the game's programs
-    (M2), decals too (`vsvt`/`fst`, M4), and since M5 additive meshes,
-    the skybox, the area's grass and particles; the sky's fade, unlit
-    markers, shiny water without the targets' framebuffer copies (a
-    thumbnail, a preview: "The special surfaces" below), rippling textures (unless their material names a pair), and skins of
-    more than 64 bones stay with the WGSL shader. (S)
-  - Keyholing is compiled out (`KEYHOLING_ENABLED 0`): the editor has no
-    player. (S)
   - `gl_FragCoord.y` counts from the top in wgpu and from the bottom in
     OpenGL: counted from the bottom (in IR) only in a program that reads
-    the framebuffer's copies (`fswater`, `fsparticle`;
-    [the framebuffer proposal](framebuffer-proposal.md)). Of the other
-    stock ones keyholing (off), `fs_shadowplane` and `fs_cg_btn_col` (not
-    drawn) read it, and none of The Domains of Dread's 37 (checked in
-    M4). A screen-space custom shader that reads no copy would see it
-    upside down. (S)
+    the framebuffer's copies (`fswater`, `fsparticle`), whose size gives
+    the height. Of the other stock ones keyholing (off),
+    `fs_shadowplane` and `fs_cg_btn_col` (not drawn) read it, and none
+    of The Domains of Dread's 37. A screen-space custom shader that
+    reads no copy would see it upside down; its height would come from
+    `screenParams`. (S)
   - The height map's parallax direction on a tile's `rotatetexture`
-    meshes (`inc_displacement` turns it by `mat2(m_texture)`)
-    is not turned in Moonglow's own shader. (S)
-  - Values the editor has no source for are the game's defaults or
-    zero: `vColor`, `vStaticLightDir` (`staticLighting` 0, as the client
-    has it at fragment lighting), the weather (clear; M2 reads the area's
-    flags and wind from the ARE), wind sources, targeting,
-    `scriptable*`. Since M4 the module's clock is its IFO's (as the client
-    starts it; the editor's doesn't run), `cameraYaw` anticlockwise from
-    north and `cameraPitch` from straight down (both read from the
-    client). The model viewer and previews have no module: noon, two
-    minutes an hour. `cameraViewAngle` is the editor's field of view (the
-    client's 45 is its setting's). (S)
+    meshes (`inc_displacement` turns it by `mat2(m_texture)`) is not
+    turned in Moonglow's own shader (`displace`; the normal map's is).
+    (S)
   - `worldtimerTimeOfDay` counts real milliseconds and
     `sceneCurrentFrame` frames (measured, notes §B.4); Moonglow's clock
     starts both at 0 when the scene's time does. The client's timer has
     an origin that follows the module's minutes an hour (about 424,800
     a few seconds in at 2 minutes an hour, 3,304,900 at 10) and neither
-    its hour nor its day: not worked out. (S)
-  - One uniform block per stage; a program with more, storage buffers,
-    3D or array textures, or more than 16 textures a stage (wgpu's
-    default limit) falls back. A failure is reported once in the log
-    (the debug log, where Windows has no console), by
-    `Renderer::game_shader_failures`, and (M2) in the log pane. (S)
-  - Not run on Windows or macOS (the renderer's CI branch): naga's
-    `discard` from the game's `discard` on Metal, where a discarded
-    fragment that runs on writes its depth (`a_shader_returns_where_it_discards`
-    holds Moonglow's own shader to returning), is unchecked. (S)
+    its hour nor its day: not worked out. It is the phase of the
+    falling water's flow and the grass's sway, which are not compared
+    with the client frame by frame until it is. (S) (waits on the client
+    batch: the timer read back in the first shot, as
+    `time_uniforms_in_the_client` reads it, at three or four minutes an
+    hour and start hours, for the rule)
+  - The game's programs draw on CI's Metal and Direct3D 12 (the
+    renderer's CI branch, 2026-10-29: three draws, no failures), but a
+    discarding one's depth is not tested there: naga's `discard` from
+    the game's, and the alpha discard `keep_alpha` adds (a bare `Kill`),
+    run on, and on Metal a discarded fragment that runs on writes its
+    depth (`a_shader_returns_where_it_discards` holds Moonglow's own
+    shader to returning). (S: a see-through mesh's solid part through
+    the game's programs, as `a_see_through_edge_does_not_hide_the_ground_behind_it`
+    draws Moonglow's, on the renderer's CI branch)
 - **Tier A of the game's shaders (M2 of [the shaders
   proposal](shaders-proposal.md)):** what the Shaders switch leaves out
   or unchecked. (from M2, 2026-10-21)
   - **The framebuffer's copies** (`texFBColor`/`texFBDepth`, [the
-    framebuffer proposal](framebuffer-proposal.md), steps 1 to 3): made
-    after the solid meshes only. A material's `sample_framebuffer` (TDoD's
-    two flow MTRs; their programs read no copy) isn't drawn late; whether
-    the client copies again after the water (a see-through mesh or a
-    particle over water sees the solid meshes only) wasn't read; without
-    the targets' copies (`Renderer::render`) they are white. Direct3D 12
-    and Metal run in CI since (`the_framebuffer_s_copies_are_read_as_opengl_reads_them`
-    passed in 2.13.0's run on both). (S)
-  - **An instance drawn see-through** (a blueprint about to be placed, a
-    tile preview) draws with Moonglow's shader even when its material
-    names a pair: the ghost would need a depth-only pipeline of the game's
-    programs. (Additive meshes are the game's since M5.) (S)
-  - `texture8`–`texture15` of a material are white to its programs
-    (Moonglow keeps eight slots); no TDoD shader reads past `texUnit6`,
-    and none of its 18,146 materials, nor the game's 7, names one
-    (checked in M4). (S)
-  - The two-part see-through split is Moonglow's, not the engine's (one
-    blended draw); a custom shader that writes an alpha it means
-    otherwise (not opacity) would be cut at 0.95. (S to check)
-  - Tangents are made for every mesh without them (as the engine does for
-    a material with a render hint, and is not known to do without one);
-    the engine's way of making them (per face, weighted?) is not known:
-    a seam may shade otherwise. (S to check in the client)
+    framebuffer proposal](framebuffer-proposal.md)) are made after the
+    solid meshes only. A material's `sample_framebuffer` (TDoD's two
+    flow MTRs; their programs read no copy) is read and not drawn late,
+    after the shadows, as the engine draws it (S); whether the client
+    copies again after the water (a see-through mesh or a particle over
+    water sees the solid meshes only) wasn't read (S) (waits on the
+    client batch: a see-through mesh reading `texFBColor` over water,
+    whether the water shows in its copy).
+  - The tangents the renderer makes (a mesh with a render hint and none
+    of its own) are summed per face (`made_tangents`), where the game's
+    compiler copies a vertex whose handedness flips (`engine_tangents`,
+    MDL-MESH-043): whether the client makes an ASCII model's so at load
+    is not known, and a seam may shade otherwise. (S) (waits on the
+    client batch: an ASCII mesh with a mirrored UV seam under a render
+    hint, its tangents written as colour through a patched include,
+    beside the same model compiled)
   - `areaGlobalWind`'s direction is taken from TDoD's shader comments
-    ((0.707, 0.707, 0) for a medium wind), not read from the client; the
-    weather is always clear; wind sources are none. (S to check in the
-    client)
-  - The falling water's flow and the grass's sway are not compared with
-    the client frame by frame: `worldtimerTimeOfDay`'s origin is not
-    known (it is the phase). (S)
+    ((0.707, 0.707, 0) for a medium wind), not read from the client. (S)
+    (waits on the client batch: `areaGlobalWind` read back in an
+    outdoor area at `WindPower` 1 and 2)
   - Verify's `shader-pair` reports a material naming one program alone;
     whether the engine also ignores a lone `customshaderGS`, and what it
     does with a geometry program at all, is not checked (no content has
-    one). (S)
+    one; Moonglow fails one, reported, and draws its own). (S) (waits on
+    the client batch: an MTR naming `customshaderGS` alone, and one
+    naming it beside a pair, on a card)
   - Pictures already made (the galleries' thumbnails, a hovered row's
     preview) are kept across a flip of the switch, drawn as they were,
-    until they are asked for anew. (S)
-  - `Scene` gained `environment` and `GpuMesh` `tangents_made`: Moonglow
-    Viewer, which builds on these crates by tag, needs them at its next
-    bump (a `Scene { .. }` literal without `..Default::default()` stops
-    compiling). (M6)
-  - The model viewer's area for the shaders is outdoors without wind
-    (`areaFlags` 0): an interior-only effect (TDoD's roofs) shows as
-    outdoors there. (S)
-  - Not run on Windows or macOS (the renderer's CI branch): the alpha
-    discard `keep_alpha` adds to a fragment program is naga's `Kill`,
-    with Metal's discarded fragments writing depth unchecked (M1's note
-    above). (S)
+    until they are asked for anew: `set_game_shaders` changes the
+    renderer only. (S)
 - **The frame budget of the game's shaders (M3 of [the shaders
   proposal](shaders-proposal.md)):** what the Shaders switch, on by
   default, leaves over the budget or unchecked. (from M3, 2026-10-21)
@@ -1469,123 +1421,101 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     viewer choose the switch off; only the switch tests and TDoD's wind
     test draw the game's shaders through the window. (S)
 - **The engine's choice of program (M4 of [the shaders
-  proposal](shaders-proposal.md)):** what M4 settled in the client and
-  left, and what it changed in Moonglow's own drawing. (from M4,
-  2026-10-21)
+  proposal](shaders-proposal.md)):** what M4 left to read in the
+  client. (from M4, 2026-10-21)
   - **A static placeable's meshes** sharing a texture seemed to share
     one `NO_DISCARD` in the client (the plain and transparency-hint cards
     of a static copy were alpha-tested beside an `alpha 0.5` card of the
     same texture): the game bakes static geometry into buckets (.37).
     Moonglow decides it per mesh. Not worked out: which meshes share a
-    bucket, whether tiles' do (they are baked too). (S to check in the
-    client)
+    bucket, whether tiles' do (they are baked too). (S) (waits on the
+    client batch: the cards as a static and a dynamic placeable, and on
+    a tile)
   - A BioWare DDS's alpha is taken from its header's alpha mean (below
     1: alpha), not read from the client: 22 of the game's 3,717
     four-channel ones have a mean of 1 (roofs, bark, flagstones) and are
-    drawn solid. (S to check in the client)
-  - Not read in the client: which map an item on the ground reflects (it draws
-    `_sm`, as Moonglow's `chrome1` has it; the band didn't reach it), what
-    `cameraFocus` holds (read back as (34.31, 20, 0) once). (S)
-  - **What Moonglow's own shader now draws otherwise** (both paths, as
-    the client draws): a texture's `bumpyshinytexture` reflects nothing
-    (33 of the game's TXIs name one; water keeps it for Moonglow's own
-    water, standing in for `fswater`); maps named without a render hint
-    are not read (21 of TDoD's 18,146 materials); a DXT1's transparent
-    texels are drawn black, opaque (TDoD has 690 DXT1 textures); a
-    32-bit TGA all opaque is solid (drawn among the solid meshes); every
-    lit mesh reflects the area's map (the tileset's `EnvMap`) where it
-    has none of its own, not `chrome1`; `default` in appearance.2da's
-    `ENVMAP` is the area's map (the previews keep `default`; `chrome1`
-    without an area), in placeables.2da's `Reflection` `chrome1` (read
-    from the client since: findings, "A placeable's `Reflection`
-    `default` is `chrome1`"). (S to look at in the builders' areas)
-  - **NO_DISCARD and the dense view**: with each material's own, 826 of
-    the 16,605 game meshes of TDoD's synthetic woods seen whole are
-    `NO_DISCARD` 1 (its textures nearly all DXT5); its GPU time 16.6 ms
-    against 17.5 with 0 for all (same session): early depth was not what
-    made that view slow. It is still over the budget either way
-    (frame budget entry above). Pairs drawn both ways are compiled twice
-    (TDoD: 26 programs, 22 before). (M)
+    drawn solid. (S) (waits on the client batch: one of the 22 on a card
+    with a transparency hint, cut or solid)
+  - Not read in the client: which map an item on the ground reflects (it
+    draws `_sm`, as Moonglow's `chrome1` has it; the band didn't reach
+    it), what `cameraFocus` holds (read back as (34.31, 20, 0) once). (S)
+    (waits on the client batch: both through a patched include)
+  - Moonglow's own shader draws as the client does since M4 (Settled),
+    not yet looked at in the builders' areas: TDoD's DXT1 textures (690)
+    with their transparent texels black, and its 21 materials naming
+    maps without a render hint. (S) (waits on the client batch: a TDoD
+    area with both, beside the client's picture)
   - `program_choice_in_the_client` reads the cards by where they should
-    be on the client's picture (the camera fitted to the reference room),
-    so a card behind something reads as that (a tree's leaves hid three
-    at first): the cards stand clear of the tcn01 tile's tree, and one
-    straddling its cut (DXT5 alpha) isn't read. (S)
+    be on the client's picture, so a card behind something reads as
+    that: the cards stand clear of the tcn01 tile's tree, and one
+    straddling its cut (DXT5 alpha) isn't read. (S) (waits on the client
+    batch: that card moved clear and read)
   - Against the client, the switch on is as close as off on the stock
     scenes and closer on TDoD's room, but for its far floor (1.0 of 255
     from the client on, 0.4 off), beside a dark wall where the fitted
-    camera is a fraction of a pixel off. Not chased. (S)
+    camera is a fraction of a pixel off. (S) (waits on the client batch:
+    the room with the camera fitted to that wall)
   - `time_uniforms_in_the_client` fails now and then: the client's
     window, screenshot every three seconds, gave a picture it had shown
-    before (the same frame count), leaving two of five. Alone it
-    passes. (S)
-  - Moonglow Viewer (builds on these crates by tag) meets new fields at
-    its next bump: `Instance::tile`, `Material::rotate_texture` and
-    `uvs`, `Environment::clock` (`ModuleClock`), `Renderer::game_programs`
-    (`GameProgram`); a struct literal without `..` stops compiling. (M6)
+    before (the same frame count), leaving two of five. Alone it passes.
+    Shooting until three distinct frames would hold it. (S)
 - **The special surfaces (M5 of [the shaders
   proposal](shaders-proposal.md)):** water, grass, the sky, additive
   meshes and particles, read in the client (`surfaces_in_the_client`)
   and drawn with the game's programs or kept Moonglow's. (from M5,
   2026-10-21)
   - **Shiny water is the game's** (`vswater`/`fswater` with the
-    framebuffer's copies, [the framebuffer
-    proposal](framebuffer-proposal.md)) with the Shaders switch on: a
-    rural area's far water 10.9 of 255 from the client against Moonglow's
-    own 12.6, TDoD's fountain 10.6 against 11.7, a standing card 14.6
-    against 57.1. Moonglow's own water draws it with the switch off, in
-    thumbnails and previews (no copies), and where `fswater` fails
-    (`FRAME_OWN_WATER=1` in `frame_perf` times it beside). Still 10.9 away:
-    not looked into. (S)
+    framebuffer's copies) with the Shaders switch on: a rural area's far
+    water 10.9 of 255 from the client against Moonglow's own 12.6,
+    TDoD's fountain 10.6 against 11.7, a standing card 14.6 against
+    57.1. Still 10.9 away: not looked into. (S) (waits on the client
+    batch: the far water's pixels against Moonglow's, by part: the
+    reflection, the refraction's copy, the fog)
   - **Soft particles** fade as the client's with the Shaders switch on
-    (`particleSoftness` 10 over the emitter's larger size, read from the
-    client: step 4 of [the framebuffer proposal](framebuffer-proposal.md)).
-    Moonglow's own particle shader (the switch off) doesn't fade; what
-    the client gives lightning and `Linked` emitters wasn't read (Moonglow
+    (`particleSoftness` 10 over the emitter's larger size); what the
+    client gives lightning and `Linked` emitters wasn't read (Moonglow
     gives lightning none); a Lighten particle's foot fades a little more
-    than the client's (6.2 of 255 away over its last rows). (S)
+    than the client's (6.2 of 255 away over its last rows). Moonglow's
+    own particle shader (the switch off) doesn't fade. (S) (waits on the
+    client batch: `particleSoftness` read through the marked
+    `fsparticle` for a lightning and a `Linked` emitter)
   - **The sky's fade** (the horizon's band in the fog's colour) stays
-    Moonglow's: what the engine draws it with and gives it (`globalColor`,
-    its blending) wasn't read; the skybox is the game's `vsvt`/`fst`. (S)
+    Moonglow's: what the engine draws it with and gives it
+    (`globalColor`, its blending) wasn't read; the skybox is the game's
+    `vsvt`/`fst`. (S) (waits on the client batch)
   - **How the engine blends an additive mesh** (one and one, or by its
-    alpha) is not read: Moonglow adds its colour whole by either path, as
-    before; the same for an opaque texture. A Lighten particle is added by
-    its alpha (`fsparticle` fades it by its alpha into the fog). (S)
-  - **Particles' size and turn:** a still emitter's square particles are
-    drawn upright now, as in the client (they were turned by a random
-    angle: jagged discs where many lie in one place), 28 pixels a side
-    against the client's 30 in `surfaces_in_the_client`, 1 to 3 pixels
-    off (the fitted camera's error, or the size: not told apart). A
-    spinning particle's starting angle wasn't read. (S)
-  - **The grass** is the game's program on Moonglow's tufts: their places,
-    sizes and count are Moonglow's (the field's mean colour 0.1 of 255
-    from the client's, but per pixel 17.6 against Moonglow's own 17.0:
-    the blades stand elsewhere). How the engine fades its grass in, and
-    the material colours it uploads (`.set` [GRASS]'s, linearised as
-    Moonglow does), are not read. (S)
-  - **Cube maps have one level** (`GpuTexture::upload_cube`): the level
-    Moonglow's shader works out for them since the Metal fix
-    (`cube_level`) and the bias the game's add come to level 0 either
-    way. (S)
-  - `Instance::grass`, `game::Traits`' `water`, `grass` and `sky`, and
-    `Renderer::game_water`: Moonglow Viewer meets them at its next bump (a
-    struct literal without `..` stops compiling). (M6)
+    alpha) is not read: Moonglow adds its colour whole by either path;
+    the same for an opaque texture. A Lighten particle is added by its
+    alpha. (S) (waits on the client batch: an additive card whose
+    texture's alpha runs 0 to 1, over a gray ground)
+  - **Particles' size and turn:** a still emitter's square particles
+    are drawn upright, as in the client, 28 pixels a side against the
+    client's 30 in `surfaces_in_the_client` (the fitted camera's error,
+    or the size: not told apart). A spinning particle's starting angle
+    wasn't read. (S) (waits on the client batch)
+  - **The grass** is the game's program on Moonglow's tufts: their
+    places, sizes and count are Moonglow's (the field's mean colour 0.1
+    of 255 from the client's, but per pixel 17.6 against Moonglow's own
+    17.0). How the engine fades its grass in, and the material colours
+    it uploads (`.set` [GRASS]'s), are not read. (S) (waits on the client
+    batch: both through a patched `vsgrass`)
+  - **Cube maps have one level** (`GpuTexture::upload_cube`), so the
+    level Moonglow's shader works out for them (`cube_level`) and the
+    bias the game's programs add come to level 0 either way: a rough
+    surface's cube reflection isn't blurred. The stored levels would be
+    uploaded. (S)
   - **The switch on still costs the water view about 0.9 ms of
     encoding** (3.6 ms against 2.7 off, at 6.5 ms a frame within the
     budget by 0.4): about 0.75 ms the draws' own values (the material's
     template copied, `m_mv`, `m_mvp` and `m_normal` with an inverse each
     draw), the upload 0.09 ms, the submit 0.07 ms. `m_normal` from the
-    3×3 part (not bit for bit the same as the 4×4 inverse), or values
-    that the camera alone changes kept per instance and multiplied in the
-    vertex program (a change to what the game's programs compute), would
-    cut it. (M)
+    3×3 part, or values that the camera alone changes kept per instance
+    and multiplied in the vertex program, would cut it. (M)
   - The area views saved with `FRAME_SHOTS=1` are not comparable from
-    one run to the next where tiles animate: two runs of the build with
-    the lights by their places differ by up to 31 of 255 over area092's
-    sea, where the builds before were the same run to run. At a fixed
-    clock (`area_parts`) its pictures are the same, so it is the clock
-    the view was drawn at; why it differs from run to run was not looked
-    into. A fixed clock for the shots would make them comparable. (S)
+    one run to the next where tiles animate (up to 31 of 255 over
+    area092's sea): they are drawn at the running clock, where
+    `FRAME_PARTS_SHOTS` draws at a fixed one. A fixed clock for the
+    shots would make them comparable. (S)
 - **Emitters a builder does not see** (GitHub issue 8: a demon's wings,
   braziers, shafts of light, all without particles in his area): not
   reproduced. The game's own balor, fire elemental, campfire and brazier
@@ -1663,26 +1593,33 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   2026-10-28). Left:
   - the lights' shadows' darkness was measured at one distance from one
     lamp: the opacity times the plane's fade there, which a fall-off with
-    the distance from the light (`shadowradius`) would look alike to (S);
+    the distance from the light (`shadowradius`) would look alike to (S)
+    (waits on the client batch: a creature's light shadow at two more
+    distances from the lamp);
   - which light of two equally near the client takes (Moonglow: the
     first), how many creatures cast the lights' shadows at once
     (`max-casting-lights` changed nothing with one; Moonglow: 16), and a
-    PC's own light at night (Moonglow places no PC) (S);
+    PC's own light at night (Moonglow places no PC) (S) (waits on the
+    client batch);
   - what is drawn after the shadows receives none: the area's grass
     (see-through tufts: in `shadows_look` with `MG_SHADOW_GRASS=1` the
     shadowed ground darkens by 0.34 to 0.38, the client's by 0.42, its
     grass sparser and darkened), the solid parts of a tile's see-through
     meshes (alpha-blended leaves), shiny water drawn after the
     framebuffer's copy; the client's volumes darken whatever was drawn
-    before its plane (S);
+    before its plane (M: those drawn later would read the map
+    themselves);
   - with Fade Geometry on, the faded roofs and upper walls cast no
     shadow, where the game's still do (S);
-  - doors cast as placeables do and items on the ground cast none: not
-    checked in the client (S);
-  - the exact stencil look: a volume torn by a non-manifold caster, the
-    shadow's fade with the height between plane and caster
-    (85.8193.31), sun shadows never above the camera's height; the
-    shadow map's edges are a texel soft (S);
+  - doors cast as placeables do and items on the ground cast none (the
+    game since 8193.35: "non-character models cast shadows only if
+    opaque") (S) (waits on the client batch: a door and an item on the
+    ground in the sun);
+  - the shadow's fade with the height between plane and caster
+    (8193.31's "shadow alpha by vertical distance") and sun shadows
+    never above the camera's height are not drawn (S) (waits on the
+    client batch: a caster raised over the ground in steps, and a tall
+    one seen from below its top);
   - the previews (blueprints, the model viewer) draw none (S).
   (asked by the Domains of Dread module session and by a builder,
   Troubletcat)
@@ -1923,7 +1860,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   there from a pane; from a window of its own, the window was seen to
   move and not to dock, by the tests' drag (not confirmed either way in
   the window). (S) (GitHub issues 10 to 24, after 1.20.0; 20, 21 and
-  23 after 1.30.2)
+  23 after 1.30.2) (the window's drop waits on a drag by hand in the
+  running program, the owner's or issue 21's reporter's: the UI tests
+  can't make a window of its own, and issue 21 has no answer since
+  2026-10-10)
 - **The module tree and the palettes by the keyboard** (GitHub issue
   12, after 1.20.0, and
   a builder: Aurora's arrows go to the parent on Left and fold the
@@ -2006,9 +1946,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **The game's text in the language edited:** the install is read as
   that language when its `lang/<code>/data/dialog.tlk` is there (its
   talk table, and the rest of its `lang` folder); a module's custom
-  talk table is one file whatever the language. Whether the feminine
-  table (`dialogf.tlk`) is shown where the game would use it was not
-  looked at. Checked on Polish only. (S)
+  talk table is one file whatever the language (checked for each of
+  the five other languages installed, `the_install_s_language_is_the_one_edited`).
+  Whether the feminine table (`dialogf.tlk`) is shown where the game
+  would use it was not looked at: the game reads it for a woman's
+  character, which the editor has none of. (S) (waits on Aurora: whether
+  it ever shows the feminine table's text, a line by StrRef in its
+  conversation editor say; if never, this is settled)
 - **Loading screen pictures** are put together as the game's stock
   `pnl_loadscreen` model maps them (two halves of a square texture); a
   module with its own `pnl_loadscreen` model, or a texture that isn't
@@ -2081,7 +2025,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   tests stand in for the backend, and the keys were not pressed in the
   running program on Linux, Windows or macOS. Shift+Delete in the module
   tree no longer deletes the resource (it is a cut, which the tree does
-  not take). (S) (Sacha's report on 2.5.4)
+  not take). (S) (Sacha's report on 2.5.4) (waits on the keys pressed
+  in the running program: the owner's on Linux, Sacha's on his system)
 - **Sharing key sets:** Options › Keyboard › Export… and Import… write
   and take the keys chosen as a file; the dialogs themselves weren't
   driven.
@@ -2547,9 +2492,6 @@ document; the entries here that name the audit are that list in short.
   §I.2, `notes_tilesets.md` §B.4 and §I, `notes_shaders.md` §M,
   `notes_gff_changelog.md` §G. (S each)
   (the documentation audit of 2026-10-12)
-- **The plan's "Held by" lists were chosen by reading:** the record of
-  the phases names files and tests for each phase from their names and
-  headers, not from a run. (S) (the documentation audit of 2026-10-12)
 - **The wiki corrections were never submitted** (`wiki-proposal.md`);
   all fifteen pages are unchanged upstream. (S)
   (the documentation audit of 2026-10-12)
@@ -2573,11 +2515,6 @@ commits, with a test for all but one of the bugs it fixed) is in the
 history; this is what it left, found by reading and not by running
 unless it says so.
 
-- **Area Properties copies the area's fields each frame it is open**
-  (`area_props.rs`: its form owns the root it edits, as every
-  blueprint's does), without the tile list since: a large area's
-  thousand tiles were most of the copy. Not timed (`frame_perf.rs` was
-  not run for it). (S)
 - **Still made every frame, each needing something kept:** a blueprint's
   category list (`Form::category` reads and parses the palette),
   Module Properties' list of the hak folder, the script
@@ -2616,11 +2553,16 @@ viewer under 2). What is left:
 - **Typing in a very large script** (`nwscript.nss`, 14,000 lines) is
   13 ms a key: egui lays out the whole text again on each change. An
   editor that lays out the lines in sight would be needed. (L)
-- **Not measured:** the tiles palette searches its tileset two or three
-  times a frame while a search is typed; dragging objects copies the whole
-  area model each frame; the blueprint picker (inventory, store and
+- **The blueprint picker over a large palette** (inventory, store and
   encounter pages) folds every blueprint once a level of its tree and
-  draws every match. (S each, after a measure)
+  draws every match: searched for what all of the persistent world's
+  8,000 custom items have, the store's Inventory page takes 8.0 ms a
+  frame (`frame_perf`'s "store inventory, picker searched", 2026-10-29;
+  the budget 6.94). The matches kept by palette and search, and only
+  the rows in view drawn, would cut it. (M) Dragging objects copies the
+  whole area model each frame: not timed, `frame_perf` has no drag of a
+  selection (S to add). (The tiles palette searched as it is typed is
+  timed since: 5.0 ms at worst over area092's 784 tiles, in budget.)
 - **Skinned and vertex-animated meshes are never culled** (`renderer.rs`):
   an off-screen creature's bones are posed and drawn. A renderer change,
   so through CI on a branch first. (M)
@@ -2740,7 +2682,12 @@ of truth, and does each caller's difference matter.
   (`mg-nui lib.rs:209`, `talk_view.rs:332`); also `talk.rs:82`,
   `attach.rs:72`, `grass.rs:222`, `doctor.rs:708`,
   `tileset_view.rs:142`. A plugin can write a sound `mg tlk` refuses.
-  Which the game takes, by an engine test. (S)
+  The game takes any name of up to 16 bytes but NUL, whatever its case
+  (found by either, listed in lower case), with `-`, `.`, a space or a
+  byte past ASCII (`engine_resource_names.rs`), as `ResRef` does; what
+  is left is the one rule for names Moonglow makes, chosen (narrower
+  than the game's, for names that are also a project's file names)
+  and put in mg-core for the eleven places. (S–M)
 - **A palette node's name, four readers:** `palette.rs:430` (NAME, then
   STRREF, then DELETE_ME), `:323`, `new.rs:242`, and the tile palette's
   `mg-area terrain.rs:119` (STRREF first, no DELETE_ME, NAME as UTF-8).
@@ -2878,9 +2825,6 @@ and duplicate tags on paste. What is left:
   rewrite them); in a persistent world of hundreds of areas a paste may
   take a moment. An index kept by the workspace's revision would answer
   at once. (S)
-- **Which object `GetObjectByTag` takes of several** was measured for
-  two in one area (the second placed); across areas, and for more,
-  not. (S)
 - **`unique_in_area` is quiet about other areas whatever
   `paste_warning` says:** with `"any"`, a store's tag pasted into
   another area isn't said, as the project says it may be there; and
@@ -3453,3 +3397,56 @@ is not taken for a new gap.
   writes each as a talk table of its own, and nothing pairs a line with
   its feminine line. (S) (Settled with the rest of "Tables for plugins",
   done in the deferred sprint of 2026-10-28: it is the game's format.)
+- **The plugin API's `place_group` ignores Options › Area's freed group
+  tiles:** it keeps its documented way (over part of another group, that
+  one goes whole), so a plugin's strokes keep groups whole whatever the
+  builder's option. (Settled 2026-10-29, when the window's freed strokes
+  were checked in the engine.)
+- **What stays with Moonglow's own shader with the Shaders switch on:**
+  the sky's fade, unlit markers, shiny water without the targets'
+  framebuffer copies (thumbnails, previews), textures that only ripple
+  (a procedure the engine runs on the CPU) and skins of more than 64
+  bones (the game's own `MAX_NUM_BONES`). (M1, 2026-10-21)
+- **Keyholing is compiled out** (`KEYHOLING_ENABLED 0`) of the game's
+  programs: the editor has no player. (M1)
+- **The game's uniforms the editor has no source for** are the game's
+  defaults or zero: `vColor`, `vStaticLightDir` (`staticLighting` 0,
+  as the client has it at fragment lighting), the weather (clear: the
+  game rolls it from the ARE's chances as it runs), wind sources,
+  targeting, `scriptable*`; the model viewer and previews have no
+  module (noon, two minutes an hour); `cameraViewAngle` is the editor's
+  field of view. (M1)
+- **A program the renderer can't take falls back** to Moonglow's own
+  shader, reported once (the log, `Renderer::game_shader_failures`, the
+  log pane): more than one uniform block a stage, storage buffers, 3D or
+  array textures, more than 16 textures a stage. (M1)
+- **An instance drawn see-through** (a blueprint about to be placed, a
+  tile preview) draws with Moonglow's own shader even when its material
+  names a pair: the ghost is the editor's, which the game has none of.
+  (M2)
+- **`texture8`-`texture15` of a material are white** to its programs
+  (Moonglow keeps eight slots): no shader of TDoD's reads past
+  `texUnit6`, and none of its 18,146 materials, nor the game's 7, names
+  one. (M2, checked in M4)
+- **The two-part see-through split cuts a custom shader's alpha at
+  0.95**, as it does any mesh's: every fragment program of The Domains
+  of Dread writes the stock opacity (`fs_plt_hair` its texture's alpha),
+  none an alpha meant otherwise (read 2026-10-29). (M2)
+- **The model viewer's area for the shaders is outdoors without wind**
+  (`areaFlags` 0): it has no area, so an interior-only effect (TDoD's
+  roofs) shows as outdoors there. (M2)
+- **Moonglow's own shader draws as the client does** since M4 (both
+  paths): a texture's `bumpyshinytexture` reflects nothing (water keeps
+  it for Moonglow's own water); maps named without a render hint are not
+  read; a DXT1's transparent texels are black, opaque; a 32-bit TGA all
+  opaque is solid; every lit mesh reflects the area's map where it has
+  none of its own; `default` in appearance.2da's `ENVMAP` is the area's
+  map (`chrome1` without an area), in placeables.2da's `Reflection`
+  `chrome1`. (M4, each read from the client)
+- **A pair drawn both with and without `NO_DISCARD`** is compiled twice
+  (TDoD: 26 programs, 22 before): the cost of the engine's choice made
+  per mesh. (M4)
+- **The shadow map stands in for the game's stencil volumes**
+  ([notes](research/notes_shaders.md) §G.2): a volume torn by a
+  non-manifold caster isn't drawn as the game draws it, and the map's
+  edges are a texel soft. (2026-10-28)

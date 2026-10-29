@@ -794,10 +794,19 @@ fn a_project_s_script_opens_in_place_in_the_external_editor() {
     assert!(file.is_file(), "the project's own file");
     assert_eq!(said(&h, &format!("editing {} in {editor}", file.display())), 1);
     // Saved there by the editor: read again as a file changed outside is.
+    // Written in place, as VS Code saves (VSCodium 1.143: its writes are
+    // atomic only for its own settings files)...
     std::fs::write(&file, "void main()\n{\n    int n = 1;\n}\n").unwrap();
     h.state_mut().reload_project_files();
     h.run_steps(3);
     assert!(h.state().script_text(key).unwrap().contains("int n = 1;"));
+    // ...and written beside it and renamed over it, as Vim and Helix save.
+    let beside = dir.join("src/.hello.nss.swp");
+    std::fs::write(&beside, "void main()\n{\n    int n = 2;\n}\n").unwrap();
+    std::fs::rename(&beside, &file).unwrap();
+    h.state_mut().reload_project_files();
+    h.run_steps(3);
+    assert!(h.state().script_text(key).unwrap().contains("int n = 2;"));
     // With text typed here and not saved: a copy, and why.
     h.state_mut().script_tools.jump = Some((key, 0));
     h.run_steps(2);

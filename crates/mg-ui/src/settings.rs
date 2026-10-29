@@ -804,23 +804,36 @@ mod tests {
         assert_eq!(language(None), "en");
         // (A language the game has no folder for.)
         assert_eq!(language(Some(131)), "en");
-        if root.join("lang/pl/data/dialog.tlk").is_file() {
-            assert_eq!(language(Some(5)), "pl");
-            // A description named by StrRef reads in Polish then (the
-            // drow's, string 64101).
-            let text = |edit: Option<u32>| {
-                let s = Settings {
-                    game_root: Some(root.clone()),
-                    edit_language: edit,
-                    ..Default::default()
-                };
-                let game = mg_rules::GameData::open(&s.install().unwrap()).unwrap();
-                game.string(mg_core::StrRef(64101)).unwrap()
+        // A description named by StrRef reads in the language then (the
+        // drow's, string 64101), and the language's own archives
+        // (`lang/<code>/data/nwn_base_loc.key`: its voices and
+        // conversations) are read: each of the EE's languages installed.
+        let game = |edit: Option<u32>| {
+            let s = Settings {
+                game_root: Some(root.clone()),
+                edit_language: edit,
+                ..Default::default()
             };
-            let (english, polish) = (text(None), text(Some(5)));
-            assert!(english.contains("drow"), "{english}");
-            assert_ne!(english, polish, "another language's text");
+            mg_rules::GameData::open(&s.install().unwrap()).unwrap()
+        };
+        let english = game(None).string(mg_core::StrRef(64101)).unwrap();
+        assert!(english.contains("drow"), "{english}");
+        let mut seen = 0;
+        for id in 1..=5 {
+            let code = mg_core::Language(id).short_code().unwrap();
+            if !root.join("lang").join(code).join("data/dialog.tlk").is_file() {
+                continue;
+            }
+            seen += 1;
+            assert_eq!(language(Some(id)), code);
+            let game = game(Some(id));
+            let text = game.string(mg_core::StrRef(64101)).unwrap();
+            assert_ne!(english, text, "{code}: another language's text");
+            let localized = game.resman.layers().iter().any(|l| l.label == "key:nwn_base_loc");
+            let lang_key = root.join("lang").join(code).join("data/nwn_base_loc.key");
+            assert_eq!(localized, lang_key.is_file(), "{code}: its own archives");
         }
+        eprintln!("{seen} languages besides English");
     }
 
     /// `moonglow --user-dir DIR` chooses this run's user folder, over the

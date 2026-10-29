@@ -287,9 +287,15 @@ asked for has them, and so the modifiers and the saves.
   save equal to the Statistics page's.
 - **Moonglow:** `crates/mg-rules/src/creatures.rs` (`creature_stats`).
   The stored maximum hit points stay Aurora's (the Constitution the
-  blueprint has, without the Great Constitution feats); whether the
-  game adds those feats' hit points itself, as it adds Epic
-  Toughness's, was not measured.
+  blueprint has, without the Great Constitution feats). The game adds
+  those feats' hit points to the maximum itself, as it adds Epic
+  Toughness's, but works out the hit points a creature starts with
+  from `CurrentHitPoints` and the Constitution without them: a fighter
+  30 with four of them, `CurrentHitPoints` its base as Aurora writes
+  it, starts at 249 of 309. Moonglow writes the base and the feats'
+  hit points there (`CreatureStats::current_hit_points`), and it starts
+  whole (`engine_saves.rs`
+  `great_constitution_s_hit_points_are_the_engine_s_to_add`).
 - **Wiki:** missing.
 
 ### Aurora's Levelup Wizard
@@ -846,7 +852,10 @@ finds it by its tag (`GetObjectByTag`) and among the area's objects
 whatever its file's `Plot` says. (The client merges it into the area's
 tiles, so what scripts do to it is not seen.) Of two objects with one
 tag in one area, `GetObjectByTag` took the one placed second, and `nNth`
-1 the first.
+1 the first. Of several across areas and kinds, it takes the one loaded
+last and `nNth` counts back from it: the areas in the module's order, an
+area's placeables before its waypoints, each kind in the order placed
+(`engine_object_by_tag.rs`).
 
 - **Checked:** engine (`engine_static_placeables.rs`: a static and a
   dynamic barrel with a variable each, and two with one tag).

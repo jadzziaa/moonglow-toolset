@@ -798,8 +798,12 @@ pub fn creature(
         c.remove("ItemList");
     }
     let mut sheet = mg_rules::CreatureSheet::from_gff(&c);
-    let max = game.creature_stats(&sheet).max_hit_points;
-    c.set("MaxHitPoints", Value::Short(max.clamp(0, i32::from(i16::MAX)) as i16));
+    let stats = game.creature_stats(&sheet);
+    let short = |n: i32| Value::Short(n.clamp(0, i32::from(i16::MAX)) as i16);
+    c.set("MaxHitPoints", short(stats.max_hit_points));
+    // (With the Great Constitution feats' too, which the game leaves out
+    // of the hit points it starts the creature with.)
+    c.set("CurrentHitPoints", short(stats.current_hit_points));
     sheet.gear_value = game.gear_value(&c, item);
     c.set("ChallengeRating", Value::Float(game.challenge(&sheet).rating));
     g.root = c;

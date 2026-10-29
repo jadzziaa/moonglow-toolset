@@ -1546,7 +1546,11 @@ pub(crate) struct Derived {
 pub(crate) fn derived_of(cmd: &Command) -> Derived {
     Derived {
         items: changed_objects(cmd, ResType::UTI, &["Cost"]),
-        creatures: changed_objects(cmd, ResType::UTC, &["MaxHitPoints", "ChallengeRating"]),
+        creatures: changed_objects(
+            cmd,
+            ResType::UTC,
+            &["MaxHitPoints", "ChallengeRating", "CurrentHitPoints"],
+        ),
     }
 }
 
