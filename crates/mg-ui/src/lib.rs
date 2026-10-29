@@ -4680,7 +4680,9 @@ impl Moonglow {
     }
 
     /// Every few seconds, with Options › General's reloading on: the haks
-    /// and folders that changed.
+    /// and folders that changed. With it off, the project file
+    /// (`moonglow.toml`) alone, as frames are drawn: a few small files,
+    /// and the rules the module is worked by.
     fn reload_timer(&mut self, ui: &egui::Ui) {
         // A look at the module's files under way: taken once it is done.
         if self.take_looked() {
@@ -4690,17 +4692,24 @@ impl Moonglow {
         if self.look_at_palettes() {
             ui.ctx().request_repaint();
         }
-        // (Not under a job, which reads the game data.)
-        if self.settings.no_auto_reload || self.game.is_none() || self.busy() {
+        // (Not under a job, which reads the game data and the module.)
+        if self.busy() {
             return;
         }
         let every = std::time::Duration::from_secs(3);
         let now = std::time::Instant::now();
+        let off = self.settings.no_auto_reload || self.game.is_none();
         if self.reload_checked.is_some_and(|t| now.duration_since(t) < every) {
-            ui.ctx().request_repaint_after(every);
+            if !off {
+                ui.ctx().request_repaint_after(every);
+            }
             return;
         }
         self.reload_checked = Some(now);
+        if off {
+            self.reread_project_file();
+            return;
+        }
         self.reload_changed_content();
         self.reload_changed_files();
         ui.ctx().request_repaint_after(every);

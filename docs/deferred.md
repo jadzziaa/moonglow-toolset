@@ -2653,9 +2653,6 @@ and duplicate tags on paste. What is left:
   `tdod_rental_door`), no rule between variables (as a table's
   `[[rules]]`), no description of a variable by the script that reads
   it. (M)
-- **The project file is read again only with reloading on** (Options ›
-  General), when the folder's watch sees a change; a window open then
-  (Setup Store) keeps the rules it opened with. (S)
 - **Setup Store's blueprint list** doesn't scroll to the project's
   blueprint, chosen at first, when it is far down the list. (S)
 - **Duplicate tags are said after a paste and an area's Copy… only:**

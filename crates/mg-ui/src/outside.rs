@@ -220,13 +220,10 @@ impl Moonglow {
             // (A module kept in one file: its own project files beside it,
             // `krezk.moonglow.toml`, looked at as they are, a few small
             // files.)
-            if let Some(ws) = self.ws.as_mut()
-                && matches!(ws.module.location, Some(mg_module::ModuleLocation::Archive(_)))
-            {
-                let had = ws.module.project_file.found;
-                if ws.module.reread_project_file() {
-                    self.log_project_file(true, had);
-                }
+            if self.ws.as_ref().is_some_and(|ws| {
+                matches!(ws.module.location, Some(mg_module::ModuleLocation::Archive(_)))
+            }) {
+                self.reread_project_file();
             }
             return;
         };
@@ -257,12 +254,8 @@ impl Moonglow {
     /// done. Without a thread, looked at here and now.
     pub fn look_outside(&mut self) {
         let Some(root) = self.module_root() else { return };
-        let Some(ws) = self.ws.as_mut() else { return };
         // The project file (`moonglow.toml`) made, changed or deleted.
-        let had = ws.module.project_file.found;
-        if ws.module.reread_project_file() {
-            self.log_project_file(true, had);
-        }
+        self.reread_project_file();
         let Some(ws) = self.ws.as_ref() else { return };
         let Some(scan) = ws.module.outside_scan() else { return };
         // (The areas as they are now, for their locks: only the project's
@@ -418,18 +411,24 @@ impl Moonglow {
         }
     }
 
+    /// Reads the project file (`moonglow.toml`) again if it was made,
+    /// changed or deleted, and says so in the log.
+    pub(crate) fn reread_project_file(&mut self) {
+        let Some(ws) = self.ws.as_mut() else { return };
+        let had = ws.module.project_file.found;
+        if ws.module.reread_project_file() {
+            self.log_project_file(true, had);
+        }
+    }
+
     /// Looks at the project's or the module folder's files (see the
     /// module's notes) here and now, on the window's thread: what Build ›
     /// Add Left-Out Files to nasher.cfg does after it, and tests. (The
     /// watch's looks are done on a thread of their own:
     /// [`Moonglow::look_outside`].)
     pub fn reload_project_files(&mut self) {
-        let Some(ws) = self.ws.as_mut() else { return };
         // The project file (`moonglow.toml`) made, changed or deleted.
-        let had = ws.module.project_file.found;
-        if ws.module.reread_project_file() {
-            self.log_project_file(true, had);
-        }
+        self.reread_project_file();
         let Some(ws) = self.ws.as_mut() else { return };
         let Some((changes, problems)) = ws.module.outside() else { return };
         self.take_found(changes, problems, &HashMap::new());

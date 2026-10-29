@@ -359,13 +359,17 @@ fn a_projects_talk_table_kept_as_json_is_edited_there() {
 /// project's script opens it (none is written), its tag follows the
 /// pattern and is the only one, its blueprint is offered first, and the
 /// shopkeeper keeps its tag in the project's variable.
-#[test]
-fn setup_store_follows_the_project_file() {
+/// A module folder with a shopkeeper in an area and a store of the
+/// area's tagged as `[store]`'s pattern's first, and the project file
+/// with `[store]`: the install, the folder, the area and its tag.
+fn store_project(
+    name: &str,
+) -> Option<(mg_resman::GameInstall, std::path::PathBuf, ResRef, String, ResKey)> {
     use mg_module::instances::{Placement, Placing, instance};
     use mg_module::new::{AreaSpec, add_area, new_module};
     let Some(root) = mg_testkit::nwn_root() else {
         eprintln!("skipped: no game install");
-        return;
+        return None;
     };
     let install = mg_resman::GameInstall::new(&root, None, "en");
     let game = mg_rules::GameData::open(&install).unwrap();
@@ -399,7 +403,7 @@ fn setup_store_follows_the_project_file() {
     g.root.set("Creature List", mg_gff::Value::List(vec![keeper.unwrap()]));
     g.root.set("StoreList", mg_gff::Value::List(vec![first]));
     m.set_gff(git, &g).unwrap();
-    let dir = mg_testkit::scratch_dir("ui-setup-store-project").join("shop");
+    let dir = mg_testkit::scratch_dir(name).join("shop");
     m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
     std::fs::write(
         dir.join("moonglow.toml"),
@@ -407,7 +411,39 @@ fn setup_store_follows_the_project_file() {
          blueprint = \"nw_storethief001\"\nkeeper_variable = \"tdod_store\"\n",
     )
     .unwrap();
+    Some((install, dir, area, area_tag, git))
+}
 
+/// The project file is read again when it changes with Options ›
+/// General's reloading off too, and Setup Store, open then, follows the
+/// rules as they are now.
+#[test]
+fn the_project_file_is_read_again_with_reloading_off() {
+    let Some((install, dir, area, _, _)) = store_project("ui-project-file-again") else { return };
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.settings.no_auto_reload = true;
+    app.open_module(&dir);
+    app.open_palette = false;
+    mg_ui::store_wizard::open(&mut app, area, "Creature List", 0);
+    // (Changed before the window's first frame, which looks at it.)
+    std::fs::write(
+        dir.join("moonglow.toml"),
+        "[store]\nopen_script = \"tdod_vendor_two\"\nblueprint = \"nw_storethief001\"\n",
+    )
+    .unwrap();
+    let mut h = harness(app, 1000.0, 800.0);
+    h.run_steps(3);
+    let said = |s: &str| h.state().log.entries.iter().any(|e| e.1.contains(s));
+    assert!(said("moonglow.toml changed: its rules are read again"), "{:?}", h.state().log.entries);
+    assert!(h.query_by_label_contains("the project's script tdod_vendor_two").is_some());
+    assert!(h.query_by_label_contains("tdod_vendor_open").is_none());
+}
+
+#[test]
+fn setup_store_follows_the_project_file() {
+    let Some((install, dir, area, area_tag, git)) = store_project("ui-setup-store-project") else {
+        return;
+    };
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.open_module(&dir);
     app.open_palette = false;

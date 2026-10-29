@@ -525,8 +525,9 @@ yet.
 A team's rules for Moonglow are kept with its module, in version
 control: a `moonglow.toml` beside `nasher.cfg` in a nasher project, or
 at the root of a module folder. Moonglow reads it when the module opens,
-and again when it changes (with reloading on, Options › General), and
-the log says so. A module kept in one file (`.mod`) keeps its own
+and again when it changes (with Options › General's reloading off too),
+and the log says so; a window open then (Setup Store) follows the rules
+as they are now. A module kept in one file (`.mod`) keeps its own
 beside it, named by it, as its folder holds other modules too:
 `krezk.moonglow.toml` (and `krezk.variables.toml`, below) beside
 `krezk.mod` (since Moonglow 2.13.0). There, what is a checkout's or a

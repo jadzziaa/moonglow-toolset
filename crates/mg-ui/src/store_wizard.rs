@@ -152,6 +152,11 @@ fn stores(app: &Moonglow, custom: bool) -> Vec<(ResRef, String)> {
 
 pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(mut w) = app.store_wizard.take() else { return };
+    // The project's rules as they are now (its file read again while the
+    // wizard is open), not as they were when it opened.
+    if let Some(ws) = &app.ws {
+        w.rules.clone_from(&ws.module.project_file.store);
+    }
     let (mut finish, mut close) = (false, false);
     let mut go_to_finish = false;
     if w.page == Page::Store && w.listed.as_ref().is_none_or(|(c, _)| *c != w.custom) {
