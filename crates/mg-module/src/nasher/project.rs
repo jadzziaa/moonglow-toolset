@@ -1186,7 +1186,9 @@ pub(crate) fn scan(
         // (Its time and size before it is read: a write after the read
         // gives it others, and it is read again.)
         let now = stamp(&k.path);
-        if now.is_some() && k.stamp == now {
+        // (One the system named is read whatever its time: a change within
+        // the clock's grain keeps it.)
+        if now.is_some() && k.stamp == now && only.is_none() {
             continue;
         }
         let gone = || Outside {
@@ -1480,8 +1482,21 @@ mod tests {
         let (changes, _) = m.outside_found(found);
         assert_eq!(changes.len(), 1, "{changes:?}");
         assert!(changes[0].path.ends_with("src/scripts/on_load.nss") && changes[0].was().is_some());
-        // A folder named: looked at whole.
-        assert!(m.outside_scan_of(&[root.join("src/scripts")]).unwrap().only.is_none());
+        // A change that keeps the file's time and size (within the clock's
+        // grain): a whole look passes over it, one that names it doesn't.
+        let mut m = Module::open(&root).unwrap();
+        let file = root.join("src/scripts/on_load.nss");
+        let when = std::fs::metadata(&file).unwrap().modified().unwrap();
+        let text = std::fs::read_to_string(&file).unwrap();
+        let same_length = text.replace("theirs", "THEIRS").replace("outside", "OUTSIDE");
+        assert_eq!(same_length.len(), text.len());
+        assert_ne!(same_length, text);
+        std::fs::write(&file, &same_length).unwrap();
+        std::fs::File::options().write(true).open(&file).unwrap().set_modified(when).unwrap();
+        assert!(m.outside().unwrap().0.is_empty(), "the time and size are as they were");
+        let found = m.outside_scan_of(std::slice::from_ref(&file)).unwrap().run();
+        let (changes, _) = m.outside_found(found);
+        assert_eq!(changes.len(), 1, "{changes:?}");
     }
 
     #[test]

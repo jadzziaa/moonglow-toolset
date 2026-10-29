@@ -806,12 +806,12 @@ impl Module {
     /// [`Module::outside_scan`] of these files alone (those the system said
     /// changed, added or removed: what a watch of the folder heard), so
     /// that only they are looked at and no folder is walked for new ones.
-    /// A folder among them (made, moved or removed whole) is looked at
-    /// whole: all its files.
+    /// Files only: a folder named is not looked into (where one was made,
+    /// moved or removed whole, [`Module::outside_scan`] looks at all; a
+    /// watch tells it so, as the window's does). (Nothing is looked at on
+    /// disk here: a pull's thousands of files named were 3 ms of the
+    /// window's frame when each was asked whether it was a folder.)
     pub fn outside_scan_of(&self, paths: &[PathBuf]) -> Option<outside::OutsideScan> {
-        if paths.iter().any(|p| p.is_dir()) {
-            return self.outside_scan();
-        }
         match (&self.project, &self.folder) {
             (Some(project), _) => Some(project.outside_scan_of(paths)),
             (None, Some(folder)) => Some(folder.outside_scan_of(paths)),
@@ -1224,7 +1224,10 @@ mod tests {
         assert!(changes.iter().all(|c| c.path.starts_with(&path)));
         // Found and not yet answered: a save doesn't write over them.
         let e = m.save().unwrap_err();
-        assert!(matches!(&e, ModuleError::ChangedOnDisk(p) if p == std::slice::from_ref(&path)), "{e}");
+        assert!(
+            matches!(&e, ModuleError::ChangedOnDisk(p) if p == std::slice::from_ref(&path)),
+            "{e}"
+        );
         // Found again until taken; then nothing.
         assert_eq!(m.outside().unwrap().0.len(), 3);
         let (changes, _) = m.outside().unwrap();

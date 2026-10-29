@@ -530,11 +530,14 @@ impl Moonglow {
         };
         let Some(scan) = scan else { return };
         // (The areas as they are now, for their locks: only the project's
-        // files leave them out.)
+        // files leave them out. Those of the files named, where they are:
+        // all of them were 1,400 a look.)
         let areas: HashMap<ResKey, Arc<[u8]>> = if ws.module.project.is_some() {
-            (ws.module.keys_of(ResType::GIT))
-                .filter_map(|k| Some((*k, ws.module.shared(k)?.clone())))
-                .collect()
+            let gits: Vec<ResKey> = match &files {
+                Some(_) => scan.keys().filter(|k| k.restype == ResType::GIT).collect(),
+                None => ws.module.keys_of(ResType::GIT).copied().collect(),
+            };
+            (gits.into_iter()).filter_map(|k| Some((k, ws.module.shared(&k)?.clone()))).collect()
         } else {
             HashMap::new()
         };

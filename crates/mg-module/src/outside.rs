@@ -97,6 +97,11 @@ impl OutsideScan {
         self.files.is_empty()
     }
 
+    /// The resources of the files known.
+    pub fn keys(&self) -> impl Iterator<Item = ResKey> + '_ {
+        self.files.iter().map(|k| k.key)
+    }
+
     /// Looks at the files: those whose time or size changed are read, and
     /// those whose bytes changed (or that are gone, or new) are what is
     /// found.

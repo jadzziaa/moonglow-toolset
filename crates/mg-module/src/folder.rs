@@ -216,7 +216,8 @@ pub(crate) fn scan(
             continue;
         }
         let now = stamp(&k.path);
-        if now.is_some() && k.stamp == now {
+        // (One the system named is read whatever its time.)
+        if now.is_some() && k.stamp == now && only.is_none() {
             continue;
         }
         let was = Some(k.file.clone());
