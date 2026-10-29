@@ -247,7 +247,7 @@ fn pack_compiles_a_project_s_models_where_its_project_file_says() {
     assert!(mg_mdl::is_binary(&erf.data(entry).unwrap()), "packed compiled");
     assert!(logged(&h, "Compile Models: 1 compiled"), "{:?}", h.state().log.entries);
     let source = std::fs::read_dir(project.join("src")).unwrap().flatten().map(|e| e.path());
-    let source = source.filter(|p| p.extension().is_some_and(|e| e == "mdl")).next().unwrap();
+    let source = { source }.find(|p| p.extension().is_some_and(|e| e == "mdl")).unwrap();
     assert_eq!(std::fs::read(source).unwrap(), text.as_bytes(), "the source stays text");
 }
 
