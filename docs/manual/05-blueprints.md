@@ -650,8 +650,9 @@ An armor's **Part Colors** (under its colors on the Appearance page) give
 one part a color of its own: choose the part, then a color for any of its
 six channels. A channel left at **Default** takes the armor's color;
 **Reset** returns one to it. Parts with colors of their own are marked
-`*` in the list. The preview, and a creature wearing the armor, show
-them. Aurora has no page for these (the game added them for scripts) and
+`*` in the list. The preview, a creature wearing the armor and its
+inventory icon (a part's piece of it, as the game's inventory shows it)
+show them. Aurora has no page for these (the game added them for scripts) and
 Moonglow keeps the ones an armor already has.
 
 ### Placeables and doors

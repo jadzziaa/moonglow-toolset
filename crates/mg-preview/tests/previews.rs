@@ -573,6 +573,54 @@ fn probe_custom_creatures() {
     }
 }
 
+/// A cloak of a base item of a module's own lies as that base item's
+/// `DefaultModel`, the game's model of a cloak dropped being its own
+/// cloaks' alone (seen in the client: `reading_custom_cloak_base_item` in
+/// `client_render.rs`): two copies of the cloak's row, one naming a torch
+/// and one the bag.
+#[test]
+fn a_cloak_of_a_base_item_of_its_own_lies_as_its_model() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let table = base.resman.get_named("baseitems", ResType::TWODA).unwrap();
+    let mut table = String::from_utf8_lossy(&table).into_owned();
+    let row: Vec<String> = table
+        .lines()
+        .find(|l| l.split_whitespace().next() == Some("80"))
+        .unwrap()
+        .split_whitespace()
+        .map(str::to_owned)
+        .collect();
+    let header: Vec<&str> = table.lines().nth(2).unwrap().split_whitespace().collect();
+    let column = header.iter().position(|c| *c == "DefaultModel").unwrap() + 1;
+    let next = table.lines().count() - 3;
+    if !table.ends_with('\n') {
+        table.push('\n');
+    }
+    for (i, model) in ["it_torch_000", "it_bag"].into_iter().enumerate() {
+        let mut new = row.clone();
+        new[0] = (next + i).to_string();
+        new[column] = model.into();
+        table += &(new.join(" ") + "\n");
+    }
+    let user = mg_testkit::scratch_dir("preview_custom_cloak");
+    std::fs::create_dir_all(user.join("override")).unwrap();
+    std::fs::write(user.join("override/baseitems.2da"), table).unwrap();
+    let game = GameData::open(&GameInstall::new(&root, Some(user), "en")).unwrap();
+    let mut cloak = blueprint(&game, "nw_maarcl055", ResType::UTI).root;
+    let mut lying = |base_item: usize| {
+        cloak.set("BaseItem", mg_gff::Value::Int(base_item as i32));
+        let p = mg_preview::item_placed(&game, &cloak).unwrap();
+        models(&p).into_iter().map(str::to_string).collect::<Vec<_>>()
+    };
+    assert_eq!(lying(80), ["gi_cloak01"], "the game's own");
+    assert_eq!(lying(next), ["it_torch_000"], "its DefaultModel");
+    assert_eq!(lying(next + 1), ["it_bag"], "the bag it names");
+}
+
 /// Armour and a cloak lying in an area are the game's models of them
 /// dropped, not what a wearer shows (a builder's area showed a man
 /// standing where a tunic lay, and a cloak hanging from nothing); a sword

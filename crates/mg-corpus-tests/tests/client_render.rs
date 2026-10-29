@@ -630,6 +630,8 @@ float MgValue(int k)
         if (j == 4) return c.a < 0.0 ? 1.0 : 0.0;
         return 0.0;
     }
+    // The direction towards the sun or moon (view space), from −1 to 1.
+    if (k >= 96 && k < 99) return lightAreaDiffuseDirection[k - 96] * 0.5 + 0.5;
     return 0.0;
 }
 void MgDebug(inout vec4 c)

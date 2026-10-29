@@ -519,9 +519,42 @@ pub struct Lighting {
     /// (`areaFlags`, `areaGlobalWind`: wind-swayed grass and leaves).
     pub flags: u32,
     pub wind_power: i64,
+    /// The directions towards the sun and the moon its GIT gives
+    /// (`AreaProperties` `SunDirectionX/Y/Z`, `MoonDirectionX/Y/Z`), which
+    /// the client lights the area and casts its shadows by (seen:
+    /// `reading_git_sun_direction` in `client_render.rs`); `None`: the
+    /// game's own.
+    pub sun_direction: Option<Vec3>,
+    pub moon_direction: Option<Vec3>,
 }
 
 impl Lighting {
+    /// [`Lighting::read`], with the directions of the sun and moon the
+    /// GIT whose root is `git` gives.
+    pub fn read_with(are: &Struct, git: &Struct, tileset: Option<&Tileset>) -> Lighting {
+        let props = match git.get("AreaProperties") {
+            Some(mg_gff::Value::Struct(p)) => Some(p),
+            _ => None,
+        };
+        let direction = |prefix: &str| {
+            let props = props?;
+            let c = |axis: &str| props.float(&format!("{prefix}Direction{axis}"));
+            let d = Vec3::new(c("X")?, c("Y")?, c("Z")?);
+            (d.is_finite() && d.length_squared() > 1e-12).then(|| d.normalize())
+        };
+        Lighting {
+            sun_direction: direction("Sun"),
+            moon_direction: direction("Moon"),
+            ..Lighting::read(are, tileset)
+        }
+    }
+
+    /// The direction towards the sun, or the moon at night: the GIT's,
+    /// else the game's own.
+    pub fn direction(&self, night: bool) -> Option<Vec3> {
+        if night { self.moon_direction } else { self.sun_direction }
+    }
+
     pub fn read(are: &Struct, tileset: Option<&Tileset>) -> Lighting {
         Lighting {
             sun: Sky::read(are, "Sun"),
@@ -537,6 +570,8 @@ impl Lighting {
             shadow_opacity: are.integer("ShadowOpacity").unwrap_or(0).clamp(0, 100) as u8,
             flags: are.integer("Flags").unwrap_or(0).clamp(0, i64::from(u32::MAX)) as u32,
             wind_power: are.integer("WindPower").unwrap_or(0),
+            sun_direction: None,
+            moon_direction: None,
         }
     }
 
@@ -691,7 +726,7 @@ impl AreaModel {
             tiles,
             objects,
             hooks,
-            lighting: Lighting::read(are, tileset),
+            lighting: Lighting::read_with(are, git, tileset),
             grass: grass::AreaGrass::read(git).growing(tileset),
             problems,
         }
@@ -865,6 +900,26 @@ doneanim animloop02 tst01_a01_01\ndonemodel tst01_a01_01\n";
         let one = &area.tiles[1];
         let x = one.transform().transform_vector3(Vec3::X);
         assert!(close(x.x, 0.0) && close(x.y, 1.0));
+    }
+
+    /// The sun's and the moon's directions are the GIT's where it gives
+    /// them (as the client lights the area), normalized; none where it
+    /// doesn't or gives no direction.
+    #[test]
+    fn the_sun_and_moon_take_the_git_s_directions() {
+        let mut props = Struct::new(100);
+        for (axis, v) in [("X", -2.0f32), ("Y", 0.0), ("Z", 0.5)] {
+            props.set(&format!("SunDirection{axis}"), Value::Float(v));
+            props.set(&format!("MoonDirection{axis}"), Value::Float(0.0));
+        }
+        let mut git = Struct::new(0xFFFF_FFFF);
+        git.set("AreaProperties", Value::Struct(props));
+        let l = Lighting::read_with(&Struct::new(0), &git, None);
+        let sun = l.direction(false).unwrap();
+        assert!((sun - Vec3::new(-2.0, 0.0, 0.5).normalize()).length() < 1e-6);
+        assert_eq!(l.direction(true), None, "a zero direction is none");
+        let l = Lighting::read_with(&Struct::new(0), &Struct::new(0xFFFF_FFFF), None);
+        assert_eq!((l.direction(false), l.direction(true)), (None, None));
     }
 
     #[test]

@@ -188,8 +188,14 @@ fn turned_model() -> String {
 /// for a placeable's uniforms there. (`MG_LYING_BUMPY=1`: its texture's
 /// TXI names a `bumpyshinytexture`.)
 fn lying_model() -> String {
-    let bitmap =
-        if std::env::var_os("MG_LYING_BUMPY").is_some() { "mgp_bumpy" } else { "mgp_plain" };
+    // (`MG_LYING_ENVD=1`: its TXI names `envmaptexture default`.)
+    let bitmap = if std::env::var_os("MG_LYING_BUMPY").is_some() {
+        "mgp_bumpy"
+    } else if std::env::var_os("MG_LYING_ENVD").is_some() {
+        "mgp_envd"
+    } else {
+        "mgp_plain"
+    };
     let flat = [[0.0, 0.0, 0.0], [8.0, 0.0, 0.0], [8.0, 8.0, 0.0], [0.0, 8.0, 0.0]];
     let q = Quad {
         name: "lying".into(),

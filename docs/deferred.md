@@ -287,12 +287,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## EE fields Aurora hides
 
-- **An armor's part colors:** edited and previewed, and the game reads
-  them (`engine_armor_colors.rs`) and draws them: a worn armor with a
-  torso of its own colors looks the same in the client and in Moonglow
-  (`creatures_look` in `client_render.rs`, by eye). The inventory icon is
-  drawn in the armor's own colors; whether the game's icon shows a
-  part's isn't known. (S)
 - **What a creature can't wear:** the game leaves out an equipped item
   the creature may not use when it loads the area (a stock cloak with
   its item properties came out of a commoner's cloak slot, and
@@ -835,21 +829,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Moonglow scatters them evenly by face area and density. The mean color
   near the camera matches; how the engine places them (per face, by a
   noise) isn't known. (S–M) (Bee AI's ask, October 2026)
-- **A grass tuft's shape:** one upright quad turned at random, a texture
-  quarter, as tall as wide; the client's geometry (crossed quads, a lean,
-  its sway in the wind) wasn't read, and Moonglow's tufts don't sway. (S)
-- **Grass on placeables:** grass is grown on tiles' walkmeshes only;
-  whether the game grows it on a static placeable's walkmesh (merged into
-  the tiles) wasn't checked. (S)
-- **The sun's and moon's directions in an area's GIT:** the server reads
-  a module's GIT's `AreaProperties` `SunDirectionX/Y/Z`,
-  `MoonDirectionX/Y/Z` (kept into a saved game) and `DisplayName` (the
-  area's `GetName`), not the root's `CurrentWeather`
-  (`engine_git_runtime.rs`). Whether the client lights the area by those
-  directions, and so whether the area view should, isn't known. (S)
-  (waits on the client batch: an outdoor area at noon whose GIT's
-  `SunDirection` is low from one side, against the same area without,
-  its walls' lit sides and the shadows compared)
+- **A grass tuft's sway:** a tuft is one upright quad turned at random,
+  a texture quarter, as tall as wide, as the client's are (seen with
+  white opaque tufts, sparse: `reading_grass_tufts`, 2026-10-29). The
+  client's sway in the wind, tops moving and feet still (`reading_grass_sway`:
+  6% of the field's pixels changed in a second and a half at `WindPower`
+  2); Moonglow's stand still with either shader: the game's `vsgrass`
+  reads no wind, so the engine moves the vertices itself, and the area
+  view would have to as well. (M)
 - **Walkmesh cutters:** not drawn, and not placed (the trigger kind EE
   added). (S–M)
 - **A walkmesh's own node position:** one shipped placeable
@@ -887,26 +874,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   mesh with `tilefade` 4 wasn't in the tiles captured, so that it goes
   is still taken from the game's tiles and their names. (S) (from
   builders' reports after 1.10.1)
-- **A cloak lying in an area** is the game's model of a cloak dropped
-  (`gi_cloak01`, folded, its PLT texture in the cloak's colors), as
-  Aurora and the game draw it; Moonglow drew the bag (the cloak's
-  `DefaultModel`, which neither uses for it). Compared with the game
-  client (`items_look` with three of the game's cloaks: the same model
-  and colors, lying the same way). Where the model is missing: the
-  `DefaultModel`, then the bag. Whether a custom base item of cloaks
-  that names a model of its own should lie as that instead was not
-  measured (the game's own names the bag, which it does not use). (S)
-  (from builders' reports after 1.19.1) It has the environment map it
-  has worn (its cloakmodel.2da row's; dropped armor the items' one):
-  without one a shiny color's palette alpha was drawn see-through, the
-  floor showing through (a builder's report after 1.32.1, solid and
-  shiny in Aurora; seen in `area_items` before and after), and a color
-  whose alpha is 0 (61) not drawn at all. Compared with Aurora from
-  above (`area_dropped_cloaks`, and Aurora's own view of the same probe
-  module, `captures/items/`: the game's cloak, colors 0, 56 to 59 and
-  61): the same shapes, colors and solid shine. Aurora's reflection is
-  a little bluer and brighter (both `chrome1`, cloakmodel.2da's
-  `default`); not compared with the client. (S)
 - **An armor lying as plate here and as a tunic in Aurora**, in the
   same builder's picture: not looked into. The model is chosen by the
   torso's parts_chest.2da `ACBONUS` (measured with the game's own
@@ -1015,25 +982,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   were 1 (`tile-ok.mod`: OK alone does that too). What Aurora's Defaults
   is for is not known; whether Moonglow's goes is the owner's to say.
   (S) (from the research notes)
-- **Exact tile's reach:** the Gallery shows a terrain's and a crosser's
-  tiles, not a group's pieces, so a piece of a group goes in alone only
-  through Tile Properties' All tiles (the Features and Groups pictures,
-  in the same Gallery as the switch, are placed whole whatever it says:
-  its tip and the manual say so, the pictures don't); an exact tile takes the height of
-  the tile it replaces (no height to choose in the palette: Tile
-  Properties' Height after). Where an exact tile and its neighbor
-  disagree about a shared corner, the brushes read the corner as the
-  tile to the north or east has it (`Lattice::from_tiles`), so a stroke
-  beside it may choose it again. How the client draws the seams was
-  looked at in Moonglow's view only. (S) (issue #29)
-- **Tile Height and what stands on a tile:** an object goes up or down
-  with a tile whose square its position is over (doors on its hooks,
-  placeables, creatures, waypoints, a trigger's or encounter's position
-  with its outline), whatever its height above the tile; Raise/Lower's
-  corner strokes still move nothing. Heights below 0 and far above were
-  stood on in the server (`a_tile_s_own_height_stands_where_the_engine_puts_it`),
-  not looked at in the game client; the control's ±1024 is Moonglow's
-  reading bound, not the engine's. (S) (issue #29)
 - **Tile Properties on several tiles, in Aurora:** Moonglow writes only
   the controls set into every tile chosen (2.4.0's OK wrote every shown
   value, the first tile's, into all of them); how Aurora writes them for
@@ -1056,15 +1004,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Rendering: creatures, particles, water and shaders
 
-- **A placeable without its state's animation, in the client:** a
-  placeable whose model (and supermodels) lack the animation of its
-  state (`default`, `open`…) is drawn in its rest pose, as a corpse
-  placeable of CEP's on a creature's supermodel (`plc_orc2`) lies in its
-  Properties and, by every account, in the game. Not yet seen in the
-  client (`client_render.rs`) with the hak; the wiki doesn't say. A
-  creature's idle renamed by AnimationReplace to one its model lacks
-  stands in its rest pose too now, where it stood in `pause1`. (S)
-  (from builders' reports on 1.31.0)
 - **Dynamic body parts from custom content (GitHub issue 5):** fixed
   with the reporter's haks over CEP 2.71. Under armor a creature's own
   part shows where the armor's is bare skin (part 1) or none, as the
@@ -1293,8 +1232,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     places, sizes and count are Moonglow's (the field's mean colour 0.1
     of 255 from the client's, but per pixel 17.6 against Moonglow's own
     17.0). How the engine fades its grass in, and the material colours
-    it uploads (`.set` [GRASS]'s), are not read. (S) (waits on the client
-    batch: both through a patched `vsgrass`)
+    it uploads (`.set` [GRASS]'s), are not read through a patched
+    `vsgrass`; seen in a picture (`reading_grass_tufts`, white opaque
+    tufts of an area override): the client's are half see-through near
+    the camera and end some 15 to 20 m out, where Moonglow's stay opaque
+    to the area's edge. (S)
   - **Cube maps have one level** (`GpuTexture::upload_cube`), so the
     level Moonglow's shader works out for them (`cube_level`) and the
     bias the game's programs add come to level 0 either way: a rough
@@ -1418,7 +1360,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     (8193.31's "shadow alpha by vertical distance") and sun shadows
     never above the camera's height are not drawn (S) (waits on the
     client batch: a caster raised over the ground in steps, and a tall
-    one seen from below its top);
+    one seen from below its top). Seen with a sun low in the west (a
+    GIT's direction, `reading_git_sun_direction`): the client leaves a
+    city street lit but for thin spikes, where Moonglow lays the
+    buildings' long shadows over all of it, light showing through in
+    thin lines;
   - the previews (blueprints, the model viewer) draw none (S).
   (asked by the Domains of Dread module session and by a builder,
   Troubletcat)
@@ -3187,3 +3133,23 @@ is not taken for a new gap.
   Aurora's). Pasted tiles over a group are refused, as Aurora refuses
   them (captured 2026-10-29: "Pasting tiles to current area failed.
   There was a feature or a group within the region…").
+- **Exact tile's reach** (issue #29): the Gallery offers a terrain's
+  and a crosser's tiles, not a group's pieces (one goes in alone through
+  Tile Properties' All tiles; the Features and Groups pictures are
+  placed whole, as their tip and the manual say); an exact tile takes
+  the replaced tile's height; a corner it disagrees on with a neighbor
+  is read as the tile to the north or east has it
+  (`Lattice::from_tiles`). The client draws such a seam as the area view
+  does: each tile's model as it is, a gap open to the sky
+  (`reading_exact_tile_seams`, 2026-10-29).
+- **Tile Height and what stands on a tile** (issue #29): an object goes
+  up or down with a tile whose square its position is over (doors on
+  its hooks, placeables, creatures, waypoints, a trigger's or
+  encounter's position with its outline), whatever its height above the
+  tile; Raise/Lower's corner strokes move none; the control's ±1024 is
+  Moonglow's reading bound, not the engine's. Heights below 0 and far
+  above stand in the server where Moonglow puts them
+  (`a_tile_s_own_height_stands_where_the_engine_puts_it`) and the client
+  draws them so: tiles at −2 and 20 (−10 m, 100 m) with an armoire on
+  each, the player entering on either, alike in the client and the area
+  view (`reading_tile_heights`, 2026-10-29).

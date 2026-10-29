@@ -65,6 +65,30 @@ pub(crate) fn item_colors(item: &Struct) -> [u8; 10] {
     colors
 }
 
+/// The PLT layers' colours an armor's part `part` (an index of
+/// [`mg_rules::items::ARMOR_PARTS`]) is drawn in: the part's own where it
+/// has them (EE), else the armor's. The game's inventory icon draws each
+/// part's layer so (seen in the client: `reading_inventory_icons`).
+pub(crate) fn part_colors(item: &Struct, part: usize) -> [u8; 10] {
+    let mut colors = item_colors(item);
+    for channel in mg_rules::items::ArmorChannel::ALL {
+        if let Some(c) = mg_rules::items::armor_part_color(item, part, channel) {
+            colors[channel.plt_layer()] = c;
+        }
+    }
+    colors
+}
+
+/// The armor part (an index of [`mg_rules::items::ARMOR_PARTS`]) each
+/// layer of an armor's icon is ([`item_icon_names`]'s, bottom first).
+fn armor_icon_parts(item: &Struct) -> Vec<usize> {
+    ARMOR_ICON
+        .iter()
+        .filter(|(l, _)| part(item, l) > 0)
+        .filter_map(|(l, _)| mg_rules::items::ARMOR_PARTS.iter().position(|(f, _)| f == l))
+        .collect()
+}
+
 /// A model or part number: the EE twin (`xModelPart1`) where there is one.
 fn part(item: &Struct, label: &str) -> i64 {
     mg_rules::items::part_number(item, label).unwrap_or(0)
@@ -103,6 +127,14 @@ pub(crate) fn item_icon_names(game: &GameData, item: &Struct, female: bool) -> V
             vec![format!("i{class}_{gender}{:03}", part(item, "ModelPart1"))]
         }
     }
+}
+
+/// Whether an item's icon is an armor's, of parts (baseitems.2da
+/// `ModelType` 3).
+fn is_armor(game: &GameData, item: &Struct) -> bool {
+    let Ok(t) = game.table("baseitems") else { return false };
+    usize::try_from(item.integer("BaseItem").unwrap_or(-1))
+        .is_ok_and(|row| t.get_int(row, "ModelType") == Some(3))
 }
 
 /// Where a resource comes from in the load order, as a builder names it,
@@ -358,13 +390,20 @@ impl Loader<'_> {
         let names = item_icon_names(self.game, item, female);
         let his = if female { item_icon_names(self.game, item, false) } else { Vec::new() };
         let colors = item_colors(item);
-        let one =
-            |l: &mut Self, n: &str| l.plt_picture(ctx, n, colors).or_else(|| l.picture(ctx, n));
+        // (An armor's layers each in its part's colors: its own where it
+        // has them.)
+        let parts = if is_armor(self.game, item) { armor_icon_parts(item) } else { Vec::new() };
+        let colors_of = |i: usize| parts.get(i).map_or(colors, |&p| part_colors(item, p));
+        let one = |l: &mut Self, n: &str, colors| {
+            l.plt_picture(ctx, n, colors).or_else(|| l.picture(ctx, n))
+        };
         let mut layers: Vec<Picture> = names
             .iter()
             .enumerate()
             .filter_map(|(i, n)| {
-                one(self, n).or_else(|| his.get(i).filter(|m| *m != n).and_then(|m| one(self, m)))
+                let c = colors_of(i);
+                one(self, n, c)
+                    .or_else(|| his.get(i).filter(|m| *m != n).and_then(|m| one(self, m, c)))
             })
             .collect();
         if layers.is_empty() {

@@ -300,11 +300,12 @@ fn reading_choose_character() {
     eprintln!("the client's pictures: {}", r.dir.display());
 }
 
-/// The inventory's armor icons: a chain shirt whose own colors are 0 in
-/// the bag, beside copies whose torso part has colors of its own (44, the
-/// part's six), one in the bag and one worn, in the player's inventory
-/// (`PopUpGUIPanel`), the player a man and (`female`) made a woman
-/// (`SetGender`).
+/// The inventory's armor icons: a performer's outfit (`nw_aarcl004`)
+/// whose own colors are all 0, beside a copy whose torso part has colors
+/// of its own (44, the part's six), both in the player's bag (made in a
+/// chest beside the player, whose copies made on the way fill it, then
+/// taken), the inventory open (`PopUpGUIPanel`), the player a man and
+/// (`female`) made a woman (`SetGender`).
 fn inventory(female: bool) -> (PathBuf, Rgba) {
     let light = Lighting { ambient: 0x404040, diffuse: 0x808080, main_light: 0, only_tile: None };
     let name = if female { "inventory_female" } else { "inventory_male" };
@@ -315,14 +316,15 @@ fn inventory(female: bool) -> (PathBuf, Rgba) {
         if female { "SetGender(pc, GENDER_FEMALE);" } else { "SetGender(pc, GENDER_MALE);" };
     let body = format!(
         r#"{gender}
-    object plain = CreateItemOnObject("nw_aarcl004", pc);
+    object chest = CreateObject(OBJECT_TYPE_PLACEABLE, "plc_chest1", Location(area, Vector(p.x + 1.0, p.y, p.z), 0.0));
+    object plain = CreateItemOnObject("nw_aarcl004", chest);
     int c;
     for (c = 0; c < 6; c++) {{
         object o = plain;
         plain = CopyItemAndModify(o, ITEM_APPR_TYPE_ARMOR_COLOR, c, 0, TRUE);
         DestroyObject(o);
     }}
-    object parted = CopyItem(plain, pc, TRUE);
+    object parted = CopyItem(plain, chest, TRUE);
     for (c = 0; c < 6; c++) {{
         object o = parted;
         parted = CopyItemAndModify(o, ITEM_APPR_TYPE_ARMOR_COLOR,
@@ -331,16 +333,12 @@ fn inventory(female: bool) -> (PathBuf, Rgba) {
     }}
     SetName(plain, "MG plain");
     SetName(parted, "MG parted");
-    Log("MG_CHEST " + GetName(GetItemInSlot(INVENTORY_SLOT_CHEST, pc)));
-    object i = GetFirstItemInInventory(pc);
-    while (GetIsObjectValid(i)) {{
-        Log("MG_ITEM " + GetName(i) + " base " + IntToString(GetBaseItemType(i)) + " torso leather1 "
-            + IntToString(GetItemAppearance(i, ITEM_APPR_TYPE_ARMOR_COLOR,
-                ITEM_APPR_ARMOR_NUM_COLORS + ITEM_APPR_ARMOR_MODEL_TORSO * ITEM_APPR_ARMOR_NUM_COLORS))
-            + " own leather1 " + IntToString(GetItemAppearance(i, ITEM_APPR_TYPE_ARMOR_COLOR, 0)));
-        i = GetNextItemInInventory(pc);
-    }}
-    DelayCommand(2.0, PopUpGUIPanel(pc, GUI_PANEL_INVENTORY));"#
+    Log("MG_ITEMS plain own leather1 " + IntToString(GetItemAppearance(plain, ITEM_APPR_TYPE_ARMOR_COLOR, 0))
+        + ", parted torso leather1 " + IntToString(GetItemAppearance(parted, ITEM_APPR_TYPE_ARMOR_COLOR,
+            ITEM_APPR_ARMOR_NUM_COLORS + ITEM_APPR_ARMOR_MODEL_TORSO * ITEM_APPR_ARMOR_NUM_COLORS)));
+    DelayCommand(0.5, AssignCommand(pc, ActionTakeItem(plain, chest)));
+    DelayCommand(0.6, AssignCommand(pc, ActionTakeItem(parted, chest)));
+    DelayCommand(2.5, PopUpGUIPanel(pc, GUI_PANEL_INVENTORY));"#
     );
     r.shoot(&enter(&body, (90.0, 12.0, 45.0)), SETTINGS)
 }
@@ -476,7 +474,11 @@ fn reading_tile_heights() {
     let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
     // (From the middle, the server stood the player on the high tile: the
     // ground's player enters south of it.)
-    for (name, entry) in [("ground", [20.0f32, 12.0, 0.0]), ("high", [25.0, 25.0, 100.0])] {
+    for (name, entry) in [
+        ("ground", [20.0f32, 12.0, 0.0]),
+        ("high", [25.0, 25.0, 100.0]),
+        ("low", [15.0, 25.0, -10.0]),
+    ] {
         let mut r = Reading::new(&format!("tile_heights_{name}"), "ttr01", light, &[]);
         let tiles = r.are.root.list_mut("Tile_List").unwrap();
         tiles[9].set("Tile_Height", Value::Int(-2));
@@ -617,9 +619,68 @@ fn reading_grass_on_placeables() {
 #[ignore]
 fn reading_grass_tufts() {
     let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
-    let r = Reading::new("grass_tufts", "ttr01", light, &[]);
-    let (dir, _) = r.shoot(&enter(INVISIBLE, (90.0, 3.0, 85.0)), &with_grass());
+    // From the side and from above (a quad seen edge on is a line, crossed
+    // ones a cross).
+    for (name, pitch) in [("side", 85.0), ("above", 15.0)] {
+        let r = Reading::new(&format!("grass_tufts_{name}"), "ttr01", light, &[]);
+        let (dir, _) = r.shoot(&enter(INVISIBLE, (90.0, 3.0, pitch)), &with_grass());
+        eprintln!("{}", dir.display());
+    }
+    // A sparse grass of white opaque tufts (an area override: 0.3 a
+    // square metre, its texture white), each tuft's shape plain, beside
+    // Moonglow's from the reference camera.
+    let overrides = [("mgwhite.tga", white_tga())];
+    let mut r = Reading::new("grass_tufts_white", "ttr01", light, &overrides);
+    let Some(Value::Struct(props)) = r.git.root.get_mut("AreaProperties") else { panic!() };
+    let mut ovr = mg_gff::Struct::new(101);
+    let white = grass_override(3, "mgwhite", 0.3, 1.2, [1.0, 1.0, 1.0]);
+    ovr.set("GrassOvrList", Value::List(vec![white]));
+    props.set("GrassOverrides", Value::Struct(ovr));
+    let (dir, _) = r.shoot_beside(INVISIBLE, &with_grass(), &|_| {});
     eprintln!("{}", dir.display());
+}
+
+/// Whether the client's grass sways: [`reading_grass_tufts`]'s white
+/// tufts in a strong wind (`WindPower` 2), three pictures a second and a
+/// half apart, how much of the tufts' part of the picture changed between
+/// each two printed (the ground and the sky stand still).
+#[test]
+#[ignore]
+fn reading_grass_sway() {
+    let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+    let overrides = [("mgwhite.tga", white_tga())];
+    let mut r = Reading::new("grass_sway", "ttr01", light, &overrides);
+    r.are.root.set("WindPower", Value::Int(2));
+    let Some(Value::Struct(props)) = r.git.root.get_mut("AreaProperties") else { panic!() };
+    let mut ovr = mg_gff::Struct::new(101);
+    let white = grass_override(3, "mgwhite", 0.3, 1.2, [1.0, 1.0, 1.0]);
+    ovr.set("GrassOvrList", Value::List(vec![white]));
+    props.set("GrassOverrides", Value::Struct(ovr));
+    r.save(&enter(INVISIBLE, (90.0, 12.0, 45.0)), &with_grass());
+    let shots = common::client_screenshots(&r.dir, "MgScene", 3, Duration::from_millis(1500))
+        .expect("the client's pictures");
+    for (i, pair) in shots.windows(2).enumerate() {
+        let (a, b) = (&pair[0].1, &pair[1].1);
+        let (w, h) = (a.width as usize, a.height as usize);
+        let mut changed = 0usize;
+        let mut n = 0usize;
+        // (The tufts' rows: below the horizon, above the GUI.)
+        for y in h / 4..h * 3 / 4 {
+            for x in w / 10..w * 8 / 10 {
+                let k = (y * w + x) * 4;
+                let d: u32 = (0..3).map(|c| u32::from(a.data[k + c].abs_diff(b.data[k + c]))).sum();
+                changed += usize::from(d > 30);
+                n += 1;
+            }
+        }
+        save_png(a, &r.dir.join(format!("sway_{i}.png")));
+        eprintln!(
+            "shots {i} and {}: {:.2}% of the pixels changed",
+            i + 1,
+            100.0 * changed as f64 / n as f64
+        );
+    }
+    eprintln!("{}", r.dir.display());
 }
 
 /// A custom talk table kept in the module alone (`mg_rtlk.tlk` in the
@@ -647,6 +708,221 @@ fn reading_custom_talk_table_in_the_module() {
     );
     let (dir, _) = r.shoot(&enter(&body, (90.0, 8.0, 60.0)), SETTINGS);
     print_log(&dir);
+}
+
+/// A cloak of a custom base item lying in an area: baseitems.2da with a
+/// row after the game's, the cloak's (80) made to name a model of its own
+/// (`DefaultModel` `it_torch_000`, a torch, where the game's names the
+/// bag), and another the cloak's row as it is, and three cloaks
+/// (`nw_maarcl055`) lying north of the player, west to east the game's
+/// and one of each new base item, as the client and Moonglow's area view
+/// draw them.
+#[test]
+#[ignore]
+fn reading_custom_cloak_base_item() {
+    let root = mg_testkit::nwn_root().expect("the game");
+    let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let table = base.resman.get_named("baseitems", ResType::TWODA).unwrap();
+    let mut table = String::from_utf8_lossy(&table).into_owned();
+    let row: Vec<String> = table
+        .lines()
+        .find(|l| l.split_whitespace().next() == Some("80"))
+        .unwrap()
+        .split_whitespace()
+        .map(str::to_owned)
+        .collect();
+    let header: Vec<&str> = table.lines().nth(2).unwrap().split_whitespace().collect();
+    let column = header.iter().position(|c| *c == "DefaultModel").unwrap() + 1;
+    let next = table.lines().count() - 3;
+    if !table.ends_with('\n') {
+        table.push('\n');
+    }
+    // (And a second, the cloak's row as it is, naming the bag.)
+    for (i, model) in ["it_torch_000", "it_bag"].into_iter().enumerate() {
+        let mut new = row.clone();
+        new[0] = (next + i).to_string();
+        new[column] = model.into();
+        table += &(new.join(" ") + "\n");
+    }
+    let overrides = [("baseitems.2da", table.into_bytes())];
+    let light = Lighting { ambient: 0x909090, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+    let mut r = Reading::new("custom_cloak", "tic01", light, &overrides);
+    let bp = Gff::read(&r.game.resman.get_named("nw_maarcl055", ResType::UTI).unwrap()).unwrap();
+    let none = |_: ResRef| None;
+    let placing = Placing { game: &r.game, item: &none };
+    let mut placed = Vec::new();
+    for (x, base_item) in [(18.5f32, 80i32), (20.0, next as i32), (21.5, next as i32 + 1)] {
+        let at = Placement { position: [x, 23.0, 0.0], rotation: 0.0 };
+        let mut item = instance(&placing, ResType::UTI, &bp.root, at, &[]).unwrap();
+        item.set("BaseItem", Value::Int(base_item));
+        placed.push(item);
+    }
+    r.git.root.set(mg_area::ObjectKind::Item.list(), Value::List(placed));
+    let (dir, _) = r.shoot_beside(INVISIBLE, SETTINGS, &|_| {});
+    eprintln!("base item {next}: {}", dir.display());
+}
+
+/// A placeable whose model lacks the animation of its state, as CEP's
+/// corpses on a creature's supermodel (`plc_orc2`) do: the goblin's model
+/// (`c_goblina`, supermodel `a_ba`, neither with a `default`) renamed
+/// `mg_corpse` and made a placeable appearance, standing north of the
+/// player in its default state, as the client and Moonglow's area view
+/// (its rest pose) draw it.
+#[test]
+#[ignore]
+fn reading_placeable_without_its_state_s_animation() {
+    let root = mg_testkit::nwn_root().expect("the game");
+    let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let goblin = Model::read(&base.resman.get_named("c_goblina", ResType::MDL).unwrap()).unwrap();
+    let text = mg_mdl::ascii_write::to_ascii(&goblin, &Default::default())
+        .replace("c_goblinA", "mg_corpse")
+        .replace("c_goblina", "mg_corpse");
+    let (table, first) = placeables_with(&base, &[("mg_corpse", 0)]);
+    let overrides = [("mg_corpse.mdl", text.into_bytes()), ("placeables.2da", table.into_bytes())];
+    let light = Lighting { ambient: 0x909090, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+    let mut r = Reading::new("placeable_no_state_animation", "tic01", light, &overrides);
+    r.place(first, [20.0, 23.0, 0.0], 270.0, &[]);
+    // And goblins (`nw_goblina`): west as it is, east with its idle
+    // renamed (`AnimationReplace`, as `ReplaceObjectAnimation` keeps it)
+    // to one its model lacks; a third made by the entry script and
+    // renamed so by script, beside the east one (the client's alone).
+    let bp = Gff::read(&r.game.resman.get_named("nw_goblina", ResType::UTC).unwrap()).unwrap();
+    let none = |_: ResRef| None;
+    let placing = Placing { game: &r.game, item: &none };
+    let mut placed = Vec::new();
+    for (x, replaced) in [(17.5f32, false), (22.5, true)] {
+        let at = Placement { position: [x, 23.0, 0.0], rotation: -std::f32::consts::FRAC_PI_2 };
+        let mut c = instance(&placing, ResType::UTC, &bp.root, at, &[]).unwrap();
+        let scripts: Vec<String> = c
+            .fields
+            .iter()
+            .map(|f| f.label.to_string_lossy())
+            .filter(|l| l.starts_with("Script"))
+            .collect();
+        for label in scripts {
+            c.set(&label, Value::resref(ResRef::EMPTY));
+        }
+        if replaced {
+            let mut pair = mg_gff::Struct::new(0);
+            pair.set("OldAnimation", Value::String(b"pause1".to_vec()));
+            pair.set("NewAnimation", Value::String(b"mg_none".to_vec()));
+            let mut a = mg_gff::Struct::new(11);
+            a.set("AnimationReplace", Value::List(vec![pair]));
+            c.set("AnimationReplace", Value::Struct(a));
+        }
+        placed.push(c);
+    }
+    r.git.root.set("Creature List", Value::List(placed));
+    let body = format!(
+        "{INVISIBLE}
+    object g = CreateObject(OBJECT_TYPE_CREATURE, \"nw_goblina\", Location(area, Vector(24.5, 23.0, 0.0), 270.0));
+    ReplaceObjectAnimation(g, \"pause1\", \"mg_none\");"
+    );
+    let (dir, _) = r.shoot_beside(&body, SETTINGS, &|_| {});
+    eprintln!("{}", dir.display());
+}
+
+/// The sun's direction in an area's GIT (`AreaProperties`
+/// `SunDirectionX/Y/Z`, which the server reads: `engine_git_runtime.rs`)
+/// and the client's lighting: a city's street (tcn01) at noon with the
+/// client's environment shadows on, without the field (`git_sun_none`)
+/// and with a sun low in the west (`git_sun_west`: (−1, 0, 0.25)), the
+/// moon's the same.
+#[test]
+#[ignore]
+fn reading_git_sun_direction() {
+    let light = Lighting { ambient: 0x303030, diffuse: 0xE0E0E0, main_light: 0, only_tile: None };
+    let settings = SETTINGS.replace(
+        "[graphics.shadows.environment]\n\t\t\tenabled = false",
+        "[graphics.shadows.environment]\n\t\t\tenabled = true",
+    );
+    assert!(settings.contains("enabled = true"));
+    for (name, sun) in
+        [("none", None), ("west", Some([-1.0f32, 0.0, 0.25])), ("north", Some([0.0, 1.0, 0.5]))]
+    {
+        let mut r = Reading::new(&format!("git_sun_{name}"), "tcn01", light, &[]);
+        r.are.root.set("SunShadows", Value::Byte(1));
+        r.are.root.set("ShadowOpacity", Value::Byte(60));
+        r.place(0, [20.0, 24.0, 0.0], 270.0, &[]);
+        if let Some([x, y, z]) = sun {
+            let Some(Value::Struct(props)) = r.git.root.get_mut("AreaProperties") else {
+                panic!("no AreaProperties")
+            };
+            for (axis, v) in [("X", x), ("Y", y), ("Z", z)] {
+                props.set(&format!("SunDirection{axis}"), Value::Float(v));
+                props.set(&format!("MoonDirection{axis}"), Value::Float(v));
+            }
+        }
+        let (dir, _) = r.shoot_beside(INVISIBLE, &settings, &|v| v.shadows = true);
+        eprintln!("{}", dir.display());
+    }
+}
+
+/// The shine of a dropped cloak's colors: the game's cloak
+/// (`nw_maarcl055`, its environment map cloakmodel.2da's `default`)
+/// lying north of the player in colors 0, 56 to 59 and 61 (every channel),
+/// west to east, as the client and Moonglow's area view draw them (Aurora's
+/// from above: `area_dropped_cloaks`).
+#[test]
+#[ignore]
+fn reading_dropped_cloak_shine() {
+    let light = Lighting { ambient: 0x909090, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+    let mut r = Reading::new("dropped_cloak_shine", "tic01", light, &[]);
+    let bp = Gff::read(&r.game.resman.get_named("nw_maarcl055", ResType::UTI).unwrap()).unwrap();
+    let none = |_: ResRef| None;
+    let placing = Placing { game: &r.game, item: &none };
+    let mut placed = Vec::new();
+    for (i, color) in [0u8, 56, 57, 58, 59, 61].into_iter().enumerate() {
+        let at = Placement { position: [17.5 + i as f32, 22.5, 0.0], rotation: 0.0 };
+        let mut item = instance(&placing, ResType::UTI, &bp.root, at, &[]).unwrap();
+        for channel in mg_rules::items::ArmorChannel::ALL {
+            item.set(channel.field(), Value::Byte(color));
+        }
+        placed.push(item);
+    }
+    r.git.root.set(mg_area::ObjectKind::Item.list(), Value::List(placed));
+    let (dir, _) = r.shoot_beside(INVISIBLE, SETTINGS, &|_| {});
+    eprintln!("{}", dir.display());
+}
+
+/// The direction the client lights an area from, read back
+/// (`lightAreaDiffuseDirection`, view space, through the debug
+/// `inc_standard`, turned back to the world by the fitted camera) for an
+/// area's GIT without a sun direction and with two, beside Moonglow's.
+#[test]
+#[ignore]
+fn reading_git_sun_uniform() {
+    let root = mg_testkit::nwn_root().expect("the game");
+    let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let overrides = [("inc_standard.shd", debug_shader(&base).into_bytes())];
+    let light = Lighting { ambient: 0x303030, diffuse: 0xE0E0E0, main_light: 0, only_tile: None };
+    for (name, sun) in
+        [("none", None), ("west", Some([-1.0f32, 0.0, 0.25])), ("north", Some([0.0, 1.0, 1.0]))]
+    {
+        let mut r = Reading::new(&format!("git_sun_uniform_{name}"), "tcn01", light, &overrides);
+        if let Some([x, y, z]) = sun {
+            let Some(Value::Struct(props)) = r.git.root.get_mut("AreaProperties") else {
+                panic!("no AreaProperties")
+            };
+            for (axis, v) in [("X", x), ("Y", y), ("Z", z)] {
+                props.set(&format!("SunDirection{axis}"), Value::Float(v));
+                props.set(&format!("MoonDirection{axis}"), Value::Float(v));
+            }
+        }
+        let model = mg_area::AreaModel::read(&r.game, &r.are.root, &r.git.root, None);
+        let ours = model.lighting.direction(false);
+        let (dir, client) = r.shoot(&enter(&logged(INVISIBLE), (90.0, 12.0, 45.0)), SETTINGS);
+        let v = |k| debug_value(&client, k, 1.0) * 2.0 - 1.0;
+        let seen = Vec3::new(v(96), v(97), v(98));
+        let pc = player_stood(&dir, &base, &model, glam::Vec2::new(20.0, 20.0));
+        let camera = fitted_camera(pc, FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
+        let world = camera.view().inverse().transform_vector3(seen);
+        eprintln!(
+            "{name}: GIT {sun:?}: the client's (view) {seen:.3}, in the world {world:.3}; \
+             Moonglow's {:.3}",
+            ours.unwrap_or_else(|| Vec3::new(4000.0, 4500.0, 7000.0).normalize())
+        );
+    }
 }
 
 /// An exact tile beside neighbors it disagrees with: ttr01's tile 20 (all
