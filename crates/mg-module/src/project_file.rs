@@ -2069,6 +2069,8 @@ keeper_variable = "tdod_store"
                 ("empty", "Empty", None),
                 ("review", "Review", Some("bin/review")),
                 ("odd", "Odd", Some("x")),
+                ("ask", "Ask", Some("bin/ask")),
+                ("odder", "Odder", Some("x")),
             ]
         );
         // What was allowed is never read from the project's files, the
