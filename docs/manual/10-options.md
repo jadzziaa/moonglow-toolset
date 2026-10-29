@@ -204,10 +204,11 @@ the module is opened again from its file.
   userpatch.ini's haks"). Their own files are not checked as the
   module's custom content. Changing it reads the game's data again.
 - **Reload haks, override and development when they change**: on by
-  default. Moonglow checks every few seconds and rereads what changed
+  default. Moonglow is told by the system when they change (it checks
+  every few seconds where it can't be) and rereads what changed
   (see [Build, verify and test](09-build-and-test.md)). The same switch
-  has a nasher project's own files read again when another program
-  changes them (see [Modules](03-modules.md)).
+  has a nasher project's own files, a module folder's and a `.mod` read
+  again when another program changes them (see [Modules](03-modules.md)).
 - **Keep a recovery copy of unsaved work every … minutes** (5 by
   default; see [Modules](03-modules.md)).
 - Warnings: **Show reserved Blueprint ResRef namespace warning** (a

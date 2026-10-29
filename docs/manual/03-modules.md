@@ -82,23 +82,36 @@ a directory), nasher projects (see below) and the game's campaign files
   it is deleted: choose an empty folder or the module's own. A new
   module is offered as `<name>.mod` in the user folder's `modules`, where
   the game (and Test Module) finds it.
+- **A `.mod` saved by another program while it is open** (Aurora, a
+  build) is read again (Options › General: reloading), resource by
+  resource, as a module folder's files are: what changed in it, was
+  added or removed comes into the module, the log names it, and where
+  you have unsaved changes to the same resource, **Changed Outside
+  Moonglow** asks which to keep (its resources named as
+  `castle.mod/area001.are`). Until you answer, Save doesn't write over
+  the file. (With reloading off it isn't looked at, and Save writes over
+  it, as before.)
 - In a module folder a resource is one file, named in lower case
   (`bread.uti`). A file Aurora named otherwise (`bread.UTI`) is read all
   the same and renamed at the next save; where a folder has both, the
   one changed last is the resource, and the save leaves that one file.
 - **A module folder is worked on in place**, as in Aurora: keep its
   scripts open in an editor of your own while the module is open here.
-  Every few seconds (Options › General: reloading), files saved, added
-  or deleted in the folder by another program are read again (in the
-  background, as a nasher project's are), and the log says which. A save never writes over them: a file changed outside
+  Files saved, added or deleted in the folder by another program are
+  read again a moment after they are written (Options › General:
+  reloading; in the background, as a nasher project's are), and the log
+  says which. A save never writes over them: a file changed outside
   that you did not change here stays as the other program left it, and
   a file new to the folder is not removed. Where a file was changed
   outside and here both, yours is kept, Save writes nothing and says
   which files, and **Changed Outside Moonglow** asks which to keep. A
   script read again is compiled if **Automatically Compile Scripts on
   Save** is on (Options › Script Editor), as one saved here is, and so
-  are the scripts that include it (more than 24 at once are compiled
-  in the background, and the log says so). A module that had no unsaved
+  are the scripts that include it, a few at a time while you go on
+  working, however many a checkout changed (the status bar says
+  *Compiling scripts changed outside Moonglow…*; with an external
+  compiler, which is run once for them all, they are compiled as Compile
+  All is, and the log says so). A module that had no unsaved
   changes has none after: the compiled scripts are written beside their
   sources at once (a nasher project keeps none: they are made when it
   packs). Commands of `mg` that save a module folder keep to the same
@@ -292,10 +305,16 @@ unpacking or packing between the toolset and git.
   the first it finds, names the other, and leaves both for you to keep
   one.
 - **Changes made elsewhere are picked up while the project is open.**
-  Every few seconds (Options › General, the reloading switch) Moonglow
-  looks for source files that another program changed, added or deleted:
-  an editor, a `git checkout` that discards a change, a `git pull`. Those
-  are read again, the log names them, and open editors show them. A file
+  Moonglow is told by the system (inotify on Linux, FSEvents on macOS,
+  ReadDirectoryChangesW on Windows) which source files another program
+  changed, added or deleted (an editor, a `git checkout` that discards
+  a change, a `git pull`), and reads those alone a moment after they are
+  written (Options › General, the reloading switch): the log names them,
+  and open editors show them. Where the system can't tell it (no watches
+  left, a folder it can't watch), it looks at every file every few
+  seconds instead; told, it still looks at them all every half minute,
+  for a change the system missed (a network share's, written on another
+  machine). A file
   moved within the project is read from where it is now. It is
   not unsaved work. If the undo history had changes to one of them, the
   history is cleared (Undo could not take them back from the new file).
@@ -304,9 +323,9 @@ unpacking or packing between the toolset and git.
   changed files in the background while you go on working; the status
   bar says *Reading files changed outside Moonglow…* while it does, and
   they come into the module all at once when they have been read. On a
-  project of 21,000 files, a pull of nearly a thousand is in within a
-  few seconds of its end, without a frame of the window over the
-  144 fps budget. A file you save while it is being read, or one
+  project of 21,000 files, a pull of nearly a thousand is in 2 s from
+  its start without a frame of the window over the 144 fps budget, and
+  one of 2,870 in about 5 s, a frame or two a few milliseconds over it. A file you save while it is being read, or one
   deleted and put back meanwhile, is left for the next look, and one
   written again meanwhile is read again then.
 - **Where you have unsaved changes to a file that also changed

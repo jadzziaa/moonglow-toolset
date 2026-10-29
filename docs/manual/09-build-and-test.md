@@ -336,7 +336,8 @@ these changes without a restart:
   `override` or `development`;
 - the module's custom talk table.
 
-It checks every few seconds (Options › General, on by default), or when
+It looks a moment after the system says one changed (every few seconds
+where the system can't say; Options › General, on by default), or when
 you choose **Tools › Reload Resources**. Palettes, previews and open areas are
 redrawn from the new files, keeping the camera, and the log says what
 was reloaded.
