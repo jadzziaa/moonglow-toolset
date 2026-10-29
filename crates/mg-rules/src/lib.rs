@@ -174,7 +174,7 @@ impl GameData {
     /// Opens the base stack of an install and its `dialog.tlk`.
     pub fn open(install: &GameInstall) -> Result<GameData, RulesError> {
         let resman = ResMan::for_game(install)?;
-        let path = install.talk_table(false);
+        let path = install.talk_table();
         let bytes = std::fs::read(&path).map_err(|e| RulesError::Tlk {
             path: path.display().to_string(),
             message: e.to_string(),

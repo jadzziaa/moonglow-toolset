@@ -1065,12 +1065,12 @@ impl Form<'_> {
     }
 
     /// A PLT colour (0–175) picked from a palette's swatches (Aurora's
-    /// colour chooser; `palette` as `pal_cloth01`); the game is given where
-    /// the page has lent it out.
+    /// colour chooser; `palette` as `pal_cloth01`); the game is given, as
+    /// the pages that show one have lent it out.
     pub(crate) fn palette_color(
         &mut self,
         ui: &mut Ui,
-        game: Option<&mg_rules::GameData>,
+        game: &mg_rules::GameData,
         what: &str,
         label: &str,
         palette: &str,
@@ -1089,7 +1089,7 @@ impl Form<'_> {
     pub(crate) fn palette_pick(
         &mut self,
         ui: &mut Ui,
-        game: Option<&mg_rules::GameData>,
+        game: &mg_rules::GameData,
         what: &str,
         label: &str,
         palette: &str,
@@ -1098,16 +1098,13 @@ impl Form<'_> {
     ) -> Option<u8> {
         let pal = {
             let app = &mut *self.app;
-            let game = game.or(app.game.as_deref());
-            game.and_then(|game| {
-                let mut l = crate::images::Loader {
-                    pictures: &mut app.pictures,
-                    palettes: &mut app.palettes,
-                    ws: app.ws.as_ref(),
-                    game,
-                };
-                l.palette(palette)
-            })
+            let mut l = crate::images::Loader {
+                pictures: &mut app.pictures,
+                palettes: &mut app.palettes,
+                ws: app.ws.as_ref(),
+                game,
+            };
+            l.palette(palette)
         };
         let mut pick = None;
         ui.horizontal(|ui| {

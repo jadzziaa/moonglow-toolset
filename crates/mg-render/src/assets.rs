@@ -15,8 +15,6 @@ use mg_resman::{LayerClass, ResKey, ResMan};
 pub struct LoadedTexture {
     pub texture: Texture,
     pub txi: Txi,
-    /// The MTR the name resolved through, if any.
-    pub mtr: Option<Mtr>,
 }
 
 /// A source of textures.
@@ -93,7 +91,7 @@ impl Assets for ResMan {
         } else {
             plain().or_else(plt)?
         };
-        Some(LoadedTexture { texture, txi, mtr })
+        Some(LoadedTexture { texture, txi })
     }
 
     fn material(&self, name: &str) -> Option<Mtr> {

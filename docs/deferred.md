@@ -2292,19 +2292,11 @@ commits, with a test for all but one of the bugs it fixed) is in the
 history; this is what it left, found by reading and not by running
 unless it says so.
 
-- **Never used, or never otherwise:** the second half of
-  `ModelView::frame` (the model is there exactly when the composed
-  preview is); arguments that are always the same
-  (`situated::beside_model`'s `model_first`, `Form::palette_color`'s
-  `game`, `dialog_view::script_with_params`' label, list and salt,
-  `render_minimaps`' size, `GameInstall::talk_table`'s `feminine`);
-  fields nothing reads (`widgets::Picker.types`, `LoadedTexture.mtr`);
-  `commands::Id::defaults` (the table behind it is kept in step with
-  the key commands and has a test, but nothing asks it for keys);
-  `DebugView::MaterialDiffuse` (never set); `Renderer::color_format`,
-  `Reader::data` and `Reader::pos`, `Txi::alpha_mean`,
-  `SetFile::is_empty`. A `pub` item of a crate Moonglow Viewer builds on
-  may be in use there: `plt::LAYERS` is. (S each)
+- **Never used:** the second half of `ModelView::frame`
+  (`model_view.rs`: the model is there exactly when the composed preview
+  is). The rest of what this entry listed went on 2026-10-29; this is
+  left while the sprint's packages 07 and 08 change that file (waits on
+  their merge). (S)
 
 ### The review of 2026-10-27: what is left
 

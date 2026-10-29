@@ -1298,10 +1298,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                                     ui,
                                     key,
                                     link_path(r),
-                                    "Active",
-                                    "ConditionParams",
+                                    true,
                                     &link,
-                                    "cond",
                                     &mut actions,
                                 ),
                                 DataTab::Action => script_with_params(
@@ -1309,10 +1307,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                                     ui,
                                     key,
                                     node_path(kind, index),
-                                    "Script",
-                                    "ActionParams",
+                                    false,
                                     &n,
-                                    "act",
                                     &mut actions,
                                 ),
                                 DataTab::Other => {
@@ -1877,19 +1873,22 @@ fn text_panel(
     }
 }
 
-/// A script field with its parameters and a preview of its source.
-#[allow(clippy::too_many_arguments)]
+/// A script field with its parameters and a preview of its source: a
+/// link's condition (`Active`, `ConditionParams`), else a line's action
+/// (`Script`, `ActionParams`).
 fn script_with_params(
     app: &mut Moonglow,
     ui: &mut Ui,
     key: ResKey,
     path: GffPath,
-    label: &str,
-    list: &str,
+    condition: bool,
     s: &Struct,
-    salt: &str,
     actions: &mut Vec<Action>,
 ) {
+    let (label, list, salt) = match condition {
+        true => ("Active", "ConditionParams", "cond"),
+        false => ("Script", "ActionParams", "act"),
+    };
     let current = s.resref(label).unwrap_or(ResRef::EMPTY);
     ui.horizontal(|ui| {
         ui.label("Script");
@@ -1900,7 +1899,7 @@ fn script_with_params(
             actions.push(set(key, "Script", path.clone(), label, Value::resref(v)));
         }
         if let Some(name) = crate::widgets::edit_script_button(app, ui, id, current) {
-            actions.push(Action::EditScript { name, condition: label == "Active" });
+            actions.push(Action::EditScript { name, condition });
         }
     });
     // (As wide as they are, not as the page: the page stretches what is
@@ -1912,7 +1911,7 @@ fn script_with_params(
         })
         .inner;
     if wizard.clicked() {
-        app.open_script_wizard(key, path.clone(), label, salt == "cond");
+        app.open_script_wizard(key, path.clone(), label, condition);
     }
     // The pairs being edited live in a buffer until a field loses focus or a
     // row is added or removed; with no field focused the file's pairs show.

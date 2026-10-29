@@ -341,6 +341,7 @@ fn widgets_keys_searches_and_arrows() {
         fixed: 0,
         fixed_shaped: 0,
         uneven: 0,
+        start: false,
     });
     h.run_steps(3);
     shoot(&mut h, &dir, "adjust-location-arrows");
@@ -3214,7 +3215,7 @@ fn tileset_minimap_pictures() {
     shoot(&mut h, &dir, "tileset-editor");
     let mut doc = h.state_mut().tilesets.remove(0);
     let tiles = doc.tileset().unwrap().tiles.clone();
-    mg_ui::tileset_view::render_minimaps(h.state_mut(), &mut doc, 32);
+    mg_ui::tileset_view::render_minimaps(h.state_mut(), &mut doc);
     // A sheet: the game's picture beside Moonglow's, for the first tiles.
     let shown: Vec<_> = tiles.iter().filter(|t| t.image_map_2d.is_some()).take(12).collect();
     let mut sheet = mg_image::Rgba::new(32 * 2 + 8, 40 * shown.len() as u32);

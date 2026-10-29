@@ -629,7 +629,6 @@ fn kind_name(kind: u32) -> &'static str {
 pub struct Picker {
     pub id: egui::Id,
     pub title: String,
-    pub types: Vec<ResType>,
     pub filter: String,
     choices: Vec<ResRef>,
 }
@@ -650,13 +649,7 @@ impl Moonglow {
         }
         choices.sort();
         choices.dedup();
-        self.picker = Some(Picker {
-            id,
-            title: title.to_string(),
-            types: types.to_vec(),
-            filter: String::new(),
-            choices,
-        });
+        self.picker = Some(Picker { id, title: title.to_string(), filter: String::new(), choices });
     }
 
     /// The resource picked for a field, once.

@@ -55,8 +55,7 @@ const KNOWN: &[(&str, &str, &str, usize)] = &[
 fn shipped_modules_have_only_known_findings() {
     let root = corpus!();
     let gi = GameInstall::new(&root, None, "en");
-    let base =
-        mg_tlk::Tlk::read(&std::fs::read(gi.talk_table(false)).unwrap()).unwrap().entries.len();
+    let base = mg_tlk::Tlk::read(&std::fs::read(gi.talk_table()).unwrap()).unwrap().entries.len();
     let mut unexpected = Vec::new();
     let mut total = 0;
     for path in bundled_modules(&root) {
@@ -289,8 +288,7 @@ fn the_game_s_own_tables_have_only_their_known_cell_faults() {
     let root = corpus!();
     let gi = GameInstall::new(&root, None, "en");
     let rm = ResMan::for_game(&gi).unwrap();
-    let base =
-        mg_tlk::Tlk::read(&std::fs::read(gi.talk_table(false)).unwrap()).unwrap().entries.len();
+    let base = mg_tlk::Tlk::read(&std::fs::read(gi.talk_table()).unwrap()).unwrap().entries.len();
     let read = |name: &str| {
         let key = mg_resman::ResKey::parse(name, mg_core::ResType::TWODA)?;
         let t = mg_2da::TwoDa::parse(&rm.get(&key).ok()?, mg_core::Codepage::default()).ok()?;

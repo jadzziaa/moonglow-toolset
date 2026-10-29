@@ -97,7 +97,7 @@ pub(crate) struct Args {
 /// the game is installed.
 pub(crate) fn game_data(cli: &Cli, m: &Module, out: &mut Output) -> Option<GameData> {
     let gi = crate::install(cli).ok()?;
-    let tlk = mg_tlk::Tlk::read(&std::fs::read(gi.talk_table(false)).ok()?).ok()?;
+    let tlk = mg_tlk::Tlk::read(&std::fs::read(gi.talk_table()).ok()?).ok()?;
     let mut game = GameData::new(crate::module_resman(&gi, m, out).ok()?, tlk);
     if let Some(name) = m.custom_tlk().ok().flatten()
         && let Some(f) =

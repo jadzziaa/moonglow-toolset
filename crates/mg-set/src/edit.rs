@@ -56,11 +56,6 @@ impl SetFile {
         SetFile { lines: Vec::new(), newline: "\r\n", trailing: true }
     }
 
-    /// Whether it has no lines.
-    pub fn is_empty(&self) -> bool {
-        self.lines.is_empty()
-    }
-
     pub fn text(&self) -> String {
         let mut s = self.lines.join(self.newline);
         if self.trailing {

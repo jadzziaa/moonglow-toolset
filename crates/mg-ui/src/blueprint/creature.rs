@@ -547,7 +547,7 @@ fn appearance_fields(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, prefix: Opt
             ("Tattoo 2 Color", "Color_Tattoo2", "pal_tattoo01"),
         ] {
             crate::widgets::field_label(ui, text);
-            f.palette_color(ui, Some(game), text, label, palette);
+            f.palette_color(ui, game, text, label, palette);
             ui.end_row();
         }
     });

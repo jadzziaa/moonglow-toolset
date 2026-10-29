@@ -408,7 +408,6 @@ impl Assets for LitAssets<'_> {
                 alpha_mean: None,
             },
             txi: Default::default(),
-            mtr: None,
         })
     }
 

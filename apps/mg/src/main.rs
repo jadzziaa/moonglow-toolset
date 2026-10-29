@@ -3114,7 +3114,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 }
             }
             let mut out = Output::default();
-            let tlk = mg_tlk::Tlk::read(&std::fs::read(gi.talk_table(false))?)?;
+            let tlk = mg_tlk::Tlk::read(&std::fs::read(gi.talk_table())?)?;
             let game = mg_rules::GameData::new(module_resman(&gi, &m, &mut out)?, tlk);
             let only = area
                 .as_deref()
@@ -3576,7 +3576,7 @@ fn run(cli: &Cli) -> Result<Output> {
         }
         Cmd::Tlk { strrefs } => {
             let gi = install(cli)?;
-            let data = std::fs::read(gi.talk_table(false))?;
+            let data = std::fs::read(gi.talk_table())?;
             let tlk = mg_tlk::Tlk::read(&data)?;
             let texts: Vec<(u32, String)> =
                 strrefs.iter().map(|&s| (s, tlk.text(StrRef(s)).unwrap_or_default())).collect();
@@ -3769,7 +3769,7 @@ fn verify(
     };
     let count = |data: Vec<u8>| mg_tlk::Tlk::read(&data).map(|t| t.entries.len()).ok();
     let (base, custom) = times.time("the talk tables", || {
-        let base = std::fs::read(gi.talk_table(false)).ok().and_then(count).unwrap_or(0);
+        let base = std::fs::read(gi.talk_table()).ok().and_then(count).unwrap_or(0);
         let custom = m.custom_tlk().ok().flatten().and_then(|name| {
             let language = mg_core::Language::from_short_code(&gi.language);
             mg_module::talk::find_any(&m, &rm, &gi.tlk_dirs(), &name, language)

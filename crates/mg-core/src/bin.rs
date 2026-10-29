@@ -100,16 +100,6 @@ impl<'a> Reader<'a> {
         Ok(r)
     }
 
-    /// The whole underlying slice.
-    pub fn data(&self) -> &'a [u8] {
-        self.data
-    }
-
-    /// The current offset.
-    pub fn pos(&self) -> usize {
-        self.pos
-    }
-
     /// Bytes left after the current offset.
     pub fn remaining(&self) -> usize {
         self.data.len() - self.pos

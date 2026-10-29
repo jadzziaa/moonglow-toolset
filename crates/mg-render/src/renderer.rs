@@ -376,16 +376,6 @@ struct Draw<'a> {
     receives: bool,
 }
 
-/// What the renderer draws: the lit scene, or a value for comparing with
-/// the game's (through a debug shader in the game).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum DebugView {
-    #[default]
-    Lit,
-    /// Each lit mesh's material diffuse colour, linear, as uploaded.
-    MaterialDiffuse,
-}
-
 /// A mesh's pipeline of the game's programs, and a see-through one's
 /// fringe's.
 type GamePipelines = (Arc<crate::game::GamePipeline>, Option<Arc<crate::game::GamePipeline>>);
@@ -408,7 +398,6 @@ type GamePipelinesKey = (usize, crate::game::Traits, bool, bool, bool, crate::ga
 
 #[derive(Debug)]
 pub struct Renderer {
-    pub debug: DebugView,
     /// Where `Some`, each frame lists there the program pairs the game's
     /// shaders chose for the meshes they draw (for comparing with the
     /// client's choice: `program_choice_in_the_client`).
@@ -1088,7 +1077,6 @@ impl Renderer {
             ..Default::default()
         });
         Renderer {
-            debug: DebugView::Lit,
             game_programs: None,
             game_shaders: false,
             game_water: GAME_WATER,
@@ -1142,10 +1130,6 @@ impl Renderer {
             textures_apart: false,
             drawn: Drawn::default(),
         }
-    }
-
-    pub fn color_format(&self) -> wgpu::TextureFormat {
-        self.color_format
     }
 
     /// Forgets loaded textures (after the resources change).
@@ -1797,12 +1781,7 @@ impl Renderer {
                 let (max_inv, falloff) = attenuation_params();
                 [max_inv, falloff, scene.lights.len() as f32, size.1 as f32]
             },
-            scene_color: [
-                0.0,
-                0.0,
-                0.0,
-                if self.debug == DebugView::MaterialDiffuse { 1.0 } else { 0.0 },
-            ],
+            scene_color: [0.0; 4],
             time: [scene.time, 0.0, 0.0, 0.0],
         };
         gpu.queue.write_buffer(&self.frame_buffer, 0, bytemuck::bytes_of(&frame));
@@ -2035,7 +2014,6 @@ impl Renderer {
                     // (A blueprint about to be placed, see-through, is
                     // Moonglow's: it lays its depth first.)
                     && inst.opacity >= 1.0
-                    && self.debug == DebugView::Lit
                     && mesh.skin.as_ref().is_none_or(|s| s.bones.len() <= 64)
                     && self.game_path(slots, surface)
                 {
@@ -2547,9 +2525,7 @@ impl Renderer {
         // pipeline isn't ready, Moonglow's own. (A soft one reads the
         // framebuffer's depth copy: the frame makes it.)
         let mut soft_particles = false;
-        if let Some(f) = &game_frame
-            && self.debug == DebugView::Lit
-        {
+        if let Some(f) = &game_frame {
             use crate::game::{GamePass, PipelineKey, Ready};
             let (format, samples, wait) =
                 (self.color_format, self.sample_count, !self.game_background);
