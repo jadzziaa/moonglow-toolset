@@ -89,7 +89,7 @@ pub const MAX_TUFTS: usize = 2000;
 /// two were fitted to the client's picture of a rural field
 /// (`shadows_ttr01_grass_day_off`, Grass Detail High) beside the area
 /// view's from its camera: the share of the near ground bare, at three
-/// sizes of a neighbourhood, within 0.02 of the client's; evenly
+/// sizes of a neighborhood, within 0.02 of the client's; evenly
 /// scattered, the view had a fifth as much bare ground, and none of the
 /// client's dark clumps. Sparse grass has few tufts a clump, so that 0.3
 /// a square meter looks scattered, as the client's white tufts did
