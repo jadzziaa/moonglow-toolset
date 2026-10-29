@@ -58,6 +58,8 @@ mod ee_visuals;
 mod heads;
 #[path = "client_render/heed.rs"]
 mod heed;
+#[path = "client_render/joined.rs"]
+mod joined;
 #[path = "client_render/programs.rs"]
 mod programs;
 #[path = "client_render/readings.rs"]
