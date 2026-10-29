@@ -3,7 +3,7 @@ type: Checklist
 title: Parity checklists
 description: Aurora's dialogs against Moonglow, control by control - done and tested, partly, not yet, or deliberately different with the reason - naming the test that covers each.
 tags: [aurora, parity, checklist, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:35:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T20:06:45Z }
 sources:
   - id: inventory
     resource: aurora-ui-inventory.md

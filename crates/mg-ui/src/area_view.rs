@@ -3219,7 +3219,8 @@ fn minimap_overlay(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
         map_painter.circle_stroke(at, 3.5, Stroke::new(1.0, Color32::BLACK));
     }
     let id = ui.id().with(("minimap", view.area));
-    let r = ui.interact(rect, id, egui::Sense::click_and_drag());
+    // (Not focusable: a click on the map leaves the keys to the view.)
+    let r = ui.interact(rect, id, egui::Sense::CLICK | egui::Sense::DRAG);
     let r = r.on_hover_cursor(egui::CursorIcon::PointingHand);
     if (r.clicked() || r.dragged())
         && let Some(p) = r.interact_pointer_pos()

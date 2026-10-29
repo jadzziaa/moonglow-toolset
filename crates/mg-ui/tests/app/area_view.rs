@@ -4301,6 +4301,7 @@ fn the_minimap_shows_the_area_and_a_click_on_it_looks_there() {
     let target = h.state().area_views[&area].orbit.unwrap().target;
     assert!((target.x - 35.0).abs() < 0.5 && (target.y - 5.0).abs() < 0.5, "{target}");
     assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Waypoint, 0)]);
+    assert!(h.ctx.memory(|m| m.focused().is_none()), "the keys stay the view's");
 }
 
 /// Setup Area Transition picks the door or waypoint a transition leads
