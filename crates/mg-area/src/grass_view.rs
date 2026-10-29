@@ -7,9 +7,10 @@
 //! squared, up to 30,000, 173 m), fading it in at the edge; a builder
 //! looking over a field from high up sees none of that edge.
 //!
-//! Each tile model's grass ([`crate::grass::tufts`]) is uploaded once, and
-//! drawn at each of the levels of [`crate::grass::level`] by the first of its tufts
-//! (they are in no order of place): its levels share its buffers. Near
+//! Each tile model's grass of each variant ([`crate::grass::tufts`]) is
+//! uploaded once, and drawn at each of the levels of
+//! [`crate::grass::level`] by the first of its tufts (they are in no
+//! order of place): its levels share its buffers. Near
 //! the eye each tile's grass is drawn by itself; where a whole chunk of
 //! [`CHUNK`] by [`CHUNK`] tiles is at the last level, its tiles' tufts are
 //! put into one mesh, made the first time the chunk is seen (on a thread

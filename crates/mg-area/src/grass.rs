@@ -78,6 +78,24 @@ pub fn remove_override(git: ResKey, root: &Struct, material: u32) -> Vec<Edit> {
     edits(git, remove_plan(root.child(PROPERTIES), material))
 }
 
+/// How many kinds of grass the tiles of one model grow ([`tufts`]'s
+/// `variant`), each tile the one its place picks ([`variant`]): with a
+/// clump's ground the same for every tile of a model, a field of one
+/// model showed the same clumps tile after tile, a grid seen from above
+/// (`grass_over_a_field_of_one_tile_looks`). Each is made and uploaded
+/// once, as a model's one grass was.
+pub const VARIANTS: u32 = 4;
+
+/// Which of a model's [`VARIANTS`] the tile at `column` and `row` grows:
+/// the same every time, neighbours mostly apart.
+pub fn variant(column: u32, row: u32) -> u32 {
+    // (splitmix64 of the place.)
+    let mut z = (u64::from(column) << 32 | u64::from(row)).wrapping_add(0x9e37_79b9_7f4a_7c15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    ((z ^ (z >> 31)) % u64::from(VARIANTS)) as u32
+}
+
 /// The most tufts one tile grows (a denser tile's are thinned evenly): a
 /// 10 by 10 meter field at density 20.
 pub const MAX_TUFTS: usize = 2000;
@@ -107,17 +125,23 @@ pub const CLUMP_REACH: f32 = 1.4;
 /// turned at random, as tall and as wide as the height (a little less, at
 /// random), both of its sides drawn; lit as the ground beneath it is (the
 /// game lights grass without its faces' directions), in the colours of
-/// its kind. `None` where nothing grows. `name` is the tile model's: the
-/// same model grows the same grass.
+/// its kind. `None` where nothing grows. `name` is the tile model's and
+/// `variant` one of its [`VARIANTS`] (by the tile's place, [`variant`]):
+/// the same model and variant grow the same grass, every time.
 ///
 /// A mesh's tufts are in no order of place, so that any number of the
 /// first of them are spread over all of its faces: [`thinned`] keeps the
 /// first, for grass seen far off.
-pub fn tufts(name: &str, faces: &[WalkFace], growing: &[(u32, GrassLook)]) -> Option<Model> {
+pub fn tufts(
+    name: &str,
+    variant: u32,
+    faces: &[WalkFace],
+    growing: &[(u32, GrassLook)],
+) -> Option<Model> {
     let mut nodes = vec![Node::new(&format!("{name}_grass"), NodeKind::Dummy)];
     let seed = name.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
         (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3)
-    });
+    }) ^ u64::from(variant).wrapping_mul(0x9e37_79b9_7f4a_7c15);
     let mut rng = fastrand::Rng::with_seed(seed);
     let keep = kept_on(faces, growing);
     for (material, look) in growing {
@@ -634,7 +658,7 @@ mod tests {
             f
         }));
         let grass = [(3, look("grass", 5.0))];
-        let m = tufts("tst01_a01_01", &faces, &grass).unwrap();
+        let m = tufts("tst01_a01_01", 0, &faces, &grass).unwrap();
         let n = tuft_count(&m);
         assert!((450..=550).contains(&n), "about 5 a square meter on 100: {n}");
         let mesh = m.nodes.iter().find_map(Node::mesh).unwrap();
@@ -645,10 +669,10 @@ mod tests {
         assert!(mesh.vertices.iter().all(|p| p[2] <= 1.0));
         assert!(mesh.vertices.iter().any(|p| p[2] > 0.7));
         // The same model grows the same grass.
-        assert_eq!(tufts("tst01_a01_01", &faces, &grass), Some(m));
-        assert!(tufts("tst01_a01_01", &faces, &[(5, look("grass", 5.0))]).is_none());
+        assert_eq!(tufts("tst01_a01_01", 0, &faces, &grass), Some(m));
+        assert!(tufts("tst01_a01_01", 0, &faces, &[(5, look("grass", 5.0))]).is_none());
         // Ten times as dense: thinned to the most a tile grows.
-        let dense = tufts("tst01_a01_01", &faces, &[(3, look("grass", 50.0))]).unwrap();
+        let dense = tufts("tst01_a01_01", 0, &faces, &[(3, look("grass", 50.0))]).unwrap();
         assert!(tuft_count(&dense) <= MAX_TUFTS + 20);
         assert!(tuft_count(&dense) > MAX_TUFTS * 9 / 10);
     }
@@ -657,7 +681,7 @@ mod tests {
     /// over all of the ground (no corner bare), as many as the share says.
     #[test]
     fn thinned_grass_is_spread_over_all_of_its_ground() {
-        let m = tufts("tst01_a01_01", &field(3), &[(3, look("grass", 5.0))]).unwrap();
+        let m = tufts("tst01_a01_01", 0, &field(3), &[(3, look("grass", 5.0))]).unwrap();
         let all = tuft_count(&m);
         let quarters = [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)];
         let in_quarter = |mesh: &Mesh, (qx, qy): (f32, f32)| {
@@ -712,7 +736,7 @@ mod tests {
         };
         let mut bares = Vec::new();
         for name in ["tst01_a01_01", "tst01_b02_01", "tst01_c03_01", "tst01_d04_01"] {
-            let m = tufts(name, &field(3), &[(3, look("grass", 5.0))]).unwrap();
+            let m = tufts(name, 0, &field(3), &[(3, look("grass", 5.0))]).unwrap();
             let f = feet(&m);
             assert!((400..=600).contains(&f.len()), "about 5 a square meter: {}", f.len());
             assert!(f.iter().all(|p| p.x.abs() <= 5.0 && p.y.abs() <= 5.0), "on the field");
@@ -724,7 +748,7 @@ mod tests {
         // Sparse: as many as the density says, a clump of one or two.
         let mut sparse = 0;
         for k in 0..20 {
-            let m = tufts(&format!("tst01_s{k:02}"), &field(3), &[(3, look("grass", 0.3))]);
+            let m = tufts(&format!("tst01_s{k:02}"), 0, &field(3), &[(3, look("grass", 0.3))]);
             sparse += m.map_or(0, |m| tuft_count(&m));
         }
         assert!((480..=720).contains(&sparse), "0.3 a square meter on 20 fields: {sparse}");
@@ -748,7 +772,7 @@ mod tests {
         let mut faces = field(3);
         faces.extend(field(1));
         let growing = [(1, look("mgdirt", 1.0)), (3, look("grass", 50.0))];
-        let m = tufts("tst", &faces, &growing).unwrap();
+        let m = tufts("tst", 0, &faces, &growing).unwrap();
         let d = densities(&m, &faces, &growing);
         let keep = MAX_TUFTS as f32 / (100.0 * 51.0);
         assert_eq!(d, [1.0 * keep, 50.0 * keep]);
@@ -783,11 +807,49 @@ mod tests {
         }
     }
 
+    /// The tiles of one model grow a few kinds of grass by their places:
+    /// each kind its own clumps, the same every time; a field of one model
+    /// has them all, neighbours mostly apart (it showed the same clumps
+    /// tile after tile, a grid from above).
+    #[test]
+    fn tiles_of_one_model_grow_their_grass_by_their_places() {
+        let grow = |v: u32| tufts("tst01_a01_01", v, &field(3), &[(3, look("grass", 5.0))]);
+        let kinds: Vec<Model> = (0..VARIANTS).map(|v| grow(v).unwrap()).collect();
+        for (i, a) in kinds.iter().enumerate() {
+            assert_eq!(grow(i as u32).as_ref(), Some(a), "the same every time");
+            for b in &kinds[i + 1..] {
+                assert_ne!(a, b, "each its own");
+            }
+            // As dense as the others.
+            assert!((400..=600).contains(&tuft_count(a)), "{}", tuft_count(a));
+        }
+        let field: Vec<Vec<u32>> =
+            (0..8).map(|row| (0..8).map(|column| variant(column, row)).collect()).collect();
+        assert_eq!(
+            field,
+            (0..8)
+                .map(|row| (0..8).map(|c| variant(c, row)).collect::<Vec<_>>())
+                .collect::<Vec<_>>()
+        );
+        let mut used = [0; VARIANTS as usize];
+        let mut alike = 0;
+        for row in 0..8 {
+            for column in 0..8 {
+                used[field[row][column] as usize] += 1;
+                if column > 0 && field[row][column] == field[row][column - 1] {
+                    alike += 1;
+                }
+            }
+        }
+        assert!(used.iter().all(|&n| n >= 8), "every kind: {used:?}");
+        assert!(alike < 56 / 2, "neighbours mostly apart: {alike} of 56 alike");
+    }
+
     #[test]
     fn each_kind_of_grass_is_a_mesh_of_its_own() {
         let mut faces = field(3);
         faces.extend(field(1));
-        let m = tufts("tst", &faces, &[(1, look("mgdirt", 1.0)), (3, look("grass", 1.0))]);
+        let m = tufts("tst", 0, &faces, &[(1, look("mgdirt", 1.0)), (3, look("grass", 1.0))]);
         let m = m.unwrap();
         let textures: Vec<&str> = m
             .nodes

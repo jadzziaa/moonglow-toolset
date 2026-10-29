@@ -302,7 +302,7 @@ pub struct AreaScene {
     /// What grows (by material) that the grass was made for, and the
     /// grass of each tile model, by name.
     grass_for: Vec<(u32, GrassLook)>,
-    grass_cache: HashMap<String, Option<Arc<TileGrass>>>,
+    grass_cache: HashMap<(String, u32), Option<Arc<TileGrass>>>,
     /// The grass of chunks far off, each in one mesh, by chunk
     /// ([`crate::grass_view`]).
     chunk_grass: HashMap<(i32, i32), ChunkGrass>,
@@ -474,14 +474,15 @@ impl AreaScene {
             .iter()
             .map(|t| {
                 let name = t.model.as_ref().filter(|_| !growing.is_empty())?;
+                let variant = crate::grass::variant(t.column, t.row);
                 grass
-                    .entry(name.clone())
+                    .entry((name.clone(), variant))
                     .or_insert_with(|| {
                         let walk = walkmeshes
                             .entry(name.clone())
                             .or_insert_with(|| Walkmesh::of_tile(game, name).map(Arc::new));
                         let faces = &walk.as_ref()?.faces;
-                        let model = crate::grass::tufts(name, faces, growing)?;
+                        let model = crate::grass::tufts(name, variant, faces, growing)?;
                         let densities = crate::grass::densities(&model, faces, growing);
                         Some(Arc::new(TileGrass::new(gpu, model, densities)))
                     })
