@@ -723,22 +723,22 @@ pub(crate) fn job_ui(app: &mut Moonglow, ui: &mut Ui) {
             .on_hover_text("Closes the command's input: a command reading to its end goes on")
             .clicked();
     });
-    let shown = sent.map(|line| {
+    if let Some(line) = sent {
+        // Its question's line ended, as Enter ends it in a terminal, and
+        // what was typed shown after it: before the line goes to the
+        // command, whose next question would else be read onto the end of
+        // this one ("Name: Secret: ") as it answers at once.
         let shown = if input.hidden { "(hidden)".to_string() } else { line.clone() };
-        let _ = input.send.send(Some(line));
-        shown
-    });
-    if close {
-        let _ = input.send.send(None);
-        state.input = None;
-    }
-    if let Some(shown) = shown {
-        // (Its question's line ended, as Enter ends it in a terminal.)
+        let send = input.send.clone();
         output.lock().unwrap_or_else(|e| e.into_inner()).end_lines();
         state.unlogged = take_output_into(state);
         if let Some(last) = &mut state.last {
             last.push(Said::Typed, format!("> {shown}"));
         }
+        let _ = send.send(Some(line));
+    }
+    if close && let Some(input) = state.input.take() {
+        let _ = input.send.send(None);
     }
 }
 
