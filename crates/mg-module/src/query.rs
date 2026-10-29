@@ -197,19 +197,33 @@ pub struct Info {
     pub resources: Vec<(String, usize)>,
 }
 
+/// [`info_in`] the module's text read as Windows-1252.
 pub fn info(m: &Module) -> Result<Info, crate::ModuleError> {
+    info_in(m, mg_core::Codepage::WINDOWS_1252)
+}
+
+/// What a module is, its text (name, tag, description) read in `codepage`:
+/// the module's (`mg_rules::text_codepage`; Windows-1252, or the table of
+/// an `encoding.2da` in its haks).
+pub fn info_in(m: &Module, codepage: mg_core::Codepage) -> Result<Info, crate::ModuleError> {
     let ifo = m.info()?;
     let r = &ifo.root;
-    let text =
-        |l: &str| r.string(l).map(|b| String::from_utf8_lossy(b).into_owned()).unwrap_or_default();
+    let text = |l: &str| r.string(l).map(|b| codepage.decode(b).into_owned()).unwrap_or_default();
+    let localized = |l: &str| match r.get(l) {
+        Some(Value::LocString(ls)) => ls
+            .text_in(Language::ENGLISH, Gender::Male, codepage)
+            .map(|t| t.into_owned())
+            .unwrap_or_default(),
+        _ => String::new(),
+    };
     let mut counts: std::collections::BTreeMap<String, usize> = Default::default();
     for k in m.keys() {
         *counts.entry(k.restype.extension().unwrap_or("?").to_string()).or_default() += 1;
     }
     Ok(Info {
-        name: english(r.get("Mod_Name")),
+        name: localized("Mod_Name"),
         tag: text("Mod_Tag"),
-        description: english(r.get("Mod_Description")),
+        description: localized("Mod_Description"),
         entry_area: r.resref("Mod_Entry_Area").filter(|a| !a.is_empty()),
         areas: m.areas()?,
         haks: m.haks()?,

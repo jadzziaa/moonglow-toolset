@@ -35,7 +35,7 @@ impl Publish {
 /// Opens the window, with the folder last published to.
 pub(crate) fn open(app: &mut Moonglow) {
     let info = app.ws.as_mut().and_then(|ws| ws.flush().ok().map(|()| &ws.module));
-    let info = info.and_then(|m| mg_module::query::info(m).ok());
+    let info = info.and_then(|m| mg_module::query::info_in(m, crate::text::game_codepage()).ok());
     app.publish = Some(Publish {
         folder: app
             .settings

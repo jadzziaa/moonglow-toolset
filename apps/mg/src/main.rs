@@ -71,6 +71,12 @@ enum Cmd {
         /// Output file (default: stdout for JSON).
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// The module (.mod, folder or nasher project) the file is of: its
+        /// text is read and written by the module's `encoding.2da` (in its
+        /// haks, found through the game install). Without one, and without
+        /// a table, Windows-1252.
+        #[arg(long)]
+        module: Option<PathBuf>,
     },
     /// Show where a resource comes from in the game's load order: the
     /// layer the game reads it from, then every layer whose copy that
@@ -584,6 +590,12 @@ enum Cmd {
         /// its language's), else cp1252.
         #[arg(long)]
         codepage: Option<String>,
+        /// The module (.mod, folder or nasher project) the scripts are of:
+        /// read in the table of its `encoding.2da` (in its haks, found
+        /// through the game install), where it has one. `--codepage`
+        /// comes first.
+        #[arg(long)]
+        module: Option<PathBuf>,
     },
     /// Where a resource (or, with --tag, a tag) is used in a module, and the
     /// script strings that spell it.
@@ -1805,7 +1817,13 @@ fn run(cli: &Cli) -> Result<Output> {
             }
             out
         }
-        Cmd::Gff { input, output } => gff(input, output.as_deref(), cli.json)?,
+        Cmd::Gff { input, output, module } => {
+            let codepage = match module {
+                Some(module) => module_codepage(cli, &crate::open_module(module)?),
+                None => Codepage::WINDOWS_1252,
+            };
+            gff(input, output.as_deref(), cli.json, codepage)?
+        }
         Cmd::Set { module, resource, fields, remove, dry_run, plugins } => {
             let m = crate::open_module(module)?;
             let codepage = module_codepage(cli, &m);
@@ -2565,13 +2583,19 @@ fn run(cli: &Cli) -> Result<Output> {
             serve::say_ended(cli.json, &serve::how(end), failed);
             Output { done: true, failed, ..Default::default() }
         }
-        Cmd::Lsp { codepage } => {
+        Cmd::Lsp { codepage, module } => {
             if cli.json {
                 bail!("mg lsp speaks the Language Server Protocol, which is JSON already");
             }
             let codepage = match codepage {
                 Some(name) => Codepage::for_label(name)
                     .with_context(|| format!("{name:?} isn't a codepage (cp1252, cp1250…)"))?,
+                // A module's table, else the game's own codepage, as `mg
+                // refs` reads a module's scripts.
+                None if module.is_some() => {
+                    let module = module.as_deref().expect("a module");
+                    scripts_codepage(cli, &crate::open_module(module)?)
+                }
                 // (The user directory as `mg` finds it, without the game
                 // too: the language server works without one.)
                 None => user_codepage(cli).unwrap_or(Codepage::WINDOWS_1252),
@@ -3444,7 +3468,9 @@ fn run(cli: &Cli) -> Result<Output> {
             let gi = install(cli)?;
             let mut out = Output::default();
             let rm = module_resman(&gi, &m, &mut out)?;
-            let info = mg_module::query::info(&m)?;
+            // (Its name and description in the module's letters.)
+            let codepage = mg_rules::text_codepage(&rm, game_language(&gi));
+            let info = mg_module::query::info_in(&m, codepage)?;
             let own_uuid = m
                 .info()?
                 .root
@@ -3541,11 +3567,7 @@ fn run(cli: &Cli) -> Result<Output> {
         Cmd::Search(args) => search::run(cli, args)?,
         Cmd::Info { module } => {
             let m = crate::open_module(module)?;
-            let mut i = mg_module::query::info(&m)?;
-            let cp = module_codepage(cli, &m);
-            for text in [&mut i.name, &mut i.description] {
-                *text = Codepage::WINDOWS_1252.spelled_in(text, cp).into_owned();
-            }
+            let i = mg_module::query::info_in(&m, module_codepage(cli, &m))?;
             let mut out = Output::new(json!({
                 "name": i.name,
                 "tag": i.tag,
@@ -3796,7 +3818,7 @@ fn verify(
     let left = mg_module::doctor::leave_out(&mut missing, &mut findings, skip);
     // Each finding with its fix, if it has one.
     let found = mg_edit::fix::attach(&m, findings, &theirs);
-    let codepage = mg_rules::text_codepage(&rm, game_language(&gi));
+    let codepage = mg_rules::text_codepage(&rm, game_language(gi));
     let (fixed, made, fix_lines) = if asked.checks.is_empty() {
         (Vec::new(), serde_json::Value::Null, Vec::new())
     } else {
@@ -4102,9 +4124,8 @@ fn roundtrip(path: &Path, keep: Option<&Path>) -> Result<Output> {
     Ok(out)
 }
 
-fn gff(input: &Path, output: Option<&Path>, json: bool) -> Result<Output> {
+fn gff(input: &Path, output: Option<&Path>, json: bool, cp: Codepage) -> Result<Output> {
     let data = std::fs::read(input).with_context(|| input.display().to_string())?;
-    let cp = Codepage::WINDOWS_1252;
     if input.extension().is_some_and(|e| e.eq_ignore_ascii_case("json")) {
         let value: serde_json::Value = serde_json::from_slice(&data)?;
         let gff = mg_gff::from_json(&value, cp)?;

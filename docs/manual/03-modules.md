@@ -1046,9 +1046,14 @@ where a field says so). The table must be in a hak on the list: the game
 does not read one kept in the module itself. A module without one is
 read as ever (Windows-1252; Polish text Windows-1250). Plugins' text
 follows the table too, and so does the command line where it is given a
-module (`mg set`, `apply`, `find`, `info`, `areas`, `replace`, `dialog-export`, `dialog-import`):
-it needs the game install to find the hak. `mg gff` on a file of its own
-is Windows-1252.
+module (`mg set`, `apply`, `find`, `info`, `areas`, `replace`, `dialog-export`, `dialog-import`,
+the name `nwsync` publishes, and `gff` and `lsp` with `--module`):
+it needs the game install to find the hak. `mg gff` on a file of its own,
+without `--module`, is Windows-1252, and a nasher project's sources are
+written as its `nasher.cfg` says (`--nwn-encoding`), as nasher's own tools
+write them. The game reads a table from the user folder's `override`
+too, and so does Moonglow; where a table has no row for a byte, the
+letter is the game's language's (a Polish game's Windows-1250).
 
 **The hak list** (Custom Content) has the module's haks numbered from the
 top: where two haks have a resource of the same name, the game takes the

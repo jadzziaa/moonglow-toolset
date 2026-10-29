@@ -1735,55 +1735,27 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   module with its own `pnl_loadscreen` model, or a texture that isn't
   laid out so, shows wrong. Aurora's small `<name>s` preview isn't used.
   The picture isn't in the list itself, only on hover. (S)
-- **A module's `encoding.2da`** (EE 1.87: a table of the Unicode
-  character each of the 256 byte values stands for, shipped with fonts
-  to match, so that a module can be in a language the game has no
-  codepage for; a builder who knows the engine pointed it out, after
-  1.19.1) is read
-  now (`GameData::codepage`, `mg_core::Codepage::table`): the
-  toolset shows and writes the module's text by it (names and other
-  localized strings in the editors, tags and comments, scripts,
-  conversations, the journal, factions, the talk tables, the palettes,
-  the area list, Find and Replace Text, the 2DA view), and reads it
-  anew when the hak list changes. Without a table every path is as it
-  was (Windows-1252, Windows-1250 for Polish). What the game does was
-  settled in it (`engine_encoding.rs`): the table is read from a hak,
-  not from the module file; a cell is hexadecimal with or without `0x`
-  (`305` is U+0305), of which the low 16 bits count; a blank or missing
-  row keeps the game's own character; a character two bytes stand for is
-  written as the last of them; ASCII's bytes can be moved too. Left, or
-  not known:
-  - `mg` goes by the table where it is given a module (`set`, `apply`,
-    `find`, `info`, `areas`, `replace`, `dialog` export and import, a
-    plugin's edits), finding the hak through the game install (without
-    one: Windows-1252, and nothing said). `mg gff` on a lone file,
-    nasher sources (theirs is `--nwn-encoding`), `mg nwsync`'s module
-    name still read and write Windows-1252 whatever the table, and the
-    script language server reads the game's codepage (`settings.tml`,
-    or `--codepage`), not a module's table. (S each)
-  - In the toolset, by choice: a prefab's file keeps the bytes (written
-    as Windows-1252 text, so that it is the same object in any module),
-    and a hak's description is the hak's, not the module's. The Store
-    Wizard's lines, a conversation exported or imported, the name Save
-    As offers and plugins' strings go by the table
-    (`Codepage::spelled_in` for code that writes Windows-1252); a
-    letter of an imported conversation the table lacks is a "?" (as is,
-    now, one Windows-1252 lacks in a module without a table: a
-    conversation's new line, a faction's name and an export's comments
-    were written as UTF-8 there). An exported or imported file is
-    spelled over as a whole, its punctuation too: of no matter unless a
-    table moves ASCII's own characters.
-  - A table is taken to stand for every language of one byte a character
-    (a Polish name in an English game is read by it too), and for none of
-    the East Asian ones; a missing row keeps the character of the game's
-    language. Only English was tried in the game.
-  - Whether the game reads the table from `override` and the like was
-    not tried (Moonglow reads it from whatever lies outside the module
-    file, haks first); nor was the game's `game.language.codepage`
-    setting, which only `mg lsp` reads (the toolset goes by Options ›
-    Language).
-  - A text field already being typed in when the hak list changes keeps
-    what it showed until it is left.
+- **A module's `encoding.2da`, what is left by choice** (EE 1.87: a
+  table of the Unicode character each byte of the game's text stands
+  for; a builder who knows the engine pointed it out, after 1.19.1):
+  the toolset, plugins and `mg` read and write a module's text by it
+  wherever they are given the module (`mg gff` and `mg lsp` with
+  `--module`, the name `mg nwsync` publishes), as the server reads it
+  (`engine_encoding.rs`: from a hak or `override`, not the module file;
+  a missing row the game's language's letter, a Polish game's
+  Windows-1250 one; `game.language.codepage` honored). Kept as they are
+  by choice, for the owner to settle: a prefab's file keeps the bytes
+  (written as Windows-1252 text, so that it is the same object in any
+  module); a hak's description is the hak's, not the module's; a nasher
+  project's sources are converted by its `nasher.cfg`'s
+  `--nwn-encoding`, as nasher's own tools convert them, so that the
+  bytes nasher packs are the module's; and the toolset reads the game's
+  text by Options › Language, not by the user folder's
+  `game.language.codepage`, which the server honors and `mg lsp` reads.
+  An exported or imported conversation is spelled over as a whole, its
+  punctuation too (of no matter unless a table moves ASCII's own
+  characters). Left: a text field already being typed in when the hak
+  list changes keeps what it showed until it is left. (S)
 
 ## Remappable keys
 

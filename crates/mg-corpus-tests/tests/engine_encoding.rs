@@ -70,11 +70,13 @@ struct Setup<'a> {
     /// The game's language (`settings.tml`'s `game.language.override`):
     /// English without.
     language: Option<&'a str>,
+    /// The codepage `settings.tml` names (`game.language.codepage`).
+    codepage: Option<&'a str>,
 }
 
 /// Runs the probe as `setup` has it.
 fn probe(root: &std::path::Path, name: &str, setup: Setup<'_>) -> (String, Vec<String>) {
-    let Setup { hak: in_hak, module: in_module, overridden, language } = setup;
+    let Setup { hak: in_hak, module: in_module, overridden, language, codepage } = setup;
     let gd = GameData::open(&GameInstall::new(root, None, "en")).unwrap();
     let data = gd.resman.get(&ResKey::parse("nw_chicken", ResType::UTC).unwrap()).unwrap();
     let mut utc = Gff::read(&data).unwrap();
@@ -103,8 +105,13 @@ fn probe(root: &std::path::Path, name: &str, setup: Setup<'_>) -> (String, Vec<S
         std::fs::create_dir_all(dir.join("override")).unwrap();
         std::fs::write(dir.join("override/encoding.2da"), t).unwrap();
     }
-    if let Some(l) = language {
-        let settings = format!("[game.language]\noverride = \"{l}\"\n");
+    if language.is_some() || codepage.is_some() {
+        let mut settings = String::from("[game.language]\n");
+        for (key, value) in [("override", language), ("codepage", codepage)] {
+            if let Some(value) = value {
+                settings.push_str(&format!("{key} = \"{value}\"\n"));
+            }
+        }
         std::fs::write(dir.join("settings.tml"), settings).unwrap();
     }
     probe_module(root, &dir, name, PROBE, &haks, &extra);
@@ -237,4 +244,20 @@ fn a_polish_game_keeps_its_own_letters_where_a_table_has_no_row() {
     let table = mg_2da::TwoDa::parse(t.as_bytes(), Codepage::WINDOWS_1250).unwrap();
     let codepage = mg_rules::encoding_table(&table, Codepage::WINDOWS_1250).unwrap();
     assert_eq!(got, moonglow(codepage));
+}
+
+/// The codepage `settings.tml` names (`game.language.codepage`), which `mg
+/// lsp` reads scripts in, is the game's text's in the server too: an
+/// English game told Windows-1250 reads its text so.
+#[test]
+fn the_game_reads_its_text_in_the_codepage_its_settings_name() {
+    let root = corpus!();
+    if server_binary(&root).is_none() {
+        eprintln!("skipped: no nwserver for this platform");
+        return;
+    }
+    let _ = oracle_tool!("nwn_script_comp");
+    let named = Setup { codepage: Some("cp1250"), ..Setup::default() };
+    let got = probe(&root, "mg_enc_cp1250", named);
+    assert_eq!(got.0, moonglow(Codepage::WINDOWS_1250).0);
 }
