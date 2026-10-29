@@ -46,6 +46,10 @@ const KNOWN: &[(&str, &str, &str, usize)] = &[
     ("Neverwinter Nights - Doom of Icewind Dale", "mdl-text", "hak:doiwd", 1),
     ("Neverwinter Nights - Pirates of the Sword Coast", "mdl-text", "hak:potsc_resources", 5),
     ("Neverwinter Nights - Tyrants of the Moonsea", "mdl-text", "hak:tm_race_2da", 1),
+    // Two doors of area051 whose HF_TRANSITION_DOOR is an Int, which
+    // ptc_tm_transall reads with GetLocalString (the tag of a door to
+    // open): it reads "", and opens none (`var-script`).
+    ("Neverwinter Nights - Tyrants of the Moonsea", "var-script", "module", 2),
     // Two spells (rows 807 and 809) whose FeatID names feats 3000 and
     // 2589 of a feat.2da of 1607 rows.
     ("Neverwinter Nights - Wyvern Crown of Cormyr", "2da-ref", "hak:wc_2da_shared", 2),

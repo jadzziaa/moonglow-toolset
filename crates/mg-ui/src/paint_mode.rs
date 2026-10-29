@@ -696,7 +696,7 @@ pub(crate) fn input(
 /// Puts the stroke's placeables into the area, as one command: each
 /// locked, with Lock.
 fn commit(app: &mut Moonglow, view: &mut AreaView) {
-    use mg_module::instances::{Placement, Placing, instance};
+    use mg_module::instances::{Placement, instance};
     let pending = std::mem::take(&mut view.paint.pending);
     if pending.is_empty() {
         return;
@@ -704,37 +704,38 @@ fn commit(app: &mut Moonglow, view: &mut AreaView) {
     let git = view.git();
     let list = ObjectKind::Placeable.list();
     let lock = app.settings.paint.lock;
-    let (Some(game), Some(ws)) = (app.game.as_deref(), app.ws.as_mut()) else { return };
-    let _ = ws.flush();
+    let Some(ws) = app.ws.as_mut() else { return };
     let Some(mut index) = ws.doc(&git).ok().map(|g| g.root.list(list).map_or(0, <[_]>::len)) else {
         return;
     };
-    let read = |k: ResKey| mg_module::gff_root(Some(&ws.module), game, &k);
-    let items = |r| read(ResKey::new(r, ResType::UTI));
-    let placing = Placing { game, item: &items };
-    let mut blueprints = HashMap::new();
-    let mut edits = Vec::new();
-    for p in pending {
-        let Some(blueprint) = blueprints.entry(p.key).or_insert_with(|| read(p.key)) else {
-            continue;
-        };
-        let placement = Placement { position: p.position.to_array(), rotation: p.turn };
-        let Some(mut item) = instance(&placing, ResType::UTP, blueprint, placement, &[]) else {
-            continue;
-        };
-        // (A static placeable takes no scale: the game gives it none.)
-        if p.scale != 1.0 && item.integer("Static").unwrap_or(0) == 0 {
-            let visual =
-                mg_area::VisualTransform { scale: Vec3::splat(p.scale), ..Default::default() };
-            item.set("VisTransformList", mg_area::edit::visual_transform_list(visual));
+    let made = crate::area_view::placing(app, |placing, read| {
+        // (Each blueprint read once a stroke, however many it lays.)
+        let mut blueprints = HashMap::new();
+        let mut edits = Vec::new();
+        for p in pending {
+            let Some(blueprint) = blueprints.entry(p.key).or_insert_with(|| read(p.key)) else {
+                continue;
+            };
+            let placement = Placement { position: p.position.to_array(), rotation: p.turn };
+            let Some(mut item) = instance(placing, ResType::UTP, blueprint, placement, &[]) else {
+                continue;
+            };
+            // (A static placeable takes no scale: the game gives it none.)
+            if p.scale != 1.0 && item.integer("Static").unwrap_or(0) == 0 {
+                let visual =
+                    mg_area::VisualTransform { scale: Vec3::splat(p.scale), ..Default::default() };
+                item.set("VisTransformList", mg_area::edit::visual_transform_list(visual));
+            }
+            if lock {
+                item.set(mg_area::LOCKED, mg_gff::Value::Byte(1));
+            }
+            let root = mg_edit::GffPath::root();
+            edits.push(mg_edit::Edit::insert_item(git, root, list, index, item));
+            index += 1;
         }
-        if lock {
-            item.set(mg_area::LOCKED, mg_gff::Value::Byte(1));
-        }
-        edits.push(mg_edit::Edit::insert_item(git, mg_edit::GffPath::root(), list, index, item));
-        index += 1;
-    }
-    if !edits.is_empty() {
+        edits
+    });
+    if let Some(edits) = made.filter(|e| !e.is_empty()) {
         app.actions.push(Action::Apply(Command::new("Paint Placeables", edits)));
     }
 }

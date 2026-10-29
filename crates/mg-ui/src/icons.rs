@@ -51,6 +51,8 @@ pub(crate) const LIGHTING: &str = "💡";
 pub(crate) const ANIMATIONS: &str = "▶";
 pub(crate) const SOUNDS: &str = "🔊";
 pub(crate) const SOUND_RANGES: &str = "◎";
+/// The area view's Minimap (the area's map in its corner).
+pub(crate) const MINIMAP: &str = "🗾";
 /// An area another builder has claimed, one this builder has, and one
 /// merged (its Tag and ResRef kept): the module tree's marks.
 pub(crate) const CLAIMED: &str = "🔒";
@@ -320,6 +322,7 @@ impl Tools {
             GRID,
             SOUNDS,
             SOUND_RANGES,
+            MINIMAP,
             AMBIENT,
             MUSIC,
             WALKMESH,
@@ -388,6 +391,7 @@ mod tests {
             GRID,
             SOUNDS,
             SOUND_RANGES,
+            MINIMAP,
             AMBIENT,
             MUSIC,
             WALKMESH,

@@ -83,11 +83,11 @@ fn an_area_s_grass_is_read_from_its_git() {
     };
     let key = ResKey::new(field, ResType::GIT);
     let mut ws = Workspace::new(m);
-    let root = ws.doc(&key).unwrap().root.clone();
-    ws.apply(Command::new("Grass off", grass::set_disabled(key, &root, true))).unwrap();
+    let git = ws.doc(&key).unwrap().root.clone();
+    ws.apply(Command::new("Grass off", grass::set_disabled(key, &git, true))).unwrap();
     for o in &wanted.overrides {
-        let root = ws.doc(&key).unwrap().root.clone();
-        ws.apply(Command::new("Grass", grass::set_override(key, &root, o))).unwrap();
+        let git = ws.doc(&key).unwrap().root.clone();
+        ws.apply(Command::new("Grass", grass::set_override(key, &git, o))).unwrap();
     }
     let user = dir.join("user");
     ws.save_as(&ModuleLocation::Archive(user.join("modules/mg_grass.mod"))).unwrap();

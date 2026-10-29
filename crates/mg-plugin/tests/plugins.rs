@@ -1254,7 +1254,8 @@ fn a_plugin_s_tests_run_moonglow_s_own_checks() {
             local text = mg.vars.describe("tdod_lore_text")
             local lore = mg.vars.describe("tdod_lore_old")
             local all = mg.vars.described()
-            local said = `{text.name} {text.type} {text.file}:{text.line} {tostring(text.runtime)}, `
+            local said = `{text.name} {text.type} {text.file}:{text.line} {tostring(text.runtime)} `
+                .. `{text.default} {text.requires[1]} {#text.requires}, `
                 .. `{lore.name} {tostring(lore.pattern)} {tostring(lore.runtime)}, `
                 .. `{tostring(mg.vars.describe("nope"))}, {#all} {all[2].name} {all[2].type}`
             return { { resource = "module.ifo", message = said } }
@@ -1304,6 +1305,7 @@ fn a_plugin_s_tests_run_moonglow_s_own_checks() {
         fixture.join("variables.toml"),
         "colour = 3\n\
          [tdod_lore_text]\ntype = \"string\"\n\
+         default = \"a plaque\"\nrequires = [\"tdod_lore_seen\"]\n\
          [\"tdod_*_d20\"]\ntype = \"int\"\nruntime = true\n\
          [\"tdod_lore_*\"]\nruntime = true\n",
     )
@@ -1322,7 +1324,7 @@ fn a_plugin_s_tests_run_moonglow_s_own_checks() {
         [[test.finding]]
         resource = "module.ifo"
         at = "Module › VarTable › tdod_lore_txt"
-        message = "tdod_lore_txt (tdod_lore_*) is set by the scripts while the server runs (variables.toml:7 says runtime = true), and is never to be kept in a file: one kept here is there from the start, on every server: tdod_lore_text? (variables.toml:2)"
+        message = "tdod_lore_txt (tdod_lore_*) is set by the scripts while the server runs (variables.toml:9 says runtime = true), and is never to be kept in a file: one kept here is there from the start, on every server: tdod_lore_text? (variables.toml:2)"
 
         [[test]]
         name = "a start waypoint twice, retagged"
@@ -1395,7 +1397,7 @@ fn a_plugin_s_tests_run_moonglow_s_own_checks() {
         check = "vars"
         [[test.finding]]
         resource = "module.ifo"
-        message = "tdod_lore_text string variables.toml:2 false, tdod_lore_* true true, nil, 3 tdod_*_d20 int"
+        message = "tdod_lore_text string variables.toml:2 false a plaque tdod_lore_seen 1, tdod_lore_* true true, nil, 3 tdod_*_d20 int"
     "#;
     std::fs::write(source.join("tests").join("own.toml"), tests).unwrap();
     let plugin = Plugin::load(&source).unwrap();
@@ -1407,7 +1409,7 @@ fn a_plugin_s_tests_run_moonglow_s_own_checks() {
     assert_eq!(
         runtime.notes,
         ["the fixture's project file: variables.toml:1: \"colour\" is neither a variable \
-             ([colour]) nor undescribed = [...]"]
+             ([colour]) nor undescribed = [...] or [[rules]]"]
     );
     assert_eq!(result("a start waypoint twice, retagged").problems, Vec::<String>::new());
     let unknown = result("a check Moonglow has not").problems;

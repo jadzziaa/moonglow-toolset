@@ -82,23 +82,36 @@ a directory), nasher projects (see below) and the game's campaign files
   it is deleted: choose an empty folder or the module's own. A new
   module is offered as `<name>.mod` in the user folder's `modules`, where
   the game (and Test Module) finds it.
+- **A `.mod` saved by another program while it is open** (Aurora, a
+  build) is read again (Options › General: reloading), resource by
+  resource, as a module folder's files are: what changed in it, was
+  added or removed comes into the module, the log names it, and where
+  you have unsaved changes to the same resource, **Changed Outside
+  Moonglow** asks which to keep (its resources named as
+  `castle.mod/area001.are`). Until you answer, Save doesn't write over
+  the file. (With reloading off it isn't looked at, and Save writes over
+  it, as before.)
 - In a module folder a resource is one file, named in lower case
   (`bread.uti`). A file Aurora named otherwise (`bread.UTI`) is read all
   the same and renamed at the next save; where a folder has both, the
   one changed last is the resource, and the save leaves that one file.
 - **A module folder is worked on in place**, as in Aurora: keep its
   scripts open in an editor of your own while the module is open here.
-  Every few seconds (Options › General: reloading), files saved, added
-  or deleted in the folder by another program are read again (in the
-  background, as a nasher project's are), and the log says which. A save never writes over them: a file changed outside
+  Files saved, added or deleted in the folder by another program are
+  read again a moment after they are written (Options › General:
+  reloading; in the background, as a nasher project's are), and the log
+  says which. A save never writes over them: a file changed outside
   that you did not change here stays as the other program left it, and
   a file new to the folder is not removed. Where a file was changed
   outside and here both, yours is kept, Save writes nothing and says
   which files, and **Changed Outside Moonglow** asks which to keep. A
   script read again is compiled if **Automatically Compile Scripts on
   Save** is on (Options › Script Editor), as one saved here is, and so
-  are the scripts that include it (more than 24 at once are compiled
-  in the background, and the log says so). A module that had no unsaved
+  are the scripts that include it, a few at a time while you go on
+  working, however many a checkout changed (the status bar says
+  *Compiling scripts changed outside Moonglow…*; with an external
+  compiler, which is run once for them all, they are compiled as Compile
+  All is, and the log says so). A module that had no unsaved
   changes has none after: the compiled scripts are written beside their
   sources at once (a nasher project keeps none: they are made when it
   packs). Commands of `mg` that save a module folder keep to the same
@@ -320,10 +333,16 @@ unpacking or packing between the toolset and git.
   the first it finds, names the other, and leaves both for you to keep
   one.
 - **Changes made elsewhere are picked up while the project is open.**
-  Every few seconds (Options › General, the reloading switch) Moonglow
-  looks for source files that another program changed, added or deleted:
-  an editor, a `git checkout` that discards a change, a `git pull`. Those
-  are read again, the log names them, and open editors show them. A file
+  Moonglow is told by the system (inotify on Linux, FSEvents on macOS,
+  ReadDirectoryChangesW on Windows) which source files another program
+  changed, added or deleted (an editor, a `git checkout` that discards
+  a change, a `git pull`), and reads those alone a moment after they are
+  written (Options › General, the reloading switch): the log names them,
+  and open editors show them. Where the system can't tell it (no watches
+  left, a folder it can't watch), it looks at every file every few
+  seconds instead; told, it still looks at them all every half minute,
+  for a change the system missed (a network share's, written on another
+  machine). A file
   moved within the project is read from where it is now. It is
   not unsaved work. If the undo history had changes to one of them, the
   history is cleared (Undo could not take them back from the new file).
@@ -332,9 +351,9 @@ unpacking or packing between the toolset and git.
   changed files in the background while you go on working; the status
   bar says *Reading files changed outside Moonglow…* while it does, and
   they come into the module all at once when they have been read. On a
-  project of 21,000 files, a pull of nearly a thousand is in within a
-  few seconds of its end, without a frame of the window over the
-  144 fps budget. A file you save while it is being read, or one
+  project of 21,000 files, a pull of nearly a thousand is in 2 s from
+  its start without a frame of the window over the 144 fps budget, and
+  one of 2,870 in about 5 s, a frame or two a few milliseconds over it. A file you save while it is being read, or one
   deleted and put back meanwhile, is left for the next look, and one
   written again meanwhile is read again then.
 - **Where you have unsaved changes to a file that also changed
@@ -739,7 +758,8 @@ an Int is 0), and a name is matched in its case only (`tdod_lit` is not
 variables in `variables.toml`, beside its `moonglow.toml` (or alone;
 beside a `.mod`, the module's own, `krezk.variables.toml`),
 as a table's columns are described beside it: each variable's type, the
-values it takes, the objects it goes on and a line of help.
+values it takes, the objects it goes on, what it needs beside it, its
+default and a line of help.
 
 ```toml
 undescribed = ["tdod_*"]        # a variable so named, described nowhere here, is said
@@ -761,7 +781,8 @@ type = "int"
 on = ["placeable"]
 min = 1
 max = 60
-help = "The Survival check's DC (15 without it)"
+default = 15
+help = "The Survival check's DC"
 
 [tdod_light]
 type = "int"
@@ -779,6 +800,17 @@ help = "Players within 5 m say !cry MESSAGE"
 type = "string"
 on = ["area"]
 help = "The settlement's key: every street of a town has the same"
+
+[tdod_rental]
+type = "string"
+on = ["creature", "placeable"]
+requires = ["tdod_rental_door"]  # on the same object: the proprietor is registered only with both
+help = "A rental proprietor: the property's key, never changed"
+
+[tdod_rental_door]
+type = "string"
+on = ["creature", "placeable"]
+help = "The tag of the property's door"
 
 [tdod_rental_term]
 type = "string"
@@ -799,6 +831,11 @@ on = ["creature", "placeable"]
 type = "int"
 runtime = true
 help = "A test's hook: the next d20 rolled (the tests set it on the module)"
+
+[[rules]]                       # needed where another variable has a value
+variable = "tdod_rental_term"
+is = "long"
+require = "tdod_rental_price"
 ```
 
 | Key | What it says | Without it |
@@ -813,6 +850,9 @@ help = "A test's hook: the next d20 rolled (the tests set it on the module)"
 | `min`, `max` | an Int's or a Float's range | any |
 | `help` | a line of help, shown with it | |
 | `runtime = true` | the scripts set it while the server runs (their state, a test's hook), and it is never kept in a file: no `undescribed` says it, the Variables window doesn't offer it, and Verify says where one is kept (since Moonglow 2.2.0) | kept in the module's files |
+| `requires` | the variables it needs beside it, on the same object (`requires = ["tdod_rental_door"]`): one set without them does nothing the scripts want | not needed |
+| `default` | the value the scripts take where it isn't set (an Int's or a Float's a number): a row named so in the Variables window takes it as its value | |
+| `[[rules]]` (anywhere, each `variable`, `is` and `require`) | where `variable` is set to `is` (or set at all, without `is`), `require` is to be set on the same object too, as a table's rules have a cell filled where another says so | |
 | `undescribed` (at the top) | names (globs) that are the project's: a variable so named and described nowhere is said, with the described name (or a builder's glob) nearest it (a typo) | not said |
 
 What the file doesn't understand is said in the log by line, as for
@@ -831,8 +871,10 @@ typed whole) takes its type, a value is chosen from its values, and its
 help is the name's tip. Under the list, the window says what the
 description finds wrong (another type, a value not listed, the wrong
 kind of object, a name in another case or like the project's and
-described nowhere, one only the scripts set); OK writes it all the
-same, as you have it.
+described nowhere, one only the scripts set) and what a variable needs
+beside it that the object hasn't (*tdod_rental needs tdod_rental_door
+beside it*); a name typed as one with a `default` takes it as its
+value. OK writes it all the same, as you have it.
 
 **Verify Module** (and `mg verify`) holds every variable of the module
 to the descriptions:
@@ -843,6 +885,8 @@ to the descriptions:
 | `var-value` | a value none of its values (a value in another case is named: the scripts compare as written), out of its range, or no row of its table | a warning |
 | `var-object` | a variable on another kind of object than it says | a warning |
 | `var-name` | a described name in another case, and (with `undescribed`) a variable named as the project's that is described nowhere | a warning |
+| `var-requires` | a variable set without one it needs beside it on the same object: its `requires`, or a rule's `require` where its value is the rule's `is` | a warning |
+| `var-script` | a variable kept in a file as another type than every one of the module's scripts reads (or sets) it as, by its name written out (`GetLocalInt(oPC, "tdod_lit")`, not a name a script builds): the script reads that type's empty value, the script and line named. A variable described with a type is held to that instead (`var-type`); it is checked with no `variables.toml` too | a warning |
 | `var-runtime` | a variable described as the scripts' own (`runtime = true`) kept in the module: there from the start, on every server (a test's hook set so fixes every roll). One that a glob of the scripts' takes and that is near a name of its own entry, or a name a builder's glob takes, is said with that name or glob, as `var-name` says one (`tdod_lore_txt`, which `["tdod_lore_*"]` takes: `tdod_lore_text?`; since Moonglow 2.3.0; `tdod_rentl_term`: `tdod_rental_*?`, since Moonglow 2.13.0). Verify's **Remove the variable** takes it out | an error: Verify fails |
 
 A file's own glob of the scripts' may take a builder's typo: a name is
@@ -907,7 +951,9 @@ log by line, as the project file's are.
   (`unclaimed = "warn"`), with **Claim This Area** beside it;
 - where the project keeps others' areas read-only (`others =
   "read-only"`), no change to one is taken (from any window, a rename
-  elsewhere that would change it, or a plugin): the log says why;
+  elsewhere that would change it, or a plugin): its view's tools are
+  off and its forms gray ([Areas](04-areas.md#claimed-and-protected-areas)),
+  and a change made another way is refused, the log saying why;
 - where it warns (the default), you may change it, and a save that
   would write a change to it asks first (**Areas Not Yours**: **Save
   Anyway**, or Cancel to leave it unsaved), as does one of an unclaimed
@@ -978,8 +1024,9 @@ submit = { run = "bin/submit", windows = "bin\\submit.cmd", label = "Submit for 
 A command is its text, or a table of `run` (or `windows` and `unix`,
 each for its systems), `label` (its name in the menu; else its name in
 the file, `run_tests` as Run tests), `key` (the keys it asks for, as
-Options › Keyboard writes them) and `writes = false` (it writes none of
-the module's files, as a submit: the haks stay open while it runs). The
+Options › Keyboard writes them), `writes = false` (it writes none of
+the module's files, as a submit: the haks stay open while it runs) and
+`input = true` (it reads what you type: see step 4 below). The
 commands are in the **Command Palette** too, under Project, and in
 **Options › Keyboard** under Project Commands, where the keys you choose
 take the place of `key` (kept by the command's name, so a team's
@@ -1011,11 +1058,31 @@ Choosing one:
    Linux and macOS, `cmd /C` on Windows), with `MOONGLOW_PROJECT` (the
    folder) and `MOONGLOW_BUILDER` (your code, where you have one) set.
    Its output comes into the log as it is written (its errors in the
-   warning color), its last line in the window that shows while it
-   runs; **Cancel** stops it, and what it started (a `git` it runs, the
+   warning color), and into the window that shows while it runs, which
+   keeps to its last line as more comes; a line it has begun and not
+   ended (a question, `Continue? [y/N] `) shows there at once.
+   **Cancel** stops it, and what it started (a `git` it runs, the
    shell's process group on Linux and macOS, asked to end and then made
    to after two seconds; the shell's tree of processes on Windows). The
-   log says how it ended: done, or its exit code.
+   log says how it ended: done, or its exit code. **File › Project ›
+   Command Output** shows the last command's output afterwards, all of
+   it (its last 20,000 lines; the log keeps the rest), how it ended,
+   and **Copy**.
+
+   **What is typed.** A command whose table says `input = true`
+   reads what you type: a line under its output takes it, and Enter or
+   **Send** gives it to the command, as a terminal does (the question's
+   line ends there, and what you sent shows after it, grayed, `> y`;
+   it isn't put in the log). **Hide** shows dots for a password and
+   keeps it out of the output. **End Input** closes the command's input,
+   for one that reads to the end of it. Any other command has its input
+   closed: a question it asks of its input gets an empty answer at once
+   rather than waiting. A program that asks on the terminal itself
+   (`ssh`'s passphrase, `sudo`) can't be answered from Moonglow, and
+   git is told not to ask there (`GIT_TERMINAL_PROMPT=0`, unless you set
+   it yourself), so that it says it can't rather than wait until
+   canceled; a password program it is given (`GIT_ASKPASS`, a
+   credential helper) is asked as before.
 5. **Reads the project's files again**: the haks are opened again (where
    they were closed), and
    what the command changed is read as any [change made

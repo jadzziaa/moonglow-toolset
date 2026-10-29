@@ -131,6 +131,32 @@ pub(crate) fn access(app: &Moonglow, area: ResRef) -> Access {
     project(app).map_or(Access::Edit, |p| p.access(area))
 }
 
+/// Why an area is read-only here, where it is: another builder holds it,
+/// in a project that keeps others' areas read-only. Its view's tools are
+/// off and its forms gray ([`gate`] refuses what gets past them).
+pub(crate) fn read_only(app: &Moonglow, area: ResRef) -> Option<String> {
+    match access(app, area) {
+        Access::ReadOnly(why) => Some(why),
+        _ => None,
+    }
+}
+
+/// [`crate::widgets::variables_button`] of a form editing `key`: off
+/// where it is a read-only area's (its variables aren't changed).
+pub(crate) fn variables_button(
+    app: &Moonglow,
+    ui: &mut egui::Ui,
+    key: &ResKey,
+    count: usize,
+) -> bool {
+    let Some(why) = area_of(key).and_then(|a| read_only(app, a)) else {
+        return crate::widgets::variables_button(ui, count);
+    };
+    let r = ui.add_enabled_ui(false, |ui| crate::widgets::variables_button(ui, count));
+    r.response.on_disabled_hover_text(format!("{why}: read-only here"));
+    false
+}
+
 /// Whether the project keeps claims (names a table).
 pub(crate) fn kept(app: &Moonglow) -> bool {
     project(app).is_some_and(|p| p.claim_table.is_some())

@@ -391,25 +391,201 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
     }
 }
 
-/// Doors and waypoints in the module's areas: (area, tag, flags) with
-/// flags as `LinkedToFlags` (1 door, 2 waypoint).
-fn destinations(f: &mut Form<'_>) -> Vec<(String, String, i64)> {
+/// A door or waypoint an area transition may lead to.
+#[derive(Debug, Clone, PartialEq)]
+struct Destination {
+    area: mg_core::ResRef,
+    tag: String,
+    /// As `LinkedToFlags`: 1 a door, 2 a waypoint.
+    flags: i64,
+    /// Where it stands in its area, metres.
+    at: glam::Vec2,
+}
+
+/// Doors and waypoints with tags in the module's areas, by area.
+fn destinations(f: &mut Form<'_>) -> Vec<Destination> {
     let Some(ws) = f.app.ws.as_mut() else { return Vec::new() };
     let gits: Vec<_> = ws.module.keys_of(ResType::GIT).copied().collect();
     let mut out = Vec::new();
     for key in gits {
         let Ok(g) = ws.doc(&key) else { continue };
-        for (list, flags) in [("Door List", 1), ("WaypointList", 2)] {
+        for (list, restype, flags) in
+            [("Door List", ResType::UTD, 1), ("WaypointList", ResType::UTW, 2)]
+        {
             for s in g.root.list(list).unwrap_or(&[]) {
                 let tag = decode(s.string("Tag").unwrap_or_default());
                 if !tag.is_empty() {
-                    out.push((key.resref.to_string(), tag, flags));
+                    let p = mg_module::instances::placement_of(restype, s).0.position;
+                    let at = glam::Vec2::new(p[0], p[1]);
+                    out.push(Destination { area: key.resref, tag, flags, at });
                 }
             }
         }
     }
-    out.sort();
+    out.sort_by(|a, b| (a.area, &a.tag, a.flags).cmp(&(b.area, &b.tag, b.flags)));
     out
+}
+
+/// The Setup Area Transition window's state (Aurora's
+/// `TdlgAreaTransition`): the doors and waypoints gathered as it opened,
+/// the area shown and its map, and the one chosen (its tag and
+/// `LinkedToFlags`).
+#[derive(Debug, Clone, Default)]
+struct TransitionPick {
+    open: bool,
+    destinations: Vec<Destination>,
+    area: Option<mg_core::ResRef>,
+    map: Option<crate::minimap::Map>,
+    chosen: Option<(String, i64)>,
+}
+
+/// The side of Setup Area Transition's map, points.
+const TRANSITION_MAP: f32 = 320.0;
+
+/// How near the pointer must be to a door or waypoint on the map to take
+/// it, points.
+const MARKER_REACH: f32 = 9.0;
+
+/// Setup Area Transition (Aurora's `TdlgAreaTransition`): the target
+/// area, its map with its doors (squares) and waypoints (dots) to click,
+/// and their lists beside. What OK says the transition leads to, or
+/// `None`.
+fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) -> Option<(String, i64)> {
+    let mut state: TransitionPick = ui.data(|d| d.get_temp(pick_id)).unwrap_or_default();
+    if !state.open {
+        return None;
+    }
+    let mut areas: Vec<mg_core::ResRef> = state.destinations.iter().map(|d| d.area).collect();
+    areas.dedup();
+    let names: std::collections::HashMap<mg_core::ResRef, String> =
+        areas.iter().map(|a| (*a, crate::tabs::area_label(f.app, *a))).collect();
+    let name = |a: &Option<mg_core::ResRef>| {
+        a.map_or_else(String::new, |a| names.get(&a).cloned().unwrap_or_else(|| a.to_string()))
+    };
+    let ctx = ui.ctx().clone();
+    let (mut ok, mut cancel) = (false, false);
+    let modal = egui::Modal::new(pick_id.with("modal")).show(&ctx, |ui| {
+        ui.heading("Setup Area Transition");
+        if areas.is_empty() {
+            ui.weak("No doors or waypoints with tags in the module's areas");
+        }
+        ui.horizontal(|ui| {
+            crate::widgets::field_label(ui, "Target Area");
+            let options: Vec<Option<mg_core::ResRef>> = areas.iter().copied().map(Some).collect();
+            crate::widgets::dropdown(pick_id.with("area"))
+                .selected_text(name(&state.area))
+                .width(260.0)
+                .show(ui, &mut state.area, &options, name);
+        });
+        let here: Vec<Destination> =
+            state.destinations.iter().filter(|d| Some(d.area) == state.area).cloned().collect();
+        let is = |d: &Destination, chosen: &Option<(String, i64)>| {
+            chosen.as_ref().is_some_and(|(t, k)| *t == d.tag && *k == d.flags)
+        };
+        ui.horizontal_top(|ui| {
+            // The map: a click on a door or waypoint takes it.
+            let shown = state.area.and_then(|a| crate::minimap::of(f.app, &ctx, a, &mut state.map));
+            if let Some(map) = shown.cloned() {
+                let (rect, r) =
+                    ui.allocate_exact_size(egui::Vec2::splat(TRANSITION_MAP), egui::Sense::click());
+                r.widget_info(|| {
+                    egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "The area's map")
+                });
+                // (In the middle of its square, a long area's.)
+                let placed = map.placed(rect.right_top(), TRANSITION_MAP);
+                let rect = placed.translate(egui::vec2(
+                    (placed.width() - rect.width()) / 2.0,
+                    (rect.height() - placed.height()) / 2.0,
+                ));
+                let painter = ui.painter_at(rect.expand(3.0));
+                map.draw(&painter, rect);
+                let near = r.hover_pos().and_then(|p| {
+                    let d = |x: &Destination| map.to_map(rect, x.at).distance(p);
+                    here.iter()
+                        .filter(|x| d(x) <= MARKER_REACH)
+                        .min_by(|a, b| d(a).total_cmp(&d(b)))
+                });
+                for d in &here {
+                    let at = map.to_map(rect, d.at);
+                    let lit = is(d, &state.chosen) || near == Some(d);
+                    let (fill, edge) = if lit {
+                        (egui::Color32::YELLOW, egui::Color32::BLACK)
+                    } else if d.flags == 1 {
+                        (egui::Color32::from_rgb(90, 160, 255), egui::Color32::BLACK)
+                    } else {
+                        (egui::Color32::from_rgb(90, 220, 120), egui::Color32::BLACK)
+                    };
+                    let stroke = egui::Stroke::new(1.0, edge);
+                    if d.flags == 1 {
+                        let square = egui::Rect::from_center_size(at, egui::Vec2::splat(8.0));
+                        painter.rect_filled(square, 1.0, fill);
+                        painter.rect_stroke(square, 1.0, stroke, egui::StrokeKind::Outside);
+                    } else {
+                        painter.circle_filled(at, 4.0, fill);
+                        painter.circle_stroke(at, 4.0, stroke);
+                    }
+                }
+                if let Some(d) = near {
+                    let kind = if d.flags == 1 { "door" } else { "waypoint" };
+                    r.clone().on_hover_text(format!("{} ({kind})", d.tag));
+                }
+                if r.clicked()
+                    && let Some(d) = near
+                {
+                    state.chosen = Some((d.tag.clone(), d.flags));
+                }
+                if r.double_clicked() && near.is_some() {
+                    ok = true;
+                }
+            }
+            // The lists: the area's doors, then its waypoints.
+            ui.vertical(|ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt(pick_id.with("lists"))
+                    .max_height(TRANSITION_MAP)
+                    .min_scrolled_width(200.0)
+                    .show(ui, |ui| {
+                        for (flags, title) in [(1, "Available Doors:"), (2, "Available Waypoints:")]
+                        {
+                            ui.strong(title);
+                            for d in here.iter().filter(|d| d.flags == flags) {
+                                let r = ui.selectable_label(is(d, &state.chosen), &d.tag);
+                                if r.clicked() {
+                                    state.chosen = Some((d.tag.clone(), d.flags));
+                                }
+                                if r.double_clicked() {
+                                    ok = true;
+                                }
+                            }
+                            ui.add_space(6.0);
+                        }
+                    });
+            });
+        });
+        match &state.chosen {
+            Some((tag, flags)) => {
+                let kind = if *flags == 1 { "door" } else { "waypoint" };
+                ui.label(format!("Leads to the {kind} tagged {tag}"));
+            }
+            None => {
+                ui.weak("Click a door (a square) or a waypoint (a dot) on the map, or in a list");
+            }
+        }
+        ui.horizontal(|ui| {
+            ok |= ui
+                .add_enabled(state.chosen.is_some(), egui::Button::new("OK"))
+                .on_hover_text("Lead the transition there")
+                .clicked()
+                || (state.chosen.is_some() && crate::widgets::enter(ui));
+            cancel = crate::widgets::cancel_discard(ui);
+        });
+    });
+    let chosen = if ok { state.chosen.clone() } else { None };
+    if ok || cancel || modal.should_close() {
+        state = TransitionPick::default();
+    }
+    ui.data_mut(|d| d.insert_temp(pick_id, state));
+    chosen
 }
 
 /// The Area Transition page of doors and transition triggers: the
@@ -432,36 +608,28 @@ pub(super) fn transition(f: &mut Form<'_>, ui: &mut Ui) {
         });
         ui.end_row();
         crate::widgets::field_label(ui, "");
-        // Aurora's Setup Area Transition: a door or waypoint in an area
-        // (gathered while the list is open: from every area's objects).
-        let mut pick = None;
-        // (Commands, not a choice: the arrows move along them, Enter sets.)
-        crate::widgets::dropdown(("utt-setup", f.key))
-            .selected_text("Setup Area Transition…")
-            .width(260.0)
-            .show_menu(ui, |ui, keys| {
-                let dests = destinations(f);
-                // (Areas by name, when the module tree lists them so.)
-                let mut areas: std::collections::HashMap<_, String> = Default::default();
-                for (area, _, _) in &dests {
-                    let named = area.parse().map(|r| crate::tabs::area_label(f.app, r));
-                    areas
-                        .entry(area.clone())
-                        .or_insert_with(|| named.unwrap_or_else(|_| area.clone()));
-                }
-                if dests.is_empty() {
-                    ui.weak("No doors or waypoints with tags in the module's areas");
-                }
-                for (area, tag, flags) in &dests {
-                    let kind = if *flags == 1 { "door" } else { "waypoint" };
-                    let area = &areas[area];
-                    let r = ui.selectable_label(false, format!("{area}: {tag} ({kind})"));
-                    if keys.row(&r) || r.clicked() {
-                        pick = Some((tag.clone(), *flags));
-                    }
-                }
-            });
-        if let Some((tag, flags)) = pick {
+        // Aurora's Setup Area Transition: a door or waypoint in an area,
+        // picked on its map or from its lists (gathered as the window
+        // opens: from every area's objects).
+        let pick_id = f.id("transition-setup");
+        if ui
+            .button("Setup Area Transition…")
+            .on_hover_text("Pick the door or waypoint it leads to, on its area's map or in a list")
+            .clicked()
+        {
+            let destinations = destinations(f);
+            let linked = decode(f.root.string("LinkedTo").unwrap_or_default());
+            let now = destinations.iter().find(|d| d.tag == linked).cloned();
+            let state = TransitionPick {
+                open: true,
+                area: now.as_ref().or(destinations.first()).map(|d| d.area),
+                chosen: now.map(|d| (d.tag, d.flags)),
+                destinations,
+                map: None,
+            };
+            ui.data_mut(|d| d.insert_temp(pick_id, state));
+        }
+        if let Some((tag, flags)) = setup_transition(f, ui, pick_id) {
             f.set_fields(
                 "Area transition",
                 vec![

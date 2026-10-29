@@ -7,7 +7,10 @@
 //! takes what it found back into the module's notes. What Moonglow
 //! itself changed meanwhile (a save, a change taken) is left out of what
 //! is handed back: the next look finds it again if it still differs.
-//! [`crate::Module::outside`] does all three at once.
+//! [`crate::Module::outside`] does all three at once. Where the system
+//! said which files changed (a watch of the folder:
+//! [`crate::Module::outside_scan_of`]) only they are looked at, and no
+//! folder is walked.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -41,8 +44,19 @@ pub(crate) struct Known {
 
 #[derive(Debug, Clone)]
 pub(crate) enum Kind {
-    Project { root: PathBuf, target: Box<Target>, conversion: Conversion },
-    Folder { dir: PathBuf },
+    Project {
+        root: PathBuf,
+        target: Box<Target>,
+        conversion: Conversion,
+    },
+    Folder {
+        dir: PathBuf,
+    },
+    /// A module kept in one file, its time and size when last read.
+    Archive {
+        path: PathBuf,
+        stamp: Option<Stamp>,
+    },
 }
 
 /// What is known of a module's files, to look for those changed outside
@@ -51,6 +65,10 @@ pub(crate) enum Kind {
 pub struct OutsideScan {
     pub(crate) files: Vec<Known>,
     pub(crate) kind: Kind,
+    /// The files to look at, where the system said which changed
+    /// ([`crate::Module::outside_scan_of`]); `None`: all of them, and the
+    /// folders walked for new ones.
+    pub(crate) only: Option<std::collections::HashSet<PathBuf>>,
 }
 
 /// What [`OutsideScan::run`] found, for [`crate::Module::outside_found`].
@@ -65,6 +83,8 @@ pub struct OutsideFound {
     /// there).
     pub(crate) left_out: Option<(Vec<PathBuf>, bool)>,
     pub(crate) project: bool,
+    /// An archive's look, that read it: its time and size then.
+    pub(crate) archive: Option<Stamp>,
 }
 
 impl OutsideScan {
@@ -77,15 +97,21 @@ impl OutsideScan {
         self.files.is_empty()
     }
 
+    /// The resources of the files known.
+    pub fn keys(&self) -> impl Iterator<Item = ResKey> + '_ {
+        self.files.iter().map(|k| k.key)
+    }
+
     /// Looks at the files: those whose time or size changed are read, and
     /// those whose bytes changed (or that are gone, or new) are what is
     /// found.
     pub fn run(self) -> OutsideFound {
         match &self.kind {
             Kind::Project { root, target, conversion } => {
-                crate::nasher::scan(&self.files, root, target, *conversion)
+                crate::nasher::scan(&self.files, root, target, *conversion, self.only.as_ref())
             }
-            Kind::Folder { dir } => crate::folder::scan(&self.files, dir),
+            Kind::Folder { dir } => crate::folder::scan(&self.files, dir, self.only.as_ref()),
+            Kind::Archive { path, stamp } => crate::archive_file::scan(&self.files, path, *stamp),
         }
     }
 }

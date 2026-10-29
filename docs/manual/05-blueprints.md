@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:27:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T20:06:45Z }
 ---
 
 # Blueprints
@@ -89,11 +89,20 @@ follow it.
   name, as in Aurora). With **Options › General › List a blueprint's
   categories alphabetically** on, the Category lists are in alphabetical
   order instead; the palette keeps yours.
-- A renamed category keeps its blueprints; one with blueprints of the
-  module in it isn't removed until they are given another.
+- A renamed category keeps its blueprints. **Remove** on one the
+  module's blueprints are in asks where they go: choose a category and
+  **Move and Remove** (or **Keep It**); with OK they are moved there
+  and the category is removed, one step to undo, and Cancel moves
+  nothing.
 - A name is written as the game reads text in its language (Options ›
   Language), so that the DM's Creator in the game shows it as typed; a
-  name with letters that text cannot hold is refused, and says so.
+  name with letters that text cannot hold is refused, and says so. For
+  a name in each player's language, as the game's own categories have
+  theirs, name it by a talk-table line: **StrRef** and **Name by
+  StrRef** take a line's number (its text shows beside it), and **Move
+  Name to Talk Table** puts the name typed into the module's own talk
+  table as a new line and names the category by it (translate the line
+  in the table's other languages' files).
 - **Use the Game's Categories** drops the module's list.
 - Aurora reads custom categories from palette files kept in a module too
   (a builder who keeps them so reports it; Moonglow's own check against
@@ -212,8 +221,8 @@ The palette's buttons:
   creature's Alignment, the Mouse Cursor and Text Bubble, and those of
   Options, Module Properties, the conversation, NUI, 2DA and tileset
   editors, the wizards, the resource browser and Advanced Search, and a
-  described variable's ▾ of its values. The lists of commands (Add hak…,
-  Setup Area Transition…) and of ticks (a 2DA's flags) take them too:
+  described variable's ▾ of its values. The lists of commands (Add
+  hak…) and of ticks (a 2DA's flags) take them too:
   Down opens one, Up and Down (Home, End) go along its rows, and Enter or
   Space does what a click there does (a command closes the list; a tick
   leaves it open for the next). Escape closes a list and gives up the
@@ -672,6 +681,16 @@ Transition** (doors: to a door or waypoint in another area), Scripts,
 Advanced, Visuals, Description, Comments. A placeable with an inventory
 has an **Inventory** page. It can have one without being usable: players
 can't open it, but scripts can reach what it holds.
+
+**Setup Area Transition…**, on a door's or an area transition trigger's
+Area Transition page, picks where it leads, as Aurora's does: choose the
+**Target Area**, then click a door (a blue square) or a waypoint (a green
+dot) on its map ([Minimaps](04-areas.md#minimaps); the one under the
+pointer named beside it), or in the lists of its doors and waypoints
+with tags beside the map. **OK** (or a double click) sets **Destination
+Tag** to its tag and **Destination is a** to Door or Waypoint, one step
+to undo; Cancel changes nothing. The window opens on the area of the
+destination set, where there is one.
 
 Ticking **Static** on a placed placeable takes its visual transform off
 (its scale, rotations and offsets from Adjust Location or the rings), as

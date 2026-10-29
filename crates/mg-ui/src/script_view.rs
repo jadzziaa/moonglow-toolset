@@ -407,10 +407,22 @@ pub(crate) fn with_keys(app: &Moonglow, ctx: &egui::Context) -> Option<ResKey> {
 /// Drawn before the editor, the toolbar sees the keys where they were
 /// before its own click.
 pub(crate) fn undo_target(app: &mut Moonglow, ctx: &egui::Context) {
+    // (An editor not drawn the frame its keys were to come back: none.)
+    app.script_tools.keys_back = None;
     if app.menu_open.is_none() {
         app.undo_script = with_keys(app, ctx);
     }
     app.undo_script = app.undo_script.filter(|k| app.scripts.contains_key(k));
+}
+
+/// The keys back in the editor of the script that had them as a menu
+/// was opened (`Moonglow::undo_script`), where nothing else took them
+/// meanwhile: a menu closed with nothing chosen. (Once the editor is
+/// drawn: a click on the menu's name would take them again as it is.)
+pub(crate) fn give_keys_back(app: &mut Moonglow, ctx: &egui::Context) {
+    if ctx.memory(|m| m.focused().is_none()) {
+        app.script_tools.keys_back = app.undo_script.filter(|k| app.scripts.contains_key(k));
+    }
 }
 
 /// Edit › Undo (or, `redo`, Redo) in the script's editor: a step of its
@@ -1422,7 +1434,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         (a.min(b), a.max(b))
     });
     buf.seen = Some((shown.state.offset, cursor_now));
-    if stepped.is_some() {
+    if stepped.is_some() || script_tools.keys_back.take_if(|k| *k == key).is_some() {
         ctx.memory_mut(|m| m.request_focus(editor_id(key)));
     }
     if let Some(tabs) = convert {
@@ -1899,12 +1911,46 @@ pub(crate) fn compile_stale_into(
     scripts: &[ResKey],
     derived: bool,
 ) -> (Vec<String>, Vec<String>) {
-    let (mut compiled, mut broken) = (Vec::new(), Vec::new());
-    if app.game.is_none() {
-        return (compiled, broken);
+    let mut c = Compiled::default();
+    compile_edits(app, scripts, &mut c);
+    put_compiled(app, c, derived)
+}
+
+/// What [`compile_edits`] made of scripts, to be put in the module
+/// ([`put_compiled`]): perhaps a few at a time, over several frames.
+#[derive(Debug, Default)]
+pub(crate) struct Compiled {
+    /// Those compiled again, and those that have a compiled script but no
+    /// longer compile.
+    pub(crate) compiled: Vec<String>,
+    pub(crate) broken: Vec<String>,
+    /// Their compiled scripts (and debug files) that changed.
+    pub(crate) edits: Vec<Edit>,
+    /// Each script's compiled script, changed or not (for Compile All).
+    made: Vec<(ResKey, Vec<u8>)>,
+    /// The compiler's warnings, each once.
+    warned: Vec<String>,
+}
+
+impl Compiled {
+    /// Leaves out what was made of these scripts (changed since they were
+    /// compiled).
+    pub(crate) fn drop_scripts(&mut self, gone: &[ResKey]) {
+        let of = |k: &ResKey| gone.iter().any(|g| g.resref == k.resref);
+        self.edits.retain(|e| !matches!(e, Edit::SetResource { key, .. } if of(key)));
+        self.made.retain(|(k, _)| !of(k));
+        let named = |n: &String| gone.iter().any(|g| g.resref.to_string() == *n);
+        self.compiled.retain(|n| !named(n));
+        self.broken.retain(|n| !named(n));
     }
-    let (mut edits, mut made) = (Vec::new(), Vec::new());
-    let mut warned: Vec<String> = Vec::new();
+}
+
+/// Compiles `scripts` (those whose compiled script isn't what their
+/// source compiles to now), adding what they make to `c`.
+pub(crate) fn compile_edits(app: &mut Moonglow, scripts: &[ResKey], c: &mut Compiled) {
+    if app.game.is_none() {
+        return;
+    }
     let external = app.external_compiler();
     for &key in scripts {
         let Some(ws) = app.ws.as_ref() else { break };
@@ -1916,28 +1962,40 @@ pub(crate) fn compile_stale_into(
         // (Each warning once: an include's is said by all its includers.)
         if let Ok((.., said)) = &result {
             for w in said {
-                if !warned.contains(&w.message) {
-                    warned.push(w.message.clone());
+                if !c.warned.contains(&w.message) {
+                    c.warned.push(w.message.clone());
                 }
             }
         }
         match result {
             Ok((new, ndb, _)) if old.as_deref() != Some(&new[..]) => {
-                made.push((key, new.clone()));
-                edits.push(Edit::SetResource { key: ncs, data: Some(new) });
+                c.made.push((key, new.clone()));
+                c.edits.push(Edit::SetResource { key: ncs, data: Some(new) });
                 if let Some(ndb) = ndb {
                     let key = ResKey::new(key.resref, ResType::NDB);
-                    edits.push(Edit::SetResource { key, data: Some(ndb) });
+                    c.edits.push(Edit::SetResource { key, data: Some(ndb) });
                 }
-                compiled.push(key.resref.to_string());
+                c.compiled.push(key.resref.to_string());
             }
-            Ok((same, ..)) => made.push((key, same)),
+            Ok((same, ..)) => c.made.push((key, same)),
             // (One without a compiled script is an include, or is named
             // by the caller as not compiled.)
-            Err(_) if old.is_some() => broken.push(key.resref.to_string()),
+            Err(_) if old.is_some() => c.broken.push(key.resref.to_string()),
             Err(_) => {}
         }
     }
+}
+
+/// Puts what [`compile_edits`] made in the module: as what is made from
+/// it (`derived`: outside the edit history, not unsaved work) or as one
+/// command. Returns the names of those compiled again and of those that
+/// no longer compile.
+pub(crate) fn put_compiled(
+    app: &mut Moonglow,
+    c: Compiled,
+    derived: bool,
+) -> (Vec<String>, Vec<String>) {
+    let Compiled { compiled, broken, edits, made, warned } = c;
     if derived && !edits.is_empty() {
         let set = |m: &mut mg_module::Module| {
             for e in edits {

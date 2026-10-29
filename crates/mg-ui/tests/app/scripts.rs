@@ -534,6 +534,71 @@ fn the_menu_s_undo_in_a_script_in_a_window_of_its_own_is_the_script_s() {
     assert!(script_has_keys(&h, key));
 }
 
+/// Undo and Redo's keys of Options › Keyboard are the script's in its
+/// editor, as Ctrl+Z is (they did nothing there, a builder's report on
+/// 1.25.1): its own step, not the module's.
+#[test]
+fn a_rebound_undo_key_is_the_script_s_in_its_editor() {
+    let (mut h, key, text, edited) = script_with_a_new_line("ui-script-undo-key", false);
+    let undoable =
+        |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(str::to_owned);
+    let script = |h: &Harness<'_, Moonglow>| h.state().script_text(key).unwrap();
+    h.state_mut().settings.key_bindings.insert("undo".into(), vec!["Ctrl+Alt+U".into()]);
+    h.state_mut().settings.key_bindings.insert("redo".into(), vec!["Ctrl+Alt+R".into()]);
+    h.run();
+    assert!(script_has_keys(&h, key));
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::ALT, egui::Key::U);
+    h.run_steps(2);
+    assert_eq!(script(&h), text, "the script's step taken back");
+    assert_eq!(undoable(&h).as_deref(), Some("Earlier"), "not the module's");
+    assert!(script_has_keys(&h, key), "the keys still in the editor");
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::ALT, egui::Key::R);
+    h.run_steps(2);
+    assert_eq!(script(&h), edited, "and given again");
+    assert_eq!(undoable(&h).as_deref(), Some("Earlier"));
+    // The menu names the new key, and its Undo is the script's still.
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    assert_eq!(edit_row(&h, "Undo"), "Undo Ctrl+Alt+U");
+}
+
+/// A menu opened from a script's editor and closed with nothing chosen
+/// gives the keys back to the editor: Ctrl+Z after it is the script's,
+/// where it was the module's (the keys were nowhere).
+#[test]
+fn a_menu_closed_unused_gives_the_keys_back_to_the_script() {
+    let (mut h, key, text, edited) = script_with_a_new_line("ui-script-menu-closed", false);
+    let undoable =
+        |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(str::to_owned);
+    let script = |h: &Harness<'_, Moonglow>| h.state().script_text(key).unwrap();
+    // Closed by Escape.
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    assert!(!script_has_keys(&h, key), "the click on the menu took the keys");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(script_has_keys(&h, key), "the keys back in the editor");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(script(&h), text, "the script's step");
+    assert_eq!(undoable(&h).as_deref(), Some("Earlier"), "not the module's");
+    // Closed by a click on its name again.
+    h.get_by_label("File").click();
+    h.run_steps(2);
+    h.get_by_label("File").click();
+    h.run_steps(2);
+    assert!(script_has_keys(&h, key), "the keys back again");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Y);
+    h.run_steps(2);
+    assert_eq!(script(&h), edited);
+    // Closed by a click outside the editor (the module tree): nowhere.
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    h.get_by_label("Areas (1)").click();
+    h.run_steps(2);
+    assert!(!script_has_keys(&h, key), "a click outside the editor");
+}
+
 #[test]
 fn saving_a_script_compiles_it_with_debug_information_when_chosen() {
     let Some(root) = mg_testkit::nwn_root() else {
@@ -1587,6 +1652,64 @@ fn a_script_saved_outside_is_compiled_when_asked() {
         std::fs::read(dir.join("hello.nss")).unwrap(),
         b"void main()\n{\n    int n = 3;\n}\n"
     );
+}
+
+/// A checkout's many scripts changed outside are compiled a few each
+/// frame, not as a job that holds the window (more than 24 went to one):
+/// the window takes input meanwhile, and once they are done each has its
+/// compiled script, written beside it, the module with no unsaved
+/// changes.
+#[test]
+fn many_scripts_saved_outside_are_compiled_a_few_a_frame() {
+    use mg_module::ModuleLocation;
+    use mg_module::new::new_module;
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut m = new_module(&game, "Checkout", &mut fastrand::Rng::with_seed(7)).unwrap();
+    let names: Vec<String> = (0..40).map(|i| format!("pulled_{i:02}")).collect();
+    for n in &names {
+        m.set(ResKey::parse(n, ResType::NSS).unwrap(), b"void main()\n{\n}\n".to_vec());
+    }
+    let dir = mg_testkit::scratch_dir("ui-folder-compile-many").join("module");
+    m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.settings.no_mod_beside_folder = true;
+    app.settings.auto_compile = true;
+    app.open_module(&dir);
+    let mut h = harness(app, 1100.0, 800.0);
+    h.run_steps(3);
+    for (i, n) in names.iter().enumerate() {
+        std::fs::write(
+            dir.join(format!("{n}.nss")),
+            format!("void main()\n{{\n    int n = {i};\n}}\n"),
+        )
+        .unwrap();
+    }
+    h.state_mut().reload_project_files();
+    assert!(!h.state().busy(), "no job holds the window");
+    let mut frames = 0;
+    while h.state().compiling_outside() {
+        h.run_steps(1);
+        assert!(!h.state().busy());
+        frames += 1;
+        assert!(frames < 400, "never done");
+    }
+    let ws = h.state().ws.as_ref().unwrap();
+    assert!(!ws.is_modified(), "no unsaved changes");
+    for n in &names {
+        let ncs = ResKey::parse(n, ResType::NCS).unwrap();
+        let made = ws.module.get(&ncs).map(<[u8]>::to_vec);
+        assert!(made.is_some(), "{n} compiled");
+        assert_eq!(std::fs::read(dir.join(format!("{n}.ncs"))).ok(), made, "{n} written");
+    }
+    let log = &h.state().log.entries;
+    assert!(
+        log.iter().any(|(_, m)| m.starts_with("Compiled (changed outside Moonglow)")),
+        "{log:#?}"
+    );
+    assert!(!log.iter().any(|(_, m)| m.contains("in the background")), "{log:#?}");
 }
 
 /// Compile All Scripts passes over the scripts that are as they were when

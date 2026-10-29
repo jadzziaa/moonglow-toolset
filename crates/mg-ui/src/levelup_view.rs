@@ -164,48 +164,46 @@ fn level_up(app: &mut Moonglow, w: &LevelupWizard) {
     let mut after = game.level_up(&creature, &targets);
     // A new class's package equipment: equipped or carried, as an item
     // blueprint's name for a blueprint, the whole item for a placed one.
-    let module = &ws.module;
-    let item = |r: mg_core::ResRef| {
-        mg_module::gff_root(Some(module), game, &ResKey::new(r, mg_core::ResType::UTI))
-    };
-    let placing = mg_module::instances::Placing { game, item: &item };
     let placed = !w.path.0.is_empty();
-    for &(class, _, had) in &w.slots {
-        if had != 0 {
-            continue;
-        }
-        for (res, at) in game.new_class_gear(&after, class, &item) {
-            let entry = |id: u32| -> Struct {
-                match item(res).filter(|_| placed) {
-                    Some(bp) => mg_module::instances::held(&placing, &bp, id),
-                    None => Struct::new(id),
-                }
-            };
-            match at {
-                GearPlace::Equip(slot) => {
-                    let mut e = entry(slot);
-                    if !placed {
-                        e.set("EquippedRes", Value::resref(res));
+    mg_module::instances::with_placing(game, Some(&ws.module), |placing, _| {
+        let item = placing.item;
+        for &(class, _, had) in &w.slots {
+            if had != 0 {
+                continue;
+            }
+            for (res, at) in game.new_class_gear(&after, class, &item) {
+                let entry = |id: u32| -> Struct {
+                    match item(res).filter(|_| placed) {
+                        Some(bp) => mg_module::instances::held(placing, &bp, id),
+                        None => Struct::new(id),
                     }
-                    let mut list = after.list("Equip_ItemList").unwrap_or(&[]).to_vec();
-                    let at = list.iter().position(|s| s.id > slot).unwrap_or(list.len());
-                    list.insert(at, e);
-                    after.set("Equip_ItemList", Value::List(list));
-                }
-                GearPlace::Carry(x, y) => {
-                    let mut list = after.list("ItemList").unwrap_or(&[]).to_vec();
-                    let mut e = entry(list.len() as u32);
-                    if !placed {
-                        e.set("InventoryRes", Value::resref(res));
+                };
+                match at {
+                    GearPlace::Equip(slot) => {
+                        let mut e = entry(slot);
+                        if !placed {
+                            e.set("EquippedRes", Value::resref(res));
+                        }
+                        let mut list = after.list("Equip_ItemList").unwrap_or(&[]).to_vec();
+                        let at = list.iter().position(|s| s.id > slot).unwrap_or(list.len());
+                        list.insert(at, e);
+                        after.set("Equip_ItemList", Value::List(list));
                     }
-                    e.set("Repos_PosX", Value::Word(x));
-                    e.set("Repos_Posy", Value::Word(y));
-                    list.push(e);
-                    after.set("ItemList", Value::List(list));
+                    GearPlace::Carry(x, y) => {
+                        let mut list = after.list("ItemList").unwrap_or(&[]).to_vec();
+                        let mut e = entry(list.len() as u32);
+                        if !placed {
+                            e.set("InventoryRes", Value::resref(res));
+                        }
+                        e.set("Repos_PosX", Value::Word(x));
+                        e.set("Repos_Posy", Value::Word(y));
+                        list.push(e);
+                        after.set("ItemList", Value::List(list));
+                    }
                 }
             }
         }
-    }
+    });
     let edits: Vec<Edit> = CHANGED
         .iter()
         .filter(|l| after.get(l) != creature.get(l))

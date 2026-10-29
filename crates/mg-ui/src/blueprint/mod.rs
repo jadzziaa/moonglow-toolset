@@ -1358,11 +1358,11 @@ impl Form<'_> {
         }
     }
 
-    /// The Variables… button.
+    /// The Variables… button (off for an object of a read-only area).
     pub(crate) fn variables(&mut self, ui: &mut Ui) {
         let list = self.root.list("VarTable").unwrap_or(&[]).to_vec();
         self.mark_mixed(ui, "VarTable");
-        if crate::widgets::variables_button(ui, list.len()) {
+        if crate::claims::variables_button(self.app, ui, &self.key, list.len()) {
             self.app.var_edit = Some(VarTableEdit::new(self.target("VarTable"), &list));
         }
     }
@@ -1592,8 +1592,11 @@ pub(crate) fn edit_many(
             paths: targets.iter().map(|(_, p)| p.clone()).collect(),
         },
     };
+    // (A placed object of an area another builder holds, in a project
+    // that keeps those read-only: looked at, as the game's blueprints are.)
+    let held = crate::claims::area_of(&key).and_then(|a| crate::claims::read_only(app, a));
     let is_viewed = app.ws.as_ref().is_some_and(|ws| ws.is_viewed(&key));
-    let pressed = ok_cancel(ui, &targets[0], is_viewed);
+    let pressed = ok_cancel(ui, &targets[0], is_viewed || held.is_some());
     let all = if path.0.is_empty() { pages(restype).to_vec() } else { instance_pages(restype) };
     // Lists are edited one blueprint or object at a time.
     let pages: Vec<&str> =
@@ -1612,7 +1615,7 @@ pub(crate) fn edit_many(
     });
     app.blueprint_pages.insert(page_key, page);
     ui.separator();
-    let viewed = app.ws.as_ref().is_some_and(|ws| ws.is_viewed(&key));
+    let viewed = is_viewed || held.is_some();
     let refused_id = egui::Id::new(("view-refused", key));
     if viewed {
         ui.horizontal_wrapped(|ui| {
@@ -1621,20 +1624,30 @@ pub(crate) fn edit_many(
             let refused = ui
                 .data(|d| d.get_temp::<f64>(refused_id))
                 .is_some_and(|at| now - at < VIEW_REFUSED_SHOWN);
-            let text = if refused {
+            if refused {
                 ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
-                egui::RichText::new(
-                    "Not changed: this is the game's blueprint, shown to look at. Edit Copy \
-                     makes one of the module's own.",
-                )
-                .strong()
-            } else {
-                egui::RichText::new(
-                    "This is the game's blueprint, shown to look at: it can't be changed here.",
-                )
+            }
+            let text = match (&held, refused) {
+                (Some(why), true) => {
+                    format!("Not changed: {why}, and the project keeps others' areas read-only.")
+                }
+                (Some(why), false) => format!("{why}: read-only here, shown to look at."),
+                (None, true) => "Not changed: this is the game's blueprint, shown to look at. \
+                                 Edit Copy makes one of the module's own."
+                    .into(),
+                (None, false) => {
+                    "This is the game's blueprint, shown to look at: it can't be changed here."
+                        .into()
+                }
             };
+            let text = egui::RichText::new(text);
+            let text = if refused { text.strong() } else { text };
             ui.colored_label(ui.visuals().warn_fg_color, text);
-            if ui.button("Edit Copy…").on_hover_text("A copy in the module, to change").clicked()
+            if held.is_none()
+                && ui
+                    .button("Edit Copy…")
+                    .on_hover_text("A copy in the module, to change")
+                    .clicked()
             {
                 app.actions.push(Action::CopyDialog(key));
             }
@@ -1678,40 +1691,12 @@ pub(crate) fn edit_many(
             _ => {}
         }
     });
-    // The game's blueprint takes no change: its fields don't keep the
-    // keyboard (nothing is typed into them, to be dropped when the field
-    // is left), and what a page asked for is dropped, the note above
-    // saying so. Its lists still scroll, its pages open and its lists'
-    // searches take what is typed.
-    if viewed {
-        let ctx = ui.ctx();
-        let layer = ui.layer_id();
-        let focused = ctx.memory(|m| m.focused()).and_then(|id| Some((id, ctx.read_response(id)?)));
-        if let Some((id, r)) = focused
-            && r.layer_id == layer
-            && shown.inner_rect.intersects(r.rect)
-            && !crate::widgets::is_search_field(ctx, id)
-        {
-            ctx.memory_mut(|m| m.surrender_focus(id));
-        }
-        let app = &mut *form.app;
-        let mut tried = false;
-        let mut i = pending;
-        while i < app.actions.len() {
-            let changes = matches!(&app.actions[i], Action::Apply(cmd)
-                if cmd.edits.iter().any(|e| *e.key() == key));
-            if changes {
-                app.actions.remove(i);
-                tried = true;
-            } else {
-                i += 1;
-            }
-        }
-        if tried {
-            let now = ui.input(|i| i.time);
-            ui.data_mut(|d| d.insert_temp(refused_id, now));
-            ui.ctx().request_repaint();
-        }
+    // The game's blueprint (or a read-only area's object) takes no
+    // change, the note above saying so when one is tried.
+    if viewed && look_only(form.app, ui, shown.inner_rect, pending, &|k| *k == key) {
+        let now = ui.input(|i| i.time);
+        ui.data_mut(|d| d.insert_temp(refused_id, now));
+        ui.ctx().request_repaint();
     }
     // A change only the first would take (a page's own list edits, an item
     // the first object holds) is dropped rather than made to one of several
@@ -1741,9 +1726,49 @@ pub(crate) fn edit_many(
     window_drawn(form.app, pending, &tab, &targets, pressed);
 }
 
+/// A form only looked at (the game's blueprint, opened by View; what an
+/// area another builder holds has, in a project that keeps those
+/// read-only), drawn in `shown` with [`read_only_look`]: its fields don't
+/// keep the keyboard (nothing is typed into them, to be dropped when the
+/// field is left), and the changes to what `changes` says that were asked
+/// for since `pending` are dropped. Its lists still scroll, its pages
+/// open and its lists' searches take what is typed. Whether a change was
+/// tried (for its note to say so).
+pub(crate) fn look_only(
+    app: &mut Moonglow,
+    ui: &Ui,
+    shown: egui::Rect,
+    pending: usize,
+    changes: &dyn Fn(&ResKey) -> bool,
+) -> bool {
+    let ctx = ui.ctx();
+    let layer = ui.layer_id();
+    let focused = ctx.memory(|m| m.focused()).and_then(|id| Some((id, ctx.read_response(id)?)));
+    if let Some((id, r)) = focused
+        && r.layer_id == layer
+        && shown.intersects(r.rect)
+        && !crate::widgets::is_search_field(ctx, id)
+    {
+        ctx.memory_mut(|m| m.surrender_focus(id));
+    }
+    let mut tried = false;
+    let mut i = pending;
+    while i < app.actions.len() {
+        let changing = matches!(&app.actions[i], Action::Apply(cmd)
+            if cmd.edits.iter().any(|e| changes(e.key())));
+        if changing {
+            app.actions.remove(i);
+            tried = true;
+        } else {
+            i += 1;
+        }
+    }
+    tried
+}
+
 /// How long the note of a blueprint only looked at says a change was
 /// refused, in seconds.
-const VIEW_REFUSED_SHOWN: f64 = 4.0;
+pub(crate) const VIEW_REFUSED_SHOWN: f64 = 4.0;
 
 /// The most objects edited together whose values are compared, field by
 /// field, to mark the fields that differ.
@@ -1760,7 +1785,7 @@ const MIXED_TIP: &str = "The objects edited together differ here: this shows the
 /// The look of a form that can't be changed (the game's blueprint, opened
 /// by View): its fields are flat and dim, and don't answer the pointer.
 /// It still scrolls, and its lists and pages can be looked through.
-fn read_only_look(ui: &mut Ui) {
+pub(crate) fn read_only_look(ui: &mut Ui) {
     let v = ui.visuals_mut();
     let quiet = v.widgets.noninteractive;
     let text = egui::Stroke::new(1.0, v.weak_text_color());

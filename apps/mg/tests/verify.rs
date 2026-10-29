@@ -52,6 +52,18 @@ fn verify_fails_on_errors_and_names_them_in_json() {
         assert_eq!(json["errors"], 0);
         assert_eq!(json["skipped"], serde_json::json!({ "objects": null, "tilesets": null }));
     }
+    // So is its check alone, or the resource it is in.
+    let resource = f["resource"].as_str().unwrap().to_string();
+    for skip in ["object-row", resource.as_str()] {
+        let out = crate::mg_on(&root, None)
+            .args(["verify", "--json", "--skip", skip])
+            .arg(&broken)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{skip}: {}", String::from_utf8_lossy(&out.stderr));
+        let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(json["skipped"], serde_json::json!({ skip: null }));
+    }
     // `--timings` says how long each part took, on stderr; the report is
     // the same.
     let out = crate::mg_on(&root, None)
@@ -65,7 +77,8 @@ fn verify_fails_on_errors_and_names_them_in_json() {
     let said = String::from_utf8_lossy(&out.stderr);
     assert!(said.contains(" s  open the module") && said.contains(" s  in all"), "{said}");
     let wrong = crate::mg().args(["verify", "--skip", "tiles"]).arg(&broken).output().unwrap();
-    assert!(String::from_utf8_lossy(&wrong.stderr).contains("one of references, tilesets"));
+    let said = String::from_utf8_lossy(&wrong.stderr);
+    assert!(said.contains("a group (references, tilesets") && said.contains("hak:NAME"), "{said}");
 }
 
 /// Variables in an area's ARE, which the game does not read (it reads an

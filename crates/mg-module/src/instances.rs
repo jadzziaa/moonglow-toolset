@@ -42,6 +42,21 @@ impl std::fmt::Debug for Placing<'_> {
     }
 }
 
+/// Places blueprints as `module` has them, else as the game does: `f` is
+/// given the [`Placing`] (its item blueprints read so) and the reader of
+/// any blueprint by key, the one way every tool that makes placed objects
+/// reads them (the area view's palette, painting, Replace, Update
+/// Instances, the store and level-up wizards, `mg update-instances`).
+pub fn with_placing<R>(
+    game: &GameData,
+    module: Option<&crate::Module>,
+    f: impl FnOnce(&Placing<'_>, &dyn Fn(mg_resman::ResKey) -> Option<Struct>) -> R,
+) -> R {
+    let read = |k: mg_resman::ResKey| crate::gff_root(module, game, &k);
+    let item = |r: ResRef| read(mg_resman::ResKey::new(r, ResType::UTI));
+    f(&Placing { game, item: &item }, &read)
+}
+
 /// The GIT list a blueprint type's instances go in, and their struct id
 /// ([`ObjectKind::list`], [`ObjectKind::struct_id`]).
 pub fn git_list(restype: ResType) -> Option<(&'static str, u32)> {
@@ -492,9 +507,6 @@ const MODEL_PARTS: [&str; 3] = ["ModelPart1", "ModelPart2", "ModelPart3"];
 /// An item property's fields in Aurora's order.
 const PROPERTY_ORDER: &[&str] =
     &["PropertyName", "Subtype", "CostTable", "CostValue", "Param1", "Param1Value", "ChanceAppear"];
-/// A store's pages (struct ids: armour, weapons, potions and scrolls,
-/// rings and amulets, miscellaneous), as a new store has them.
-const STORE_PAGES: [u32; 5] = [0, 4, 2, 3, 1];
 const ITEM_COLORS: [&str; 6] =
     ["Leather1Color", "Leather2Color", "Cloth1Color", "Cloth2Color", "Metal1Color", "Metal2Color"];
 
@@ -1044,7 +1056,9 @@ pub fn instance(
             s.remove("ID");
             fill(&mut s, STORE);
             if !s.contains("StoreList") {
-                let pages = STORE_PAGES.iter().map(|&id| Struct::new(id)).collect();
+                // (A store's pages, as a new store has them.)
+                let pages =
+                    mg_rules::rows::STORE_PAGES.iter().map(|&(id, _)| Struct::new(id)).collect();
                 s.set("StoreList", Value::List(pages));
             }
             let mut pages = s.list("StoreList").unwrap_or(&[]).to_vec();

@@ -4,10 +4,19 @@
 //! module, by which Moonglow sorts its custom palette (and builds the
 //! `<type>palcus.itp` the game's DM client reads). Content packs do the
 //! same with a skeleton in a hak.
+//!
+//! A name is written out (in the game's text for its language) or a
+//! talk-table string (`STRREF`, as the game's own are), which each
+//! player's talk table shows in their language. Removing a category the
+//! module's blueprints are in moves them to another, chosen, with the
+//! window's OK: one step to undo, with the skeleton.
+
+use std::collections::BTreeMap;
 
 use egui::Ui;
 use mg_gff::{Gff, Struct};
 use mg_module::palette::{self, BlueprintKind, NodePath};
+use mg_resman::ResKey;
 
 use crate::{Action, Moonglow};
 
@@ -23,8 +32,26 @@ pub struct PaletteCategories {
     pub selected: Option<NodePath>,
     /// The name typed, for a new group or category, or the selected one's.
     pub name: String,
+    /// The talk-table string typed, to name the selected one by.
+    pub strref: String,
     pub error: Option<String>,
     changed: bool,
+    /// The module's blueprints to move, to the category of each (those of
+    /// a category removed), as OK keeps the skeleton.
+    moves: BTreeMap<ResKey, u8>,
+    /// A category the module's blueprints are in, asked about before it
+    /// is removed.
+    removing: Option<Removing>,
+}
+
+/// A removal waiting for the category its blueprints go to.
+#[derive(Debug, Clone)]
+struct Removing {
+    /// The skeleton without it, and the blueprints in it.
+    without: Gff,
+    blueprints: Vec<ResKey>,
+    /// The category they go to.
+    to: Option<u8>,
 }
 
 /// Opens the window for `kind`, on the module's skeleton or the game's.
@@ -49,8 +76,11 @@ pub(crate) fn open(app: &mut Moonglow, kind: BlueprintKind) {
                 own,
                 selected: None,
                 name: String::new(),
+                strref: String::new(),
                 error: None,
                 changed: false,
+                moves: BTreeMap::new(),
+                removing: None,
             });
         }
         Err(e) => app.log.error(format!("Palette categories: {e}")),
@@ -67,7 +97,40 @@ fn name_of(app: &Moonglow, node: &Struct) -> String {
         let strref = u32::try_from(node.integer("STRREF")?).ok()?;
         app.game.as_deref()?.string(mg_core::StrRef(strref))
     });
-    named.or_else(|| text("DELETE_ME")).unwrap_or_default()
+    let strref = || Some(format!("(StrRef {})", node.integer("STRREF")?));
+    named.or_else(|| text("DELETE_ME")).or_else(strref).unwrap_or_default()
+}
+
+/// The skeleton's categories (not groups), each by its name and the
+/// groups it is in: what blueprints can be put in.
+fn categories(app: &Moonglow, skeleton: &Gff) -> Vec<(u8, String)> {
+    fn walk(app: &Moonglow, list: &[Struct], within: &str, out: &mut Vec<(u8, String)>) {
+        for node in list.iter().filter(|n| !palette::is_placeholder(n)) {
+            let name = match within {
+                "" => name_of(app, node),
+                g => format!("{g} › {}", name_of(app, node)),
+            };
+            if let Some(id) = node.integer("ID").and_then(|i| u8::try_from(i).ok()) {
+                out.push((id, name.clone()));
+            }
+            if let Some(children) = node.list("LIST") {
+                walk(app, children, &name, out);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(app, skeleton.root.list("MAIN").unwrap_or(&[]), "", &mut out);
+    out
+}
+
+/// The module's blueprints in the categories `ids` once the window's OK
+/// has moved those it moves.
+fn blueprints_in(app: &Moonglow, w: &PaletteCategories, ids: &[u8]) -> Vec<ResKey> {
+    let Some(ws) = app.ws.as_ref() else { return Vec::new() };
+    let now = palette::blueprints_of(&ws.module, w.kind, ids);
+    let staying = now.into_iter().map(|(k, _)| k).filter(|k| !w.moves.contains_key(k));
+    let coming = w.moves.iter().filter(|(_, to)| ids.contains(to)).map(|(k, _)| *k);
+    staying.chain(coming).collect()
 }
 
 /// Where a dragged row is let go on another.
@@ -215,6 +278,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                         w.selected = Some(now);
                         w.error = None;
                         w.changed = true;
+                        w.removing = None;
                     }
                     Err(e) => w.error = Some(e),
                 }
@@ -275,9 +339,84 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 .clicked()
                 && let Some(path) = &chosen
             {
-                result = Some(remove(app, &mut w, path).map(|()| None));
+                match remove(app, &mut w, path) {
+                    Ok(true) => result = Some(Ok(None)),
+                    Ok(false) => {}
+                    Err(e) => result = Some(Err(e)),
+                }
             }
         });
+        // A talk-table string for the name (shown in each player's
+        // language): a StrRef typed, or the name typed put into the
+        // module's own talk table as a new line.
+        ui.horizontal(|ui| {
+            crate::widgets::field_label(ui, "StrRef");
+            ui.add(
+                egui::TextEdit::singleline(&mut w.strref)
+                    .desired_width(100.0)
+                    .hint_text("a talk-table line"),
+            );
+            let typed = w.strref.trim().parse::<u32>().ok();
+            if let Some(text) = typed.and_then(|n| app.game.as_deref()?.string(mg_core::StrRef(n)))
+            {
+                ui.weak(text);
+            }
+            if ui
+                .add_enabled(
+                    chosen.is_some() && typed.is_some(),
+                    egui::Button::new("Name by StrRef"),
+                )
+                .on_hover_text(
+                    "Names the one chosen by that talk-table line, as the game's own categories \
+                     are: each player sees it in their language",
+                )
+                .clicked()
+                && let (Some(path), Some(n)) = (&chosen, typed)
+            {
+                let named = palette::name_by_strref(&mut w.skeleton, path, n);
+                result = Some(named.map(|()| Some(path.clone())));
+            }
+        });
+        let movable = crate::talk_view::can_add(app).is_some();
+        if ui
+            .add_enabled(
+                chosen.is_some() && movable && !w.name.trim().is_empty(),
+                egui::Button::new("Move Name to Talk Table"),
+            )
+            .on_hover_text(
+                "Adds the name typed to the module's talk table as a new line, and names the one \
+                 chosen by it: translate the line in the talk table's other languages",
+            )
+            .on_disabled_hover_text(
+                "Needs the module's own talk table (Module Properties › Custom Content), a name \
+                 typed and one chosen",
+            )
+            .clicked()
+            && let Some(path) = &chosen
+        {
+            let line = mg_module::talk::Line {
+                text: w.name.trim().to_string(),
+                feminine: None,
+                sound: String::new(),
+                sound_length: 0.0,
+            };
+            result = Some(match crate::talk_view::add_line(app, &line) {
+                Ok(strref) => {
+                    w.strref = strref.0.to_string();
+                    app.log.info(format!(
+                        "Added talk-table line {}; it's saved with the module",
+                        strref.0
+                    ));
+                    palette::name_by_strref(&mut w.skeleton, path, strref.0)
+                        .map(|()| Some(path.clone()))
+                }
+                Err(e) => Err(format!("Move to Talk Table: {e}")),
+            });
+        }
+        // (Anything else done meanwhile asks again: the list changed.)
+        if result.is_some() {
+            w.removing = None;
+        }
         match result {
             Some(Ok(selected)) => {
                 w.selected = selected;
@@ -286,6 +425,51 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             }
             Some(Err(e)) => w.error = Some(e),
             None => {}
+        }
+        // A category the module's blueprints are in: where they go.
+        let mut asked = None;
+        if let Some(r) = &mut w.removing {
+            let n = r.blueprints.len();
+            let s = if n == 1 { " is" } else { "s are" };
+            let left = categories(app, &r.without);
+            egui::Frame::group(ui.style()).show(ui, |ui| {
+                ui.label(format!("{n} of the module's blueprint{s} in it. Move them to:"));
+                let shown =
+                    r.to.and_then(|id| left.iter().find(|c| c.0 == id))
+                        .map_or("choose a category", |c| &c.1);
+                crate::widgets::dropdown("palette-category-to")
+                    .width(260.0)
+                    .selected_text(shown)
+                    .show_ui(ui, |ui| {
+                        for (id, name) in &left {
+                            ui.selectable_value(&mut r.to, Some(*id), name);
+                        }
+                    });
+                ui.horizontal(|ui| {
+                    if ui
+                        .add_enabled(r.to.is_some(), egui::Button::new("Move and Remove"))
+                        .on_hover_text("Moves them there, and removes it, as OK keeps the list")
+                        .clicked()
+                    {
+                        asked = Some(true);
+                    }
+                    if ui.button("Keep It").clicked() {
+                        asked = Some(false);
+                    }
+                });
+            });
+        }
+        match (asked, w.removing.take()) {
+            (Some(true), Some(r)) => {
+                let to = r.to.expect("chosen");
+                w.skeleton = r.without;
+                w.moves.extend(r.blueprints.into_iter().map(|k| (k, to)));
+                w.selected = None;
+                w.error = None;
+                w.changed = true;
+            }
+            (Some(_), _) => {}
+            (None, r) => w.removing = r,
         }
         if let Some(e) = &w.error {
             ui.colored_label(ui.visuals().error_fg_color, e);
@@ -314,8 +498,18 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     match done {
         Some(Done::Keep) => match w.skeleton.to_bytes() {
             Ok(data) => {
-                let edit = mg_edit::Edit::SetResource { key, data: Some(data) };
-                let command = mg_edit::Command::new("Palette categories", vec![edit]);
+                // (The blueprints of a category removed into the one
+                // chosen: the same step.)
+                let mut edits = vec![mg_edit::Edit::SetResource { key, data: Some(data) }];
+                for (blueprint, to) in &w.moves {
+                    edits.push(mg_edit::Edit::SetField {
+                        key: *blueprint,
+                        path: mg_edit::GffPath::root(),
+                        label: w.kind.palette_field().to_string(),
+                        value: Some(mg_gff::Value::Byte(*to)),
+                    });
+                }
+                let command = mg_edit::Command::new("Palette categories", edits);
                 app.actions.push(Action::Apply(command));
             }
             Err(e) => app.log.error(format!("Palette categories: {e}")),
@@ -337,20 +531,20 @@ enum Done {
     Revert,
 }
 
-/// Removes the group or category at `path`, unless blueprints of the
-/// module are in it (or in a category of the group): they are moved to
-/// another category first.
-fn remove(app: &mut Moonglow, w: &mut PaletteCategories, path: &[usize]) -> Result<(), String> {
+/// Removes the group or category at `path`; where blueprints of the
+/// module are in it (or in a category of the group), asks first where
+/// they go (`Ok(false)`: asked, not removed yet).
+fn remove(app: &mut Moonglow, w: &mut PaletteCategories, path: &[usize]) -> Result<bool, String> {
     let mut trial = w.skeleton.clone();
     let ids = palette::remove_category(&mut trial, path)?;
-    let used = app.ws.as_ref().map_or(0, |ws| palette::blueprints_in(&ws.module, w.kind, &ids));
-    if used > 0 {
-        let s = if used == 1 { " is" } else { "s are" };
-        return Err(format!(
-            "{used} of the module's blueprint{s} in it: give them another category first \
-             (their Basic page, or drag them in the palette)"
-        ));
+    let blueprints = blueprints_in(app, w, &ids);
+    if blueprints.is_empty() {
+        w.skeleton = trial;
+        return Ok(true);
     }
-    w.skeleton = trial;
-    Ok(())
+    if categories(app, &trial).is_empty() {
+        return Err("the module's blueprints are in it, and there is no other category".into());
+    }
+    w.removing = Some(Removing { without: trial, blueprints, to: None });
+    Ok(false)
 }

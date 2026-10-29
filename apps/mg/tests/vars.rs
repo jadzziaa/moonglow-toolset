@@ -315,7 +315,15 @@ fn verify_holds_variables_to_their_descriptions() {
     assert_eq!(names, [&b"tdod_settlement"[..], b"tdod_lt"]);
     let checks = crate::mg().args(["--json", "checks"]).output().unwrap();
     let checks: serde_json::Value = serde_json::from_slice(&checks.stdout).unwrap();
-    for id in ["var-type", "var-value", "var-object", "var-name", "var-runtime"] {
+    for id in [
+        "var-type",
+        "var-value",
+        "var-object",
+        "var-name",
+        "var-runtime",
+        "var-requires",
+        "var-script",
+    ] {
         let check = checks["checks"].as_array().unwrap().iter().find(|c| c["id"] == id);
         assert!(check.is_some_and(|c| c["group"] == "objects"), "{id}: {checks}");
     }

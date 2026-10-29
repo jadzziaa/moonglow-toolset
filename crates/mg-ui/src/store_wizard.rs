@@ -15,7 +15,7 @@ use mg_core::{ResRef, ResType};
 use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{Gff, Struct, Value};
 use mg_module::factions::Factions;
-use mg_module::instances::{Placing, git_list, instance};
+use mg_module::instances::{git_list, instance};
 use mg_module::project_file::StoreRules;
 use mg_module::store_setup::{self, GREETING, NO, YES};
 use mg_resman::ResKey;
@@ -387,15 +387,15 @@ fn build(
             .ok_or("the shopkeeper is gone")?;
         (creature, doc.root.list("StoreList").map_or(0, <[_]>::len))
     };
+    let at = store_setup::store_placement(&creature);
+    let placed = crate::area_view::placing(app, |placing, read| {
+        let blueprint =
+            read(ResKey::new(store, ResType::UTM)).ok_or("the store blueprint is missing")?;
+        instance(placing, ResType::UTM, &blueprint, at, &[]).ok_or("not a store")
+    });
+    let mut placed = placed.ok_or("no module or game data")??;
     let game = app.game.as_deref().ok_or("no game data")?;
     let ws = app.ws.as_ref().ok_or("no module")?;
-    let read = |k: ResKey| mg_module::gff_root(Some(&ws.module), game, &k);
-    let blueprint =
-        read(ResKey::new(store, ResType::UTM)).ok_or("the store blueprint is missing")?;
-    let item = |r: ResRef| read(ResKey::new(r, ResType::UTI));
-    let placing = Placing { game, item: &item };
-    let at = store_setup::store_placement(&creature);
-    let mut placed = instance(&placing, ResType::UTM, &blueprint, at, &[]).ok_or("not a store")?;
     if w.rules.is_some() {
         placed.set("Tag", Value::String(crate::text::encode(&tag)));
     }

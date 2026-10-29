@@ -363,11 +363,16 @@ pub(crate) fn level(l: mg_plugin::Level) -> Level {
 /// checks logged. A check that fails is itself a finding.
 pub(crate) fn check_findings(
     plugins: &[(Plugin, mg_plugin::Settings)],
+    skip: &mg_module::doctor::Skip,
     job: &Context,
 ) -> (Vec<Found>, Vec<(Level, String)>) {
     let (mut findings, mut said) = (Vec::new(), Vec::new());
     for (plugin, settings) in plugins {
         for check in &plugin.manifest.checks {
+            // (One Options › Verify leaves out isn't run.)
+            if skip.plugin_check(&plugin.check_id(&check.id)) {
+                continue;
+            }
             if job.progress.cancelled() {
                 return (findings, said);
             }

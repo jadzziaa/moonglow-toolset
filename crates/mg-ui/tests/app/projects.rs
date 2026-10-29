@@ -794,6 +794,80 @@ fn a_pull_s_burst_of_changes_is_read_off_the_window_s_thread() {
     }
 }
 
+/// A module kept in one file (a `.mod`) that another program saves while
+/// it is open: the watch hears it at once, without the window being asked,
+/// and what changed in it is read again, resource by resource; one with
+/// unsaved changes here too is asked about, and Save doesn't write over
+/// it until it is answered.
+#[test]
+fn a_mod_saved_by_another_program_is_read_again() {
+    use mg_module::new::new_module;
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut m = new_module(&game, "Castle", &mut fastrand::Rng::with_seed(7)).unwrap();
+    let (a, b) = (
+        ResKey::parse("castle_a", ResType::NSS).unwrap(),
+        ResKey::parse("castle_b", ResType::NSS).unwrap(),
+    );
+    m.set(a, b"void main() { int a; }\n".to_vec());
+    m.set(b, b"void main() { int b; }\n".to_vec());
+    let path = mg_testkit::scratch_dir("ui-mod-outside").join("castle.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = harness(app, 1100.0, 800.0);
+    // (The watch begins, and its first look finds nothing.)
+    let started = std::time::Instant::now();
+    while started.elapsed() < std::time::Duration::from_millis(600) {
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let in_module = |h: &Harness<'_, Moonglow>, k: &ResKey| {
+        h.state().ws.as_ref().unwrap().module.get(k).map(<[u8]>::to_vec)
+    };
+    // Another program saves it: read again within a second or two.
+    let mut theirs = Module::open(&path).unwrap();
+    theirs.set(a, b"void main() { int theirs; }\n".to_vec());
+    theirs.save().unwrap();
+    let started = std::time::Instant::now();
+    while in_module(&h, &a).unwrap() != b"void main() { int theirs; }\n" {
+        assert!(started.elapsed().as_secs() < 10, "the watch hears it");
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(started.elapsed().as_secs() < 3, "{:?} after the save", started.elapsed());
+    assert!(!h.state().ws.as_ref().unwrap().is_modified(), "read, not an unsaved change");
+    // Changed here and there: asked about, and not written over.
+    let edit =
+        mg_edit::Edit::SetResource { key: b, data: Some(b"void main() { int ours; }\n".to_vec()) };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Ours", vec![edit])));
+    h.run_steps(2);
+    let mut theirs = Module::open(&path).unwrap();
+    theirs.set(b, b"void main() { int theirs, too; }\n".to_vec());
+    theirs.save().unwrap();
+    let started = std::time::Instant::now();
+    while h.state().outside_conflicts().is_empty() {
+        assert!(started.elapsed().as_secs() < 10, "the watch hears it");
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert_eq!(h.state().outside_conflicts(), [path.join("castle_b.nss")]);
+    assert_eq!(in_module(&h, &b).unwrap(), b"void main() { int ours; }\n");
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run_steps(3);
+    let on_disk = Module::open(&path).unwrap();
+    assert_eq!(on_disk.get(&b).unwrap(), b"void main() { int theirs, too; }\n", "not written over");
+    // Kept as Moonglow has it: then saved.
+    h.get_by_label("Keep Moonglow's").click();
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run_steps(3);
+    let on_disk = Module::open(&path).unwrap();
+    assert_eq!(on_disk.get(&b).unwrap(), b"void main() { int ours; }\n");
+}
+
 /// A nasher project's locks stay out of its files: Lock and Save leave the
 /// area's JSON as it was and keep the lock in Moonglow's folder; the area
 /// changed outside is read again (no conflict) with the lock still on; and
@@ -1557,6 +1631,62 @@ fn the_variables_window_offers_the_project_s_described_variables() {
     let vars = doc.root.list("Placeable List").unwrap()[0].list("VarTable").unwrap();
     assert_eq!(vars.len(), 2);
     assert_eq!(vars[0].string("Value"), Some(&b"forge"[..]));
+}
+
+/// The Variables window says what a variable needs beside it and the
+/// object lacks (`requires`, `[[rules]]`), until it is added; a name typed
+/// as one with a default takes it as its value.
+#[test]
+fn the_variables_window_says_what_a_variable_needs_and_gives_defaults() {
+    use mg_ui::widgets::{FieldTarget, VarTableEdit};
+    let described = "[tdod_rental]\ntype = \"string\"\nrequires = [\"tdod_rental_door\"]\n\n\
+        [tdod_rental_door]\ntype = \"string\"\n\n\
+        [tdod_climb_dc]\ntype = \"int\"\ndefault = 15\n\n\
+        [[rules]]\nvariable = \"tdod_kind\"\nis = \"merchant\"\nrequire = \"tdod_store\"\n";
+    let dir = project_folder("ui-variables-needed", &[("variables.toml", described)]);
+    let git = ResKey::parse("start", ResType::GIT).unwrap();
+    {
+        let mut m = Module::open(&dir).unwrap();
+        let mut g = Gff::new(*b"GIT ");
+        g.root.set("Creature List", mg_gff::Value::List(vec![mg_gff::Struct::new(4)]));
+        m.set_gff(git, &g).unwrap();
+        m.save().unwrap();
+    }
+    let mut app = app_with(Vec::new());
+    app.open_module(&dir);
+    let path = mg_edit::GffPath::root().item("Creature List", 0);
+    app.var_edit = Some(VarTableEdit::new(FieldTarget::new(git, path, "VarTable"), &[]));
+    let mut h = harness(app, 1000.0, 700.0);
+    h.run();
+    let add = |h: &mut Harness<'_, Moonglow>, name: &str, value: Option<&str>| {
+        h.get_by_label("Add").click();
+        h.run();
+        let rows = &mut h.state_mut().var_edit.as_mut().unwrap().rows;
+        let i = rows.len() - 1;
+        rows[i].name = name.into();
+        if let Some(v) = value {
+            rows[i].value = v.into();
+        }
+        h.run();
+        h.run();
+    };
+    add(&mut h, "tdod_rental", Some("smithy"));
+    let note = "tdod_rental needs tdod_rental_door beside it (variables.toml:1)";
+    assert!(h.query_by_label(note).is_some());
+    add(&mut h, "tdod_rental_door", Some("D_SMITHY"));
+    assert!(h.query_by_label(note).is_none(), "said until it is added");
+    add(&mut h, "tdod_kind", Some("merchant"));
+    assert!(
+        h.query_by_label(
+            "tdod_kind is merchant: tdod_store is needed beside it (variables.toml:12)"
+        )
+        .is_some()
+    );
+    // A default, taken as the value of a row named so.
+    add(&mut h, "tdod_climb_dc", None);
+    let rows = &h.state().var_edit.as_ref().unwrap().rows;
+    let dc = rows.iter().find(|r| r.name == "tdod_climb_dc").unwrap();
+    assert_eq!((dc.kind, dc.value.as_str()), (1, "15"));
 }
 
 /// The Variables window's offer by the keys: Down and Up move in it,
@@ -2345,6 +2475,161 @@ fn a_project_s_command_that_writes_nothing_keeps_the_haks_open() {
     // (And open again after.)
     let ws = h.state().ws.as_ref().unwrap();
     assert_eq!(ws.module.haks().unwrap(), ["mg_cmd_writes"]);
+}
+
+/// Frames until the job running is over (or a test has hung).
+fn until_idle(h: &mut Harness<'_, Moonglow>) {
+    let started = std::time::Instant::now();
+    while h.state().busy() {
+        assert!(started.elapsed().as_secs() < 30, "the command never ended");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.step();
+    }
+    h.run_steps(2);
+}
+
+/// A project's command's output is in a window of its own, as it comes
+/// and after (File › Project › Command Output), not the log only; one that
+/// reads what is typed (`input = true`) is given it from the line under
+/// its output, its question shown before its line ends, a hidden line
+/// kept out of the output. A command that doesn't has its input closed:
+/// its question is answered with nothing at once, as before. (By `sh`:
+/// `cmd /C` expands `%name%` as it reads the line, before `set /p` has
+/// set it, so the same on Windows needs a script of its own.)
+#[cfg(unix)]
+#[test]
+fn a_project_s_command_shows_its_output_and_takes_what_is_typed() {
+    let ask = "printf 'Name: '; read name; printf 'Secret: '; read secret; echo \"got:$name\"; \
+               echo \"kept:$secret\"";
+    let closed = "read x; echo \"empty:$x\"; echo \"warned\" 1>&2; exit 2";
+    let rules =
+        format!("[commands]\nask = {{ run = {ask:?}, input = true }}\nclosed = {closed:?}\n");
+    let dir = project_folder("ui-project-commands-input", &[("moonglow.toml", &rules)]);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.background_jobs = true;
+    let project = std::fs::canonicalize(&dir).unwrap().display().to_string();
+    for (name, text) in [("ask", ask), ("closed", closed)] {
+        app.settings.allowed_commands.push((project.clone(), name.into(), text.into()));
+    }
+    app.open_module(&dir);
+    let mut h = harness(app, 1000.0, 700.0);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::ProjectCommand("ask".into()));
+    h.run_steps(2);
+    assert!(h.state().busy(), "running, waiting for its answer");
+    // Its question shows before its line ends.
+    let started = std::time::Instant::now();
+    while h.query_by_label("Name: ").is_none() {
+        assert!(started.elapsed().as_secs() < 20, "the question never showed");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.step();
+    }
+    h.get_by_label("Send");
+    h.get_by_label("End Input");
+    // The line has the keys: typed, and Enter sends it.
+    h.event(egui::Event::Text("Hipólito".into()));
+    h.step();
+    h.key_press(egui::Key::Enter);
+    h.step();
+    h.step();
+    h.get_by_label("> Hipólito");
+    // A hidden line, by Send.
+    while h.query_by_label("Secret: ").is_none() {
+        assert!(started.elapsed().as_secs() < 20, "the second question never showed");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.step();
+    }
+    h.get_by_label("Hide").click();
+    h.step();
+    h.event(egui::Event::Text("swordfish".into()));
+    h.step();
+    h.get_by_label("Send").click();
+    h.step();
+    h.step();
+    h.get_by_label("> (hidden)");
+    until_idle(&mut h);
+    assert!(logged(&h, "  got:Hipólito"), "{:?}", h.state().log.entries);
+    assert!(logged(&h, "  kept:swordfish"), "the command had it");
+    assert!(
+        !logged(&h, "> Hipólito") && !logged(&h, "(hidden)"),
+        "what was typed is not in the log: {:?}",
+        h.state().log.entries
+    );
+    // Its output, after: File › Project › Command Output.
+    h.get_by_label("File").click();
+    h.run();
+    h.get_by_label("Project").click();
+    h.run();
+    h.get_by_label("Command Output").click();
+    h.run_steps(2);
+    h.get_by_label("Done.");
+    h.get_by_label("got:Hipólito");
+    assert!(h.query_by_label("swordfish").is_none(), "a hidden line is not shown");
+    // Its input closed: the question has its answer, empty, at once; its
+    // errors and how it ended in the window.
+    h.state_mut().actions.push(mg_ui::Action::ProjectCommand("closed".into()));
+    h.run_steps(2);
+    until_idle(&mut h);
+    assert!(logged(&h, "  empty:"), "{:?}", h.state().log.entries);
+    assert!(logged(&h, "Closed failed: it ended with exit code 2 (all it said: File › Project"));
+    h.get_by_label("Failed: it ended with exit code 2.");
+    h.get_by_label("empty:");
+    h.get_by_label("warned");
+    assert!(h.query_by_label("got:Hipólito").is_none(), "the last command's alone");
+    h.get_by_label("Close").click();
+    h.run();
+    assert!(h.query_by_label("Command Output").is_none(), "closed");
+}
+
+/// A project's command canceled gives back what it let go: the project's
+/// files are looked at again (what it wrote before it was stopped comes
+/// into the module) and its haks opened again, as after one that ends.
+/// (A canceled job hands nothing over: they stayed let go.)
+#[cfg(unix)]
+#[test]
+fn a_project_s_command_canceled_reads_the_project_s_files_again() {
+    let slow = "printf 'void main() {}\\n' > made.nss; sleep 30";
+    let rules = format!("[commands]\nslow = {slow:?}\n");
+    let dir = project_folder("ui-project-commands-cancel", &[("moonglow.toml", &rules)]);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.background_jobs = true;
+    let project = std::fs::canonicalize(&dir).unwrap().display().to_string();
+    app.settings.allowed_commands.push((project, "slow".into(), slow.into()));
+    app.open_module(&dir);
+    let mut h = harness(app, 1000.0, 700.0);
+    // (The area read first, a job of its own.)
+    until_idle(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::ProjectCommand("slow".into()));
+    h.step();
+    let started = std::time::Instant::now();
+    while !dir.join("made.nss").exists() {
+        assert!(started.elapsed().as_secs() < 20, "the command never wrote");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.step();
+    }
+    assert!(h.state().busy());
+    // (The job's window shown, its fade in over.)
+    h.run_steps(20);
+    h.get_by_label("Slow");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run_steps(2);
+    until_idle(&mut h);
+    assert!(started.elapsed().as_secs() < 20, "stopped, not waited for");
+    let made = ResKey::parse("made", ResType::NSS).unwrap();
+    while !h.state().ws.as_ref().unwrap().module.contains(&made) {
+        assert!(started.elapsed().as_secs() < 25, "the project's files never read again");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        h.step();
+    }
+    h.get_by_label("File").click();
+    h.run();
+    h.get_by_label("Project").click();
+    h.run();
+    h.get_by_label("Command Output").click();
+    h.run_steps(2);
+    h.get_by_label("Canceled (stopped).");
 }
 
 /// File › Project is there and off for a project that names no commands.

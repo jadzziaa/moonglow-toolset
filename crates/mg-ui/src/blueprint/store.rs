@@ -18,13 +18,7 @@ pub(super) const PAGES: [&str; 5] = ["Basic", "Inventory", "Advanced", "Restrict
 
 /// The store's inventory pages as Aurora writes them: (`StoreList` struct
 /// id, name).
-pub(crate) const STORE_PAGES: [(u32, &str); 5] = [
-    (0, "Armor"),
-    (4, "Weapons"),
-    (2, "Potions & Scrolls"),
-    (3, "Rings & Amulets"),
-    (1, "Miscellaneous"),
-];
+pub(crate) use mg_rules::rows::STORE_PAGES;
 
 /// The `StoreList` struct id of each baseitems.2da `StorePanel`.
 const PANEL_PAGE: [u32; 5] = [0, 4, 2, 3, 1];

@@ -3,7 +3,7 @@ type: Research Note
 title: 'Frames at 144 a second: where a frame''s time went'
 description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, a dense area seen whole and an area's opening (27 October), what the profile found, and what is left.
 tags: [performance, frames, renderer, area-view, galleries]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T16:45:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T19:52:35Z }
 sources:
   - id: frame-perf
     resource: crates/mg-ui/tests/frame_perf.rs
@@ -332,11 +332,25 @@ renderer's part.
   left is per draw: some 25,000 draws whose meshes are mostly of one
   instance each (the area has each tile model four times), each a draw
   call; and the chunks the draws switch between.
-- **While an area fills in,** its picture is drawn again as textures
+- ~~**While an area fills in,** its picture is drawn again as textures
   arrive: those frames cost what the view costs drawn whole (13 to 22 ms
   for the woods). The frame an area is first shown in looks up its
   materials (MTRs) on the window's thread: 19 to 30 ms for the woods,
-  23 ms for the water area, not taken apart.
+  23 ms for the water area, not taken apart.~~ Taken apart on 29
+  October: the harness stepped its clock a quarter of a second a frame,
+  so every frame of the opening was an animation step's, its picture
+  drawn whole. At a 144th of a second a step, as the window's frames go
+  (`frame_perf`'s harness since), the woods open with one frame in six
+  drawn (the animations' steps, 25 a second, as an open view's are),
+  each costing what the view costs drawn whole (15 to 21 ms off, 17 to
+  26 on, more as more textures are in), the others under a millisecond
+  and a half: 22 frames over the budget in 1.45 s. The frame it is first
+  shown in is 11 ms, and its materials are not what it costs: the 298
+  meshes' slots (their MTRs looked up and read) took 0.6 to 1.1 ms of it.
+  An edit, read in the frame, costs a millisecond besides its picture
+  (14.2 ms off, 17.8 on, against 13 and 18 drawn alone); Reload Resources
+  reads the area again on a thread. What is left is the picture's cost
+  seen whole, in "The largest areas in full view".
 - A program that moves its vertices farther than a meter (TDoD's grass
   lifted by `fTilesetMeshOffsetZ`, 2 m) may be blended in another order
   where it reaches past its grown box.
@@ -350,9 +364,9 @@ In short:
   zooming out; TDoD's woods, 33,000 meshes in sight, 13 ms (16 with the
   game's shaders) and 21 (28) turned to the horizon. Close up they are
   within it.
-- **Opening an area** no longer holds the window; the frames that draw
-  it as it fills in cost what the view costs, and the frame it is first
-  shown in looks its materials up (19 to 30 ms for the woods).
+- **Opening an area** no longer holds the window, nor does Reload
+  Resources; the frames that draw it as it fills in are the animations'
+  steps and cost what the view costs drawn whole.
 - **A slow picture** (a model with large textures) still takes a frame
   of 7 to 9 ms in a gallery.
 - **The module tree** at persistent-world sizes is as it was. (The

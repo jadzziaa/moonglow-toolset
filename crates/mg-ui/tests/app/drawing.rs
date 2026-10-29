@@ -354,6 +354,56 @@ fn an_area_read_apart_looks_as_one_read_in_the_frame() {
     assert!(h.state().area_views[&area].error.is_none());
 }
 
+/// Reload Resources reads an open area's models and textures again on a
+/// thread of its own, as its first reading is (where the window is kept
+/// going): frames go on meanwhile, the view saying it is reading, and
+/// once read it looks as before, its camera where it was.
+#[test]
+fn reload_resources_reads_an_area_again_on_a_thread() {
+    let dir = mg_testkit::scratch_dir("ui-reload-apart");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("override")).unwrap();
+    let Some((app, rs, area)) =
+        area_app("reload-apart", "ttr01", None, 4, Some(user.clone()), &|_, _, _| {})
+    else {
+        return;
+    };
+    let mut h = area_gpu_harness(app, rs, 1100.0, 800.0);
+    h.run_steps(6);
+    let here = view_picture(&mut h, area);
+    let camera = h.state().area_views[&area].orbit;
+    h.state_mut().background_jobs = true;
+    std::fs::write(user.join("override/mg_reload_test.2da"), "2DA V2.0\n\n   Label\n0  x\n")
+        .unwrap();
+    h.state_mut().reload_resources(true);
+    let entries = &h.state().log.entries;
+    assert!(entries.iter().any(|(_, m)| m == "Reloaded override"), "{entries:?}");
+    h.run_steps(1);
+    assert!(
+        h.query_by_label_contains("Reading area").is_some(),
+        "a frame went by while the area was read again"
+    );
+    let started = std::time::Instant::now();
+    loop {
+        let app = h.state();
+        let view = &app.area_views[&area];
+        let pending = app.viewport.as_ref().map_or(0, |v| v.renderer.drawn.textures_pending);
+        if h.query_by_label_contains("Reading area").is_none() && view.pictures > 0 && pending == 0
+        {
+            break;
+        }
+        assert!(started.elapsed() < std::time::Duration::from_secs(30), "not read");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        h.run_steps(1);
+    }
+    h.run_steps(6);
+    h.state_mut().background_jobs = false;
+    assert_eq!(h.state().area_views[&area].orbit, camera, "the camera stays");
+    let again = view_picture(&mut h, area);
+    let differ = here.pixels().zip(again.pixels()).filter(|(a, b)| a != b).count();
+    assert_eq!(differ, 0, "{differ} pixels differ");
+}
+
 /// Another module with an area of the same name shows its own area, not
 /// the one of the module open before (Jasperre's report: both modules'
 /// `area001`, the first's shown and edited in the second, until Moonglow

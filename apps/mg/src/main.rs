@@ -88,11 +88,14 @@ enum Cmd {
         /// a table, Windows-1252.
         #[arg(long)]
         module: Option<PathBuf>,
-        /// Name the row a field's number stands for, as the window's
-        /// fields view does: "row" beside its "value" ("Human" of
-        /// racialtypes.2da), and "__row" on each item of a list whose
-        /// items are rows (a creature's skills). Read from the game's 2DAs;
-        /// `mg gff` reads such a file back, the names set aside.
+        /// Name what a field's number stands for, as the window's fields
+        /// view does: "row" beside its "value" ("Human" of
+        /// racialtypes.2da; an item property's subtype and value by the
+        /// tables its other fields name, an animation, a talk-table
+        /// string, a faction of --module's), and "__row" on each item of
+        /// a list whose items stand for something (a creature's skills, a
+        /// store's pages). Read from the game's 2DAs; `mg gff` reads such
+        /// a file back, the names set aside.
         #[arg(long)]
         names: bool,
     },
@@ -131,12 +134,16 @@ enum Cmd {
         /// of plugins.
         #[arg(long)]
         plugins: Vec<PathBuf>,
-        /// Leave a group out: its checks aren't run (repeatable, or
-        /// several separated by commas): references, tilesets, models,
-        /// 2das, objects, module or plugins (`mg checks` names each
-        /// check's group).
-        #[arg(long, value_name = "GROUP", value_parser = verify_group, value_delimiter = ',')]
-        skip: Vec<mg_module::doctor::Group>,
+        /// Leave something out: it isn't checked (repeatable, or several
+        /// separated by commas). A group (references, tilesets, models,
+        /// 2das, objects, module or plugins), one check by its id (`mg
+        /// checks` lists them; a plugin's as its findings name it), a
+        /// category of missing references (references:creatures, as Build
+        /// Module's Missing Resources has them), a hak (hak:NAME or
+        /// NAME.hak), override, development, or one resource (a tileset,
+        /// ttr01.set, with its tiles' models; a 2DA; a model).
+        #[arg(long, value_name = "WHAT", value_parser = verify_skip, value_delimiter = ',')]
+        skip: Vec<String>,
         /// Make the fixes of this check's findings and save (repeatable):
         /// a check's id, as a finding's "check" with --json says it
         /// (`tag-unique`, `area-variables`, `var-runtime`,
@@ -1911,10 +1918,19 @@ fn run(cli: &Cli) -> Result<Output> {
             out
         }
         Cmd::Gff { input, output, module, names } => {
-            let codepage = match module {
-                Some(module) => module_codepage(cli, &crate::open_module(module)?),
+            let module = module.as_ref().map(|m| crate::open_module(m)).transpose()?;
+            let codepage = match &module {
+                Some(module) => module_codepage(cli, module),
                 None => Codepage::WINDOWS_1252,
             };
+            // (A faction's name is the module's: without one, the number.)
+            let factions: Vec<String> = module
+                .as_ref()
+                .map(|m| {
+                    let f = mg_module::factions::Factions::of_module(m);
+                    f.factions.into_iter().map(|f| f.name).collect()
+                })
+                .unwrap_or_default();
             let game = match *names {
                 true => Some(
                     install(cli)
@@ -1924,7 +1940,13 @@ fn run(cli: &Cli) -> Result<Output> {
                 ),
                 false => None,
             };
-            gff(input, output.as_deref(), cli.json, codepage, game.as_ref())?
+            gff(
+                input,
+                output.as_deref(),
+                cli.json,
+                codepage,
+                game.as_ref().map(|g| (g, &factions[..])),
+            )?
         }
         Cmd::Set { module, resource, fields, remove, dry_run, plugins } => {
             let m = crate::open_module(module)?;
@@ -2035,7 +2057,8 @@ fn run(cli: &Cli) -> Result<Output> {
             let plugins = plugins::Chosen { dirs: plugins, project: *allow_project_plugins };
             let mut times = mg_module::doctor::Timings::default();
             let started = std::time::Instant::now();
-            let out = verify(&install(cli)?, module, *unused, &plugins, skip, &fixes, &mut times);
+            let skip = mg_module::doctor::Skip::parse(skip).map_err(|e| anyhow::anyhow!(e))?;
+            let out = verify(&install(cli)?, module, *unused, &plugins, &skip, &fixes, &mut times);
             if *timings {
                 times.add("in all", started.elapsed());
                 for (part, took) in &times.parts {
@@ -3422,22 +3445,25 @@ fn run(cli: &Cli) -> Result<Output> {
                 }
                 let key = ResKey::new(a, mg_core::ResType::GIT);
                 let Some(Ok(git)) = m.gff(&key) else { continue };
-                let read = |k: ResKey| mg_module::gff_root(Some(&m), &game, &k);
-                let item = |r: mg_core::ResRef| read(ResKey::new(r, mg_core::ResType::UTI));
-                let placing = mg_module::instances::Placing { game: &game, item: &item };
-                let blueprint = |t: mg_core::ResType, r: mg_core::ResRef| {
-                    let k = ResKey::new(r, t);
-                    if wanted.contains(&k) { read(k) } else { None }
-                };
-                // The items the area's objects hold (in chests, creatures'
-                // packs and hands, stores, bags) first, then the objects.
-                let held_item = |r: mg_core::ResRef| blueprint(mg_core::ResType::UTI, r);
-                let (root, held) =
-                    mg_module::instances::update_held(&placing, &git.root, &held_item, &|_| true)
-                        .unwrap_or_else(|| (git.root.clone(), 0));
                 let updated =
-                    mg_module::instances::update(&placing, &root, &blueprint, &|_, _| true)
-                        .map_or((root, held), |(new, n)| (new, n + held));
+                    mg_module::instances::with_placing(&game, Some(&m), |placing, read| {
+                        let blueprint = |t: mg_core::ResType, r: mg_core::ResRef| {
+                            let k = ResKey::new(r, t);
+                            if wanted.contains(&k) { read(k) } else { None }
+                        };
+                        // The items the area's objects hold (in chests, creatures'
+                        // packs and hands, stores, bags) first, then the objects.
+                        let held_item = |r: mg_core::ResRef| blueprint(mg_core::ResType::UTI, r);
+                        let (root, held) = mg_module::instances::update_held(
+                            placing,
+                            &git.root,
+                            &held_item,
+                            &|_| true,
+                        )
+                        .unwrap_or_else(|| (git.root.clone(), 0));
+                        mg_module::instances::update(placing, &root, &blueprint, &|_, _| true)
+                            .map_or((root, held), |(new, n)| (new, n + held))
+                    });
                 if let (new, n @ 1..) = updated {
                     let mut g = git.clone();
                     g.root = new;
@@ -4030,13 +4056,10 @@ fn module_resman(gi: &GameInstall, m: &Module, out: &mut Output) -> Result<ResMa
     Ok(rm)
 }
 
-/// A group of `mg verify --skip`, by its id.
-fn verify_group(id: &str) -> std::result::Result<mg_module::doctor::Group, String> {
-    use mg_module::doctor::Group;
-    Group::from_id(id).ok_or_else(|| {
-        let ids: Vec<&str> = Group::ALL.iter().map(|g| g.id()).collect();
-        format!("not a group: {id} (one of {})", ids.join(", "))
-    })
+/// A word of `mg verify --skip`: something Verify can leave out.
+fn verify_skip(word: &str) -> std::result::Result<String, String> {
+    mg_module::doctor::Skip::parse(&[word])?;
+    Ok(word.to_string())
 }
 
 /// `mg verify --fix`: the checks whose findings' fixes to make, and
@@ -4119,7 +4142,7 @@ fn verify(
     path: &Path,
     show_unused: bool,
     plugins: &plugins::Chosen<'_>,
-    skip: &[mg_module::doctor::Group],
+    skip: &mg_module::doctor::Skip,
     asked: &Fixes<'_>,
     times: &mut mg_module::doctor::Timings,
 ) -> Result<Output> {
@@ -4129,7 +4152,7 @@ fn verify(
     project_file_notes(&m, &mut out);
     let rm = times.time("the game and the haks", || module_resman(gi, &m, &mut out))?;
     // (Every GFF of the module read once for both.)
-    let references = if show_unused || !skip.contains(&Group::References) {
+    let references = if show_unused || !skip.group(Group::References) {
         times.time("the module's references", || mg_module::verify::module_references(&m))
     } else {
         Vec::new()
@@ -4142,7 +4165,7 @@ fn verify(
     } else {
         Vec::new()
     };
-    let mut missing = if skip.contains(&Group::References) {
+    let mut missing = if skip.group(Group::References) {
         Vec::new()
     } else {
         times.time("missing references", || mg_module::verify::missing_of(&m, &rm, references))
@@ -4159,20 +4182,19 @@ fn verify(
         (base, custom)
     });
     let tlk = mg_module::doctor::TalkTables { base, custom };
-    // (The shader programs that compiled kept for the next run, where the
-    // window keeps its own.)
-    let shaders = mg_module::doctor::shader_cache_dir().map(mg_module::doctor::ProgramCache::new);
-    let mut findings =
-        mg_module::doctor::examine_groups(&m, &rm, tlk, skip, times, shaders.as_ref());
+    // (The shader programs that compiled, and what was found of the haks'
+    // models, kept for the next run, where the window keeps its own.)
+    let cache = mg_module::doctor::Cache::user();
+    let mut findings = mg_module::doctor::examine_groups(&m, &rm, tlk, skip, times, cache.as_ref());
     // The plugins' checks, beside the doctor's (none run when they are
     // left out).
-    let theirs = if skip.contains(&Group::Plugins) {
+    let theirs = if skip.group(Group::Plugins) {
         Vec::new()
     } else {
-        times.time("plugins", || plugins::findings(gi, &m, plugins, &mut out))?
+        times.time("plugins", || plugins::findings(gi, &m, plugins, skip, &mut out))?
     };
     findings.extend(theirs.iter().map(|f| f.finding.clone()));
-    let left = mg_module::doctor::leave_out(&mut missing, &mut findings, skip);
+    skip.leave_out(&mut missing, &mut findings);
     // Each finding with its fix, if it has one.
     let found = mg_edit::fix::attach(&m, findings, &theirs);
     let codepage = mg_rules::text_codepage(&rm, game_language(gi));
@@ -4227,8 +4249,8 @@ fn verify(
             "files": u.script.map(|s| s.id()),
             "names": u.files().iter().map(ToString::to_string).collect::<Vec<_>>(),
         })).collect::<Vec<_>>(),
-        // (A group left out isn't checked: null, nothing is counted of it.)
-        "skipped": left.iter().map(|g| (g.id().to_string(), serde_json::Value::Null)).collect::<serde_json::Map<_, _>>(),
+        // (What is left out isn't checked: null, nothing is counted of it.)
+        "skipped": skip.words().iter().map(|w| (w.clone(), serde_json::Value::Null)).collect::<serde_json::Map<_, _>>(),
     });
     if !made.is_null()
         && let serde_json::Value::Object(o) = &mut out.json
@@ -4265,8 +4287,8 @@ fn verify(
     }
     out.line(format!("{} content problems", findings.len()));
     fix_lines.into_iter().for_each(|l| out.line(l));
-    for g in &left {
-        out.line(format!("left out\t{}: not checked", g.id()));
+    for w in skip.words() {
+        out.line(format!("left out\t{w}: not checked"));
     }
     if show_unused {
         for u in &unused {
@@ -4470,22 +4492,32 @@ fn roundtrip(path: &Path, keep: Option<&Path>) -> Result<Output> {
 /// a GFF's JSON (`mg gff --names`): `"row"` in a field's object, which
 /// `from_json` sets aside, and `"__row"` on a list's item whose place is
 /// a row; `path` the labels of the fields and lists it is under.
+/// `mg gff --names`: beside each field's number, what it stands for
+/// (`mg_rules::rows::meaning`, as the window's fields view names it): a
+/// row of a table, a faction of `factions` (the module's), an animation,
+/// a talk-table string; and on each item of a list whose items stand for
+/// something by themselves (a creature's skills, a store's pages).
 fn name_rows(
     s: &mut serde_json::Map<String, serde_json::Value>,
     game: &mg_rules::GameData,
+    factions: &[String],
     file_type: &str,
     path: &mut Vec<String>,
 ) {
-    use mg_rules::rows::{list_table, row_table};
+    use mg_rules::rows::{list_item_name, meaning};
     use serde_json::Value as J;
+    // (The struct's numbers, before any is named: an item property's
+    // subtype is of the table its type names.)
+    let numbers: std::collections::HashMap<String, i64> =
+        s.iter().filter_map(|(l, f)| Some((l.clone(), f.get("value")?.as_i64()?))).collect();
+    let sibling = |l: &str| numbers.get(l).copied();
     for (label, field) in s.iter_mut().filter(|(l, _)| !l.starts_with("__")) {
         let J::Object(field) = field else { continue };
-        let labels: Vec<&str> = path.iter().map(String::as_str).collect();
+        let outer = path.clone();
+        let labels: Vec<&str> = outer.iter().map(String::as_str).collect();
         let kind = field.get("type").and_then(J::as_str).unwrap_or_default().to_string();
         match kind.as_str() {
             "struct" | "list" => {
-                let by_place =
-                    (kind == "list").then(|| list_table(file_type, &labels, label)).flatten();
                 path.push(label.clone());
                 let items: Vec<&mut J> = match field.get_mut("value") {
                     Some(J::Array(items)) => items.iter_mut().collect(),
@@ -4494,17 +4526,23 @@ fn name_rows(
                 };
                 for (i, item) in items.into_iter().enumerate() {
                     let J::Object(item) = item else { continue };
-                    if let Some(name) = by_place.and_then(|t| game.row_name(&t, i as i64)) {
+                    let id = item.get("__struct_id").and_then(J::as_u64).unwrap_or(0) as u32;
+                    let name = (kind == "list")
+                        .then(|| list_item_name(Some(game), file_type, &labels, label, (i, id)))
+                        .flatten();
+                    if let Some(name) = name {
                         item.insert("__row".into(), J::String(name));
                     }
-                    name_rows(item, game, file_type, path);
+                    name_rows(item, game, factions, file_type, path);
                 }
                 path.pop();
             }
             _ => {
-                let Some(table) = row_table(file_type, &labels, label) else { continue };
-                let row = field.get("value").and_then(J::as_i64);
-                if let Some(name) = row.and_then(|r| game.row_name(&table, r)) {
+                let Some(m) = meaning(Some(game), file_type, &labels, label, &sibling) else {
+                    continue;
+                };
+                let value = field.get("value").and_then(J::as_i64);
+                if let Some(name) = value.and_then(|v| game.meaning_name(&m, factions, v)) {
                     field.insert("row".into(), J::String(name));
                 }
             }
@@ -4517,7 +4555,7 @@ fn gff(
     output: Option<&Path>,
     json: bool,
     cp: Codepage,
-    names: Option<&mg_rules::GameData>,
+    names: Option<(&mg_rules::GameData, &[String])>,
 ) -> Result<Output> {
     let data = std::fs::read(input).with_context(|| input.display().to_string())?;
     if input.extension().is_some_and(|e| e.eq_ignore_ascii_case("json")) {
@@ -4537,9 +4575,9 @@ fn gff(
     }
     let gff = Gff::read(&data)?;
     let mut value = mg_gff::to_json(&gff, cp)?;
-    if let (Some(game), serde_json::Value::Object(root)) = (names, &mut value) {
+    if let (Some((game, factions)), serde_json::Value::Object(root)) = (names, &mut value) {
         let file_type = String::from_utf8_lossy(&gff.file_type).into_owned();
-        name_rows(root, game, &file_type, &mut Vec::new());
+        name_rows(root, game, factions, &file_type, &mut Vec::new());
     }
     match output {
         Some(o) => {

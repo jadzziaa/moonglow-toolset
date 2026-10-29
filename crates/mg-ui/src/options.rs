@@ -117,8 +117,12 @@ pub struct OptionsDraft {
     /// Height and Width, tenths of a metre.
     pub spawn_marker_size: (u8, u8),
     pub door_arrows: bool,
-    /// Verify: the groups left out of its report, by id.
+    /// Verify: the groups, checks and categories of missing references
+    /// left out of its report, by id ([`mg_module::doctor::Skip`]), each a
+    /// checkbox...
     pub verify_skip: Vec<String>,
+    /// ...and the rest, as typed: haks, folders and resources.
+    pub verify_more: String,
     pub merchant_signs: bool,
     pub edit_group_tiles: bool,
     pub turn_ring: bool,
@@ -143,11 +147,33 @@ pub struct OptionsDraft {
     pub plugin_commands: Vec<(String, String)>,
     /// And the open project's (`[commands]`), after the plugins'.
     pub project_commands: Vec<(String, String)>,
+    /// The enabled plugins' checks, for Options › Verify: each one's id
+    /// (as its findings carry it) and its name.
+    pub plugin_checks: Vec<(String, String)>,
     /// The command (by the id its keys are kept under) taking the next key.
     pub recording: Option<String>,
     /// The game install found on this machine when Options opened, for the
     /// Folders page's hints under an empty field.
     pub detected: Option<GameInstall>,
+}
+
+/// Whether a word Verify leaves out is one of Options › Verify's
+/// checkboxes (a group, a check, a category of missing references), not
+/// typed in its field.
+fn verify_box(word: &str) -> bool {
+    use mg_module::doctor::{Check, Group};
+    Group::from_id(word).is_some()
+        || Check::from_id(word).is_some()
+        || word.starts_with("references:")
+        || word.contains('/')
+}
+
+/// The words of Options › Verify's field: separated by commas or spaces.
+fn verify_words(text: &str) -> Vec<String> {
+    (text.split(|c: char| c == ',' || c.is_whitespace()))
+        .filter(|w| !w.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 fn text(p: &Option<PathBuf>) -> String {
@@ -166,6 +192,7 @@ impl OptionsDraft {
             keymap: crate::keys::Keymap::new(&s.key_bindings),
             plugin_commands: Vec::new(),
             project_commands: Vec::new(),
+            plugin_checks: Vec::new(),
             recording: None,
             detected: None,
             game_root: text(&s.game_root),
@@ -227,7 +254,12 @@ impl OptionsDraft {
             spawn_markers: !s.no_spawn_markers,
             spawn_marker_size: s.spawn_marker_size.unwrap_or(crate::area_view::SPAWN_MARKER),
             door_arrows: !s.no_door_arrows,
-            verify_skip: s.verify_skip.clone(),
+            verify_skip: (s.verify_skip.iter()).filter(|w| verify_box(w)).cloned().collect(),
+            verify_more: (s.verify_skip.iter())
+                .filter(|w| !verify_box(w))
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", "),
             merchant_signs: s.merchant_signs,
             edit_group_tiles: s.edit_group_tiles,
             turn_ring: !s.no_turn_ring,
@@ -315,7 +347,13 @@ impl OptionsDraft {
             spawn_marker_size: (self.spawn_marker_size != crate::area_view::SPAWN_MARKER)
                 .then_some(self.spawn_marker_size),
             no_door_arrows: !self.door_arrows,
-            verify_skip: self.verify_skip.clone(),
+            verify_skip: {
+                // (What isn't something to leave out is dropped: the page
+                // says so.)
+                let more = verify_words(&self.verify_more).into_iter();
+                let more = more.filter(|w| mg_module::doctor::Skip::parse(&[w]).is_ok());
+                self.verify_skip.iter().cloned().chain(more).collect()
+            },
             merchant_signs: self.merchant_signs,
             edit_group_tiles: self.edit_group_tiles,
             no_turn_ring: !self.turn_ring,
@@ -1274,16 +1312,29 @@ fn script_style(ui: &mut Ui, style: &mut ScriptStyle) {
     });
 }
 
-/// Options › Verify: what Build › Verify Module reports, by group (a
-/// builder's tileset errors nobody is going to fix hid the missing
-/// references among them).
+/// Options › Verify: what Build › Verify Module reports, by group, each
+/// group's checks (and the missing references' categories, the enabled
+/// plugins' checks) under it, and the haks, folders and resources typed
+/// in its field (a builder's tileset errors nobody is going to fix hid the
+/// missing references among them; Taro49's report).
 fn verify(ui: &mut Ui, draft: &mut OptionsDraft) {
     use mg_module::doctor::{Check, Group};
-    ui.label("What Verify Module reports:");
+    use mg_module::verify::Category;
+    // A word's checkbox: on while it isn't left out.
+    fn word(ui: &mut Ui, skip: &mut Vec<String>, id: &str, label: &str, tip: &str) {
+        let mut on = !skip.iter().any(|w| w == id);
+        let response = ui.checkbox(&mut on, label);
+        let response = if tip.is_empty() { response } else { response.on_hover_text(tip) };
+        if response.changed() {
+            skip.retain(|w| w != id);
+            if !on {
+                skip.push(id.to_string());
+            }
+        }
+    }
+    ui.label("What Verify Module reports (a group's \u{25B8} shows its checks):");
     for group in Group::ALL {
-        let mut on = !draft.verify_skip.iter().any(|id| id == group.id());
-        let checks: Vec<&str> =
-            Check::ALL.iter().filter(|c| c.group() == group).map(|c| c.about()).collect();
+        let checks: Vec<Check> = Check::ALL.into_iter().filter(|c| c.group() == group).collect();
         let tip = match group {
             Group::References => {
                 "Scripts, conversations, blueprints, areas and other resources the module names \
@@ -1291,14 +1342,69 @@ fn verify(ui: &mut Ui, draft: &mut OptionsDraft) {
                     .to_string()
             }
             Group::Plugins => "The checks of the enabled plugins".to_string(),
-            _ => format!("That {}", checks.join("; that ")),
-        };
-        if ui.checkbox(&mut on, group.title()).on_hover_text(tip).changed() {
-            draft.verify_skip.retain(|id| id != group.id());
-            if !on {
-                draft.verify_skip.push(group.id().to_string());
+            _ => {
+                let about: Vec<&str> = checks.iter().map(|c| c.about()).collect();
+                format!("That {}", about.join("; that "))
             }
-        }
+        };
+        let id = ui.make_persistent_id(("verify-group", group.id()));
+        let whole = draft.verify_skip.iter().any(|w| w == group.id());
+        // (Open at first where some of its checks are left out.)
+        let some = match group {
+            Group::References => draft.verify_skip.iter().any(|w| w.starts_with("references:")),
+            Group::Plugins => draft.verify_skip.iter().any(|w| w.contains('/')),
+            _ => checks.iter().any(|c| draft.verify_skip.iter().any(|w| w == c.id())),
+        };
+        egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, some)
+            .show_header(ui, |ui| {
+                word(ui, &mut draft.verify_skip, group.id(), group.title(), &tip);
+            })
+            .body(|ui| {
+                ui.add_enabled_ui(!whole, |ui| match group {
+                    Group::References => {
+                        for c in Category::ALL {
+                            let id = format!("references:{}", c.id());
+                            let label = format!("Of {}", c.id());
+                            let tip =
+                                format!("Missing references made by the module's {}", { c.id() });
+                            word(ui, &mut draft.verify_skip, &id, &label, &tip);
+                        }
+                    }
+                    Group::Plugins if draft.plugin_checks.is_empty() => {
+                        ui.weak("No enabled plugin has checks.");
+                    }
+                    Group::Plugins => {
+                        for (id, name) in draft.plugin_checks.clone() {
+                            word(ui, &mut draft.verify_skip, &id, &name, &id);
+                        }
+                    }
+                    _ => {
+                        for c in &checks {
+                            word(ui, &mut draft.verify_skip, c.id(), c.id(), c.about());
+                        }
+                    }
+                });
+            });
+    }
+    ui.add_space(6.0);
+    crate::widgets::field_label(ui, "Also leave out");
+    ui.add(
+        egui::TextEdit::singleline(&mut draft.verify_more)
+            .hint_text("tdod_tiles01.hak, ttr01.set, override")
+            .desired_width(f32::INFINITY),
+    )
+    .on_hover_text(
+        "Haks (NAME.hak), the override or development folder, and resources (a tileset, \
+         ttr01.set, with its tiles' models; a 2DA; a model), separated by commas",
+    );
+    let wrong: Vec<String> = (verify_words(&draft.verify_more).into_iter())
+        .filter(|w| mg_module::doctor::Skip::parse(&[w]).is_err())
+        .collect();
+    if !wrong.is_empty() {
+        ui.colored_label(
+            ui.visuals().warn_fg_color,
+            format!("Not something Verify can leave out (not kept): {}", wrong.join(", ")),
+        );
     }
     ui.weak("What is left out isn't checked, which is quicker; the log's summary line names it.");
 }
@@ -1656,6 +1762,44 @@ mod tests {
         let t = d.apply(&s);
         assert!(t.no_placed_sounds && t.ambient_music && !t.ambient_sound);
         assert_eq!(t.music_volume, Some(40));
+    }
+
+    /// Options › Verify: groups, checks and categories are checkboxes,
+    /// the rest (haks, folders, resources) its field; what isn't
+    /// something to leave out is dropped when applied.
+    #[test]
+    fn verify_s_checkboxes_and_field_apply() {
+        let s = Settings {
+            verify_skip: vec![
+                "tilesets".into(),
+                "tdod_tiles01.hak".into(),
+                "set-hole".into(),
+                "ttr01.set".into(),
+                "references:creatures".into(),
+                "example.tags/tag-case".into(),
+            ],
+            ..Settings::default()
+        };
+        let mut d = OptionsDraft::from_settings(&s);
+        assert_eq!(
+            d.verify_skip,
+            ["tilesets", "set-hole", "references:creatures", "example.tags/tag-case"]
+        );
+        assert_eq!(d.verify_more, "tdod_tiles01.hak, ttr01.set");
+        d.verify_more = "tdod_tiles01.hak,ttr01.set  override, tilesetz".into();
+        d.verify_skip.retain(|w| w != "tilesets");
+        let t = d.apply(&s);
+        assert_eq!(
+            t.verify_skip,
+            [
+                "set-hole",
+                "references:creatures",
+                "example.tags/tag-case",
+                "tdod_tiles01.hak",
+                "ttr01.set",
+                "override"
+            ]
+        );
     }
 
     #[test]

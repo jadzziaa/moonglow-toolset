@@ -3,7 +3,7 @@ type: Checklist
 title: Parity checklists
 description: Aurora's dialogs against Moonglow, control by control - done and tested, partly, not yet, or deliberately different with the reason - naming the test that covers each.
 tags: [aurora, parity, checklist, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:35:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T20:06:45Z }
 sources:
   - id: inventory
     resource: aurora-ui-inventory.md
@@ -218,7 +218,7 @@ scripts (name, picker, Edit), Comments.
 |---|---|---|
 | Waypoint (`TdlgWaypointEdit`): Basic (appearance), Advanced (map note), Description, Comments | the same pages | ✅ [waypoint_editor_edits_and_renames] |
 | Sound (`TdlgSoundEdit`): Basic (sound list add/remove/move, volume, Play, Stop), Positioning, Advanced (hours, play style and order, intervals, variations), Comments; Priority set from prioritygroups.2da | the same pages; Play plays the selected sound (else the first) at the blueprint's volume, Stop stops it (`mg-audio`: every game sound decodes, `audio.rs`); play styles write Aurora's `Looping`/`Continuous` (seamless looping 1/0, only with a single sound, in order), and play style or positioning sets the priority group (looping area-wide 2, positional 3; single shots 19 and 20) | ✅ (`aurora_sounds.rs`: six sounds as Aurora saved them) [sound_editor_lists_positions_and_times], [sound_blueprints_play_their_sounds], [sound_play_styles_set_aurora_s_fields_and_priority] |
-| Trigger (`TdlgTriggerEdit`): Basic (type), Area Transition (destination tag and type, Setup Area Transition, loading screen), Trap (`TfrmTrap`), Scripts, Advanced (faction, key, cursor, portrait, highlight height), Comments | the same pages; Setup Area Transition lists the tagged doors and waypoints in the module's areas | ✅ [trigger_editor_sets_the_type_and_trap] |
+| Trigger (`TdlgTriggerEdit`): Basic (type), Area Transition (destination tag and type, Setup Area Transition, loading screen), Trap (`TfrmTrap`), Scripts, Advanced (faction, key, cursor, portrait, highlight height), Comments | the same pages; Setup Area Transition picks the target area's tagged door or waypoint on its map or in its lists, as Aurora's `TdlgAreaTransition`; its Connection Type (linking the target back) is not offered | ✅ [trigger_editor_sets_the_type_and_trap, setup_area_transition_picks_on_the_target_area_s_map] |
 | Encounter (`TdlgEncounterEdit`): Basic (difficulty, spawn option, min/max creatures), Creature List (palette, CR, Unique), Scripts, Advanced (active, player only, faction, respawns), Comments | the same pages; the difficulty sets `DifficultyIndex` and its encdifficulty.2da `VALUE` | ✅ [encounter_editor_lists_creatures_and_respawns] |
 | Store (`TdlgStoreEdit`): Basic (mark up/down, identify price, stolen goods, max buy price, gold), Advanced (scripts), Restrictions (will not / will only buy base items), Comments | the same pages | ✅ [store_editor_stocks_prices_and_restricts] (the amount a checked Will Identify / Max Buy Price / Limited Gold starts at is not yet checked against Aurora) |
 | Store inventory (`TdlgInventory`, store mode): item palette, the five store pages, Infinite | an Inventory page: item palette, the pages (by the base item's `StorePanel`), items placed at the first free place in the 10-wide grid, Infinite, Remove | ◐ (a list, not Aurora's icon grid; drag between places not yet) |

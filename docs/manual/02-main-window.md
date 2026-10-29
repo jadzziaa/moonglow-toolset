@@ -268,12 +268,18 @@ The raw fields view lists every field of a resource, each editable. A
 number that is a row of one of the game's tables is shown with the row's
 name beside it, in a list to choose another by name: an area's music and
 ambient sounds, a creature's race, classes, feats and spells, an item's
-base item and properties, an object's appearance, a trap's type, a loading
-screen. A creature's skills are named in their list, and a talk-table
-string's text is shown beside its number. An object's faction of 0 (a
+base item and properties, an item property's subtype, cost table, value,
+parameter and its value (each of the table the property's other fields
+name: Ability Bonus, Strength, +2), an object's appearance, a trap's type,
+a loading screen, the base items a store buys or won't. So is an object's
+faction (by the module's own factions), and a conversation line's
+animation (as the Other Actions page lists them). A creature's skills
+and a store's pages are named in their lists, and a talk-table string's
+text is shown beside its number, a palette's `STRREF` too. An object's faction of 0 (a
 blueprint's, or one an area places) is marked as the PC faction, the
 players' alone, which Verify warns of (a trigger's, no). From a
-terminal, `mg gff --names` names the rows the same way, and `mg find
+terminal, `mg gff --names` names them the same way (a faction with
+`--module`), and `mg find
 --where` and `mg areas --set` take a row's label or name in place of its
 number.
 
@@ -461,8 +467,8 @@ typed in it; clicked into and not typed in, it has nothing of its own,
 and Undo is the editor's, as a field elsewhere leaves Undo to the
 module's. A script's editor
 keeps its own steps of its text: while it has the keyboard, Ctrl+Z and
-Ctrl+Y, Edit › Undo and Redo and the toolbar's are all the script's
-(see [Scripts](07-scripts.md)).
+Ctrl+Y, the keys set in Options › Keyboard, Edit › Undo and Redo and
+the toolbar's are all the script's (see [Scripts](07-scripts.md)).
 
 **Colors.** A color's swatch (an area's lighting, a light, a NUI color,
 the Options' colors) opens a picker. Its 📋 copies the color's values

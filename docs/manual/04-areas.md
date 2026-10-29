@@ -63,6 +63,12 @@ palette's Gallery is 🖼, the Grid ⊞.
   at the area's foot as well. The fog is drawn as the game's camera (at most 20 m from
   the player) would see it from where the view looks, so a view from
   farther off isn't lost in it.
+- **🗾 Minimap**: the area's map in the view's top right corner, as the
+  game's map draws it ([Minimaps](#minimaps)), with where the camera
+  looks (a white dot, and a wedge the way it faces) and the selected
+  objects (yellow dots). Click or drag on it to look there: the
+  camera's target goes to that place, the camera keeping its turn and
+  distance. Areas opened later open as you left it.
 - **▶ Animations**: creatures and other placed objects play their
   animations, and those with particles show them (a campfire's flames,
   magic sparks, a portal: placeables that are only an effect show
@@ -212,6 +218,10 @@ tiles included. A tile without a picture is black, as in the game. `mg
 minimap` does the same from the command line. Each picture keeps its own
 size unless `--size` sets one; the game's are mostly 16 pixels.
 
+The same map shows in the area view's corner with the toolbar's
+**🗾 Minimap**, and in **Setup Area Transition**, where a door's or
+trigger's destination is picked on it ([Blueprints](05-blueprints.md#placeables-and-doors)).
+
 ## The camera
 
 Aurora's bindings, plus a few of Moonglow's (change the keys in Tools ›
@@ -304,10 +314,14 @@ led along its line.
 **The scale handle**: with **Shift** held, a white square stands on a
 stalk up and to the right of the selected object. Pull it away from the
 object to make the model larger and push it toward the object to make it
-smaller: twice as far from the object's feet, twice the size. The size
-shows beside the pointer as you drag; with **Snap** on it goes in steps
-of 0.05. The model grows from its feet, so it stays on the ground, and
-every way alike (Adjust Location's Scale is the same number). Like the
+smaller: twice as far from the object's feet, twice the size. The
+square follows the pointer as you drag (the other selected objects'
+handles move out or in along their stalks as far), and the size shows
+beside it; with **Snap** on it goes in steps of 0.05. The model grows
+from its feet, so it stays on the ground, and every way alike, as the
+game draws it: the game scales a model by one number (`ScaleX`), the
+same every way, whatever its file's `ScaleY` and `ScaleZ` say, and
+Adjust Location's Scale is that number. Like the
 tilt, it is the model that changes, for the objects a tilt works on;
 several selected objects each scale about their own feet. Escape drops
 the drag.
@@ -1101,8 +1115,18 @@ In a project that keeps a [claims table](03-modules.md#claimed-areas),
 an area another builder claimed says so above its view (and its
 Properties), with who and since when: its changes are either refused
 (the project keeps others' areas read-only) or asked about before a save
-writes them. An unclaimed one says so too where the project warns of
-those, with **Claim This Area** beside it. The area's tab menu and its
+writes them. A read-only one is there to look at: you move about it,
+select its objects and open their Properties, but its tools are off. A
+drag selects or moves the camera and moves no object; there are no
+rings, arrows or scale handle; Delete, Q, E and G do nothing; Paint and
+Select Tiles are grayed, and the palette's blueprints, tiles and pastes
+aren't placed (one dropped on it says so in the log); its menu has
+Preview and Properties. Its Properties and its objects' are gray, with
+**Close** for OK and Cancel: what you type in them is dropped, and their
+Variables… button is off. (The module's start location may still be
+moved there: it is the module's, not the area's.) An unclaimed one says
+so too where the project warns of those, with **Claim This Area**
+beside it. The area's tab menu and its
 menu in the module tree have **Claim This Area** or **Release Claim**,
 which write the table. A merged (or protected) area says its Tag and
 ResRef are kept; changing either, or deleting it, is

@@ -74,6 +74,9 @@ jiff = "0.2"
 memmap2 = "0.9"
 # (The version wgpu uses: its modules go to wgpu as they are.)
 naga = { version = "30", features = ["spv-in"] }
+# (Files changed outside Moonglow, told by the system: inotify,
+# FSEvents, ReadDirectoryChangesW; a walk every few seconds where not.)
+notify = "8"
 mlua = { version = "0.12", features = ["luau", "serde"] }
 png = "0.18"
 pollster = "0.4"

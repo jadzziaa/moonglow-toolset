@@ -97,20 +97,15 @@ Size: S (an hour or two), M (a day or so), L (several days).
   own while its editor has the keyboard, as Ctrl+Z is (the click on
   the menu or button counts as in it), say plain "Undo" and "Redo",
   and give the keys back to the editor; the module's history was not
-  given the script's typing. Left: they are not grayed with nothing in
-  the script's history (reading egui's history copies all of it, each
-  frame); a menu opened from a script and closed with nothing chosen
-  leaves the keyboard nowhere, so Ctrl+Z is the module's then, as
-  after any click outside the editor; a key given to Undo or Redo in
-  Options, other than Ctrl+Z, Ctrl+Y and Ctrl+Shift+Z, does nothing in
-  a script (read from the code, not tried); the Command Palette's Undo
-  is the module's (its field has the keys). Seen meanwhile: the
-  toolbar's Undo clicked after the pointer was over a hak's editor
-  took back the module's step, not the hak's (the pointer has left the
-  editor by then), so Edit › Undo and the toolbar's are the module's
-  for a side editor; its own Undo is Ctrl+Z with the pointer over it,
-  or with the keys in a 2DA's grid. (S each) (a builder's report on
-  1.25.1)
+  given the script's typing; a menu closed with nothing chosen gives
+  the keys back to the editor, and Undo's and Redo's keys of Options ›
+  Keyboard are the script's there (2026-10-29). Left: they are not
+  grayed with nothing in the script's history (egui's `TextEditState`
+  hands its history out only as a copy of all of it, each frame) (drop?:
+  proposed by the sprint on 2026-10-29, the owner's to say); the Command
+  Palette's Undo is the module's (its field has the keys) (settle?:
+  proposed by the sprint on 2026-10-29, the owner's to say). (S each) (a
+  builder's report on 1.25.1)
 
 ## nasher projects
 
@@ -148,64 +143,19 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 ## Modules kept as folders
 
-- **A module's files changed outside** (a nasher project's sources, a
-  module folder's files; a `.mod` file changed outside isn't noticed)
-  are found by a thread of its own (their names, times and sizes every
-  3 s, said once a burst of changes has settled), and since The Domains
-  of Dread's builder proposal (C12) read on a thread of their own too
-  (`mg_module::outside`), then taken by the window at once. Measured
-  (`frame_perf` `reload_frames_at_144`: the persistent world kept as
-  a nasher project, 21,000 files, a pull of 970 written over a second):
-  the longest frame was 1,630 ms before, 3.5 ms after, with every change
-  in 4.6 s from the pull's start (2,870 files, every area and 2,000
-  blueprints: 6.5 ms, in 6.2 s). The files' times and sizes decide what
-  is read, so a change that keeps both within the clock's grain is
-  missed (a project's files' times are noted at open now, so this holds
-  from the start). A reload that touches resources the undo history has
-  changes to clears the whole history. A script open in the editor with
-  typing not yet applied counts as changed here. The area list isn't
-  settled again for areas added outside. Not done: the watch's thread
-  still walks every file every 3 s (on its own core; not measured), and
-  the look after it looks at every known file's time
-  again rather than taking the watch's list; what the window's thread
-  does when a look begins and ends (a list of the known files, the
-  changes taken) grows with the project and is under the budget at
-  21,000 files, not measured above; read on another thread, the files'
-  memory comes from that thread's allocator arena, so the process keeps
-  about 200 MB more after a 970-file pull on Linux (25 MB with
-  `MALLOC_ARENA_MAX=1`; it is reused, not leaked); more than 24 scripts compiled after a
-  pull still go to a job, which holds the window's input; a change is
-  in up to about 7 s after it settles (the watch's 3 s, the window's
-  3 s). The haks and the `override`, `development` and portrait folders
-  (and the custom talk table) are watched the same way, and read again
-  on the window's thread after a change (not measured on a large
-  `override`). (S each)
-## Content doctor
-
-- **Verify's groups, not its checks:** Options › Verify and `mg verify
-  --skip` leave out a group (seven: missing references, tilesets, models
-  and materials, 2DAs, objects' rows and variables, talk table and
-  archives, plugins), not one check, one hak or one tileset; a group
-  left out isn't checked since 22 October (so nothing is counted of
-  it: the summary and the JSON's `skipped` only name it), and Build
-  Module's Missing Resources has its own categories, apart from these.
-  (S) (Taro49's report, October 2026)
-- **A whole Verify of a module with many haks is still 1.4 s:** the
-  Domains of Dread with its 145 haks (28 GB) went from 70 s to 9 s on
-  16 threads, and on 27 October from 4 s to 1.4 s on 32 (70 s of the
-  workers' time to 25 s): the linter no longer looks through the whole text for
-  each node named twice (that made a 6 MB tile, `twcy1_s02_93`, take
-  1.4 s: now 15 ms), a tile model's faces are told from its `faces`
-  counts unless there are more than 10,000 rows, compiled models are
-  told by their first bytes (8.5 GB of them were read whole), and the
-  shader programs compile in parallel. What is left: linting 43,000
-  models kept as text (1.9 GB, 13 s of the workers' time, 300 to
-  400 MB/s on one thread), the tilesets' 7 to 9 s (each compiled tile
-  model read whole to count its faces, and the text tiles with more
-  than 10,000 `faces` rows, at least the 269 warned of, read in full at
-  80 MB/s, where the faces could be counted without building the
-  meshes), and the 2DAs' 2 s. (M) (the
-  Domains of Dread builders' report, October 2026)
+- **A module's files changed outside, read on a thread of their own**
+  (`mg_module::outside`), leave the files' memory in that thread's
+  allocator arena: the process keeps about 200 MB more after a 970-file
+  pull on Linux (25 MB with `MALLOC_ARENA_MAX=1`; it is reused, not
+  leaked). (settle?: proposed by the sprint on 2026-10-29, the owner's
+  to say.) The rest of what the entry said, as it is and not among the
+  triage's items: a reload that touches resources the undo history has
+  changes to clears the whole history; a script open in the editor with
+  typing not yet applied counts as changed here; the area list isn't
+  settled again for areas added outside; the haks and the `override`,
+  `development` and portrait folders (and the custom talk table) are
+  read again on the window's thread after a change (not measured on a
+  large `override`). (S each)
 
 ## Test loop
 
@@ -257,15 +207,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   mesh's lights chosen and its values written. Fewer, larger chunks, and
   values kept from frame to frame for what doesn't move, would cut it.
   ([the frames note](research/notes_frames.md), 27 October) (M–L)
-- **An area filling in as it opens:** read on a thread and its textures
-  apart (no frame holds it: TDoD's woods held the window 3.8 s), its
-  picture is drawn again as textures arrive, each such frame costing what
-  the view costs drawn whole (13 to 22 ms for the woods); and the frame it
-  is first shown in looks its materials (MTRs) up on the window's thread
-  (19 to 30 ms for the woods, 23 for a water area of 160 fires: not taken
-  apart). Its models show all at once, once the area is read, not one by
-  one. Edits, Reload Resources and tests still read in the
-  frame. (S–M)
 - **A slow picture in a gallery** (a model with large textures) takes a
   frame of 7 to 9 ms: a picture's models and textures are read on the
   window's thread. Read on another. (M)
@@ -490,9 +431,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Palettes
 
-- **Palette categories, what the editor lacks:** no translated names
-  (one text for every language), and Remove refuses a category in use
-  rather than offer to move its blueprints. (S–M)
+- **Palette categories by a talk-table line, in the game:** since
+  2026-10-29 Palette › Categories… names a category by a StrRef (Name
+  by StrRef, or Move Name to Talk Table into the module's own table),
+  as the game's own categories are named, and the `palcus.itp` built
+  on save keeps it. Not seen: the DM Creator showing a module's own
+  talk table's line (16777216 and up) as a category's name, in each
+  language. (S) (waits on the client batch: a module with a custom
+  `.tlk` and a category named by its line, the Creator's palette
+  looked at)
 - **A module's categories in its own order:** the palette and the
   `palcus.itp` built on save keep the order a module's own skeleton has.
   Aurora's don't (captured 2026-10-29,
@@ -731,14 +678,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   2DAs and a model the game reads from the hak are shown (2026-10-29).
   (M)
 
-## Raw fields
-
-- **Rows the fields view doesn't name yet:** an item property's subtype,
-  cost and parameter (their table depends on the property), a creature's
-  or object's faction (the module's `repute.fac`, not a 2DA), a
-  conversation's animations, a store's categories, and fields that hold
-  a talk-table number as a plain int. (S–M)
-
 ## Getting files out
 
 - **Overridden copies in the resource browser** open read-only as their
@@ -790,9 +729,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   distances 3 and 12, from above and pitched). The random position's
   rectangle is as Aurora's now (its ranges wide, half each way). (S: the
   spheres, drawn as a few rings of dots)
-- **The minimap in Moonglow:** the area view has no map panel of its own,
-  and Area Transition setup picks its target from a list rather than a
-  map. (S–M)
+- **Setup Area Transition's Connection Type:** the window picks a door
+  or waypoint on the target area's map or in its lists, as Aurora's
+  `TdlgAreaTransition` does, but has none of its Connection Type (Both
+  Ways, Current To Target, Target To Current) nor its Target Type
+  Trigger: the target linked back to this door or trigger. What Aurora
+  writes to the target (its `LinkedTo`, and `LinkedToFlags` where either
+  end is a trigger) waits on a capture of the dialog in Aurora; Moonglow
+  then writes the same as one step. (S–M, needs Aurora) (what was left of
+  "The minimap in Moonglow", 2026-10-29)
 - **Fade Geometry, `tilefade` 4:** Never, Object Mode Only and Always
   were compared with Aurora (2026-10-29): its Object Mode Only fades in
   Select Objects and not in Select Terrain, as Moonglow's; the rural
@@ -821,8 +766,18 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   selection and Alt + middle drag moves the camera (they were Shift's,
   which now leaves the camera alone while the handles show). Aurora
   turns the selection with Shift + right drag; and some desktops take
-  Alt + drag to move the window. Not in Options › Keyboard. (S)
-  (from builders' reports after 1.10.1)
+  Alt + drag to move the window. Read again on 2026-10-29: their being
+  out of Options › Keyboard is the Settled "Not every key" (mouse
+  bindings are fixed); on a desktop that takes Alt + drag, the camera
+  moves by Ctrl + drag, the selection is raised by Shift + drag of its
+  blue arrow and turned by its ring or Q and E, so what has no other
+  way is Alt + middle click (the camera's focus on the ground clicked)
+  and turning by a right drag. Left, Moonglow's own design: whether
+  Shift + right drag turns the selection too, as Aurora's does (today
+  it turns the camera, the handles shown), and a key for the focus
+  (`area_view::camera_input` and the `Drag::Turn` start, in the area
+  view's code). (S) (settle?: proposed by the sprint on 2026-10-29, the
+  owner's to say) (from builders' reports after 1.10.1)
 - **Heed's interiors' lighting, waiting on Heed** (what he sees, a
   picture of it, and his haks): every area of his reports measured
   draws as the client draws it. His armourer (`hss_armourer`, the area
@@ -946,10 +901,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   it is a line in `area_view.rs`'s `Held`; whether Moonglow keeps its
   Escape (the drag's other tools, brushes and pastes, drop on Escape
   too) is the owner's to say. (S)
-- **The scale handle** scales every way alike, as Adjust Location's
-  field does; the file keeps a scale for each axis. It stands where it
-  was taken while it is dragged, rather than follow the pointer. (S)
-  (from builders' reports after 1.10.1)
 
 ## Rendering: creatures, particles, water and shaders
 
@@ -2060,11 +2011,6 @@ What the [audit](docs-audit.md) of 2026-10-12 could not put right with a
 few proven words needs a decision or a rewrite and is listed there, per
 document; the entries here that name the audit are that list in short.
 
-- **The manual's tables:** the built-in manual viewer can't wrap a
-  table's cells, so a table wider than the page is shown there as a
-  list (`manual::fitted`; it was cut off at the page's edge before, and
-  the text after it too). Tables with wrapped cells would read better.
-  (S–M) (from the research notes)
 - **The wiki corrections were never submitted** (`wiki-proposal.md`);
   all fifteen pages are unchanged upstream. (S)
   (the documentation audit of 2026-10-12)
@@ -2166,9 +2112,6 @@ of truth, and does each caller's difference matter.
 - **A blueprint's preview, three times** (`mg model-files`,
   `model_view.rs:164`, `mg-area lib.rs:347`): `mg model-files` has no
   waypoint. A `mg_preview::of_object`. (M)
-- **The blueprint-to-instance pipeline four times** (`area_view.rs:3944`,
-  `:3784`, `paint_mode.rs:559`, `bulk.rs:144`; the paint stroke's cache
-  is deliberate). (M)
 
 ### Settled in the engine or Aurora first
 
@@ -2229,12 +2172,12 @@ The Domains of Dread's builder proposal (its section 3): the project file
 (`moonglow.toml`), Make Placeables Static and Setup Store following it,
 and duplicate tags on paste. What is left:
 
-- **Described variables (C2) are not described further:** an object's or
-  a location's value has no description of its values; no `default`,
-  no "required on" (a proprietor needs both `tdod_rental` and
-  `tdod_rental_door`), no rule between variables (as a table's
-  `[[rules]]`), no description of a variable by the script that reads
-  it. (M)
+- **Described variables (C2): an object's or a location's value is not
+  described**: what a file holds of one is an object's id or a place in
+  an area, which no list, range or default describes; `values`, `min`, `max` and `default`
+  are refused for them, said by line. Whether anything should describe
+  them (the tag of the object meant, the area of a place) is open.
+  (settle?: proposed by the sprint on 2026-10-29, the owner's to say.) (S)
 
 ## Claims, protected areas and the project's commands (the builders' proposal, C6 to C8)
 
@@ -2244,13 +2187,6 @@ or asked about before a save, Claim This Area and Release Claim, merged
 areas' Tag and ResRef asked about before they change, `mg claims`, and
 File › Project. What is left:
 
-- **A read-only area still takes the pointer:** its objects can be
-  selected and dragged, its Properties typed in; each change is then
-  refused with a line in the log (the area view doesn't turn its tools
-  off, nor does a form go gray). (S)
-- **A project's command's output is in the log only:** no window of its
-  own to read a long output in, and no input (a command that asks for
-  a password waits until canceled; its stdin is closed). (S)
 - **The project's commands on Windows** (`cmd /C` with the command's
   text as written, no console window) are tested by CI's runs of the
   UI tests, not on a builder's machine with a real update script. (S,

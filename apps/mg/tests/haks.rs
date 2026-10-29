@@ -176,6 +176,15 @@ fn userpatch_haks_are_read_when_asked_for() {
     said.sort();
     let s = |a: &str, b: &str| (a.to_string(), b.to_string(), "warning".to_string());
     assert_eq!(said, [s("mg_up_beat", "override"), s("mg_up_load", "userpatch")], "{verified}");
+    // Left out by the kind of the player's own content (a builder who keeps
+    // content in override): that one, then all of them.
+    let targets = |skip: &str| -> Vec<String> {
+        let v = run(&["--userpatch", "verify", module.to_str().unwrap(), "--skip", skip]);
+        let missing = v["missing"].as_array().unwrap_or_else(|| panic!("{v}"));
+        missing.iter().map(|x| x["target"].as_str().unwrap().to_string()).collect()
+    };
+    assert_eq!(targets("references:override"), ["mg_up_load"]);
+    assert!(targets("references:local").is_empty());
 }
 
 /// `mg which --module`: a table in two of the module's haks and the game

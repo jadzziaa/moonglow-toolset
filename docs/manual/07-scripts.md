@@ -88,7 +88,12 @@ of the script's history, never the module's: the menu says plain
 "Undo" and "Redo" rather than naming a module step, and the click on
 the menu or the toolbar that takes the keyboard from the editor still
 counts as being in it. After them the editor has the keyboard again,
-so Ctrl+Z goes on in the script. With nothing to take back or give
+so Ctrl+Z goes on in the script; a menu opened from the editor and
+closed with nothing chosen (Escape, Alt, F10, or a click on its name)
+gives it the keyboard back too, where a click elsewhere leaves it
+nowhere. Keys given to Undo and Redo in Tools › Options › Keyboard are
+the script's in the editor as Ctrl+Z and Ctrl+Y are (which stay the
+editor's whatever Undo's key is, as in any text field). With nothing to take back or give
 again in the script they do nothing (they are not grayed). With the
 keyboard anywhere else (after a click in the module tree, say), even
 with the pointer over the script, Edit › Undo and the toolbar's are
