@@ -35,7 +35,6 @@ fn rows_are_named_and_taken_by_name() {
     // What the game's own tables name the rows used here.
     let race = row_table("UTC ", &[], "Race").unwrap();
     let human = game.row_name(&race, 6).unwrap();
-    let appearance = row_table("UTC ", &[], "Appearance_Type").unwrap();
     let label = |table: &str, row: usize, column: &str| {
         game.table(table).unwrap().get(row, column).unwrap().trim().to_string()
     };
