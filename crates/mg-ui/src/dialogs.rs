@@ -102,9 +102,10 @@ impl FileKind {
             (FileKind::Story, _) => Some(("Twine or Ink stories", &["twee", "tw", "ink"])),
             (FileKind::Hak, false) => Some(("Haks and archives", &["hak", "erf"])),
             (FileKind::Hak, true) => Some(("Hak", &["hak"])),
-            (FileKind::Content, _) => {
-                Some(("Haks, talk tables and zips of them", &["hak", "tlk", "zip"]))
-            }
+            (FileKind::Content, _) => Some((
+                "Haks, talk tables and archives of them",
+                &["hak", "tlk", "zip", "7z", "rar"],
+            )),
             (FileKind::HakFiles, _) => None,
             (FileKind::Png, _) => Some(("PNG picture", &["png"])),
             (FileKind::Images, _) => Some(("Pictures", &["png", "tga", "dds", "jpg", "bmp"])),

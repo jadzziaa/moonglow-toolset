@@ -48,3 +48,45 @@ fn haks_and_a_talk_table_attach_in_one_step() {
     // Attached again, it moves to the top.
     assert_eq!(Module::open(&path).unwrap().haks().unwrap(), ["mg_low", "mg_top"]);
 }
+
+/// `mg attach` takes content as it was downloaded, a RAR or 7z archive
+/// (mg-module's fixtures): its haks and talk table are taken from it;
+/// one with a password is refused, said why.
+#[test]
+fn haks_and_a_talk_table_attach_from_a_rar_or_a_7z() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("mg-attach-archives");
+    let user = dir.join("user");
+    std::fs::create_dir_all(&user).unwrap();
+    let path = dir.join("chess.mod");
+    std::fs::copy(root.join("data/mod/Neverwinter Chess.mod"), &path).unwrap();
+    let fixture = |name: &str| {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let file = dir.join("../../crates/mg-module/tests/fixtures/archives").join(name);
+        file.to_str().unwrap().to_string()
+    };
+    let mg = |args: &[&str]| crate::mg_on(&root, Some(user.as_ref())).args(args).output().unwrap();
+
+    let out = mg(&["--json", "attach", path.to_str().unwrap(), &fixture("content-rar5.rar")]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["copied"], 3, "{json}");
+    assert_eq!(json["custom_tlk"], "z_text", "{json}");
+    let m = Module::open(&path).unwrap();
+    assert_eq!(m.haks().unwrap(), ["z_one", "z_two"]);
+    let one = std::fs::read_to_string(user.join("hak/z_one.hak")).unwrap();
+    assert!(one.starts_with("one line 0: Moonglow's archive fixture"), "{one}");
+
+    // The same from the 7z: already there.
+    let out = mg(&["--json", "attach", path.to_str().unwrap(), &fixture("content.7z")]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["copied"], 0, "{json}");
+
+    for locked in ["locked.7z", "hidden.rar"] {
+        let out = mg(&["attach", path.to_str().unwrap(), &fixture(locked)]);
+        assert!(!out.status.success());
+        let said = String::from_utf8_lossy(&out.stderr);
+        assert!(said.contains(locked) && said.contains("password"), "{said}");
+    }
+}

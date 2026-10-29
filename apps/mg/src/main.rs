@@ -901,8 +901,9 @@ enum Cmd {
     /// table, and saves the module.
     Attach {
         module: PathBuf,
-        /// .hak and .tlk files, highest priority first (a .zip's haks and
-        /// talk table, taken from it, in its order by name).
+        /// .hak and .tlk files, highest priority first (a .zip, .7z or .rar
+        /// archive's haks and talk table, taken from it, in its order by
+        /// name).
         #[arg(required = true)]
         files: Vec<PathBuf>,
         /// Replace a different file of the same name in the user folder.
