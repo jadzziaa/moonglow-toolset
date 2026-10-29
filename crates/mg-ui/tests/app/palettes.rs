@@ -1239,7 +1239,34 @@ fn the_palette_shown_last_is_remembered() {
     palette_type(&mut h, "🚪", "Doors");
     h.run_steps(2);
     assert_eq!(h.state().settings.palette_type.as_deref(), Some("utd"));
-    // Another start with those settings: the doors again.
+    // A category opened, and what is typed in the search: kept too (a
+    // category a search opens is not).
+    let first = h.state().settings.palette_open.clone();
+    // (The doors' standard palette: Tileset Specific and Universal.)
+    let header = "Universal".to_string();
+    // (Open: its rows under it.)
+    let open_now = |h: &Harness<'_, Moonglow>| {
+        let at = h.get_by_label(&header).rect();
+        let under = |n: &egui_kittest::Node<'_>| {
+            let r = n.rect();
+            r.top() > at.bottom() && r.top() < at.bottom() + 40.0 && r.left() > at.left()
+        };
+        h.query_all(egui_kittest::kittest::by().role(egui::accesskit::Role::Button))
+            .any(|n| under(&n))
+    };
+    assert!(!open_now(&h), "{header} closed at first");
+    h.get_by_label(&header).click();
+    h.run_steps(3);
+    assert!(open_now(&h), "{header} opened");
+    let open = h.state().settings.palette_open.clone();
+    assert_eq!(open.len(), first.len() + 1, "{open:?}");
+    assert!(open.iter().all(|k| k.starts_with("utd/standard/")), "{open:?}");
+    type_into_hint(&mut h, "Find", "zzzz");
+    h.run_steps(2);
+    assert_eq!(h.state().settings.palette_search, "zzzz");
+    assert_eq!(h.state().settings.palette_open, open, "a search opens none for good");
+    // Another start with those settings: the doors again, the category
+    // open and the search as it was.
     let settings = h.state().settings.clone();
     let Some((mut again, _)) = plugin_harness("ui-palette-remembered-2", true) else { return };
     again.state_mut().settings = settings;
@@ -1247,6 +1274,11 @@ fn the_palette_shown_last_is_remembered() {
     again.run_steps(3);
     assert_eq!(again.state().palette.kind, BlueprintKind::Door);
     assert!(!again.state().palette.tiles);
+    assert_eq!(again.state().palette.filter, "zzzz");
+    again.state_mut().palette.filter.clear();
+    again.run_steps(3);
+    assert_eq!(again.state().settings.palette_search, "");
+    assert!(open_now(&again), "{header} open at the start");
 }
 
 /// A blueprint copied into an open module folder from elsewhere (one

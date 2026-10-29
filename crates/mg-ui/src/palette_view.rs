@@ -564,15 +564,38 @@ enum Pick {
 }
 
 /// Expand All and Collapse All as two small buttons, for a list's toolbar.
-pub(crate) fn fold_icons(ui: &mut egui::Ui, what: &str) -> Option<bool> {
+pub(crate) fn fold_icons(
+    ui: &mut egui::Ui,
+    what: &str,
+    keymap: &crate::keys::Keymap,
+) -> Option<bool> {
+    use crate::keys::Cmd;
     let mut fold = None;
-    if ui.small_button("⏷").on_hover_text(format!("Expand All: open every {what}")).clicked() {
+    let expand = keymap.titled(&format!("Expand All: open every {what}"), Cmd::ExpandAll, ui.ctx());
+    if ui.small_button("⏷").on_hover_text(expand).clicked() {
         fold = Some(true);
     }
-    if ui.small_button("⏶").on_hover_text(format!("Collapse All: close every {what}")).clicked() {
+    let collapse =
+        keymap.titled(&format!("Collapse All: close every {what}"), Cmd::CollapseAll, ui.ctx());
+    if ui.small_button("⏶").on_hover_text(collapse).clicked() {
         fold = Some(false);
     }
     fold
+}
+
+/// Expand All's and Collapse All's keys (Options › Keyboard), pressed:
+/// for the pane that has the keys.
+pub(crate) fn fold_keys(ui: &egui::Ui, keymap: &crate::keys::Keymap) -> Option<bool> {
+    use crate::keys::Cmd;
+    ui.input_mut(|i| {
+        if keymap.consume(i, Cmd::ExpandAll) {
+            Some(true)
+        } else if keymap.consume(i, Cmd::CollapseAll) {
+            Some(false)
+        } else {
+            None
+        }
+    })
 }
 
 /// The palette's search: the pane's width, with what it looks in said
@@ -612,16 +635,20 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     }
     let mut view = std::mem::take(&mut app.palette);
     // The palette shown when Moonglow was last closed, once.
-    if !std::mem::replace(&mut view.restored, true)
-        && let Some(last) = app.settings.palette_type.clone()
-    {
-        let kind = BlueprintKind::ALL
-            .into_iter()
-            .find(|k| k.restype().extension().is_some_and(|e| e == last));
-        (view.tiles, view.prefabs) = (last == "tiles", last == "prefabs");
-        if let Some(kind) = kind {
-            view.kind = kind;
-            view.custom = app.settings.palette_custom && app.ws.is_some();
+    if !std::mem::replace(&mut view.restored, true) {
+        // (And what was typed in its search, where something was.)
+        if !app.settings.palette_search.is_empty() {
+            view.filter = app.settings.palette_search.clone();
+        }
+        if let Some(last) = app.settings.palette_type.clone() {
+            let kind = BlueprintKind::ALL
+                .into_iter()
+                .find(|k| k.restype().extension().is_some_and(|e| e == last));
+            (view.tiles, view.prefabs) = (last == "tiles", last == "prefabs");
+            if let Some(kind) = kind {
+                view.kind = kind;
+                view.custom = app.settings.palette_custom && app.ws.is_some();
+            }
         }
     }
     let custom_was = view.custom;
@@ -759,6 +786,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         view.chosen.clear();
     }
     view.fold = None;
+    // (What is typed is kept for the next start too.)
+    if view.restored && view.filter != app.settings.palette_search {
+        app.settings.palette_search = view.filter.clone();
+    }
     if view.prefabs {
         ui.separator();
         app.palette = view;
@@ -805,7 +836,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     // names or pictures, a new blueprint, and the rest under "more".
     let mut categories = None;
     ui.horizontal_wrapped(|ui| {
-        view.fold = fold_icons(ui, "category");
+        view.fold = fold_icons(ui, "category", &app.keymap);
+        // (Their keys too, while the keys are the palette's.)
+        if view.fold.is_none()
+            && keys_are(ui.ctx(), Keys::Palette)
+            && !ui.ctx().egui_wants_keyboard_input()
+        {
+            view.fold = fold_keys(ui, &app.keymap);
+        }
         fn count(nodes: &[mg_module::palette::PaletteNode]) -> usize {
             nodes.iter().map(|n| n.blueprints.len() + count(&n.children)).sum()
         }
@@ -943,6 +981,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         custom,
         own,
         fold: view.fold,
+        open: app.settings.palette_open.clone(),
+        open_changed: false,
         new: (app.ws.is_some() && wizard_for(kind)).then(|| new_label(kind)),
         found: found.as_deref(),
         tags: &tags,
@@ -1001,6 +1041,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     });
     crate::widgets::home_and_end(ui, &mut list);
     keys_outline(ui, list.inner_rect, Keys::Palette);
+    if tree.open_changed {
+        app.settings.palette_open = std::mem::take(&mut tree.open);
+    }
     let shown = std::mem::take(&mut tree.shown);
     // The arrow keys: the cursor moves through the rows as they were
     // drawn, or its category opens or closes (when the palette is drawn
@@ -1248,6 +1291,10 @@ struct Tree<'a> {
     own: std::collections::HashSet<ResRef>,
     /// Every category opened or closed this frame.
     fold: Option<bool>,
+    /// The categories left open (`Settings::palette_open`), and whether a
+    /// category opened or closed changed them.
+    open: Vec<String>,
+    open_changed: bool,
     /// What a right click offers to make a new blueprint of the kind
     /// ("New Creature…"), where the kind has a wizard and a module is open.
     new: Option<&'static str>,
@@ -1311,6 +1358,29 @@ pub(crate) fn remembered(key: ResKey) -> String {
 }
 
 impl Tree<'_> {
+    /// How a category at `path` is kept among those left open
+    /// (`Settings::palette_open`).
+    fn remembered_key(&self, path: &[usize]) -> String {
+        let ext = self.kind.restype().extension().unwrap_or_default();
+        let source = if self.custom { "custom" } else { "standard" };
+        let at: Vec<String> = path.iter().map(usize::to_string).collect();
+        format!("{ext}/{source}/{}", at.join("."))
+    }
+
+    /// A category drawn open or closed: kept so for the next start, but
+    /// for what a search opened (it closes again).
+    fn remember(&mut self, key: String, open: bool) {
+        if self.found.is_some() || self.open.contains(&key) == open {
+            return;
+        }
+        if open {
+            self.open.push(key);
+        } else {
+            self.open.retain(|k| *k != key);
+        }
+        self.open_changed = true;
+    }
+
     fn shown(&self, b: &PaletteBlueprint) -> bool {
         self.found.is_none_or(|f| f.contains(&b.resref))
     }
@@ -1387,8 +1457,12 @@ impl Tree<'_> {
         };
         // (Finding opens every category with a match as it is typed,
         // through `fold`: they can be closed again after.)
+        // (Open as it was left at the last start, until it is opened or
+        // closed: `Tree::remember`.)
+        let remembered = self.remembered_key(path);
         let shown = egui::CollapsingHeader::new(title)
             .id_salt(("palette", kind, custom, path))
+            .default_open(self.open.contains(&remembered))
             .open(self.asked(&branch))
             .show(ui, |ui| {
                 for (i, child) in node.children.iter().enumerate() {
@@ -1401,6 +1475,7 @@ impl Tree<'_> {
                 self.rows(ui, &rows, (&branch, listing, within));
             });
         self.header(ui, &branch, listing, &shown.header_response, behind);
+        self.remember(remembered, shown.openness > 0.5);
         if !custom {
             return;
         }

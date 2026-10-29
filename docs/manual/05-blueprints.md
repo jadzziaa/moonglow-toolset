@@ -24,7 +24,8 @@ the top:
   is named under the row. The icons go to a second and a third row in
   a pane narrower than the eleven of them, and are a dropdown with their
   names in a very narrow one. The type shown last is the one the
-  palettes open on the next time Moonglow starts.
+  palettes open on the next time Moonglow starts, with what was typed
+  in the search and the categories left open.
 - **Standard** and **Custom**, beside the type's name: whose blueprints.
 - **The search**, the pane's width; **×** clears it.
 - **The list's toolbar**, right over the list: the two arrows open and

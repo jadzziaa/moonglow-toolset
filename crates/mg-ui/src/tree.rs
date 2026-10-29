@@ -343,6 +343,10 @@ fn contents_ui(
     let mut went = false;
     let matches = |row: &ObjectRow| filter.finds_folded(&row.sought);
     let filtered = !filter.is_empty() && contents.iter().any(|c| c.rows.iter().any(&matches));
+    // (Collapse All closed its kinds too, as they are next shown.)
+    let closing = ui.data_mut(|d| {
+        d.remove_temp::<bool>(egui::Id::new(("tree-area-kinds-closed", area))).is_some()
+    });
     ui.indent(("area-contents", area), |ui| {
         for KindContents { kind, rows, order } in contents {
             // (By their places in the area's list, in the order listed.)
@@ -387,6 +391,8 @@ fn contents_ui(
                 header = header.open(Some(true));
             } else if let Some((_, open)) = keys.fold.filter(|f| f.0 == TreeAt::Kind(area, *kind)) {
                 header = header.open(Some(open));
+            } else if closing {
+                header = header.open(Some(false));
             }
             let (clicked, hovered) = (&mut keys.clicked, &mut keys.hovered);
             let (picked, together) = (&mut keys.picked, &mut keys.together);
@@ -626,12 +632,31 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
     let typed = crate::widgets::text_changed(ui, filter_id, filter.as_str()) && !filter.is_empty();
     let mut fold = None;
     ui.horizontal(|ui| {
-        fold = crate::palette_view::fold_icons(ui, "group");
+        fold = crate::palette_view::fold_icons(ui, "group", &app.keymap);
         let resources = app.ws.as_ref().map_or(0, |ws| ws.module.len());
         ui.weak(format!("{resources} resource{}", if resources == 1 { "" } else { "s" }))
             .on_hover_text("Resources in the module");
     });
     ui.separator();
+    // (Their keys too, while the keys are the tree's.)
+    let keyed = crate::palette_view::keys_are(ui.ctx(), crate::palette_view::Keys::Tree)
+        && !ui.ctx().egui_wants_keyboard_input();
+    if keyed {
+        fold = fold.or_else(|| crate::palette_view::fold_keys(ui, &app.keymap));
+    }
+    // Collapse All closes every area opened out to its objects too, and
+    // the kinds under it (Expand All leaves them: an area's objects can be
+    // hundreds of rows).
+    if fold == Some(false)
+        && let Some(ws) = app.ws.as_ref()
+    {
+        for area in ws.module.keys_of(ResType::ARE).map(|k| k.resref) {
+            ui.data_mut(|d| {
+                d.insert_temp(egui::Id::new(("tree-area-open", area)), false);
+                d.insert_temp(egui::Id::new(("tree-area-kinds-closed", area)), true);
+            });
+        }
+    }
     let fold = fold.or(typed.then_some(true));
     let mut rows = egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| {
         // A name too long for the pane goes on past it, and the tree

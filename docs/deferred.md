@@ -1922,19 +1922,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     them; the keys repeat only as the system repeats them. (S)
   - With the keys on a category the blueprint selected stays in hand;
     whether Aurora keeps one in hand then was not checked. (S)
-- **The look of the two side panes** (the owner's notes after 1.21.0):
-  the module tree's header is the palettes' (a search field that says
-  what it looks in, with a clear button; Expand All and Collapse All as
-  icons, with a count); the palettes' type icons are larger (a line's height; twice that
-  was tried and was too large), in rows where the pane is narrow; the palette shown last is remembered between runs (its type,
-  and Standard or Custom); Walkmesh and Object Walkmeshes are one
-  toolbar button. Not done: the module tree's rows are as they were
-  (no pictures, no "more" menu as the palettes' list has); the
-  palette's search text and its open categories are not remembered;
-  holding the walkmesh button is not held by a test (a right click
-  is); Expand All and Collapse All have no keys, and an area opened out
-  to its objects, and the kinds under it, keep their own state. (S
-  each) (from builders' reports and the owner's notes after 1.21.0)
+- **The look of the two side panes, the module tree's rows** (the
+  owner's notes after 1.21.0; the rest done on 2026-10-29): the module
+  tree's rows are as they were, with no pictures and no "more" menu as
+  the palettes' list has. Not started: the triage proposed dropping it
+  (the owner's note, which no builder asked for), and a picture on each
+  row is the palette's Gallery brought into the tree (its thumbnails for
+  blueprint rows, a size, the rows' heights), more than an hour or two.
+  Waits on the owner's verdict: drop it, or which of the two to do. (S
+  for the menu, M for the pictures)
 - **A long dropdown that grew to the window's edge, not seen growing
   here:** the open list of a dropdown with a Filter field (Area
   Properties › Audio › Ambient Sound, Day) widened over 5 to 10 seconds

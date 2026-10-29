@@ -41,6 +41,26 @@ fn minimap_exported_and_object_walkmeshes_shown() {
     h.get_by_label("👣 Walkmesh…").click();
     h.run();
     assert!(!h.state().area_views[&area].object_walkmesh);
+    // Held down a moment: the two open, and stay open when it is let go
+    // (the release no click); one chosen there.
+    let at = h.get_by_label("👣 Walkmesh…").rect().center();
+    h.hover_at(at);
+    let button = |pressed| egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    h.event(button(true));
+    h.run_steps(30);
+    h.get_by_label("Ground Walkmesh");
+    h.event(button(false));
+    h.run_steps(2);
+    let view = &h.state().area_views[&area];
+    assert!(!view.walkmesh && !view.object_walkmesh, "the release is no click");
+    h.get_by_label("Ground Walkmesh").click();
+    h.run();
+    assert!(h.state().area_views[&area].walkmesh, "chosen in what the hold opened");
 }
 
 /// Area Properties › Visual: another area's lighting given to this one

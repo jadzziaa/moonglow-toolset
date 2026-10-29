@@ -1528,7 +1528,14 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     };
     let mut fold = None;
     ui.horizontal_wrapped(|ui| {
-        fold = crate::palette_view::fold_icons(ui, "heading");
+        fold = crate::palette_view::fold_icons(ui, "heading", &app.keymap);
+        let keys = crate::palette_view::Keys::Palette;
+        if fold.is_none()
+            && crate::palette_view::keys_are(ui.ctx(), keys)
+            && !ui.ctx().egui_wants_keyboard_input()
+        {
+            fold = crate::palette_view::fold_keys(ui, &app.keymap);
+        }
         ui.weak(format!("{shown} item{}", if shown == 1 { "" } else { "s" }))
             .on_hover_text(if filter.is_empty() { "In this tileset's palette" } else { "Found" });
         ui.separator();

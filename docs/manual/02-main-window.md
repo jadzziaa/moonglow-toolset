@@ -206,8 +206,12 @@ A double click on a script opens its editor (and, with **Tools › Options
 too).
 
 **Expand All** and **Collapse All** (⏷ and ⏶, under the Filter, as
-in the Palettes pane) open and close every group at once; beside them is
-how many resources the module has. The Filter says what it looks in,
+in the Palettes pane) open and close every group at once; with the keys
+in the tree (or a palette), **Ctrl+Shift+Right** and **Ctrl+Shift+Left**
+do the same (Options › Keyboard, under Module Tree and Palettes). Collapse All
+also closes every area opened out to its objects, and the kinds under
+it; Expand All leaves them closed (an area's objects can be hundreds of
+rows). Beside them is how many resources the module has. The Filter says what it looks in,
 and has a × to clear it.
 
 A double click opens a resource in its editor. A blueprint dragged onto an
