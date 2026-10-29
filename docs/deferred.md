@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:11:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:27:40Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1039,7 +1039,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   show faintly from above. A tile's emitters take their keys from the
   animations playing on it as one animation as long as the longest (the
   game's tiles' keys are constant; one that changed over a shorter loop
-  would run slow). (S) (waits on the client batch: the fog placeable and
+  would run slow). (S) (waits on a client reading: the fog placeable and
   Magic Sparks seen from above in the client and in the area view, side
   by side) (from builders' reports after 1.14.1)
 - **The game's shaders, compiled (M0 of [the shaders
@@ -1114,22 +1114,22 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     flow MTRs; their programs read no copy) is read and not drawn late,
     after the shadows, as the engine draws it (S); whether the client
     copies again after the water (a see-through mesh or a particle over
-    water sees the solid meshes only) wasn't read (S) (waits on the
-    client batch: a see-through mesh reading `texFBColor` over water,
+    water sees the solid meshes only) wasn't read (S) (waits on a
+    client reading: a see-through mesh reading `texFBColor` over water,
     whether the water shows in its copy).
   - The tangents the renderer makes (a mesh with a render hint and none
     of its own) are summed per face (`made_tangents`), where the game's
     compiler copies a vertex whose handedness flips (`engine_tangents`,
     MDL-MESH-043): whether the client makes an ASCII model's so at load
-    is not known, and a seam may shade otherwise. (S) (waits on the
-    client batch: an ASCII mesh with a mirrored UV seam under a render
+    is not known, and a seam may shade otherwise. (S) (waits on a
+    client reading: an ASCII mesh with a mirrored UV seam under a render
     hint, its tangents written as colour through a patched include,
     beside the same model compiled)
   - Verify's `shader-pair` reports a material naming one program alone;
     whether the engine also ignores a lone `customshaderGS`, and what it
     does with a geometry program at all, is not checked (no content has
     one; Moonglow fails one, reported, and draws its own). (S) (waits on
-    the client batch: an MTR naming `customshaderGS` alone, and one
+    a client reading: an MTR naming `customshaderGS` alone, and one
     naming it beside a pair, on a card)
   - Pictures already made (the galleries' thumbnails, a hovered row's
     preview) are kept across a flip of the switch, drawn as they were,
@@ -1193,18 +1193,18 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - A BioWare DDS's alpha is taken from its header's alpha mean (below
     1: alpha), not read from the client: 22 of the game's 3,717
     four-channel ones have a mean of 1 (roofs, bark, flagstones) and are
-    drawn solid. (S) (waits on the client batch: one of the 22 on a card
+    drawn solid. (S) (waits on a client reading: one of the 22 on a card
     with a transparency hint, cut or solid)
   - Not read in the client: which map an item on the ground reflects (it
     draws `_sm`, as Moonglow's `chrome1` has it; the band didn't reach
     it). (`cameraFocus` was read back as the player's place, (20, 20, 0)
     with the player there, in four runs on 2026-10-29: what Moonglow
-    uploads, its camera's target.) (S) (waits on the client batch: a
+    uploads, its camera's target.) (S) (waits on a client reading: a
     patched include painting `texUnitEnv` on an item's own fragments)
   - Moonglow's own shader draws as the client does since M4 (Settled),
     not yet looked at in the builders' areas: TDoD's DXT1 textures (690)
     with their transparent texels black, and its 21 materials naming
-    maps without a render hint. (S) (waits on the client batch: a TDoD
+    maps without a render hint. (S) (waits on a client reading: a TDoD
     area with both, beside the client's picture)
   - `program_choice_in_the_client` reads the cards by where they should
     be on the client's picture, so a card behind something reads as
@@ -1214,7 +1214,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - Against the client, the switch on is as close as off on the stock
     scenes and closer on TDoD's room, but for its far floor (1.0 of 255
     from the client on, 0.4 off), beside a dark wall where the fitted
-    camera is a fraction of a pixel off. (S) (waits on the client batch:
+    camera is a fraction of a pixel off. (S) (waits on a client reading:
     the room with the camera fitted to that wall)
 - **The special surfaces (M5 of [the shaders
   proposal](shaders-proposal.md)):** water, grass, the sky, additive
@@ -1233,23 +1233,23 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     client gives lightning and `Linked` emitters wasn't read (Moonglow
     gives lightning none); a Lighten particle's foot fades a little more
     than the client's (6.2 of 255 away over its last rows). Moonglow's
-    own particle shader (the switch off) doesn't fade. (S) (waits on the
-    client batch: `particleSoftness` read through the marked
+    own particle shader (the switch off) doesn't fade. (S) (waits on a
+    client reading: `particleSoftness` read through the marked
     `fsparticle` for a lightning and a `Linked` emitter)
   - **The sky's fade** (the horizon's band in the fog's colour) stays
     Moonglow's: what the engine draws it with and gives it
     (`globalColor`, its blending) wasn't read; the skybox is the game's
-    `vsvt`/`fst`. (S) (waits on the client batch)
+    `vsvt`/`fst`. (S) (waits on a client reading)
   - **How the engine blends an additive mesh** (one and one, or by its
     alpha) is not read: Moonglow adds its colour whole by either path;
     the same for an opaque texture. A Lighten particle is added by its
-    alpha. (S) (waits on the client batch: an additive card whose
+    alpha. (S) (waits on a client reading: an additive card whose
     texture's alpha runs 0 to 1, over a gray ground)
   - **Particles' size and turn:** a still emitter's square particles
     are drawn upright, as in the client, 28 pixels a side against the
     client's 30 in `surfaces_in_the_client` (the fitted camera's error,
     or the size: not told apart). A spinning particle's starting angle
-    wasn't read. (S) (waits on the client batch)
+    wasn't read. (S) (waits on a client reading)
   - **The grass** is the game's program on Moonglow's tufts: their
     places, sizes and count are Moonglow's (the field's mean colour 0.1
     of 255 from the client's, but per pixel 17.6 against Moonglow's own
@@ -1359,13 +1359,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - the lights' shadows' darkness was measured at one distance from one
     lamp: the opacity times the plane's fade there, which a fall-off with
     the distance from the light (`shadowradius`) would look alike to (S)
-    (waits on the client batch: a creature's light shadow at two more
+    (waits on a client reading: a creature's light shadow at two more
     distances from the lamp);
   - which light of two equally near the client takes (Moonglow: the
     first), how many creatures cast the lights' shadows at once
     (`max-casting-lights` changed nothing with one; Moonglow: 16), and a
-    PC's own light at night (Moonglow places no PC) (S) (waits on the
-    client batch);
+    PC's own light at night (Moonglow places no PC) (S) (waits on a
+    client reading);
   - what is drawn after the shadows receives none: the area's grass
     (see-through tufts: in `shadows_look` with `MG_SHADOW_GRASS=1` the
     shadowed ground darkens by 0.34 to 0.38, the client's by 0.42, its
@@ -1378,12 +1378,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     shadow, where the game's still do (S);
   - doors cast as placeables do and items on the ground cast none (the
     game since 8193.35: "non-character models cast shadows only if
-    opaque") (S) (waits on the client batch: a door and an item on the
+    opaque") (S) (waits on a client reading: a door and an item on the
     ground in the sun);
   - the shadow's fade with the height between plane and caster
     (8193.31's "shadow alpha by vertical distance") and sun shadows
-    never above the camera's height are not drawn (S) (waits on the
-    client batch: a caster raised over the ground in steps, and a tall
+    never above the camera's height are not drawn (S) (waits on a
+    client reading: a caster raised over the ground in steps, and a tall
     one seen from below its top). Seen with a sun low in the west (a
     GIT's direction, `reading_git_sun_direction`): the client leaves a
     city street lit but for thin spikes, where Moonglow lays the
