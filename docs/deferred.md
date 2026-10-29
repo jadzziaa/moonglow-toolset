@@ -2095,11 +2095,6 @@ What the [audit](docs-audit.md) of 2026-10-12 could not put right with a
 few proven words needs a decision or a rewrite and is listed there, per
 document; the entries here that name the audit are that list in short.
 
-- **The manual's tables:** the built-in manual viewer can't wrap a
-  table's cells, so a table wider than the page is shown there as a
-  list (`manual::fitted`; it was cut off at the page's edge before, and
-  the text after it too). Tables with wrapped cells would read better.
-  (S–M) (from the research notes)
 - **The wiki corrections were never submitted** (`wiki-proposal.md`);
   all fifteen pages are unchanged upstream. (S)
   (the documentation audit of 2026-10-12)

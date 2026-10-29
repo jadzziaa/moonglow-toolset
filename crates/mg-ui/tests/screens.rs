@@ -2747,6 +2747,9 @@ fn user_manual() {
         |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::Button;
     h.get_all_by_label("Areas").find(|n| listed(n)).unwrap().click();
     shoot(&mut h, &dir, "manual-areas");
+    // A table wider than the page, its cells wrapped.
+    h.get_by_label("The camera").scroll_to_me();
+    shoot(&mut h, &dir, "manual-areas-camera");
     h.get_all_by_label("Coming from Aurora").find(|n| listed(n)).unwrap().click();
     shoot(&mut h, &dir, "manual-coming-from-aurora");
     // (The menu bar has a Plugins too: the chapter is the later one.)
