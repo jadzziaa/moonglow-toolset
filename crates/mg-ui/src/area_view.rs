@@ -1508,7 +1508,7 @@ impl AreaView {
     }
 
     /// Whether the start location's marker is what is selected.
-    fn start_is_selected(&self) -> bool {
+    pub(crate) fn start_is_selected(&self) -> bool {
         self.start_selected && self.selection.is_empty()
     }
 
@@ -2963,6 +2963,12 @@ fn viewport(
     // The start location where it is being dragged to.
     let start = match view.drag {
         Some(Drag::Start { at, facing, .. }) => Some((at, facing)),
+        // About to be placed (the palette's Start Location): under the
+        // pointer, facing the way the view looks.
+        _ if app.palette.placing_start => view
+            .pointer_over(ui)
+            .and_then(|p| view.ground_at(p, 0.0))
+            .map(|at| (at, view_facing(view))),
         _ => start,
     };
     overlays(ui, view, &shown, start, app.object_clip.as_ref(), door_brush, marks);
@@ -3795,6 +3801,17 @@ fn overlays(
                 );
             }
         }
+        // The pointer says the marker can be taken hold of (its ring, its
+        // arrow's lines, its tip): a hand, closed while it is held.
+        let over = view.drag.is_none()
+            && view.pointer_over(ui).is_some_and(|q| {
+                view.start_grab((p, facing), q).is_some() && view.pick(q).is_none()
+            });
+        if held {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+        } else if over {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+        }
     }
 }
 
@@ -3989,6 +4006,31 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         return;
     }
 
+    // Placing the start location (the palette's Start Location): where a
+    // click puts it, facing the way the view looks, as the menu's Set
+    // Start Location Here.
+    if app.palette.placing_start {
+        // (Its marker shown, to be seen where it would go.)
+        if !view.show_start {
+            view.show_start = true;
+            share_shown(app, view);
+        }
+        if cancelled(ui, response) {
+            app.palette.placing_start = false;
+        } else if response.clicked()
+            && let Some(pos) = response.interact_pointer_pos()
+            && let Some(at) = view.ground_at(pos, 0.0)
+        {
+            set_start_location(app, view, at, view_facing(view));
+            view.selection.clear();
+            view.start_selected = true;
+            if !shift {
+                app.palette.placing_start = false;
+            }
+        }
+        return;
+    }
+
     // Placing the palette's blueprint.
     if let Some(key) = brush(app) {
         let cancel = cancelled(ui, response);
@@ -4096,6 +4138,16 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         && let Some(o) = view.model.as_ref().map(|m| &m.objects[i])
     {
         view.selection = vec![(o.kind, o.index)];
+    }
+    // A right click on the start location's marker selects it, alone: its
+    // menu's Adjust Location is the start location's.
+    if response.secondary_clicked()
+        && let Some(pos) = response.interact_pointer_pos()
+        && view.pick(pos).is_none()
+        && start_on_ground(app, view).is_some_and(|s| view.start_grab(s, pos).is_some())
+    {
+        view.selection.clear();
+        view.start_selected = true;
     }
     // A double click opens the object's Properties (a quick one after
     // another click counts as a triple).
@@ -4427,6 +4479,16 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             drop_to_ground(app, view);
         } else if onto {
             drop_onto_objects(app, view);
+        }
+    }
+    // And the start location's marker, selected: Q and E turn it.
+    if hovered && !typing && !placing && view.start_is_selected() && view.drag.is_none() {
+        let pressed = |c: crate::keys::Cmd| ui.input(|i| app.keymap.pressed(i, c));
+        let by: f32 = turn_keys(view).into_iter().filter(|(c, _)| pressed(*c)).map(|t| t.1).sum();
+        if by != 0.0
+            && let Some((_, facing)) = start_on_ground(app, view)
+        {
+            turn_start_location(app, facing + by);
         }
     }
     // (Delete in a text field is the field's, as the tile selection has it:
@@ -5509,8 +5571,12 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
         ui.close();
     }
     let any = !view.selection.is_empty();
-    if ui.add_enabled(any, egui::Button::new("Adjust Location…")).clicked() {
-        app.adjust = crate::area_tools::adjust(view);
+    let start = view.start_is_selected().then(|| start_location(app, view.area)).flatten();
+    if ui.add_enabled(any || start.is_some(), egui::Button::new("Adjust Location…")).clicked() {
+        app.adjust = match start {
+            Some(at) => Some(crate::area_tools::adjust_start(view.area, at)),
+            None => crate::area_tools::adjust(view),
+        };
         ui.close();
     }
     if ui.add_enabled(any, egui::Button::new("Drop to Ground (G)")).clicked() {
@@ -5854,8 +5920,7 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
             )
             .clicked()
         {
-            let facing = view.orbit.as_ref().map_or(0.0, |o| o.yaw + std::f32::consts::PI);
-            set_start_location(app, view, at, facing);
+            set_start_location(app, view, at, view_facing(view));
             ui.close();
         }
         // Test the module as it is now, starting here, facing the way the
@@ -5944,15 +6009,21 @@ fn set_start_location(app: &mut Moonglow, view: &mut AreaView, at: Vec3, facing:
     }
 }
 
+/// The way the view looks along the ground (radians anticlockwise from
+/// east): the way a start location set from it faces.
+fn view_facing(view: &AreaView) -> f32 {
+    view.orbit.as_ref().map_or(0.0, |o| o.yaw + std::f32::consts::PI)
+}
+
 /// Moves the start location to `at`, in the area it is in (a drag of its
 /// marker).
-fn move_start_location(app: &mut Moonglow, at: Vec3) {
+pub(crate) fn move_start_location(app: &mut Moonglow, at: Vec3) {
     let edits = start_at(at).to_vec();
     app.actions.push(Action::Apply(Command::new("Move Start Location", edits)));
 }
 
 /// Turns the start location to face `facing` (a drag of its arrow's tip).
-fn turn_start_location(app: &mut Moonglow, facing: f32) {
+pub(crate) fn turn_start_location(app: &mut Moonglow, facing: f32) {
     let edits = start_facing(facing).to_vec();
     app.actions.push(Action::Apply(Command::new("Turn Start Location", edits)));
 }

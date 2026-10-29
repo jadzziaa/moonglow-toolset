@@ -1016,11 +1016,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   sound's random position range is a rectangle of `RandomRangeX` and
   `RandomRangeY` each way (that the game takes them as half-widths about
   the sound was not measured). (S)
-- **The start location in the view:** set from the menu, and its marker
-  dragged (ring, shaft) and turned (arrow's tip). Aurora's palette entry
-  for it isn't there; selected, it is no object, so the keys (Q and E,
-  the arrows) and Adjust Location don't act on it; a drag stays in its
-  area; the pointer doesn't change over it. (S)
 - **The minimap in Moonglow:** the area view has no map panel of its own,
   and Area Transition setup picks its target from a list rather than a
   map. (S–M)

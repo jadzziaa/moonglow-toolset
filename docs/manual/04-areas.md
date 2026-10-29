@@ -30,12 +30,20 @@ dropdowns keep their words.
 - **The start location** (where a player's character enters the module)
   is marked as in Aurora: a blue ring on the ground with a red arrow the
   way the character faces. To set it, right-click the ground where it
-  should be and choose **Set Start Location Here**: it faces the way the
-  view looks. Click the marker to select it (a yellow box, as round an
+  should be and choose **Set Start Location Here**, or choose **🏁 Start
+  Location** among the palette's types (Aurora's Paint Start Location)
+  and click where it should be (the marker follows the pointer until
+  then; Shift + click keeps it for another try, a right click or Escape
+  puts it down): it faces the way the view looks, in the area clicked,
+  which is how it goes to another area (a drag keeps it in its own).
+  The pointer is a hand over the marker. Click the marker to select it (a yellow box, as round an
   object; the game's invisible object, which has nothing to draw, has
   the box its model holds undrawn, 0.6 m across, as Aurora outlines it). Drag it by its ring or its arrow to move it; selected, the
   arrow's tip has a round handle that turns it (both follow the snapping grid and
-  angle; Escape lets go; an object standing on the marker is taken first). **Go to Start Location** brings the view to it; with the start in another area, it opens that area there. **Start** on the main toolbar (View › Go to Start Location) does the same with no area open: move the start location to where you are working, and it is a bookmark.
+  angle; Escape lets go; an object standing on the marker is taken first).
+  Selected, **Q** and **E** turn it as they turn an object, and its menu
+  (a right click on it) has **Adjust Location…** for its exact X, Y, Z
+  and bearing (0 faces north, as an object's). **Go to Start Location** brings the view to it; with the start in another area, it opens that area there. **Start** on the main toolbar (View › Go to Start Location) does the same with no area open: move the start location to where you are working, and it is a bookmark.
 - **Fade Geometry**: draws the tiles without the parts that fade in the
   game to show a character behind them (roofs, upper walls), to see and
   place what is under them (Aurora's Environment › Fade Geometry):

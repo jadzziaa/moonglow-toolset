@@ -3218,6 +3218,138 @@ fn the_start_location_is_dragged_and_turned_in_the_view() {
     assert_eq!(entry(&mut h).0, x, "not moved");
 }
 
+/// The palette's Start Location (Aurora's Paint Start Location): chosen,
+/// the start location's marker follows the pointer over the view, and a
+/// click puts the module's start location there, in this area, and lets
+/// it go; Escape puts it down unplaced. Picture:
+/// `target/test-output/ui-area-start-palette/placing.png`.
+#[test]
+fn the_palette_s_start_location_is_placed_with_a_click() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("start-palette") else { return };
+    let ifo = ResKey::parse("module", ResType::IFO).unwrap();
+    let entry = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let r = ws.doc(&ifo).unwrap().root.clone();
+        let f = |label: &str| r.float(label).unwrap();
+        (r.resref("Mod_Entry_Area").unwrap(), f("Mod_Entry_X"), f("Mod_Entry_Y"))
+    };
+    let was = entry(&mut h);
+    h.get_by_label("🏁").click();
+    h.run_steps(3);
+    assert!(h.state().palette.start && h.state().palette.placing_start);
+    assert!(h.query_by_label("Place the Start Location").is_some());
+    // Escape over the view: put down, nothing set.
+    let at = screen(&h, area, Vec3::new(14.0, 26.0, 0.0));
+    h.hover_at(at);
+    h.run_steps(2);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(!h.state().palette.placing_start);
+    assert_eq!(entry(&mut h), was);
+    // Again, and a click.
+    h.get_by_label("Place the Start Location").click();
+    h.run_steps(2);
+    h.hover_at(at);
+    h.run_steps(3);
+    h.render()
+        .expect("render")
+        .save(mg_testkit::output_dir("ui-area-start-palette").join("placing.png"))
+        .unwrap();
+    click_pos(&h, at);
+    h.run_steps(3);
+    let (in_area, x, y) = entry(&mut h);
+    assert_eq!(in_area, area);
+    assert!((x - 14.0).abs() < 0.1 && (y - 26.0).abs() < 0.1, "at {x}, {y}");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Set start location"));
+    assert!(!h.state().palette.placing_start, "let go once placed");
+    assert!(h.state().area_views[&area].start_selected, "and selected");
+}
+
+/// The start location's marker, selected, takes what an object does: Q
+/// and E turn it, and its menu's Adjust Location sets its position and
+/// bearing; the pointer is a hand over it.
+#[test]
+fn the_selected_start_location_takes_the_keys_and_adjust_location() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("keys-start") else { return };
+    let ifo = ResKey::parse("module", ResType::IFO).unwrap();
+    {
+        let set = |label: &str, value: mg_gff::Value| mg_edit::Edit::SetField {
+            key: ifo,
+            path: mg_edit::GffPath::root(),
+            label: label.into(),
+            value: Some(value),
+        };
+        let edits = vec![
+            set("Mod_Entry_Area", mg_gff::Value::resref(area)),
+            set("Mod_Entry_X", mg_gff::Value::Float(12.0)),
+            set("Mod_Entry_Y", mg_gff::Value::Float(31.0)),
+            set("Mod_Entry_Dir_X", mg_gff::Value::Float(1.0)),
+            set("Mod_Entry_Dir_Y", mg_gff::Value::Float(0.0)),
+        ];
+        h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
+    }
+    h.run_steps(3);
+    let entry = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let r = ws.doc(&ifo).unwrap().root.clone();
+        let f = |label: &str| r.float(label).unwrap();
+        (f("Mod_Entry_X"), f("Mod_Entry_Y"), f("Mod_Entry_Dir_Y").atan2(f("Mod_Entry_Dir_X")))
+    };
+    let cursor = |h: &Harness<'_, Moonglow>| h.output().platform_output.cursor_icon;
+    // A hand over its ring, none beside it.
+    let ring = screen(&h, area, Vec3::new(11.0, 31.0, 0.0));
+    h.hover_at(screen(&h, area, Vec3::new(18.0, 31.0, 0.0)));
+    h.run_steps(2);
+    assert_eq!(cursor(&h), egui::CursorIcon::Default);
+    h.hover_at(ring);
+    h.run_steps(2);
+    assert_eq!(cursor(&h), egui::CursorIcon::Grab);
+    // Selected by a click; Q turns it by the snapping angle (15° when
+    // free), E back.
+    click_pos(&h, ring);
+    h.run_steps(2);
+    assert!(h.state().area_views[&area].start_selected);
+    h.key_press(egui::Key::Q);
+    h.run_steps(2);
+    let (_, _, facing) = entry(&mut h);
+    assert!((facing - 15f32.to_radians()).abs() < 1e-3, "turned to {}", facing.to_degrees());
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Turn Start Location"));
+    h.key_press(egui::Key::E);
+    h.run_steps(2);
+    assert!(entry(&mut h).2.abs() < 1e-3);
+    // Its menu (a right click on it) has Adjust Location, for it: its
+    // bearing as an object's (facing east is 270°).
+    h.hover_at(ring);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: ring,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    h.get_by_label("Adjust Location…").click();
+    h.run_steps(3);
+    let adjust = h.state().adjust.clone().expect("the window");
+    assert!(adjust.start && adjust.objects.is_empty());
+    assert!((adjust.bearing - 270.0).abs() < 1e-3, "bearing {}", adjust.bearing);
+    assert!(h.query_by_label("The module's start location").is_some());
+    // X to 20, the bearing to 0 (north), and OK.
+    let mut a = adjust;
+    (a.position.x, a.bearing, a.changed) = (20.0, 0.0, [true, false, false, true]);
+    h.state_mut().adjust = Some(a);
+    h.run_steps(1);
+    h.get_by_label("OK").click();
+    h.run_steps(3);
+    let (x, y, facing) = entry(&mut h);
+    assert!((x - 20.0).abs() < 1e-3 && (y - 31.0).abs() < 1e-3, "at {x}, {y}");
+    assert!((facing - std::f32::consts::FRAC_PI_2).abs() < 1e-3, "faces {facing}");
+    assert!(h.state().adjust.is_none());
+}
+
 /// What the area view's toolbar hides stays hidden in every area view,
 /// as in Aurora (a builder's report): in the other open ones, and in one
 /// opened later (from the settings, so in the next run too).
