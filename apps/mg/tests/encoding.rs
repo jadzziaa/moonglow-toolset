@@ -95,7 +95,7 @@ fn a_module_s_encoding_table_is_the_text_of_its_commands() {
     assert!(ok);
     let (ok, _) = mg(&root, Some(&user), &["gff", text, "--module", module, "-o", back]);
     assert!(ok);
-    assert_eq!(std::fs::read(&back).unwrap(), bytes, "the same bytes back");
+    assert_eq!(std::fs::read(back).unwrap(), bytes, "the same bytes back");
 
     // Its name published to NWSync in the table's letters.
     let repository = dir.join("nwsync");
