@@ -323,10 +323,23 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   posed (three times a tile's model a frame: the pose, the lights, the
   meshes), lower-casing each node's name. Bound once when the model is
   loaded, a scene's 0.5 ms would be less. (S)
-- **Pictures that differ from run to run:** 10 of 192 pictures of the
-  campaigns' areas differ by a few pixels to a few hundred between two
-  runs of the same program. Something is ordered by chance (a hash map's
-  order, likely among lights or an object's parts). Not looked for. (S)
+- **Pictures that differ from run to run, with the game's shaders:**
+  with Moonglow's own shader an area's picture is the same from run to
+  run (`render_area` twice, in two processes: all 140 of Tyrants of the
+  Moonsea's areas and the 118 of Prelude and Chapter 1, 2026-10-29).
+  With the game's (`MG_SHADERS=1`, the app's default), 8 of Tyrants'
+  140 differ, by 1 to 366 pixels and 2 to 15 of 255 (area085,
+  aquarium001, area083, area091, dm_thentnpc1 to 3, ir_roadtovoonlar):
+  single pixels scattered over dark ground, a different few each run.
+  In one process the same scene drawn again, by the same renderer or a
+  new one, is the same to the bit; across runs the scene's lights are
+  the same, and so are every pipeline's naga modules and bind group
+  layouts. So something set once a process in the game shaders' draw
+  path changes the values drawn by a hair (a `std` HashMap's order, the
+  likeliest: `game.rs`'s `pipelines` and `value_ids`, its worker's
+  `programs`; or the order the worker finishes pipelines in). Fixed, the
+  game shaders' picture tests could compare to the bit. In `mg-render`:
+  the renderer's CI branch. (S-M)
 - **The frame test only times:** `frame_perf.rs` names the views over
   the budget and fails nothing. With budgets it would keep them. (S)
 
