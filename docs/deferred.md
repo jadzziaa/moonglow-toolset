@@ -1251,19 +1251,18 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   a helmet whose model (`helm_129`) is in neither download, and is
   drawn headless; what the game draws for a missing helmet model isn't
   known. (needs the file) (from builders' reports after 1.10.1)
-- **Emitters start as they look once going:** an object's emitter new to
-  the view is run twenty seconds ahead (a wide fog that lets out eight
-  slow particles a second showed next to nothing for a quarter of a
-  minute after every change to the area). The nearest 256 objects with
-  emitters are simulated (it was the first 96 listed). Tiles' emitters
-  start from nothing still. That the fog is as dense as the game's from
-  above wasn't compared with the client. Particles show only while
-  Animations is on, and of at most 128 tiles. A tile's emitters take
+- **Emitters against the client:** an emitter new to the view, an
+  object's or a tile's, is run twenty seconds ahead so that it shows as
+  it does once going (`scene.rs`, `PARTICLES_AHEAD`), and the nearest
+  256 objects and 128 tiles with emitters are simulated while Animations
+  is on (`nearest`). Not compared with the client: that a wide fog
+  (eight slow particles a second) is as dense from above as the game's,
+  and Magic Sparks, which show faintly from above. A tile's emitters take
   their keys from the animations playing on it as one animation as long
-  as the longest (keys that change over a shorter loop would run slow;
-  the game's are constant). Magic Sparks show faintly from above; not
-  compared with the client. (S)
-  (from builders' reports after 1.14.1)
+  as the longest (the game's tiles' keys are constant; one that changed
+  over a shorter loop would run slow). (S) (waits on the client batch:
+  the fog placeable and Magic Sparks seen from above in the client and
+  in the area view, side by side) (from builders' reports after 1.14.1)
 - **The game's shaders, compiled (M0 of [the shaders
   proposal](shaders-proposal.md)):** what the compiler (`mg-shader`) and
   Verify's `shader-compile` check leave out. (from M0, 2026-10-21)

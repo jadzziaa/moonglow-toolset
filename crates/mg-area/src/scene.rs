@@ -54,8 +54,18 @@ fn bare((min, max): (Vec3, Vec3)) -> bool {
 const PARTICLES_AHEAD: f32 = 20.0;
 const PARTICLES_AHEAD_STEP: f32 = 0.25;
 
-/// And how many tiles'.
+/// And how many tiles' (the nearest the view).
 const MAX_PARTICLE_TILES: usize = 128;
+
+/// Of `places` (each an index and where it is), the indices of the `most`
+/// nearest `eye`, nearest first: the emitters given particles.
+fn nearest(places: impl Iterator<Item = (usize, Vec3)>, eye: Vec3, most: usize) -> Vec<usize> {
+    let mut by: Vec<(f32, usize)> = places.map(|(i, p)| (p.distance_squared(eye), i)).collect();
+    // (Ties by index: the same ones whatever order they came in.)
+    by.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+    by.truncate(most);
+    by.into_iter().map(|(_, i)| i).collect()
+}
 
 /// How to show the area.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -654,22 +664,15 @@ impl AreaScene {
         // [`MAX_PARTICLE_OBJECTS`] the far ones go without.
         let eye = camera.inverse().w_axis.truncate();
         let emits = |n: &mg_mdl::Node| matches!(n.kind, mg_mdl::NodeKind::Emitter(_));
-        let mut emitting: Vec<(f32, usize)> = area
-            .objects
-            .iter()
-            .zip(&self.objects)
-            .enumerate()
+        let emitting = (area.objects.iter().zip(&self.objects).enumerate())
             .filter(|(_, (o, shown))| {
                 view.shows(o.kind)
                     && shown
                         .as_ref()
                         .is_some_and(|s| s.composed.base().model.nodes.iter().any(emits))
             })
-            .map(|(i, (o, _))| (o.position.distance_squared(eye), i))
-            .collect();
-        emitting.sort_by(|a, b| a.0.total_cmp(&b.0));
-        emitting.truncate(MAX_PARTICLE_OBJECTS);
-        for (_, i) in emitting {
+            .map(|(i, (o, _))| (i, o.position));
+        for i in nearest(emitting, eye, MAX_PARTICLE_OBJECTS) {
             let (o, Some(shown)) = (&area.objects[i], &self.objects[i]) else { continue };
             let key = (i, Arc::as_ptr(shown) as usize);
             if self.failed.borrow().contains(&key.1) {
@@ -708,15 +711,15 @@ impl AreaScene {
         }
         // The tiles' own: a fountain's water, a forge's sparks. They emit
         // as the animations playing on the tile have them (its animation
-        // loops switched on in Tile Properties, day or night).
-        let mut tiles = 0;
-        for (i, (tile, loaded)) in area.tiles.iter().zip(&self.tiles).enumerate() {
-            let Some(loaded) = loaded else { continue };
+        // loops switched on in Tile Properties, day or night). Those
+        // nearest the view: past [`MAX_PARTICLE_TILES`] the far ones go
+        // without (it was the first listed, wherever the camera was).
+        let emitting = (area.tiles.iter().zip(&self.tiles).enumerate())
+            .filter(|(_, (_, l))| l.as_ref().is_some_and(|l| l.gpu.model.nodes.iter().any(emits)))
+            .map(|(i, (t, _))| (i, t.transform().w_axis.truncate()));
+        for i in nearest(emitting, eye, MAX_PARTICLE_TILES) {
+            let (tile, Some(loaded)) = (&area.tiles[i], &self.tiles[i]) else { continue };
             let model = &*loaded.gpu.model;
-            let emits = |n: &mg_mdl::Node| matches!(n.kind, mg_mdl::NodeKind::Emitter(_));
-            if tiles >= MAX_PARTICLE_TILES || !model.nodes.iter().any(emits) {
-                continue;
-            }
             // (Told apart from the objects' by counting down from the top.)
             let key = (usize::MAX - i, Arc::as_ptr(loaded) as usize);
             if self.failed.borrow().contains(&key.1) {
@@ -768,7 +771,6 @@ impl AreaScene {
             });
             match drawn {
                 Some(batches) => {
-                    tiles += 1;
                     seen.push(key);
                     out.extend(batches);
                 }
@@ -1297,6 +1299,23 @@ mod tests {
         assert!(!bare(potion));
         assert!(!bare(floor), "flat, but large");
         assert!(bare((Vec3::splat(f32::MAX), Vec3::splat(f32::MIN))), "no vertex");
+    }
+
+    /// The emitters given particles are the nearest the camera, objects'
+    /// and tiles' alike: a large area's tiles with emitters were the
+    /// first 128 listed, the south-west's, wherever the camera was.
+    #[test]
+    fn the_emitters_nearest_the_camera_get_particles() {
+        // A row of 300 tiles' places, west to east, the eye at the east end.
+        let places = (0..300).map(|i| (i, Vec3::new(i as f32 * 10.0 + 5.0, 5.0, 0.0)));
+        let eye = Vec3::new(3000.0, 5.0, 20.0);
+        let chosen = nearest(places, eye, MAX_PARTICLE_TILES);
+        assert_eq!(chosen.len(), MAX_PARTICLE_TILES);
+        assert_eq!(chosen[0], 299, "the nearest first");
+        assert!(chosen.iter().all(|&i| i >= 300 - MAX_PARTICLE_TILES), "{chosen:?}");
+        // Fewer than the most: all of them; ties in the order of the list.
+        let two = [(5, Vec3::X), (2, -Vec3::X)].into_iter();
+        assert_eq!(nearest(two, Vec3::ZERO, 8), vec![2, 5]);
     }
 
     #[test]
