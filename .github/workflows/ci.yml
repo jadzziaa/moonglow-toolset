@@ -127,6 +127,16 @@ jobs:
         # 22 of them; the Lint job's clippy checks them).
         env:
           MOONGLOW_REQUIRE_DXC: ${{ runner.os == 'Windows' && '1' || '' }}
-        run: cargo test --workspace --lib --bins --tests
+        # --timings: when each crate and test binary was built, how long it
+        # took and what waited on it (the build is most of the job).
+        run: cargo test --workspace --lib --bins --tests --timings
       - name: Documentation tests
         run: cargo test --workspace --doc
+      - name: Build timings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: timings-${{ matrix.os }}
+          path: target/cargo-timings/cargo-timing.html
+          retention-days: 14
+          if-no-files-found: ignore
