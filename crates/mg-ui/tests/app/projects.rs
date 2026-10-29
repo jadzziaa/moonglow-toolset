@@ -794,6 +794,80 @@ fn a_pull_s_burst_of_changes_is_read_off_the_window_s_thread() {
     }
 }
 
+/// A module kept in one file (a `.mod`) that another program saves while
+/// it is open: the watch hears it at once, without the window being asked,
+/// and what changed in it is read again, resource by resource; one with
+/// unsaved changes here too is asked about, and Save doesn't write over
+/// it until it is answered.
+#[test]
+fn a_mod_saved_by_another_program_is_read_again() {
+    use mg_module::new::new_module;
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut m = new_module(&game, "Castle", &mut fastrand::Rng::with_seed(7)).unwrap();
+    let (a, b) = (
+        ResKey::parse("castle_a", ResType::NSS).unwrap(),
+        ResKey::parse("castle_b", ResType::NSS).unwrap(),
+    );
+    m.set(a, b"void main() { int a; }\n".to_vec());
+    m.set(b, b"void main() { int b; }\n".to_vec());
+    let path = mg_testkit::scratch_dir("ui-mod-outside").join("castle.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = harness(app, 1100.0, 800.0);
+    // (The watch begins, and its first look finds nothing.)
+    let started = std::time::Instant::now();
+    while started.elapsed() < std::time::Duration::from_millis(600) {
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let in_module = |h: &Harness<'_, Moonglow>, k: &ResKey| {
+        h.state().ws.as_ref().unwrap().module.get(k).map(<[u8]>::to_vec)
+    };
+    // Another program saves it: read again within a second or two.
+    let mut theirs = Module::open(&path).unwrap();
+    theirs.set(a, b"void main() { int theirs; }\n".to_vec());
+    theirs.save().unwrap();
+    let started = std::time::Instant::now();
+    while in_module(&h, &a).unwrap() != b"void main() { int theirs; }\n" {
+        assert!(started.elapsed().as_secs() < 10, "the watch hears it");
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(started.elapsed().as_secs() < 3, "{:?} after the save", started.elapsed());
+    assert!(!h.state().ws.as_ref().unwrap().is_modified(), "read, not an unsaved change");
+    // Changed here and there: asked about, and not written over.
+    let edit =
+        mg_edit::Edit::SetResource { key: b, data: Some(b"void main() { int ours; }\n".to_vec()) };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Ours", vec![edit])));
+    h.run_steps(2);
+    let mut theirs = Module::open(&path).unwrap();
+    theirs.set(b, b"void main() { int theirs, too; }\n".to_vec());
+    theirs.save().unwrap();
+    let started = std::time::Instant::now();
+    while h.state().outside_conflicts().is_empty() {
+        assert!(started.elapsed().as_secs() < 10, "the watch hears it");
+        h.step();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert_eq!(h.state().outside_conflicts(), [path.join("castle_b.nss")]);
+    assert_eq!(in_module(&h, &b).unwrap(), b"void main() { int ours; }\n");
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run_steps(3);
+    let on_disk = Module::open(&path).unwrap();
+    assert_eq!(on_disk.get(&b).unwrap(), b"void main() { int theirs, too; }\n", "not written over");
+    // Kept as Moonglow has it: then saved.
+    h.get_by_label("Keep Moonglow's").click();
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run_steps(3);
+    let on_disk = Module::open(&path).unwrap();
+    assert_eq!(on_disk.get(&b).unwrap(), b"void main() { int ours; }\n");
+}
+
 /// A nasher project's locks stay out of its files: Lock and Save leave the
 /// area's JSON as it was and keep the lock in Moonglow's folder; the area
 /// changed outside is read again (no conflict) with the lock still on; and

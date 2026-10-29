@@ -4827,6 +4827,10 @@ impl Moonglow {
         if self.busy() {
             return;
         }
+        // (Scripts read again from outside, compiled a few a frame.)
+        if self.compile_outside_step() {
+            ui.ctx().request_repaint();
+        }
         let every = std::time::Duration::from_secs(3);
         let now = std::time::Instant::now();
         let off = self.settings.no_auto_reload || self.game.is_none();

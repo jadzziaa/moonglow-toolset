@@ -111,7 +111,7 @@ impl FolderFiles {
     /// Takes what [`OutsideScan::run`] found (see
     /// [`crate::nasher::Project::outside`]'s).
     pub(crate) fn outside_found(&mut self, found: OutsideFound) -> (Vec<Outside>, Vec<String>) {
-        if found.project {
+        if found.project || found.archive.is_some() {
             return (Vec::new(), Vec::new());
         }
         for (key, was, s) in found.settled {

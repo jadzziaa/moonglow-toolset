@@ -44,8 +44,19 @@ pub(crate) struct Known {
 
 #[derive(Debug, Clone)]
 pub(crate) enum Kind {
-    Project { root: PathBuf, target: Box<Target>, conversion: Conversion },
-    Folder { dir: PathBuf },
+    Project {
+        root: PathBuf,
+        target: Box<Target>,
+        conversion: Conversion,
+    },
+    Folder {
+        dir: PathBuf,
+    },
+    /// A module kept in one file, its time and size when last read.
+    Archive {
+        path: PathBuf,
+        stamp: Option<Stamp>,
+    },
 }
 
 /// What is known of a module's files, to look for those changed outside
@@ -72,6 +83,8 @@ pub struct OutsideFound {
     /// there).
     pub(crate) left_out: Option<(Vec<PathBuf>, bool)>,
     pub(crate) project: bool,
+    /// An archive's look, that read it: its time and size then.
+    pub(crate) archive: Option<Stamp>,
 }
 
 impl OutsideScan {
@@ -93,6 +106,7 @@ impl OutsideScan {
                 crate::nasher::scan(&self.files, root, target, *conversion, self.only.as_ref())
             }
             Kind::Folder { dir } => crate::folder::scan(&self.files, dir, self.only.as_ref()),
+            Kind::Archive { path, stamp } => crate::archive_file::scan(&self.files, path, *stamp),
         }
     }
 }

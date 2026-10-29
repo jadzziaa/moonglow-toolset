@@ -49,6 +49,8 @@ pub(crate) struct OutsideState {
     palettes: Option<(PathBuf, Vec<ResKey>)>,
     /// What a watch asks for a frame with, when it hears a change.
     pub(crate) repaint: Option<egui::Context>,
+    /// Scripts read again being compiled, a few each frame.
+    compiling: Option<Compiling>,
     /// The watches walk the files rather than be told by the system (a
     /// test of the walk).
     pub(crate) walk: bool,
@@ -383,13 +385,24 @@ fn system_watch(
     })
     .ok()?;
     let mode = if deep { RecursiveMode::Recursive } else { RecursiveMode::NonRecursive };
+    let mut watched: Vec<(&Path, RecursiveMode)> = Vec::new();
     for path in paths {
         // (A file under a folder watched whole is told of with it.)
         if deep && paths.iter().any(|p| p != path && path.starts_with(p)) {
             continue;
         }
-        let what = if path.exists() { path.as_path() } else { path.parent()? };
-        let mode = if what.is_dir() { mode } else { RecursiveMode::NonRecursive };
+        // A file by its folder: one written whole and moved into place (a
+        // module's save, a hak's build) is another file, which a watch of
+        // the first doesn't hear of.
+        let (what, mode) = match path.is_dir() {
+            true => (path.as_path(), mode),
+            false => (path.parent()?, RecursiveMode::NonRecursive),
+        };
+        if !watched.iter().any(|(w, _)| *w == what) {
+            watched.push((what, mode));
+        }
+    }
+    for (what, mode) in watched {
         watcher.watch(what, mode).ok()?;
     }
     Some(watcher)
@@ -426,12 +439,14 @@ fn named(changes: &[Outside]) -> String {
 }
 
 impl Moonglow {
-    /// The module's folder or nasher project, if it has one.
+    /// The module's folder or nasher project, or the file it is kept in
+    /// (a `.mod`), if it has one.
     fn module_root(&self) -> Option<PathBuf> {
         self.ws.as_ref().and_then(|ws| {
             let m = &ws.module;
             (m.project.as_ref().map(|p| p.root().to_path_buf()))
                 .or_else(|| m.folder.as_ref().map(|f| f.dir().to_path_buf()))
+                .or_else(|| m.archive.as_ref().map(|a| a.path().to_path_buf()))
         })
     }
 
@@ -443,23 +458,25 @@ impl Moonglow {
         let Some(root) = self.module_root() else {
             self.outside.watch = None;
             self.outside.looking = None;
-            // (A module kept in one file: its own project files beside it,
-            // `krezk.moonglow.toml`, looked at as they are, a few small
-            // files.)
-            if self.ws.as_ref().is_some_and(|ws| {
-                matches!(ws.module.location, Some(mg_module::ModuleLocation::Archive(_)))
-            }) {
-                self.reread_project_file();
-            }
             return;
         };
+        // A module kept in one file: the file (and its own project files
+        // beside it, `krezk.moonglow.toml`, looked at as they are, a few
+        // small files).
+        let archive = self.ws.as_ref().is_some_and(|ws| ws.module.archive.is_some());
+        if archive {
+            self.reread_project_file();
+        }
         // (And the builder's own project file, in a hidden folder the
         // walk passes over.)
-        let paths = vec![root.clone(), mg_module::project_file::ProjectFile::user_path(&root)];
+        let paths = match archive {
+            true => vec![root.clone()],
+            false => vec![root.clone(), mg_module::project_file::ProjectFile::user_path(&root)],
+        };
         if self.outside.watch.as_ref().is_none_or(|w| w.paths != paths) {
             let (every, walk, repaint) =
                 (Duration::from_secs(3), self.outside.walk, self.outside.repaint.clone());
-            self.outside.watch = Some(Watch::start(paths, true, every, walk, repaint));
+            self.outside.watch = Some(Watch::start(paths, !archive, every, walk, repaint));
         }
         let watch = self.outside.watch.as_ref().expect("just made");
         // (A watch without its thread says nothing: looked at each time,
@@ -554,8 +571,12 @@ impl Moonglow {
         self.outside.looking.is_some()
     }
 
-    /// What the status bar says of a look under way that takes a while.
+    /// What the status bar says of a look under way that takes a while,
+    /// or of scripts read again being compiled.
     pub(crate) fn looking_note(&self) -> Option<&'static str> {
+        if self.outside.compiling.as_ref().is_some_and(|c| c.queue.len() > 1) {
+            return Some("Compiling scripts changed outside Moonglow…");
+        }
         let looking = self.outside.looking.as_ref()?;
         (looking.started.elapsed() > Duration::from_millis(400))
             .then_some("Reading files changed outside Moonglow…")
@@ -609,7 +630,8 @@ impl Moonglow {
             return false;
         };
         let here = (ws.module.project.as_ref().map(|p| p.root()))
-            .or_else(|| ws.module.folder.as_ref().map(|f| f.dir()));
+            .or_else(|| ws.module.folder.as_ref().map(|f| f.dir()))
+            .or_else(|| ws.module.archive.as_ref().map(|a| a.path()));
         if ws.is_modified() || here != Some(root.as_path()) {
             self.outside.palettes = None;
             return false;
@@ -847,8 +869,11 @@ impl Moonglow {
     /// Options › Script Editor › Automatically Compile Scripts on Save: a
     /// script another program saved is compiled as one saved here is, so
     /// that its compiled script is not the older one, and so are the
-    /// scripts that include it. (Not a great many at once, a checkout's,
-    /// which would hold the window: Compile All is for those.)
+    /// scripts that include it: a few each frame
+    /// ([`Moonglow::compile_outside_step`]), however many a checkout
+    /// changed, the window taking input meanwhile. (A job, which holds the
+    /// window, compiles them only for an external compiler, which is run
+    /// once for them all.)
     fn compile_outside(&mut self, changes: &[Outside]) {
         if !self.settings.auto_compile {
             return;
@@ -868,14 +893,85 @@ impl Moonglow {
             ));
             return;
         }
+        let Some(root) = self.module_root() else { return };
+        let Some(ws) = self.ws.as_mut() else { return };
+        if let Err(e) = ws.flush() {
+            self.log.error(e.to_string());
+            return;
+        }
         // (And the scripts that include them.)
-        let Some(scripts) = self.with_includers(&scripts) else { return };
+        let mut all = scripts.clone();
+        all.extend(mg_module::refs::includers(&ws.module, &scripts));
+        if self.settings.external_compiler.is_some() && all.len() > 1 {
+            self.log.info(format!(
+                "{} scripts (those changed and those that include them) are compiled in the \
+                 background",
+                all.len()
+            ));
+            self.compile_job(Some(all));
+            return;
+        }
+        let compiling = match self.outside.compiling.take() {
+            Some(c) if c.root == root => c,
+            _ => Compiling { root, ..Compiling::default() },
+        };
+        let mut compiling = compiling;
+        for key in all {
+            if !compiling.queue.contains(&key) {
+                compiling.queue.push_back(key);
+            }
+        }
+        self.outside.compiling = Some(compiling);
+        self.compile_outside_step();
+    }
+
+    /// Compiles some of the scripts read again from outside that are still
+    /// to be compiled: for a few milliseconds of the frame (one at least);
+    /// once none is left, puts what they made in the module (as made from
+    /// it where the module has no unsaved changes, a folder's compiled
+    /// scripts written beside them; else as one step to undo) and says
+    /// so. A script changed meanwhile (typed, read again) is left out of
+    /// what is put in: it is compiled again when it is saved. Returns
+    /// whether any is still to be compiled.
+    pub(crate) fn compile_outside_step(&mut self) -> bool {
+        let Some(mut c) = self.outside.compiling.take() else { return false };
+        if self.module_root().as_ref() != Some(&c.root) || self.game.is_none() {
+            return false;
+        }
+        let started = Instant::now();
+        while let Some(key) = c.queue.pop_front() {
+            let source = self.ws.as_ref().and_then(|ws| ws.module.shared(&key).cloned());
+            crate::script_view::compile_edits(self, &[key], &mut c.made);
+            c.sources.push((key, source));
+            if started.elapsed() >= Compiling::BUDGET {
+                break;
+            }
+        }
+        if !c.queue.is_empty() {
+            self.outside.compiling = Some(c);
+            return true;
+        }
+        let Compiling { sources, mut made, .. } = c;
+        let Some(ws) = self.ws.as_mut() else { return false };
+        if let Err(e) = ws.flush() {
+            self.log.error(e.to_string());
+            return false;
+        }
+        let changed: Vec<ResKey> = (sources.iter())
+            .filter(|(k, was)| match (ws.module.shared(k), was) {
+                (Some(now), Some(was)) => !Arc::ptr_eq(now, was),
+                (None, None) => false,
+                _ => true,
+            })
+            .map(|(k, _)| *k)
+            .collect();
+        made.drop_scripts(&changed);
         // A module with no unsaved changes has none after: what is
         // compiled is made from the files as they are, and a folder's
         // compiled scripts are written beside them at once (a project
         // keeps none: they are build output).
-        let clean = self.ws.as_ref().is_some_and(|ws| !ws.is_modified());
-        let (compiled, _) = crate::script_view::compile_stale_into(self, &scripts, clean);
+        let clean = !ws.is_modified();
+        let (compiled, _) = crate::script_view::put_compiled(self, made, clean);
         if clean && !compiled.is_empty() {
             let made: Vec<ResKey> = (compiled.iter())
                 .filter_map(|n| mg_core::ResRef::from_str(n).ok())
@@ -891,10 +987,10 @@ impl Moonglow {
                 crate::transfer::listed(&compiled)
             ));
         }
-        let failed: Vec<String> = scripts
-            .iter()
-            .filter(|k| !compiled.contains(&k.resref.to_string()))
-            .filter(|k| self.script_fails(**k))
+        let failed: Vec<String> = (sources.iter())
+            .map(|(k, _)| *k)
+            .filter(|k| !changed.contains(k) && !compiled.contains(&k.resref.to_string()))
+            .filter(|k| self.script_fails(*k))
             .map(|k| k.resref.to_string())
             .collect();
         if !failed.is_empty() {
@@ -903,7 +999,30 @@ impl Moonglow {
                 crate::transfer::listed(&failed)
             ));
         }
+        false
     }
+
+    /// Whether scripts read again from outside are being compiled.
+    pub fn compiling_outside(&self) -> bool {
+        self.outside.compiling.is_some()
+    }
+}
+
+/// Scripts read again from outside being compiled, a few each frame
+/// ([`Moonglow::compile_outside_step`]).
+#[derive(Debug, Default)]
+pub(crate) struct Compiling {
+    /// The module's folder or project they are of.
+    root: PathBuf,
+    queue: std::collections::VecDeque<ResKey>,
+    /// Each compiled, with its source as it was compiled.
+    sources: Vec<(ResKey, Option<Arc<[u8]>>)>,
+    made: crate::script_view::Compiled,
+}
+
+impl Compiling {
+    /// How long a frame compiles for.
+    const BUDGET: Duration = Duration::from_millis(4);
 }
 
 /// Changed Outside Moonglow: the files changed outside that Moonglow has
@@ -1115,6 +1234,13 @@ mod tests {
         std::fs::write(dir.join("my.hak"), "ERF again").unwrap();
         let hak = heard(&watch).expect("the hak written is said");
         assert_eq!(hak.paths.iter().collect::<Vec<_>>(), [&dir.join("my.hak")]);
+        // Written whole and moved into place, twice: heard each time.
+        for n in 0..2 {
+            std::fs::write(dir.join("my.hak.tmp"), format!("ERF {n}")).unwrap();
+            std::fs::rename(dir.join("my.hak.tmp"), dir.join("my.hak")).unwrap();
+            let moved = heard(&watch).expect("the hak moved into place is said");
+            assert!(moved.paths.contains(&dir.join("my.hak")), "{moved:?}");
+        }
         std::fs::write(dir.join("override/y.2da"), "y").unwrap();
         assert!(
             heard(&watch).expect("a file in override").paths.contains(&dir.join("override/y.2da"))
