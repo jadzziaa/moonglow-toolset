@@ -180,7 +180,7 @@ fn an_object_s_preview_is_its_kind_s() {
 /// commoner in the cloak the client showed taken off (limited to bards,
 /// sorcerers and wizards), and in the same cloak without its properties,
 /// which it wears. An armor's own preview is a body that wears it
-/// whatever. Both drawn to `target/test-output/previews/commoner_cloak_*.png`.
+/// whatever. Both drawn to `target/test-output/previews-worn/commoner_cloak_*.png`.
 #[test]
 fn what_a_creature_may_not_wear_is_not_drawn() {
     let Some(game) = game() else {
@@ -224,7 +224,7 @@ fn what_a_creature_may_not_wear_is_not_drawn() {
         let data = rm.get_named(name, ResType::MDL).ok()?;
         Model::read(&data).ok().map(Arc::new)
     };
-    let dir = mg_testkit::scratch_dir("previews");
+    let dir = mg_testkit::scratch_dir("previews-worn");
     let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
     for (name, preview) in [("worn", &worn), ("off", &off)] {
         let c = Composed::new(&gpu, preview, &load).unwrap();

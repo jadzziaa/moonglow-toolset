@@ -2471,8 +2471,7 @@ fn creature_inventory_worn_off() {
     // (The last marked: the cloak's slot comes after the weapons'.)
     let cloak = h
         .get_all_by_label_contains("⚠")
-        .filter(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
-        .next_back();
+        .rfind(|n| n.accesskit_node().role() == egui::accesskit::Role::Button);
     if let Some(cloak) = cloak {
         cloak.hover();
         h.run_steps(30);
