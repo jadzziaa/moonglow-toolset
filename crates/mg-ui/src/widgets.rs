@@ -590,16 +590,17 @@ fn value_choice(
     if d.other {
         ui.horizontal(|ui| {
             ui.add(egui::TextEdit::singleline(value).desired_width(width - 28.0));
-            ui.menu_button("▾", |ui| {
-                for x in &c.list {
-                    if ui.button(shown(x)).clicked() {
-                        *value = x.value.clone();
-                        ui.close();
-                    }
-                }
-            })
-            .response
-            .on_hover_text("Its values (variables.toml)");
+            // (Its values to choose from, the arrow keys stepping through
+            // them as every dropdown's do.)
+            let values: Vec<String> = c.list.iter().map(|x| x.value.clone()).collect();
+            dropdown(("var-value-offer", row))
+                .selected_text("")
+                .width(24.0)
+                .height(320.0)
+                .show(ui, value, &values, |v| {
+                    c.list.iter().find(|x| x.value == *v).map_or_else(String::new, shown)
+                })
+                .on_hover_text("Its values (variables.toml)");
         });
         return;
     }
@@ -1321,7 +1322,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         window(&p.title).show(&ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Filter");
-                let field = ui.text_edit_singleline(&mut p.filter);
+                let field = SearchField::new(
+                    egui::Id::new(("resref-picker-find", &p.title)),
+                    &mut p.filter,
+                )
+                .hint("ResRef")
+                .width(200.0)
+                .find_over()
+                .show(ui)
+                .response;
                 crate::widgets::autofocus(ui, &field);
             });
             let filter = mg_core::text::Needle::new(&p.filter);
@@ -1796,6 +1805,24 @@ pub(crate) fn spin_number<T: egui::emath::Numeric>(
     spin_with(ui, current, range, 1.0, |d| d)
 }
 
+/// [`spin_with`] on a dialog's own copy of a number (a wizard's, Options',
+/// Adjust Location's), set when it changes: the response is the field's
+/// and its arrows', changed then.
+pub(crate) fn spin_draft<T: egui::emath::Numeric>(
+    ui: &mut Ui,
+    value: &mut T,
+    range: std::ops::RangeInclusive<T>,
+    step: f64,
+    make: impl for<'a> FnOnce(egui::DragValue<'a>) -> egui::DragValue<'a>,
+) -> egui::Response {
+    let mut r = ui.scope(|ui| spin_with(ui, *value, range, step, make));
+    if let Some(v) = r.inner {
+        *value = v;
+        r.response.mark_changed();
+    }
+    r.response
+}
+
 /// How long an arrow is held before it repeats, and how often it does
 /// then (seconds).
 const SPIN_DELAY: f64 = 0.4;
@@ -2025,7 +2052,8 @@ pub(crate) struct SearchField<'a> {
 /// this frame so far ([`search_field_shown`]): what is typed there finds,
 /// and changes nothing.
 pub(crate) fn is_search_field(ctx: &egui::Context, id: egui::Id) -> bool {
-    ctx.data(|x| x.get_temp::<Dialogs>(dialogs_id())).is_some_and(|d| d.searches.contains(&id))
+    ctx.data(|x| x.get_temp::<Dialogs>(dialogs_id()))
+        .is_some_and(|d| d.searches.iter().any(|(s, _)| *s == id))
 }
 
 /// What a [`SearchField`] did: the field's response, and how its keys
@@ -2092,11 +2120,14 @@ impl<'a> SearchField<'a> {
         let here = find.unwrap_or(false) || (find_over && ui.rect_contains_pointer(ui.clip_rect()));
         let find = find_here(ui, here);
         let left = field_keys(ui, id, text, find, down);
-        search_field_shown(ui.ctx(), id);
         let response = ui
             .horizontal(|ui| {
                 let clear = !text.is_empty();
-                let button = if clear { 26.0 } else { 0.0 };
+                // (The field and its clear button fill the room together:
+                // the button as wide as it was last drawn.)
+                let button_id = id.with("clear-width");
+                let button = ui.data(|d| d.get_temp::<f32>(button_id)).unwrap_or(26.0);
+                let button = if clear { button } else { 0.0 };
                 let room = width.unwrap_or(ui.available_width() - button).max(60.0);
                 let r = ui.add(
                     egui::TextEdit::singleline(&mut *text)
@@ -2104,12 +2135,23 @@ impl<'a> SearchField<'a> {
                         .hint_text(hint)
                         .desired_width(room),
                 );
-                if clear && ui.small_button("×").on_hover_text(clear_tip).clicked() {
-                    text.clear();
+                if clear {
+                    let b = ui.small_button("×").on_hover_text(clear_tip);
+                    let wide = b.rect.width() + ui.spacing().item_spacing.x;
+                    if (wide - button).abs() > 0.1 {
+                        ui.data_mut(|d| d.insert_temp(button_id, wide));
+                        ui.ctx().request_repaint();
+                    }
+                    if b.clicked() {
+                        text.clear();
+                    }
                 }
                 r
             })
             .inner;
+        // (After the field: typed in this frame counts for the next
+        // frame's Escape.)
+        search_field_shown(ui.ctx(), id, !text.is_empty());
         Searched { response, left }
     }
 }
@@ -2157,13 +2199,19 @@ struct Dialogs {
     open: Vec<egui::LayerId>,
     seen: Vec<egui::LayerId>,
     escape: bool,
-    /// The search fields shown this frame ([`search_field_shown`]).
-    searches: Vec<egui::Id>,
+    /// The search fields shown this frame ([`search_field_shown`]), and
+    /// whether something was typed in each.
+    searches: Vec<(egui::Id, bool)>,
     /// Whether a search field had the keyboard as the last frame ended
     /// ([`dialogs_end`]), and so whether this frame's Escape is the
-    /// field's (it clears what is typed, then leaves it).
+    /// field's (it clears what is typed, then leaves it); and whether
+    /// something was typed in it.
     searching: bool,
+    searching_text: bool,
     leaves_search: bool,
+    /// This frame's Escape clears a search field's text: the dialog it is
+    /// in stays open ([`escape_on`]).
+    clears_search: bool,
 }
 
 fn dialogs_id() -> egui::Id {
@@ -2194,6 +2242,7 @@ pub(crate) fn dialogs_begin(ctx: &egui::Context) {
     d.escape = ctx.input(|i| i.key_pressed(egui::Key::Escape) && i.modifiers.is_none())
         && !egui::Popup::is_any_open(ctx);
     d.leaves_search = d.escape && d.searching;
+    d.clears_search = d.escape && d.searching_text;
     ctx.data_mut(|x| x.insert_temp(dialogs_id(), d));
 }
 
@@ -2204,6 +2253,7 @@ pub(crate) fn keep_escape(ctx: &egui::Context) {
         let d = x.get_temp_mut_or_default::<Dialogs>(dialogs_id());
         d.escape = false;
         d.leaves_search = false;
+        d.clears_search = false;
     });
 }
 
@@ -2216,14 +2266,19 @@ pub(crate) fn dialogs_end(ctx: &egui::Context) {
     ctx.data_mut(|x| {
         let d = x.get_temp_mut_or_default::<Dialogs>(dialogs_id());
         let searches = std::mem::take(&mut d.searches);
-        d.searching = focused.is_some_and(|f| searches.contains(&f));
+        let typed = focused.and_then(|f| searches.iter().find(|(id, _)| *id == f));
+        d.searching = typed.is_some();
+        d.searching_text = typed.is_some_and(|(_, text)| *text);
     });
 }
 
-/// A search field (`id`, its text field's) shown this frame: Escape in it
-/// is its own ([`escape_left_search`]).
-fn search_field_shown(ctx: &egui::Context, id: egui::Id) {
-    ctx.data_mut(|x| x.get_temp_mut_or_default::<Dialogs>(dialogs_id()).searches.push(id));
+/// A search field (`id`, its text field's) shown this frame, `typed` in or
+/// not: Escape in it is its own ([`escape_left_search`]), and a dialog it
+/// is in stays open while it clears what is typed ([`escape_on`]).
+fn search_field_shown(ctx: &egui::Context, id: egui::Id, typed: bool) {
+    ctx.data_mut(|x| {
+        x.get_temp_mut_or_default::<Dialogs>(dialogs_id()).searches.push((id, typed));
+    });
 }
 
 /// Whether this frame's Escape was in a search field (a list's filter, an
@@ -2236,14 +2291,16 @@ pub(crate) fn escape_left_search(ctx: &egui::Context) -> bool {
 
 /// Escape for the dialog on `layer`: true when it was pressed and this is
 /// the dialog opened last. Each dialog asks every frame it shows, which is
-/// also how it is known to be open.
+/// also how it is known to be open. Not while it clears what was typed
+/// in a search field of it (Open Script's name, a wizard's Find): the next
+/// Escape closes it.
 fn escape_on(ctx: &egui::Context, layer: egui::LayerId) -> bool {
     ctx.data_mut(|x| {
         let d = x.get_temp_mut_or_default::<Dialogs>(dialogs_id());
         if !d.seen.contains(&layer) {
             d.seen.push(layer);
         }
-        d.escape && d.open.last() == Some(&layer)
+        d.escape && !d.clears_search && d.open.last() == Some(&layer)
     })
 }
 
@@ -2768,8 +2825,14 @@ impl<'a> RowChoice<'a> {
             // had been scrolled to.)
             let mut narrowed = false;
             if long {
-                narrowed =
-                    ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Filter")).changed();
+                // (Escape clears what is typed, then closes the list.)
+                let before = filter.clone();
+                let searched =
+                    SearchField::new(filter_id.with("field"), &mut filter).hint("Filter").show(ui);
+                narrowed = filter != before;
+                if searched.left == Some(FilterLeft::Escape) {
+                    ui.close();
+                }
                 ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
             }
             // (Case and accents aside: `arbol` finds `Árbol`.)
@@ -2855,17 +2918,9 @@ impl<'a> RowChoice<'a> {
 /// shows them), Page Up and Page Down ten away, Home and End the first
 /// and last. The row chosen so.
 pub(crate) fn arrow_pick(ui: &Ui, r: &egui::Response, rows: &[i64], current: i64) -> Option<i64> {
-    if r.clicked() {
-        r.request_focus();
-    }
-    if !r.has_focus() || rows.is_empty() {
+    if !hold_arrows(ui, r) || rows.is_empty() {
         return None;
     }
-    claim_arrows(ui, r);
-    // (The arrows are the list's while it has the focus, not egui's way
-    // from one widget to the next.)
-    let arrows = egui::EventFilter { vertical_arrows: true, ..Default::default() };
-    ui.memory_mut(|m| m.set_focus_lock_filter(r.id, arrows));
     let last = rows.len() as i64 - 1;
     let at = rows.iter().position(|&row| row == current).map(|a| a as i64);
     let to = ui.input(|i| {
@@ -2888,6 +2943,22 @@ pub(crate) fn arrow_pick(ui: &Ui, r: &egui::Response, rows: &[i64], current: i64
         }
     })?;
     rows.get(to as usize).copied().filter(|&row| row != current)
+}
+
+/// A list of choices' box `r` takes the keyboard when clicked, and the
+/// arrow keys while it has it (not egui's way from one widget to the
+/// next): whether it has it.
+fn hold_arrows(ui: &Ui, r: &egui::Response) -> bool {
+    if r.clicked() {
+        r.request_focus();
+    }
+    if !r.has_focus() {
+        return false;
+    }
+    claim_arrows(ui, r);
+    let arrows = egui::EventFilter { vertical_arrows: true, ..Default::default() };
+    ui.memory_mut(|m| m.set_focus_lock_filter(r.id, arrows));
+    true
 }
 
 /// (Where the list of choices with the keyboard is kept: [`choice_has_keys`].)
@@ -2979,11 +3050,15 @@ pub(crate) fn arrow_step<T: PartialEq + Clone>(
 /// builder over egui's combo box, `id_salt` its id.
 pub(crate) struct Dropdown {
     combo: egui::ComboBox,
+    /// Its id salt as an id: where [`Dropdown::show_menu`] keeps its keys.
+    salt: egui::Id,
+    stays_open: bool,
 }
 
 /// A [`Dropdown`] with the id `id_salt`.
 pub(crate) fn dropdown(id_salt: impl egui::AsIdSalt) -> Dropdown {
-    Dropdown { combo: egui::ComboBox::from_id_salt(id_salt) }
+    let salt = egui::Id::new(&id_salt);
+    Dropdown { combo: egui::ComboBox::from_id_salt(id_salt), salt, stays_open: false }
 }
 
 /// A [`Dropdown`] with `label` after its box (and naming it).
@@ -2991,7 +3066,8 @@ pub(crate) fn dropdown_labelled(
     id_salt: impl egui::AsIdSalt,
     label: impl Into<egui::WidgetText>,
 ) -> Dropdown {
-    Dropdown { combo: egui::ComboBox::new(id_salt, label) }
+    let salt = egui::Id::new(&id_salt);
+    Dropdown { combo: egui::ComboBox::new(id_salt, label), salt, stays_open: false }
 }
 
 impl Dropdown {
@@ -3016,6 +3092,7 @@ impl Dropdown {
     /// Open until a click lands outside it (a list of ticks, not one choice).
     pub(crate) fn stays_open(mut self) -> Self {
         self.combo = self.combo.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+        self.stays_open = true;
         self
     }
 
@@ -3053,21 +3130,138 @@ impl Dropdown {
         rows: impl FnOnce(&mut Ui, &mut T),
     ) -> egui::Response {
         let r = self.combo.show_ui(ui, |ui| rows(ui, current)).response;
-        if r.clicked() || r.has_focus() {
+        // (The options read only when an arrow key is pressed: not each
+        // frame the box has the keys.)
+        let keyed = ui.input(|i| {
+            use egui::Key;
+            [Key::ArrowDown, Key::ArrowUp, Key::PageDown, Key::PageUp, Key::Home, Key::End]
+                .iter()
+                .any(|k| i.key_pressed(*k) && i.modifiers.is_none())
+        });
+        if keyed && (r.clicked() || r.has_focus()) {
             arrow_step(ui, &r, &options(), current);
+        } else {
+            hold_arrows(ui, &r);
         }
         r
     }
 
+    /// A dropdown of commands (Add hak…, Setup Area Transition…) or of
+    /// ticks (the 2DA editor's flags), not one choice: once its box is
+    /// clicked or reached with Tab, Up and Down open it and move a cursor
+    /// along its rows (Home and End: the first and last), and Enter or
+    /// Space does what the row's click does ([`MenuKeys::row`]): a
+    /// command closes the list, a tick leaves it open. The box's response.
+    pub(crate) fn show_menu(
+        self,
+        ui: &mut Ui,
+        contents: impl FnOnce(&mut Ui, &mut MenuKeys),
+    ) -> egui::Response {
+        let state_id = ui.make_persistent_id(("menu-keys", self.salt));
+        let mut state: MenuState = ui.data(|d| d.get_temp(state_id)).unwrap_or_default();
+        let focused = state.button.is_some_and(|b| ui.memory(|m| m.has_focus(b)));
+        let popup = state.button.map(|b| b.with("popup"));
+        let open = popup.is_some_and(|p| egui::Popup::is_id_open(ui.ctx(), p));
+        let mut pressed = None;
+        if focused && let Some(popup) = popup {
+            let none = egui::Modifiers::NONE;
+            let key = |k| ui.input_mut(|i| i.consume_key(none, k));
+            let last = state.rows.saturating_sub(1);
+            let at = state.cursor;
+            let to = if key(egui::Key::ArrowDown) {
+                Some(at.map_or(0, |a| (a + 1).min(last)))
+            } else if key(egui::Key::ArrowUp) {
+                Some(at.map_or(last, |a| a.saturating_sub(1)))
+            } else if open && key(egui::Key::Home) {
+                Some(0)
+            } else if open && key(egui::Key::End) {
+                Some(last)
+            } else {
+                None
+            };
+            if let Some(to) = to {
+                if !open {
+                    // (Opened at its first row: its rows are not known yet.)
+                    egui::Popup::open_id(ui.ctx(), popup);
+                    state.cursor = Some(0);
+                } else {
+                    state.cursor = Some(to);
+                }
+                state.reveal = true;
+            }
+            if open && state.cursor.is_some() && (key(egui::Key::Enter) || key(egui::Key::Space)) {
+                pressed = state.cursor;
+            }
+        }
+        let mut keys = MenuKeys { cursor: state.cursor, pressed, reveal: state.reveal, rows: 0 };
+        let r = self.combo.show_ui(ui, |ui| contents(ui, &mut keys)).response;
+        hold_arrows(ui, &r);
+        let still_open = egui::ComboBox::is_open(ui.ctx(), r.id);
+        if pressed.is_some() && !self.stays_open {
+            egui::Popup::close_id(ui.ctx(), r.id.with("popup"));
+        }
+        state = MenuState {
+            button: Some(r.id),
+            // (Once open, the rows are known.)
+            rows: if still_open { keys.rows } else { state.rows.max(keys.rows) },
+            cursor: if still_open || state.cursor.is_some() && !open {
+                state.cursor.map(|c| c.min(keys.rows.max(1) - 1))
+            } else {
+                None
+            },
+            reveal: false,
+        };
+        if pressed.is_some() && !self.stays_open {
+            state.cursor = None;
+        }
+        ui.data_mut(|d| d.insert_temp(state_id, state));
+        r
+    }
+
     /// A dropdown that is not a list of choices, whose arrow keys would
-    /// have nothing to step through: commands (Add hak…), a set of ticks,
-    /// a grid of colors.
+    /// have nothing to step through: a grid of colors.
     pub(crate) fn show_ui<R>(
         self,
         ui: &mut Ui,
         contents: impl FnOnce(&mut Ui) -> R,
     ) -> egui::InnerResponse<Option<R>> {
         self.combo.show_ui(ui, contents)
+    }
+}
+
+/// Where [`Dropdown::show_menu`]'s keys are: the box (last drawn), its
+/// rows (when last open) and the row the cursor is at.
+#[derive(Clone, Copy, Default)]
+struct MenuState {
+    button: Option<egui::Id>,
+    rows: usize,
+    cursor: Option<usize>,
+    reveal: bool,
+}
+
+/// The keys of a [`Dropdown::show_menu`]'s rows: each row's response goes
+/// through [`MenuKeys::row`], in the order shown.
+pub(crate) struct MenuKeys {
+    cursor: Option<usize>,
+    pressed: Option<usize>,
+    reveal: bool,
+    rows: usize,
+}
+
+impl MenuKeys {
+    /// A row of the list, `r` its response: shown as under the pointer
+    /// where the cursor is; true when Enter or Space was pressed there (do
+    /// what its click does).
+    pub(crate) fn row(&mut self, r: &egui::Response) -> bool {
+        let at = self.rows;
+        self.rows += 1;
+        if self.cursor == Some(at) {
+            r.clone().highlight();
+            if self.reveal {
+                r.scroll_to_me(None);
+            }
+        }
+        self.pressed == Some(at)
     }
 }
 
@@ -3611,6 +3805,36 @@ mod tests {
         let mut bad = edit;
         bad.strref = "x".into();
         assert_eq!(bad.value(), None);
+    }
+}
+
+#[cfg(test)]
+mod select_tests {
+    use super::select_in_list;
+    use std::collections::BTreeSet;
+
+    /// The rule of every list of which several can be selected (the hak
+    /// editor's, the module's haks, Open Script's, the tree's): a click
+    /// alone, Ctrl toggling, Shift a range from the anchor, Ctrl+Shift the
+    /// range added.
+    #[test]
+    fn a_click_with_ctrl_and_shift_selects_as_lists_do() {
+        let listed = [10, 20, 30, 40, 50];
+        let (mut selected, mut anchor) = (BTreeSet::new(), None);
+        let mut click = |row, command, shift| {
+            select_in_list(&mut selected, &mut anchor, &listed, row, command, shift);
+            (selected.iter().copied().collect::<Vec<_>>(), anchor)
+        };
+        assert_eq!(click(20, false, false), (vec![20], Some(20)));
+        assert_eq!(click(40, false, true), (vec![20, 30, 40], Some(20)), "anchor stays");
+        assert_eq!(click(10, false, true), (vec![10, 20], Some(20)));
+        assert_eq!(click(50, true, false), (vec![10, 20, 50], Some(50)));
+        assert_eq!(click(20, true, false), (vec![10, 50], Some(20)), "Ctrl takes one away");
+        assert_eq!(click(40, true, true), (vec![10, 20, 30, 40, 50], Some(20)));
+        // Shift with no anchor listed is a click alone.
+        let (mut selected, mut anchor) = (BTreeSet::new(), Some(99));
+        select_in_list(&mut selected, &mut anchor, &listed, 30, false, true);
+        assert_eq!((selected.into_iter().collect::<Vec<_>>(), anchor), (vec![30], Some(30)));
     }
 }
 

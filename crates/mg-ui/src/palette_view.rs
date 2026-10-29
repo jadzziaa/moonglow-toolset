@@ -70,6 +70,9 @@ pub struct PaletteView {
     /// The palette shown last was brought back from the settings (once,
     /// when the palettes are first drawn).
     restored: bool,
+    /// The keys were given to the palette (Next Pane, F6): its cursor goes
+    /// to its first row, where it is at none.
+    pub(crate) to_first: bool,
     /// The tileset palette is shown, rather than blueprints.
     pub tiles: bool,
     /// The prefabs are shown (groups of placed objects saved to place
@@ -123,6 +126,9 @@ struct Listed {
     branches: Vec<Listing>,
     /// Each row's branch, and the blueprint if it is one's.
     rows: Vec<(usize, Option<ResKey>)>,
+    /// In the Gallery, where each blueprint's picture is (by its row):
+    /// Up and Down go a row of pictures at a time.
+    places: HashMap<usize, egui::Rect>,
 }
 
 /// A branch as listed: the branch it is in, its own row, and whether it
@@ -196,6 +202,9 @@ impl Listed {
     /// from a closed one or a blueprint goes to the branch it is in;
     /// Right opens a closed branch, and from an open one goes into it.
     fn step(&self, row: usize, key: egui::Key) -> Step {
+        if let Some(step) = self.step_pictures(row, key) {
+            return step;
+        }
         let (branch, blueprint) = self.rows[row];
         let next = (row + 1..self.rows.len()).find(|r| self.shows(*r));
         match key {
@@ -217,6 +226,60 @@ impl Listed {
             }
             _ => Step::Stay,
         }
+    }
+}
+
+impl Listed {
+    /// [`Listed::step`] from a picture in the Gallery: Up and Down to the
+    /// nearest picture of the row of pictures above or below (past the
+    /// first or the last row, out of the category's pictures), Left and
+    /// Right to the picture before or after it (from the first, Left goes
+    /// to the category). `None`: not a picture's row.
+    fn step_pictures(&self, row: usize, key: egui::Key) -> Option<Step> {
+        let here = *self.places.get(&row)?;
+        let (branch, _) = self.rows[row];
+        let mut same: Vec<(usize, egui::Rect)> = (self.rows.iter().enumerate())
+            .filter(|(r, (b, k))| *b == branch && k.is_some() && self.places.contains_key(r))
+            .map(|(r, _)| (r, self.places[&r]))
+            .collect();
+        same.sort_by_key(|(r, _)| *r);
+        let at = same.iter().position(|(r, _)| *r == row)?;
+        let past = |down: bool| {
+            let found = if down {
+                let last = same.last().map_or(row, |s| s.0);
+                (last + 1..self.rows.len()).find(|r| self.shows(*r))
+            } else {
+                let first = same.first().map_or(row, |s| s.0);
+                (0..first).rev().find(|r| self.shows(*r))
+            };
+            found.map_or(Step::Stay, Step::To)
+        };
+        let line = |down: bool| {
+            // (The next row of pictures: the nearest top past this one's,
+            // then the picture nearest across.)
+            let beyond = |r: &egui::Rect| {
+                if down { r.top() > here.bottom() - 1.0 } else { r.bottom() < here.top() + 1.0 }
+            };
+            let top = same
+                .iter()
+                .filter(|(_, r)| beyond(r))
+                .map(|(_, r)| r.top())
+                .min_by(|a, b| if down { a.total_cmp(b) } else { b.total_cmp(a) })?;
+            same.iter()
+                .filter(|(_, r)| (r.top() - top).abs() < 1.0)
+                .min_by(|a, b| {
+                    let off = |r: &egui::Rect| (r.center().x - here.center().x).abs();
+                    off(&a.1).total_cmp(&off(&b.1))
+                })
+                .map(|(r, _)| *r)
+        };
+        Some(match key {
+            egui::Key::ArrowDown => line(true).map_or_else(|| past(true), Step::To),
+            egui::Key::ArrowUp => line(false).map_or_else(|| past(false), Step::To),
+            egui::Key::ArrowRight => same.get(at + 1).map_or(Step::Stay, |s| Step::To(s.0)),
+            egui::Key::ArrowLeft if at > 0 => Step::To(same[at - 1].0),
+            _ => return None,
+        })
     }
 }
 
@@ -319,6 +382,7 @@ impl Default for PaletteView {
             kind: BlueprintKind::Creature,
             custom: false,
             restored: false,
+            to_first: false,
             filter: String::new(),
             standard: HashMap::new(),
             custom_cache: HashMap::new(),
@@ -564,15 +628,38 @@ enum Pick {
 }
 
 /// Expand All and Collapse All as two small buttons, for a list's toolbar.
-pub(crate) fn fold_icons(ui: &mut egui::Ui, what: &str) -> Option<bool> {
+pub(crate) fn fold_icons(
+    ui: &mut egui::Ui,
+    what: &str,
+    keymap: &crate::keys::Keymap,
+) -> Option<bool> {
+    use crate::keys::Cmd;
     let mut fold = None;
-    if ui.small_button("⏷").on_hover_text(format!("Expand All: open every {what}")).clicked() {
+    let expand = keymap.titled(&format!("Expand All: open every {what}"), Cmd::ExpandAll, ui.ctx());
+    if ui.small_button("⏷").on_hover_text(expand).clicked() {
         fold = Some(true);
     }
-    if ui.small_button("⏶").on_hover_text(format!("Collapse All: close every {what}")).clicked() {
+    let collapse =
+        keymap.titled(&format!("Collapse All: close every {what}"), Cmd::CollapseAll, ui.ctx());
+    if ui.small_button("⏶").on_hover_text(collapse).clicked() {
         fold = Some(false);
     }
     fold
+}
+
+/// Expand All's and Collapse All's keys (Options › Keyboard), pressed:
+/// for the pane that has the keys.
+pub(crate) fn fold_keys(ui: &egui::Ui, keymap: &crate::keys::Keymap) -> Option<bool> {
+    use crate::keys::Cmd;
+    ui.input_mut(|i| {
+        if keymap.consume(i, Cmd::ExpandAll) {
+            Some(true)
+        } else if keymap.consume(i, Cmd::CollapseAll) {
+            Some(false)
+        } else {
+            None
+        }
+    })
 }
 
 /// The palette's search: the pane's width, with what it looks in said
@@ -612,16 +699,20 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     }
     let mut view = std::mem::take(&mut app.palette);
     // The palette shown when Moonglow was last closed, once.
-    if !std::mem::replace(&mut view.restored, true)
-        && let Some(last) = app.settings.palette_type.clone()
-    {
-        let kind = BlueprintKind::ALL
-            .into_iter()
-            .find(|k| k.restype().extension().is_some_and(|e| e == last));
-        (view.tiles, view.prefabs) = (last == "tiles", last == "prefabs");
-        if let Some(kind) = kind {
-            view.kind = kind;
-            view.custom = app.settings.palette_custom && app.ws.is_some();
+    if !std::mem::replace(&mut view.restored, true) {
+        // (And what was typed in its search, where something was.)
+        if !app.settings.palette_search.is_empty() {
+            view.filter = app.settings.palette_search.clone();
+        }
+        if let Some(last) = app.settings.palette_type.clone() {
+            let kind = BlueprintKind::ALL
+                .into_iter()
+                .find(|k| k.restype().extension().is_some_and(|e| e == last));
+            (view.tiles, view.prefabs) = (last == "tiles", last == "prefabs");
+            if let Some(kind) = kind {
+                view.kind = kind;
+                view.custom = app.settings.palette_custom && app.ws.is_some();
+            }
         }
     }
     let custom_was = view.custom;
@@ -759,6 +850,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         view.chosen.clear();
     }
     view.fold = None;
+    // (What is typed is kept for the next start too.)
+    if view.restored && view.filter != app.settings.palette_search {
+        app.settings.palette_search = view.filter.clone();
+    }
     if view.prefabs {
         ui.separator();
         app.palette = view;
@@ -775,6 +870,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         return;
     }
     let entered = search_row(ui, &mut view, "🔍 Search name, tag, resref");
+    // (Given the keys by Next Pane: at its first row, as Down from the
+    // search goes.)
+    let entered = entered || (std::mem::take(&mut view.to_first) && view.cursor.is_none());
 
     // The palette to show.
     let kind = view.kind;
@@ -805,7 +903,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     // names or pictures, a new blueprint, and the rest under "more".
     let mut categories = None;
     ui.horizontal_wrapped(|ui| {
-        view.fold = fold_icons(ui, "category");
+        view.fold = fold_icons(ui, "category", &app.keymap);
+        // (Their keys too, while the keys are the palette's.)
+        if view.fold.is_none()
+            && keys_are(ui.ctx(), Keys::Palette)
+            && !ui.ctx().egui_wants_keyboard_input()
+        {
+            view.fold = fold_keys(ui, &app.keymap);
+        }
         fn count(nodes: &[mg_module::palette::PaletteNode]) -> usize {
             nodes.iter().map(|n| n.blueprints.len() + count(&n.children)).sum()
         }
@@ -824,7 +929,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         }
         ui.add_enabled_ui(pictures, |ui| {
             if ui
-                .selectable_label(shown, "⊞")
+                .selectable_label(shown, crate::icons::GALLERY)
                 .on_hover_text("Gallery: the blueprints as pictures, to choose by eye")
                 .on_disabled_hover_text(
                     "Gallery: creatures, doors, items, placeables and waypoints have pictures",
@@ -943,6 +1048,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         custom,
         own,
         fold: view.fold,
+        open: app.settings.palette_open.clone(),
+        open_changed: false,
         new: (app.ws.is_some() && wizard_for(kind)).then(|| new_label(kind)),
         found: found.as_deref(),
         tags: &tags,
@@ -1001,6 +1108,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     });
     crate::widgets::home_and_end(ui, &mut list);
     keys_outline(ui, list.inner_rect, Keys::Palette);
+    if tree.open_changed {
+        app.settings.palette_open = std::mem::take(&mut tree.open);
+    }
     let shown = std::mem::take(&mut tree.shown);
     // The arrow keys: the cursor moves through the rows as they were
     // drawn, or its category opens or closes (when the palette is drawn
@@ -1248,6 +1358,10 @@ struct Tree<'a> {
     own: std::collections::HashSet<ResRef>,
     /// Every category opened or closed this frame.
     fold: Option<bool>,
+    /// The categories left open (`Settings::palette_open`), and whether a
+    /// category opened or closed changed them.
+    open: Vec<String>,
+    open_changed: bool,
     /// What a right click offers to make a new blueprint of the kind
     /// ("New Creature…"), where the kind has a wizard and a module is open.
     new: Option<&'static str>,
@@ -1311,6 +1425,29 @@ pub(crate) fn remembered(key: ResKey) -> String {
 }
 
 impl Tree<'_> {
+    /// How a category at `path` is kept among those left open
+    /// (`Settings::palette_open`).
+    fn remembered_key(&self, path: &[usize]) -> String {
+        let ext = self.kind.restype().extension().unwrap_or_default();
+        let source = if self.custom { "custom" } else { "standard" };
+        let at: Vec<String> = path.iter().map(usize::to_string).collect();
+        format!("{ext}/{source}/{}", at.join("."))
+    }
+
+    /// A category drawn open or closed: kept so for the next start, but
+    /// for what a search opened (it closes again).
+    fn remember(&mut self, key: String, open: bool) {
+        if self.found.is_some() || self.open.contains(&key) == open {
+            return;
+        }
+        if open {
+            self.open.push(key);
+        } else {
+            self.open.retain(|k| *k != key);
+        }
+        self.open_changed = true;
+    }
+
     fn shown(&self, b: &PaletteBlueprint) -> bool {
         self.found.is_none_or(|f| f.contains(&b.resref))
     }
@@ -1387,8 +1524,12 @@ impl Tree<'_> {
         };
         // (Finding opens every category with a match as it is typed,
         // through `fold`: they can be closed again after.)
+        // (Open as it was left at the last start, until it is opened or
+        // closed: `Tree::remember`.)
+        let remembered = self.remembered_key(path);
         let shown = egui::CollapsingHeader::new(title)
             .id_salt(("palette", kind, custom, path))
+            .default_open(self.open.contains(&remembered))
             .open(self.asked(&branch))
             .show(ui, |ui| {
                 for (i, child) in node.children.iter().enumerate() {
@@ -1401,6 +1542,7 @@ impl Tree<'_> {
                 self.rows(ui, &rows, (&branch, listing, within));
             });
         self.header(ui, &branch, listing, &shown.header_response, behind);
+        self.remember(remembered, shown.openness > 0.5);
         if !custom {
             return;
         }
@@ -1468,7 +1610,11 @@ impl Tree<'_> {
         // Dragged into an area view, it is placed where it is dropped; onto
         // a custom category, it moves there.
         let r = if self.gallery {
-            self.tile(ui, key, &label)
+            let r = self.tile(ui, key, &label);
+            if let (Some(listed), Some(_)) = (&mut self.listed, listing) {
+                listed.places.insert(listed.rows.len() - 1, r.rect);
+            }
+            r
         } else {
             ui.add(
                 egui::Button::selectable(self.sel.has(key), label)
@@ -1945,6 +2091,35 @@ fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The arrow keys in the Gallery: a category's five pictures three to
+    /// a row; Up and Down a row at a time (to the nearest picture across),
+    /// out of the pictures past the first and the last row; Left and Right
+    /// a picture at a time, Left from the first to the category.
+    #[test]
+    fn the_arrow_keys_go_a_row_of_pictures_at_a_time_in_the_gallery() {
+        use egui::Key::{ArrowDown, ArrowLeft, ArrowRight, ArrowUp};
+        let key = |name: &str| ResKey::parse(name, mg_core::ResType::UTP).unwrap();
+        let mut l = Listed::default();
+        let category = l.branch(Branch::Category(vec![0]), None); // row 0
+        for (i, name) in ["a", "b", "c", "d", "e"].into_iter().enumerate() {
+            l.rows.push((category, Some(key(name)))); // rows 1 to 5
+            let at = egui::pos2(10.0 * (i % 3) as f32, 10.0 * (i / 3) as f32);
+            l.places.insert(i + 1, egui::Rect::from_min_size(at, egui::vec2(8.0, 8.0)));
+        }
+        l.branch(Branch::Category(vec![1]), None); // row 6
+        l.branches[category].open = true;
+        assert_eq!(l.step(1, ArrowDown), Step::To(4), "a under d");
+        assert_eq!(l.step(3, ArrowDown), Step::To(5), "the nearest across: e under c");
+        assert_eq!(l.step(5, ArrowUp), Step::To(2));
+        assert_eq!(l.step(4, ArrowDown), Step::To(6), "past the last row");
+        assert_eq!(l.step(2, ArrowUp), Step::To(0), "past the first row: the category");
+        assert_eq!(l.step(3, ArrowRight), Step::To(4), "on to the next row's first");
+        assert_eq!(l.step(5, ArrowRight), Step::Stay);
+        assert_eq!(l.step(4, ArrowLeft), Step::To(3));
+        assert_eq!(l.step(1, ArrowLeft), Step::To(0), "from the first, to its category");
+        assert_eq!(l.step(6, ArrowUp), Step::To(5), "a category's row: as in the list");
+    }
 
     /// The arrow keys in a tree: Favorites (open) with one blueprint, a
     /// category (open) holding a closed category and two blueprints, and

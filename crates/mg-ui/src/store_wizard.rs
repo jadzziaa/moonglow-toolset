@@ -208,7 +208,14 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     ui.horizontal(|ui| {
                         ui.selectable_value(&mut w.custom, false, "Standard");
                         ui.selectable_value(&mut w.custom, true, "Custom");
-                        ui.add(egui::TextEdit::singleline(&mut w.filter).hint_text("Find"));
+                        crate::widgets::SearchField::new(
+                            egui::Id::new("store-wizard-find"),
+                            &mut w.filter,
+                        )
+                        .hint("Find a store")
+                        .width(180.0)
+                        .find_over()
+                        .show(ui);
                     });
                     let needle = mg_core::text::Needle::new(&w.filter);
                     egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {

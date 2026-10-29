@@ -1834,6 +1834,42 @@ fn open_script_s_arrows_choose_among_those_listed() {
     assert!(h.state().dock.find_tab(&Tab::Resource(listed[1])).is_some(), "{:?}", listed[1]);
 }
 
+/// In Open Script, Escape clears the name typed (the window stays) and
+/// closes the window next, as every dialog's search field does; × clears
+/// it too.
+#[test]
+fn open_script_s_escape_clears_the_name_then_closes() {
+    let Some((mut h, _)) = area_harness("open-script-escape") else { return };
+    let hello = ResKey::parse("hello", ResType::NSS).unwrap();
+    let edit = mg_edit::Edit::SetResource { key: hello, data: Some(b"void main() { }\n".to_vec()) };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(hello)));
+    h.run_steps(4);
+    h.get_by_label("Open…").click();
+    h.run_steps(3);
+    let filter = |h: &Harness<'_, Moonglow>| {
+        h.state().script_tools.open_script.as_ref().map(|w| w.filter.clone())
+    };
+    let field =
+        |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Find by name");
+    h.get(egui_kittest::kittest::by().predicate(field)).type_text("hel");
+    h.run_steps(2);
+    assert_eq!(filter(&h).as_deref(), Some("hel"));
+    h.get_by_label("×").click();
+    h.run_steps(2);
+    assert_eq!(filter(&h).as_deref(), Some(""), "× clears it");
+    h.get(egui_kittest::kittest::by().predicate(field)).click();
+    h.run_steps(2);
+    h.get(egui_kittest::kittest::by().predicate(field)).type_text("hel");
+    h.run_steps(2);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert_eq!(filter(&h).as_deref(), Some(""), "the window stays, its name cleared");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert_eq!(filter(&h), None, "the window closed");
+}
+
 /// A script editor's Open… lists the scripts there are to open, the
 /// module's alone or its haks' or all of them, found by name; the game's
 /// open to be read.

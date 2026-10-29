@@ -1609,16 +1609,23 @@ pub(crate) fn palette_window(app: &mut Moonglow, ctx: &egui::Context) {
             let n = matches.len();
             finder.selected = (finder.selected + usize::from(down) + (n - usize::from(up))) % n;
         }
-        let field = ui.add(
-            egui::TextEdit::singleline(&mut finder.filter)
-                .hint_text("Type a command's name")
-                .desired_width(f32::INFINITY),
-        );
+        // (Escape clears the name typed, then closes the palette.)
+        let before = finder.filter.len();
+        let searched = crate::widgets::SearchField::new(
+            egui::Id::new("command-palette-find"),
+            &mut finder.filter,
+        )
+        .hint("Type a command's name")
+        .show(ui);
+        let field = searched.response;
         if !std::mem::replace(&mut finder.focused, true) {
             field.request_focus();
         }
-        if field.changed() {
+        if field.changed() || finder.filter.len() != before {
             finder.selected = 0;
+        }
+        if searched.left == Some(crate::widgets::FilterLeft::Escape) {
+            ui.close();
         }
         ui.separator();
         if matches.is_empty() {

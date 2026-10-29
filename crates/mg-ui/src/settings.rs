@@ -401,6 +401,12 @@ pub struct Settings {
     /// `None`: none chosen yet (a module opens on its tiles).
     pub palette_type: Option<String>,
     pub palette_custom: bool,
+    /// What was typed in the palettes' search, as last left.
+    pub palette_search: String,
+    /// The palettes' categories left open: each a blueprint type's
+    /// extension, `custom` or `standard`, and the category's place in its
+    /// palette (`utc/standard/2.0`). They open so at the next start.
+    pub palette_open: Vec<String>,
     /// How large the galleries' pictures are, points (their slider's;
     /// `None`: the usual size).
     pub gallery_tile: Option<u16>,

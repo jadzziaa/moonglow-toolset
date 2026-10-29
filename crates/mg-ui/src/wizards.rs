@@ -125,9 +125,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     }
                 });
                 ui.horizontal(|ui| {
-                    ui.add(egui::DragValue::new(&mut w.width).range(AREA_SIZE_RANGE));
+                    crate::widgets::spin_draft(ui, &mut w.width, AREA_SIZE_RANGE, 1.0, |d| d);
                     ui.label("×");
-                    ui.add(egui::DragValue::new(&mut w.height).range(AREA_SIZE_RANGE));
+                    crate::widgets::spin_draft(ui, &mut w.height, AREA_SIZE_RANGE, 1.0, |d| d);
                     ui.weak("tiles, 10 m each");
                 });
                 ui.add_space(6.0);

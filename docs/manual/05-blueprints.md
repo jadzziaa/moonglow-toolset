@@ -24,7 +24,8 @@ the top:
   is named under the row. The icons go to a second and a third row in
   a pane narrower than the eleven of them, and are a dropdown with their
   names in a very narrow one. The type shown last is the one the
-  palettes open on the next time Moonglow starts.
+  palettes open on the next time Moonglow starts, with what was typed
+  in the search and the categories left open.
 - **Standard** and **Custom**, beside the type's name: whose blueprints.
 - **The search**, the pane's width; **×** clears it.
 - **The list's toolbar**, right over the list: the two arrows open and
@@ -143,7 +144,9 @@ The palette's buttons:
   list of names, to choose by eye (creatures, doors, items and
   placeables, the types with a model, and waypoints by their flags).
   Whether it is on is kept between sessions. A picture is clicked, dragged and
-  right-clicked as a name is; the pictures are made a few at a time as
+  right-clicked as a name is; with the keys, Up and Down go a row of
+  pictures at a time and Left and Right a picture (Left from the first:
+  to its category); the pictures are made a few at a time as
   they come into sight. A shield is pictured from its front (its model
   faces its bearer), and a thing made for a wall from the side that
   shows it; the light goes round with the view.
@@ -207,9 +210,13 @@ The palette's buttons:
   the first and last. Every other dropdown takes them the same way: a
   creature's Alignment, the Mouse Cursor and Text Bubble, and those of
   Options, Module Properties, the conversation, NUI, 2DA and tileset
-  editors, the wizards, the resource browser and Advanced Search (not
-  the lists of commands, Add hak… and Setup Area Transition…, nor a
-  list of ticks). A creature's and a placeable's Appearance list, and a
+  editors, the wizards, the resource browser and Advanced Search, and a
+  described variable's ▾ of its values. The lists of commands (Add hak…,
+  Setup Area Transition…) and of ticks (a 2DA's flags) take them too:
+  Down opens one, Up and Down (Home, End) go along its rows, and Enter or
+  Space does what a click there does (a command closes the list; a tick
+  leaves it open for the next). Escape closes a list and gives up the
+  keys, as everywhere: click it again to go on. A creature's and a placeable's Appearance list, and a
   door's Appearance Type and Generic Appearance, show each appearance's
   picture beside the row the pointer rests on, and the chosen one's with
   the pointer resting on the list's box: leave it there and the picture
@@ -386,8 +393,14 @@ Shared parts:
   and mark down; sounds' distances and intervals; a trigger's highlight
   height; Module Properties' starting date and time, and Area
   Properties' weather, fog, shadow opacity, music delay and check
-  modifiers): a click makes
-  it one more or one less (a sound's cutoff distance and intervals ten),
+  modifiers; the Creature, Levelup and Script Wizards' class levels and
+  the Script Wizard's other numbers; the Area Wizard's and Resize Area's
+  size; Adjust Location's position, bearing, scale, rotations and
+  translations; Options' spawn point marker size, recovery copy and
+  conversation backup intervals): a click makes
+  it one more or one less (a sound's cutoff distance and intervals ten;
+  Adjust Location's position, translations and scale a tenth, its
+  bearing and rotations a degree, steps of Moonglow's choosing),
   within the field's limits. Held down, an arrow goes on after a moment;
   **Up** and **Down** in the field do the same. A click, a key or a
   whole held run is one undoable step.

@@ -31,9 +31,12 @@ fn alt_and_a_drag_off_the_selection_moves_the_camera() {
     };
     let (before, changed) = (orbit(&h), revision(&h));
     // Nothing selected, on bare ground: the ground follows the pointer.
-    drag(&mut h, Vec3::new(10.0, 10.0, 0.0), Vec3::new(14.0, 10.0, 0.0));
+    // (Six steps of more than egui's drag threshold, 6 points, each: a
+    // first step under it is no drag yet, and is lost. Four meters were
+    // about 6 points a step, and passed or not as the toolbar wrapped.)
+    drag(&mut h, Vec3::new(10.0, 10.0, 0.0), Vec3::new(16.0, 10.0, 0.0));
     let moved = orbit(&h).target - before.target;
-    assert!((moved.x + 4.0).abs() < 0.6 && moved.y.abs() < 0.6, "panned: {moved:?}");
+    assert!((moved.x + 6.0).abs() < 0.6 && moved.y.abs() < 0.6, "panned: {moved:?}");
     assert_eq!(revision(&h), changed, "nothing in the area moved");
     // A waypoint selected, the drag begun off it: the camera again, and
     // the waypoint stays.
@@ -786,6 +789,78 @@ fn placed_objects_open_their_properties() {
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run_steps(2);
     assert_eq!(tag_of(&mut h, 1), tag);
+}
+
+/// The arrow `glyph` (⏶ or ⏷) after the field on the row of the label
+/// `label`: the nearest one right of it.
+fn arrow_beside(h: &Harness<'_, Moonglow>, label: &str, glyph: &str) -> egui::Pos2 {
+    let at = h.get_by_label(label).rect();
+    h.query_all_by_label(glyph)
+        .map(|n| n.rect().center())
+        .filter(|c| (c.y - at.center().y).abs() < 12.0 && c.x > at.right())
+        .min_by(|a, b| a.x.total_cmp(&b.x))
+        .unwrap_or_else(|| panic!("no {glyph} beside {label}"))
+}
+
+/// A click at `at`, pressed and let go in one frame.
+fn click_at(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(2);
+}
+
+/// Adjust Location's and Resize Area's numbers have Aurora's arrows after
+/// them (a position a tenth of a meter a click, a bearing a degree, rows
+/// one), and Up and Down in the field step too.
+#[test]
+fn adjust_location_and_resize_area_have_arrows() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("adjust-arrows") else { return };
+    let at = screen(&h, area, Vec3::new(20.0, 20.0, 0.02));
+    h.hover_at(at);
+    let right = |pressed| egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Secondary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    h.event(right(true));
+    h.event(right(false));
+    h.run_steps(3);
+    h.get_by_label("Adjust Location…").click();
+    h.run_steps(3);
+    let x = h.state().adjust.as_ref().unwrap().position.x;
+    let up = arrow_beside(&h, "X", "⏶");
+    click_at(&mut h, up);
+    click_at(&mut h, up);
+    let down = arrow_beside(&h, "Bearing (°)", "⏷");
+    let bearing = h.state().adjust.as_ref().unwrap().bearing;
+    click_at(&mut h, down);
+    let a = h.state().adjust.as_ref().unwrap();
+    assert!((a.position.x - (x + 0.2)).abs() < 1e-4, "{} from {x}", a.position.x);
+    assert!((a.bearing - (bearing - 1.0).max(0.0)).abs() < 1e-4, "{}", a.bearing);
+    assert_eq!(a.changed, [true, false, false, bearing > 0.0], "what the arrows changed");
+    h.get_by_label("Cancel").click();
+    h.run_steps(2);
+
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    h.get_by_label("Resize Area…").click();
+    h.run_steps(6);
+    let d = h.state().resize_area.as_ref().unwrap();
+    let (rows, columns) = (d.rows, d.columns);
+    let (up, down) = (arrow_beside(&h, "Rows", "⏶"), arrow_beside(&h, "Columns", "⏷"));
+    click_at(&mut h, up);
+    click_at(&mut h, down);
+    let d = h.state().resize_area.as_ref().unwrap();
+    assert_eq!((d.rows, d.columns), (rows + 1, columns - 1));
 }
 
 #[test]
@@ -3256,7 +3331,7 @@ fn what_the_area_toolbar_hides_is_hidden_in_every_area() {
     h.run_steps(3);
     assert!(!shown(&h, first, ObjectKind::Trigger));
     // Show All: everywhere, and nothing kept hidden.
-    h.get_by_label("All").click();
+    h.get_by_label("☑ All").click();
     h.run_steps(2);
     assert!(shown(&h, first, ObjectKind::Trigger) && shown(&h, second, ObjectKind::Trigger));
     assert!(h.state().settings.hidden_in_areas.is_empty());

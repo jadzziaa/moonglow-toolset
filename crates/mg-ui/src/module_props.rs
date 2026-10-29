@@ -457,21 +457,17 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
                     if name.clicked() {
                         let (command, shift) =
                             ui.input(|i| (i.modifiers.command, i.modifiers.shift));
-                        match (command, shift, state.anchor) {
-                            (true, ..) => {
-                                if !state.selected.remove(&i) {
-                                    state.selected.insert(i);
-                                }
-                                state.anchor = Some(i);
-                            }
-                            (false, true, Some(a)) => {
-                                state.selected = (a.min(i)..=a.max(i)).collect();
-                            }
-                            _ => {
-                                state.selected = BTreeSet::from([i]);
-                                state.anchor = Some(i);
-                            }
-                        }
+                        // The rule of every list of several (Ctrl+Shift
+                        // adds the range, as Windows' lists do).
+                        let listed: Vec<usize> = (0..n).collect();
+                        crate::widgets::select_in_list(
+                            &mut state.selected,
+                            &mut state.anchor,
+                            &listed,
+                            i,
+                            command,
+                            shift,
+                        );
                         state.cursor = Some(i);
                         // (The arrow keys are the list's now, not a camera's.)
                         crate::palette_view::give_keys(ui.ctx(), crate::palette_view::Keys::List);
@@ -580,18 +576,27 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
     // The list's commands, under it: what adds to it and checks it, and
     // what is done with the rows chosen.
     ui.horizontal(|ui| {
-        // (Commands, not a choice: no arrow keys.)
-        crate::widgets::dropdown("ifo-add-hak").selected_text("Add hak…").show_ui(ui, |ui| {
-            for h in &available {
-                if ui.selectable_label(false, h).clicked() {
-                    let mut item = ifo::MOD_HAK_LIST.new_item();
-                    item.write(&ifo::mod_hak_list::MOD_HAK, ExoString(encode(h)));
-                    let insert =
-                        Edit::insert_item(info_key(), GffPath::root(), list(), haks.len(), item);
-                    app.actions.push(command(vec![insert], "Add hak"));
+        // (Commands, not a choice: the arrows move along them, Enter adds.)
+        crate::widgets::dropdown("ifo-add-hak").selected_text("Add hak…").show_menu(
+            ui,
+            |ui, keys| {
+                for h in &available {
+                    let r = ui.selectable_label(false, h);
+                    if keys.row(&r) || r.clicked() {
+                        let mut item = ifo::MOD_HAK_LIST.new_item();
+                        item.write(&ifo::mod_hak_list::MOD_HAK, ExoString(encode(h)));
+                        let insert = Edit::insert_item(
+                            info_key(),
+                            GffPath::root(),
+                            list(),
+                            haks.len(),
+                            item,
+                        );
+                        app.actions.push(command(vec![insert], "Add hak"));
+                    }
                 }
-            }
-        });
+            },
+        );
         if ui
             .button("Add Haks and Talk Table…")
             .on_hover_text(

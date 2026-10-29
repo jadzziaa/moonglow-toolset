@@ -2044,22 +2044,65 @@ impl Moonglow {
     /// them, as after a click in it), the palettes.
     pub(crate) fn step_pane(&mut self, ctx: &egui::Context, by: isize) {
         use palette_view::Keys;
+        // Each pane's keys are what its tab in front has: the middle's (the
+        // tab used last outside the palettes' pane, a window's too) a talk
+        // table's lines, a table's cells or the resource browser's list,
+        // else an area's; the palettes' pane's the palette, or the
+        // resource browser docked there.
+        let palettes = self.dock.find_tab(&Tab::Palette).map(|p| (p.surface, p.node));
+        let in_palettes = |tab: &Tab| {
+            let at = self.dock.find_tab(tab).map(|p| (p.surface, p.node));
+            at.is_some() && at == palettes
+        };
+        let front = |in_pane: bool| {
+            if in_pane {
+                let (s, n) = palettes?;
+                let leaf = self.dock.iter_leaves().find(|(p, _)| p.surface == s && p.node == n)?.1;
+                leaf.tabs.get(leaf.active.0).cloned()
+            } else {
+                self.tabs_recent.iter().find(|t| !in_palettes(t)).cloned()
+            }
+        };
+        let keys_of = |tab: Option<Tab>| match tab {
+            Some(Tab::TalkTable) => (Keys::Talk, None),
+            Some(Tab::Table(id)) => (Keys::Table, Some(id)),
+            Some(Tab::Resources) => (Keys::Browser, None),
+            _ => (Keys::Area, None),
+        };
         let mut panes = Vec::new();
         if self.ws.is_some() && !self.settings.hide_tree {
-            panes.push(Keys::Tree);
+            panes.push((Keys::Tree, None));
         }
-        panes.push(Keys::Area);
-        if self.dock.find_tab(&Tab::Palette).is_some() {
-            panes.push(Keys::Palette);
+        panes.push(keys_of(front(false)));
+        if palettes.is_some() {
+            panes.push(match front(true) {
+                Some(Tab::Resources) => (Keys::Browser, None),
+                _ => (Keys::Palette, None),
+            });
         }
-        let now = panes.iter().position(|p| palette_view::keys_are(ctx, *p));
-        // (The keys anywhere else, a talk table's lines: as the middle's.)
-        let now = now.or_else(|| panes.iter().position(|p| *p == Keys::Area)).unwrap_or(0);
-        let next = panes[(now as isize + by).rem_euclid(panes.len() as isize) as usize];
+        let now = panes.iter().position(|p| palette_view::keys_are(ctx, p.0));
+        // (The keys anywhere else, a conversation's lines: as the middle's.)
+        let middle = usize::from(panes[0].0 == Keys::Tree);
+        let now = now.unwrap_or(middle.min(panes.len() - 1));
+        let (next, table) = panes[(now as isize + by).rem_euclid(panes.len() as isize) as usize];
         palette_view::give_keys(ctx, next);
+        if let Some(id) = table {
+            table_view::take_keys(ctx, id);
+            // (At its first cell, where none is selected: the arrows go
+            // from a cell.)
+            if let Some(doc) = self.tables.iter_mut().find(|d| d.id == id)
+                && doc.selected.is_none()
+                && !doc.edit.table().is_empty()
+            {
+                doc.selected = Some((0, 0));
+            }
+        }
         if next == Keys::Tree && self.tree_cursor.is_none() {
             self.tree_cursor = Some(tree::first_row());
             self.tree_cursor_moved = true;
+        }
+        if next == Keys::Palette {
+            self.palette.to_first = true;
         }
     }
 

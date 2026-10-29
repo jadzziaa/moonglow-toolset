@@ -456,6 +456,18 @@ fn the_hak_list_is_reordered_by_keys_buttons_and_a_drag() {
     h.get_by_label("gone").click_modifiers(egui::Modifiers::COMMAND);
     h.run();
     assert_eq!(chosen(&h), [2, 3]);
+    // Ctrl + Shift + click adds the rows from the one clicked last, as
+    // every list of several does (it was a Ctrl + click here once).
+    h.get_by_label("bravo").click();
+    h.run();
+    h.get_by_label("alpha").click_modifiers(egui::Modifiers::COMMAND);
+    h.run();
+    h.get_by_label("gone").click_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT);
+    h.run();
+    assert_eq!(chosen(&h), [0, 2, 3]);
+    h.get_by_label("bravo").click_modifiers(egui::Modifiers::COMMAND);
+    h.run();
+    assert_eq!(chosen(&h), [2, 3]);
     h.key_press(egui::Key::Delete);
     h.run();
     assert_eq!(haks(&mut h), ["bravo", "charlie"]);
@@ -469,6 +481,65 @@ fn the_hak_list_is_reordered_by_keys_buttons_and_a_drag() {
     h.get_by_label("Remove").click();
     h.run();
     assert_eq!(haks(&mut h), ["charlie", "alpha", "gone"]);
+}
+
+/// Module Properties' Add hak… by the keys (GitHub issue 7): once its box
+/// is clicked, Down opens it at its first hak, Down and Up move along
+/// them, Enter adds the one there and closes the list.
+#[test]
+fn add_hak_takes_the_arrow_keys() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-add-hak-keys");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    for name in ["alpha", "bravo", "charlie"] {
+        let empty = mg_erf::ErfWriter::new(*b"HAK ").to_bytes().unwrap();
+        std::fs::write(user.join(format!("hak/{name}.hak")), empty).unwrap();
+    }
+    let path = sample_module(&dir);
+    let mut app = game_app(&root, Some(user));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    app.open_palette = false;
+    let mut h = harness(app, 1200.0, 800.0);
+    h.run();
+    let info = ResKey::parse("module", ResType::IFO).unwrap();
+    h.get_by_label("Custom Content").click();
+    h.run_steps(3);
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let add = |h: &Harness<'_, Moonglow>| {
+        h.query_all(combo.clone())
+            .find(|n| n.accesskit_node().value().as_deref() == Some("Add hak…"))
+            .map(|n| n.rect().center())
+            .expect("Add hak…")
+    };
+    // A click opens it, another closes it, the box keeping the keys.
+    let at = add(&h);
+    h.hover_at(at);
+    for _ in 0..2 {
+        press(&h, at, true, egui::Modifiers::NONE);
+        press(&h, at, false, egui::Modifiers::NONE);
+        h.run_steps(3);
+    }
+    assert!(h.query_by_label("bravo").is_none(), "closed");
+    for key in
+        [egui::Key::ArrowDown, egui::Key::ArrowDown, egui::Key::ArrowDown, egui::Key::ArrowUp]
+    {
+        h.key_press(key);
+        h.run_steps(2);
+    }
+    assert!(h.query_by_label("charlie").is_some(), "open");
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let root = ws.doc(&info).unwrap().root.clone();
+    let haks: Vec<String> = root
+        .items(&ifo::MOD_HAK_LIST)
+        .iter()
+        .map(|i| String::from_utf8_lossy(i.read(&ifo::mod_hak_list::MOD_HAK).as_bytes()).into())
+        .collect();
+    assert_eq!(haks, ["bravo"], "the second, Down twice from the first and Up once");
+    assert!(h.query_by_label("charlie").is_none(), "the list closed");
 }
 
 /// A hak dragged to the bottom edge of a list longer than its frame

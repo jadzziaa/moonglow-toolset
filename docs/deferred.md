@@ -457,41 +457,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   icon names say) was not looked at in the client. The game has no
   woman's icons of cloaks (`icloak_m_` alone): a cloak's icon is the
   man's either way. (S) (from builders' reports after 1.10.1)
-- **Arrows after numbers, what is left:** the blueprint editors', Module
-  Properties' and Area Properties' number fields that have them in
-  Aurora have them (a click, Up and Down in the field, a held arrow
-  repeating after 0.4 s twenty times a second, each run one step). Not
-  given them: the Creature Wizard's and Levelup Wizard's class levels,
-  Adjust Location's (an instance's position, bearing, scale, rotation and
-  translation), the Area Wizard's and Resize Area's rows and columns,
-  Options' (spawn point marker size, undo levels, backup interval) and
-  the Script Wizard's conditions. The repeat's pause and rate are
-  Moonglow's choice, not measured in Aurora; a sound's cutoff distance
-  and intervals step by ten, as Aurora's forms say. (S) (from builders'
-  reports after 1.19.1)
 - **What a store sells an item for** (a builder: Aurora lists it): each
   item of a store's pages is listed with its cost at the store's sell
   mark up. Not compared with Aurora's list (its rounding, whether it
   counts a stack); the buy price (mark down) is not shown. (S)
   (GitHub issues 10 to 24, after 1.20.0)
-- **Arrow keys on lists of choices:** every dropdown is drawn by
-  `widgets::dropdown` (a test reads the sources for an egui combo box
-  made elsewhere) or, for a table's rows, `widgets::row_choice`, and
-  takes them while it has the focus (clicked, open or after a choice;
-  Tab), as does Area Properties' Lighting Scheme grid (Left and Right
-  across its columns); a list with the keyboard keeps them from the
-  conversation tree. Escape gives the focus up, as everywhere in the
-  interface, so after closing a list with Escape it is clicked again.
-  Not done: the lists of commands (Module Properties' Add hak…, a
-  trigger's Setup Area Transition…), the 2DA editor's list of flags (a
-  set of ticks) and the Variables window's ▾ menu of a value's
-  suggestions take none; under test are the area's lists and dialogs,
-  Options' Interface size, Advanced Search's kinds and variable types, a
-  creature's Alignment, a conversation's Play Animation and the
-  Lighting Scheme, the others by the source rule alone. A list whose
-  options are read only while it is used (Module Properties' movies and
-  talk tables, a conversation's speaker tags, the NUI editor's targets
-  and binds) reads them every frame it has the focus. (S) (GitHub issue 7)
 - **Pictures in the Appearance list, what is left:** a creature's (a
   plain male body of the appearance), a placeable's, a door's (Appearance
   Type and Generic Appearance) and an item's (its model's, a weapon's
@@ -1808,15 +1778,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   take Alt for its own menu; a submenu inside a submenu has no keys
   (there is none today); the bar itself is never "focused" without a
   menu open. (S each) (from builders' reports after 1.19.1)
-- **Undo in a text field** (issue 18): Ctrl+Z and Ctrl+Y with a text
-  field in hand were the module's Undo and Redo, and took back an
-  earlier change somewhere else, unseen. They are the field's own once
-  it has been typed in (until it is left); a field only stepped into
-  has nothing of its own to take back, and there they are the module's
-  still (a tag typed, Tab, Ctrl+Z takes the tag back). Not done: the
-  script editor and the other text fields were not tried one by one
-  (the rule is the window's, for every field). (S)
-  (GitHub issues 10 to 24, after 1.20.0)
 - **The middle with a tab beside the palettes** (issue 11): the middle
   was let go where another tab (the resource browser) shared the
   palettes' pane; the pane's tabs no longer count as the middle's. The
@@ -1834,69 +1795,48 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   can't make a window of its own, and issue 21 has no answer since
   2026-10-10)
 - **The module tree and the palettes by the keyboard** (GitHub issue
-  12, after 1.20.0, and
-  a builder: Aurora's arrows go to the parent on Left and fold the
-  tree): after a click in a list (the module tree, a palette, Module
-  Properties' haks) the arrow keys, Page Up and Down, Home and End are
-  that list's wherever the pointer is, until it is in an area's view,
-  and a thin outline shows the pane; Right and Left open and close a
-  row and go in and out, into an area opened out too (its kinds and
-  its placed objects); Enter opens (the resource, the blueprint's
-  editor, a category), Escape hands the keys back; F2 and Delete are
-  for the row under the pointer, else the cursor's; both panes' filter
-  fields have Ctrl+F, Escape (clear, then leave) and Down. Not done:
-  - F6 and Shift+F6 give the keys to the next pane (the module tree,
-    the middle, the palettes). Not done: the log, a talk table's lines,
-    the resource browser's list and the 2DA editor's cells are not
-    among them; the palettes'
-    cursor starts at no row until an arrow is pressed; a command a
-    builder already gave F6 to is now in conflict with Next Pane
-    (Options › Keyboard lists it; the pane's wins until one is
-    changed). (S)
+  12, after 1.20.0, and a builder: Aurora's arrows go to the parent on
+  Left and fold the tree): after a click in a list (the module tree, a
+  palette, Module Properties' haks) the arrow keys, Page Up and Down,
+  Home and End are that list's wherever the pointer is, until it is in
+  an area's view, and a thin outline shows the pane; Right and Left
+  open and close a row and go in and out, into an area opened out too;
+  Enter opens, Escape hands the keys back; F2 and Delete are for the
+  row under the pointer, else the cursor's; both panes' filter fields
+  have Ctrl+F, Escape (clear, then leave) and Down. F6 and Shift+F6 give
+  the keys to the next pane, each pane's being what its tab in front
+  has (the middle's a talk table's lines, a 2DA's cells at its first
+  cell, the resource browser's list, else an area's; a palette's cursor
+  at its first row); in the Gallery Up and Down go a row of pictures at
+  a time (done 2026-10-29). Not done:
   - F2 at a placed object does nothing: its row's menu has no Rename,
     nor has Aurora's object menu (the parity inventory); whether
     Aurora's tree edits an object's label in place on F2 (its
     `tvMainEditing` renames resources) was not watched. Delete there
-    deletes it as its menu does. (S)
-  - The resource browser has them (its Name field and its list), and
-    Open Script has Down and Up for Enter; the hak editor's, the
-    tileset editor's and the Appearance Gallery's Find fields have
-    Ctrl+F and Escape. Not done: Down from those three into their
-    lists (which have no keys of their own); the tileset's palette and
-    the Prefabs list have no arrow keys; in Open
-    Script, Escape closes the window at once (it does not clear the
-    name first). (S each)
-  - In the Gallery Up and Down go a picture at a time, not a row of
-    them; the keys repeat only as the system repeats them. (S)
+    deletes it as its menu does. Waits on the Aurora oracle (not used
+    in the fix wave of 2026-10-29). (S)
   - With the keys on a category the blueprint selected stays in hand;
-    whether Aurora keeps one in hand then was not checked. (S)
-- **The look of the two side panes** (the owner's notes after 1.21.0):
-  the module tree's header is the palettes' (a search field that says
-  what it looks in, with a clear button; Expand All and Collapse All as
-  icons, with a count); the palettes' type icons are larger (a line's height; twice that
-  was tried and was too large), in rows where the pane is narrow; the palette shown last is remembered between runs (its type,
-  and Standard or Custom); Walkmesh and Object Walkmeshes are one
-  toolbar button. Not done: the module tree's rows are as they were
-  (no pictures, no "more" menu as the palettes' list has); the
-  palette's search text and its open categories are not remembered;
-  holding the walkmesh button is not held by a test (a right click
-  is); Expand All and Collapse All have no keys, and an area opened out
-  to its objects, and the kinds under it, keep their own state. (S
-  each) (from builders' reports and the owner's notes after 1.21.0)
-- **Toolbar buttons: Icons only** (Options › General,
-  `icons::Tools`): the main toolbar and the area view's toolbar only.
-  Not done: the palette's tile tools (Select Tiles, Eraser, Refine
-  Tile…), the script editor's, the conversation editor's, the NUI
-  Creator's and the model view's toolbars keep their words (S each);
-  All, None, Together, To Scratch and Save as Prefab… have no icon and
-  keep their words, the Fade Geometry, Snap and Turn dropdowns their
-  text (S, if fitting glyphs are found in egui's fonts); one icon
-  means two buttons in places: ℹ is the main toolbar's Module
-  Properties and the area's Area Properties, 🏃 Start and Go to Start
-  Location (nearly one command), ⊞ the area's Grid and the palette's
-  pictures (S); with Icons only a screen reader reads the glyph as the
-  button's name, the name being in its tip (S). (ShadowM's request,
-  Discord, October 2026)
+    whether Aurora keeps one in hand then was not checked. Waits on the
+    Aurora oracle. (S)
+  - The log is not among F6's panes: it has no keys of its own (its
+    lines are text to select and copy); a command a builder already
+    gave F6 to is in conflict with Next Pane (Options › Keyboard lists
+    it; the pane's wins until one is changed). (S)
+  - Down from the hak editor's, the tileset editor's and the Appearance
+    Gallery's Find fields goes nowhere: their lists have no keys of
+    their own, nor have the tileset's palette and the Prefabs list.
+    Keys for four lists (a cursor, its outline, Enter's action, the
+    rows' order for Up and Down in each), about a day: more than the
+    wave's S. (M)
+- **The look of the two side panes, the module tree's rows** (the
+  owner's notes after 1.21.0; the rest done on 2026-10-29): the module
+  tree's rows are as they were, with no pictures and no "more" menu as
+  the palettes' list has. Not started: the triage proposed dropping it
+  (the owner's note, which no builder asked for), and a picture on each
+  row is the palette's Gallery brought into the tree (its thumbnails for
+  blueprint rows, a size, the rows' heights), more than an hour or two.
+  Waits on the owner's verdict: drop it, or which of the two to do. (S
+  for the menu, M for the pictures)
 - **A long dropdown that grew to the window's edge, not seen growing
   here:** the open list of a dropdown with a Filter field (Area
   Properties › Audio › Ambient Sound, Day) widened over 5 to 10 seconds
@@ -2599,32 +2539,6 @@ of truth, and does each caller's difference matter.
   `Struct::walk_fields` (`rename.rs:192`, `:209`, `text.rs:207`,
   `doctor.rs:1250`). `GffPath` into mg-gff, carried by `Reference`,
   `Usage` and `Hit`. (L, mechanical)
-- **Filters: one matcher and one search field, what is left** (built
-  2026-10-27: `mg_core::text::Needle`, every word in any order, in any
-  of a row's fields; `widgets::SearchField`, with Find's keys from
-  Options › Keyboard; every Ctrl+F read by hand is gone). What differs
-  still, by choice: the palettes alone fall back to letters in order
-  when nothing has every word; each list looks in its own fields (the
-  tree: name and ResRef, an object's name and tag; the palettes and the
-  item picker: name, ResRef, tag; Find Instance: tag and blueprint as
-  two fields, each its own words; the resource browser, the hak editor
-  and Transfer: the ResRef or the file name alone; the tileset editor:
-  model and terrains; a 2DA: every cell and its value's name; the Area
-  chooser: ResRef and name, not the tag). Down leaves a field for its
-  list only where the list has keys of its own (the tree, the palettes,
-  the resource browser); elsewhere it stays in the field. Not moved to
-  `SearchField` (plain fields, no clear button nor Find's keys, the
-  matcher already theirs): the Creature Wizard's appearances, the
-  Script and Store Wizards', the Area chooser's, a table's row list and
-  the lists' dropdown filters (`widgets.rs`), the store page's, Options
-  › Keyboard's, the creature pages' lists, the script editor's help and
-  Open Script, the Command Palette. (S)
-- **A list's click to select several, three times:**
-  `widgets::select_in_list` (Open Script, from October 2026), the hak
-  editor's list (`hak_view.rs:457`, the same rule) and Module
-  Properties' haks (`module_props.rs:427`: Ctrl wins over Shift there,
-  and Ctrl+Shift adds no range). The hak editor's could call it as it
-  is; the module's haks, once the difference is chosen. (S)
 - **Module Properties and the journal redo `Form` by hand**
   (`module_props.rs`, `journal_view.rs:296`): a tag's 32 characters held
   three ways (the module's not at all), the module's XP slider adds an

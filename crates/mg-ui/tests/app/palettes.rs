@@ -1137,7 +1137,7 @@ fn prefabs_are_offered_on_the_toolbar_and_in_the_palette() {
     // Two objects selected: the toolbar offers to save them.
     h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(Waypoint, 0), (Waypoint, 1)];
     h.run_steps(2);
-    h.get_by_label("Save 2 as Prefab…").click();
+    h.get_by_label("🗐 Save 2 as Prefab…").click();
     h.run_steps(2);
     let (_, clip) = h.state().prefab_save.clone().expect("the Save as Prefab window");
     assert_eq!(clip.objects.len(), 2);
@@ -1239,7 +1239,34 @@ fn the_palette_shown_last_is_remembered() {
     palette_type(&mut h, "🚪", "Doors");
     h.run_steps(2);
     assert_eq!(h.state().settings.palette_type.as_deref(), Some("utd"));
-    // Another start with those settings: the doors again.
+    // A category opened, and what is typed in the search: kept too (a
+    // category a search opens is not).
+    let first = h.state().settings.palette_open.clone();
+    // (The doors' standard palette: Tileset Specific and Universal.)
+    let header = "Universal".to_string();
+    // (Open: its rows under it.)
+    let open_now = |h: &Harness<'_, Moonglow>| {
+        let at = h.get_by_label(&header).rect();
+        let under = |n: &egui_kittest::Node<'_>| {
+            let r = n.rect();
+            r.top() > at.bottom() && r.top() < at.bottom() + 40.0 && r.left() > at.left()
+        };
+        h.query_all(egui_kittest::kittest::by().role(egui::accesskit::Role::Button))
+            .any(|n| under(&n))
+    };
+    assert!(!open_now(&h), "{header} closed at first");
+    h.get_by_label(&header).click();
+    h.run_steps(3);
+    assert!(open_now(&h), "{header} opened");
+    let open = h.state().settings.palette_open.clone();
+    assert_eq!(open.len(), first.len() + 1, "{open:?}");
+    assert!(open.iter().all(|k| k.starts_with("utd/standard/")), "{open:?}");
+    type_into_hint(&mut h, "Find", "zzzz");
+    h.run_steps(2);
+    assert_eq!(h.state().settings.palette_search, "zzzz");
+    assert_eq!(h.state().settings.palette_open, open, "a search opens none for good");
+    // Another start with those settings: the doors again, the category
+    // open and the search as it was.
     let settings = h.state().settings.clone();
     let Some((mut again, _)) = plugin_harness("ui-palette-remembered-2", true) else { return };
     again.state_mut().settings = settings;
@@ -1247,6 +1274,11 @@ fn the_palette_shown_last_is_remembered() {
     again.run_steps(3);
     assert_eq!(again.state().palette.kind, BlueprintKind::Door);
     assert!(!again.state().palette.tiles);
+    assert_eq!(again.state().palette.filter, "zzzz");
+    again.state_mut().palette.filter.clear();
+    again.run_steps(3);
+    assert_eq!(again.state().settings.palette_search, "");
+    assert!(open_now(&again), "{header} open at the start");
 }
 
 /// A blueprint copied into an open module folder from elsewhere (one
@@ -1447,7 +1479,7 @@ fn the_palette_s_gallery_shows_blueprints_as_pictures() {
     assert!(!h.state().settings.palette_gallery);
     let row = h.get_all_by_label(&name).next().expect("the chest's row").rect().size();
     assert!(row.y < 30.0, "a row of the list: {row:?}");
-    h.get_by_label("⊞").click();
+    h.get_by_label("🖼").click();
     h.run_steps(3);
     assert!(h.state().settings.palette_gallery);
 }
@@ -1696,4 +1728,26 @@ fn the_palette_s_item_pictures_are_kept_by_who_wears_them() {
     h.state_mut().settings.armor_on_woman = false;
     h.run_steps(30);
     assert_eq!(drawn(&h), hers, "the man's, kept");
+}
+
+/// Next Pane (F6) to the palettes puts the palette's cursor at its first
+/// row (GitHub issue 12): Right opens it there, with no arrow pressed
+/// first.
+#[test]
+fn next_pane_puts_the_palette_s_cursor_at_its_first_row() {
+    use mg_module::palette::BlueprintKind;
+    let Some((mut h, _)) = area_harness("palette-next-pane") else { return };
+    h.state_mut().palette.kind = BlueprintKind::Waypoint;
+    h.state_mut().palette.tiles = false;
+    h.state_mut().palette.custom = false;
+    h.run_steps(3);
+    let tavern = h.state().game.as_deref().unwrap().string(mg_core::StrRef(69068)).unwrap();
+    assert!(h.query_by_label(&tavern).is_none(), "the category closed");
+    // (The keys nowhere yet are taken as the middle's, the area's: the
+    // palettes next.)
+    h.key_press(egui::Key::F6);
+    h.run_steps(3);
+    h.key_press(egui::Key::ArrowRight);
+    h.run_steps(4);
+    assert!(h.query_by_label(&tavern).is_some(), "opened from the first row");
 }

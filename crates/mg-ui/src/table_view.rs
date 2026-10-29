@@ -393,11 +393,12 @@ pub(crate) fn open_table_ui(app: &mut Moonglow, ctx: &egui::Context) {
         .default_size([460.0, 440.0])
         .collapsible(false)
         .show(ctx, |ui| {
-            let field = ui.add(
-                egui::TextEdit::singleline(&mut w.filter)
-                    .hint_text("Find by name")
-                    .desired_width(f32::INFINITY),
-            );
+            let field =
+                crate::widgets::SearchField::new(egui::Id::new("open-2da-find"), &mut w.filter)
+                    .hint("Find by name")
+                    .find_over()
+                    .show(ui)
+                    .response;
             crate::widgets::autofocus(ui, &field);
             let entered = ui.input(|i| i.key_pressed(egui::Key::Enter));
             let needle = mg_core::text::Needle::new(&w.filter);
@@ -1231,7 +1232,7 @@ fn shown_rows(doc: &TableDoc) -> Vec<usize> {
 
 /// Gives the keys to a table's grid: the arrows, and Undo and Redo, are
 /// that table's from then on.
-fn take_keys(ctx: &egui::Context, table: u32) {
+pub(crate) fn take_keys(ctx: &egui::Context, table: u32) {
     give_keys(ctx, Keys::Table);
     ctx.data_mut(|d| d.insert_temp(egui::Id::new("table-keys-of"), table));
 }
@@ -1927,12 +1928,13 @@ fn inspector(
                     n => format!("{n} flags"),
                 };
                 ui.weak("flags:");
-                // (A set of ticks, not one choice: no arrow keys.)
+                // (A set of ticks, not one choice: the arrows move along
+                // them, Space or Enter ticks one.)
                 crate::widgets::dropdown(("table-flags-choice", id))
                     .selected_text(shown)
                     .width(300.0)
                     .stays_open()
-                    .show_ui(ui, |ui| {
+                    .show_menu(ui, |ui, keys| {
                         for e in entries {
                             let Some(v) =
                                 mg_module::table_desc::whole(&e.value).filter(|v| *v != 0)
@@ -1941,7 +1943,12 @@ fn inspector(
                             };
                             let mut ticked = bits & v == v;
                             let label = format!("{}  ({})", e.name, e.value);
-                            if ui.checkbox(&mut ticked, label).changed() {
+                            let r = ui.checkbox(&mut ticked, label);
+                            let keyed = keys.row(&r);
+                            if keyed {
+                                ticked = !ticked;
+                            }
+                            if r.changed() || keyed {
                                 let next = if ticked { bits | v } else { bits & !v };
                                 set = Some(kind.flags_cell(next, value.as_deref()));
                             }

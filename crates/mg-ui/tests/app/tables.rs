@@ -372,6 +372,26 @@ fn talk_table_made_edited_saved_and_used_by_strings() {
     h.get_by_label("Redo").click();
     h.run();
     assert_eq!(line(&h).feminine.as_deref(), Some("Greetings, lady"));
+    // In the line's text, typed in: Ctrl+Z is the field's, not the
+    // table's (GitHub issue 18): the feminine text stays.
+    let typed = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.value().as_deref() == Some("Greetings")
+            && matches!(
+                n.role(),
+                egui::accesskit::Role::TextInput | egui::accesskit::Role::MultilineTextInput
+            )
+    };
+    h.get(egui_kittest::kittest::by().predicate(typed)).click();
+    h.run();
+    h.key_press(egui::Key::End);
+    h.event(egui::Event::Text(" friend".into()));
+    h.run_steps(2);
+    assert!(h.ctx.egui_wants_keyboard_input());
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(line(&h).feminine.as_deref(), Some("Greetings, lady"), "not the table's undo");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
 
     // The lines go out as CSV; changed in a spreadsheet, they come back.
     h.get_by_label("Export CSV…").click();
@@ -546,6 +566,58 @@ fn a_table_s_row_list_opens_at_the_row_named() {
     h.get_by_label_contains("302  ").click();
     h.run_steps(3);
     assert_eq!(table_of(&h, id).get(0, "Spell"), Some("302"));
+}
+
+/// A flags cell's list of ticks by the keys (GitHub issue 7): once its
+/// box is clicked, Down opens it, the arrows move along the flags and
+/// Space ticks the one there (the list staying open).
+#[test]
+fn a_flags_list_is_ticked_by_the_keys() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-table-flags-keys");
+    std::fs::write(dir.join("nasher.cfg"), "").unwrap();
+    let file = dir.join("my_flags.2da");
+    std::fs::write(&file, "2DA V2.0\r\n\r\n  Label Mask\r\n0 One 0x1\r\n").unwrap();
+    let toml = "[columns.Mask]\nkind = \"flags\"\nvalues = { Red = 1, Green = 2, Blue = 4 }\n";
+    std::fs::write(dir.join("my_flags.2da.toml"), toml).unwrap();
+    let app = game_app(&root, None);
+    let mut h = harness(app, 1280.0, 800.0);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(4);
+    h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(0, 1);
+    h.run_steps(3);
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let at = h
+        .query_all(combo)
+        .find(|n| n.accesskit_node().value().as_deref() == Some("Red"))
+        .map(|n| n.rect().center())
+        .expect("the flags' list");
+    h.hover_at(at);
+    h.run_steps(1);
+    // Opened and closed by clicks: the box keeps the keys.
+    for _ in 0..2 {
+        press(&h, at, true, egui::Modifiers::NONE);
+        press(&h, at, false, egui::Modifiers::NONE);
+        h.run_steps(3);
+    }
+    assert!(h.query_by_label("Blue  (4)").is_none(), "closed");
+    for key in [egui::Key::ArrowDown, egui::Key::ArrowDown, egui::Key::ArrowDown] {
+        h.key_press(key);
+        h.run_steps(2);
+    }
+    h.key_press(egui::Key::Space);
+    h.run_steps(3);
+    assert_eq!(table_of(&h, id).get(0, "Mask"), Some("0x5"), "Blue ticked");
+    assert!(h.query_by_label("Blue  (4)").is_some(), "still open");
+    h.key_press(egui::Key::ArrowUp);
+    h.run_steps(2);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert_eq!(table_of(&h, id).get(0, "Mask"), Some("0x7"), "Green ticked");
 }
 
 #[test]
@@ -1367,4 +1439,92 @@ fn a_game_table_read_only_scrolls() {
     assert!(acid < label - 300.0, "the rows went sideways with the names: {acid}");
     // The rows' numbers stay in sight at the left.
     assert!(numbers(&h).contains(&0), "{:?}", numbers(&h));
+}
+
+/// GitHub issue 18, in the 2DA editor: Ctrl+Z with a cell's text typed in
+/// is the cell's own, not the table's Undo (its earlier change stays).
+#[test]
+fn undo_in_a_table_cell_being_typed_is_the_cell_s() {
+    let dir = mg_testkit::scratch_dir("ui-table-undo-in-cell");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let key = ResKey::parse("mystore", ResType::TWODA).unwrap();
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A table",
+        vec![mg_edit::Edit::SetResource { key, data: Some(SMALL_TABLE.to_vec()) }],
+    )));
+    let mut h = harness(app, 1200.0, 800.0);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_in_module(h.state_mut(), key).unwrap();
+    h.run_steps(4);
+    // An earlier change: a cell typed and kept.
+    h.get_by_label("Cheese").click();
+    h.run_steps(2);
+    h.key_press(egui::Key::F2);
+    h.run_steps(3);
+    h.event(egui::Event::Text("y".into()));
+    h.run_steps(2);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert_eq!(table_of(&h, id).get(1, "Label"), Some("Cheesey"));
+    // Another cell typed in, and Ctrl+Z: the typing's, not the table's.
+    h.key_press(egui::Key::ArrowUp);
+    h.run_steps(2);
+    h.key_press(egui::Key::F2);
+    h.run_steps(3);
+    h.event(egui::Event::Text("zz".into()));
+    h.run_steps(2);
+    assert!(h.ctx.egui_wants_keyboard_input());
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(table_of(&h, id).get(1, "Label"), Some("Cheesey"), "not the table's Undo");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(!h.ctx.egui_wants_keyboard_input());
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(table_of(&h, id).get(1, "Label"), Some("Cheese"), "the table's, once left");
+}
+
+/// Next Pane (F6) gives the middle's keys to what its tab in front has (GitHub
+/// issue 12): a table's cells, at its first cell where none is selected,
+/// then the arrows move through them; Shift+F6 goes back to the tree.
+#[test]
+fn next_pane_gives_the_keys_to_a_table_in_the_middle() {
+    let dir = mg_testkit::scratch_dir("ui-table-next-pane");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let key = ResKey::parse("mystore", ResType::TWODA).unwrap();
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A table",
+        vec![mg_edit::Edit::SetResource { key, data: Some(SMALL_TABLE.to_vec()) }],
+    )));
+    let mut h = harness(app, 1200.0, 800.0);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_in_module(h.state_mut(), key).unwrap();
+    h.run_steps(4);
+    let at =
+        |h: &Harness<'_, Moonglow>| h.state().tables.iter().find(|d| d.id == id).unwrap().selected;
+    assert_eq!(at(&h), None);
+    let key_ = |h: &mut Harness<'_, Moonglow>, m: egui::Modifiers, k: egui::Key| {
+        h.key_press_modifiers(m, k);
+        h.run_steps(2);
+    };
+    let none = egui::Modifiers::NONE;
+    // The tree first, then the middle: the table's first cell.
+    key_(&mut h, none, egui::Key::F6);
+    assert!(h.state().tree_cursor.is_some(), "the tree has the keys");
+    key_(&mut h, none, egui::Key::F6);
+    assert_eq!(at(&h), Some((0, 0)));
+    key_(&mut h, none, egui::Key::ArrowDown);
+    assert_eq!(at(&h), Some((1, 0)), "the arrows are the table's");
+    let tree = h.state().tree_cursor;
+    key_(&mut h, egui::Modifiers::SHIFT, egui::Key::F6);
+    key_(&mut h, none, egui::Key::ArrowDown);
+    assert_eq!(at(&h), Some((1, 0)), "the table's keys left");
+    assert_ne!(h.state().tree_cursor, tree, "the tree's again");
 }

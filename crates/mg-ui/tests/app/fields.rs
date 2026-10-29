@@ -1001,10 +1001,16 @@ fn an_open_dropdown_keeps_its_width() {
         n.role() == egui::accesskit::Role::TextInput && n.value().as_deref() == Some("Armoire")
     };
     let filter = h.get(egui_kittest::kittest::by().predicate(input)).rect();
-    assert_eq!(filter.width(), first.0, "the list keeps its width, narrowed");
+    // (The field and its clear button, now that something is typed.)
+    let clear = h.get_by_label("×").rect();
+    let across = clear.right() - filter.left();
+    assert!(
+        (across - first.0).abs() <= 2.0,
+        "the list keeps its width, narrowed: {across} {first:?}"
+    );
     // (Its rows still within it: with no scroll bar now, as wide as it.)
     let row = h.get_all_by_label_contains("Armoire").next().unwrap().rect();
-    assert!(row.right() <= filter.right() + 1.0, "{row:?} within the list beside {filter:?}");
+    assert!(row.right() <= clear.right() + 1.0, "{row:?} within the list beside {clear:?}");
 }
 
 /// A dropdown with a Filter field stays open while the field is clicked
@@ -1034,11 +1040,26 @@ fn a_dropdown_s_filter_field_can_be_typed_in() {
     let found = h.query_all_by_label_contains("Armoire").count();
     assert!(found > 0, "the dropdown is still open, and filtered");
     assert!(h.query_by_label("Altar").is_none(), "what doesn't match is left out");
+    // Escape clears what is typed, the list still open; Escape again
+    // closes it, the appearance as it was.
+    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert!(h.query(egui_kittest::kittest::by().predicate(hint)).is_some(), "open");
+    assert!(h.query_all_by_label("Altar").next().is_some(), "every row again");
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert!(h.query(egui_kittest::kittest::by().predicate(hint)).is_none(), "closed");
+    assert_eq!(field(&mut h, &key).integer("Appearance"), Some(before));
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run();
+    type_into_hint(&mut h, "Filter", "Armoire");
     // A choice closes it and sets the appearance.
     h.get_all_by_label_contains("Armoire").next().unwrap().click();
     h.run();
     assert_ne!(field(&mut h, &key).integer("Appearance"), Some(before));
-    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
     assert!(h.query(egui_kittest::kittest::by().predicate(hint)).is_none(), "closed");
 }
 

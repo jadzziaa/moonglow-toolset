@@ -12,6 +12,10 @@ use mg_resman::ResKey;
 
 use crate::{Action, Moonglow, Tab};
 
+/// The range of Adjust Location's fields that have none of their own (a
+/// position, a turn, a translation): any number.
+const FAR: std::ops::RangeInclusive<f32> = f32::MIN..=f32::MAX;
+
 /// The Adjust Location window's values.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AdjustLocation {
@@ -104,19 +108,18 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
             egui::Grid::new("adjust").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
                 for (i, label) in ["X", "Y", "Z"].into_iter().enumerate() {
                     crate::widgets::field_label(ui, label);
-                    let r = ui
-                        .add(egui::DragValue::new(&mut a.position[i]).speed(0.05).max_decimals(3));
+                    // (A step of an arrow: a tenth of a meter.)
+                    let r = crate::widgets::spin_draft(ui, &mut a.position[i], FAR, 0.1, |d| {
+                        d.speed(0.05).max_decimals(3)
+                    });
                     a.changed[i] |= r.changed();
                     ui.end_row();
                 }
                 crate::widgets::field_label(ui, "Bearing (°)")
                     .on_hover_text("0 faces north, 90 west (as Aurora shows it)");
-                let r = ui.add(
-                    egui::DragValue::new(&mut a.bearing)
-                        .speed(1.0)
-                        .range(0.0..=360.0)
-                        .max_decimals(2),
-                );
+                let r = crate::widgets::spin_draft(ui, &mut a.bearing, 0.0..=360.0, 1.0, |d| {
+                    d.speed(1.0).max_decimals(2)
+                });
                 a.changed[3] |= r.changed();
                 ui.end_row();
             });
@@ -129,12 +132,9 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
                 visual.show(ui, |ui| {
                     crate::widgets::field_label(ui, "Scale");
                     let mut scale = a.visual.scale.x;
-                    let r = ui.add(
-                        egui::DragValue::new(&mut scale)
-                            .speed(0.01)
-                            .range(0.01..=100.0)
-                            .max_decimals(2),
-                    );
+                    let r = crate::widgets::spin_draft(ui, &mut scale, 0.01..=100.0, 0.1, |d| {
+                        d.speed(0.01).max_decimals(2)
+                    });
                     if r.changed() {
                         a.visual.scale = Vec3::splat(scale);
                         a.visual_changed = true;
@@ -154,18 +154,16 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
                     for (i, axis) in ["X", "Y", "Z"].into_iter().enumerate() {
                         crate::widgets::field_label(ui, format!("{axis} Rotation"))
                             .on_hover_text(turns[i]);
-                        let r = ui.add(
-                            egui::DragValue::new(&mut a.visual.rotate[i])
-                                .speed(1.0)
-                                .max_decimals(1),
-                        );
+                        let turn = &mut a.visual.rotate[i];
+                        let r = crate::widgets::spin_draft(ui, turn, FAR, 1.0, |d| {
+                            d.speed(1.0).max_decimals(1)
+                        });
                         a.visual_changed |= r.changed();
                         crate::widgets::field_label(ui, format!("{axis} Translation"));
-                        let r = ui.add(
-                            egui::DragValue::new(&mut a.visual.translate[i])
-                                .speed(0.01)
-                                .max_decimals(2),
-                        );
+                        let to = &mut a.visual.translate[i];
+                        let r = crate::widgets::spin_draft(ui, to, FAR, 0.1, |d| {
+                            d.speed(0.01).max_decimals(2)
+                        });
                         a.visual_changed |= r.changed();
                         ui.end_row();
                     }

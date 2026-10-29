@@ -712,32 +712,29 @@ fn header(app: &mut Moonglow, ui: &mut Ui, name: &str, checked: &Checked) {
             ui.end_row();
             egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(true)
         };
+        // (With Icons only, each glyph alone, its name in its tip.)
+        let tools = crate::icons::Tools::of(&app.settings);
+        use crate::icons::editor as glyph;
         ui.with_layout(layout, |ui| {
-            if ui
-                .button("Export…")
-                .on_hover_text(
-                    "Builds the window, then exports it with its settings, its opener include \
-                     and its compiled event script",
-                )
-                .clicked()
-            {
+            let r = ui.button(tools.word(glyph::EXPORT, "Export…"));
+            let tip = "Builds the window, then exports it with its settings, its opener include \
+                       and its compiled event script";
+            if tools.named(r, "Export…", tip, None).clicked() {
                 app.actions.push(Action::GenerateNui { name: name.to_owned(), export: true });
             }
-            if ui
-                .add_enabled(
-                    checked.errors == 0,
-                    egui::Button::new("Build & compile").fill(ui.visuals().selection.bg_fill),
-                )
-                .on_hover_text(
-                    "Checks the opener include and compiles the event script. The window opens \
-                     from a script of yours: How to open it… shows what to write.",
-                )
-                .on_disabled_hover_text(format!(
+            let build = egui::Button::new(tools.word(glyph::BUILD, "Build & compile"))
+                .fill(ui.visuals().selection.bg_fill);
+            let r = ui.add_enabled(checked.errors == 0, build);
+            let tip = match checked.errors {
+                0 => "Checks the opener include and compiles the event script. The window opens \
+                      from a script of yours: How to open it… shows what to write."
+                    .to_string(),
+                n => format!(
                     "Fix the {} first: the list under the tabs shows them",
-                    count(checked.errors, "error")
-                ))
-                .clicked()
-            {
+                    count(n, "error")
+                ),
+            };
+            if tools.named(r, "Build & compile", &tip, None).clicked() {
                 app.actions.push(Action::GenerateNui { name: name.to_owned(), export: false });
             }
             if let Some((_, why)) = app.nui_build_error.as_ref().filter(|(n, _)| n == name) {
@@ -747,7 +744,7 @@ fn header(app: &mut Moonglow, ui: &mut Ui, name: &str, checked: &Checked) {
                     .on_hover_text("Build before testing: the game runs what was last built");
             }
             // The window opens from a script of yours: what to put in it.
-            ui.menu_button("How to open it…", |ui| {
+            let how = ui.menu_button(tools.word(glyph::HOW_TO_OPEN, "How to open it…"), |ui| {
                 let code = format!(
                     "#include \"{name}_o\"\n\n\
                      void main()\n{{\n    Open_{name}(GetEnteringObject());\n}}\n"
@@ -762,6 +759,7 @@ fn header(app: &mut Moonglow, ui: &mut Ui, name: &str, checked: &Checked) {
                 }
                 ui.weak("Pass the player who should see it. Build & compile first.");
             });
+            tools.named(how.response, "How to open it…", "What to write to open the window", None);
         });
     });
 }

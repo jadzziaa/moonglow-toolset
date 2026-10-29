@@ -397,7 +397,7 @@ fn page(
                         let n = w.classes.len();
                         for (i, (k, level)) in w.classes.iter_mut().enumerate() {
                             ui.label(name(*k));
-                            ui.add(egui::DragValue::new(level).range(1..=60));
+                            crate::widgets::spin_draft(ui, level, 1..=60, 1.0, |d| d);
                             if n > 1
                                 && ui.small_button("✖").on_hover_text("Remove this Class").clicked()
                             {
@@ -439,11 +439,14 @@ fn page(
             ui.horizontal(|ui| {
                 crate::widgets::field_label(ui, "Appearance");
                 ui.label(chosen);
-                ui.add(
-                    egui::TextEdit::singleline(&mut w.appearance_find)
-                        .hint_text("Find")
-                        .desired_width(160.0),
-                );
+                crate::widgets::SearchField::new(
+                    egui::Id::new("creature-wizard-appearance-find"),
+                    &mut w.appearance_find,
+                )
+                .hint("Find an appearance")
+                .width(160.0)
+                .find_over()
+                .show(ui);
             });
             let needle = mg_core::text::Needle::new(&w.appearance_find);
             let shown: Vec<&Choice> =

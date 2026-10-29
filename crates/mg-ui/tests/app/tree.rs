@@ -245,6 +245,23 @@ fn the_module_tree_s_groups_open_and_close_together() {
     h.get_all_by_label("⏷").next().unwrap().click();
     h.run_steps(4);
     assert_eq!(listed(&h), before, "and back");
+    // By their keys (Options › Keyboard), once the tree has the keys:
+    // Collapse All closes an area opened out to its objects too.
+    let ctrl_shift = egui::Modifiers::COMMAND | egui::Modifiers::SHIFT;
+    let arrows = |h: &Harness<'_, Moonglow>| h.query_all_by_label("⏷").count();
+    let closed = arrows(&h);
+    h.get_all_by_label(&area.to_string()).next().unwrap().click();
+    h.run_steps(2);
+    h.key_press(egui::Key::ArrowRight);
+    h.run_steps(3);
+    assert_eq!(arrows(&h), closed + 1, "the area opened out");
+    h.key_press_modifiers(ctrl_shift, egui::Key::ArrowLeft);
+    h.run_steps(4);
+    assert_eq!(listed(&h), before - 1, "every group closed by Collapse All's key");
+    h.key_press_modifiers(ctrl_shift, egui::Key::ArrowRight);
+    h.run_steps(4);
+    assert_eq!(listed(&h), before, "opened by Expand All's");
+    assert_eq!(arrows(&h), closed, "the area closed with the rest, and not opened out again");
 }
 
 /// The module tree's Delete… takes an area out of the module with its

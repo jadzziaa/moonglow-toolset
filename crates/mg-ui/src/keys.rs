@@ -27,6 +27,8 @@ pub enum Group {
     Conversation,
     /// In the NUI designer, outside text fields and menus.
     Nui,
+    /// In the module tree or a palette, while it has the keys.
+    Panes,
     /// The enabled plugins' commands (anywhere in the window).
     Plugins,
     /// The open project's commands (`[commands]`, anywhere in the
@@ -42,6 +44,7 @@ impl Group {
             Group::Script => "Script Editor",
             Group::Conversation => "Conversation Editor",
             Group::Nui => "NUI Creator",
+            Group::Panes => "Module Tree and Palettes",
             Group::Plugins => "Plugins",
             Group::Project => "Project Commands",
         }
@@ -132,6 +135,10 @@ pub enum Cmd {
     /// palettes), or the one before.
     NextPane,
     PreviousPane,
+    /// The module tree's and the palettes' Expand All and Collapse All,
+    /// while the pane has the keys.
+    ExpandAll,
+    CollapseAll,
     ToggleTree,
     TogglePalettes,
     ToggleLog,
@@ -151,7 +158,7 @@ const SHIFT: Modifiers = Modifiers::SHIFT;
 const NONE: Modifiers = Modifiers::NONE;
 
 impl Cmd {
-    pub const ALL: [Cmd; 75] = [
+    pub const ALL: [Cmd; 77] = [
         Cmd::NewModule,
         Cmd::OpenModule,
         Cmd::Save,
@@ -215,6 +222,8 @@ impl Cmd {
         Cmd::ReopenTab,
         Cmd::NextPane,
         Cmd::PreviousPane,
+        Cmd::ExpandAll,
+        Cmd::CollapseAll,
         Cmd::ToggleTree,
         Cmd::TogglePalettes,
         Cmd::ToggleLog,
@@ -298,6 +307,8 @@ impl Cmd {
             Cmd::ReopenTab => ("reopen-tab", "Reopen Closed Tab", General),
             Cmd::NextPane => ("next-pane", "Next Pane", General),
             Cmd::PreviousPane => ("previous-pane", "Previous Pane", General),
+            Cmd::ExpandAll => ("expand-all", "Expand All", Panes),
+            Cmd::CollapseAll => ("collapse-all", "Collapse All", Panes),
             Cmd::ToggleTree => ("view-tree", "Module Tree", General),
             Cmd::TogglePalettes => ("view-palettes", "Palettes Panel", General),
             Cmd::ToggleLog => ("view-log", "Log", General),
@@ -408,6 +419,10 @@ impl Cmd {
             Cmd::ReopenTab => vec![k(CTRL | SHIFT, Key::T)],
             Cmd::NextPane => vec![k(NONE, Key::F6)],
             Cmd::PreviousPane => vec![k(SHIFT, Key::F6)],
+            // (Right and Left open and close a row; with Ctrl+Shift,
+            // every one. Ctrl and + or -, egui's zoom, are the window's.)
+            Cmd::ExpandAll => vec![k(CTRL | SHIFT, Key::ArrowRight)],
+            Cmd::CollapseAll => vec![k(CTRL | SHIFT, Key::ArrowLeft)],
             Cmd::ToggleTree => vec![k(CTRL | Modifiers::ALT, Key::Num1)],
             Cmd::TogglePalettes => vec![k(CTRL | Modifiers::ALT, Key::Num2)],
             Cmd::ToggleLog => vec![k(CTRL | Modifiers::ALT, Key::Num3)],

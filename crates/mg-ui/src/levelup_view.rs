@@ -133,7 +133,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     ui.end_row();
                     for (i, (class, level, had)) in w.slots.iter_mut().enumerate() {
                         ui.label(name(*class));
-                        ui.add(egui::DragValue::new(level).range((*had).max(1)..=60))
+                        crate::widgets::spin_draft(ui, level, (*had).max(1)..=60, 1.0, |d| d)
                             .on_hover_text("Adjust the Level of this Class");
                         // Classes the creature has stay.
                         if *had == 0 && ui.small_button("✖").on_hover_text("Remove this Class").clicked() {
