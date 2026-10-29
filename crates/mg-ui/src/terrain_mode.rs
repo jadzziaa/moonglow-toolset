@@ -1582,7 +1582,7 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let mut chosen = app.palette.tile_brush.clone();
     let mut choice = app.palette.tile_choice;
     let side = crate::appearance_gallery::tile_side(app);
-    let ready = if gallery { app.thumbnails.every() } else { Default::default() };
+    let ready = &app.thumbnails;
     let Some(view) = app.area_views.get(&area) else { return };
     let was_tile_mode = view.tile_mode;
     let mut tile_mode = was_tile_mode;
@@ -1605,7 +1605,7 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         ),
         fold: fold.or(app.palette.fold),
         filter: &filter,
-        gallery: gallery.then_some(Pictures { side, ready: &ready }),
+        gallery: gallery.then_some(Pictures { side, ready }),
         exact: app.settings.exact_tiles,
         shown: Vec::new(),
         open: None,
@@ -1779,7 +1779,7 @@ fn group_found(tools: &Tools, g: usize, filter: &Needle) -> bool {
 /// The tiles palette's Gallery: its pictures' size, and those made.
 struct Pictures<'a> {
     side: f32,
-    ready: &'a std::collections::HashMap<crate::model_view::Pictured, Option<egui::TextureId>>,
+    ready: &'a crate::model_view::Thumbnails,
 }
 
 /// What the tiles palette's entries are drawn with, and what they change:
@@ -2031,7 +2031,7 @@ fn group_pictures(ui: &mut egui::Ui, groups: &[(&str, usize)], at: &mut Place) {
         for &(label, g) in groups {
             let brush = Brush::Group(g);
             let pictured = crate::model_view::Pictured::Group(at.tileset, g as u32);
-            let made = ready.get(&pictured).copied();
+            let made = ready.made(pictured);
             let on = at.chosen.as_ref().is_some_and(|b| b.label == label && b.brush == brush);
             let (r, in_sight) = crate::widgets::picture_tile(ui, side, label, on, made);
             if in_sight {
@@ -2090,7 +2090,7 @@ fn tile_pictures(ui: &mut egui::Ui, tiles: &[u32], at: &mut Place) {
             let Some(tile) = at.tools.set.tiles.get(t as usize) else { continue };
             let key = ResKey::parse(&tile.model.to_ascii_lowercase(), ResType::MDL);
             let pictured = key.map(|k| crate::model_view::Pictured::Tile(k, 0));
-            let made = pictured.and_then(|p| ready.get(&p).copied());
+            let made = pictured.and_then(|p| ready.made(p));
             let current = *at.choice == Some(t);
             let (r, in_sight) = crate::widgets::picture_tile(ui, side, &tile.model, current, made);
             if in_sight {

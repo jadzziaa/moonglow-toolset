@@ -201,6 +201,39 @@ pub struct ScriptTools {
     /// leaves other scripts' symbols and live checks out of date.
     pub(crate) seen: HashMap<ResKey, u64>,
     pub(crate) revision: u64,
+    /// The templates listed ([`ScriptTools::templates`]), when (egui's
+    /// time) and from which folders they were read.
+    #[allow(clippy::type_complexity)]
+    templates: Option<(f64, Vec<std::path::PathBuf>, Arc<Vec<(String, std::path::PathBuf)>>)>,
+}
+
+/// How long the templates' listing is kept before their folders are read
+/// again (a template saved meanwhile shows then): not read every frame.
+const TEMPLATES_KEPT: f64 = 2.0;
+
+impl ScriptTools {
+    /// [`templates`], read at most [`TEMPLATES_KEPT`] seconds ago from the
+    /// same folders, else now.
+    pub(crate) fn templates(
+        &mut self,
+        install: Option<&mg_resman::GameInstall>,
+        extra: Option<&std::path::Path>,
+        now: f64,
+    ) -> Arc<Vec<(String, std::path::PathBuf)>> {
+        let dirs = template_dirs(install, extra);
+        match &self.templates {
+            Some((read, from, listed))
+                if *from == dirs && (0.0..TEMPLATES_KEPT).contains(&(now - read)) =>
+            {
+                listed.clone()
+            }
+            _ => {
+                let listed = Arc::new(templates_in(&dirs));
+                self.templates = Some((now, dirs, listed.clone()));
+                listed
+            }
+        }
+    }
 }
 
 /// A script's text as a number, to tell when it changed.
@@ -338,6 +371,9 @@ impl ScriptTools {
         }
         let mut all = script_symbols(text, source);
         all.extend(from_spec(self.spec.as_ref().expect("loaded")));
+        // By name, as the side lists show them (not sorted every frame);
+        // of one name, the script's own before nwscript's.
+        all.sort_by(|a, b| a.name.cmp(&b.name));
         let all = Arc::new(all);
         self.symbols.insert(key, (h, all.clone()));
         all
@@ -713,6 +749,14 @@ pub fn templates(
     install: Option<&mg_resman::GameInstall>,
     extra: Option<&std::path::Path>,
 ) -> Vec<(String, std::path::PathBuf)> {
+    templates_in(&template_dirs(install, extra))
+}
+
+/// The folders [`templates`] reads.
+fn template_dirs(
+    install: Option<&mg_resman::GameInstall>,
+    extra: Option<&std::path::Path>,
+) -> Vec<std::path::PathBuf> {
     let mut dirs = Vec::new();
     if let Some(i) = install {
         dirs.push(i.root.join("data").join("scr"));
@@ -723,6 +767,11 @@ pub fn templates(
     if let Some(e) = extra {
         dirs.push(e.to_path_buf());
     }
+    dirs
+}
+
+/// The templates in `dirs`, by name.
+fn templates_in(dirs: &[std::path::PathBuf]) -> Vec<(String, std::path::PathBuf)> {
     let mut out: Vec<(String, std::path::PathBuf)> = dirs
         .iter()
         .filter_map(|d| std::fs::read_dir(d).ok())
@@ -920,5 +969,54 @@ mod tests {
         assert_eq!(s.iter().filter(|s| s.name == "Add").count(), 1);
         let c = completions(&s, "ad");
         assert_eq!(c[0].name, "Add");
+    }
+
+    /// A script's symbols come sorted by name, as the side lists show them
+    /// (not sorted every frame): of one name, the script's own first.
+    #[test]
+    fn a_script_s_symbols_are_kept_by_name() {
+        let key = super::nss("hello").unwrap();
+        let mut tools = super::ScriptTools::default();
+        let spec = "int TRUE = 1;\nint Add(int a);\nvoid Zap();\n";
+        let text = "int Add(int a) { return a; }\nvoid Bar() {}\nvoid main() {}\n";
+        let symbols = tools.symbols_for(
+            key,
+            1,
+            false,
+            text,
+            || Some(mg_script::spec::Spec::parse(spec.as_bytes())),
+            &mut |_| None,
+        );
+        let names: Vec<&str> = symbols.iter().map(|s| s.name.as_str()).collect();
+        let mut sorted = names.clone();
+        sorted.sort();
+        assert_eq!(names, sorted);
+        assert!(names.contains(&"Zap") && names.contains(&"Bar"), "{names:?}");
+        let adds: Vec<bool> =
+            symbols.iter().filter(|s| s.name == "Add").map(|s| s.custom).collect();
+        assert_eq!(adds, [true, false], "the script's own first");
+    }
+
+    /// The templates' folders are read again a couple of seconds on, or
+    /// when another folder is chosen, not every frame.
+    #[test]
+    fn the_templates_are_read_again_after_a_while() {
+        let dir = mg_testkit::scratch_dir("ui-script-templates");
+        let other = dir.join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(dir.join("first.txt"), "// first").unwrap();
+        let mut tools = super::ScriptTools::default();
+        let names = |listed: &[(String, std::path::PathBuf)]| -> Vec<String> {
+            listed.iter().map(|(n, _)| n.clone()).collect()
+        };
+        assert_eq!(names(&tools.templates(None, Some(&dir), 10.0)), ["first"]);
+        std::fs::write(dir.join("second.txt"), "// second").unwrap();
+        let kept = tools.templates(None, Some(&dir), 11.0);
+        assert_eq!(names(&kept), ["first"], "kept a while");
+        assert!(names(&tools.templates(None, Some(&other), 11.0)).is_empty(), "another folder");
+        assert_eq!(names(&tools.templates(None, Some(&dir), 11.5)), ["first", "second"]);
+        let read = tools.templates(None, Some(&dir), 11.6);
+        assert!(std::sync::Arc::ptr_eq(&read, &tools.templates(None, Some(&dir), 13.0)));
+        assert_eq!(names(&tools.templates(None, Some(&dir), 14.0)), ["first", "second"]);
     }
 }

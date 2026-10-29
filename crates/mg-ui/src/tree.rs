@@ -808,7 +808,7 @@ type Outs = HashMap<ResRef, Vec<(mg_area::ObjectKind, bool, Vec<usize>)>>;
 
 /// The rows the keys go through, in order: each with how deep it is and,
 /// if it opens, whether it is open.
-fn key_rows(shown: &Shown, outs: &Outs) -> Vec<(TreeAt, usize, Option<bool>)> {
+fn key_rows(shown: &Shown<'_>, outs: &Outs) -> Vec<(TreeAt, usize, Option<bool>)> {
     let mut rows = Vec::new();
     for (name, open, keys) in shown {
         rows.push((TreeAt::Group(name), 0, Some(*open)));
@@ -845,8 +845,10 @@ pub(crate) fn first_row() -> TreeAt {
     TreeAt::Group(GROUPS[0].0)
 }
 
-/// The rows shown: each group, whether it is open, and its resources.
-type Shown = Vec<(&'static str, bool, Vec<ResKey>)>;
+/// The rows shown: each group, whether it is open, and its resources (the
+/// group's list as made, borrowed, unless the Filter keeps some: not
+/// copied every frame).
+type Shown<'a> = Vec<(&'static str, bool, std::borrow::Cow<'a, [ResKey]>)>;
 
 /// The row the letters typed in quick succession (`typed`) go to, as in
 /// the conversation tree ([`crate::dialog_view::type_ahead`]): one
@@ -859,7 +861,7 @@ type Shown = Vec<(&'static str, bool, Vec<ResKey>)>;
 /// resource's, an area's or a blueprint's name where they are listed by
 /// name, else its ResRef; an object's name, or a waypoint's tag).
 fn seek(
-    shown: &Shown,
+    shown: &Shown<'_>,
     outs: &Outs,
     at: Option<TreeAt>,
     typed: &str,
@@ -902,7 +904,7 @@ fn row_text(
 /// What a placed object's row says that has no name (nor tag).
 const NO_NAME: &str = "(no name)";
 
-fn step(shown: &Shown, outs: &Outs, at: Option<TreeAt>, key: egui::Key) -> Step {
+fn step(shown: &Shown<'_>, outs: &Outs, at: Option<TreeAt>, key: egui::Key) -> Step {
     use egui::Key;
     let rows = key_rows(shown, outs);
     let Some(first) = rows.first().map(|r| r.0) else { return Step::None };
@@ -941,7 +943,7 @@ fn step(shown: &Shown, outs: &Outs, at: Option<TreeAt>, key: egui::Key) -> Step 
 /// is deleted: at it, on the row after it among its kind's (else the one
 /// before, else its kind's row); at another of its kind's, at that one
 /// still (the objects after it move up their area's list).
-fn past_deleted(shown: &Shown, outs: &Outs, cursor: TreeAt, deleted: TreeAt) -> TreeAt {
+fn past_deleted(shown: &Shown<'_>, outs: &Outs, cursor: TreeAt, deleted: TreeAt) -> TreeAt {
     let TreeAt::Object(area, kind, index) = deleted else { return cursor };
     let moved_up = |at: TreeAt| match at {
         TreeAt::Object(a, k, i) if a == area && k == kind && i > index => {
@@ -962,8 +964,8 @@ fn past_deleted(shown: &Shown, outs: &Outs, cursor: TreeAt, deleted: TreeAt) -> 
 
 fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool>) {
     follow_selection(app);
-    // The rows shown, for the keys; a group the keys opened or closed.
-    let mut shown: Shown = Vec::new();
+    // A group the keys opened or closed (the rows shown, for the keys,
+    // once the groups' lists are in hand).
     let mut outs = Outs::new();
     let folded = app.tree_fold.take();
     let cursor = app.tree_cursor;
@@ -1041,6 +1043,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
         app.area_names.groups = Some(Groups { shape, lists: Arc::new(lists) });
     }
     let lists = app.area_names.groups.as_ref().map(|g| g.lists.clone()).expect("made above");
+    let mut shown: Shown<'_> = Vec::new();
     // The resource to bring into view is in a group still opening: gone
     // to when it is open (its rows are where they will be then).
     let mut opening = false;
@@ -1091,13 +1094,14 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
             }
             found
         });
-        let keys: &[ResKey] = found.as_deref().unwrap_or(all);
+        let listed_keys: std::borrow::Cow<'_, [ResKey]> =
+            found.map_or(std::borrow::Cow::Borrowed(all.as_slice()), std::borrow::Cow::Owned);
+        let keys: &[ResKey] = &listed_keys;
         // What makes a new resource of the group (its wizard, or the New
         // window): on the group's and its resources' right-click menus.
         let new = new_command(types);
         let new_label = new.map(|id| new_label(&id.name()));
         let at_group = cursor == Some(TreeAt::Group(name));
-        let listed_keys = keys.to_vec();
         let header = egui::CollapsingHeader::new(format!("{name} ({})", keys.len()))
             .id_salt(name)
             .default_open(*name == "Areas")
@@ -1989,9 +1993,9 @@ mod tests {
         let key = |name: &str, t| ResKey::parse(name, t).unwrap();
         let (a, b, c) = (key("a", ResType::ARE), key("b", ResType::ARE), key("c", ResType::NSS));
         let shown: Shown = vec![
-            ("Areas", true, vec![a, b]),
-            ("Conversations", false, vec![]),
-            ("Scripts", false, vec![c]),
+            ("Areas", true, vec![a, b].into()),
+            ("Conversations", false, vec![].into()),
+            ("Scripts", false, vec![c].into()),
         ];
         let (areas, scripts) = (TreeAt::Group("Areas"), TreeAt::Group("Scripts"));
         let at = |r| Some(TreeAt::Resource(r));
@@ -2056,7 +2060,7 @@ mod tests {
         use mg_area::ObjectKind::{Creature, Door};
         let key = |name: &str, t| ResKey::parse(name, t).unwrap();
         let (a, b) = (key("a", ResType::ARE), key("b", ResType::ARE));
-        let shown: Shown = vec![("Areas", true, vec![a, b])];
+        let shown: Shown = vec![("Areas", true, vec![a, b].into())];
         let (area, next) = (TreeAt::Resource(a), TreeAt::Resource(b));
         let (creatures, doors) = (TreeAt::Kind(a.resref, Creature), TreeAt::Kind(a.resref, Door));
         let object = |i| TreeAt::Object(a.resref, Creature, i);
@@ -2104,11 +2108,12 @@ mod tests {
     /// keys: area `a`'s creatures Goblin (0) and Bandit (1), listed Bandit
     /// first, its door Gate in a kind closed and its waypoint by its tag
     /// WP_GATE; area `b` after it.
-    fn opened_out() -> (Shown, Outs, HashMap<ResRef, (Read, AreaContents)>, ResKey, ResKey) {
+    fn opened_out() -> (Shown<'static>, Outs, HashMap<ResRef, (Read, AreaContents)>, ResKey, ResKey)
+    {
         use mg_area::ObjectKind::{Creature, Door, Waypoint};
         let key = |name: &str| ResKey::parse(name, ResType::ARE).unwrap();
         let (a, b) = (key("a"), key("b"));
-        let shown: Shown = vec![("Areas", true, vec![a, b])];
+        let shown: Shown = vec![("Areas", true, vec![a, b].into())];
         let mut outs = Outs::new();
         outs.insert(
             a.resref,

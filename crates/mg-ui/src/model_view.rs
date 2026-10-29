@@ -994,41 +994,12 @@ impl Thumbnails {
         (key, self.female && item)
     }
 
-    /// The pictures made that this frame shows, by what they are of (of
-    /// item blueprints, those of the body armor is shown on).
-    fn current(&self) -> impl Iterator<Item = (Pictured, &Made)> {
-        self.made.iter().filter(|(k, _)| self.kept_as(k.0) == **k).map(|(k, made)| (k.0, made))
-    }
-
-    /// The thumbnails made, by blueprint.
-    pub(crate) fn all(&self) -> HashMap<ResKey, Option<egui::TextureId>> {
-        self.current()
-            .filter_map(|(k, made)| match k {
-                Pictured::Resource(k) => Some((k, made.id())),
-                Pictured::Look(_)
-                | Pictured::Tile(..)
-                | Pictured::Group(..)
-                | Pictured::Item(_) => None,
-            })
-            .collect()
-    }
-
-    /// Every thumbnail made.
-    pub(crate) fn every(&self) -> HashMap<Pictured, Option<egui::TextureId>> {
-        self.current().map(|(k, made)| (k, made.id())).collect()
-    }
-
-    /// The thumbnails made of creatures' looks.
-    pub(crate) fn looks(&self) -> HashMap<mg_preview::CreatureLook, Option<egui::TextureId>> {
-        self.current()
-            .filter_map(|(k, made)| match k {
-                Pictured::Look(l) => Some((l, made.id())),
-                Pictured::Resource(_)
-                | Pictured::Tile(..)
-                | Pictured::Group(..)
-                | Pictured::Item(_) => None,
-            })
-            .collect()
+    /// `key`'s picture, as this frame shows it (of an item blueprint, the
+    /// one of the body armor is shown on): `None` not made yet,
+    /// `Some(None)` made with nothing to draw. Looked up, where the
+    /// galleries made a map of every picture each frame.
+    pub(crate) fn made(&self, key: Pictured) -> Option<Option<egui::TextureId>> {
+        self.made.get(&self.kept_as(key)).map(Made::id)
     }
 
     /// A new frame, the module at `revision`, armor shown on a woman where

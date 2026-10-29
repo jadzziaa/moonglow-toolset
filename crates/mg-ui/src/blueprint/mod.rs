@@ -9,7 +9,7 @@ use egui::Ui;
 use mg_core::{LocString, ResRef, ResType};
 use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{FieldType, Struct, Value};
-use mg_module::palette::{BlueprintKind, Palette};
+use mg_module::palette::BlueprintKind;
 use mg_resman::ResKey;
 use mg_rules::{Choice, ChoiceColumns};
 
@@ -1395,28 +1395,13 @@ impl Form<'_> {
             ui.weak("(placed in an area)");
             return;
         }
-        let Some(game) = self.app.game.as_deref() else { return };
+        if self.app.game.is_none() {
+            return;
+        }
         // The module's own categories (Palette › Categories…), else the
-        // game's.
-        let own = self.app.ws.as_mut().and_then(|ws| ws.doc(&kind.skeleton_key()).ok().cloned());
-        let skeleton = own.or_else(|| {
-            let data = game.resman.get(&kind.skeleton_key()).ok()?;
-            mg_gff::Gff::read(&data).ok()
-        });
-        let categories: Vec<Choice> = skeleton
-            .map(|g| Palette::read(&g).categories(game))
-            .unwrap_or_default()
-            .into_iter()
-            .map(|(id, text)| Choice { row: usize::from(id), text })
-            .collect();
-        // In the palette's order (its tree's, as Palette › Categories…
-        // sets it), or alphabetical (Options › General): group by group,
-        // case and accents aside.
-        let categories = if self.app.settings.categories_by_name {
-            mg_rules::by_path(categories, " / ")
-        } else {
-            categories
-        };
+        // game's; in the palette's order (its tree's, as Palette ›
+        // Categories… sets it), or alphabetical (Options › General).
+        let categories = crate::palette_view::categories(self.app, kind);
         let label = kind.palette_field();
         self.mark_mixed(ui, label);
         let current = self.int(label);

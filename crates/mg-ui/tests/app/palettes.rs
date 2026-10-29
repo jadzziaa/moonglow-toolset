@@ -3,6 +3,39 @@
 
 use crate::common::*;
 
+/// A blueprint's Category lists its type's categories made once, not read
+/// and parsed every frame: again when the module changes, or they are
+/// asked for by name.
+#[test]
+fn a_blueprint_s_categories_are_made_once() {
+    use mg_module::palette::BlueprintKind;
+    use mg_ui::palette_view::categories;
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-categories-kept");
+    let path = sample_module(&dir);
+    let mut app = game_app(&root, None);
+    app.open_module(&path);
+    let first = categories(&mut app, BlueprintKind::Creature);
+    assert!(!first.is_empty(), "the game's creature categories");
+    assert!(std::sync::Arc::ptr_eq(&first, &categories(&mut app, BlueprintKind::Creature)));
+    assert!(!std::sync::Arc::ptr_eq(&first, &categories(&mut app, BlueprintKind::Item)));
+    // By name: made again, the same categories in another order.
+    app.settings.categories_by_name = !app.settings.categories_by_name;
+    let by_name = categories(&mut app, BlueprintKind::Creature);
+    assert!(!std::sync::Arc::ptr_eq(&first, &by_name));
+    let rows = |c: &[mg_rules::Choice]| {
+        let mut rows: Vec<usize> = c.iter().map(|c| c.row).collect();
+        rows.sort();
+        rows
+    };
+    assert_eq!(rows(&first), rows(&by_name));
+    // The module changed: made again.
+    let key = ResKey::parse("mg_cat_kept", ResType::NSS).unwrap();
+    let edit = mg_edit::Edit::SetResource { key, data: Some(b"void main() {}".to_vec()) };
+    app.ws.as_mut().unwrap().apply(mg_edit::Command::new("Script", vec![edit])).unwrap();
+    assert!(!std::sync::Arc::ptr_eq(&by_name, &categories(&mut app, BlueprintKind::Creature)));
+}
+
 /// Saving writes the custom palettes with their blueprints' names as the
 /// game reads them: the bytes the names have in the module (an accent in
 /// the game's codepage, a color token's bytes), not UTF-8, which the DM's

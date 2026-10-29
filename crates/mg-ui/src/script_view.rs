@@ -883,18 +883,27 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     // would take half the window; those end in "…" until the panel is
     // widened.
     // (Measured: the longest few, since letters differ in width.)
-    let mut longest: Vec<&str> = symbols
-        .iter()
-        .map(|s| s.name.as_str())
-        .filter(|n| n.chars().count() <= LONG_NAME)
-        .collect();
-    longest.sort_unstable_by_key(|n| std::cmp::Reverse(n.len()));
-    let font = egui::TextStyle::Body.resolve(ui.style());
-    let widest = longest.iter().take(16).fold(0.0_f32, |widest, name| {
-        let text = (*name).to_owned();
-        let galley = ui.fonts_mut(|f| f.layout_no_wrap(text, font.clone(), egui::Color32::WHITE));
-        widest.max(galley.size().x + SIDE_MARGINS)
-    });
+    // (Worked out once for the symbols, not every frame.)
+    let widest_id = egui::Id::new(("script-side-widest", key));
+    let made_for = (std::sync::Arc::as_ptr(&symbols) as usize, symbols.len());
+    let widest = match ui.data(|d| d.get_temp::<((usize, usize), f32)>(widest_id)) {
+        Some((made, widest)) if made == made_for => widest,
+        _ => {
+            let mut longest: Vec<&str> = (symbols.iter().map(|s| s.name.as_str()))
+                .filter(|n| n.chars().count() <= LONG_NAME)
+                .collect();
+            longest.sort_unstable_by_key(|n| std::cmp::Reverse(n.len()));
+            let font = egui::TextStyle::Body.resolve(ui.style());
+            let widest = longest.iter().take(16).fold(0.0_f32, |widest, name| {
+                let text = (*name).to_owned();
+                let galley =
+                    ui.fonts_mut(|f| f.layout_no_wrap(text, font.clone(), egui::Color32::WHITE));
+                widest.max(galley.size().x + SIDE_MARGINS)
+            });
+            ui.data_mut(|d| d.insert_temp(widest_id, (made_for, widest)));
+            widest
+        }
+    };
     egui::Panel::right(egui::Id::new(("script-side", key)))
         .resizable(true)
         .default_size(widest.max(260.0).min(half))
@@ -929,10 +938,10 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             // Long names end in "…" in a narrow panel (Help gives them whole).
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
             if t.side == SideTab::Templates {
-                let templates = tools::templates(
-                    app.install.as_ref(),
-                    app.settings.script_templates.as_deref(),
-                );
+                let now = ui.input(|i| i.time);
+                let (install, extra) =
+                    (app.install.as_ref(), app.settings.script_templates.as_deref());
+                let templates = t.templates(install, extra, now);
                 // (As wide as the panel: the scroll bar stays at its edge.)
                 let area = egui::ScrollArea::vertical().auto_shrink([false, false]);
                 area.id_salt("templates").show(ui, |ui| {
@@ -954,9 +963,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                     SideTab::Variables => SymbolKind::Variable,
                     _ => SymbolKind::Constant,
                 };
-                let mut list: Vec<&Symbol> =
+                // (By name already: `ScriptTools::symbols_for`.)
+                let list: Vec<&Symbol> =
                     symbols.iter().filter(|s| s.kind == kind && filter.finds(&s.name)).collect();
-                list.sort_by(|a, b| a.name.cmp(&b.name));
                 let area = egui::ScrollArea::vertical().auto_shrink([false, false]);
                 area.id_salt(("symbols", kind)).show_rows(ui, row, list.len(), |ui, range| {
                     // (Each row as wide as the list, so that its
@@ -2524,6 +2533,9 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
     open_script_ui(app, &ctx);
     if app.script_tools.search.open {
+        // (Its options copied for the window, not the results found: those
+        // stay where they are, unread by it.)
+        let results = std::mem::take(&mut app.script_tools.search.results);
         let mut s = app.script_tools.search.clone();
         let mut find_next = false;
         let mut replace = false;
@@ -2598,6 +2610,7 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
                 });
             });
         app.script_tools.search = s.clone();
+        app.script_tools.search.results = results;
         let target = s.script.filter(|k| app.scripts.contains_key(k));
         if find_next && let Some(k) = target {
             find_in_script(app, &ctx, k);

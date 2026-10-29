@@ -2424,13 +2424,6 @@ commits, with a test for all but one of the bugs it fixed) is in the
 history; this is what it left, found by reading and not by running
 unless it says so.
 
-- **Still made every frame, each needing something kept:** a blueprint's
-  category list (`Form::category` reads and parses the palette),
-  Module Properties' list of the hak folder, the script
-  editor's sorted symbols and its templates folder, Find in Files'
-  results (copied twice), the thumbnails' lists for the Appearance
-  Gallery and the Creature Wizard, the module tree's rows for the
-  keyboard (each group's resources copied). (S each)
 - **Written more than once, in the tests:** some corpus tests still
   stack the game, a module's haks and the module by hand, where
   `Module::stack_onto` does it for mg and the window. (S)

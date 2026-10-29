@@ -407,6 +407,20 @@ impl Moonglow {
         })
     }
 
+    /// [`Moonglow::loader`], and the thumbnails made to look up beside it.
+    pub(crate) fn loader_and_thumbnails(
+        &mut self,
+    ) -> Option<(Loader<'_>, &crate::model_view::Thumbnails)> {
+        let game = self.game.as_deref()?;
+        let loader = Loader {
+            pictures: &mut self.pictures,
+            palettes: &mut self.palettes,
+            ws: self.ws.as_ref(),
+            game,
+        };
+        Some((loader, &self.thumbnails))
+    }
+
     /// The image named `name` (a texture resref), loaded once; `None` if
     /// there is none or it does not decode.
     pub fn picture(&mut self, ctx: &egui::Context, name: &str) -> Option<Picture> {

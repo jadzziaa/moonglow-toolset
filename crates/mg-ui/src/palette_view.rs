@@ -90,6 +90,11 @@ pub struct PaletteView {
     /// Tilesets' names as Area Properties shows them, read once each (a
     /// big tileset takes milliseconds to read: too long for every frame).
     pub(crate) tileset_names: HashMap<ResRef, String>,
+    /// Each type's categories as a blueprint's Category lists them
+    /// ([`categories`]), and what they were made for: the workspace's
+    /// revision (none without a module) and whether by name.
+    #[allow(clippy::type_complexity)]
+    categories: HashMap<BlueprintKind, ((Option<u64>, bool), Arc<Vec<mg_rules::Choice>>)>,
     /// The row the arrow keys are at: the one clicked last, or come to
     /// with them.
     pub(crate) cursor: Option<At>,
@@ -370,6 +375,7 @@ impl PaletteView {
         self.kept = Default::default();
         self.tile_palettes.clear();
         self.tileset_names.clear();
+        self.categories.clear();
         // (The Standard palette's tags read the module's blueprint first:
         // another module, or the game read again, has its own.)
         self.tags.clear();
@@ -400,12 +406,44 @@ impl Default for PaletteView {
             area: None,
             tile_palettes: HashMap::new(),
             tileset_names: HashMap::new(),
+            categories: HashMap::new(),
             cursor: None,
             toggle: None,
             reveal: false,
             kept: Default::default(),
         }
     }
+}
+
+/// The categories of `kind`'s palette, as a blueprint's Category lists
+/// them: the module's own (Palette › Categories…), else the game's; in
+/// the palette's order, or by name (Options › General), group by group.
+/// Made again when the module changes or the game data is read again, not
+/// every frame.
+pub fn categories(app: &mut Moonglow, kind: BlueprintKind) -> Arc<Vec<mg_rules::Choice>> {
+    let by_name = app.settings.categories_by_name;
+    let made_for = (app.ws.as_ref().map(mg_edit::Workspace::revision), by_name);
+    if let Some((at, made)) = app.palette.categories.get(&kind)
+        && *at == made_for
+    {
+        return made.clone();
+    }
+    let Some(game) = app.game.as_deref() else { return Arc::default() };
+    let own = app.ws.as_mut().and_then(|ws| ws.doc(&kind.skeleton_key()).ok().cloned());
+    let skeleton = own.or_else(|| {
+        let data = game.resman.get(&kind.skeleton_key()).ok()?;
+        Gff::read(&data).ok()
+    });
+    let categories: Vec<mg_rules::Choice> = skeleton
+        .map(|g| Palette::read(&g).categories(game))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(id, text)| mg_rules::Choice { row: usize::from(id), text })
+        .collect();
+    let categories =
+        Arc::new(if by_name { mg_rules::by_path(categories, " / ") } else { categories });
+    app.palette.categories.insert(kind, (made_for, categories.clone()));
+    categories
 }
 
 /// A resref for a copy of `from`: the resref without its trailing digits
@@ -1060,7 +1098,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         gallery,
         side: crate::appearance_gallery::tile_side(app),
         // (The pictures made so far: of use in the Gallery alone.)
-        ready: if gallery { app.thumbnails.all() } else { HashMap::new() },
+        ready: &app.thumbnails,
         shown: Vec::new(),
         about: view.about.as_ref().map(|(k, lines)| (*k, lines.as_slice())),
         sel: Selection { selected: view.selected, chosen: std::mem::take(&mut view.chosen) },
@@ -1352,7 +1390,7 @@ struct Tree<'a> {
     /// in sight (made or not).
     gallery: bool,
     side: f32,
-    ready: HashMap<ResKey, Option<egui::TextureId>>,
+    ready: &'a crate::model_view::Thumbnails,
     shown: Vec<ResKey>,
     /// And what there is to say of it.
     about: Option<(ResKey, &'a [String])>,
@@ -1837,7 +1875,7 @@ impl Tree<'_> {
     /// (whole on hover). Until the picture is made, or for a blueprint
     /// with nothing to draw, its name alone.
     fn tile(&mut self, ui: &mut egui::Ui, key: ResKey, label: &str) -> egui::Response {
-        let made = self.ready.get(&key).copied();
+        let made = self.ready.made(crate::model_view::Pictured::Resource(key));
         let (r, seen) = crate::widgets::picture_tile(ui, self.side, label, self.sel.has(key), made);
         if seen {
             self.shown.push(key);
