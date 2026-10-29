@@ -11,7 +11,7 @@ use mg_core::ResType;
 use mg_edit::{Command, Edit, GffPath, Workspace};
 use mg_gff::Value;
 use mg_module::project_file::PasteWarning;
-use mg_module::tags::{Clash, MadeTag, TagIndex, clashes, retag};
+use mg_module::tags::{Clash, MadeTag, TagCache, TagIndex, clashes, retag};
 use mg_resman::ResKey;
 
 use crate::Moonglow;
@@ -43,36 +43,12 @@ pub struct TagClash {
 }
 
 /// The module's objects by tag, as they are now (unsaved edits too). An
-/// area not yet open is read from the module's copy and not kept: the
-/// workspace's documents are written back at a save, and a module
-/// folder's file would be rewritten for one only read here.
-pub(crate) fn index(ws: &Workspace) -> TagIndex {
-    let mut keys: Vec<ResKey> = ws
-        .module
-        .keys()
-        .filter(|k| matches!(k.restype, ResType::ARE | ResType::GIT))
-        .copied()
-        .collect();
-    keys.sort();
-    let mut index = TagIndex::default();
-    for key in keys {
-        let read;
-        let root = match ws.loaded(&key) {
-            Some(doc) => &doc.root,
-            None => match ws.module.gff(&key) {
-                Some(Ok(g)) => {
-                    read = g;
-                    &read.root
-                }
-                _ => continue,
-            },
-        };
-        match key.restype {
-            ResType::ARE => index.add_area(key.resref, root),
-            _ => index.add_git(key.resref, root),
-        }
-    }
-    index
+/// area not yet open is read from the module's copy and not kept as a
+/// document (the workspace's documents are written back at a save, and a
+/// module folder's file would be rewritten for one only read here): its
+/// tags are kept in `cache`, read again only once its bytes change.
+pub(crate) fn index(cache: &mut TagCache, ws: &Workspace) -> TagIndex {
+    cache.index(&ws.module, |k| ws.loaded(k).map(|g| &g.root))
 }
 
 /// What a made object's tag is to [`clashes`]: the tag, whether a builder
@@ -129,7 +105,7 @@ pub(crate) fn check(app: &mut Moonglow, what: &str, made: Vec<Made>, whole_area:
         .into_iter()
         .filter_map(|m| Some((m.clone(), weigh(ws, game.as_deref(), &m)?)))
         .collect();
-    let index = index(ws);
+    let index = index(&mut app.tag_cache, ws);
     let tags: Vec<MadeTag> = weighed
         .iter()
         .map(|(m, w)| MadeTag {
@@ -180,8 +156,8 @@ pub(crate) fn check(app: &mut Moonglow, what: &str, made: Vec<Made>, whole_area:
 /// The edits that give each new object with a clashing tag one of its
 /// own (the tag with a number, unique in the module): one step to undo.
 pub(crate) fn retag_edits(app: &mut Moonglow, clash: &TagClash) -> Vec<Edit> {
-    let Some(ws) = app.ws.as_mut() else { return Vec::new() };
-    let index = index(ws);
+    let Some(ws) = app.ws.as_ref() else { return Vec::new() };
+    let index = index(&mut app.tag_cache, ws);
     let mut given: Vec<String> = Vec::new();
     let mut edits = Vec::new();
     for (made, tag) in &clash.objects {

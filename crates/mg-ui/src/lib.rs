@@ -719,6 +719,9 @@ pub struct Moonglow {
     /// The Duplicate Tags window: tags a paste or a copy put on more than
     /// one object, and Retag.
     pub tag_clash: Option<tag_clash::TagClash>,
+    /// The module's tags, area by area, for the paste's and Setup Store's
+    /// checks ([`tag_clash::index`]).
+    pub(crate) tag_cache: mg_module::tags::TagCache,
     /// The Builder Code window (Edit › Builder Code…): the code typed.
     pub builder_code: Option<builder_code::Draft>,
     /// The script editor's code navigation and errors as you type.
@@ -1055,6 +1058,7 @@ impl Moonglow {
             rename: None,
             copy_as: None,
             tag_clash: None,
+            tag_cache: Default::default(),
             builder_code: None,
             placeable_gallery: None,
             script_nav: Default::default(),
@@ -2767,6 +2771,8 @@ impl Moonglow {
         let mut m = m;
         self.restore_locks(&mut m);
         self.ws = Some(Workspace::new(m));
+        // (The last module's tags, and the bytes they were read from, let go.)
+        self.tag_cache = Default::default();
         // (The project's plugins first: those allowed act on its opening.)
         self.load_project_plugins();
         self.plugins_module_opened();
@@ -2934,6 +2940,7 @@ impl Moonglow {
         // Closed (saved, or its changes discarded): no recovery copy.
         self.forget_recovery();
         self.ws = None;
+        self.tag_cache = Default::default();
         // (The project's plugins were its own.)
         self.plugins.settings_form = None;
         self.load_project_plugins();

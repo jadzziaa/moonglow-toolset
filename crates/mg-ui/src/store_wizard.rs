@@ -56,6 +56,9 @@ pub struct StoreWizard {
     pub faction: u32,
     /// The stores listed, for Custom or not.
     listed: Option<(bool, Vec<(ResRef, String)>)>,
+    /// The list was scrolled to the store chosen (once each time it is
+    /// listed: the project's blueprint may be far down it).
+    scrolled: bool,
     /// The project's `[store]` settings, if it has them.
     pub rules: Option<StoreRules>,
     /// The store's tag, as Finish will give it (worked out on the way to
@@ -113,6 +116,7 @@ pub fn open(app: &mut Moonglow, area: ResRef, list: &'static str, creature: usiz
         use_faction: true,
         faction: store_setup::merchant(factions.as_ref()),
         listed: None,
+        scrolled: false,
         rules,
         tag: None,
     });
@@ -156,6 +160,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let mut go_to_finish = false;
     if w.page == Page::Store && w.listed.as_ref().is_none_or(|(c, _)| *c != w.custom) {
         w.listed = Some((w.custom, stores(app, w.custom)));
+        w.scrolled = false;
     }
     let choices = w.listed.as_ref().map_or(&[][..], |(_, l)| l.as_slice()).to_vec();
     let faction_names: Vec<String> = factions(app)
@@ -218,17 +223,24 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                         .show(ui);
                     });
                     let needle = mg_core::text::Needle::new(&w.filter);
-                    egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+                    let scroll = egui::ScrollArea::vertical().id_salt("store-wizard-stores");
+                    scroll.max_height(260.0).show(ui, |ui| {
                         for (r, name) in &choices {
                             let label = format!("{name} ({r})");
                             if !needle.finds(&label) {
                                 continue;
                             }
-                            if ui.selectable_label(w.store == Some(*r), label).clicked() {
+                            let chosen = w.store == Some(*r);
+                            let row = ui.selectable_label(chosen, label);
+                            if chosen && !w.scrolled {
+                                row.scroll_to_me(Some(egui::Align::Center));
+                            }
+                            if row.clicked() {
                                 w.store = Some(*r);
                             }
                         }
                     });
+                    w.scrolled = true;
                 }
                 Page::Finish => {
                     ui.heading("Finish");
@@ -331,8 +343,11 @@ fn store_tag(app: &mut Moonglow, w: &StoreWizard) -> Result<String, String> {
         .ok()
         .and_then(|a| a.root.string("Tag").map(crate::text::decode))
         .unwrap_or_else(|| w.area.to_string());
-    let index = crate::tag_clash::index(ws);
-    let taken = |t: &str| index.count(&crate::text::encode(t)) > 0;
+    let index = crate::tag_clash::index(&mut app.tag_cache, ws);
+    // (In the area, for a tag the project wants unique in each area.)
+    let tags = &ws.module.project_file.tags;
+    let counted = mg_module::tags::taken_in(&index, tags, w.area);
+    let taken = |t: &str| counted(&crate::text::encode(t));
     Ok(match &rules.tag {
         Some(pattern) => mg_module::tags::store_tag(pattern, &area_tag, &taken),
         None if taken(&own) => mg_module::tags::retag(&own, &taken),

@@ -587,9 +587,9 @@ Names are matched by globs, whatever their case: `*` any characters,
 | `[make_static] keep_resrefs` | a placeable placed from a blueprint these name (its `TemplateResRef`) stays dynamic | none |
 | `[tags] unique` | tags that must be on one area or placed object only: Verify Module warns of two (`tag-unique`) | none |
 | `[tags] unique_in_area` | tags that must be on one object of each area only (an area's own tag counts as in it), as a store's tag is when a script looks for the nearest of it: another area may have one too. Verify Module warns of two in one area (`tag-unique`), and a paste counts them in the area it pasted into. A tag these name is held to them alone, though a glob of `unique` names it too (`unique = ["KZ_*"]` with `unique_in_area = ["*_STORE_*"]`: `KZ_SQUARE_STORE_1` once in each area). Since Moonglow 2.2.0 | none |
-| `[tags] paste_warning` | which tags a paste or a copy says it put on more than one object: `"custom"` (those a builder set, not the object's blueprint's own tag, and those of `unique` and `unique_in_area`), `"any"`, `"unique"` (those of `unique` and `unique_in_area` only) or `"off"`; never a static placeable's, and one of `unique_in_area` only when it is twice in one area. Set, it wins over the builder's Options › General › Show duplicate tags warning | as the builder's option says: `"custom"` with it on, `"unique"` with it off (the default) |
+| `[tags] paste_warning` | which tags a paste or a copy says it put on more than one object: `"custom"` (those a builder set, not the object's blueprint's own tag, and those of `unique` and `unique_in_area`), `"any"`, `"unique"` (those of `unique` and `unique_in_area` only) or `"off"`; never a static placeable's, and one of `unique_in_area` only when it is twice in one area (or, with `"any"`, in other areas too). Set, it wins over the builder's Options › General › Show duplicate tags warning | as the builder's option says: `"custom"` with it on, `"unique"` with it off (the default) |
 | `[store] open_script` | the script the shopkeeper's reply runs to open the store; none is written | an `openstoreNNN` that calls `OpenStore` |
-| `[store] tag` | the store's tag: `{area}` the area's tag, `{n}` the first number no object has | the blueprint's tag, with a number where another object has it (with a `[store]` section; Aurora's, the blueprint's, without one) |
+| `[store] tag` | the store's tag: `{area}` the area's tag, `{n}` the first number no object has (no object of the area, for a tag of `unique_in_area`) | the blueprint's tag, with a number where another object has it (with a `[store]` section; Aurora's, the blueprint's, without one) |
 | `[store] blueprint` | the store blueprint chosen at first | none chosen |
 | `[store] keeper_variable` | a String variable set on the shopkeeper to the store's tag | none |
 | `[resrefs] pattern` | how the ResRefs Moonglow proposes are made: `{name}` once, `{code}` (the builder's code) and `{kind}` (the kind's text, by `kinds`) at most once each, the rest letters, digits and `_` (`"{name}_{code}"`, `"t{code}{name}"`). Without `{code}` it is the team's prefix, for everyone, with a code or not (`"tdod_{name}"`, `"tdod_{kind}{name}"`; since Moonglow 2.13.0) | `"{code}_{name}"`, where a builder has a code |
@@ -650,7 +650,11 @@ it makes of a name, and writes it into `.moonglow/user.toml`, keeping
 the rest of that file as it is written; **No Code** takes it out. It
 is there for a module folder or a nasher project, not a module kept in
 one file (`.mod`). From a terminal, `mg builder-code PROJECT CODE` does
-the same ([Command-line tools](11-command-line.md)).
+the same ([Command-line tools](11-command-line.md)). In a project that
+keeps a [claims table](#claimed-areas), a code you choose that holds
+claims there (another builder's, likely) is said, in the window as you
+type it and in the log (or by `mg builder-code`) once set: two builders
+with one code share their claims and the names of their new resources.
 
 ```toml
 # .moonglow/user.toml
@@ -874,7 +878,9 @@ log by line, as the project file's are.
 - where it warns (the default), you may change it, and a save that
   would write a change to it asks first (**Areas Not Yours**: **Save
   Anyway**, or Cancel to leave it unsaved), as does one of an unclaimed
-  area in a project that warns of those.
+  area in a project that warns of those. The table read again while it
+  asks (a pull, with Options › General's reloading on), its list follows
+  it, and with none left the save goes on.
 
 **Claim This Area** and **Release Claim**, in the area's menu in the
 module tree and on its tab, write your row into the table (made, with
@@ -884,11 +890,21 @@ areas at once make changes git merges by itself. Commit the table with
 your work so that the others see it. An area another builder claimed is
 theirs to release. Without a builder code, Claim is there and off.
 
+**Edit › Claims Table…** shows the table whole: every area of it and
+of the module, whose each is and since when, merged or protected, and
+those the module doesn't have. Beside each, what you may do: **Claim**
+a free one, **Release** or **Hand To…** one of yours (another builder's
+code, typed: the claim is theirs then), and **Take Over…** another's,
+asked first (their changes to it not yet merged would be the conflict
+version control can't merge: ask them first). Each writes the table as
+the menus do; one taken over or handed on says to tell them.
+
 `mg claims PROJECT` lists every area of the table and the module and
-whose each is; `mg claims PROJECT claim AREA…` and `release AREA…` do
-what the menus do (`--force` takes or releases another's claim, for the
-one who keeps the table), and `merged AREA…` marks areas merged, with
-their Tags as the module has them ([Command-line tools](11-command-line.md)).
+whose each is; `mg claims PROJECT claim AREA…`, `release AREA…` and
+`hand AREA… --to CODE` do what the menus and the window do (`--force`
+takes, releases or hands on another's claim, for the one who keeps the
+table), and `merged AREA…` marks areas merged, with their Tags as the
+module has them ([Command-line tools](11-command-line.md)).
 
 ### Protected areas
 
@@ -900,7 +916,10 @@ before its Tag changes (Area Properties, or any other window), before it
 is renamed (**Rename…**) or deleted, Moonglow asks (**Protected Area**),
 and offers **Make a Copy Instead…**: a copy under a new ResRef and Tag is
 a new area, and loses nothing. **Change It Anyway** (or Rename, or
-Delete) goes ahead.
+Delete) goes ahead, for that one change: **Rename It Anyway** opens the
+Rename window, and closed without renaming, the area's next rename or
+change of its Tag is asked about again (as is a Tag changed while the
+Rename window is open).
 
 **Verify Module** (and `mg verify`) holds the merged areas to the table:
 

@@ -2542,9 +2542,6 @@ The Domains of Dread's builder proposal (its section 3): the project file
 (`moonglow.toml`), Make Placeables Static and Setup Store following it,
 and duplicate tags on paste. What is left:
 
-- **A builder code isn't checked against the team's:** two builders who
-  choose one code aren't told; a claims table (C6) could list the codes.
-  (S)
 - **Described variables (C2) are not described further:** an object's or
   a location's value has no description of its values; no `default`,
   no "required on" (a proprietor needs both `tdod_rental` and
@@ -2554,8 +2551,6 @@ and duplicate tags on paste. What is left:
 - **The project file is read again only with reloading on** (Options ›
   General), when the folder's watch sees a change; a window open then
   (Setup Store) keeps the rules it opened with. (S)
-- **Setup Store's blueprint list** doesn't scroll to the project's
-  blueprint, chosen at first, when it is far down the list. (S)
 - **Duplicate tags are said after a paste and an area's Copy… only:**
   not when a tag is typed in Properties, an object is placed from the
   palette (its blueprint's tag), Create Set names waypoints, Find and
@@ -2564,16 +2559,6 @@ and duplicate tags on paste. What is left:
 - **Retag changes the copies' tags only:** what names the old tag (a
   copied area's doors' `LinkedTo`, scripts) still names the original's;
   an area's copy's other duplicated tags are counted, not retagged. (M)
-- **A paste reads every area's objects for their tags:** those not open
-  are parsed from the module each time (not kept, so that a save doesn't
-  rewrite them); in a persistent world of hundreds of areas a paste may
-  take a moment. An index kept by the workspace's revision would answer
-  at once. (S)
-- **`unique_in_area` is quiet about other areas whatever
-  `paste_warning` says:** with `"any"`, a store's tag pasted into
-  another area isn't said, as the project says it may be there; and
-  Setup Store's `{n}` still takes the first number free in the module,
-  not in the area. (S) (the Domains of Dread's setup on 2.1.0)
 
 ## Claims, protected areas and the project's commands (the builders' proposal, C6 to C8)
 
@@ -2587,16 +2572,6 @@ File › Project. What is left:
   selected and dragged, its Properties typed in; each change is then
   refused with a line in the log (the area view doesn't turn its tools
   off, nor does a form go gray). (S)
-- **The window can't take another builder's claim** (only `mg claims
-  --force` does), nor hand one to another builder, nor show the table
-  whole (`mg claims` lists it). (S)
-- **A claims table changed by git while a save waits** is read again by
-  the folder's watch (with reloading on); the Areas Not Yours window
-  keeps the list it opened with. (S)
-- **The protected-name question is asked per change:** "Change It
-  Anyway" lets one change of that area through; a Rename window opened
-  by "Rename It Anyway" and then closed leaves that one pass for the
-  area's next change. (S)
 - **A project's command's output is in the log only:** no window of its
   own to read a long output in, and no input (a command that asks for
   a password waits until canceled; its stdin is closed). (S)
@@ -2866,7 +2841,9 @@ is not taken for a new gap.
 - **Claims are not checked against who commits:** the hand-back's CI
   check (a pull request touching areas its author didn't claim) is the
   team's script's; Moonglow knows the builder by the code they set, not
-  by their git identity. Builder codes aren't checked to be unique. (S) (Settled in the triage of 2026-10-28.)
+  by their git identity. A code is not reserved to one builder: one that
+  already holds claims is only warned of when set (Builder Code, `mg
+  builder-code`). (S) (Settled in the triage of 2026-10-28.)
 - **The claims table is a 2DA only** (the hand-back proposal's own
   choice): a TOML or CSV table isn't read; a codepage other than UTF-8
   isn't considered (the table is ASCII in practice). (S) (Settled in the triage of 2026-10-28.)

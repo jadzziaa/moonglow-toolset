@@ -20,8 +20,8 @@
 
 use mg_core::{ResRef, ResType};
 use mg_edit::{Command, Edit, EditError, GffPath};
-use mg_module::claims::{Access, Change, Standing};
-use mg_module::project_file::ProjectFile;
+use mg_module::claims::{Access, Change, Standing, Whose};
+use mg_module::project_file::{MAX_CODE, ProjectFile, code_problem};
 use mg_resman::ResKey;
 
 use crate::{Action, Moonglow};
@@ -29,17 +29,58 @@ use crate::{Action, Moonglow};
 /// What is asked about claims and protected names.
 #[derive(Debug, Default)]
 pub(crate) struct ClaimsState {
-    /// The Save window: the areas not this builder's that a save would
-    /// write, each with why, and what Save Anyway goes on with.
-    pub(crate) save_ask: Option<(Vec<(ResRef, String)>, Action)>,
+    /// The Save window.
+    pub(crate) save_ask: Option<SaveAsk>,
     /// Save Anyway was chosen: the next save is not asked about.
     pub(crate) cleared: bool,
     /// The Protected Area window.
     pub(crate) protected_ask: Option<ProtectedAsk>,
-    /// An area the builder said to change anyway: let through once.
-    let_through: Option<ResRef>,
+    /// A change the builder said to make anyway: let through once.
+    let_through: Option<Pass>,
     /// A command was held just now (for the window): Apply says no more.
     pub(crate) held: bool,
+    /// The Claims Table window (Edit › Claims Table…).
+    pub(crate) table: Option<TableWindow>,
+}
+
+/// The Claims Table window: what is being answered in it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct TableWindow {
+    /// An area being handed on, and the code typed for whom.
+    hand: Option<(ResRef, String)>,
+    /// Another's area about to be taken over (asked first).
+    take: Option<ResRef>,
+}
+
+/// What a builder does to an area's claim, in the window.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum How {
+    Claim,
+    Release,
+    /// Another builder's claim, taken (`mg claims claim --force`).
+    TakeOver,
+    /// This builder's claim, handed to the builder of that code.
+    Hand(String),
+}
+
+/// A save held: the areas not this builder's that it would write, each
+/// with why, as the project's claims had it then, and what Save Anyway
+/// goes on with.
+#[derive(Debug, Clone)]
+pub(crate) struct SaveAsk {
+    areas: Vec<(ResRef, String)>,
+    then: Action,
+    /// The claims the list was made by (the table, the rules and the
+    /// builder's code): read again (a pull, with reloading on), the list
+    /// is made again.
+    by: ClaimsNow,
+}
+
+/// What says whose each area is.
+type ClaimsNow = (Option<mg_module::claims::Claims>, mg_module::claims::ClaimRules, Option<String>);
+
+fn whose(p: &ProjectFile) -> ClaimsNow {
+    (p.claim_table.clone(), p.claims.clone(), p.user.builder_code.clone())
 }
 
 /// A change to a protected area, held until the builder answers.
@@ -51,6 +92,15 @@ pub(crate) struct ProtectedAsk {
     pub what: Protected,
     /// What goes ahead if it is changed anyway.
     pub then: Action,
+}
+
+/// A protected area's change the builder said to make anyway: that
+/// change of that area, once, while what it went on with is under way
+/// (its Rename or Delete window open, or its action waiting to run).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Pass {
+    area: ResRef,
+    what: Protected,
 }
 
 /// What would change of a protected area.
@@ -161,7 +211,7 @@ pub(crate) fn gate(app: &mut Moonglow, cmd: &Command) -> Result<(), EditError> {
         }
     }
     if let Some((area, why, what)) = protected_change(app, cmd) {
-        if app.claims.let_through == Some(area) {
+        if app.claims.let_through == Some(Pass { area, what }) {
             app.claims.let_through = None;
             return Ok(());
         }
@@ -194,7 +244,9 @@ pub(crate) fn asks_first(app: &mut Moonglow, action: &Action) -> bool {
         _ => return false,
     };
     let key = crate::references::main_key(key);
-    if key.restype != ResType::ARE || app.claims.let_through == Some(key.resref) {
+    if key.restype != ResType::ARE
+        || app.claims.let_through == Some(Pass { area: key.resref, what })
+    {
         return false;
     }
     let Some(why) = project(app).and_then(|p| p.protected(key.resref)) else { return false };
@@ -210,9 +262,21 @@ pub(crate) fn hold_save(app: &mut Moonglow, then: Action) -> bool {
     if std::mem::take(&mut app.claims.cleared) || !kept(app) {
         return false;
     }
-    let Some(ws) = app.ws.as_mut() else { return false };
-    if ws.flush().is_err() {
+    let asked = others_changed(app);
+    if asked.is_empty() {
         return false;
+    }
+    let by = project(app).map(whose).unwrap_or_default();
+    app.claims.save_ask = Some(SaveAsk { areas: asked, then, by });
+    true
+}
+
+/// The areas not this builder's (in a project that warns of them) that a
+/// save would write a change to, each with why.
+fn others_changed(app: &mut Moonglow) -> Vec<(ResRef, String)> {
+    let Some(ws) = app.ws.as_mut() else { return Vec::new() };
+    if ws.flush().is_err() {
+        return Vec::new();
     }
     let m = &ws.module;
     let mut areas: Vec<ResRef> = m
@@ -236,23 +300,25 @@ pub(crate) fn hold_save(app: &mut Moonglow, then: Action) -> bool {
             !same(m.get(&k), m.as_read(&k))
         })
     };
-    let asked: Vec<(ResRef, String)> = areas
+    areas
         .into_iter()
         .filter_map(|a| match m.project_file.access(a) {
             Access::Warn(why) if changed(a) => Some((a, why)),
             _ => None,
         })
-        .collect();
-    if asked.is_empty() {
-        return false;
-    }
-    app.claims.save_ask = Some((asked, then));
-    true
+        .collect()
 }
 
 /// Claims an area (or releases this builder's claim of it) in the
 /// project's table, and reads the project's files again.
 pub(crate) fn claim(app: &mut Moonglow, area: ResRef, release: bool) {
+    change(app, area, if release { How::Release } else { How::Claim });
+}
+
+/// Changes an area's row of the project's table as the builder said
+/// (Claim, Release, Take Over, Hand To), and reads the project's files
+/// again.
+pub(crate) fn change(app: &mut Moonglow, area: ResRef, how: How) {
     let Some(p) = project(app) else { return };
     let Some(path) = p.claims_path() else {
         app.log.warn("The project keeps no claims: its moonglow.toml names no [claims] file");
@@ -262,19 +328,39 @@ pub(crate) fn claim(app: &mut Moonglow, area: ResRef, release: bool) {
         app.log.warn("A claim is made by your builder code: set it first (Edit › Builder Code…)");
         return;
     };
-    let how = if release { Change::Release(&code) } else { Change::Claim(&code) };
-    match mg_module::claims::write_change(&path, area, how, false) {
+    let holder = p.standing(area).and_then(|s| s.claim()).and_then(|c| c.builder.clone());
+    let file = p.claims.file.clone().unwrap_or_default();
+    let (change, force, done, not) = match &how {
+        How::Claim => (Change::Claim(&code), false, format!("claimed by {code}"), "claimed"),
+        How::Release => (Change::Release(&code), false, format!("released by {code}"), "released"),
+        How::TakeOver => {
+            let from = holder.as_deref().unwrap_or("no one");
+            (Change::Claim(&code), true, format!("taken over from {from} by {code}"), "taken over")
+        }
+        How::Hand(to) => (
+            Change::Hand { from: &code, to },
+            false,
+            format!("handed to {to} by {code}"),
+            "handed on",
+        ),
+    };
+    match mg_module::claims::write_change(&path, area, change, force) {
         Ok(()) => {
-            let file = p.claims.file.clone().unwrap_or_default();
-            let done = if release { "released" } else { "claimed" };
-            app.log.info(format!(
-                "{area} {done} by {code}, in {file}: commit it, so the others see it"
-            ));
+            let tell = match how {
+                How::TakeOver | How::Hand(_) => "commit it, and tell them",
+                _ => "commit it, so the others see it",
+            };
+            app.log.info(format!("{area} {done}, in {file}: {tell}"));
             reread(app);
         }
-        Err(e) => app
-            .log
-            .error(format!("{area} was not {}: {e}", if release { "released" } else { "claimed" })),
+        Err(e) => app.log.error(format!("{area} was not {not}: {e}")),
+    }
+}
+
+/// Opens the Claims Table window (Edit › Claims Table…).
+pub(crate) fn open_table(app: &mut Moonglow) {
+    if kept(app) {
+        app.claims.table = Some(TableWindow::default());
     }
 }
 
@@ -422,12 +508,222 @@ pub(crate) fn banner(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
 /// The claims' windows: the save of others' areas, a protected area's
 /// change.
 pub(crate) fn windows(app: &mut Moonglow, ctx: &egui::Context) {
+    end_pass(app);
+    table_window(app, ctx);
     save_window(app, ctx);
     protected_window(app, ctx);
 }
 
+/// The Claims Table window: every area of the table and the module, whose
+/// each is, and what this builder may do with each (Claim, Release, Hand
+/// To…, Take Over…), as `mg claims` lists and changes them.
+fn table_window(app: &mut Moonglow, ctx: &egui::Context) {
+    let Some(mut w) = app.claims.table.take() else { return };
+    let Some(p) = project(app).filter(|p| p.claim_table.is_some() || p.claims.file.is_some())
+    else {
+        return;
+    };
+    let areas: Vec<ResRef> = (app.ws.as_ref())
+        .map(|ws| ws.module.keys_of(ResType::ARE).map(|k| k.resref).collect())
+        .unwrap_or_default();
+    let listed = p.claims_listing(Some(&areas));
+    let file = p.claims.file.clone().unwrap_or_default();
+    let code = p.user.builder_code.clone();
+    let mut open = true;
+    let mut close = false;
+    let mut chosen: Option<(ResRef, How)> = None;
+    crate::widgets::dialog(ctx, "Claims Table", &mut open)
+        .collapsible(false)
+        .resizable(false)
+        .show(ctx, |ui| {
+            ui.set_max_width(640.0);
+            match &code {
+                Some(c) => ui.label(format!("{file}: whose each area is. Your code is {c}.")),
+                None => ui.label(format!(
+                    "{file}: whose each area is. Set your builder code to claim one (Edit › \
+                     Builder Code…)."
+                )),
+            };
+            ui.add_space(4.0);
+            egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+                egui::Grid::new("claims-table").striped(true).num_columns(4).show(ui, |ui| {
+                    for l in &listed {
+                        let c = l.claim.as_ref();
+                        ui.label(l.area.to_string());
+                        let whose = match (l.whose, c.and_then(|c| c.holder())) {
+                            (Whose::Mine, Some(h)) => format!("yours: {h}"),
+                            (_, Some(h)) => h,
+                            (_, None) => "free".to_string(),
+                        };
+                        if l.whose == Whose::Others {
+                            ui.colored_label(ui.visuals().warn_fg_color, whose);
+                        } else {
+                            ui.label(whose);
+                        }
+                        let mut notes = Vec::new();
+                        if c.is_some_and(|c| c.merged()) {
+                            notes.push("merged");
+                        } else if l.protected {
+                            notes.push("protected");
+                        }
+                        if !l.in_module {
+                            notes.push("not in the module");
+                        }
+                        ui.weak(notes.join(", "));
+                        ui.horizontal(|ui| match l.whose {
+                            Whose::Mine => {
+                                if ui.button("Release").clicked() {
+                                    chosen = Some((l.area, How::Release));
+                                }
+                                if ui
+                                    .button("Hand To…")
+                                    .on_hover_text("Give your claim to another builder")
+                                    .clicked()
+                                {
+                                    w.hand = Some((l.area, String::new()));
+                                    w.take = None;
+                                }
+                            }
+                            Whose::Others => {
+                                let r =
+                                    ui.add_enabled(code.is_some(), egui::Button::new("Take Over…"));
+                                let r = r
+                                    .on_hover_text("Claim it in their place (asked first)")
+                                    .on_disabled_hover_text(
+                                        "Set your builder code first (Edit › Builder Code…)",
+                                    );
+                                if r.clicked() {
+                                    w.take = Some(l.area);
+                                    w.hand = None;
+                                }
+                            }
+                            Whose::Free => {
+                                let r = ui.add_enabled(code.is_some(), egui::Button::new("Claim"));
+                                let r = r.on_disabled_hover_text(
+                                    "Set your builder code first (Edit › Builder Code…)",
+                                );
+                                if r.clicked() {
+                                    chosen = Some((l.area, How::Claim));
+                                }
+                            }
+                        });
+                        ui.end_row();
+                    }
+                });
+            });
+            if let Some(area) = w.take {
+                let who = listed
+                    .iter()
+                    .find(|l| l.area == area)
+                    .and_then(|l| l.claim.as_ref()?.holder())
+                    .unwrap_or_default();
+                ui.separator();
+                ui.colored_label(
+                    ui.visuals().warn_fg_color,
+                    format!(
+                        "{area} is claimed by {who}. Taken over, their changes to it not yet \
+                         merged are the conflict version control can't merge: ask them first."
+                    ),
+                );
+                ui.horizontal(|ui| {
+                    if ui.button("Take It Over").clicked() {
+                        chosen = Some((area, How::TakeOver));
+                        w.take = None;
+                    }
+                    if ui.button("Don't Take It").clicked() {
+                        w.take = None;
+                    }
+                });
+            }
+            if let Some((area, to)) = &mut w.hand {
+                ui.separator();
+                let area = *area;
+                let mut give = false;
+                ui.horizontal(|ui| {
+                    crate::widgets::field_label(ui, format!("Hand {area} to"));
+                    let field = ui.add(
+                        egui::TextEdit::singleline(to)
+                            .char_limit(MAX_CODE + 4)
+                            .desired_width(100.0)
+                            .hint_text("their code"),
+                    );
+                    crate::widgets::autofocus(ui, &field);
+                });
+                let typed = to.trim().to_ascii_lowercase();
+                let problem = if typed.is_empty() {
+                    Some(String::new())
+                } else if Some(&typed) == code.as_ref() {
+                    Some("That is your own code.".to_string())
+                } else {
+                    code_problem(&typed)
+                };
+                if let Some(p) = problem.as_ref().filter(|p| !p.is_empty()) {
+                    ui.colored_label(ui.visuals().warn_fg_color, p);
+                }
+                let mut back = false;
+                ui.horizontal(|ui| {
+                    give =
+                        ui.add_enabled(problem.is_none(), egui::Button::new("Hand Over")).clicked();
+                    back = ui.button("Keep It").clicked();
+                });
+                if give {
+                    chosen = Some((area, How::Hand(typed)));
+                }
+                if give || back {
+                    w.hand = None;
+                }
+            }
+            ui.separator();
+            ui.weak("The table is a file of the checkout: commit it, so the others see it.");
+            close = ui.button("Close").clicked();
+        });
+    if let Some((area, how)) = chosen {
+        change(app, area, how);
+    }
+    if open && !close {
+        app.claims.table = Some(w);
+    }
+}
+
+/// A pass the builder gave lasts while what it went on with is under
+/// way: a Rename or Delete window of the area closed without the change
+/// (or never opened), or an action that ran without making it, takes it
+/// away, so that the area's next change is asked about again.
+fn end_pass(app: &mut Moonglow) {
+    let Some(pass) = app.claims.let_through else { return };
+    let open = match pass.what {
+        Protected::ResRef => app
+            .rename
+            .as_ref()
+            .is_some_and(|d| d.from.restype == ResType::ARE && d.from.resref == pass.area),
+        Protected::Deleted => {
+            app.confirm_delete.is_some_and(|k| k.restype == ResType::ARE && k.resref == pass.area)
+        }
+        Protected::Tag => false,
+    };
+    if !open && app.actions.is_empty() {
+        app.claims.let_through = None;
+    }
+}
+
 fn save_window(app: &mut Moonglow, ctx: &egui::Context) {
-    let Some((areas, then)) = app.claims.save_ask.clone() else { return };
+    let Some(ask) = app.claims.save_ask.take() else { return };
+    // The claims read again while it waits (a pull): the list made again,
+    // and the save gone on with where none is left.
+    let now = project(app).map(whose).unwrap_or_default();
+    let ask = if now == ask.by {
+        ask
+    } else {
+        let areas = if kept(app) { others_changed(app) } else { Vec::new() };
+        if areas.is_empty() {
+            app.log.info("The claims table changed: the save writes no area not yours now");
+            app.actions.push(ask.then);
+            return;
+        }
+        SaveAsk { areas, by: now, ..ask }
+    };
+    app.claims.save_ask = Some(ask.clone());
+    let SaveAsk { areas, then, .. } = ask;
     let mut open = true;
     let (mut save, mut cancel) = (false, false);
     crate::widgets::dialog(ctx, "Areas Not Yours", &mut open)
@@ -499,7 +795,7 @@ fn protected_window(app: &mut Moonglow, ctx: &egui::Context) {
         });
     if anyway {
         app.claims.protected_ask = None;
-        app.claims.let_through = Some(ask.area);
+        app.claims.let_through = Some(Pass { area: ask.area, what: ask.what });
         app.actions.push(ask.then);
     } else if copy {
         app.claims.protected_ask = None;

@@ -117,6 +117,29 @@ impl Claims {
         self.rows.iter().find(|c| c.area == area)
     }
 
+    /// The areas a builder's code holds (in the table's order).
+    pub fn held_by(&self, code: &str) -> Vec<ResRef> {
+        let code = code.to_ascii_lowercase();
+        self.rows.iter().filter(|c| c.builder.as_deref() == Some(&code)).map(|c| c.area).collect()
+    }
+
+    /// What to tell a builder choosing `code`, if it holds claims: two
+    /// builders with one code share their claims, and their new ResRefs'
+    /// names (`file`: the table, as the project names it).
+    pub fn code_taken(&self, code: &str, file: &str) -> Option<String> {
+        let held = self.held_by(code);
+        let first = held.first()?;
+        let more = match held.len() {
+            1 => String::new(),
+            2 => format!(" and {}", held[1]),
+            n => format!(" and {} others", n - 1),
+        };
+        Some(format!(
+            "{code} holds claims in {file} ({first}{more}): if that is another builder's code, \
+             choose your own, or the two of you share those areas and the names of new resources"
+        ))
+    }
+
     /// Reads a table's text: what it doesn't understand is a warning
     /// (`claims.2da:5: …`); a text that is no 2DA, or lacks `Area` or
     /// `Builder`, an error.
@@ -197,6 +220,40 @@ impl<'a> Standing<'a> {
     }
 }
 
+/// Whose an area is, to a builder, without its row
+/// ([`Standing`]'s kinds).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Whose {
+    Mine,
+    Others,
+    Free,
+}
+
+impl Whose {
+    /// As `mg claims` writes it: `yours`, `another's`, `free`.
+    pub fn words(self) -> &'static str {
+        match self {
+            Whose::Mine => "yours",
+            Whose::Others => "another's",
+            Whose::Free => "free",
+        }
+    }
+}
+
+/// One area of the claims table and the module, listed
+/// ([`crate::project_file::ProjectFile::claims_listing`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Listed {
+    pub area: ResRef,
+    pub whose: Whose,
+    /// Its row, where it has one.
+    pub claim: Option<Claim>,
+    /// Its Tag and ResRef are kept (merged, or `[claims] protected`).
+    pub protected: bool,
+    /// The module has it (true where the module's areas weren't read).
+    pub in_module: bool,
+}
+
 /// What a builder may do with an area.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Access {
@@ -215,12 +272,15 @@ pub enum Change<'a> {
     Claim(&'a str),
     /// The builder `code` lets it go.
     Release(&'a str),
+    /// The builder `from` hands it to the builder `to`.
+    Hand { from: &'a str, to: &'a str },
 }
 
 /// A table's text with an area claimed or released (`date` the day,
 /// `YYYY-MM-DD`), every other line kept as written; a table made where
 /// there is none (`text` empty). `force` takes another builder's claim
-/// (or releases it): without it, that is refused, saying whose it is.
+/// (or releases it, or hands it on): without it, that is refused, saying
+/// whose it is.
 pub fn change(
     text: &str,
     area: ResRef,
@@ -261,6 +321,16 @@ pub fn change(
                 _ => {}
             }
             (None, if merged { "merged" } else { "free" })
+        }
+        Change::Hand { from, to } => {
+            match holder {
+                None if !force => return Err(format!("{area} is not claimed")),
+                Some(h) if h != from && !force => {
+                    return Err(format!("{area} is claimed by {h}, not by {from}"));
+                }
+                _ => {}
+            }
+            (Some(to), if merged { "merged" } else { "claimed" })
         }
     };
     let mut set: Vec<(usize, Option<String>)> = vec![(table.builder, builder.map(String::from))];
@@ -634,6 +704,52 @@ mod tests {
             Standing::Free(Some(_))
         ));
         assert!(matches!(Standing::of(&c, r("elsewhere"), Some("ab")), Standing::Free(None)));
+    }
+
+    /// A code that holds claims is said to the builder choosing it.
+    #[test]
+    fn a_code_that_holds_claims_is_said() {
+        let (c, _) = read(TABLE);
+        assert_eq!(c.held_by("CD"), [r("kz_bridge")]);
+        assert!(c.held_by("ef").is_empty());
+        assert_eq!(c.code_taken("ef", "claims.2da"), None);
+        assert_eq!(
+            c.code_taken("cd", "builders/claims.2da").unwrap(),
+            "cd holds claims in builders/claims.2da (kz_bridge): if that is another builder's \
+             code, choose your own, or the two of you share those areas and the names of new \
+             resources"
+        );
+        let more = change(TABLE, r("kz_mill"), Change::Claim("cd"), "x", false).unwrap();
+        let (c, _) = read(&more);
+        assert!(
+            c.code_taken("cd", "t")
+                .unwrap()
+                .starts_with("cd holds claims in t (kz_bridge and kz_mill)")
+        );
+    }
+
+    /// A claim handed on: the holder's alone, unless forced, its line
+    /// changed alone.
+    #[test]
+    fn a_claim_is_handed_on_by_its_holder() {
+        let hand = |from, to, force| {
+            change(TABLE, r("kz_square"), Change::Hand { from, to }, "2026-10-29", force)
+        };
+        let out = hand("ab", "ef", false).unwrap();
+        let (c, _) = read(&out);
+        assert_eq!(c.of(r("kz_square")).unwrap().builder.as_deref(), Some("ef"));
+        assert_eq!(c.of(r("kz_square")).unwrap().date.as_deref(), Some("2026-10-29"));
+        assert_eq!(out.lines().filter(|l| !TABLE.contains(l)).count(), 1, "{out}");
+        assert_eq!(hand("cd", "ef", false).unwrap_err(), "kz_square is claimed by ab, not by cd");
+        assert!(hand("cd", "ef", true).is_ok(), "forced");
+        let free =
+            change(TABLE, r("kz_abbey_gate"), Change::Hand { from: "ab", to: "ef" }, "x", false);
+        assert_eq!(free.unwrap_err(), "kz_abbey_gate is not claimed");
+        // A merged area stays merged.
+        let out = change(TABLE, r("kz_bridge"), Change::Hand { from: "cd", to: "ab" }, "x", false);
+        let (c, _) = read(&out.unwrap());
+        let row = c.of(r("kz_bridge")).unwrap();
+        assert_eq!((row.builder.as_deref(), row.merged()), (Some("ab"), true));
     }
 
     #[test]

@@ -357,8 +357,9 @@ fn a_projects_talk_table_kept_as_json_is_edited_there() {
 
 /// Setup Store in a project whose moonglow.toml has `[store]`: the
 /// project's script opens it (none is written), its tag follows the
-/// pattern and is the only one, its blueprint is offered first, and the
-/// shopkeeper keeps its tag in the project's variable.
+/// pattern and is the only one (of its area, as `unique_in_area` wants
+/// it), its blueprint is offered first, and the shopkeeper keeps its tag
+/// in the project's variable.
 #[test]
 fn setup_store_follows_the_project_file() {
     use mg_module::instances::{Placement, Placing, instance};
@@ -397,13 +398,24 @@ fn setup_store_follows_the_project_file() {
     let git = ResKey::new(area, ResType::GIT);
     let mut g = m.gff(&git).unwrap().unwrap();
     g.root.set("Creature List", mg_gff::Value::List(vec![keeper.unwrap()]));
-    g.root.set("StoreList", mg_gff::Value::List(vec![first]));
+    g.root.set("StoreList", mg_gff::Value::List(vec![first.clone()]));
     m.set_gff(git, &g).unwrap();
+    // Another area with the pattern's second number: wanted unique in each
+    // area (`unique_in_area`), it is free in this one.
+    let spec = AreaSpec { name: "Mill".into(), ..spec };
+    let mill = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let mut other = first;
+    other.set("Tag", mg_gff::Value::String(format!("{area_tag}_STORE_2").into_bytes()));
+    let mills = ResKey::new(mill, ResType::GIT);
+    let mut g = m.gff(&mills).unwrap().unwrap();
+    g.root.set("StoreList", mg_gff::Value::List(vec![other]));
+    m.set_gff(mills, &g).unwrap();
     let dir = mg_testkit::scratch_dir("ui-setup-store-project").join("shop");
     m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
     std::fs::write(
         dir.join("moonglow.toml"),
-        "[store]\nopen_script = \"tdod_vendor_open\"\ntag = \"{area}_STORE_{n}\"\n\
+        "[tags]\nunique_in_area = [\"*_STORE_*\"]\n\n\
+         [store]\nopen_script = \"tdod_vendor_open\"\ntag = \"{area}_STORE_{n}\"\n\
          blueprint = \"nw_storethief001\"\nkeeper_variable = \"tdod_store\"\n",
     )
     .unwrap();
@@ -445,6 +457,76 @@ fn setup_store_follows_the_project_file() {
     let var = c.list("VarTable").unwrap().iter().find(|v| v.string("Name") == Some(b"tdod_store"));
     let var = var.expect("the shopkeeper's variable");
     assert_eq!((var.dword("Type"), var.string("Value")), (Some(3), Some(tag.as_bytes())));
+}
+
+/// Setup Store's list of stores opens scrolled to the project's
+/// blueprint, chosen at first, though it is the last of the game's.
+#[test]
+fn setup_store_s_list_shows_the_project_s_blueprint_far_down() {
+    use mg_module::instances::{Placement, Placing, instance};
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    // The store the list shows last: by name, then ResRef, as it sorts.
+    let mut stores: Vec<(String, ResRef)> = game
+        .resman
+        .list(ResType::UTM)
+        .into_iter()
+        .map(|r| {
+            let data = game.resman.get(&ResKey::new(r, ResType::UTM)).unwrap();
+            let g = Gff::read(&data).unwrap();
+            let name = g.root.locstring("LocName").and_then(|l| game.locstring(l));
+            (name.unwrap_or_default(), r)
+        })
+        .collect();
+    stores.sort();
+    let (name, last) = stores.last().cloned().unwrap();
+    assert!(stores.len() > 20, "a list longer than the window shows");
+    let mut rng = fastrand::Rng::with_seed(5);
+    let mut m = new_module(&game, "Shop", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Field".into(),
+        tileset: ResRef::from_str("ttr01").unwrap(),
+        width: 2,
+        height: 2,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let blueprint = game.resman.get(&ResKey::parse("nw_bandit001", ResType::UTC).unwrap()).unwrap();
+    let none = |_: ResRef| None;
+    let placing = Placing { game: &game, item: &none };
+    let at = Placement { position: [5.0, 5.0, 0.0], rotation: 0.0 };
+    let keeper = instance(&placing, ResType::UTC, &Gff::read(&blueprint).unwrap().root, at, &[]);
+    let key = ResKey::new(area, ResType::GIT);
+    let mut g = m.gff(&key).unwrap().unwrap();
+    g.root.set("Creature List", mg_gff::Value::List(vec![keeper.unwrap()]));
+    m.set_gff(key, &g).unwrap();
+    let dir = mg_testkit::scratch_dir("ui-setup-store-far-down").join("shop");
+    m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
+    std::fs::write(dir.join("moonglow.toml"), format!("[store]\nblueprint = \"{last}\"\n"))
+        .unwrap();
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&dir);
+    app.open_palette = false;
+    mg_ui::store_wizard::open(&mut app, area, "Creature List", 0);
+    let mut h = harness(app, 1000.0, 800.0);
+    h.run();
+    h.get_by_label("Next >").click();
+    h.run();
+    h.run();
+    // The row is drawn inside the list, above the buttons under it.
+    let row = h.get_by_label(&format!("{name} ({last})")).rect();
+    let top = h.get_by_label("Choose the store to use.").rect().bottom();
+    let bottom = h.get_by_label("Next >").rect().top();
+    assert!(row.top() > top && row.bottom() < bottom, "{row:?} between {top} and {bottom}");
+    // Chosen once: the list is the builder's to scroll after.
+    let first = format!("{} ({})", stores[0].0, stores[0].1);
+    h.get_by_label(&format!("{name} ({last})")).click();
+    h.run();
+    assert!(h.get_by_label(&first).rect().bottom() < top, "not scrolled back");
 }
 
 /// A nasher project's files changed by another program are read again
@@ -1657,6 +1739,125 @@ fn an_area_another_builder_claimed_is_read_only_or_asked_about_before_a_save() {
     h.state_mut().actions.push(mg_ui::Action::Save);
     h.run();
     assert!(h.query_by_label("Areas Not Yours").is_none());
+    // The table changed while the save waits (a pull, read again by the
+    // folder's watch): the window's list follows it, and with none left
+    // the save goes on.
+    h.state_mut().actions.push(rename_start("Square"));
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    h.run();
+    h.get_by_label("  •  start is claimed by cd since 2026-10-20");
+    std::fs::write(dir.join("claims.2da"), claims_table("ef", "claimed")).unwrap();
+    h.state_mut().reload_project_files();
+    h.run();
+    h.get_by_label("  •  start is claimed by ef since 2026-10-20");
+    assert!(h.state().has_unsaved_work());
+    std::fs::write(dir.join("claims.2da"), claims_table("ab", "claimed")).unwrap();
+    h.state_mut().reload_project_files();
+    h.run();
+    h.run();
+    assert!(h.query_by_label("Areas Not Yours").is_none());
+    assert!(logged(&h, "The claims table changed: the save writes no area not yours now"));
+    assert!(!h.state().has_unsaved_work(), "saved");
+}
+
+/// A builder code chosen that holds another's claims in the team's table
+/// is said in the Builder Code window, and in the log once set; the
+/// builder's own code, or a free one, isn't.
+#[test]
+fn a_builder_code_that_holds_claims_is_said_in_its_window() {
+    let (dir, app) = claimed_project(
+        "ui-claims-code",
+        "[claims]\nfile = \"claims.2da\"\n",
+        &claims_table("cd", "claimed"),
+    );
+    let mut h = harness(app, 1000.0, 700.0);
+    h.run();
+    let said = "cd holds claims in claims.2da (start): if that is another builder's code, choose \
+                your own, or the two of you share those areas and the names of new resources";
+    let draft = |code: &str| mg_ui::builder_code::Draft { code: code.into(), root: dir.clone() };
+    for free in ["ab", "ef"] {
+        h.state_mut().builder_code = Some(draft(free));
+        h.run();
+        assert!(h.query_by_label_contains("holds claims").is_none(), "{free}");
+    }
+    h.state_mut().builder_code = Some(draft("CD"));
+    h.run();
+    h.get_by_label(said);
+    h.key_press(egui::Key::Enter);
+    h.run();
+    assert!(logged(&h, said));
+    assert!(logged(&h, "Your builder code is cd"));
+}
+
+/// C6: Edit › Claims Table… shows the table whole (every area of it and
+/// the module, whose each is), and takes another builder's claim over
+/// (asked first), hands this builder's on, releases and claims.
+#[test]
+fn the_claims_table_window_shows_every_area_and_hands_claims_on() {
+    let table = format!(
+        "{}1   kz_gone          ****     merged   2026-10-01  KZ_GONE\n",
+        claims_table("cd", "claimed")
+    );
+    let (dir, app) =
+        claimed_project("ui-claims-table", "[claims]\nfile = \"claims.2da\"\n", &table);
+    let mut h = harness(app, 1000.0, 700.0);
+    h.run();
+    h.get_by_label("Edit").click();
+    h.run();
+    h.get_by_label("Claims Table…").click();
+    h.run();
+    h.get_by_label("claims.2da: whose each area is. Your code is ab.");
+    h.get_by_label("cd since 2026-10-20");
+    h.get_by_label("kz_gone");
+    h.get_by_label("merged, not in the module");
+    let row = |dir: &std::path::Path| {
+        let text = std::fs::read_to_string(dir.join("claims.2da")).unwrap();
+        text.lines().nth(3).unwrap().split_whitespace().take(3).collect::<Vec<_>>().join(" ")
+    };
+    // A free one: claimed, and released, from the window.
+    h.get_by_label("Claim").click();
+    h.run();
+    let gone = |dir: &std::path::Path| std::fs::read_to_string(dir.join("claims.2da")).unwrap();
+    assert!(gone(&dir).lines().nth(4).unwrap().starts_with("1   kz_gone          ab "));
+    h.get_by_label("Release").click();
+    h.run();
+    assert!(gone(&dir).lines().nth(4).unwrap().starts_with("1   kz_gone          **** "));
+    // Another's: taken over once asked.
+    h.get_by_label("Take Over…").click();
+    h.run();
+    h.get_by_label_contains("start is claimed by cd since 2026-10-20. Taken over");
+    h.get_by_label("Don't Take It").click();
+    h.run();
+    assert_eq!(row(&dir), "0 start cd");
+    h.get_by_label("Take Over…").click();
+    h.run();
+    h.get_by_label("Take It Over").click();
+    h.run();
+    assert_eq!(row(&dir), "0 start ab");
+    assert!(logged(&h, "start taken over from cd by ab, in claims.2da: commit it, and tell them"));
+    h.get_by_label_contains("yours: ab since");
+    // Handed on: not to one's own code.
+    h.get_by_label("Hand To…").click();
+    h.run();
+    type_into_hint(&mut h, "their code", "AB");
+    h.get_by_label("That is your own code.");
+    assert!(h.get_by_label("Hand Over").accesskit_node().is_disabled());
+    h.key_press(egui::Key::Backspace);
+    h.key_press(egui::Key::Backspace);
+    h.run();
+    type_into_hint(&mut h, "their code", "ef");
+    h.get_by_label("Hand Over").click();
+    h.run();
+    assert_eq!(row(&dir), "0 start ef");
+    assert!(logged(&h, "start handed to ef by ab, in claims.2da: commit it, and tell them"));
+    // The window follows the table: another's again.
+    h.get_by_label_contains("ef since");
+    assert!(h.query_by_label("Hand To…").is_none());
+    h.get_by_label("Close").click();
+    h.run();
+    assert!(h.query_by_label("Claims Table").is_none());
 }
 
 /// C6: Claim This Area (the module tree's menu) writes the builder's row
@@ -1791,6 +1992,60 @@ fn a_merged_area_s_tag_and_resref_are_asked_about_before_they_change() {
     h.run();
     h.run();
     assert!(h.state().rename.is_some(), "the Rename window, once said");
+    // The pass is the rename's: a change of the Tag meanwhile is asked.
+    h.state_mut().actions.push(retag("START_3"));
+    h.run();
+    h.run();
+    h.get_by_label("Protected Area");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run();
+    assert_eq!(tag(&mut h), "START_2");
+    // The Rename window closed without renaming: the next Rename… asks
+    // again, and so does a change of the Tag.
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run();
+    h.run();
+    assert!(h.state().rename.is_none());
+    h.state_mut().actions.push(mg_ui::Action::RenameDialog(key));
+    h.run();
+    h.run();
+    h.get_by_label("Protected Area");
+    assert!(h.state().rename.is_none(), "asked again");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run();
+    h.state_mut().actions.push(retag("START_3"));
+    h.run();
+    h.run();
+    h.get_by_label("Protected Area");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run();
+    // Delete It Anyway, and its window canceled: the next Delete… asks
+    // again.
+    h.state_mut().actions.push(mg_ui::Action::DeleteDialog(key));
+    h.run();
+    h.run();
+    h.get_by_label("Delete It Anyway").click();
+    h.run();
+    h.run();
+    assert_eq!(h.state().confirm_delete, Some(key));
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run();
+    h.run();
+    assert_eq!(h.state().confirm_delete, None);
+    h.state_mut().actions.push(mg_ui::Action::DeleteDialog(key));
+    h.run();
+    h.run();
+    h.get_by_label("Protected Area");
+    assert_eq!(h.state().confirm_delete, None, "asked again");
+    // Deleted anyway: the pass lasts until the window's Delete is done.
+    h.get_by_label("Delete It Anyway").click();
+    h.run();
+    h.run();
+    h.get_by_label("Delete").click();
+    h.run();
+    h.run();
+    assert!(h.query_by_label("Protected Area").is_none());
+    assert!(!h.state().ws.as_ref().unwrap().module.contains(&key), "deleted");
 }
 
 /// The project's commands (C8): File › Project › Update… saves the

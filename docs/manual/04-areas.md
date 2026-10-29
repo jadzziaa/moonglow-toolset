@@ -492,7 +492,8 @@ file](03-modules.md#the-project-file-moonglowtoml)'s `[store]`:
   no `openstoreNNN` is written (the wizard's page says so; the log warns
   when neither the module nor the game has the script);
 - `tag`: the store's tag, `{area}` the area's tag and `{n}` the first
-  number no other object of the module has (`{area}_STORE_{n}`); without
+  number no other object of the module has (`{area}_STORE_{n}`), or of
+  the area, for a tag `[tags] unique_in_area` names; without
   a pattern the blueprint's tag, with a number where another object has
   it. Either way no two stores share a tag, and the last page says it;
 - `blueprint`: the store blueprint chosen at first;
@@ -614,9 +615,11 @@ A tag a script looks for in its own area only (a store's, which a
 vendor's script finds as the nearest of that tag) may be on one object
 of each area: the project names those in `[tags] unique_in_area` (since
 Moonglow 2.2.0). A paste then counts such a tag in the area it was
-pasted into, whatever `paste_warning` says ("KZ_SQUARE_STORE_1 is now on
-two objects in kz_square (the project wants \*_STORE_\* unique in each
-area)"), a copy of a whole area is quiet about them, and Verify Module
+pasted into ("KZ_SQUARE_STORE_1 is now on two objects in kz_square (the
+project wants \*_STORE_\* unique in each area)"); one that is in other
+areas only is as meant, and said only where `paste_warning` is `"any"`,
+as any other tag on two objects ("KZ_SQUARE_STORE_1 is now on two
+objects"). A copy of a whole area is quiet about them, and Verify Module
 warns of one that is twice in one area.
 
 ## Painting placeables

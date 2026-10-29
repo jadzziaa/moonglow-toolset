@@ -7,7 +7,7 @@ use std::path::Path;
 
 use anyhow::{Result, bail};
 use mg_core::{ResRef, ResType};
-use mg_module::claims::{self, Change, Standing};
+use mg_module::claims::{self, Change, Whose};
 use mg_module::project_file::ProjectFile;
 use mg_resman::ResKey;
 use serde_json::json;
@@ -23,6 +23,9 @@ pub(crate) enum Action {
     Claim,
     /// Your claims of the areas named, let go.
     Release,
+    /// Your claims of the areas named, handed to the builder `--to`
+    /// names.
+    Hand,
     /// The areas named marked merged (in the game), with their Tags as
     /// the module has them now: their Tag and ResRef are kept from then on.
     Merged,
@@ -40,7 +43,13 @@ fn root_of(project: &Path) -> Result<&Path> {
     Ok(root)
 }
 
-pub(crate) fn run(project: &Path, action: Action, areas: &[String], force: bool) -> Result<Output> {
+pub(crate) fn run(
+    project: &Path,
+    action: Action,
+    areas: &[String],
+    force: bool,
+    to: Option<&str>,
+) -> Result<Output> {
     let root = root_of(project)?;
     let p = ProjectFile::read(root);
     let Some(table) = p.claims_path() else {
@@ -60,22 +69,32 @@ pub(crate) fn run(project: &Path, action: Action, areas: &[String], force: bool)
     let code = p.user.builder_code.clone();
     match action {
         Action::List => return list(root, &p),
-        Action::Claim | Action::Release => {
+        Action::Claim | Action::Release | Action::Hand => {
             let Some(code) = code.as_deref() else {
                 bail!(
                     "you have no builder code in this project: mg builder-code {} CODE first",
                     root.display()
                 );
             };
+            let to = match (action, to) {
+                (Action::Hand, None) => bail!("name the builder to hand them to: --to CODE"),
+                (Action::Hand, Some(to)) => {
+                    let to = to.to_ascii_lowercase();
+                    if let Some(problem) = mg_module::project_file::code_problem(&to) {
+                        bail!("--to {to}: {problem}");
+                    }
+                    to
+                }
+                _ => String::new(),
+            };
             for area in &areas {
-                let how = if action == Action::Claim {
-                    Change::Claim(code)
-                } else {
-                    Change::Release(code)
+                let (how, done) = match action {
+                    Action::Claim => (Change::Claim(code), format!("claimed by {code}")),
+                    Action::Release => (Change::Release(code), format!("released by {code}")),
+                    _ => (Change::Hand { from: code, to: &to }, format!("handed to {to}")),
                 };
                 claims::write_change(&table, *area, how, force).map_err(anyhow::Error::msg)?;
-                let done = if action == Action::Claim { "claimed by" } else { "released by" };
-                out.line(format!("{area}: {done} {code}"));
+                out.line(format!("{area}: {done}"));
             }
         }
         Action::Merged => {
@@ -101,63 +120,48 @@ pub(crate) fn run(project: &Path, action: Action, areas: &[String], force: bool)
 /// Every area of the table and of the module (where it opens), whose each
 /// is to you.
 fn list(root: &Path, p: &ProjectFile) -> Result<Output> {
-    let table = p.claim_table.clone().unwrap_or_default();
     let mut out = Output::default();
     for line in p.errors.iter().chain(&p.warnings) {
         out.note(line.clone());
     }
     // (The module's areas too, where it opens: those in no row are free.)
-    let module = crate::open_module(root);
-    let mut areas: Vec<ResRef> = table.rows.iter().map(|c| c.area).collect();
-    let in_module: Vec<ResRef> = match &module {
-        Ok(m) => m.keys_of(ResType::ARE).map(|k| k.resref).collect(),
+    let in_module: Option<Vec<ResRef>> = match crate::open_module(root) {
+        Ok(m) => Some(m.keys_of(ResType::ARE).map(|k| k.resref).collect()),
         Err(e) => {
             out.note(format!("the module's areas are not listed: {e}"));
-            Vec::new()
+            None
         }
     };
-    for a in &in_module {
-        if !areas.contains(a) {
-            areas.push(*a);
-        }
-    }
     let mut rows = Vec::new();
-    for area in areas {
-        let standing = Standing::of(&table, area, p.user.builder_code.as_deref());
-        let c = standing.claim();
-        let whose = match standing {
-            Standing::Mine(_) => "yours",
-            Standing::Others(_) => "another's",
-            Standing::Free(_) => "free",
-        };
-        let protected = p.protected(area).is_some();
-        let mut line = format!("{area}\t{whose}");
+    for l in p.claims_listing(in_module.as_deref()) {
+        let c = l.claim.as_ref();
+        let mut line = format!("{}\t{}", l.area, l.whose.words());
         if let Some(h) = c.and_then(|c| c.holder()) {
             line.push_str(&format!("\t{h}"));
         }
         if c.is_some_and(|c| c.merged()) {
             line.push_str("\tmerged");
-        } else if protected {
+        } else if l.protected {
             line.push_str("\tprotected");
         }
-        if module.is_ok() && !in_module.contains(&area) {
+        if !l.in_module {
             line.push_str("\t(not in the module)");
         }
         out.line(line);
         rows.push(json!({
-            "area": area.to_string(),
+            "area": l.area.to_string(),
             "builder": c.and_then(|c| c.builder.clone()),
             "status": c.and_then(|c| c.status.clone()),
             "date": c.and_then(|c| c.date.clone()),
             "tag": c.and_then(|c| c.tag.clone()),
-            "standing": match standing {
-                Standing::Mine(_) => "mine",
-                Standing::Others(_) => "others",
-                Standing::Free(_) => "free",
+            "standing": match l.whose {
+                Whose::Mine => "mine",
+                Whose::Others => "others",
+                Whose::Free => "free",
             },
             "merged": c.is_some_and(|c| c.merged()),
-            "protected": protected,
-            "in_module": module.is_err() || in_module.contains(&area),
+            "protected": l.protected,
+            "in_module": l.in_module,
         }));
     }
     let file = p.claims.file.clone();

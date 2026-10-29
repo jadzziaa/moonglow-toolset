@@ -31,6 +31,8 @@ pub enum Id {
     Redo,
     ModuleProperties,
     BuilderCode,
+    /// Edit › Claims Table…: whose each area is.
+    ClaimsTable,
     ResizeArea,
     RotateArea,
     FindInstance,
@@ -164,6 +166,7 @@ pub const MENUS: [(&str, &[Item]); 8] = [
             Separator,
             Do(Id::ModuleProperties),
             Do(Id::BuilderCode),
+            Do(Id::ClaimsTable),
             Separator,
             Do(Id::ResizeArea),
             Do(Id::RotateArea),
@@ -337,6 +340,12 @@ impl Id {
                 "Builder Code…",
                 "Your own code, which the ResRefs proposed for new areas, blueprints and copies \
                  begin with (kept in the project, out of version control)",
+            ),
+            Id::ClaimsTable => (
+                "claims-table",
+                "Claims Table…",
+                "Whose each area is (the project's claims table): claim, release, hand on or take \
+                 over a claim",
             ),
             Id::ResizeArea => ("resize-area", "Resize Area…", ""),
             Id::RotateArea => ("rotate-area", "Rotate Area…", ""),
@@ -669,6 +678,7 @@ impl Id {
             // (A project's or a module folder's: a .mod's folder holds
             // other modules too.)
             Id::BuilderCode => crate::builder_code::root(app).is_some(),
+            Id::ClaimsTable => crate::claims::kept(app),
             Id::TakeInLeftOut => (app.ws.as_ref())
                 .and_then(|ws| ws.module.project.as_ref())
                 .is_some_and(|p| !p.left_out.is_empty()),
@@ -793,6 +803,7 @@ impl Id {
                 return;
             }
             Id::BuilderCode => return crate::builder_code::open(app),
+            Id::ClaimsTable => return crate::claims::open_table(app),
             Id::Wizard(kind) => {
                 app.blueprint_wizard = Some(crate::blueprint_wizard::BlueprintWizard::new(kind));
                 return;

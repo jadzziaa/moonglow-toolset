@@ -1222,6 +1222,38 @@ impl ProjectFile {
         Some(format!("{area} is protected ({FILE_NAME}'s [claims] protected: {glob})"))
     }
 
+    /// Every area of the claims table and of the module (`module`: its
+    /// areas, where it opened; those in no row are free), the table's
+    /// first, whose each is to this builder: what `mg claims` lists and
+    /// the Claims Table window shows.
+    pub fn claims_listing(&self, module: Option<&[ResRef]>) -> Vec<crate::claims::Listed> {
+        use crate::claims::{Listed, Standing, Whose};
+        let table = self.claim_table.clone().unwrap_or_default();
+        let mut areas: Vec<ResRef> = table.rows.iter().map(|c| c.area).collect();
+        for a in module.unwrap_or_default() {
+            if !areas.contains(a) {
+                areas.push(*a);
+            }
+        }
+        areas
+            .into_iter()
+            .map(|area| {
+                let standing = Standing::of(&table, area, self.user.builder_code.as_deref());
+                Listed {
+                    area,
+                    whose: match standing {
+                        Standing::Mine(_) => Whose::Mine,
+                        Standing::Others(_) => Whose::Others,
+                        Standing::Free(_) => Whose::Free,
+                    },
+                    claim: standing.claim().cloned(),
+                    protected: self.protected(area).is_some(),
+                    in_module: module.is_none_or(|m| m.contains(&area)),
+                }
+            })
+            .collect()
+    }
+
     /// The claims table's file, where the project names one.
     pub fn claims_path(&self) -> Option<PathBuf> {
         let root = self.path.as_deref()?.parent()?;

@@ -5865,6 +5865,28 @@ fn claims_and_project_commands() {
     h.state_mut().actions.push(mg_ui::Action::ProjectCommand("update".into()));
     h.run_steps(3);
     shoot(&mut h, &dir, "claims-command-trust");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run_steps(3);
+    // The Builder Code window: a free code, and one that holds claims.
+    for (code, name) in [("ef", "claims-builder-code-free"), ("cd", "claims-builder-code-taken")] {
+        h.state_mut().builder_code =
+            Some(mg_ui::builder_code::Draft { code: code.into(), root: project.clone() });
+        h.run_steps(3);
+        shoot(&mut h, &dir, name);
+    }
+    h.state_mut().builder_code = None;
+    // Edit › Claims Table…: the table whole, Take Over… asked, Hand To….
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    h.get_by_label("Claims Table…").click();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "claims-table");
+    h.get_by_label("Take Over…").click();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "claims-table-take-over");
+    h.get_by_label("Hand To…").click();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "claims-table-hand-to");
 }
 
 /// What a plugin says before a save (plugin API 0.4, `resource-saving`):
@@ -6776,4 +6798,69 @@ fn journal_lower_half_kept() {
     shoot(&mut h, &out, "journal-dragged-taller");
     h.get_by_label("Root").click();
     shoot(&mut h, &out, "journal-root-chosen");
+}
+
+/// Setup Store's Choose Store page in a project whose `[store]
+/// blueprint` is the last store of the game's list: the list opens
+/// scrolled to it.
+#[test]
+#[ignore]
+fn setup_store_project_blueprint_far_down() {
+    use mg_module::instances::{Placement, Placing, instance};
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let install = GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut stores: Vec<(String, mg_core::ResRef)> = game
+        .resman
+        .list(ResType::UTM)
+        .into_iter()
+        .map(|r| {
+            let data = game.resman.get(&ResKey::new(r, ResType::UTM)).unwrap();
+            let g = mg_gff::Gff::read(&data).unwrap();
+            let name = g.root.locstring("LocName").and_then(|l| game.locstring(l));
+            (name.unwrap_or_default(), r)
+        })
+        .collect();
+    stores.sort();
+    let last = stores.last().unwrap().1;
+    let mut rng = fastrand::Rng::with_seed(5);
+    let mut m = new_module(&game, "Shop", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Field".into(),
+        tileset: mg_core::ResRef::from_str("ttr01").unwrap(),
+        width: 2,
+        height: 2,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let bandit = game.resman.get(&ResKey::parse("nw_bandit001", ResType::UTC).unwrap()).unwrap();
+    let none = |_: mg_core::ResRef| None;
+    let placing = Placing { game: &game, item: &none };
+    let at = Placement { position: [5.0, 5.0, 0.0], rotation: 0.0 };
+    let bandit = mg_gff::Gff::read(&bandit).unwrap().root;
+    let keeper = instance(&placing, ResType::UTC, &bandit, at, &[]);
+    let key = ResKey::new(area, ResType::GIT);
+    let mut g = m.gff(&key).unwrap().unwrap();
+    g.root.set("Creature List", mg_gff::Value::List(vec![keeper.unwrap()]));
+    m.set_gff(key, &g).unwrap();
+    let project = mg_testkit::scratch_dir("screens-setup-store").join("shop");
+    m.save_as(&mg_module::ModuleLocation::Folder(project.clone())).unwrap();
+    std::fs::write(project.join("moonglow.toml"), format!("[store]\nblueprint = \"{last}\"\n"))
+        .unwrap();
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&project);
+    app.open_palette = false;
+    mg_ui::store_wizard::open(&mut app, area, "Creature List", 0);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 700.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Next >").click();
+    // (The list's scroll is animated: run until it is done.)
+    h.run();
+    shoot(&mut h, &dir, "setup-store-project-blueprint");
 }
