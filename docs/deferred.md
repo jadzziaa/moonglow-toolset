@@ -357,28 +357,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     things on no object drop out of a search with more than one
     condition (there is no object for the others to be found on);
     `mg search` takes one condition at a time, without class levels or
-    ranges, and its JSON names what is found through an encounter only
-    in its place (`spawned` is `mg_module::search::Hit`'s, not printed:
-    the command line is `apps/mg/src/search.rs`, another package's this
-    wave). (S each)
+    ranges. (S each)
   - The module only: blueprints in haks and the game's own palettes
     aren't searched (`Kept::search` walks `Module::keys`; the haks' and
     palettes' blueprints read as the module's are would be a layer of
     hits of their own, read-only, and a change offered on none of
     them). (S–M)
-- **Variable sets** hold int, float and string variables only, as the
-  Variables window edits; object and location variables aren't kept
-  (they mean nothing outside their module: the triage proposed settling
-  it, no verdict yet). (S) Renamed, deleted, saved to and added from
-  files of one's choosing (builders' requests, October 2026); a file
-  that isn't a set said so in the menu and the Variable Sets window,
-  what a set holds in its tip, and several files added at once since
-  2026-10-29; these gaps are left, each a decision for the owner, not
-  work (the triage proposed dropping both):
-  - Undo Delete lasts while the Variable Sets window is open, and a
-    rename has no undo (rename it back); neither is in Edit › Undo,
-    which is the module's. (S)
-  - No folders inside `variable-sets` (a set in one isn't listed). (S)
 
 ## Conversation authoring
 
@@ -2769,3 +2753,9 @@ is not taken for a new gap.
   objects'; the marker lies on the ground, where the game puts a player,
   and its drag and Adjust Location place it exactly: left out by the
   owner's decision. (Settled by the owner, 2026-10-29.)
+- **Variable sets** hold int, float and string variables only, as the
+  Variables window edits: object and location variables mean nothing
+  outside their module. A set's Undo Delete lasts while the Variable
+  Sets window is open and a rename is put back by renaming it (neither
+  is in Edit › Undo, the module's), and `variable-sets` has no folders
+  inside it. (Settled by the owner, 2026-10-29: the triage's proposals.)
