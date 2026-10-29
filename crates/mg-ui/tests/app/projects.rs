@@ -2064,7 +2064,7 @@ fn a_merged_area_s_tag_and_resref_are_asked_about_before_they_change() {
     h.get_by_label("Delete It Anyway").click();
     h.run();
     h.run();
-    assert_eq!(h.state().confirm_delete, Some(key));
+    assert_eq!(h.state().confirm_delete, Some(vec![key]));
     h.get_all_by_label("Cancel").last().unwrap().click();
     h.run();
     h.run();

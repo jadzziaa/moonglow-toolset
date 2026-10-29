@@ -3,7 +3,7 @@ type: Research Note
 title: 'Frames at 144 a second: where a frame''s time went'
 description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, a dense area seen whole and an area's opening (27 October), what the profile found, and what is left.
 tags: [performance, frames, renderer, area-view, galleries]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-27T07:08:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T16:45:27Z }
 sources:
   - id: frame-perf
     resource: crates/mg-ui/tests/frame_perf.rs
@@ -197,7 +197,11 @@ own frames. Its times are to be taken with nothing else drawing.)
   had read every area's ARE) and three render targets were made. The
   flush is now once a revision, the targets shared, and pictures are made
   for 2 ms a frame (`THUMBNAIL_TIME`; one at least). How the 8 ms
-  divided was not measured.
+  divided was not measured. Since 2026-10-29 a flush writes only the
+  documents edited since the last one: with 300 GITs of 200 creatures
+  read (5 MB), it was 5.0 ms of writing them out and is now nothing
+  (0.5 µs; 19 µs with one of them edited; release, the machine at a load
+  of 11).
 - **All pictures were let go at once** when there were more than 192, or
   when the module changed at all. A gallery over a wide window shows more
   than 192: it made them again three a frame without end. Now those in
@@ -213,6 +217,17 @@ own frames. Its times are to be taken with nothing else drawing.)
 - The area's sounds copied the area's whole GIT every frame
   (`area_audio.rs`): now only its sound properties and placed sounds.
 - The debug log's per-frame lines cost nothing measurable.
+- **A tile's animations were bound to its model by name each time it
+  was posed**, three times a frame (its pose, its lights, its meshes),
+  every node's name lower-cased. They are bound once, as the model is
+  loaded (`anim::Binding`, kept in the area's `Loaded`), and their keys
+  gathered once for the three (`anim::Playing`). The scene's making
+  (`render_area`'s `MG_TIME=400`, the median; each binary run twice in
+  turn, the machine at a load of 26 to 31 from other builds): area092
+  0.30 and 0.43 ms, now 0.13 and 0.12; area075 1.65 and 1.72, now 0.60
+  and 0.41; area074 1.45 and 1.39, now 0.59; Elmwood (its objects
+  posed too) 5.4 and 2.8, now 1.9 and 1.4. The pictures are the same,
+  every pixel.
 
 ## A dense area seen whole, and opening an area (27 October 2026)
 

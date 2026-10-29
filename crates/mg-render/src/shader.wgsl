@@ -26,8 +26,7 @@ struct Frame {
     fog_color: vec4<f32>,
     // 1 / max intensity, falloff factor, light count, target height (pixels)
     light_params: vec4<f32>,
-    // Minimum light (the GUI "scene colour"), linear; w = debug view
-    // (1: material diffuse).
+    // Minimum light (the GUI "scene colour"), linear.
     scene_color: vec4<f32>,
     // x = seconds, for what moves by itself (water).
     time: vec4<f32>,
@@ -504,11 +503,6 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
             discard;
             return vec4<f32>(0.0);
         }
-    }
-
-    // Debug view: the material colour as uploaded.
-    if (frame.scene_color.w == 1.0) {
-        return vec4<f32>(draws[this_draw].diffuse.rgb, 1.0);
     }
 
     // A marker: unlit, in its material's colour.

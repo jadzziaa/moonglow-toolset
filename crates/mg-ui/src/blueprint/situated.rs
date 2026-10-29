@@ -686,11 +686,8 @@ pub(super) fn inline_preview(f: &mut Form<'_>, ui: &mut Ui, size: egui::Vec2) {
 }
 
 /// A page that shows the object's model beside its fields, which take a
-/// column `side` wide; the model has the rest of the window.
-///
-/// `model_first`: the model on the left (a page about how the object
-/// looks), else the fields (a page of names and tags that happens to
-/// choose the appearance). A window too narrow for both, the model at
+/// column `side` wide on the left; the model has the rest of the window.
+/// A window too narrow for both, the model at
 /// least [`MODEL_LEAST`] wide, has the fields alone, where they were, and
 /// they are told so (`false`): Preview shows the model, or the page finds
 /// it a place among its fields.
@@ -698,7 +695,6 @@ pub(super) fn beside_model(
     f: &mut Form<'_>,
     ui: &mut Ui,
     side: f32,
-    model_first: bool,
     fields: impl FnOnce(&mut Form<'_>, &mut Ui, bool),
 ) {
     let gap = ui.spacing().item_spacing.x;
@@ -715,7 +711,7 @@ pub(super) fn beside_model(
     // (The fields keep their width, their scroll bar included.)
     let width = room.x - side - 3.0 * gap - ui.spacing().scroll.bar_width;
     let size = egui::vec2(width, room.y - gap);
-    let column = |f: &mut Form<'_>, ui: &mut Ui| {
+    ui.horizontal_top(|ui| {
         ui.vertical(|ui| {
             ui.set_width(side);
             egui::ScrollArea::vertical()
@@ -723,15 +719,7 @@ pub(super) fn beside_model(
                 .auto_shrink([false, false])
                 .show(ui, |ui| fields(f, ui, true));
         });
-    };
-    ui.horizontal_top(|ui| {
-        if model_first {
-            ui.vertical(|ui| inline_preview(f, ui, size));
-            column(f, ui);
-        } else {
-            column(f, ui);
-            ui.vertical(|ui| inline_preview(f, ui, size));
-        }
+        ui.vertical(|ui| inline_preview(f, ui, size));
     });
 }
 

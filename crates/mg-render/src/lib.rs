@@ -31,7 +31,7 @@ pub use gpu::{Gpu, headless_adapter};
 pub use model::{GpuModel, rest_pose};
 pub use reach::Frustum;
 pub use renderer::{
-    DEPTH_FORMAT, DebugView, Drawn, GAME_WATER, GameProgram, MAX_LIGHTS, Renderer, Targets,
+    DEPTH_FORMAT, Drawn, GAME_WATER, GameProgram, MAX_LIGHTS, Renderer, Targets,
     attenuation_params, tint_light,
 };
 /// Moonglow's own shaders, each as wgpu is given it (a name, and its

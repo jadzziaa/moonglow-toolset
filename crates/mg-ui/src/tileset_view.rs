@@ -305,7 +305,7 @@ fn draw(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
             .on_disabled_hover_text("Rendering needs a GPU")
             .clicked()
         {
-            render_minimaps(app, d, 32);
+            render_minimaps(app, d);
         }
     });
     if let Err(e) = &d.set {
@@ -845,10 +845,13 @@ fn make_palette(app: &mut Moonglow, d: &mut TilesetDoc) {
     }
 }
 
-/// Renders every tile's minimap picture into the `.set`'s folder, its
-/// models found there or in the game data. Tiles without a picture's name
-/// get `mi_<model>` (one undoable change).
-pub fn render_minimaps(app: &mut Moonglow, d: &mut TilesetDoc, size: u32) {
+/// How wide and high a minimap picture is rendered, in pixels.
+pub const MINIMAP_SIZE: u32 = 32;
+
+/// Renders every tile's minimap picture ([`MINIMAP_SIZE`] square) into the
+/// `.set`'s folder, its models found there or in the game data. Tiles
+/// without a picture's name get `mi_<model>` (one undoable change).
+pub fn render_minimaps(app: &mut Moonglow, d: &mut TilesetDoc) {
     let Ok(t) = d.set.clone() else { return };
     let dir = d.path.parent().map(PathBuf::from).unwrap_or_default();
     // Unnamed pictures named after their models.
@@ -890,7 +893,7 @@ pub fn render_minimaps(app: &mut Moonglow, d: &mut TilesetDoc, size: u32) {
         if !done.insert(name.to_lowercase()) {
             continue;
         }
-        match crate::model_view::render_tile_from_above(app, &tile.model, size) {
+        match crate::model_view::render_tile_from_above(app, &tile.model, MINIMAP_SIZE) {
             Some(image) => {
                 let path = dir.join(format!("{}.tga", name.to_lowercase()));
                 match std::fs::write(&path, mg_image::write_tga(&image)) {

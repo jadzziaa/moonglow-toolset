@@ -123,9 +123,9 @@ impl GameInstall {
         self.root.join("lang").join(&self.language).join("data")
     }
 
-    /// The talk table for the language (`dialog.tlk`, or `dialogf.tlk`).
-    pub fn talk_table(&self, feminine: bool) -> PathBuf {
-        self.lang_data().join(if feminine { "dialogf.tlk" } else { "dialog.tlk" })
+    /// The talk table for the language (`dialog.tlk`).
+    pub fn talk_table(&self) -> PathBuf {
+        self.lang_data().join("dialog.tlk")
     }
 
     fn user(&self, sub: &str) -> Option<PathBuf> {

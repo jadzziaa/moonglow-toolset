@@ -349,6 +349,9 @@ pub enum Action {
     /// Asks whether to delete a resource of the module (the module tree's
     /// Delete…).
     DeleteDialog(ResKey),
+    /// Asks whether to delete the resources chosen in the module tree (its
+    /// Delete… of several).
+    DeleteChosenDialog(Vec<ResKey>),
     /// Claim This Area: the area claimed by the builder's code in the
     /// project's claims table.
     Claim(mg_core::ResRef),
@@ -361,6 +364,8 @@ pub enum Action {
     /// Deletes a resource of the module (an area with its objects, a
     /// script with its compiled one).
     DeleteResource(ResKey),
+    /// Deletes resources of the module, as one step.
+    DeleteResources(Vec<ResKey>),
     /// Renames a blueprint (and points its editor at the new name).
     RenameBlueprint {
         from: ResKey,
@@ -881,8 +886,9 @@ pub struct Moonglow {
     windows: HashMap<Tab, WindowTrack>,
     /// Where the panes are drawn (under the toolbar, beside the tree).
     dock_rect: Option<egui::Rect>,
-    /// A resource waiting for the answer to "delete it?".
-    pub confirm_delete: Option<ResKey>,
+    /// The resources waiting for the answer to "delete it?" (one, or those
+    /// chosen in the module tree).
+    pub confirm_delete: Option<Vec<ResKey>>,
     pub quit_requested: bool,
     /// What the startup check and the area view's watch found of the
     /// renderer here, for the notice under the toolbar.
@@ -3585,8 +3591,10 @@ impl Moonglow {
             }
             Action::RefreshPalette(kind) => palette_view::refresh(self, kind),
             Action::EditScript { name, condition } => self.edit_script(name, condition),
-            Action::DeleteDialog(k) => self.confirm_delete = Some(k),
-            Action::DeleteResource(k) => self.delete_resource(k),
+            Action::DeleteDialog(k) => self.confirm_delete = Some(vec![k]),
+            Action::DeleteChosenDialog(keys) => self.confirm_delete = Some(keys),
+            Action::DeleteResource(k) => self.delete_resources(&[k]),
+            Action::DeleteResources(keys) => self.delete_resources(&keys),
             Action::CompileScripts => self.compile_scripts(),
             Action::CompileModels => self.compile_models(),
             Action::Verify => self.verify(),

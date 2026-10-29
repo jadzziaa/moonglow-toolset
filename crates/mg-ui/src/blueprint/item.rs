@@ -40,7 +40,7 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
         "Appearance" => with_game(f, |f, game| {
             let fields =
                 |f: &mut Form<'_>, ui: &mut Ui, beside: bool| appearance(f, ui, game, beside);
-            super::situated::beside_model(f, ui, APPEARANCE_SIDE, false, fields);
+            super::situated::beside_model(f, ui, APPEARANCE_SIDE, fields);
         }),
         "Properties" => with_game(f, |f, game| properties(f, ui, game)),
         "Visuals" => super::visuals::page(f, ui, true),
@@ -422,7 +422,7 @@ fn colors(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
         for (i, channel) in mg_rules::items::ArmorChannel::ALL.into_iter().enumerate() {
             let (text, label, palette) = (channel.name(), channel.field(), channel.palette());
             crate::widgets::field_label(ui, text);
-            f.palette_color(ui, Some(game), text, label, palette);
+            f.palette_color(ui, game, text, label, palette);
             if i % 2 == 1 {
                 ui.end_row();
             }
@@ -472,8 +472,7 @@ fn part_colors(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
                     // Without one of its own: the armor's, as it shows.
                     let shown = color.unwrap_or(f.int(channel.field()).clamp(0, 175) as u8);
                     let text = color.is_none().then_some("Default");
-                    if let Some(v) =
-                        f.palette_pick(ui, Some(game), &what, &label, palette, shown, text)
+                    if let Some(v) = f.palette_pick(ui, game, &what, &label, palette, shown, text)
                         && Some(v) != color
                     {
                         f.set(&what, &label, Value::Byte(v));

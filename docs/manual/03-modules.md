@@ -125,8 +125,8 @@ as it was.
 
 **Find References** shows everywhere the module names a script, area,
 conversation or blueprint (the first question in a large module reads
-all of it; the next ones, for a resource or a tag, only what changed
-since). A number typed there that is no resource's name is a talk-table
+all of it, while the window goes on: the tab says it is reading; the
+next ones, for a resource or a tag, only what changed since). A number typed there that is no resource's name is a talk-table
 line's StrRef: the module's names, descriptions, conversation lines and
 2DAs that name that line are listed. It's in the right-click menus of the module
 tree and palettes, the script editor's toolbar and **Edit › Find

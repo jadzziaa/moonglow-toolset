@@ -105,62 +105,158 @@ pub fn pose(model: &Model, anim: &Animation, t: f32) -> Vec<Mat4> {
 /// position keys are scaled.
 type Keyed<'a> = (&'a AnimNode, f32, f32);
 
-/// The animation nodes of `layers` by the node of `model` they move, in
-/// layer order, each with its layer's time at `t` and the scale of its positions:
-/// the model's `setanimationscale` for an animation that is another
-/// model's (a supermodel's, made for a body of another size), 1 for its
-/// own.
-fn keyed<'a>(model: &Model, layers: &[&'a Animation], t: f32) -> HashMap<usize, Vec<Keyed<'a>>> {
-    keyed_at(model, layers, t, None)
+/// An animation bound to a model's nodes, once: which of the model's
+/// nodes each of the animation's moves (by part number or by name, as the
+/// game binds them: see the module's head), and the scale of its
+/// positions: the model's `setanimationscale` for an animation that is
+/// another model's (a supermodel's, made for a body of another size), 1
+/// for its own. What is posed with it ([`Playing`]) looks up no names: a
+/// model kept loaded binds its animations when it is loaded.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Binding {
+    /// (the animation's node, the model's node it moves), in the
+    /// animation's order.
+    moves: Vec<(usize, usize)>,
+    scale: f32,
 }
 
-/// [`keyed`], with the scale of another model's animations given (`worn`:
-/// [`pose_worn`]). A worn model's nodes are found by name: its numbers
-/// are its own, not those of the body whose animation it plays.
-fn keyed_at<'a>(
-    model: &Model,
-    layers: &[&'a Animation],
-    t: f32,
-    worn: Option<f32>,
-) -> HashMap<usize, Vec<Keyed<'a>>> {
-    let mut out: HashMap<usize, Vec<_>> = HashMap::new();
-    // The model's nodes by number, if it has numbers, and by name.
-    let numbered = worn.is_none() && model.nodes.iter().all(|n| n.part.is_some());
-    let mut by_part: HashMap<i32, usize> = HashMap::new();
-    let mut by_name: HashMap<String, Vec<usize>> = HashMap::new();
-    for (i, n) in model.nodes.iter().enumerate() {
-        if let Some(part) = n.part.filter(|p| *p >= 0) {
-            by_part.entry(part).or_insert(i);
-        }
-        by_name.entry(n.name.to_ascii_lowercase()).or_default().push(i);
+impl Binding {
+    /// `anim`, played by `model`.
+    pub fn new(model: &Model, anim: &Animation) -> Binding {
+        Nodes::of(model, None).bind(model, anim)
     }
-    for a in layers {
-        let at = time_in(a, t);
-        let own = model.animations.iter().any(|own| std::ptr::eq(own, *a));
-        let scale = match worn.unwrap_or(model.animation_scale) {
+
+    /// Each of `anims`, played by `model` (its nodes looked up once).
+    pub fn all<'a>(model: &Model, anims: impl IntoIterator<Item = &'a Animation>) -> Vec<Binding> {
+        let nodes = Nodes::of(model, None);
+        anims.into_iter().map(|a| nodes.bind(model, a)).collect()
+    }
+}
+
+/// A model's nodes as an animation's are bound to them: by number, if
+/// every node has one (and the model plays its own body's animations),
+/// and by name in lower case.
+struct Nodes {
+    numbered: bool,
+    by_part: HashMap<i32, usize>,
+    by_name: HashMap<String, Vec<usize>>,
+    /// The scale of another model's animations given (`worn`:
+    /// [`pose_worn`]), else the model's own.
+    worn: Option<f32>,
+}
+
+impl Nodes {
+    /// `worn`: a model worn by another, its nodes found by name (its
+    /// numbers are its own, not those of the body whose animation it
+    /// plays), its positions scaled as the wearer's.
+    fn of(model: &Model, worn: Option<f32>) -> Nodes {
+        let numbered = worn.is_none() && model.nodes.iter().all(|n| n.part.is_some());
+        let mut by_part: HashMap<i32, usize> = HashMap::new();
+        let mut by_name: HashMap<String, Vec<usize>> = HashMap::new();
+        for (i, n) in model.nodes.iter().enumerate() {
+            if let Some(part) = n.part.filter(|p| *p >= 0) {
+                by_part.entry(part).or_insert(i);
+            }
+            by_name.entry(n.name.to_ascii_lowercase()).or_default().push(i);
+        }
+        Nodes { numbered, by_part, by_name, worn }
+    }
+
+    fn bind(&self, model: &Model, anim: &Animation) -> Binding {
+        let own = model.animations.iter().any(|own| std::ptr::eq(own, anim));
+        let scale = match self.worn.unwrap_or(model.animation_scale) {
             s if !own && s.is_finite() && s > 0.0 => s,
             _ => 1.0,
         };
-        for n in &a.nodes {
+        let mut moves = Vec::new();
+        for (k, n) in anim.nodes.iter().enumerate() {
             if n.controllers.is_empty() && n.anim_mesh.is_none() {
                 continue;
             }
-            match n.part.filter(|_| numbered) {
+            match n.part.filter(|_| self.numbered) {
                 // (−1: a node of no part of the model.)
-                Some(part) => {
-                    if let Some(i) = by_part.get(&part) {
-                        out.entry(*i).or_default().push((n, at, scale));
-                    }
-                }
+                Some(part) => moves.extend(self.by_part.get(&part).map(|&i| (k, i))),
                 None => {
-                    for i in by_name.get(&n.name.to_ascii_lowercase()).into_iter().flatten() {
-                        out.entry(*i).or_default().push((n, at, scale));
-                    }
+                    let found = self.by_name.get(&n.name.to_ascii_lowercase());
+                    moves.extend(found.into_iter().flatten().map(|&i| (k, i)));
                 }
             }
         }
+        Binding { moves, scale }
     }
-    out
+}
+
+/// Animations playing together on a model at a moment, by the model's
+/// node each of their nodes moves: what its pose ([`Playing::pose`]), its
+/// lights ([`Playing::lamps`]) and its meshes ([`Playing::mesh_state`])
+/// are made from, the animations bound once ([`Binding`]) and their keys
+/// gathered once for the three.
+#[derive(Debug, Clone)]
+pub struct Playing<'a> {
+    /// For each node of the model, the animation nodes that move it, in
+    /// layer order, each with its layer's time and the scale of its
+    /// positions.
+    by_node: Vec<Vec<Keyed<'a>>>,
+}
+
+impl<'a> Playing<'a> {
+    /// `layers` (each animation with its binding to `model`) at time `t`
+    /// (see [`time_in`]): a controller follows the last layer that keys it.
+    pub fn new(model: &Model, layers: &[(&'a Animation, &Binding)], t: f32) -> Playing<'a> {
+        let mut by_node: Vec<Vec<Keyed<'a>>> = vec![Vec::new(); model.nodes.len()];
+        for (a, binding) in layers {
+            let at = time_in(a, t);
+            for &(k, i) in &binding.moves {
+                if let (Some(n), Some(node)) = (a.nodes.get(k), by_node.get_mut(i)) {
+                    node.push((n, at, binding.scale));
+                }
+            }
+        }
+        Playing { by_node }
+    }
+
+    /// [`Playing::new`] of animations not bound before (bound here, by
+    /// name where they go by name). `worn`: see [`pose_worn`].
+    fn unbound(model: &Model, layers: &[&'a Animation], t: f32, worn: Option<f32>) -> Playing<'a> {
+        let nodes = Nodes::of(model, worn);
+        let bound: Vec<Binding> = layers.iter().map(|a| nodes.bind(model, a)).collect();
+        let layers: Vec<(&'a Animation, &Binding)> = layers.iter().copied().zip(&bound).collect();
+        Playing::new(model, &layers, t)
+    }
+
+    /// The animation nodes that move node `i` of the model.
+    fn of(&self, i: usize) -> Option<&[Keyed<'a>]> {
+        self.by_node.get(i).map(Vec::as_slice).filter(|n| !n.is_empty())
+    }
+
+    /// The model-space transform of each of the model's nodes.
+    pub fn pose(&self, model: &Model) -> Vec<Mat4> {
+        compose(model, &self.locals(model))
+    }
+
+    /// Each node's transform relative to its parent.
+    pub fn locals(&self, model: &Model) -> Vec<Local> {
+        model
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(i, n)| {
+                let (mut pos, mut orient, mut scale) = (n.position, n.orientation, n.scale);
+                if let Some(nodes) = self.of(i) {
+                    for (c, t, by) in controllers(nodes) {
+                        let v = sample(c, t);
+                        match (c.name.as_str(), v.len()) {
+                            ("position", 3) => pos = [v[0] * by, v[1] * by, v[2] * by],
+                            ("orientation", 4) => orient = [v[0], v[1], v[2], v[3]],
+                            ("scale", 1) => scale = v[0],
+                            _ => {}
+                        }
+                    }
+                }
+                Local::new(pos, orient, scale)
+            })
+            .collect()
+    }
 }
 
 /// A node's controllers across layers: a later layer's replaces an earlier
@@ -182,7 +278,7 @@ fn controllers<'a, 'b>(
 /// `day` and animation loops): each controller follows the last layer that
 /// keys it.
 pub fn pose_layers(model: &Model, layers: &[&Animation], t: f32) -> Vec<Mat4> {
-    compose(model, &locals_layers(model, layers, t))
+    Playing::unbound(model, layers, t, None).pose(model)
 }
 
 /// Every node's transform relative to its parent playing `anim` at `t`.
@@ -193,7 +289,7 @@ pub fn locals(model: &Model, anim: &Animation, t: f32) -> Vec<Local> {
 /// [`locals`] for several animations played together (see
 /// [`pose_layers`]).
 pub fn locals_layers(model: &Model, layers: &[&Animation], t: f32) -> Vec<Local> {
-    locals_of(model, &keyed(model, layers, t))
+    Playing::unbound(model, layers, t, None).locals(model)
 }
 
 /// [`pose`] for a model worn by another (a cloak, a robe), playing the
@@ -203,30 +299,7 @@ pub fn locals_layers(model: &Model, layers: &[&Animation], t: f32) -> Vec<Local>
 /// model has no scale of its own, sits on an elf's shoulders, not at a
 /// human's height.
 pub fn pose_worn(model: &Model, anim: &Animation, t: f32, scale: f32) -> Vec<Mat4> {
-    compose(model, &locals_of(model, &keyed_at(model, &[anim], t, Some(scale))))
-}
-
-fn locals_of(model: &Model, by_node: &HashMap<usize, Vec<Keyed<'_>>>) -> Vec<Local> {
-    model
-        .nodes
-        .iter()
-        .enumerate()
-        .map(|(i, n)| {
-            let (mut pos, mut orient, mut scale) = (n.position, n.orientation, n.scale);
-            if let Some(nodes) = by_node.get(&i) {
-                for (c, t, by) in controllers(nodes) {
-                    let v = sample(c, t);
-                    match (c.name.as_str(), v.len()) {
-                        ("position", 3) => pos = [v[0] * by, v[1] * by, v[2] * by],
-                        ("orientation", 4) => orient = [v[0], v[1], v[2], v[3]],
-                        ("scale", 1) => scale = v[0],
-                        _ => {}
-                    }
-                }
-            }
-            Local::new(pos, orient, scale)
-        })
-        .collect()
+    Playing::unbound(model, &[anim], t, Some(scale)).pose(model)
 }
 
 /// The rest pose's transforms relative to their parents.
@@ -352,40 +425,7 @@ pub fn lamps_layers(model: &Model, layers: &[&Animation], t: f32, pose: &[Mat4])
     if !model.nodes.iter().any(|n| matches!(n.kind, mg_mdl::NodeKind::Light(_))) {
         return Vec::new();
     }
-    let by_name = keyed(model, layers, t);
-    let mut out = Vec::new();
-    for (i, n) in model.nodes.iter().enumerate() {
-        let mg_mdl::NodeKind::Light(l) = &n.kind else { continue };
-        let keyed = |name: &str| -> Option<Vec<f32>> {
-            let nodes = by_name.get(&i)?;
-            let (c, t, _) = controllers(nodes).filter(|(c, ..)| c.name == name).last()?;
-            Some(sample(c, t))
-        };
-        let value = |name: &str| keyed(name).or_else(|| n.value(name).map(<[f32]>::to_vec));
-        let lower = n.name.to_ascii_lowercase();
-        let main = if lower.ends_with("ml1") {
-            Some(0)
-        } else if lower.ends_with("ml2") {
-            Some(1)
-        } else {
-            None
-        };
-        out.push(Lamp {
-            at: node_position(pose, i),
-            main,
-            color: match value("color").as_deref() {
-                Some([r, g, b, ..]) => Vec3::new(*r, *g, *b),
-                _ => Vec3::ONE,
-            },
-            radius: value("radius").and_then(|v| v.first().copied()).unwrap_or(5.0),
-            multiplier: value("multiplier").and_then(|v| v.first().copied()).unwrap_or(1.0),
-            ambient_only: l.ambient_only,
-            priority: l.priority.clamp(1, 5),
-            shadow: l.shadow,
-            lift: value("verticaldisplacement").and_then(|v| v.first().copied()).unwrap_or(0.0),
-        });
-    }
-    out
+    Playing::unbound(model, layers, t, None).lamps(model, pose)
 }
 
 /// What `anim` at `t` changes in `model`'s meshes: animated alpha and
@@ -399,25 +439,75 @@ pub fn mesh_state(model: &GpuModel, anim: &Animation, t: f32) -> MeshState {
 /// [`mesh_state`] for several animations played together (see
 /// [`pose_layers`]).
 pub fn mesh_state_layers(model: &GpuModel, layers: &[&Animation], t: f32) -> MeshState {
-    let by_name = keyed(&model.model, layers, t);
-    let mut state = MeshState::new(model);
-    for (i, mesh) in model.meshes.iter().enumerate() {
-        let Some(nodes) = by_name.get(&mesh.node) else { continue };
-        let out = &mut state.meshes[i];
-        for (c, t, _) in controllers(nodes) {
-            let v = sample(c, t);
-            match (c.name.as_str(), v.as_slice()) {
-                ("alpha", [a, ..]) => out.alpha = Some(*a),
-                ("selfillumcolor", [r, g, b, ..]) => out.selfillum = Some(Vec3::new(*r, *g, *b)),
-                _ => {}
-            }
+    Playing::unbound(&model.model, layers, t, None).mesh_state(model)
+}
+
+impl Playing<'_> {
+    /// [`lamps_layers`]: the model's light nodes, in `pose`.
+    pub fn lamps(&self, model: &Model, pose: &[Mat4]) -> Vec<Lamp> {
+        let mut out = Vec::new();
+        for (i, n) in model.nodes.iter().enumerate() {
+            let mg_mdl::NodeKind::Light(l) = &n.kind else { continue };
+            out.push(self.lamp(i, n, l, pose));
         }
-        let sets = nodes.iter().rev().find_map(|(n, t, _)| Some((n.anim_mesh.as_ref()?, *t)));
-        if let (Some((sets, t)), Some(data)) = (sets, model.mesh_data(i)) {
-            out.vertices = animated_vertices(data, sets, t);
+        out
+    }
+
+    fn lamp(&self, i: usize, n: &mg_mdl::Node, l: &mg_mdl::Light, pose: &[Mat4]) -> Lamp {
+        let keyed = |name: &str| -> Option<Vec<f32>> {
+            let nodes = self.of(i)?;
+            let (c, t, _) = controllers(nodes).filter(|(c, ..)| c.name == name).last()?;
+            Some(sample(c, t))
+        };
+        let value = |name: &str| keyed(name).or_else(|| n.value(name).map(<[f32]>::to_vec));
+        let lower = n.name.to_ascii_lowercase();
+        let main = if lower.ends_with("ml1") {
+            Some(0)
+        } else if lower.ends_with("ml2") {
+            Some(1)
+        } else {
+            None
+        };
+        Lamp {
+            at: node_position(pose, i),
+            main,
+            color: match value("color").as_deref() {
+                Some([r, g, b, ..]) => Vec3::new(*r, *g, *b),
+                _ => Vec3::ONE,
+            },
+            radius: value("radius").and_then(|v| v.first().copied()).unwrap_or(5.0),
+            multiplier: value("multiplier").and_then(|v| v.first().copied()).unwrap_or(1.0),
+            ambient_only: l.ambient_only,
+            priority: l.priority.clamp(1, 5),
+            shadow: l.shadow,
+            lift: value("verticaldisplacement").and_then(|v| v.first().copied()).unwrap_or(0.0),
         }
     }
-    state
+
+    /// [`mesh_state_layers`]: what the animations change in `model`'s
+    /// meshes (the model they were bound to).
+    pub fn mesh_state(&self, model: &GpuModel) -> MeshState {
+        let mut state = MeshState::new(model);
+        for (i, mesh) in model.meshes.iter().enumerate() {
+            let Some(nodes) = self.of(mesh.node) else { continue };
+            let out = &mut state.meshes[i];
+            for (c, t, _) in controllers(nodes) {
+                let v = sample(c, t);
+                match (c.name.as_str(), v.as_slice()) {
+                    ("alpha", [a, ..]) => out.alpha = Some(*a),
+                    ("selfillumcolor", [r, g, b, ..]) => {
+                        out.selfillum = Some(Vec3::new(*r, *g, *b))
+                    }
+                    _ => {}
+                }
+            }
+            let sets = nodes.iter().rev().find_map(|(n, t, _)| Some((n.anim_mesh.as_ref()?, *t)));
+            if let (Some((sets, t)), Some(data)) = (sets, model.mesh_data(i)) {
+                out.vertices = animated_vertices(data, sets, t);
+            }
+        }
+        state
+    }
 }
 
 /// An animated mesh's vertices at `t`.
@@ -737,5 +827,79 @@ mod tests {
         // by name as well.
         assert_eq!(x(&pose(&compiled, &anim([None; 3]), 0.0)), [0.0, 4.0, 2.0]);
         assert_eq!(x(&pose_worn(&compiled, &by_number, 0.0, 1.0)), [0.0, 4.0, 2.0]);
+    }
+
+    /// Animations bound once, when a model is loaded, pose it and light it
+    /// as those bound where they are played: by part number, by name in
+    /// another case, a node of no part (−1) moving nothing, a supermodel's
+    /// animation scaled, a light's color keyed, layers in their order.
+    #[test]
+    fn animations_bound_once_pose_and_light_as_bound_each_time() {
+        let key = |name: &str, values: Vec<f32>| Controller {
+            name: name.into(),
+            columns: values.len(),
+            times: vec![0.0, 1.0],
+            values: [values.clone(), values.iter().map(|v| v * 2.0).collect()].concat(),
+            ..Default::default()
+        };
+        let node = |name: &str, part, controllers| AnimNode {
+            name: name.into(),
+            part,
+            controllers,
+            ..Default::default()
+        };
+        let model = |parts: [Option<i32>; 3]| {
+            let mut m = Model { animation_scale: 0.5, ..Default::default() };
+            let light = mg_mdl::NodeKind::Light(mg_mdl::Light::default());
+            for (i, (name, kind)) in [
+                ("Root", mg_mdl::NodeKind::Dummy),
+                ("Arm", mg_mdl::NodeKind::Dummy),
+                ("lamp", light),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let mut n = mg_mdl::Node::new(name, kind);
+                n.parent = (i > 0).then_some(0);
+                n.part = parts[i];
+                m.nodes.push(n);
+            }
+            m.animations.push(Animation {
+                name: "own".into(),
+                length: 1.0,
+                nodes: vec![
+                    node("ROOT", Some(0), vec![key("position", vec![1.0, 0.0, 0.0])]),
+                    node("lamp", Some(2), vec![key("color", vec![0.25, 0.5, 0.75])]),
+                ],
+                ..Default::default()
+            });
+            m
+        };
+        let borrowed = Animation {
+            name: "borrowed".into(),
+            length: 1.0,
+            nodes: vec![
+                node("arm", Some(1), vec![key("position", vec![0.0, 2.0, 0.0])]),
+                node("nothing", Some(-1), vec![key("position", vec![9.0, 9.0, 9.0])]),
+                node("ARM", Some(7), vec![key("scale", vec![1.5])]),
+            ],
+            ..Default::default()
+        };
+        for model in [model([Some(0), Some(1), Some(2)]), model([None; 3])] {
+            let layers = [&model.animations[0], &borrowed];
+            let bound = Binding::all(&model, layers);
+            let pairs: Vec<(&Animation, &Binding)> = layers.into_iter().zip(&bound).collect();
+            for t in [0.0, 0.25, 1.0, 1.5] {
+                let playing = Playing::new(&model, &pairs, t);
+                let posed = pose_layers(&model, &layers, t);
+                assert_eq!(playing.pose(&model), posed, "at {t}");
+                assert_eq!(playing.lamps(&model, &posed), lamps_layers(&model, &layers, t, &posed));
+            }
+            let played = Playing::new(&model, &pairs, 0.0).pose(&model);
+            // (The borrowed arm's position is the supermodel's, scaled.)
+            assert_eq!(played[1].w_axis.truncate(), Vec3::new(1.0, 1.0, 0.0));
+            let lamp = Playing::new(&model, &pairs, 0.0).lamps(&model, &played);
+            assert_eq!(lamp[0].color, Vec3::new(0.25, 0.5, 0.75));
+        }
     }
 }

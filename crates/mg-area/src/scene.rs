@@ -157,19 +157,54 @@ impl View {
     }
 }
 
-/// A model with the animations it can play (its own and its supermodels').
+/// The animations a tile plays, by name: [`TILE_ANIMATIONS`]'s indices.
+const TILE_ANIMATIONS: [&str; 6] =
+    ["tiledefault", "day", "night", "animloop01", "animloop02", "animloop03"];
+
+/// A model with the animations it can play (its own and its supermodels'),
+/// bound to its nodes when it is loaded: posing it looks up no names.
 #[derive(Debug)]
 struct Loaded {
     gpu: Arc<GpuModel>,
     anims: Vec<(String, Arc<Model>)>,
+    /// Each of `anims`: where it is in its owner's animations, and its
+    /// binding to this model's nodes.
+    bound: Vec<Option<(usize, anim::Binding)>>,
+    /// The animations of [`TILE_ANIMATIONS`], by their places in `anims`.
+    tile: [Option<usize>; 6],
+    /// Its source lights' nodes (`…sl1`, `…sl2`).
+    sources: [Option<usize>; 2],
 }
 
 impl Loaded {
+    fn new(gpu: Arc<GpuModel>, anims: Vec<(String, Arc<Model>)>) -> Loaded {
+        let model = &gpu.model;
+        let at: Vec<Option<usize>> = (anims.iter())
+            .map(|(name, owner)| {
+                owner.animations.iter().position(|a| a.name.eq_ignore_ascii_case(name))
+            })
+            .collect();
+        let found = anims.iter().zip(&at).filter_map(|((_, owner), i)| owner.animations.get((*i)?));
+        let mut bindings = anim::Binding::all(model, found).into_iter();
+        let bound = at.iter().map(|i| Some(((*i)?, bindings.next()?))).collect();
+        let tile =
+            TILE_ANIMATIONS.map(|t| anims.iter().position(|(n, _)| n.eq_ignore_ascii_case(t)));
+        let sources = [1, 2].map(|slot| {
+            let suffix = format!("sl{slot}");
+            model.nodes.iter().position(|n| n.name.to_ascii_lowercase().ends_with(&suffix))
+        });
+        Loaded { gpu, anims, bound, tile, sources }
+    }
+
+    /// The animation at `k` in `anims`, with its binding.
+    fn bound_at(&self, k: usize) -> Option<(&Animation, &anim::Binding)> {
+        let (i, binding) = self.bound.get(k)?.as_ref()?;
+        Some((self.anims[k].1.animations.get(*i)?, binding))
+    }
+
     fn animation(&self, name: &str) -> Option<&Animation> {
-        self.anims
-            .iter()
-            .find(|(n, _)| n.eq_ignore_ascii_case(name))
-            .and_then(|(_, owner)| owner.animation(name))
+        let k = self.anims.iter().position(|(n, _)| n.eq_ignore_ascii_case(name))?;
+        self.bound_at(k).map(|(a, _)| a)
     }
 }
 
@@ -375,7 +410,7 @@ impl AreaScene {
             mg_render::guard::guarded(name, || {
                 let model = load(name)?;
                 let anims = anim::animations(&model, &load);
-                Some(Loaded { gpu: Arc::new(GpuModel::new(gpu, model)), anims })
+                Some(Loaded::new(Arc::new(GpuModel::new(gpu, model)), anims))
             })
         };
         let loaded = |name: &str| built(name).flatten();
@@ -582,7 +617,7 @@ impl AreaScene {
                     mg_render::guard::guarded(name, || {
                         let model = load(name)?;
                         let anims = anim::animations(&model, &load);
-                        Some(Arc::new(Loaded { gpu: Arc::new(GpuModel::new(gpu, model)), anims }))
+                        Some(Arc::new(Loaded::new(Arc::new(GpuModel::new(gpu, model)), anims)))
                     })
                     .flatten()
                 })
@@ -732,16 +767,16 @@ impl AreaScene {
                 let pose = if layers.is_empty() {
                     loaded.gpu.rest.clone()
                 } else {
-                    anim::pose_layers(model, &layers, view.time)
+                    anim::Playing::new(model, &layers, view.time).pose(model)
                 };
                 // One animation of the emitters' keys, the later layer's
                 // first (the one that has its say).
                 let keys = (!layers.is_empty()).then(|| Animation {
-                    length: layers.iter().map(|a| a.length).fold(0.0, f32::max),
+                    length: layers.iter().map(|(a, _)| a.length).fold(0.0, f32::max),
                     nodes: layers
                         .iter()
                         .rev()
-                        .flat_map(|a| a.nodes.iter())
+                        .flat_map(|(a, _)| a.nodes.iter())
                         .filter(|n| {
                             model
                                 .nodes
@@ -795,14 +830,13 @@ impl AreaScene {
                 let pose: &[Mat4] = if layers.is_empty() {
                     &loaded.gpu.rest
                 } else {
-                    posed = anim::pose_layers(&loaded.gpu.model, &layers, view.time);
+                    let model = &loaded.gpu.model;
+                    posed = anim::Playing::new(model, &layers, view.time).pose(model);
                     &posed
                 };
                 let transform = tile.transform();
                 for (slot, &value) in tile.source_lights.iter().enumerate() {
-                    let suffix = format!("sl{}", slot + 1);
-                    let node = (loaded.gpu.model.nodes.iter())
-                        .position(|n| n.name.to_ascii_lowercase().ends_with(&suffix));
+                    let node = loaded.sources.get(slot).copied().flatten();
                     let Some(node) = node.filter(|_| value > 0) else { continue };
                     let at = transform * Mat4::from_translation(anim::node_position(pose, node));
                     let d = at.w_axis.truncate().distance_squared(eye);
@@ -853,19 +887,21 @@ impl AreaScene {
 
     /// The animations playing on a tile, later ones over earlier: its
     /// default, day or night, and the animation loops switched on.
+    /// Each with its binding to the tile's model, as it was loaded.
     fn tile_layers<'a>(
         &self,
         tile: &AreaTile,
         loaded: &'a Loaded,
         view: &View,
-    ) -> Vec<&'a Animation> {
-        let mut names = vec!["tiledefault", if view.night { "night" } else { "day" }];
-        for (on, name) in tile.anim_loops.iter().zip(["animloop01", "animloop02", "animloop03"]) {
+    ) -> Vec<(&'a Animation, &'a anim::Binding)> {
+        // (`TILE_ANIMATIONS`' places.)
+        let mut names = vec![0, if view.night { 2 } else { 1 }];
+        for (on, name) in tile.anim_loops.iter().zip([3, 4, 5]) {
             if *on {
                 names.push(name);
             }
         }
-        names.iter().filter_map(|n| loaded.animation(n)).collect()
+        names.iter().filter_map(|&n| loaded.bound_at(loaded.tile[n]?)).collect()
     }
 
     /// The scene of `area` (the model these models were loaded for) as
@@ -1052,19 +1088,17 @@ impl AreaScene {
     fn posed_tile(&self, tile: &AreaTile, loaded: &Loaded, view: &View) -> PosedTile {
         let model = &loaded.gpu.model;
         let layers = self.tile_layers(tile, loaded, view);
-        let pose =
-            (!layers.is_empty()).then(|| Arc::new(anim::pose_layers(model, &layers, view.time)));
+        // (The animations' keys gathered once, for the pose, the lights
+        // and the meshes.)
+        let playing = anim::Playing::new(model, &layers, view.time);
+        let pose = (!layers.is_empty()).then(|| Arc::new(playing.pose(model)));
         let lamps = {
             let pose: &[Mat4] = pose.as_deref().map_or(&loaded.gpu.rest, |p| p);
-            anim::lamps_layers(model, &layers, view.time, pose)
+            playing.lamps(model, pose)
         };
         // Source lights: the flame at the tile's `sl1`/`sl2` node.
-        let sources = [1, 2].map(|slot| {
-            let suffix = format!("sl{slot}");
-            model.nodes.iter().position(|n| n.name.to_ascii_lowercase().ends_with(&suffix))
-        });
-        let mut state =
-            (!layers.is_empty()).then(|| anim::mesh_state_layers(&loaded.gpu, &layers, view.time));
+        let sources = loaded.sources;
+        let mut state = (!layers.is_empty()).then(|| playing.mesh_state(&loaded.gpu));
         // Fade Geometry: the fading meshes aren't drawn.
         if view.fade {
             let fades = |m: &mg_render::model::GpuMesh| {

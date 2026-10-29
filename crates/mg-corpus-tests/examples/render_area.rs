@@ -6,7 +6,8 @@
 //! `MG_FOG=1`; Moonglow's own shader unless `MG_SHADERS=1` (the game's, the
 //! app's default); the area's lighting unless `MG_LIT=0` (the Lighting
 //! switch off); `MG_EYE=x,y,z` and `MG_TARGET=x,y,z` place the camera
-//! instead; `MG_LIGHTS=1` lists the scene's lights.
+//! instead; `MG_LIGHTS=1` lists the scene's lights; `MG_TIME=<frames>` times
+//! the scene's making over that many frames, the clock moving (the median).
 
 use mg_area::{AreaModel, AreaScene, View, overview};
 use mg_core::{ResRef, ResType};
@@ -45,7 +46,25 @@ fn main() {
     eprintln!("missing models: {:?}", scene.missing);
     let fog = std::env::var_os("MG_FOG").is_some();
     let lit = std::env::var("MG_LIT").ok().is_none_or(|v| v != "0");
-    let s = scene.scene(&model, &View { fog, lit, ..View::of(&model) });
+    let view = View { fog, lit, ..View::of(&model) };
+    // (`MG_TIME=<frames>`: the scene made that many times, the clock
+    // moving on by a 144th of a second each, and the median printed.)
+    if let Some(frames) = std::env::var("MG_TIME").ok().and_then(|n| n.parse::<usize>().ok()) {
+        let mut took: Vec<std::time::Duration> = (0..frames.max(1))
+            .map(|i| {
+                let view = View { time: i as f32 / 144.0, ..view };
+                let start = std::time::Instant::now();
+                std::hint::black_box(scene.scene(&model, &view));
+                start.elapsed()
+            })
+            .collect();
+        took.sort();
+        eprintln!(
+            "scene made in {:.3} ms (median of {frames})",
+            took[took.len() / 2].as_secs_f64() * 1e3
+        );
+    }
+    let s = scene.scene(&model, &view);
     if std::env::var_os("MG_LIGHTS").is_some() {
         for l in &s.lights {
             eprintln!(

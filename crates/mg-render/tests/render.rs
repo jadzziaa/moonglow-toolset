@@ -469,7 +469,6 @@ impl mg_render::Assets for TestAssets {
         Some(mg_render::LoadedTexture {
             texture: self.textures.get(name)?.clone(),
             txi: self.txis.get(name).cloned().unwrap_or_default(),
-            mtr: None,
         })
     }
 

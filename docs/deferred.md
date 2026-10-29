@@ -240,13 +240,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 - **Other machines:** budgets were measured only on the development
   machine (Ryzen 7 5800X3D, Radeon RX 9070). (S, needs other hardware)
-- **Where-used at scale:** the References window and Rename keep the
-  module's references between questions (`rename::UsageIndex`): the
-  first Find References in the persistent world reads the module, on
-  every core (0.2 s; 1.4 s on one), the next ones only the resources
-  changed since (7 ms). Tags and the strings in scripts are answered from it too.
-  Not done: the first read is on the window's thread; `mg refs` reads the module each time, as a
-  command run once must. (S each)
 
 ## Frames (a steady 144 a second)
 
@@ -278,14 +271,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **A slow picture in a gallery** (a model with large textures) takes a
   frame of 7 to 9 ms: a picture's models and textures are read on the
   window's thread. Read on another. (M)
-- **`Workspace::flush` writes every document read,** changed or not: its
-  cost grows with what a session has opened. It is called once a revision
-  by the pictures and by each open model view, and on saving. Marking the
-  documents an edit changes would make it what was changed. (S)
-- **The tiles' animations are looked up by name** every time one is
-  posed (three times a tile's model a frame: the pose, the lights, the
-  meshes), lower-casing each node's name. Bound once when the model is
-  loaded, a scene's 0.5 ms would be less. (S)
 
 ## EE fields Aurora hides
 
@@ -1573,13 +1558,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   added (neither is taken for it); a kept Options tab making its draft
   as Tools › Options does, which looks for the game's install (Steam's
   library files) as the module opens. (a builder's report, October 2026)
-- **Deleting from the module tree:** Delete… removes the resource (an
-  area with its GIT and GIC and its area-list entry, a script with its
-  NCS) and nothing else: transitions, scripts and conversations that name
-  it are left as they are, with no warning of them; one resource at a
-  time (the Delete key asks the same of the row under the pointer). Moonglow refuses to delete the
-  start area; Aurora removes it (after asking twice) and then refuses
-  to save: "A module must have a starting location to be valid." (S)
 - **The light theme's own colors:** it is egui's light theme; the script
   editor's syntax colors follow it, but conversation and faction colors
   are the dark theme's (legible on both), and the area view's overlays
@@ -2264,19 +2242,11 @@ commits, with a test for all but one of the bugs it fixed) is in the
 history; this is what it left, found by reading and not by running
 unless it says so.
 
-- **Never used, or never otherwise:** the second half of
-  `ModelView::frame` (the model is there exactly when the composed
-  preview is); arguments that are always the same
-  (`situated::beside_model`'s `model_first`, `Form::palette_color`'s
-  `game`, `dialog_view::script_with_params`' label, list and salt,
-  `render_minimaps`' size, `GameInstall::talk_table`'s `feminine`);
-  fields nothing reads (`widgets::Picker.types`, `LoadedTexture.mtr`);
-  `commands::Id::defaults` (the table behind it is kept in step with
-  the key commands and has a test, but nothing asks it for keys);
-  `DebugView::MaterialDiffuse` (never set); `Renderer::color_format`,
-  `Reader::data` and `Reader::pos`, `Txi::alpha_mean`,
-  `SetFile::is_empty`. A `pub` item of a crate Moonglow Viewer builds on
-  may be in use there: `plt::LAYERS` is. (S each)
+- **Never used:** the second half of `ModelView::frame`
+  (`model_view.rs`: the model is there exactly when the composed preview
+  is). The rest of what this entry listed went on 2026-10-29; this is
+  left while the sprint's packages 07 and 08 change that file (waits on
+  their merge). (S)
 
 ### The review of 2026-10-27: what is left
 

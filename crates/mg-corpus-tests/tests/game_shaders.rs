@@ -312,7 +312,6 @@ impl Assets for WithCutOuts<'_> {
         Some(mg_render::LoadedTexture {
             texture: self.textures.get(name)?.clone(),
             txi: mg_image::txi::Txi::parse(b"blending punchthrough\n"),
-            mtr: None,
         })
     }
 

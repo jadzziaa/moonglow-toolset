@@ -151,9 +151,8 @@ impl Shown {
                 } else {
                     mg_resman::ResMan::for_game(&gi)?
                 };
-                let tlk = std::fs::read(gi.talk_table(false))
-                    .ok()
-                    .and_then(|b| mg_tlk::Tlk::read(&b).ok());
+                let tlk =
+                    std::fs::read(gi.talk_table()).ok().and_then(|b| mg_tlk::Tlk::read(&b).ok());
                 match tlk {
                     Some(tlk) => {
                         let mut game = mg_rules::GameData::new(rm, tlk);

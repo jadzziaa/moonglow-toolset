@@ -3289,7 +3289,7 @@ fn tileset_minimap_pictures() {
     shoot(&mut h, &dir, "tileset-editor");
     let mut doc = h.state_mut().tilesets.remove(0);
     let tiles = doc.tileset().unwrap().tiles.clone();
-    mg_ui::tileset_view::render_minimaps(h.state_mut(), &mut doc, 32);
+    mg_ui::tileset_view::render_minimaps(h.state_mut(), &mut doc);
     // A sheet: the game's picture beside Moonglow's, for the first tiles.
     let shown: Vec<_> = tiles.iter().filter(|t| t.image_map_2d.is_some()).take(12).collect();
     let mut sheet = mg_image::Rgba::new(32 * 2 + 8, 40 * shown.len() as u32);
@@ -5305,6 +5305,81 @@ fn nui_fields() {
     h.event(egui::Event::Text(serde_json::to_string_pretty(&typed).unwrap()));
     h.run();
     shoot(&mut h, &dir, "nui-split-typing");
+}
+
+/// The module tree's Delete… with what names what it deletes: a script a
+/// creature spawns with and another script runs (`delete-named-script.png`),
+/// an area another area's door leads into (`delete-named-area.png`), and
+/// three resources chosen, the start area among them
+/// (`delete-several.png`; `DELETE_SHOTS_ONE=1` takes the first two
+/// alone).
+#[test]
+#[ignore]
+fn delete_says_what_names_it() {
+    use mg_gff::{Gff, Struct, Value};
+    use mg_schema::{StructExt, git, ifo};
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::output_dir("screens");
+    let scratch = mg_testkit::scratch_dir("screens-delete-named");
+    let key = |name: &str, t| ResKey::parse(name, t).unwrap();
+    let rr = |name: &str| mg_core::ResRef::from_str(name).unwrap();
+    let tag = |s: &str| Value::String(s.as_bytes().to_vec());
+    let mut m = mg_module::Module::new();
+    let mut info = Gff::new(*b"IFO ");
+    for area in ["start", "yard"] {
+        let mut listed = ifo::MOD_AREA_LIST.new_item();
+        listed.write(&ifo::mod_area_list::AREA_NAME, rr(area));
+        info.root.items_mut(&ifo::MOD_AREA_LIST).push(listed);
+        m.set(key(area, ResType::ARE), Gff::new(*b"ARE ").to_bytes().unwrap());
+    }
+    info.root.write(&ifo::MOD_ENTRY_AREA, rr("start"));
+    m.set_info(&info).unwrap();
+    let mut start = Gff::new(*b"GIT ");
+    for (i, t) in ["GREETER", "GREETER_2", "INNKEEPER"].iter().enumerate() {
+        let mut c = git::CREATURE_LIST.new_item();
+        c.write(&git::creature_list::SCRIPT_SPAWN, rr("hello"));
+        c.set("Tag", tag(t));
+        c.set("XPosition", Value::Float(i as f32));
+        start.root.items_mut(&git::CREATURE_LIST).push(c);
+    }
+    let mut door = Struct::new(8);
+    door.set("Tag", tag("TO_YARD"));
+    door.set("LinkedTo", tag("YARD_GATE"));
+    start.root.set("Door List", Value::List(vec![door]));
+    m.set_gff(key("start", ResType::GIT), &start).unwrap();
+    let mut yard = Gff::new(*b"GIT ");
+    let mut gate = Struct::new(8);
+    gate.set("Tag", tag("YARD_GATE"));
+    gate.set("LinkedTo", tag("TO_YARD"));
+    yard.root.set("Door List", Value::List(vec![gate]));
+    m.set_gff(key("yard", ResType::GIT), &yard).unwrap();
+    m.set(key("hello", ResType::NSS), b"void main() { }\n".to_vec());
+    m.set(
+        key("caller", ResType::NSS),
+        b"void main() {\n  ExecuteScript(\"hello\", OBJECT_SELF);\n}\n".to_vec(),
+    );
+    let path = scratch.join("delete.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 700.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().run(mg_ui::Action::DeleteDialog(key("hello", ResType::NSS)));
+    shoot(&mut h, &dir, "delete-named-script");
+    h.state_mut().confirm_delete = None;
+    h.state_mut().run(mg_ui::Action::DeleteDialog(key("yard", ResType::ARE)));
+    shoot(&mut h, &dir, "delete-named-area");
+    h.state_mut().confirm_delete = None;
+    if std::env::var_os("DELETE_SHOTS_ONE").is_none() {
+        let chosen =
+            [key("start", ResType::ARE), key("yard", ResType::ARE), key("caller", ResType::NSS)];
+        h.state_mut().run(mg_ui::Action::DeleteChosenDialog(chosen.to_vec()));
+        shoot(&mut h, &dir, "delete-several");
+    }
 }
 
 /// Delete… on a NUI window whose event script has unsaved text in its

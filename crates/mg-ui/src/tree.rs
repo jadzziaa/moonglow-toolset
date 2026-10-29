@@ -1282,8 +1282,9 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                         open = Some(k);
                     }
                     // Delete on the row under the pointer asks, as its
-                    // menu's Delete… does (not while text is typed).
-                    // (With the keys in the tree, the key is read below.)
+                    // menu's Delete… does (not while text is typed): of
+                    // those chosen, when it is one of them. (With the keys
+                    // in the tree, the key is read below.)
                     if r.hovered() {
                         pointed = Some(k);
                     }
@@ -1292,7 +1293,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                         && !ui.ctx().egui_wants_keyboard_input()
                         && ui.input(|i| i.key_pressed(egui::Key::Delete))
                     {
-                        app.actions.push(Action::DeleteDialog(k));
+                        app.actions.push(delete_asked(&app.tree_selected, k));
                     }
                     r.context_menu(|ui| {
                         if chosen {
@@ -1705,7 +1706,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
                     app.actions.push(Action::RenameDialog(k));
                 }
                 if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Delete)) {
-                    app.actions.push(Action::DeleteDialog(k));
+                    app.actions.push(delete_asked(&app.tree_selected, k));
                 }
             }
             Some(at @ TreeAt::Object(area, kind, index))
@@ -1907,6 +1908,15 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &Needle, fold: Option<bool
 /// Export as Files…, Copy to Scratch Folder; for areas, Make Placeables
 /// Static and Dynamic; the plugins' commands for them all (the one chosen
 /// returned).
+/// The Delete key on a resource's row: Delete… of those chosen, when it is
+/// one of several chosen, else of it alone.
+fn delete_asked(selected: &std::collections::BTreeSet<ResKey>, k: ResKey) -> Action {
+    match selected.len() > 1 && selected.contains(&k) {
+        true => Action::DeleteChosenDialog(selected.iter().copied().collect()),
+        false => Action::DeleteDialog(k),
+    }
+}
+
 fn several_menu(
     ui: &mut Ui,
     keys: &[ResKey],
@@ -1959,6 +1969,11 @@ fn several_menu(
     if ui.button("Copy to Scratch Folder").clicked() {
         let keys = keys.to_vec();
         actions.push(Action::ExportFiles { keys, dependencies: false, scratch: true });
+        ui.close();
+    }
+    let delete = "Delete them from the module, as one step (asked first, with what names them)";
+    if ui.button("Delete…").on_hover_text(delete).clicked() {
+        actions.push(Action::DeleteChosenDialog(keys.to_vec()));
         ui.close();
     }
     // The plugins' commands for them, where they are of one kind (areas,
