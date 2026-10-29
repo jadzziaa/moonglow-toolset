@@ -711,20 +711,23 @@ void main()
 
 /// The time uniforms' units (`docs/research/notes_shaders.md` §B.4):
 /// `worldtimerTimeOfDay` and `sceneCurrentFrame` read back through the
-/// debug shader in five screenshots 3 seconds apart (each screenshot's
+/// debug shader in eight screenshots 2 seconds apart (each screenshot's
 /// time measured), beside the module's clock, which the entry script logs,
 /// in modules starting at other hours and days and with other minutes an
 /// hour. Seen on 2026-10-21 (89.8193.37-17): the timer counts real
 /// milliseconds (999-1000 a second, at 2 and at 10 minutes an hour), the
 /// frame counter the client's frames (54-55 a second here, about 370 some
 /// 7 seconds after entering the area). The timer's value follows neither
-/// the module's hour nor its day nor its dawn: it is a fixed count, about
-/// 17,697,400 as the player enters the area, taken within the module's
-/// day (24 of its hours in real milliseconds), so that it shows 424,400
-/// seven seconds in at 1, 2, 3, 4 and 6 minutes an hour, 3,304,400 at 5
-/// and 10, 6,184,400 at 8 and the count itself from 15 up (2026-10-29,
-/// the same at 2 and 10 as on 2026-10-21): what Moonglow's
-/// [`mg_render::world_timer`] gives, which the first shot is held to.
+/// the module's hour nor its day nor its dawn: it is a count taken within
+/// the module's day (24 of its hours in real milliseconds), which the
+/// first shot is held to. On 2026-10-29 until after 12:09 (local time)
+/// the count was about 17,697,400 as the player entered the area, in 16
+/// runs (seven seconds in: 424,400 at 1, 2, 3, 4 and 6 minutes an hour,
+/// 3,304,400 at 5 and 10, 6,184,400 at 8, the count itself from 15 up;
+/// the same at 2 and 10 as on 2026-10-21), and by 13:11 two hours more
+/// (24,897,600): what moves it was not found. Eight shots, so that three
+/// distinct frames are left where the window shows a frame again (with
+/// five it failed now and then).
 /// `MG_TIME_CASES` gives other cases (`hour:minutes:day:dawn`, comma
 /// separated). Needs the game, a GPU and the off-screen display;
 /// run by hand (`--ignored`).
@@ -776,7 +779,7 @@ fn time_uniforms_in_the_client() {
         std::fs::write(dir.join("user/settings.tml"), SETTINGS).unwrap();
         std::fs::write(dir.join("user/override/inc_standard.shd"), &shader).unwrap();
         m.save_as(&ModuleLocation::Archive(dir.join("user/modules/MgScene.mod"))).unwrap();
-        let shots = common::client_screenshots(&dir, "MgScene", 5, Duration::from_secs(3))
+        let shots = common::client_screenshots(&dir, "MgScene", 8, Duration::from_secs(2))
             .unwrap_or_else(|| {
                 panic!("the client did not reach the scene (see {})", dir.display())
             });
@@ -815,17 +818,15 @@ fn time_uniforms_in_the_client() {
              sceneCurrentFrame {frame_rate:.1} a second ({} shots)",
             rows.len()
         );
-        assert!(rows.len() >= 2 && dt > 5.0, "{rows:?}");
+        assert!(rows.len() >= 3 && dt > 5.0, "{rows:?}");
         // Milliseconds of real time, whatever the module's minutes per hour.
         assert!((timer_rate - 1000.0).abs() < 50.0, "{timer_rate}");
         // A frame count (as fast as the client draws).
         assert!(frame_rate > 10.0, "{frame_rate}");
-        // From its origin, within the module's day: the first shot is
-        // some seven seconds after the player entered (the entry script's
-        // four, the three before the shots).
-        let ours = mg_render::world_timer(7.0, u32::from(minutes));
-        eprintln!("{hour}h {minutes}min/h day {day}: first shot {}, Moonglow's {ours}", first.1);
-        assert!((first.1 - i64::from(ours)).abs() < 1500, "{} against {ours}", first.1);
+        // Within the module's day (24 of its hours, in real
+        // milliseconds), whatever its origin.
+        let day_length = 24 * 60_000 * i64::from(minutes);
+        assert!((0..day_length).contains(&first.1), "{} past a day of {day_length}", first.1);
     }
 }
 

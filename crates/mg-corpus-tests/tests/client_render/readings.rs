@@ -145,7 +145,7 @@ impl Reading {
     ) -> (PathBuf, Rgba) {
         let (game, are, git) = (
             GameData::open(&GameInstall::new(
-                &mg_testkit::nwn_root().unwrap(),
+                mg_testkit::nwn_root().unwrap(),
                 Some(self.dir.join("user")),
                 "en",
             ))
@@ -184,7 +184,11 @@ fn moonglow_beside(
     let sight = mg_area::Sight::of(&camera, size.0 as f32 / size.1 as f32);
     let mut v = mg_area::View { fog: false, grass: Some(sight), ..mg_area::View::of(&model) };
     view(&mut v);
-    let scene = area_scene.scene(&model, &v);
+    let mut scene = area_scene.scene(&model, &v);
+    // (Where nothing is drawn: magenta, told apart from black meshes.)
+    if std::env::var_os("MG_MAGENTA").is_some() {
+        scene.background = [1.0, 0.0, 1.0];
+    }
     off_and_on(&gpu, game, &scene, &camera, size, Some(client), dir, "moonglow");
 }
 
@@ -923,6 +927,40 @@ fn reading_git_sun_uniform() {
             ours.unwrap_or_else(|| Vec3::new(4000.0, 4500.0, 7000.0).normalize())
         );
     }
+}
+
+/// Forest - Facelift's cliffs (ttf02's tiles 0 and 1, compiled meshes
+/// whose index lists have more triangles than their face lists, which
+/// Moonglow draws: `Mesh::drawn`) north of the player, as the client and
+/// Moonglow's area view draw them: holes where only the faces were drawn.
+#[test]
+#[ignore]
+fn reading_facelift_cliffs() {
+    let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+    let mut r = Reading::new("facelift_cliffs", "ttf02", light, &[]);
+    let tiles = r.are.root.list_mut("Tile_List").unwrap();
+    for (i, id) in [(9usize, 0i32), (10, 1), (13, 2), (14, 3)] {
+        tiles[i].set("Tile_ID", Value::Int(id));
+    }
+    let (dir, _) = r.shoot_beside(INVISIBLE, SETTINGS, &|_| {});
+    eprintln!("{}", dir.display());
+}
+
+/// A rural shore at a slant (ttr01's tile 7, water to its north, with the
+/// all-water tile 20 beyond), its plants' see-through edges over the
+/// ground and the water, as the client and Moonglow's area view draw it
+/// (a builder saw blue-white patches round plants and along shores).
+#[test]
+#[ignore]
+fn reading_shore() {
+    let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+    let mut r = Reading::new("shore", "ttr01", light, &[]);
+    let tiles = r.are.root.list_mut("Tile_List").unwrap();
+    for (i, id) in [(9usize, 7i32), (10, 7), (13, 20), (14, 20)] {
+        tiles[i].set("Tile_ID", Value::Int(id));
+    }
+    let (dir, _) = r.shoot_beside(INVISIBLE, SETTINGS, &|_| {});
+    eprintln!("{}", dir.display());
 }
 
 /// An exact tile beside neighbors it disagrees with: ttr01's tile 20 (all

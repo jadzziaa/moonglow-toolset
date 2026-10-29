@@ -3,10 +3,10 @@ type: Research Note
 title: 'NWN:EE rendering and lighting pipeline: research notes (game 89.8193.37-17)'
 description: The NWN:EE rendering and lighting pipeline read from the stock shaders - shader selection, vertex attributes and uniforms, texture slots, lighting equations, light sources, fog, shadows, gamma and tonemapping, keyholing - every claim tagged with its evidence.
 tags: [rendering, shaders, lighting, renderer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T06:11:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:11:46Z }
 sources:
   - id: time-uniforms
-    resource: crates/mg-corpus-tests/tests/client_render.rs (time_uniforms_in_the_client), run 2026-10-21 on 89.8193.37-17
+    resource: crates/mg-corpus-tests/tests/client_render.rs (time_uniforms_in_the_client), run 2026-10-21 and 2026-10-29 on 89.8193.37-17
     title: The time uniforms read back from the client
   - id: program-choice
     resource: crates/mg-corpus-tests/tests/client_render/programs.rs (program_choice_in_the_client), run 2026-10-21 on 89.8193.37-17
@@ -285,7 +285,7 @@ Player and camera:
 
 Time (both `int`; measured in the client, `client_render.rs` `time_uniforms_in_the_client`: read back through a patched `inc_standard` in five screenshots 3 s apart, each one's time measured, 89.8193.37-17, 2026-10-21):
 - `sceneCurrentFrame`: **the client's frame count**, 54–55 a second on the off-screen display (it follows the frame rate); about 370 some 7 s after the area was entered. Stock use: `fstc_sm`, `fs_cg_btn_col` (`/2048.0`, `/991.0` wobbles).
-- `worldtimerTimeOfDay`: **real milliseconds**, 999–1000 a second whatever the module's minutes an hour (2 or 10) — not game time. Its value follows neither the module's hour (13:00 and 06:00 gave the same) nor its day (1 and 15): nor its dawn: it is a fixed count, about 17,697,400 as the player enters the area, taken within the module's day (24 of its hours in real milliseconds, 24 × minutes an hour × 60,000), so that seven seconds in it shows 424,400 at 1, 2, 3, 4 and 6 minutes an hour, 3,304,400 at 5 and 10, 6,184,400 at 8 and the count itself from 15 up (measured 2026-10-29 over 16 modules, `time_uniforms_in_the_client`; the same at 2 and 10 as on 2026-10-21) [ENG]. Moonglow's `mg_render::world_timer` gives it. Stock use: `vswater` (`× 0.001`: seconds), `inc_target` (throb); TDoD's wind shaders as a phase (`sin(y · t / fSwaySpeedMult)`) and as seconds (`/1000.0`), `shd_tooltip` (`> 0`).
+- `worldtimerTimeOfDay`: **real milliseconds**, 999–1000 a second whatever the module's minutes an hour (2 or 10) — not game time. Its value follows neither the module's hour (13:00 and 06:00 gave the same) nor its day (1 and 15): nor its dawn: it is a count taken within the module's day (24 of its hours in real milliseconds, 24 × minutes an hour × 60,000) [ENG]. On 2026-10-29 until after 12:09 local time it was about 17,697,400 as the player entered the area, in 16 modules (seven seconds in: 424,400 at 1, 2, 3, 4 and 6 minutes an hour, 3,304,400 at 5 and 10, 6,184,400 at 8, the count itself from 15 up; the same at 2 and 10 as on 2026-10-21), and by 13:11 two hours more (24,897,600 at 60 minutes an hour) (`time_uniforms_in_the_client`): what moves the count is not known [INF: a clock of the wall's, counted in steps]. Moonglow's counts from 0. Stock use: `vswater` (`× 0.001`: seconds), `inc_target` (throb); TDoD's wind shaders as a phase (`sin(y · t / fSwaySpeedMult)`) and as seconds (`/1000.0`), `shd_tooltip` (`> 0`).
 - `moduleYear/Month/Day/Hour`, `moduleDawnHour`, `moduleDuskHour`, `moduleMinutesPerHour`: [CLIENT] the module.ifo's `Mod_StartYear` (1372), `Mod_StartMonth` (4), `Mod_StartDay` (7), `Mod_StartHour` (13), `Mod_DawnHour` (5), `Mod_DuskHour` (19), `Mod_MinPerHour` (3), a few seconds after the module started (`program_choice_in_the_client`).
 - `moduleTimeIntoTransition`, `moduleTransitionTime`
 

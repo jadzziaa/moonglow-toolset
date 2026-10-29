@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T15:42:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T17:11:46Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -586,7 +586,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   game's bytes there and in the module's own category lists (a test
   spoils a saved palette as 1.19.3 wrote it, saves it unchanged and
   builds it). Not seen in the game's DM client here (the bytes are
-  tested; the client was not run as a DM). Issue 13's other half: with
+  tested; the client was not run as a DM): the DM client joins a
+  server, so it waits on the harness the NWSync download test needs
+  (`nwserver` and the client started in one sandbox, whose loopback
+  works). Issue 13's other half: with
   Polish the editing language, String Edit read and wrote a string's
   English text as Windows-1252 (mojibake, and Polish letters typed
   could not be saved, under an error that named the String Ref). It
@@ -952,11 +955,21 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   `renderhint`; a model that names `texture1` itself without a hint,
   and a compiled one, under a custom pair, weren't tried, nor the black
   of a normal map without tangents on Windows and macOS (the stock
-  include normalizing a zero vector). (S) (Heed's report, October 2026)
+  include normalizing a zero vector; that half waits on a Windows and a
+  Mac client, or the renderer's CI branch). (S) (Heed's report, October
+  2026)
 - **A texture's `envmaptexture default` on a placeable whose
   `Reflection` is `default` too:** Moonglow takes the placeable's map
-  (`chrome1`) for both; the client wasn't asked (the armoire, read, has
-  no `Reflection`). (S)
+  (`chrome1`) for both; the client reflects the area's (the tileset's
+  `EnvMap`, `tcn01__ref01`), read back (2026-10-29,
+  `program_choice_in_the_client` with `MG_LYING_ENVD=1
+  MG_REFLECTION=default`: the lying square's `texUnitEnv` the floor's,
+  not `chrome1`'s; with `MG_REFLECTION=plc_g_env` it is `plc_g_env`'s).
+  So a texture's `default` takes the placeable's named map, else the
+  area's, while a placeable's `default` alone is `chrome1` (notes
+  §A.4): `mg_preview::placeable` turns `default` into `chrome1` before
+  the renderer can tell the two apart, so the fix is in `mg-render`'s
+  map choice too. (S)
 - **Lights placed on the fly** ([the proposal](lights-proposal.md)):
   way A is in (the game's seven invisible light placeables from the
   area's menu, a sun for a marker, Light Color, a ring for the reach).
@@ -1072,6 +1085,17 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     meshes (`inc_displacement` turns it by `mat2(m_texture)`) is not
     turned in Moonglow's own shader (`displace`; the normal map's is).
     (S)
+  - `worldtimerTimeOfDay` counts real milliseconds and
+    `sceneCurrentFrame` frames (measured, notes §B.4); Moonglow's clock
+    starts both at 0 when the scene's time does. The client's timer is a
+    count taken within the module's day (24 × its minutes an hour ×
+    60,000 ms), whatever the module's start hour, day or dawn, but the
+    count moves: about 17,697,400 as the player entered an area in 16
+    runs until after 12:09 on 2026-10-29 (and on 2026-10-21), two hours
+    more by 13:11 (`time_uniforms_in_the_client`). It is the phase of
+    the falling water's flow and the grass's sway, which are not
+    compared with the client frame by frame until it is known. (S: the
+    timer read back at a few hours of the day, for what moves it)
   - The game's programs draw on CI's Metal and Direct3D 12 (the
     renderer's CI branch, 2026-10-29: three draws, no failures), but a
     discarding one's depth is not tested there: naga's `discard` from
@@ -1101,10 +1125,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     client batch: an ASCII mesh with a mirrored UV seam under a render
     hint, its tangents written as colour through a patched include,
     beside the same model compiled)
-  - `areaGlobalWind`'s direction is taken from TDoD's shader comments
-    ((0.707, 0.707, 0) for a medium wind), not read from the client. (S)
-    (waits on the client batch: `areaGlobalWind` read back in an
-    outdoor area at `WindPower` 1 and 2)
   - Verify's `shader-pair` reports a material naming one program alone;
     whether the engine also ignores a lone `customshaderGS`, and what it
     does with a geometry program at all, is not checked (no content has
@@ -1162,10 +1182,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     one `NO_DISCARD` in the client (the plain and transparency-hint cards
     of a static copy were alpha-tested beside an `alpha 0.5` card of the
     same texture): the game bakes static geometry into buckets (.37).
-    Moonglow decides it per mesh. Not worked out: which meshes share a
-    bucket, whether tiles' do (they are baked too). (S) (waits on the
-    client batch: the cards as a static and a dynamic placeable, and on
-    a tile)
+    Moonglow decides it per mesh. The cards read as a static and a
+    dynamic placeable (2026-10-29, `program_choice_in_the_client` with
+    and without `MG_STATIC=1`): three of 36 differ, each one whose
+    texture and pair another card shares (`mesh alpha 0.5` and `decal
+    red alpha 0.5` alpha-tested static, blended dynamic; `envmap` the
+    other way, beside `envmap+mesh alpha`); which mesh of a bucket
+    gives its value isn't plain from these (the first of `mgp_plain`'s
+    and `mgp_decalr`'s, not of `mgp_env`'s). Not read: tiles. (S)
   - A BioWare DDS's alpha is taken from its header's alpha mean (below
     1: alpha), not read from the client: 22 of the game's 3,717
     four-channel ones have a mean of 1 (roofs, bark, flagstones) and are
@@ -1173,8 +1197,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     with a transparency hint, cut or solid)
   - Not read in the client: which map an item on the ground reflects (it
     draws `_sm`, as Moonglow's `chrome1` has it; the band didn't reach
-    it), what `cameraFocus` holds (read back as (34.31, 20, 0) once). (S)
-    (waits on the client batch: both through a patched include)
+    it). (`cameraFocus` was read back as the player's place, (20, 20, 0)
+    with the player there, in four runs on 2026-10-29: what Moonglow
+    uploads, its camera's target.) (S) (waits on the client batch: a
+    patched include painting `texUnitEnv` on an item's own fragments)
   - Moonglow's own shader draws as the client does since M4 (Settled),
     not yet looked at in the builders' areas: TDoD's DXT1 textures (690)
     with their transparent texels black, and its 21 materials naming
@@ -1190,10 +1216,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     from the client on, 0.4 off), beside a dark wall where the fitted
     camera is a fraction of a pixel off. (S) (waits on the client batch:
     the room with the camera fitted to that wall)
-  - `time_uniforms_in_the_client` fails now and then: the client's
-    window, screenshot every three seconds, gave a picture it had shown
-    before (the same frame count), leaving two of five. Alone it passes.
-    Shooting until three distinct frames would hold it. (S)
 - **The special surfaces (M5 of [the shaders
   proposal](shaders-proposal.md)):** water, grass, the sky, additive
   meshes and particles, read in the client (`surfaces_in_the_client`)
@@ -1300,8 +1322,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   blue-white patches round plants and along shores at a slant, in a
   base-game tileset: a plant's soft edge drawn before the ground behind
   it kept the ground from showing, and the water under it showed. Shown
-  in a renderer test; not confirmed on the reporter's area, nor compared
-  with the client.) Two see-through surfaces crossing each other still
+  in a renderer test; not confirmed on the reporter's area, which isn't
+  here; compared with the client on a rural shore, ttr01's tile 7 and
+  its water (`reading_shore`, 2026-10-29): no patches in either, the
+  water as the client's with the Shaders switch on.) Two see-through surfaces crossing each other still
   sort by their middles. Each see-through mesh costs two draws. On
   macOS the solid part's discarded fragments wrote their depth (the
   plant's edge hid the ground again) until the shader stopped at each
@@ -1489,8 +1513,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   mesh's index list where it has more triangles than the face list
   (`Mesh::drawn`: most Forest - Facelift cliffs) is settled from the
   files (the list reaches every vertex, the faces are its first
-  triangles, drawing it closes the holes), not by a client screenshot
-  (`client_render.rs`). (S) (from the research notes)
+  triangles, drawing it closes the holes). A client screenshot puts it
+  in doubt (2026-10-29, `reading_facelift_cliffs` with `MG_MAGENTA=1`,
+  ttf02's tiles 0 to 3): the client shows the sky through the cliff
+  tiles in places where Moonglow draws black meshes (both leave the
+  same band open below them). To settle it: Moonglow's picture of the
+  same tiles with the face lists alone beside it (`mg-mdl`, the models
+  package's). (S) (from the research notes)
 
 ## The main window and its panes
 

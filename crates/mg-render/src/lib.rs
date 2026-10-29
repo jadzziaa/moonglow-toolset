@@ -27,7 +27,6 @@ pub use assets::{Assets, LoadedTexture, NoAssets, colored_name, split_colors};
 pub use game::ShaderStats;
 #[doc(hidden)]
 pub use game::{Captured, CapturedPipeline};
-pub use game::{WORLD_TIMER_ORIGIN, world_timer};
 pub use gpu::{Gpu, headless_adapter};
 pub use model::{GpuModel, rest_pose};
 pub use reach::Frustum;
