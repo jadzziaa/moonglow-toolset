@@ -140,6 +140,15 @@ impl eframe::App for App {
     }
 }
 
+/// A panic in eframe's own code (outside the frame `recovering` runs)
+/// unwinds through the event loop and drops the application: the unsaved
+/// work is kept then.
+impl Drop for App {
+    fn drop(&mut self) {
+        self.moonglow.keep_while_unwinding();
+    }
+}
+
 /// On a crash, a report in Moonglow's data folder (`crash-<time>.txt`):
 /// the message, where, and the backtrace; the unsaved work is in the
 /// recovery copy, written as the frame stopped (`Moonglow::recovering`).
@@ -156,6 +165,11 @@ fn crash_reports() {
         // A model that failed is left out and Moonglow carries on: the
         // report says so, and is named apart from a crash's.
         let carried_on = mg_ui::model_guard::guarding();
+        // (A panic in a thread of its own leaves the window going: the
+        // next frame keeps the unsaved work in a recovery copy.)
+        if !carried_on {
+            mg_ui::recovery::note_panic();
+        }
         let what = if carried_on {
             "could not show a model, left it out and carried on"
         } else {

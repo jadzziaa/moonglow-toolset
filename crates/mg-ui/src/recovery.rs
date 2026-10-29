@@ -133,7 +133,7 @@ impl Job {
 
 /// The autosave's state: when the last copy was made, of which revision,
 /// and whether one is being written.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct Autosave {
     last: Option<(std::time::Instant, u64)>,
     busy: Arc<AtomicBool>,
@@ -141,6 +141,47 @@ pub(crate) struct Autosave {
     /// written meanwhile removes itself when done, or the next start
     /// offers work that was saved.
     forgotten: Arc<std::sync::atomic::AtomicU64>,
+    /// The panics elsewhere ([`note_panic`]) a copy was made after.
+    panics_seen: u64,
+    /// A copy was written as a frame panicked: the unwinding needs none
+    /// again ([`Moonglow::keep_while_unwinding`]).
+    kept_at_panic: bool,
+}
+
+impl Default for Autosave {
+    fn default() -> Autosave {
+        Autosave {
+            last: None,
+            busy: Arc::default(),
+            forgotten: Arc::default(),
+            panics_seen: PANICS.load(Ordering::Acquire),
+            kept_at_panic: false,
+        }
+    }
+}
+
+/// The panics in the program, wherever they were (`note_panic`).
+static PANICS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Notes a panic anywhere in the program: the panic hook calls it (the
+/// `moonglow` binary's). One in a frame writes the recovery copy as the
+/// frame stops ([`Moonglow::recovering`]); one in a thread of its own (a
+/// job, an autosave, a plugin's run, an area's load) leaves the window
+/// going, and the next frame writes the copy then, in the background: the
+/// work is kept before whatever that thread left half done shows.
+pub fn note_panic() {
+    PANICS.fetch_add(1, Ordering::AcqRel);
+}
+
+/// Sets the autosave's "being written" back when dropped, however the
+/// writing ended (a panic in it included: else no copy was ever made
+/// again, and a crash waited for it).
+struct Done(Arc<AtomicBool>);
+
+impl Drop for Done {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
 }
 
 impl Moonglow {
@@ -186,27 +227,78 @@ impl Moonglow {
     /// keeps none), then lets the panic go on. The copy is the work as it
     /// was when the frame stopped: a crash costs none of it, where the copy
     /// made every few minutes could be minutes old.
+    ///
+    /// A panic elsewhere since the frame before (a thread's, noted by
+    /// [`note_panic`]) has the copy written after the frame, in the
+    /// background.
     pub fn recovering(&mut self, frame: impl FnOnce(&mut Moonglow)) {
         use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
-        let Err(panic) = catch_unwind(AssertUnwindSafe(|| frame(self))) else { return };
-        if !self.settings.no_autosave && self.has_unsaved_work() {
-            // (After a copy being written in the background, if one is: the
-            // two would write one temporary file. A few seconds at most.)
-            let until = std::time::Instant::now() + Duration::from_secs(5);
-            while self.autosave.busy.load(Ordering::Acquire) && std::time::Instant::now() < until {
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            // (A copy that fails, or panics too, leaves the crash as it was.)
-            match catch_unwind(AssertUnwindSafe(|| self.write_recovery())) {
-                Ok(Ok(path)) => {
-                    crate::trace::note(format!("recovery copy written: {}", path.display()));
-                    eprintln!("The unsaved work was kept in {}", path.display());
-                }
-                Ok(Err(e)) => eprintln!("recovery copy: {e}"),
-                Err(_) => eprintln!("recovery copy: failed"),
-            }
-        }
+        let Err(panic) = catch_unwind(AssertUnwindSafe(|| frame(self))) else {
+            self.keep_after_panic_elsewhere();
+            return;
+        };
+        self.keep_now();
+        self.autosave.kept_at_panic = true;
         resume_unwind(panic)
+    }
+
+    /// Writes the recovery copy while the program unwinds from a panic
+    /// outside a frame (in eframe's own code, which [`recovering`]
+    /// doesn't see): the `moonglow` binary's application calls it as it is
+    /// dropped. Nothing when no panic is under way, or the frame's panic
+    /// wrote the copy already.
+    ///
+    /// [`recovering`]: Moonglow::recovering
+    pub fn keep_while_unwinding(&mut self) {
+        if std::thread::panicking() && !self.autosave.kept_at_panic {
+            self.keep_now();
+            self.autosave.kept_at_panic = true;
+        }
+    }
+
+    /// The recovery copy written now, on this thread (a panic is under
+    /// way), unless Options › General keeps none or nothing is unsaved.
+    fn keep_now(&mut self) {
+        use std::panic::{AssertUnwindSafe, catch_unwind};
+        if self.settings.no_autosave || !self.has_unsaved_work() {
+            return;
+        }
+        // (After a copy being written in the background, if one is: the
+        // two would write one temporary file. A few seconds at most.)
+        let until = std::time::Instant::now() + Duration::from_secs(5);
+        while self.autosave.busy.load(Ordering::Acquire) && std::time::Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        // (A copy that fails, or panics too, leaves the crash as it was.)
+        match catch_unwind(AssertUnwindSafe(|| self.write_recovery())) {
+            Ok(Ok(path)) => {
+                crate::trace::note(format!("recovery copy written: {}", path.display()));
+                eprintln!("The unsaved work was kept in {}", path.display());
+            }
+            Ok(Err(e)) => eprintln!("recovery copy: {e}"),
+            Err(_) => eprintln!("recovery copy: failed"),
+        }
+    }
+
+    /// After a frame: a panic noted elsewhere since the last look has the
+    /// recovery copy written now, in the background (the next frame
+    /// again, while one is being written).
+    fn keep_after_panic_elsewhere(&mut self) {
+        let panics = PANICS.load(Ordering::Acquire);
+        if panics == self.autosave.panics_seen || self.autosave.busy.load(Ordering::Acquire) {
+            return;
+        }
+        self.autosave.panics_seen = panics;
+        if self.settings.no_autosave || self.recovery_dir.is_none() || !self.has_unsaved_work() {
+            return;
+        }
+        let Some(job) = self.recovery_job() else { return };
+        crate::trace::note("a panic elsewhere: the recovery copy written");
+        self.log.warn(
+            "Something failed in the background (Moonglow goes on): the unsaved work is kept in \
+             a recovery copy, offered at the next start if Moonglow stops before you save",
+        );
+        self.write_in_background(job);
     }
 
     /// Removes the open module's recovery copy (saved, or closed without
@@ -250,11 +342,19 @@ impl Moonglow {
         }
         let job = self.recovery_job()?;
         self.autosave.last = Some((now, revision));
+        self.write_in_background(job);
+        Some(every)
+    }
+
+    /// Writes a copy on a thread of its own, the autosave busy until it is
+    /// done.
+    fn write_in_background(&mut self, job: Job) {
         let busy = self.autosave.busy.clone();
         busy.store(true, Ordering::Release);
         let (forgotten, started) =
             (self.autosave.forgotten.clone(), self.autosave.forgotten.load(Ordering::Acquire));
         std::thread::spawn(move || {
+            let _done = Done(busy);
             let copy = Copy { archive: job.archive.clone(), note: job.note.clone() };
             if let Err(e) = job.run() {
                 eprintln!("recovery copy: {e}");
@@ -264,9 +364,7 @@ impl Moonglow {
             if forgotten.load(Ordering::Acquire) != started {
                 copy.remove();
             }
-            busy.store(false, Ordering::Release);
         });
-        Some(every)
     }
 
     /// Looks for copies left by a session that did not end (shown by
@@ -413,6 +511,86 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
         assert!(find(&dir.join("recovery")).is_empty());
+    }
+
+    /// An application with a module open, a change unsaved, its copies in
+    /// `dir/recovery`.
+    fn changed(dir: &Path) -> Moonglow {
+        let mut m = Module::new();
+        let key = mg_resman::ResKey::parse("hello", mg_core::ResType::NSS).unwrap();
+        m.set(key, b"void main() {}".to_vec());
+        m.save_as(&ModuleLocation::Archive(dir.join("m.mod"))).unwrap();
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.recovery_dir = Some(dir.join("recovery"));
+        app.open_module(&dir.join("m.mod"));
+        let edit = mg_edit::Edit::SetResource { key, data: Some(b"// changed".to_vec()) };
+        app.ws.as_mut().unwrap().apply(mg_edit::Command::new("edit", vec![edit])).unwrap();
+        app
+    }
+
+    fn kept(dir: &Path) -> Option<Vec<u8>> {
+        let key = mg_resman::ResKey::parse("hello", mg_core::ResType::NSS).unwrap();
+        let copy = find(&dir.join("recovery")).into_iter().next()?;
+        Module::open(&copy.archive).ok()?.get(&key).map(<[u8]>::to_vec)
+    }
+
+    /// A panic in a thread of its own (a job's, an autosave's) leaves the
+    /// window going: the next frame writes the copy, once a panic.
+    #[test]
+    fn a_panic_elsewhere_has_the_next_frame_keep_the_work() {
+        let dir = mg_testkit::scratch_dir("ui-recovery-elsewhere");
+        let mut app = changed(&dir);
+        app.recovering(|_| {});
+        assert_eq!(kept(&dir), None, "no panic, no copy");
+        note_panic();
+        app.recovering(|_| {});
+        while app.autosave.busy.load(Ordering::Acquire) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(kept(&dir).as_deref(), Some(&b"// changed"[..]));
+        assert!(app.log.entries.iter().any(|(_, m)| m.contains("kept in a recovery copy")));
+        // Not again until another panic.
+        find(&dir.join("recovery"))[0].remove();
+        app.recovering(|_| {});
+        assert!(!app.autosave.busy.load(Ordering::Acquire) && kept(&dir).is_none());
+    }
+
+    /// A panic outside the frame (eframe's own code) unwinds through the
+    /// application: as it is dropped, the copy is written.
+    #[test]
+    fn a_panic_unwinding_through_the_application_keeps_the_work() {
+        struct Window(Moonglow);
+        impl Drop for Window {
+            fn drop(&mut self) {
+                self.0.keep_while_unwinding();
+            }
+        }
+        let dir = mg_testkit::scratch_dir("ui-recovery-unwinding");
+        let window = Window(changed(&dir));
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _window = window;
+            panic!("in eframe");
+        }));
+        assert!(r.is_err());
+        assert_eq!(kept(&dir).as_deref(), Some(&b"// changed"[..]));
+        // Dropped with no panic under way: no copy.
+        let dir = mg_testkit::scratch_dir("ui-recovery-closed");
+        drop(Window(changed(&dir)));
+        assert_eq!(kept(&dir), None);
+    }
+
+    /// An autosave whose writing panics is over all the same: the next
+    /// one is made, and a crash doesn't wait for it.
+    #[test]
+    fn an_autosave_that_panics_is_done() {
+        let busy = Arc::new(AtomicBool::new(true));
+        let held = busy.clone();
+        let _ = std::thread::spawn(move || {
+            let _done = Done(held);
+            panic!("while writing");
+        })
+        .join();
+        assert!(!busy.load(Ordering::Acquire));
     }
 
     #[test]

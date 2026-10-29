@@ -2003,12 +2003,16 @@ contribution itself states as not done or not checked.
 ## The install, starting and crashes
 
 - **The recovery copy written at a panic** holds the work as the frame
-  that panicked left it (a change applied in it is in the copy), and only
-  a panic in a frame writes one: one in a background thread (an
-  autosave, a plugin's run, a model's load) or in eframe's own code
-  writes none. On macOS a panic unwinding into the system's code aborts
-  after the copy is written. Not tried on a real crash on Windows or
-  macOS. (S) (Sacha's report, 2026-10-25)
+  that panicked left it (a change applied in it is in the copy); one in
+  a thread of its own has the next frame write it, and one in eframe's
+  own code has the application write it as the unwinding drops it
+  (2026-10-29, `recovery.rs`'s tests). Not tried in a real crash: on
+  macOS a panic unwinding into the system's code aborts (after a
+  frame's copy is written; one in eframe's code there may abort before
+  the application is dropped), and eframe's unwinding through the event
+  loop was read in its code (`run_app_on_demand` on the stack), not
+  crashed on Linux, Windows or macOS. (S) (waits on a crash on Windows
+  and macOS) (Sacha's report, 2026-10-25)
 
 - **userpatch.ini's haks** are read (Options › General, off by default), at the
   game's priority for them as the wiki's load order gives it (13: under
