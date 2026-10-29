@@ -729,21 +729,42 @@ impl Project {
     /// What is known of the source files, to look at them anywhere
     /// ([`OutsideScan::run`]).
     pub(crate) fn outside_scan(&self) -> OutsideScan {
-        let files = (self.sources.iter())
-            .map(|(key, src)| Known {
-                key: *key,
-                path: src.path.clone(),
-                json: src.json,
-                file: src.file.clone(),
-                stamp: src.stamp,
-            })
-            .collect();
-        let kind = crate::outside::Kind::Project {
+        let files = (self.sources.iter()).map(|(key, src)| Self::known(*key, src)).collect();
+        OutsideScan { files, kind: self.scan_kind(), only: None }
+    }
+
+    fn known(key: ResKey, src: &Source) -> Known {
+        Known {
+            key,
+            path: src.path.clone(),
+            json: src.json,
+            file: src.file.clone(),
+            stamp: src.stamp,
+        }
+    }
+
+    fn scan_kind(&self) -> crate::outside::Kind {
+        crate::outside::Kind::Project {
             root: self.root().to_path_buf(),
             target: Box::new(self.target().clone()),
             conversion: self.conversion(),
-        };
-        OutsideScan { files, kind }
+        }
+    }
+
+    /// [`Project::outside_scan`] of these files alone: what is known of
+    /// the resources they are, by their names (a file moved is a known
+    /// resource at a new path).
+    pub(crate) fn outside_scan_of(&self, paths: &[PathBuf]) -> OutsideScan {
+        let mut keys: Vec<ResKey> = (paths.iter())
+            .filter_map(|p| resource_of(&p.file_name()?.to_string_lossy()).map(|(k, _)| k))
+            .collect();
+        keys.sort();
+        keys.dedup();
+        let files = (keys.iter())
+            .filter_map(|k| self.sources.get(k).map(|src| Self::known(*k, src)))
+            .collect();
+        let only = Some(paths.iter().cloned().collect());
+        OutsideScan { files, kind: self.scan_kind(), only }
     }
 
     /// Takes what [`OutsideScan::run`] found: the times of the files found
@@ -1154,10 +1175,14 @@ pub(crate) fn scan(
     root: &Path,
     target: &Target,
     conversion: Conversion,
+    only: Option<&std::collections::HashSet<PathBuf>>,
 ) -> OutsideFound {
     let mut found = OutsideFound { project: true, ..Default::default() };
     let mut changes = Vec::new();
     for k in files {
+        if only.is_some_and(|o| !o.contains(&*k.path)) {
+            continue;
+        }
         // (Its time and size before it is read: a write after the read
         // gives it others, and it is read again.)
         let now = stamp(&k.path);
@@ -1196,7 +1221,18 @@ pub(crate) fn scan(
     let known: std::collections::HashSet<&Path> = files.iter().map(|k| &*k.path).collect();
     let by_key: HashMap<ResKey, &Known> = files.iter().map(|k| (k.key, k)).collect();
     let mut added: Vec<Outside> = Vec::new();
-    for path in target.source_files(root).unwrap_or_default() {
+    // (Of the files named, those the sources take in: the tree isn't
+    // walked.)
+    let sources = match only {
+        Some(only) => {
+            let mut paths: Vec<PathBuf> =
+                only.iter().filter(|p| p.is_file() && target.covers(root, p)).cloned().collect();
+            paths.sort();
+            paths
+        }
+        None => target.source_files(root).unwrap_or_default(),
+    };
+    for path in sources {
         if known.contains(path.as_path()) {
             continue;
         }
@@ -1395,6 +1431,57 @@ mod tests {
         let (changes, _) = m.outside().unwrap();
         let again = changes.iter().find(|c| c.key == script).unwrap();
         assert_eq!(again.resource.as_deref(), Some(&b"void main() { int four, more; }\n"[..]));
+    }
+
+    /// Where the system named the files that changed (a watch), only they
+    /// are looked at: a file changed and not named isn't found (until a
+    /// look at all), one named is, as are one added and one deleted; one
+    /// named that the sources don't take in, or moved to where they do,
+    /// is as a whole look finds it.
+    #[test]
+    fn a_look_at_the_files_named_looks_at_them_alone() {
+        let root = scratch("outside-named");
+        module().save_as(&project_location(&root)).unwrap();
+        let mut m = Module::open(&root).unwrap();
+        let nss = root.join("src/on_load.nss");
+        let are = root.join("src/a1.are.json");
+        let look = |m: &mut Module, paths: &[PathBuf]| {
+            let found = m.outside_scan_of(paths).unwrap().run();
+            let (changes, problems) = m.outside_found(found);
+            assert!(problems.is_empty(), "{problems:?}");
+            let mut names: Vec<String> = changes.iter().map(|c| c.key.to_string()).collect();
+            names.sort();
+            names
+        };
+        std::fs::write(&nss, "void main() { int outside; }\n").unwrap();
+        let was = std::fs::read(&are).unwrap();
+        std::fs::write(&are, String::from_utf8(was).unwrap().replace('{', "{ ")).unwrap();
+        std::fs::write(root.join("src/fresh.nss"), "void main() {}\n").unwrap();
+        std::fs::remove_file(root.join("src/a1.git.json")).unwrap();
+        std::fs::write(root.join("notes.nss"), "void main() {}\n").unwrap();
+        let named = [
+            nss.clone(),
+            root.join("src/fresh.nss"),
+            root.join("src/a1.git.json"),
+            root.join("notes.nss"),
+        ];
+        assert_eq!(look(&mut m, &named), ["a1.git", "fresh.nss", "on_load.nss"]);
+        // (The area's file changed too, and wasn't named: a whole look
+        // finds it.)
+        let (all, _) = m.outside().unwrap();
+        let all: Vec<String> = all.iter().map(|c| c.key.to_string()).collect();
+        assert!(all.contains(&"a1.are".to_string()), "{all:?}");
+        // A file moved where the sources take it in: read from there.
+        let mut m = Module::open(&root).unwrap();
+        std::fs::create_dir_all(root.join("src/scripts")).unwrap();
+        std::fs::rename(&nss, root.join("src/scripts/on_load.nss")).unwrap();
+        let named = [nss.clone(), root.join("src/scripts/on_load.nss")];
+        let found = m.outside_scan_of(&named).unwrap().run();
+        let (changes, _) = m.outside_found(found);
+        assert_eq!(changes.len(), 1, "{changes:?}");
+        assert!(changes[0].path.ends_with("src/scripts/on_load.nss") && changes[0].was().is_some());
+        // A folder named: looked at whole.
+        assert!(m.outside_scan_of(&[root.join("src/scripts")]).unwrap().only.is_none());
     }
 
     #[test]

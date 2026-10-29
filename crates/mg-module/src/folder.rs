@@ -78,16 +78,34 @@ impl FolderFiles {
 
     /// What is known of the folder's files, to look at them anywhere.
     pub(crate) fn outside_scan(&self) -> OutsideScan {
-        let files = (self.files.iter())
-            .map(|(key, (path, file))| Known {
-                key: *key,
-                path: path.as_path().into(),
-                json: false,
-                file: file.clone(),
-                stamp: self.stamps.get(path).copied(),
-            })
+        let files = (self.files.iter()).map(|(key, (path, file))| self.known(*key, path, file));
+        let kind = crate::outside::Kind::Folder { dir: self.dir.clone() };
+        OutsideScan { files: files.collect(), kind, only: None }
+    }
+
+    fn known(&self, key: ResKey, path: &Path, file: &Arc<[u8]>) -> Known {
+        Known {
+            key,
+            path: path.into(),
+            json: false,
+            file: file.clone(),
+            stamp: self.stamps.get(path).copied(),
+        }
+    }
+
+    /// [`FolderFiles::outside_scan`] of these files alone: what is known
+    /// of the resources they are, by their names.
+    pub(crate) fn outside_scan_of(&self, paths: &[PathBuf]) -> OutsideScan {
+        let mut keys: Vec<ResKey> = (paths.iter())
+            .filter_map(|p| crate::folder_key(&p.file_name()?.to_string_lossy()))
             .collect();
-        OutsideScan { files, kind: crate::outside::Kind::Folder { dir: self.dir.clone() } }
+        keys.sort();
+        keys.dedup();
+        let files = (keys.iter())
+            .filter_map(|k| self.files.get(k).map(|(path, file)| self.known(*k, path, file)));
+        let kind = crate::outside::Kind::Folder { dir: self.dir.clone() };
+        let only = Some(paths.iter().cloned().collect());
+        OutsideScan { files: files.collect(), kind, only }
     }
 
     /// Takes what [`OutsideScan::run`] found (see
@@ -186,10 +204,17 @@ pub fn mod_beside(dir: &Path) -> PathBuf {
 }
 
 /// [`OutsideScan::run`] for a module folder: its known files, and the
-/// folder for files new to it.
-pub(crate) fn scan(files: &[Known], dir: &Path) -> OutsideFound {
+/// folder for files new to it; or, with `only`, those of these files.
+pub(crate) fn scan(
+    files: &[Known],
+    dir: &Path,
+    only: Option<&std::collections::HashSet<PathBuf>>,
+) -> OutsideFound {
     let mut found = OutsideFound::default();
     for k in files {
+        if only.is_some_and(|o| !o.contains(&*k.path)) {
+            continue;
+        }
         let now = stamp(&k.path);
         if now.is_some() && k.stamp == now {
             continue;
@@ -210,11 +235,21 @@ pub(crate) fn scan(files: &[Known], dir: &Path) -> OutsideFound {
     }
     // Files that are new to the folder.
     let known: std::collections::HashSet<ResKey> = files.iter().map(|k| k.key).collect();
-    match std::fs::read_dir(dir) {
+    let listed: std::io::Result<Vec<PathBuf>> = match only {
+        // (Those of the files named that are in the folder itself.)
+        Some(only) => {
+            let mut paths: Vec<PathBuf> =
+                only.iter().filter(|p| p.parent() == Some(dir)).cloned().collect();
+            paths.sort();
+            Ok(paths)
+        }
+        None => std::fs::read_dir(dir).map(|e| e.flatten().map(|e| e.path()).collect()),
+    };
+    match listed {
         Err(e) => found.problems.push(format!("{}: {e}", dir.display())),
         Ok(entries) => {
             let mut added: Vec<Outside> = Vec::new();
-            for path in entries.flatten().map(|e| e.path()).filter(|p| p.is_file()) {
+            for path in entries.into_iter().filter(|p| p.is_file()) {
                 let name = path.file_name().and_then(|n| n.to_str());
                 let Some(key) = name.and_then(crate::folder_key) else { continue };
                 // (Moonglow's own file being written, and what it knows.)

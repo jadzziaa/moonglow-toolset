@@ -13,7 +13,7 @@
 
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -47,6 +47,11 @@ pub(crate) struct OutsideState {
     /// custom palettes are still to be looked at
     /// ([`Moonglow::look_at_palettes`]).
     palettes: Option<(PathBuf, Vec<ResKey>)>,
+    /// What a watch asks for a frame with, when it hears a change.
+    pub(crate) repaint: Option<egui::Context>,
+    /// The watches walk the files rather than be told by the system (a
+    /// test of the walk).
+    pub(crate) walk: bool,
 }
 
 /// A look at the module's files under way ([`Moonglow::look_outside`]).
@@ -68,18 +73,58 @@ struct Looked {
     locks: HashMap<ResKey, (Arc<[u8]>, Vec<Lock>)>,
 }
 
-/// A thread that looks at a module folder's (or a nasher project's) files
-/// every few seconds and says when any was changed, added or removed, so
-/// that the window's thread reads them only then. (Looked at there, a
-/// large module's thousands of files stalled the window for a moment
-/// every few seconds: a builder saw it.)
+/// What a [`Watch`] heard since it was last asked.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub(crate) struct Heard {
+    /// Something changed: to look.
+    changed: bool,
+    /// All of them to be looked at: a walk saw it (the system doesn't
+    /// tell), a folder was made, moved or removed, the system lost count.
+    all: bool,
+    /// Else the files the system said changed, were made or removed.
+    paths: std::collections::BTreeSet<PathBuf>,
+}
+
+impl Heard {
+    /// The files to look at; `None`: all of them.
+    fn files(self) -> Option<Vec<PathBuf>> {
+        (!self.all).then(|| self.paths.into_iter().collect())
+    }
+
+    fn take(&mut self, other: Heard) {
+        self.changed |= other.changed;
+        self.all |= other.all;
+        if self.all {
+            self.paths.clear();
+        } else {
+            self.paths.extend(other.paths);
+        }
+    }
+}
+
+/// A thread that is told by the system (inotify, FSEvents,
+/// ReadDirectoryChangesW: the `notify` crate) when a module folder's (or a
+/// nasher project's) files change, are added or removed, and which, and
+/// says so once a burst of changes (a pull's) has settled, so that the
+/// window's thread reads them only then, and only them. Where the system
+/// can't be asked (a path it can't watch, no watches left), it walks the
+/// files every few seconds, as before: their names, times and sizes.
+/// (Looked at on the window's thread, a large module's thousands of files
+/// stalled the window for a moment every few seconds: a builder saw it.)
+/// Told by the system, it still walks them now and then
+/// ([`Watch::CHECK`]), for a change the system didn't tell (a network
+/// share's, made on another machine).
 #[derive(Debug)]
 struct Watch {
     /// The folders (with what is under them, where `deep`) and files
     /// looked at.
     paths: Vec<PathBuf>,
-    changed: std::sync::Arc<std::sync::atomic::AtomicBool>,
-    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    heard: Arc<std::sync::Mutex<Heard>>,
+    stop: Arc<std::sync::atomic::AtomicBool>,
+    /// Whether the system tells of changes (else they are walked for).
+    told: bool,
+    /// The system's watch, ended with this one.
+    _system: Option<notify::RecommendedWatcher>,
 }
 
 impl Drop for Watch {
@@ -122,22 +167,163 @@ fn signature(paths: &[PathBuf], deep: bool) -> u64 {
     h.finish()
 }
 
+/// What an event of the system's says to look at: nothing (a file read,
+/// or in a hidden folder: `.git`, `.nasher`), its files, or all (a folder
+/// made, moved or removed whole; the system's count of changes lost).
+fn heard_of(
+    event: notify::Result<notify::Event>,
+    paths: &[PathBuf],
+    real: &[(PathBuf, PathBuf)],
+    deep: bool,
+) -> Heard {
+    use notify::EventKind;
+    use notify::event::{AccessKind, AccessMode, CreateKind, RemoveKind};
+    let Ok(event) = event else { return Heard { changed: true, all: true, ..Heard::default() } };
+    if event.need_rescan() {
+        return Heard { changed: true, all: true, ..Heard::default() };
+    }
+    match event.kind {
+        // (Moonglow's own reads are heard too: only a write's end counts.)
+        EventKind::Access(AccessKind::Close(AccessMode::Write)) => {}
+        EventKind::Access(_) => return Heard::default(),
+        EventKind::Create(CreateKind::Folder) | EventKind::Remove(RemoveKind::Folder) => {
+            return Heard { changed: true, all: true, ..Heard::default() };
+        }
+        _ => {}
+    }
+    let mut heard = Heard::default();
+    for path in event.paths.into_iter().map(|p| as_watched(p, real)) {
+        // A file named as watched (the builder's own project file), or one
+        // under a folder watched, not in a hidden folder there.
+        let named = paths.contains(&path);
+        let under =
+            paths.iter().filter(|p| path.starts_with(p)).max_by_key(|p| p.as_os_str().len());
+        let hidden = under.is_some_and(|root| {
+            let inside = path.strip_prefix(root).unwrap_or(&path);
+            let mut parts: Vec<_> = inside.components().collect();
+            parts.pop();
+            parts.iter().any(|c| c.as_os_str().to_string_lossy().starts_with('.'))
+        });
+        if !named && (under.is_none() || hidden) {
+            continue;
+        }
+        // (Not deep: what is in the folder's own folders isn't its.)
+        if !deep && !named && path.parent().is_some_and(|p| !paths.iter().any(|w| w == p)) {
+            continue;
+        }
+        heard.changed = true;
+        // A folder (made, moved there) or what was one (a name with no
+        // extension, gone): all of it is looked at.
+        let folder = match std::fs::metadata(&path) {
+            Ok(meta) => meta.is_dir(),
+            Err(_) => path.extension().is_none(),
+        };
+        if folder {
+            heard.all = true;
+        } else {
+            heard.paths.insert(path);
+        }
+    }
+    if heard.all {
+        heard.paths.clear();
+    }
+    heard
+}
+
+/// The paths watched that are another where the system says it (a link
+/// followed: macOS says `/private/var/…` of `/var/…`): each, and that.
+fn real_paths(paths: &[PathBuf]) -> Vec<(PathBuf, PathBuf)> {
+    let real = |p: &Path| {
+        std::fs::canonicalize(p).ok().or_else(|| {
+            let parent = std::fs::canonicalize(p.parent()?).ok()?;
+            Some(parent.join(p.file_name()?))
+        })
+    };
+    (paths.iter()).filter_map(|p| real(p).filter(|r| r != p).map(|r| (p.clone(), r))).collect()
+}
+
+/// A path the system said, as under the paths watched.
+fn as_watched(path: PathBuf, real: &[(PathBuf, PathBuf)]) -> PathBuf {
+    for (watched, r) in real {
+        if let Ok(rest) = path.strip_prefix(r) {
+            return if rest.as_os_str().is_empty() { watched.clone() } else { watched.join(rest) };
+        }
+    }
+    path
+}
+
 impl Watch {
-    fn start(paths: Vec<PathBuf>, deep: bool, every: std::time::Duration) -> Watch {
+    /// How often a watch the system tells walks the files all the same.
+    const CHECK: Duration = Duration::from_secs(30);
+    /// How long a burst of changes the system tells of must be quiet
+    /// before it is said.
+    const QUIET: Duration = Duration::from_millis(300);
+
+    /// A watch of `paths`, told by the system unless `walk` (or the
+    /// system can't watch them), walking them every `every` otherwise.
+    /// `repaint` is asked for a frame when something changed.
+    fn start(
+        paths: Vec<PathBuf>,
+        deep: bool,
+        every: Duration,
+        walk: bool,
+        repaint: Option<egui::Context>,
+    ) -> Watch {
         use std::sync::atomic::{AtomicBool, Ordering};
-        let changed = std::sync::Arc::new(AtomicBool::new(false));
-        let stop = std::sync::Arc::new(AtomicBool::new(false));
-        let (dirs, flag, done) = (paths.clone(), changed.clone(), stop.clone());
+        let stop = Arc::new(AtomicBool::new(false));
+        // (Looked at once at the start, and only now: what changed before
+        // this first look is in it, and would never be said.)
+        let first = Heard { changed: true, all: true, ..Heard::default() };
+        let heard = Arc::new(std::sync::Mutex::new(first));
+        let (send, told) = std::sync::mpsc::channel();
+        let system = if walk { None } else { system_watch(&paths, deep, send) };
+        let is_told = system.is_some();
+        let (dirs, said, done) = (paths.clone(), heard.clone(), stop.clone());
+        let say = move |h: Heard| {
+            said.lock().unwrap_or_else(|e| e.into_inner()).take(h);
+            if let Some(ctx) = &repaint {
+                ctx.request_repaint();
+            }
+        };
         let work = move || {
+            let real = real_paths(&dirs);
             let mut last = signature(&dirs, deep);
-            // (Looked at once at the start, and only now: what changed
-            // before this first look is in it, and would never be said.)
-            flag.store(true, Ordering::Relaxed);
+            let mut walked = Instant::now();
             while !done.load(Ordering::Relaxed) {
+                if is_told {
+                    // Told: what the system says, once it is quiet a moment
+                    // (at most ten seconds of a burst).
+                    let Ok(event) = told.recv_timeout(Duration::from_millis(100)) else {
+                        if walked.elapsed() >= Watch::CHECK {
+                            let now = signature(&dirs, deep);
+                            walked = Instant::now();
+                            if now != last {
+                                last = now;
+                                say(Heard { changed: true, all: true, ..Heard::default() });
+                            }
+                        }
+                        continue;
+                    };
+                    let mut heard = heard_of(event, &dirs, &real, deep);
+                    let began = Instant::now();
+                    while began.elapsed() < Duration::from_secs(10) {
+                        match told.recv_timeout(Watch::QUIET) {
+                            Ok(event) => heard.take(heard_of(event, &dirs, &real, deep)),
+                            Err(_) => break,
+                        }
+                    }
+                    if heard.changed {
+                        // (What it walks next is as it is now.)
+                        last = signature(&dirs, deep);
+                        walked = Instant::now();
+                        say(heard);
+                    }
+                    continue;
+                }
                 // (In short naps, to end soon after the module closes.)
-                let until = std::time::Instant::now() + every;
-                while std::time::Instant::now() < until && !done.load(Ordering::Relaxed) {
-                    std::thread::sleep(std::time::Duration::from_millis(100));
+                let until = Instant::now() + every;
+                while Instant::now() < until && !done.load(Ordering::Relaxed) {
+                    std::thread::sleep(Duration::from_millis(100));
                 }
                 let mut now = signature(&dirs, deep);
                 if now == last {
@@ -156,16 +342,57 @@ impl Watch {
                     now = again;
                 }
                 last = now;
-                flag.store(true, Ordering::Relaxed);
+                say(Heard { changed: true, all: true, ..Heard::default() });
             }
         };
         if std::thread::Builder::new().name("moonglow files".into()).spawn(work).is_err() {
             // (No thread: looked at every time, as before.)
             stop.store(true, Ordering::Relaxed);
-            changed.store(true, Ordering::Relaxed);
         }
-        Watch { paths, changed, stop }
+        Watch { paths, heard, stop, told: is_told, _system: system }
     }
+
+    /// What it heard since it was last asked, if anything changed.
+    fn take(&self) -> Option<Heard> {
+        let mut heard = self.heard.lock().unwrap_or_else(|e| e.into_inner());
+        heard.changed.then(|| std::mem::take(&mut *heard))
+    }
+
+    /// Whether it heard a change, not yet taken.
+    fn pending(&self) -> bool {
+        self.heard.lock().unwrap_or_else(|e| e.into_inner()).changed
+    }
+
+    /// Whether it has no thread (none to be had): looked at each time.
+    fn dead(&self) -> bool {
+        self.stop.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+/// The system's watch of `paths` (a folder with what is under it where
+/// `deep`; a file, or a file not there yet by its folder), its events
+/// sent to `send`; `None` where one of them can't be watched.
+fn system_watch(
+    paths: &[PathBuf],
+    deep: bool,
+    send: std::sync::mpsc::Sender<notify::Result<notify::Event>>,
+) -> Option<notify::RecommendedWatcher> {
+    use notify::{RecursiveMode, Watcher};
+    let mut watcher = notify::recommended_watcher(move |event| {
+        let _ = send.send(event);
+    })
+    .ok()?;
+    let mode = if deep { RecursiveMode::Recursive } else { RecursiveMode::NonRecursive };
+    for path in paths {
+        // (A file under a folder watched whole is told of with it.)
+        if deep && paths.iter().any(|p| p != path && path.starts_with(p)) {
+            continue;
+        }
+        let what = if path.exists() { path.as_path() } else { path.parent()? };
+        let mode = if what.is_dir() { mode } else { RecursiveMode::NonRecursive };
+        watcher.watch(what, mode).ok()?;
+    }
+    Some(watcher)
 }
 
 /// Whether two resources are the same bytes: at once where they are the
@@ -213,7 +440,6 @@ impl Moonglow {
     /// change among them. The watch is the module's place's: begun with
     /// it, ended when the module is closed or kept elsewhere.
     pub fn reload_changed_files(&mut self) {
-        use std::sync::atomic::Ordering;
         let Some(root) = self.module_root() else {
             self.outside.watch = None;
             self.outside.looking = None;
@@ -231,21 +457,38 @@ impl Moonglow {
         // walk passes over.)
         let paths = vec![root.clone(), mg_module::project_file::ProjectFile::user_path(&root)];
         if self.outside.watch.as_ref().is_none_or(|w| w.paths != paths) {
-            let every = std::time::Duration::from_secs(3);
-            self.outside.watch = Some(Watch::start(paths, true, every));
+            let (every, walk, repaint) =
+                (Duration::from_secs(3), self.outside.walk, self.outside.repaint.clone());
+            self.outside.watch = Some(Watch::start(paths, true, every, walk, repaint));
         }
         let watch = self.outside.watch.as_ref().expect("just made");
         // (A watch without its thread says nothing: looked at each time,
         // on the window's thread, as there are no threads to be had.)
-        if watch.stop.load(Ordering::Relaxed) {
+        if watch.dead() {
             self.reload_project_files();
             return;
         }
         // (One look at a time: a change seen during one is looked at
         // after it.)
-        if self.outside.looking.is_none() && watch.changed.swap(false, Ordering::Relaxed) {
-            self.look_outside();
+        if self.outside.looking.is_none()
+            && let Some(heard) = watch.take()
+        {
+            self.look_outside_at(heard.files());
         }
+    }
+
+    /// Whether a watch heard a change not yet looked at: looked at in
+    /// this frame, not when the few seconds' look is due.
+    pub(crate) fn heard_outside(&self) -> bool {
+        let module = self.outside.looking.is_none()
+            && self.outside.watch.as_ref().is_some_and(Watch::pending);
+        module || self.outside.content.as_ref().is_some_and(Watch::pending)
+    }
+
+    /// Whether the module's files are told of by the system (not walked
+    /// for every few seconds).
+    pub fn outside_told(&self) -> bool {
+        self.outside.watch.as_ref().is_some_and(|w| w.told)
     }
 
     /// Begins a look at the module's files on a thread of its own: what is
@@ -253,11 +496,22 @@ impl Moonglow {
     /// [`Moonglow::take_looked`] takes what the thread found when it is
     /// done. Without a thread, looked at here and now.
     pub fn look_outside(&mut self) {
+        self.look_outside_at(None);
+    }
+
+    /// [`Moonglow::look_outside`] at these files alone (those a watch
+    /// heard of: their snapshot and their look are theirs alone, not the
+    /// module's thousands), or all (`None`).
+    fn look_outside_at(&mut self, files: Option<Vec<PathBuf>>) {
         let Some(root) = self.module_root() else { return };
         // The project file (`moonglow.toml`) made, changed or deleted.
         self.reread_project_file();
         let Some(ws) = self.ws.as_ref() else { return };
-        let Some(scan) = ws.module.outside_scan() else { return };
+        let scan = match &files {
+            Some(files) => ws.module.outside_scan_of(files),
+            None => ws.module.outside_scan(),
+        };
+        let Some(scan) = scan else { return };
         // (The areas as they are now, for their locks: only the project's
         // files leave them out.)
         let areas: HashMap<ResKey, Arc<[u8]>> = if ws.module.project.is_some() {
@@ -383,7 +637,6 @@ impl Moonglow {
     /// a large `override` looked at on the window's thread every time is
     /// what a module's files were.
     pub fn reload_changed_content(&mut self) {
-        use std::sync::atomic::Ordering;
         let Some(game) = self.game.as_ref() else {
             self.outside.content = None;
             return;
@@ -394,8 +647,9 @@ impl Moonglow {
             .collect();
         paths.extend(self.tlk_stamp.as_ref().map(|(path, _)| path.clone()));
         if self.outside.content.as_ref().is_none_or(|w| w.paths != paths) {
-            let every = std::time::Duration::from_secs(3);
-            self.outside.content = Some(Watch::start(paths, false, every));
+            let (every, walk, repaint) =
+                (Duration::from_secs(3), self.outside.walk, self.outside.repaint.clone());
+            self.outside.content = Some(Watch::start(paths, false, every, walk, repaint));
         }
         // (Held by something else, a job: looked at once it is free. Not
         // let go of by the 3D views here: only when something changed.)
@@ -405,8 +659,7 @@ impl Moonglow {
         }
         crate::trace::changed("content", || "the game data is free".into());
         let watch = self.outside.content.as_ref().expect("just made");
-        let dead = watch.stop.load(Ordering::Relaxed);
-        if watch.changed.swap(false, Ordering::Relaxed) || dead {
+        if watch.take().is_some() || watch.dead() {
             self.reload_resources(false);
         }
     }
@@ -734,14 +987,13 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::Ordering;
     use std::time::Duration;
 
     use super::*;
 
     #[test]
-    fn the_watch_says_when_a_file_changes_and_only_then() {
-        let dir = mg_testkit::scratch_dir("ui-outside-watch");
+    fn the_files_signature_changes_with_them_not_with_hidden_folders() {
+        let dir = mg_testkit::scratch_dir("ui-outside-signature");
         std::fs::create_dir_all(dir.join("src")).unwrap();
         std::fs::create_dir_all(dir.join(".git")).unwrap();
         std::fs::write(dir.join("src/a.nss"), "void main() {}").unwrap();
@@ -759,27 +1011,113 @@ mod tests {
         assert_ne!(added, longer);
         std::fs::remove_file(dir.join("src/b.nss")).unwrap();
         assert_eq!(signature(std::slice::from_ref(&dir), true), longer);
+    }
 
-        // The watch: once at the start, then only after a change.
-        let watch = Watch::start(vec![dir.clone()], true, Duration::from_millis(40));
-        let seen = |watch: &Watch| {
-            for _ in 0..100 {
-                if watch.changed.swap(false, Ordering::Relaxed) {
-                    return true;
-                }
-                std::thread::sleep(Duration::from_millis(20));
+    /// What the watch hears, waited for.
+    fn heard(watch: &Watch) -> Option<Heard> {
+        for _ in 0..150 {
+            if let Some(h) = watch.take() {
+                return Some(h);
             }
-            false
-        };
-        assert!(seen(&watch), "looked at once, at the start");
-        std::thread::sleep(Duration::from_millis(300));
-        assert!(!watch.changed.load(Ordering::Relaxed), "nothing changed: nothing said");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        None
+    }
+
+    /// The watch, told by the system: all at the start, then the files
+    /// changed, added and removed by name, once a burst is quiet; nothing
+    /// for a file only read or one in a hidden folder; all for a folder
+    /// made. Walking (where the system can't tell): all, after a change.
+    #[test]
+    fn the_watch_says_which_files_changed_and_only_then() {
+        let dir = mg_testkit::scratch_dir("ui-outside-watch");
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        std::fs::write(dir.join("src/a.nss"), "void main() {}").unwrap();
+        let user = dir.join(".moonglow/user.toml");
+        let paths = vec![dir.clone(), user.clone()];
+        let watch = Watch::start(paths.clone(), true, Duration::from_millis(40), false, None);
+        assert!(watch.told, "inotify, FSEvents or ReadDirectoryChangesW watches the folder");
+        let first = heard(&watch).expect("looked at once, at the start");
+        assert!(first.all);
+        std::thread::sleep(Duration::from_millis(400));
+        assert!(watch.take().is_none(), "nothing changed: nothing said");
+        // Read: nothing. In a hidden folder: nothing.
+        let _ = std::fs::read(dir.join("src/a.nss")).unwrap();
+        std::fs::write(dir.join(".git/index"), "x").unwrap();
+        std::thread::sleep(Duration::from_millis(600));
+        assert!(watch.take().is_none(), "a read and a hidden folder's file: nothing said");
+        // A burst: said once, by name.
+        std::fs::write(dir.join("src/a.nss"), "void main() { int a; }").unwrap();
         std::fs::write(dir.join("src/c.nss"), "void main() {}").unwrap();
-        assert!(seen(&watch), "a file added is seen");
+        std::fs::remove_file(dir.join("src/c.nss")).unwrap();
+        std::fs::write(dir.join("src/d.nss"), "void main() {}").unwrap();
+        let burst = heard(&watch).expect("a burst of changes is said");
+        assert!(!burst.all, "{burst:?}");
+        let names: Vec<String> = (burst.paths.iter())
+            .map(|p| p.strip_prefix(&dir).unwrap().to_string_lossy().replace('\\', "/"))
+            .collect();
+        assert_eq!(names, ["src/a.nss", "src/c.nss", "src/d.nss"]);
+        std::thread::sleep(Duration::from_millis(400));
+        assert!(watch.take().is_none(), "and nothing said after");
+        // The builder's own project file, in a hidden folder: by name.
+        std::fs::create_dir_all(dir.join(".moonglow")).unwrap();
+        std::fs::write(&user, "[builder]\ncode = \"ab\"\n").unwrap();
+        let own = heard(&watch).expect("the builder's own file is said");
+        assert!(own.all || own.paths.contains(&user), "{own:?}");
+        // A folder made with files: all.
+        std::fs::create_dir_all(dir.join("src/new")).unwrap();
+        std::fs::write(dir.join("src/new/e.nss"), "void main() {}").unwrap();
+        let folder = heard(&watch).expect("a folder made is said");
+        assert!(folder.all, "{folder:?}");
+        drop(watch);
+
+        // Walking: all, after a change, and only then.
+        let watch = Watch::start(paths, true, Duration::from_millis(40), true, None);
+        assert!(!watch.told);
+        assert!(heard(&watch).expect("at the start").all);
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(watch.take().is_none(), "nothing changed: nothing said");
+        std::fs::write(dir.join("src/f.nss"), "void main() {}").unwrap();
+        assert!(heard(&watch).expect("a file added is seen").all);
         // (The watch may have seen the file made and then written: twice.)
         std::thread::sleep(Duration::from_millis(300));
-        watch.changed.store(false, Ordering::Relaxed);
+        let _ = watch.take();
         std::thread::sleep(Duration::from_millis(300));
-        assert!(!watch.changed.load(Ordering::Relaxed), "and nothing said after");
+        assert!(watch.take().is_none(), "and nothing said after");
+    }
+
+    /// What the system says under a folder's real place (macOS says
+    /// `/private/var/…` of `/var/…`) is taken as under the folder watched.
+    #[test]
+    fn a_path_said_under_a_real_place_is_the_watched_one() {
+        let real = vec![(PathBuf::from("/var/m"), PathBuf::from("/private/var/m"))];
+        let watched = |p: &str| as_watched(PathBuf::from(p), &real);
+        assert_eq!(watched("/private/var/m/src/a.nss"), Path::new("/var/m/src/a.nss"));
+        assert_eq!(watched("/private/var/m"), Path::new("/var/m"));
+        assert_eq!(watched("/elsewhere/a.nss"), Path::new("/elsewhere/a.nss"));
+    }
+
+    /// A watch of haks and folders (not deep): a hak written, a file in a
+    /// folder; not a file in a folder's folder.
+    #[test]
+    fn the_content_watch_hears_its_files_and_folders() {
+        let dir = mg_testkit::scratch_dir("ui-outside-content");
+        std::fs::create_dir_all(dir.join("override/below")).unwrap();
+        std::fs::write(dir.join("my.hak"), "ERF").unwrap();
+        let paths = vec![dir.join("override"), dir.join("my.hak")];
+        let watch = Watch::start(paths, false, Duration::from_millis(40), false, None);
+        assert!(watch.told);
+        assert!(heard(&watch).is_some());
+        std::fs::write(dir.join("override/below/x.2da"), "x").unwrap();
+        std::thread::sleep(Duration::from_millis(600));
+        assert!(watch.take().is_none(), "a folder's folder isn't the game's");
+        std::fs::write(dir.join("my.hak"), "ERF again").unwrap();
+        let hak = heard(&watch).expect("the hak written is said");
+        assert_eq!(hak.paths.iter().collect::<Vec<_>>(), [&dir.join("my.hak")]);
+        std::fs::write(dir.join("override/y.2da"), "y").unwrap();
+        assert!(
+            heard(&watch).expect("a file in override").paths.contains(&dir.join("override/y.2da"))
+        );
     }
 }

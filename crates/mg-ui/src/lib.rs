@@ -4830,13 +4830,19 @@ impl Moonglow {
         let every = std::time::Duration::from_secs(3);
         let now = std::time::Instant::now();
         let off = self.settings.no_auto_reload || self.game.is_none();
-        if self.reload_checked.is_some_and(|t| now.duration_since(t) < every) {
+        // (A watch asks for a frame when it hears a change, which is
+        // looked at then, not when the few seconds' look is due.)
+        self.outside.repaint = Some(ui.ctx().clone());
+        let heard = !off && self.heard_outside();
+        if self.reload_checked.is_some_and(|t| now.duration_since(t) < every) && !heard {
             if !off {
                 ui.ctx().request_repaint_after(every);
             }
             return;
         }
-        self.reload_checked = Some(now);
+        if !heard {
+            self.reload_checked = Some(now);
+        }
         if off {
             self.reread_project_file();
             return;

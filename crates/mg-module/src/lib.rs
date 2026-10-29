@@ -782,6 +782,22 @@ impl Module {
         }
     }
 
+    /// [`Module::outside_scan`] of these files alone (those the system said
+    /// changed, added or removed: what a watch of the folder heard), so
+    /// that only they are looked at and no folder is walked for new ones.
+    /// A folder among them (made, moved or removed whole) is looked at
+    /// whole: all its files.
+    pub fn outside_scan_of(&self, paths: &[PathBuf]) -> Option<outside::OutsideScan> {
+        if paths.iter().any(|p| p.is_dir()) {
+            return self.outside_scan();
+        }
+        match (&self.project, &self.folder) {
+            (Some(project), _) => Some(project.outside_scan_of(paths)),
+            (None, Some(folder)) => Some(folder.outside_scan_of(paths)),
+            (None, None) => None,
+        }
+    }
+
     /// Takes what [`outside::OutsideScan::run`] found: the files changed
     /// outside that still are (not those Moonglow saved or took since it
     /// looked: the next look finds them again if they still differ), and
@@ -1149,6 +1165,33 @@ mod tests {
         let e = m.save().unwrap_err();
         assert!(matches!(&e, ModuleError::ChangedOnDisk(p) if p == &[dir.join("script.nss")]));
         assert_eq!(std::fs::read(dir.join("script.nss")).unwrap(), b"the editor's again");
+    }
+
+    /// A module folder's look at the files a watch named: they alone are
+    /// looked at, one added and one deleted among them; one in a folder
+    /// below isn't the module's.
+    #[test]
+    fn a_folder_s_look_at_the_files_named_looks_at_them_alone() {
+        let dir = mg_testkit::scratch_dir("mg-module-folder-named");
+        sample().save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
+        let mut m = Module::open(&dir).unwrap();
+        let other = m.keys().find(|k| k.restype != ResType::NSS).copied().unwrap();
+        std::fs::write(dir.join(other.to_string()), b"another editor's").unwrap();
+        std::fs::write(dir.join("script.nss"), b"void main() { int x; }").unwrap();
+        std::fs::write(dir.join("fresh.nss"), b"void main() {}").unwrap();
+        std::fs::create_dir_all(dir.join("below")).unwrap();
+        std::fs::write(dir.join("below/deep.nss"), b"void main() {}").unwrap();
+        let named = [dir.join("script.nss"), dir.join("fresh.nss"), dir.join("below/deep.nss")];
+        let found = m.outside_scan_of(&named).unwrap().run();
+        let (changes, _) = m.outside_found(found);
+        let mut names: Vec<String> = changes.iter().map(|c| c.key.to_string()).collect();
+        names.sort();
+        assert_eq!(names, ["fresh.nss", "script.nss"]);
+        std::fs::remove_file(dir.join("script.nss")).unwrap();
+        let found = m.outside_scan_of(&[dir.join("script.nss")]).unwrap().run();
+        let (changes, _) = m.outside_found(found);
+        assert_eq!(changes.len(), 1);
+        assert!(changes[0].resource.is_none());
     }
 
     /// Save As into a folder of other resources (another module's, a
