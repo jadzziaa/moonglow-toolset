@@ -10,7 +10,7 @@
 use std::sync::Arc;
 
 use egui::Ui;
-use mg_core::{ResType, StrRef};
+use mg_core::ResType;
 use mg_edit::{Command, Edit};
 use mg_gff::{FieldType, Struct, Value};
 use mg_module::palette::BlueprintKind;
@@ -105,10 +105,6 @@ fn on_woman(f: &Form<'_>) -> bool {
         && f.app.game.as_deref().is_some_and(|g| worn_by_either(g, base_row(f)))
 }
 
-fn strref(game: &GameData, v: Option<i32>) -> Option<String> {
-    v.and_then(|s| game.string(StrRef(s as u32))).filter(|s| !s.is_empty())
-}
-
 /// The base item's statistics as Aurora shows them: (label, value).
 pub(super) fn statistics(game: &GameData, item: &Struct) -> Vec<(&'static str, String)> {
     let Ok(t) = game.table("baseitems") else { return Vec::new() };
@@ -185,8 +181,12 @@ fn general(f: &mut Form<'_>, ui: &mut Ui) {
         .and_then(|g| {
             let t = g.table("baseitems").ok()?;
             let row = base_row(f);
-            let name = strref(g, t.get_int(row, "Name"))
-                .or_else(|| t.get(row, "label").map(str::to_string))?;
+            let rows = mg_rules::rows::RowTable {
+                table: "baseitems",
+                name: Some("Name"),
+                label: Some("label"),
+            };
+            let name = g.row_name(&rows, row as i64)?;
             Some((name, t.get_int(row, "Stacking").unwrap_or(1).max(1)))
         })
         .unwrap_or_else(|| (format!("({})", f.int("BaseItem")), 1));
@@ -1063,7 +1063,7 @@ fn description(f: &mut Form<'_>, ui: &mut Ui) {
         let text = game
             .table("baseitems")
             .ok()
-            .and_then(|t| strref(game, t.get_int(row, "Description")))
+            .and_then(|t| game.cell_string(&t, row, t.column("Description")?))
             .unwrap_or_default();
         crate::widgets::field_label(ui, "Item Type Description");
         ui.weak(text);

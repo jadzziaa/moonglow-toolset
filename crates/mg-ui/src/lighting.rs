@@ -39,7 +39,7 @@ pub fn to_text(are: &Struct) -> String {
         let n = match are.get(label) {
             Some(Value::Float(v)) => json!(v),
             Some(Value::Double(v)) => json!(v),
-            Some(v) => match crate::gff_view::integer(v) {
+            Some(v) => match v.as_integer() {
                 Some(n) => json!(n),
                 None => continue,
             },

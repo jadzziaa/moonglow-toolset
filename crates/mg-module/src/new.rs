@@ -175,18 +175,6 @@ pub fn default_factions() -> Gff {
     g
 }
 
-fn int(v: Option<&Value>) -> Option<i64> {
-    Some(match v? {
-        Value::Byte(x) => i64::from(*x),
-        Value::Char(x) => i64::from(*x),
-        Value::Word(x) => i64::from(*x),
-        Value::Short(x) => i64::from(*x),
-        Value::Dword(x) => i64::from(*x),
-        Value::Int(x) => i64::from(*x),
-        _ => return None,
-    })
-}
-
 /// Sort key of Windows' default ("word sort") string comparison, which
 /// Aurora uses for its lists: case and accents set aside (`Árboles` beside
 /// `arboles`: [`mg_core::text::fold`]), hyphens and apostrophes ignored
@@ -213,7 +201,7 @@ pub fn custom_palette_in(skeleton: &Gff, name: impl Fn(u32) -> String, by_name: 
     fn nodes(list: &[Struct], name: &dyn Fn(u32) -> String, by_name: bool) -> Vec<Struct> {
         let mut out: Vec<((String, String), Struct)> = list
             .iter()
-            .filter(|n| !matches!(int(n.get("TYPE")), Some(0 | 1)))
+            .filter(|n| !matches!(n.integer("TYPE"), Some(0 | 1)))
             .map(|n| {
                 // Aurora writes STRREF, ID, LIST in that order.
                 let mut s = Struct::new(0);
@@ -242,7 +230,7 @@ pub fn custom_palette_in(skeleton: &Gff, name: impl Fn(u32) -> String, by_name: 
                 // in BioWare's older field alone (`DELETE_ME`, with no
                 // StrRef: a builder's Spanish palettes) keeps those names,
                 // as `NAME`: the palette built here would have none.
-                let strref = int(n.get("STRREF")).unwrap_or(-1);
+                let strref = n.integer("STRREF").unwrap_or(-1);
                 let older = n
                     .string("DELETE_ME")
                     .filter(|_| n.string("NAME").is_none() && u32::try_from(strref).is_err());
@@ -705,7 +693,35 @@ impl AreaDefaults {
 
 #[cfg(test)]
 mod tests {
+    use mg_gff::{Gff, Struct, Value};
+
     use super::word_sort_key;
+
+    /// The build's placeholder and engine categories (`TYPE` 0 and 1) are
+    /// left out whatever whole number type holds it, the 64-bit ones too.
+    #[test]
+    fn a_skeleton_s_types_are_read_in_any_width() {
+        let node = |id: u8, ty: Value| {
+            let mut s = Struct::new(0);
+            s.set("STRREF", Value::Dword64(6687 + u64::from(id)));
+            s.set("ID", Value::Byte(id));
+            s.set("TYPE", ty);
+            s
+        };
+        let mut skeleton = Gff::new(*b"ITP ");
+        let main = vec![
+            node(1, Value::Dword64(0)),
+            node(2, Value::Int64(1)),
+            node(3, Value::Byte(1)),
+            node(4, Value::Int64(2)),
+            node(5, Value::Word(2)),
+        ];
+        skeleton.root.set("MAIN", Value::List(main));
+        let built = super::custom_palette(&skeleton, |s| format!("c{s}"));
+        let ids: Vec<i64> =
+            built.root.list("MAIN").unwrap().iter().filter_map(|n| n.integer("ID")).collect();
+        assert_eq!(ids, [4, 5]);
+    }
 
     #[test]
     fn the_word_sort_sets_case_accents_and_hyphens_aside() {

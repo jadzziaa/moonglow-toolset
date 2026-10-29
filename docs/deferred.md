@@ -2491,11 +2491,6 @@ of truth, and does each caller's difference matter.
   minutes in four places; `ui.label` where `field_label` is meant
   (`wizards.rs:67`, `:86`, `:106`, `faction_view.rs:263`,
   `store_wizard.rs:355`, `:358`, `widgets.rs:369`, `:604`).
-- A value as a whole number or text, three times each (`search.rs:415`,
-  `gff_view.rs:41`, `new.rs:178` without the 64-bit types;
-  `areas.rs:249`, `query.rs:84`, `search.rs:396`); a 2DA row's name
-  through the talk table (`rows.rs:146` filters `****` labels,
-  `choice_list` doesn't) and some ten `game.string(StrRef(..))` by hand.
 - `rename`'s `usages`, `tag_usages` and `mentions` restate what
   `UsageIndex` answers. (`#include`, read three ways, is read one way
   since 2026-10-28: `mg_script::lex::includes`, which knows comments.)

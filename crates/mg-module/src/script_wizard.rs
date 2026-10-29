@@ -20,7 +20,7 @@
 use std::collections::HashSet;
 use std::fmt::Write;
 
-use mg_core::{ResType, StrRef};
+use mg_core::ResType;
 use mg_rules::GameData;
 use mg_script::spec::Spec;
 
@@ -255,8 +255,7 @@ impl Lists {
             (0..t.len())
                 .filter(|&row| keep(row))
                 .filter_map(|row| {
-                    let strref = t.cell(row, name_col).and_then(mg_2da::parse_int)?;
-                    let name = game.string(StrRef(strref as u32)).filter(|s| !s.is_empty())?;
+                    let name = game.cell_string(&t, row, name_col)?;
                     let declared = constant_col.and_then(|c| t.cell(row, c));
                     Some(Entry { row, name, constant: constant(&spec, prefix, row, declared) })
                 })

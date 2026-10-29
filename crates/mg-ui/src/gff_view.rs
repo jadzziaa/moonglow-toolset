@@ -37,21 +37,6 @@ fn labels(path: &GffPath) -> Vec<&str> {
         .collect()
 }
 
-/// A whole number's value.
-pub(crate) fn integer(v: &Value) -> Option<i64> {
-    Some(match v {
-        Value::Byte(x) => i64::from(*x),
-        Value::Char(x) => i64::from(*x),
-        Value::Word(x) => i64::from(*x),
-        Value::Short(x) => i64::from(*x),
-        Value::Dword(x) => i64::from(*x),
-        Value::Int(x) => i64::from(*x),
-        Value::Dword64(x) => i64::try_from(*x).ok()?,
-        Value::Int64(x) => *x,
-        _ => return None,
-    })
-}
-
 /// `n` as a value of `like`'s type, if it fits.
 fn of_type(like: &Value, n: i64) -> Option<Value> {
     Some(match like {
@@ -178,7 +163,7 @@ fn struct_ui(ctx: &mut Ctx<'_>, ui: &mut Ui, s: &Struct, path: &GffPath) {
                     v => {
                         ui.label(&label);
                         ui.weak(v.field_type().json_name());
-                        let table = integer(v).and_then(|n| {
+                        let table = v.as_integer().and_then(|n| {
                             Some((row_table(&ctx.file_type, &labels(path), &label)?, n))
                         });
                         match (table, ctx.game) {
@@ -307,8 +292,6 @@ mod tests {
         // A row the type can't hold, and a field that isn't a number.
         assert_eq!(of_type(&Value::Byte(1), 300), None);
         assert_eq!(of_type(&Value::Float(1.0), 3), None);
-        assert_eq!(integer(&Value::Word(9)), Some(9));
-        assert_eq!(integer(&Value::Float(9.0)), None);
     }
 
     #[test]

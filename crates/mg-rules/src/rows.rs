@@ -167,15 +167,39 @@ impl GameData {
     pub fn row_name(&self, table: &RowTable, row: i64) -> Option<String> {
         let row = usize::try_from(row).ok()?;
         let t = self.table(table.table).ok()?;
-        let cell = |column: Option<&str>| {
-            t.get(row, column?).map(str::trim).filter(|v| !v.is_empty() && *v != "****")
+        let column = |c: Option<&str>| c.and_then(|c| t.column(c));
+        let display = t.column(crate::DISPLAY_NAME);
+        self.named_row(&t, row, column(table.name), display, column(table.label))
+    }
+
+    /// A row's name by the columns of its table: the talk-table string the
+    /// `name` column gives ([`cell_string`](Self::cell_string)), else
+    /// a name written out in `display` (ambientmusic.2da's
+    /// `DisplayName`, for music a hak adds), else the `label`. A blank
+    /// or `****` cell is none. What a field's row is called and what the
+    /// lists of a table's rows offer ([`choice_list`](Self::choice_list)).
+    pub(crate) fn named_row(
+        &self,
+        t: &mg_2da::TwoDa,
+        row: usize,
+        name: Option<usize>,
+        display: Option<usize>,
+        label: Option<usize>,
+    ) -> Option<String> {
+        let cell = |column: Option<usize>| {
+            t.cell(row, column?).map(str::trim).filter(|v| !v.is_empty() && *v != "****")
         };
-        cell(table.name)
-            .and_then(mg_2da::parse_int)
-            .and_then(|v| self.string(StrRef(u32::try_from(v).ok()?)))
-            .filter(|s| !s.trim().is_empty())
-            .or_else(|| cell(Some(crate::DISPLAY_NAME)).map(str::to_string))
-            .or_else(|| cell(table.label).map(str::to_string))
+        name.and_then(|c| self.cell_string(t, row, c))
+            .or_else(|| cell(display).map(str::to_string))
+            .or_else(|| cell(label).map(str::to_string))
+    }
+
+    /// The talk-table string a table's cell names by its StrRef, if the
+    /// cell holds one (a whole number, not negative) and the string has
+    /// text.
+    pub fn cell_string(&self, t: &mg_2da::TwoDa, row: usize, column: usize) -> Option<String> {
+        let strref = t.cell(row, column).and_then(mg_2da::parse_int)?;
+        self.string(StrRef(u32::try_from(strref).ok()?)).filter(|s| !s.trim().is_empty())
     }
 }
 
@@ -220,6 +244,38 @@ mod tests {
         // A table the game lacks.
         let feat = row_table("UTC ", &["FeatList"], "Feat").unwrap();
         assert_eq!(game.row_name(&feat, 1), None);
+    }
+
+    /// A field's row and a list of the table's rows name each row alike:
+    /// a blank string, a negative StrRef and a `****` label are none.
+    #[test]
+    fn a_row_s_name_and_its_choice_are_one() {
+        let mut mem = MemContainer::new();
+        mem.insert(
+            ResKey::parse("things", ResType::TWODA).unwrap(),
+            &b"2DA V2.0\n\n  Name Label\n0 1 Sword\n1 2 Blank\n2 -1 Minus\n3 **** ****\n4 x Axe\n5 **** \"\"\n"[..],
+        );
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "mem", LayerClass::Key, mem);
+        let mut tlk = Tlk::new(Language::ENGLISH);
+        tlk.entries.push(TlkEntry::text("Bad Strref"));
+        tlk.entries.push(TlkEntry::text("Longsword"));
+        tlk.entries.push(TlkEntry::text("   "));
+        let game = GameData::new(rm, tlk);
+        let things = RowTable { table: "things", name: Some("Name"), label: Some("Label") };
+        let named: Vec<(usize, String)> =
+            (0..7).filter_map(|r| Some((r, game.row_name(&things, r as i64)?))).collect();
+        let want = [(0, "Longsword"), (1, "Blank"), (2, "Minus"), (4, "Axe")];
+        assert_eq!(named, want.map(|(r, t)| (r, t.to_string())));
+        let listed = game
+            .choices("things", crate::ChoiceColumns { name: Some("Name"), label: Some("Label") })
+            .unwrap();
+        let listed: Vec<(usize, String)> = listed.iter().map(|c| (c.row, c.text.clone())).collect();
+        assert_eq!(listed, named);
+        let t = game.table("things").unwrap();
+        assert_eq!(game.cell_string(&t, 0, 0).as_deref(), Some("Longsword"));
+        assert_eq!(game.cell_string(&t, 1, 0), None, "a blank string");
+        assert_eq!(game.cell_string(&t, 2, 0), None, "a negative StrRef");
     }
 
     #[test]

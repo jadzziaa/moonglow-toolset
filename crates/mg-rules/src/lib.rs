@@ -373,24 +373,12 @@ impl GameData {
         // A name written out in the table, for a row without a talk-table
         // string (ambientmusic.2da's `DisplayName`, for custom music).
         let display_col = t.column(DISPLAY_NAME);
-        let mut out = Vec::new();
-        for row in 0..t.len() {
-            let name = name_col
-                .and_then(|c| t.cell(row, c))
-                .and_then(mg_2da::parse_int)
-                .and_then(|v| self.string(StrRef(v as u32)))
-                .filter(|s| !s.is_empty());
-            let display = || {
-                let cell = display_col.and_then(|c| t.cell(row, c)).map(str::trim);
-                cell.filter(|v| !v.is_empty() && *v != "****").map(str::to_string)
-            };
-            let text = name
-                .or_else(display)
-                .or_else(|| label_col.and_then(|c| t.cell(row, c)).map(str::to_string));
-            if let Some(text) = text {
-                out.push(Choice { row, text });
-            }
-        }
+        let out: Vec<Choice> = (0..t.len())
+            .filter_map(|row| {
+                let text = self.named_row(&t, row, name_col, display_col, label_col)?;
+                Some(Choice { row, text })
+            })
+            .collect();
         let out = Arc::new(out);
         self.choices.write().expect("choice cache poisoned").insert(key, out.clone());
         Ok(out)

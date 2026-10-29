@@ -85,17 +85,10 @@ fn english(v: Option<&Value>) -> String {
 /// A field's value as text, for comparing: numbers as written, strings and
 /// resrefs as they are, a localized string's English.
 pub fn field_text(v: &Value) -> Option<String> {
+    if let Some(number) = v.number_text() {
+        return Some(number);
+    }
     Some(match v {
-        Value::Byte(x) => x.to_string(),
-        Value::Char(x) => x.to_string(),
-        Value::Word(x) => x.to_string(),
-        Value::Short(x) => x.to_string(),
-        Value::Dword(x) => x.to_string(),
-        Value::Int(x) => x.to_string(),
-        Value::Dword64(x) => x.to_string(),
-        Value::Int64(x) => x.to_string(),
-        Value::Float(x) => x.to_string(),
-        Value::Double(x) => x.to_string(),
         Value::String(b) | Value::ResRef(b) => String::from_utf8_lossy(b).into_owned(),
         Value::LocString(_) => english(Some(v)),
         _ => return None,
