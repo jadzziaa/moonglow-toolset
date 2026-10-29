@@ -1911,20 +1911,26 @@ fn run(cli: &Cli) -> Result<Output> {
             out
         }
         Cmd::Gff { input, output, module, names } => {
-            let codepage = match module {
-                Some(module) => module_codepage(cli, &crate::open_module(module)?),
-                None => Codepage::WINDOWS_1252,
-            };
-            let game = match *names {
-                true => Some(
+            let m = module.as_deref().map(crate::open_module).transpose()?;
+            let codepage = m.as_ref().map_or(Codepage::WINDOWS_1252, |m| module_codepage(cli, m));
+            let mut notes = Output::default();
+            let found = "--names reads the game's 2DAs: no game install found";
+            let game = match (*names, &m) {
+                (false, _) => None,
+                // (With a module, its haks' tables and its talk table.)
+                (true, Some(m)) => {
+                    Some(game_data_in(&install(cli).context(found)?, m, &mut notes)?)
+                }
+                (true, None) => Some(
                     install(cli)
                         .ok()
                         .and_then(|gi| mg_rules::GameData::open(&gi).ok())
-                        .context("--names reads the game's 2DAs: no game install found")?,
+                        .context(found)?,
                 ),
-                false => None,
             };
-            gff(input, output.as_deref(), cli.json, codepage, game.as_ref())?
+            let mut out = gff(input, output.as_deref(), cli.json, codepage, game.as_ref())?;
+            out.notes.splice(0..0, notes.notes);
+            out
         }
         Cmd::Set { module, resource, fields, remove, dry_run, plugins } => {
             let m = crate::open_module(module)?;
@@ -3085,17 +3091,15 @@ fn run(cli: &Cli) -> Result<Output> {
             if *dynamic_placeables {
                 changes.push(Change::DynamicPlaceables);
             }
-            // A surface material by surfacemat.2da's label (read only when a
-            // material is named rather than numbered).
-            let named = std::cell::OnceCell::new();
+            let mut m = crate::open_module(module)?;
+            let mut out = Output::default();
+            // The game's data where there is a game: the areas' names as
+            // the module tree shows them, and the rows named.
+            let game = game_data_if_any(cli, &m, &mut out);
+            // A surface material by surfacemat.2da's label (the module's
+            // haks' over the game's).
             let material = |name: &str| -> Option<u32> {
-                let table = named.get_or_init(|| {
-                    install(cli)
-                        .ok()
-                        .and_then(|gi| mg_rules::GameData::open(&gi).ok())
-                        .and_then(|g| g.table("surfacemat").ok())
-                });
-                let t = table.as_ref()?;
+                let t = game.as_ref()?.table("surfacemat").ok()?;
                 (0..t.len())
                     .find(|&r| t.get(r, "Label").is_some_and(|l| l.eq_ignore_ascii_case(name)))
                     .map(|r| r as u32)
@@ -3115,11 +3119,6 @@ fn run(cli: &Cli) -> Result<Output> {
                     .ok_or_else(|| anyhow::anyhow!("--tileset-grass {on:?}: yes or no"))?;
                 changes.push(Change::TilesetGrass(on));
             }
-            let mut m = crate::open_module(module)?;
-            let mut out = Output::default();
-            // The game's data where there is a game: the areas' names as
-            // the module tree shows them, and the rows named.
-            let game = game_data_if_any(cli, &m, &mut out);
             // A lighting scheme, from the game's environment.2da (the
             // module's haks' over it): before the fields `--set` sets.
             if let Some(text) = lighting_scheme {

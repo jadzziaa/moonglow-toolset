@@ -736,7 +736,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   cut (a folder of the used assets to pack smaller haks) is not written:
   `--json` has the lists, and writing haks from them goes beyond what
   was asked. (settle?: both proposed by the sprint on 2026-10-29, the
-  owner's to say)
+  owner's to say) (L; the body parts wait on the client batch)
 
 - **No 7z or rar:** content downloaded as one is unpacked first; Add
   Haks and Talk Table (and `mg attach`) take a `.zip`'s haks and talk

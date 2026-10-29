@@ -53,10 +53,8 @@ pub(crate) struct AreaNames {
     /// By area: the stored ARE read (where its data is and its length:
     /// replaced data is elsewhere) and what it says.
     read: HashMap<ResRef, ((usize, usize), AreaInfo)>,
-    /// The areas the module's area list names, and the stored
-    /// `module.ifo` it was read from (as an ARE's stamp; `None` while it is
-    /// open, read from the document).
-    listed: Option<(Option<Stamp>, std::collections::HashSet<ResRef>)>,
+    /// The areas the module's area list names, and what it was read from.
+    listed: Option<(ListRead, std::collections::HashSet<ResRef>)>,
     /// Blueprints' names, likewise.
     names: HashMap<ResKey, ((usize, usize), String)>,
     /// What each of the tree's groups lists, as made for a revision of the
@@ -65,9 +63,14 @@ pub(crate) struct AreaNames {
     groups: Option<Groups>,
 }
 
-/// Where a stored resource's data is and its length (replaced data is
-/// elsewhere).
-type Stamp = (usize, usize);
+/// What the module's area list was read from: the stored `module.ifo`
+/// (where its data is and its length: replaced data is elsewhere), or the
+/// open document at a revision of the workspace.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ListRead {
+    Stored(usize, usize),
+    Open(u64),
+}
 
 /// A group's resources in the order the tree shows them, and the names of
 /// those shown by name.
@@ -164,18 +167,17 @@ impl AreaNames {
     /// `module.ifo` is another; true for a module without one).
     fn listed(&mut self, ws: &Workspace, area: ResRef) -> bool {
         let key = mg_module::Module::info_key();
-        let stamp = match ws.loaded(&key) {
-            Some(_) => None,
-            None => ws.module.get(&key).map(|d| (d.as_ptr() as usize, d.len())),
+        let read = match (ws.loaded(&key), ws.module.get(&key)) {
+            (Some(_), _) => ListRead::Open(ws.revision()),
+            (None, Some(d)) => ListRead::Stored(d.as_ptr() as usize, d.len()),
+            (None, None) => return true,
         };
-        let fresh = self.listed.as_ref().is_some_and(|(s, _)| s.is_some() && *s == stamp);
-        if !fresh {
+        if self.listed.as_ref().is_none_or(|(r, _)| *r != read) {
             let names = match ws.loaded(&key) {
                 Some(info) => mg_module::areas_of(&info.root),
-                None if stamp.is_none() => return true,
                 None => ws.module.areas().unwrap_or_default(),
             };
-            self.listed = Some((stamp, names.into_iter().collect()));
+            self.listed = Some((read, names.into_iter().collect()));
         }
         self.listed.as_ref().is_some_and(|(_, l)| l.contains(&area))
     }

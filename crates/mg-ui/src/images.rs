@@ -10,6 +10,7 @@ use mg_edit::Workspace;
 use mg_gff::Struct;
 use mg_resman::ResKey;
 use mg_rules::GameData;
+use mg_rules::items::{ARMOR_ICON, icon_names as item_icon_names};
 
 use crate::Moonglow;
 use egui::Ui;
@@ -43,8 +44,6 @@ pub(crate) struct Loader<'a> {
     pub ws: Option<&'a Workspace>,
     pub game: &'a GameData,
 }
-
-use mg_rules::items::{ARMOR_ICON, icon_names as item_icon_names};
 
 /// The PLT layers' colours an item gives (metal, cloth and leather; skin,
 /// hair and tattoos the first colour).
