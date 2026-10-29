@@ -439,7 +439,8 @@ pub(crate) fn save_as(app: &mut Moonglow, key: ResKey, layer: Option<&str>, as_t
         }
         return;
     };
-    let data = match as_text.then(|| mg_mdl::decompile(&data)) {
+    let skeleton = |n: &str| game.resman.get_named(n, ResType::MDL).ok().map(|d| d.into_owned());
+    let data = match as_text.then(|| mg_mdl::decompile_with(&data, &skeleton)) {
         Some(Ok(text)) => text.into_bytes().into(),
         Some(Err(mg_mdl::DecompileError::NotBinary)) | None => data,
         Some(Err(e)) => {
@@ -480,7 +481,9 @@ pub(crate) fn export(app: &mut Moonglow, keys: &[(ResKey, Option<String>)]) {
         let Some(data) = read_copy(&game.resman, key, layer.as_deref()) else { continue };
         // (Asked for: a compiled model as its text; one that can't be
         // read so goes out as it is.)
-        let text = (app.browser.models_as_text).then(|| model_text(*key, &data)).flatten();
+        let text = (app.browser.models_as_text)
+            .then(|| model_text(*key, &data, Some(&game.resman)))
+            .flatten();
         as_text += usize::from(text.is_some());
         let data = text.map_or(data, |t| t.into_bytes().into());
         let into = match layer {
@@ -556,7 +559,7 @@ impl Viewed {
             Content::Script(crate::text::to_editor(&crate::text::decode_script(&data)).0)
         } else if is_text(key.restype, &data) {
             Content::Text(crate::text::to_editor(&codepage.decode(&data)).0)
-        } else if let Some(text) = model_text(key, &data) {
+        } else if let Some(text) = model_text(key, &data, Some(rm)) {
             Content::Text(text)
         } else {
             Content::Binary(hex(&data[..data.len().min(512)]))
@@ -575,7 +578,8 @@ pub(crate) enum Plain {
 }
 
 /// What `data`, a resource of `key`'s type, shows as.
-pub(crate) fn plain(key: ResKey, data: &[u8]) -> Plain {
+/// (`rm`: where a body part's skeleton is found, for a model as text.)
+pub(crate) fn plain(key: ResKey, data: &[u8], rm: Option<&mg_resman::ResMan>) -> Plain {
     if key.restype.is_gff() {
         match Gff::read(data) {
             Ok(g) => Plain::Gff(Box::new(g)),
@@ -585,7 +589,7 @@ pub(crate) fn plain(key: ResKey, data: &[u8]) -> Plain {
         // (Its bytes as Latin-1 where they aren't UTF-8.)
         let latin = || data.iter().map(|&b| b as char).collect();
         Plain::Text(String::from_utf8(data.to_vec()).unwrap_or_else(|_| latin()))
-    } else if let Some(text) = model_text(key, data) {
+    } else if let Some(text) = model_text(key, data, rm) {
         Plain::Text(text)
     } else {
         Plain::Text(hex(&data[..data.len().min(512)]))
@@ -594,8 +598,14 @@ pub(crate) fn plain(key: ResKey, data: &[u8]) -> Plain {
 
 /// A compiled model as the text it compiles from (`mg_mdl::decompile`);
 /// nothing for anything else, or a model that can't be read.
-pub(crate) fn model_text(key: ResKey, data: &[u8]) -> Option<String> {
-    (key.restype == ResType::MDL).then(|| mg_mdl::decompile(data).ok()).flatten()
+pub(crate) fn model_text(
+    key: ResKey,
+    data: &[u8],
+    rm: Option<&mg_resman::ResMan>,
+) -> Option<String> {
+    // (A body part bound to its skeleton: its bones named from it.)
+    let skeleton = |n: &str| rm?.get_named(n, ResType::MDL).ok().map(|d| d.into_owned());
+    (key.restype == ResType::MDL).then(|| mg_mdl::decompile_with(data, &skeleton).ok()).flatten()
 }
 
 /// Draws a [`Plain`] view, scrolling.

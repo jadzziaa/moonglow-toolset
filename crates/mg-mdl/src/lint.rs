@@ -111,6 +111,8 @@ struct Node {
     update: Option<String>,
     birthrate: Option<(usize, f32)>,
     period: Option<(usize, f32)>,
+    /// In an animation: its `animverts` (true) and `animtverts` lines.
+    frames: Vec<(usize, bool)>,
 }
 
 struct Lint {
@@ -183,6 +185,24 @@ pub fn lint(text: &str) -> Vec<Diagnostic> {
                 Some(n) => {
                     if !in_anim {
                         check_node(&mut l, &n);
+                    }
+                    // The game divides an animated mesh's frames by the
+                    // animation node's own `verts` and `tverts`: without
+                    // them it crashes (nwn-mdl-spec E54).
+                    for &(line, verts) in &n.frames {
+                        let (given, list) =
+                            if verts { (n.verts, "verts") } else { (n.tverts, "tverts") };
+                        if given.is_none_or(|c| c == 0) {
+                            let frames = if verts { "animverts" } else { "animtverts" };
+                            l.push(
+                                line,
+                                Severity::Error,
+                                format!(
+                                    "{frames} with no {list} in the animation's node: the game \
+                                     divides by its {list} and crashes"
+                                ),
+                            );
+                        }
                     }
                     nodes.push(n);
                 }
@@ -383,6 +403,14 @@ fn node_line(
             l.push(at, Severity::Warning, format!("{key} needs a count"));
         }
         if in_anim {
+            // (An animated mesh's frames, and what the game divides
+            // their counts by.)
+            match key {
+                "verts" => n.verts = Some(rows.len()),
+                "tverts" | "tverts0" => n.tverts = Some(rows.len()),
+                "animverts" | "animtverts" => n.frames.push((at, key == "animverts")),
+                _ => {}
+            }
             return next;
         }
         match key {
@@ -746,6 +774,29 @@ donemodel box\n";
         );
         assert_ne!(before, dup);
         assert_eq!(severity(&before), Some(Severity::Info), "{:?}", messages(&before));
+    }
+
+    /// An animated mesh's frames with no `verts` (or `tverts`) in the
+    /// animation's node crash the game (nwn-mdl-spec E54); with them, or
+    /// with no frames, nothing is said.
+    #[test]
+    fn frames_need_the_animation_node_s_verts() {
+        let anim = |lists: &str| {
+            format!(
+                "newmodel w\nbeginmodelgeom w\nnode dummy w\n  parent NULL\nendnode\n\
+                 endmodelgeom w\nnewanim a w\n  length 1\n  node animmesh m\n    parent w\n\
+                 {lists}  endnode\ndoneanim a w\ndonemodel w\n"
+            )
+        };
+        let crashes = |text: &str| {
+            let found = messages(text);
+            found.iter().filter(|(_, s, m)| *s == Severity::Error && m.contains("crashes")).count()
+        };
+        assert_eq!(crashes(&anim("animverts 1\n  0 0 0\nanimtverts 1\n  0 0 0\n")), 2);
+        let given = "verts 1\n  0 0 0\ntverts 1\n  0 0 0\nanimverts 1\n  0 0 0\n\
+                     animtverts 1\n  0 0 0\n";
+        assert_eq!(crashes(&anim(given)), 0);
+        assert_eq!(crashes(&anim("sampleperiod 1\n")), 0);
     }
 
     /// Words are split as `split_whitespace` splits them: a vertical tab

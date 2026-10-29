@@ -465,11 +465,21 @@ pub fn compile(text: &[u8], sources: &Sources<'_>) -> Result<Compiled, CompileEr
     let was = in_tree_order(&mut model);
 
     // Numbered in the order of the text.
-    let mut order: Vec<usize> = (0..model.nodes.len()).collect();
-    order.sort_by_key(|&i| (line(was[i]) == 0, line(was[i]), was[i]));
+    // (Those of its nodes left out of the tree among them: each takes a
+    // number, past the model's nodes in `order`.)
+    let count = model.nodes.len();
+    let mut order: Vec<usize> = (0..count + map.left_out.len()).collect();
+    let line_of = |i: usize| match i.checked_sub(count) {
+        Some(k) => map.left_out[k].start,
+        None => line(was[i]),
+    };
+    order.sort_by_key(|&i| (line_of(i) == 0, line_of(i), i));
     let parts = binary::number_nodes(&model, &order, sources.supermodel, sources.existing);
     notes.sort();
-    Ok(Compiled { binary: binary::write(&model, &parts)?, notes })
+    // (Each mesh's bounds and face records from its text's vertices and
+    // faces, as the game's compiler computes them.)
+    let meshes: Vec<_> = was.iter().map(|&w| map.meshes.get(w).and_then(Option::as_ref)).collect();
+    Ok(Compiled { binary: binary::write_from(&model, &parts, &meshes)?, notes })
 }
 
 /// Puts a model's nodes in the order of a depth-first walk of its tree,
@@ -712,6 +722,29 @@ endmodelgeom m\ndonemodel m\n";
             assert_eq!(of(name), old_of(name), "{name}");
         }
         assert_eq!(parts.count, 12);
+    }
+
+    /// A node with no `parent` line is in no tree: the game's compiler
+    /// leaves it out, and its number goes unused (nwn-mdl-spec
+    /// MDL-ASCII-031, MDL-NODE-010; zspec_numbers' `n_caps`).
+    #[test]
+    fn a_node_left_out_keeps_its_number() {
+        let text = MODEL.replace(
+            "node dummy a\n  parent m\nendnode\n",
+            "node dummy loose\n  PARENT m\nendnode\nnode dummy a\n  parent m\nendnode\n",
+        );
+        let out = compile(text.as_bytes(), &Sources::default()).unwrap();
+        let back = Model::read(&out.binary).unwrap();
+        assert_eq!(back.node("loose"), None);
+        let parts = PartNumbers::read(&out.binary).unwrap();
+        let alone = compile(MODEL.as_bytes(), &Sources::default()).unwrap();
+        let before = PartNumbers::read(&alone.binary).unwrap();
+        assert_eq!(parts.count, before.count + 1);
+        let numbered = |m: &Model, p: &PartNumbers, name: &str| p.numbers[m.node(name).unwrap()];
+        let first = Model::read(&alone.binary).unwrap();
+        // (`a` came after it in the text: one past where it was.)
+        assert_eq!(numbered(&back, &parts, "a"), numbered(&first, &before, "a") + 1);
+        assert!(out.notes.iter().any(|(_, n)| n.contains("loose: has no parent line")));
     }
 
     #[test]

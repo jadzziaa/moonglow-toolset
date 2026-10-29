@@ -988,6 +988,12 @@ enum Cmd {
         #[arg(long)]
         dry_run: bool,
     },
+    /// One model file: compile its text (ASCII) into a binary model, or
+    /// write a binary model as the text it compiles from.
+    Model {
+        #[command(subcommand)]
+        cmd: ModelCmd,
+    },
     /// Check that Moonglow keeps a module as it is: saves a copy (the
     /// module is not touched), opens it again and compares every resource
     /// byte for byte; then writes every GFF and 2DA anew and compares what
@@ -1112,6 +1118,29 @@ enum Cmd {
         /// Plugins whose handlers look at what is saved, as for `mg set`.
         #[arg(long)]
         plugins: Vec<PathBuf>,
+    },
+}
+
+/// `mg model`'s commands.
+#[derive(Subcommand)]
+enum ModelCmd {
+    /// Compile a model kept as text into the binary model the game loads,
+    /// as the game's compiler makes it: its supermodel (whose part numbers
+    /// its nodes take) and the materials (.mtr) its meshes name are looked
+    /// for beside it, then in the game. Prints the compiler's notes.
+    Compile {
+        /// The model's text (.mdl).
+        input: PathBuf,
+        /// The binary model to write.
+        output: PathBuf,
+    },
+    /// Write a binary model as the text it compiles from (as `cat --text`
+    /// does a resource of the game's).
+    Decompile {
+        /// The binary model (.mdl).
+        input: PathBuf,
+        /// The text to write.
+        output: PathBuf,
     },
 }
 
@@ -1653,6 +1682,60 @@ fn main() -> ExitCode {
     }
 }
 
+/// `mg model compile` and `mg model decompile`: one file in, one out.
+fn model_file(cli: &Cli, cmd: &ModelCmd) -> Result<Output> {
+    let (input, output) = match cmd {
+        ModelCmd::Compile { input, output } | ModelCmd::Decompile { input, output } => {
+            (input, output)
+        }
+    };
+    let data = std::fs::read(input).with_context(|| format!("{}", input.display()))?;
+    let mut out = Output::new(serde_json::json!({
+        "input": path_text(input),
+        "output": path_text(output),
+    }));
+    // What it names (a supermodel, materials, a body part's skeleton):
+    // beside it first, then in the game (read once, if needed).
+    let dir = input.parent().map(Path::to_path_buf).unwrap_or_default();
+    let game: std::cell::OnceCell<Option<ResMan>> = Default::default();
+    let find = |n: &str, t: ResType| -> Option<Vec<u8>> {
+        let file = format!("{}.{}", n.to_ascii_lowercase(), t.extension()?);
+        if let Ok(d) = std::fs::read(dir.join(&file)) {
+            return Some(d);
+        }
+        let rm = game.get_or_init(|| install(cli).ok().and_then(|gi| ResMan::for_game(&gi).ok()));
+        rm.as_ref()?.get_named(n, t).ok().map(|d| d.into_owned())
+    };
+    let models = |n: &str| find(n, ResType::MDL);
+    match cmd {
+        ModelCmd::Decompile { .. } => {
+            let text =
+                mg_mdl::decompile_with(&data, &models).map_err(|e| anyhow::anyhow!("{e}"))?;
+            std::fs::write(output, text)?;
+            out.note(format!("wrote {}", output.display()));
+        }
+        ModelCmd::Compile { .. } => {
+            let name = input.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+            let name = name.to_ascii_lowercase();
+            let materials = |n: &str| find(n, ResType::MTR);
+            let compiled =
+                mg_mdl::compile::compile_named_with(&data, &name, &models, &|_| None, &materials)
+                    .map_err(|e| anyhow::anyhow!("{}: {e}", input.display()))?;
+            std::fs::write(output, &compiled.binary)?;
+            let notes: Vec<serde_json::Value> = (compiled.notes.iter())
+                .map(|(line, note)| serde_json::json!({ "line": line, "note": note }))
+                .collect();
+            for (line, note) in &compiled.notes {
+                let at = if *line > 0 { format!("line {line}: ") } else { String::new() };
+                out.note(format!("{at}{note}"));
+            }
+            out.json["compiler_notes"] = notes.into();
+            out.note(format!("wrote {}", output.display()));
+        }
+    }
+    Ok(out)
+}
+
 fn install(cli: &Cli) -> Result<GameInstall> {
     let mut gi = match &cli.root {
         Some(r) => GameInstall::new(r, None, "en"),
@@ -1999,7 +2082,9 @@ fn run(cli: &Cli) -> Result<Output> {
             let key = resource_key(resource)?;
             let data = rm.get(&key)?;
             // (A model that is text already is printed as it is.)
-            let data = match text.then(|| mg_mdl::decompile(&data)) {
+            // (A body part bound to its skeleton: its bones named from it.)
+            let skeleton = |n: &str| rm.get_named(n, ResType::MDL).ok().map(|d| d.into_owned());
+            let data = match text.then(|| mg_mdl::decompile_with(&data, &skeleton)) {
                 Some(Ok(text)) => text.into_bytes().into(),
                 Some(Err(mg_mdl::DecompileError::NotBinary)) | None => data,
                 Some(Err(e)) => anyhow::bail!("{key}: {e}"),
@@ -3939,6 +4024,7 @@ fn run(cli: &Cli) -> Result<Output> {
             out
         }
         Cmd::Roundtrip { module, keep } => roundtrip(module, keep.as_deref())?,
+        Cmd::Model { cmd } => model_file(cli, cmd)?,
         Cmd::ModelFiles { what, out, module, all, force, dry_run } => {
             let gi = install(cli)?;
             model_files(&gi, what, out, module.as_deref(), *all, *force, *dry_run)?

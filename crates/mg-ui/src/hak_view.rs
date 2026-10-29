@@ -83,7 +83,9 @@ fn viewing(
     data: Vec<u8>,
 ) -> Viewing {
     use mg_core::ResType;
-    let plain = |data: &[u8]| Viewing::Plain(crate::browser::plain(key, data));
+    let game = app.game.clone();
+    let rm = game.as_deref().map(|g| &g.resman);
+    let plain = |data: &[u8]| Viewing::Plain(crate::browser::plain(key, data, rm));
     let picture = |rgba: mg_image::Rgba| {
         let rgba = rgba.top_down();
         let size = [rgba.width as usize, rgba.height as usize];

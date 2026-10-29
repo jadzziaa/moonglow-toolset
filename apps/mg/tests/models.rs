@@ -92,3 +92,115 @@ fn unpack_writes_nothing_outside_its_folder() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("names a folder"));
     assert!(!dir.join("in").join("escaped.txt").exists(), "written above the folder");
 }
+
+/// `mg model compile` compiles one file against its supermodel beside it,
+/// with the compiler's notes; `mg model decompile` writes it back as text.
+#[test]
+fn model_compiles_and_decompiles_one_file() {
+    let dir = mg_testkit::scratch_dir("mg-model-file");
+    let child = BASE
+        .replace("base", "child")
+        .replace("setsupermodel child NULL", "setsupermodel child base")
+        .replace("endmodelgeom child", "node dummy loose\nendnode\nendmodelgeom child");
+    std::fs::write(dir.join("base.mdl"), BASE).unwrap();
+    std::fs::write(dir.join("child.mdl"), &child).unwrap();
+    let at = |name: &str| dir.join(name).to_string_lossy().into_owned();
+    let (ok, json) =
+        crate::mg_json(&["--no-user-dir", "model", "compile", &at("child.mdl"), &at("out.mdl")]);
+    assert!(ok, "{json}");
+    let compiled = std::fs::read(dir.join("out.mdl")).unwrap();
+    assert!(mg_mdl::is_binary(&compiled));
+    let model = mg_mdl::Model::read(&compiled).unwrap();
+    assert_eq!(model.supermodel.as_deref(), Some("base"));
+    // (A node with no parent line is left out, as the game leaves it, and
+    // the notes say so.)
+    assert_eq!(model.node("loose"), None);
+    let notes = json["compiler_notes"].to_string();
+    assert!(notes.contains("loose: has no parent line"), "{notes}");
+    let out = mg(&["--no-user-dir", "model", "decompile", &at("out.mdl"), &at("back.mdl")]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let text = std::fs::read_to_string(dir.join("back.mdl")).unwrap();
+    assert!(text.contains("newmodel child") && text.contains("node dummy arm"), "{text}");
+    // Text is not decompiled; a binary is not compiled.
+    let out = mg(&["--no-user-dir", "model", "decompile", &at("child.mdl"), &at("x.mdl")]);
+    assert!(!out.status.success());
+    let out = mg(&["--no-user-dir", "model", "compile", &at("out.mdl"), &at("x.mdl")]);
+    assert!(!out.status.success());
+}
+
+/// nwn-mdl-spec's conformance suite (`mg_testkit::mdl_spec`): each probe
+/// compiled by `mg model compile` reads as the game's own compile of it
+/// (the suite's goldens, `nwmain-linux compilemodel`), and each golden
+/// decompiled by `mg model decompile` reads as the golden does; with a
+/// game install, the suite's stock models decompiled too. The comparison
+/// is the suite's own runner (`runner/mdlconf.py`, standard-library
+/// Python). Skipped without a checkout of the suite (`NWN_MDL_SPEC`).
+#[test]
+fn the_model_spec_suite_passes() {
+    let Some(spec) = mg_testkit::mdl_spec() else {
+        assert!(!mg_testkit::corpus_required(), "nwn-mdl-spec not found (set NWN_MDL_SPEC)");
+        eprintln!("skipped: nwn-mdl-spec not found (set NWN_MDL_SPEC)");
+        return;
+    };
+    let home = mg_testkit::output_dir("mg-home");
+    let dir = mg_testkit::scratch_dir("mg-mdl-spec");
+    let mg = format!("{} --no-user-dir model", env!("CARGO_BIN_EXE_mg"));
+    let run = |verb: &str, extra: &[&str]| -> Vec<serde_json::Value> {
+        let report = dir.join(format!("{verb}.json"));
+        let out = std::process::Command::new("python3")
+            .arg("-I")
+            .arg(spec.join("runner/mdlconf.py"))
+            .args([verb, "--impl", "moonglow", "--cmd", &mg, "--json"])
+            .arg(&report)
+            .args(extra)
+            .env("MOONGLOW_DATA_DIR", home.join("data/moonglow"))
+            .env("MOONGLOW_CACHE_DIR", home.join("cache/moonglow"))
+            .output()
+            .expect("python3");
+        let said = String::from_utf8_lossy(&out.stdout);
+        assert!(out.status.success(), "{said}{}", String::from_utf8_lossy(&out.stderr));
+        let report: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&report).unwrap()).unwrap();
+        eprintln!("{}", said.lines().last().unwrap_or_default());
+        report["results"].as_array().cloned().unwrap_or_default()
+    };
+    let failed = |results: &[serde_json::Value]| -> Vec<String> {
+        (results.iter())
+            .filter(|r| !matches!(r["status"].as_str(), Some("pass" | "pending")))
+            .map(|r| {
+                let must = r["must"].get(0).map(|m| format!(": {m}")).unwrap_or_default();
+                let why = r["reason"].as_str().map(|w| format!(": {w}")).unwrap_or_default();
+                format!("{} {} {}{must}{why}", r["probe"], r["test"], r["status"])
+            })
+            .collect()
+    };
+    let probes = run("run", &[]);
+    let passed = probes.iter().filter(|r| r["status"] == "pass").count();
+    // (46 probes with goldens at the suite's e627c9f, each compiled and
+    // decompiled.)
+    assert!(passed >= 92, "{passed} passed");
+    let f = failed(&probes);
+    assert!(f.is_empty(), "{f:#?}");
+    // What the suite holds a compiler only to SHOULD and Moonglow does as
+    // the game's compiler: face records and bounds from the text's faces
+    // and vertices (MDL-MESH-021, -022, -050), a node with no parent line
+    // left out (MDL-ASCII-031).
+    let should: Vec<String> = (probes.iter())
+        .filter(|r| r["test"] == "compile")
+        .flat_map(|r| r["should"].as_array().cloned().unwrap_or_default())
+        .filter_map(|s| s[0].as_str().map(str::to_string))
+        .filter(|p| {
+            [".faces.normal", ".faces.distance", ".faces.adjacent", ".radius", ".average"]
+                .iter()
+                .any(|end| p.ends_with(end))
+                || p == "nodes.tree"
+        })
+        .collect();
+    assert!(should.is_empty(), "{should:#?}");
+    if let Some(root) = mg_testkit::nwn_root() {
+        let stock = run("stock", &["--root", &root.to_string_lossy()]);
+        assert!(stock.len() >= 14, "{} stock models", stock.len());
+        let f = failed(&stock);
+        assert!(f.is_empty(), "{f:#?}");
+    }
+}

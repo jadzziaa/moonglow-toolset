@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use crate::ctrl::flags;
 use crate::{
     AabbEntry, AnimNode, Animation, Classification, Controller, Emitter, Light, Mesh, MeshExtra,
-    Model, Node, NodeKind, Skin, Vec3, cross, dot, sub,
+    Model, Node, NodeKind, Skin, Vec3, ascii::SourceMesh, cross, dot, sub,
 };
 use thiserror::Error;
 
@@ -246,6 +246,65 @@ pub(crate) fn face_data(mesh: &Mesh) -> FaceData {
     FaceData { planes, adjacent, area }
 }
 
+/// [`face_data`] as the game's compiler gives it for a mesh read from text
+/// (`source`: its text's vertices and faces): each face record's plane is
+/// the source face's of the same number, by position (a degenerate one's
+/// normal +X), and its neighbours are the source faces sharing an edge by
+/// vertex number, either way round, the lowest winning, of those numbered
+/// below the faces kept (nwn-mdl-spec MDL-MESH-021, -022). So after a
+/// degenerate face is left out, the records from it on hold the values of
+/// the source faces of their numbers. `None` where the source does not
+/// fit the mesh.
+fn face_data_written(mesh: &Mesh, source: &SourceMesh) -> Option<FaceData> {
+    let count = mesh.faces.len();
+    let at = |v: u32| source.vertices.get(v as usize).copied();
+    let faces = source.faces.get(..count)?;
+    let mut planes = Vec::with_capacity(count);
+    for f in faces {
+        let p = [at(f[0])?, at(f[1])?, at(f[2])?];
+        let n = crate::engine_normalize(cross(sub(p[1], p[0]), sub(p[2], p[0])));
+        planes.push((n, -dot(n, p[0])));
+    }
+    let mut edges: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
+    for (i, f) in faces.iter().enumerate() {
+        for e in 0..3 {
+            let (a, b) = (f[e], f[(e + 1) % 3]);
+            edges.entry((a.min(b), a.max(b))).or_default().push(i);
+        }
+    }
+    let adjacent = (faces.iter().enumerate())
+        .map(|(i, f)| {
+            std::array::from_fn(|e| {
+                let (a, b) = (f[e], f[(e + 1) % 3]);
+                let other = edges[&(a.min(b), a.max(b))].iter().find(|&&j| j != i);
+                other.map_or(-1, |&j| j as i16)
+            })
+        })
+        .collect();
+    Some(FaceData { planes, adjacent, area: face_data(mesh).area })
+}
+
+/// [`bounds`] as the game's compiler gives them for a mesh read from text:
+/// over its text's vertices, every one counted (merged or used by no face:
+/// nwn-mdl-spec MDL-MESH-050), the box holding the origin too.
+fn written_bounds(source: &SourceMesh) -> (Vec3, Vec3, Vec3, f32) {
+    let vertices = &source.vertices;
+    if vertices.is_empty() {
+        return ([0.0; 3], [0.0; 3], [0.0; 3], 0.0);
+    }
+    let (mut min, mut max, mut sum) = ([0.0f32; 3], [0.0f32; 3], [0.0f64; 3]);
+    for v in vertices {
+        for k in 0..3 {
+            min[k] = min[k].min(v[k]);
+            max[k] = max[k].max(v[k]);
+            sum[k] += f64::from(v[k]);
+        }
+    }
+    let average = sum.map(|s| (s / vertices.len() as f64) as f32);
+    let radius = vertices.iter().map(|v| length(sub(*v, average))).fold(0.0, f32::max);
+    (min, max, average, radius)
+}
+
 /// A mesh's box, the mean of its places and how far the farthest is from
 /// that, as BioWare's compiler has them: the box holds the mesh's origin
 /// too, and a place counts once however many corners (vertices) meet
@@ -335,7 +394,9 @@ fn same_places(model: &Model, other: &Model) -> (Vec<(usize, usize)>, Vec<usize>
 /// had at the same place by name keeps the number it had, and new nodes
 /// are numbered past the old count: the game finds a supermodel's
 /// animations by these numbers, so other models compiled against the old
-/// ones go on working.
+/// ones go on working. An index in `order` past the model's nodes stands
+/// for a node of the text the model left out (in no tree: nwn-mdl-spec
+/// MDL-ASCII-031), which takes a number all the same (MDL-NODE-010).
 pub fn number_nodes(
     model: &Model,
     order: &[usize],
@@ -356,7 +417,14 @@ pub fn number_nodes(
     let mut numbers = vec![-1i32; count];
     let mut next = first as i32;
     let rest = (0..count).filter(|i| !order.contains(i));
-    for i in order.iter().copied().filter(|&i| i < count).chain(rest) {
+    for i in order.iter().copied().chain(rest) {
+        // (A node of the text left out of the tree takes its number, as
+        // the game's compiler numbers it; not against an earlier compile,
+        // whose numbers it keeps.)
+        if i >= count {
+            next += i32::from(existing.is_none());
+            continue;
+        }
         if kept[i].is_none() && numbers[i] < 0 {
             numbers[i] = next;
             next += 1;
@@ -383,7 +451,7 @@ pub fn number_nodes(
     let total = match existing {
         Some((_, theirs)) if next as u32 == first => theirs.count,
         Some((_, theirs)) => theirs.count.max(next as u32),
-        None => first + count as u32,
+        None => next as u32,
     };
     PartNumbers { numbers, count: total }
 }
@@ -391,6 +459,8 @@ pub fn number_nodes(
 struct Writer<'a> {
     model: &'a Model,
     parts: &'a PartNumbers,
+    /// Per node, its mesh as its text gave it (a model compiled from text).
+    sources: &'a [Option<&'a SourceMesh>],
     data: Data,
     raw: Raw,
 }
@@ -469,7 +539,13 @@ impl Writer<'_> {
         Ok(())
     }
 
-    fn mesh(&mut self, at: usize, name: &str, m: &Mesh) -> Result<(), CompileError> {
+    fn mesh(
+        &mut self,
+        at: usize,
+        name: &str,
+        m: &Mesh,
+        source: Option<&SourceMesh>,
+    ) -> Result<(), CompileError> {
         let count = m.vertices.len();
         if count > usize::from(u16::MAX) {
             return Err(CompileError::TooManyVertices { node: name.to_string(), count });
@@ -492,7 +568,7 @@ impl Writer<'_> {
         }
         let d = &mut self.data;
         // Faces, with what the game derives nothing of itself.
-        let derived = face_data(m);
+        let derived = source.and_then(|s| face_data_written(m, s)).unwrap_or_else(|| face_data(m));
         let faces = d.alloc(m.faces.len() * 32);
         for (i, f) in m.faces.iter().enumerate() {
             let o = faces + i * 32;
@@ -505,7 +581,8 @@ impl Writer<'_> {
             }
         }
         d.array(at + 0x78, faces, m.faces.len());
-        let (min, max, average, radius) = bounds(&m.vertices);
+        let (min, max, average, radius) =
+            source.map_or_else(|| bounds(&m.vertices), written_bounds);
         d.vec3(at + 0x84, min);
         d.vec3(at + 0x90, max);
         d.f32(at + 0x9C, radius);
@@ -831,7 +908,8 @@ impl Writer<'_> {
                 self.data.u32(at + 0xB0, u32::from(r.reattachable));
             }
             NodeKind::Mesh(m) => {
-                self.mesh(at, &node.name, m)?;
+                let source = self.sources.get(index).copied().flatten();
+                self.mesh(at, &node.name, m, source)?;
                 match &m.extra {
                     MeshExtra::None => {}
                     MeshExtra::Skin(s) => self.skin(at, &node.name, m.vertices.len(), s)?,
@@ -976,11 +1054,22 @@ impl Writer<'_> {
 /// Writes a model as a compiled (binary) one. `parts`: its nodes' numbers
 /// ([`part_numbers`], from its supermodel's).
 pub fn write(model: &Model, parts: &PartNumbers) -> Result<Vec<u8>, CompileError> {
+    write_from(model, parts, &[])
+}
+
+/// [`write`] of a model compiled from text: `sources`, per node, its mesh
+/// as the text gave it, which the game's compiler computes the mesh's
+/// bounds and face records from ([`SourceMesh`]).
+pub(crate) fn write_from(
+    model: &Model,
+    parts: &PartNumbers,
+    sources: &[Option<&SourceMesh>],
+) -> Result<Vec<u8>, CompileError> {
     if model.nodes.is_empty() {
         return Err(CompileError::Empty);
     }
     Writer::check_name(&model.name, 63)?;
-    let mut w = Writer { model, parts, data: Data::default(), raw: Raw::default() };
+    let mut w = Writer { model, parts, sources, data: Data::default(), raw: Raw::default() };
     let header = w.data.alloc(0xE8);
     let d = &mut w.data;
     d.name(0x08, 64, &model.name);
@@ -1127,6 +1216,47 @@ doneanim wave m\ndonemodel m\n";
         let (min, max, ..) = bounds(&[[1.0, 2.0, 3.0], [2.0, 3.0, 4.0], [1.0, 2.0, 3.0]]);
         assert_eq!((min, max), ([0.0; 3], [2.0, 3.0, 4.0]));
         assert!((radius - 0.5f32.sqrt()).abs() < 1e-6);
+    }
+
+    /// A mesh compiled from text, as nwn-mdl-spec's `degen` and `negzero`
+    /// (zspec_merge, the game's own compile): after its degenerate face is
+    /// left out, the records from it on hold the source faces' planes (a
+    /// degenerate one's normal +X); neighbours are found by the text's
+    /// vertex numbers (-0 merges with 0, but its faces' edges are not
+    /// shared); and the bounds count every vertex the text gives.
+    #[test]
+    fn a_text_s_faces_and_bounds_are_the_game_compiler_s() {
+        let text = "newmodel m\nbeginmodelgeom m\nnode dummy m\n  parent NULL\nendnode\n\
+            node trimesh degen\n  parent m\n  verts 5\n    0 0 3\n    1 0 3\n    0 1 3\n    1 1 3\n    1 0 3\n\
+            normals 5\n    0 0 1\n    0 0 1\n    0 0 1\n    0 0 1\n    0 0 1\n\
+            tverts 5\n    0 0 0\n    1 0 0\n    0 1 0\n    1 1 0\n    1 0 0\n\
+            faces 3\n    0 1 2 1 0 1 2 0\n    1 4 3 1 1 4 3 0\n    1 3 2 1 1 3 2 0\nendnode\n\
+            node trimesh negzero\n  parent m\n  verts 4\n    0 0 2\n    1 0 2\n    1 1 2\n    -0 -0 2\n\
+            tverts 4\n    0 0 0\n    1 0 0\n    1 1 0\n    0 0 0\n\
+            faces 2\n    0 1 2 1 0 1 2 0\n    3 2 1 1 3 2 1 0\nendnode\n\
+            endmodelgeom m\ndonemodel m\n";
+        let (model, map) = crate::ascii::read_mapped(text.as_bytes()).unwrap();
+        let mesh = |name: &str| {
+            let i = model.node(name).unwrap();
+            (model.nodes[i].mesh().unwrap(), map.meshes[i].as_ref().unwrap())
+        };
+        let (degen, source) = mesh("degen");
+        assert_eq!(degen.faces.len(), 2);
+        let d = face_data_written(degen, source).unwrap();
+        assert_eq!(d.planes, [([0.0, 0.0, 1.0], -3.0), ([1.0, 0.0, 0.0], -1.0)]);
+        assert_eq!(d.adjacent, [[-1; 3]; 2]);
+        let (min, max, average, radius) = written_bounds(source);
+        assert_eq!((min, max), ([0.0; 3], [1.0, 1.0, 3.0]));
+        assert!((average[0] - 0.6).abs() < 1e-6 && (average[1] - 0.4).abs() < 1e-6);
+        assert!((radius - 0.848_528_1).abs() < 1e-5, "{radius}");
+        let (negzero, source) = mesh("negzero");
+        let d = face_data_written(negzero, source).unwrap();
+        assert_eq!(d.adjacent, [[-1, 1, -1], [-1, 0, -1]]);
+        assert_eq!(written_bounds(source).2, [0.5, 0.25, 2.0]);
+        // Compiled, the records are these.
+        let parts = part_numbers(&model, None);
+        let meshes: Vec<_> = map.meshes.iter().map(Option::as_ref).collect();
+        assert_ne!(write(&model, &parts).unwrap(), write_from(&model, &parts, &meshes).unwrap());
     }
 
     #[test]

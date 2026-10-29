@@ -1164,16 +1164,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Beamdog's HD bodies, drawn whole since 1.34.1.) (S–M)
 - **Where mg-mdl still differs from nwn-mdl-spec** (August's pointer to
   the shared spec, 2026-10-19; [the comparison](research/notes_mdl_spec.md)):
-  after 1.34.4's changes its suite passes 46 of 46 compiles and 45 of 46
-  decompiles. Left: an animated mesh's frames over vertices split by their
-  UVs are decompiled over the welded vertices (read back the same in the
-  game); a node whose `parent` line is missing or in capitals hangs from
-  the root where the game leaves it out (no game model but `c_quiver`'s
-  malformed lines); a skin vertex with no valid bone keeps its rest pose
-  where the game collapses it (`c_wings2`); face records over the source
-  faces after a deletion (SHOULD); a body part's bones named from its
-  skeleton when decompiled (not checked). The suite could run in the
-  corpus tests (its probes and goldens are CC0). (S–M)
+  its suite passes every probe since 2026-10-29, in Moonglow's tests
+  (`the_model_spec_suite_passes`). Left: a skin vertex with no valid bone
+  keeps its rest pose in Moonglow (`vs_skinned` in `mg-render`'s
+  `shader.wgsl`, its `total <= 0.0` branch), where the game collapses it
+  to clip-space 0 (MDL-SKIN-030; the stock `c_wings2` has 102 such
+  vertices, drawn whole in Moonglow). Waits on the client batch: a
+  creature wearing `c_wings2` in the client, to see what the game draws of
+  them (a collapse to w = 0 is not drawn alike by every GPU), then the
+  shader matched. (S once seen)
 - **The model compiler and writers in `mg-mdl`** (moved from the
   viewer's `crates/mgv-mdl` at its 0.1.6, 2026-10-09; in use since
   1.20.5).
