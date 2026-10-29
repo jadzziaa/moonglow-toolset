@@ -275,9 +275,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 ## Persistent-world scale
 
-- **Real CEP haks:** the test world's 150,000 hak files are tiny stand-ins.
-  Loading real CEP content at scale isn't measured; the campaign budgets
-  and model corpus tests cover real models. (S, needs CEP downloaded)
 - **Other machines:** budgets were measured only on the development
   machine (Ryzen 7 5800X3D, Radeon RX 9070). (S, needs other hardware)
 - **Where-used at scale:** the References window and Rename keep the
@@ -2565,11 +2562,6 @@ commits, with a test for all but one of the bugs it fixed) is in the
 history; this is what it left, found by reading and not by running
 unless it says so.
 
-- **Area Properties copies the area's fields each frame it is open**
-  (`area_props.rs`: its form owns the root it edits, as every
-  blueprint's does), without the tile list since: a large area's
-  thousand tiles were most of the copy. Not timed (`frame_perf.rs` was
-  not run for it). (S)
 - **Still made every frame, each needing something kept:** a blueprint's
   category list (`Form::category` reads and parses the palette),
   Module Properties' list of the hak folder, the script
@@ -2608,11 +2600,16 @@ viewer under 2). What is left:
 - **Typing in a very large script** (`nwscript.nss`, 14,000 lines) is
   13 ms a key: egui lays out the whole text again on each change. An
   editor that lays out the lines in sight would be needed. (L)
-- **Not measured:** the tiles palette searches its tileset two or three
-  times a frame while a search is typed; dragging objects copies the whole
-  area model each frame; the blueprint picker (inventory, store and
+- **The blueprint picker over a large palette** (inventory, store and
   encounter pages) folds every blueprint once a level of its tree and
-  draws every match. (S each, after a measure)
+  draws every match: searched for what all of the persistent world's
+  8,000 custom items have, the store's Inventory page takes 8.0 ms a
+  frame (`frame_perf`'s "store inventory, picker searched", 2026-10-29;
+  the budget 6.94). The matches kept by palette and search, and only
+  the rows in view drawn, would cut it. (M) Dragging objects copies the
+  whole area model each frame: not timed, `frame_perf` has no drag of a
+  selection (S to add). (The tiles palette searched as it is typed is
+  timed since: 5.0 ms at worst over area092's 784 tiles, in budget.)
 - **Skinned and vertex-animated meshes are never culled** (`renderer.rs`):
   an off-screen creature's bones are posed and drawn. A renderer change,
   so through CI on a branch first. (M)
