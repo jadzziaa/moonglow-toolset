@@ -260,11 +260,11 @@ fn editor(app: &mut Moonglow, ui: &mut Ui) {
             .collapsible(false)
             .resizable(false)
             .show(&ctx, |ui| {
-                ui.label("Name");
+                crate::widgets::field_label(ui, "Name");
                 let field = ui.text_edit_singleline(&mut add.name);
                 crate::widgets::autofocus(ui, &field);
                 ui.checkbox(&mut add.global, "Global Effect");
-                ui.label("Parent (its reputations are copied)");
+                crate::widgets::field_label(ui, "Parent (its reputations are copied)");
                 for p in 1..STANDARD.len() as u32 {
                     ui.selectable_value(&mut add.parent, p, &f.factions[p as usize].name);
                 }

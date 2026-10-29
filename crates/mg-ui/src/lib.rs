@@ -253,8 +253,9 @@ pub enum Action {
     SaveResource(ResKey, Option<String>),
     /// A model of the load order saved as text (decompiled).
     SaveModelText(ResKey, Option<String>),
-    /// The resource browser's Export as Files: those listed, into a folder.
-    SaveResources(Vec<ResKey>),
+    /// The resource browser's Export as Files: those listed, into a folder
+    /// (an overridden copy with its layer's label, as that layer has it).
+    SaveResources(Vec<(ResKey, Option<String>)>),
     /// The same, as JSON (`nwn_tlk`'s).
     TalkJson(bool),
     /// The talk table editor opens a `.tlk` file anywhere, or (true) makes
@@ -706,7 +707,7 @@ pub struct Moonglow {
     pub(crate) text_typed: Option<egui::Id>,
     /// A command asked for by its key while a text field was typed in:
     /// run in the next frame, after the field has set its text.
-    pub(crate) command_after_text: Option<commands::Id>,
+    pub(crate) command_after_text: Option<commands::AfterText>,
     pub(crate) script_stamps: mg_module::build::Remembered,
     /// Where what Compile All remembers is kept from one session to the
     /// next (a file a module, in Moonglow's own folder); `None`: not kept.
@@ -1464,7 +1465,9 @@ impl Moonglow {
                 .dock
                 .iter_all_tabs()
                 .map(|(_, t)| t)
-                .filter(|t| matches!(t, Tab::Model(_) | Tab::InstanceModel { .. }))
+                .filter(|t| {
+                    matches!(t, Tab::Model(_) | Tab::InstanceModel { .. } | Tab::ModelCopy { .. })
+                })
                 .cloned()
                 .collect();
             self.panes_tabs = self.dock.iter_leaves().map(|(_, l)| l.tabs.clone()).collect();
@@ -4805,7 +4808,7 @@ impl Moonglow {
     /// and the rules the module is worked by.
     fn reload_timer(&mut self, ui: &egui::Ui) {
         // A look at the module's files under way: taken once it is done.
-        if self.take_looked() {
+        if self.take_looked(ui.ctx()) {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
         }
         // (Whether blueprints read again changed their palettes.)
@@ -5045,7 +5048,7 @@ impl Moonglow {
         if self.settings.dialog_no_backup {
             return;
         }
-        let minutes = u64::from(self.settings.dialog_backup_minutes.unwrap_or(5).max(1));
+        let minutes = u64::from(self.settings.dialog_backup_every().max(1));
         let every = std::time::Duration::from_secs(60 * minutes);
         let now = std::time::Instant::now();
         let since = *self.dialog_backup_at.get_or_insert(now);

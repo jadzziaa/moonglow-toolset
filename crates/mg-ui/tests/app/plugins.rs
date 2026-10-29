@@ -287,6 +287,40 @@ fn a_plugin_is_off_until_enabled_and_its_command_is_one_undoable_step() {
     assert_eq!(tag_of(&mut h, &key), "GATE_GUARD");
 }
 
+/// A plugin's command by its key, with a field typed in and not left (one
+/// that sets its text when the keyboard leaves it), runs a frame on, on
+/// what was typed: run at once, it read the module without it (a
+/// builder's report, October 2026).
+#[test]
+fn a_plugin_s_command_by_its_key_waits_for_a_field_typed_in() {
+    let Some((mut h, key)) = plugin_harness("ui-plugin-key-typed", false) else { return };
+    h.state_mut().enable_plugin("example.tag-conventions", true);
+    let bind = ("example.tag-conventions/fix-tags".to_string(), vec!["F8".to_string()]);
+    h.state_mut().settings.key_bindings.insert(bind.0, bind.1);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
+    h.run();
+    let is = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.role() == egui::accesskit::Role::TextInput && n.value().as_deref() == Some("gate_guard")
+    };
+    let at = h.get(egui_kittest::kittest::by().predicate(is)).rect().center();
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    h.key_press(egui::Key::End);
+    h.event(egui::Event::Text("_x".into()));
+    h.run_steps(2);
+    assert_eq!(tag_of(&mut h, &key), "gate_guard", "not set while typed");
+    h.key_press(egui::Key::F8);
+    h.run();
+    assert_eq!(tag_of(&mut h, &key), "GATE_GUARD_X", "set, then the plugin's command run on it");
+    let ws = h.state().ws.as_ref().unwrap();
+    assert_eq!(ws.can_undo(), Some("Upper-case creature tags"), "and not set again over it");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert_eq!(tag_of(&mut h, &key), "gate_guard_x", "what was typed, a step of its own");
+}
+
 /// The example plugins of `docs/plugins/examples`, installed.
 fn example_plugins() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/plugins/examples")

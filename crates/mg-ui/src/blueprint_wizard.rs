@@ -388,15 +388,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     ui.text_edit_singleline(&mut w.name);
                     ui.end_row();
                     crate::widgets::field_label(ui, "Appearance");
-                    let looks = app
-                        .game
-                        .as_ref()
-                        .expect("checked")
-                        .choices(
-                            "waypoint",
-                            mg_rules::ChoiceColumns { name: Some("STRREF"), label: Some("LABEL") },
-                        )
-                        .unwrap_or_default();
+                    let looks = crate::widgets::table_choices(
+                        app.game.as_deref(),
+                        "waypoint",
+                        Some("STRREF"),
+                        Some("LABEL"),
+                    );
                     let id = egui::Id::new("wizard-waypoint-look");
                     let current = i64::from(w.appearance);
                     if let Some(row) = crate::widgets::row_choice(id, &looks, current).show(ui) {

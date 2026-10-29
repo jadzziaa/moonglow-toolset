@@ -10,7 +10,7 @@ use mg_resman::{GameInstall, ResKey};
 use mg_schema::{ExoString, Field, GffValue, StructExt, ifo};
 
 use crate::text::{decode, encode, with_english};
-use crate::widgets::{FieldTarget, LocStringEdit, resref_field, variables_button};
+use crate::widgets::{FieldTarget, LocStringEdit, VarTableEdit, resref_field, variables_button};
 use crate::{Action, Moonglow};
 
 pub(crate) fn info_key() -> ResKey {
@@ -306,7 +306,10 @@ fn advanced(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
         ui.end_row();
 
         crate::widgets::field_label(ui, "Variables");
-        variables_button(app, ui, target(ifo::VAR_TABLE.label), root.items(&ifo::VAR_TABLE));
+        let list = root.items(&ifo::VAR_TABLE);
+        if variables_button(ui, list.len()) {
+            app.var_edit = Some(VarTableEdit::new(target(ifo::VAR_TABLE.label), list));
+        }
         ui.end_row();
     });
 }

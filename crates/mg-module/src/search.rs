@@ -244,6 +244,10 @@ pub struct Hit {
     pub object: ResType,
     /// Through a blueprint's inventory, naming the item blueprint found.
     pub carried: Option<ResRef>,
+    /// Through the creatures an encounter spawns (an encounter
+    /// blueprint's, or a placed encounter's), naming the creature
+    /// blueprint found.
+    pub spawned: Option<ResRef>,
 }
 
 impl Hit {
@@ -283,6 +287,22 @@ impl Hit {
         let root = |key: ResKey| Object { key, path: "/".into(), kind: key.restype };
         if let Some(item) = self.carried {
             return vec![root(ResKey::new(item, ResType::UTI)), root(self.key)];
+        }
+        // A creature blueprint an encounter spawns: it, then the encounter
+        // (a placed one's, its area after it).
+        if let Some(creature) = self.spawned {
+            let mut out = vec![root(ResKey::new(creature, ResType::UTC))];
+            match self.key.restype {
+                ResType::GIT => {
+                    let first = self.path.trim_start_matches('/').split('/').next();
+                    let path = format!("/{}", first.unwrap_or_default());
+                    out.push(Object { key: self.key, path, kind: ResType::UTE });
+                    let are = ResKey::new(self.key.resref, ResType::ARE);
+                    out.push(Object { key: are, path: "/".into(), kind: ResType::ARE });
+                }
+                _ => out.push(root(self.key)),
+            }
+            return out;
         }
         let area = || {
             let key = ResKey::new(self.key.resref, ResType::ARE);
@@ -698,6 +718,7 @@ fn resource_hits(
                 matched,
                 object,
                 carried: None,
+                spawned: None,
             });
         }
         out
@@ -715,7 +736,8 @@ fn carrying(s: &Search) -> bool {
 /// Whether what `searches` find in `key` needs its references: the
 /// scripts attached, the items a blueprint carries.
 fn needs_refs(key: ResKey, searches: &[&Search]) -> bool {
-    let blueprint = ObjectKind::from_restype(key.restype).is_some();
+    // (An area's: its encounters' creatures.)
+    let blueprint = ObjectKind::from_restype(key.restype).is_some() || key.restype == ResType::GIT;
     searches.iter().any(|s| matches!(s, Search::Script(_)) || (blueprint && carrying(s)))
 }
 
@@ -869,29 +891,42 @@ impl Query {
     }
 }
 
-/// What one resource holds for a query: each search's hits, and (a
-/// blueprint's) the item blueprints its inventory names, where.
+/// What one resource holds for a query: each search's hits, (a
+/// blueprint's) the item blueprints its inventory names, and (an
+/// encounter blueprint's, an area's encounters') the creature blueprints
+/// they spawn, where.
 #[derive(Debug)]
 struct Found {
     hits: Vec<Vec<Hit>>,
     /// (path, item blueprint, place).
     carries: Vec<(String, ResRef, String)>,
+    /// (path, creature blueprint, place).
+    spawns: Vec<(String, ResRef, String)>,
 }
 
 impl Found {
     fn of(read: &Read<'_>, searches: &[&Search], game: Option<&GameData>, cp: Codepage) -> Found {
         let hits = resource_hits(read, searches, game, cp);
         let key = read.key;
-        let mut carries = Vec::new();
-        if ObjectKind::from_restype(key.restype).is_some() && searches.iter().any(|s| carrying(s)) {
+        let (mut carries, mut spawns) = (Vec::new(), Vec::new());
+        if searches.iter().any(|s| carrying(s)) {
+            let blueprint = ObjectKind::from_restype(key.restype).is_some();
+            let encounters = matches!(key.restype, ResType::UTE | ResType::GIT);
             for r in read.refs {
-                if r.kind == RefKind::Blueprint(ResType::UTI) {
-                    let place = format!("{key} › carries {}.uti", r.target.to_lowercase());
+                let target = r.target.to_lowercase();
+                if blueprint && r.kind == RefKind::Blueprint(ResType::UTI) {
+                    let place = format!("{key} › carries {target}.uti");
                     carries.push((r.path.clone(), r.target, place));
+                } else if encounters
+                    && r.kind == RefKind::Blueprint(ResType::UTC)
+                    && spawned_at(key.restype, &r.path)
+                {
+                    let at = place(key, read.gff, &r.path, cp);
+                    spawns.push((r.path.clone(), r.target, format!("{at} › spawns {target}.utc")));
                 }
             }
         }
-        Found { hits, carries }
+        Found { hits, carries, spawns }
     }
 }
 
@@ -909,23 +944,108 @@ fn condition_hits(found: &[(ResKey, &Found)], c: usize, s: &Search) -> Vec<Hit> 
                 (k.resref, direct.map(|h| h.matched.clone()).collect())
             })
             .collect();
+        // What each item blueprint carries (a bag's), to follow a found
+        // one down through bags in bags.
+        let bags: HashMap<ResRef, &[(String, ResRef, String)]> = (found.iter())
+            .filter(|(k, f)| k.restype == ResType::UTI && !f.carries.is_empty())
+            .map(|(k, f)| (k.resref, f.carries.as_slice()))
+            .collect();
         for ((key, f), hits) in found.iter().zip(&mut by_key) {
             for (path, target, place) in &f.carries {
-                let Some(matched) = items.get(target) else { continue };
+                let own = (key.restype == ResType::UTI).then_some(key.resref);
+                for (item, through) in carried_found(*target, own, &items, &bags) {
+                    let place = format!("{place}{through}");
+                    for m in &items[&item] {
+                        hits.push(Hit {
+                            key: *key,
+                            path: path.clone(),
+                            place: place.clone(),
+                            matched: m.clone(),
+                            object: ResType::UTI,
+                            carried: Some(item),
+                            spawned: None,
+                        });
+                    }
+                }
+            }
+        }
+        // The creature blueprints found, in the encounters that spawn them.
+        let creatures: HashMap<ResRef, Vec<String>> = (found.iter().zip(&by_key))
+            .filter(|((k, _), h)| k.restype == ResType::UTC && !h.is_empty())
+            .map(|((k, _), h)| {
+                let direct = h.iter().filter(|h| h.carried.is_none() && h.object == ResType::UTC);
+                (k.resref, direct.map(|h| h.matched.clone()).collect())
+            })
+            .collect();
+        for ((key, f), hits) in found.iter().zip(&mut by_key) {
+            for (path, target, place) in &f.spawns {
+                let Some(matched) = creatures.get(target) else { continue };
                 for m in matched {
                     hits.push(Hit {
                         key: *key,
                         path: path.clone(),
                         place: place.clone(),
                         matched: m.clone(),
-                        object: ResType::UTI,
-                        carried: Some(*target),
+                        object: ResType::UTC,
+                        carried: None,
+                        spawned: Some(*target),
                     });
                 }
             }
         }
     }
     by_key.into_iter().flatten().collect()
+}
+
+/// Whether a creature blueprint named at `path` of a resource of type
+/// `restype` is one an encounter spawns: in an encounter blueprint's
+/// `CreatureList`, or a placed encounter's (not a placed creature's
+/// `TemplateResRef`).
+fn spawned_at(restype: ResType, path: &str) -> bool {
+    let steps: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+    let listed = |s: &str| item(s).is_some_and(|(l, _)| l == "CreatureList");
+    match (restype, steps.as_slice()) {
+        (ResType::UTE, [list, ..]) => listed(list),
+        (ResType::GIT, [placed, list, ..]) => {
+            item(placed).is_some_and(|(l, _)| l == "Encounter List") && listed(list)
+        }
+        _ => false,
+    }
+}
+
+/// How many bags in bags a found item blueprint is followed up through.
+const BAGS_DEEP: usize = 8;
+
+/// The item blueprints found (`items`) that carrying `target` carries: it,
+/// if it was found, and those found in what it carries as a bag
+/// (`bags`), down to [`BAGS_DEEP`] bags, each once and not back into the
+/// carrier (`own`, an item blueprint's); with each, the rest of its place
+/// (` › carries sword.uti`, for one in a bag).
+fn carried_found(
+    target: ResRef,
+    own: Option<ResRef>,
+    items: &HashMap<ResRef, Vec<String>>,
+    bags: &HashMap<ResRef, &[(String, ResRef, String)]>,
+) -> Vec<(ResRef, String)> {
+    let mut out = Vec::new();
+    let mut seen: std::collections::HashSet<ResRef> = own.into_iter().collect();
+    let mut walk = vec![(target, String::new())];
+    while let Some((at, through)) = walk.pop() {
+        if !seen.insert(at) {
+            continue;
+        }
+        if items.contains_key(&at) {
+            out.push((at, through.clone()));
+        }
+        if through.matches(" › ").count() >= BAGS_DEEP {
+            continue;
+        }
+        for (_, inner, _) in bags.get(&at).copied().unwrap_or_default().iter().rev() {
+            let step = format!("{through} › carries {}.uti", inner.to_lowercase());
+            walk.push((*inner, step));
+        }
+    }
+    out
 }
 
 /// The choices of a table, named as the game names them: a talk-table
@@ -1337,6 +1457,105 @@ mod tests {
         );
         assert_eq!(places(&value("1.5")), [("keep (area)", "Value = 1.5")]);
         assert_eq!(value("100..").len(), 1, "the guard's 103");
+    }
+
+    /// An item blueprint found is followed up through bags in bags: a crate
+    /// holding a bag that holds the sword lists it, its place said step by
+    /// step; a bag holding itself (or a ring of bags) is walked once.
+    #[test]
+    fn a_found_item_is_followed_through_bags_in_bags() {
+        let mut m = module();
+        let holding = |what: &[&str]| {
+            let held = |r: &&str| {
+                let mut s = Struct::new(0);
+                s.set("InventoryRes", Value::resref(rr(r)));
+                s
+            };
+            Value::List(what.iter().map(held).collect())
+        };
+        let mut bag = Gff::new(*b"UTI ");
+        bag.root = item("BAG", Vec::new(), Vec::new());
+        bag.root.set("ItemList", holding(&["sword", "pouch"]));
+        m.set_gff(ResKey::parse("bag", ResType::UTI).unwrap(), &bag).unwrap();
+        let mut pouch = Gff::new(*b"UTI ");
+        pouch.root = item("POUCH", Vec::new(), Vec::new());
+        pouch.root.set("ItemList", holding(&["bag"]));
+        m.set_gff(ResKey::parse("pouch", ResType::UTI).unwrap(), &pouch).unwrap();
+        let mut crate_ = Gff::new(*b"UTP ");
+        crate_.root.set("Tag", Value::String(b"CRATE".to_vec()));
+        crate_.root.set("ItemList", holding(&["pouch"]));
+        m.set_gff(ResKey::parse("crate", ResType::UTP).unwrap(), &crate_).unwrap();
+        let v = Search::Variable { name: "sDeidad".into(), kind: None, value: None };
+        let hits = find(&m, v);
+        let ezra = "sDeidad (string) = \"Ezra\"";
+        assert_eq!(
+            places(&hits),
+            [
+                ("bag.uti › carries sword.uti", ezra),
+                ("chest.utp › carries sword.uti", ezra),
+                ("crate.utp › carries pouch.uti › carries bag.uti › carries sword.uti", ezra),
+                ("keep › creature GUARD_01", "sdeidad (int) = 103"),
+                ("pouch.uti › carries bag.uti › carries sword.uti", ezra),
+                ("sword.uti", ezra),
+            ]
+        );
+        // What is found is the sword, held by the crate.
+        let crate_hit = &hits[2];
+        assert_eq!(crate_hit.carried, Some(rr("sword")));
+        assert_eq!(crate_hit.path, "/ItemList[0]/InventoryRes", "where the crate names the pouch");
+        let objects: Vec<String> = crate_hit.objects().iter().map(|o| o.key.to_string()).collect();
+        assert_eq!(objects, ["sword.uti", "crate.utp"]);
+    }
+
+    /// A creature blueprint found is followed into the encounters that
+    /// spawn it: an encounter blueprint's creatures, and a placed
+    /// encounter's (named as placed, its area after it).
+    #[test]
+    fn a_found_creature_is_followed_into_the_encounters_that_spawn_it() {
+        let mut m = Module::new();
+        let mut utc = Gff::new(*b"UTC ");
+        utc.root = creature("BOSS");
+        utc.root.set("VarTable", Value::List(vec![var("MG_BOSS", Value::Int(1))]));
+        m.set_gff(ResKey::parse("boss", ResType::UTC).unwrap(), &utc).unwrap();
+        let spawning = |what: &str| {
+            let mut c = Struct::new(0);
+            c.set("ResRef", Value::resref(rr(what)));
+            Value::List(vec![c])
+        };
+        let mut ute = Gff::new(*b"UTE ");
+        ute.root.set("Tag", Value::String(b"CAMP".to_vec()));
+        ute.root.set("CreatureList", spawning("boss"));
+        m.set_gff(ResKey::parse("camp", ResType::UTE).unwrap(), &ute).unwrap();
+        let mut other = Gff::new(*b"UTE ");
+        other.root.set("CreatureList", spawning("rat"));
+        m.set_gff(ResKey::parse("rats", ResType::UTE).unwrap(), &other).unwrap();
+        let mut git = Gff::new(*b"GIT ");
+        let mut placed = Struct::new(7);
+        placed.set("Tag", Value::String(b"CAMP_01".to_vec()));
+        placed.set("CreatureList", spawning("boss"));
+        git.root.set("Encounter List", Value::List(vec![placed]));
+        m.set_gff(ResKey::parse("keep", ResType::GIT).unwrap(), &git).unwrap();
+        let v = Search::Variable { name: "MG_BOSS".into(), kind: None, value: None };
+        let hits = find(&m, v);
+        let boss = "MG_BOSS (int) = 1";
+        assert_eq!(
+            places(&hits),
+            [
+                ("boss.utc", boss),
+                ("camp.ute › spawns boss.utc", boss),
+                ("keep › encounter CAMP_01 › spawns boss.utc", boss),
+            ]
+        );
+        assert_eq!(hits[1].spawned, Some(rr("boss")));
+        assert_eq!(hits[1].object, ResType::UTC);
+        let objects = |h: &Hit| {
+            h.objects().into_iter().map(|o| format!("{} {}", o.key, o.path)).collect::<Vec<_>>()
+        };
+        assert_eq!(objects(&hits[1]), ["boss.utc /", "camp.ute /"]);
+        assert_eq!(objects(&hits[2]), ["boss.utc /", "keep.git /Encounter List[0]", "keep.are /"]);
+        // Not for a search of fields, which finds fields.
+        let tag = Search::Field { label: Some("Tag".into()), value: None };
+        assert!(find(&m, tag).iter().all(|h| h.spawned.is_none()));
     }
 
     #[test]

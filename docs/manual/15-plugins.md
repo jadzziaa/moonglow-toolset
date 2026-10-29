@@ -194,7 +194,9 @@ An enabled plugin's commands are in the **Plugins** menu and in the
 Command Palette (Ctrl+Shift+P), with the plugin's name. A plugin may
 suggest a key for a command; **Tools › Options › Keyboard** lists plugin
 commands with the rest, and any of them can be given a key or have it
-changed there.
+changed there. A command run by its key while you are typing in a field
+runs on what you typed: the field sets it first, as when you click
+elsewhere.
 
 A command made for a kind of object (placeables, creatures…) or for
 areas is also in their right-click menus: the area view's menu on the

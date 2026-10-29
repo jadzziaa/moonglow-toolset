@@ -219,7 +219,8 @@ The palette's buttons:
   leaves it open for the next). Escape closes a list and gives up the
   keys, as everywhere: click it again to go on. A creature's and a placeable's Appearance list, and a
   door's Appearance Type and Generic Appearance, show each appearance's
-  picture beside the row the pointer rests on, and the chosen one's with
+  picture beside the row the pointer rests on (Appearance Type's **Use
+  Generic Appearance**: the generic door chosen), and the chosen one's with
   the pointer resting on the list's box: leave it there and the picture
   follows the arrow keys. An item's lists of its model and parts (a
   model, a weapon's parts' shapes and colors, an armor's parts) show the
@@ -367,8 +368,9 @@ Shared parts:
   one object to another, in any module. **Save Set…** keeps them under a
   name; **Save to File…** saves them as a set file (`.vars.json`)
   wherever you choose, to share or to keep beside a module. **Add Set**
-  adds a set to the variables: a saved one, chosen by its name, or a
-  file's (**Add from File…**). It adds rather than replaces, hence its
+  adds a set to the variables: a saved one, chosen by its name (with the
+  pointer resting on it, what it holds), or a file's (**Add from
+  File…**, one or several at once). It adds rather than replaces, hence its
   name: a variable of the same name takes the set's type and value, and
   the others stay. In the same menu, **Manage Sets…** opens the Variable
   Sets window, where a saved set is renamed (**Rename…**: a name another
@@ -385,7 +387,11 @@ Shared parts:
   be copied in, shared and edited by hand (the menu reads the folder
   each time it opens): `{ "variables": [ { "name": "MG_LOOT", "type":
   "int", "value": 3 } ] }`, each `type` one of `int`, `float` and
-  `string`; object and location variables aren't kept. In a project that describes
+  `string`; object and location variables aren't kept. A file there that
+  isn't a set (a JSON mistake, a type of another name) is listed as
+  "NAME (not a set)", in the menu (where it can't be added) and in the
+  Variable Sets window, with what is wrong with it as the pointer rests
+  on it. In a project that describes
   its variables (`variables.toml`), the window offers their names as one
   is typed, sets their types and offers their values: see [Described
   variables](03-modules.md#described-variables).

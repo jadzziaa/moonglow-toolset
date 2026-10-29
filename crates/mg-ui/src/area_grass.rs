@@ -13,7 +13,7 @@ use mg_core::{ResRef, ResType};
 use mg_edit::{Command, Edit};
 use mg_gff::Struct;
 use mg_resman::ResKey;
-use mg_rules::{Choice, ChoiceColumns};
+use mg_rules::Choice;
 
 use crate::{Action, Moonglow};
 
@@ -36,8 +36,7 @@ pub(crate) fn tried(ctx: &egui::Context, area: ResRef) -> Option<Vec<(u32, Grass
 
 /// The surface materials, by row: surfacemat.2da's labels.
 fn materials(app: &Moonglow) -> std::sync::Arc<Vec<Choice>> {
-    let columns = ChoiceColumns { name: None, label: Some("Label") };
-    app.game.as_ref().and_then(|g| g.choice_list("surfacemat", columns).ok()).unwrap_or_default()
+    crate::widgets::table_choices(app.game.as_deref(), "surfacemat", None, Some("Label"))
 }
 
 fn material_name(materials: &[Choice], row: u32) -> String {

@@ -11,7 +11,7 @@ use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{FieldType, Struct, Value};
 use mg_module::palette::BlueprintKind;
 use mg_resman::ResKey;
-use mg_rules::{Choice, ChoiceColumns};
+use mg_rules::Choice;
 
 use crate::dialogs::FileKind;
 use crate::text::{decode, encode, with_english};
@@ -358,8 +358,13 @@ fn placeable_picture(app: &mut Moonglow, ui: &mut Ui, row: usize) {
 
 /// A tileset door's picture (doortypes.2da's model; the generic door, row
 /// 0, has none of its own).
-pub(super) fn door_type_picture(app: &mut Moonglow, ui: &mut Ui, row: usize) {
-    model_picture(app, ui, ("doortypes", "Model"), row);
+/// (Row 0, a door of no tileset's, is drawn as the generic door `generic`
+/// chosen, as the game draws it.)
+pub(super) fn door_type_picture(app: &mut Moonglow, ui: &mut Ui, row: usize, generic: i64) {
+    match usize::try_from(generic) {
+        Ok(generic) if row == 0 => generic_door_picture(app, ui, generic),
+        _ => model_picture(app, ui, ("doortypes", "Model"), row),
+    }
 }
 
 /// A generic door's picture (genericdoors.2da's model).
@@ -417,7 +422,7 @@ fn picture(ui: &mut Ui, made: Option<Option<egui::TextureId>>) {
 }
 
 /// Shows something of a 2DA row (a picture) in a choice's list.
-pub(super) type Shown = fn(&mut Moonglow, &mut Ui, usize);
+pub(super) type Shown<'a> = &'a mut dyn FnMut(&mut Moonglow, &mut Ui, usize);
 
 /// A loading screen's picture (loadscreens.2da's `BMPResRef`), small; a
 /// line instead where the row has none (the first: a random one of the
@@ -511,9 +516,7 @@ impl Form<'_> {
         name: Option<&str>,
         label: Option<&str>,
     ) -> std::sync::Arc<Vec<Choice>> {
-        let game = self.app.game.as_ref();
-        game.and_then(|g| g.choice_list(table, ChoiceColumns { name, label }).ok())
-            .unwrap_or_default()
+        crate::widgets::table_choices(self.app.game.as_deref(), table, name, label)
     }
 
     /// A text field of a localized string, in the talk table's color where
@@ -1143,8 +1146,8 @@ impl Form<'_> {
         creature: bool,
     ) {
         self.mark_mixed(ui, label);
-        let show: Shown = if creature { creature_picture } else { placeable_picture };
-        self.choice_shown(ui, "Appearance", label, choices, default, Some(show));
+        let mut show = if creature { creature_picture } else { placeable_picture };
+        self.choice_shown(ui, "Appearance", label, choices, default, Some(&mut show));
     }
 
     /// [`choice`](Self::choice), with what `about` shows of a row (its
@@ -1155,7 +1158,7 @@ impl Form<'_> {
         (what, label): (&str, &str),
         choices: &[Choice],
         default: FieldType,
-        about: Shown,
+        about: Shown<'_>,
     ) {
         self.mark_mixed(ui, label);
         self.choice_shown(ui, what, label, choices, default, Some(about));
@@ -1166,14 +1169,13 @@ impl Form<'_> {
     pub(crate) fn load_screen(&mut self, ui: &mut Ui, choices: &[Choice]) {
         self.mark_mixed(ui, "LoadScreenID");
         ui.vertical(|ui| {
-            let show: Shown = load_screen_picture;
             self.choice_shown(
                 ui,
                 "Loading screen",
                 "LoadScreenID",
                 choices,
                 FieldType::Word,
-                Some(show),
+                Some(&mut load_screen_picture),
             );
             let row = self.int("LoadScreenID");
             if let Ok(row) = usize::try_from(row) {
@@ -1191,7 +1193,7 @@ impl Form<'_> {
         label: &str,
         choices: &[Choice],
         default: FieldType,
-        about: Option<Shown>,
+        about: Option<Shown<'_>>,
     ) {
         let current = self.int(label);
         let id = self.id(label);
@@ -1359,9 +1361,8 @@ impl Form<'_> {
     /// The Variables… button.
     pub(crate) fn variables(&mut self, ui: &mut Ui) {
         let list = self.root.list("VarTable").unwrap_or(&[]).to_vec();
-        let label = format!("Variables ({})…", list.len());
         self.mark_mixed(ui, "VarTable");
-        if ui.button(label).on_hover_text("Edit scripting variables").clicked() {
+        if crate::widgets::variables_button(ui, list.len()) {
             self.app.var_edit = Some(VarTableEdit::new(self.target("VarTable"), &list));
         }
     }

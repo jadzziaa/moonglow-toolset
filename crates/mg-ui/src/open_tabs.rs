@@ -401,6 +401,7 @@ fn plain_text(tab: &Tab) -> Option<String> {
         Tab::Dialog(k) => format!("dialog:{}", key_text(k)),
         Tab::Resource(k) => format!("resource:{}", key_text(k)),
         Tab::ResourceCopy { key, layer } => format!("resource-copy:{}:{layer}", key_text(key)),
+        Tab::ModelCopy { key, layer } => format!("model-copy:{}:{layer}", key_text(key)),
         Tab::Model(k) => format!("model:{}", key_text(k)),
         Tab::Blueprint(k) => format!("blueprint:{}", key_text(k)),
         Tab::Blueprints(keys) => format!("blueprints:{}", list(keys, key_text)),
@@ -452,6 +453,10 @@ fn parse_tab(text: &str) -> Option<Want> {
             Tab::ResourceCopy { key: parse_key(key)?, layer: layer.to_string() }
         }
         "model" => Tab::Model(parse_key(rest)?),
+        "model-copy" => {
+            let (key, layer) = rest.split_once(':')?;
+            Tab::ModelCopy { key: parse_key(key)?, layer: layer.to_string() }
+        }
         "blueprint" => Tab::Blueprint(parse_key(rest)?),
         "blueprints" => Tab::Blueprints(parse_list(rest, parse_key)?),
         "area" => Tab::Area(parse_resref(rest)?),
@@ -725,11 +730,13 @@ impl Moonglow {
             Tab::Resource(k) | Tab::Model(k) => {
                 module.contains(k) || game.is_some_and(|g| g.resman.contains(k))
             }
-            Tab::ResourceCopy { key, layer } => game.is_some_and(|g| {
-                let rm = &g.resman;
-                (rm.layers().iter().position(|l| l.label == *layer))
-                    .is_some_and(|i| rm.get_in(i, key).is_ok())
-            }),
+            Tab::ResourceCopy { key, layer } | Tab::ModelCopy { key, layer } => {
+                game.is_some_and(|g| {
+                    let rm = &g.resman;
+                    (rm.layers().iter().position(|l| l.label == *layer))
+                        .is_some_and(|i| rm.get_in(i, key).is_ok())
+                })
+            }
             Tab::Tile { tileset, .. } => {
                 game.is_some_and(|g| g.resman.contains(&ResKey::new(*tileset, ResType::SET)))
             }

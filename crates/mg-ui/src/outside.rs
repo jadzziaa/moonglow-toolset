@@ -56,6 +56,11 @@ struct Looking {
     root: PathBuf,
     started: Instant,
     done: std::sync::mpsc::Receiver<Looked>,
+    /// What the thread found, kept while a text field typed in sets its
+    /// text first ([`Moonglow::take_looked`]).
+    found: Option<Looked>,
+    /// The keyboard was taken from such a field in the frame before.
+    left_text: bool,
 }
 
 /// What a look found.
@@ -281,7 +286,9 @@ impl Moonglow {
         };
         match std::thread::Builder::new().name("moonglow outside".into()).spawn(work) {
             Ok(_) => {
-                self.outside.looking = Some(Looking { root, started: Instant::now(), done });
+                let started = Instant::now();
+                self.outside.looking =
+                    Some(Looking { root, started, done, found: None, left_text: false });
             }
             Err(_) => self.reload_project_files(),
         }
@@ -312,21 +319,41 @@ impl Moonglow {
     /// the game data the module's layer is in): the changes are taken as
     /// [`Moonglow::reload_project_files`] takes them. Returns whether one
     /// is still under way.
-    pub fn take_looked(&mut self) -> bool {
-        let Some(looking) = self.outside.looking.as_ref() else { return false };
+    ///
+    /// A text field that sets its text when the keyboard leaves it, typed
+    /// in and not left, sets it first (the keyboard is taken from it, and
+    /// what it sets is done, before what was found is taken): read again
+    /// under it, its window would go or show the file's text, and what
+    /// was typed with it. Set, it is a change of Moonglow's, and the file
+    /// changed outside is asked about as any other.
+    pub fn take_looked(&mut self, ctx: &egui::Context) -> bool {
+        if self.outside.looking.is_none() {
+            return false;
+        }
         if self.busy() {
             return true;
         }
-        let looked = match looking.done.try_recv() {
-            Ok(looked) => looked,
-            Err(std::sync::mpsc::TryRecvError::Empty) => return true,
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                self.outside.looking = None;
-                self.log.error("Could not look at the module's files (the look stopped)");
-                return false;
+        let looking = self.outside.looking.as_mut().expect("under way");
+        if looking.found.is_none() {
+            match looking.done.try_recv() {
+                Ok(looked) => looking.found = Some(looked),
+                Err(std::sync::mpsc::TryRecvError::Empty) => return true,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.outside.looking = None;
+                    self.log.error("Could not look at the module's files (the look stopped)");
+                    return false;
+                }
             }
-        };
-        let looking = self.outside.looking.take().expect("under way");
+        }
+        // (The field sets its text as it is drawn next, and that is done
+        // with that frame's actions: taken after them.)
+        let left = std::mem::replace(&mut looking.left_text, crate::widgets::leave_text(ctx));
+        if looking.left_text || (left && !self.actions.is_empty()) {
+            ctx.request_repaint();
+            return true;
+        }
+        let mut looking = self.outside.looking.take().expect("under way");
+        let looked = looking.found.take().expect("found");
         // (Another module open since: what was found is another's.)
         if self.module_root().as_ref() != Some(&looking.root) {
             return false;

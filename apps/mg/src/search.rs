@@ -235,6 +235,7 @@ pub(crate) fn run(cli: &Cli, a: &Args) -> Result<Output> {
             "area": h.placed().then(|| h.key.resref.to_lowercase().to_string()),
             "index": h.instance().map(|(_, i)| i),
             "carried": h.carried.map(|r| format!("{}.uti", r.to_lowercase())),
+            "spawned": h.spawned.map(|r| format!("{}.utc", r.to_lowercase())),
         })).collect::<Vec<_>>(),
     });
     for h in &hits {

@@ -5,8 +5,6 @@
 //! Every change also stores the creature's recomputed `MaxHitPoints` and
 //! `ChallengeRating` (in the same undoable command), as Aurora does on OK.
 
-use std::sync::Arc;
-
 use egui::Ui;
 use mg_core::{ResRef, ResType};
 use mg_edit::{Command, Edit, GffPath};
@@ -14,8 +12,8 @@ use mg_gff::{FieldType, Struct, Value};
 use mg_module::palette::BlueprintKind;
 use mg_resman::ResKey;
 use mg_rules::creatures::{ABILITIES, modifier};
-use mg_rules::items::{part_number, wide_label};
-use mg_rules::{Challenge, Choice, ChoiceColumns, CreatureSheet, GameData};
+use mg_rules::items::part_number;
+use mg_rules::{Challenge, Choice, CreatureSheet, GameData};
 
 use super::{Form, creature_lists, situated};
 use crate::widgets::{commit_number, spin_number};
@@ -135,10 +133,6 @@ pub(crate) fn refresh_hit_points(
     }
 }
 
-fn choices(f: &Form<'_>, table: &str, name: &str, label: &str) -> std::sync::Arc<Vec<Choice>> {
-    f.choices(table, Some(name), Some(label))
-}
-
 /// A creature's challenge rating, its gear read from the module's item
 /// blueprints, else the game's.
 fn challenge(game: &GameData, module: &mg_module::Module, creature: &Struct) -> Challenge {
@@ -168,9 +162,9 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     // (Those with a name, as Aurora and the Creature Wizard list them: a
     // row without one is `DELETED`, `INVALID_RACE`, CEP's `CEP_RESERVED`.)
     let races = f.choices("racialtypes", Some("Name"), None);
-    let appearances = choices(f, "appearance", "STRING_REF", "LABEL");
-    let phenotypes = choices(f, "phenotype", "Name", "Label");
-    let genders = choices(f, "gender", "NAME", "GENDER");
+    let appearances = f.choices("appearance", Some("STRING_REF"), Some("LABEL"));
+    let phenotypes = f.choices("phenotype", Some("Name"), Some("Label"));
+    let genders = f.choices("gender", Some("NAME"), Some("GENDER"));
     egui::Grid::new(("utc-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         for (text, what, label, last) in [
             ("First Name", "First name", "FirstName", false),
@@ -258,7 +252,7 @@ fn statistics(f: &mut Form<'_>, ui: &mut Ui) {
     else {
         return;
     };
-    let speeds = choices(f, "creaturespeed", "Name", "Label");
+    let speeds = f.choices("creaturespeed", Some("Name"), Some("Label"));
     crate::widgets::section_heading(ui, "Ability Scores");
     egui::Grid::new(("utc-abilities", f.key))
         .num_columns(5)
@@ -429,25 +423,6 @@ pub(crate) fn with_a_body(app: &mut Moonglow, edits: &mut Vec<Edit>) {
     edits.extend(more);
 }
 
-/// The part numbers with a model for a body's prefix (`pmh0_chest`), cached.
-fn part_numbers(ui: &Ui, game: &GameData, prefix: &str) -> Arc<Vec<u16>> {
-    let id = egui::Id::new(("body-parts", prefix));
-    if let Some(v) = ui.data(|d| d.get_temp::<Arc<Vec<u16>>>(id)) {
-        return v;
-    }
-    let mut v: Vec<u16> = game
-        .resman
-        .list(ResType::MDL)
-        .iter()
-        .filter_map(|r| r.to_string().strip_prefix(prefix)?.parse().ok())
-        .collect();
-    v.sort_unstable();
-    v.dedup();
-    let v = Arc::new(v);
-    ui.data_mut(|d| d.insert_temp(id, v.clone()));
-    v
-}
-
 /// The model prefix of a part-based creature's body (`pmh0`), if it is one.
 fn body_prefix(f: &Form<'_>, game: &GameData) -> Option<String> {
     let appearance = game.table("appearance").ok()?;
@@ -464,11 +439,6 @@ fn body_prefix(f: &Form<'_>, game: &GameData) -> Option<String> {
         .filter(|g| g == "m" || g == "f")
         .unwrap_or_else(|| "m".into());
     Some(format!("p{gender}{race}{}", f.int("Phenotype").max(0)))
-}
-
-fn set_part(f: &mut Form<'_>, what: &str, label: &str, v: i64) {
-    let wide = wide_label(label);
-    f.set_many(what, &[(label, v.min(255), FieldType::Byte), (&wide, v, FieldType::Word)]);
 }
 
 /// The Appearance page: the creature as it looks now, as large as the
@@ -527,12 +497,8 @@ const APPEARANCE_SIDE: f32 = 350.0;
 /// The Appearance page's fields: wings, tail and colors, then the body
 /// parts of an appearance that has them (`prefix`: its parts' models).
 fn appearance_fields(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, prefix: Option<&str>) {
-    let wings = game
-        .choices("wingmodel", ChoiceColumns { name: None, label: Some("LABEL") })
-        .unwrap_or_default();
-    let tails = game
-        .choices("tailmodel", ChoiceColumns { name: None, label: Some("LABEL") })
-        .unwrap_or_default();
+    let wings = f.choices("wingmodel", None, Some("LABEL"));
+    let tails = f.choices("tailmodel", None, Some("LABEL"));
     egui::Grid::new(("utc-extras", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         crate::widgets::field_label(ui, "Wings");
         f.choice(ui, "Wings", "Wings_New", &wings, FieldType::Dword);
@@ -556,13 +522,13 @@ fn appearance_fields(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, prefix: Opt
     crate::widgets::section_heading(ui, "Body Parts");
     egui::Grid::new(("utc-parts", f.key)).num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
         for (text, label, part) in BODY_PARTS {
-            let numbers = part_numbers(ui, game, &format!("{prefix}_{part}"));
+            let numbers = super::item::model_numbers(ui, game, &format!("{prefix}_{part}"));
             let current = part_number(&f.root, label).unwrap_or(0);
             let choices = situated::part_choices(&numbers, |n| n.to_string());
             crate::widgets::field_label(ui, text);
             f.mark_mixed(ui, label);
             if let Some(v) = situated::pick_part(ui, f.key, label, &choices, current, 220.0) {
-                set_part(f, text, label, v);
+                super::item::set_part(f, text, &[label], v);
             }
             ui.end_row();
         }
@@ -585,11 +551,11 @@ const ALIGNMENTS: [(&str, i64, i64); 9] = [
 fn classes(f: &mut Form<'_>, ui: &mut Ui) {
     let base = f.path.clone();
     let key = f.key;
-    let all = choices(f, "classes", "Name", "Label");
-    let packages = choices(f, "packages", "Name", "Label");
+    let all = f.choices("classes", Some("Name"), Some("Label"));
+    let packages = f.choices("packages", Some("Name"), Some("Label"));
     let list: Vec<Struct> = f.root.list("ClassList").unwrap_or(&[]).to_vec();
-    let domains = choices(f, "domains", "Name", "Label");
-    let schools = choices(f, "spellschools", "StringRef", "Label");
+    let domains = f.choices("domains", Some("Name"), Some("Label"));
+    let schools = f.choices("spellschools", Some("StringRef"), Some("Label"));
     // What classes.2da says a class picks or has.
     let classes_2da = f.app.game.as_deref().and_then(|g| g.table("classes").ok());
     let class_int = |class: i64, column: &str| {
@@ -740,8 +706,8 @@ fn associates(
                 && class_int(class, "MinAssociateLevel").is_some_and(|l| l != 255)
         })
     };
-    let familiars = choices(f, "hen_familiar", "STRREF", "NAME");
-    let companions = choices(f, "hen_companion", "STRREF", "NAME");
+    let familiars = f.choices("hen_familiar", Some("STRREF"), Some("NAME"));
+    let companions = f.choices("hen_companion", Some("STRREF"), Some("NAME"));
     let mut notes = Vec::new();
     egui::Grid::new(("utc-associates", f.key)).num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
         for (title, kinds, type_label, name_label, arcane, who) in [
@@ -789,7 +755,7 @@ fn set(key: ResKey, path: &GffPath, label: &str, value: Value) -> Edit {
 fn skills(f: &mut Form<'_>, ui: &mut Ui) {
     let base = f.path.clone();
     let key = f.key;
-    let skills = choices(f, "skills", "Name", "Label");
+    let skills = f.choices("skills", Some("Name"), Some("Label"));
     let described_by = f.app.game.clone();
     let list: Vec<Struct> = f.root.list("SkillList").unwrap_or(&[]).to_vec();
     let mut edit = None;
@@ -829,9 +795,9 @@ fn skills(f: &mut Form<'_>, ui: &mut Ui) {
 }
 
 fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
-    let bags = choices(f, "bodybag", "Name", "LABEL");
-    let sounds = choices(f, "soundset", "STRREF", "LABEL");
-    let ranges = choices(f, "ranges", "Name", "Label");
+    let bags = f.choices("bodybag", Some("Name"), Some("LABEL"));
+    let sounds = f.choices("soundset", Some("STRREF"), Some("LABEL"));
+    let ranges = f.choices("ranges", Some("Name"), Some("Label"));
     crate::widgets::two_columns(ui, 440.0, |ui, col| {
         if col == 0 {
             egui::Grid::new(("utc-adv", f.key)).num_columns(2).spacing([12.0, 6.0]).show(
@@ -863,7 +829,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
                         let id = egui::Id::new(("utc-soundset-filter", f.key));
                         let (mut gender, mut kind): (Option<i64>, Option<i64>) =
                             ui.data(|d| d.get_temp(id)).unwrap_or_default();
-                        let types = choices(f, "soundsettype", "STRREF", "LABEL");
+                        let types = f.choices("soundsettype", Some("STRREF"), Some("LABEL"));
                         let name = |v: Option<i64>, all: &str, names: &dyn Fn(i64) -> String| {
                             v.map_or(all.to_string(), names)
                         };

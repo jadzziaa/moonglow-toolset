@@ -62,6 +62,7 @@ struct Tally {
     bonuses: usize,
     numbers: usize,
     carried: usize,
+    spawned: usize,
 }
 
 fn check(m: &Module, game: &GameData, name: &str, fails: &mut Vec<String>) -> Tally {
@@ -120,6 +121,8 @@ fn check(m: &Module, game: &GameData, name: &str, fails: &mut Vec<String>) -> Ta
         let hits = search(m, &Query::new(s.clone()), Some(game), cp);
         let (carried, direct): (Vec<&Hit>, Vec<&Hit>) =
             hits.iter().partition(|h| h.carried.is_some());
+        let (spawned, direct): (Vec<&Hit>, Vec<&Hit>) =
+            direct.into_iter().partition(|h| h.spawned.is_some());
         let mut got: Vec<(ResKey, String)> =
             direct.iter().map(|h| (h.key, h.path.clone())).collect();
         got.sort();
@@ -157,7 +160,23 @@ fn check(m: &Module, game: &GameData, name: &str, fails: &mut Vec<String>) -> Ta
             Search::Field { .. } => tally.numbers += direct.len(),
             _ => {}
         }
+        // What is spawned is a creature blueprint found, named where an
+        // encounter's creature list names it.
+        for h in &spawned {
+            let creature = ResKey::new(h.spawned.unwrap(), ResType::UTC);
+            if !direct.iter().any(|d| d.key == creature) {
+                fails.push(format!("{name}: {} spawns {creature}, which wasn't found", h.key));
+            }
+            let named = m
+                .gff(&h.key)
+                .and_then(Result::ok)
+                .and_then(|g| at(&g.root, &h.path).and_then(|v| v.as_resref()));
+            if named != h.spawned {
+                fails.push(format!("{name}: {} {} names {named:?}", h.key, h.path));
+            }
+        }
         tally.carried += carried.len();
+        tally.spawned += spawned.len();
         // Named as the game names them.
         let named = |h: &&Hit| match s {
             Search::Class(4) => h.matched.starts_with("Class: Fighter, level "),
@@ -190,16 +209,18 @@ fn advanced_search_finds_what_the_shipped_modules_hold() {
     let fails: Vec<&String> = results.iter().flat_map(|r| &r.1).collect();
     assert!(fails.is_empty(), "{} problems:\n{:#?}", fails.len(), &fails[..fails.len().min(20)]);
     let sum = |f: fn(&Tally) -> usize| results.iter().map(|r| f(&r.0)).sum::<usize>();
-    let (variables, fighters, bonuses, numbers, carried) = (
+    let (variables, fighters, bonuses, numbers, carried, spawned) = (
         sum(|t| t.variables),
         sum(|t| t.fighters),
         sum(|t| t.bonuses),
         sum(|t| t.numbers),
         sum(|t| t.carried),
+        sum(|t| t.spawned),
     );
     println!(
         "{} modules: {variables} variables, {fighters} fighters, {bonuses} skill bonuses, \
-         {numbers} fields holding 103, {carried} found through inventories",
+         {numbers} fields holding 103, {carried} found through inventories, {spawned} through \
+         encounters",
         modules.len()
     );
     assert!(variables >= at_least(1000, 3), "{variables} variables");

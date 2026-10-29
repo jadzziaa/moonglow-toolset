@@ -161,21 +161,69 @@ pub(crate) fn origin_name(layer: &str) -> String {
     }
 }
 
-/// The two halves of a loading screen's square texture (rows from the
-/// bottom, as stored), side by side.
-fn stitched(whole: &mg_image::Rgba) -> Option<mg_image::Rgba> {
-    let n = whole.width as usize;
-    if n < 2 || whole.height as usize != n || whole.data.len() != n * n * 4 {
+/// The part of a loading screen's texture each mesh of `pnl_loadscreen`
+/// shows, left to right: its texture coordinates' rectangle `[u0, v0, u1,
+/// v1]`.
+type ScreenParts = Vec<[f32; 4]>;
+
+/// The game's own `pnl_loadscreen`'s: the left half of the picture in the
+/// texture's lower half from its left edge, the right half in its upper
+/// half up to its right edge, each 25/32 of its width.
+const STOCK_SCREEN: [[f32; 4]; 2] = [[0.0, 0.0, 0.781_25, 0.5], [0.218_75, 0.5, 1.0, 1.0]];
+
+/// How a `pnl_loadscreen` model (`model`, the one the game loads: a hak's
+/// own, else the game's) lays the loading screen out: each mesh drawn with
+/// `gui_replace01`, the texture the game puts the screen's picture in, as
+/// the rectangle of its texture coordinates, by where the mesh stands
+/// from the left. `None` where none is drawn so.
+fn screen_parts(model: &[u8]) -> Option<ScreenParts> {
+    let model = mg_mdl::Model::read(model).ok()?;
+    let mut parts: Vec<(f32, [f32; 4])> = Vec::new();
+    for node in &model.nodes {
+        let Some(mesh) = node.mesh() else { continue };
+        let replaced = mesh.textures[0].as_deref().is_some_and(|t| t == "gui_replace01");
+        if !replaced || mesh.uvs[0].is_empty() {
+            continue;
+        }
+        let (mut lo, mut hi) = ([f32::MAX; 2], [f32::MIN; 2]);
+        for uv in &mesh.uvs[0] {
+            for i in 0..2 {
+                lo[i] = lo[i].min(uv[i].clamp(0.0, 1.0));
+                hi[i] = hi[i].max(uv[i].clamp(0.0, 1.0));
+            }
+        }
+        let left = mesh.vertices.iter().map(|v| v[0]).fold(f32::MAX, f32::min);
+        parts.push((node.position[0] + left, [lo[0], lo[1], hi[0], hi[1]]));
+    }
+    parts.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let parts: ScreenParts = parts.into_iter().map(|(_, r)| r).collect();
+    (!parts.is_empty()).then_some(parts)
+}
+
+/// A loading screen's picture from its texture (rows from the bottom, as
+/// stored), its `parts` side by side ([`screen_parts`]): each as many
+/// pixels as it covers of the texture, as high as the lowest of them.
+fn stitched(whole: &mg_image::Rgba, parts: &[[f32; 4]]) -> Option<mg_image::Rgba> {
+    let (w, h) = (whole.width as usize, whole.height as usize);
+    if w < 2 || h < 2 || whole.data.len() != w * h * 4 || parts.is_empty() {
         return None;
     }
-    let (w, h) = (n * 25 / 32, n / 2);
-    let mut data = Vec::with_capacity(2 * w * h * 4);
-    for y in 0..h {
-        let row = |y: usize, from: usize| &whole.data[(y * n + from) * 4..(y * n + from + w) * 4];
-        data.extend_from_slice(row(y, 0));
-        data.extend_from_slice(row(n - h + y, n - w));
+    let px = |f: f32, n: usize| ((f * n as f32).round() as usize).min(n);
+    let rects: Vec<[usize; 4]> =
+        parts.iter().map(|p| [px(p[0], w), px(p[1], h), px(p[2], w), px(p[3], h)]).collect();
+    let height = rects.iter().map(|r| r[3].saturating_sub(r[1])).min()?;
+    let width: usize = rects.iter().map(|r| r[2].saturating_sub(r[0])).sum();
+    if height == 0 || width == 0 {
+        return None;
     }
-    Some(mg_image::Rgba { width: (2 * w) as u32, height: h as u32, data })
+    let mut data = Vec::with_capacity(width * height * 4);
+    for y in 0..height {
+        for r in &rects {
+            let row = (r[1] + y) * w;
+            data.extend_from_slice(&whole.data[(row + r[0]) * 4..(row + r[2]) * 4]);
+        }
+    }
+    Some(mg_image::Rgba { width: width as u32, height: height as u32, data })
 }
 
 /// A texture as pixels no more than `side` across: its first mip level that
@@ -304,22 +352,30 @@ impl Loader<'_> {
         self.keep(ctx, key, rgba)
     }
 
-    /// A loading screen's picture as the game shows it, loaded once. The
-    /// texture is square and holds the wide picture in two halves, as the
-    /// game's `pnl_loadscreen` model maps them: the left half in the
-    /// texture's lower half from its left edge, the right half in its
-    /// upper half up to its right edge, each 25/32 of its width. A texture
-    /// that isn't square is shown as it is.
+    /// A loading screen's picture as the game shows it, loaded once: the
+    /// parts of its texture the `pnl_loadscreen` model the game loads (a
+    /// hak's own, else the game's) maps, side by side ([`screen_parts`];
+    /// the game's own model's where none is read: [`STOCK_SCREEN`]). A
+    /// texture not found has the small preview Aurora shows in its place
+    /// (`<name>s`), as it is, where there is one.
     pub(crate) fn load_screen(&mut self, ctx: &egui::Context, name: &str) -> Option<Picture> {
         let key = format!("{}#loadscreen", name.to_ascii_lowercase());
         if let Some(p) = self.pictures.get(&key) {
             return p.clone();
         }
-        let rgba = ResRef::from_str(name).ok().and_then(|r| {
+        let model = ResRef::from_str("pnl_loadscreen").ok().map(|r| ResKey::new(r, ResType::MDL));
+        let parts = model.and_then(|k| self.data(k)).and_then(|m| screen_parts(&m));
+        let parts = parts.unwrap_or_else(|| STOCK_SCREEN.to_vec());
+        let read = |r: ResRef| -> Option<mg_image::Rgba> {
             let (t, data) = self.texture(r)?;
-            let whole = mg_image::read(t, &data).ok()?.to_rgba();
-            Some(stitched(&whole).unwrap_or(whole))
-        });
+            Some(mg_image::read(t, &data).ok()?.to_rgba())
+        };
+        let rgba = ResRef::from_str(name)
+            .ok()
+            .and_then(read)
+            .map(|whole| stitched(&whole, &parts).unwrap_or(whole));
+        let small = || ResRef::from_str(&format!("{name}s")).ok().and_then(read);
+        let rgba = rgba.or_else(small);
         self.keep(ctx, key, rgba)
     }
 
@@ -632,6 +688,77 @@ mod tests {
     use mg_gff::Value;
 
     use super::*;
+
+    /// A texture whose every pixel says where it is (red its column, green
+    /// its row).
+    fn where_texture(w: u32, h: u32) -> mg_image::Rgba {
+        let data = (0..h).flat_map(|y| (0..w).flat_map(move |x| [x as u8, y as u8, 0, 255]));
+        mg_image::Rgba { width: w, height: h, data: data.collect() }
+    }
+
+    /// The game's own layout: the left half of the picture is the
+    /// texture's first rows from its left edge, the right half its last
+    /// rows up to its right edge, 25/32 of its width each.
+    #[test]
+    fn a_loading_screen_is_put_together_as_the_stock_model_lays_it_out() {
+        let n = 64;
+        let out = stitched(&where_texture(n, n), &STOCK_SCREEN).unwrap();
+        assert_eq!((out.width, out.height), (100, 32));
+        let at =
+            |x: usize, y: usize| (out.data[(y * 100 + x) * 4], out.data[(y * 100 + x) * 4 + 1]);
+        assert_eq!(at(0, 0), (0, 0));
+        assert_eq!(at(49, 31), (49, 31), "the left half's last pixel");
+        assert_eq!(at(50, 0), (14, 32), "the right half: the upper rows, from 7/32 across");
+        assert_eq!(at(99, 31), (63, 63));
+        // A texture of nothing, or parts of nothing: none.
+        assert!(stitched(&where_texture(1, 1), &STOCK_SCREEN).is_none());
+        assert!(stitched(&where_texture(8, 8), &[[0.5, 0.5, 0.5, 1.0]]).is_none());
+        // The game's own model, read as a hak's would be, gives the same.
+        let Some(root) = mg_testkit::nwn_root() else { return };
+        let install = mg_resman::GameInstall::new(&root, None, "en");
+        let rm = mg_resman::ResMan::for_game(&install).unwrap();
+        let key = ResKey::parse("pnl_loadscreen", ResType::MDL).unwrap();
+        let parts = screen_parts(&rm.get(&key).unwrap()).unwrap();
+        assert_eq!(parts.len(), 2);
+        for (got, want) in parts.iter().zip(STOCK_SCREEN) {
+            assert!(got.iter().zip(want).all(|(g, w)| (g - w).abs() < 1e-4), "{got:?}");
+        }
+    }
+
+    /// A hak's own `pnl_loadscreen` (written here: three panels of a wide
+    /// texture, listed out of their order on screen, and a frame drawn
+    /// with another texture) is laid out as it maps the texture.
+    #[test]
+    fn a_loading_screen_follows_a_hak_s_own_model() {
+        let quad = |name: &str, x: f32, bitmap: &str, uv: [f32; 4]| {
+            let [u0, v0, u1, v1] = uv;
+            format!(
+                "node trimesh {name}\n  parent screen\n  bitmap {bitmap}\n  verts 4\n    -1 1 0\n    \
+                 -1 -1 0\n    1 1 0\n    1 -1 0\n  tverts 4\n    {u0} {v1} 0\n    {u0} {v0} 0\n    \
+                 {u1} {v1} 0\n    {u1} {v0} 0\n  faces 2\n    0 1 2 1 0 1 2 1\n    \
+                 3 2 1 1 3 2 1 1\n  position {x} 0 0\nendnode\n"
+            )
+        };
+        let text = format!(
+            "newmodel screen\nsetsupermodel screen NULL\nbeginmodelgeom screen\nnode dummy screen\n  \
+             parent NULL\nendnode\n{}{}{}{}endmodelgeom screen\ndonemodel screen\n",
+            quad("right", 2.0, "gui_replace01", [0.5, 0.5, 1.0, 1.0]),
+            quad("frame", 0.0, "gui_boxes_ingame", [0.0, 0.0, 0.1, 0.1]),
+            quad("left", -2.0, "gui_replace01", [0.0, 0.0, 0.5, 0.5]),
+            quad("middle", 0.0, "gui_replace01", [0.5, 0.0, 1.0, 0.5]),
+        );
+        let parts = screen_parts(text.as_bytes()).unwrap();
+        assert_eq!(parts, [[0.0, 0.0, 0.5, 0.5], [0.5, 0.0, 1.0, 0.5], [0.5, 0.5, 1.0, 1.0]]);
+        let out = stitched(&where_texture(64, 32), &parts).unwrap();
+        assert_eq!((out.width, out.height), (96, 16));
+        let at = |x: usize| (out.data[x * 4], out.data[x * 4 + 1]);
+        assert_eq!([at(0), at(32), at(64)], [(0, 0), (32, 0), (32, 16)]);
+        // A model with no such mesh, or not a model: the stock layout.
+        let bare = "newmodel x\nbeginmodelgeom x\nnode dummy x\n  parent NULL\nendnode\n\
+                    endmodelgeom x\ndonemodel x\n";
+        assert!(screen_parts(bare.as_bytes()).is_none());
+        assert!(screen_parts(b"\0\0garbage").is_none());
+    }
 
     #[test]
     fn a_thumbnail_is_a_small_mip_level_or_scaled_down() {

@@ -9,7 +9,6 @@ use mg_core::{ResRef, ResType};
 use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{FieldType, Value};
 use mg_resman::ResKey;
-use mg_rules::{Choice, ChoiceColumns};
 
 use crate::blueprint::Form;
 use crate::{Action, Moonglow};
@@ -21,11 +20,6 @@ pub(crate) const PAGES: [&str; 7] =
 const INTERIOR: u32 = 0x1;
 const UNDERGROUND: u32 = 0x2;
 const NATURAL: u32 = 0x4;
-
-fn choices(app: &Moonglow, table: &str, name: &str, label: &str) -> std::sync::Arc<Vec<Choice>> {
-    let columns = ChoiceColumns { name: Some(name), label: Some(label) };
-    app.game.as_ref().and_then(|g| g.choice_list(table, columns).ok()).unwrap_or_default()
-}
 
 /// The pages for several areas edited together: what is an area's own
 /// (its name, tag and comments) is edited one area at a time.
@@ -308,7 +302,12 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
 }
 
 fn visual(f: &mut Form<'_>, ui: &mut Ui) {
-    let schemes = choices(f.app, "environment", "STRREF", "LABEL");
+    let schemes = crate::widgets::table_choices(
+        f.app.game.as_deref(),
+        "environment",
+        Some("STRREF"),
+        Some("LABEL"),
+    );
     let current = f.int("LightingScheme");
     crate::widgets::section_heading(ui, "Lighting Scheme");
     ui.weak(
@@ -361,7 +360,12 @@ fn visual(f: &mut Form<'_>, ui: &mut Ui) {
     lighting_buttons(f, ui);
     ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::section_heading(ui, "Environment");
-    let skyboxes = choices(f.app, "skyboxes", "STRING_REF", "LABEL");
+    let skyboxes = crate::widgets::table_choices(
+        f.app.game.as_deref(),
+        "skyboxes",
+        Some("STRING_REF"),
+        Some("LABEL"),
+    );
     egui::Grid::new(("are-env", f.key)).num_columns(3).spacing([12.0, 6.0]).show(ui, |ui| {
         crate::widgets::field_label(ui, "");
         ui.strong("Sun");
@@ -627,9 +631,24 @@ fn audio(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResRef]) {
         ui.label("This area has no audio settings (its GIT lacks AreaProperties).");
         return;
     };
-    let sounds = choices(app, "ambientsound", "Description", "Resource");
-    let music = choices(app, "ambientmusic", "Description", "Resource");
-    let eax = choices(app, "soundeax", "Description", "Label");
+    let sounds = crate::widgets::table_choices(
+        app.game.as_deref(),
+        "ambientsound",
+        Some("Description"),
+        Some("Resource"),
+    );
+    let music = crate::widgets::table_choices(
+        app.game.as_deref(),
+        "ambientmusic",
+        Some("Description"),
+        Some("Resource"),
+    );
+    let eax = crate::widgets::table_choices(
+        app.game.as_deref(),
+        "soundeax",
+        Some("Description"),
+        Some("Label"),
+    );
     let mut f = Form { app, key: git, path, also, root };
     egui::Grid::new(("are-audio", git)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         for (text, label, list) in [
@@ -705,8 +724,18 @@ fn flag_set(flags: u32, bit: u32, on: bool) -> u32 {
 }
 
 fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
-    let pvp = choices(f.app, "pvpsettings", "strref", "label");
-    let screens = choices(f.app, "loadscreens", "StrRef", "Label");
+    let pvp = crate::widgets::table_choices(
+        f.app.game.as_deref(),
+        "pvpsettings",
+        Some("strref"),
+        Some("label"),
+    );
+    let screens = crate::widgets::table_choices(
+        f.app.game.as_deref(),
+        "loadscreens",
+        Some("StrRef"),
+        Some("Label"),
+    );
     let flags = f.int("Flags") as u32;
     egui::Grid::new(("are-advanced", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         if f.also.is_empty() {
@@ -809,8 +838,7 @@ fn area_variables(f: &mut Form<'_>, ui: &mut Ui) {
         .map(|(area, git, are)| (area, mg_edit::fix::variables_moved(&git, &are), !are.is_empty()))
         .collect();
     let shown = &moved[0].1;
-    let label = format!("Variables ({})…", shown.len());
-    if !ui.button(label).on_hover_text("Edit scripting variables").clicked() {
+    if !crate::widgets::variables_button(ui, shown.len()) {
         return;
     }
     let mut edits = Vec::new();

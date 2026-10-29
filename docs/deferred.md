@@ -324,17 +324,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Blueprint editors and inventories
 
-- **Text typed and its field gone before the keyboard left it:** a
-  text field that sets its text when the keyboard leaves it gives the
-  keyboard up at a press of the pointer anywhere else, and before a
-  command asked for by its key is run (Save, Close Tab, Next Tab: the
-  command is run a frame on), so that it sets what was typed while it
-  is still drawn. So in every window's fields of the kind, the hak
-  editor's description, a conversation script's parameters and a 2DA's
-  cell being typed in among them. Not so: a plugin's command by its key
-  (run at once), and a window taken away by nothing the builder did (a
-  module's files changed outside and read again). (S) (a builder's
-  report, October 2026)
 - **An appearance with no model, what the warning leaves out:** the rule
   (`mg_rules::appearance`) checks a placeable's, a door's, a
   single-model creature's and a waypoint's row and model by name (the
@@ -409,17 +398,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   and no gallery of them. A creature's look is a plain body of the
   appearance, male unless the creature is female. (S–M) (from builders'
   reports after 1.10.1)
-- **Pictures in the Appearance list, what is left:** a creature's (a
-  plain male body of the appearance), a placeable's, a door's (Appearance
-  Type and Generic Appearance) and an item's (its model's, a weapon's
-  parts' shapes and colors, an armor's parts: the item as it would be
-  with each, its icon beside) show beside the row the pointer rests on.
-  A tileset door type's row **Use Generic Appearance** shows "(no
-  picture)", not the generic door chosen. A ring or an amulet, which
-  has no model of its own, shows the bag the game drops it as (its icon
-  tells the rows apart). The pictures are made on the UI thread after
-  the frame, 2 ms of a frame at most, as every gallery's are. (S)
-  (GitHub issue 7)
 - **OK and Cancel where there is none yet:** the hak editor, the
   tileset editor, the talk table, the raw field editor and a script
   (each saved, or asked about, in its own way). In the windows that
@@ -461,24 +439,31 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Discord, October 2026; done: changing what it found, ticked or all, in
   one step: a variable set or removed, an event's script, a field;
   Edit Together and Edit Areas Together from its results; conditions
-  together, a class by its levels, number ranges and floats):
+  together, a class by its levels, number ranges and floats; an item
+  blueprint followed through bags in bags, and a creature blueprint
+  into the encounters that spawn it, since 2026-10-29):
   - Changes are a variable, a script or a field: item properties aren't
     added or removed on the items found, nor list entries (feats,
     classes, inventory) on the creatures; a field is set only where the
     object has it (none is added). Edit Together takes blueprints of one
     type and objects of one kind placed in one area; items held by
-    placed objects, and conversations, open one by one. (S–M)
+    placed objects, and conversations, open one by one. (S–M; shares
+    its design with editing lists across several blueprints)
   - No spell by the class that knows it (a spell found is any class's);
-    conditions are all ANDed (no OR, no NOT); a conversation's lines and
-    other things on no object drop out of a search with more than one
-    condition; `mg search` takes one condition at a time, without class
-    levels or ranges. (S)
+    conditions are all ANDed (no OR, no NOT: the window's conditions
+    and `Query` both, each half a day); a conversation's lines and other
+    things on no object drop out of a search with more than one
+    condition (there is no object for the others to be found on);
+    `mg search` takes one condition at a time, without class levels or
+    ranges, and its JSON names what is found through an encounter only
+    in its place (`spawned` is `mg_module::search::Hit`'s, not printed:
+    the command line is `apps/mg/src/search.rs`, another package's this
+    wave). (S each)
   - The module only: blueprints in haks and the game's own palettes
-    aren't searched. An item blueprint found is followed into the
-    inventories of the module's blueprints, one step only (a chest
-    blueprint holding a bag blueprint that holds it isn't listed); a
-    creature blueprint found isn't followed into the encounters that
-    spawn it. (S)
+    aren't searched (`Kept::search` walks `Module::keys`; the haks' and
+    palettes' blueprints read as the module's are would be a layer of
+    hits of their own, read-only, and a change offered on none of
+    them). (S–M)
   - A question asked again (Find again, or found again after a change
     made to what it found) reads only the resources changed since
     (`search::Kept`); another question reads the module again, once
@@ -489,25 +474,25 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     would keep every GFF read (0.6 GB more in the persistent world).
     The events Set an event's script offers still read the objects
     found anew: 0.1 s of the 0.11 s a question asked again takes with
-    8,785 found in the persistent world. (S)
+    8,785 found in the persistent world. (S; the triage proposed
+    dropping it: a record of numbers in budget, no verdict yet)
   - Appearance covers the 2DA rows a field names (creatures,
     placeables, doors, waypoints, items' base types); items' model
     parts and colors, portraits and sound sets are found through Any
-    field. (S)
+    field. (S; the triage proposed settling it as designed)
 - **Variable sets** hold int, float and string variables only, as the
-  Variables window edits; object and location variables aren't kept. (S)
-  Renamed, deleted, saved to and added from files of one's choosing
-  (builders' requests, October 2026), with these gaps:
+  Variables window edits; object and location variables aren't kept
+  (they mean nothing outside their module: the triage proposed settling
+  it, no verdict yet). (S) Renamed, deleted, saved to and added from
+  files of one's choosing (builders' requests, October 2026); a file
+  that isn't a set said so in the menu and the Variable Sets window,
+  what a set holds in its tip, and several files added at once since
+  2026-10-29; these gaps are left, each a decision for the owner, not
+  work (the triage proposed dropping both):
   - Undo Delete lasts while the Variable Sets window is open, and a
     rename has no undo (rename it back); neither is in Edit › Undo,
     which is the module's. (S)
-  - A hand-edited file that isn't a set (bad JSON, an unknown type) is
-    said only when it is added, in the log; the menu and the Variable
-    Sets window list it by its file name as any other. (S)
-  - No preview of what a set holds before it is added (the prefab
-    palette's hover summary has no counterpart in the Add Set menu). (S)
-  - No folders inside `variable-sets`, and Add from File… takes one file
-    at a time. (S)
+  - No folders inside `variable-sets` (a set in one isn't listed). (S)
 
 ## Conversation authoring
 
@@ -779,10 +764,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 - **Overridden copies in the resource browser** open read-only as their
   layer has them (fields, tables, text, a model as its text), copy to
-  the module and save; the model viewer (Preview) shows only the copy
-  the game reads, Export as Files writes only those, and a plugin's
-  selection sees a copy's tab as nothing. (S) (a builder's report on
-  2.0.0)
+  the module and save; since 2026-10-29 Preview shows a copy's model or
+  blueprint (`Tab::ModelCopy`) and Export as Files writes the copies
+  listed, each in a folder of its layer's. Left: a plugin's selection
+  sees a copy's tab as nothing (`Moonglow::plugin_open`). Seeing it
+  needs the plugin API to name a layer: an entry with its `layer`
+  (`mg_plugin::Selected` has none) and a way to read that copy
+  (`ctx.game:bytes(name, layer)`, say), documented in the API reference
+  and its tests: an API addition, not a fix. (S–M) (a builder's report
+  on 2.0.0)
 
 
 ## Area visibility
@@ -1628,11 +1618,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   character, which the editor has none of. (S) (waits on Aurora: whether
   it ever shows the feminine table's text, a line by StrRef in its
   conversation editor say; if never, this is settled)
-- **Loading screen pictures** are put together as the game's stock
-  `pnl_loadscreen` model maps them (two halves of a square texture); a
-  module with its own `pnl_loadscreen` model, or a texture that isn't
-  laid out so, shows wrong. Aurora's small `<name>s` preview isn't used.
-  The picture isn't in the list itself, only on hover. (S)
 - **A module's `encoding.2da`, what is left by choice** (EE 1.87: a
   table of the Unicode character each byte of the game's text stands
   for; a builder who knows the engine pointed it out, after 1.19.1):
@@ -2291,16 +2276,6 @@ of truth, and does each caller's difference matter.
   Select Portrait's grid: captured 2026-10-29).
 - NWSync publishing on a thread of its own, without the jobs' cancel
   and panic handling (`nwsync_view.rs:113`).
-- The wizards' "choices of a table, none without a game" six times,
-  each copying the kept list (`area_props.rs:25`, `creature_wizard.rs:85`,
-  `creature.rs:115`, `levelup_view.rs:77`, `situated.rs:207`,
-  `Form::choices`); the Variables button three times (`Form::variables`,
-  `widgets::variables_button`, `area_props.rs:645`); the model-number
-  scan and `set_part` twice (`item.rs:244`, `:308`, `creature.rs:405`,
-  `:451`; the creature's drops the three-digit check); the autosave and backup default of five
-  minutes in four places; `ui.label` where `field_label` is meant
-  (`wizards.rs:67`, `:86`, `:106`, `faction_view.rs:263`,
-  `store_wizard.rs:355`, `:358`, `widgets.rs:369`, `:604`).
 - `rename`'s `usages`, `tag_usages` and `mentions` restate what
   `UsageIndex` answers. (`#include`, read three ways, is read one way
   since 2026-10-28: `mg_script::lex::includes`, which knows comments.)

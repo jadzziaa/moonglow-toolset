@@ -196,7 +196,7 @@ impl OptionsDraft {
             auto_reload: !s.no_auto_reload,
             backups: !s.no_backups,
             autosave: !s.no_autosave,
-            autosave_minutes: s.autosave_minutes.unwrap_or(5),
+            autosave_minutes: s.autosave_every(),
             hak_warning: !s.no_hak_warning,
             namespace_warning: !s.no_namespace_warning,
             spell_warning: !s.no_spell_warning,
@@ -237,7 +237,7 @@ impl OptionsDraft {
             dialog_paste_source_to_dest: s.dialog_paste_source_to_dest,
             dialog_drag_source_to_dest: !s.dialog_drag_dest_to_source,
             dialog_backup: !s.dialog_no_backup,
-            dialog_backup_minutes: s.dialog_backup_minutes.unwrap_or(5),
+            dialog_backup_minutes: s.dialog_backup_every(),
             placed_sounds: !s.no_placed_sounds,
             ambient_sound: s.ambient_sound,
             ambient_music: s.ambient_music,
@@ -282,7 +282,7 @@ impl OptionsDraft {
             no_auto_reload: !self.auto_reload,
             no_backups: !self.backups,
             no_autosave: !self.autosave,
-            autosave_minutes: (self.autosave_minutes != 5)
+            autosave_minutes: (self.autosave_minutes != crate::settings::AUTOSAVE_MINUTES)
                 .then_some(self.autosave_minutes.clamp(1, 120)),
             no_hak_warning: !self.hak_warning,
             no_namespace_warning: !self.namespace_warning,
@@ -325,7 +325,8 @@ impl OptionsDraft {
             dialog_paste_source_to_dest: self.dialog_paste_source_to_dest,
             dialog_drag_dest_to_source: !self.dialog_drag_source_to_dest,
             dialog_no_backup: !self.dialog_backup,
-            dialog_backup_minutes: (self.dialog_backup_minutes != 5)
+            dialog_backup_minutes: (self.dialog_backup_minutes
+                != crate::settings::DIALOG_BACKUP_MINUTES)
                 .then_some(self.dialog_backup_minutes.clamp(1, 180)),
             no_placed_sounds: !self.placed_sounds,
             ambient_sound: self.ambient_sound,

@@ -498,10 +498,14 @@ the game reads, and under it, set in and dimmed, each copy that copy
 overrides: "hak:low, overridden by hak:top". Open one of those to view
 it as its layer has it (a 2DA from that copy down, with the layers below
 it), copy it into the module or save it (**Save As…**, also on its
-right-click menu); for a table in one of your own haks, **Edit in
+right-click menu), or see a model or blueprint of it in the 3D viewer
+(**Preview** on its right-click menu: that copy, drawn with the rest of
+the load order as the game reads it; the viewer's Export Files… is left
+out there, as what it gathers is the game's); for a table in one of your own haks, **Edit in
 name.hak** opens it there. With **Overridden copies** (at the top) unticked, it lists
 the copy the game reads alone. **Export N as Files…** writes the copies
-the game reads, not those they override. `mg which NAME.EXT --module
+the game reads into the folder chosen, and each overridden copy listed
+into a folder of its layer's under it (`hak_low/portraits.2da`). `mg which NAME.EXT --module
 MODULE` says the same on the command line.
 
 Its **Name** field has the side panes' keys: Ctrl+F, with the pointer

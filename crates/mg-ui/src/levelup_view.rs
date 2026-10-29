@@ -8,7 +8,7 @@
 use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{Struct, Value};
 use mg_resman::ResKey;
-use mg_rules::ChoiceColumns;
+
 use mg_rules::levelup::GearPlace;
 
 use crate::{Action, Moonglow};
@@ -70,13 +70,8 @@ pub(crate) fn open(app: &mut Moonglow, key: ResKey, path: GffPath) {
 
 pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(mut w) = app.levelup.take() else { return };
-    let names = app
-        .game
-        .as_ref()
-        .and_then(|g| {
-            g.choices("classes", ChoiceColumns { name: Some("Name"), label: Some("Label") }).ok()
-        })
-        .unwrap_or_default();
+    let names =
+        crate::widgets::table_choices(app.game.as_deref(), "classes", Some("Name"), Some("Label"));
     let name = |class: u32| mg_rules::choice_text(&names, i64::from(class));
     let (mut ok, mut cancel) = (false, false);
     egui::Window::new("Creature Levelup Wizard")
@@ -99,7 +94,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             ui.set_width(160.0);
             egui::ScrollArea::vertical().max_height(220.0).id_salt("levelup-classes").show(ui, |ui| {
                 ui.set_width(160.0);
-                for c in &names {
+                for c in names.iter() {
                     let class = c.row as u32;
                     if w.slots.iter().any(|(k, _, _)| *k == class) {
                         continue;

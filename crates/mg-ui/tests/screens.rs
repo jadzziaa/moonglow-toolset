@@ -1884,6 +1884,11 @@ fn appearance_hover_pictures() {
     h.run_steps(4);
     hover_list_row(&mut h, &in_types, &in_types, 4);
     shoot(&mut h, &dir, "appearance-hover-door-type");
+    // The type that is the generic door: the generic door chosen.
+    let mut h = pictured_blueprint(&root, &dir, ("nw_door_strong", ResType::UTD), "Basic", size);
+    h.run_steps(4);
+    hover_list_row(&mut h, &in_types, &|v: &str| v == "Use Generic Appearance", 0);
+    shoot(&mut h, &dir, "appearance-hover-door-type-generic");
     let number = |v: &str| v.parse::<u32>().is_ok();
     for (name, value, rows, row, woman) in [
         (
@@ -5921,6 +5926,8 @@ fn variable_sets() {
     ] {
         mg_ui::var_sets::save(&sets, name, &rows).unwrap();
     }
+    // (A file edited by hand that isn't a set: said so.)
+    std::fs::write(sets.join("Guards.vars.json"), "{ \"variables\": [").unwrap();
     let mut app =
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
     let game = app.game.as_deref().unwrap();
@@ -5943,6 +5950,10 @@ fn variable_sets() {
     h.run_steps(3);
     h.get_by_label("Add Set").click();
     shoot(&mut h, &dir, "variables-add-set-menu");
+    // What a set holds, as the pointer rests on it.
+    h.get_by_label("Loot chest").hover();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "variables-add-set-tip");
     h.get_by_label("Manage Sets…").click();
     h.run_steps(3);
     h.get_all_by_label("Delete").last().unwrap().click();

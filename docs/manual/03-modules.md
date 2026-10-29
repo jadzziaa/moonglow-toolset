@@ -223,7 +223,12 @@ what matched beside it (`Skill Bonus: Hide +5`, `sDeidad (string) =
 "Ezra"`). Click one to go there. A creature, placeable or store
 blueprint's inventory names its items' blueprints: an item blueprint
 found is also listed where they carry it (`chest.utp › carries
-sword.uti`). The command line has the same, one condition at a time:
+sword.uti`), through bags in bags too (`crate.utp › carries pouch.uti
+› carries sword.uti`). A creature blueprint found is also listed in
+the encounters that spawn it, an encounter blueprint's creatures and a
+placed encounter's (`camp.ute › spawns boss.utc`, `keep › encounter
+CAMP_01 › spawns boss.utc`); a change made to one of those is made to
+the creature blueprint. The command line has the same, one condition at a time:
 `mg search` ([Command-line tools](11-command-line.md)).
 
 Each one found is ticked; untick those to leave out (**Tick All**,
@@ -312,7 +317,9 @@ unpacking or packing between the toolset and git.
 - **Where you have unsaved changes to a file that also changed
   elsewhere**, Moonglow keeps yours and the **Changed Outside Moonglow**
   window asks: **Keep Moonglow's** (the next Save writes yours over the
-  file), **Take the Files'** (yours are lost) or **Later**.
+  file), **Take the Files'** (yours are lost) or **Later**. A field you
+  are typing in when the files come in sets what you typed first, so
+  that it is one of your changes, kept and asked about.
 - **Changes made elsewhere are never overwritten unasked.** Until you
   answer (and with reloading off), a save that would replace or delete a
   file changed on disk since it was read writes nothing, and the log

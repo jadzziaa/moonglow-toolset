@@ -47,7 +47,19 @@ fn module(dir: &std::path::Path) -> std::path::PathBuf {
     let mut utc = Gff::new(*b"UTC ");
     utc.root.set("Tag", Value::String(b"PRIEST".to_vec()));
     utc.root.set("ItemList", Value::List(vec![held]));
+    let mut priestly = Struct::new(0);
+    priestly.set("Name", Value::String(b"nPriestly".to_vec()));
+    priestly.set("Type", Value::Dword(1));
+    priestly.set("Value", Value::Int(1));
+    utc.root.set("VarTable", Value::List(vec![priestly]));
     m.set_gff(ResKey::parse("priest", ResType::UTC).unwrap(), &utc).unwrap();
+    // An encounter that spawns the priest.
+    let mut spawn = Struct::new(0);
+    spawn.set("ResRef", Value::resref(ResRef::from_str("priest").unwrap()));
+    let mut ute = Gff::new(*b"UTE ");
+    ute.root.set("Tag", Value::String(b"SHRINE".to_vec()));
+    ute.root.set("CreatureList", Value::List(vec![spawn]));
+    m.set_gff(ResKey::parse("shrine", ResType::UTE).unwrap(), &ute).unwrap();
     let path = dir.join("search.mod");
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
     path
@@ -76,6 +88,14 @@ fn search_a_module_without_the_game() {
         (Some("amulet.uti"), Some("/VarTable[0]"))
     );
     assert_eq!(vars[1]["carried"], "amulet.uti");
+    // A creature blueprint's, also through the encounter that spawns it.
+    let priestly = found(&["--var", "nPriestly"]);
+    let places: Vec<&str> = priestly.iter().map(|f| f["place"].as_str().unwrap()).collect();
+    assert_eq!(places, ["priest.utc", "shrine.ute › spawns priest.utc"]);
+    assert_eq!(
+        (priestly[0]["spawned"].is_null(), &priestly[1]["spawned"]),
+        (true, &"priest.utc".into())
+    );
     assert_eq!(found(&["--var", "sDeidad", "--var-type", "int"]).len(), 0);
     assert_eq!(found(&["--var", "sDeidad", "--value", "ez*", "--blueprints"]).len(), 2);
     let bonus = found(&["--property", "52", "--subtype", "5", "--value", "3"]);

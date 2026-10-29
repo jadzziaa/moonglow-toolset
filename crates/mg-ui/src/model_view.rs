@@ -195,7 +195,16 @@ pub struct ModelView {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Source {
     Resource(ResKey),
-    Instance { area: ResRef, path: GffPath },
+    Instance {
+        area: ResRef,
+        path: GffPath,
+    },
+    /// The copy of a resource a layer of the load order has (`layer`, by
+    /// its label), which a higher one overrides (the resource browser's).
+    Copy {
+        key: ResKey,
+        layer: String,
+    },
 }
 
 impl std::fmt::Display for Source {
@@ -203,6 +212,45 @@ impl std::fmt::Display for Source {
         match self {
             Source::Resource(k) => write!(f, "{k}"),
             Source::Instance { area, .. } => write!(f, "an object placed in {area}"),
+            Source::Copy { key, layer } => write!(f, "{key} from {layer}"),
+        }
+    }
+}
+
+impl Source {
+    /// The resource it is (none for a placed object).
+    fn key(&self) -> Option<ResKey> {
+        match self {
+            Source::Resource(k) | Source::Copy { key: k, .. } => Some(*k),
+            Source::Instance { .. } => None,
+        }
+    }
+
+    /// Whether it is a model, shown as it is.
+    fn is_model(&self) -> bool {
+        self.key().is_some_and(|k| k.restype == ResType::MDL)
+    }
+
+    /// Whether it is an item (shown lying, or worn).
+    fn is_item(&self) -> bool {
+        match self {
+            Source::Resource(k) | Source::Copy { key: k, .. } => k.restype == ResType::UTI,
+            Source::Instance { path, .. } => {
+                crate::blueprint::instance_type(path) == Some(ResType::UTI)
+            }
+        }
+    }
+
+    /// `key`'s bytes for it: a layer's copy's own for that copy, else as
+    /// [`resource_data`] reads them.
+    fn data(&self, app: &Moonglow, key: &ResKey) -> Option<Vec<u8>> {
+        match self {
+            Source::Copy { key: k, layer } if k == key => {
+                let rm = &app.game.as_deref()?.resman;
+                let at = rm.layers().iter().position(|l| l.label == *layer)?;
+                rm.get_in(at, key).ok().map(|d| d.into_owned())
+            }
+            _ => resource_data(app, key),
         }
     }
 }
@@ -225,10 +273,10 @@ fn resource_data(app: &Moonglow, key: &ResKey) -> Option<Vec<u8>> {
 /// entry in the area's GIT), with the blueprint type it is of; `None` for
 /// a model.
 fn source_object(app: &Moonglow, source: &Source) -> Result<Option<(ResType, Struct)>, String> {
-    let read = |k: &ResKey| resource_data(app, k).and_then(|d| Gff::read(&d).ok());
+    let read = |k: &ResKey| source.data(app, k).and_then(|d| Gff::read(&d).ok());
     Ok(Some(match source {
-        Source::Resource(key) if key.restype == ResType::MDL => return Ok(None),
-        Source::Resource(key) => {
+        _ if source.is_model() => return Ok(None),
+        Source::Resource(key) | Source::Copy { key, .. } => {
             let gff = read(key).ok_or_else(|| format!("{key}: not found or not readable"))?;
             (key.restype, gff.root)
         }
@@ -248,7 +296,7 @@ fn source_object(app: &Moonglow, source: &Source) -> Result<Option<(ResType, Str
 fn preview_on(app: &Moonglow, source: &Source, female: bool) -> Result<Preview, String> {
     let game = app.game.as_deref().ok_or("No game data.")?;
     let Some((restype, object)) = source_object(app, source)? else {
-        let Source::Resource(key) = source else { unreachable!("a model is a resource") };
+        let key = source.key().expect("a model is a resource");
         return Ok(Preview::model(&key.resref.to_string()));
     };
     let read = |k: &ResKey| resource_data(app, k).and_then(|d| Gff::read(&d).ok());
@@ -329,7 +377,7 @@ pub fn export_files(app: &mut Moonglow, source: &Source) {
         // The blueprint itself (a placed object's: the one it was placed
         // from, where it is found).
         let key = match source {
-            Source::Resource(key) => Some(*key),
+            Source::Resource(key) | Source::Copy { key, .. } => Some(*key),
             Source::Instance { .. } => {
                 object.resref("TemplateResRef").map(|r| ResKey::new(r, *restype))
             }
@@ -563,10 +611,14 @@ fn compose(app: &Moonglow, source: &Source, preview: &Preview) -> Result<Compose
     let game = app.game.as_deref().ok_or("No game data.")?;
     let load = |name: &str| -> Option<Arc<Model>> {
         let k = ResKey::parse(name, ResType::MDL)?;
-        let data = app
-            .ws
-            .as_ref()
-            .and_then(|w| w.module.get(&k).map(<[u8]>::to_vec))
+        // (A layer's copy of a model: its own, the rest as the game has
+        // them.)
+        let data = match source {
+            Source::Copy { key, .. } if *key == k => source.data(app, &k),
+            _ => None,
+        };
+        let data = data
+            .or_else(|| app.ws.as_ref().and_then(|w| w.module.get(&k).map(<[u8]>::to_vec)))
             .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
         Model::read(&data).ok().map(Arc::new)
     };
@@ -580,7 +632,7 @@ impl ModelView {
     /// model has it.
     fn refresh(&mut self, app: &mut Moonglow, source: &Source) {
         let revision = app.ws.as_ref().map(Workspace::revision);
-        let model = matches!(source, Source::Resource(k) if k.restype == ResType::MDL);
+        let model = source.is_model();
         let female = app.settings.armor_on_woman;
         if model || (revision == self.revision && female == self.female) {
             return;
@@ -628,12 +680,7 @@ impl ModelView {
             .and_then(|c| c.idle.clone().filter(|i| c.animations().contains(i)));
         let composed = composed.ok();
         // (An item of its own model: not armor or a cloak, shown worn.)
-        let item = match source {
-            Source::Resource(k) => k.restype == ResType::UTI,
-            Source::Instance { path, .. } => {
-                crate::blueprint::instance_type(path) == Some(ResType::UTI)
-            }
-        };
+        let item = source.is_item();
         let lying = item
             && preview.as_ref().is_ok_and(|p| {
                 p.idle.is_none()
@@ -884,15 +931,19 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
             let tip = "Show it in a window of its own";
             pop_out = button(ui, glyph::POP_OUT, "Pop Out", tip).clicked();
         }
-        export = button(
-            ui,
-            glyph::EXPORT,
-            "Export Files…",
-            "Write the files the game draws this with into a folder: its models, their \
-             walkmeshes, textures and materials, from the haks and wherever else they are \
-             (the game's own are left out, unless all of it is the game's)",
-        )
-        .clicked();
+        // (Not of an overridden copy: the files it would gather are those
+        // the game reads, not the copy's layer's. Its Save As… is there.)
+        let copy = matches!(source, Source::Copy { .. });
+        export = !copy
+            && button(
+                ui,
+                glyph::EXPORT,
+                "Export Files…",
+                "Write the files the game draws this with into a folder: its models, their \
+                 walkmeshes, textures and materials, from the haks and wherever else they are \
+                 (the game's own are left out, unless all of it is the game's)",
+            )
+            .clicked();
     });
     if export {
         export_files(app, &source);
@@ -1429,12 +1480,7 @@ fn worn_as_modeled(app: &Moonglow, source: &Source, preview: &Preview) -> bool {
 /// `EquipableSlots`, by its model's name: `ItemClass` and what follows);
 /// `None` if it is no item's.
 fn worn_slots(app: &Moonglow, source: &Source, preview: &Preview) -> Option<i32> {
-    let item = match source {
-        Source::Resource(k) => k.restype == ResType::UTI,
-        Source::Instance { path, .. } => {
-            crate::blueprint::instance_type(path) == Some(ResType::UTI)
-        }
-    };
+    let item = source.is_item();
     let t = app.game.as_deref().filter(|_| item)?.table("baseitems").ok()?;
     let class = preview.base.model.split('_').next().unwrap_or_default();
     (0..t.len())
