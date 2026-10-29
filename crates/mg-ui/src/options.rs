@@ -707,11 +707,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                     "In Moonglow's data folder; offered back after a crash \
                                      (Recover Unsaved Work)",
                                 );
-                                ui.add_enabled(
-                                    draft.autosave,
-                                    egui::DragValue::new(&mut draft.autosave_minutes)
-                                        .range(1..=120),
-                                );
+                                ui.add_enabled_ui(draft.autosave, |ui| {
+                                    let minutes = &mut draft.autosave_minutes;
+                                    crate::widgets::spin_draft(ui, minutes, 1..=120, 1.0, |d| d);
+                                });
                                 ui.label("minutes");
                             });
                             ui.add_space(8.0);
@@ -774,14 +773,22 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             ui.add_enabled_ui(draft.spawn_markers, |ui| {
                                 ui.horizontal(|ui| {
                                     crate::widgets::field_label(ui, "Height");
-                                    ui.add(
-                                        egui::DragValue::new(&mut draft.spawn_marker_size.0)
-                                            .range(0..=100),
+                                    let size = &mut draft.spawn_marker_size;
+                                    crate::widgets::spin_draft(
+                                        ui,
+                                        &mut size.0,
+                                        0..=100,
+                                        1.0,
+                                        |d| d,
                                     );
                                     crate::widgets::field_label(ui, "Width");
-                                    ui.add(
-                                        egui::DragValue::new(&mut draft.spawn_marker_size.1)
-                                            .range(0..=100),
+                                    let size = &mut draft.spawn_marker_size;
+                                    crate::widgets::spin_draft(
+                                        ui,
+                                        &mut size.1,
+                                        0..=100,
+                                        1.0,
+                                        |d| d,
                                     );
                                     ui.weak("(tenths of a meter)");
                                 });
@@ -937,11 +944,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                     "Every few minutes, a copy of each open conversation with \
                                  unsaved changes, in the temporary folder's moonglow-backups",
                                 );
-                                ui.add_enabled(
-                                    draft.dialog_backup,
-                                    egui::DragValue::new(&mut draft.dialog_backup_minutes)
-                                        .range(1..=180),
-                                );
+                                ui.add_enabled_ui(draft.dialog_backup, |ui| {
+                                    let minutes = &mut draft.dialog_backup_minutes;
+                                    crate::widgets::spin_draft(ui, minutes, 1..=180, 1.0, |d| d);
+                                });
                                 ui.label("minutes");
                             });
                         }

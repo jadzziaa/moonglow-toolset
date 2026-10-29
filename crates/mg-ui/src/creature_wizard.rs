@@ -397,7 +397,7 @@ fn page(
                         let n = w.classes.len();
                         for (i, (k, level)) in w.classes.iter_mut().enumerate() {
                             ui.label(name(*k));
-                            ui.add(egui::DragValue::new(level).range(1..=60));
+                            crate::widgets::spin_draft(ui, level, 1..=60, 1.0, |d| d);
                             if n > 1
                                 && ui.small_button("✖").on_hover_text("Remove this Class").clicked()
                             {

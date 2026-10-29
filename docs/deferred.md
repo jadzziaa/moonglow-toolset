@@ -510,18 +510,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   icon names say) was not looked at in the client. The game has no
   woman's icons of cloaks (`icloak_m_` alone): a cloak's icon is the
   man's either way. (S) (from builders' reports after 1.10.1)
-- **Arrows after numbers, what is left:** the blueprint editors', Module
-  Properties' and Area Properties' number fields that have them in
-  Aurora have them (a click, Up and Down in the field, a held arrow
-  repeating after 0.4 s twenty times a second, each run one step). Not
-  given them: the Creature Wizard's and Levelup Wizard's class levels,
-  Adjust Location's (an instance's position, bearing, scale, rotation and
-  translation), the Area Wizard's and Resize Area's rows and columns,
-  Options' (spawn point marker size, undo levels, backup interval) and
-  the Script Wizard's conditions. The repeat's pause and rate are
-  Moonglow's choice, not measured in Aurora; a sound's cutoff distance
-  and intervals step by ten, as Aurora's forms say. (S) (from builders'
-  reports after 1.19.1)
 - **What a store sells an item for** (a builder: Aurora lists it): each
   item of a store's pages is listed with its cost at the store's sell
   mark up. Not compared with Aurora's list (its rounding, whether it

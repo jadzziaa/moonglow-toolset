@@ -386,8 +386,14 @@ Shared parts:
   and mark down; sounds' distances and intervals; a trigger's highlight
   height; Module Properties' starting date and time, and Area
   Properties' weather, fog, shadow opacity, music delay and check
-  modifiers): a click makes
-  it one more or one less (a sound's cutoff distance and intervals ten),
+  modifiers; the Creature, Levelup and Script Wizards' class levels and
+  the Script Wizard's other numbers; the Area Wizard's and Resize Area's
+  size; Adjust Location's position, bearing, scale, rotations and
+  translations; Options' spawn point marker size, recovery copy and
+  conversation backup intervals): a click makes
+  it one more or one less (a sound's cutoff distance and intervals ten;
+  Adjust Location's position, translations and scale a tenth, its
+  bearing and rotations a degree, steps of Moonglow's choosing),
   within the field's limits. Held down, an arrow goes on after a moment;
   **Up** and **Down** in the field do the same. A click, a key or a
   whole held run is one undoable step.

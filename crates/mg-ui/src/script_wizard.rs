@@ -495,7 +495,9 @@ fn condition_page(ui: &mut Ui, w: &mut ScriptWizard, page: usize) {
                             c.label().to_string()
                         });
                     });
-                    ui.add_enabled(*on, egui::DragValue::new(value).range(0..=255));
+                    ui.add_enabled_ui(*on, |ui| {
+                        crate::widgets::spin_draft(ui, value, 0..=255, 1.0, |d| d);
+                    });
                     ui.end_row();
                 }
             });
@@ -512,10 +514,9 @@ fn condition_page(ui: &mut Ui, w: &mut ScriptWizard, page: usize) {
                     ui.radio_value(&mut w.specific_level, false, "Any level");
                     ui.horizontal(|ui| {
                         ui.radio_value(&mut w.specific_level, true, "Specific level");
-                        ui.add_enabled(
-                            w.specific_level,
-                            egui::DragValue::new(&mut w.level).range(1..=60),
-                        );
+                        ui.add_enabled_ui(w.specific_level, |ui| {
+                            crate::widgets::spin_draft(ui, &mut w.level, 1..=60, 1.0, |d| d);
+                        });
                     });
                 });
                 if ui.button("Add").clicked() {
@@ -737,9 +738,10 @@ fn condition_page(ui: &mut Ui, w: &mut ScriptWizard, page: usize) {
         }
         _ => {
             ui.label("Has the chance of appearing of");
-            ui.add(egui::DragValue::new(&mut w.random.0).range(1..=w.random.1.max(1)));
+            let most = w.random.1.max(1);
+            crate::widgets::spin_draft(ui, &mut w.random.0, 1..=most, 1.0, |d| d);
             ui.label("in");
-            ui.add(egui::DragValue::new(&mut w.random.1).range(1..=10_000));
+            crate::widgets::spin_draft(ui, &mut w.random.1, 1..=10_000, 1.0, |d| d);
             w.random.0 = w.random.0.min(w.random.1);
         }
     }

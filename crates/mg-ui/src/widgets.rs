@@ -1804,6 +1804,24 @@ pub(crate) fn spin_number<T: egui::emath::Numeric>(
     spin_with(ui, current, range, 1.0, |d| d)
 }
 
+/// [`spin_with`] on a dialog's own copy of a number (a wizard's, Options',
+/// Adjust Location's), set when it changes: the response is the field's
+/// and its arrows', changed then.
+pub(crate) fn spin_draft<T: egui::emath::Numeric>(
+    ui: &mut Ui,
+    value: &mut T,
+    range: std::ops::RangeInclusive<T>,
+    step: f64,
+    make: impl for<'a> FnOnce(egui::DragValue<'a>) -> egui::DragValue<'a>,
+) -> egui::Response {
+    let mut r = ui.scope(|ui| spin_with(ui, *value, range, step, make));
+    if let Some(v) = r.inner {
+        *value = v;
+        r.response.mark_changed();
+    }
+    r.response
+}
+
 /// How long an arrow is held before it repeats, and how often it does
 /// then (seconds).
 const SPIN_DELAY: f64 = 0.4;
