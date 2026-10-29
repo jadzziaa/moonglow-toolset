@@ -1676,12 +1676,14 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             .collect();
         let text = tlk(game, MISSING_FEATS).replacen("%s", &names.join("\n"), 1);
         let (mut yes, mut no) = (false, false);
-        let modal = egui::Modal::new(ask.with("modal")).show(ui.ctx(), |ui| {
+        // (Escape is its No.)
+        let window = crate::widgets::modal(ui.ctx(), "Missing Feats").id(ask.with("modal"));
+        window.show(ui.ctx(), |ui| {
             ui.set_max_width(360.0);
             crate::widgets::field_label(ui, text);
             ui.horizontal(|ui| {
                 yes = ui.button("Yes").clicked();
-                no = ui.button("No").clicked();
+                no = ui.button("No").clicked() || crate::widgets::escape_here(ui);
             });
         });
         if yes {
@@ -1692,7 +1694,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             e.extend(equip_edits(f, (&equipped, &backpack), bit, r, moving.as_ref()));
             apply(f, "Equip", e);
         }
-        if yes || no || modal.should_close() {
+        if yes || no {
             ui.data_mut(|d| d.remove::<Asked>(ask));
         }
     }

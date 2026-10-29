@@ -33,7 +33,7 @@ pub(crate) fn open(app: &mut Moonglow, path: &Path) {
 pub(crate) fn ui(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(path) = app.module_folder.clone() else { return };
     let folder = folder_beside(&path).unwrap_or_else(|| path.with_extension(""));
-    crate::widgets::window("Open Directory as a Module").show(ctx, |ui| {
+    crate::widgets::modal(ctx, "Open Directory as a Module").show(ctx, |ui| {
         ui.label("A directory with the same name has been found.");
         ui.label("Do you want to open this directory as a module?");
         ui.weak(folder.display().to_string());

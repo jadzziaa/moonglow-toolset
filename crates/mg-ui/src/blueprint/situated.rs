@@ -259,9 +259,9 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
         let (mut ok, mut cancel) = (false, false);
         // Most of the screen's width, the grid as many to a row as it holds.
         let wide = (ui.ctx().content_rect().width() * 0.8).clamp(480.0, 900.0);
-        let modal = egui::Modal::new(pick_id.with("modal")).show(ui.ctx(), |ui| {
+        let window = crate::widgets::modal(ui.ctx(), "Select Portrait").id(pick_id.with("modal"));
+        window.show(ui.ctx(), |ui| {
             ui.set_width(wide);
-            ui.heading("Select Portrait");
             ui.horizontal(|ui| {
                 for (m, text) in [
                     (0, "Characters and Creatures"),
@@ -372,7 +372,7 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
         if ok {
             pick = state.chosen;
         }
-        if ok || cancel || modal.should_close() {
+        if ok || cancel {
             state.open = false;
         }
         ui.data_mut(|d| d.insert_temp(pick_id, state));
@@ -464,8 +464,8 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) -> Option<
     };
     let ctx = ui.ctx().clone();
     let (mut ok, mut cancel) = (false, false);
-    let modal = egui::Modal::new(pick_id.with("modal")).show(&ctx, |ui| {
-        ui.heading("Setup Area Transition");
+    let window = crate::widgets::modal(&ctx, "Setup Area Transition").id(pick_id.with("modal"));
+    window.show(&ctx, |ui| {
         if areas.is_empty() {
             ui.weak("No doors or waypoints with tags in the module's areas");
         }
@@ -581,7 +581,7 @@ fn setup_transition(f: &mut Form<'_>, ui: &mut Ui, pick_id: egui::Id) -> Option<
         });
     });
     let chosen = if ok { state.chosen.clone() } else { None };
-    if ok || cancel || modal.should_close() {
+    if ok || cancel {
         state = TransitionPick::default();
     }
     ui.data_mut(|d| d.insert_temp(pick_id, state));

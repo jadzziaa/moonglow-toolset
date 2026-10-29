@@ -1348,11 +1348,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             .collect();
     let shadowed: Vec<String> =
         (trusts.iter()).filter(|(_, t)| t.runs()).map(|(id, _)| id.clone()).collect();
-    egui::Window::new("Plugins")
-        .open(crate::widgets::open_unless_escape(ctx, "Plugins", &mut open))
-        .default_pos([180.0, 90.0])
-        .default_size([560.0, 480.0])
-        .show(ctx, |ui| {
+    crate::widgets::dialog(ctx, "Plugins", &mut open).default_size([560.0, 480.0]).show(
+        ctx,
+        |ui| {
             ui.label(
                 "A plugin adds commands and checks. It reads the open module and the game data \
              and hands back changes that Undo takes back; it cannot reach your files, the \
@@ -1562,7 +1560,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     ui.label(egui::RichText::new(line).monospace().color(l.color(ui)));
                 }
             });
-        });
+        },
+    );
     if let Some((id, on)) = toggle {
         app.enable_plugin(&id, on);
     }
@@ -1759,10 +1758,8 @@ pub(crate) fn settings_window(app: &mut Moonglow, ctx: &egui::Context) {
     let (mut save, mut cancel, mut defaults) = (false, false, false);
     let mut open = true;
     let title = format!("Settings: {}", p.manifest.name);
-    egui::Window::new(&title)
+    crate::widgets::dialog(ctx, &title, &mut open)
         .id(egui::Id::new("plugin-settings"))
-        .open(crate::widgets::open_unless_escape(ctx, &title, &mut open))
-        .default_pos([260.0, 140.0])
         .default_width(460.0)
         .collapsible(false)
         .show(ctx, |ui| {

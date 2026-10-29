@@ -564,7 +564,7 @@ impl Moonglow {
 fn ask_ui(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(ask) = &app.export_ask else { return };
     let mut answer = None;
-    let modal = egui::Modal::new(egui::Id::new("export-ask")).show(ctx, |ui| {
+    crate::widgets::modal(ctx, "Export").id(egui::Id::new("export-ask")).show(ctx, |ui| {
         ui.set_max_width(460.0);
         ui.label(format!(
             "The file '{}' already exists. Do you wish to append to it?",
@@ -582,14 +582,11 @@ fn ask_ui(app: &mut Moonglow, ctx: &egui::Context) {
             if ui.button("No").clicked() {
                 answer = Some(ExportAnswer::Overwrite);
             }
-            if ui.button("Cancel").clicked() {
+            if crate::widgets::cancel(ui) {
                 answer = Some(ExportAnswer::Cancel);
             }
         });
     });
-    if modal.should_close() && answer.is_none() {
-        answer = Some(ExportAnswer::Cancel);
-    }
     if let Some(a) = answer {
         app.answer_export(a);
     }
@@ -629,7 +626,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         if draft.kind.is_some_and(|t| kinds.iter().all(|(k, _)| *k != t)) {
             draft.kind = None;
         }
-        crate::widgets::window("Export Resources").show(&ctx, |ui| {
+        crate::widgets::modal(&ctx, "Export Resources").show(&ctx, |ui| {
             ui.horizontal(|ui| {
                 crate::widgets::field_label(ui, "Kind");
                 let shown = match draft.kind {
@@ -784,7 +781,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         let mut close = false;
         let name =
             draft.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        crate::widgets::window("Import Resources").show(&ctx, |ui| {
+        crate::widgets::modal(&ctx, "Import Resources").show(&ctx, |ui| {
             ui.label(format!("{name}: {} resources", draft.resources.len()));
             match &draft.stamp {
                 Some(s) => ui.label(format!("Made from {s}")),

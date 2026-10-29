@@ -324,6 +324,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     }
     let name = load(app);
     let open = app.talk.as_ref().is_some_and(|t| outside || Some(&t.name) == name.as_ref());
+    // OK and Cancel, as the other editors have: the table is saved when
+    // asked (its × keeps what is unsaved for the module's Save; Cancel
+    // asks first and drops it). Close alone for one found in a hak.
+    let read_only = !open || app.talk.as_ref().is_some_and(|t| !t.editable());
+    if crate::side_doc::ok_cancel(app, ui, &crate::Tab::TalkTable, read_only, |_| {}) {
+        return;
+    }
     if !open {
         no_table(app, ui, name);
         ui.add_space(8.0);

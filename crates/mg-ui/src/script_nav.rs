@@ -272,12 +272,9 @@ pub(crate) fn rename_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some((decl, mut name)) = app.script_nav.rename.take() else { return };
     let mut open = true;
     let (mut ok, mut cancel) = (false, false);
-    egui::Window::new(format!("Rename {}", decl.name))
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ctx.content_rect().center())
+    crate::widgets::dialog(ctx, &format!("Rename {}", decl.name), &mut open)
         .collapsible(false)
         .resizable(false)
-        .open(crate::widgets::open_unless_escape(ctx, &format!("Rename {}", decl.name), &mut open))
         .show(ctx, |ui| {
             ui.label(format!("{} — every use in the module's scripts", decl.signature));
             ui.horizontal(|ui| {

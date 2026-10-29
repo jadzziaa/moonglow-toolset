@@ -255,14 +255,11 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         (screen.width() * 0.6).clamp(560.0, 960.0),
         (screen.height() * 0.75).clamp(440.0, 800.0),
     );
-    egui::Window::new("Creature Wizard")
-        .collapsible(false)
+    crate::widgets::modal(ctx, "Creature Wizard")
         .resizable(true)
         .default_size(size)
         .min_width(480.0)
         .min_height(360.0)
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(screen.center())
         .show(ctx, |ui| {
             egui::Panel::bottom("cw-buttons").show(ui, |ui| {
                 ui.add_space(4.0);

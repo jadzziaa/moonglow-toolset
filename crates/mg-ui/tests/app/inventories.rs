@@ -295,6 +295,14 @@ fn equipping_without_the_feat_asks_to_add_it() {
     h.run();
     assert_eq!(primary(&mut h), before);
     assert!(feats(&mut h).is_empty());
+    // Escape is No too, and the Properties window stays.
+    h.get_all_by_label("Equip").nth(5).unwrap().click();
+    h.run();
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert!(h.query_by_label("Missing Feats").is_none(), "answered");
+    assert!(h.state().dock.find_tab(&Tab::Blueprint(key)).is_some(), "the window stays");
+    assert!(feats(&mut h).is_empty());
     // Yes adds the first feat and equips it, one undoable step.
     h.get_all_by_label("Equip").nth(5).unwrap().click();
     h.run();

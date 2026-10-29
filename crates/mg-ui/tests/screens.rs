@@ -7690,3 +7690,240 @@ fn module_tree_unlisted_area() {
     let listed = mg_module::areas_of(&info.root);
     assert!(listed.iter().any(|a| a.to_string() == "chess2"), "{listed:?}");
 }
+
+/// The dialogs, one at a time over the main window
+/// (`target/test-output/screens-dialogs/`): About, New Script's name,
+/// Add Faction, Levelup, Select Portrait, Setup Area Transition, the
+/// export's question, String Edit and Add Haks and Talk Table. Each is
+/// a `widgets::modal` (answered by its buttons) or a `widgets::dialog`
+/// (closed by its × too), placed in the middle of the window.
+#[test]
+#[ignore]
+fn dialog_windows() {
+    use egui_kittest::kittest::Queryable;
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens-dialogs");
+    let install = GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut rng = fastrand::Rng::with_seed(5);
+    let mut m = new_module(&game, "Dialogs", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Field".into(),
+        tileset: mg_core::ResRef::from_str("ttr01").unwrap(),
+        width: 2,
+        height: 2,
+    };
+    add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+    let door = ResKey::parse("nw_door_ttr_01", ResType::UTD).unwrap();
+    let bandit = ResKey::parse("nw_bandit001", ResType::UTC).unwrap();
+    for key in [chest, door, bandit] {
+        m.set(key, game.resman.get(&key).unwrap().to_vec());
+    }
+    let scratch = mg_testkit::scratch_dir("screens-dialogs");
+    let folder = scratch.join("dialogs");
+    m.save_as(&mg_module::ModuleLocation::Folder(folder.clone())).unwrap();
+    // (A user folder: Add Haks and Talk Table needs one.)
+    let user = scratch.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let install = GameInstall::new(&root, Some(user), "en");
+    // (What Add Haks and Talk Table is given to add.)
+    let tlk = scratch.join("mg_text.tlk");
+    std::fs::write(&tlk, mg_tlk::Tlk::new(mg_core::Language::ENGLISH).to_bytes().unwrap()).unwrap();
+    let dialogs = NoDialogs { open_many: vec![vec![tlk]], ..Default::default() };
+    let mut app = Moonglow::new(Some(install), Box::new(dialogs));
+    app.settings.no_last_area = true;
+    app.open_module(&folder);
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let open = |h: &mut Harness<'_, Moonglow>, tab: mg_ui::Tab| {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab));
+        h.run_steps(4);
+    };
+    let close = |h: &mut Harness<'_, Moonglow>, tab: mg_ui::Tab| {
+        h.state_mut().actions.push(mg_ui::Action::CloseTab(tab));
+        h.run_steps(4);
+    };
+    close(&mut h, mg_ui::Tab::ModuleProperties);
+    h.state_mut().about = true;
+    shoot(&mut h, &dir, "about");
+    h.state_mut().about = false;
+    h.state_mut().new_script = Some(String::new());
+    shoot(&mut h, &dir, "new-script");
+    h.state_mut().new_script = None;
+    open(&mut h, mg_ui::Tab::Factions);
+    h.get_by_label("Add Faction…").click();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "add-faction");
+    h.state_mut().faction_view.adding = None;
+    close(&mut h, mg_ui::Tab::Factions);
+    let creature = mg_gff::Gff::read(&game.resman.get(&bandit).unwrap()).unwrap().root;
+    h.state_mut().levelup =
+        Some(mg_ui::levelup_view::LevelupWizard::new(bandit, GffPath::root(), &creature));
+    shoot(&mut h, &dir, "levelup");
+    h.state_mut().levelup = None;
+    open(&mut h, mg_ui::Tab::Blueprint(chest));
+    h.get_by_label("Advanced").click();
+    h.run_steps(3);
+    h.get_by_label("Portraits…").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "select-portrait");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(4);
+    shoot(&mut h, &dir, "select-portrait-escaped");
+    close(&mut h, mg_ui::Tab::Blueprint(chest));
+    open(&mut h, mg_ui::Tab::Blueprint(door));
+    h.get_by_label("Area Transition").click();
+    h.run_steps(3);
+    h.get_by_label("Setup Area Transition…").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "area-transition");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(4);
+    close(&mut h, mg_ui::Tab::Blueprint(door));
+    open(&mut h, mg_ui::Tab::ModuleProperties);
+    h.get_all_by_label("…").next().unwrap().click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "string-edit");
+    h.state_mut().loc_edit = None;
+    h.run_steps(2);
+    h.get_by_label("Custom Content").click();
+    h.run_steps(3);
+    h.get_by_label("Add Haks and Talk Table…").click();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "attach");
+}
+
+/// Module Properties' pages and the journal's category and entry, their
+/// fields a blueprint's (`target/test-output/screens-module-form/`).
+#[test]
+#[ignore]
+fn module_properties_and_journal_fields() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens-module-form");
+    let scratch = mg_testkit::scratch_dir("screens-module-form-module");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Tag", mg_gff::Value::String(b"MODULE".to_vec()));
+    info.root.set("Mod_XPScale", mg_gff::Value::Byte(10));
+    let name =
+        mg_core::LocString::from_text(mg_core::Language::ENGLISH, mg_core::Gender::Male, "Forms");
+    info.root.set("Mod_Name", mg_gff::Value::LocString(name));
+    m.set_info(&info).unwrap();
+    let path = scratch.join("f.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let install = GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    use mg_ui::module_props::Page;
+    for (page, name) in [
+        (Page::Basic, "basic"),
+        (Page::Events, "events"),
+        (Page::Advanced, "advanced"),
+        (Page::Description, "description"),
+    ] {
+        h.state_mut().module_page = page;
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::ModuleProperties));
+        shoot(&mut h, &dir, &format!("module-{name}"));
+    }
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(mg_ui::Tab::ModuleProperties));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Journal));
+    h.run_steps(4);
+    h.get_by_label("Add").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "journal-category");
+    h.get_by_label("Add").click();
+    h.run_steps(4);
+    shoot(&mut h, &dir, "journal-entry");
+}
+
+/// The editors of files saved when asked, and the raw fields view, each
+/// in its window (`target/test-output/screens-editors/`): OK and Cancel
+/// at their foot, as the other editors have; Close for a talk table
+/// found in a hak. A script with changes, Cancel pressed: the question.
+#[test]
+#[ignore]
+fn editors_ok_and_cancel() {
+    use egui_kittest::kittest::Queryable;
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens-editors");
+    let scratch = mg_testkit::scratch_dir("screens-editors");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Name", mg_gff::Value::String(b"x".to_vec()));
+    m.set_info(&info).unwrap();
+    let script = ResKey::parse("hello", ResType::NSS).unwrap();
+    m.set(script, b"void main()\n{\n\n}\n".to_vec());
+    let install = GameInstall::new(&root, None, "en");
+    let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+    let game = mg_rules::GameData::open(&install).unwrap();
+    m.set(chest, game.resman.get(&chest).unwrap().to_vec());
+    let path = scratch.join("e.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let set = scratch.join("zzz01.set");
+    let dialogs = NoDialogs { save: vec![set], ..Default::default() };
+    let mut app = Moonglow::new(Some(install), Box::new(dialogs));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let only = |h: &mut Harness<'_, Moonglow>, tab: mg_ui::Tab| {
+        let open: Vec<mg_ui::Tab> =
+            h.state().dock.iter_all_tabs().map(|(_, t)| t.clone()).collect();
+        for t in open.into_iter().filter(|t| t.closeable()) {
+            h.state_mut().actions.push(mg_ui::Action::CloseTab(t));
+        }
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab));
+        h.run_steps(6);
+    };
+    only(&mut h, mg_ui::Tab::Script(script));
+    shoot(&mut h, &dir, "script");
+    let code = egui_kittest::kittest::by().role(egui::accesskit::Role::MultilineTextInput);
+    h.get(code).click();
+    h.run_steps(2);
+    h.event(egui::Event::Text("// more\n".into()));
+    h.run_steps(2);
+    if let Some(cancel) = h.query_all_by_label("Cancel").last() {
+        cancel.click();
+        h.run_steps(3);
+        shoot(&mut h, &dir, "script-cancel-asks");
+        h.get_by_label("Don't Save").click();
+        h.run_steps(3);
+    }
+    only(&mut h, mg_ui::Tab::Gff(chest));
+    shoot(&mut h, &dir, "raw-fields");
+    mg_ui::hak_view::new_hak(h.state_mut());
+    h.run_steps(4);
+    let hak = mg_ui::Tab::Hak(h.state().haks[0].id);
+    only(&mut h, hak);
+    shoot(&mut h, &dir, "hak");
+    mg_ui::tileset_view::new_tileset(h.state_mut());
+    h.run_steps(4);
+    let tileset = mg_ui::Tab::Tileset(h.state().tilesets[0].id);
+    only(&mut h, tileset);
+    shoot(&mut h, &dir, "tileset");
+    let table =
+        mg_module::talk::Table::create("words", &scratch, mg_core::Language::ENGLISH, false);
+    h.state_mut().talk = Some(table);
+    h.state_mut().talk_view.outside = true;
+    only(&mut h, mg_ui::Tab::TalkTable);
+    shoot(&mut h, &dir, "talk-table");
+}

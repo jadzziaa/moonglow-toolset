@@ -413,12 +413,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let title = "Check for Updates";
     let mut open = true;
     let (mut again, mut close) = (false, false);
-    egui::Window::new(title)
-        .open(crate::widgets::open_unless_escape(ctx, title, &mut open))
-        .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(ctx, |ui| {
+    crate::widgets::dialog(ctx, title, &mut open).collapsible(false).resizable(false).show(
+        ctx,
+        |ui| {
             ui.set_max_width(420.0);
             let flatpak = app.updates.installer == Some(Installer::Flatpak);
             match &app.updates.report {
@@ -452,7 +449,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     close = true;
                 }
             });
-        });
+        },
+    );
     if again {
         check_now(app);
     }

@@ -237,6 +237,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
         ui.label("This tileset was closed.");
         return;
     };
+    // OK and Cancel, as the other editors have: a tileset is saved when
+    // asked.
+    if crate::side_doc::ok_cancel(app, ui, &crate::Tab::Tileset(id), false, |_| {}) {
+        return;
+    }
     // The doc is taken out while drawn (its fields edit through the app's
     // buffers), and put back.
     let mut doc = app.tilesets.remove(i);

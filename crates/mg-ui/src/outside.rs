@@ -1068,49 +1068,43 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         Later,
     }
     let mut answer = None;
-    egui::Window::new("Changed Outside Moonglow")
-        .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(ctx, |ui| {
-            ui.label(
-                "These files of the project were changed by another program, and Moonglow has \
+    crate::widgets::modal(ctx, "Changed Outside Moonglow").show(ctx, |ui| {
+        ui.label(
+            "These files of the project were changed by another program, and Moonglow has \
                  unsaved changes to them:",
-            );
-            egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
-                for c in &app.outside.conflicts {
-                    let gone = if c.resource.is_none() { " (deleted)" } else { "" };
-                    ui.monospace(format!("{}{gone}", c.path.display()));
-                }
-            });
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                if ui
-                    .button("Keep Moonglow's")
-                    .on_hover_text("Your changes stay; the next Save writes them over the files")
-                    .clicked()
-                {
-                    answer = Some(Answer::Ours);
-                }
-                if ui
-                    .button("Take the Files'")
-                    .on_hover_text(
-                        "The files are read again; your unsaved changes to them are lost",
-                    )
-                    .clicked()
-                {
-                    answer = Some(Answer::Theirs);
-                }
-                if ui
-                    .button("Later")
-                    .on_hover_text("Moonglow's stay for now, and Save won't write over these files")
-                    .clicked()
-                    || crate::widgets::escape_closes(ui.ctx(), "Changed Outside Moonglow")
-                {
-                    answer = Some(Answer::Later);
-                }
-            });
+        );
+        egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
+            for c in &app.outside.conflicts {
+                let gone = if c.resource.is_none() { " (deleted)" } else { "" };
+                ui.monospace(format!("{}{gone}", c.path.display()));
+            }
         });
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            if ui
+                .button("Keep Moonglow's")
+                .on_hover_text("Your changes stay; the next Save writes them over the files")
+                .clicked()
+            {
+                answer = Some(Answer::Ours);
+            }
+            if ui
+                .button("Take the Files'")
+                .on_hover_text("The files are read again; your unsaved changes to them are lost")
+                .clicked()
+            {
+                answer = Some(Answer::Theirs);
+            }
+            if ui
+                .button("Later")
+                .on_hover_text("Moonglow's stay for now, and Save won't write over these files")
+                .clicked()
+                || crate::widgets::escape_closes(ui.ctx(), "Changed Outside Moonglow")
+            {
+                answer = Some(Answer::Later);
+            }
+        });
+    });
     let conflicts = std::mem::take(&mut app.outside.conflicts);
     match answer {
         Some(Answer::Ours) => {

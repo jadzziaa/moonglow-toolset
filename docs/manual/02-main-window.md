@@ -348,8 +348,11 @@ and Journal Editors, the resource browser, this manual) opens in a window
 of its own over the area, sized for what it shows, so the area view stays
 put. Drag a window by its tab into the main pane, or beside another, to
 dock it; drag a tab out to float it again. The palettes keep their pane on
-the right. **Escape** closes the window in front: a dialog (as its Cancel
-or close button does), then a Properties window as its **Cancel** does,
+the right. A dialog (a question, a picker such as Select Portrait, a
+wizard) opens in the middle of the main window and is moved by its
+title. **Escape** closes the window in front: a dialog (as its Cancel
+or close button does; a picker opened from a Properties window closes
+alone, and the window stays), then a Properties window as its **Cancel** does,
 as in Aurora: what was changed in it is set back (Tile Properties with
 changes asks first, as its close button does); a model's window while the
 pointer is over it. In a text or number field too, Escape is the

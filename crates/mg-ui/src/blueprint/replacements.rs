@@ -553,9 +553,9 @@ fn gallery(f: &mut Form<'_>, ui: &mut Ui) -> Option<(Option<usize>, String, ResR
     let wide = (ui.ctx().content_rect().width() * 0.8).clamp(480.0, 960.0);
     let tall = (ui.ctx().content_rect().height() * 0.6).clamp(300.0, 700.0);
     let side = crate::appearance_gallery::tile_side(f.app);
-    let modal = egui::Modal::new(id.with("modal")).show(ui.ctx(), |ui| {
+    let window = crate::widgets::modal(ui.ctx(), "Select Texture").id(id.with("modal"));
+    window.show(ui.ctx(), |ui| {
         ui.set_width(wide);
-        ui.heading("Select Texture");
         ui.label(format!("To draw {} with", state.old));
         ui.horizontal(|ui| {
             let field = id.with("filter");
@@ -695,7 +695,7 @@ fn gallery(f: &mut Form<'_>, ui: &mut Ui) -> Option<(Option<usize>, String, ResR
         .filter(|_| ok)
         .and_then(|c| ResRef::from_str(c).ok())
         .map(|r| (state.entry, state.old.clone(), r));
-    if ok || cancel || modal.should_close() {
+    if ok || cancel {
         for k in &state.made {
             f.app.pictures.remove(k);
         }

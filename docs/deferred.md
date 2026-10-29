@@ -309,21 +309,26 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   and no gallery of them. A creature's look is a plain body of the
   appearance, male unless the creature is female. (S–M) (from builders'
   reports after 1.10.1)
-- **OK and Cancel where there is none yet:** the hak editor, the
-  tileset editor, the talk table, the raw field editor and a script
-  (each saved, or asked about, in its own way). In the windows that
-  have them: a text field's change set after its page was left by a key
-  (not by the pointer) is not among what Cancel sets back, and a
-  faction's removal is set back by the whole of each area and creature
-  it renumbered, as an area's sounds and music (one struct of its GIT)
-  are set back together. (S) (a builder's ask, October 2026)
 
 ## Bulk editing
 
 - **Lists across several blueprints:** Edit Together leaves out the
-  pages that edit lists (inventories, classes, skills, feats, spells,
-  item properties); those are edited one blueprint at a time. Adding the
-  same item or feat to each would need its own design. (M)
+  pages that edit lists (`blueprint::LIST_PAGES`: inventories, classes,
+  skills, feats, spells, special abilities, item properties, an
+  encounter's creatures, a store's restrictions); those are edited one
+  blueprint at a time. Each page builds its commands for the first
+  object alone, and `blueprint::partial` drops a command that reaches
+  some of the objects but not all, as "add this feat to each" would
+  where some have it already. What each page needs, looked at in the
+  deferred sprint (2026-10-29): skills, a rank set at the skill's index
+  on each (`creature.rs` `skills`, the simplest); feats, special
+  abilities, an encounter's creatures and a store's restrictions, an
+  entry added to those that lack it and taken from those that have it,
+  marked (≠) where only some have it; classes, a level per class on
+  each and a class added where there is room; spells, per class; item
+  properties, matched by type, subtype and value; inventories
+  (`inventory.rs`), items added to each. Several days' work with a
+  design of its own for the marks and the guard. (L)
 - **Lighting of one's own:** Saved Lighting and Copy From Area give an
   area the Visual page's fields; not the tiles' lights (each tile's
   own, as a scheme picks them at random from its colors), and lighting
@@ -1909,27 +1914,12 @@ of truth, and does each caller's difference matter.
 
 ### To build once (the structure the copies want)
 
-- **Dialog windows built by hand:** `widgets::window` and
-  `widgets::dialog` exist; `script_wizard.rs:916`, `module_props.rs:690`,
-  `palette_categories.rs:194`, `hak_view.rs:696`, `outside.rs:363`,
-  `references.rs:681`, `model_view.rs:270` are one of them by hand, and
-  six more (`store_wizard.rs:141`, `:348`, `levelup_view.rs:87`,
-  `faction_view.rs:257`, `:290`, `NameWindow` at `widgets.rs:1268`)
-  repeat a movable variant with no helper; `creature_wizard.rs:257`
-  and `situated.rs:247` (an `egui::Modal`) are two more styles, and
-  centering is done two ways. A `widgets::modal`. (S)
 - **GFF paths as strings:** two `Step` enums (`mg-module text.rs:77`,
   `mg-edit lib.rs:36`), hand parsers (`search.rs:255`, `rename.rs:83`,
   `:436`, `verify.rs:38`, `references.rs:489`), hand walkers beside
   `Struct::walk_fields` (`rename.rs:192`, `:209`, `text.rs:207`,
   `doctor.rs:1250`). `GffPath` into mg-gff, carried by `Reference`,
   `Usage` and `Hit`. (L, mechanical)
-- **Module Properties and the journal redo `Form` by hand**
-  (`module_props.rs`, `journal_view.rs:296`): a tag's 32 characters held
-  three ways (the module's not at all), the module's XP slider adds an
-  empty undo step when a drag ends where it began, neither keeps typing
-  as `hold_text` does; the "…" button for every language seven times.
-  (M)
 - **A blueprint's preview, three times** (`mg model-files`,
   `model_view.rs:164`, `mg-area lib.rs:347`): `mg model-files` has no
   waypoint. A `mg_preview::of_object`. (M)

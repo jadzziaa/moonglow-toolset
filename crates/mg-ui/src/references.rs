@@ -1130,90 +1130,86 @@ pub(crate) fn delete_window(app: &mut Moonglow, ctx: &egui::Context) {
     let named = named.then(|| app.references.named.take()).flatten();
     let mut open = true;
     let mut find = None;
-    egui::Window::new("Delete from Module")
-        .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(ctx, |ui| {
-            if let Some(why) = &why_not {
-                ui.label(why);
-                if ui.button("OK").clicked() {
-                    open = false;
-                }
-                return;
+    crate::widgets::modal(ctx, "Delete from Module").show(ctx, |ui| {
+        if let Some(why) = &why_not {
+            ui.label(why);
+            if ui.button("OK").clicked() {
+                open = false;
             }
-            ui.label(match keys.as_slice() {
-                [key] if key.restype == ResType::ARE => {
-                    format!("Delete the area {} and everything placed in it?", key.resref)
-                }
-                [key] if key.restype == ResType::NSS => {
-                    format!("Delete {key} and its compiled script?")
-                }
-                [key] if key.restype == ResType::JUI && app.deleted_with(*key).len() > 1 => {
-                    format!("Delete the NUI window {key} with its settings and its scripts?")
-                }
-                [key] => format!("Delete {key}?"),
-                several => {
-                    let of = |t: ResType| several.iter().filter(|k| k.restype == t).count();
-                    let area = match of(ResType::ARE) {
-                        0 => None,
-                        1 => Some("the area with everything placed in it"),
-                        _ => Some("the areas with everything placed in them"),
-                    };
-                    let script = match of(ResType::NSS) {
-                        0 => None,
-                        1 => Some("the script with its compiled one"),
-                        _ => Some("the scripts with their compiled ones"),
-                    };
-                    let what: Vec<&str> = area.into_iter().chain(script).collect();
-                    let what = match what.is_empty() {
-                        true => String::new(),
-                        false => format!(" ({})", what.join(", ")),
-                    };
-                    format!("Delete these {} resources{what}?", several.len())
-                }
-            });
-            if keys.len() > 1 {
-                let names: Vec<String> = keys.iter().map(ToString::to_string).collect();
-                egui::ScrollArea::vertical()
-                    .id_salt("delete-several")
-                    .max_height(120.0)
-                    .show(ui, |ui| ui.weak(names.join(", ")));
+            return;
+        }
+        ui.label(match keys.as_slice() {
+            [key] if key.restype == ResType::ARE => {
+                format!("Delete the area {} and everything placed in it?", key.resref)
             }
-            for why in &kept {
-                ui.weak(format!("Not deleted: {why}."));
+            [key] if key.restype == ResType::NSS => {
+                format!("Delete {key} and its compiled script?")
             }
-            named_ui(ui, named.as_ref(), &mut find);
-            if !unsaved.is_empty() {
-                let names: Vec<String> = unsaved.iter().map(ToString::to_string).collect();
-                ui.colored_label(
-                    ui.visuals().warn_fg_color,
-                    format!(
-                        "{} {} unsaved text in {}: {} deleted as typed, and the {} closed.",
-                        names.join(" and "),
-                        if unsaved.len() == 1 { "has" } else { "have" },
-                        if unsaved.len() == 1 { "its editor" } else { "their editors" },
-                        if unsaved.len() == 1 { "it is" } else { "they are" },
-                        if unsaved.len() == 1 { "editor" } else { "editors" },
-                    ),
-                );
+            [key] if key.restype == ResType::JUI && app.deleted_with(*key).len() > 1 => {
+                format!("Delete the NUI window {key} with its settings and its scripts?")
             }
-            ui.weak(match keys.len() {
-                1 => "Edit › Undo brings it back.",
-                _ => "Edit › Undo brings them back.",
-            });
-            ui.horizontal(|ui| {
-                // (Once what names them is known, to be said first.)
-                let delete = ui.add_enabled(named.is_some(), egui::Button::new("Delete"));
-                if delete.clicked() {
-                    app.actions.push(Action::DeleteResources(keys.clone()));
-                    open = false;
-                }
-                if crate::widgets::cancel(ui) {
-                    open = false;
-                }
-            });
+            [key] => format!("Delete {key}?"),
+            several => {
+                let of = |t: ResType| several.iter().filter(|k| k.restype == t).count();
+                let area = match of(ResType::ARE) {
+                    0 => None,
+                    1 => Some("the area with everything placed in it"),
+                    _ => Some("the areas with everything placed in them"),
+                };
+                let script = match of(ResType::NSS) {
+                    0 => None,
+                    1 => Some("the script with its compiled one"),
+                    _ => Some("the scripts with their compiled ones"),
+                };
+                let what: Vec<&str> = area.into_iter().chain(script).collect();
+                let what = match what.is_empty() {
+                    true => String::new(),
+                    false => format!(" ({})", what.join(", ")),
+                };
+                format!("Delete these {} resources{what}?", several.len())
+            }
         });
+        if keys.len() > 1 {
+            let names: Vec<String> = keys.iter().map(ToString::to_string).collect();
+            egui::ScrollArea::vertical()
+                .id_salt("delete-several")
+                .max_height(120.0)
+                .show(ui, |ui| ui.weak(names.join(", ")));
+        }
+        for why in &kept {
+            ui.weak(format!("Not deleted: {why}."));
+        }
+        named_ui(ui, named.as_ref(), &mut find);
+        if !unsaved.is_empty() {
+            let names: Vec<String> = unsaved.iter().map(ToString::to_string).collect();
+            ui.colored_label(
+                ui.visuals().warn_fg_color,
+                format!(
+                    "{} {} unsaved text in {}: {} deleted as typed, and the {} closed.",
+                    names.join(" and "),
+                    if unsaved.len() == 1 { "has" } else { "have" },
+                    if unsaved.len() == 1 { "its editor" } else { "their editors" },
+                    if unsaved.len() == 1 { "it is" } else { "they are" },
+                    if unsaved.len() == 1 { "editor" } else { "editors" },
+                ),
+            );
+        }
+        ui.weak(match keys.len() {
+            1 => "Edit › Undo brings it back.",
+            _ => "Edit › Undo brings them back.",
+        });
+        ui.horizontal(|ui| {
+            // (Once what names them is known, to be said first.)
+            let delete = ui.add_enabled(named.is_some(), egui::Button::new("Delete"));
+            if delete.clicked() {
+                app.actions.push(Action::DeleteResources(keys.clone()));
+                open = false;
+            }
+            if crate::widgets::cancel(ui) {
+                open = false;
+            }
+        });
+    });
     if named.is_some() {
         app.references.named = named;
     }
@@ -1299,10 +1295,7 @@ pub(crate) fn rename_window(app: &mut Moonglow, ctx: &egui::Context) {
         let ws = app.ws.as_ref().filter(|_| draft.from.restype == ResType::JUI)?;
         mg_nui::can_rename(&ws.module, &draft.from.resref.to_string(), &to.to_string()).err()
     };
-    egui::Window::new(format!("Rename {}", draft.from))
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ctx.content_rect().center())
-        .open(crate::widgets::open_unless_escape(ctx, &format!("Rename {}", draft.from), &mut open))
+    crate::widgets::dialog(ctx, &format!("Rename {}", draft.from), &mut open)
         .collapsible(false)
         .resizable(false)
         .show(ctx, |ui| {
