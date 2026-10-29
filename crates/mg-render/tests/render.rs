@@ -3321,6 +3321,100 @@ fn a_glow_on_a_mesh_drawn_by_the_other_shader_covers_it() {
     );
 }
 
+/// A texture the GPU won't take (wider than it holds, or of no pixels) is
+/// drawn as one that is missing, and said once, read in the frame or
+/// apart: wgpu's error ended the program (a test's device keeps wgpu's
+/// panic, so one that came through would end this test).
+#[test]
+fn a_texture_the_gpu_refuses_is_left_out_and_said() {
+    let Some(gpu) = gpu() else { return };
+    // (Alone: what the GPU refused is the process's list, which the next
+    // test takes from too.)
+    mg_testkit::gpu::alone();
+    let wide = gpu.device.limits().max_texture_dimension_2d + 1;
+    let assets = || {
+        let mut assets = TestAssets::default();
+        let data = [255, 0, 0, 255].repeat(wide as usize);
+        let t = mg_image::Rgba { width: wide, height: 1, data }.into_texture(false);
+        assets.textures.insert("c_too_wide".into(), t);
+        let empty = mg_image::Rgba { width: 0, height: 0, data: Vec::new() }.into_texture(false);
+        assets.textures.insert("c_no_pixels".into(), empty);
+        assets.opaque("missing_not", [0, 0, 255]);
+        assets
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -8.0, 1.0),
+        target: Vec3::new(0.0, 0.0, 1.0),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let scene = Scene {
+        instances: vec![
+            standing_quad(&gpu, "c_too_wide", Vec3::new(-2.0, 0.0, 1.0), 0.8),
+            standing_quad(&gpu, "c_no_pixels", Vec3::new(0.0, 0.0, 1.0), 0.8),
+            standing_quad(&gpu, "missing_not", Vec3::new(2.0, 0.0, 1.0), 0.8),
+        ],
+        area: AreaLight { ambient: Vec3::ONE, diffuse: Vec3::ZERO, direction: Vec3::Z },
+        background: [0.0, 0.0, 0.0],
+        ..Default::default()
+    };
+    let refused = |said: &[String]| {
+        ["c_too_wide", "c_no_pixels"]
+            .map(|t| said.iter().filter(|e| e.starts_with(&format!("the texture {t}: "))).count())
+    };
+    // In the frame.
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let image = r.render_image(&gpu, &assets(), &scene, &camera, 96, 64);
+    save(&image, &mg_testkit::output_dir("render").join("texture_refused.png"));
+    let said = mg_render::guard::take_gpu_errors();
+    assert_eq!(refused(&said), [1, 1], "{said:?}");
+    assert!(said.iter().any(|e| e.contains(&format!("{wide} by 1 pixels"))), "{said:?}");
+    // (Drawn untextured, white; the texture it takes, blue.)
+    let at = |x: f32| image.pixel((48.0 + x * 48.0 / 6.0) as u32, 32);
+    assert!(at(-2.0)[..3].iter().all(|c| *c > 200), "untextured: {:?}", at(-2.0));
+    assert!(at(0.0)[..3].iter().all(|c| *c > 200), "untextured: {:?}", at(0.0));
+    assert!(at(2.0)[2] > 200 && at(2.0)[0] < 100, "its texture: {:?}", at(2.0));
+    // Apart: the same, said again by a renderer of its own.
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let apart: Arc<dyn mg_render::Assets + Send + Sync> = Arc::new(assets());
+    r.read_textures_apart(&gpu, Some(apart));
+    r.textures_apart = true;
+    let started = std::time::Instant::now();
+    let mut read = r.render_image(&gpu, &NoAssets, &scene, &camera, 96, 64);
+    while r.drawn.textures_pending > 0 {
+        assert!(started.elapsed() < std::time::Duration::from_secs(10), "never read");
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        read = r.render_image(&gpu, &NoAssets, &scene, &camera, 96, 64);
+    }
+    assert_eq!(read.data, image.data, "as read in the frame");
+    assert_eq!(refused(&mg_render::guard::take_gpu_errors()), [0, 0], "said once");
+}
+
+/// On a device whose errors are noted (the application's), what the GPU
+/// refuses outside the renderer's own checks is said, and the program goes
+/// on: wgpu's default ends it.
+#[test]
+fn the_application_s_device_notes_what_the_gpu_refuses() {
+    let Some(gpu) = gpu() else { return };
+    mg_testkit::gpu::alone();
+    mg_render::guard::note_gpu_errors(&gpu.device);
+    let _refused = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("c_refused_texture"),
+        size: wgpu::Extent3d { width: 0, height: 4, depth_or_array_layers: 1 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+    let said = mg_render::guard::take_gpu_errors();
+    let ours: Vec<&String> = said.iter().filter(|e| e.contains("c_refused_texture")).collect();
+    assert_eq!(ours.len(), 1, "{said:?}");
+    assert!(ours[0].starts_with("drawing: ") && !ours[0].contains('\n'), "{ours:?}");
+}
+
 /// `vsgrass`/`fsgrass` standing in for the game's: cyan.
 fn authored_grass_pair(assets: &mut TestAssets) {
     let vs = r#"

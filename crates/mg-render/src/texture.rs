@@ -28,6 +28,18 @@ fn wgpu_format(f: Format) -> wgpu::TextureFormat {
     }
 }
 
+/// Whether the GPU holds a texture of this size.
+fn fits(gpu: &Gpu, width: u32, height: u32) -> Result<(), String> {
+    let most = gpu.device.limits().max_texture_dimension_2d;
+    if width == 0 || height == 0 {
+        Err(format!("it is {width} by {height} pixels"))
+    } else if width > most || height > most {
+        Err(format!("it is {width} by {height} pixels, and the GPU takes {most} at most"))
+    } else {
+        Ok(())
+    }
+}
+
 /// Halves an RGBA8 image (box filter; odd sizes clamp at the edge). A
 /// pixel's color counts by its alpha, so that what a texture keeps under
 /// its transparent parts (often a pale background) doesn't show as a rim
@@ -63,6 +75,29 @@ fn half(data: &[u8], w: u32, h: u32) -> (Vec<u8>, u32, u32) {
 }
 
 impl GpuTexture {
+    /// [`GpuTexture::upload`], or why the GPU won't take it (a size it
+    /// can't hold, data it refuses), instead of the device's error, which
+    /// would end the program.
+    pub fn try_upload(
+        gpu: &Gpu,
+        label: &str,
+        tex: &Texture,
+        mipmaps: bool,
+    ) -> Result<GpuTexture, String> {
+        fits(gpu, tex.width, tex.height)?;
+        crate::game::checked(gpu, || GpuTexture::upload(gpu, label, tex, mipmaps))
+    }
+
+    /// [`GpuTexture::upload_cube`], or why the GPU won't take it.
+    pub fn try_upload_cube(
+        gpu: &Gpu,
+        label: &str,
+        faces: &[Texture; 6],
+    ) -> Result<GpuTexture, String> {
+        fits(gpu, faces[0].width, faces[0].height)?;
+        crate::game::checked(gpu, || GpuTexture::upload_cube(gpu, label, faces))
+    }
+
     /// Uploads a texture; `mipmaps` false keeps one level (TXI `mipmap 0`).
     pub fn upload(gpu: &Gpu, label: &str, tex: &Texture, mipmaps: bool) -> GpuTexture {
         let compressed = tex.format != Format::Rgba8;

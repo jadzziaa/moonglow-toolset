@@ -580,14 +580,16 @@ fn cols(m: Mat4) -> [[f32; 4]; 4] {
 
 /// A texture read and uploaded (a cube map: a TXI with `cube 1` and six
 /// faces `name0`…`name5`), and what its TXI says of it; `None` where there
-/// is none.
+/// is none, or where the GPU won't take it (said, as
+/// [`crate::guard::note_gpu_error`]: drawn as one that is missing).
 fn load_texture(gpu: &Gpu, assets: &dyn Assets, name: &str) -> Option<TextureEntry> {
     if let Some(txi) = assets.txi(name).filter(|t| t.cube()) {
         let faces: Option<Vec<mg_image::Texture>> =
             (0..6).map(|i| assets.texture(&format!("{name}{i}")).map(|t| t.texture)).collect();
         if let Some(faces) = faces.and_then(|f| <[mg_image::Texture; 6]>::try_from(f).ok()) {
+            let gpu = refused(name, GpuTexture::try_upload_cube(gpu, name, &faces))?;
             return Some(TextureEntry {
-                gpu: GpuTexture::upload_cube(gpu, name, &faces),
+                gpu,
                 alpha: false,
                 cut: false,
                 blending: txi.blending(),
@@ -600,27 +602,33 @@ fn load_texture(gpu: &Gpu, assets: &dyn Assets, name: &str) -> Option<TextureEnt
             });
         }
     }
-    assets.texture(name).map(|t| {
-        let alpha = alpha_in(&t.texture);
-        TextureEntry {
-            cube: false,
-            alpha,
-            cut: t.txi.alpha_mean().map_or(alpha, |mean| mean < 1.0),
-            gpu: GpuTexture::upload(gpu, name, &t.texture, t.txi.mipmap()),
-            blending: t.txi.blending(),
-            // (Water reflects its `bumpyshinytexture`, as the game's
-            // shiny water does: Moonglow's stands in for it.)
-            env: t
-                .txi
-                .envmap()
-                .or_else(|| t.txi.water().then(|| t.txi.bumpy_shiny()).flatten())
-                .map(str::to_ascii_lowercase),
-            decal: t.txi.decal(),
-            clamp: t.txi.clamp(),
-            ripple: t.txi.ripple(),
-            water: t.txi.water(),
-        }
+    let t = assets.texture(name)?;
+    let uploaded = GpuTexture::try_upload(gpu, name, &t.texture, t.txi.mipmap());
+    let gpu = refused(name, uploaded)?;
+    let alpha = alpha_in(&t.texture);
+    Some(TextureEntry {
+        cube: false,
+        alpha,
+        cut: t.txi.alpha_mean().map_or(alpha, |mean| mean < 1.0),
+        gpu,
+        blending: t.txi.blending(),
+        // (Water reflects its `bumpyshinytexture`, as the game's shiny
+        // water does: Moonglow's stands in for it.)
+        env: t
+            .txi
+            .envmap()
+            .or_else(|| t.txi.water().then(|| t.txi.bumpy_shiny()).flatten())
+            .map(str::to_ascii_lowercase),
+        decal: t.txi.decal(),
+        clamp: t.txi.clamp(),
+        ripple: t.txi.ripple(),
+        water: t.txi.water(),
     })
+}
+
+/// A texture uploaded; or, where the GPU refused it, `None`, said.
+fn refused(name: &str, uploaded: Result<GpuTexture, String>) -> Option<GpuTexture> {
+    uploaded.map_err(|e| crate::guard::note_gpu_error(&format!("the texture {name}"), &e)).ok()
 }
 
 /// A texture is being read apart ([`Renderer::read_textures_apart`]).
@@ -1601,7 +1609,10 @@ impl Renderer {
         if let Some(t) = self.textures.get(name) {
             return t.clone();
         }
-        let entry = load_texture(gpu, assets, name).map(Arc::new);
+        // (A texture that breaks what reads it is none, as on the threads
+        // that read them apart.)
+        let entry = crate::guard::guarded(name, || load_texture(gpu, assets, name).map(Arc::new));
+        let entry = entry.flatten();
         self.textures.insert(name.to_string(), entry.clone());
         entry
     }
