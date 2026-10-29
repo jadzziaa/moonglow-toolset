@@ -454,6 +454,9 @@ pub struct AreaView {
     /// Several selected objects turn about their middle as one
     /// (Options: the toolbar's Together).
     turn_together: bool,
+    /// What is placed goes onto the placeable or door under the pointer
+    /// (the settings', copied each frame: the toolbar's Onto Objects).
+    onto_objects: bool,
     /// The ground point under the pointer, shown in the corner.
     pub pointer: Option<Vec3>,
     /// The tileset brush's cursor as the last frame drew it: its shapes'
@@ -861,6 +864,7 @@ impl AreaView {
             menu_tile: None,
             snap: (None, None),
             turn_together: false,
+            onto_objects: false,
             pointer: None,
             brush_cursor: Vec::new(),
             terrain_drag: None,
@@ -1167,6 +1171,73 @@ impl AreaView {
         g.height(to, near).map_or(to.extend(o.position.z), |z| to.extend(z + lift))
     }
 
+    /// Where an object put down with the pointer at `pos` stands (before
+    /// its own lift): on the ground there, snapped to the grid; with Onto
+    /// Objects on, on the top of the placeable or door the pointer is on
+    /// (its model, not its box) where that is up to [`ONTO_REACH`] above
+    /// the ground below it, as Drop onto Object sets it. (Higher, a
+    /// tree's canopy: on the ground, as off.)
+    pub(crate) fn put_down_at(&self, pos: Pos2) -> Option<Vec3> {
+        let ground = self.ground_at(pos, 0.0)?;
+        if !self.onto_objects {
+            return Some(self.snapped(ground));
+        }
+        // (No models to stand on yet: the ground.)
+        let (Some(ray), Some(model), Some(scene)) =
+            (self.ray(pos), self.model.as_ref(), self.scene.as_ref())
+        else {
+            return Some(self.snapped(ground));
+        };
+        let along = (ground - ray.origin).length() / ray.dir.length().max(1e-6);
+        // The nearest placeable or door the ray meets before the ground,
+        // low enough to stand on.
+        let on = (0..model.objects.len())
+            .filter(|&j| self.surface_kind(model, j))
+            .filter_map(|j| scene.ray_hit(model, j, &ray).flatten())
+            .filter(|t| *t >= 0.0 && *t < along)
+            .min_by(f32::total_cmp)
+            .map(|t| ray.origin + ray.dir * t)
+            .filter(|p| {
+                let below = self.ground.as_ref().and_then(|g| g.height(p.truncate(), p.z));
+                below.is_none_or(|z| p.z - z <= ONTO_REACH)
+            });
+        let Some(p) = on else { return Some(self.snapped(ground)) };
+        let xy = match self.snap.0 {
+            Some(_) => mg_area::arrange::snap_point(p.truncate(), self.snap.0),
+            None => p.truncate(),
+        };
+        let floor = self.ground.as_ref().and_then(|g| g.height(xy, p.z)).unwrap_or(ground.z);
+        let from = xy.extend(floor + ONTO_REACH);
+        let z = self.surface_below(from, &|_| false).unwrap_or(floor);
+        Some(xy.extend(z))
+    }
+
+    /// Whether object `j` of `model` is one a thing can be set on: a
+    /// placeable or door, shown.
+    fn surface_kind(&self, model: &AreaModel, j: usize) -> bool {
+        let k = model.objects[j].kind;
+        matches!(k, ObjectKind::Placeable | ObjectKind::Door) && self.show[k.index()]
+    }
+
+    /// The height of the first surface straight below `from`: the top of a
+    /// placeable or door there (their models; not those `except` names),
+    /// else the ground.
+    fn surface_below(&self, from: Vec3, except: &dyn Fn(usize) -> bool) -> Option<f32> {
+        let (model, scene) = (self.model.as_ref()?, self.scene.as_ref()?);
+        let ray = Ray { origin: from, dir: Vec3::NEG_Z };
+        let on_object = (0..model.objects.len())
+            .filter(|&j| !except(j) && self.surface_kind(model, j))
+            .filter_map(|j| scene.ray_hit(model, j, &ray).flatten())
+            .filter(|t| *t >= 0.0)
+            .min_by(f32::total_cmp);
+        let on_ground = self.ground.as_ref().and_then(|g| g.hit(&ray)).map(|p| from.z - p.z);
+        let t = match (on_object, on_ground) {
+            (Some(a), Some(b)) => a.min(b),
+            (a, b) => a.or(b)?,
+        };
+        Some(from.z - t)
+    }
+
     /// A point snapped to the grid, on the ground there.
     pub(crate) fn snapped(&self, at: Vec3) -> Vec3 {
         if self.snap.0.is_none() {
@@ -1423,8 +1494,25 @@ impl AreaView {
             })
     }
 
+    /// Whether `pos` is over the view itself: in it, and not over a window
+    /// in front of it (a tooltip lets it through). What follows the
+    /// pointer (the coordinates, a brush, a see-through copy, an outline
+    /// of what is to be pasted) shows only so: the ground under a window
+    /// is not where the pointer is. `ui` is the view's own.
+    pub(crate) fn is_over(&self, ui: &egui::Ui, pos: Pos2) -> bool {
+        let layer = ui.ctx().layer_id_at(pos);
+        self.rect.contains(pos)
+            && !layer.is_some_and(|l| l != ui.layer_id() && l.order != egui::Order::Tooltip)
+    }
+
+    /// Where the pointer is over the view ([`AreaView::is_over`]), if it
+    /// is.
+    pub(crate) fn pointer_over(&self, ui: &egui::Ui) -> Option<Pos2> {
+        ui.ctx().pointer_hover_pos().filter(|p| self.is_over(ui, *p))
+    }
+
     /// Whether the start location's marker is what is selected.
-    fn start_is_selected(&self) -> bool {
+    pub(crate) fn start_is_selected(&self) -> bool {
         self.start_selected && self.selection.is_empty()
     }
 
@@ -2101,6 +2189,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
         app.settings.snap_angle.map(f32::from),
     );
     view.turn_together = app.settings.turn_together;
+    view.onto_objects = app.settings.place_onto_objects;
     // An object to go to (from Find Instance).
     if let Some((a, kind, index)) = app.area_focus
         && a == area
@@ -2378,6 +2467,15 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             "Several objects selected turn about their middle as one, keeping their places \
              among themselves; off, each turns where it stands",
         );
+        tools.toggle(
+            ui,
+            &mut app.settings.place_onto_objects,
+            icons::ONTO_OBJECTS,
+            "Onto Objects",
+            "What is placed from the palette goes onto the top of the placeable or door under \
+             the pointer (a book on a table, a skull on an altar), up to 2 m above the ground; \
+             off, on the ground. Drop onto Object (Shift+G) sets what is selected so after",
+        );
         walkmesh_button(ui, view, tools);
         let tip = app.keymap.titled(
             "Select tiles rather than objects (Aurora's Select Terrain)",
@@ -2513,6 +2611,10 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             .to_string()
     } else if view.pasting {
         "Pasting: click to place the copies; right click or Escape: stop".to_string()
+    } else if app.palette.placing_start {
+        "Placing the start location: click to put it here, facing the way the view looks \
+         (Shift + click: and again); right click or Escape: stop"
+            .to_string()
     } else if let Some(key) = brush(app) {
         let what = match ObjectKind::from_restype(key.restype) {
             Some(k) if k.has_outline() => {
@@ -2692,15 +2794,8 @@ fn viewport(
     let mut ghost_instances = ghost_instances;
     let pasted: Vec<mg_area::AreaObject> = match (&app.object_clip, view.pasting) {
         (Some(clip), true) => {
-            // Over the view, not over a window in front of it.
-            let over = |p: &Pos2| {
-                let layer = ui.ctx().layer_id_at(*p);
-                let behind =
-                    layer.is_some_and(|l| l != ui.layer_id() && l.order != egui::Order::Tooltip);
-                view.rect.contains(*p) && !behind
-            };
-            let at = ui.ctx().pointer_hover_pos().filter(over);
-            let at = at.and_then(|p| view.ground_at(p, 0.0)).map(|at| view.snapped(at));
+            let at = view.pointer_over(ui).and_then(|p| view.ground_at(p, 0.0));
+            let at = at.map(|at| view.snapped(at));
             at.map_or_else(Vec::new, |at| {
                 let places = pasted_positions(view, clip, at);
                 let placed = clip.objects.iter().zip(places).map(|((o, _, _), p)| {
@@ -2896,16 +2991,18 @@ fn viewport(
     // The start location where it is being dragged to.
     let start = match view.drag {
         Some(Drag::Start { at, facing, .. }) => Some((at, facing)),
+        // About to be placed (the palette's Start Location): under the
+        // pointer, facing the way the view looks.
+        _ if app.palette.placing_start => view
+            .pointer_over(ui)
+            .and_then(|p| view.ground_at(p, 0.0))
+            .map(|at| (at, view_facing(view))),
         _ => start,
     };
     overlays(ui, view, &shown, start, app.object_clip.as_ref(), door_brush, marks);
     sound_range_overlay(app, ui, view, &shown);
     // Where the pointer is, to the centimeter (Aurora shows whole meters).
-    view.pointer = ui
-        .ctx()
-        .pointer_hover_pos()
-        .filter(|p| view.rect.contains(*p))
-        .and_then(|p| view.ground_at(p, 0.0));
+    view.pointer = view.pointer_over(ui).and_then(|p| view.ground_at(p, 0.0));
     if let Some(p) = view.pointer {
         let painter = ui.painter_at(view.rect);
         let mut text = format!("{:.2}, {:.2}, {:.2}", p.x, p.y, p.z);
@@ -3732,6 +3829,17 @@ fn overlays(
                 );
             }
         }
+        // The pointer says the marker can be taken hold of (its ring, its
+        // arrow's lines, its tip): a hand, closed while it is held.
+        let over = view.drag.is_none()
+            && view.pointer_over(ui).is_some_and(|q| {
+                view.start_grab((p, facing), q).is_some() && view.pick(q).is_none()
+            });
+        if held {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+        } else if over {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+        }
     }
 }
 
@@ -3882,8 +3990,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         }
     }
     if view.pasting {
-        let cancel = response.secondary_clicked()
-            || (hovered && ui.input(|i| i.key_pressed(egui::Key::Escape)));
+        let cancel = cancelled(ui, response);
         if cancel {
             view.pasting = false;
         } else if response.clicked()
@@ -3898,8 +4005,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
 
     // Drawing a trigger's or encounter's outline anew.
     if let Some((kind, index)) = view.redraw {
-        let cancel = response.secondary_clicked()
-            || (hovered && ui.input(|i| i.key_pressed(egui::Key::Escape)));
+        let cancel = cancelled(ui, response);
         if cancel {
             view.redraw = None;
             view.outline.clear();
@@ -3928,10 +4034,34 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         return;
     }
 
+    // Placing the start location (the palette's Start Location): where a
+    // click puts it, facing the way the view looks, as the menu's Set
+    // Start Location Here.
+    if app.palette.placing_start {
+        // (Its marker shown, to be seen where it would go.)
+        if !view.show_start {
+            view.show_start = true;
+            share_shown(app, view);
+        }
+        if cancelled(ui, response) {
+            app.palette.placing_start = false;
+        } else if response.clicked()
+            && let Some(pos) = response.interact_pointer_pos()
+            && let Some(at) = view.ground_at(pos, 0.0)
+        {
+            set_start_location(app, view, at, view_facing(view));
+            view.selection.clear();
+            view.start_selected = true;
+            if !shift {
+                app.palette.placing_start = false;
+            }
+        }
+        return;
+    }
+
     // Placing the palette's blueprint.
     if let Some(key) = brush(app) {
-        let cancel = response.secondary_clicked()
-            || (hovered && ui.input(|i| i.key_pressed(egui::Key::Escape)));
+        let cancel = cancelled(ui, response);
         if cancel {
             app.palette.selected = None;
             view.outline.clear();
@@ -3981,7 +4111,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                     }
                     None => app.log.warn("Doors go on door hooks: click near one"),
                 }
-            } else {
+            } else if let Some(at) = view.put_down_at(pos) {
                 place(app, view, key, at, view.ghost_turn, &[]);
                 if !shift {
                     app.palette.selected = None;
@@ -4036,6 +4166,18 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         && let Some(o) = view.model.as_ref().map(|m| &m.objects[i])
     {
         view.selection = vec![(o.kind, o.index)];
+    }
+    // A right click on the start location's marker, nothing else selected,
+    // selects it: its menu's Adjust Location is the start location's. (With
+    // objects selected the menu stays theirs.)
+    if response.secondary_clicked()
+        && view.selection.is_empty()
+        && let Some(pos) = response.interact_pointer_pos()
+        && view.pick(pos).is_none()
+        && start_on_ground(app, view).is_some_and(|s| view.start_grab(s, pos).is_some())
+    {
+        view.selection.clear();
+        view.start_selected = true;
     }
     // A double click opens the object's Properties (a quick one after
     // another click counts as a triple).
@@ -4369,6 +4511,16 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             drop_onto_objects(app, view);
         }
     }
+    // And the start location's marker, selected: Q and E turn it.
+    if hovered && !typing && !placing && view.start_is_selected() && view.drag.is_none() {
+        let pressed = |c: crate::keys::Cmd| ui.input(|i| app.keymap.pressed(i, c));
+        let by: f32 = turn_keys(view).into_iter().filter(|(c, _)| pressed(*c)).map(|t| t.1).sum();
+        if by != 0.0
+            && let Some((_, facing)) = start_on_ground(app, view)
+        {
+            turn_start_location(app, facing + by);
+        }
+    }
     // (Delete in a text field is the field's, as the tile selection has it:
     // it deleted the selection under the pointer too.)
     if hovered
@@ -4382,15 +4534,26 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     // first): nothing selected.
     let idle = !in_hand && view.drag.is_none() && !view.pasting && brush(app).is_none();
     if idle
-        && hovered
         && !view.held.on
-        && ui.input(|i| i.key_pressed(egui::Key::Escape))
+        && escaped(ui, response)
         && crate::terrain_mode::active(app, view).is_none()
     {
         view.selection.clear();
         view.tile_selection.clear();
         view.start_selected = false;
     }
+}
+
+/// Escape pressed over the view (not where a window in front of it, or
+/// a field elsewhere, takes it): what is in hand is put down.
+pub(crate) fn escaped(ui: &egui::Ui, response: &egui::Response) -> bool {
+    response.hovered() && ui.input(|i| i.key_pressed(egui::Key::Escape))
+}
+
+/// Escape over the view ([`escaped`]) or a right click on it: the brush,
+/// a paste, an outline being drawn, a stroke, put down.
+pub(crate) fn cancelled(ui: &egui::Ui, response: &egui::Response) -> bool {
+    response.secondary_clicked() || escaped(ui, response)
 }
 
 /// The camera: Ctrl + drag moves it, Ctrl + right or middle drag (or a
@@ -4583,7 +4746,7 @@ fn drop_blueprint(app: &mut Moonglow, view: &mut AreaView, response: &egui::Resp
             Some(h) => place(app, view, key, h.position, h.bearing, &[]),
             None => app.log.warn("Doors go on door hooks: drop it near one"),
         }
-    } else {
+    } else if let Some(at) = pointer.and_then(|pos| view.put_down_at(pos)) {
         place(app, view, key, at, view.ghost_turn, &[]);
     }
     // Placed, as a click places it: the palette's choice is let go (with
@@ -4675,8 +4838,8 @@ fn place(
 ) {
     use mg_module::instances::{OUTLINE_LIFT, Placement};
     let Some(kind) = ObjectKind::from_restype(key.restype) else { return };
-    // On the grid (doors go on their hooks; outlines are drawn point by point).
-    let at = if kind == ObjectKind::Door || kind.has_outline() { at } else { view.snapped(at) };
+    // (`at` is on the grid already, or onto an object: `put_down_at`.
+    // Doors go on their hooks; outlines are drawn point by point.)
     let ground = |p: Vec3| view.ground.as_ref().and_then(|g| g.height(p.truncate(), p.z));
     let position = at + Vec3::Z * lift(kind);
     let relative: Vec<[f32; 3]> = outline
@@ -4811,21 +4974,12 @@ fn ghost(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) -> Option<mg_ar
         return None;
     };
     let kind = ObjectKind::from_restype(key.restype).filter(|k| !k.has_outline())?;
-    // Over the view, not over a window in front of it.
-    let pos = ui.ctx().pointer_hover_pos().filter(|p| view.rect.contains(*p))?;
-    if ui
-        .ctx()
-        .layer_id_at(pos)
-        .is_some_and(|l| l != ui.layer_id() && l.order != egui::Order::Tooltip)
-    {
-        return None;
-    }
-    let at = view.ground_at(pos, 0.0)?;
+    let pos = view.pointer_over(ui)?;
     let (at, rotation) = if kind == ObjectKind::Door {
-        let hook = view.model.as_ref()?.hook_near(at, DOOR_REACH)?;
+        let hook = view.model.as_ref()?.hook_near(view.ground_at(pos, 0.0)?, DOOR_REACH)?;
         (hook.position, Some(hook.bearing))
     } else {
-        (view.snapped(at), None)
+        (view.put_down_at(pos)?, None)
     };
     // (Read again after the module changes too: the blueprint edited while
     // it is the brush looks as it does now.)
@@ -4918,7 +5072,7 @@ fn wheel_scales(
     let now = ui.input(|i| i.time);
     if let Some(wheel) = &view.wheel_scale {
         let rest = WHEEL_REST - (now - wheel.at);
-        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        if escaped(ui, response) {
             view.wheel_scale = None;
         } else if rest <= 0.0 || !command || wheel.selection != view.selection {
             let scaled = view.scaled_by(&wheel.selection, wheel.factor);
@@ -5341,7 +5495,7 @@ const ONTO_REACH: f32 = 2.0;
 /// up to [`ONTO_REACH`] above it, else the ground. For a skull on an altar
 /// or a book on a table, which Aurora leaves to the height typed in.
 fn drop_onto_objects(app: &mut Moonglow, view: &AreaView) {
-    let (Some(model), Some(scene)) = (&view.model, &view.scene) else { return };
+    let Some(model) = &view.model else { return };
     let chosen: Vec<usize> = view.selected_indices().collect();
     // (Looked up for every object under every one chosen: a set.)
     let is_chosen: std::collections::HashSet<usize> = chosen.iter().copied().collect();
@@ -5352,23 +5506,8 @@ fn drop_onto_objects(app: &mut Moonglow, view: &AreaView) {
             if o.kind == ObjectKind::Creature || o.kind.has_outline() {
                 return None;
             }
-            let ray = Ray { origin: o.position + Vec3::Z * ONTO_REACH, dir: Vec3::NEG_Z };
-            let on_object = (0..model.objects.len())
-                .filter(|j| !is_chosen.contains(j))
-                .filter(|&j| {
-                    let k = model.objects[j].kind;
-                    matches!(k, ObjectKind::Placeable | ObjectKind::Door) && view.show[k.index()]
-                })
-                .filter_map(|j| scene.ray_hit(model, j, &ray).flatten())
-                .filter(|t| *t >= 0.0)
-                .min_by(f32::total_cmp);
-            let on_ground =
-                view.ground.as_ref().and_then(|g| g.hit(&ray)).map(|p| ray.origin.z - p.z);
-            let t = match (on_object, on_ground) {
-                (Some(a), Some(b)) => a.min(b),
-                (a, b) => a.or(b)?,
-            };
-            let z = ray.origin.z - t;
+            let from = o.position + Vec3::Z * ONTO_REACH;
+            let z = view.surface_below(from, &|j| is_chosen.contains(&j))?;
             ((z - o.position.z).abs() > 1e-4).then_some((
                 i,
                 o.position.truncate().extend(z),
@@ -5462,8 +5601,12 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
         ui.close();
     }
     let any = !view.selection.is_empty();
-    if ui.add_enabled(any, egui::Button::new("Adjust Location…")).clicked() {
-        app.adjust = crate::area_tools::adjust(view);
+    let start = view.start_is_selected().then(|| start_location(app, view.area)).flatten();
+    if ui.add_enabled(any || start.is_some(), egui::Button::new("Adjust Location…")).clicked() {
+        app.adjust = match start {
+            Some(at) => Some(crate::area_tools::adjust_start(view.area, at)),
+            None => crate::area_tools::adjust(view),
+        };
         ui.close();
     }
     if ui.add_enabled(any, egui::Button::new("Drop to Ground (G)")).clicked() {
@@ -5807,8 +5950,7 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
             )
             .clicked()
         {
-            let facing = view.orbit.as_ref().map_or(0.0, |o| o.yaw + std::f32::consts::PI);
-            set_start_location(app, view, at, facing);
+            set_start_location(app, view, at, view_facing(view));
             ui.close();
         }
         // Test the module as it is now, starting here, facing the way the
@@ -5897,15 +6039,21 @@ fn set_start_location(app: &mut Moonglow, view: &mut AreaView, at: Vec3, facing:
     }
 }
 
+/// The way the view looks along the ground (radians anticlockwise from
+/// east): the way a start location set from it faces.
+fn view_facing(view: &AreaView) -> f32 {
+    view.orbit.as_ref().map_or(0.0, |o| o.yaw + std::f32::consts::PI)
+}
+
 /// Moves the start location to `at`, in the area it is in (a drag of its
 /// marker).
-fn move_start_location(app: &mut Moonglow, at: Vec3) {
+pub(crate) fn move_start_location(app: &mut Moonglow, at: Vec3) {
     let edits = start_at(at).to_vec();
     app.actions.push(Action::Apply(Command::new("Move Start Location", edits)));
 }
 
 /// Turns the start location to face `facing` (a drag of its arrow's tip).
-fn turn_start_location(app: &mut Moonglow, facing: f32) {
+pub(crate) fn turn_start_location(app: &mut Moonglow, facing: f32) {
     let edits = start_facing(facing).to_vec();
     app.actions.push(Action::Apply(Command::new("Turn Start Location", edits)));
 }

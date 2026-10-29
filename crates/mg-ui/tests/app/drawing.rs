@@ -1208,8 +1208,30 @@ fn grass_is_set_in_area_properties_and_grown_in_the_view() {
     // Grass of the area's own on dirt: the tileset's, as a start.
     h.get_by_label("Add Grass to…").click();
     h.run_steps(2);
+    // The materials the area's tiles have first (ttr01's field: grass,
+    // stone, and its edges' nonwalk), the others after, below the line
+    // (no dirt or lava in this field). Picture:
+    // `target/test-output/ui-area-grass/add-grass-to.png`.
+    let y = |h: &Harness<'_, Moonglow>, label: &str| h.get_by_label(label).rect().center().y;
+    let line = y(&h, "Not on this area's tiles (nothing grows until a tile has it)");
+    h.render()
+        .expect("render")
+        .save(mg_testkit::output_dir("ui-area-grass").join("add-grass-to.png"))
+        .unwrap();
+    assert!(y(&h, "Grass (3)") < line && y(&h, "Stone (4)") < line);
+    assert!(y(&h, "Grass (3)") < y(&h, "Stone (4)"), "the most of the ground first");
+    assert!(y(&h, "Dirt (1)") > line && y(&h, "Lava (15)") > line);
     h.get_by_label("Dirt (1)").click();
     h.run_steps(3);
+    // Grass on dirt, which no tile has: said so.
+    assert!(
+        h.query_by_label("No face of this area's tiles is of this material: nothing grows here.")
+            .is_some()
+    );
+    h.render()
+        .expect("render")
+        .save(mg_testkit::output_dir("ui-area-grass").join("own-grass.png"))
+        .unwrap();
     let now = stored(&mut h);
     assert_eq!(now.overrides.len(), 1);
     assert_eq!(now.overrides[0].material, 1);
@@ -1257,6 +1279,54 @@ fn grass_is_set_in_area_properties_and_grown_in_the_view() {
     let saved = AreaGrass::read(&back.gff(&git).unwrap().unwrap().root);
     assert_eq!(saved, stored(&mut h));
     assert!(saved.default_disabled && saved.overrides[0].material == 1);
+}
+
+/// Dense grass (30 tufts a square meter) seen across a field, the camera
+/// led forward a meter at a time over the distance where the view begins
+/// to draw fewer of its tufts (45 m: `mg_area::grass::LEVELS`): pictures
+/// in `target/test-output/ui-area-grass-band/`, to look at (the tufts
+/// thinned at once at a tile's edge, a band, before they thinned over a
+/// stretch of the field).
+#[test]
+#[ignore = "a look at grass thinned with distance"]
+fn grass_thinned_with_distance_looks() {
+    use mg_area::grass::{GRASS_MATERIAL, GrassOverride, add_override};
+    let Some((mut h, area)) = area_harness_sized("grass-band", "ttr01", None, 12) else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let edits = {
+        let app = h.state_mut();
+        let game = app.game.clone().unwrap();
+        let set = mg_area::tileset(&game, ResRef::from_str("ttr01").unwrap()).ok();
+        let mut o = GrassOverride::new(GRASS_MATERIAL, set.as_ref());
+        o.look.density = 30.0;
+        let root = app.ws.as_mut().unwrap().doc(&git).unwrap().root.clone();
+        add_override(git, &root, &o)
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Dense", edits)));
+    h.run_steps(4);
+    h.state_mut().area_views.get_mut(&area).unwrap().grid = false;
+    let dir = mg_testkit::output_dir("ui-area-grass-band");
+    for step in 0..4 {
+        if let Some(o) = &mut h.state_mut().area_views.get_mut(&area).unwrap().orbit {
+            o.target = glam::Vec3::new(50.0 + 2.0 * step as f32, 60.0, 0.0);
+            (o.pitch, o.yaw, o.distance) = (0.75, std::f32::consts::PI, 50.0);
+        }
+        h.state_mut().settings.no_grass = false;
+        h.run_steps(12);
+        let with = h.render().expect("render");
+        with.save(dir.join(format!("step-{step}.png"))).unwrap();
+        // What the grass changes, four times as bright: how dense it is
+        // drawn, over the field.
+        h.state_mut().settings.no_grass = true;
+        h.run_steps(12);
+        let mut grass = h.render().expect("render");
+        for (p, w) in grass.pixels_mut().zip(with.pixels()) {
+            for c in 0..3 {
+                p[c] = (w[c].abs_diff(p[c]) as u32 * 4).min(255) as u8;
+            }
+        }
+        grass.save(dir.join(format!("grass-{step}.png"))).unwrap();
+    }
 }
 
 /// The area view's grass covers what the view shows, not a reach around

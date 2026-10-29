@@ -45,6 +45,31 @@ pub struct AdjustLocation {
     /// one the game scales by): kept until Scale is changed (the window
     /// says so).
     pub uneven: usize,
+    /// It is the module's start location (`Mod_Entry_*` in module.ifo),
+    /// selected in the area's view, rather than objects.
+    pub start: bool,
+}
+
+/// Adjust Location for the module's start location in `area`, at
+/// `(position, facing)` (radians anticlockwise from east, the way its
+/// arrow points): its position and bearing, as an object's.
+pub(crate) fn adjust_start(area: ResRef, (position, facing): (Vec3, f32)) -> AdjustLocation {
+    AdjustLocation {
+        area,
+        objects: Vec::new(),
+        position,
+        // (An object's bearing faces north at 0, as the start location's
+        // arrow at a quarter turn from east.)
+        bearing: (facing - std::f32::consts::FRAC_PI_2).to_degrees().rem_euclid(360.0),
+        changed: [false; 4],
+        visual: mg_area::VisualTransform::default(),
+        visual_changed: false,
+        shaped: false,
+        fixed: 0,
+        fixed_shaped: 0,
+        uneven: 0,
+        start: true,
+    }
 }
 
 /// Adjust Location for the selection of an area's view (showing the first
@@ -81,6 +106,7 @@ pub(crate) fn adjust(view: &crate::area_view::AreaView) -> Option<AdjustLocation
             .iter()
             .filter_map(|&(k, i)| model.object(k, i))
             .any(|o| o.takes_visual_transform()),
+        start: false,
     })
 }
 
@@ -104,6 +130,9 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
         .show(ui.ctx(), |ui| {
             if a.objects.len() > 1 {
                 ui.weak(format!("{} objects: what you change is set on each", a.objects.len()));
+            }
+            if a.start {
+                ui.weak("The module's start location");
             }
             egui::Grid::new("adjust").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
                 for (i, label) in ["X", "Y", "Z"].into_iter().enumerate() {
@@ -274,6 +303,18 @@ pub fn scale_note(a: &AdjustLocation) -> Option<String> {
     ))
 }
 
+/// Sets the changed parts of the start location (a command each, as its
+/// marker's drag and turn are).
+fn apply_start(app: &mut Moonglow, a: &AdjustLocation) {
+    if a.changed[..3].iter().any(|c| *c) {
+        crate::area_view::move_start_location(app, a.position);
+    }
+    if a.changed[3] {
+        let facing = a.bearing.to_radians() + std::f32::consts::FRAC_PI_2;
+        crate::area_view::turn_start_location(app, facing);
+    }
+}
+
 /// A number as short as it reads (`0.5`, `1`, `1.25`).
 fn short(v: f32) -> String {
     let s = format!("{v:.3}");
@@ -282,6 +323,10 @@ fn short(v: f32) -> String {
 
 /// Sets the changed parts of the location on each object (one command).
 fn apply_location(app: &mut Moonglow, a: &AdjustLocation) {
+    if a.start {
+        apply_start(app, a);
+        return;
+    }
     let git = ResKey::new(a.area, ResType::GIT);
     let (Some(view), Some(ws)) = (app.area_views.get(&a.area), app.ws.as_mut()) else { return };
     let Some(model) = &view.model else { return };

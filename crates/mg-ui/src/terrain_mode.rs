@@ -917,7 +917,8 @@ pub(crate) fn input(
     let at = |view: &AreaView, pos: Pos2| view.ground_at(pos, 0.0).and_then(|p| spot(p, w, h));
     view.spot = response.hover_pos().and_then(|p| at(view, p));
     let shift = ui.input(|i| i.modifiers.shift);
-    if response.hovered() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+    // (Escape alone: a right click is the tile menu's.)
+    if crate::area_view::escaped(ui, response) {
         app.palette.tile_brush = None;
         view.crossing.clear();
         view.crossing_outline = None;

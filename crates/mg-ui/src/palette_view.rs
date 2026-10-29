@@ -78,6 +78,12 @@ pub struct PaletteView {
     /// The prefabs are shown (groups of placed objects saved to place
     /// again), rather than blueprints.
     pub prefabs: bool,
+    /// The start location's page is shown (Aurora's Paint Start
+    /// Location), rather than blueprints.
+    pub start: bool,
+    /// The module's start location is about to be placed: a click in an
+    /// area's view puts it there.
+    pub placing_start: bool,
     /// The tileset brush chosen.
     pub tile_brush: Option<crate::terrain_mode::TileBrush>,
     /// The tile chosen last among a terrain's or crosser's pictures (the
@@ -395,6 +401,8 @@ impl Default for PaletteView {
             chosen: Vec::new(),
             tiles: false,
             prefabs: false,
+            start: false,
+            placing_start: false,
             tile_brush: None,
             tile_choice: None,
             area: None,
@@ -685,6 +693,42 @@ fn search_row(ui: &mut egui::Ui, view: &mut PaletteView, hint: &str) -> bool {
     entered
 }
 
+/// The start location's page: what it is, and the switch that has a click
+/// in an area's view put it there.
+fn start_ui(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut PaletteView) {
+    ui.label(
+        "Where a player's character enters the module (module.ifo's Mod_Entry_Area and \
+         position): a blue ring with a red arrow in the area's view.",
+    );
+    ui.add_space(4.0);
+    let tip = "On: a click in an area's view puts the start location there, facing the way the \
+               view looks (Shift + click: and stays on); a right click or Escape over the view \
+               puts it down";
+    ui.toggle_value(&mut view.placing_start, "Place the Start Location").on_hover_text(tip);
+    ui.add_space(4.0);
+    let at = app.ws.as_mut().and_then(|ws| {
+        let info = ws.doc(&crate::module_props::info_key()).ok()?;
+        let f = |label: &str| info.root.float(label).unwrap_or(0.0);
+        Some((info.root.resref("Mod_Entry_Area")?, f("Mod_Entry_X"), f("Mod_Entry_Y")))
+    });
+    match at {
+        Some((area, x, y)) => {
+            ui.weak(format!("Now in {area}, at {x:.2}, {y:.2}."));
+            if ui.button("Go to Start Location").clicked() {
+                crate::area_view::go_to_start(app);
+            }
+        }
+        None => {
+            ui.weak("The module has no start location yet.");
+        }
+    }
+    ui.add_space(4.0);
+    ui.weak(
+        "In the view, select its marker by a click: drag its ring to move it, its arrow's tip to \
+         turn it; Q and E turn it, and its menu's Adjust Location sets it exactly.",
+    );
+}
+
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     if app.game.is_none() {
         ui.label("No game data.");
@@ -736,17 +780,20 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     // (and below, for the one shown); in a pane too narrow for the row, a
     // dropdown with their names.
     {
-        use crate::icons::{PREFABS, TILES, blueprint, labelled};
+        use crate::icons::{PREFABS, START, TILES, blueprint, labelled};
         #[derive(Clone, Copy, PartialEq)]
         enum Type {
             Tiles,
             Kind(BlueprintKind),
             Prefabs,
+            Start,
         }
         let now = if view.tiles {
             Type::Tiles
         } else if view.prefabs {
             Type::Prefabs
+        } else if view.start {
+            Type::Start
         } else {
             Type::Kind(view.kind)
         };
@@ -759,10 +806,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             "Groups of placed objects saved under a name (a camp, a furnished room), to place \
              again in any area or module",
         ));
+        types.push((
+            Type::Start,
+            START,
+            "Start Location",
+            "Where a player's character enters the module: click in an area to put it there",
+        ));
         let mut chosen = None;
         // Larger than the text beside them (a line's height, about a
         // third more than its letters), to be told apart and hit at a
-        // glance; in rows, where the pane is narrower than the eleven of
+        // glance; in rows, where the pane is narrower than the twelve of
         // them.
         let size = ui.text_style_height(&egui::TextStyle::Body);
         let each = size + 10.0;
@@ -797,6 +850,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 chosen = Some(pick);
             }
         }
+        // (Another type chosen: the start location is not about to be
+        // placed any more.)
+        if chosen.is_some_and(|t| t != Type::Start) {
+            (view.start, view.placing_start) = (false, false);
+        }
         match chosen {
             Some(Type::Tiles) => {
                 view.tiles = true;
@@ -817,10 +875,19 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 view.selected = None;
                 view.chosen.clear();
             }
+            // Chosen, the start location is about to be placed, as
+            // Aurora's Paint Start Location has it.
+            Some(Type::Start) => {
+                (view.start, view.placing_start) = (true, true);
+                (view.tiles, view.prefabs) = (false, false);
+                view.selected = None;
+                view.chosen.clear();
+                view.tile_brush = None;
+            }
             None => {}
         }
         // Remembered for the next start.
-        if chosen.is_some() {
+        if chosen.is_some() && !view.start {
             app.settings.palette_type = Some(match (view.tiles, view.prefabs) {
                 (true, _) => "tiles".to_string(),
                 (_, true) => "prefabs".to_string(),
@@ -832,7 +899,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         let name = types.iter().find(|t| t.0 == now).map_or("", |t| t.2);
         ui.horizontal(|ui| {
             ui.strong(name);
-            if !view.tiles && !view.prefabs {
+            if !view.tiles && !view.prefabs && !view.start {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_enabled_ui(app.ws.is_some(), |ui| {
                         ui.selectable_value(&mut view.custom, true, "Custom")
@@ -853,6 +920,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     // (What is typed is kept for the next start too.)
     if view.restored && view.filter != app.settings.palette_search {
         app.settings.palette_search = view.filter.clone();
+    }
+    if view.start {
+        ui.separator();
+        start_ui(app, ui, &mut view);
+        app.palette = view;
+        return;
     }
     if view.prefabs {
         ui.separator();

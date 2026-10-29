@@ -8,7 +8,7 @@
 //! looking over a field from high up sees none of that edge.
 //!
 //! Each tile model's grass ([`crate::grass::tufts`]) is uploaded once, and
-//! drawn at each of [`crate::grass::LEVELS`] by the first of its tufts
+//! drawn at each of the levels of [`crate::grass::level`] by the first of its tufts
 //! (they are in no order of place): its levels share its buffers. Near
 //! the eye each tile's grass is drawn by itself; where a whole chunk of
 //! [`CHUNK`] by [`CHUNK`] tiles is at the last level, its tiles' tufts are
@@ -26,7 +26,7 @@ use mg_mdl::{Mesh, Model, Node, NodeKind};
 use mg_render::{Gpu, GpuModel};
 
 use crate::TILE_SIZE;
-use crate::grass::{LEVELS, TUFT_FACES, TUFT_VERTICES, kept, level, share};
+use crate::grass::{STEPS, TUFT_FACES, TUFT_VERTICES, kept, level, share};
 
 /// The camera an area's grass is drawn for: where its eye is (the grass
 /// is thinned with the distance from it) and what it sees (what is out of
@@ -53,8 +53,9 @@ impl Sight {
 /// How many tiles each way the grass far off is put together in.
 pub const CHUNK: i32 = 4;
 
-/// The last of [`LEVELS`]: grass drawn at it is put together by chunks.
-const FAR: usize = LEVELS.len() - 1;
+/// The last of the levels ([`crate::grass::level`]): grass drawn at it is
+/// put together by chunks.
+const FAR: usize = STEPS - 1;
 
 /// A tile whose grass may be drawn: its index, its position (which tells
 /// its chunk), and a ball around its grass (in the area).
@@ -63,7 +64,8 @@ pub type Grown = (usize, Vec3, Vec3, f32);
 /// What is drawn of an area's grass.
 #[derive(Debug, Clone, PartialEq)]
 pub enum GrassDraw {
-    /// A tile's grass (by the tile's index), at a level of [`LEVELS`].
+    /// A tile's grass (by the tile's index), at a level of
+    /// [`crate::grass::level`]'s.
     Tile(usize, usize),
     /// A chunk's (by its column and row), all of it at the last level:
     /// its tiles, by index.
@@ -113,7 +115,8 @@ fn around(balls: impl Iterator<Item = (Vec3, f32)>) -> (Vec3, f32) {
     ((min + max) / 2.0, (max - min).length() / 2.0)
 }
 
-/// A tile model's grass: the tufts, uploaded, at each of [`LEVELS`], and
+/// A tile model's grass: the tufts, uploaded, at each of the [`STEPS`]
+/// levels, and
 /// a ball around them (in the model's space).
 #[derive(Debug)]
 pub(crate) struct TileGrass {
@@ -137,7 +140,7 @@ impl TileGrass {
         // (A tuft's indices: three to each of its faces. Each of the
         // model's meshes is uploaded: a grown mesh has a tuft at least.)
         let per_tuft = (TUFT_FACES * 3) as u32;
-        let levels = (0..LEVELS.len())
+        let levels = (0..STEPS)
             .map(|level| {
                 let mut shares = densities.iter().map(|&d| share(level, d));
                 if shares.all(|s| s >= 1.0) {
@@ -447,11 +450,12 @@ mod tests {
         let mut last = 0;
         for d in 0..100_000 {
             let l = level(d as f32 / 10.0);
-            assert!(l >= last && l < LEVELS.len());
-            assert!(LEVELS[l].1 > 0.0);
+            assert!(l >= last && l < STEPS);
+            assert!(crate::grass::share(l, 1000.0) > 0.0);
             last = l;
         }
         assert_eq!(last, FAR);
-        assert!(LEVELS.windows(2).all(|w| w[0].0 < w[1].0 && w[0].1 > w[1].1));
+        let levels = crate::grass::LEVELS;
+        assert!(levels.windows(2).all(|w| w[0].0 < w[1].0 && w[0].1 > w[1].1));
     }
 }

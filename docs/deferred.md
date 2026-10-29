@@ -295,10 +295,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   posed (three times a tile's model a frame: the pose, the lights, the
   meshes), lower-casing each node's name. Bound once when the model is
   loaded, a scene's 0.5 ms would be less. (S)
-- **Pictures that differ from run to run:** 10 of 192 pictures of the
-  campaigns' areas differ by a few pixels to a few hundred between two
-  runs of the same program. Something is ordered by chance (a hash map's
-  order, likely among lights or an object's parts). Not looked for. (S)
 
 ## EE fields Aurora hides
 
@@ -913,16 +909,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Moonglow scatters them evenly by face area and density. The mean color
   near the camera matches; how the engine places them (per face, by a
   noise) isn't known. (S–M) (Bee AI's ask, October 2026)
-- **Grass's reach and its edge:** the area view draws grass wherever it
-  shows grass ground (the owner's report, October 2026: it was the tiles
-  within 30 m of the view's focus); the client draws it within 30 m of
-  its camera by default (`Grass Render Distance` 900, the distance
-  squared, up to 30,000: 173 m) and fades it in there (since 1.82),
-  about 24 m and over 2 m as measured. Moonglow has no fade at its
-  levels' distances either: past 45 m dense grass (more than 10 tufts a
-  square meter), and past 180 m the tilesets' (5), lose tufts at once
-  where a level begins (`mg_area::grass::LEVELS`), a band a careful eye
-  sees as the camera moves. (S)
 - **A grass tuft's shape:** one upright quad turned at random, a texture
   quarter, as tall as wide; the client's geometry (crossed quads, a lean,
   its sway in the wind) wasn't read, and Moonglow's tufts don't sway. (S)
@@ -933,9 +919,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Grass on placeables:** grass is grown on tiles' walkmeshes only;
   whether the game grows it on a static placeable's walkmesh (merged into
   the tiles) wasn't checked. (S)
-- **Add Grass to… lists every surfacemat.2da row:** which materials the
-  area's tiles have isn't shown, nor a texture's picture beside its name;
-  any texture is taken as four tufts, two by two, as the game's are. (S)
 - **The sun's and moon's directions in an area's GIT:** the server reads
   a module's GIT's `AreaProperties` `SunDirectionX/Y/Z`,
   `MoonDirectionX/Y/Z` (kept into a saved game) and `DisplayName` (the
@@ -969,11 +952,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   sound's random position range is a rectangle of `RandomRangeX` and
   `RandomRangeY` each way (that the game takes them as half-widths about
   the sound was not measured). (S)
-- **The start location in the view:** set from the menu, and its marker
-  dragged (ring, shaft) and turned (arrow's tip). Aurora's palette entry
-  for it isn't there; selected, it is no object, so the keys (Q and E,
-  the arrows) and Adjust Location don't act on it; a drag stays in its
-  area; the pointer doesn't change over it. (S)
 - **The minimap in Moonglow:** the area view has no map panel of its own,
   and Area Transition setup picks its target from a list rather than a
   map. (S–M)
@@ -1037,14 +1015,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   turns the selection with Shift + right drag; and some desktops take
   Alt + drag to move the window. Not in Options › Keyboard. (S)
   (from builders' reports after 1.10.1)
-- **Placing onto a placeable as it is placed:** Drop onto Object
-  (Shift+G) sets an object on the placeable below it after it is placed;
-  the see-through copy that follows the pointer still lies on the ground
-  (the walkmesh), under a table or an altar. Shift, Ctrl and Alt are each
-  taken while placing (place another, the camera, a rectangle), and on by
-  default every drop in a forest would land in a canopy: it wants a
-  switch on the toolbar, or a key of its own. (S) (from builders'
-  reports on 1.31.0)
 - **Painting placeables** (the area view's Paint, from builders'
   reports on 1.31.0) is in: Scatter, Row and Fill (a rectangle in rows
   on a grid Q and E turn, each piece by its own size, a builder's ask
@@ -1123,17 +1093,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   taken for it too and had a marker's metre-wide box: a builder's
   report after 1.32.1.)
   (from builders' reports after 1.16.2)
-- **A creature's box in an area** is around it as it stands (the start
-  of its pause), not around its model at rest: a builder's dragon had a
-  box several times its size (at rest it lies stretched out, wings
-  spread: 3.1 by 14.0 by 10.2 m against 5.6 by 7.3 by 6.3 standing).
-  Skinned meshes (its wings) are counted where their bones put each
-  vertex, as the renderer draws them; the joints are no longer counted;
-  wings, tails and robes that are parts of their own are counted in
-  their pose too.
-  The box does not follow the animation as it plays, and a click is
-  still tried against the model's triangles at rest (then against the
-  box). (S) (from builders' reports after 1.19.1)
 - **Ctrl + wheel scales the selection** (a builder: Aurora's way to
   resize a placeable, which did nothing here but zoom): the models of
   the objects selected that take a scale, shown as the wheel turns and
@@ -1210,19 +1169,19 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   a helmet whose model (`helm_129`) is in neither download, and is
   drawn headless; what the game draws for a missing helmet model isn't
   known. (needs the file) (from builders' reports after 1.10.1)
-- **Emitters start as they look once going:** an object's emitter new to
-  the view is run twenty seconds ahead (a wide fog that lets out eight
-  slow particles a second showed next to nothing for a quarter of a
-  minute after every change to the area). The nearest 256 objects with
-  emitters are simulated (it was the first 96 listed). Tiles' emitters
-  start from nothing still. That the fog is as dense as the game's from
-  above wasn't compared with the client. Particles show only while
-  Animations is on, and of at most 128 tiles. A tile's emitters take
-  their keys from the animations playing on it as one animation as long
-  as the longest (keys that change over a shorter loop would run slow;
-  the game's are constant). Magic Sparks show faintly from above; not
-  compared with the client. (S)
-  (from builders' reports after 1.14.1)
+- **Emitters start as they look once going:** left, the client's
+  comparisons. An emitter new to the view, an object's or a tile's, is
+  run twenty seconds ahead so that it shows as it does once going
+  (`scene.rs`, `PARTICLES_AHEAD`), and the nearest 256 objects and 128
+  tiles with emitters are simulated while Animations is on (`nearest`).
+  Not compared with the client: that a wide fog (eight slow particles a
+  second) is as dense from above as the game's, and Magic Sparks, which
+  show faintly from above. A tile's emitters take their keys from the
+  animations playing on it as one animation as long as the longest (the
+  game's tiles' keys are constant; one that changed over a shorter loop
+  would run slow). (S) (waits on the client batch: the fog placeable and
+  Magic Sparks seen from above in the client and in the area view, side
+  by side) (from builders' reports after 1.14.1)
 - **The game's shaders, compiled (M0 of [the shaders
   proposal](shaders-proposal.md)):** what the compiler (`mg-shader`) and
   Verify's `shader-compile` check leave out. (from M0, 2026-10-21)
@@ -2598,14 +2557,6 @@ of truth, and does each caller's difference matter.
 - The model viewer's wheel lacks Ctrl and pinch zoom and Shift's
   sideways, which the area view's has (`model_view.rs:745`,
   `area_view.rs:3657`), and its orbit is `area_view::Orbit` again.
-- "The pointer over the view, not under a window" three times
-  (`paint_mode.rs:379`, `area_view.rs:2043`, `:3993`), missing at the
-  tile paste outline (`tile_select.rs:765`), the paste outline
-  (`area_view.rs:2703`) and the coordinates (`:2215`): to be seen in a
-  picture before it is changed.
-- Escape or a right click to cancel, six times (`paint_mode.rs:483`,
-  `:495`, `tile_select.rs:217`, `area_view.rs:3107`, `:3123`, `:3155`;
-  `:4093` without `hovered`).
 - A tileset read by hand where it is open: `tile_view.rs:19`,
   `model_view.rs:1208`, `tabs.rs:396`, `area_grass.rs:266`,
   `area_reshape.rs:146`, `area_props.rs:261`. One `Moonglow::tileset`.

@@ -19,8 +19,8 @@ Each button shows an icon and its name. With **Tools › Options ›
 General › Toolbar buttons: Icons only** the buttons that have an icon
 show it alone, and the toolbar takes about half the rows it took: rest
 the pointer on an icon and its tip names it (and gives its key, as
-Select Tiles' and Paint's do). All (☑), None (☐), Together (🔗), To
-Scratch (📤) and Save as Prefab… (🗐) have icons too, and the dropdowns
+Select Tiles' and Paint's do). All (☑), None (☐), Together (🔗), Onto Objects
+(📥), To Scratch (📤) and Save as Prefab… (🗐) have icons too, and the dropdowns
 show 🏠 (Fade Geometry), 📐 (Snap) and ↻ (Turn) before their choice. A
 palette's Gallery is 🖼, the Grid ⊞.
 
@@ -32,12 +32,20 @@ palette's Gallery is 🖼, the Grid ⊞.
 - **The start location** (where a player's character enters the module)
   is marked as in Aurora: a blue ring on the ground with a red arrow the
   way the character faces. To set it, right-click the ground where it
-  should be and choose **Set Start Location Here**: it faces the way the
-  view looks. Click the marker to select it (a yellow box, as round an
+  should be and choose **Set Start Location Here**, or choose **🏁 Start
+  Location** among the palette's types (Aurora's Paint Start Location)
+  and click where it should be (the marker follows the pointer until
+  then; Shift + click keeps it for another try, a right click or Escape
+  puts it down): it faces the way the view looks, in the area clicked,
+  which is how it goes to another area (a drag keeps it in its own).
+  The pointer is a hand over the marker. Click the marker to select it (a yellow box, as round an
   object; the game's invisible object, which has nothing to draw, has
   the box its model holds undrawn, 0.6 m across, as Aurora outlines it). Drag it by its ring or its arrow to move it; selected, the
   arrow's tip has a round handle that turns it (both follow the snapping grid and
-  angle; Escape lets go; an object standing on the marker is taken first). **Go to Start Location** brings the view to it; with the start in another area, it opens that area there. **Start** on the main toolbar (View › Go to Start Location) does the same with no area open: move the start location to where you are working, and it is a bookmark.
+  angle; Escape lets go; an object standing on the marker is taken first).
+  Selected, **Q** and **E** turn it as they turn an object, and its menu
+  (a right click on it) has **Adjust Location…** for its exact X, Y, Z
+  and bearing (0 faces north, as an object's). **Go to Start Location** brings the view to it; with the start in another area, it opens that area there. **Start** on the main toolbar (View › Go to Start Location) does the same with no area open: move the start location to where you are working, and it is a bookmark.
 - **Fade Geometry**: draws the tiles without the parts that fade in the
   game to show a character behind them (roofs, upper walls), to see and
   place what is under them (Aurora's Environment › Fade Geometry):
@@ -68,9 +76,11 @@ palette's Gallery is 🖼, the Grid ⊞.
 - **🌿 Grass**: the grass the area grows, as the game grows it on the
   tiles' walkmesh faces: the tileset's, and the area's own (Area
   Properties › Grass). It is drawn wherever the view shows grass ground,
-  out to the far edge of the view, as dense as the game's within 45 m of
-  the camera and thinner further off (dense grass from 45 m, the
-  tilesets' own past 180 m). The game draws it within 30 m of its camera
+  out to the far edge of the view, as dense as the game's near the
+  camera and thinner further off, a little at a time rather than at a
+  line (dense grass, more than 10 tufts a square meter, from 45 m to
+  about 56 m and again further off; the tilesets' own from 180 m to
+  225 m). The game draws it within 30 m of its camera
   by default (its `Grass Render Distance` setting, up to about 170 m).
   From high above a field a tuft is a pixel or two, and the grass shows
   little. Switched off, in every area view; it stays as you leave it.
@@ -399,6 +409,7 @@ Aurora):
   placeable or door below its center (a skull on an altar, a book on a
   table), by that object's model, up to 2 m above it; with nothing there,
   on the ground. Not creatures, which the game stands on the ground.
+  **Onto Objects** on the toolbar places them so in the first place.
 - **Arrange** (several selected; the first selected leads):
   - **Line Up West–East** or **South–North**: on a line through the first.
   - **Space Evenly**: evenly spaced between the two farthest apart.
@@ -494,9 +505,16 @@ drag it onto the area from the palette or the module tree. Until it is
 placed, a see-through copy in a blue box follows the pointer where it
 would go (on the snapping grid; a door on the nearest hook). **Q** and
 **E** turn it as they turn a selection (Shift + Q and E by 90°), and it is
-placed facing that way; a door faces as its hook does. Shift + click
-places it and keeps it chosen for another; a right click or Escape lets
-it go. Doors go on a tile's door hook when you click near one. Triggers
+placed facing that way; a door faces as its hook does. With **Onto
+Objects** on (the toolbar, beside Together) it goes onto the top of the
+placeable or door the pointer is on, by that object's model (a book on a
+table, a skull on an altar), as Drop onto Object sets it after; where
+that top is more than 2 m above the ground (a tree's canopy) it goes on
+the ground, as with the switch off. Shift + click places it and keeps it
+chosen for another; a right click or Escape over the view lets it go
+(over a window in front of the view, the window takes Escape, and the
+copy and the coordinates in the view's corner wait for the pointer to
+come back to the view). Doors go on a tile's door hook when you click near one. Triggers
 and encounters are drawn point by point: click each corner, double-click
 to close the outline. For a rectangle, click one corner, press Alt (the
 rectangle to the pointer shows), then click the corner opposite: its
@@ -1091,12 +1109,18 @@ it goes; each change is one step to undo).
 
 - **Grow the tileset's grass on Grass faces**: off, the tileset's grass
   is gone (`SetAreaDefaultGrassDisabled(oArea, TRUE)`). Under it, what
-  the tileset grows. A tileset without grass (an interior) says so.
+  the tileset grows, its texture's picture beside it. A tileset without
+  grass (an interior) says so.
 - **The Area's Own Grass**: a box for each material with grass of the
   area's own, and **Add Grass to…** for another (it starts as the
-  tileset's grass). In each: the **Surface Material** (one already
+  tileset's grass). Its list has the materials the area's tiles have
+  first, the most of the ground first (rest the pointer on one for how
+  many square meters of the tiles' walkmesh faces are of it), then the
+  others, dimmed: grass on a material no tile has grows nothing, and its
+  box says so. In each: the **Surface Material** (one already
   growing the area's grass isn't offered twice), the **Texture** (a
-  ResRef; the game's are four tufts, two by two: `grass`, `ttz_grass`),
+  ResRef, its picture beside it; the game's are four tufts, two by two:
+  `grass`, `ttz_grass`),
   the **Density** (tufts to a square meter of the faces), the **Height**
   (meters), the **Ambient Color** and **Diffuse Color** (the light they
   take, as the tileset's are), and **Remove**.

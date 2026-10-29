@@ -40,6 +40,9 @@ pub(crate) const SHOW_ALL: &str = "☑";
 pub(crate) const SHOW_NONE: &str = "☐";
 pub(crate) const TOGETHER: &str = "🔗";
 pub(crate) const TO_SCRATCH: &str = "📤";
+/// The area view's Onto Objects (what is placed goes onto the placeable
+/// or door under the pointer).
+pub(crate) const ONTO_OBJECTS: &str = "📥";
 pub(crate) const FADE: &str = "🏠";
 pub(crate) const SNAP: &str = "📐";
 pub(crate) const TURN: &str = "↻";
@@ -332,6 +335,7 @@ impl Tools {
             SHOW_ALL,
             SHOW_NONE,
             TOGETHER,
+            ONTO_OBJECTS,
             TO_SCRATCH,
             FADE,
             SNAP,
@@ -396,6 +400,7 @@ mod tests {
             SHOW_ALL,
             SHOW_NONE,
             TOGETHER,
+            ONTO_OBJECTS,
             TO_SCRATCH,
             PREFABS,
         ];

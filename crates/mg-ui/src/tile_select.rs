@@ -409,8 +409,7 @@ pub(crate) fn paste_input(
         view.notice = Some("Tiles paste only into an area of their tileset".into());
         return true;
     }
-    let cancel = response.secondary_clicked()
-        || (response.hovered() && ui.input(|i| i.key_pressed(egui::Key::Escape)));
+    let cancel = crate::area_view::cancelled(ui, response);
     if cancel {
         view.tile_pasting = false;
         return true;
@@ -1913,10 +1912,10 @@ pub(crate) fn overlay(ui: &egui::Ui, view: &AreaView, clip: Option<&TileClip>) {
             crate::area_view::outline(&painter, &screen, egui::Stroke::new(2.0, blue));
         }
     }
-    // The pasted block, under the pointer.
+    // The pasted block, under the pointer (over the view, not over a
+    // window in front of it).
     if view.tile_pasting
-        && let (Some(clip), Some(at)) =
-            (clip, ui.input(|i| i.pointer.hover_pos()).and_then(|p| tile_at(view, p)))
+        && let (Some(clip), Some(at)) = (clip, view.pointer_over(ui).and_then(|p| tile_at(view, p)))
     {
         let gold = Color32::from_rgb(240, 200, 60);
         for ((dx, dy), _, _) in &clip.tiles {

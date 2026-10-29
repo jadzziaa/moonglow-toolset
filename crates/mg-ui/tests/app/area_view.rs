@@ -3293,6 +3293,138 @@ fn the_start_location_is_dragged_and_turned_in_the_view() {
     assert_eq!(entry(&mut h).0, x, "not moved");
 }
 
+/// The palette's Start Location (Aurora's Paint Start Location): chosen,
+/// the start location's marker follows the pointer over the view, and a
+/// click puts the module's start location there, in this area, and lets
+/// it go; Escape puts it down unplaced. Picture:
+/// `target/test-output/ui-area-start-palette/placing.png`.
+#[test]
+fn the_palette_s_start_location_is_placed_with_a_click() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("start-palette") else { return };
+    let ifo = ResKey::parse("module", ResType::IFO).unwrap();
+    let entry = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let r = ws.doc(&ifo).unwrap().root.clone();
+        let f = |label: &str| r.float(label).unwrap();
+        (r.resref("Mod_Entry_Area").unwrap(), f("Mod_Entry_X"), f("Mod_Entry_Y"))
+    };
+    let was = entry(&mut h);
+    h.get_by_label("🏁").click();
+    h.run_steps(3);
+    assert!(h.state().palette.start && h.state().palette.placing_start);
+    assert!(h.query_by_label("Place the Start Location").is_some());
+    // Escape over the view: put down, nothing set.
+    let at = screen(&h, area, Vec3::new(14.0, 26.0, 0.0));
+    h.hover_at(at);
+    h.run_steps(2);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(!h.state().palette.placing_start);
+    assert_eq!(entry(&mut h), was);
+    // Again, and a click.
+    h.get_by_label("Place the Start Location").click();
+    h.run_steps(2);
+    h.hover_at(at);
+    h.run_steps(3);
+    h.render()
+        .expect("render")
+        .save(mg_testkit::output_dir("ui-area-start-palette").join("placing.png"))
+        .unwrap();
+    click_pos(&h, at);
+    h.run_steps(3);
+    let (in_area, x, y) = entry(&mut h);
+    assert_eq!(in_area, area);
+    assert!((x - 14.0).abs() < 0.1 && (y - 26.0).abs() < 0.1, "at {x}, {y}");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Set start location"));
+    assert!(!h.state().palette.placing_start, "let go once placed");
+    assert!(h.state().area_views[&area].start_selected, "and selected");
+}
+
+/// The start location's marker, selected, takes what an object does: Q
+/// and E turn it, and its menu's Adjust Location sets its position and
+/// bearing; the pointer is a hand over it.
+#[test]
+fn the_selected_start_location_takes_the_keys_and_adjust_location() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("keys-start") else { return };
+    let ifo = ResKey::parse("module", ResType::IFO).unwrap();
+    {
+        let set = |label: &str, value: mg_gff::Value| mg_edit::Edit::SetField {
+            key: ifo,
+            path: mg_edit::GffPath::root(),
+            label: label.into(),
+            value: Some(value),
+        };
+        let edits = vec![
+            set("Mod_Entry_Area", mg_gff::Value::resref(area)),
+            set("Mod_Entry_X", mg_gff::Value::Float(12.0)),
+            set("Mod_Entry_Y", mg_gff::Value::Float(31.0)),
+            set("Mod_Entry_Dir_X", mg_gff::Value::Float(1.0)),
+            set("Mod_Entry_Dir_Y", mg_gff::Value::Float(0.0)),
+        ];
+        h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
+    }
+    h.run_steps(3);
+    let entry = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let r = ws.doc(&ifo).unwrap().root.clone();
+        let f = |label: &str| r.float(label).unwrap();
+        (f("Mod_Entry_X"), f("Mod_Entry_Y"), f("Mod_Entry_Dir_Y").atan2(f("Mod_Entry_Dir_X")))
+    };
+    let cursor = |h: &Harness<'_, Moonglow>| h.output().platform_output.cursor_icon;
+    // A hand over its ring, none beside it.
+    let ring = screen(&h, area, Vec3::new(11.0, 31.0, 0.0));
+    h.hover_at(screen(&h, area, Vec3::new(18.0, 31.0, 0.0)));
+    h.run_steps(2);
+    assert_eq!(cursor(&h), egui::CursorIcon::Default);
+    h.hover_at(ring);
+    h.run_steps(2);
+    assert_eq!(cursor(&h), egui::CursorIcon::Grab);
+    // Selected by a click; Q turns it by the snapping angle (15° when
+    // free), E back.
+    click_pos(&h, ring);
+    h.run_steps(2);
+    assert!(h.state().area_views[&area].start_selected);
+    h.key_press(egui::Key::Q);
+    h.run_steps(2);
+    let (_, _, facing) = entry(&mut h);
+    assert!((facing - 15f32.to_radians()).abs() < 1e-3, "turned to {}", facing.to_degrees());
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Turn Start Location"));
+    h.key_press(egui::Key::E);
+    h.run_steps(2);
+    assert!(entry(&mut h).2.abs() < 1e-3);
+    // Its menu (a right click on it) has Adjust Location, for it: its
+    // bearing as an object's (facing east is 270°).
+    h.hover_at(ring);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: ring,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    h.get_by_label("Adjust Location…").click();
+    h.run_steps(3);
+    let adjust = h.state().adjust.clone().expect("the window");
+    assert!(adjust.start && adjust.objects.is_empty());
+    assert!((adjust.bearing - 270.0).abs() < 1e-3, "bearing {}", adjust.bearing);
+    assert!(h.query_by_label("The module's start location").is_some());
+    // X to 20, the bearing to 0 (north), and OK.
+    let mut a = adjust;
+    (a.position.x, a.bearing, a.changed) = (20.0, 0.0, [true, false, false, true]);
+    h.state_mut().adjust = Some(a);
+    h.run_steps(1);
+    h.get_by_label("OK").click();
+    h.run_steps(3);
+    let (x, y, facing) = entry(&mut h);
+    assert!((x - 20.0).abs() < 1e-3 && (y - 31.0).abs() < 1e-3, "at {x}, {y}");
+    assert!((facing - std::f32::consts::FRAC_PI_2).abs() < 1e-3, "faces {facing}");
+    assert!(h.state().adjust.is_none());
+}
+
 /// What the area view's toolbar hides stays hidden in every area view,
 /// as in Aurora (a builder's report): in the other open ones, and in one
 /// opened later (from the settings, so in the next run too).
@@ -4208,6 +4340,66 @@ fn replaced_objects_keep_their_outline_and_transform() {
     assert_eq!(placed(&mut h, "TriggerList"), trigger, "and one for the trigger");
 }
 
+/// With Onto Objects on (the toolbar), the see-through copy of what is
+/// about to be placed lies on the placeable under the pointer, and is
+/// placed there; off, on the ground under it (a builder's report on
+/// 1.31.0: the copy lay under the table Drop onto Object would set it
+/// on). Pictures in `target/test-output/ui-area-onto/`.
+#[test]
+fn onto_objects_places_on_the_placeable_under_the_pointer() {
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("onto") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let chest = {
+        let game = h.state().game.clone().unwrap();
+        let bp = game.resman.get(&ResKey::parse("plc_chest1", ResType::UTP).unwrap()).unwrap();
+        let bp = Gff::read(&bp).unwrap();
+        let none = |_: ResRef| None;
+        let placing = Placing { game: &game, item: &none };
+        let at = Placement { position: [25.0, 25.0, 0.0], rotation: 0.0 };
+        instance(&placing, ResType::UTP, &bp.root, at, &[]).unwrap()
+    };
+    let insert = mg_edit::Edit::InsertItem {
+        key: git,
+        path: mg_edit::GffPath::root(),
+        list: "Placeable List".into(),
+        index: 0,
+        item: chest,
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![insert])));
+    h.run_steps(6);
+    if let Some(o) = &mut h.state_mut().area_views.get_mut(&area).unwrap().orbit {
+        o.target = glam::Vec3::new(25.0, 25.0, 0.5);
+        (o.pitch, o.yaw, o.distance) = (45f32.to_radians(), -60f32.to_radians(), 6.0);
+    }
+    h.state_mut().palette.selected = Some(ResKey::parse("plc_chest1", ResType::UTP).unwrap());
+    h.run_steps(2);
+    let dir = mg_testkit::output_dir("ui-area-onto");
+    // On the chest's top, near its middle.
+    let at = screen(&h, area, glam::Vec3::new(25.0, 25.0, 0.6));
+    let shown_z = |h: &mut Harness<'_, Moonglow>, name: &str| {
+        h.hover_at(at);
+        h.run_steps(3);
+        h.render().expect("render").save(dir.join(name)).unwrap();
+        h.state().area_views[&area].ghost_shown.as_ref().expect("the copy").position.z
+    };
+    let off = shown_z(&mut h, "off.png");
+    assert!(off.abs() < 0.1, "off: on the ground, {off}");
+    h.state_mut().settings.place_onto_objects = true;
+    let on = shown_z(&mut h, "on.png");
+    assert!(on > 0.3 && on < 2.0, "on: on the chest, {on}");
+    // Placed where it showed.
+    click_pos(&h, at);
+    h.run_steps(3);
+    let placed = {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let list = ws.doc(&git).unwrap().root.list("Placeable List").unwrap().to_vec();
+        list.iter().map(|p| p.float("Z").unwrap()).collect::<Vec<_>>()
+    };
+    assert_eq!(placed.len(), 2, "{placed:?}");
+    assert!(placed.iter().any(|z| (z - on).abs() < 0.05), "placed at {placed:?}, shown at {on}");
+}
+
 /// Drop onto Object (Shift+G) sets the selection on the placeable below
 /// it, by the placeable's model (a builder's ask: a skeleton on an altar);
 /// with nothing below, on the ground.
@@ -4444,4 +4636,74 @@ fn the_shadows_button_held_opens_the_kinds_to_choose() {
     h.get_by_label("◑ Shadows").click();
     h.run();
     assert_eq!(kinds(&h), [true, false, false]);
+}
+
+/// What follows the pointer over the view (the coordinates in its corner,
+/// the outline of tiles about to be pasted) is not drawn while the
+/// pointer is over a window in front of the view: the ground under the
+/// window is not where the pointer is. Pictures in
+/// `target/test-output/ui-area-under-window/`.
+#[test]
+fn what_follows_the_pointer_stops_under_a_window() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness_on("under-window", "tic01", None) else { return };
+    // The palette in a window of its own, out of the way for now (the
+    // view as wide as it will be).
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    let size = egui::vec2(300.0, 260.0);
+    own_window(&mut h, &Tab::Palette, egui::pos2(10.0, 400.0), size);
+    h.run();
+    // A tile copied and about to be pasted.
+    h.get_by_label("⛶ Select Tiles").click();
+    h.run_steps(2);
+    let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
+    click_pos(&h, at);
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::C);
+    h.run_steps(1);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::V);
+    h.run_steps(1);
+    assert!(h.state().area_views[&area].tile_pasting);
+    // The pasted tile's gold outline: how much of it is in a picture.
+    let gold = |img: &image::RgbaImage| {
+        img.pixels()
+            .filter(|p| {
+                let [r, g, b, _] = p.0;
+                r.abs_diff(240) < 24 && g.abs_diff(200) < 24 && b.abs_diff(60) < 40
+            })
+            .count()
+    };
+    let dir = mg_testkit::output_dir("ui-area-under-window");
+    // Over the bare view: the outline and the coordinates follow.
+    let centre = screen(&h, area, Vec3::new(25.0, 25.0, 0.0));
+    h.hover_at(centre);
+    h.run_steps(3);
+    let img = h.render().expect("render");
+    img.save(dir.join("over-the-view.png")).unwrap();
+    assert!(gold(&img) > 50, "the outline over the view");
+    assert!(h.state().area_views[&area].pointer.is_some(), "the coordinates over the view");
+    // The window moved over the view, the pointer on it near its left
+    // edge: the tile under the pointer lies partly outside the window.
+    own_window(&mut h, &Tab::Palette, centre - egui::vec2(20.0, size.y / 2.0), size);
+    h.run();
+    h.hover_at(centre + egui::vec2(10.0, 0.0));
+    h.run_steps(3);
+    h.run();
+    let img = h.render().expect("render");
+    img.save(dir.join("under-a-window.png")).unwrap();
+    assert!(h.state().area_views[&area].pointer.is_none(), "no coordinates under a window");
+    // (A few of the start location's marker's pixels are near gold.)
+    let left = gold(&img);
+    assert!(left < 20, "no outline under a window: {left} pixels of it");
+    // Escape over the window is not the view's; over the view it puts
+    // the paste down (`area_view::cancelled`, as a right click does).
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(h.state().area_views[&area].tile_pasting, "Escape over the window");
+    h.hover_at(centre - egui::vec2(60.0, 0.0));
+    h.run_steps(2);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(!h.state().area_views[&area].tile_pasting, "Escape over the view");
 }

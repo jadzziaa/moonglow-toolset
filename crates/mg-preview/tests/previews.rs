@@ -459,6 +459,35 @@ fn a_dragon_s_box_is_around_its_pause_not_its_rest() {
     // Its wings are skinned: folded in its pause, they are counted where
     // their bones put them, not spread as they were bound.
     assert!(pause.z < rest.z * 0.8, "lower than with wings spread: {pause:?} against {rest:?}");
+    // And a click is tried against it as it stands, where its box is (it
+    // was tried against its rest, which lies far out of the box): rays
+    // straight down over both boxes, a grid of them.
+    let stance = c.stance(c.idle.as_deref(), 0.0);
+    let (posed_box, rest_box) = (c.bounds_of(&stance), c.bounds());
+    let (low, high) = (posed_box.0.min(rest_box.0), posed_box.1.max(rest_box.1));
+    let inside = |p: glam::Vec3, (min, max): (glam::Vec3, glam::Vec3)| {
+        p.x >= min.x - 0.01 && p.x <= max.x + 0.01 && p.y >= min.y - 0.01 && p.y <= max.y + 0.01
+    };
+    let (mut posed_hits, mut rest_outside) = (0, 0);
+    for i in 0..40 {
+        for j in 0..40 {
+            let at = glam::Vec3::new(
+                low.x + (high.x - low.x) * (i as f32 + 0.5) / 40.0,
+                low.y + (high.y - low.y) * (j as f32 + 0.5) / 40.0,
+                high.z + 1.0,
+            );
+            let down = glam::Vec3::NEG_Z;
+            if c.ray_hit_in(&stance, at, down).is_some() {
+                posed_hits += 1;
+                assert!(inside(at, posed_box), "a hit at {at:?} out of the box {posed_box:?}");
+            }
+            if c.ray_hit(at, down).is_some() && !inside(at, posed_box) {
+                rest_outside += 1;
+            }
+        }
+    }
+    assert!(posed_hits > 20, "the dragon as it stands is met: {posed_hits}");
+    assert!(rest_outside > 20, "at rest it lies out of the box: {rest_outside}");
 }
 
 /// A look at creatures of custom content (GitHub issue 5): `MG_PROBE_USER`
