@@ -27,6 +27,8 @@ pub mod files;
 mod item;
 mod object;
 pub mod replaceable;
+#[cfg(feature = "usage")]
+pub mod usage;
 
 pub use creature::{CreatureLook, creature, creature_look};
 pub use item::{ground_turn, item, item_on, item_placed};

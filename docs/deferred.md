@@ -708,10 +708,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Haks in the GUI
 
-- **What the module uses of its haks** is `mg haks --usage` alone: the
-  window has no report of it (Module Properties' Check for Conflicts
-  could show it). The walk is in the command line (`apps/mg/src/usage.rs`)
-  until the window wants it. (S–M)
 - **Not followed by `--usage`:** what scripts reach by a number
   (visual effects, spells, item properties, `SetCreatureAppearanceType`),
   a creature's footstep, weapon and combat sounds, an item property's

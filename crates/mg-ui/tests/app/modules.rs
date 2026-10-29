@@ -1864,3 +1864,42 @@ fn the_round_trip_check_runs_from_the_build_menu() {
     assert!(log.iter().any(|e| e.starts_with("Round trip: broken.utp cannot be read")), "{log:?}");
     assert_eq!(std::fs::read(&path).unwrap(), before, "the module's file is not touched");
 }
+
+/// Module Properties' Check for Conflicts, and in its window What the
+/// Module Uses: each hak's resources by what the module reaches of them
+/// (a blueprint a script names, its script), as `mg haks --usage` says it.
+#[test]
+fn check_for_conflicts_says_what_the_module_uses_of_its_haks() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-hak-usage");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let mut w = mg_erf::ErfWriter::new(*b"HAK ");
+    let mut utp = Gff::new(*b"UTP ");
+    utp.root.set("OnUsed", mg_gff::Value::resref(ResRef::from_str("mg_hak_used").unwrap()));
+    w.add(ResRef::from_str("mg_named").unwrap(), ResType::UTP, utp.to_bytes().unwrap()).unwrap();
+    w.add(ResRef::from_str("mg_hak_used").unwrap(), ResType::NCS, b"NCS".to_vec()).unwrap();
+    w.add(ResRef::from_str("mg_unused").unwrap(), ResType::UTP, utp.to_bytes().unwrap()).unwrap();
+    std::fs::write(user.join("hak/mg_content.hak"), w.to_bytes().unwrap()).unwrap();
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    let mut info = m.info().unwrap();
+    info.root.set("Mod_HakList", mg_module::attach::hak_list(&info.root, &["mg_content".into()]));
+    m.set_info(&info).unwrap();
+    let spawn = b"void main() { CreateObject(64, \"mg_named\", GetLocation(OBJECT_SELF)); }";
+    m.set(ResKey::parse("spawn", ResType::NSS).unwrap(), spawn.to_vec());
+    m.save().unwrap();
+    let mut app = game_app(&root, Some(user));
+    app.open_module(&path);
+    let mut h = harness(app, 1200.0, 800.0);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::HakReport);
+    h.run();
+    assert!(h.state().hak_report.is_some());
+    h.get_by_label("What the Module Uses").click();
+    h.run();
+    let used = h.state().hak_usage.clone().expect("the walk ran");
+    assert!(used.contains("mg_content\t2 of 3 used"), "{used}");
+    assert!(used.contains("1 unused"), "{used}");
+    assert!(h.query_by_label_contains("What the module uses (in the game a player has)").is_some());
+}

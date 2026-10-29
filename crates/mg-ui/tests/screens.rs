@@ -7433,6 +7433,40 @@ fn setup_store_project_blueprint_far_down() {
     shoot(&mut h, &dir, "setup-store-project-blueprint");
 }
 
+/// Hak Pak Conflict Analysis on The Domains of Dread's module and haks
+/// (`~/Projects/tdod-module/build`, where it is on this machine), then
+/// What the Module Uses: each hak's resources by what the module reaches.
+#[test]
+#[ignore]
+fn hak_conflicts_and_what_the_module_uses() {
+    let Some(home) = std::env::var_os("HOME") else { return };
+    let build = std::path::Path::new(&home).join("Projects/tdod-module/build");
+    if !build.join("tdod.mod").is_file() {
+        eprintln!("skipped: no TDoD build on this machine");
+        return;
+    }
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let mut app = Moonglow::new(
+        Some(GameInstall::new(&root, Some(build.clone()), "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.settings.no_last_area = true;
+    app.open_module(&build.join("tdod.mod"));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1300.0, 800.0))
+        .with_step_dt(1.0 / 60.0)
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(5);
+    h.state_mut().actions.push(mg_ui::Action::HakReport);
+    h.run_steps(5);
+    shoot(&mut h, &dir, "hak-conflicts");
+    h.get_by_label("What the Module Uses").click();
+    h.run_steps(5);
+    shoot(&mut h, &dir, "hak-conflicts-usage");
+}
+
 /// The module tree with an area its module's area list leaves out (a copy
 /// of Neverwinter Chess's board, `chess2`, never listed): marked "(not in
 /// the area list)", and its right-click menu's Add to the Module's Area

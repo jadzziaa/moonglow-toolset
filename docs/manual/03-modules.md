@@ -1132,7 +1132,11 @@ names, it won't load the module; Verify reports it. Name it without
 
 `mg haks MODULE --usage` says, hak by hak, which of its resources the
 module reaches and which nothing does: for cutting a release (or a
-player's download) to what is used. A line a hak, and one for them all:
+player's download) to what is used. In the window, **Check for
+Conflicts…** (Module Properties › Custom Content) opens the Hak Pak
+Conflict Analysis, and its **What the Module Uses** says the same above
+the conflicts (worked out as a job, on the module as it is, unsaved
+changes too). A line a hak, and one for them all:
 
 ```
 tdod_p_n2e	129 of 4882 used (80.4 MB of 650.1 MB); 4753 unused, 0 shadowed, 0 not judged

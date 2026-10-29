@@ -2196,32 +2196,18 @@ fn run(cli: &Cli) -> Result<Output> {
             }));
             if *usage {
                 let started = std::time::Instant::now();
-                let (haks, reached) = usage::hak_usage(&gi, &m, &report)?;
+                let (haks, reached) =
+                    usage::hak_usage(&gi, &m, &report).map_err(anyhow::Error::msg)?;
                 for u in &haks {
                     out.line(usage::line(u));
                 }
-                let (used, all): (usize, usize) =
-                    haks.iter().fold((0, 0), |(a, b), u| (a + u.used.len(), b + u.total()));
-                let (used_bytes, bytes) =
-                    haks.iter().fold((0, 0), |(a, b), u| (a + u.used_bytes(), b + u.bytes()));
-                let none: Vec<&usage::HakUsage> =
-                    haks.iter().filter(|u| u.path.is_some() && u.used.is_empty()).collect();
-                let kept = none.iter().filter(|u| !u.not_judged.is_empty()).count();
-                out.line(format!(
-                    "All\t{used} of {all} used ({} of {}); nothing reaches {} of {} haks ({kept} \
-                     of them hold what isn't judged, which the game may read itself)",
-                    usage::size(used_bytes),
-                    usage::size(bytes),
-                    none.len(),
-                    haks.len()
-                ));
+                out.line(usage::total_line(&haks));
                 out.json["usage"] = usage::json(&haks);
                 out.json["reached"] = json!(reached);
                 out.note(format!(
-                    "the walk reached {reached} resources in {:.1} s; not followed: what scripts \
-                     reach by number (effects, spells, appearances), what players choose, and \
-                     what the game reads itself (\"not judged\")",
-                    started.elapsed().as_secs_f64()
+                    "the walk reached {reached} resources in {:.1} s; {}",
+                    started.elapsed().as_secs_f64(),
+                    usage::NOT_FOLLOWED
                 ));
             } else {
                 out.line(report.to_text().trim_end());
