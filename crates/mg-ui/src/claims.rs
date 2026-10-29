@@ -36,8 +36,8 @@ pub(crate) struct ClaimsState {
     pub(crate) cleared: bool,
     /// The Protected Area window.
     pub(crate) protected_ask: Option<ProtectedAsk>,
-    /// An area the builder said to change anyway: let through once.
-    let_through: Option<ResRef>,
+    /// A change the builder said to make anyway: let through once.
+    let_through: Option<Pass>,
     /// A command was held just now (for the window): Apply says no more.
     pub(crate) held: bool,
 }
@@ -51,6 +51,15 @@ pub(crate) struct ProtectedAsk {
     pub what: Protected,
     /// What goes ahead if it is changed anyway.
     pub then: Action,
+}
+
+/// A protected area's change the builder said to make anyway: that
+/// change of that area, once, while what it went on with is under way
+/// (its Rename or Delete window open, or its action waiting to run).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Pass {
+    area: ResRef,
+    what: Protected,
 }
 
 /// What would change of a protected area.
@@ -161,7 +170,7 @@ pub(crate) fn gate(app: &mut Moonglow, cmd: &Command) -> Result<(), EditError> {
         }
     }
     if let Some((area, why, what)) = protected_change(app, cmd) {
-        if app.claims.let_through == Some(area) {
+        if app.claims.let_through == Some(Pass { area, what }) {
             app.claims.let_through = None;
             return Ok(());
         }
@@ -194,7 +203,9 @@ pub(crate) fn asks_first(app: &mut Moonglow, action: &Action) -> bool {
         _ => return false,
     };
     let key = crate::references::main_key(key);
-    if key.restype != ResType::ARE || app.claims.let_through == Some(key.resref) {
+    if key.restype != ResType::ARE
+        || app.claims.let_through == Some(Pass { area: key.resref, what })
+    {
         return false;
     }
     let Some(why) = project(app).and_then(|p| p.protected(key.resref)) else { return false };
@@ -422,8 +433,30 @@ pub(crate) fn banner(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
 /// The claims' windows: the save of others' areas, a protected area's
 /// change.
 pub(crate) fn windows(app: &mut Moonglow, ctx: &egui::Context) {
+    end_pass(app);
     save_window(app, ctx);
     protected_window(app, ctx);
+}
+
+/// A pass the builder gave lasts while what it went on with is under
+/// way: a Rename or Delete window of the area closed without the change
+/// (or never opened), or an action that ran without making it, takes it
+/// away, so that the area's next change is asked about again.
+fn end_pass(app: &mut Moonglow) {
+    let Some(pass) = app.claims.let_through else { return };
+    let open = match pass.what {
+        Protected::ResRef => app
+            .rename
+            .as_ref()
+            .is_some_and(|d| d.from.restype == ResType::ARE && d.from.resref == pass.area),
+        Protected::Deleted => {
+            app.confirm_delete.is_some_and(|k| k.restype == ResType::ARE && k.resref == pass.area)
+        }
+        Protected::Tag => false,
+    };
+    if !open && app.actions.is_empty() {
+        app.claims.let_through = None;
+    }
 }
 
 fn save_window(app: &mut Moonglow, ctx: &egui::Context) {
@@ -499,7 +532,7 @@ fn protected_window(app: &mut Moonglow, ctx: &egui::Context) {
         });
     if anyway {
         app.claims.protected_ask = None;
-        app.claims.let_through = Some(ask.area);
+        app.claims.let_through = Some(Pass { area: ask.area, what: ask.what });
         app.actions.push(ask.then);
     } else if copy {
         app.claims.protected_ask = None;

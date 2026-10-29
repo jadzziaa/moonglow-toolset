@@ -900,7 +900,10 @@ before its Tag changes (Area Properties, or any other window), before it
 is renamed (**Rename…**) or deleted, Moonglow asks (**Protected Area**),
 and offers **Make a Copy Instead…**: a copy under a new ResRef and Tag is
 a new area, and loses nothing. **Change It Anyway** (or Rename, or
-Delete) goes ahead.
+Delete) goes ahead, for that one change: **Rename It Anyway** opens the
+Rename window, and closed without renaming, the area's next rename or
+change of its Tag is asked about again (as is a Tag changed while the
+Rename window is open).
 
 **Verify Module** (and `mg verify`) holds the merged areas to the table:
 

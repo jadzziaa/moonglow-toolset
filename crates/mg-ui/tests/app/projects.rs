@@ -1873,6 +1873,60 @@ fn a_merged_area_s_tag_and_resref_are_asked_about_before_they_change() {
     h.run();
     h.run();
     assert!(h.state().rename.is_some(), "the Rename window, once said");
+    // The pass is the rename's: a change of the Tag meanwhile is asked.
+    h.state_mut().actions.push(retag("START_3"));
+    h.run();
+    h.run();
+    h.get_by_label("Protected Area");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run();
+    assert_eq!(tag(&mut h), "START_2");
+    // The Rename window closed without renaming: the next Rename… asks
+    // again, and so does a change of the Tag.
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run();
+    h.run();
+    assert!(h.state().rename.is_none());
+    h.state_mut().actions.push(mg_ui::Action::RenameDialog(key));
+    h.run();
+    h.run();
+    h.get_by_label("Protected Area");
+    assert!(h.state().rename.is_none(), "asked again");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run();
+    h.state_mut().actions.push(retag("START_3"));
+    h.run();
+    h.run();
+    h.get_by_label("Protected Area");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run();
+    // Delete It Anyway, and its window canceled: the next Delete… asks
+    // again.
+    h.state_mut().actions.push(mg_ui::Action::DeleteDialog(key));
+    h.run();
+    h.run();
+    h.get_by_label("Delete It Anyway").click();
+    h.run();
+    h.run();
+    assert_eq!(h.state().confirm_delete, Some(key));
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run();
+    h.run();
+    assert_eq!(h.state().confirm_delete, None);
+    h.state_mut().actions.push(mg_ui::Action::DeleteDialog(key));
+    h.run();
+    h.run();
+    h.get_by_label("Protected Area");
+    assert_eq!(h.state().confirm_delete, None, "asked again");
+    // Deleted anyway: the pass lasts until the window's Delete is done.
+    h.get_by_label("Delete It Anyway").click();
+    h.run();
+    h.run();
+    h.get_by_label("Delete").click();
+    h.run();
+    h.run();
+    assert!(h.query_by_label("Protected Area").is_none());
+    assert!(!h.state().ws.as_ref().unwrap().module.contains(&key), "deleted");
 }
 
 /// The project's commands (C8): File › Project › Update… saves the

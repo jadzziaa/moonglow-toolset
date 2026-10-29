@@ -2704,10 +2704,6 @@ File › Project. What is left:
 - **A claims table changed by git while a save waits** is read again by
   the folder's watch (with reloading on); the Areas Not Yours window
   keeps the list it opened with. (S)
-- **The protected-name question is asked per change:** "Change It
-  Anyway" lets one change of that area through; a Rename window opened
-  by "Rename It Anyway" and then closed leaves that one pass for the
-  area's next change. (S)
 - **A project's command's output is in the log only:** no window of its
   own to read a long output in, and no input (a command that asks for
   a password waits until canceled; its stdin is closed). (S)
