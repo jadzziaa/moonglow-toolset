@@ -69,6 +69,29 @@ pub fn new_resref_named(
     (n + 1..1000).map(named).find(|name| !taken(name)).and_then(|name| ResRef::from_str(&name).ok())
 }
 
+/// A resref for a blueprint's Edit Copy, as Aurora's offers one (captured
+/// 2026-10-29: `nw_w1copy007` in the module gave `w1copy008`): the
+/// template without a leading `nw_` and its trailing number (within 13
+/// characters), numbered from the template's number plus one (1 without
+/// one), the first free. (Add to Palette goes past the numbers in use
+/// first: [`new_resref`].)
+pub fn copy_resref_named(
+    template: &str,
+    naming: &Naming,
+    taken: &dyn Fn(&str) -> bool,
+) -> Option<ResRef> {
+    let lower = template.to_ascii_lowercase();
+    let base = naming.strip(lower.strip_prefix("nw_").unwrap_or(&lower));
+    let stem = base.trim_end_matches(|c: char| c.is_ascii_digit());
+    let n: u32 = base[stem.len()..].parse().unwrap_or(0);
+    let stem = &stem[..stem.len().min(13)];
+    let stem = if stem.is_empty() { "blueprint" } else { stem };
+    (n + 1..1000)
+        .map(|n| naming.fit(stem, &format!("{n:03}")))
+        .find(|name| !taken(name))
+        .and_then(|name| ResRef::from_str(&name).ok())
+}
+
 /// The fields a placed object has and its blueprint does not.
 fn placement_fields(t: ResType) -> &'static [&'static str] {
     match t {
@@ -328,6 +351,17 @@ mod tests {
         assert!(hand.get("Pickpocketable").is_none(), "only what it had");
         let held = &bp.list("ItemList").unwrap()[0];
         assert_eq!(held.get("Pickpocketable"), Some(&Value::Byte(1)));
+    }
+
+    #[test]
+    fn an_edit_copy_is_numbered_from_the_template_s_number() {
+        let copy = |t: &str, taken: &dyn Fn(&str) -> bool| {
+            copy_resref_named(t, &Naming::default(), taken).unwrap().to_string()
+        };
+        // Aurora's (captured): the template in the module, the next number.
+        assert_eq!(copy("nw_w1copy007", &|n| n == "nw_w1copy007"), "w1copy008");
+        assert_eq!(copy("nw_wp_tavern", &|_| false), "wp_tavern001");
+        assert_eq!(copy("w1copy007", &|n| n == "w1copy008"), "w1copy009", "never one in use");
     }
 
     #[test]

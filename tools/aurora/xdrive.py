@@ -5,9 +5,13 @@
     xdrive.py shot OUT.png [--scale S] # screenshot of the whole display
     xdrive.py winshot TITLE OUT.png   # screenshot of one window (title contains TITLE)
     xdrive.py click X Y [--right|--double]
+    xdrive.py press X Y | release X Y | move X Y   # the left button held, let go; the pointer moved
+    xdrive.py drag X1 Y1 X2 Y2 [--escape]  # a left-button drag; --escape presses Escape before letting go
+    xdrive.py wheel X Y up|down [N] [--ctrl]    # N notches of the wheel (Ctrl held with --ctrl)
     xdrive.py key KEY [KEY...]        # e.g. Return, Tab, alt+f, ctrl+s
     xdrive.py type TEXT               # types printable ASCII text
     xdrive.py wait TITLE [SECONDS]    # waits until a window title contains TITLE
+    xdrive.py raise TITLE             # raises and focuses the window whose title contains TITLE
 
 The display comes from $DISPLAY (headless.sh prints it). Input goes through
 XTEST, so it reaches whatever window is under the pointer or focused; nothing
@@ -100,6 +104,18 @@ def keycode(name):
     return code
 
 
+def glide(x0, y0, x1, y1, steps=12):
+    for i in range(1, steps + 1):
+        move(x0 + (x1 - x0) * i // steps, y0 + (y1 - y0) * i // steps)
+        time.sleep(0.03)
+
+
+def button(down, b=1):
+    xtest.fake_input(d, X.ButtonPress if down else X.ButtonRelease, b)
+    d.sync()
+    time.sleep(0.08)
+
+
 MODS = {"ctrl": "Control_L", "alt": "Alt_L", "shift": "Shift_L"}
 
 
@@ -151,11 +167,52 @@ def main(argv):
     elif cmd == "click":
         x, y = int(args[0]), int(args[1])
         click(x, y, 3 if "--right" in args else 1, 2 if "--double" in args else 1)
+    elif cmd in ("press", "release", "move"):
+        move(int(args[0]), int(args[1]))
+        time.sleep(0.05)
+        if cmd != "move":
+            button(cmd == "press")
+    elif cmd == "drag":
+        x0, y0, x1, y1 = (int(a) for a in args[:4])
+        move(x0, y0)
+        time.sleep(0.1)
+        button(True)
+        glide(x0, y0, x1, y1)
+        time.sleep(0.2)
+        if "--escape" in args:
+            key("Escape")
+            time.sleep(0.2)
+        button(False)
+    elif cmd == "wheel":
+        x, y = int(args[0]), int(args[1])
+        b = 4 if args[2] == "up" else 5
+        n = int(args[3]) if len(args) > 3 and args[3].isdigit() else 1
+        move(x, y)
+        time.sleep(0.05)
+        ctrl = keycode("Control_L")
+        if "--ctrl" in args:
+            xtest.fake_input(d, X.KeyPress, ctrl)
+            d.sync()
+        for _ in range(n):
+            button(True, b)
+            button(False, b)
+            time.sleep(0.1)
+        if "--ctrl" in args:
+            xtest.fake_input(d, X.KeyRelease, ctrl)
+            d.sync()
     elif cmd == "key":
         for k in args:
             key(k)
     elif cmd == "type":
         type_text(" ".join(args))
+    elif cmd == "raise":
+        for w, name, *_ in viewable_windows():
+            if args[0] in name:
+                w.configure(stack_mode=X.Above)
+                w.set_input_focus(X.RevertToParent, X.CurrentTime)
+                d.sync()
+                return 0
+        return 1
     elif cmd == "wait":
         deadline = time.time() + (float(args[1]) if len(args) > 1 else 30)
         while time.time() < deadline:

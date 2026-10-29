@@ -423,17 +423,20 @@ fn store_editor_stocks_prices_and_restricts() {
         .map(|i| (i.integer("Repos_PosX").unwrap(), i.integer("Repos_Posy").unwrap()))
         .collect();
     assert!(!at_before.contains(&at), "{at:?} is taken");
-    // Each item is listed with what the store sells it for: its cost at
-    // the store's mark up, as Aurora lists it.
-    let price = {
-        let mark_up = field(&mut h, &key).integer("MarkUp").unwrap() as u64;
+    // Each item is listed with what the store sells it for and buys it
+    // for: its cost at the store's mark up and mark down, as Aurora shows
+    // them (rounded down, 1 gp at the least).
+    let (sells, buys) = {
+        let store = field(&mut h, &key);
+        let percent = |label: &str| store.integer(label).unwrap() as u64;
         let game = h.state().game.as_deref().unwrap();
         let uti = game.resman.get_named("nw_wswls001", ResType::UTI).unwrap();
         let item = mg_gff::Gff::read(&uti).unwrap();
-        u64::from(game.item_cost(&mg_rules::ItemValue::from_gff(&item.root))) * mark_up / 100
+        let cost = u64::from(game.item_cost(&mg_rules::ItemValue::from_gff(&item.root)));
+        ((cost * percent("MarkUp") / 100).max(1), (cost * percent("MarkDown") / 100).max(1))
     };
-    assert!(price > 0);
-    let listed = format!("Longsword  ·  {price} gp");
+    assert!(sells > 1);
+    let listed = format!("Longsword  ·  {sells} gp, buys at {buys} gp");
     assert!(h.query_all_by_label_contains(&listed).next().is_some(), "{listed}");
     // The store will not buy torches, then will only buy them.
     h.get_by_label("Restrictions").click();

@@ -225,11 +225,15 @@ pub fn custom_palette_in(skeleton: &Gff, name: impl Fn(u32) -> String, by_name: 
                 if let Some(Value::List(children)) = n.get("LIST") {
                     s.set("LIST", Value::List(nodes(children, name, by_name)));
                 }
+                // A name written out beside a StrRef is not the one shown:
+                // Aurora's Refresh Palette writes the StrRef alone.
+                let named =
+                    matches!(crate::palette::node_name(n), crate::palette::PaletteName::StrRef(_));
                 for f in &n.fields {
-                    if !matches!(
-                        f.label.as_bytes(),
-                        b"STRREF" | b"ID" | b"LIST" | b"TYPE" | b"DELETE_ME"
-                    ) {
+                    let label = f.label.as_bytes();
+                    if !matches!(label, b"STRREF" | b"ID" | b"LIST" | b"TYPE" | b"DELETE_ME")
+                        && !(named && label == b"NAME")
+                    {
                         s.fields.push(f.clone());
                     }
                 }
@@ -245,9 +249,10 @@ pub fn custom_palette_in(skeleton: &Gff, name: impl Fn(u32) -> String, by_name: 
                 if let Some(text) = older {
                     s.set("NAME", Value::String(text.to_vec()));
                 }
-                let shown = match n.string("NAME").or(older) {
-                    Some(text) => crate::palette::written(text),
-                    None => u32::try_from(strref).map(name).unwrap_or_default(),
+                // (Its StrRef first, as Aurora reads a node's name.)
+                let shown = match crate::palette::node_name(n) {
+                    crate::palette::PaletteName::StrRef(s) => name(s),
+                    crate::palette::PaletteName::Text(text) => crate::palette::written(&text),
                 };
                 (word_sort_key(&shown), s)
             })

@@ -1337,11 +1337,12 @@ pub type Held = Vec<(&'static str, usize)>;
 pub type WhichHeld<'a> = &'a dyn Fn(&[(&'static str, usize)]) -> bool;
 
 /// What an item keeps where it is held, when it is made again from its
-/// blueprint: its place in the grid, how many of it there are, whether it
-/// drops or can be stolen, and whether a store has no end of it. (The
-/// slot it is equipped in is its struct's id, kept too.)
-const HELD_KEPT: [&str; 6] =
-    ["Repos_PosX", "Repos_Posy", "StackSize", "Dropable", "Pickpocketable", "Infinite"];
+/// blueprint: its place in the grid, whether it drops or can be stolen,
+/// and whether a store has no end of it. (The slot it is equipped in is
+/// its struct's id, kept too.) How many there are is the blueprint's, as
+/// Aurora's Update Instances makes them (captured 2026-10-29: a chest's
+/// three and a creature's two became the blueprint's one).
+const HELD_KEPT: [&str; 5] = ["Repos_PosX", "Repos_Posy", "Dropable", "Pickpocketable", "Infinite"];
 
 /// The lists of held items a struct of a GIT list (or an item) has.
 fn held_lists(list: &str) -> &'static [&'static str] {
@@ -1409,9 +1410,9 @@ pub fn held_items(git: &Struct, wanted: &dyn Fn(ResRef) -> bool) -> Vec<(Held, R
 /// [`update`] for the items a GIT's placed objects hold
 /// ([`held_items`]): each that `which` picks (by where it is) made again
 /// from its blueprint, keeping where it is held (its place in the grid,
-/// its slot), how many there are (`StackSize`: twenty arrows stay
-/// twenty) and what is said of it there (`Dropable`, `Pickpocketable`,
-/// a store's `Infinite`). A bag made again holds what its blueprint
+/// its slot) and what is said of it there (`Dropable`, `Pickpocketable`,
+/// a store's `Infinite`); how many there are (`StackSize`) is the
+/// blueprint's, as Aurora's Update Instances has it. A bag made again holds what its blueprint
 /// does. Returns the GIT with them replaced, and how many, or `None`
 /// when it has none of them.
 pub fn update_held(
@@ -1834,7 +1835,8 @@ mod tests {
         let pack = &creature.list("ItemList").unwrap()[0];
         assert_eq!(cost(pack), Some(Value::Dword(99)));
         assert_eq!(pack.get("Dropable"), Some(&Value::Byte(0)), "what is said of it there");
-        assert_eq!(pack.get("StackSize"), Some(&Value::Word(20)), "and how many there are");
+        // How many: the blueprint's, as Aurora makes them again.
+        assert_eq!(pack.get("StackSize"), Some(&Value::Word(1)), "the blueprint's stack");
         let page = &updated.list("StoreList").unwrap()[0].list("StoreList").unwrap()[0];
         let stock = &page.list("ItemList").unwrap()[0];
         assert_eq!(cost(stock), Some(Value::Dword(99)));

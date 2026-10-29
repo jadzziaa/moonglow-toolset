@@ -319,14 +319,8 @@ impl GameData {
             let tlk = if s.strref.is_custom() { self.custom_tlk.as_ref()? } else { &self.tlk };
             tlk.get(s.strref).map(|e| e.text.as_slice())
         };
-        // (As `elsewhere`: English first, else the first with text.)
-        let elsewhere = || {
-            let english = mg_core::LocStringKey::new(Language::ENGLISH, Gender::Male);
-            let mut others =
-                s.strings.iter().filter(|(k, b)| k.language() != self.language && !b.is_empty());
-            let first = others.clone().find(|(k, _)| *k == english).or_else(|| others.next());
-            first.map(|(_, b)| b.as_slice())
-        };
+        // (As `elsewhere`: English first, else the language first by number.)
+        let elsewhere = || s.elsewhere_bytes(self.language).map(|(_, b)| b);
         own()
             .filter(|b| !b.is_empty())
             .or_else(|| table().filter(|b| !b.is_empty()))

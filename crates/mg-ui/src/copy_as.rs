@@ -75,7 +75,15 @@ impl Moonglow {
             .map(|ws| ws.module.project_file.naming_for(key.restype))
             .unwrap_or_default();
         let from = key.resref.to_string();
-        let resref = crate::palette_view::copy_resref_named(&from, &naming, &taken);
+        // A blueprint's copy is named as Aurora's Edit Copy names it
+        // (captured: `nw_w1copy007` → `w1copy008`): without `nw_`, from
+        // the template's number on; other resources (a script, a
+        // conversation) the next free number.
+        let resref = if BlueprintKind::from_restype(key.restype).is_some() {
+            mg_module::palette_add::copy_resref_named(&from, &naming, &taken)
+        } else {
+            crate::palette_view::copy_resref_named(&from, &naming, &taken)
+        };
         let tag = resref_field(key.restype)
             .and_then(|_| Gff::read(&data).ok())
             .and_then(|g| g.root.string("Tag").map(decode));

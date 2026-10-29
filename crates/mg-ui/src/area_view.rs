@@ -3100,8 +3100,8 @@ fn sound_range_overlay(app: &mut Moonglow, ui: &egui::Ui, view: &AreaView, shown
             continue;
         }
         let alpha = if chosen.contains(&(o.kind, o.index)) { 255 } else { 150 };
-        // Where it may play from, if its place is random: so far each way
-        // east and north of where it stands.
+        // Where it may play from, if its place is random: a rectangle
+        // about where it stands, its ranges wide, as Aurora draws it.
         if let Some(reach) = list.get(o.index).and_then(random_reach) {
             let stroke = Stroke::new(1.0, Color32::from_rgba_unmultiplied(240, 150, 60, alpha));
             let corners = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
@@ -3127,13 +3127,16 @@ fn sound_range_overlay(app: &mut Moonglow, ui: &egui::Ui, view: &AreaView, shown
     }
 }
 
-/// How far east and north of itself a placed sound may play (its
-/// `RandomRangeX` and `RandomRangeY`), if its position is random.
+/// How far east or west and north or south of itself a placed sound may
+/// play, if its position is random: half its `RandomRangeX` and
+/// `RandomRangeY`, which are the rectangle's width and depth, as Aurora
+/// draws it (captured 2026-10-29: a sound of 6 and 2 has a rectangle 6 m
+/// by 2 about it).
 fn random_reach(sound: &mg_gff::Struct) -> Option<glam::Vec2> {
     let reach = glam::Vec2::new(
         sound.float("RandomRangeX").unwrap_or(0.0),
         sound.float("RandomRangeY").unwrap_or(0.0),
-    );
+    ) / 2.0;
     (sound.integer("RandomPosition").unwrap_or(0) != 0 && reach.max_element() > 0.0)
         .then_some(reach)
 }
@@ -5059,9 +5062,11 @@ fn commit_scale(app: &mut Moonglow, view: &AreaView, scaled: &[(usize, mg_area::
 /// placeables that aren't static), as Aurora's does: shown at once, and
 /// made one command when the wheel rests, Ctrl is let go or the selection
 /// changes (Escape drops it). Whether the wheel was taken: the camera
-/// then does not zoom by it. With nothing selected that takes a scale,
-/// the wheel is the camera's (a static placeable selected: the status
-/// line says why).
+/// then does not zoom by it. With nothing selected it does nothing, as
+/// Aurora's (captured 2026-10-29: the view stayed as it was); with
+/// something selected that takes no scale, or the pointer off the
+/// selection, the wheel is the camera's (a static placeable selected: the
+/// status line says why).
 fn wheel_scales(
     app: &mut Moonglow,
     ui: &egui::Ui,
@@ -5094,14 +5099,16 @@ fn wheel_scales(
         view.wheel_scale.is_some()
             || response.hover_pos().and_then(|p| view.pick(p)).is_some_and(|i| view.selected(i))
     };
-    let asked = turned != 0.0
+    let wheeled = turned != 0.0
         && command
         && !shift
         && response.hovered()
         && view.drag.is_none()
-        && crate::terrain_mode::active(app, view).is_none()
-        && on_selected();
-    if !asked {
+        && crate::terrain_mode::active(app, view).is_none();
+    if wheeled && view.selection.is_empty() && view.wheel_scale.is_none() {
+        return true;
+    }
+    if !(wheeled && on_selected()) {
         return false;
     }
     let Some(model) = &view.model else { return false };
@@ -6506,7 +6513,8 @@ mod tests {
         // Not random: none, whatever the ranges say.
         assert_eq!(random_reach(&sound), None);
         sound.set("RandomPosition", mg_gff::Value::Byte(1));
-        assert_eq!(random_reach(&sound), Some(glam::Vec2::new(4.0, 2.5)));
+        // Half each way: the ranges are the rectangle's size, as Aurora's.
+        assert_eq!(random_reach(&sound), Some(glam::Vec2::new(2.0, 1.25)));
         sound.set("RandomRangeX", mg_gff::Value::Float(0.0));
         sound.set("RandomRangeY", mg_gff::Value::Float(0.0));
         assert_eq!(random_reach(&sound), None);

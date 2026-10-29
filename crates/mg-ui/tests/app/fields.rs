@@ -443,6 +443,27 @@ fn a_placeable_s_numbers_have_arrows() {
     assert!(h.query_all_by_label("⏶").count() >= 3, "the lock's DCs have arrows");
 }
 
+/// A number typed past a field's end is kept at Aurora's limit (measured
+/// in Aurora 89.8193.37 by typing past them, `docs/log.md` 2026-10-29): an
+/// encounter's creatures are 1 to 8.
+#[test]
+fn a_number_typed_past_aurora_s_limit_is_kept_at_it() {
+    let Some((mut h, key)) = blueprint_harness("x2_golem001", "enc_limits", ResType::UTE) else {
+        return;
+    };
+    h.run();
+    let int = |h: &mut Harness<'_, Moonglow>, label: &str| field(h, &key).integer(label).unwrap();
+    assert_eq!(int(&mut h, "MaxCreatures"), 4, "the golems' encounter, as the game has it");
+    h.get_all_by_value("4").next().expect("Maximum Creatures' field").click();
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.get_all_by_value("4").next().expect("the field in hand").type_text("99");
+    h.run();
+    h.key_press(egui::Key::Enter);
+    h.run();
+    assert_eq!(int(&mut h, "MaxCreatures"), 8);
+}
+
 /// GitHub issue 18: Ctrl+Z while a text field has the keyboard is the
 /// field's (its typing is taken back), not the module's Undo, which undid
 /// an earlier change somewhere else; with no field in hand it is the

@@ -420,7 +420,7 @@ fn visual(f: &mut Form<'_>, ui: &mut Ui) {
         f.spin(ui, "Shadow opacity", "ShadowOpacity", 0..=100);
         ui.end_row();
         crate::widgets::field_label(ui, "Fog Clip Distance (m)");
-        f.spin_float(ui, "Fog clip distance", "FogClipDist", 25.0..=999.0, 1.0, 1.0);
+        f.spin_float(ui, "Fog clip distance", "FogClipDist", 30.0..=9999.0, 1.0, 1.0);
         ui.end_row();
         crate::widgets::field_label(ui, "Sky Box");
         f.choice(ui, "Sky box", "SkyBox", &skyboxes, FieldType::Byte);

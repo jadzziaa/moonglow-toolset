@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, Setup Store, duplicate tags, claimed and protected areas, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T21:33:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T15:26:52Z }
 ---
 
 # Areas
@@ -26,9 +26,9 @@ palette's Gallery is 🖼, the Grid ⊞.
 
 - **Creatures, Doors, … Waypoints, Start**: show or hide each kind of
   object and the start location marker; **All** and **None**. What you
-  hide is hidden in every area view, as in Aurora: the other open ones,
-  those you open later, and the next time Moonglow starts (an area that
-  looks empty may have its kinds hidden: **All** brings them back).
+  hide is hidden in every area view, as in Aurora: the other open ones
+  and those you open later, until Moonglow is closed (the next time it
+  starts, every kind shows again, as in Aurora).
 - **The start location** (where a player's character enters the module)
   is marked as in Aurora: a blue ring on the ground with a red arrow the
   way the character faces. To set it, right-click the ground where it
@@ -174,9 +174,9 @@ palette's Gallery is 🖼, the Grid ⊞.
   from where it stands: at full volume inside the inner one (its minimum
   distance), not at all outside the outer one (its maximum). The
   selection's are brighter; a sound heard everywhere in the area has none.
-  A sound that plays from a random place has a rectangle too: how far
-  east and north of itself it may play. Areas opened later open as you
-  left it.
+  A sound that plays from a random place has a rectangle too, where it
+  may play: its random ranges wide and deep, about where it stands, as
+  Aurora draws it. Areas opened later open as you left it.
 - **Walkmesh…**: a click shows the ground's walkmesh over the area
   (Aurora's Render AABB Nodes): walkable faces green, the others red; a
   click again hides what is shown. Hold the button, or right-click it,
@@ -317,7 +317,8 @@ the pointer on one of them, turn the wheel up to make their models
 larger and down to make them smaller, about a twentieth a notch. With
 the pointer anywhere else, Ctrl + wheel zooms the view slowly, so that
 the wheel turned while Ctrl still moves the view (Ctrl + drag) leaves
-the selection's size alone. The
+the selection's size alone; with nothing selected it does nothing, as
+in Aurora. The
 size shows beside the pointer and in the status line; it becomes one
 step to undo when Ctrl is let go or the wheel rests (Escape, or Undo
 meanwhile, drops it). It works on what a scale works on: creatures,
@@ -1140,6 +1141,12 @@ it goes; each change is one step to undo).
 | `GrassDensity`, `GrassHeight` | FLOAT | as on the page |
 | `GrassAmbientX`, `Y`, `Z` | FLOAT | the ambient color's red, green and blue, 0 to 1 |
 | `GrassDiffuseX`, `Y`, `Z` | FLOAT | the diffuse color's |
+
+**Aurora loses them.** An area saved in Aurora (any change to it, then
+File › Save) is written without `GrassDefDisabled` and `GrassOverrides`:
+the area grows the tileset's grass again and none of its own. Set the
+grass again in Moonglow after a module has been through Aurora, or keep
+it in a script (below).
 
 They are no local variables: a script can't read them. A script that
 changes grass while the game runs calls `SetAreaGrassOverride`,

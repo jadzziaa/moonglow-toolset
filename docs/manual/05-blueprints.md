@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-28T09:51:25Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T15:42:45Z }
 ---
 
 # Blueprints
@@ -228,8 +228,9 @@ The palette's buttons:
   next part, up to the one before, without opening it.
 - **Edit Copy…**: copy any blueprint, standard or custom, into the module
   as a new custom one, and open it. It asks for the copy's ResRef (a free
-  one is offered, after your builder code where you have one) and Tag
-  first.
+  one is offered, after your builder code where you have one, named as
+  Aurora's Edit Copy names it: without `nw_`, the first free number after
+  the blueprint's own, `nw_w1copy007` to `w1copy008`) and Tag first.
 - **Delete**: remove a custom blueprint from the module.
 - **The model in the page:** a placeable's and a door's Basic page and
   an item's Appearance page show the model beside their fields, in a
@@ -292,9 +293,10 @@ An item's blueprint reaches the items that placed objects hold as well:
 in a chest, in a creature's pack and what it has equipped, on a store's
 pages, and in a bag in any of them. Each is listed with what holds it
 ("held item" or "equipped item"), and keeps its place in the inventory,
-its slot, how many of it there are (a stack of twenty stays twenty), and
-what is said of it there (whether it drops or can be stolen, a store's
-endless supply).
+its slot, and what is said of it there (whether it drops or can be
+stolen, a store's endless supply); how many of it there are is the
+blueprint's, as in Aurora (a stack of twenty arrows becomes the
+blueprint's stack: untick it to keep it).
 
 New blueprints come from the **Wizards** menu (or the palette's New). Each
 type's wizard asks what Aurora's asks (the base item for an item, the
@@ -713,9 +715,10 @@ the most it pays for an item, its gold),
 Advanced, **Restrictions** (base items the store will not buy, or will
 only buy), Comments, and the **Inventory** in its store pages (Armor,
 Weapons, Potions & Scrolls, Rings & Amulets, Miscellaneous), each item
-optionally infinite, and listed with what the store sells it for: its
-cost at the store's sell mark up, as Aurora lists it (a buyer's Appraise
-is the game's to add).
+optionally infinite, and listed with what the store sells it for and
+buys it for: its cost at the store's sell mark up and buy mark down,
+rounded down and 1 gp at the least, as Aurora's Inventory shows them (a
+buyer's Appraise is the game's to add).
 
 Wherever items are added from the item palette (a store's or a
 placeable's inventory, a creature's backpack), the item chosen in the

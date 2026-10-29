@@ -222,15 +222,16 @@ fn palette_edit_copy_and_delete() {
     h.get_by_label("Edit Copy…").click();
     h.run();
     let draft = h.state().copy_as.clone().expect("the Copy window");
-    assert_eq!(draft.resref, "nw_wp_tavern001");
+    // As Aurora's Edit Copy names it: without `nw_`, numbered past it.
+    assert_eq!(draft.resref, "wp_tavern001");
     let tag = draft.tag.expect("a waypoint has a tag");
     h.state_mut().copy_as.as_mut().unwrap().tag = Some("MY_TAVERN".into());
     h.get_by_label("Create Copy").click();
     h.run();
     // A copy in the module, shown in the Custom palette.
-    let copy = ResKey::parse("nw_wp_tavern001", ResType::UTW).unwrap();
+    let copy = ResKey::parse("wp_tavern001", ResType::UTW).unwrap();
     let gff = h.state_mut().ws.as_mut().unwrap().doc(&copy).unwrap().clone();
-    assert_eq!(gff.root.resref("TemplateResRef").unwrap().to_string(), "nw_wp_tavern001");
+    assert_eq!(gff.root.resref("TemplateResRef").unwrap().to_string(), "wp_tavern001");
     assert_eq!(gff.root.string("Tag"), Some(&b"MY_TAVERN"[..]), "not {tag}");
     assert!(h.state().palette.custom);
     // Custom palettes list blueprints under their own names.
@@ -239,8 +240,10 @@ fn palette_edit_copy_and_delete() {
         &gff.root,
         h.state().game.as_deref().unwrap(),
     );
-    // (The copy's editor, opened in a window, closed first.)
+    // (The copy's editor, opened in a window, closed first; the filter
+    // finds the copy, which has no `nw_`.)
     close_windows(&mut h);
+    h.state_mut().palette.filter = "wp_tavern001".into();
     h.run();
     h.get_by_label(&name).click_secondary();
     h.run();

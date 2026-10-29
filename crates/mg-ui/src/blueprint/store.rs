@@ -213,16 +213,21 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         let path = base.clone().item("StoreList", index);
         let items = pages[index].list("ItemList").unwrap_or(&[]);
         let items = items.to_vec();
-        // What the store sells each for: its cost at the store's mark up
-        // (as Aurora lists it; a buyer's Appraise is the game's to add).
+        // What the store sells each for and buys it for: its cost at the
+        // store's mark up and mark down, as Aurora shows them (a buyer's
+        // Appraise is the game's to add).
         let mark_up = f.root.integer("MarkUp").unwrap_or(100).max(0) as u64;
+        let mark_down = f.root.integer("MarkDown").unwrap_or(0).max(0) as u64;
         let copied = f.app.item_clip.len();
         let ctx = ui.ctx().clone();
         let mut row = |_: usize, it: &Struct| {
             let icon = f.entry_icon(&ctx, it);
             let name = f.entry_name(it, &names);
-            let name = match f.entry_cost(it).map(|cost| u64::from(cost) * mark_up / 100) {
-                Some(gold) => format!("{name}  ·  {gold} gp"),
+            let name = match f.entry_cost(it) {
+                Some(cost) => {
+                    let (sells, buys) = (price(cost, mark_up), price(cost, mark_down));
+                    format!("{name}  ·  {sells} gp, buys at {buys} gp")
+                }
                 None => name,
             };
             (icon, name)
@@ -251,6 +256,13 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         f.app.actions.push(Action::Apply(Command::new(what, vec![edit])));
     }
     ui.data_mut(|d| d.insert_temp(shown_id, shown));
+}
+
+/// An item's price at a store's mark up or mark down (a percentage of its
+/// cost): Aurora's Inventory shows the cost so, rounded down and never
+/// less than 1 gp (an item of no cost sells and buys at 1).
+pub(crate) fn price(cost: u32, percent: u64) -> u64 {
+    (u64::from(cost) * percent / 100).max(1)
 }
 
 /// The base items a store can list (those with a store panel), by name.
@@ -395,4 +407,18 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
         f.set_fields(what, fields);
     }
     ui.data_mut(|d| d.insert_temp(state_id, (only, filter, left, right)));
+}
+
+#[cfg(test)]
+mod tests {
+    /// As Aurora's store Inventory showed them (captured 2026-10-29): a
+    /// longsword of 30 gp at a mark up of 137 sells at 41, and buys at 10
+    /// at a mark down of 35; 50 arrows of no cost, at 1 each way.
+    #[test]
+    fn prices_are_rounded_down_and_one_gold_at_the_least() {
+        assert_eq!(super::price(30, 137), 41);
+        assert_eq!(super::price(30, 35), 10);
+        assert_eq!(super::price(0, 137), 1);
+        assert_eq!(super::price(0, 35), 1);
+    }
 }

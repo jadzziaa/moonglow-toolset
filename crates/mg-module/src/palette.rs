@@ -224,10 +224,9 @@ pub fn move_category(
 pub fn sort_by_name(skeleton: &mut Gff, name: &dyn Fn(u32) -> String) {
     fn sort(list: &mut [Struct], name: &dyn Fn(u32) -> String) {
         list.sort_by_cached_key(|n| {
-            let shown = match (n.string("NAME"), n.integer("STRREF")) {
-                (Some(text), _) => written(text),
-                (None, Some(s)) => u32::try_from(s).map(name).unwrap_or_default(),
-                (None, None) => n.string("DELETE_ME").map(written).unwrap_or_default(),
+            let shown = match node_name(n) {
+                PaletteName::StrRef(s) => name(s),
+                PaletteName::Text(text) => written(&text),
             };
             (!is_placeholder(n), word_sort_key(&shown))
         });
@@ -331,13 +330,22 @@ fn game_bytes(bytes: &[u8], codepage: Codepage) -> Vec<u8> {
         .map_or_else(|| bytes.to_vec(), |b| b.into_owned())
 }
 
-fn name_of(s: &Struct) -> PaletteName {
-    match (s.string("NAME"), s.integer("STRREF")) {
-        (Some(t), _) => PaletteName::Text(t.to_vec()),
-        (None, Some(r)) => PaletteName::StrRef(u32::try_from(r).unwrap_or(u32::MAX)),
-        // (A skeleton's node with neither: BioWare's older name field.)
+/// A palette node's name, as Aurora reads it (captured 2026-10-29: its
+/// Select Category and Refresh Palette on a skeleton with every kind):
+/// its `STRREF`, if it has one, before a `NAME` written out, and BioWare's
+/// older `DELETE_ME` where there is neither. Every reader of a palette's
+/// names goes by it (a custom palette, a skeleton, a tileset's palette).
+pub fn node_name(s: &Struct) -> PaletteName {
+    let strref = s.integer("STRREF").and_then(|r| u32::try_from(r).ok()).filter(|&r| r != u32::MAX);
+    match (strref, s.string("NAME")) {
+        (Some(r), _) => PaletteName::StrRef(r),
+        (None, Some(t)) => PaletteName::Text(t.to_vec()),
         (None, None) => PaletteName::Text(s.string("DELETE_ME").unwrap_or_default().to_vec()),
     }
+}
+
+fn name_of(s: &Struct) -> PaletteName {
+    node_name(s)
 }
 
 impl Palette {
@@ -1048,6 +1056,45 @@ mod kept_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A node's name, as Aurora reads one (its Select Category and Refresh
+    /// Palette on the skeleton of the capture `wave1/pal2-before.mod`): a
+    /// StrRef before a name written out, that before `DELETE_ME`; and the
+    /// palette built from it has the StrRef alone, as Aurora's.
+    #[test]
+    fn a_node_s_strref_comes_before_its_name_written_out() {
+        let node = |fields: &[(&str, Value)]| {
+            let mut s = Struct::new(1);
+            for (label, value) in fields {
+                s.set(label, value.clone());
+            }
+            s
+        };
+        let text = |t: &str| Value::String(t.as_bytes().to_vec());
+        let both =
+            node(&[("ID", Value::Byte(0)), ("NAME", text("Sk")), ("STRREF", Value::Dword(6688))]);
+        let older = node(&[("ID", Value::Byte(1)), ("DELETE_ME", text("Older"))]);
+        let named =
+            node(&[("ID", Value::Byte(2)), ("NAME", text("Named")), ("DELETE_ME", text("Old"))]);
+        let none = node(&[
+            ("ID", Value::Byte(3)),
+            ("NAME", text("Kept")),
+            ("STRREF", Value::Dword(u32::MAX)),
+        ]);
+        assert_eq!(node_name(&both), PaletteName::StrRef(6688));
+        assert_eq!(node_name(&older), PaletteName::Text(b"Older".to_vec()));
+        assert_eq!(node_name(&named), PaletteName::Text(b"Named".to_vec()));
+        assert_eq!(node_name(&none), PaletteName::Text(b"Kept".to_vec()), "no StrRef there");
+        let mut skeleton = Gff::new(*b"ITP ");
+        skeleton.root.set("MAIN", Value::List(vec![both, older, named]));
+        let built = crate::new::custom_palette(&skeleton, |s| format!("Custom {}", s - 6687));
+        let main = built.root.list("MAIN").unwrap();
+        // By name: "Custom 1", "Named", "Older".
+        assert_eq!(main[0].integer("STRREF"), Some(6688));
+        assert!(main[0].get("NAME").is_none(), "the StrRef alone");
+        assert_eq!(main[1].string("NAME"), Some(&b"Named"[..]));
+        assert_eq!(main[2].string("NAME"), Some(&b"Older"[..]));
+    }
 
     /// A skeleton whose categories are named in `DELETE_ME` alone (no
     /// StrRef, no `NAME`: a builder's palettes) keeps their names in the
