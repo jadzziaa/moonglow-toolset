@@ -45,6 +45,16 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="2.13.1" date="2026-10-29">
+      <description>
+        <p>Moonglow catches more ways a graphics driver can fail to draw an
+        area, and Direct3D 12 compiles the game's normal-mapped shaders
+        with DXC; scripts including the base game's x2_inc_cutscene compile
+        as in Aurora; the unused-scripts report gives one line a script and
+        knows scripts run from 2DAs; a tile's textures can be inspected;
+        Alt + middle click focuses the area view's camera.</p>
+      </description>
+    </release>
     <release version="2.13.0" date="2026-10-28">
       <description>
         <p>Moonglow checks what the GPU draws, at startup and while an
