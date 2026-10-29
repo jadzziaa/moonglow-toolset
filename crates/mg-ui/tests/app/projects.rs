@@ -2363,21 +2363,15 @@ fn until_idle(h: &mut Harness<'_, Moonglow>) {
 /// reads what is typed (`input = true`) is given it from the line under
 /// its output, its question shown before its line ends, a hidden line
 /// kept out of the output. A command that doesn't has its input closed:
-/// its question is answered with nothing at once, as before.
+/// its question is answered with nothing at once, as before. (By `sh`:
+/// `cmd /C` expands `%name%` as it reads the line, before `set /p` has
+/// set it, so the same on Windows needs a script of its own.)
+#[cfg(unix)]
 #[test]
 fn a_project_s_command_shows_its_output_and_takes_what_is_typed() {
-    let (ask, closed) = if cfg!(windows) {
-        (
-            "set /p name=Name: & set /p secret=Secret: & echo got:%name% & echo kept:%secret%",
-            "set /p x=Closed: & echo empty:%x% & exit 2",
-        )
-    } else {
-        (
-            "printf 'Name: '; read name; printf 'Secret: '; read secret; echo \"got:$name\"; \
-             echo \"kept:$secret\"",
-            "read x; echo \"empty:$x\"; echo \"warned\" 1>&2; exit 2",
-        )
-    };
+    let ask = "printf 'Name: '; read name; printf 'Secret: '; read secret; echo \"got:$name\"; \
+               echo \"kept:$secret\"";
+    let closed = "read x; echo \"empty:$x\"; echo \"warned\" 1>&2; exit 2";
     let rules =
         format!("[commands]\nask = {{ run = {ask:?}, input = true }}\nclosed = {closed:?}\n");
     let dir = project_folder("ui-project-commands-input", &[("moonglow.toml", &rules)]);

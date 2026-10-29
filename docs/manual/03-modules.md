@@ -1000,7 +1000,7 @@ Choosing one:
    it (its last 20,000 lines; the log keeps the rest), how it ended,
    and **Copy**.
 
-   **What it is typed.** A command whose table says `input = true`
+   **What is typed.** A command whose table says `input = true`
    reads what you type: a line under its output takes it, and Enter or
    **Send** gives it to the command, as a terminal does (the question's
    line ends there, and what you sent shows after it, grayed, `> y`;
