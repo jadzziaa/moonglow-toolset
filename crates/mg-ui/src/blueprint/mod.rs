@@ -581,10 +581,18 @@ impl Form<'_> {
         let Some(problem) = game.appearance_problem(kind, &self.root) else { return };
         crate::widgets::field_label(ui, "");
         let text = egui::RichText::new(problem.to_string()).color(ui.visuals().error_fg_color);
-        ui.add(egui::Label::new(text).wrap()).on_hover_text(
-            "The game draws nothing for it, and Aurora's area view may crash on it: choose \
-             another appearance, or add the model to a hak",
-        );
+        let why = match kind {
+            // (The game draws no waypoint: its flag is the toolset's.)
+            mg_rules::ObjectKind::Waypoint => {
+                "The area view draws no flag for it: choose another appearance, or add the \
+                 model to a hak"
+            }
+            _ => {
+                "The game draws nothing for it, and Aurora's area view may crash on it: choose \
+                 another appearance, or add the model to a hak"
+            }
+        };
+        ui.add(egui::Label::new(text).wrap()).on_hover_text(why);
         ui.end_row();
     }
 

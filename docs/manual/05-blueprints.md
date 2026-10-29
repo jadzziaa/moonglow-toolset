@@ -247,7 +247,9 @@ The palette's buttons:
   451, ModelName) isn't in the module, its haks or the game". The game
   draws nothing for such an object, and Aurora's area view often crashes
   on one: choose another appearance, or add the model to a hak. An
-  item's Base Type Name says so when it isn't a `baseitems.2da` row.
+  item's Base Type Name says so when it isn't a `baseitems.2da` row, and
+  a waypoint's Appearance Type when its `waypoint.2da` row has no flag
+  to draw (the game draws no waypoint: the area view shows none for it).
   Verify (Build › Verify) reports the same objects by the same rule.
 - **Preview**: show the blueprint in the model viewer. An item modeled
   lying (a sword) is stood up; a helmet and a shield show as worn, a

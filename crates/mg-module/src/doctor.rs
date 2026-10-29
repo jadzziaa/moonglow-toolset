@@ -1861,7 +1861,9 @@ fn described_tables(d: &mut Doctor, module: &Module) {
 }
 
 /// The module's objects: 2DA rows they name that don't exist (a creature
-/// with a class that isn't there crashes Aurora and the game).
+/// with a class that isn't there crashes Aurora and the game). A
+/// waypoint's (its flag, which the toolset alone draws) is a warning
+/// wherever it is.
 fn objects(d: &mut Doctor, module: &Module) {
     let mut keys: Vec<ResKey> = module
         .keys()
@@ -1873,6 +1875,7 @@ fn objects(d: &mut Doctor, module: &Module) {
                     | ResType::UTI
                     | ResType::UTD
                     | ResType::UTM
+                    | ResType::UTW
                     | ResType::GIT
             )
         })
@@ -1888,10 +1891,14 @@ fn objects(d: &mut Doctor, module: &Module) {
         };
         walk_objects(d, &gff.root, kind, "", &mut found);
         // Placed, it breaks the area (Aurora's area view crashes on it); a
-        // blueprint breaks only when placed.
-        let severity =
-            if key.restype == ResType::GIT { Severity::Error } else { Severity::Warning };
+        // blueprint breaks only when placed, and a waypoint's flag nothing
+        // the game shows.
         for (path, message) in found {
+            let waypoint = path.starts_with("/WaypointList[") || key.restype == ResType::UTW;
+            let severity = match key.restype == ResType::GIT && !waypoint {
+                true => Severity::Error,
+                false => Severity::Warning,
+            };
             let place = crate::rename::describe(key, Some(&gff), &path);
             d.push(severity, Check::ObjectRow, "module", key, place, message);
         }
@@ -3436,6 +3443,42 @@ endmodelgeom fx\ndonemodel fx\n";
             checks(&f),
             [("mtr-name", "texture0".into()), ("object-row", "box.utp › Appearance".into())]
         );
+    }
+
+    /// A waypoint's flag is a waypoint.2da row with a model, as the
+    /// previews have it: one that isn't is warned of, a blueprint's or a
+    /// placed one's (the game draws no waypoint: only the toolset's flag
+    /// is missing).
+    #[test]
+    fn a_waypoint_s_flag_is_a_row_with_a_model() {
+        let table =
+            b"2DA V2.0\n\n   LABEL RESREF STRREF\n0 **** **** ****\n1 blue gi_waypoint01 5\n";
+        let rm =
+            resman(&[("waypoint", ResType::TWODA, table), ("gi_waypoint01", ResType::MDL, b"x")]);
+        let mut m = Module::new();
+        let mut utw = Gff::new(*b"UTW ");
+        utw.root.set("Appearance", Value::Byte(1));
+        m.set_gff(key("post", ResType::UTW), &utw).unwrap();
+        m.set_gff(key("bare", ResType::UTW), &Gff::new(*b"UTW ")).unwrap();
+        let mut git = Gff::new(*b"GIT ");
+        let placed = |row: u8, tag: &str| {
+            let mut s = Struct::new(5);
+            s.set("Appearance", Value::Byte(row));
+            s.set("Tag", Value::String(tag.as_bytes().to_vec()));
+            s
+        };
+        git.root.set("WaypointList", Value::List(vec![placed(1, "WP_OK"), placed(7, "WP_BAD")]));
+        m.set_gff(key("area", ResType::GIT), &git).unwrap();
+        let f = examine(&m, &rm, TalkTables::default());
+        let rows: Vec<_> = f.iter().filter(|f| f.check == "object-row").collect();
+        let at: Vec<&str> = rows.iter().map(|f| f.at.as_str()).collect();
+        assert_eq!(
+            at,
+            ["area › waypoint WP_BAD › Appearance", "bare.utw › Appearance"],
+            "{rows:?}"
+        );
+        assert!(rows.iter().all(|f| f.severity == Severity::Warning), "{rows:?}");
+        assert!(rows[0].message.contains("waypoint.2da has no row 7"), "{rows:?}");
     }
 
     /// An object of the PC faction is warned of, blueprint or placed, and

@@ -367,17 +367,23 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   module's files changed outside and read again). (S) (a builder's
   report, October 2026)
 - **An appearance with no model, what the warning leaves out:** the rule
-  (`mg_rules::appearance`) checks a placeable's, a door's and a
-  single-model creature's row and model by name, and an item's base item
-  row. Not checked by it: an item's own models (its parts, `ModelPart1`…
-  and an armor's), which the preview alone says are missing; a body of
-  parts' skeleton and parts; a waypoint's flag (waypoint.2da), which the
-  preview checks on its own; a model that is there but cannot be read (a
-  broken file is found when it is drawn). The Appearance lists in the
-  Properties don't mark the rows with no model (the Appearance Gallery
-  does, for those in sight), and the palette's own Gallery doesn't mark
-  blueprints whose appearance has none. (S) (dansen9191's report,
-  October 2026)
+  (`mg_rules::appearance`) checks a placeable's, a door's, a
+  single-model creature's and a waypoint's row and model by name (the
+  waypoint's flag since 2026-10-29: Verify warns of it, the preview and
+  the Properties go by it; BioWare's Chapter 1 has a waypoint blueprint
+  with no `Appearance`, row 0, which waypoint.2da leaves blank, and what
+  Aurora draws for it was not captured), and an item's base item row.
+  Not checked by it, each S, about a day together: an item's own models
+  (its parts, `ModelPart1`… and an armor's), whose names mg-preview
+  alone makes (the naming would move down into mg-rules); a body of
+  parts' skeleton and parts, likewise; a model that is there but cannot
+  be read (a broken file is found when it is drawn; reading each
+  appearance's model in Verify was not timed on a large module); the
+  Appearance lists in the Properties don't mark the rows with no model
+  (the Appearance Gallery does, for those in sight: a mark in
+  `widgets::row_choice`, the rows checked once a revision, not each
+  frame); and the palette's own Gallery doesn't mark blueprints whose
+  appearance has none. (dansen9191's report, October 2026)
 - **Number fields' limits against Aurora, what is left:** the rest were
   measured in Aurora (2026-10-29, typed past their ends: an encounter's
   creatures 1 to 8, its respawn time 1 to 32000 s and count 0 to 32000,

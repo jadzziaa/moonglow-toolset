@@ -10,7 +10,9 @@
 //! row whose `RACE` is its model, unless the row is a body of parts
 //! (`MODELTYPE` P), whose `RACE` is the letter of its parts' names; an
 //! item's `BaseItem` a baseitems.2da row (its model is put together from
-//! the item's parts: only the row is checked here). A row has no usable
+//! the item's parts: only the row is checked here); a waypoint's
+//! `Appearance` a waypoint.2da row whose `RESREF` is the flag the toolset
+//! draws it as (the game draws none). A row has no usable
 //! model when it isn't in the table, names none, is reserved (`USER`, the
 //! rows a table keeps for builders, which Aurora shows as nothing), or
 //! names a model the module, its haks and the game lack. A missing model
@@ -124,6 +126,7 @@ impl AppearanceRow {
                 object.integer("BaseItem")?;
                 at("BaseItem", "baseitems", "label", "label", Look::Row)
             }
+            ObjectKind::Waypoint => at("Appearance", "waypoint", "RESREF", "LABEL", Look::Model),
             _ => return None,
         })
     }
@@ -199,6 +202,13 @@ mod tests {
         );
         put("genericdoors", ResType::TWODA, "2DA V2.0\n\n  Label ModelName\n0 Wood door_x\n");
         put("baseitems", ResType::TWODA, "2DA V2.0\n\n  label\n0 shortsword\n1 ****\n");
+        put(
+            "waypoint",
+            ResType::TWODA,
+            "2DA V2.0\n\n  LABEL RESREF STRREF\n0 **** **** ****\n1 blue gi_waypoint01 67281\n\
+             2 red gi_waypoint02 67282\n",
+        );
+        put("gi_waypoint01", ResType::MDL, "");
         put("plc_chair", ResType::MDL, "");
         put("c_badger", ResType::MDL, "");
         let mut rm = ResMan::new();
@@ -269,5 +279,14 @@ mod tests {
         assert_eq!(check(i, &[("BaseItem", 0)]), Ok(None));
         assert_eq!(problem(i, &[("BaseItem", 1)]), "No such row: baseitems.2da has no row 1");
         assert_eq!(AppearanceRow::of(i, &Struct::default()), None);
+        // A waypoint: its flag, a waypoint.2da row's RESREF (row 0 is
+        // blank, as the game's: a waypoint with no Appearance has none).
+        let w = ObjectKind::Waypoint;
+        assert_eq!(check(w, &[("Appearance", 1)]), Ok(Some("gi_waypoint01".into())));
+        assert_eq!(
+            check(w, &[("Appearance", 2)]).unwrap_err().problem,
+            Problem::Missing("gi_waypoint02".into())
+        );
+        assert_eq!(problem(w, &[]), "No such row: waypoint.2da has no row 0");
     }
 }
