@@ -2992,7 +2992,11 @@ fn the_mouse_wheel_steps_through_an_armor_s_parts() {
     let torso = |h: &mut Harness<'_, Moonglow>| field(h, &key).integer("ArmorPart_Torso");
     let before = torso(&mut h).expect("a torso");
     // The torso's list: beside its label, on its row.
-    let label = h.get_by_label("Torso").rect();
+    // (The field's label: the part's button under the lists is named so too.)
+    let label = (h.get_all_by_label("Torso"))
+        .find(|n| n.accesskit_node().role() != egui::accesskit::Role::Button)
+        .unwrap()
+        .rect();
     let list = h
         .get_all_by_role(egui::accesskit::Role::ComboBox)
         .map(|n| n.rect())
@@ -3038,7 +3042,10 @@ fn an_armor_s_part_can_be_none() {
     h.run();
     let bicep = |h: &mut Harness<'_, Moonglow>, label: &str| field(h, &key).integer(label);
     assert!(bicep(&mut h, "ArmorPart_LBicep").is_some_and(|n| n > 0), "a bicep to start with");
-    let label = h.get_by_label("Left Bicep").rect();
+    let label = (h.get_all_by_label("Left Bicep"))
+        .find(|n| n.accesskit_node().role() != egui::accesskit::Role::Button)
+        .unwrap()
+        .rect();
     h.get_all_by_role(egui::accesskit::Role::ComboBox)
         .find(|n| {
             let r = n.rect();
@@ -3560,19 +3567,20 @@ fn an_item_s_appearance_lists_show_the_item_with_each() {
         };
         h.state_mut().blueprint_pages.insert((key, mg_edit::GffPath::root()), "Appearance");
         h.run_steps(4);
-        // (Its icon too.)
+        // (Its icon too; an armor's part, that part alone as well.)
         let (shown, made) = picture_on_hover(&mut h, list);
-        assert_eq!((shown, made), (2, 1), "{name}: the item's picture, made");
+        let pictures = if name == "nw_aarcl001" { 2 } else { 1 };
+        assert_eq!((shown, made), (1 + pictures, pictures), "{name}: the item's picture, made");
         if name == "nw_aarcl001" {
             // On a woman: hers, made anew; on a man again, his, kept.
             h.get_by_label("Female").click();
             h.run_steps(4);
             let (shown, made) = picture_on_hover(&mut h, list);
-            assert_eq!((shown, made), (2, 1), "the woman's picture, made");
+            assert_eq!((shown, made), (3, 2), "the woman's pictures, made");
             h.get_by_label("Male").click();
             h.run_steps(4);
             let (shown, made) = picture_on_hover(&mut h, list);
-            assert_eq!((shown, made), (2, 0), "the man's, as it was made");
+            assert_eq!((shown, made), (3, 0), "the man's, as they were made");
         }
     }
 }
@@ -3663,4 +3671,39 @@ fn shown_on_a_woman_is_kept_and_the_icons_follow_it() {
     h.state_mut().settings = settings;
     h.run_steps(4);
     assert!(names(&mut h, &armor).iter().all(|n| n.starts_with("ipm_")));
+}
+
+/// An armor's part is chosen by its picture too: under the Appearance
+/// page's lists, a part's models, each alone, opened at the one the armor
+/// has; a click gives the armor that one (both legs together).
+#[test]
+fn an_armor_s_part_is_chosen_by_its_picture() {
+    let Some((mut h, key)) = blueprint_harness("nw_aarcl001", "armor_parts", ResType::UTI) else {
+        return;
+    };
+    // (Tall enough for the pictures under the lists to be in sight.)
+    h.set_size(egui::vec2(1000.0, 1200.0));
+    let at = (egui::pos2(10.0, 10.0), egui::vec2(980.0, 1180.0));
+    own_window(&mut h, &Tab::Blueprint(key), at.0, at.1);
+    h.get_by_label("Appearance").click();
+    h.run();
+    let button = egui::accesskit::Role::Button;
+    let number = |l: &str| l.parse::<u16>().ok();
+    let tiles = |h: &Harness<'_, Moonglow>| -> Vec<u16> {
+        h.query_all_by(|n| n.role() == button && n.label().is_some_and(|l| number(&l).is_some()))
+            .filter_map(|n| number(&n.accesskit_node().label()?))
+            .collect()
+    };
+    // The thighs' pictures: the armor's own among those in sight.
+    h.get_by(|n| n.role() == button && n.label().as_deref() == Some("Thighs")).click();
+    h.run_steps(3);
+    let own = field(&mut h, &key).integer("ArmorPart_LThigh").unwrap() as u16;
+    let shown = tiles(&h);
+    assert!(shown.contains(&own), "{own} in {shown:?}");
+    let other = *shown.iter().find(|&&n| n != own).unwrap();
+    h.get_by_label(&other.to_string()).click();
+    h.run();
+    let s = field(&mut h, &key);
+    assert_eq!(s.integer("ArmorPart_LThigh"), Some(i64::from(other)));
+    assert_eq!(s.integer("ArmorPart_RThigh"), Some(i64::from(other)), "both legs");
 }

@@ -132,17 +132,12 @@ impl<'a> Gatherer<'a> {
         let items = |r: ResRef| -> Option<mg_gff::Gff> {
             mg_gff::Gff::read(&game.resman.get(&ResKey::new(r, ResType::UTI)).ok()?).ok()
         };
-        for kind in ObjectKind::ALL {
+        // (The game draws no waypoint, store or sound: those are Aurora's.)
+        use ObjectKind as K;
+        for kind in [K::Creature, K::Placeable, K::Door, K::Item] {
             for s in git.list(kind.list()).unwrap_or_default() {
-                let preview = match kind {
-                    ObjectKind::Creature => crate::creature(game, s, &items),
-                    ObjectKind::Placeable => crate::placeable(game, s),
-                    ObjectKind::Door => crate::door(game, s),
-                    ObjectKind::Item => crate::item_placed(game, s),
-                    _ => continue,
-                };
-                if let Ok(p) = preview {
-                    self.preview(&crate::replaced(p, s));
+                if let Some(Ok(p)) = crate::of_object(game, kind, s, &items, crate::Shown::Placed) {
+                    self.preview(&p);
                 }
             }
         }

@@ -77,6 +77,21 @@ impl Form<'_> {
     }
 
     /// An entry's name: a whole item's own, else its blueprint's.
+    /// Why the creature may not wear an item it has equipped (`entry`, of
+    /// its `Equip_ItemList`), said for a builder: the game takes such an
+    /// item off, into the backpack, as it loads the creature
+    /// ([`mg_rules::GameData::wear_problem`]).
+    pub(super) fn wear_problem(&mut self, entry: &Struct) -> Option<String> {
+        let kept = match entry.integer("BaseItem") {
+            Some(_) => None,
+            None => Some(self.kept_blueprint(BlueprintKind::Item, entry_resref(entry))?),
+        };
+        let item = kept.as_deref().unwrap_or(entry);
+        let game = self.app.game.as_deref()?;
+        let problem = game.wear_problem(&self.root, item)?;
+        Some(game.wear_problem_text(&problem))
+    }
+
     pub(super) fn entry_name(&self, entry: &Struct, names: &HashMap<ResRef, String>) -> String {
         let own = entry
             .locstring("LocalizedName")
@@ -801,8 +816,8 @@ impl Form<'_> {
                 }
             }
             Some((i, Ask::Copy)) => {
-                if let Some(r) = items.get(i).map(entry_resref).filter(|r| !r.is_empty()) {
-                    self.copy_item(ui, r);
+                if let Some(item) = items.get(i).filter(|e| !entry_resref(e).is_empty()) {
+                    self.copy_item(ui, item);
                 }
             }
             _ => {}
@@ -812,7 +827,7 @@ impl Form<'_> {
             self.app.actions.push(Action::Apply(Command::new("Move item", moved)));
         }
         if out.paste {
-            adds.extend(self.app.item_clip.iter().copied().map(Added::Blueprint));
+            adds.extend(self.app.item_clip.iter().cloned().map(Added::Item));
         }
         match &out.dropped {
             Some(Dragged::Palette(r)) => adds.push(Added::Blueprint(*r)),
@@ -838,9 +853,14 @@ impl Form<'_> {
         dragged.removal().into_iter().filter(|e| !viewed(e)).collect()
     }
 
-    /// Copies an item (its blueprint), to paste into an inventory.
-    pub(super) fn copy_item(&mut self, ui: &Ui, resref: ResRef) {
-        self.app.item_clip = vec![resref];
+    /// Copies an item as this inventory holds it, to paste into an
+    /// inventory: pasted, it is carried as a drag carries it ([`carried`]:
+    /// as it is into a placed object from one, made from its blueprint
+    /// between a placed object and a blueprint).
+    ///
+    /// [`carried`]: Self::carried
+    pub(super) fn copy_item(&mut self, ui: &Ui, item: &Struct) {
+        self.app.item_clip = vec![item.clone()];
         crate::widgets::mark_clipboard(ui.ctx(), "1 item");
     }
 }

@@ -183,12 +183,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## EE fields Aurora hides
 
-- **What a creature can't wear:** the game leaves out an equipped item
-  the creature may not use when it loads the area (a stock cloak with
-  its item properties came out of a commoner's cloak slot, and
-  `ActionEquipItem` was refused too; without the properties it was
-  worn). Moonglow draws whatever the file has equipped. Which
-  properties keep an item off wasn't looked into. (S–M)
 - **The PC faction, what's left** (waits on an Aurora capture and the
   client): Moonglow keeps objects out of faction 0 and says so where it
   is written (the faction lists, the Store Wizard, `mg set`, the raw
@@ -283,32 +277,52 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   color; a Variables window that is sized; drag and drop and right-click
   menus in the inventory, items dragged between inventories and within
   a list, Copy and Paste; an item moved as it is, in one step; what a
-  taken slot held sent to the backpack, as Aurora does): items
-  are carried one at a time; of the drags between two objects' windows
-  only a chest's item onto a creature's backpack is under test; an item
-  carried between a placed object and a blueprint is made from its
-  blueprint there (a blueprint holds only that); Copy and Paste carry
-  the blueprint, so what is pasted is made from it; a moved row keeps
-  its place in the game's inventory grid (only the list's order
-  changes); an item moved from one slot to another asks the question
-  about a missing feat as any Equip does (Aurora asks when a weapon is
-  dropped on another weapon slot, but a true move of an item that needs
-  a feat between two slots it takes was not seen); a weapon dropped on
-  the secondary weapon slot while the primary is empty goes in the
-  secondary slot, where Aurora puts it in the primary (seen with a
-  longsword only: whether every item that fits both does so was not
-  looked at); blueprints made in a category the palette hides;
-  new strings written to a talk-table range. (S–M)
+  taken slot held sent to the backpack, as Aurora does; Copy and Paste
+  carrying the item as it is, as a drag does; drags between two
+  objects' windows under test both ways, a slot's item onto a chest and
+  a chest's onto a taken slot; a weapon dropped on the secondary weapon
+  slot while the primary is free going in the primary, as Aurora puts a
+  longsword). Left:
+  - **Several items at once:** the inventory selects several (Ctrl,
+    Shift), but a drag, Copy and Paste carry one: `Dragged` and
+    `item_clip` hold one item each place; carrying the selection is a
+    drag of many rows, and where each lands (slots, grid places). (M)
+  - **The secondary slot, for other weapons:** Aurora was seen with a
+    longsword only; the Aurora batch should drop a dagger, a one-handed
+    axe and a torch (which fits the secondary alone) on the secondary
+    slot of a creature whose primary is empty, and say where each goes.
+    (waits on Aurora)
+  - **A move between two slots that needs a feat:** Moonglow asks the
+    question about a missing feat as any Equip does; Aurora asks when a
+    weapon is dropped on another weapon slot, but a true move of an item
+    that needs a feat between two slots it takes was not seen (the
+    Aurora batch: a creature without Martial Weapon Proficiency, a
+    longsword dragged from its primary slot to its secondary). (waits on
+    Aurora)
+  - **A blueprint made in Familiars:** the Creature Wizard offers every
+    category of `creaturepal.itp`, Familiars (ID 254, `TYPE` 1) too, and
+    the custom palette is made without `TYPE` 0 and 1 nodes, as Aurora
+    makes it (`docs/findings.md`, "Custom palettes"): a blueprint made
+    there is in no category the palette shows. Whether Aurora's wizard
+    offers Familiars, and where Aurora shows such a blueprint, the
+    Aurora batch should read. (S once read; waits on Aurora)
+  - **New strings written to a talk-table range:** a name or
+    description typed in a blueprint goes into the file, Aurora's way;
+    writing it as a line of the module's custom talk table instead, at
+    the next free line of a range the project keeps (`mg tlk-alloc`'s
+    map is one), touches every localized-string field and the talk
+    table's saving. (L)
+  - **Made from the blueprint, between a placed object and a
+    blueprint:** an item carried (dragged, pasted) between them is made
+    from its blueprint where it lands, keeping its flags, as a
+    blueprint's inventory holds only a blueprint's name. (settle?:
+    proposed by the sprint on 2026-10-29, the owner's to say)
+  - **A moved row keeps its grid place:** a row dragged within a list
+    takes its place in the list, and keeps its `Repos_PosX` and
+    `Repos_Posy` (where the game's inventory grid shows it), as
+    Moonglow shows a list, not Aurora's grid. (settle?: proposed by the
+    sprint on 2026-10-29, the owner's to say)
   (a second builder's review, October 2026)
-- **Appearances as pictures** are placeables', creatures' and doors';
-  an item's model, and each of a weapon's three parts, are chosen from
-  its icons (the item as it would be with each). An armor's parts are
-  chosen from lists of numbers: the pointer resting on a row shows the
-  armor with that part on a body and its icon (the part is small in the
-  picture of the whole body), but there is no picture of a part alone
-  and no gallery of them. A creature's look is a plain body of the
-  appearance, male unless the creature is female. (S–M) (from builders'
-  reports after 1.10.1)
 
 ## Bulk editing
 
@@ -1920,9 +1934,6 @@ of truth, and does each caller's difference matter.
   `Struct::walk_fields` (`rename.rs:192`, `:209`, `text.rs:207`,
   `doctor.rs:1250`). `GffPath` into mg-gff, carried by `Reference`,
   `Usage` and `Hit`. (L, mechanical)
-- **A blueprint's preview, three times** (`mg model-files`,
-  `model_view.rs:164`, `mg-area lib.rs:347`): `mg model-files` has no
-  waypoint. A `mg_preview::of_object`. (M)
 
 ### Settled in the engine or Aurora first
 

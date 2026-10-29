@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T21:10:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T21:15:33Z }
 ---
 
 # Blueprints
@@ -177,8 +177,10 @@ The palette's buttons:
 - **The Appearance Gallery** (**Tools › Appearance Gallery…**, or **All
   Appearances…** under **More** in the palette's Placeables): **Placeables**, **Creatures**
   and **Doors** at its top choose whose. Every appearance in
-  `placeables.2da`, `appearance.2da` (a plain body of each) or
-  `genericdoors.2da` as a picture, those that are only an effect (flames,
+  `placeables.2da`, `appearance.2da` or `genericdoors.2da` as a picture
+  (a creature's: the creature it gives appearances to as it is, its
+  head, colors, phenotype and what it wears, in each appearance; else a
+  plain body), those that are only an effect (flames,
   sparks, shafts of light) too. It is a tab like any other: it opens in a
   window of its own, and can be docked beside the area or maximized. Click
   a picture to give it to the objects of that kind selected in the area
@@ -234,7 +236,11 @@ The palette's buttons:
   follows the arrow keys. An item's lists of its model and parts (a
   model, a weapon's parts' shapes and colors, an armor's parts) show the
   item as it would be with each, its inventory icon beside its model,
-  the same way (on a woman where the item is shown on one). A body or armor part's list
+  the same way (on a woman where the item is shown on one); an armor
+  part's, that part alone beside them too. A creature's Appearance list
+  shows the creature as it is in each appearance: its head, colors,
+  gender, phenotype and what it wears (what it may not wear left off, as
+  the game does). A body or armor part's list
   takes the mouse wheel too, with the pointer resting on it: down to the
   next part, up to the one before, without opening it.
 - **Edit Copy…**: copy any blueprint, standard or custom, into the module
@@ -595,7 +601,10 @@ A domain or school left **Not set** is the game's to choose.
   from a slot onto the backpack, or onto another slot it goes in. An
   item put in a slot that holds one (dropped there, or with the Equip
   beside it) sends that one to the backpack, as it is, in the same step,
-  as Aurora does; two rings are not swapped. A
+  as Aurora does; two rings are not swapped. A weapon dropped on the
+  Secondary Weapon slot while the Primary Weapon slot is free goes in
+  the primary, as in Aurora (one moved there from the primary stays
+  where it is dropped). A
   right click on an item anywhere offers the same (**Equip** or **To
   Backpack**, **Copy**, **Remove**, and last, as in Aurora's menus,
   **Properties**), and on the palette's
@@ -612,10 +621,23 @@ A domain or school left **Not set** is the game's to choose.
   another row of its own list to move it to that place. **Copy** (a
   row's right-click menu, or Ctrl+C with the pointer over it) and
   **Paste** (the menu, **Paste (n)** in the list's heading, or Ctrl+V
-  over the list) carry an item's blueprint from any inventory to any
-  other, in any module open after it: what is pasted is made from it. Equipping an item the
+  over the list) carry an item from any inventory to any other, in any
+  module open after it, as a drag carries it: a placed object's own item
+  pasted into a placed object is itself (its own name, tag, properties),
+  and between a placed object and a blueprint it is made from its
+  blueprint. Equipping an item the
   creature lacks the feat for (a weapon proficiency, an armor weight)
-  asks whether to give it the feat. A store's items can be marked
+  asks whether to give it the feat. An item equipped that the creature
+  may not wear is marked ⚠ in its slot, its tip saying why: the game
+  takes it off, into the backpack, as it loads the creature (placed in
+  an area or made from its blueprint), and `ActionEquipItem` doesn't
+  put it on, so the area view and the creature's preview leave it off
+  too. The creature may wear an item when it has one of the feats the
+  item needs (on its Feats page), and, for each kind of Use
+  Limitation property the item has, fits one of them: one of its
+  classes, its race, its alignment (an Alignment Group or a Specific
+  Alignment: either kind fits). An item's worth and the creature's
+  level are no matter. A store's items can be marked
   **Infinite** (its Inventory's column).
 - **Dropable and Pickpocketable:** under the palette, as in Aurora's
   inventory, **Options** shows the item selected (**Selected Item**) and
@@ -651,7 +673,11 @@ weapon's three parts are also chosen by picture: a model's by the item's
 icon as it would be with each (what of it is drawn, at most 128 points
 tall), a weapon's part by that part alone, as
 large as it is in the icon, a part with a model and no icon by its
-number; the item's model shows in the page and follows each
+number, and an armor's parts under their lists by **Pictures of**: the
+part chosen there (the torso first), each of its models alone as the
+body shown wears it, in the armor's colors, opened at the armor's own,
+a click giving the armor that one (the thighs, shins and feet both
+sides together); the item's model shows in the page and follows each
 change, beside the fields in a wide window and beside the icon in a
 narrower one; an armor or a cloak is shown on a man or, with **Shown on
 › Female**, on a woman, and an armor's inventory icon is then the one a

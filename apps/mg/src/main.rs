@@ -970,8 +970,8 @@ enum Cmd {
     /// What is named and found nowhere is said.
     ModelFiles {
         /// A model's name (plc_a08), a blueprint (chest.utp; also .utd,
-        /// .uti, .utc) or an area (tavern.are), in the module if one is
-        /// given, else in the game.
+        /// .uti, .utc and a waypoint's .utw, its flag) or an area
+        /// (tavern.are), in the module if one is given, else in the game.
         what: String,
         /// The folder to write into (made if missing).
         out: PathBuf,
@@ -4377,15 +4377,17 @@ fn model_files(
                 let data = game.resman.get(&ResKey::new(r, ResType::UTI)).ok()?;
                 Gff::read(&data).ok()
             };
-            let preview = match key.restype {
-                ResType::UTP => mg_preview::placeable(&game, &object),
-                ResType::UTD => mg_preview::door(&game, &object),
-                ResType::UTI => mg_preview::item(&game, &object),
-                ResType::UTC => mg_preview::creature(&game, &object, &item),
-                _ => bail!("{key}: give a model's name or a .utp, .utd, .uti or .utc"),
+            // (A store's and a sound's markers are Aurora's alone: the
+            // game draws neither.)
+            use mg_rules::ObjectKind as K;
+            let kind = K::from_restype(key.restype).filter(|k| !matches!(k, K::Store | K::Sound));
+            let shown = mg_preview::Shown::default();
+            let Some(preview) =
+                kind.and_then(|k| mg_preview::of_object(&game, k, &object, &item, shown))
+            else {
+                bail!("{key}: give a model's name or a .utp, .utd, .uti, .utc or .utw")
             };
             let preview = preview.map_err(|e| anyhow::anyhow!("{key}: {e}"))?;
-            let preview = mg_preview::replaced(preview, &object);
             blueprint = Some((key, object));
             Some(preview)
         }

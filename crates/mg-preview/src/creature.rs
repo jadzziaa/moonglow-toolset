@@ -135,12 +135,28 @@ pub fn creature_look(game: &GameData, look: &CreatureLook) -> Result<Preview, Pr
     creature(game, &look.to_utc(), &|_| None)
 }
 
-/// A creature blueprint (UTC fields; equipped items through `item`).
+/// A creature blueprint (UTC fields; equipped items through `item`),
+/// without what the game takes off it as it loads it (an item it may not
+/// wear: [`GameData::wear_problem`]).
 pub fn creature(
     game: &GameData,
     utc: &Struct,
     item: &dyn Fn(ResRef) -> Option<Gff>,
 ) -> Result<Preview, PreviewError> {
+    dressed(game, utc, item, true)
+}
+
+/// [`creature`], what it may not wear left off where `as_the_game` (an
+/// armor's preview is a body that wears it whatever).
+pub(crate) fn dressed(
+    game: &GameData,
+    utc: &Struct,
+    item: &dyn Fn(ResRef) -> Option<Gff>,
+    as_the_game: bool,
+) -> Result<Preview, PreviewError> {
+    let worn = |slot| {
+        equipped(utc, slot, item).filter(|it| !as_the_game || game.wear_problem(utc, it).is_none())
+    };
     let lk = Lookup { game };
     let appearance = game.table("appearance")?;
     let row = number(utc, "Appearance_Type");
@@ -163,7 +179,7 @@ pub fn creature(
     ] {
         colors[layer] = number(utc, field).clamp(0, 255) as u8;
     }
-    let armor = equipped(utc, CHEST, item);
+    let armor = worn(CHEST);
     let body_colors = armor.as_ref().map_or(colors, |a| item_colors(a, colors));
 
     let mut preview = Preview {
@@ -231,7 +247,7 @@ pub fn creature(
         }
 
         let capart = game.table("capart")?;
-        let cloak = equipped(utc, CLOAK, item);
+        let cloak = worn(CLOAK);
         if let Some(c) = &cloak {
             let cloaks = game.table("cloakmodel")?;
             let row = number(c, "ModelPart1").max(0) as usize;
@@ -284,7 +300,7 @@ pub fn creature(
         }
 
         // A helmet takes the head's place.
-        let helmet = equipped(utc, HEAD, item);
+        let helmet = worn(HEAD);
         match &helmet {
             Some(h) => {
                 let model = format!("helm_{:03}", number(h, "ModelPart1"));
@@ -339,7 +355,7 @@ pub fn creature(
         let weapon_scale = cell_f32(&appearance, r, "WEAPONSCALE").unwrap_or(1.0);
         let baseitems = game.table("baseitems")?;
         for slot in [RIGHT_HAND, LEFT_HAND] {
-            let Some(it) = equipped(utc, slot, item) else { continue };
+            let Some(it) = worn(slot) else { continue };
             let shield =
                 cell_int(&baseitems, number(&it, "BaseItem").max(0) as usize, "WeaponWield")
                     == Some(7);

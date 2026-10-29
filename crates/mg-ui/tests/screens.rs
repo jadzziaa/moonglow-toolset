@@ -2103,6 +2103,90 @@ fn appearance_hover_pictures() {
     }
 }
 
+/// An armor's parts as pictures, each model alone: its torsos' gallery
+/// under its Appearance page's lists, then its right shoulders'
+/// (`armor-parts-torso.png`, `armor-parts-shoulder.png`).
+#[test]
+#[ignore]
+fn armor_part_pictures() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let size = egui::vec2(1200.0, 900.0);
+    let mut h = pictured_blueprint(&root, &dir, ("nw_aarcl001", ResType::UTI), "Appearance", size);
+    let settle = |h: &mut Harness<'_, Moonglow>| {
+        for _ in 0..200 {
+            if h.try_run().is_ok() {
+                break;
+            }
+        }
+        h.run_steps(60);
+    };
+    let key = ResKey::parse("nw_aarcl001", ResType::UTI).unwrap();
+    place(&mut h, &mg_ui::Tab::Blueprint(key), (20.0, 40.0), (1160.0, 850.0));
+    settle(&mut h);
+    // (The page scrolled to its end: the gallery under the lists.)
+    h.hover_at(h.get_by_label("Pictures of").rect().center());
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -2000.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    });
+    settle(&mut h);
+    shoot(&mut h, &dir, "armor-parts-torso");
+    h.get_all_by_label("Right Shoulder").last().unwrap().click();
+    settle(&mut h);
+    shoot(&mut h, &dir, "armor-parts-shoulder");
+}
+
+/// A creature's appearances as pictures: the bandit as it is (its head,
+/// colors, armor and sword) in another appearance, beside the row the
+/// pointer rests on in its Appearance list, and in the Appearance Gallery
+/// opened for it (`appearance-hover-creature.png`,
+/// `appearance-gallery-creature.png`).
+#[test]
+#[ignore]
+fn creature_appearance_pictures() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let size = egui::vec2(1200.0, 800.0);
+    let mut h = pictured_blueprint(&root, &dir, ("nw_bandit001", ResType::UTC), "Basic", size);
+    // (Its appearance a body of parts, a half-orc's, and its race an elf's,
+    // so that the list showing "Half-Orc" is its Appearance: the rows of the
+    // other bodies of parts are near it.)
+    let key = ResKey::parse("nw_bandit001", ResType::UTC).unwrap();
+    let set = |label: &str, value| mg_edit::Edit::SetField {
+        key,
+        path: GffPath::root(),
+        label: label.into(),
+        value: Some(value),
+    };
+    let edits = vec![set("Race", mg_gff::Value::Byte(1)), {
+        set("Appearance_Type", mg_gff::Value::Word(5))
+    }];
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("looks", edits)));
+    h.run_steps(4);
+    hover_list_row(
+        &mut h,
+        &|v: &str| v.starts_with("Half"),
+        &|v: &str| v.starts_with("Half") && !v.contains("rc"),
+        0,
+    );
+    shoot(&mut h, &dir, "appearance-hover-creature");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    h.get_by_label("Gallery…").click();
+    for _ in 0..200 {
+        if h.try_run().is_ok() {
+            break;
+        }
+    }
+    h.run_steps(60);
+    shoot(&mut h, &dir, "appearance-gallery-creature");
+}
+
 /// Armor's icons in an inventory and its pictures in the palette, on a
 /// man and with Options' Show armor and cloaks on a woman
 /// (`shown-on-{man,woman}-{inventory,palette}.png`).
@@ -2342,6 +2426,57 @@ fn creature_inventory_options() {
     pick(&mut h, "Longsword", true);
     h.run_steps(2);
     shoot(&mut h, &dir, "creature-inventory-options-selected");
+}
+
+/// A creature's Inventory page with what the game takes off it marked: a
+/// commoner (no proficiency) with a cloak limited to bards, sorcerers and
+/// wizards, a longsword and a club, the cloak's tip saying why
+/// (`creature-inventory-worn-off.png`, and `-tip` with the pointer on the
+/// cloak).
+#[test]
+#[ignore]
+fn creature_inventory_worn_off() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.no_inventory_warning = true;
+    let game = app.game.as_deref().unwrap();
+    let data = game.resman.get_named("nw_commale", ResType::UTC).unwrap();
+    let mut utc = mg_gff::Gff::read(&data).unwrap();
+    let slot = |bit: u32, resref: &str| {
+        let mut s = mg_gff::Struct::new(bit);
+        s.set("EquippedRes", mg_gff::Value::resref(mg_core::ResRef::from_str(resref).unwrap()));
+        s
+    };
+    let worn =
+        vec![slot(0x10, "nw_wswls001"), slot(0x20, "nw_wblcl001"), slot(0x40, "nw_aarcl013")];
+    utc.root.set("Equip_ItemList", mg_gff::Value::List(worn));
+    let key = ResKey::parse("mg_commoner", ResType::UTC).unwrap();
+    let mut m = mg_module::Module::new();
+    m.set_gff(key, &utc).unwrap();
+    let path = dir.join("mg_commoner-worn-off.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().blueprint_pages.insert((key, GffPath::root()), "Inventory");
+    h.run_steps(3);
+    place(&mut h, &mg_ui::Tab::Blueprint(key), (20.0, 60.0), (1150.0, 720.0));
+    h.run_steps(3);
+    shoot(&mut h, &dir, "creature-inventory-worn-off");
+    // (The last marked: the cloak's slot comes after the weapons'.)
+    let cloak = h
+        .get_all_by_label_contains("⚠")
+        .rfind(|n| n.accesskit_node().role() == egui::accesskit::Role::Button);
+    if let Some(cloak) = cloak {
+        cloak.hover();
+        h.run_steps(30);
+        shoot(&mut h, &dir, "creature-inventory-worn-off-tip");
+    }
 }
 
 /// The Inventory pages in a window as narrow as one opens beside the

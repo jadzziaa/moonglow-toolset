@@ -290,21 +290,18 @@ impl AreaObject {
             let data = game.resman.get(&ResKey::new(r, ResType::UTI)).ok()?;
             Gff::read(&data).ok()
         };
+        let preview = mg_preview::of_object(game, kind, s, &items, mg_preview::Shown::Placed);
+        // A waypoint without a flag (no appearance) is drawn as a marker:
+        // nothing is wrong with it; a store or a sound without the game's
+        // marker model, drawn as one.
         let preview = match kind {
-            ObjectKind::Creature => Some(mg_preview::creature(game, s, &items)),
-            ObjectKind::Door => Some(mg_preview::door(game, s)),
-            ObjectKind::Item => Some(mg_preview::item_placed(game, s)),
-            ObjectKind::Placeable => Some(mg_preview::placeable(game, s)),
-            // A waypoint without a flag (no appearance) is drawn as a
-            // marker: nothing is wrong with it.
-            ObjectKind::Waypoint => mg_preview::waypoint(game, s).ok().map(Ok),
-            // A store's marker; without the game's model, drawn as one.
-            ObjectKind::Store => mg_preview::store(game).ok().map(Ok),
-            ObjectKind::Sound => mg_preview::sound(game, s).ok().map(Ok),
-            _ => None,
+            ObjectKind::Waypoint | ObjectKind::Store | ObjectKind::Sound => {
+                preview.and_then(Result::ok).map(Ok)
+            }
+            _ => preview,
         };
         let (preview, problem) = match preview {
-            Some(Ok(p)) => (Some(mg_preview::replaced(p, s)), None),
+            Some(Ok(p)) => (Some(p), None),
             Some(Err(e)) => (None, Some(e.to_string())),
             None => (None, None),
         };

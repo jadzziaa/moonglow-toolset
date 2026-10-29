@@ -301,17 +301,15 @@ fn preview_on(app: &Moonglow, source: &Source, female: bool) -> Result<Preview, 
     };
     let read = |k: &ResKey| resource_data(app, k).and_then(|d| Gff::read(&d).ok());
     let items = |r: ResRef| read(&ResKey::new(r, ResType::UTI));
-    let preview = match restype {
-        ResType::UTC => mg_preview::creature(game, &object, &items),
-        ResType::UTI => mg_preview::item_on(game, &object, female),
-        ResType::UTP => mg_preview::placeable(game, &object),
-        ResType::UTD => mg_preview::door(game, &object),
-        // The flag the area view draws. (A store's and a sound's markers
-        // are the same for every one: no picture to tell them by.)
-        ResType::UTW => mg_preview::waypoint(game, &object),
-        t => return Err(format!("{source}: no preview for {t:?}")),
-    };
-    preview.map(|p| mg_preview::replaced(p, &object)).map_err(|e| format!("{source}: {e}"))
+    // (A store's and a sound's markers are the same for every one: no
+    // picture to tell them by; a waypoint is the flag the area view draws.)
+    let kind = mg_rules::ObjectKind::from_restype(restype)
+        .filter(|k| !matches!(k, mg_rules::ObjectKind::Store | mg_rules::ObjectKind::Sound));
+    let shown = mg_preview::Shown::Alone { female };
+    match kind.and_then(|k| mg_preview::of_object(game, k, &object, &items, shown)) {
+        Some(preview) => preview.map_err(|e| format!("{source}: {e}")),
+        None => Err(format!("{source}: no preview for {restype:?}")),
+    }
 }
 
 /// An Export Files waiting for an answer: the folder has files of some of
@@ -1131,9 +1129,13 @@ pub struct Thumbnails {
     /// Armor is shown on a woman in this frame (Options › General): an
     /// item blueprint's picture is hers.
     female: bool,
-    /// The items pictured by their looks ([`Pictured::Item`]), and whether
-    /// on a woman: those asked for and kept.
-    items: HashMap<u64, (Struct, bool)>,
+    /// The items pictured by their looks ([`Pictured::Item`]), whether on
+    /// a woman, and for one of an armor's parts alone, its models' names
+    /// ([`mg_preview::armor_part`]): those asked for and kept.
+    items: HashMap<u64, (Struct, bool, Option<&'static [&'static str]>)>,
+    /// The creatures pictured as they are in other appearances
+    /// ([`Pictured::Creature`]): those asked for and kept.
+    creatures: HashMap<u64, Struct>,
     /// The revision at which the editors' working copies were last written
     /// into the module for the blueprints' looks (once a revision: it
     /// writes every document the workspace has read).
@@ -1181,6 +1183,10 @@ pub(crate) enum Pictured {
     /// An item as its fields make it look (with another model or part, for
     /// choosing among them), by those fields: [`Thumbnails::item`].
     Item(u64),
+    /// A creature as its fields make it look (its head, colors, what it
+    /// wears), by those fields ([`Thumbnails::creature`]), in another
+    /// appearance (an appearance.2da row), for choosing among them.
+    Creature(u64, u16),
 }
 
 impl Pictured {
@@ -1220,14 +1226,38 @@ impl Thumbnails {
     /// What pictures `item` (an item's fields: as it would be with another
     /// model or part), on a woman where `female` (armor and cloaks).
     pub(crate) fn item(&mut self, item: &Struct, female: bool) -> Pictured {
+        self.item_part(item, female, None)
+    }
+
+    /// What pictures one of armor `item`'s parts alone (`pieces`, its
+    /// models' names: [`mg_preview::armor_part`]), on a woman where
+    /// `female`; with no `pieces`, the whole item ([`Thumbnails::item`]).
+    pub(crate) fn item_part(
+        &mut self,
+        item: &Struct,
+        female: bool,
+        pieces: Option<&'static [&'static str]>,
+    ) -> Pictured {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
         // (Its fields as written out: a struct has no hash of its own.)
         format!("{item:?}").hash(&mut h);
         female.hash(&mut h);
+        pieces.hash(&mut h);
         let id = h.finish();
-        self.items.entry(id).or_insert_with(|| (item.clone(), female));
+        self.items.entry(id).or_insert_with(|| (item.clone(), female, pieces));
         Pictured::Item(id)
+    }
+
+    /// What pictures `creature` (a creature's fields) as it is in another
+    /// appearance: [`Pictured::Creature`] with this and the row.
+    pub(crate) fn creature(&mut self, creature: &Struct) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        format!("{creature:?}").hash(&mut h);
+        let id = h.finish();
+        self.creatures.entry(id).or_insert_with(|| creature.clone());
+        id
     }
 
     /// The pictures a view shows this frame: kept while they are shown,
@@ -1383,6 +1413,15 @@ pub(crate) fn make_thumbnails(app: &mut Moonglow, ctx: &egui::Context) {
             made.contains_key(&key) || wanted.contains(&key)
         });
     }
+    if !thumbnails.creatures.is_empty() {
+        let mut used = std::collections::HashSet::new();
+        for (key, _) in thumbnails.made.keys().chain(&thumbnails.wanted) {
+            if let Pictured::Creature(id, _) = key {
+                used.insert(*id);
+            }
+        }
+        thumbnails.creatures.retain(|id, _| used.contains(id));
+    }
 }
 
 /// Makes a picture, or finds the one made before the module changed to be
@@ -1442,12 +1481,26 @@ fn pictured_look(app: &Moonglow, (key, female): Kept) -> Option<(Source, Preview
             Some((source, preview))
         }
         Pictured::Item(id) => {
-            let (item, female) = app.thumbnails.items.get(&id)?;
+            let (item, female, pieces) = app.thumbnails.items.get(&id)?;
             let game = app.game.as_deref()?;
-            let preview = mg_preview::item_on(game, item, *female).ok()?;
+            let preview = match pieces {
+                Some(pieces) => mg_preview::armor_part(game, item, *female, pieces).ok()?,
+                None => mg_preview::item_on(game, item, *female).ok()?,
+            };
             // (Named as an item's, which tells a shield's from the others'.)
             let source = Source::Resource(ResKey::parse("item", ResType::UTI)?);
             Some((source, mg_preview::replaced(preview, item)))
+        }
+        Pictured::Creature(id, row) => {
+            let mut utc = app.thumbnails.creatures.get(&id)?.clone();
+            utc.set("Appearance_Type", mg_gff::Value::Word(row));
+            let game = app.game.as_deref()?;
+            let read = |k: &ResKey| resource_data(app, k).and_then(|d| Gff::read(&d).ok());
+            let items = |r: ResRef| read(&ResKey::new(r, ResType::UTI));
+            let kind = mg_rules::ObjectKind::Creature;
+            let shown = mg_preview::Shown::default();
+            let preview = mg_preview::of_object(game, kind, &utc, &items, shown)?.ok()?;
+            Some((Source::Resource(ResKey::parse("appearance", ResType::TWODA)?), preview))
         }
         Pictured::Look(look) => {
             let preview = mg_preview::creature_look(app.game.as_deref()?, &look).ok()?;
@@ -1782,4 +1835,36 @@ pub(crate) fn render_tile_from_above(
     }
     // Rendered rows come top first; pictures keep them bottom first.
     Some(out.top_down())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A creature pictured in another appearance (its Appearance list,
+    /// the Appearance Gallery) wears what it wears: the bandit's armor
+    /// (torso 28) and longsword on a half-elf's body, not the bare body of
+    /// a plain look.
+    #[test]
+    fn a_creature_in_another_appearance_wears_its_armor() {
+        let Some(root) = mg_testkit::nwn_root() else {
+            eprintln!("skipped: no game install");
+            return;
+        };
+        let install = mg_resman::GameInstall::new(&root, None, "en");
+        let mut app = Moonglow::new(Some(install), Box::new(crate::NoDialogs::default()));
+        let game = app.game.clone().unwrap();
+        let data = game.resman.get(&ResKey::parse("nw_bandit001", ResType::UTC).unwrap()).unwrap();
+        let bandit = Gff::read(&data).unwrap().root;
+        let id = app.thumbnails.creature(&bandit);
+        // (appearance.2da row 4: a half-elf, a body of parts.)
+        let (_, dressed) = pictured_look(&app, (Pictured::Creature(id, 4), false)).unwrap();
+        let models: Vec<&str> = dressed.parts.iter().map(|p| p.model.as_str()).collect();
+        assert!(models.iter().any(|m| m.ends_with("_chest028")), "the armor's torso: {models:?}");
+        assert!(models.iter().any(|m| m.starts_with("wswls_")), "the sword: {models:?}");
+        let (_, bare) =
+            pictured_look(&app, (Pictured::Look(mg_preview::CreatureLook::new(4)), false)).unwrap();
+        assert!(bare.parts.iter().any(|p| p.model.ends_with("_chest001")), "a plain body's own");
+        assert_ne!(dressed, bare);
+    }
 }

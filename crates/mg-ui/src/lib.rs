@@ -690,9 +690,10 @@ pub struct Moonglow {
     pub paint: bool,
     /// Objects copied in an area viewer.
     pub object_clip: Option<area_view::ObjectClip>,
-    /// The items copied in an inventory (their blueprints), to paste into
-    /// another's.
-    pub item_clip: Vec<mg_core::ResRef>,
+    /// The items copied in an inventory, as it held them (a placed
+    /// object's whole item, a blueprint's entry naming one), to paste into
+    /// another's as a drag carries them.
+    pub item_clip: Vec<mg_gff::Struct>,
     /// An object to show and select when its area's view is next drawn.
     pub area_focus: Option<(mg_core::ResRef, mg_area::ObjectKind, usize)>,
     /// The area whose view goes to the start location when next drawn.

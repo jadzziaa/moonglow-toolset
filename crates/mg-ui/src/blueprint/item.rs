@@ -380,10 +380,14 @@ fn pictured(
     let female = on_woman(f);
     let key = f.key;
     let (app, root) = (&mut *f.app, &f.root);
+    // (An armor's part: that part alone too.)
+    let pieces = (ARMOR_PARTS.iter().chain(&LOWER_PARTS))
+        .position(|(_, fields, _)| fields[0] == labels[0])
+        .map(|i| PART_PIECES[i]);
     let mut shown = move |ui: &mut Ui, row: usize| {
         let n = part(row as i64).clamp(0, i64::from(u16::MAX)) as u16;
         let item = labels.iter().fold(root.clone(), |item, label| with_model(&item, label, n));
-        super::item_picture(app, ui, &item, female);
+        super::item_part_picture(app, ui, &item, female, pieces);
     };
     let list = super::situated::pick_list(key, name, choices, current, PART_WIDTH).ordered();
     let list = if wheel { list.wheel() } else { list };
@@ -634,6 +638,115 @@ fn part_grid(
 
 /// `beside`: the model is shown beside these fields (a wide window). In a
 /// narrower one it is shown here, to the right of the icon.
+/// Each armor part's models' names (its pieces: [`mg_preview::armor_part`]),
+/// in the order of [`ARMOR_PARTS`] and [`LOWER_PARTS`].
+const PART_PIECES: [&[&str]; 16] = [
+    &["neck"],
+    &["chest"],
+    &["belt"],
+    &["pelvis"],
+    &["shor"],
+    &["shol"],
+    &["bicepr"],
+    &["bicepl"],
+    &["forer"],
+    &["forel"],
+    &["handr"],
+    &["handl"],
+    &["legl", "legr"],
+    &["shinl", "shinr"],
+    &["footl", "footr"],
+    &["robe"],
+];
+
+/// The choices of an armor part (`table`, its parts_*.2da): its rows with
+/// an armor class, a torso's with it said, and 0 as well, which most of
+/// the game's tables leave out: no part, so the wearer's own shows there,
+/// as in the game (a builder's report).
+fn armor_part_choices(game: &GameData, table: &str) -> Vec<Choice> {
+    let t = game.table(table).ok();
+    let numbers: Vec<u16> = t.as_ref().map_or_else(Vec::new, |t| {
+        (0..t.len()).filter(|&r| t.get(r, "ACBONUS").is_some()).map(|r| r as u16).collect()
+    });
+    let ac_of = |n: u16| t.as_ref().and_then(|t| t.get_float(n as usize, "ACBONUS")).unwrap_or(0.0);
+    if table == "parts_chest" {
+        super::situated::part_choices(&numbers, |n| format!("{n} (AC {})", ac_of(n).round()))
+    } else {
+        super::situated::part_choices(&numbers, |n| n.to_string())
+    }
+}
+
+/// The pictures of an armor's part, each of its models alone (as the body
+/// the page shows wears it, in the armor's colors): the part chosen above
+/// them, a click gives the armor that one. Only the rows in sight are
+/// made.
+fn armor_part_gallery(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
+    const SIDE: f32 = 96.0;
+    const GAP: f32 = 4.0;
+    let id = egui::Id::new(("uti-part-gallery", f.key));
+    let all: Vec<&(&str, &[&str], &str)> = ARMOR_PARTS.iter().chain(&LOWER_PARTS).collect();
+    let mut at: usize = ui.data(|d| d.get_temp(id)).unwrap_or(1).min(all.len() - 1);
+    ui.horizontal_wrapped(|ui| {
+        crate::widgets::field_label(ui, "Pictures of");
+        for (i, (text, ..)) in all.iter().enumerate() {
+            if ui.selectable_label(at == i, *text).clicked() {
+                at = i;
+            }
+        }
+    });
+    ui.data_mut(|d| d.insert_temp(id, at));
+    let &(text, labels, table) = all[at];
+    let choices = armor_part_choices(game, table);
+    let current = part_number(&f.root, labels[0]).unwrap_or(0);
+    let (female, pieces) = (on_woman(f), PART_PIECES[at]);
+    let room = ui.available_width() - ui.spacing().scroll.bar_width - 10.0;
+    let (per_row, side) = crate::appearance_gallery::fitted(room, SIDE, GAP);
+    let tall = side + crate::widgets::tile_label_height(ui);
+    let (mut keys, mut chosen) = (Vec::new(), None);
+    let rows = choices.len().div_ceil(per_row);
+    let mut area = egui::ScrollArea::vertical()
+        .id_salt(id.with(at))
+        .max_height(2.0 * tall + 3.0 * ui.spacing().item_spacing.y)
+        .auto_shrink([false, true]);
+    // Opened at the part the armor has (once for each part, once it is in
+    // sight: scrolled out of it, the offset was not kept).
+    let placed = id.with(("placed", at));
+    let in_sight =
+        ui.is_rect_visible(ui.available_rect_before_wrap().with_max_y(ui.cursor().top() + tall));
+    if in_sight && !ui.data(|d| d.get_temp::<bool>(placed).unwrap_or(false)) {
+        ui.data_mut(|d| d.insert_temp(placed, true));
+        if let Some(i) = choices.iter().position(|c| c.row as i64 == current) {
+            let height = tall + ui.spacing().item_spacing.y;
+            area = area.vertical_scroll_offset((i / per_row) as f32 * height);
+        }
+    }
+    area.show_rows(ui, tall, rows, |ui, lines| {
+        ui.spacing_mut().item_spacing = egui::vec2(GAP, GAP);
+        for line in lines {
+            ui.horizontal(|ui| {
+                for c in choices.iter().skip(line * per_row).take(per_row) {
+                    let n = c.row as u16;
+                    let item = labels.iter().fold(f.root.clone(), |i, l| with_model(&i, l, n));
+                    let key = f.app.thumbnails.item_part(&item, female, Some(pieces));
+                    let made = f.app.thumbnails.made(key);
+                    let here = i64::from(n) == current;
+                    let (r, seen) = crate::widgets::picture_tile(ui, side, &c.text, here, made);
+                    if seen {
+                        keys.push(key);
+                    }
+                    if r.on_hover_text(format!("{text} {}", c.text)).clicked() {
+                        chosen = Some(n);
+                    }
+                }
+            });
+        }
+    });
+    f.app.thumbnails.show(keys);
+    if let Some(n) = chosen.filter(|&n| i64::from(n) != current) {
+        set_part(f, text, labels, i64::from(n));
+    }
+}
+
 fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, beside: bool) {
     let Ok(t) = game.table("baseitems") else { return };
     let row = base_row(f);
@@ -749,33 +862,8 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, beside: bool) {
                         .spacing([12.0, 4.0])
                         .show(ui, |ui| {
                             for (text, labels, table) in parts {
-                                let numbers: Vec<u16> = game
-                                    .table(table)
-                                    .map(|t| {
-                                        (0..t.len())
-                                            .filter(|&r| t.get(r, "ACBONUS").is_some())
-                                            .map(|r| r as u16)
-                                            .collect()
-                                    })
-                                    .unwrap_or_default();
-                                let ac_of = |n: u16| {
-                                    game.table(table)
-                                        .ok()
-                                        .and_then(|t| t.get_float(n as usize, "ACBONUS"))
-                                        .unwrap_or(0.0)
-                                };
                                 crate::widgets::field_label(ui, *text);
-                                // (0 as well, which most of the game's
-                                // tables leave out: no part, so the
-                                // wearer's own shows there, as in the
-                                // game. A builder's report.)
-                                let choices = if *table == "parts_chest" {
-                                    super::situated::part_choices(&numbers, |n| {
-                                        format!("{n} (AC {})", ac_of(n).round())
-                                    })
-                                } else {
-                                    super::situated::part_choices(&numbers, |n| n.to_string())
-                                };
+                                let choices = armor_part_choices(game, table);
                                 pick_part(f, ui, text, labels, &choices);
                                 ui.end_row();
                             }
@@ -785,6 +873,8 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, beside: bool) {
                 cols[1].separator();
                 part_colors(f, &mut cols[1], game);
             });
+            ui.separator();
+            armor_part_gallery(f, ui, game);
         }
         // Simple and layered: one model (layered ones take colours).
         kind => {

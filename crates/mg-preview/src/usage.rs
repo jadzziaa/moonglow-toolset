@@ -357,9 +357,14 @@ impl<'a> Walk<'a> {
         }
     }
 
-    fn preview(&mut self, p: Result<crate::Preview, crate::PreviewError>, s: &Struct) {
-        if let Ok(p) = p {
-            self.gather.preview(&crate::replaced(p, s));
+    /// What an object of `kind` is drawn with (an item as it lies).
+    fn preview(&mut self, kind: mg_rules::ObjectKind, s: &Struct) {
+        let rm = self.rm();
+        let items = |r: ResRef| -> Option<Gff> {
+            Gff::read(&rm.get(&ResKey::new(r, ResType::UTI)).ok()?).ok()
+        };
+        if let Some(Ok(p)) = crate::of_object(self.game, kind, s, &items, crate::Shown::Placed) {
+            self.gather.preview(&p);
         }
     }
 
@@ -425,8 +430,7 @@ impl<'a> Walk<'a> {
                     K::Placeable => self.placeable(s),
                     K::Door => self.door(s),
                     K::Item => {
-                        let p = crate::item_placed(self.game, s);
-                        self.preview(p, s);
+                        self.preview(K::Item, s);
                         self.item(s, true);
                     }
                     _ => {}
@@ -450,12 +454,7 @@ impl<'a> Walk<'a> {
     }
 
     fn creature(&mut self, s: &Struct) {
-        let rm = self.rm();
-        let items = |r: ResRef| -> Option<Gff> {
-            Gff::read(&rm.get(&ResKey::new(r, ResType::UTI)).ok()?).ok()
-        };
-        let p = crate::creature(self.game, s, &items);
-        self.preview(p, s);
+        self.preview(mg_rules::ObjectKind::Creature, s);
         self.portrait_id(s);
         if let Some(id) = s.integer("SoundSetFile").filter(|&i| i < 0xFFFF)
             && let Some(t) = self.table("soundset")
@@ -634,8 +633,7 @@ impl<'a> Walk<'a> {
     }
 
     fn placeable(&mut self, s: &Struct) {
-        let p = crate::placeable(self.game, s);
-        self.preview(p, s);
+        self.preview(mg_rules::ObjectKind::Placeable, s);
         self.portrait_id(s);
         let row = s.integer("Appearance").unwrap_or(-1);
         if let Some(t) = self.table("placeables")
@@ -646,8 +644,7 @@ impl<'a> Walk<'a> {
     }
 
     fn door(&mut self, s: &Struct) {
-        let p = crate::door(self.game, s);
-        self.preview(p, s);
+        self.preview(mg_rules::ObjectKind::Door, s);
         self.portrait_id(s);
         let (table, row) = match s.integer("Appearance").unwrap_or(0) {
             0 => ("genericdoors", s.integer("GenericType_New").or(s.integer("GenericType"))),
