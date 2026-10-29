@@ -36,6 +36,8 @@ mod models;
 mod nasher;
 #[path = "../nui.rs"]
 mod nui;
+#[path = "../nwsync_upload.rs"]
+mod nwsync_upload;
 #[path = "../plugins.rs"]
 mod plugins;
 #[path = "../replace.rs"]

@@ -269,7 +269,9 @@ fn window_bar_maximize_and_an_older_hak() {
 /// Build › Publish to NWSync… (`target/test-output/screens-nwsync/`):
 /// the window after publishing (`nwsync-published`), and, where the
 /// window has it, after Remove Unused Data took a file no manifest names
-/// (`nwsync-pruned`). (Run on the code before the install-and-publish fix
+/// (`nwsync-pruned`), and Upload by a stand-in command under way
+/// (`nwsync-uploading`) and done (`nwsync-uploaded`). (Run on the code
+/// before the install-and-publish fix
 /// package, the window has no Remove Unused Data and the first picture is
 /// all there is.)
 #[test]
@@ -349,6 +351,54 @@ fn nwsync_publish_and_prune() {
         h.run_steps(4);
         shoot(&mut h, &dir, "nwsync-pruned");
         eprintln!("{}", dir.join("nwsync-pruned.png").display());
+    }
+    // Where the window has it: Upload, by a stand-in command (it says
+    // which part it sends, and sends nothing anywhere), under way in the
+    // job's window (`nwsync-uploading`) and done (`nwsync-uploaded`).
+    if cfg!(unix) && h.query_by_label("Upload").is_some() {
+        // (Remove Unused Data done first.)
+        for _ in 0..500 {
+            h.run_steps(1);
+            if !h.state().busy() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let p = h.state().publish.as_ref().unwrap();
+        let sha1 = std::fs::read_dir(repo.join("manifests"))
+            .unwrap()
+            .filter_map(|e| e.ok()?.file_name().into_string().ok())
+            .find(|n| n.len() == 40)
+            .unwrap();
+        assert!(p.error.is_none());
+        std::fs::write(repo.join("latest"), sha1).unwrap();
+        h.state_mut().settings.nwsync_upload =
+            Some("echo sending {part}; sleep 0.6; echo sent {part}".into());
+        h.run_steps(2);
+        h.get_by_label("Upload").click();
+        h.run_steps(2);
+        assert!(h.state().busy(), "uploading");
+        for _ in 0..300 {
+            h.run_steps(1);
+            let o = h.state().log.entries.iter().any(|e| e.1.contains("sent manifests"));
+            if o {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        h.run_steps(10);
+        shoot(&mut h, &dir, "nwsync-uploading");
+        eprintln!("{}", dir.join("nwsync-uploading.png").display());
+        for _ in 0..500 {
+            h.run_steps(1);
+            if !h.state().busy() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        h.run_steps(10);
+        shoot(&mut h, &dir, "nwsync-uploaded");
+        eprintln!("{}", dir.join("nwsync-uploaded.png").display());
     }
 }
 

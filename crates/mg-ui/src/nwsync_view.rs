@@ -2,13 +2,20 @@
 //! single-player module, the module itself) written into an NWSync
 //! repository folder for a web server to serve (`mg_module::nwsync`), and
 //! the repository's unused data taken away (`nwn_nwsync_prune`'s
-//! housekeeping). Both run as jobs (`jobs.rs`): a hak of gigabytes takes a
-//! while, the job's window says how far it is and has Cancel, and a panic
-//! in the work is said in the log, not a crash.
+//! housekeeping), and the folder sent to the web server by the builder's
+//! own command (Upload), once for each part in an order that never leaves
+//! the server serving a manifest whose data isn't there. All run as jobs
+//! (`jobs.rs`): a hak of gigabytes takes a while, the job's window says
+//! how far it is (an upload: its output, as a project's command's) and has
+//! Cancel, and a panic in the work is said in the log, not a crash.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+use mg_module::nwsync::{AFTER_PRUNING, AFTER_PUBLISHING, Part};
+use mg_module::project_file::ProjectFile;
 
 use crate::Moonglow;
+use crate::project_commands::run_steps;
 
 /// The Publish to NWSync window.
 #[derive(Debug, Default)]
@@ -30,6 +37,132 @@ pub struct Publish {
 pub const PUBLISHING: &str = "Publishing to NWSync";
 /// The job removing unused data.
 pub const PRUNING: &str = "Removing unused NWSync data";
+/// The job sending the repository to the web server.
+pub const UPLOADING: &str = "Uploading to NWSync";
+
+/// The upload command in force, and where it came from.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct UploadCommand {
+    pub text: String,
+    pub input: bool,
+    /// The project's root, where its files name it (`[nwsync] upload`),
+    /// and whether the builder's own file does; none: Options'.
+    pub project: Option<(PathBuf, bool)>,
+}
+
+impl UploadCommand {
+    /// Where it was set, as the window says it.
+    fn from(&self) -> &'static str {
+        match self.project {
+            Some((_, true)) => "the project's .moonglow/user.toml",
+            Some((_, false)) => "the project's moonglow.toml",
+            None => "Options › Folders",
+        }
+    }
+}
+
+/// The upload command in force: the project's (`[nwsync] upload`, the
+/// builder's own file's over the team's), else the one set in Options.
+pub(crate) fn upload_command(app: &Moonglow) -> Option<UploadCommand> {
+    let project = app.ws.as_ref().and_then(|ws| {
+        let root = ws.module.location.as_ref().and_then(ProjectFile::root_of)?;
+        let c = ws.module.project_file.nwsync_upload.as_ref()?;
+        let text = c.run.clone()?;
+        Some(UploadCommand { text, input: c.input, project: Some((root.to_path_buf(), c.own)) })
+    });
+    project.or_else(|| {
+        let text = app.settings.nwsync_upload.clone().filter(|t| !t.trim().is_empty())?;
+        Some(UploadCommand { text, input: app.settings.nwsync_upload_input, project: None })
+    })
+}
+
+/// Sends the repository `folder` to the web server: the upload command
+/// run as a job once for each of `parts` the folder has, in turn, each
+/// only after the one before succeeded. A project's command is asked
+/// about first, as its `[commands]` are, until allowed as it reads.
+pub(crate) fn upload(app: &mut Moonglow, folder: &Path, parts: &[Part]) {
+    let say = |app: &mut Moonglow, e: String| {
+        app.log.error(format!("NWSync upload: {e}"));
+        if let Some(p) = &mut app.publish {
+            p.error = Some(e);
+        }
+    };
+    let Some(c) = upload_command(app) else {
+        say(
+            app,
+            "no upload command: set one in Options › Folders, or the project's [nwsync] upload"
+                .into(),
+        );
+        return;
+    };
+    if let Some((root, own)) = &c.project
+        && !crate::project_commands::upload_allowed(app, root, &c.text)
+    {
+        app.project_commands.ask = Some(crate::project_commands::Ask {
+            name: crate::project_commands::UPLOAD_NAME.into(),
+            label: "its NWSync upload".into(),
+            run: c.text.clone(),
+            root: root.clone(),
+            writes: false,
+            input: c.input,
+            upload: Some(crate::project_commands::UploadAsk {
+                folder: folder.to_path_buf(),
+                parts: parts.to_vec(),
+                own: *own,
+            }),
+        });
+        return;
+    }
+    let parts = match mg_module::nwsync::upload_parts(folder, parts) {
+        Ok(parts) if parts.is_empty() => {
+            say(app, format!("{} has nothing to send", folder.display()));
+            return;
+        }
+        Ok(parts) => parts,
+        Err(e) => {
+            say(app, e);
+            return;
+        }
+    };
+    let steps = parts
+        .iter()
+        .map(|&part| {
+            let text = mg_module::nwsync::upload_command(&c.text, folder, part);
+            let mut command = crate::project_commands::shell(&text, folder, c.input);
+            command.env("MOONGLOW_NWSYNC_FOLDER", folder).env("MOONGLOW_NWSYNC_PART", part.name());
+            if let Some((root, _)) = &c.project {
+                command.env("MOONGLOW_PROJECT", root);
+            }
+            let note = Some(format!("Sending {}: {text}", part.name()));
+            crate::project_commands::Step { note, command }
+        })
+        .collect();
+    app.log.info(format!("{UPLOADING}: {} (in {})", c.text, folder.display()));
+    let run = crate::project_commands::Run {
+        label: UPLOADING.into(),
+        steps,
+        input: c.input,
+        output_at: "Publish to NWSync's Show Output",
+        let_go: None,
+    };
+    let names: Vec<&'static str> = parts.iter().map(|p| p.name()).collect();
+    run_steps(app, run, move |app, ended, step| {
+        if ended.succeeded() {
+            app.log.info(format!("Uploaded to NWSync: {} sent", names.join(", ")));
+        } else if let Some(stopped) = names.get(step) {
+            let sent = &names[..step];
+            app.log.warn(format!(
+                "NWSync upload: stopped sending {stopped}; {}: the web server serves what it did \
+                 before",
+                if sent.is_empty() {
+                    "nothing was sent".to_string()
+                } else {
+                    format!("{} sent before it, nothing after", sent.join(", "))
+                }
+            ));
+        }
+    });
+}
 
 /// Opens the window, with the folder last published to.
 pub(crate) fn open(app: &mut Moonglow) {
@@ -119,6 +252,8 @@ fn start(app: &mut Moonglow) {
         dry_run: false,
     };
     app.settings.nwsync_repository = Some(folder.clone());
+    let at = folder.clone();
+    let latest = o.latest;
     app.start_job(
         PUBLISHING,
         move |job| {
@@ -131,7 +266,7 @@ fn start(app: &mut Moonglow) {
                 &|| progress.cancelled(),
             )
         },
-        |app, r| {
+        move |app, r| {
             let Some(p) = &mut app.publish else { return };
             match r {
                 Ok(w) => {
@@ -140,6 +275,12 @@ fn start(app: &mut Moonglow) {
                         w.sha1, w.files
                     ));
                     p.written = Some(w);
+                    // (`latest` left as it was: not sent again.)
+                    if app.settings.nwsync_upload_after {
+                        let parts =
+                            if latest { &AFTER_PUBLISHING[..] } else { &AFTER_PUBLISHING[..2] };
+                        upload(app, &at, parts);
+                    }
                 }
                 Err(e) => p.error = Some(e),
             }
@@ -157,10 +298,11 @@ fn start_pruning(app: &mut Moonglow) {
     p.pruned = None;
     let Some(folder) = folder(p) else { return };
     app.settings.nwsync_repository = Some(folder.clone());
+    let at = folder.clone();
     app.start_job_anywhere(
         PRUNING,
         move |_| mg_module::nwsync::prune(&folder, mg_module::nwsync::PRUNE_MIN_AGE, false),
-        |app, r| {
+        move |app, r| {
             let Some(p) = &mut app.publish else { return };
             match r {
                 Ok(pruned) => {
@@ -179,6 +321,9 @@ fn start_pruning(app: &mut Moonglow) {
                         app.log.warn(format!("NWSync repository: {problem}"));
                     }
                     p.pruned = Some(pruned);
+                    if app.settings.nwsync_upload_after {
+                        upload(app, &at, &AFTER_PRUNING);
+                    }
                 }
                 Err(e) => p.error = Some(e),
             }
@@ -188,10 +333,15 @@ fn start_pruning(app: &mut Moonglow) {
 
 pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let busy = app.busy();
+    let command = upload_command(app);
+    let uploaded = crate::project_commands::last_of(app, UPLOADING);
+    let settings = &mut app.settings;
     let Some(p) = &mut app.publish else { return };
     let mut open = true;
     let mut go = false;
     let mut prune = false;
+    let mut send = false;
+    let mut show_output = false;
     let mut browse = false;
     crate::widgets::dialog(ctx, "Publish to NWSync", &mut open)
         .collapsible(false)
@@ -245,8 +395,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 });
                 ui.weak(format!(
                     "{} files, {:.1} MB ({:.1} MB compressed; {} written now). Serve the folder \
-                     with a web server and start nwserver with -nwsyncurl and its address \
-                     (-nwsynchash {} to pin this manifest).",
+                     with a web server (Upload sends it) and start nwserver with -nwsyncurl and \
+                     its address (-nwsynchash {} to pin this manifest).",
                     w.files,
                     w.bytes as f64 / 1048576.0,
                     w.on_disk as f64 / 1048576.0,
@@ -287,8 +437,67 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                          no longer serve (manifests/HASH and HASH.json) first.",
                     )
                     .clicked();
+                let tip = "Run the upload command once for each part of the folder, in turn: the \
+                           data, then the manifests, then latest (after Remove Unused Data: the \
+                           manifests, then the data), so that the web server never serves a \
+                           manifest whose data isn't there yet";
+                send = ui
+                    .add_enabled(!busy && command.is_some(), egui::Button::new("Upload"))
+                    .on_hover_text(tip)
+                    .on_disabled_hover_text(
+                        "Set an upload command in Options › Folders (or the project's \
+                         [nwsync] upload)",
+                    )
+                    .clicked();
             });
+            ui.separator();
+            match &command {
+                Some(c) => {
+                    ui.horizontal(|ui| {
+                        crate::widgets::field_label(ui, "Upload command");
+                        ui.add(egui::Label::new(egui::RichText::new(&c.text).monospace()).wrap());
+                    });
+                    ui.weak(format!("Set in {}.", c.from()));
+                    ui.add_enabled_ui(!busy, |ui| {
+                        ui.checkbox(
+                            &mut settings.nwsync_upload_after,
+                            "Upload after publishing and after removing unused data",
+                        );
+                    });
+                }
+                None => {
+                    ui.weak(
+                        "To send the folder to your web server from here, set an upload command \
+                         in Options › Folders (or the project's [nwsync] upload in \
+                         moonglow.toml).",
+                    );
+                }
+            }
+            if let Some(ended) = &uploaded {
+                ui.horizontal(|ui| {
+                    crate::widgets::field_label(ui, "Last upload");
+                    match ended {
+                        Some(said) => ui.label(said),
+                        None => ui.weak("Running…"),
+                    };
+                    show_output = ui.small_button("Show Output").clicked();
+                });
+            }
         });
+    if show_output {
+        app.project_commands.show = true;
+    }
+    if send {
+        let folder = PathBuf::from(p.folder.trim());
+        if p.folder.trim().is_empty() {
+            p.error = Some("Choose the repository folder.".into());
+        } else {
+            p.error = None;
+            app.settings.nwsync_repository = Some(folder.clone());
+            upload(app, &folder, &AFTER_PUBLISHING);
+        }
+    }
+    let Some(p) = &mut app.publish else { return };
     if browse {
         let start = PathBuf::from(p.folder.trim());
         let start = (!p.folder.trim().is_empty()).then_some(start);

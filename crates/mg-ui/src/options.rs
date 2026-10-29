@@ -105,6 +105,8 @@ pub struct OptionsDraft {
     pub dialog_font_size: Option<u8>,
     pub script_templates: String,
     pub scratch_dir: String,
+    pub nwsync_upload: String,
+    pub nwsync_upload_input: bool,
     pub external_editor: String,
     pub external_compiler: String,
     pub workshop: bool,
@@ -243,6 +245,8 @@ impl OptionsDraft {
             dialog_font_size: s.dialog_font_size,
             script_templates: text(&s.script_templates),
             scratch_dir: text(&s.scratch_dir),
+            nwsync_upload: s.nwsync_upload.clone().unwrap_or_default(),
+            nwsync_upload_input: s.nwsync_upload_input,
             external_editor: text(&s.external_editor),
             external_compiler: text(&s.external_compiler),
             workshop: s.read_workshop,
@@ -335,6 +339,8 @@ impl OptionsDraft {
             dialog_font_size: self.dialog_font_size,
             script_templates: path(&self.script_templates),
             scratch_dir: path(&self.scratch_dir),
+            nwsync_upload: Some(self.nwsync_upload.trim().to_string()).filter(|c| !c.is_empty()),
+            nwsync_upload_input: self.nwsync_upload_input,
             external_editor: path(&self.external_editor),
             external_compiler: path(&self.external_compiler),
             read_workshop: self.workshop,
@@ -524,6 +530,27 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 "Where To Scratch copies a script (with its compiled script) or \
                                  an area as loose files: a development folder, a server's, or \
                                  anywhere. Empty: asked for the first time.",
+                            );
+                            ui.add_space(6.0);
+                            crate::widgets::field_label(ui, "NWSync upload command");
+                            ui.add(
+                                egui::TextEdit::singleline(&mut draft.nwsync_upload)
+                                    .desired_width(420.0)
+                                    .font(egui::TextStyle::Monospace)
+                                    .hint_text("rsync -a {part} you@host:/srv/nwsync/"),
+                            );
+                            ui.checkbox(&mut draft.nwsync_upload_input, "It reads what I type")
+                                .on_hover_text(
+                                    "A line under its output takes what you type, as a \
+                                     project's command with input = true",
+                                );
+                            ui.weak(
+                                "What Publish to NWSync's Upload runs to send the repository to \
+                                 your web server: once for each part, the data, then the \
+                                 manifests, then latest, in the repository's folder ({part} the \
+                                 part's name, {folder} the folder). It uses your own tools' \
+                                 logins (an SSH key, a cloud tool's profile): Moonglow keeps no \
+                                 password. A project's [nwsync] upload is used in its place.",
                             );
                         }
                         OptionsPage::General => {
@@ -1621,6 +1648,8 @@ mod tests {
         d.armor_on_woman = true;
         d.script_templates = " /tmp/templates ".into();
         d.scratch_dir = "/tmp/scratch".into();
+        d.nwsync_upload = " rsync -a {part} h:/srv/ ".into();
+        d.nwsync_upload_input = true;
         assert!(d.live_check, "checked as you type unless asked");
         d.live_check = false;
         let t = d.apply(&s);
@@ -1650,6 +1679,10 @@ mod tests {
         assert_eq!(t.script_templates, Some(PathBuf::from("/tmp/templates")));
         assert_eq!(t.scratch_dir, Some(PathBuf::from("/tmp/scratch")));
         assert_eq!(s.scratch_dir, None, "asked for the first time");
+        assert_eq!(t.nwsync_upload.as_deref(), Some("rsync -a {part} h:/srv/"));
+        assert!(t.nwsync_upload_input && !s.nwsync_upload_input);
+        assert_eq!(s.nwsync_upload, None, "none unless set");
+        assert_eq!(OptionsDraft::from_settings(&t).nwsync_upload, "rsync -a {part} h:/srv/");
         assert!(!d.moves_game(&s), "no reload for these");
         assert_eq!(OptionsDraft::from_settings(&t).script_templates, "/tmp/templates");
     }

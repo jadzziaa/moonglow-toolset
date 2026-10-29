@@ -735,9 +735,22 @@ fn published_to_nwsync_from_the_build_menu() {
         }
         h.run_steps(2);
     };
+    // Uploaded after: a stand-in command that writes each part's name, in
+    // turn (nothing goes anywhere but this folder).
+    let order = dir.join("order.txt");
+    let _ = std::fs::remove_file(&order);
+    let log = mg_module::nwsync::shell_quoted(&order);
+    h.state_mut().settings.nwsync_upload = Some(format!("echo {{part}}>> {log}"));
+    h.state_mut().settings.nwsync_upload_after = true;
+    let sent = || -> Vec<String> {
+        let text = std::fs::read_to_string(&order).unwrap_or_default();
+        text.lines().map(|l| l.trim().to_string()).collect()
+    };
     h.get_by_label("Publish").click();
     h.run_steps(1);
     until_done(&mut h);
+    until_done(&mut h);
+    assert_eq!(sent(), ["data", "manifests", "latest"], "{:?}", h.state().log.entries);
     let p = h.state().publish.as_ref().unwrap();
     assert_eq!(p.error, None);
     let written = p.written.clone().expect("published");
@@ -762,6 +775,10 @@ fn published_to_nwsync_from_the_build_menu() {
     h.get_by_label("Remove Unused Data").click();
     h.run_steps(1);
     until_done(&mut h);
+    until_done(&mut h);
+    // And uploaded after: the manifests before the data (a command that
+    // deletes takes a manifest away before its data); `latest` as it was.
+    assert_eq!(sent(), ["data", "manifests", "latest", "manifests", "data"]);
     assert!(!unused.exists() && !repo.join("data/sha1/ab").exists());
     let h1 = mg_core::sha1::hex(&mg_core::sha1::sha1(&table));
     assert!(repo.join("data/sha1").join(&h1[..2]).join(&h1[2..4]).join(&h1).is_file());

@@ -514,6 +514,97 @@ pub fn prune(root: &Path, min_age: u64, dry_run: bool) -> Result<Pruned, String>
     Ok(out)
 }
 
+/// A part of a repository, as an upload sends it: the builder's command
+/// runs once for each, in an order that never leaves the web server
+/// serving a manifest whose data isn't there yet, or a `latest` naming a
+/// manifest that isn't.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Part {
+    /// `data/`: the resources' files.
+    Data,
+    /// `manifests/`: the manifests and their `.json`.
+    Manifests,
+    /// `latest`: the file naming the manifest nwserver serves.
+    Latest,
+}
+
+impl Part {
+    /// Its name in the repository, and what `{part}` stands for.
+    pub fn name(self) -> &'static str {
+        match self {
+            Part::Data => "data",
+            Part::Manifests => "manifests",
+            Part::Latest => "latest",
+        }
+    }
+}
+
+/// An upload after publishing: the data first, then the manifests that
+/// name it, then `latest`, which names a manifest. (One command over the
+/// whole folder sends `latest` before `manifests/`: rsync sends its files
+/// in their names' order.)
+pub const AFTER_PUBLISHING: [Part; 3] = [Part::Data, Part::Manifests, Part::Latest];
+
+/// An upload after Remove Unused Data: the manifests before the data,
+/// so that a command that takes away what the folder no longer has (rsync
+/// `--delete`) takes away a manifest before the data it names; `latest`
+/// is as it was.
+pub const AFTER_PRUNING: [Part; 2] = [Part::Manifests, Part::Data];
+
+/// The parts of `parts` the repository `root` has, in that order; or why
+/// it isn't sent at all: no repository there, or `latest` (sent) naming a
+/// manifest that isn't in it.
+pub fn upload_parts(root: &Path, parts: &[Part]) -> Result<Vec<Part>, String> {
+    if !root.join("manifests").is_dir() {
+        return Err(format!(
+            "{} is no NWSync repository (it has no manifests folder): publish to it first",
+            root.display()
+        ));
+    }
+    let mut out = Vec::new();
+    for &part in parts {
+        let path = root.join(part.name());
+        if part == Part::Latest {
+            let Ok(latest) = std::fs::read_to_string(&path) else { continue };
+            let latest = latest.trim();
+            if !is_sha1(latest) || !root.join("manifests").join(latest).is_file() {
+                return Err(format!(
+                    "`latest` names the manifest {latest}, which isn't in manifests/: nothing is \
+                     sent, as nwserver serving `latest` would fail"
+                ));
+            }
+        } else if !path.is_dir() {
+            continue;
+        }
+        out.push(part);
+    }
+    Ok(out)
+}
+
+/// A path quoted for the system's shell (`sh` on Linux and macOS, `cmd`
+/// on Windows) where it needs to be: one with a space in it, say.
+pub fn shell_quoted(path: &Path) -> String {
+    let text = path.display().to_string();
+    let plain = |c: char| c.is_ascii_alphanumeric() || "/\\._-:+,@=".contains(c);
+    if !text.is_empty() && text.chars().all(plain) {
+        return text;
+    }
+    if cfg!(windows) {
+        // (Windows' paths have no `"`.)
+        format!("\"{text}\"")
+    } else {
+        format!("'{}'", text.replace('\'', "'\\''"))
+    }
+}
+
+/// The builder's upload command for one part of the repository `root`:
+/// `{folder}` the repository's path (quoted for the shell where it needs
+/// to be), `{part}` the part's name (`data`, `manifests`, `latest`). It
+/// runs in the repository's folder, so `{part}` alone names it.
+pub fn upload_command(template: &str, root: &Path, part: Part) -> String {
+    template.replace("{folder}", &shell_quoted(root)).replace("{part}", part.name())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -638,6 +729,40 @@ mod tests {
         age_file(&data_path(&dir, b"one"), 30);
         assert!(prune(&dir, 0, false).is_err());
         assert!(data_path(&dir, b"one").is_file());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// An upload's parts, in their order, those the repository has; its
+    /// command for each, the folder quoted where it needs to be.
+    #[test]
+    fn an_upload_s_parts_and_commands() {
+        let dir = std::env::temp_dir().join(format!("mg-nwsync-up {}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(upload_parts(&dir, &AFTER_PUBLISHING).unwrap_err().contains("no manifests"));
+        let contents = vec![(key("a", ResType::TXT), Source::Bytes(Arc::from(&b"one"[..])))];
+        let o = Options { latest: false, ..Default::default() };
+        write(&dir, &contents, &o, &mut |_, _| {}).unwrap();
+        // No latest yet: not sent.
+        assert_eq!(upload_parts(&dir, &AFTER_PUBLISHING).unwrap(), [Part::Data, Part::Manifests]);
+        let w = write(&dir, &contents, &Options { latest: true, ..o }, &mut |_, _| {}).unwrap();
+        assert_eq!(upload_parts(&dir, &AFTER_PUBLISHING).unwrap(), AFTER_PUBLISHING);
+        assert_eq!(upload_parts(&dir, &AFTER_PRUNING).unwrap(), AFTER_PRUNING);
+        // `latest` naming a manifest that isn't there: nothing goes.
+        std::fs::remove_file(dir.join("manifests").join(&w.sha1)).unwrap();
+        assert!(upload_parts(&dir, &AFTER_PUBLISHING).unwrap_err().contains("isn't in"));
+        assert_eq!(upload_parts(&dir, &AFTER_PRUNING).unwrap(), AFTER_PRUNING, "not sent");
+        let quoted = shell_quoted(&dir);
+        if cfg!(windows) {
+            assert_eq!(quoted, format!("\"{}\"", dir.display()));
+        } else {
+            assert_eq!(quoted, format!("'{}'", dir.display()));
+            assert_eq!(shell_quoted(Path::new("/srv/it's")), "'/srv/it'\\''s'");
+        }
+        assert_eq!(shell_quoted(Path::new("/srv/nwsync")), "/srv/nwsync");
+        assert_eq!(
+            upload_command("rsync -a {folder}/{part} h:/x/ # {part}", &dir, Part::Latest),
+            format!("rsync -a {quoted}/latest h:/x/ # latest")
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

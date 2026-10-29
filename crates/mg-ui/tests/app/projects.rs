@@ -2677,3 +2677,192 @@ fn file_project_is_off_without_the_project_s_commands() {
     h.run();
     assert!(h.get_by_label("Project").accesskit_node().is_disabled());
 }
+
+/// An NWSync repository of one resource, published in `dir/repo`; the
+/// manifest's hash.
+fn nwsync_repository(dir: &std::path::Path) -> (std::path::PathBuf, String) {
+    use mg_module::nwsync::{Options, Source, write};
+    let repo = dir.join("repo");
+    let _ = std::fs::remove_dir_all(&repo);
+    let contents =
+        vec![(ResKey::parse("mg_up", ResType::TXT).unwrap(), Source::Bytes(b"sent"[..].into()))];
+    let w =
+        write(&repo, &contents, &Options { latest: true, ..Default::default() }, &mut |_, _| {})
+            .unwrap();
+    (repo, w.sha1)
+}
+
+/// A stand-in for an upload command (nothing goes anywhere but `dir`):
+/// each part's name written to `dir/order.txt` as it is sent; on Linux
+/// and macOS the part copied into `dir/served` too, as rsync would to a
+/// web server's folder. With `fail`, the part so named fails (exit 1).
+fn stand_in_upload(dir: &std::path::Path, fail: Option<&str>) -> String {
+    let log = mg_module::nwsync::shell_quoted(&dir.join("order.txt"));
+    if cfg!(windows) {
+        let fail = fail.map_or(String::new(), |f| format!(" && if {{part}}=={f} exit 1"));
+        format!("echo {{part}}>> {log}{fail}")
+    } else {
+        let served = dir.join("served");
+        std::fs::create_dir_all(&served).unwrap();
+        let served = mg_module::nwsync::shell_quoted(&served);
+        let fail = fail.map_or(String::new(), |f| format!(" && test {{part}} != {f}"));
+        format!("printf '%s\\n' {{part}} >> {log}{fail} && cp -R {{part}} {served}/")
+    }
+}
+
+/// The parts the stand-in sent, in turn.
+fn sent_order(dir: &std::path::Path) -> Vec<String> {
+    let text = std::fs::read_to_string(dir.join("order.txt")).unwrap_or_default();
+    text.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect()
+}
+
+/// Opens Build › Publish to NWSync… on `repo`.
+fn publish_window(h: &mut Harness<'_, Moonglow>, repo: &std::path::Path) {
+    h.get_by_label("Build").click();
+    h.run();
+    h.get_by_label("Publish to NWSync…").click();
+    h.run();
+    h.state_mut().publish.as_mut().unwrap().folder = repo.display().to_string();
+    h.run();
+}
+
+/// The entry "No upload" of the deferred list: Publish to NWSync's Upload
+/// runs the builder's own command (Options › Folders) once for each part
+/// of the repository, in the repository's folder: the data, then the
+/// manifests, then `latest`, each only after the one before succeeded, so
+/// that a failure never leaves the server a `latest` naming a manifest it
+/// doesn't have. Nothing goes anywhere but the test's own folder.
+#[test]
+fn the_nwsync_repository_is_uploaded_part_by_part() {
+    let dir = mg_testkit::scratch_dir("ui-nwsync-upload");
+    let (repo, sha1) = nwsync_repository(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.settings.nwsync_upload = Some(stand_in_upload(&dir, None));
+    app.open_module(&sample_module(&dir));
+    let mut h = harness(app, 1100.0, 800.0);
+    h.run();
+    publish_window(&mut h, &repo);
+    h.get_by_label("Set in Options › Folders.");
+    h.get_by_label("Upload").click();
+    h.run();
+    h.run();
+    assert_eq!(sent_order(&dir), ["data", "manifests", "latest"], "{:?}", h.state().log.entries);
+    assert!(logged(&h, "Uploaded to NWSync: data, manifests, latest sent"));
+    assert!(logged(&h, "Sending manifests: "), "each part's command in the log");
+    h.get_by_label("Done.");
+    if cfg!(unix) {
+        let served = dir.join("served");
+        assert_eq!(std::fs::read_to_string(served.join("latest")).unwrap(), sha1);
+        assert!(served.join("manifests").join(&sha1).is_file());
+        assert!(served.join("manifests").join(format!("{sha1}.json")).is_file());
+        let h1 = mg_core::sha1::hex(&mg_core::sha1::sha1(b"sent"));
+        assert!(served.join("data/sha1").join(&h1[..2]).join(&h1[2..4]).join(&h1).is_file());
+    }
+    // Show Output: what each part's command said.
+    h.get_by_label("Show Output").click();
+    h.run();
+    h.get_by_label("Command Output");
+    assert!(h.query_all_by_label_contains("Sending latest: ").count() >= 1);
+    h.get_all_by_label("Close").last().unwrap().click();
+    h.run();
+
+    // A part that fails: nothing after it is sent.
+    std::fs::remove_file(dir.join("order.txt")).unwrap();
+    h.state_mut().settings.nwsync_upload = Some(stand_in_upload(&dir, Some("manifests")));
+    h.run();
+    h.get_by_label("Upload").click();
+    h.run();
+    h.run();
+    assert_eq!(sent_order(&dir), ["data", "manifests"], "latest never sent");
+    assert!(logged(
+        &h,
+        "NWSync upload: stopped sending manifests; data sent before it, nothing after"
+    ));
+    assert!(h.get_all_by_label("Failed: it ended with exit code 1.").count() >= 1);
+
+    // `latest` naming a manifest that isn't there: nothing is sent.
+    std::fs::remove_file(dir.join("order.txt")).unwrap();
+    std::fs::write(repo.join("latest"), "0".repeat(40)).unwrap();
+    h.get_by_label("Upload").click();
+    h.run();
+    assert!(sent_order(&dir).is_empty());
+    let error = h.state().publish.as_ref().unwrap().error.clone().unwrap_or_default();
+    assert!(error.contains("isn't in manifests/"), "{error}");
+}
+
+/// A project's own upload command (`[nwsync] upload` in moonglow.toml)
+/// is used in place of the one in Options, and is a program the builder
+/// did not choose: asked about first, as the project's commands are, and
+/// allowed by its text in Moonglow's own settings.
+#[test]
+fn a_project_s_nwsync_upload_is_asked_about_first() {
+    let scratch = mg_testkit::scratch_dir("ui-nwsync-upload-project");
+    let command = stand_in_upload(&scratch, None);
+    let rules = format!("[nwsync]\nupload = {command:?}\n");
+    let dir = project_folder("ui-nwsync-upload-project-folder", &[("moonglow.toml", &rules)]);
+    let (repo, _) = nwsync_repository(&scratch);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.settings.nwsync_upload = Some("exit 9".into());
+    app.open_module(&dir);
+    let mut h = harness(app, 1100.0, 800.0);
+    h.run();
+    publish_window(&mut h, &repo);
+    h.get_by_label("Set in the project's moonglow.toml.");
+    h.get_by_label("Upload").click();
+    h.run();
+    h.run();
+    h.get_by_label("Run a Project Command?");
+    assert!(sent_order(&scratch).is_empty(), "not run before it is allowed");
+    h.get_by_label("Allow and Run").click();
+    h.run();
+    h.run();
+    assert_eq!(sent_order(&scratch), ["data", "manifests", "latest"]);
+    let project = std::fs::canonicalize(&dir).unwrap().display().to_string();
+    assert_eq!(
+        h.state().settings.allowed_commands,
+        [(project, "[nwsync] upload".to_string(), command.clone())]
+    );
+    // Allowed: it runs again without asking.
+    std::fs::remove_file(scratch.join("order.txt")).unwrap();
+    h.get_by_label("Upload").click();
+    h.run();
+    h.run();
+    assert!(h.query_by_label("Run a Project Command?").is_none());
+    assert_eq!(sent_order(&scratch), ["data", "manifests", "latest"]);
+}
+
+/// An upload is a job: Cancel stops its command (and what it started),
+/// and nothing after it is sent.
+#[cfg(unix)]
+#[test]
+fn an_nwsync_upload_canceled_sends_nothing_more() {
+    let dir = mg_testkit::scratch_dir("ui-nwsync-upload-cancel");
+    let (repo, _) = nwsync_repository(&dir);
+    let log = mg_module::nwsync::shell_quoted(&dir.join("order.txt"));
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.background_jobs = true;
+    app.settings.nwsync_upload = Some(format!("printf '%s\\n' {{part}} >> {log}; sleep 30"));
+    app.open_module(&sample_module(&dir));
+    let mut h = harness(app, 1100.0, 800.0);
+    until_idle(&mut h);
+    publish_window(&mut h, &repo);
+    h.get_by_label("Upload").click();
+    h.step();
+    let started = std::time::Instant::now();
+    while sent_order(&dir).is_empty() {
+        assert!(started.elapsed().as_secs() < 20, "the command never ran");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.step();
+    }
+    h.run_steps(20);
+    h.get_by_label("Uploading to NWSync");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run_steps(2);
+    until_idle(&mut h);
+    assert!(started.elapsed().as_secs() < 20, "stopped, not waited for");
+    assert_eq!(sent_order(&dir), ["data"], "nothing after it");
+    h.get_by_label("Canceled (stopped).");
+}

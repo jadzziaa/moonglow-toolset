@@ -617,6 +617,15 @@ pub struct Settings {
     pub key_bindings: std::collections::BTreeMap<String, Vec<String>>,
     /// Build › Publish to NWSync: the repository folder last written.
     pub nwsync_repository: Option<PathBuf>,
+    /// Options › Folders: the command that sends the NWSync repository to
+    /// the web server, once for each part (`{folder}`, `{part}`), where
+    /// the project names none (`[nwsync] upload`).
+    pub nwsync_upload: Option<String>,
+    /// It reads what the builder types (as a project command's `input`).
+    pub nwsync_upload_input: bool,
+    /// Publish to NWSync: upload after publishing and after Remove Unused
+    /// Data.
+    pub nwsync_upload_after: bool,
     /// Options > Conversation Editor: NPC and player text colours (sRGB);
     /// `None`: Moonglow's red and blue.
     pub dialog_npc_color: Option<[u8; 3]>,

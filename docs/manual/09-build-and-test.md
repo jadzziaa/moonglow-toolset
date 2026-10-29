@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Build, verify and test
-description: Build Module, publishing to NWSync, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
+description: Build Module, publishing to NWSync and uploading it to the web server, long work, Verify Module and the fixes beside its findings, the Round-Trip Check, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T20:40:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-29T23:15:00Z }
 ---
 
 # Build, verify and test
@@ -113,9 +113,9 @@ long work does (see [Long work](#long-work)): a small window shows how
 far it is and has **Cancel**, which stops before the next file and
 writes no manifest (`latest` stays as it was; the data files written by
 then stay, for the next publish to find). Then the window shows the
-manifest's hash (**Copy** copies it, for `-nwsynchash`). Upload the
-folder to the web server. `mg nwsync` does the same from the command
-line.
+manifest's hash (**Copy** copies it, for `-nwsynchash`). Send the
+folder to the web server: by hand, or with **Upload** (below). `mg
+nwsync` does the same from the command line.
 
 **Remove Unused Data** tidies the folder as neverwinter.nim's
 `nwn_nwsync_prune` does: it takes away the data files that no manifest
@@ -129,6 +129,93 @@ Data takes their data. What it can't mend it says, in the window and the
 log: `latest` naming a manifest that isn't there, a manifest without its
 `.json`, a data file a manifest needs that is missing (publish that
 module again). `mg nwsync-prune` does the same from the command line.
+
+### Uploading to the web server
+
+**Upload** sends the folder to the web server that serves it, with a
+command of your own: the tool you already reach that server with, and
+its own login (an SSH key, a cloud tool's profile, a saved WinSCP
+session). Moonglow keeps no password and talks to no server itself: a
+server is reached a different way on every host (SSH, an S3 bucket, a
+web host's FTP, a git push to GitLab Pages, as nwn.wiki's free hosting
+page has it), and your tools already know how.
+
+Set the command in **Options › Folders** (**NWSync upload command**),
+or for a team in the project's `moonglow.toml`:
+
+```toml
+[nwsync]
+upload = "rsync -a {part} builder@nwsync.example.org:/srv/nwsync/"
+```
+
+(or `{ run = "…", windows = "…", unix = "…", input = true }`, as a
+[project's command](03-modules.md#the-projects-commands) is written).
+A builder's own `.moonglow/user.toml` may have one too, which wins over
+the team's; and the project's wins over Options'. The window says which
+is used and where it was set.
+
+**The command runs once for each part of the folder, in turn:** the
+data (`data`), then the manifests (`manifests`), then `latest`, each
+only after the one before ended without an error (exit code 0). In it,
+`{part}` is the part's name and `{folder}` the folder (quoted where its
+path needs it), and it runs in the folder, so `{part}` alone names what
+to send. A part that fails stops the upload there: what came after it
+isn't sent, and the log says what was. A part the folder doesn't have
+(no `latest` yet) is left out; `latest` naming a manifest the folder
+doesn't have stops it before anything is sent.
+
+The order is why it runs in parts. A web server is read while you send
+to it: nwserver reads `latest` when it starts (unless given
+`-nwsynchash`), and a player's game fetches the manifest it is told of,
+then the data the manifest names. A manifest that is there before its
+data, or a `latest` before its manifest, fails a player who joins
+meanwhile. `nwn_nwsync_write` writes the folder in that order (the data,
+then the manifest, then `latest`), but one command over the whole folder
+doesn't keep it: rsync sends its files in their names' order, so
+`latest` goes before `manifests/`.
+
+Some commands, each for its tool's own login:
+
+| Server | Command |
+| --- | --- |
+| A server you reach by SSH (rsync: only what changed is sent) | `rsync -a {part} builder@host:/srv/nwsync/` |
+| The same, without rsync (scp sends every file each time) | `scp -r {part} builder@host:/srv/nwsync/` |
+| The same from Windows, by a site saved in WinSCP | `winscp.com /command "open mysite" "put {part} /srv/nwsync/" "exit"` |
+| An S3 bucket (the AWS command line) | `aws s3 sync {folder} s3://bucket/nwsync --exclude "*" --include "{part}/*" --include "{part}"` |
+| A bucket or host rclone knows | `rclone copy {folder} remote:nwsync --include "/{part}/**" --include "/{part}"` |
+| A folder on this computer or a share (Linux, macOS) | `cp -R {part} /srv/nwsync/` |
+| A network share from Windows | `if {part}==latest (copy /Y latest \\server\nwsync\) else (robocopy {part} \\server\nwsync\{part} /E & if errorlevel 8 (exit 1) else (exit 0))` (robocopy's exit codes below 8 mean done) |
+
+rsync, rclone and `aws s3 sync` send only the files that aren't on the
+server yet: the data of a manifest already there isn't sent again.
+
+A script of your own gets `MOONGLOW_NWSYNC_FOLDER` (the folder),
+`MOONGLOW_NWSYNC_PART` (the part) and, in a project, `MOONGLOW_PROJECT`.
+**Upload after publishing and after removing unused data** runs it at
+the end of each (not after a Cancel or an error). After **Remove Unused
+Data** it sends the manifests before the data, and not `latest` (which
+is as it was): a command that takes away on the server what the folder
+no longer has (`rsync -a --delete {part} …`) takes away a manifest
+before the data it names. Without such a command, what a prune took away
+stays on the server until you take it away there.
+
+It runs as a project's command does: as a job, its output under its
+name as it comes and in the log, with **Cancel** (which stops it, and
+sends nothing after it); **Show Output** shows all it said afterwards,
+and **Last upload** how it ended. With `input = true` (in Options: **It
+reads what I type**) a line under its output gives it what you type. A
+program that asks on the terminal itself (ssh asking for a password)
+can't be answered from Moonglow: give it a key or an agent. A command
+from the project's files is a program you did not choose: it is
+[asked about](03-modules.md#the-projects-commands) before it first runs,
+and whenever its text changes, and what you allowed is kept in
+Moonglow's own settings.
+
+`mg nwsync MODULE FOLDER --upload` uploads after publishing, by the
+project's command or one given (`--upload "COMMAND"`); `mg nwsync-prune
+FOLDER --upload "COMMAND"` after a prune. There the command's output is
+on standard error and it reads the terminal, so it may ask you for a
+password.
 
 ## Long work
 

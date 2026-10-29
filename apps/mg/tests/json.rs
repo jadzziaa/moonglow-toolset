@@ -183,6 +183,31 @@ fn every_command_answers_in_json() {
         (Some(1), Some(0))
     );
     assert_eq!(pruned["problems"], serde_json::json!([]));
+    // Uploaded by a stand-in command (nothing goes anywhere but this
+    // folder): each part in turn, in the repository's folder, its output
+    // kept off the JSON.
+    let order = dir.join("order.txt");
+    let _ = std::fs::remove_file(&order);
+    let stand_in = format!("echo {{part}}>> {}", mg_module::nwsync::shell_quoted(&order));
+    let sent = || -> Vec<String> {
+        let text = std::fs::read_to_string(&order).unwrap_or_default();
+        text.lines().map(|l| l.trim().to_string()).collect()
+    };
+    let synced = ok(&["nwsync", c, &at("repo"), "--with-module", "--upload", &stand_in]);
+    assert_eq!(synced["uploaded"], serde_json::json!(["data", "manifests", "latest"]));
+    assert_eq!(sent(), ["data", "manifests", "latest"]);
+    let pruned = ok(&["nwsync-prune", &at("repo"), "--upload", &stand_in]);
+    assert_eq!(pruned["uploaded"], serde_json::json!(["manifests", "data"]));
+    assert_eq!(sent()[3..], ["manifests", "data"]);
+    // A part that fails: what came after it isn't sent, and mg fails.
+    let (success, json) =
+        run(&root, &user, &["nwsync", c, &at("repo"), "--with-module", "--upload", "exit 3"]);
+    assert!(!success);
+    let error = json["error"].as_str().unwrap();
+    assert!(error.contains("failed sending data") && error.contains("nothing was sent"), "{error}");
+    // No command given, and the module's project names none.
+    let (success, json) = run(&root, &user, &["nwsync", c, &at("repo"), "--upload"]);
+    assert!(!success && json["error"].as_str().unwrap().contains("no upload command"));
 
     // A failure.
     let (success, json) = run(&root, &user, &["which", "nothing_at_all.2da"]);
