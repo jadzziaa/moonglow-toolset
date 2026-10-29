@@ -1836,3 +1836,35 @@ pub(crate) fn render_tile_from_above(
     // Rendered rows come top first; pictures keep them bottom first.
     Some(out.top_down())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A creature pictured in another appearance (its Appearance list,
+    /// the Appearance Gallery) wears what it wears: the bandit's armor
+    /// (torso 28) and longsword on a half-elf's body, not the bare body of
+    /// a plain look.
+    #[test]
+    fn a_creature_in_another_appearance_wears_its_armor() {
+        let Some(root) = mg_testkit::nwn_root() else {
+            eprintln!("skipped: no game install");
+            return;
+        };
+        let install = mg_resman::GameInstall::new(&root, None, "en");
+        let mut app = Moonglow::new(Some(install), Box::new(crate::NoDialogs::default()));
+        let game = app.game.clone().unwrap();
+        let data = game.resman.get(&ResKey::parse("nw_bandit001", ResType::UTC).unwrap()).unwrap();
+        let bandit = Gff::read(&data).unwrap().root;
+        let id = app.thumbnails.creature(&bandit);
+        // (appearance.2da row 4: a half-elf, a body of parts.)
+        let (_, dressed) = pictured_look(&app, (Pictured::Creature(id, 4), false)).unwrap();
+        let models: Vec<&str> = dressed.parts.iter().map(|p| p.model.as_str()).collect();
+        assert!(models.iter().any(|m| m.ends_with("_chest028")), "the armor's torso: {models:?}");
+        assert!(models.iter().any(|m| m.starts_with("wswls_")), "the sword: {models:?}");
+        let (_, bare) =
+            pictured_look(&app, (Pictured::Look(mg_preview::CreatureLook::new(4)), false)).unwrap();
+        assert!(bare.parts.iter().any(|p| p.model.ends_with("_chest001")), "a plain body's own");
+        assert_ne!(dressed, bare);
+    }
+}
