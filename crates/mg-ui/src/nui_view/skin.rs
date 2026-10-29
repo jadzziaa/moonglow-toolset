@@ -9,7 +9,7 @@ use std::sync::Arc;
 use egui::{Color32, FontFamily, FontId, Painter, Rect, pos2, vec2};
 use mg_core::ResType;
 use mg_module::Module;
-use mg_resman::{ResKey, ResMan, priority};
+use mg_resman::{ResKey, ResMan};
 use serde_json::Value;
 
 use super::{Settings, resolved};
@@ -388,24 +388,16 @@ fn hash(v: impl Hash) -> u64 {
     h.finish()
 }
 
-/// A live module takes its proper position below HAKs, even before it is saved.
+/// A live module takes its proper position below HAKs, even before it is
+/// saved (`ResMan::get_over`, as the images' loader finds them).
 fn resource(rm: Option<&ResMan>, module: &Module, key: ResKey) -> Option<(Vec<u8>, String)> {
-    if let Some(rm) = rm {
-        for l in rm.layers().iter().filter(|l| l.priority > priority::MODULE) {
-            if l.container.contains(&key) {
-                return l.container.read(&key).ok().map(|b| (b.into_owned(), l.label.clone()));
-            }
-        }
-    }
-    if let Some(b) = module.get(&key) {
-        return Some((b.to_vec(), "module (current edits)".into()));
-    }
-    for l in rm?.layers().iter().filter(|l| l.priority < priority::MODULE) {
-        if l.container.contains(&key) {
-            return l.container.read(&key).ok().map(|b| (b.into_owned(), l.label.clone()));
-        }
-    }
-    None
+    let Some(rm) = rm else {
+        return module.get(&key).map(|b| (b.to_vec(), "module (current edits)".into()));
+    };
+    let live = |k: &ResKey| module.get(k).map(std::borrow::Cow::Borrowed);
+    let (bytes, label) = rm.get_over(&key, live)?;
+    let label = if label == mg_resman::MODULE_LABEL { "module (current edits)" } else { label };
+    Some((bytes.into_owned(), label.into()))
 }
 
 /// The types a NUI picture may have, in the order the client looks for them:
@@ -1043,6 +1035,7 @@ mod tests {
 
     #[test]
     fn resources_observe_hak_live_module_override_order_and_dds_fallback() {
+        use mg_resman::priority;
         let key = ResKey::parse("nui_skin", ResType::TML).unwrap();
         let mut rm = ResMan::new();
         let mut module = Module::new();

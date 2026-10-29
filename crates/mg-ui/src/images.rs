@@ -1,6 +1,6 @@
-//! Game images in the UI (portraits, icons): a texture, the module's or the
-//! game's (DDS over TGA, as the engine prefers), decoded once and kept as
-//! an egui texture.
+//! Game images in the UI (portraits, icons): a texture found as the game
+//! finds it (DDS over TGA, as the engine prefers, the module being edited
+//! below its haks), decoded once and kept as an egui texture.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -220,24 +220,30 @@ fn small(texture: &mg_image::Texture, side: u32) -> mg_image::Rgba {
 }
 
 impl Loader<'_> {
-    /// A resource's bytes: the module's, else the game's.
+    /// A resource's bytes as the game reads them: the module being edited
+    /// (its unsaved changes too) in its place in the load order, below its
+    /// haks and over `override/` (`ResMan::get_over`).
     fn data(&self, key: ResKey) -> Option<Arc<[u8]>> {
-        let module = self.ws.and_then(|ws| ws.module.get(&key)).map(Arc::from);
-        module.or_else(|| self.game.resman.get(&key).ok().map(|d| Arc::from(&*d)))
+        let rm = &self.game.resman;
+        let Some(ws) = self.ws else { return rm.get(&key).ok().map(|d| Arc::from(&*d)) };
+        let module = |k: &ResKey| ws.module.get(k).map(std::borrow::Cow::Borrowed);
+        rm.get_over(&key, module).map(|(d, _)| Arc::from(&*d))
     }
 
-    /// A texture's type and bytes: the module's (DDS, then TGA), else the
-    /// game's as the engine prefers.
+    /// A texture's type and bytes as the game finds it (DDS over TGA in a
+    /// class of layers, the module being edited among the ERFs below its
+    /// haks: `ResMan::texture_over`). A portrait both the module and a hak
+    /// have is the hak's, as in the game.
     fn texture(&self, name: ResRef) -> Option<(ResType, Arc<[u8]>)> {
-        let module = self.ws.and_then(|ws| {
-            [ResType::DDS, ResType::TGA]
-                .into_iter()
-                .find_map(|t| ws.module.get(&ResKey::new(name, t)).map(|d| (t, Arc::from(d))))
-        });
-        module.or_else(|| {
-            let (t, data) = self.game.resman.texture(name)?;
-            Some((t, Arc::from(&*data)))
-        })
+        let rm = &self.game.resman;
+        let found = match self.ws {
+            Some(ws) => {
+                let module = |k: &ResKey| ws.module.get(k).map(std::borrow::Cow::Borrowed);
+                rm.texture_over(name, module).map(|(t, d, _)| (t, d))
+            }
+            None => rm.texture(name),
+        };
+        found.map(|(t, d)| (t, Arc::from(&*d)))
     }
 
     fn keep(
@@ -714,6 +720,45 @@ mod tests {
                     endmodelgeom x\ndonemodel x\n";
         assert!(screen_parts(bare.as_bytes()).is_none());
         assert!(screen_parts(b"\0\0garbage").is_none());
+    }
+
+    /// A picture both the module being edited and one of its haks have is
+    /// the hak's, as the game reads it (`mg which`: the hak, the module
+    /// overridden); one only the module has is its unsaved copy.
+    #[test]
+    fn a_picture_a_hak_and_the_module_both_have_is_the_hak_s() {
+        let tga = |level: u8| {
+            let mut t = vec![0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 32, 8];
+            t.extend([level, level, level, 255]);
+            t
+        };
+        let key = |n: &str| ResKey::parse(n, ResType::TGA).unwrap();
+        let mut hak = mg_resman::MemContainer::new();
+        hak.insert(key("po_bothm"), tga(10));
+        let mut saved = mg_resman::MemContainer::new();
+        saved.insert(key("po_bothm"), tga(20));
+        let mut rm = mg_resman::ResMan::new();
+        rm.add(
+            mg_resman::priority::MODULE,
+            mg_resman::MODULE_LABEL,
+            mg_resman::LayerClass::Erf,
+            saved,
+        );
+        rm.add(mg_resman::priority::HAK, "hak:pics", mg_resman::LayerClass::Erf, hak);
+        let game = GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let mut m = mg_module::Module::new();
+        m.set(key("po_bothm"), tga(30));
+        m.set(key("po_modm"), tga(40));
+        let ws = Workspace::new(m);
+        let (mut pictures, mut palettes) = (Pictures::new(), Palettes::new());
+        let loader =
+            Loader { pictures: &mut pictures, palettes: &mut palettes, ws: Some(&ws), game: &game };
+        let level = |name: &str| {
+            let (t, d) = loader.texture(ResRef::from_str(name).unwrap()).unwrap();
+            mg_image::read(t, &d).unwrap().to_rgba().data[0]
+        };
+        assert_eq!(level("po_bothm"), 10);
+        assert_eq!(level("po_modm"), 40);
     }
 
     #[test]

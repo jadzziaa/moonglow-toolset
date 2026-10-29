@@ -6955,6 +6955,84 @@ fn armor_part_none() {
     shoot(&mut h, &dir, &format!("{shot}-model"));
 }
 
+/// A plain TGA of one color, `w` by `h`: a picture of our own.
+fn plain_tga(w: u16, h: u16, rgb: [u8; 3]) -> Vec<u8> {
+    let mut t = vec![0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    t.extend(w.to_le_bytes());
+    t.extend(h.to_le_bytes());
+    t.extend([32, 8]);
+    for _ in 0..u32::from(w) * u32::from(h) {
+        t.extend([rgb[2], rgb[1], rgb[0], 255]);
+    }
+    t
+}
+
+/// A creature's portrait and an item's icon that both the module (red) and
+/// one of its haks (blue) have: the game reads the hak's, as its resource
+/// manager puts haks over the module, so the pictures are blue
+/// (`hak-over-module-portrait.png`, `-icon.png`). `MG_SHOT` names them
+/// (`before`, `after`).
+#[test]
+#[ignore]
+fn pictures_a_hak_and_the_module_both_have() {
+    use mg_schema::{ExoString, StructExt, ifo};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-hak-over-module");
+    let out = mg_testkit::output_dir("screens-hak-over-module");
+    let shot = std::env::var("MG_SHOT").unwrap_or_else(|_| "after".into());
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let game = mg_rules::GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let base = game.table("portraits").unwrap().get(129, "BaseResRef").unwrap().to_lowercase();
+    let names: Vec<String> =
+        "hlmst".chars().map(|s| format!("po_{base}{s}")).chain(["iit_gem_099".into()]).collect();
+    let mut hak = mg_erf::ErfWriter::new(*b"HAK ");
+    for n in &names {
+        let r = mg_core::ResRef::from_str(n).unwrap();
+        hak.add(r, ResType::TGA, plain_tga(64, 128, [40, 80, 230])).unwrap();
+    }
+    std::fs::write(user.join("hak/mg_pics.hak"), hak.to_bytes().unwrap()).unwrap();
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.write(&ifo::MOD_TAG, ExoString::from("PICS"));
+    let mut s = ifo::MOD_HAK_LIST.new_item();
+    s.write(&ifo::mod_hak_list::MOD_HAK, ExoString::from("mg_pics"));
+    info.root.items_mut(&ifo::MOD_HAK_LIST).push(s);
+    m.set_info(&info).unwrap();
+    for n in &names {
+        m.set(ResKey::parse(n, ResType::TGA).unwrap(), plain_tga(64, 128, [230, 40, 40]));
+    }
+    let utc = ResKey::parse("nw_bartender", ResType::UTC).unwrap();
+    m.set(utc, game.resman.get(&utc).unwrap().into_owned());
+    let uti = ResKey::parse("mg_gem", ResType::UTI).unwrap();
+    let mut gem =
+        mg_gff::Gff::read(&game.resman.get_named("nw_it_gem001", ResType::UTI).unwrap()).unwrap();
+    gem.root.set("ModelPart1", mg_gff::Value::Byte(99));
+    m.set(uti, gem.to_bytes().unwrap());
+    let path = dir.join("pics.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(
+        Some(GameInstall::new(&root, Some(user), "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 760.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    for (key, page, name) in [(utc, "Basic", "portrait"), (uti, "Appearance", "icon")] {
+        h.state_mut().blueprint_pages.insert((key, GffPath::root()), page);
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
+        h.run_steps(4);
+        shoot(&mut h, &out, &format!("{shot}-{name}"));
+        h.state_mut().actions.push(mg_ui::Action::CloseTab(mg_ui::Tab::Blueprint(key)));
+        h.run_steps(2);
+    }
+}
+
 /// The resource browser searching for portraits.2da, which two haks of
 /// the module have, the first over the second (a builder's report: only
 /// the higher one was listed); and the lower hak's copy opened from its

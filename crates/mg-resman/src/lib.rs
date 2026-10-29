@@ -98,6 +98,11 @@ pub enum LayerClass {
     Key,
 }
 
+/// The label of a module's own layer (`Module::stack_onto`'s): the layer
+/// [`ResMan::get_over`] and [`ResMan::texture_over`] read from the module
+/// being edited instead.
+pub const MODULE_LABEL: &str = "module";
+
 /// The engine's resource priorities (higher wins), from its content load
 /// order (nwn.wiki "Content Load Order"; the engine scales them by 10^6).
 /// Layers with equal priority rank in the order they were added, first
@@ -288,6 +293,83 @@ impl ResMan {
                 for l in self.layers.iter().filter(|l| l.class == class) {
                     if l.container.contains(&key) {
                         return l.container.read(&key).ok().map(|d| (restype, d));
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// The layers in the order they are searched, with the module's own
+    /// (labeled [`MODULE_LABEL`]) left out and `None` where the module
+    /// sits, below the haks and over `override/`.
+    fn with_module_at(&self) -> impl Iterator<Item = Option<&Layer>> {
+        let at = self
+            .layers
+            .iter()
+            .position(|l| l.priority <= priority::MODULE)
+            .unwrap_or(self.layers.len());
+        let above = self.layers[..at].iter().map(Some);
+        let below = self.layers[at..].iter().map(Some);
+        above
+            .chain(std::iter::once(None))
+            .chain(below)
+            .filter(|l| l.is_none_or(|l| l.label != MODULE_LABEL))
+    }
+
+    /// [`ResMan::get`] with the module read from `module` (the module
+    /// being edited, its unsaved changes too) in place of its layer, where
+    /// the game puts it: below its haks, over `override/`. The bytes and
+    /// the label of the layer they are from ([`MODULE_LABEL`] for the
+    /// module's).
+    pub fn get_over<'a>(
+        &'a self,
+        key: &ResKey,
+        module: impl Fn(&ResKey) -> Option<Cow<'a, [u8]>>,
+    ) -> Option<(Cow<'a, [u8]>, &'a str)> {
+        for layer in self.with_module_at() {
+            match layer {
+                None => {
+                    if let Some(d) = module(key) {
+                        return Some((d, MODULE_LABEL));
+                    }
+                }
+                Some(l) if l.container.contains(key) => {
+                    return l.container.read(key).ok().map(|d| (d, l.label.as_str()));
+                }
+                Some(_) => {}
+            }
+        }
+        None
+    }
+
+    /// [`ResMan::texture`] with the module read from `module` in place of
+    /// its layer, among the ERFs below the haks ([`ResMan::get_over`]):
+    /// the type, the bytes and the label of the layer they are from.
+    pub fn texture_over<'a>(
+        &'a self,
+        resref: ResRef,
+        module: impl Fn(&ResKey) -> Option<Cow<'a, [u8]>>,
+    ) -> Option<(ResType, Cow<'a, [u8]>, &'a str)> {
+        let classes = [LayerClass::Directory, LayerClass::NwSync, LayerClass::Erf, LayerClass::Key];
+        for class in classes {
+            for restype in [ResType::DDS, ResType::TGA] {
+                let key = ResKey::new(resref, restype);
+                for layer in self.with_module_at() {
+                    match layer {
+                        None if class == LayerClass::Erf => {
+                            if let Some(d) = module(&key) {
+                                return Some((restype, d, MODULE_LABEL));
+                            }
+                        }
+                        Some(l) if l.class == class && l.container.contains(&key) => {
+                            return l
+                                .container
+                                .read(&key)
+                                .ok()
+                                .map(|d| (restype, d, l.label.as_str()));
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -508,6 +590,62 @@ mod tests {
         assert_eq!(rm.texture(other).unwrap().0, ResType::TGA);
         assert_eq!(label(&rm, other), Some((ResType::TGA, "override".to_string())));
         assert_eq!(rm.texture_layer(ResRef::from_str("none").unwrap()), None);
+    }
+
+    /// The module being edited is read in its layer's place: below the
+    /// haks and over `override/` for a resource, among the ERFs below the
+    /// haks for a texture (a directory's TGA still over it); its unsaved
+    /// changes over the layer's copy, which is never read.
+    #[test]
+    fn the_module_being_edited_is_read_in_its_place() {
+        let mut hak = MemContainer::new();
+        hak.insert(key("po_both", ResType::TGA), &b"hak"[..]);
+        hak.insert(key("both", ResType::TWODA), &b"hak"[..]);
+        let mut stale = MemContainer::new();
+        for (name, t) in
+            [("po_both", ResType::TGA), ("po_mod", ResType::TGA), ("mod", ResType::TWODA)]
+        {
+            stale.insert(key(name, t), &b"saved"[..]);
+        }
+        let mut ovr = MemContainer::new();
+        ovr.insert(key("po_ovr", ResType::TGA), &b"override"[..]);
+        ovr.insert(key("mod", ResType::TWODA), &b"override"[..]);
+        let mut bif = MemContainer::new();
+        bif.insert(key("po_mod", ResType::DDS), &b"bif"[..]);
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "key:base", LayerClass::Key, bif);
+        rm.add(priority::OVERRIDE, "override", LayerClass::Directory, ovr);
+        rm.add(priority::MODULE, MODULE_LABEL, LayerClass::Erf, stale);
+        rm.add(priority::HAK, "hak:pics", LayerClass::Erf, hak);
+        let mut live = MemContainer::new();
+        for (name, t) in [
+            ("po_both", ResType::TGA),
+            ("po_mod", ResType::TGA),
+            ("po_ovr", ResType::TGA),
+            ("both", ResType::TWODA),
+            ("mod", ResType::TWODA),
+        ] {
+            live.insert(key(name, t), &b"edited"[..]);
+        }
+        let module = |k: &ResKey| live.read(k).ok();
+        let texture = |name: &str| {
+            let (t, d, l) = rm.texture_over(ResRef::from_str(name).unwrap(), module).unwrap();
+            (t, String::from_utf8(d.into_owned()).unwrap(), l.to_owned())
+        };
+        assert_eq!(texture("po_both"), (ResType::TGA, "hak".into(), "hak:pics".into()));
+        // The module's TGA over the keys' DDS: a class decides first.
+        assert_eq!(texture("po_mod"), (ResType::TGA, "edited".into(), MODULE_LABEL.into()));
+        assert_eq!(texture("po_ovr"), (ResType::TGA, "override".into(), "override".into()));
+        let get = |name: &str| {
+            let (d, l) = rm.get_over(&key(name, ResType::TWODA), module).unwrap();
+            (String::from_utf8(d.into_owned()).unwrap(), l.to_owned())
+        };
+        assert_eq!(get("both"), ("hak".into(), "hak:pics".into()));
+        assert_eq!(get("mod"), ("edited".into(), MODULE_LABEL.into()));
+        // Nothing in the module being edited: the saved layer isn't read.
+        let none = |_: &ResKey| None;
+        assert_eq!(rm.get_over(&key("mod", ResType::TWODA), none).unwrap().1, "override");
+        assert!(rm.texture_over(ResRef::from_str("po_none").unwrap(), none).is_none());
     }
 
     #[test]

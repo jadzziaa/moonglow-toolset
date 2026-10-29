@@ -1432,22 +1432,16 @@ contribution itself states as not done or not checked.
 
 - **A picture cache of its own** (`crates/mg-ui/src/nui_view/skin.rs`):
   `skin::Assets` keeps its textures beside `images::Loader`
-  (`crates/mg-ui/src/images.rs`). Looked into on 2026-10-29 (the deferred
-  sprint's package m11): the two orders of types differ on purpose (a
-  window's pictures JPG, TGA, PNG, BMP, then DDS, as the client looks for a
-  NUI picture; the loader's DDS, then TGA, as for a texture), but not where
-  the module being edited sits: a window's pictures are looked for with it
-  below its haks, as the game loads them, the loader's with it above
-  everything, so a portrait, an item's icon or a loading screen that both
-  the module and a hak (or the override folder) have shows the module's,
-  where the game shows the hak's; and the loader keeps a picture by name,
-  not read again when the module's bytes of it change, where a window's
-  are. One lookup with the module in its place for both (by layer class,
-  as `ResMan::texture` has it, for the loader's) is the fix; it changes
-  what portraits and inventory icons show, the views the sprint's medium
-  package m04 (blueprints and inventories) works in on 2026-10-29: after
-  that merges. JPEG and BMP are still read with the `image` crate (nothing
-  else here reads them). (M)
+  (`crates/mg-ui/src/images.rs`). Both find a picture through the game's
+  resource manager with the module being edited in its place, below its
+  haks (`ResMan::get_over` and `texture_over`, since 2026-10-29); their
+  orders of types differ on purpose (a window's pictures JPG, TGA, PNG,
+  BMP, then DDS, as the client looks for a NUI picture; the loader's DDS,
+  then TGA, as for a texture). What is left: the loader keeps a picture by
+  name, not read again when the module's bytes of it change, where a
+  window's are (a portrait added to the module shows once the game data is
+  reloaded); and JPEG and BMP are still read with the `image` crate
+  (nothing else here reads them). (S)
   - *15- and 16-bit TGAs*, read with the `image` crate before, come out of
     `mg-image` a level off in places and with their attribute bit as
     alpha: `mg-image` makes a 5-bit channel 8 bits as `(c << 3) | (c >> 2)`
