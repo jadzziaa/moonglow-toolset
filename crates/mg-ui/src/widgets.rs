@@ -1321,7 +1321,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         window(&p.title).show(&ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Filter");
-                let field = ui.text_edit_singleline(&mut p.filter);
+                let field = SearchField::new(
+                    egui::Id::new(("resref-picker-find", &p.title)),
+                    &mut p.filter,
+                )
+                .hint("ResRef")
+                .width(200.0)
+                .find_over()
+                .show(ui)
+                .response;
                 crate::widgets::autofocus(ui, &field);
             });
             let filter = mg_core::text::Needle::new(&p.filter);
@@ -2025,7 +2033,8 @@ pub(crate) struct SearchField<'a> {
 /// this frame so far ([`search_field_shown`]): what is typed there finds,
 /// and changes nothing.
 pub(crate) fn is_search_field(ctx: &egui::Context, id: egui::Id) -> bool {
-    ctx.data(|x| x.get_temp::<Dialogs>(dialogs_id())).is_some_and(|d| d.searches.contains(&id))
+    ctx.data(|x| x.get_temp::<Dialogs>(dialogs_id()))
+        .is_some_and(|d| d.searches.iter().any(|(s, _)| *s == id))
 }
 
 /// What a [`SearchField`] did: the field's response, and how its keys
@@ -2092,11 +2101,15 @@ impl<'a> SearchField<'a> {
         let here = find.unwrap_or(false) || (find_over && ui.rect_contains_pointer(ui.clip_rect()));
         let find = find_here(ui, here);
         let left = field_keys(ui, id, text, find, down);
-        search_field_shown(ui.ctx(), id);
+        search_field_shown(ui.ctx(), id, !text.is_empty());
         let response = ui
             .horizontal(|ui| {
                 let clear = !text.is_empty();
-                let button = if clear { 26.0 } else { 0.0 };
+                // (The field and its clear button fill the room together:
+                // the button as wide as it was last drawn.)
+                let button_id = id.with("clear-width");
+                let button = ui.data(|d| d.get_temp::<f32>(button_id)).unwrap_or(26.0);
+                let button = if clear { button } else { 0.0 };
                 let room = width.unwrap_or(ui.available_width() - button).max(60.0);
                 let r = ui.add(
                     egui::TextEdit::singleline(&mut *text)
@@ -2104,8 +2117,16 @@ impl<'a> SearchField<'a> {
                         .hint_text(hint)
                         .desired_width(room),
                 );
-                if clear && ui.small_button("×").on_hover_text(clear_tip).clicked() {
-                    text.clear();
+                if clear {
+                    let b = ui.small_button("×").on_hover_text(clear_tip);
+                    let wide = b.rect.width() + ui.spacing().item_spacing.x;
+                    if (wide - button).abs() > 0.1 {
+                        ui.data_mut(|d| d.insert_temp(button_id, wide));
+                        ui.ctx().request_repaint();
+                    }
+                    if b.clicked() {
+                        text.clear();
+                    }
                 }
                 r
             })
@@ -2157,13 +2178,19 @@ struct Dialogs {
     open: Vec<egui::LayerId>,
     seen: Vec<egui::LayerId>,
     escape: bool,
-    /// The search fields shown this frame ([`search_field_shown`]).
-    searches: Vec<egui::Id>,
+    /// The search fields shown this frame ([`search_field_shown`]), and
+    /// whether something was typed in each.
+    searches: Vec<(egui::Id, bool)>,
     /// Whether a search field had the keyboard as the last frame ended
     /// ([`dialogs_end`]), and so whether this frame's Escape is the
-    /// field's (it clears what is typed, then leaves it).
+    /// field's (it clears what is typed, then leaves it); and whether
+    /// something was typed in it.
     searching: bool,
+    searching_text: bool,
     leaves_search: bool,
+    /// This frame's Escape clears a search field's text: the dialog it is
+    /// in stays open ([`escape_on`]).
+    clears_search: bool,
 }
 
 fn dialogs_id() -> egui::Id {
@@ -2194,6 +2221,7 @@ pub(crate) fn dialogs_begin(ctx: &egui::Context) {
     d.escape = ctx.input(|i| i.key_pressed(egui::Key::Escape) && i.modifiers.is_none())
         && !egui::Popup::is_any_open(ctx);
     d.leaves_search = d.escape && d.searching;
+    d.clears_search = d.escape && d.searching_text;
     ctx.data_mut(|x| x.insert_temp(dialogs_id(), d));
 }
 
@@ -2204,6 +2232,7 @@ pub(crate) fn keep_escape(ctx: &egui::Context) {
         let d = x.get_temp_mut_or_default::<Dialogs>(dialogs_id());
         d.escape = false;
         d.leaves_search = false;
+        d.clears_search = false;
     });
 }
 
@@ -2216,14 +2245,19 @@ pub(crate) fn dialogs_end(ctx: &egui::Context) {
     ctx.data_mut(|x| {
         let d = x.get_temp_mut_or_default::<Dialogs>(dialogs_id());
         let searches = std::mem::take(&mut d.searches);
-        d.searching = focused.is_some_and(|f| searches.contains(&f));
+        let typed = focused.and_then(|f| searches.iter().find(|(id, _)| *id == f));
+        d.searching = typed.is_some();
+        d.searching_text = typed.is_some_and(|(_, text)| *text);
     });
 }
 
-/// A search field (`id`, its text field's) shown this frame: Escape in it
-/// is its own ([`escape_left_search`]).
-fn search_field_shown(ctx: &egui::Context, id: egui::Id) {
-    ctx.data_mut(|x| x.get_temp_mut_or_default::<Dialogs>(dialogs_id()).searches.push(id));
+/// A search field (`id`, its text field's) shown this frame, `typed` in or
+/// not: Escape in it is its own ([`escape_left_search`]), and a dialog it
+/// is in stays open while it clears what is typed ([`escape_on`]).
+fn search_field_shown(ctx: &egui::Context, id: egui::Id, typed: bool) {
+    ctx.data_mut(|x| {
+        x.get_temp_mut_or_default::<Dialogs>(dialogs_id()).searches.push((id, typed));
+    });
 }
 
 /// Whether this frame's Escape was in a search field (a list's filter, an
@@ -2236,14 +2270,16 @@ pub(crate) fn escape_left_search(ctx: &egui::Context) -> bool {
 
 /// Escape for the dialog on `layer`: true when it was pressed and this is
 /// the dialog opened last. Each dialog asks every frame it shows, which is
-/// also how it is known to be open.
+/// also how it is known to be open. Not while it clears what was typed
+/// in a search field of it (Open Script's name, a wizard's Find): the next
+/// Escape closes it.
 fn escape_on(ctx: &egui::Context, layer: egui::LayerId) -> bool {
     ctx.data_mut(|x| {
         let d = x.get_temp_mut_or_default::<Dialogs>(dialogs_id());
         if !d.seen.contains(&layer) {
             d.seen.push(layer);
         }
-        d.escape && d.open.last() == Some(&layer)
+        d.escape && !d.clears_search && d.open.last() == Some(&layer)
     })
 }
 
@@ -2768,8 +2804,14 @@ impl<'a> RowChoice<'a> {
             // had been scrolled to.)
             let mut narrowed = false;
             if long {
-                narrowed =
-                    ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Filter")).changed();
+                // (Escape clears what is typed, then closes the list.)
+                let before = filter.clone();
+                let searched =
+                    SearchField::new(filter_id.with("field"), &mut filter).hint("Filter").show(ui);
+                narrowed = filter != before;
+                if searched.left == Some(FilterLeft::Escape) {
+                    ui.close();
+                }
                 ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
             }
             // (Case and accents aside: `arbol` finds `Árbol`.)

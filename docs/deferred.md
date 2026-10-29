@@ -2688,26 +2688,6 @@ of truth, and does each caller's difference matter.
   `Struct::walk_fields` (`rename.rs:192`, `:209`, `text.rs:207`,
   `doctor.rs:1250`). `GffPath` into mg-gff, carried by `Reference`,
   `Usage` and `Hit`. (L, mechanical)
-- **Filters: one matcher and one search field, what is left** (built
-  2026-10-27: `mg_core::text::Needle`, every word in any order, in any
-  of a row's fields; `widgets::SearchField`, with Find's keys from
-  Options › Keyboard; every Ctrl+F read by hand is gone). What differs
-  still, by choice: the palettes alone fall back to letters in order
-  when nothing has every word; each list looks in its own fields (the
-  tree: name and ResRef, an object's name and tag; the palettes and the
-  item picker: name, ResRef, tag; Find Instance: tag and blueprint as
-  two fields, each its own words; the resource browser, the hak editor
-  and Transfer: the ResRef or the file name alone; the tileset editor:
-  model and terrains; a 2DA: every cell and its value's name; the Area
-  chooser: ResRef and name, not the tag). Down leaves a field for its
-  list only where the list has keys of its own (the tree, the palettes,
-  the resource browser); elsewhere it stays in the field. Not moved to
-  `SearchField` (plain fields, no clear button nor Find's keys, the
-  matcher already theirs): the Creature Wizard's appearances, the
-  Script and Store Wizards', the Area chooser's, a table's row list and
-  the lists' dropdown filters (`widgets.rs`), the store page's, Options
-  › Keyboard's, the creature pages' lists, the script editor's help and
-  Open Script, the Command Palette. (S)
 - **Module Properties and the journal redo `Form` by hand**
   (`module_props.rs`, `journal_view.rs:296`): a tag's 32 characters held
   three ways (the module's not at all), the module's XP slider adds an

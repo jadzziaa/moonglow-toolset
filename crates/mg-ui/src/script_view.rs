@@ -876,10 +876,19 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                     ui.selectable_value(&mut t.side, tab, label);
                 }
             });
-            ui.horizontal(|ui| {
-                ui.label("Filter");
-                ui.text_edit_singleline(&mut t.filter);
-            });
+            // (Not Find's keys: in the script editor they are its Find bar's.)
+            let what = match t.side {
+                SideTab::Functions => "Find a function",
+                SideTab::Variables => "Find a variable",
+                SideTab::Constants => "Find a constant",
+                SideTab::Templates => "Find a template",
+            };
+            crate::widgets::SearchField::new(
+                egui::Id::new(("script-side-find", key)),
+                &mut t.filter,
+            )
+            .hint(what)
+            .show(ui);
             let filter = mg_core::text::Needle::new(&t.filter);
             let row = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
             // Long names end in "…" in a narrow panel (Help gives them whole).
@@ -2183,11 +2192,13 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
                     moved += by;
                 }
             }
-            let field = ui.add(
-                egui::TextEdit::singleline(&mut w.filter)
-                    .hint_text("Find by name")
-                    .desired_width(f32::INFINITY),
-            );
+            // (Escape clears the name typed first, then closes.)
+            let field =
+                crate::widgets::SearchField::new(egui::Id::new("open-script-find"), &mut w.filter)
+                    .hint("Find by name")
+                    .find_over()
+                    .show(ui)
+                    .response;
             crate::widgets::autofocus(ui, &field);
             // (A name typed starts over: Enter opens the first it lists.)
             if field.changed() {

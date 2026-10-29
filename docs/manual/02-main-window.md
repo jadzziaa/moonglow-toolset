@@ -156,7 +156,7 @@ Placeables, Sounds, Stores, Triggers, Waypoints) and the journal and factions;
 rows with every word typed in their name or ResRef, in any order, case
 and accents aside (`arbol` finds `Árbol`, `sword iron` finds `Iron
 Sword`, as every Filter and Find field of names does: the palettes', the
-resource browser's, a list's; × clears it); it and Expand All / Collapse All stay in sight
+resource browser's, a list's, a wizard's; × clears it); it and Expand All / Collapse All stay in sight
 while the tree scrolls, and Home and End go to the tree's top and bottom
 with the pointer over it. A name too long for the pane goes on past
 its edge, and the tree scrolls sideways to it (Shift and the mouse
@@ -313,9 +313,12 @@ as in Aurora: what was changed in it is set back (Tile Properties with
 changes asks first, as its close button does); a model's window while the
 pointer is over it. In a text or number field too, Escape is the
 window's Cancel at once, as in Aurora (what was typed there is set back
-with the rest); in a search field (an inventory's or a list's Find, the
-Options' Find a Command) it clears what is typed, then leaves the field,
-and the next Escape is the window's. With something in hand in the area (a blueprint to place, a paste, a
+with the rest); in a search field of a Properties window (an inventory's
+or a list's Find) it clears what is typed, then leaves the field, and
+the next Escape is the window's. In a dialog's search field (Open
+Script's name, a wizard's Find, Open 2DA, the Area chooser, the Command
+Palette, a long dropdown's Filter) Escape clears what is typed, and the
+next Escape closes the dialog (or the list). With something in hand in the area (a blueprint to place, a paste, a
 terrain brush) and the pointer over the area, Escape lets go of that and
 leaves the window open. Right-click a tab for **Eject** and **Close**,
 for **Close Others**, **Close Tabs to the Right** and **Close All** (the
@@ -474,7 +477,27 @@ gives the list the keys too. The **Find** fields of the hak editor, the
 tileset editor, the 2DA editor and the Appearance Gallery take Ctrl+F
 and Escape the same way, with the pointer over them. Ctrl+F is
 **Find** in **Options › Keyboard** (under Script Editor): the keys given to it there go to
-every search field.
+every search field (the wizards', Open Script's, Open 2DA's and the
+Area chooser's with the pointer over their window; not the script
+editor's side lists, where they are the script's Find).
+
+Every search field finds a row with every word typed, in any order,
+in any one of the row's fields; what those are differs by list:
+
+| List | Looks in |
+|---|---|
+| The module tree | a resource's name and ResRef; a placed object's name and tag |
+| The palettes, the item picker | name, ResRef and tag (with nothing that has every word, the palettes show close matches: letters in order) |
+| Find Instance | the tag and the blueprint, each field its own words |
+| The resource browser, the hak editor, Transfer | the ResRef or the file name |
+| The tileset editor | the model and its terrains |
+| A 2DA | every cell, and a cell's value by its name |
+| The Area chooser | ResRef and name (not the tag) |
+
+Down leaves the field for its list where the list has keys of its own
+(the module tree, the palettes, the resource browser; in Open Script
+and the Command Palette, Up and Down choose while you type); elsewhere
+Down is the field's.
 
 A 2DA shows the copy the game reads, read-only, with its StrRef columns
 (Name, Description, StrRef and the like) as their text; **StrRefs as

@@ -622,7 +622,14 @@ fn condition_page(ui: &mut Ui, w: &mut ScriptWizard, page: usize) {
         5 => {
             ui.horizontal(|ui| {
                 crate::widgets::field_label(ui, "Filter");
-                ui.text_edit_singleline(&mut w.filter);
+                crate::widgets::SearchField::new(
+                    egui::Id::new("script-wizard-feats"),
+                    &mut w.filter,
+                )
+                .hint("Find a feat")
+                .width(200.0)
+                .find_over()
+                .show(ui);
             });
             move_lists(
                 ui,

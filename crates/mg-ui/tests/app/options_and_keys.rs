@@ -179,7 +179,11 @@ fn the_command_palette_finds_a_command_and_runs_it() {
     h.key_press(egui::Key::Enter);
     h.run();
     assert!(h.state().command_palette.is_some(), "nothing to redo: nothing done");
-    // A click runs one; Escape closes without running anything.
+    // A click runs one; Escape clears what is typed (the palette stays),
+    // and Escape again closes without running anything.
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert_eq!(h.state().command_palette.as_ref().map(|f| f.filter.as_str()), Some(""));
     h.key_press(egui::Key::Escape);
     h.run();
     assert!(h.state().command_palette.is_none());

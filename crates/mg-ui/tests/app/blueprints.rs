@@ -2469,7 +2469,7 @@ fn setup_store_makes_the_conversation_script_and_store() {
     assert!(w.hostile, "the bandit's faction");
     h.get_by_label("Next >").click();
     h.run();
-    type_into_hint(&mut h, "Find", "nw_storethief001");
+    type_into_hint(&mut h, "Find a store", "nw_storethief001");
     h.run();
     h.get_by_label_contains("(nw_storethief001)").click();
     h.run();

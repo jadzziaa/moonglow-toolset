@@ -439,11 +439,14 @@ fn page(
             ui.horizontal(|ui| {
                 crate::widgets::field_label(ui, "Appearance");
                 ui.label(chosen);
-                ui.add(
-                    egui::TextEdit::singleline(&mut w.appearance_find)
-                        .hint_text("Find")
-                        .desired_width(160.0),
-                );
+                crate::widgets::SearchField::new(
+                    egui::Id::new("creature-wizard-appearance-find"),
+                    &mut w.appearance_find,
+                )
+                .hint("Find an appearance")
+                .width(160.0)
+                .find_over()
+                .show(ui);
             });
             let needle = mg_core::text::Needle::new(&w.appearance_find);
             let shown: Vec<&Choice> =

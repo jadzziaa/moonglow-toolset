@@ -243,6 +243,9 @@ fn a_plugin_is_off_until_enabled_and_its_command_is_one_undoable_step() {
     h.run();
     type_into_hint(&mut h, "Type a command's name", "tag conv");
     h.get_by_label("Promote the Guards");
+    // (Escape clears the name typed, and closes the palette next.)
+    h.key_press(egui::Key::Escape);
+    h.run();
     h.key_press(egui::Key::Escape);
     h.run();
     // And it takes a key like any command: listed with the plugins'.

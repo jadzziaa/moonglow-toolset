@@ -931,11 +931,14 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
                 ui,
                 |ui| {
                     crate::widgets::field_label(ui, "Filter");
-                    ui.add(
-                        egui::TextEdit::singleline(&mut c.filter)
-                            .hint_text("Name or ResRef")
-                            .desired_width(260.0),
-                    );
+                    crate::widgets::SearchField::new(
+                        egui::Id::new("area-chooser-filter"),
+                        &mut c.filter,
+                    )
+                    .hint("Name or ResRef")
+                    .width(260.0)
+                    .find_over()
+                    .show(ui);
                     ui.end_row();
                     crate::widgets::field_label(ui, "Tileset");
                     let options: Vec<_> = std::iter::once(None)

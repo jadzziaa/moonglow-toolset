@@ -393,11 +393,12 @@ pub(crate) fn open_table_ui(app: &mut Moonglow, ctx: &egui::Context) {
         .default_size([460.0, 440.0])
         .collapsible(false)
         .show(ctx, |ui| {
-            let field = ui.add(
-                egui::TextEdit::singleline(&mut w.filter)
-                    .hint_text("Find by name")
-                    .desired_width(f32::INFINITY),
-            );
+            let field =
+                crate::widgets::SearchField::new(egui::Id::new("open-2da-find"), &mut w.filter)
+                    .hint("Find by name")
+                    .find_over()
+                    .show(ui)
+                    .response;
             crate::widgets::autofocus(ui, &field);
             let entered = ui.input(|i| i.key_pressed(egui::Key::Enter));
             let needle = mg_core::text::Needle::new(&w.filter);
