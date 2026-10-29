@@ -45,6 +45,13 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="2.13.2" date="2026-10-29">
+      <description>
+        <p>A module's haks are loaded again: 2.13.1 opened every module
+        without them. The lit check draws the game's own shader files and
+        says when they draw its test mesh in the wrong colors.</p>
+      </description>
+    </release>
     <release version="2.13.1" date="2026-10-29">
       <description>
         <p>Moonglow catches more ways a graphics driver can fail to draw an
