@@ -2665,9 +2665,6 @@ The Domains of Dread's builder proposal (its section 3): the project file
 (`moonglow.toml`), Make Placeables Static and Setup Store following it,
 and duplicate tags on paste. What is left:
 
-- **A builder code isn't checked against the team's:** two builders who
-  choose one code aren't told; a claims table (C6) could list the codes.
-  (S)
 - **Described variables (C2) are not described further:** an object's or
   a location's value has no description of its values; no `default`,
   no "required on" (a proprietor needs both `tdod_rental` and
@@ -2698,9 +2695,6 @@ File › Project. What is left:
   selected and dragged, its Properties typed in; each change is then
   refused with a line in the log (the area view doesn't turn its tools
   off, nor does a form go gray). (S)
-- **The window can't take another builder's claim** (only `mg claims
-  --force` does), nor hand one to another builder, nor show the table
-  whole (`mg claims` lists it). (S)
 - **A project's command's output is in the log only:** no window of its
   own to read a long output in, and no input (a command that asks for
   a password waits until canceled; its stdin is closed). (S)

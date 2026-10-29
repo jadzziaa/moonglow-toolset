@@ -85,6 +85,18 @@ fn claims_are_listed_claimed_released_and_merged() {
     );
     let out = run(&["claims"], &dir, &["release", "kz_square"]);
     assert!(String::from_utf8_lossy(&out.stderr).contains("claimed by ab, not by cd"));
+    // Handed on: by its holder only, unless forced.
+    let out = run(&["claims"], &dir, &["hand", "kz_square", "--to", "ef"]);
+    assert!(String::from_utf8_lossy(&out.stderr).contains("claimed by ab, not by cd"));
+    let out = run(&["claims"], &dir, &["hand", "kz_square"]);
+    assert!(String::from_utf8_lossy(&out.stderr).contains("--to CODE"));
+    std::fs::write(dir.join(".moonglow/user.toml"), "[builder]\ncode = \"ab\"\n").unwrap();
+    let out = run(&["claims"], &dir, &["hand", "kz_square", "--to", "CD"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "kz_square: handed to cd");
+    std::fs::write(dir.join(".moonglow/user.toml"), "[builder]\ncode = \"cd\"\n").unwrap();
+    let out = run(&["claims"], &dir, &["list"]);
+    assert!(String::from_utf8_lossy(&out.stdout).starts_with("kz_square\tyours\tcd since "));
     let out = run(&["claims"], &dir, &["release", "kz_square", "--force"]);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     let out = run(&["--json", "claims"], &dir, &[]);
@@ -108,6 +120,24 @@ fn claims_are_listed_claimed_released_and_merged() {
     assert!(!out.status.success(), "a merged area's Tag changed is an error");
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(text.contains("claims-tag") && text.contains("merged as KZ_GATE"), "{text}");
+}
+
+/// A builder code chosen that holds claims in the team's table (another
+/// builder's, likely) is said; one's own again, or a free one, isn't.
+#[test]
+fn a_builder_code_that_holds_claims_is_said() {
+    let dir = claimed_folder("mg-claims-code");
+    let code = |c: &str| {
+        let out = crate::mg_output(&["builder-code", dir.to_str().unwrap(), c]);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stderr).into_owned()
+    };
+    code("ab");
+    assert!(run(&["claims"], &dir, &["claim", "kz_square"]).status.success());
+    let said = "ab holds claims in builders/claims.2da (kz_square): if that is another builder's";
+    assert!(!code("ab").contains("holds claims"), "one's own code");
+    assert!(!code("cd").contains("holds claims"), "a free code");
+    assert!(code("AB").contains(said), "a code that holds claims");
 }
 
 #[test]

@@ -1762,6 +1762,104 @@ fn an_area_another_builder_claimed_is_read_only_or_asked_about_before_a_save() {
     assert!(!h.state().has_unsaved_work(), "saved");
 }
 
+/// A builder code chosen that holds another's claims in the team's table
+/// is said in the Builder Code window, and in the log once set; the
+/// builder's own code, or a free one, isn't.
+#[test]
+fn a_builder_code_that_holds_claims_is_said_in_its_window() {
+    let (dir, app) = claimed_project(
+        "ui-claims-code",
+        "[claims]\nfile = \"claims.2da\"\n",
+        &claims_table("cd", "claimed"),
+    );
+    let mut h = harness(app, 1000.0, 700.0);
+    h.run();
+    let said = "cd holds claims in claims.2da (start): if that is another builder's code, choose \
+                your own, or the two of you share those areas and the names of new resources";
+    let draft = |code: &str| mg_ui::builder_code::Draft { code: code.into(), root: dir.clone() };
+    for free in ["ab", "ef"] {
+        h.state_mut().builder_code = Some(draft(free));
+        h.run();
+        assert!(h.query_by_label_contains("holds claims").is_none(), "{free}");
+    }
+    h.state_mut().builder_code = Some(draft("CD"));
+    h.run();
+    h.get_by_label(said);
+    h.key_press(egui::Key::Enter);
+    h.run();
+    assert!(logged(&h, said));
+    assert!(logged(&h, "Your builder code is cd"));
+}
+
+/// C6: Edit › Claims Table… shows the table whole (every area of it and
+/// the module, whose each is), and takes another builder's claim over
+/// (asked first), hands this builder's on, releases and claims.
+#[test]
+fn the_claims_table_window_shows_every_area_and_hands_claims_on() {
+    let table = format!(
+        "{}1   kz_gone          ****     merged   2026-10-01  KZ_GONE\n",
+        claims_table("cd", "claimed")
+    );
+    let (dir, app) =
+        claimed_project("ui-claims-table", "[claims]\nfile = \"claims.2da\"\n", &table);
+    let mut h = harness(app, 1000.0, 700.0);
+    h.run();
+    h.get_by_label("Edit").click();
+    h.run();
+    h.get_by_label("Claims Table…").click();
+    h.run();
+    h.get_by_label("claims.2da: whose each area is. Your code is ab.");
+    h.get_by_label("cd since 2026-10-20");
+    h.get_by_label("kz_gone");
+    h.get_by_label("merged, not in the module");
+    let row = |dir: &std::path::Path| {
+        let text = std::fs::read_to_string(dir.join("claims.2da")).unwrap();
+        text.lines().nth(3).unwrap().split_whitespace().take(3).collect::<Vec<_>>().join(" ")
+    };
+    // A free one: claimed, and released, from the window.
+    h.get_by_label("Claim").click();
+    h.run();
+    let gone = |dir: &std::path::Path| std::fs::read_to_string(dir.join("claims.2da")).unwrap();
+    assert!(gone(&dir).lines().nth(4).unwrap().starts_with("1   kz_gone          ab "));
+    h.get_by_label("Release").click();
+    h.run();
+    assert!(gone(&dir).lines().nth(4).unwrap().starts_with("1   kz_gone          **** "));
+    // Another's: taken over once asked.
+    h.get_by_label("Take Over…").click();
+    h.run();
+    h.get_by_label_contains("start is claimed by cd since 2026-10-20. Taken over");
+    h.get_by_label("Don't Take It").click();
+    h.run();
+    assert_eq!(row(&dir), "0 start cd");
+    h.get_by_label("Take Over…").click();
+    h.run();
+    h.get_by_label("Take It Over").click();
+    h.run();
+    assert_eq!(row(&dir), "0 start ab");
+    assert!(logged(&h, "start taken over from cd by ab, in claims.2da: commit it, and tell them"));
+    h.get_by_label_contains("yours: ab since");
+    // Handed on: not to one's own code.
+    h.get_by_label("Hand To…").click();
+    h.run();
+    type_into_hint(&mut h, "their code", "AB");
+    h.get_by_label("That is your own code.");
+    assert!(h.get_by_label("Hand Over").accesskit_node().is_disabled());
+    h.key_press(egui::Key::Backspace);
+    h.key_press(egui::Key::Backspace);
+    h.run();
+    type_into_hint(&mut h, "their code", "ef");
+    h.get_by_label("Hand Over").click();
+    h.run();
+    assert_eq!(row(&dir), "0 start ef");
+    assert!(logged(&h, "start handed to ef by ab, in claims.2da: commit it, and tell them"));
+    // The window follows the table: another's again.
+    h.get_by_label_contains("ef since");
+    assert!(h.query_by_label("Hand To…").is_none());
+    h.get_by_label("Close").click();
+    h.run();
+    assert!(h.query_by_label("Claims Table").is_none());
+}
+
 /// C6: Claim This Area (the module tree's menu) writes the builder's row
 /// into the claims table, which is read again at once; Release Claim lets
 /// it go; without a builder code, Claim is off.

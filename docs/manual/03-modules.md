@@ -650,7 +650,11 @@ it makes of a name, and writes it into `.moonglow/user.toml`, keeping
 the rest of that file as it is written; **No Code** takes it out. It
 is there for a module folder or a nasher project, not a module kept in
 one file (`.mod`). From a terminal, `mg builder-code PROJECT CODE` does
-the same ([Command-line tools](11-command-line.md)).
+the same ([Command-line tools](11-command-line.md)). In a project that
+keeps a [claims table](#claimed-areas), a code you choose that holds
+claims there (another builder's, likely) is said, in the window as you
+type it and in the log (or by `mg builder-code`) once set: two builders
+with one code share their claims and the names of their new resources.
 
 ```toml
 # .moonglow/user.toml
@@ -886,11 +890,21 @@ areas at once make changes git merges by itself. Commit the table with
 your work so that the others see it. An area another builder claimed is
 theirs to release. Without a builder code, Claim is there and off.
 
+**Edit › Claims Table…** shows the table whole: every area of it and
+of the module, whose each is and since when, merged or protected, and
+those the module doesn't have. Beside each, what you may do: **Claim**
+a free one, **Release** or **Hand To…** one of yours (another builder's
+code, typed: the claim is theirs then), and **Take Over…** another's,
+asked first (their changes to it not yet merged would be the conflict
+version control can't merge: ask them first). Each writes the table as
+the menus do; one taken over or handed on says to tell them.
+
 `mg claims PROJECT` lists every area of the table and the module and
-whose each is; `mg claims PROJECT claim AREA…` and `release AREA…` do
-what the menus do (`--force` takes or releases another's claim, for the
-one who keeps the table), and `merged AREA…` marks areas merged, with
-their Tags as the module has them ([Command-line tools](11-command-line.md)).
+whose each is; `mg claims PROJECT claim AREA…`, `release AREA…` and
+`hand AREA… --to CODE` do what the menus and the window do (`--force`
+takes, releases or hands on another's claim, for the one who keeps the
+table), and `merged AREA…` marks areas merged, with their Tags as the
+module has them ([Command-line tools](11-command-line.md)).
 
 ### Protected areas
 

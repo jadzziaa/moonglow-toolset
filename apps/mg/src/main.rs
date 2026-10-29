@@ -202,21 +202,24 @@ enum Cmd {
     /// The project's claims table (moonglow.toml's `[claims] file`): who
     /// is building which area. Lists every area of the table and the
     /// module, whose each is; claims areas by your builder code, releases
-    /// your claims, or marks areas merged (in the game: their Tag, recorded
-    /// in the table, and ResRef are kept). The table is a file of the
-    /// checkout: commit it.
+    /// your claims or hands them to another builder, or marks areas merged
+    /// (in the game: their Tag, recorded in the table, and ResRef are
+    /// kept). The table is a file of the checkout: commit it.
     Claims {
         /// The project: a module folder, a nasher project's folder or its
         /// nasher.cfg.
         project: PathBuf,
-        /// list, claim, release or merged.
+        /// list, claim, release, hand or merged.
         #[arg(value_enum, default_value = "list")]
         action: claims::Action,
         /// The areas (their ResRefs).
         areas: Vec<String>,
-        /// Claim or release an area another builder holds.
+        /// Claim, release or hand on an area another builder holds.
         #[arg(long)]
         force: bool,
+        /// The builder's code `hand` gives the areas to.
+        #[arg(long)]
+        to: Option<String>,
     },
     /// Report the resources a module's haks provide, their conflicts and the
     /// base-game resources they override.
@@ -1999,6 +2002,16 @@ fn run(cli: &Cli) -> Result<Output> {
             if !root.is_dir() {
                 bail!("{}: not a project's folder", root.display());
             }
+            // (A code that holds claims in the team's table, not yours
+            // before: said.)
+            let taken = code.as_deref().and_then(|c| {
+                let before = ProjectFile::read(root);
+                let c = c.to_ascii_lowercase();
+                let file = before.claims.file.clone().unwrap_or_default();
+                (before.user.builder_code.as_deref() != Some(c.as_str()))
+                    .then(|| before.claim_table.as_ref()?.code_taken(&c, &file))
+                    .flatten()
+            });
             if code.is_some() || *clear {
                 ProjectFile::set_builder_code(root, code.as_deref())?;
             }
@@ -2023,14 +2036,17 @@ fn run(cli: &Cli) -> Result<Output> {
                 )),
                 None => out.line("no builder code: new ResRefs are made from names alone"),
             }
+            if let Some(taken) = taken {
+                out.note(taken);
+            }
             for line in p.errors.iter().chain(&p.warnings) {
                 out.note(line.clone());
             }
             out
         }
         Cmd::Used { module, add, remove, kind } => used(module, add, remove, kind)?,
-        Cmd::Claims { project, action, areas, force } => {
-            claims::run(project, *action, areas, *force)?
+        Cmd::Claims { project, action, areas, force, to } => {
+            claims::run(project, *action, areas, *force, to.as_deref())?
         }
         Cmd::Checks => {
             use mg_module::doctor::Check;

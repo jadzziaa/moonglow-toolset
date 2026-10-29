@@ -5865,6 +5865,28 @@ fn claims_and_project_commands() {
     h.state_mut().actions.push(mg_ui::Action::ProjectCommand("update".into()));
     h.run_steps(3);
     shoot(&mut h, &dir, "claims-command-trust");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run_steps(3);
+    // The Builder Code window: a free code, and one that holds claims.
+    for (code, name) in [("ef", "claims-builder-code-free"), ("cd", "claims-builder-code-taken")] {
+        h.state_mut().builder_code =
+            Some(mg_ui::builder_code::Draft { code: code.into(), root: project.clone() });
+        h.run_steps(3);
+        shoot(&mut h, &dir, name);
+    }
+    h.state_mut().builder_code = None;
+    // Edit › Claims Table…: the table whole, Take Over… asked, Hand To….
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    h.get_by_label("Claims Table…").click();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "claims-table");
+    h.get_by_label("Take Over…").click();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "claims-table-take-over");
+    h.get_by_label("Hand To…").click();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "claims-table-hand-to");
 }
 
 /// What a plugin says before a save (plugin API 0.4, `resource-saving`):

@@ -63,6 +63,16 @@ pub(crate) fn set(app: &mut Moonglow, root: &std::path::Path, code: Option<&str>
     }
 }
 
+/// What the claims table says of a code the builder is choosing (not
+/// the one they have): that it holds another's claims, if it does.
+fn taken(rules: &ProjectFile, code: &str) -> Option<String> {
+    if code.is_empty() || rules.user.builder_code.as_deref() == Some(code) {
+        return None;
+    }
+    let file = rules.claims.file.as_deref().unwrap_or("the claims table");
+    rules.claim_table.as_ref()?.code_taken(code, file)
+}
+
 pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(mut draft) = app.builder_code.take() else { return };
     let rules = app.ws.as_ref().map(|ws| ws.module.project_file.clone()).unwrap_or_default();
@@ -122,6 +132,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     ui.weak(example(Some(&code)));
                 }
             }
+            if let Some(taken) = problem.is_none().then(|| taken(&rules, &code)).flatten() {
+                ui.colored_label(ui.visuals().warn_fg_color, taken);
+            }
             ui.weak(format!(
                 "Kept in this project's .moonglow/user.toml, which version control leaves out. \
                  The team's moonglow.toml says where it goes ([resrefs] pattern: {pattern})."
@@ -137,6 +150,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         });
     if ok {
         let code = draft.code.trim().to_ascii_lowercase();
+        if let Some(taken) = taken(&rules, &code) {
+            app.log.warn(taken);
+        }
         set(app, &draft.root, (!code.is_empty()).then_some(code.as_str()));
     } else if clear {
         set(app, &draft.root, None);
