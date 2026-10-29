@@ -97,8 +97,10 @@ pub(crate) struct CommandsState {
     last: Option<Last>,
     /// The running command's input, where it reads what is typed.
     input: Option<Input>,
-    /// Whether a command is running (the job's window shows its output).
+    /// Whether a command is running (the job's window shows its output),
+    /// and whether the module's haks were let go for it.
     running: bool,
+    released: bool,
     /// The Command Output window is open.
     pub(crate) show: bool,
     /// Lines in the command's window not yet in the log (taken as an
@@ -360,6 +362,7 @@ fn start(app: &mut Moonglow, label: &str, text: &str, root: &Path, (writes, inpu
     let state = &mut app.project_commands;
     state.last = Some(Last { label: label.to_string(), ..Last::default() });
     state.running = true;
+    state.released = released;
     let (send, typed) = std::sync::mpsc::channel::<Option<String>>();
     state.input = input.then(|| Input { text: String::new(), hidden: false, send, focused: false });
     let mut command = shell(text, root, input);
@@ -679,9 +682,13 @@ pub(crate) fn tip(c: &ProjectCommand) -> String {
 /// reads; and the running command's output, into the log.
 pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     take_output(app);
-    // (A command canceled: its job hands nothing over.)
+    // (A command canceled: its job hands nothing over, so what it let go
+    // is taken back here. The haks stayed closed and the project's files
+    // unwatched after a Cancel, before.)
     if app.project_commands.running && !app.busy() {
         ended_with(app, "Canceled (stopped).".to_string());
+        let released = app.project_commands.released;
+        reopened(app, released);
     }
     output_window(app, ctx);
     let Some(ask) = app.project_commands.ask.clone() else { return };

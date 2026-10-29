@@ -2458,6 +2458,56 @@ fn a_project_s_command_shows_its_output_and_takes_what_is_typed() {
     assert!(h.query_by_label("Command Output").is_none(), "closed");
 }
 
+/// A project's command canceled gives back what it let go: the project's
+/// files are looked at again (what it wrote before it was stopped comes
+/// into the module) and its haks opened again, as after one that ends.
+/// (A canceled job hands nothing over: they stayed let go.)
+#[cfg(unix)]
+#[test]
+fn a_project_s_command_canceled_reads_the_project_s_files_again() {
+    let slow = "printf 'void main() {}\\n' > made.nss; sleep 30";
+    let rules = format!("[commands]\nslow = {slow:?}\n");
+    let dir = project_folder("ui-project-commands-cancel", &[("moonglow.toml", &rules)]);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.background_jobs = true;
+    let project = std::fs::canonicalize(&dir).unwrap().display().to_string();
+    app.settings.allowed_commands.push((project, "slow".into(), slow.into()));
+    app.open_module(&dir);
+    let mut h = harness(app, 1000.0, 700.0);
+    // (The area read first, a job of its own.)
+    until_idle(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::ProjectCommand("slow".into()));
+    h.step();
+    let started = std::time::Instant::now();
+    while !dir.join("made.nss").exists() {
+        assert!(started.elapsed().as_secs() < 20, "the command never wrote");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        h.step();
+    }
+    assert!(h.state().busy());
+    // (The job's window shown, its fade in over.)
+    h.run_steps(20);
+    h.get_by_label("Slow");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run_steps(2);
+    until_idle(&mut h);
+    assert!(started.elapsed().as_secs() < 20, "stopped, not waited for");
+    let made = ResKey::parse("made", ResType::NSS).unwrap();
+    while !h.state().ws.as_ref().unwrap().module.contains(&made) {
+        assert!(started.elapsed().as_secs() < 25, "the project's files never read again");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        h.step();
+    }
+    h.get_by_label("File").click();
+    h.run();
+    h.get_by_label("Project").click();
+    h.run();
+    h.get_by_label("Command Output").click();
+    h.run_steps(2);
+    h.get_by_label("Canceled (stopped).");
+}
+
 /// File › Project is there and off for a project that names no commands.
 #[test]
 fn file_project_is_off_without_the_project_s_commands() {
