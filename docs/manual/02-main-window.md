@@ -497,7 +497,8 @@ it), copy it into the module or save it (**Save As…**, also on its
 right-click menu); for a table in one of your own haks, **Edit in
 name.hak** opens it there. With **Overridden copies** (at the top) unticked, it lists
 the copy the game reads alone. **Export N as Files…** writes the copies
-the game reads, not those they override. `mg which NAME.EXT --module
+the game reads into the folder chosen, and each overridden copy listed
+into a folder of its layer's under it (`hak_low/portraits.2da`). `mg which NAME.EXT --module
 MODULE` says the same on the command line.
 
 Its **Name** field has the side panes' keys: Ctrl+F, with the pointer

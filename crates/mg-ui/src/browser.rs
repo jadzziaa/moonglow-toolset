@@ -231,14 +231,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             .add_enabled(narrowed, egui::Button::new(format!("Export {found} as Files…")))
             .on_hover_text(
                 "The resources listed, as loose files in a folder (name.ext), as the load \
-                 order has them (not the copies they override). Choose a type or type part \
-                 of a name first.",
+                 order has them; the overridden copies listed each in a folder of its layer's \
+                 (hak_name/name.ext). Choose a type or type part of a name first.",
             )
             .clicked()
         {
             let keys = (browser.shown.iter().map(|&i| &browser.entries[i]))
-                .filter(|r| r.over.is_none())
-                .map(|r| r.key)
+                .map(|r| (r.key, r.over.as_ref().map(|_| r.layer.clone())))
                 .collect();
             actions.push(Action::SaveResources(keys));
         }
@@ -454,33 +453,55 @@ pub(crate) fn save_as(app: &mut Moonglow, key: ResKey, layer: Option<&str>, as_t
     }
 }
 
+/// The folder an overridden copy goes into, under Export as Files'
+/// folder: its layer's label, in letters, digits, `-` and `_`
+/// (`hak:mg_low` is `hak_mg_low`), a name every system takes.
+fn layer_folder(layer: &str) -> String {
+    let safe = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_';
+    layer.chars().map(|c| if safe(c) { c } else { '_' }).collect()
+}
+
 /// Export as Files: the resources listed, each as `name.ext` in a folder
-/// the user chooses.
-pub(crate) fn export(app: &mut Moonglow, keys: &[ResKey]) {
+/// the user chooses; an overridden copy (with its layer's label) as its
+/// layer has it, in a folder of the layer's under that one
+/// ([`layer_folder`]).
+pub(crate) fn export(app: &mut Moonglow, keys: &[(ResKey, Option<String>)]) {
     let Some(game) = &app.game else { return };
     let Some(dir) = app.dialogs.pick_folder("Export as files into", app.export_dir.as_deref())
     else {
         return;
     };
-    let (mut written, mut as_text) = (0, 0);
-    for key in keys {
-        let Ok(data) = game.resman.get(key) else { continue };
+    let (mut written, mut as_text, mut copies) = (0, 0, 0);
+    for (key, layer) in keys {
+        let Some(data) = read_copy(&game.resman, key, layer.as_deref()) else { continue };
         // (Asked for: a compiled model as its text; one that can't be
         // read so goes out as it is.)
         let text = (app.browser.models_as_text).then(|| model_text(*key, &data)).flatten();
         as_text += usize::from(text.is_some());
         let data = text.map_or(data, |t| t.into_bytes().into());
-        if let Err(e) = key.path_in(&dir).and_then(|path| std::fs::write(path, &data)) {
-            app.log.error(format!("Could not write to {}: {e}", dir.display()));
+        let into = match layer {
+            Some(layer) => dir.join(layer_folder(layer)),
+            None => dir.clone(),
+        };
+        let wrote = std::fs::create_dir_all(&into)
+            .and_then(|()| key.path_in(&into))
+            .and_then(|path| std::fs::write(path, &data));
+        if let Err(e) = wrote {
+            app.log.error(format!("Could not write to {}: {e}", into.display()));
             return;
         }
         written += 1;
+        copies += usize::from(layer.is_some());
     }
     let models = match as_text {
         0 => String::new(),
         n => format!(" ({n} compiled models as text)"),
     };
-    app.log.info(format!("Exported {written} resources to {}{models}", dir.display()));
+    let copies = match copies {
+        0 => String::new(),
+        n => format!(", {n} overridden copies in folders of their layers"),
+    };
+    app.log.info(format!("Exported {written} resources to {}{models}{copies}", dir.display()));
     app.export_dir = Some(dir);
 }
 

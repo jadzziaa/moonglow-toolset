@@ -134,7 +134,12 @@ fn the_browser_lists_the_copies_a_higher_layer_overrides() {
     let path = module_with_two_tables(&dir, &user);
     let saved = dir.join("saved.2da");
     let install = mg_resman::GameInstall::new(&root, Some(user), "en");
-    let dialogs = NoDialogs { save: vec![saved.clone()], ..Default::default() };
+    let exported = dir.join("exported");
+    let dialogs = NoDialogs {
+        save: vec![saved.clone()],
+        folders: vec![exported.clone()],
+        ..Default::default()
+    };
     let mut app = Moonglow::new(Some(install), Box::new(dialogs));
     app.settings.no_last_area = true;
     app.open_module(&path);
@@ -174,6 +179,22 @@ fn the_browser_lists_the_copies_a_higher_layer_overrides() {
     h.get_by_label("Save As…").click();
     h.run();
     assert!(std::fs::read_to_string(&saved).unwrap().contains("mg_low"));
+
+    // Exported as files: the copy the game reads, and each it overrides
+    // in a folder of its layer's.
+    close_tab(h.state_mut(), &tab);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resources));
+    h.run();
+    h.get_by_label_contains("as Files…").click();
+    h.run();
+    let read = |p: &str| std::fs::read_to_string(exported.join(p)).unwrap_or_default();
+    assert!(read("portraits.2da").contains("mg_top"), "the one the game reads");
+    assert!(read("hak_mg_low/portraits.2da").contains("mg_low"), "the lower hak's");
+    let folders =
+        std::fs::read_dir(&exported).unwrap().filter(|e| e.as_ref().unwrap().path().is_dir());
+    assert_eq!(folders.count(), game, "a folder a copy overridden");
+    let said = format!("{game} overridden copies in folders of their layers");
+    assert!(h.state().log.entries.iter().any(|(_, m)| m.contains(&said)), "said");
 
     // Without the overridden copies: the one the game reads.
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resources));
@@ -1215,10 +1236,10 @@ fn compiled_models_are_saved_as_text() {
     };
     app.run(mg_ui::Action::SaveModelText(key, None));
     assert!(is_text(&dir.join("one.mdl")));
-    app.run(mg_ui::Action::SaveResources(vec![key]));
+    app.run(mg_ui::Action::SaveResources(vec![(key, None)]));
     assert!(!is_text(&plain.join("plc_a01.mdl")), "as it is, unless asked");
     app.browser.models_as_text = true;
-    app.run(mg_ui::Action::SaveResources(vec![key]));
+    app.run(mg_ui::Action::SaveResources(vec![(key, None)]));
     assert!(is_text(&text.join("plc_a01.mdl")));
     assert!(app.log.entries.iter().any(|(_, m)| m.contains("1 compiled models as text")));
 }

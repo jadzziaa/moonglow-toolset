@@ -253,8 +253,9 @@ pub enum Action {
     SaveResource(ResKey, Option<String>),
     /// A model of the load order saved as text (decompiled).
     SaveModelText(ResKey, Option<String>),
-    /// The resource browser's Export as Files: those listed, into a folder.
-    SaveResources(Vec<ResKey>),
+    /// The resource browser's Export as Files: those listed, into a folder
+    /// (an overridden copy with its layer's label, as that layer has it).
+    SaveResources(Vec<(ResKey, Option<String>)>),
     /// The same, as JSON (`nwn_tlk`'s).
     TalkJson(bool),
     /// The talk table editor opens a `.tlk` file anywhere, or (true) makes
