@@ -452,6 +452,12 @@ pub struct AreaView {
     /// Circles where each placed sound is heard at full volume and where
     /// it stops.
     pub sound_ranges: bool,
+    /// The toolbar's Minimap: the area's map in the view's corner.
+    pub minimap: bool,
+    /// The map, as last drawn ([`crate::minimap::of`]), and where it is
+    /// on the screen while it is shown.
+    map: Option<crate::minimap::Map>,
+    pub map_rect: Option<Rect>,
     pub grid: bool,
     /// Which kinds of object are shown, by [`ObjectKind::index`].
     pub show: [bool; 9],
@@ -895,6 +901,9 @@ impl AreaView {
             light_shadows: true,
             shadows_before: None,
             sound_ranges: false,
+            minimap: false,
+            map: None,
+            map_rect: None,
             grid: true,
             show: [true; 9],
             show_start: true,
@@ -1573,6 +1582,7 @@ impl AreaView {
     pub(crate) fn is_over(&self, ui: &egui::Ui, pos: Pos2) -> bool {
         let layer = ui.ctx().layer_id_at(pos);
         self.rect.contains(pos)
+            && !self.map_rect.is_some_and(|r| r.expand(2.0).contains(pos))
             && !layer.is_some_and(|l| l != ui.layer_id() && l.order != egui::Order::Tooltip)
     }
 
@@ -2223,6 +2233,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
         view.creature_shadows = !app.settings.no_creature_shadows;
         view.light_shadows = !app.settings.no_light_shadows;
         view.sound_ranges = app.settings.sound_ranges;
+        view.minimap = app.settings.area_minimap;
         view.fade = Fade::of(app.settings.fade_geometry);
         // (Where its camera was, if a module's kept tabs opened it again.)
         if let Some((orbit, night)) =
@@ -2471,6 +2482,19 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             app.set_game_shaders(shaders);
         }
         tools.toggle(ui, &mut view.grid, icons::GRID, "Grid", "Display Grid");
+        if tools
+            .toggle(
+                ui,
+                &mut view.minimap,
+                icons::MINIMAP,
+                "Minimap",
+                "The area's map in the view's corner, as the game's map draws it, with where the \
+                 camera looks: click or drag on it to look there",
+            )
+            .changed()
+        {
+            app.settings.area_minimap = view.minimap;
+        }
         // Aurora's Play Placed Sounds, Play Ambient Sound, Play Ambient
         // Music (the Options › Sounds settings).
         let mut placed = !app.settings.no_placed_sounds;
@@ -3137,8 +3161,73 @@ fn viewport(
     // next step is due.
     let due = view.drawn.as_ref().map_or(0.0, |(_, at)| ANIMATION_STEP - (view.time - at));
     ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(due.clamp(0.0, 1.0)));
+    // (The map last: over the rest, and the pointer's there.)
+    minimap_overlay(app, ui, view);
     input(app, ui, view, &response);
 }
+
+/// The area's map in the view's top right corner (the toolbar's
+/// Minimap), as the game's map draws it: where the camera looks (its
+/// target, and the way it faces), and the objects selected. A click or a
+/// drag on it moves the camera's target there.
+fn minimap_overlay(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
+    view.map_rect = None;
+    if !view.minimap {
+        return;
+    }
+    let mut kept = view.map.take();
+    let map = crate::minimap::of(app, ui.ctx(), view.area, &mut kept).cloned();
+    view.map = kept;
+    let Some(map) = map else { return };
+    let side = (view.rect.width().min(view.rect.height()) * 0.3).clamp(80.0, MINIMAP_SIDE);
+    let rect = map.placed(view.rect.right_top() + egui::vec2(-10.0, 10.0), side);
+    let painter = ui.painter_at(view.rect);
+    map.draw(&painter, rect);
+    let map_painter = painter.with_clip_rect(rect);
+    if let Some(model) = &view.model {
+        for o in view.chosen(model) {
+            let at = map.to_map(rect, o.position.truncate());
+            map_painter.circle_filled(at, 2.5, Color32::YELLOW);
+        }
+    }
+    if let Some(o) = view.orbit {
+        let camera = o.camera();
+        let at = map.to_map(rect, o.target.truncate());
+        // The way it looks: from the target on, as far as the camera is
+        // (a little at least).
+        if let Some(ahead) = (camera.target - camera.eye).truncate().try_normalize() {
+            let reach = (o.distance * 0.5).clamp(4.0, 40.0);
+            let tip = map.to_map(rect, o.target.truncate() + ahead * reach);
+            let wing = |turn: f32| {
+                let d = Vec2::from_angle(turn).rotate(ahead);
+                map.to_map(rect, o.target.truncate() + d * reach * 0.6)
+            };
+            let fill = Color32::from_rgba_unmultiplied(255, 255, 255, 50);
+            let edge = Stroke::new(1.0, Color32::from_gray(230));
+            let wedge = vec![at, wing(0.5), tip, wing(-0.5)];
+            map_painter.add(egui::Shape::convex_polygon(wedge, fill, edge));
+        }
+        map_painter.circle_filled(at, 3.5, Color32::WHITE);
+        map_painter.circle_stroke(at, 3.5, Stroke::new(1.0, Color32::BLACK));
+    }
+    let id = ui.id().with(("minimap", view.area));
+    let r = ui.interact(rect, id, egui::Sense::click_and_drag());
+    let r = r.on_hover_cursor(egui::CursorIcon::PointingHand);
+    if (r.clicked() || r.dragged())
+        && let Some(p) = r.interact_pointer_pos()
+        && let Some(o) = view.orbit.as_mut()
+    {
+        let to = map.from_map(rect, p);
+        let z = o.target.z;
+        let ground = view.ground.as_ref().and_then(|g| g.height(to, z));
+        o.target = to.extend(ground.unwrap_or(z));
+        ui.ctx().request_repaint();
+    }
+    view.map_rect = Some(rect);
+}
+
+/// The longest side of the view's map, points.
+const MINIMAP_SIDE: f32 = 240.0;
 
 /// The ground's walkmesh over the view: walkable faces (surfacemat.2da
 /// `Walk`) green, the others red.

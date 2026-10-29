@@ -4265,6 +4265,107 @@ fn a_read_only_area_is_looked_at_and_its_tools_are_off() {
     assert_eq!(refused(&h), None);
 }
 
+/// The toolbar's Minimap: the area's map in the view's corner, as the
+/// game's map draws it, with where the camera looks; a click on it moves
+/// the camera's target there and leaves the selection be, and the switch
+/// is kept for the views opened after.
+#[test]
+fn the_minimap_shows_the_area_and_a_click_on_it_looks_there() {
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("minimap") else { return };
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 0)];
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].map_rect, None, "off at first");
+    let named = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.label().is_some_and(|l| l.ends_with(" Minimap"))
+    };
+    h.get(egui_kittest::kittest::by().predicate(named)).click();
+    h.run_steps(3);
+    assert!(h.state().settings.area_minimap, "kept");
+    let rect = h.state().area_views[&area].map_rect.expect("the map is shown");
+    let view = h.state().area_views[&area].rect;
+    assert!((rect.width() - rect.height()).abs() < 0.5, "a 4 by 4 area's is square");
+    assert!(view.contains_rect(rect) && rect.right() > view.center().x, "in the view's corner");
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-area-minimap-shot").join("minimap.png")).unwrap();
+    // The tiles' pictures, not the black of a tile without one.
+    let ppp = img.width() as f32 / h.ctx.content_rect().width();
+    let p = img.get_pixel(((rect.left() + 4.0) * ppp) as u32, ((rect.top() + 4.0) * ppp) as u32);
+    assert!(p[0] as u32 + p[1] as u32 + p[2] as u32 > 60, "a tile's picture: {p:?}");
+    // A click toward its south-east corner: the camera looks at 35, 5.
+    let at = rect.min + egui::vec2(rect.width() * 0.875, rect.height() * 0.875);
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let target = h.state().area_views[&area].orbit.unwrap().target;
+    assert!((target.x - 35.0).abs() < 0.5 && (target.y - 5.0).abs() < 0.5, "{target}");
+    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Waypoint, 0)]);
+}
+
+/// Setup Area Transition picks the door or waypoint a transition leads
+/// to on its area's map, as Aurora's `TdlgAreaTransition` does: a click
+/// on a waypoint's dot takes it, OK sets Destination Tag and its type;
+/// what is clicked in the lists and canceled changes nothing.
+#[test]
+fn setup_area_transition_picks_on_the_target_area_s_map() {
+    let prepare = |m: &mut Module, game: &mg_rules::GameData, area: ResRef| {
+        let git_key = ResKey::new(area, ResType::GIT);
+        let mut git = m.gff(&git_key).unwrap().unwrap();
+        for (w, tag) in
+            git.root.list_mut("WaypointList").unwrap().iter_mut().zip(["WP_WEST", "WP_EAST"])
+        {
+            w.set("Tag", mg_gff::Value::String(tag.as_bytes().to_vec()));
+        }
+        m.set_gff(git_key, &git).unwrap();
+        let resref = ResRef::from_str("transit").unwrap();
+        let mut utt = mg_module::blueprints::trigger(game, resref, "Transit", 0);
+        utt.root.set("Type", mg_gff::Value::Int(1));
+        m.set_gff(ResKey::new(resref, ResType::UTT), &utt).unwrap();
+    };
+    let Some((mut h, _)) = area_harness_with("transition", "ttr01", None, 4, None, &prepare) else {
+        return;
+    };
+    let key = ResKey::parse("transit", ResType::UTT).unwrap();
+    let linked = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let root = &ws.doc(&key).unwrap().root;
+        let tag = String::from_utf8_lossy(root.string("LinkedTo").unwrap_or_default()).into_owned();
+        (tag, root.integer("LinkedToFlags").unwrap_or(0))
+    };
+    let before = linked(&mut h);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
+    h.run_steps(3);
+    h.get_all_by_label("Area Transition").next().unwrap().click();
+    h.run_steps(2);
+    // Clicked in a list and canceled: nothing changes.
+    h.get_by_label("Setup Area Transition…").click();
+    h.run_steps(3);
+    h.get_by_label("WP_WEST").click();
+    h.run_steps(1);
+    h.get_by_label("Leads to the waypoint tagged WP_WEST");
+    h.get_all_by_label("Cancel").last().unwrap().click();
+    h.run_steps(3);
+    assert_eq!(linked(&mut h), before);
+    // On the map: the east waypoint, at 30, 20 of the area's 40 by 40 m.
+    h.get_by_label("Setup Area Transition…").click();
+    h.run_steps(3);
+    let map = h.get_by_label("The area's map").rect();
+    let east = egui::pos2(map.left() + map.width() * 0.75, map.bottom() - map.height() * 0.5);
+    h.hover_at(east);
+    h.run_steps(2);
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-transition-shot").join("setup_transition.png")).unwrap();
+    press(&h, east, true, egui::Modifiers::NONE);
+    press(&h, east, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    h.get_by_label("Leads to the waypoint tagged WP_EAST");
+    h.get_all_by_label("OK").last().unwrap().click();
+    h.run_steps(3);
+    assert_eq!(linked(&mut h), ("WP_EAST".to_string(), 2));
+    assert!(h.query_by_label("The area's map").is_none(), "closed");
+}
+
 /// A look (`MG_SHOT=1`): a dragon selected in an area, its box around it
 /// as it stands.
 #[test]

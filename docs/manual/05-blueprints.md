@@ -212,8 +212,8 @@ The palette's buttons:
   creature's Alignment, the Mouse Cursor and Text Bubble, and those of
   Options, Module Properties, the conversation, NUI, 2DA and tileset
   editors, the wizards, the resource browser and Advanced Search, and a
-  described variable's ▾ of its values. The lists of commands (Add hak…,
-  Setup Area Transition…) and of ticks (a 2DA's flags) take them too:
+  described variable's ▾ of its values. The lists of commands (Add
+  hak…) and of ticks (a 2DA's flags) take them too:
   Down opens one, Up and Down (Home, End) go along its rows, and Enter or
   Space does what a click there does (a command closes the list; a tick
   leaves it open for the next). Escape closes a list and gives up the
@@ -672,6 +672,16 @@ Transition** (doors: to a door or waypoint in another area), Scripts,
 Advanced, Visuals, Description, Comments. A placeable with an inventory
 has an **Inventory** page. It can have one without being usable: players
 can't open it, but scripts can reach what it holds.
+
+**Setup Area Transition…**, on a door's or an area transition trigger's
+Area Transition page, picks where it leads, as Aurora's does: choose the
+**Target Area**, then click a door (a blue square) or a waypoint (a green
+dot) on its map ([Minimaps](04-areas.md#minimaps); the one under the
+pointer named beside it), or in the lists of its doors and waypoints
+with tags beside the map. **OK** (or a double click) sets **Destination
+Tag** to its tag and **Destination is a** to Door or Waypoint, one step
+to undo; Cancel changes nothing. The window opens on the area of the
+destination set, where there is one.
 
 Ticking **Static** on a placed placeable takes its visual transform off
 (its scale, rotations and offsets from Adjust Location or the rings), as

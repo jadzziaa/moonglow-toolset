@@ -3236,7 +3236,7 @@ impl Dropdown {
         r
     }
 
-    /// A dropdown of commands (Add hak…, Setup Area Transition…) or of
+    /// A dropdown of commands (Add hak…) or of
     /// ticks (the 2DA editor's flags), not one choice: once its box is
     /// clicked or reached with Tab, Up and Down open it and move a cursor
     /// along its rows (Home and End: the first and last), and Enter or

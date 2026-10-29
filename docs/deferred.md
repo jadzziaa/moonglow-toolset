@@ -816,9 +816,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   distances 3 and 12, from above and pitched). The random position's
   rectangle is as Aurora's now (its ranges wide, half each way). (S: the
   spheres, drawn as a few rings of dots)
-- **The minimap in Moonglow:** the area view has no map panel of its own,
-  and Area Transition setup picks its target from a list rather than a
-  map. (S–M)
+- **Setup Area Transition's Connection Type:** the window picks a door
+  or waypoint on the target area's map or in its lists, as Aurora's
+  `TdlgAreaTransition` does, but has none of its Connection Type (Both
+  Ways, Current To Target, Target To Current) nor its Target Type
+  Trigger: the target linked back to this door or trigger. What Aurora
+  writes to the target (its `LinkedTo`, and `LinkedToFlags` where either
+  end is a trigger) waits on a capture of the dialog in Aurora; Moonglow
+  then writes the same as one step. (S–M, needs Aurora) (what was left of
+  "The minimap in Moonglow", 2026-10-29)
 - **Fade Geometry, `tilefade` 4:** Never, Object Mode Only and Always
   were compared with Aurora (2026-10-29): its Object Mode Only fades in
   Select Objects and not in Select Terrain, as Moonglow's; the rural

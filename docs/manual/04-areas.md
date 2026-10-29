@@ -63,6 +63,12 @@ palette's Gallery is 🖼, the Grid ⊞.
   at the area's foot as well. The fog is drawn as the game's camera (at most 20 m from
   the player) would see it from where the view looks, so a view from
   farther off isn't lost in it.
+- **🗾 Minimap**: the area's map in the view's top right corner, as the
+  game's map draws it ([Minimaps](#minimaps)), with where the camera
+  looks (a white dot, and a wedge the way it faces) and the selected
+  objects (yellow dots). Click or drag on it to look there: the
+  camera's target goes to that place, the camera keeping its turn and
+  distance. Areas opened later open as you left it.
 - **▶ Animations**: creatures and other placed objects play their
   animations, and those with particles show them (a campfire's flames,
   magic sparks, a portal: placeables that are only an effect show
@@ -211,6 +217,10 @@ the area's map as a PNG, as the game's map draws it: each tile's picture
 tiles included. A tile without a picture is black, as in the game. `mg
 minimap` does the same from the command line. Each picture keeps its own
 size unless `--size` sets one; the game's are mostly 16 pixels.
+
+The same map shows in the area view's corner with the toolbar's
+**🗾 Minimap**, and in **Setup Area Transition**, where a door's or
+trigger's destination is picked on it ([Blueprints](05-blueprints.md#placeables-and-doors)).
 
 ## The camera
 
