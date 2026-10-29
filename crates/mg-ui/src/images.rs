@@ -417,6 +417,18 @@ impl Moonglow {
     /// armor is shown on one (Options › General).
     pub fn item_icon(&mut self, ctx: &egui::Context, item: &Struct) -> Vec<Picture> {
         let female = self.settings.armor_on_woman;
+        self.item_icon_of(ctx, item, female)
+    }
+
+    /// An item's inventory icon as a woman's inventory shows it, where
+    /// `female`, else as a man's: a creature's own (the game shows a
+    /// woman's armor with her `ipf_` icons, seen in the client).
+    pub fn item_icon_of(
+        &mut self,
+        ctx: &egui::Context,
+        item: &Struct,
+        female: bool,
+    ) -> Vec<Picture> {
         self.loader().map(|mut l| l.item_icon_on(ctx, item, female)).unwrap_or_default()
     }
 }

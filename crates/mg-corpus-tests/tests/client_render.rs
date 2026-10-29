@@ -60,6 +60,8 @@ mod heads;
 mod heed;
 #[path = "client_render/programs.rs"]
 mod programs;
+#[path = "client_render/readings.rs"]
+mod readings;
 #[path = "client_render/shadows.rs"]
 mod shadows;
 #[path = "client_render/soft_particles.rs"]
@@ -714,8 +716,15 @@ void main()
 /// milliseconds (999-1000 a second, at 2 and at 10 minutes an hour), the
 /// frame counter the client's frames (54-55 a second here, about 370 some
 /// 7 seconds after entering the area). The timer's value follows neither
-/// the module's hour nor its day: about 424,800 there at 2 minutes an
-/// hour, 3,304,900 at 10 (six game hours' worth more), its origin unknown. Needs the game, a GPU and the off-screen display;
+/// the module's hour nor its day nor its dawn: it is a fixed count, about
+/// 17,697,400 as the player enters the area, taken within the module's
+/// day (24 of its hours in real milliseconds), so that it shows 424,400
+/// seven seconds in at 1, 2, 3, 4 and 6 minutes an hour, 3,304,400 at 5
+/// and 10, 6,184,400 at 8 and the count itself from 15 up (2026-10-29,
+/// the same at 2 and 10 as on 2026-10-21): what Moonglow's
+/// [`mg_render::world_timer`] gives, which the first shot is held to.
+/// `MG_TIME_CASES` gives other cases (`hour:minutes:day:dawn`, comma
+/// separated). Needs the game, a GPU and the off-screen display;
 /// run by hand (`--ignored`).
 #[test]
 #[ignore]
@@ -727,7 +736,25 @@ fn time_uniforms_in_the_client() {
     // (Modules starting at other hours and days, with another number of
     // minutes an hour: what the timer depends on.) (start hour, minutes an
     // hour, start day)
-    for (hour, minutes, day) in [(13u8, 2u8, 1u8), (6, 2, 1), (13, 10, 1), (13, 2, 15)] {
+    let mut cases = vec![
+        (13u8, 2u8, 1u8, 6u8),
+        (6, 2, 1, 6),
+        (13, 10, 1, 6),
+        (13, 2, 15, 6),
+        (13, 2, 1, 8),
+        (13, 8, 1, 6),
+        (13, 30, 1, 6),
+    ];
+    if let Ok(v) = std::env::var("MG_TIME_CASES") {
+        cases = v
+            .split(',')
+            .map(|c| {
+                let n: Vec<u8> = c.split(':').map(|x| x.parse().unwrap()).collect();
+                (n[0], n[1], n[2], n[3])
+            })
+            .collect();
+    }
+    for (hour, minutes, day, dawn) in cases {
         let dir = scratch_dir(&format!("client_time_{hour}_{minutes}_{day}"));
         let light =
             Lighting { ambient: 0x404040, diffuse: 0x808080, main_light: 0, only_tile: None };
@@ -740,6 +767,8 @@ fn time_uniforms_in_the_client() {
         info.root.write(&ifo::MOD_START_HOUR, hour);
         info.root.write(&ifo::MOD_MIN_PER_HOUR, minutes);
         info.root.write(&ifo::MOD_START_DAY, day);
+        info.root.write(&ifo::MOD_DAWN_HOUR, dawn);
+        info.root.write(&ifo::MOD_DUSK_HOUR, dawn.max(12) + 6);
         m.set_info(&info).unwrap();
         std::fs::create_dir_all(dir.join("user/override")).unwrap();
         std::fs::write(dir.join("user/settings.tml"), SETTINGS).unwrap();
@@ -789,6 +818,12 @@ fn time_uniforms_in_the_client() {
         assert!((timer_rate - 1000.0).abs() < 50.0, "{timer_rate}");
         // A frame count (as fast as the client draws).
         assert!(frame_rate > 10.0, "{frame_rate}");
+        // From its origin, within the module's day: the first shot is
+        // some seven seconds after the player entered (the entry script's
+        // four, the three before the shots).
+        let ours = mg_render::world_timer(7.0, u32::from(minutes));
+        eprintln!("{hour}h {minutes}min/h day {day}: first shot {}, Moonglow's {ours}", first.1);
+        assert!((first.1 - i64::from(ours)).abs() < 1500, "{} against {ours}", first.1);
     }
 }
 

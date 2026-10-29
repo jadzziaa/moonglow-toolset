@@ -182,7 +182,8 @@ the module is opened again from its file.
   shows it (`ipf_` parts; a cloak's is the man's, the game having no
   other), in inventories, a store's pages, the palette's pictures and
   Preview and the item's Properties, whose Appearance page's **Shown
-  on** changes it too. Off by default: a man's.
+  on** changes it too. Off by default: a man's. A creature's own
+  Inventory page shows the icons of its Gender, as the game does.
 - **Read Steam Workshop content**: off by default, as in Aurora: an item
   you subscribed to for play is not your module's, and a module that
   needs it works only for players who have it too. On, the Steam

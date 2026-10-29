@@ -578,7 +578,9 @@ fn program_choice_in_the_client() {
     let (mut m, mut are) = build_module_on(&game, &dir, light, &tileset, 0);
     std::fs::write(dir.join("user/settings.tml"), SETTINGS).unwrap();
     let are_key = *m.keys_of(ResType::ARE).next().unwrap();
-    are.root.set("WindPower", Value::Int(2));
+    // (`MG_WIND`: the area's wind power, 0 to 2; 2 by default.)
+    let wind = std::env::var("MG_WIND").ok().and_then(|w| w.parse().ok()).unwrap_or(2);
+    are.root.set("WindPower", Value::Int(wind));
     for t in are.root.list_mut("Tile_List").unwrap().iter_mut() {
         t.set("Tile_Orientation", Value::Int(1));
     }

@@ -86,8 +86,8 @@ pub struct AreaTile {
     pub source_lights: [u8; 2],
     /// Whether animation loops `animloop01`..`03` play.
     pub anim_loops: [bool; 3],
-    /// The texture the model's `replace_tex` is drawn with
-    /// (`Tile_ReplaceTex`, a `replacetexture.2da` row; lower case).
+    /// The texture the model's `replace_tex` is drawn with (lower case):
+    /// see [`replacement_row`].
     pub replace_texture: Option<String>,
     /// The centre of the tile's floor.
     pub position: Vec3,
@@ -584,6 +584,21 @@ pub struct AreaModel {
     pub problems: Vec<String>,
 }
 
+/// The `replacetexture.2da` row a tile's `Tile_ReplaceTex` draws its
+/// model's `replace_tex` texture with, as the client draws it (read with
+/// the one model that has one, `tms01_c08_01`, as every tile of an area,
+/// 89.8193.37: `reading_tile_replacement_texture` in `client_render.rs`):
+/// the row before the value's (1 is row 0, 2 row 1), row 0 for a tile
+/// without the field. None for 0, and for a value past the table, which
+/// the client crashes on (in `CNWCTile::SetReplaceTexture`) as it loads
+/// the area.
+pub fn replacement_row(value: Option<i64>) -> Option<usize> {
+    match value {
+        None => Some(0),
+        Some(v) => usize::try_from(v).ok()?.checked_sub(1),
+    }
+}
+
 impl AreaModel {
     /// Reads an area from its ARE and GIT (their root structs) with its
     /// tileset (`None` when it is missing: the tiles have no models).
@@ -632,12 +647,8 @@ impl AreaModel {
                     main_lights: [byte("Tile_MainLight1"), byte("Tile_MainLight2")],
                     source_lights: [byte("Tile_SrcLight1"), byte("Tile_SrcLight2")],
                     anim_loops: [1, 2, 3].map(|n| int(&format!("Tile_AnimLoop{n}")) != 0),
-                    replace_texture: t
-                        .integer("Tile_ReplaceTex")
-                        .and_then(|row| {
-                            let t = replacements.as_ref()?;
-                            t.get(usize::try_from(row).ok()?, "TEXTURENAME")
-                        })
+                    replace_texture: replacement_row(t.integer("Tile_ReplaceTex"))
+                        .and_then(|row| replacements.as_ref()?.get(row, "TEXTURENAME"))
                         .map(str::to_ascii_lowercase),
                     position: Vec3::new(
                         (column as f32 + 0.5) * TILE_SIZE,
@@ -869,11 +880,22 @@ doneanim animloop02 tst01_a01_01\ndonemodel tst01_a01_01\n";
         let mut are = Struct::new(0);
         are.set("Width", Value::Int(2));
         are.set("Height", Value::Int(1));
-        let mut replaced = Struct::new(1);
-        replaced.set("Tile_ReplaceTex", Value::Byte(1));
-        are.set("Tile_List", Value::List(vec![replaced, Struct::new(1)]));
+        are.set("Width", Value::Int(5));
+        // (As the client draws them: the value is one past the row; a tile
+        // without the field takes row 0; 0 and a value past the table are
+        // no row, which the client crashes on.)
+        let tile = |v: Option<u8>| {
+            let mut t = Struct::new(1);
+            if let Some(v) = v {
+                t.set("Tile_ReplaceTex", Value::Byte(v));
+            }
+            t
+        };
+        let values = [Some(2), Some(1), None, Some(0), Some(3)];
+        are.set("Tile_List", Value::List(values.into_iter().map(tile).collect()));
         let area = AreaModel::read(&game, &are, &Struct::new(0xFFFF_FFFF), None);
-        assert_eq!(area.tiles[0].replace_texture.as_deref(), Some("t_flag03"));
-        assert_eq!(area.tiles[1].replace_texture, None);
+        let drawn: Vec<Option<&str>> =
+            area.tiles.iter().map(|t| t.replace_texture.as_deref()).collect();
+        assert_eq!(drawn, [Some("t_flag03"), Some("t_flag02"), Some("t_flag02"), None, None]);
     }
 }

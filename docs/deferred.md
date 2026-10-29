@@ -225,8 +225,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   again after a change (`mg test` is a run of its own). A test holds
   the `--serve` half on Linux (a change put out, the server started
   again at its port after a build, `/quit`). (M, S, S, M, S)
-- **Choose Character:** Test Module, Choose Character uses the game's
-  `+LoadNewModule` (from nwn.wiki), never run in the game client. (S)
 - **Test Module and Steam:** the game started for a test is told which
   Steam game it is (`SteamAppId`), so that a Steam copy reaches a running
   Steam and loads the Workshop's content, as when started from Steam;
@@ -301,15 +299,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   `ActionEquipItem` was refused too; without the properties it was
   worn). Moonglow draws whatever the file has equipped. Which
   properties keep an item off wasn't looked into. (S–M)
-- **A placeable's illumination, what's left:** **Illuminated** off now
-  leaves out the appearance's light in the area view and the preview
-  (read from the client: `model_light_uniforms`), and the box can be set
-  whatever the appearance. Not looked at: the glow that goes with the
-  light (a lamp's self-illuminated flame, which is the model's own
-  animation state, the separate Initial State), and whether Aurora shows
-  or keeps the field. Which `LightColor` the engine counts as a light
-  (Moonglow: a row above 0) was checked on rows 1 and 25. (S) (Jasperre's
-  reports, October 2026)
 - **The PC faction, what's left:** the faction lists, the Store Wizard
   and Verify (`pc-faction`) keep objects out of faction 0. Not done:
   `mg set` and the raw fields view still write 0 if told to (Verify
@@ -342,16 +331,17 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   game's `replacetexture.2da` has two rows, both `T_Flag02`; the one
   model with a `replace_tex` texture, `tms01_c08_01`, is in no tileset
   (not in `tms01.set`); none of BioWare's 20 campaign modules
-  (`data/nwm`) writes the field. Not known: whether the client draws
-  it. To settle it: a scratch user directory whose `override` has a
-  copy of `tms01.set` with a tile's model made `tms01_c08_01` (its
-  `.wok` checked), an area of that tile with and without the field,
-  screenshotted with `tools/nwclient/run-client.sh` (two client runs;
-  the pictures differing is the answer). One in a file is kept, shown
-  and editable in the raw fields, and the area view still draws it
-  (`mg-area` `scene.rs`), unverified. If the client draws it, the
-  field can come back with that test. (S to M)
-  (from a builder's tile feedback, October 2026)
+  (`data/nwm`) writes the field. The client draws it (2026-10-29,
+  `reading_tile_replacement_texture`, an area's tiles made
+  `tms01_c08_01`): a value is the row after the one drawn (1 draws row
+  0, 2 row 1), a tile without the field draws row 0, and 0 or a value
+  past the table crashes the client as it loads the area
+  (`CNWCTile::SetReplaceTexture`); the area view now draws as the
+  client does (`mg_area::replacement_row`). Left: the field back in
+  Tile Properties with that rule (a row chosen written as its number
+  plus one, 0 never written), and Verify warning of a tile whose model
+  has `replace_tex` and whose value the client crashes on. (S) (from a
+  builder's tile feedback, October 2026)
 
 ## Blueprint editors and inventories
 
@@ -434,15 +424,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   and no gallery of them. A creature's look is a plain body of the
   appearance, male unless the creature is female. (S–M) (from builders'
   reports after 1.10.1)
-- **Armor and cloaks shown on a woman, what it doesn't follow:** the
-  choice (Options › General, or Shown on in the item's Appearance page)
-  is kept, and the item's page, inventories, a store's pages and the
-  palette's pictures and Preview follow it. A creature's own Inventory
-  page follows the choice too, not the creature's Gender, and whether
-  the game shows a woman's inventory with `ipf_` icons (as nwn.wiki's
-  icon names say) was not looked at in the client. The game has no
-  woman's icons of cloaks (`icloak_m_` alone): a cloak's icon is the
-  man's either way. (S) (from builders' reports after 1.10.1)
 - **Pictures in the Appearance list, what is left:** a creature's (a
   plain male body of the appearance), a placeable's, a door's (Appearance
   Type and Generic Appearance) and an item's (its model's, a weapon's
@@ -793,9 +774,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   in the columns known to hold StrRefs. Not done: the haks' 2DAs are
   not looked in (they are not the module's), nor fields that hold a
   StrRef as a plain number, nor scripts (`GetStringByStrRef`). (S each)
-- **The client and custom talk tables:** the engine test runs the server;
-  whether the client also reads a table from the module (not only from
-  haks and the `tlk` folder) for 2DA text isn't tested. (S)
 - **Text put in the talk table as it is written** (a conversation's
   lines, names), in a range set aside for it, and reusing a line that
   already has the same text, asked first: proposed by builders, not
@@ -1155,17 +1133,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     meshes (`inc_displacement` turns it by `mat2(m_texture)`) is not
     turned in Moonglow's own shader (`displace`; the normal map's is).
     (S)
-  - `worldtimerTimeOfDay` counts real milliseconds and
-    `sceneCurrentFrame` frames (measured, notes §B.4); Moonglow's clock
-    starts both at 0 when the scene's time does. The client's timer has
-    an origin that follows the module's minutes an hour (about 424,800
-    a few seconds in at 2 minutes an hour, 3,304,900 at 10) and neither
-    its hour nor its day: not worked out. It is the phase of the
-    falling water's flow and the grass's sway, which are not compared
-    with the client frame by frame until it is. (S) (waits on the client
-    batch: the timer read back in the first shot, as
-    `time_uniforms_in_the_client` reads it, at three or four minutes an
-    hour and start hours, for the rule)
   - The game's programs draw on CI's Metal and Direct3D 12 (the
     renderer's CI branch, 2026-10-29: three draws, no failures), but a
     discarding one's depth is not tested there: naga's `discard` from
@@ -2104,10 +2071,16 @@ contribution itself states as not done or not checked.
 ## NWSync publishing
 
 - **No download tested:** the repository matches neverwinter.nim's, but a
-  game client fetching it from a server isn't run (the test sandbox has
-  no network). (M)
+  game client fetching it from a server isn't run. The client's sandbox
+  has no network but a loopback of its own (`bwrap --unshare-net` brings
+  `lo` up: a socket connected on 127.0.0.1 inside it, 2026-10-29), so a
+  web server, `nwserver` naming it and the client started together in
+  one sandbox would test it; `run-client.sh` starts the client alone,
+  and that harness isn't built. (M)
 - **The feminine talk table** isn't published, as `nwn_nwsync_write`
-  doesn't; whether the client would use one isn't known. (S)
+  doesn't; whether the client would use one isn't known. (S) (waits on
+  the download test above: a `dialogf.tlk` published, a woman's
+  character given its text or not)
 - **No pruning** of old manifests' data (`nwn_nwsync_prune` does it), and
   no upload: the folder is copied to the web server by hand. (S)
 - **Compression:** Moonglow's encoder offers only zstd's fastest level,

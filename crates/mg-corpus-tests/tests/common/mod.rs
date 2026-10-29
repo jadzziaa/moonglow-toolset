@@ -308,6 +308,11 @@ pub(crate) fn client_screenshot(dir: &Path, module: &str) -> Option<Rgba> {
             ready = true;
             break;
         }
+        // (A client that ended, crashed on the module, won't get there.)
+        if child.try_wait().is_ok_and(|s| s.is_some()) {
+            eprintln!("the client ended before the scene was ready (see {})", dir.display());
+            return None;
+        }
         std::thread::sleep(Duration::from_millis(500));
     }
     std::thread::sleep(Duration::from_secs(3));
